@@ -1,0 +1,6 @@
+domain: gke-internal.googlesource.com
+layout:
+- go.kubebuilder.io/v3
+projectName: kueue
+repo: gke-internal.googlesource.com/gke-batch/kueue
+version: "3"
