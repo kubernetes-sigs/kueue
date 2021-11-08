@@ -1,0 +1,20 @@
+# permissions for end users to view queues.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: queue-viewer-role
+rules:
+- apiGroups:
+  - kueue.gke-internal.googlesource.com
+  resources:
+  - queues
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kueue.gke-internal.googlesource.com
+  resources:
+  - queues/status
+  verbs:
+  - get

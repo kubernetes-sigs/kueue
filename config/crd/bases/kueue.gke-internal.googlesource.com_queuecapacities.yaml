@@ -1,0 +1,202 @@
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.7.0
+  creationTimestamp: null
+  name: queuecapacities.kueue.gke-internal.googlesource.com
+spec:
+  group: kueue.gke-internal.googlesource.com
+  names:
+    kind: QueueCapacity
+    listKind: QueueCapacityList
+    plural: queuecapacities
+    singular: queuecapacity
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: QueueCapacity is the Schema for the queuecapacities API
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: QueueCapacitySpec defines the desired state of QueueCapacity
+            properties:
+              affinity:
+                description: 'affinity added to the pods of the workloads assigned
+                  to this QueueCapacity. This enforces pods to land on the VMs that
+                  this QueueCapacity manages the usage for. Typically, QueueCapacities
+                  that belong to the same group share all or some of the rules defined
+                  here. Example: matchExpressions: - key: cloud.google.com/gke-spot   operator:
+                  Exists'
+                properties:
+                  matchExpressions:
+                    description: A list of node selector requirements by node's labels.
+                    items:
+                      description: A node selector requirement is a selector that
+                        contains values, a key, and an operator that relates the key
+                        and values.
+                      properties:
+                        key:
+                          description: The label key that the selector applies to.
+                          type: string
+                        operator:
+                          description: Represents a key's relationship to a set of
+                            values. Valid operators are In, NotIn, Exists, DoesNotExist.
+                            Gt, and Lt.
+                          type: string
+                        values:
+                          description: An array of string values. If the operator
+                            is In or NotIn, the values array must be non-empty. If
+                            the operator is Exists or DoesNotExist, the values array
+                            must be empty. If the operator is Gt or Lt, the values
+                            array must have a single element, which will be interpreted
+                            as an integer. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                  matchFields:
+                    description: A list of node selector requirements by node's fields.
+                    items:
+                      description: A node selector requirement is a selector that
+                        contains values, a key, and an operator that relates the key
+                        and values.
+                      properties:
+                        key:
+                          description: The label key that the selector applies to.
+                          type: string
+                        operator:
+                          description: Represents a key's relationship to a set of
+                            values. Valid operators are In, NotIn, Exists, DoesNotExist.
+                            Gt, and Lt.
+                          type: string
+                        values:
+                          description: An array of string values. If the operator
+                            is In or NotIn, the values array must be non-empty. If
+                            the operator is Exists or DoesNotExist, the values array
+                            must be empty. If the operator is Gt or Lt, the values
+                            array must have a single element, which will be interpreted
+                            as an integer. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                type: object
+              group:
+                description: 'group that this QueueCapacity belongs to. QueueCapacities
+                  that belong to the same group can borrow unsued guaranteed resources
+                  from each other. Typically, a group represents a VM family (ex:
+                  spot VMs, Nvidia GPU VMs). If empty, this QueueCapacity cannot borrow
+                  capacity from any other QueueCapacity.'
+                type: string
+              requestableResources:
+                description: requestableResources define the allowed total resource
+                  requests of running workloads assigned to this QueueCapacity.
+                properties:
+                  guaranteed:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: guaranteed amout of resouce requests that are available
+                      to be used by running workloads assigned to this QueueCapacity.
+                    type: object
+                  limit:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: limit amout of resouce requests that could be in
+                      use by running workloads assigned to this QueueCapacity. Some
+                      of the resources can be borrowed from other QueueCapaties' unused
+                      guranteed resource requests.
+                    type: object
+                type: object
+              tolerations:
+                description: tolerations added to the pods of workloads assigned to
+                  this QueueCapacity. This allows pods to land on the VMs that this
+                  QueueCapacity manages the usage for. Typically, QueueCapacities
+                  that belong to the same group share all or some of the tolerations
+                  defined here.
+                items:
+                  description: The pod this Toleration is attached to tolerates any
+                    taint that matches the triple <key,value,effect> using the matching
+                    operator <operator>.
+                  properties:
+                    effect:
+                      description: Effect indicates the taint effect to match. Empty
+                        means match all taint effects. When specified, allowed values
+                        are NoSchedule, PreferNoSchedule and NoExecute.
+                      type: string
+                    key:
+                      description: Key is the taint key that the toleration applies
+                        to. Empty means match all taint keys. If the key is empty,
+                        operator must be Exists; this combination means to match all
+                        values and all keys.
+                      type: string
+                    operator:
+                      description: Operator represents a key's relationship to the
+                        value. Valid operators are Exists and Equal. Defaults to Equal.
+                        Exists is equivalent to wildcard for value, so that a pod
+                        can tolerate all taints of a particular category.
+                      type: string
+                    tolerationSeconds:
+                      description: TolerationSeconds represents the period of time
+                        the toleration (which must be of effect NoExecute, otherwise
+                        this field is ignored) tolerates the taint. By default, it
+                        is not set, which means tolerate the taint forever (do not
+                        evict). Zero and negative values will be treated as 0 (evict
+                        immediately) by the system.
+                      format: int64
+                      type: integer
+                    value:
+                      description: Value is the taint value the toleration matches
+                        to. If the operator is Exists, the value should be empty,
+                        otherwise just a regular string.
+                      type: string
+                  type: object
+                type: array
+            type: object
+          status:
+            description: QueueCapacityStatus defines the observed state of QueueCapacity
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []

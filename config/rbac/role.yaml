@@ -1,0 +1,60 @@
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  name: manager-role
+rules:
+- apiGroups:
+  - kueue.gke-internal.googlesource.com
+  resources:
+  - queuecapacities
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kueue.gke-internal.googlesource.com
+  resources:
+  - queuecapacities/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - kueue.gke-internal.googlesource.com
+  resources:
+  - queuecapacities/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - kueue.gke-internal.googlesource.com
+  resources:
+  - queues
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kueue.gke-internal.googlesource.com
+  resources:
+  - queues/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - kueue.gke-internal.googlesource.com
+  resources:
+  - queues/status
+  verbs:
+  - get
+  - patch
+  - update
