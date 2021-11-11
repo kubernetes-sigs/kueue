@@ -70,7 +70,7 @@ func (r *QueueReconciler) Delete(e event.DeleteEvent) bool {
 func (r *QueueReconciler) Update(e event.UpdateEvent) bool {
 	q := e.ObjectNew.(*kueue.Queue)
 	log := r.log.WithValues("queue", klog.KObj(q))
-	log.V(2).Info("Update queue event")
+	log.V(2).Info("Queue update event")
 	if err := r.queues.UpdateQueue(q); err != nil {
 		log.Error(err, "Failed to update queue in system")
 	}
@@ -78,7 +78,7 @@ func (r *QueueReconciler) Update(e event.UpdateEvent) bool {
 }
 
 func (r *QueueReconciler) Generic(e event.GenericEvent) bool {
-	r.log.V(3).Info("Ignore generic event", "obj", klog.KObj(e.Object), e.Object.GetObjectKind().GroupVersionKind())
+	r.log.V(3).Info("Ignore generic event", "obj", klog.KObj(e.Object), "kind", e.Object.GetObjectKind().GroupVersionKind())
 	return false
 }
 

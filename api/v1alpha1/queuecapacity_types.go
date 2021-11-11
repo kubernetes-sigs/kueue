@@ -32,7 +32,7 @@ type QueueCapacitySpec struct {
 
 	// requestableResources define the allowed total resource requests of running
 	// workloads assigned to this QueueCapacity.
-	RequestableResources *ResourceCapacities `json:"requestableResources,omitempty"`
+	RequestableResources ResourceCapacities `json:"requestableResources,omitempty"`
 
 	// affinity added to the pods of the workloads assigned to this QueueCapacity.
 	// This enforces pods to land on the VMs that this QueueCapacity manages the
@@ -50,6 +50,8 @@ type QueueCapacitySpec struct {
 	// usage for.
 	// Typically, QueueCapacities that belong to the same group share all or
 	// some of the tolerations defined here.
+	// +listType=map
+	// +listMapKey=key
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 }
 

@@ -33,6 +33,7 @@ import (
 
 	kueuev1alpha1 "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
 	"gke-internal.googlesource.com/gke-batch/kueue/controllers"
+	"gke-internal.googlesource.com/gke-batch/kueue/pkg/capacity"
 	"gke-internal.googlesource.com/gke-batch/kueue/pkg/queue"
 	//+kubebuilder:scaffold:imports
 )
@@ -79,15 +80,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	var queues queue.System
-	if err = controllers.NewQueueReconciler(&queues).SetupWithManager(mgr); err != nil {
+	queues := queue.NewSystem()
+	cache := capacity.NewCache()
+	if err = controllers.NewQueueReconciler(queues).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Queue")
 		os.Exit(1)
 	}
-	if err = (&controllers.QueueCapacityReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
+	if err = controllers.NewQueueCapacityReconciler(cache).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "QueueCapacity")
 		os.Exit(1)
 	}

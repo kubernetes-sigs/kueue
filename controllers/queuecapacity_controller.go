@@ -19,44 +19,73 @@ package controllers
 import (
 	"context"
 
-	"k8s.io/apimachinery/pkg/runtime"
+	"github.com/go-logr/logr"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
-	kueuev1alpha1 "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
+	kueue "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
+	"gke-internal.googlesource.com/gke-batch/kueue/pkg/capacity"
 )
 
 // QueueCapacityReconciler reconciles a QueueCapacity object
 type QueueCapacityReconciler struct {
-	client.Client
-	Scheme *runtime.Scheme
+	log   logr.Logger
+	cache *capacity.Cache
+}
+
+func NewQueueCapacityReconciler(cache *capacity.Cache) *QueueCapacityReconciler {
+	return &QueueCapacityReconciler{
+		log:   ctrl.Log.WithName("queue-capacity-reconciler"),
+		cache: cache,
+	}
 }
 
 //+kubebuilder:rbac:groups=kueue.gke-internal.googlesource.com,resources=queuecapacities,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=kueue.gke-internal.googlesource.com,resources=queuecapacities/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=kueue.gke-internal.googlesource.com,resources=queuecapacities/finalizers,verbs=update
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the QueueCapacity object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.10.0/pkg/reconcile
 func (r *QueueCapacityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = log.FromContext(ctx)
-
-	// TODO(user): your logic here
-
+	// No-op. All work is done in the event handler.
 	return ctrl.Result{}, nil
+}
+
+func (r *QueueCapacityReconciler) Create(e event.CreateEvent) bool {
+	cap := e.Object.(*kueue.QueueCapacity)
+	log := r.log.WithValues("queueCapacity", klog.KObj(cap))
+	log.V(2).Info("QueueCapacity create event")
+	if err := r.cache.AddCapacity(cap); err != nil {
+		log.Error(err, "Failed to add capacity to cache")
+	}
+	return false
+}
+
+func (r *QueueCapacityReconciler) Delete(e event.DeleteEvent) bool {
+	cap := e.Object.(*kueue.QueueCapacity)
+	r.log.V(2).Info("Queue delete event", "queueCapacity", klog.KObj(cap))
+	r.cache.DeleteCapacity(cap)
+	return false
+}
+
+func (r *QueueCapacityReconciler) Update(e event.UpdateEvent) bool {
+	cap := e.ObjectNew.(*kueue.QueueCapacity)
+	log := r.log.WithValues("queue", klog.KObj(cap))
+	log.V(2).Info("QueueCapacity update event")
+	if err := r.cache.UpdateCapacity(cap); err != nil {
+		log.Error(err, "Failed to update capacity in cache")
+	}
+	return false
+}
+
+func (r *QueueCapacityReconciler) Generic(e event.GenericEvent) bool {
+	r.log.V(3).Info("Ignore generic event", "obj", klog.KObj(e.Object), "kind", e.Object.GetObjectKind().GroupVersionKind())
+	return false
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *QueueCapacityReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&kueuev1alpha1.QueueCapacity{}).
+		For(&kueue.QueueCapacity{}).
+		WithEventFilter(r).
 		Complete(r)
 }

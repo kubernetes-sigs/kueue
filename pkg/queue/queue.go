@@ -29,6 +29,12 @@ type System struct {
 	queues map[string]*Queue
 }
 
+func NewSystem() *System {
+	return &System{
+		queues: make(map[string]*Queue),
+	}
+}
+
 // Queue is the internal implementation of kueue.Queue.
 type Queue struct {
 	Priority   int64
