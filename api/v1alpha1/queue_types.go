@@ -26,6 +26,7 @@ type QueueSpec struct {
 	// objects from which resources are allocated to this Queue.
 	// Workloads assigned to this Queue are assigned to the first
 	// QueueCapacity in this list that has available resources.
+	// +listType=set
 	Capacities []CapacityReference `json:"capacities,omitempty"`
 
 	// priority of the queue. When multiple Queues reference the same

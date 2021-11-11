@@ -45,6 +45,7 @@ spec:
                   description: CapacityReference is the name of the QueueCapacity.
                   type: string
                 type: array
+                x-kubernetes-list-type: set
               priority:
                 description: priority of the queue. When multiple Queues reference
                   the same QueueCapacity, workloads in Queues with higher priority
