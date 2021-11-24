@@ -35,6 +35,32 @@ rules:
 - apiGroups:
   - kueue.gke-internal.googlesource.com
   resources:
+  - queuedworkloads
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kueue.gke-internal.googlesource.com
+  resources:
+  - queuedworkloads/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - kueue.gke-internal.googlesource.com
+  resources:
+  - queuedworkloads/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - kueue.gke-internal.googlesource.com
+  resources:
   - queues
   verbs:
   - create

@@ -24,7 +24,7 @@ import (
 type QueueSpec struct {
 	// capacity is a reference to a QueueCapacity (QC) object form which resources
 	// are allocated to this queue.
-	Capacity CapacityReference `json:"capacity,omitempty"`
+	Capacity QueueCapacityReference `json:"capacity,omitempty"`
 
 	// priority of the queue. When multiple Queues reference the same
 	// QueueCapacity, workloads in Queues with higher priority consume the shared
@@ -37,8 +37,8 @@ type QueueSpec struct {
 	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
 }
 
-// CapacityReference is the name of the QueueCapacity.
-type CapacityReference string
+// QueueCapacityReference is the name of the QueueCapacity.
+type QueueCapacityReference string
 
 // QueueStatus defines the observed state of Queue
 type QueueStatus struct {
