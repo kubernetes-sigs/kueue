@@ -23,14 +23,14 @@ import (
 	kueue "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
 )
 
-type System struct {
+type Manager struct {
 	sync.Mutex
 
 	queues map[string]*Queue
 }
 
-func NewSystem() *System {
-	return &System{
+func NewManager() *Manager {
+	return &Manager{
 		queues: make(map[string]*Queue),
 	}
 }
@@ -42,7 +42,7 @@ type Queue struct {
 	// TODO: workloads
 }
 
-func (s *System) AddQueue(q *kueue.Queue) error {
+func (s *Manager) AddQueue(q *kueue.Queue) error {
 	s.Lock()
 	defer s.Unlock()
 
@@ -56,7 +56,7 @@ func (s *System) AddQueue(q *kueue.Queue) error {
 	return nil
 }
 
-func (s *System) UpdateQueue(q *kueue.Queue) error {
+func (s *Manager) UpdateQueue(q *kueue.Queue) error {
 	s.Lock()
 	defer s.Unlock()
 	qImpl, ok := s.queues[q.Name]
@@ -68,7 +68,7 @@ func (s *System) UpdateQueue(q *kueue.Queue) error {
 	return nil
 }
 
-func (s *System) DeleteQueue(q *kueue.Queue) {
+func (s *Manager) DeleteQueue(q *kueue.Queue) {
 	s.Lock()
 	delete(s.queues, q.Name)
 	s.Unlock()

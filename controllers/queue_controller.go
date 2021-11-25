@@ -31,10 +31,10 @@ import (
 // QueueReconciler reconciles a Queue object
 type QueueReconciler struct {
 	log    logr.Logger
-	queues *queue.System
+	queues *queue.Manager
 }
 
-func NewQueueReconciler(queues *queue.System) *QueueReconciler {
+func NewQueueReconciler(queues *queue.Manager) *QueueReconciler {
 	return &QueueReconciler{
 		log:    ctrl.Log.WithName("queue-reconciler"),
 		queues: queues,

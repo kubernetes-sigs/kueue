@@ -80,7 +80,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	queues := queue.NewSystem()
+	queues := queue.NewManager()
 	cache := capacity.NewCache()
 	if err = controllers.NewQueueReconciler(queues).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Queue")
