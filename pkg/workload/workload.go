@@ -17,6 +17,8 @@ limitations under the License.
 package workload
 
 import (
+	"fmt"
+
 	corev1 "k8s.io/api/core/v1"
 
 	kueue "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
@@ -33,6 +35,10 @@ func NewInfo(w *kueue.QueuedWorkload) Info {
 		Obj:           w,
 		TotalRequests: totalRequests(w.Spec.Pods),
 	}
+}
+
+func Key(w *kueue.QueuedWorkload) string {
+	return fmt.Sprintf("%s/%s", w.Namespace, w.Name)
 }
 
 func totalRequests(podSets []kueue.PodSet) Resources {

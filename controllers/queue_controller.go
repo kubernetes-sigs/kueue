@@ -54,7 +54,8 @@ func (r *QueueReconciler) Create(e event.CreateEvent) bool {
 	q := e.Object.(*kueue.Queue)
 	log := r.log.WithValues("queue", klog.KObj(q))
 	log.V(2).Info("Queue create event")
-	if err := r.queues.AddQueue(q); err != nil {
+	ctx := logr.NewContext(context.Background(), log)
+	if err := r.queues.AddQueue(ctx, q); err != nil {
 		log.Error(err, "Failed to add queue to system")
 	}
 	return false

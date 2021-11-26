@@ -79,8 +79,11 @@ func main() {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
+	if err := queue.SetupIndexes(mgr.GetFieldIndexer()); err != nil {
+		setupLog.Error(err, "Unable to setup queue indexes")
+	}
 
-	queues := queue.NewManager()
+	queues := queue.NewManager(mgr.GetClient())
 	cache := capacity.NewCache()
 	if err = controllers.NewQueueReconciler(queues).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Queue")
@@ -90,10 +93,7 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "QueueCapacity")
 		os.Exit(1)
 	}
-	if err = (&controllers.QueuedWorkloadReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
+	if err = controllers.NewQueuedWorkloadReconciler(queues).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "QueuedWorkload")
 		os.Exit(1)
 	}

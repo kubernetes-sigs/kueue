@@ -1,5 +1,5 @@
 /*
-Copyright 2021 Google LLC.
+Copyright 2022 Google LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,26 +17,15 @@ limitations under the License.
 package queue
 
 import (
+	"container/heap"
 	"fmt"
-	"sync"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 
 	kueue "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
+	"gke-internal.googlesource.com/gke-batch/kueue/pkg/workload"
 )
-
-type Manager struct {
-	sync.Mutex
-
-	queues map[string]*Queue
-}
-
-func NewManager() *Manager {
-	return &Manager{
-		queues: make(map[string]*Queue),
-	}
-}
 
 // Queue is the internal implementation of kueue.Queue.
 type Queue struct {
@@ -44,47 +33,106 @@ type Queue struct {
 	Capacity          string
 	NamespaceSelector labels.Selector
 
-	// TODO: workloads
+	heap heapImpl
 }
 
-func (s *Manager) AddQueue(q *kueue.Queue) error {
-	s.Lock()
-	defer s.Unlock()
-
-	if _, ok := s.queues[q.Name]; ok {
-		return fmt.Errorf("queue %q already exists", q.Name)
+func newQueue() *Queue {
+	return &Queue{
+		heap: heapImpl{
+			less:  creationFIFO,
+			items: make(map[string]*heapItem),
+		},
 	}
-	nsSelector, err := metav1.LabelSelectorAsSelector(q.Spec.NamespaceSelector)
+}
+
+func (q *Queue) setProperties(apiQueue *kueue.Queue) error {
+	nsSelector, err := metav1.LabelSelectorAsSelector(apiQueue.Spec.NamespaceSelector)
 	if err != nil {
 		return fmt.Errorf("parsing namespaceSelector: %w", err)
 	}
-	s.queues[q.Name] = &Queue{
-		Priority:          q.Spec.Priority,
-		Capacity:          string(q.Spec.Capacity),
-		NamespaceSelector: nsSelector,
-	}
+	q.Priority = apiQueue.Spec.Priority
+	q.Capacity = string(apiQueue.Spec.Capacity)
+	q.NamespaceSelector = nsSelector
 	return nil
 }
 
-func (s *Manager) UpdateQueue(q *kueue.Queue) error {
-	s.Lock()
-	defer s.Unlock()
-	qImpl, ok := s.queues[q.Name]
-	if !ok {
-		return fmt.Errorf("queue %q doesn't exist", q.Name)
+func (q *Queue) PushOrUpdate(w *kueue.QueuedWorkload) {
+	item := q.heap.items[workload.Key(w)]
+	info := workload.NewInfo(w)
+	if item == nil {
+		heap.Push(&q.heap, info)
+		return
 	}
-	nsSelector, err := metav1.LabelSelectorAsSelector(q.Spec.NamespaceSelector)
-	if err != nil {
-		return fmt.Errorf("parsing namespaceSelector: %w", err)
-	}
-	qImpl.Priority = q.Spec.Priority
-	qImpl.Capacity = string(q.Spec.Capacity)
-	qImpl.NamespaceSelector = nsSelector
-	return nil
+	item.obj = info
+	heap.Fix(&q.heap, item.index)
 }
 
-func (s *Manager) DeleteQueue(q *kueue.Queue) {
-	s.Lock()
-	delete(s.queues, q.Name)
-	s.Unlock()
+func (q *Queue) Delete(w *kueue.QueuedWorkload) {
+	item := q.heap.items[workload.Key(w)]
+	if item != nil {
+		heap.Remove(&q.heap, item.index)
+	}
+}
+func (q *Queue) Pop() *workload.Info {
+	if q.heap.Len() == 0 {
+		return nil
+	}
+	w := heap.Pop(&q.heap).(workload.Info)
+	return &w
+}
+
+func creationFIFO(a, b workload.Info) bool {
+	return a.Obj.CreationTimestamp.Before(&b.Obj.CreationTimestamp)
+}
+
+// heap.Interface implementation inspired by
+// https://github.com/kubernetes/kubernetes/blob/master/pkg/scheduler/internal/heap/heap.go
+
+type lessFunc func(a, b workload.Info) bool
+
+type heapItem struct {
+	obj   workload.Info
+	index int
+}
+
+type heapImpl struct {
+	// items is a map from key of the objects to the objects and their index
+	items map[string]*heapItem
+	// heap keeps the keys of the objects ordered according to the heap invariant.
+	heap []string
+	less lessFunc
+}
+
+func (h *heapImpl) Len() int {
+	return len(h.heap)
+}
+
+func (h *heapImpl) Less(i, j int) bool {
+	a := h.items[h.heap[i]]
+	b := h.items[h.heap[j]]
+	return h.less(a.obj, b.obj)
+}
+
+func (h *heapImpl) Swap(i, j int) {
+	h.heap[i], h.heap[j] = h.heap[j], h.heap[i]
+	h.items[h.heap[i]].index = i
+	h.items[h.heap[j]].index = j
+}
+
+func (h *heapImpl) Push(x interface{}) {
+	wInfo := x.(workload.Info)
+	key := workload.Key(wInfo.Obj)
+	h.items[key] = &heapItem{
+		obj:   wInfo,
+		index: len(h.heap),
+	}
+	h.heap = append(h.heap, key)
+}
+
+func (h *heapImpl) Pop() interface{} {
+	key := h.heap[len(h.heap)-1]
+	h.heap = h.heap[:len(h.heap)-1]
+	obj := h.items[key].obj
+	delete(h.items, key)
+	return obj
 }

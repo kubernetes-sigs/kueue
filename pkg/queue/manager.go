@@ -1,0 +1,143 @@
+/*
+Copyright 2022 Google LLC.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package queue
+
+import (
+	"context"
+	"fmt"
+	"sync"
+
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	kueue "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
+)
+
+const workloadQueueKey = "spec.queueName"
+
+type Manager struct {
+	sync.Mutex
+
+	client client.Client
+	queues map[string]*Queue
+}
+
+func NewManager(client client.Client) *Manager {
+	return &Manager{
+		client: client,
+		queues: make(map[string]*Queue),
+	}
+}
+
+func (m *Manager) AddQueue(ctx context.Context, q *kueue.Queue) error {
+	m.Lock()
+	defer m.Unlock()
+
+	if _, ok := m.queues[q.Name]; ok {
+		return fmt.Errorf("queue %q already exists", q.Name)
+	}
+	qImpl := newQueue()
+	qImpl.setProperties(q)
+	m.queues[q.Name] = qImpl
+	// Iterate through existing workloads, as workloads corresponding to this
+	// queue might have been added earlier.
+	var workloads kueue.QueuedWorkloadList
+	if err := m.client.List(ctx, &workloads, client.MatchingFields{workloadQueueKey: q.Name}); err != nil {
+		return fmt.Errorf("listing workloads that match the queue: %w", err)
+	}
+	for i, w := range workloads.Items {
+		// Checking queue name again because the field index is not available in tests.
+		if w.Spec.QueueName != q.Name || w.Spec.Assignment != nil {
+			continue
+		}
+		qImpl.PushOrUpdate(&workloads.Items[i])
+	}
+	return nil
+}
+
+func (m *Manager) UpdateQueue(q *kueue.Queue) error {
+	m.Lock()
+	defer m.Unlock()
+	qImpl, ok := m.queues[q.Name]
+	if !ok {
+		return fmt.Errorf("queue %q doesn't exist", q.Name)
+	}
+	return qImpl.setProperties(q)
+}
+
+func (m *Manager) DeleteQueue(q *kueue.Queue) {
+	m.Lock()
+	defer m.Unlock()
+	qImpl := m.queues[q.Name]
+	if qImpl == nil {
+		return
+	}
+	delete(m.queues, q.Name)
+}
+
+// AddWorkload adds workload to the corresponding queue. Returns whether the
+// queue existed.
+func (m *Manager) AddWorkload(w *kueue.QueuedWorkload) bool {
+	m.Lock()
+	defer m.Unlock()
+	return m.addWorkload(w)
+}
+
+func (m *Manager) addWorkload(w *kueue.QueuedWorkload) bool {
+	qName := w.Spec.QueueName
+	if q := m.queues[qName]; q != nil {
+		q.PushOrUpdate(w)
+		return true
+	}
+	return false
+}
+
+func (m *Manager) DeleteWorkload(w *kueue.QueuedWorkload) {
+	m.Lock()
+	m.deleteWorkloadFromQueue(w, w.Spec.QueueName)
+	m.Unlock()
+}
+
+func (m *Manager) deleteWorkloadFromQueue(w *kueue.QueuedWorkload, qName string) {
+	if q := m.queues[qName]; q != nil {
+		q.Delete(w)
+	}
+}
+
+// UpdateWorkload updates the workload to the corresponding queue or adds it if
+// it didn't exist. Returns whether the queue existed.
+func (m *Manager) UpdateWorkload(w *kueue.QueuedWorkload, prevQueue string) bool {
+	m.Lock()
+	defer m.Unlock()
+	qName := w.Spec.QueueName
+	if prevQueue != qName {
+		m.deleteWorkloadFromQueue(w, prevQueue)
+		return m.addWorkload(w)
+	}
+
+	if q := m.queues[qName]; q != nil {
+		q.PushOrUpdate(w)
+		return true
+	}
+	return false
+}
+
+func SetupIndexes(indexer client.FieldIndexer) error {
+	return indexer.IndexField(context.Background(), &kueue.QueuedWorkload{}, workloadQueueKey, func(o client.Object) []string {
+		wl := o.(*kueue.QueuedWorkload)
+		return []string{wl.Spec.QueueName}
+	})
+}
