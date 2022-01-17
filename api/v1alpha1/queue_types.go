@@ -22,17 +22,19 @@ import (
 
 // QueueSpec defines the desired state of Queue
 type QueueSpec struct {
-	// capacities are an ordered list of names that refer to QueueCapacity
-	// objects from which resources are allocated to this Queue.
-	// Workloads assigned to this Queue are assigned to the first
-	// QueueCapacity in this list that has available resources.
-	// +listType=set
-	Capacities []CapacityReference `json:"capacities,omitempty"`
+	// capacity is a reference to a QueueCapacity (QC) object form which resources
+	// are allocated to this queue.
+	Capacity CapacityReference `json:"capacity,omitempty"`
 
 	// priority of the queue. When multiple Queues reference the same
 	// QueueCapacity, workloads in Queues with higher priority consume the shared
 	// QueueCapacity first.
 	Priority int64 `json:"priority"`
+
+	// namespaceSelector defines which namespaces are allowed to submit workloads
+	// to this Queue.
+	// If empty, any namespace is allowed to submit workloads to this queue.
+	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
 }
 
 // CapacityReference is the name of the QueueCapacity.

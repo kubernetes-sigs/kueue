@@ -36,16 +36,56 @@ spec:
           spec:
             description: QueueSpec defines the desired state of Queue
             properties:
-              capacities:
-                description: capacities are an ordered list of names that refer to
-                  QueueCapacity objects from which resources are allocated to this
-                  Queue. Workloads assigned to this Queue are assigned to the first
-                  QueueCapacity in this list that has available resources.
-                items:
-                  description: CapacityReference is the name of the QueueCapacity.
-                  type: string
-                type: array
-                x-kubernetes-list-type: set
+              capacity:
+                description: capacity is a reference to a QueueCapacity (QC) object
+                  form which resources are allocated to this queue.
+                type: string
+              namespaceSelector:
+                description: namespaceSelector defines which namespaces are allowed
+                  to submit workloads to this Queue. If empty, any namespace is allowed
+                  to submit workloads to this queue.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: A label selector requirement is a selector that
+                        contains values, a key, and an operator that relates the key
+                        and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: operator represents a key's relationship to
+                            a set of values. Valid operators are In, NotIn, Exists
+                            and DoesNotExist.
+                          type: string
+                        values:
+                          description: values is an array of string values. If the
+                            operator is In or NotIn, the values array must be non-empty.
+                            If the operator is Exists or DoesNotExist, the values
+                            array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: matchLabels is a map of {key,value} pairs. A single
+                      {key,value} in the matchLabels map is equivalent to an element
+                      of matchExpressions, whose key field is "key", the operator
+                      is "In", and the values array contains only "value". The requirements
+                      are ANDed.
+                    type: object
+                type: object
               priority:
                 description: priority of the queue. When multiple Queues reference
                   the same QueueCapacity, workloads in Queues with higher priority

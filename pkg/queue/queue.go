@@ -20,6 +20,9 @@ import (
 	"fmt"
 	"sync"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+
 	kueue "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
 )
 
@@ -37,8 +40,10 @@ func NewManager() *Manager {
 
 // Queue is the internal implementation of kueue.Queue.
 type Queue struct {
-	Priority   int64
-	Capacities []string
+	Priority          int64
+	Capacity          string
+	NamespaceSelector labels.Selector
+
 	// TODO: workloads
 }
 
@@ -49,9 +54,14 @@ func (s *Manager) AddQueue(q *kueue.Queue) error {
 	if _, ok := s.queues[q.Name]; ok {
 		return fmt.Errorf("queue %q already exists", q.Name)
 	}
+	nsSelector, err := metav1.LabelSelectorAsSelector(q.Spec.NamespaceSelector)
+	if err != nil {
+		return fmt.Errorf("parsing namespaceSelector: %w", err)
+	}
 	s.queues[q.Name] = &Queue{
-		Priority:   q.Spec.Priority,
-		Capacities: derefCapacities(q.Spec.Capacities),
+		Priority:          q.Spec.Priority,
+		Capacity:          string(q.Spec.Capacity),
+		NamespaceSelector: nsSelector,
 	}
 	return nil
 }
@@ -63,8 +73,13 @@ func (s *Manager) UpdateQueue(q *kueue.Queue) error {
 	if !ok {
 		return fmt.Errorf("queue %q doesn't exist", q.Name)
 	}
+	nsSelector, err := metav1.LabelSelectorAsSelector(q.Spec.NamespaceSelector)
+	if err != nil {
+		return fmt.Errorf("parsing namespaceSelector: %w", err)
+	}
 	qImpl.Priority = q.Spec.Priority
-	qImpl.Capacities = derefCapacities(q.Spec.Capacities)
+	qImpl.Capacity = string(q.Spec.Capacity)
+	qImpl.NamespaceSelector = nsSelector
 	return nil
 }
 
@@ -72,12 +87,4 @@ func (s *Manager) DeleteQueue(q *kueue.Queue) {
 	s.Lock()
 	delete(s.queues, q.Name)
 	s.Unlock()
-}
-
-func derefCapacities(refs []kueue.CapacityReference) []string {
-	capacities := make([]string, len(refs))
-	for i, c := range refs {
-		capacities[i] = string(c)
-	}
-	return capacities
 }
