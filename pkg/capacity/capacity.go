@@ -20,8 +20,6 @@ import (
 	"fmt"
 	"sync"
 
-	corev1 "k8s.io/api/core/v1"
-
 	kueue "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
 )
 
@@ -29,28 +27,26 @@ type Cache struct {
 	sync.Mutex
 
 	capacities map[string]*Capacity
-	groups     map[string]*Group
+	cohorts    map[string]*Cohort
 }
 
 func NewCache() *Cache {
 	return &Cache{
 		capacities: make(map[string]*Capacity),
-		groups:     make(map[string]*Group),
+		cohorts:    make(map[string]*Cohort),
 	}
 }
 
-// Group is a set of Capacities that can borrow resources from each other.
-type Group struct {
+// Cohort is a set of Capacities that can borrow resources from each other.
+type Cohort struct {
 	name    string
 	members map[*Capacity]struct{}
 }
 
 // Capacity is the internal implementation of kueue.QueueCapacity
 type Capacity struct {
-	Group                *Group
-	RequestableResources kueue.ResourceCapacities
-	Affinity             *corev1.NodeSelectorTerm
-	Tolerations          []corev1.Toleration
+	Cohort               *Cohort
+	RequestableResources []kueue.Resource
 }
 
 func (c *Cache) AddCapacity(cap *kueue.QueueCapacity) error {
@@ -62,10 +58,8 @@ func (c *Cache) AddCapacity(cap *kueue.QueueCapacity) error {
 	}
 	capImpl := &Capacity{
 		RequestableResources: cap.Spec.RequestableResources,
-		Affinity:             cap.Spec.Affinity,
-		Tolerations:          cap.Spec.Tolerations,
 	}
-	c.addCapacityToGroup(capImpl, cap.Spec.Group)
+	c.addCapacityToCohort(capImpl, cap.Spec.Cohort)
 	c.capacities[cap.Name] = capImpl
 	return nil
 }
@@ -78,15 +72,13 @@ func (c *Cache) UpdateCapacity(cap *kueue.QueueCapacity) error {
 		return fmt.Errorf("capacity %q doesn't exist", cap.Name)
 	}
 	capImpl.RequestableResources = cap.Spec.RequestableResources
-	capImpl.Affinity = cap.Spec.Affinity
-	capImpl.Tolerations = cap.Spec.Tolerations
-	if capImpl.Group != nil {
-		if capImpl.Group.name != cap.Spec.Group {
-			c.removeCapacityFromGroup(capImpl)
-			c.addCapacityToGroup(capImpl, cap.Spec.Group)
+	if capImpl.Cohort != nil {
+		if capImpl.Cohort.name != cap.Spec.Cohort {
+			c.removeCapacityFromCohort(capImpl)
+			c.addCapacityToCohort(capImpl, cap.Spec.Cohort)
 		}
 	} else {
-		c.addCapacityToGroup(capImpl, cap.Spec.Group)
+		c.addCapacityToCohort(capImpl, cap.Spec.Cohort)
 	}
 	return nil
 }
@@ -98,33 +90,33 @@ func (c *Cache) DeleteCapacity(cap *kueue.QueueCapacity) {
 	if !ok {
 		return
 	}
-	c.removeCapacityFromGroup(capImpl)
+	c.removeCapacityFromCohort(capImpl)
 	delete(c.capacities, cap.Name)
 }
 
-func (c *Cache) addCapacityToGroup(cap *Capacity, group string) {
-	if group == "" {
+func (c *Cache) addCapacityToCohort(cap *Capacity, cohort string) {
+	if cohort == "" {
 		return
 	}
-	g, ok := c.groups[group]
+	g, ok := c.cohorts[cohort]
 	if !ok {
-		g = &Group{
-			name:    group,
+		g = &Cohort{
+			name:    cohort,
 			members: make(map[*Capacity]struct{}, 1),
 		}
-		c.groups[group] = g
+		c.cohorts[cohort] = g
 	}
 	g.members[cap] = struct{}{}
-	cap.Group = g
+	cap.Cohort = g
 }
 
-func (c *Cache) removeCapacityFromGroup(cap *Capacity) {
-	if cap.Group == nil {
+func (c *Cache) removeCapacityFromCohort(cap *Capacity) {
+	if cap.Cohort == nil {
 		return
 	}
-	delete(cap.Group.members, cap)
-	if len(cap.Group.members) == 0 {
-		delete(c.groups, cap.Group.name)
+	delete(cap.Cohort.members, cap)
+	if len(cap.Cohort.members) == 0 {
+		delete(c.cohorts, cap.Cohort.name)
 	}
-	cap.Group = nil
+	cap.Cohort = nil
 }

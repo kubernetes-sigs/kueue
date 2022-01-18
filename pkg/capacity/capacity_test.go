@@ -32,7 +32,7 @@ func TestCacheCapacityOperations(t *testing.T) {
 		name           string
 		operation      func()
 		wantCapacities sets.String
-		wantGroups     map[string]sets.String
+		wantCohorts    map[string]sets.String
 	}{
 		{
 			name: "add",
@@ -40,15 +40,15 @@ func TestCacheCapacityOperations(t *testing.T) {
 				capacities := []kueue.QueueCapacity{
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "a"},
-						Spec:       kueue.QueueCapacitySpec{Group: "one"},
+						Spec:       kueue.QueueCapacitySpec{Cohort: "one"},
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "b"},
-						Spec:       kueue.QueueCapacitySpec{Group: "one"},
+						Spec:       kueue.QueueCapacitySpec{Cohort: "one"},
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "c"},
-						Spec:       kueue.QueueCapacitySpec{Group: "two"},
+						Spec:       kueue.QueueCapacitySpec{Cohort: "two"},
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "d"},
@@ -59,7 +59,7 @@ func TestCacheCapacityOperations(t *testing.T) {
 				}
 			},
 			wantCapacities: sets.NewString("a", "b", "c", "d"),
-			wantGroups: map[string]sets.String{
+			wantCohorts: map[string]sets.String{
 				"one": sets.NewString("a", "b"),
 				"two": sets.NewString("c"),
 			},
@@ -70,11 +70,11 @@ func TestCacheCapacityOperations(t *testing.T) {
 				capacities := []kueue.QueueCapacity{
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "a"},
-						Spec:       kueue.QueueCapacitySpec{Group: "two"},
+						Spec:       kueue.QueueCapacitySpec{Cohort: "two"},
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "b"},
-						Spec:       kueue.QueueCapacitySpec{Group: "one"}, // No change.
+						Spec:       kueue.QueueCapacitySpec{Cohort: "one"}, // No change.
 					},
 				}
 				for _, c := range capacities {
@@ -82,7 +82,7 @@ func TestCacheCapacityOperations(t *testing.T) {
 				}
 			},
 			wantCapacities: sets.NewString("a", "b", "c", "d"),
-			wantGroups: map[string]sets.String{
+			wantCohorts: map[string]sets.String{
 				"one": sets.NewString("b"),
 				"two": sets.NewString("a", "c"),
 			},
@@ -99,7 +99,7 @@ func TestCacheCapacityOperations(t *testing.T) {
 				}
 			},
 			wantCapacities: sets.NewString("a", "c"),
-			wantGroups: map[string]sets.String{
+			wantCohorts: map[string]sets.String{
 				"two": sets.NewString("a", "c"),
 			},
 		},
@@ -109,7 +109,7 @@ func TestCacheCapacityOperations(t *testing.T) {
 			step.operation()
 			gotCapacities := sets.NewString()
 			nameForCapacity := make(map[*Capacity]string)
-			gotGroups := make(map[string]sets.String)
+			gotCohorts := make(map[string]sets.String)
 			for name, capacity := range cache.capacities {
 				gotCapacities.Insert(name)
 				nameForCapacity[capacity] = name
@@ -117,15 +117,15 @@ func TestCacheCapacityOperations(t *testing.T) {
 			if diff := cmp.Diff(step.wantCapacities, gotCapacities); diff != "" {
 				t.Errorf("Unexpected capacities (-want,+got):\n%s", diff)
 			}
-			for name, group := range cache.groups {
-				gotGroup := sets.NewString()
-				for capacity := range group.members {
-					gotGroup.Insert(nameForCapacity[capacity])
+			for name, cohort := range cache.cohorts {
+				gotCohort := sets.NewString()
+				for capacity := range cohort.members {
+					gotCohort.Insert(nameForCapacity[capacity])
 				}
-				gotGroups[name] = gotGroup
+				gotCohorts[name] = gotCohort
 			}
-			if diff := cmp.Diff(step.wantGroups, gotGroups); diff != "" {
-				t.Errorf("Unexpected groups (-want,+got):\n%s", diff)
+			if diff := cmp.Diff(step.wantCohorts, gotCohorts); diff != "" {
+				t.Errorf("Unexpected cohorts (-want,+got):\n%s", diff)
 			}
 		})
 	}
