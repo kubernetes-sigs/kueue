@@ -28,6 +28,10 @@ import (
 type Info struct {
 	Obj           *kueue.QueuedWorkload
 	TotalRequests Resources
+
+	// Populated from queue.
+	Priority int64
+	Capacity string
 }
 
 func NewInfo(w *kueue.QueuedWorkload) Info {

@@ -24,22 +24,26 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
+	"gke-internal.googlesource.com/gke-batch/kueue/pkg/workload"
 )
 
 const workloadQueueKey = "spec.queueName"
 
 type Manager struct {
 	sync.Mutex
+	cond sync.Cond
 
 	client client.Client
 	queues map[string]*Queue
 }
 
 func NewManager(client client.Client) *Manager {
-	return &Manager{
+	m := &Manager{
 		client: client,
 		queues: make(map[string]*Queue),
 	}
+	m.cond.L = &m.Mutex
+	return m
 }
 
 func (m *Manager) AddQueue(ctx context.Context, q *kueue.Queue) error {
@@ -58,12 +62,17 @@ func (m *Manager) AddQueue(ctx context.Context, q *kueue.Queue) error {
 	if err := m.client.List(ctx, &workloads, client.MatchingFields{workloadQueueKey: q.Name}); err != nil {
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
+	addedWorkloads := false
 	for i, w := range workloads.Items {
 		// Checking queue name again because the field index is not available in tests.
 		if w.Spec.QueueName != q.Name || w.Spec.AssignedCapacity != "" {
 			continue
 		}
 		qImpl.PushOrUpdate(&workloads.Items[i])
+		addedWorkloads = true
+	}
+	if addedWorkloads {
+		m.cond.Broadcast()
 	}
 	return nil
 }
@@ -100,6 +109,7 @@ func (m *Manager) addWorkload(w *kueue.QueuedWorkload) bool {
 	qName := w.Spec.QueueName
 	if q := m.queues[qName]; q != nil {
 		q.PushOrUpdate(w)
+		m.cond.Broadcast()
 		return true
 	}
 	return false
@@ -133,6 +143,47 @@ func (m *Manager) UpdateWorkload(w *kueue.QueuedWorkload, prevQueue string) bool
 		return true
 	}
 	return false
+}
+
+// CleanUpOnContext tracks the context. When closed, it wakes routines waiting
+// on elements to be available. It should be called before doing any calls to
+// Heads.
+func (m *Manager) CleanUpOnContext(ctx context.Context) {
+	<-ctx.Done()
+	m.cond.Broadcast()
+}
+
+// Heads returns the heads of the queues, blocking if they are empty until
+// they have elements or the context terminates.
+func (m *Manager) Heads(ctx context.Context) []workload.Info {
+	m.Lock()
+	defer m.Unlock()
+	for {
+		workloads := m.heads()
+		if len(workloads) != 0 {
+			return workloads
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+			m.cond.Wait()
+		}
+	}
+}
+
+func (m *Manager) heads() []workload.Info {
+	var workloads []workload.Info
+	for _, q := range m.queues {
+		wl := q.Pop()
+		if wl != nil {
+			wlCopy := *wl
+			wlCopy.Priority = q.Priority
+			wlCopy.Capacity = q.Capacity
+			workloads = append(workloads, wlCopy)
+		}
+	}
+	return workloads
 }
 
 func SetupIndexes(indexer client.FieldIndexer) error {

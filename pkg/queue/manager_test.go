@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
+	"gke-internal.googlesource.com/gke-batch/kueue/pkg/workload"
 )
 
 // TestOrphans verifies that pods added before adding the queue are preserved
@@ -233,6 +234,157 @@ func TestUpdateWorkload(t *testing.T) {
 				t.Errorf("Elements poped in the wrong order from queues (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestHeads(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	kueue.AddToScheme(scheme)
+	now := time.Now().Truncate(time.Second)
+
+	queues := []kueue.Queue{
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "foo"},
+			Spec: kueue.QueueSpec{
+				Priority: 1,
+				Capacity: "fooCap",
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "bar"},
+			Spec: kueue.QueueSpec{
+				Priority: -1,
+				Capacity: "barCap",
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "baz"},
+			Spec: kueue.QueueSpec{
+				Priority: 2,
+				Capacity: "bazCap",
+			},
+		},
+	}
+	workloads := []kueue.QueuedWorkload{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:              "a",
+				CreationTimestamp: metav1.NewTime(now.Add(time.Hour)),
+			},
+			Spec: kueue.QueuedWorkloadSpec{QueueName: "foo"},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:              "b",
+				CreationTimestamp: metav1.NewTime(now),
+			},
+			Spec: kueue.QueuedWorkloadSpec{QueueName: "bar"},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:              "c",
+				CreationTimestamp: metav1.NewTime(now),
+			},
+			Spec: kueue.QueuedWorkloadSpec{QueueName: "foo"},
+		},
+	}
+	manager := NewManager(fake.NewClientBuilder().WithScheme(scheme).Build())
+	for _, q := range queues {
+		manager.AddQueue(ctx, &q)
+	}
+	for _, wl := range workloads {
+		wl := wl
+		manager.AddWorkload(&wl)
+	}
+	wantHeads := []workload.Info{
+		{
+			Obj:      &workloads[1],
+			Priority: -1,
+			Capacity: "barCap",
+		},
+		{
+			Obj:      &workloads[2],
+			Priority: 1,
+			Capacity: "fooCap",
+		},
+	}
+
+	heads := manager.Heads(ctx)
+	sort.Slice(heads, func(i, j int) bool {
+		return heads[i].Priority < heads[j].Priority
+	})
+	if diff := cmp.Diff(wantHeads, heads); diff != "" {
+		t.Errorf("GetHeads returned wrong heads (-want,+got):\n%s", diff)
+	}
+
+}
+
+// TestHeadAsync ensures that Heads call is blocked until the queues are filled
+// asynchronously.
+func TestHeadsAsync(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	kueue.AddToScheme(scheme)
+	now := time.Now().Truncate(time.Second)
+	wl := kueue.QueuedWorkload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "a",
+			CreationTimestamp: metav1.NewTime(now),
+		},
+		Spec: kueue.QueuedWorkloadSpec{QueueName: "foo"},
+	}
+	q := kueue.Queue{
+		ObjectMeta: metav1.ObjectMeta{Name: "foo"},
+		Spec: kueue.QueueSpec{
+			Priority: 1,
+			Capacity: "fooCap",
+		},
+	}
+	wantHeads := []workload.Info{
+		{
+			Obj:      &wl,
+			Priority: 1,
+			Capacity: "fooCap",
+		},
+	}
+
+	t.Run("AddQueue", func(t *testing.T) {
+		client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&wl).Build()
+		manager := NewManager(client)
+		go func() {
+			manager.AddQueue(ctx, &q)
+		}()
+		heads := manager.Heads(ctx)
+		if diff := cmp.Diff(wantHeads, heads); diff != "" {
+			t.Errorf("GetHeads returned wrong heads (-want,+got):\n%s", diff)
+		}
+	})
+
+	t.Run("AddWorkload", func(t *testing.T) {
+		manager := NewManager(fake.NewClientBuilder().WithScheme(scheme).Build())
+		manager.AddQueue(ctx, &q)
+		go func() {
+			manager.addWorkload(&wl)
+		}()
+		heads := manager.Heads(ctx)
+		if diff := cmp.Diff(wantHeads, heads); diff != "" {
+			t.Errorf("GetHeads returned wrong heads (-want,+got):\n%s", diff)
+		}
+	})
+}
+
+// TestHeadsCancelled ensures that the Heads call returns when the context is closed.
+func TestHeadsCancelled(t *testing.T) {
+	manager := NewManager(fake.NewClientBuilder().Build())
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		cancel()
+	}()
+	manager.CleanUpOnContext(ctx)
+	heads := manager.Heads(ctx)
+	if len(heads) != 0 {
+		t.Errorf("GetHeads returned elements, expected none")
 	}
 }
 
