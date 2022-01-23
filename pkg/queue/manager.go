@@ -60,7 +60,7 @@ func (m *Manager) AddQueue(ctx context.Context, q *kueue.Queue) error {
 	}
 	for i, w := range workloads.Items {
 		// Checking queue name again because the field index is not available in tests.
-		if w.Spec.QueueName != q.Name || w.Spec.Assignment != nil {
+		if w.Spec.QueueName != q.Name || w.Spec.AssignedCapacity != "" {
 			continue
 		}
 		qImpl.PushOrUpdate(&workloads.Items[i])

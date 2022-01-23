@@ -51,10 +51,8 @@ func TestAddQueue(t *testing.T) {
 		&kueue.QueuedWorkload{
 			ObjectMeta: metav1.ObjectMeta{Name: "d"},
 			Spec: kueue.QueuedWorkloadSpec{
-				QueueName: "foo",
-				Assignment: &kueue.WorkloadAssignment{
-					Capacity: "capacity",
-				},
+				QueueName:        "foo",
+				AssignedCapacity: "capacity",
 			},
 		},
 	).Build()

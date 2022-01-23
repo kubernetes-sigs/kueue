@@ -130,3 +130,196 @@ func TestCacheCapacityOperations(t *testing.T) {
 		})
 	}
 }
+
+func TestCacheWorkloadOperations(t *testing.T) {
+	capacities := []kueue.QueueCapacity{
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "one"},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "two"},
+		},
+	}
+	cache := NewCache()
+	for _, c := range capacities {
+		cache.AddCapacity(&c)
+	}
+
+	steps := []struct {
+		name           string
+		operation      func() error
+		wantCapacities map[string]sets.String
+		wantError      string
+	}{
+		{
+			name: "add",
+			operation: func() error {
+				workloads := []kueue.QueuedWorkload{
+					{
+						ObjectMeta: metav1.ObjectMeta{Name: "a"},
+						Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "one"},
+					},
+					{
+						ObjectMeta: metav1.ObjectMeta{Name: "b"},
+						Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "two"},
+					},
+					{
+						ObjectMeta: metav1.ObjectMeta{Name: "c"},
+						Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "one"},
+					},
+					{
+						ObjectMeta: metav1.ObjectMeta{Name: "d"},
+						Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "two"},
+					},
+				}
+				for i := range workloads {
+					if err := cache.AddWorkload(&workloads[i]); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+			wantCapacities: map[string]sets.String{
+				"one": sets.NewString("a", "c"),
+				"two": sets.NewString("b", "d"),
+			},
+		},
+		{
+			name: "add error no capacity",
+			operation: func() error {
+				w := kueue.QueuedWorkload{
+					ObjectMeta: metav1.ObjectMeta{Name: "a"},
+					Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "three"},
+				}
+				return cache.AddWorkload(&w)
+			},
+			wantError: "capacity doesn't exist",
+			wantCapacities: map[string]sets.String{
+				"one": sets.NewString("a", "c"),
+				"two": sets.NewString("b", "d"),
+			},
+		},
+		{
+			name: "add error already exists",
+			operation: func() error {
+				w := kueue.QueuedWorkload{
+					ObjectMeta: metav1.ObjectMeta{Name: "a"},
+					Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "one"},
+				}
+				return cache.AddWorkload(&w)
+			},
+			wantError: "workload already exists in capacity",
+			wantCapacities: map[string]sets.String{
+				"one": sets.NewString("a", "c"),
+				"two": sets.NewString("b", "d"),
+			},
+		},
+		{
+			name: "update",
+			operation: func() error {
+				old := kueue.QueuedWorkload{
+					ObjectMeta: metav1.ObjectMeta{Name: "a"},
+					Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "one"},
+				}
+				new := kueue.QueuedWorkload{
+					ObjectMeta: metav1.ObjectMeta{Name: "a"},
+					Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "two"},
+				}
+				return cache.UpdateWorkload(&old, &new)
+			},
+			wantCapacities: map[string]sets.String{
+				"one": sets.NewString("c"),
+				"two": sets.NewString("a", "b", "d"),
+			},
+		},
+		{
+			name: "update error old doesn't exist",
+			operation: func() error {
+				old := kueue.QueuedWorkload{
+					ObjectMeta: metav1.ObjectMeta{Name: "e"},
+					Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "one"},
+				}
+				new := kueue.QueuedWorkload{
+					ObjectMeta: metav1.ObjectMeta{Name: "e"},
+					Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "two"},
+				}
+				return cache.UpdateWorkload(&old, &new)
+			},
+			wantError: "workload does not exist in capacity",
+			wantCapacities: map[string]sets.String{
+				"one": sets.NewString("c"),
+				"two": sets.NewString("a", "b", "d"),
+			},
+		},
+		{
+			name: "delete",
+			operation: func() error {
+				w := kueue.QueuedWorkload{
+					ObjectMeta: metav1.ObjectMeta{Name: "a"},
+					Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "two"},
+				}
+				return cache.DeleteWorkload(&w)
+			},
+			wantCapacities: map[string]sets.String{
+				"one": sets.NewString("c"),
+				"two": sets.NewString("b", "d"),
+			},
+		},
+		{
+			name: "delete error capacity doesn't exist",
+			operation: func() error {
+				w := kueue.QueuedWorkload{
+					ObjectMeta: metav1.ObjectMeta{Name: "a"},
+					Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "three"},
+				}
+				return cache.DeleteWorkload(&w)
+			},
+			wantError: "capacity doesn't exist",
+			wantCapacities: map[string]sets.String{
+				"one": sets.NewString("c"),
+				"two": sets.NewString("b", "d"),
+			},
+		},
+		{
+			name: "delete error workload doesn't exist",
+			operation: func() error {
+				w := kueue.QueuedWorkload{
+					ObjectMeta: metav1.ObjectMeta{Name: "e"},
+					Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "one"},
+				}
+				return cache.DeleteWorkload(&w)
+			},
+			wantError: "workload does not exist in capacity",
+			wantCapacities: map[string]sets.String{
+				"one": sets.NewString("c"),
+				"two": sets.NewString("b", "d"),
+			},
+		},
+	}
+	for _, step := range steps {
+		t.Run(step.name, func(t *testing.T) {
+			gotError := step.operation()
+			if diff := cmp.Diff(step.wantError, messageOrEmpty(gotError)); diff != "" {
+				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+			gotCapacities := make(map[string]sets.String)
+			for name, capacity := range cache.capacities {
+				gotCapacity := sets.NewString()
+				for k := range capacity.Workloads {
+					gotCapacity.Insert(capacity.Workloads[k].Obj.Name)
+				}
+				gotCapacities[name] = gotCapacity
+			}
+			if diff := cmp.Diff(step.wantCapacities, gotCapacities); diff != "" {
+				t.Errorf("Unexpected capacities (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func messageOrEmpty(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}

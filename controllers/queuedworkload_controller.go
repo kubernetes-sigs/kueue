@@ -62,7 +62,7 @@ func (r *QueuedWorkloadReconciler) Create(e event.CreateEvent) bool {
 	status := workloadStatus(wl)
 	log := r.log.WithValues("queuedWorkload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
 	log.V(2).Info("QueuedWorkload create event")
-	if wl.Spec.Assignment == nil {
+	if wl.Spec.AssignedCapacity == "" {
 		if !r.queues.AddWorkload(wl) {
 			log.V(2).Info("Queue for workload didn't exist; ignored for now")
 		}
@@ -83,12 +83,12 @@ func (r *QueuedWorkloadReconciler) Delete(e event.DeleteEvent) bool {
 	// When assigning a capacity to a workload, we assume it in the cache. If
 	// the state is unknown, the workload could have been assumed and we need
 	// to clear it from the cache.
-	if wl.Spec.Assignment != nil || e.DeleteStateUnknown {
+	if wl.Spec.AssignedCapacity != "" || e.DeleteStateUnknown {
 		// TODO: remove from cache.
 	}
 	// Even if the state is unknown, the last cached state tells us whether the
 	// workload was in the queues and should be cleared from them.
-	if wl.Spec.Assignment == nil {
+	if wl.Spec.AssignedCapacity == "" {
 		r.queues.DeleteWorkload(wl)
 	}
 	return false
@@ -146,7 +146,7 @@ func (r *QueuedWorkloadReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func workloadStatus(w *kueue.QueuedWorkload) string {
-	if w.Spec.Assignment != nil {
+	if w.Spec.AssignedCapacity != "" {
 		return assigned
 	}
 	return pending

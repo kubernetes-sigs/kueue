@@ -36,157 +36,187 @@ spec:
           spec:
             description: QueueCapacitySpec defines the desired state of QueueCapacity
             properties:
-              affinity:
-                description: 'affinity added to the pods of the workloads assigned
-                  to this QueueCapacity. This enforces pods to land on the VMs that
-                  this QueueCapacity manages the usage for. Typically, QueueCapacities
-                  that belong to the same group share all or some of the rules defined
-                  here. Example: matchExpressions: - key: cloud.google.com/gke-spot   operator:
-                  Exists'
-                properties:
-                  matchExpressions:
-                    description: A list of node selector requirements by node's labels.
-                    items:
-                      description: A node selector requirement is a selector that
-                        contains values, a key, and an operator that relates the key
-                        and values.
-                      properties:
-                        key:
-                          description: The label key that the selector applies to.
-                          type: string
-                        operator:
-                          description: Represents a key's relationship to a set of
-                            values. Valid operators are In, NotIn, Exists, DoesNotExist.
-                            Gt, and Lt.
-                          type: string
-                        values:
-                          description: An array of string values. If the operator
-                            is In or NotIn, the values array must be non-empty. If
-                            the operator is Exists or DoesNotExist, the values array
-                            must be empty. If the operator is Gt or Lt, the values
-                            array must have a single element, which will be interpreted
-                            as an integer. This array is replaced during a strategic
-                            merge patch.
-                          items:
-                            type: string
-                          type: array
-                      required:
-                      - key
-                      - operator
-                      type: object
-                    type: array
-                  matchFields:
-                    description: A list of node selector requirements by node's fields.
-                    items:
-                      description: A node selector requirement is a selector that
-                        contains values, a key, and an operator that relates the key
-                        and values.
-                      properties:
-                        key:
-                          description: The label key that the selector applies to.
-                          type: string
-                        operator:
-                          description: Represents a key's relationship to a set of
-                            values. Valid operators are In, NotIn, Exists, DoesNotExist.
-                            Gt, and Lt.
-                          type: string
-                        values:
-                          description: An array of string values. If the operator
-                            is In or NotIn, the values array must be non-empty. If
-                            the operator is Exists or DoesNotExist, the values array
-                            must be empty. If the operator is Gt or Lt, the values
-                            array must have a single element, which will be interpreted
-                            as an integer. This array is replaced during a strategic
-                            merge patch.
-                          items:
-                            type: string
-                          type: array
-                      required:
-                      - key
-                      - operator
-                      type: object
-                    type: array
-                type: object
-              group:
-                description: 'group that this QueueCapacity belongs to. QueueCapacities
-                  that belong to the same group can borrow unsued guaranteed resources
-                  from each other. Typically, a group represents a VM family (ex:
-                  spot VMs, Nvidia GPU VMs). If empty, this QueueCapacity cannot borrow
-                  capacity from any other QueueCapacity.'
+              cohort:
+                description: "cohort that this QueueCapacity belongs to. QCs that
+                  belong to the same cohort can borrow unused resources from each
+                  other. \n A QC can be a member of a single borrowing cohort. A workload
+                  submitted to a queue referencing this QC can borrow resources from
+                  any QC in the cohort. Only resources listed in the QC can be borrowed
+                  (see example). \n In the example below, the following applies: 1.
+                  tenantB can run a workload consuming up to 20 k80 GPUs, meaning
+                  a resource    can be allocated from more than one capacity in a
+                  cohort. 2. tenantB can not consume any p100 GPUs or spot because
+                  its QC has no quota    defined for them, and so the ceiling is practically
+                  0. 3. If both tenantA and tenantB are running jobs such that current
+                  usage for    tenantA is lower than its guaranteed quota (e.g., 5
+                  k80 GPUS) while    tenantB’s usage is higher than its guaranteed
+                  quota (e.g., 12 k80 GPUs),    and both tenants have pending jobs
+                  requesting the remaining capacity of    the cohort (the 3 k80 GPUs),
+                  then tenantA jobs will get this remaining    capacity since tenantA
+                  is below its guaranteed limit. 4. If a tenantA workload doesn’t
+                  tolerate spot, then the workload will only    be eligible to consume
+                  on-demand cores (the next in the list of cpu types). \n  <UNRESOLVED>
+                  5. While evaluating a resource type’s list, what should take precedence:
+                  \   honoring the preferred order in the list or keeping a usage
+                  under the    guaranteed capacity? For example, if tenantA’s current
+                  k80 usage is 10 and    tenantB’s usage is 5, should a future tenantA
+                  workload that asks for any    GPU type be assigned borrowed k80
+                  capacity (since it is ordered first in    the list) or p100 since
+                  its usage is under tenantA’s guaranteed limit?    The tradeoff is
+                  honoring tenantA’s preferred order vs honoring fair    sharing of
+                  future tenantB’s jobs in a timely manner (or, when we have    preemption,
+                  reduce the chance of preempting tenantA’s workload) \n    We could
+                  make that a user choice via a knob on the QC or Cohort if we    decide
+                  to have a dedicated object API for it and start with preferring
+                  to    consume guaranteed capacity first.  </UNRESOLVED> \n metadata:
+                  \ name: tenantA spec:  cohort: borrowing-cohort  requestableResources:
+                  - name: cpu   - name: spot     quota:      guaranteed: 1000     labels
+                  \    - cloud.provider.com/spot:true     taints     - key: cloud.provider.com/spot
+                  \      effect: NoSchedule   - name: on-demand     quota:      guaranteed:
+                  100 - name: nvidia.com/gpus   - name: k80     quota:      guaranteed:
+                  10      ceiling: 20     labels:     - cloud.provider.com/accelerator:
+                  nvidia-tesla-k80   - name: p100     quota:      guaranteed: 10      ceiling:
+                  20     labels:     - cloud.provider.com/accelerator: nvidia-tesla-p100
+                  \n metadata:  name: tenantB spec:  cohort: borrowing-cohort  requestableResources:
+                  - name: cpu   - name: on-demand     quota:      guaranteed: 100
+                  - name: nvidia.com/gpus   - name: k80     quota:      guaranteed:
+                  10      ceiling: 20     labels:       cloud.provider.com/accelerator:
+                  nvidia-tesla-k80 \n If empty, this QueueCapacity cannot borrow capacity
+                  from any other QueueCapacity and vice versa. \n The name style is
+                  similar to label keys. These are just names to link QCs together,
+                  and they are meaningless otherwise."
                 type: string
               requestableResources:
-                description: requestableResources define the allowed total resource
-                  requests of running workloads assigned to this QueueCapacity.
-                properties:
-                  guaranteed:
-                    additionalProperties:
-                      anyOf:
-                      - type: integer
-                      - type: string
-                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                      x-kubernetes-int-or-string: true
-                    description: guaranteed amout of resouce requests that are available
-                      to be used by running workloads assigned to this QueueCapacity.
-                    type: object
-                  limit:
-                    additionalProperties:
-                      anyOf:
-                      - type: integer
-                      - type: string
-                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                      x-kubernetes-int-or-string: true
-                    description: limit amout of resouce requests that could be in
-                      use by running workloads assigned to this QueueCapacity. Some
-                      of the resources can be borrowed from other QueueCapaties' unused
-                      guranteed resource requests.
-                    type: object
-                type: object
-              tolerations:
-                description: tolerations added to the pods of workloads assigned to
-                  this QueueCapacity. This allows pods to land on the VMs that this
-                  QueueCapacity manages the usage for. Typically, QueueCapacities
-                  that belong to the same group share all or some of the tolerations
-                  defined here.
+                description: "requestableResources represent the total pod requests
+                  of workloads dispatched via this capacity. This doesn’t guarantee
+                  the actual availability of resources, although an integration with
+                  a resource provisioner like Cluster Autoscaler is possible to achieve
+                  that. Example: \n - name: cpu   types:   - quota:      guaranteed:
+                  100 - name: memory   types:   - quota:      guaranteed: 100Gi"
                 items:
-                  description: The pod this Toleration is attached to tolerates any
-                    taint that matches the triple <key,value,effect> using the matching
-                    operator <operator>.
                   properties:
-                    effect:
-                      description: Effect indicates the taint effect to match. Empty
-                        means match all taint effects. When specified, allowed values
-                        are NoSchedule, PreferNoSchedule and NoExecute.
+                    name:
+                      description: name of the resource. For example, cpu, memory
+                        or nvidia.com/gpu.
                       type: string
-                    key:
-                      description: Key is the taint key that the toleration applies
-                        to. Empty means match all taint keys. If the key is empty,
-                        operator must be Exists; this combination means to match all
-                        values and all keys.
-                      type: string
-                    operator:
-                      description: Operator represents a key's relationship to the
-                        value. Valid operators are Exists and Equal. Defaults to Equal.
-                        Exists is equivalent to wildcard for value, so that a pod
-                        can tolerate all taints of a particular category.
-                      type: string
-                    tolerationSeconds:
-                      description: TolerationSeconds represents the period of time
-                        the toleration (which must be of effect NoExecute, otherwise
-                        this field is ignored) tolerates the taint. By default, it
-                        is not set, which means tolerate the taint forever (do not
-                        evict). Zero and negative values will be treated as 0 (evict
-                        immediately) by the system.
-                      format: int64
-                      type: integer
-                    value:
-                      description: Value is the taint value the toleration matches
-                        to. If the operator is Exists, the value should be empty,
-                        otherwise just a regular string.
-                      type: string
+                    types:
+                      description: "types is the list of different flavors of this
+                        resource and their limits. Typically two different “types”
+                        of the same resource represent different hardware models (e.g.,
+                        gpu models, cpu architectures) or pricing (on-demand vs spot
+                        cpus). The types are distinguished via labels and taints.
+                        \n For example, if the resource is nvidia.com/gpu, and we
+                        want to define different limits for different gpu types, then
+                        the types must set different values of a shared key. For example:
+                        \n spec:  requestableResources: - name: nvidia.com/gpus   -
+                        name: k80     quota:      guaranteed: 10     labels:       cloud.provider.com/accelerator:
+                        nvidia-tesla-k80   - name: p100     quota:      guaranteed:
+                        10     labels:      cloud.provider.com/accelerator: nvidia-tesla-p100
+                        \n The types are evaluated in order, selecting the first to
+                        satisfy a workload’s requirements. Also the quantities are
+                        additive, in the example above the GPU quota in total is 20
+                        (10 k80 + 10 p100). A workload is limited to the selected
+                        type by converting the labels to a node selector that gets
+                        injected into the workload. ​​This list can’t be empty, at
+                        least one must exist. \n Note that a workload’s node affinity/selector
+                        constraints are evaluated against the labels, and so batch
+                        users can “filter” the types, but can’t force a different
+                        order. For example, the following workload affinity will only
+                        start the workload if P100 quota is available: \n matchExpressions:
+                        - key: cloud.provider.com/accelerator   value: nvidia-tesla-p100
+                        \n Each type can also set taints so that it is opt-out by
+                        default. A workload’s tolerations are evaluated against those
+                        taints, and only the types that the workload tolerates are
+                        considered. For example, an admin may choose to taint Spot
+                        CPU capacity, and if a workload doesn't tolerate it will only
+                        be eligible to consume on-demand capacity: \n - name: spot
+                        \  quota:     guaranteed: 1000   labels   - cloud.provider.com/spot:true
+                        \  taints   - key: cloud.provider.com/spot     effect: NoSchedule
+                        - name: on-demand   quota:     guaranteed: 100"
+                      items:
+                        properties:
+                          labels:
+                            additionalProperties:
+                              type: string
+                            description: 'labels associated with this type. Those
+                              labels are matched against or converted to node affinity
+                              constraints on the workload’s pods. For example, cloud.provider.com/accelerator:
+                              nvidia-tesla-k80.'
+                            type: object
+                          name:
+                            description: name is the type name, e.g., nvidia-tesla-k80.
+                            type: string
+                          quota:
+                            description: quota is the limit of resource usage at a
+                              point in time.
+                            properties:
+                              ceiling:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                description: ceiling is the upper limit on the amount
+                                  of resource requests that could be used by running
+                                  workloads assigned to this quota at a point in time.
+                                  Resources can be borrowed from unused guaranteed
+                                  quota of other QueueCapacities in the same cohort.
+                                  When not set, it is unlimited.
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                              guaranteed:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                description: guaranteed amount of resource requests
+                                  that are available to be used by running workloads
+                                  assigned to this quota. This value should not exceed
+                                  the Ceiling. The sum of guaranteed values in a cohort
+                                  defines the maximum capacity that can be allocated
+                                  for the cohort.
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                            type: object
+                          taint:
+                            description: taints associated with this constraint that
+                              workloads must explicitly “tolerate” to be able to use
+                              this type. e.g., cloud.provider.com/preemptible="true":NoSchedule
+                            items:
+                              description: The node this Taint is attached to has
+                                the "effect" on any pod that does not tolerate the
+                                Taint.
+                              properties:
+                                effect:
+                                  description: Required. The effect of the taint on
+                                    pods that do not tolerate the taint. Valid effects
+                                    are NoSchedule, PreferNoSchedule and NoExecute.
+                                  type: string
+                                key:
+                                  description: Required. The taint key to be applied
+                                    to a node.
+                                  type: string
+                                timeAdded:
+                                  description: TimeAdded represents the time at which
+                                    the taint was added. It is only written for NoExecute
+                                    taints.
+                                  format: date-time
+                                  type: string
+                                value:
+                                  description: The taint value corresponding to the
+                                    taint key.
+                                  type: string
+                              required:
+                              - effect
+                              - key
+                              type: object
+                            type: array
+                        type: object
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - name
+                      x-kubernetes-list-type: map
                   type: object
                 type: array
                 x-kubernetes-list-map-keys:
-                - key
+                - name
                 x-kubernetes-list-type: map
             type: object
           status:

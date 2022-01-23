@@ -20,7 +20,10 @@ import (
 	"fmt"
 	"sync"
 
+	corev1 "k8s.io/api/core/v1"
+
 	kueue "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
+	"gke-internal.googlesource.com/gke-batch/kueue/pkg/workload"
 )
 
 type Cache struct {
@@ -45,8 +48,52 @@ type Cohort struct {
 
 // Capacity is the internal implementation of kueue.QueueCapacity
 type Capacity struct {
+	Name                 string
 	Cohort               *Cohort
 	RequestableResources []kueue.Resource
+	UsedResources        usedResources
+	Workloads            map[string]*workload.Info
+}
+
+type usedResources struct {
+	MilliCPU         map[string]int64
+	Memory           map[string]int64
+	EphemeralStorage map[string]int64
+	Scalar           map[corev1.ResourceName]map[string]int64
+}
+
+func NewCapacity(cap *kueue.QueueCapacity) *Capacity {
+	return &Capacity{
+		Name:                 cap.Name,
+		RequestableResources: cap.Spec.RequestableResources,
+		Workloads:            map[string]*workload.Info{},
+	}
+}
+
+func (c *Capacity) addWorkload(w *kueue.QueuedWorkload) error {
+	k := workload.Key(w)
+	if _, exist := c.Workloads[k]; exist {
+		return fmt.Errorf("workload already exists in capacity")
+	}
+	wi := workload.NewInfo(w)
+	c.Workloads[k] = &wi
+
+	// Add to "UsedResources"
+
+	return nil
+
+}
+
+func (c *Capacity) deleteWorkload(w *kueue.QueuedWorkload) error {
+	k := workload.Key(w)
+	if _, exist := c.Workloads[k]; !exist {
+		return fmt.Errorf("workload does not exist in capacity")
+	}
+	delete(c.Workloads, k)
+
+	// Delete from "UsedResources"
+
+	return nil
 }
 
 func (c *Cache) AddCapacity(cap *kueue.QueueCapacity) error {
@@ -54,11 +101,9 @@ func (c *Cache) AddCapacity(cap *kueue.QueueCapacity) error {
 	defer c.Unlock()
 
 	if _, ok := c.capacities[cap.Name]; ok {
-		return fmt.Errorf("capacity %q already exists", cap.Name)
+		return fmt.Errorf("capacity already exists")
 	}
-	capImpl := &Capacity{
-		RequestableResources: cap.Spec.RequestableResources,
-	}
+	capImpl := NewCapacity(cap)
 	c.addCapacityToCohort(capImpl, cap.Spec.Cohort)
 	c.capacities[cap.Name] = capImpl
 	return nil
@@ -69,12 +114,12 @@ func (c *Cache) UpdateCapacity(cap *kueue.QueueCapacity) error {
 	defer c.Unlock()
 	capImpl, ok := c.capacities[cap.Name]
 	if !ok {
-		return fmt.Errorf("capacity %q doesn't exist", cap.Name)
+		return fmt.Errorf("capacity doesn't exist")
 	}
 	capImpl.RequestableResources = cap.Spec.RequestableResources
 	if capImpl.Cohort != nil {
 		if capImpl.Cohort.name != cap.Spec.Cohort {
-			c.removeCapacityFromCohort(capImpl)
+			c.deleteCapacityFromCohort(capImpl)
 			c.addCapacityToCohort(capImpl, cap.Spec.Cohort)
 		}
 	} else {
@@ -90,8 +135,56 @@ func (c *Cache) DeleteCapacity(cap *kueue.QueueCapacity) {
 	if !ok {
 		return
 	}
-	c.removeCapacityFromCohort(capImpl)
+	c.deleteCapacityFromCohort(capImpl)
 	delete(c.capacities, cap.Name)
+}
+
+func (c *Cache) AddWorkload(w *kueue.QueuedWorkload) error {
+	c.Lock()
+	defer c.Unlock()
+	if w.Spec.AssignedCapacity == "" {
+		return fmt.Errorf("workload not assigned a capacity")
+	}
+
+	cap, ok := c.capacities[string(w.Spec.AssignedCapacity)]
+	if !ok {
+		return fmt.Errorf("capacity doesn't exist")
+	}
+	return cap.addWorkload(w)
+}
+
+func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.QueuedWorkload) error {
+	c.Lock()
+	defer c.Unlock()
+	if oldWl.Spec.AssignedCapacity != "" {
+		cap, ok := c.capacities[string(oldWl.Spec.AssignedCapacity)]
+		if !ok {
+			return fmt.Errorf("old capacity doesn't exist")
+		}
+
+		if err := cap.deleteWorkload(oldWl); err != nil {
+			return err
+		}
+	}
+	cap, ok := c.capacities[string(newWl.Spec.AssignedCapacity)]
+	if !ok {
+		return fmt.Errorf("new capacity doesn't exist")
+	}
+	return cap.addWorkload(newWl)
+}
+
+func (c *Cache) DeleteWorkload(w *kueue.QueuedWorkload) error {
+	c.Lock()
+	defer c.Unlock()
+	if w.Spec.AssignedCapacity == "" {
+		return fmt.Errorf("workload not assigned a capacity")
+	}
+
+	cap, ok := c.capacities[string(w.Spec.AssignedCapacity)]
+	if !ok {
+		return fmt.Errorf("capacity doesn't exist")
+	}
+	return cap.deleteWorkload(w)
 }
 
 func (c *Cache) addCapacityToCohort(cap *Capacity, cohort string) {
@@ -110,7 +203,7 @@ func (c *Cache) addCapacityToCohort(cap *Capacity, cohort string) {
 	cap.Cohort = g
 }
 
-func (c *Cache) removeCapacityFromCohort(cap *Capacity) {
+func (c *Cache) deleteCapacityFromCohort(cap *Capacity) {
 	if cap.Cohort == nil {
 		return
 	}

@@ -36,24 +36,10 @@ spec:
           spec:
             description: QueuedWorkloadSpec defines the desired state of QueuedWorkload
             properties:
-              assignment:
-                description: assigment describes the QueueCapacity and resource types
-                  that this workload is assigned to.
-                properties:
-                  capacity:
-                    description: capacity is the name of the QueueCapacity that this
-                      workload is assigned to.
-                    type: string
-                  types:
-                    additionalProperties:
-                      type: string
-                    description: types lists the resources and the respective types
-                      that this workload is assigned to.
-                    type: object
-                required:
-                - capacity
-                - types
-                type: object
+              capacity:
+                description: assignedCapacity is the name of the QueueCapacity that
+                  this workload is assigned to.
+                type: string
               pods:
                 description: pods is a list of sets of homogeneous pods, each described
                   by a Pod spec and a count.
@@ -7014,9 +7000,16 @@ spec:
                       required:
                       - containers
                       type: object
+                    types:
+                      additionalProperties:
+                        type: string
+                      description: assignedTypes lists the resources and the respective
+                        types that this workload is assigned to.
+                      type: object
                   required:
                   - count
                   - spec
+                  - types
                   type: object
                 type: array
                 x-kubernetes-list-type: atomic
@@ -7042,6 +7035,7 @@ spec:
                     type: string
                 type: object
             required:
+            - capacity
             - queueName
             - workload
             type: object

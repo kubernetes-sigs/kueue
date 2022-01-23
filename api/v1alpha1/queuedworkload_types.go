@@ -36,9 +36,9 @@ type QueuedWorkloadSpec struct {
 	// queueName is the name of the queue the QueuedWorkload is associated with.
 	QueueName string `json:"queueName"`
 
-	// assigment describes the QueueCapacity and resource types that this
-	// workload is assigned to.
-	Assignment *WorkloadAssignment `json:"assignment,omitempty"`
+	// assignedCapacity is the name of the QueueCapacity that this workload is assigned
+	// to.
+	AssignedCapacity QueueCapacityReference `json:"capacity"`
 }
 
 type WorkloadReference struct {
@@ -61,16 +61,10 @@ type PodSet struct {
 
 	// count is the number of Pods for the spec.
 	Count int32 `json:"count"`
-}
 
-type WorkloadAssignment struct {
-	// capacity is the name of the QueueCapacity that this workload is assigned
-	// to.
-	Capacity QueueCapacityReference `json:"capacity"`
-
-	// types lists the resources and the respective types that this workload is
+	// assignedTypes lists the resources and the respective types that this workload is
 	// assigned to.
-	Types map[corev1.ResourceName]string `json:"types"`
+	AssignedTypes map[corev1.ResourceName]string `json:"types"`
 }
 
 // QueuedWorkloadStatus defines the observed state of QueuedWorkload
