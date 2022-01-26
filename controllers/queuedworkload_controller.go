@@ -25,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	kueue "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
+	"gke-internal.googlesource.com/gke-batch/kueue/pkg/capacity"
 	"gke-internal.googlesource.com/gke-batch/kueue/pkg/queue"
 )
 
@@ -39,12 +40,14 @@ const (
 type QueuedWorkloadReconciler struct {
 	log    logr.Logger
 	queues *queue.Manager
+	cache  *capacity.Cache
 }
 
-func NewQueuedWorkloadReconciler(queues *queue.Manager) *QueuedWorkloadReconciler {
+func NewQueuedWorkloadReconciler(queues *queue.Manager, cache *capacity.Cache) *QueuedWorkloadReconciler {
 	return &QueuedWorkloadReconciler{
 		log:    ctrl.Log.WithName("queued-workload-reconciler"),
 		queues: queues,
+		cache:  cache,
 	}
 }
 
@@ -68,7 +71,10 @@ func (r *QueuedWorkloadReconciler) Create(e event.CreateEvent) bool {
 		}
 		return false
 	}
-	// TODO: add to cache
+	if err := r.cache.AddWorkload(wl); err != nil {
+		log.Error(err, "Failed to add workload to cache")
+	}
+
 	return false
 }
 
@@ -84,7 +90,11 @@ func (r *QueuedWorkloadReconciler) Delete(e event.DeleteEvent) bool {
 	// the state is unknown, the workload could have been assumed and we need
 	// to clear it from the cache.
 	if wl.Spec.AssignedCapacity != "" || e.DeleteStateUnknown {
-		// TODO: remove from cache.
+		if err := r.cache.DeleteWorkload(wl); err != nil {
+			if !e.DeleteStateUnknown {
+				log.Error(err, "Failed to delete workload from cache")
+			}
+		}
 	}
 	// Even if the state is unknown, the last cached state tells us whether the
 	// workload was in the queues and should be cleared from them.
@@ -117,16 +127,24 @@ func (r *QueuedWorkloadReconciler) Update(e event.UpdateEvent) bool {
 
 	case prevStatus == pending && status == assigned:
 		r.queues.DeleteWorkload(wl)
-		// TODO: add to cache.
+		if err := r.cache.AddWorkload(wl); err != nil {
+			log.Error(err, "Failed to add workload to cache")
+		}
 
 	case prevStatus == assigned && status == pending:
-		// TODO: remove from cache.
+		if err := r.cache.DeleteWorkload(wl); err != nil {
+			log.Error(err, "Failed to delete workload from cache")
+		}
 		if !r.queues.AddWorkload(wl) {
 			log.V(2).Info("Queue for workload didn't exist; ignored for now")
 		}
 
 	default:
-		// TODO: update in cache.
+		// Workload update in the cache is handled here; however, some fields are immutable
+		// and are not supposed to actually change anything.
+		if err := r.cache.UpdateWorkload(wl, oldWl); err != nil {
+			log.Error(err, "Failed to update workload in cache")
+		}
 	}
 
 	return false

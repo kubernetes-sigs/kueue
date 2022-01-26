@@ -30,7 +30,8 @@ type QueuedWorkloadSpec struct {
 	// pods is a list of sets of homogeneous pods, each described by a Pod spec
 	// and a count.
 	//
-	// +listType=atomic
+	// +listType=map
+	// +listMapKey=name
 	Pods []PodSet `json:"pods,omitempty"`
 
 	// queueName is the name of the queue the QueuedWorkload is associated with.
@@ -56,6 +57,10 @@ type WorkloadReference struct {
 }
 
 type PodSet struct {
+	// name is the PodSet name.
+	// +optional
+	Name string `json:"name,omitempty"`
+
 	// spec is the Pod spec.
 	Spec corev1.PodSpec `json:"spec"`
 

@@ -26,10 +26,10 @@ import (
 	kueue "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
 )
 
-func TestPodResources(t *testing.T) {
+func TestPodRequests(t *testing.T) {
 	cases := map[string]struct {
-		spec          corev1.PodSpec
-		wantResources Resources
+		spec         corev1.PodSpec
+		wantRequests Requests
 	}{
 		"core": {
 			spec: corev1.PodSpec{
@@ -56,10 +56,10 @@ func TestPodResources(t *testing.T) {
 					corev1.ResourceCPU: resource.MustParse("0.1"),
 				},
 			},
-			wantResources: Resources{
-				MilliCPU:         115,
-				Memory:           2048,
-				EphemeralStorage: 1024,
+			wantRequests: Requests{
+				corev1.ResourceCPU:              115,
+				corev1.ResourceMemory:           2048,
+				corev1.ResourceEphemeralStorage: 1024,
 			},
 		},
 		"extended": {
@@ -82,19 +82,17 @@ func TestPodResources(t *testing.T) {
 					},
 				),
 			},
-			wantResources: Resources{
-				Scalar: map[corev1.ResourceName]int64{
-					"ex.com/gpu": 3,
-					"ex.com/ssd": 1,
-				},
+			wantRequests: Requests{
+				"ex.com/gpu": 3,
+				"ex.com/ssd": 1,
 			},
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			gotResources := PodResources(&tc.spec)
-			if diff := cmp.Diff(tc.wantResources, gotResources); diff != "" {
-				t.Errorf("PodResources returned unexpected requests (-want,+got):\n%s", diff)
+			gotRequests := podRequests(&tc.spec)
+			if diff := cmp.Diff(tc.wantRequests, gotRequests); diff != "" {
+				t.Errorf("podRequests returned unexpected requests (-want,+got):\n%s", diff)
 			}
 		})
 	}
@@ -105,22 +103,27 @@ func TestNewInfo(t *testing.T) {
 		Spec: kueue.QueuedWorkloadSpec{
 			Pods: []kueue.PodSet{
 				{
+					Name: "driver",
 					Spec: corev1.PodSpec{
 						Containers: containersForRequests(
 							map[corev1.ResourceName]string{
 								corev1.ResourceCPU:    "10m",
 								corev1.ResourceMemory: "512Ki",
-								"ex.com/gpu":          "1",
 							}),
 					},
-					Count: 2,
+					Count: 1,
+					AssignedTypes: map[corev1.ResourceName]string{
+						corev1.ResourceCPU: "on-demand",
+					},
 				},
 				{
+					Name: "workers",
 					Spec: corev1.PodSpec{
 						Containers: containersForRequests(
 							map[corev1.ResourceName]string{
 								corev1.ResourceCPU:    "5m",
 								corev1.ResourceMemory: "1Mi",
+								"ex.com/gpu":          "1",
 							}),
 					},
 					Count: 3,
@@ -129,14 +132,25 @@ func TestNewInfo(t *testing.T) {
 		},
 	}
 	info := NewInfo(qw)
-	wantResources := Resources{
-		MilliCPU: 35,
-		Memory:   4 * 1024 * 1024,
-		Scalar: map[corev1.ResourceName]int64{
-			"ex.com/gpu": 2,
+	wantRequests := map[string]Resources{
+		"driver": Resources{
+			Requests: Requests{
+				corev1.ResourceCPU:    10,
+				corev1.ResourceMemory: 512 * 1024,
+			},
+			Types: map[corev1.ResourceName]string{
+				corev1.ResourceCPU: "on-demand",
+			},
+		},
+		"workers": Resources{
+			Requests: Requests{
+				corev1.ResourceCPU:    15,
+				corev1.ResourceMemory: 3 * 1024 * 1024,
+				"ex.com/gpu":          3,
+			},
 		},
 	}
-	if diff := cmp.Diff(info.TotalRequests, wantResources); diff != "" {
+	if diff := cmp.Diff(info.TotalRequests, wantRequests); diff != "" {
 		t.Errorf("NewInfo returned unexpected total requests (-want,+got):\n%s", diff)
 	}
 }

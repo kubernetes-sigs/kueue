@@ -26,12 +26,17 @@ import (
 
 // Info holds a QueuedWorkload object and some pre-processing.
 type Info struct {
-	Obj           *kueue.QueuedWorkload
-	TotalRequests Resources
-
+	Obj *kueue.QueuedWorkload
+	// maps PodSet name to total resources requested by the set.
+	TotalRequests map[string]Resources
 	// Populated from queue.
 	Priority int64
 	Capacity string
+}
+
+type Resources struct {
+	Requests Requests
+	Types    map[corev1.ResourceName]string
 }
 
 func NewInfo(w *kueue.QueuedWorkload) Info {
@@ -45,12 +50,22 @@ func Key(w *kueue.QueuedWorkload) string {
 	return fmt.Sprintf("%s/%s", w.Namespace, w.Name)
 }
 
-func totalRequests(podSets []kueue.PodSet) Resources {
-	var res Resources
+func totalRequests(podSets []kueue.PodSet) map[string]Resources {
+	if len(podSets) == 0 {
+		return nil
+	}
+	res := make(map[string]Resources)
 	for _, ps := range podSets {
-		setRes := PodResources(&ps.Spec)
-		setRes.Scale(int64(ps.Count))
-		res.Add(setRes)
+		setRes := Resources{}
+		setRes.Requests = podRequests(&ps.Spec)
+		setRes.Requests.scale(int64(ps.Count))
+		if ps.AssignedTypes != nil {
+			setRes.Types = map[corev1.ResourceName]string{}
+			for r, t := range ps.AssignedTypes {
+				setRes.Types[r] = t
+			}
+		}
+		res[ps.Name] = setRes
 	}
 	return res
 }
@@ -58,75 +73,49 @@ func totalRequests(podSets []kueue.PodSet) Resources {
 // The following resources calculations are inspired on
 // https://github.com/kubernetes/kubernetes/blob/master/pkg/scheduler/framework/types.go
 
-type Resources struct {
-	MilliCPU         int64
-	Memory           int64
-	EphemeralStorage int64
-	Scalar           map[corev1.ResourceName]int64
-}
+// Requests maps ResourceName to type to value; for CPU it is tracked in MilliCPU.
+type Requests map[corev1.ResourceName]int64
 
-func PodResources(spec *corev1.PodSpec) Resources {
-	var res Resources
+func podRequests(spec *corev1.PodSpec) Requests {
+	res := Requests{}
 	for _, c := range spec.Containers {
-		res.Add(NewResources(c.Resources.Requests))
+		res.add(newRequests(c.Resources.Requests))
 	}
 	for _, c := range spec.InitContainers {
-		res.SetMax(NewResources(c.Resources.Requests))
+		res.setMax(newRequests(c.Resources.Requests))
 	}
-	res.Add(NewResources(spec.Overhead))
+	res.add(newRequests(spec.Overhead))
 	return res
 }
 
-func NewResources(rl corev1.ResourceList) Resources {
-	var r Resources
+func newRequests(rl corev1.ResourceList) Requests {
+	r := Requests{}
 	for name, quant := range rl {
 		switch name {
 		case corev1.ResourceCPU:
-			r.MilliCPU = quant.MilliValue()
-		case corev1.ResourceMemory:
-			r.Memory = quant.Value()
-		case corev1.ResourceEphemeralStorage:
-			r.EphemeralStorage = quant.Value()
+			r[name] = quant.MilliValue()
 		default:
-			if r.Scalar == nil {
-				r.Scalar = make(map[corev1.ResourceName]int64, 1)
-			}
-			r.Scalar[name] = quant.Value()
+			r[name] = quant.Value()
 		}
 	}
 	return r
 }
 
-func (r *Resources) Add(o Resources) {
-	r.MilliCPU += o.MilliCPU
-	r.Memory += o.Memory
-	r.EphemeralStorage += o.EphemeralStorage
-	if r.Scalar == nil && o.Scalar != nil {
-		r.Scalar = make(map[corev1.ResourceName]int64, len(o.Scalar))
-	}
-	for name, val := range o.Scalar {
-		r.Scalar[name] += val
+func (r Requests) add(o Requests) {
+	for name, val := range o {
+		r[name] += val
 	}
 }
 
-func (r *Resources) SetMax(o Resources) {
-	r.MilliCPU = max(r.MilliCPU, o.MilliCPU)
-	r.Memory = max(r.Memory, o.Memory)
-	r.EphemeralStorage = max(r.EphemeralStorage, o.EphemeralStorage)
-	if r.Scalar == nil && o.Scalar != nil {
-		r.Scalar = make(map[corev1.ResourceName]int64, len(o.Scalar))
-	}
-	for name, val := range o.Scalar {
-		r.Scalar[name] = max(r.Scalar[name], val)
+func (r Requests) setMax(o Requests) {
+	for name, val := range o {
+		r[name] = max(r[name], val)
 	}
 }
 
-func (r *Resources) Scale(f int64) {
-	r.MilliCPU *= f
-	r.Memory *= f
-	r.EphemeralStorage *= f
-	for name := range r.Scalar {
-		r.Scalar[name] *= f
+func (r Requests) scale(f int64) {
+	for name := range r {
+		r[name] *= f
 	}
 }
 

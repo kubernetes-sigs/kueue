@@ -20,6 +20,8 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 
@@ -135,9 +137,31 @@ func TestCacheWorkloadOperations(t *testing.T) {
 	capacities := []kueue.QueueCapacity{
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "one"},
+			Spec: kueue.QueueCapacitySpec{
+				RequestableResources: []kueue.Resource{
+					{
+						Name: "cpu",
+						Types: []kueue.ResourceType{
+							{Name: "on-demand"},
+							{Name: "spot"},
+						},
+					},
+				},
+			},
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "two"},
+			Spec: kueue.QueueCapacitySpec{
+				RequestableResources: []kueue.Resource{
+					{
+						Name: "cpu",
+						Types: []kueue.ResourceType{
+							{Name: "on-demand"},
+							{Name: "spot"},
+						},
+					},
+				},
+			},
 		},
 	}
 	cache := NewCache()
@@ -145,11 +169,45 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		cache.AddCapacity(&c)
 	}
 
+	type result struct {
+		Workloads     sets.String
+		UsedResources map[corev1.ResourceName]map[string]int64
+	}
+
+	pods := []kueue.PodSet{
+		{
+			Name: "driver",
+			Spec: corev1.PodSpec{
+				Containers: containersForRequests(
+					map[corev1.ResourceName]string{
+						corev1.ResourceCPU:    "10m",
+						corev1.ResourceMemory: "512Ki",
+					}),
+			},
+			Count: 1,
+			AssignedTypes: map[corev1.ResourceName]string{
+				corev1.ResourceCPU: "on-demand",
+			},
+		},
+		{
+			Name: "workers",
+			Spec: corev1.PodSpec{
+				Containers: containersForRequests(
+					map[corev1.ResourceName]string{
+						corev1.ResourceCPU: "5m",
+					}),
+			},
+			AssignedTypes: map[corev1.ResourceName]string{
+				corev1.ResourceCPU: "spot",
+			},
+			Count: 3,
+		},
+	}
 	steps := []struct {
-		name           string
-		operation      func() error
-		wantCapacities map[string]sets.String
-		wantError      string
+		name        string
+		operation   func() error
+		wantResults map[string]result
+		wantError   string
 	}{
 		{
 			name: "add",
@@ -157,7 +215,10 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				workloads := []kueue.QueuedWorkload{
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "a"},
-						Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "one"},
+						Spec: kueue.QueuedWorkloadSpec{
+							AssignedCapacity: "one",
+							Pods:             pods,
+						},
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "b"},
@@ -179,9 +240,15 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				}
 				return nil
 			},
-			wantCapacities: map[string]sets.String{
-				"one": sets.NewString("a", "c"),
-				"two": sets.NewString("b", "d"),
+			wantResults: map[string]result{
+				"one": {
+					Workloads:     sets.NewString("a", "c"),
+					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 10, "spot": 15}},
+				},
+				"two": {
+					Workloads:     sets.NewString("b", "d"),
+					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
+				},
 			},
 		},
 		{
@@ -194,9 +261,15 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				return cache.AddWorkload(&w)
 			},
 			wantError: "capacity doesn't exist",
-			wantCapacities: map[string]sets.String{
-				"one": sets.NewString("a", "c"),
-				"two": sets.NewString("b", "d"),
+			wantResults: map[string]result{
+				"one": {
+					Workloads:     sets.NewString("a", "c"),
+					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 10, "spot": 15}},
+				},
+				"two": {
+					Workloads:     sets.NewString("b", "d"),
+					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
+				},
 			},
 		},
 		{
@@ -209,9 +282,15 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				return cache.AddWorkload(&w)
 			},
 			wantError: "workload already exists in capacity",
-			wantCapacities: map[string]sets.String{
-				"one": sets.NewString("a", "c"),
-				"two": sets.NewString("b", "d"),
+			wantResults: map[string]result{
+				"one": {
+					Workloads:     sets.NewString("a", "c"),
+					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 10, "spot": 15}},
+				},
+				"two": {
+					Workloads:     sets.NewString("b", "d"),
+					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
+				},
 			},
 		},
 		{
@@ -223,13 +302,22 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				}
 				new := kueue.QueuedWorkload{
 					ObjectMeta: metav1.ObjectMeta{Name: "a"},
-					Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "two"},
+					Spec: kueue.QueuedWorkloadSpec{
+						AssignedCapacity: "two",
+						Pods:             pods,
+					},
 				}
 				return cache.UpdateWorkload(&old, &new)
 			},
-			wantCapacities: map[string]sets.String{
-				"one": sets.NewString("c"),
-				"two": sets.NewString("a", "b", "d"),
+			wantResults: map[string]result{
+				"one": {
+					Workloads:     sets.NewString("c"),
+					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
+				},
+				"two": {
+					Workloads:     sets.NewString("a", "b", "d"),
+					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 10, "spot": 15}},
+				},
 			},
 		},
 		{
@@ -246,9 +334,15 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				return cache.UpdateWorkload(&old, &new)
 			},
 			wantError: "workload does not exist in capacity",
-			wantCapacities: map[string]sets.String{
-				"one": sets.NewString("c"),
-				"two": sets.NewString("a", "b", "d"),
+			wantResults: map[string]result{
+				"one": {
+					Workloads:     sets.NewString("c"),
+					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
+				},
+				"two": {
+					Workloads:     sets.NewString("a", "b", "d"),
+					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 10, "spot": 15}},
+				},
 			},
 		},
 		{
@@ -260,9 +354,15 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				}
 				return cache.DeleteWorkload(&w)
 			},
-			wantCapacities: map[string]sets.String{
-				"one": sets.NewString("c"),
-				"two": sets.NewString("b", "d"),
+			wantResults: map[string]result{
+				"one": {
+					Workloads:     sets.NewString("c"),
+					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
+				},
+				"two": {
+					Workloads:     sets.NewString("b", "d"),
+					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
+				},
 			},
 		},
 		{
@@ -275,9 +375,15 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				return cache.DeleteWorkload(&w)
 			},
 			wantError: "capacity doesn't exist",
-			wantCapacities: map[string]sets.String{
-				"one": sets.NewString("c"),
-				"two": sets.NewString("b", "d"),
+			wantResults: map[string]result{
+				"one": {
+					Workloads:     sets.NewString("c"),
+					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
+				},
+				"two": {
+					Workloads:     sets.NewString("b", "d"),
+					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
+				},
 			},
 		},
 		{
@@ -290,9 +396,15 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				return cache.DeleteWorkload(&w)
 			},
 			wantError: "workload does not exist in capacity",
-			wantCapacities: map[string]sets.String{
-				"one": sets.NewString("c"),
-				"two": sets.NewString("b", "d"),
+			wantResults: map[string]result{
+				"one": {
+					Workloads:     sets.NewString("c"),
+					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
+				},
+				"two": {
+					Workloads:     sets.NewString("b", "d"),
+					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
+				},
 			},
 		},
 	}
@@ -302,15 +414,15 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			if diff := cmp.Diff(step.wantError, messageOrEmpty(gotError)); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
-			gotCapacities := make(map[string]sets.String)
+			gotWorkloads := make(map[string]result)
 			for name, capacity := range cache.capacities {
-				gotCapacity := sets.NewString()
+				c := sets.NewString()
 				for k := range capacity.Workloads {
-					gotCapacity.Insert(capacity.Workloads[k].Obj.Name)
+					c.Insert(capacity.Workloads[k].Obj.Name)
 				}
-				gotCapacities[name] = gotCapacity
+				gotWorkloads[name] = result{Workloads: c, UsedResources: capacity.UsedResources}
 			}
-			if diff := cmp.Diff(step.wantCapacities, gotCapacities); diff != "" {
+			if diff := cmp.Diff(step.wantResults, gotWorkloads); diff != "" {
 				t.Errorf("Unexpected capacities (-want,+got):\n%s", diff)
 			}
 		})
@@ -322,4 +434,18 @@ func messageOrEmpty(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+func containersForRequests(requests ...map[corev1.ResourceName]string) []corev1.Container {
+	containers := make([]corev1.Container, len(requests))
+	for i, r := range requests {
+		rl := make(corev1.ResourceList, len(r))
+		for name, val := range r {
+			rl[name] = resource.MustParse(val)
+		}
+		containers[i].Resources = corev1.ResourceRequirements{
+			Requests: rl,
+		}
+	}
+	return containers
 }

@@ -51,23 +51,30 @@ type Capacity struct {
 	Name                 string
 	Cohort               *Cohort
 	RequestableResources []kueue.Resource
-	UsedResources        usedResources
+	UsedResources        map[corev1.ResourceName]map[string]int64
 	Workloads            map[string]*workload.Info
 }
 
-type usedResources struct {
-	MilliCPU         map[string]int64
-	Memory           map[string]int64
-	EphemeralStorage map[string]int64
-	Scalar           map[corev1.ResourceName]map[string]int64
-}
-
 func NewCapacity(cap *kueue.QueueCapacity) *Capacity {
-	return &Capacity{
+	c := &Capacity{
 		Name:                 cap.Name,
 		RequestableResources: cap.Spec.RequestableResources,
+		UsedResources:        make(map[corev1.ResourceName]map[string]int64, len(cap.Spec.RequestableResources)),
 		Workloads:            map[string]*workload.Info{},
 	}
+
+	for _, r := range cap.Spec.RequestableResources {
+		if len(r.Types) == 0 {
+			continue
+		}
+
+		ts := make(map[string]int64, len(r.Types))
+		for _, t := range r.Types {
+			ts[t.Name] = 0
+		}
+		c.UsedResources[r.Name] = ts
+	}
+	return c
 }
 
 func (c *Capacity) addWorkload(w *kueue.QueuedWorkload) error {
@@ -77,23 +84,34 @@ func (c *Capacity) addWorkload(w *kueue.QueuedWorkload) error {
 	}
 	wi := workload.NewInfo(w)
 	c.Workloads[k] = &wi
-
-	// Add to "UsedResources"
-
+	c.updateWorkloadUsage(&wi, 1)
 	return nil
 
 }
 
 func (c *Capacity) deleteWorkload(w *kueue.QueuedWorkload) error {
 	k := workload.Key(w)
-	if _, exist := c.Workloads[k]; !exist {
+	wi, exist := c.Workloads[k]
+	if !exist {
 		return fmt.Errorf("workload does not exist in capacity")
 	}
+	c.updateWorkloadUsage(wi, -1)
 	delete(c.Workloads, k)
-
-	// Delete from "UsedResources"
-
 	return nil
+}
+
+func (c *Capacity) updateWorkloadUsage(wi *workload.Info, m int64) {
+	for _, ps := range wi.TotalRequests {
+		for wlRes, wlResTyp := range ps.Types {
+			v, wlResExist := ps.Requests[wlRes]
+			capResTyp, capResExist := c.UsedResources[wlRes]
+			if capResExist && wlResExist {
+				if _, capTypExist := capResTyp[wlResTyp]; capTypExist {
+					capResTyp[wlResTyp] += v * m
+				}
+			}
+		}
+	}
 }
 
 func (c *Cache) AddCapacity(cap *kueue.QueueCapacity) error {
