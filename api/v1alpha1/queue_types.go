@@ -25,16 +25,6 @@ type QueueSpec struct {
 	// capacity is a reference to a QueueCapacity (QC) object form which resources
 	// are allocated to this queue.
 	Capacity QueueCapacityReference `json:"capacity,omitempty"`
-
-	// priority of the queue. When multiple Queues reference the same
-	// QueueCapacity, workloads in Queues with higher priority consume the shared
-	// QueueCapacity first.
-	Priority int64 `json:"priority"`
-
-	// namespaceSelector defines which namespaces are allowed to submit workloads
-	// to this Queue.
-	// If empty, any namespace is allowed to submit workloads to this queue.
-	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
 }
 
 // QueueCapacityReference is the name of the QueueCapacity.
@@ -45,7 +35,6 @@ type QueueStatus struct {
 }
 
 //+kubebuilder:object:root=true
-//+kubebuilder:resource:scope=Cluster
 //+kubebuilder:subresource:status
 
 // Queue is the Schema for the queues API

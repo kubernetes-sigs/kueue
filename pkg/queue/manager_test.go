@@ -247,21 +247,18 @@ func TestHeads(t *testing.T) {
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "foo"},
 			Spec: kueue.QueueSpec{
-				Priority: 1,
 				Capacity: "fooCap",
 			},
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "bar"},
 			Spec: kueue.QueueSpec{
-				Priority: -1,
 				Capacity: "barCap",
 			},
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "baz"},
 			Spec: kueue.QueueSpec{
-				Priority: 2,
 				Capacity: "bazCap",
 			},
 		},
@@ -300,19 +297,17 @@ func TestHeads(t *testing.T) {
 	wantHeads := []workload.Info{
 		{
 			Obj:      &workloads[1],
-			Priority: -1,
 			Capacity: "barCap",
 		},
 		{
 			Obj:      &workloads[2],
-			Priority: 1,
 			Capacity: "fooCap",
 		},
 	}
 
 	heads := manager.Heads(ctx)
 	sort.Slice(heads, func(i, j int) bool {
-		return heads[i].Priority < heads[j].Priority
+		return heads[i].Obj.Name < heads[j].Obj.Name
 	})
 	if diff := cmp.Diff(wantHeads, heads); diff != "" {
 		t.Errorf("GetHeads returned wrong heads (-want,+got):\n%s", diff)
@@ -337,14 +332,12 @@ func TestHeadsAsync(t *testing.T) {
 	q := kueue.Queue{
 		ObjectMeta: metav1.ObjectMeta{Name: "foo"},
 		Spec: kueue.QueueSpec{
-			Priority: 1,
 			Capacity: "fooCap",
 		},
 	}
 	wantHeads := []workload.Info{
 		{
 			Obj:      &wl,
-			Priority: 1,
 			Capacity: "fooCap",
 		},
 	}

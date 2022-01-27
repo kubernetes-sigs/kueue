@@ -30,7 +30,6 @@ type Info struct {
 	// maps PodSet name to total resources requested by the set.
 	TotalRequests map[string]Resources
 	// Populated from queue.
-	Priority int64
 	Capacity string
 }
 

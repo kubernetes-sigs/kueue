@@ -178,7 +178,6 @@ func (m *Manager) heads() []workload.Info {
 		wl := q.Pop()
 		if wl != nil {
 			wlCopy := *wl
-			wlCopy.Priority = q.Priority
 			wlCopy.Capacity = q.Capacity
 			workloads = append(workloads, wlCopy)
 		}

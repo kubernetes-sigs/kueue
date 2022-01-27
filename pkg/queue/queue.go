@@ -18,9 +18,7 @@ package queue
 
 import (
 	"container/heap"
-	"fmt"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 
 	kueue "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
@@ -46,13 +44,7 @@ func newQueue() *Queue {
 }
 
 func (q *Queue) setProperties(apiQueue *kueue.Queue) error {
-	nsSelector, err := metav1.LabelSelectorAsSelector(apiQueue.Spec.NamespaceSelector)
-	if err != nil {
-		return fmt.Errorf("parsing namespaceSelector: %w", err)
-	}
-	q.Priority = apiQueue.Spec.Priority
 	q.Capacity = string(apiQueue.Spec.Capacity)
-	q.NamespaceSelector = nsSelector
 	return nil
 }
 

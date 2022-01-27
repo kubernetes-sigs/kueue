@@ -49,6 +49,9 @@ spec:
                       description: count is the number of Pods for the spec.
                       format: int32
                       type: integer
+                    name:
+                      description: name is the PodSet name.
+                      type: string
                     spec:
                       description: spec is the Pod spec.
                       properties:
@@ -7012,7 +7015,9 @@ spec:
                   - types
                   type: object
                 type: array
-                x-kubernetes-list-type: atomic
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               queueName:
                 description: queueName is the name of the queue the QueuedWorkload
                   is associated with.
