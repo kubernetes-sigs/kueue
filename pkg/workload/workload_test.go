@@ -133,7 +133,7 @@ func TestNewInfo(t *testing.T) {
 	}
 	info := NewInfo(qw)
 	wantRequests := map[string]Resources{
-		"driver": Resources{
+		"driver": {
 			Requests: Requests{
 				corev1.ResourceCPU:    10,
 				corev1.ResourceMemory: 512 * 1024,
@@ -142,7 +142,7 @@ func TestNewInfo(t *testing.T) {
 				corev1.ResourceCPU: "on-demand",
 			},
 		},
-		"workers": Resources{
+		"workers": {
 			Requests: Requests{
 				corev1.ResourceCPU:    15,
 				corev1.ResourceMemory: 3 * 1024 * 1024,

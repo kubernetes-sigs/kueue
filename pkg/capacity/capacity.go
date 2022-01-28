@@ -46,6 +46,13 @@ type Cohort struct {
 	members map[*Capacity]struct{}
 }
 
+func newCohort(name string, cap int) *Cohort {
+	return &Cohort{
+		name: name,
+		members: make(map[*Capacity]struct{}, cap),
+	}
+}
+
 // Capacity is the internal implementation of kueue.QueueCapacity
 type Capacity struct {
 	Name                 string
@@ -58,7 +65,7 @@ type Capacity struct {
 func NewCapacity(cap *kueue.QueueCapacity) *Capacity {
 	c := &Capacity{
 		Name:                 cap.Name,
-		RequestableResources: cap.Spec.RequestableResources,
+		RequestableResources: deepCopyResources(cap.Spec.RequestableResources),
 		UsedResources:        make(map[corev1.ResourceName]map[string]int64, len(cap.Spec.RequestableResources)),
 		Workloads:            map[string]*workload.Info{},
 	}
@@ -134,7 +141,7 @@ func (c *Cache) UpdateCapacity(cap *kueue.QueueCapacity) error {
 	if !ok {
 		return fmt.Errorf("capacity doesn't exist")
 	}
-	capImpl.RequestableResources = cap.Spec.RequestableResources
+	capImpl.RequestableResources = deepCopyResources(cap.Spec.RequestableResources)
 	if capImpl.Cohort != nil {
 		if capImpl.Cohort.name != cap.Spec.Cohort {
 			c.deleteCapacityFromCohort(capImpl)
@@ -205,20 +212,17 @@ func (c *Cache) DeleteWorkload(w *kueue.QueuedWorkload) error {
 	return cap.deleteWorkload(w)
 }
 
-func (c *Cache) addCapacityToCohort(cap *Capacity, cohort string) {
-	if cohort == "" {
+func (c *Cache) addCapacityToCohort(cap *Capacity, cohortName string) {
+	if cohortName == "" {
 		return
 	}
-	g, ok := c.cohorts[cohort]
+	cohort, ok := c.cohorts[cohortName]
 	if !ok {
-		g = &Cohort{
-			name:    cohort,
-			members: make(map[*Capacity]struct{}, 1),
-		}
-		c.cohorts[cohort] = g
+		cohort = newCohort(cohortName, 1)
+		c.cohorts[cohortName] = cohort
 	}
-	g.members[cap] = struct{}{}
-	cap.Cohort = g
+	cohort.members[cap] = struct{}{}
+	cap.Cohort = cohort
 }
 
 func (c *Cache) deleteCapacityFromCohort(cap *Capacity) {
@@ -230,4 +234,12 @@ func (c *Cache) deleteCapacityFromCohort(cap *Capacity) {
 		delete(c.cohorts, cap.Cohort.name)
 	}
 	cap.Cohort = nil
+}
+
+func deepCopyResources(in []kueue.Resource) []kueue.Resource {
+	out := make([]kueue.Resource, len(in))
+	for i, r := range in {
+		out[i] = *r.DeepCopy()
+	}
+	return out
 }

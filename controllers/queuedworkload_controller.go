@@ -66,12 +66,12 @@ func (r *QueuedWorkloadReconciler) Create(e event.CreateEvent) bool {
 	log := r.log.WithValues("queuedWorkload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
 	log.V(2).Info("QueuedWorkload create event")
 	if wl.Spec.AssignedCapacity == "" {
-		if !r.queues.AddWorkload(wl) {
+		if !r.queues.AddWorkload(wl.DeepCopy()) {
 			log.V(2).Info("Queue for workload didn't exist; ignored for now")
 		}
 		return false
 	}
-	if err := r.cache.AddWorkload(wl); err != nil {
+	if err := r.cache.AddWorkload(wl.DeepCopy()); err != nil {
 		log.Error(err, "Failed to add workload to cache")
 	}
 
@@ -121,13 +121,13 @@ func (r *QueuedWorkloadReconciler) Update(e event.UpdateEvent) bool {
 
 	switch {
 	case prevStatus == pending && status == pending:
-		if !r.queues.UpdateWorkload(wl, prevQueue) {
+		if !r.queues.UpdateWorkload(wl.DeepCopy(), prevQueue) {
 			log.V(2).Info("Queue for updated workload didn't exist; ignoring for now")
 		}
 
 	case prevStatus == pending && status == assigned:
 		r.queues.DeleteWorkload(wl)
-		if err := r.cache.AddWorkload(wl); err != nil {
+		if err := r.cache.AddWorkload(wl.DeepCopy()); err != nil {
 			log.Error(err, "Failed to add workload to cache")
 		}
 
@@ -135,14 +135,14 @@ func (r *QueuedWorkloadReconciler) Update(e event.UpdateEvent) bool {
 		if err := r.cache.DeleteWorkload(wl); err != nil {
 			log.Error(err, "Failed to delete workload from cache")
 		}
-		if !r.queues.AddWorkload(wl) {
+		if !r.queues.AddWorkload(wl.DeepCopy()) {
 			log.V(2).Info("Queue for workload didn't exist; ignored for now")
 		}
 
 	default:
 		// Workload update in the cache is handled here; however, some fields are immutable
 		// and are not supposed to actually change anything.
-		if err := r.cache.UpdateWorkload(wl, oldWl); err != nil {
+		if err := r.cache.UpdateWorkload(oldWl, wl.DeepCopy()); err != nil {
 			log.Error(err, "Failed to update workload in cache")
 		}
 	}
