@@ -40,10 +40,16 @@ func NewCache() *Cache {
 	}
 }
 
+type Resources map[corev1.ResourceName]map[string]int64
+
 // Cohort is a set of Capacities that can borrow resources from each other.
 type Cohort struct {
 	name    string
 	members map[*Capacity]struct{}
+
+	// These fields are only populated for a snapshot.
+	RequestableResources Resources
+	UsedResources        Resources
 }
 
 func newCohort(name string, cap int) *Cohort {
@@ -58,7 +64,7 @@ type Capacity struct {
 	Name                 string
 	Cohort               *Cohort
 	RequestableResources []kueue.Resource
-	UsedResources        map[corev1.ResourceName]map[string]int64
+	UsedResources        Resources
 	Workloads            map[string]*workload.Info
 }
 
@@ -66,7 +72,7 @@ func NewCapacity(cap *kueue.QueueCapacity) *Capacity {
 	c := &Capacity{
 		Name:                 cap.Name,
 		RequestableResources: deepCopyResources(cap.Spec.RequestableResources),
-		UsedResources:        make(map[corev1.ResourceName]map[string]int64, len(cap.Spec.RequestableResources)),
+		UsedResources:        make(Resources, len(cap.Spec.RequestableResources)),
 		Workloads:            map[string]*workload.Info{},
 	}
 
@@ -90,8 +96,8 @@ func (c *Capacity) addWorkload(w *kueue.QueuedWorkload) error {
 		return fmt.Errorf("workload already exists in capacity")
 	}
 	wi := workload.NewInfo(w)
-	c.Workloads[k] = &wi
-	c.updateWorkloadUsage(&wi, 1)
+	c.Workloads[k] = wi
+	c.updateWorkloadUsage(wi, 1)
 	return nil
 
 }

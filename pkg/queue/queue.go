@@ -50,7 +50,7 @@ func (q *Queue) setProperties(apiQueue *kueue.Queue) error {
 
 func (q *Queue) PushOrUpdate(w *kueue.QueuedWorkload) {
 	item := q.heap.items[workload.Key(w)]
-	info := workload.NewInfo(w)
+	info := *workload.NewInfo(w)
 	if item == nil {
 		heap.Push(&q.heap, info)
 		return

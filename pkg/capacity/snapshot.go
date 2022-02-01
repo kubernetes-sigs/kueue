@@ -17,13 +17,11 @@ limitations under the License.
 package capacity
 
 import (
-	corev1 "k8s.io/api/core/v1"
-
 	"gke-internal.googlesource.com/gke-batch/kueue/pkg/workload"
 )
 
 type Snapshot struct {
-	capacities map[string]*Capacity
+	Capacities map[string]*Capacity
 }
 
 func (c *Cache) Snapshot() Snapshot {
@@ -31,15 +29,18 @@ func (c *Cache) Snapshot() Snapshot {
 	defer c.Unlock()
 
 	snap := Snapshot{
-		capacities: make(map[string]*Capacity, len(c.capacities)),
+		Capacities: make(map[string]*Capacity, len(c.capacities)),
+	}
+	for _, cap := range c.capacities {
+		snap.Capacities[cap.Name] = cap.snapshot()
 	}
 	for _, cohort := range c.cohorts {
 		cohortCopy := newCohort(cohort.name, len(cohort.members))
 		for cap := range cohort.members {
-			capCopy := cap.snapshot()
+			capCopy := snap.Capacities[cap.Name]
+			capCopy.accumulateResources(cohortCopy)
 			capCopy.Cohort = cohortCopy
 			cohortCopy.members[capCopy] = struct{}{}
-			snap.capacities[cap.Name] = capCopy
 		}
 	}
 	return snap
@@ -51,7 +52,7 @@ func (c *Capacity) snapshot() *Capacity {
 	copy := &Capacity{
 		Name:                 c.Name,
 		RequestableResources: c.RequestableResources, // Shallow copy is enough.
-		UsedResources:        make(map[corev1.ResourceName]map[string]int64, len(c.UsedResources)),
+		UsedResources:        make(Resources, len(c.UsedResources)),
 		Workloads:            make(map[string]*workload.Info, len(c.Workloads)),
 	}
 	for res, types := range c.UsedResources {
@@ -59,11 +60,40 @@ func (c *Capacity) snapshot() *Capacity {
 		for k, v := range types {
 			typesCopy[k] = v
 		}
-		c.UsedResources[res] = typesCopy
+		copy.UsedResources[res] = typesCopy
 	}
 	for k, v := range c.Workloads {
 		// Shallow copy is enough.
 		copy.Workloads[k] = v
 	}
 	return copy
+}
+
+func (c *Capacity) accumulateResources(cohort *Cohort) {
+	if cohort.RequestableResources == nil {
+		cohort.RequestableResources = make(Resources, len(c.RequestableResources))
+	}
+	for _, res := range c.RequestableResources {
+		req := cohort.RequestableResources[res.Name]
+		if req == nil {
+			req = make(map[string]int64, len(res.Types))
+			cohort.RequestableResources[res.Name] = req
+		}
+		for _, capType := range res.Types {
+			req[capType.Name] += workload.ResourceValue(res.Name, capType.Quota.Guaranteed)
+		}
+	}
+	if cohort.UsedResources == nil {
+		cohort.UsedResources = make(Resources, len(c.UsedResources))
+	}
+	for res, resTypes := range c.UsedResources {
+		used := cohort.UsedResources[res]
+		if used == nil {
+			used = make(map[string]int64, len(resTypes))
+			cohort.UsedResources[res] = used
+		}
+		for rType, val := range resTypes {
+			used[rType] += val
+		}
+	}
 }

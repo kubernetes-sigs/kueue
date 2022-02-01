@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	kueue "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
 )
@@ -38,8 +39,8 @@ type Resources struct {
 	Types    map[corev1.ResourceName]string
 }
 
-func NewInfo(w *kueue.QueuedWorkload) Info {
-	return Info{
+func NewInfo(w *kueue.QueuedWorkload) *Info {
+	return &Info{
 		Obj:           w,
 		TotalRequests: totalRequests(w.Spec.Pods),
 	}
@@ -90,14 +91,18 @@ func podRequests(spec *corev1.PodSpec) Requests {
 func newRequests(rl corev1.ResourceList) Requests {
 	r := Requests{}
 	for name, quant := range rl {
-		switch name {
-		case corev1.ResourceCPU:
-			r[name] = quant.MilliValue()
-		default:
-			r[name] = quant.Value()
-		}
+		r[name] = ResourceValue(name, quant)
 	}
 	return r
+}
+
+// ResourceValue returns the integer value for the resource name.
+// It's milli-units for CPU and absolute units for everything else.
+func ResourceValue(name corev1.ResourceName, q resource.Quantity) int64 {
+	if name == corev1.ResourceCPU {
+		return q.MilliValue()
+	}
+	return q.Value()
 }
 
 func (r Requests) add(o Requests) {
