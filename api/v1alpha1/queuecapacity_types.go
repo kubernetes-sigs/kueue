@@ -207,7 +207,7 @@ type ResourceType struct {
 	Name string `json:"name,omitempty"`
 
 	// quota is the limit of resource usage at a point in time.
-	Quota *Quota `json:"quota,omitempty"`
+	Quota Quota `json:"quota,omitempty"`
 
 	// labels associated with this type. Those labels are matched against or
 	// converted to node affinity constraints on the workload’s pods.
