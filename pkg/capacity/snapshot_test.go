@@ -26,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
+	utiltesting "gke-internal.googlesource.com/gke-batch/kueue/pkg/util/testing"
 	"gke-internal.googlesource.com/gke-batch/kueue/pkg/workload"
 )
 
@@ -122,7 +123,7 @@ func TestSnapshot(t *testing.T) {
 				Pods: []kueue.PodSet{
 					{
 						Count: 5,
-						Spec: podSpecForRequest(map[corev1.ResourceName]string{
+						Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
 							corev1.ResourceCPU: "2",
 						}),
 						AssignedTypes: map[corev1.ResourceName]string{
@@ -139,7 +140,7 @@ func TestSnapshot(t *testing.T) {
 				Pods: []kueue.PodSet{
 					{
 						Count: 5,
-						Spec: podSpecForRequest(map[corev1.ResourceName]string{
+						Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
 							corev1.ResourceCPU: "1",
 							"example.com/gpu":  "2",
 						}),
@@ -158,7 +159,7 @@ func TestSnapshot(t *testing.T) {
 				Pods: []kueue.PodSet{
 					{
 						Count: 5,
-						Spec: podSpecForRequest(map[corev1.ResourceName]string{
+						Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
 							corev1.ResourceCPU: "1",
 							"example.com/gpu":  "1",
 						}),
@@ -201,8 +202,8 @@ func TestSnapshot(t *testing.T) {
 	wantSnapshot := Snapshot{
 		Capacities: map[string]*Capacity{
 			"foofoo": {
-				Name:                 "foofoo",
-				Cohort:               &wantCohorts[0],
+				Name:   "foofoo",
+				Cohort: &wantCohorts[0],
 				RequestableResources: map[corev1.ResourceName][]kueue.ResourceType{
 					corev1.ResourceCPU: {
 						{
@@ -230,8 +231,8 @@ func TestSnapshot(t *testing.T) {
 				},
 			},
 			"foobar": {
-				Name:                 "foobar",
-				Cohort:               &wantCohorts[0],
+				Name:   "foobar",
+				Cohort: &wantCohorts[0],
 				RequestableResources: map[corev1.ResourceName][]kueue.ResourceType{
 					corev1.ResourceCPU: {
 						{
@@ -263,7 +264,7 @@ func TestSnapshot(t *testing.T) {
 				},
 			},
 			"bar": {
-				Name:                 "bar",
+				Name: "bar",
 				RequestableResources: map[corev1.ResourceName][]kueue.ResourceType{
 					corev1.ResourceCPU: {
 						{
@@ -276,6 +277,7 @@ func TestSnapshot(t *testing.T) {
 				UsedResources: Resources{
 					corev1.ResourceCPU: map[string]int64{"": 0},
 				},
+				Workloads: map[string]*workload.Info{},
 			},
 		},
 	}
@@ -287,23 +289,7 @@ func TestSnapshot(t *testing.T) {
 			m.Cohort = &wantCohorts[i]
 		}
 	}
-	if diff := cmp.Diff(wantSnapshot, snapshot, cmpopts.IgnoreUnexported(Cohort{}), cmpopts.IgnoreFields(Capacity{}, "Workloads")); diff != "" {
+	if diff := cmp.Diff(wantSnapshot, snapshot, cmpopts.IgnoreUnexported(Cohort{})); diff != "" {
 		t.Errorf("Unexpected Snapshot (-want,+got):\n%s", diff)
-	}
-}
-
-func podSpecForRequest(request map[corev1.ResourceName]string) corev1.PodSpec {
-	rl := make(corev1.ResourceList, len(request))
-	for name, val := range request {
-		rl[name] = resource.MustParse(val)
-	}
-	return corev1.PodSpec{
-		Containers: []corev1.Container{
-			{
-				Resources: corev1.ResourceRequirements{
-					Requests: rl,
-				},
-			},
-		},
 	}
 }
