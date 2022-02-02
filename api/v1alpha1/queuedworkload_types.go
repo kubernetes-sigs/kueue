@@ -1,5 +1,5 @@
 /*
-Copyright 2021 Google LLC.
+Copyright 2022 Google LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -69,7 +69,8 @@ type PodSet struct {
 
 	// assignedTypes lists the resources and the respective types that this workload is
 	// assigned to.
-	AssignedTypes map[corev1.ResourceName]string `json:"types"`
+	// +optional
+	AssignedTypes map[corev1.ResourceName]string `json:"types,omitempty"`
 }
 
 // QueuedWorkloadStatus defines the observed state of QueuedWorkload

@@ -7014,7 +7014,6 @@ spec:
                   - count
                   - name
                   - spec
-                  - types
                   type: object
                 type: array
                 x-kubernetes-list-map-keys:
