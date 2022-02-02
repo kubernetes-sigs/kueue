@@ -137,7 +137,7 @@ type QueueCapacitySpec struct {
 
 type Resource struct {
 	// name of the resource. For example, cpu, memory or nvidia.com/gpu.
-	Name corev1.ResourceName `json:"name,omitempty"`
+	Name corev1.ResourceName `json:"name"`
 
 	// types is the list of different flavors of this resource and their limits.
 	// Typically two different “types” of the same resource represent
@@ -204,10 +204,11 @@ type Resource struct {
 
 type ResourceType struct {
 	// name is the type name, e.g., nvidia-tesla-k80.
-	Name string `json:"name,omitempty"`
+	// +kubebuilder:default=default
+	Name string `json:"name"`
 
 	// quota is the limit of resource usage at a point in time.
-	Quota Quota `json:"quota,omitempty"`
+	Quota Quota `json:"quota"`
 
 	// labels associated with this type. Those labels are matched against or
 	// converted to node affinity constraints on the workload’s pods.

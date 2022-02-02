@@ -58,8 +58,8 @@ type WorkloadReference struct {
 
 type PodSet struct {
 	// name is the PodSet name.
-	// +optional
-	Name string `json:"name,omitempty"`
+	// +kubebuilder:default=main
+	Name string `json:"name"`
 
 	// spec is the Pod spec.
 	Spec corev1.PodSpec `json:"spec"`
