@@ -203,7 +203,22 @@ func TestSnapshot(t *testing.T) {
 			"foofoo": {
 				Name:                 "foofoo",
 				Cohort:               &wantCohorts[0],
-				RequestableResources: capacities[0].Spec.RequestableResources,
+				RequestableResources: map[corev1.ResourceName][]kueue.ResourceType{
+					corev1.ResourceCPU: {
+						{
+							Name: "demand",
+							Quota: kueue.Quota{
+								Guaranteed: resource.MustParse("100"),
+							},
+						},
+						{
+							Name: "spot",
+							Quota: kueue.Quota{
+								Guaranteed: resource.MustParse("200"),
+							},
+						},
+					},
+				},
 				UsedResources: Resources{
 					corev1.ResourceCPU: map[string]int64{
 						"demand": 10_000,
@@ -217,7 +232,23 @@ func TestSnapshot(t *testing.T) {
 			"foobar": {
 				Name:                 "foobar",
 				Cohort:               &wantCohorts[0],
-				RequestableResources: capacities[1].Spec.RequestableResources,
+				RequestableResources: map[corev1.ResourceName][]kueue.ResourceType{
+					corev1.ResourceCPU: {
+						{
+							Name: "spot",
+							Quota: kueue.Quota{
+								Guaranteed: resource.MustParse("100"),
+							},
+						},
+					},
+					"example.com/gpu": {
+						{
+							Quota: kueue.Quota{
+								Guaranteed: resource.MustParse("50"),
+							},
+						},
+					},
+				},
 				UsedResources: Resources{
 					corev1.ResourceCPU: map[string]int64{
 						"spot": 10_000,
@@ -233,7 +264,15 @@ func TestSnapshot(t *testing.T) {
 			},
 			"bar": {
 				Name:                 "bar",
-				RequestableResources: capacities[2].Spec.RequestableResources,
+				RequestableResources: map[corev1.ResourceName][]kueue.ResourceType{
+					corev1.ResourceCPU: {
+						{
+							Quota: kueue.Quota{
+								Guaranteed: resource.MustParse("100"),
+							},
+						},
+					},
+				},
 				UsedResources: Resources{
 					corev1.ResourceCPU: map[string]int64{"": 0},
 				},

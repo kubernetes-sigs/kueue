@@ -63,7 +63,7 @@ func newCohort(name string, cap int) *Cohort {
 type Capacity struct {
 	Name                 string
 	Cohort               *Cohort
-	RequestableResources []kueue.Resource
+	RequestableResources map[corev1.ResourceName][]kueue.ResourceType
 	UsedResources        Resources
 	Workloads            map[string]*workload.Info
 }
@@ -71,7 +71,7 @@ type Capacity struct {
 func NewCapacity(cap *kueue.QueueCapacity) *Capacity {
 	c := &Capacity{
 		Name:                 cap.Name,
-		RequestableResources: deepCopyResources(cap.Spec.RequestableResources),
+		RequestableResources: resourcesByName(cap.Spec.RequestableResources),
 		UsedResources:        make(Resources, len(cap.Spec.RequestableResources)),
 		Workloads:            map[string]*workload.Info{},
 	}
@@ -147,7 +147,7 @@ func (c *Cache) UpdateCapacity(cap *kueue.QueueCapacity) error {
 	if !ok {
 		return fmt.Errorf("capacity doesn't exist")
 	}
-	capImpl.RequestableResources = deepCopyResources(cap.Spec.RequestableResources)
+	capImpl.RequestableResources = resourcesByName(cap.Spec.RequestableResources)
 	if capImpl.Cohort != nil {
 		if capImpl.Cohort.name != cap.Spec.Cohort {
 			c.deleteCapacityFromCohort(capImpl)
@@ -242,10 +242,14 @@ func (c *Cache) deleteCapacityFromCohort(cap *Capacity) {
 	cap.Cohort = nil
 }
 
-func deepCopyResources(in []kueue.Resource) []kueue.Resource {
-	out := make([]kueue.Resource, len(in))
-	for i, r := range in {
-		out[i] = *r.DeepCopy()
+func resourcesByName(in []kueue.Resource) map[corev1.ResourceName][]kueue.ResourceType {
+	out := make(map[corev1.ResourceName][]kueue.ResourceType, len(in))
+	for _, r := range in {
+		types := make([]kueue.ResourceType, len(r.Types))
+		for i := range types {
+			types[i] = *r.Types[i].DeepCopy()
+		}
+		out[r.Name] = types
 	}
 	return out
 }

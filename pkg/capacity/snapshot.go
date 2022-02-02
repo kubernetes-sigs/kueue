@@ -73,14 +73,14 @@ func (c *Capacity) accumulateResources(cohort *Cohort) {
 	if cohort.RequestableResources == nil {
 		cohort.RequestableResources = make(Resources, len(c.RequestableResources))
 	}
-	for _, res := range c.RequestableResources {
-		req := cohort.RequestableResources[res.Name]
+	for name, types := range c.RequestableResources {
+		req := cohort.RequestableResources[name]
 		if req == nil {
-			req = make(map[string]int64, len(res.Types))
-			cohort.RequestableResources[res.Name] = req
+			req = make(map[string]int64, len(types))
+			cohort.RequestableResources[name] = req
 		}
-		for _, capType := range res.Types {
-			req[capType.Name] += workload.ResourceValue(res.Name, capType.Quota.Guaranteed)
+		for _, capType := range types {
+			req[capType.Name] += workload.ResourceValue(name, capType.Quota.Guaranteed)
 		}
 	}
 	if cohort.UsedResources == nil {
