@@ -48,7 +48,7 @@ type Cohort struct {
 
 func newCohort(name string, cap int) *Cohort {
 	return &Cohort{
-		name: name,
+		name:    name,
 		members: make(map[*Capacity]struct{}, cap),
 	}
 }

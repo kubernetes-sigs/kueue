@@ -49,10 +49,10 @@ func (c *Cache) Snapshot() Snapshot {
 // objects and deep copies of changing ones. A reference to the cohort is not included.
 func (c *Capacity) snapshot() *Capacity {
 	copy := &Capacity{
-		Name: c.Name,
+		Name:                 c.Name,
 		RequestableResources: c.RequestableResources, // Shallow copy is enough.
-		UsedResources: make(map[corev1.ResourceName]map[string]int64, len(c.UsedResources)),
-		Workloads: make(map[string]*workload.Info, len(c.Workloads)),
+		UsedResources:        make(map[corev1.ResourceName]map[string]int64, len(c.UsedResources)),
+		Workloads:            make(map[string]*workload.Info, len(c.Workloads)),
 	}
 	for res, types := range c.UsedResources {
 		typesCopy := make(map[string]int64, len(types))
