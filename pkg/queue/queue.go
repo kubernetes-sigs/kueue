@@ -48,6 +48,15 @@ func (q *Queue) setProperties(apiQueue *kueue.Queue) error {
 	return nil
 }
 
+func (q *Queue) PushIfNotPresent(info *workload.Info) bool {
+	item := q.heap.items[workload.Key(info.Obj)]
+	if item != nil {
+		return false
+	}
+	heap.Push(&q.heap, info)
+	return true
+}
+
 func (q *Queue) PushOrUpdate(w *kueue.QueuedWorkload) {
 	item := q.heap.items[workload.Key(w)]
 	info := *workload.NewInfo(w)

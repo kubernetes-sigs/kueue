@@ -46,7 +46,7 @@ type Resources map[corev1.ResourceName]map[string]int64
 
 // Cohort is a set of Capacities that can borrow resources from each other.
 type Cohort struct {
-	name    string
+	Name    string
 	members map[*Capacity]struct{}
 
 	// These fields are only populated for a snapshot.
@@ -56,7 +56,7 @@ type Cohort struct {
 
 func newCohort(name string, cap int) *Cohort {
 	return &Cohort{
-		name:    name,
+		Name:    name,
 		members: make(map[*Capacity]struct{}, cap),
 	}
 }
@@ -151,7 +151,7 @@ func (c *Cache) UpdateCapacity(cap *kueue.Capacity) error {
 	}
 	capImpl.RequestableResources = resourcesByName(cap.Spec.RequestableResources)
 	if capImpl.Cohort != nil {
-		if capImpl.Cohort.name != cap.Spec.Cohort {
+		if capImpl.Cohort.Name != cap.Spec.Cohort {
 			c.deleteCapacityFromCohort(capImpl)
 			c.addCapacityToCohort(capImpl, cap.Spec.Cohort)
 		}
@@ -304,7 +304,7 @@ func (c *Cache) deleteCapacityFromCohort(cap *Capacity) {
 	}
 	delete(cap.Cohort.members, cap)
 	if len(cap.Cohort.members) == 0 {
-		delete(c.cohorts, cap.Cohort.name)
+		delete(c.cohorts, cap.Cohort.Name)
 	}
 	cap.Cohort = nil
 }

@@ -179,6 +179,7 @@ func TestSnapshot(t *testing.T) {
 	snapshot := cache.Snapshot()
 	wantCohorts := []Cohort{
 		{
+			Name: "foo",
 			RequestableResources: Resources{
 				corev1.ResourceCPU: map[string]int64{
 					"demand": 100_000,

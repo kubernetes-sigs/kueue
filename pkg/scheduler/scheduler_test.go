@@ -17,11 +17,14 @@ limitations under the License.
 package scheduler
 
 import (
+	"sort"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
 	"gke-internal.googlesource.com/gke-batch/kueue/pkg/capacity"
@@ -339,6 +342,59 @@ func TestEntryAssignFlavors(t *testing.T) {
 				t.Errorf("Calculated unexpected borrowing (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestEntryOrdering(t *testing.T) {
+	now := time.Now()
+	input := []entry{
+		{
+			Info: workload.Info{
+				Obj: &kueue.QueuedWorkload{ObjectMeta: metav1.ObjectMeta{
+					Name:              "alpha",
+					CreationTimestamp: metav1.NewTime(now),
+				}},
+			},
+			borrows: capacity.Resources{
+				corev1.ResourceCPU: {},
+			},
+		},
+		{
+			Info: workload.Info{
+				Obj: &kueue.QueuedWorkload{ObjectMeta: metav1.ObjectMeta{
+					Name:              "beta",
+					CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
+				}},
+			},
+		},
+		{
+			Info: workload.Info{
+				Obj: &kueue.QueuedWorkload{ObjectMeta: metav1.ObjectMeta{
+					Name:              "gamma",
+					CreationTimestamp: metav1.NewTime(now.Add(2 * time.Second)),
+				}},
+			},
+		},
+		{
+			Info: workload.Info{
+				Obj: &kueue.QueuedWorkload{ObjectMeta: metav1.ObjectMeta{
+					Name:              "delta",
+					CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
+				}},
+			},
+			borrows: capacity.Resources{
+				corev1.ResourceCPU: {},
+			},
+		},
+	}
+	sort.Sort(entryOrdering(input))
+	order := make([]string, len(input))
+	for i, e := range input {
+		order[i] = e.Obj.Name
+	}
+	wantOrder := []string{"beta", "gamma", "alpha", "delta"}
+	if diff := cmp.Diff(wantOrder, order); diff != "" {
+		t.Errorf("Unexpected order (-want,+got):\n%s", diff)
 	}
 }
 

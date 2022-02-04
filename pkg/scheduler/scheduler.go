@@ -18,12 +18,16 @@ package scheduler
 
 import (
 	"context"
+	"sort"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
 	"gke-internal.googlesource.com/gke-batch/kueue/pkg/capacity"
@@ -34,9 +38,10 @@ import (
 type Scheduler struct {
 	queues        *queue.Manager
 	capacityCache *capacity.Cache
+	client        client.Client
 }
 
-func New(queues *queue.Manager, cache *capacity.Cache) *Scheduler {
+func New(queues *queue.Manager, cache *capacity.Cache, cl client.Client) *Scheduler {
 	return &Scheduler{
 		queues:        queues,
 		capacityCache: cache,
@@ -44,7 +49,8 @@ func New(queues *queue.Manager, cache *capacity.Cache) *Scheduler {
 }
 
 func (s *Scheduler) Start(ctx context.Context) {
-	ctx = logr.NewContext(ctx, ctrl.Log.WithName("scheduler"))
+	log := ctrl.LoggerFrom(ctx).WithName("scheduler")
+	ctx = ctrl.LoggerInto(ctx, log)
 	wait.UntilWithContext(ctx, s.schedule, 0)
 }
 
@@ -66,8 +72,43 @@ func (s *Scheduler) schedule(ctx context.Context) {
 
 	// 3. Calculate requirements for assigning workloads to capacities
 	// (resource flavors, borrowing).
-	_ = calculateRequirementsForAssignments(log, headWorkloads, snapshot)
-	// TODO: schedule
+	entries := calculateRequirementsForAssignments(log, headWorkloads, snapshot)
+
+	// 4. Sort entries based on borrowing and timestamps.
+	sort.Sort(entryOrdering(entries))
+
+	// 5. Assign to capacities, ensuring that no more than one workload gets
+	// assigned to a capacity or a cohort (if borrowing).
+	// This is because there can be other worloads deeper in a queue whose head
+	// got assigned that should be scheduled before the heads of other queues.
+	usedCapacity := sets.NewString()
+	usedCohorts := sets.NewString()
+	assignedWorkloads := sets.NewString()
+	for _, e := range entries {
+		if usedCapacity.Has(e.Capacity) {
+			continue
+		}
+		cap := snapshot.Capacities[e.Capacity]
+		if len(e.borrows) > 0 && cap.Cohort != nil && usedCohorts.Has(cap.Cohort.Name) {
+			continue
+		}
+		usedCapacity.Insert(e.Capacity)
+		s.assign(ctx, &e)
+		assignedWorkloads.Insert(workload.Key(e.Obj))
+		if cap.Cohort != nil {
+			usedCohorts.Insert(cap.Cohort.Name)
+		}
+	}
+
+	// 6. Requeue the heads that were not scheduled.
+	for _, w := range headWorkloads {
+		if assignedWorkloads.Has(workload.Key(w.Obj)) {
+			continue
+		}
+		if s.queues.RequeueWorkload(ctx, &w) {
+			log.V(2).Info("Workload requeued", "workload", klog.KObj(w.Obj), "queue", klog.KRef(w.Obj.Namespace, w.Obj.Spec.QueueName))
+		}
+	}
 }
 
 // entry holds requirements for a workload to be scheduled in a capacity.
@@ -143,15 +184,48 @@ func (e *entry) assignFlavors(cap *capacity.Capacity) bool {
 	return true
 }
 
+// assign sets the assigned capacity and flavors into the workload of
+// the entry, and asynchronously updates the object in the apiserver after
+// assuming it in the cache.
+func (s *Scheduler) assign(ctx context.Context, e *entry) {
+	log := ctrl.LoggerFrom(ctx).WithValues("queuedWorkload", klog.KObj(e.Obj), "capacity", e.Capacity)
+	newWorkload := e.Obj.DeepCopy()
+	for i := range newWorkload.Spec.Pods {
+		podSet := &newWorkload.Spec.Pods[i]
+		podSet.AssignedFlavors = e.TotalRequests[podSet.Name].Flavors
+	}
+	newWorkload.Spec.AssignedCapacity = kueue.CapacityReference(e.Capacity)
+	s.capacityCache.AssumeWorkload(newWorkload)
+	log.V(2).Info("Workload assumed in the cache")
+
+	go func() {
+		err := s.client.Update(ctx, newWorkload)
+		if err == nil {
+			log.V(2).Info("Successfully assigned capacity and resource flavors to workload")
+			return
+		}
+		// Ignore errors because the workload or capacity could have been deleted
+		// by an event.
+		_ = s.capacityCache.ForgetWorkload(newWorkload)
+		if errors.IsNotFound(err) {
+			log.V(2).Info("Workload not assigned because it was deleted")
+			return
+		}
+		log.Error(err, "Assigning capacity and resource flavors to workload")
+		log.V(2).Info("Requeueing")
+		s.queues.RequeueWorkload(ctx, &e.Info)
+	}()
+}
+
 // findFlavorForResources returns a flavor which can satisfy the resource request,
 // given that wUsed is the usage of flavors by previous podsets.
 // If it finds a flavor, also returns any borrowing required.
 func findFlavorForResource(name corev1.ResourceName, val int64, cap *capacity.Capacity, wUsed map[string]int64) (string, int64) {
-	for _, rFlavor := range cap.RequestableResources[name] {
+	for _, flavor := range cap.RequestableResources[name] {
 		// Consider the usage assigned to previous pod sets.
-		ok, borrow := canAssignFlavor(name, val+wUsed[rFlavor.Name], cap, &rFlavor)
+		ok, borrow := canAssignFlavor(name, val+wUsed[flavor.Name], cap, &flavor)
 		if ok {
-			return rFlavor.Name, borrow
+			return flavor.Name, borrow
 		}
 	}
 	return "", 0
@@ -183,4 +257,30 @@ func canAssignFlavor(name corev1.ResourceName, val int64, cap *capacity.Capacity
 		return false, 0
 	}
 	return true, borrow
+}
+
+type entryOrdering []entry
+
+func (e entryOrdering) Len() int {
+	return len(e)
+}
+
+func (e entryOrdering) Swap(i, j int) {
+	e[i], e[j] = e[j], e[i]
+}
+
+// Less is the ordering criteria:
+// 1. guaranteed before borrowing.
+// 2. FIFO on creation timestamp.
+func (e entryOrdering) Less(i, j int) bool {
+	a := e[i]
+	b := e[j]
+	// 1. Prefer guaranteed (not borrowing)
+	aGuaranteed := len(a.borrows) == 0
+	bGuaranteed := len(b.borrows) == 0
+	if aGuaranteed != bGuaranteed {
+		return aGuaranteed
+	}
+	// 2. FIFO
+	return a.Obj.CreationTimestamp.Before(&b.Obj.CreationTimestamp)
 }

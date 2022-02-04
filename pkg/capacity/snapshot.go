@@ -35,7 +35,7 @@ func (c *Cache) Snapshot() Snapshot {
 		snap.Capacities[cap.Name] = cap.snapshot()
 	}
 	for _, cohort := range c.cohorts {
-		cohortCopy := newCohort(cohort.name, len(cohort.members))
+		cohortCopy := newCohort(cohort.Name, len(cohort.members))
 		for cap := range cohort.members {
 			capCopy := snap.Capacities[cap.Name]
 			capCopy.accumulateResources(cohortCopy)

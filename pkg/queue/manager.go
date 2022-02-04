@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"sync"
 
+	"k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
@@ -113,6 +114,29 @@ func (m *Manager) addWorkload(w *kueue.QueuedWorkload) bool {
 		return true
 	}
 	return false
+}
+
+// RequeueWorkload requeues the workload ensuring that the queue and the
+// workload still exist in the client cache. It won't requeue if the workload
+// is already in the queue (possible if the workload was updated).
+func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info) bool {
+	m.Lock()
+	defer m.Unlock()
+
+	qName := info.Obj.Spec.QueueName
+	q := m.queues[qName]
+	if q == nil {
+		return false
+	}
+
+	var w kueue.QueuedWorkload
+	err := m.client.Get(ctx, client.ObjectKeyFromObject(info.Obj), &w)
+	// Since the client is cached, the only possible error is NotFound
+	if errors.IsNotFound(err) {
+		return false
+	}
+
+	return q.PushIfNotPresent(info)
 }
 
 func (m *Manager) DeleteWorkload(w *kueue.QueuedWorkload) {

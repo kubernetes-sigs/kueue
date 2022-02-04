@@ -117,7 +117,7 @@ func main() {
 	go func() {
 		queues.CleanUpOnContext(ctx)
 	}()
-	sched := scheduler.New(queues, cache)
+	sched := scheduler.New(queues, cache, mgr.GetClient())
 	go func() {
 		sched.Start(ctx)
 	}()
