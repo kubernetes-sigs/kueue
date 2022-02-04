@@ -22,8 +22,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// QueueCapacitySpec defines the desired state of QueueCapacity
-type QueueCapacitySpec struct {
+// CapacitySpec defines the desired state of Capacity
+type CapacitySpec struct {
 	// requestableResources represent the total pod requests of workloads dispatched
 	// via this capacity. This doesn’t guarantee the actual availability of
 	// resources, although an integration with a resource provisioner like Cluster
@@ -42,7 +42,7 @@ type QueueCapacitySpec struct {
 	// +listMapKey=name
 	RequestableResources []Resource `json:"requestableResources,omitempty"`
 
-	// cohort that this QueueCapacity belongs to. QCs that belong to the
+	// cohort that this Capacity belongs to. QCs that belong to the
 	// same cohort can borrow unused resources from each other.
 	//
 	// A QC can be a member of a single borrowing cohort. A workload submitted
@@ -127,8 +127,7 @@ type QueueCapacitySpec struct {
 	//     labels:
 	//       cloud.provider.com/accelerator: nvidia-tesla-k80
 	//
-	// If empty, this QueueCapacity cannot borrow capacity from any other
-	// QueueCapacity and vice versa.
+	// If empty, this Capacity cannot borrow from any other Capacity and vice versa.
 	//
 	// The name style is similar to label keys. These are just names to link QCs
 	// together, and they are meaningless otherwise.
@@ -231,36 +230,36 @@ type Quota struct {
 	// ceiling is the upper limit on the amount of resource requests that
 	// could be used by running workloads assigned to this quota at a point in time.
 	// Resources can be borrowed from unused guaranteed quota of other
-	// QueueCapacities in the same cohort. When not set, it is unlimited.
+	// Capacities in the same cohort. When not set, it is unlimited.
 	Ceiling resource.Quantity `json:"ceiling,omitempty"`
 }
 
-// QueueCapacityStatus defines the observed state of QueueCapacity
-type QueueCapacityStatus struct {
+// CapacityStatus defines the observed state of Capacity
+type CapacityStatus struct {
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:resource:scope=Cluster
 //+kubebuilder:subresource:status
 
-// QueueCapacity is the Schema for the queuecapacities API
-type QueueCapacity struct {
+// Capacity is the Schema for the capacities API
+type Capacity struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   QueueCapacitySpec   `json:"spec,omitempty"`
-	Status QueueCapacityStatus `json:"status,omitempty"`
+	Spec   CapacitySpec   `json:"spec,omitempty"`
+	Status CapacityStatus `json:"status,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 
-// QueueCapacityList contains a list of QueueCapacity
-type QueueCapacityList struct {
+// CapacityList contains a list of Capacity
+type CapacityList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []QueueCapacity `json:"items"`
+	Items           []Capacity `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&QueueCapacity{}, &QueueCapacityList{})
+	SchemeBuilder.Register(&Capacity{}, &CapacityList{})
 }

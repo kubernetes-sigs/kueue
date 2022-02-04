@@ -22,13 +22,13 @@ import (
 
 // QueueSpec defines the desired state of Queue
 type QueueSpec struct {
-	// capacity is a reference to a QueueCapacity (QC) object form which resources
+	// capacity is a reference to a Capacity object form which resources
 	// are allocated to this queue.
-	Capacity QueueCapacityReference `json:"capacity,omitempty"`
+	Capacity CapacityReference `json:"capacity,omitempty"`
 }
 
-// QueueCapacityReference is the name of the QueueCapacity.
-type QueueCapacityReference string
+// CapacityReference is the name of the Capacity.
+type CapacityReference string
 
 // QueueStatus defines the observed state of Queue
 type QueueStatus struct {

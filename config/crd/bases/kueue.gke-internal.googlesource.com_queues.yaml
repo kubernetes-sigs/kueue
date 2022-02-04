@@ -37,8 +37,8 @@ spec:
             description: QueueSpec defines the desired state of Queue
             properties:
               capacity:
-                description: capacity is a reference to a QueueCapacity (QC) object
-                  form which resources are allocated to this queue.
+                description: capacity is a reference to a Capacity object form which
+                  resources are allocated to this queue.
                 type: string
             type: object
           status:

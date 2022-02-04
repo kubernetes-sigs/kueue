@@ -37,9 +37,9 @@ type QueuedWorkloadSpec struct {
 	// queueName is the name of the queue the QueuedWorkload is associated with.
 	QueueName string `json:"queueName"`
 
-	// assignedCapacity is the name of the QueueCapacity that this workload is assigned
+	// assignedCapacity is the name of the Capacity that this workload is assigned
 	// to.
-	AssignedCapacity QueueCapacityReference `json:"capacity"`
+	AssignedCapacity CapacityReference `json:"capacity"`
 }
 
 type WorkloadReference struct {

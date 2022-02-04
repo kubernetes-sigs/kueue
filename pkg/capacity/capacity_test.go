@@ -1,5 +1,5 @@
 /*
-Copyright 2021 Google LLC.
+Copyright 2022 Google LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -39,18 +39,18 @@ func TestCacheCapacityOperations(t *testing.T) {
 		{
 			name: "add",
 			operation: func() {
-				capacities := []kueue.QueueCapacity{
+				capacities := []kueue.Capacity{
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "a"},
-						Spec:       kueue.QueueCapacitySpec{Cohort: "one"},
+						Spec:       kueue.CapacitySpec{Cohort: "one"},
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "b"},
-						Spec:       kueue.QueueCapacitySpec{Cohort: "one"},
+						Spec:       kueue.CapacitySpec{Cohort: "one"},
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "c"},
-						Spec:       kueue.QueueCapacitySpec{Cohort: "two"},
+						Spec:       kueue.CapacitySpec{Cohort: "two"},
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "d"},
@@ -69,14 +69,14 @@ func TestCacheCapacityOperations(t *testing.T) {
 		{
 			name: "update",
 			operation: func() {
-				capacities := []kueue.QueueCapacity{
+				capacities := []kueue.Capacity{
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "a"},
-						Spec:       kueue.QueueCapacitySpec{Cohort: "two"},
+						Spec:       kueue.CapacitySpec{Cohort: "two"},
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "b"},
-						Spec:       kueue.QueueCapacitySpec{Cohort: "one"}, // No change.
+						Spec:       kueue.CapacitySpec{Cohort: "one"}, // No change.
 					},
 				}
 				for _, c := range capacities {
@@ -92,7 +92,7 @@ func TestCacheCapacityOperations(t *testing.T) {
 		{
 			name: "delete",
 			operation: func() {
-				capacities := []kueue.QueueCapacity{
+				capacities := []kueue.Capacity{
 					{ObjectMeta: metav1.ObjectMeta{Name: "b"}},
 					{ObjectMeta: metav1.ObjectMeta{Name: "d"}},
 				}
@@ -134,10 +134,10 @@ func TestCacheCapacityOperations(t *testing.T) {
 }
 
 func TestCacheWorkloadOperations(t *testing.T) {
-	capacities := []kueue.QueueCapacity{
+	capacities := []kueue.Capacity{
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "one"},
-			Spec: kueue.QueueCapacitySpec{
+			Spec: kueue.CapacitySpec{
 				RequestableResources: []kueue.Resource{
 					{
 						Name: "cpu",
@@ -151,7 +151,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "two"},
-			Spec: kueue.QueueCapacitySpec{
+			Spec: kueue.CapacitySpec{
 				RequestableResources: []kueue.Resource{
 					{
 						Name: "cpu",

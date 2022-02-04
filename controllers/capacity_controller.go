@@ -1,5 +1,5 @@
 /*
-Copyright 2021 Google LLC.
+Copyright 2022 Google LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -28,64 +28,64 @@ import (
 	"gke-internal.googlesource.com/gke-batch/kueue/pkg/capacity"
 )
 
-// QueueCapacityReconciler reconciles a QueueCapacity object
-type QueueCapacityReconciler struct {
+// CapacityReconciler reconciles a Capacity object
+type CapacityReconciler struct {
 	log   logr.Logger
 	cache *capacity.Cache
 }
 
-func NewQueueCapacityReconciler(cache *capacity.Cache) *QueueCapacityReconciler {
-	return &QueueCapacityReconciler{
-		log:   ctrl.Log.WithName("queue-capacity-reconciler"),
+func NewCapacityReconciler(cache *capacity.Cache) *CapacityReconciler {
+	return &CapacityReconciler{
+		log:   ctrl.Log.WithName("capacity-reconciler"),
 		cache: cache,
 	}
 }
 
-//+kubebuilder:rbac:groups=kueue.gke-internal.googlesource.com,resources=queuecapacities,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=kueue.gke-internal.googlesource.com,resources=queuecapacities/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=kueue.gke-internal.googlesource.com,resources=queuecapacities/finalizers,verbs=update
+//+kubebuilder:rbac:groups=kueue.gke-internal.googlesource.com,resources=capacities,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=kueue.gke-internal.googlesource.com,resources=capacities/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=kueue.gke-internal.googlesource.com,resources=capacities/finalizers,verbs=update
 
-func (r *QueueCapacityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *CapacityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	// No-op. All work is done in the event handler.
 	return ctrl.Result{}, nil
 }
 
-func (r *QueueCapacityReconciler) Create(e event.CreateEvent) bool {
-	cap := e.Object.(*kueue.QueueCapacity)
-	log := r.log.WithValues("queueCapacity", klog.KObj(cap))
-	log.V(2).Info("QueueCapacity create event")
+func (r *CapacityReconciler) Create(e event.CreateEvent) bool {
+	cap := e.Object.(*kueue.Capacity)
+	log := r.log.WithValues("capacity", klog.KObj(cap))
+	log.V(2).Info("Capacity create event")
 	if err := r.cache.AddCapacity(cap); err != nil {
 		log.Error(err, "Failed to add capacity to cache")
 	}
 	return false
 }
 
-func (r *QueueCapacityReconciler) Delete(e event.DeleteEvent) bool {
-	cap := e.Object.(*kueue.QueueCapacity)
-	r.log.V(2).Info("Queue delete event", "queueCapacity", klog.KObj(cap))
+func (r *CapacityReconciler) Delete(e event.DeleteEvent) bool {
+	cap := e.Object.(*kueue.Capacity)
+	r.log.V(2).Info("Queue delete event", "capacity", klog.KObj(cap))
 	r.cache.DeleteCapacity(cap)
 	return false
 }
 
-func (r *QueueCapacityReconciler) Update(e event.UpdateEvent) bool {
-	cap := e.ObjectNew.(*kueue.QueueCapacity)
+func (r *CapacityReconciler) Update(e event.UpdateEvent) bool {
+	cap := e.ObjectNew.(*kueue.Capacity)
 	log := r.log.WithValues("queue", klog.KObj(cap))
-	log.V(2).Info("QueueCapacity update event")
+	log.V(2).Info("Capacity update event")
 	if err := r.cache.UpdateCapacity(cap); err != nil {
 		log.Error(err, "Failed to update capacity in cache")
 	}
 	return false
 }
 
-func (r *QueueCapacityReconciler) Generic(e event.GenericEvent) bool {
+func (r *CapacityReconciler) Generic(e event.GenericEvent) bool {
 	r.log.V(3).Info("Ignore generic event", "obj", klog.KObj(e.Object), "kind", e.Object.GetObjectKind().GroupVersionKind())
 	return false
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *QueueCapacityReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *CapacityReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&kueue.QueueCapacity{}).
+		For(&kueue.Capacity{}).
 		WithEventFilter(r).
 		Complete(r)
 }

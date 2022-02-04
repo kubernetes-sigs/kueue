@@ -1,20 +1,24 @@
-# permissions for end users to view queuecapacities.
+# permissions for end users to edit capacities.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: queuecapacity-viewer-role
+  name: capacity-editor-role
 rules:
 - apiGroups:
   - kueue.gke-internal.googlesource.com
   resources:
-  - queuecapacities
+  - capacities
   verbs:
+  - create
+  - delete
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - kueue.gke-internal.googlesource.com
   resources:
-  - queuecapacities/status
+  - capacities/status
   verbs:
   - get

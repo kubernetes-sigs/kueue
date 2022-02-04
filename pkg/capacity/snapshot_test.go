@@ -32,12 +32,12 @@ import (
 
 func TestSnapshot(t *testing.T) {
 	cache := NewCache()
-	capacities := []kueue.QueueCapacity{
+	capacities := []kueue.Capacity{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "foofoo",
 			},
-			Spec: kueue.QueueCapacitySpec{
+			Spec: kueue.CapacitySpec{
 				Cohort: "foo",
 				RequestableResources: []kueue.Resource{
 					{
@@ -64,7 +64,7 @@ func TestSnapshot(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "foobar",
 			},
-			Spec: kueue.QueueCapacitySpec{
+			Spec: kueue.CapacitySpec{
 				Cohort: "foo",
 				RequestableResources: []kueue.Resource{
 					{
@@ -95,7 +95,7 @@ func TestSnapshot(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "bar",
 			},
-			Spec: kueue.QueueCapacitySpec{
+			Spec: kueue.CapacitySpec{
 				RequestableResources: []kueue.Resource{
 					{
 						Name: corev1.ResourceCPU,

@@ -25,7 +25,7 @@ rules:
 - apiGroups:
   - kueue.gke-internal.googlesource.com
   resources:
-  - queuecapacities
+  - capacities
   verbs:
   - create
   - delete
@@ -37,13 +37,13 @@ rules:
 - apiGroups:
   - kueue.gke-internal.googlesource.com
   resources:
-  - queuecapacities/finalizers
+  - capacities/finalizers
   verbs:
   - update
 - apiGroups:
   - kueue.gke-internal.googlesource.com
   resources:
-  - queuecapacities/status
+  - capacities/status
   verbs:
   - get
   - patch

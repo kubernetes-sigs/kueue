@@ -90,8 +90,8 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Queue")
 		os.Exit(1)
 	}
-	if err = controllers.NewQueueCapacityReconciler(cache).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "QueueCapacity")
+	if err = controllers.NewCapacityReconciler(cache).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Capacity")
 		os.Exit(1)
 	}
 	if err = controllers.NewQueuedWorkloadReconciler(queues, cache).SetupWithManager(mgr); err != nil {

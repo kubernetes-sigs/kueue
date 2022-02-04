@@ -37,8 +37,8 @@ spec:
             description: QueuedWorkloadSpec defines the desired state of QueuedWorkload
             properties:
               capacity:
-                description: assignedCapacity is the name of the QueueCapacity that
-                  this workload is assigned to.
+                description: assignedCapacity is the name of the Capacity that this
+                  workload is assigned to.
                 type: string
               pods:
                 description: pods is a list of sets of homogeneous pods, each described

@@ -3,7 +3,7 @@
 # It should be run by config/default
 resources:
 - bases/kueue.gke-internal.googlesource.com_queues.yaml
-- bases/kueue.gke-internal.googlesource.com_queuecapacities.yaml
+- bases/kueue.gke-internal.googlesource.com_capacities.yaml
 - bases/kueue.gke-internal.googlesource.com_queuedworkloads.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
@@ -11,14 +11,14 @@ patchesStrategicMerge:
 # [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix.
 # patches here are for enabling the conversion webhook for each CRD
 #- patches/webhook_in_queues.yaml
-#- patches/webhook_in_queuecapacities.yaml
+#- patches/webhook_in_capacities.yaml
 #- patches/webhook_in_queuedworkloads.yaml
 #+kubebuilder:scaffold:crdkustomizewebhookpatch
 
 # [CERTMANAGER] To enable cert-manager, uncomment all the sections with [CERTMANAGER] prefix.
 # patches here are for enabling the CA injection for each CRD
 #- patches/cainjection_in_queues.yaml
-#- patches/cainjection_in_queuecapacities.yaml
+#- patches/cainjection_in_capacities.yaml
 #- patches/cainjection_in_queuedworkloads.yaml
 #+kubebuilder:scaffold:crdkustomizecainjectionpatch
 

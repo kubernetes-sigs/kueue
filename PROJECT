@@ -19,7 +19,7 @@ resources:
   controller: true
   domain: gke-internal.googlesource.com
   group: kueue
-  kind: QueueCapacity
+  kind: Capacity
   path: gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1
   version: v1alpha1
 - api:

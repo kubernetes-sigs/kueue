@@ -1,5 +1,5 @@
 /*
-Copyright 2021 Google LLC.
+Copyright 2022 Google LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -59,7 +59,7 @@ func newCohort(name string, cap int) *Cohort {
 	}
 }
 
-// Capacity is the internal implementation of kueue.QueueCapacity
+// Capacity is the internal implementation of kueue.Capacity
 type Capacity struct {
 	Name                 string
 	Cohort               *Cohort
@@ -68,7 +68,7 @@ type Capacity struct {
 	Workloads            map[string]*workload.Info
 }
 
-func NewCapacity(cap *kueue.QueueCapacity) *Capacity {
+func NewCapacity(cap *kueue.Capacity) *Capacity {
 	c := &Capacity{
 		Name:                 cap.Name,
 		RequestableResources: resourcesByName(cap.Spec.RequestableResources),
@@ -127,7 +127,7 @@ func (c *Capacity) updateWorkloadUsage(wi *workload.Info, m int64) {
 	}
 }
 
-func (c *Cache) AddCapacity(cap *kueue.QueueCapacity) error {
+func (c *Cache) AddCapacity(cap *kueue.Capacity) error {
 	c.Lock()
 	defer c.Unlock()
 
@@ -140,7 +140,7 @@ func (c *Cache) AddCapacity(cap *kueue.QueueCapacity) error {
 	return nil
 }
 
-func (c *Cache) UpdateCapacity(cap *kueue.QueueCapacity) error {
+func (c *Cache) UpdateCapacity(cap *kueue.Capacity) error {
 	c.Lock()
 	defer c.Unlock()
 	capImpl, ok := c.capacities[cap.Name]
@@ -159,7 +159,7 @@ func (c *Cache) UpdateCapacity(cap *kueue.QueueCapacity) error {
 	return nil
 }
 
-func (c *Cache) DeleteCapacity(cap *kueue.QueueCapacity) {
+func (c *Cache) DeleteCapacity(cap *kueue.Capacity) {
 	c.Lock()
 	defer c.Unlock()
 	capImpl, ok := c.capacities[cap.Name]
