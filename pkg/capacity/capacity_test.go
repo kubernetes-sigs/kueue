@@ -141,7 +141,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				RequestableResources: []kueue.Resource{
 					{
 						Name: "cpu",
-						Types: []kueue.ResourceType{
+						Flavors: []kueue.ResourceFlavor{
 							{Name: "on-demand"},
 							{Name: "spot"},
 						},
@@ -155,7 +155,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				RequestableResources: []kueue.Resource{
 					{
 						Name: "cpu",
-						Types: []kueue.ResourceType{
+						Flavors: []kueue.ResourceFlavor{
 							{Name: "on-demand"},
 							{Name: "spot"},
 						},
@@ -185,7 +185,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					}),
 			},
 			Count: 1,
-			AssignedTypes: map[corev1.ResourceName]string{
+			AssignedFlavors: map[corev1.ResourceName]string{
 				corev1.ResourceCPU: "on-demand",
 			},
 		},
@@ -197,7 +197,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 						corev1.ResourceCPU: "5m",
 					}),
 			},
-			AssignedTypes: map[corev1.ResourceName]string{
+			AssignedFlavors: map[corev1.ResourceName]string{
 				corev1.ResourceCPU: "spot",
 			},
 			Count: 3,

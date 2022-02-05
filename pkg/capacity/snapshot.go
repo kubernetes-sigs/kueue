@@ -55,12 +55,12 @@ func (c *Capacity) snapshot() *Capacity {
 		UsedResources:        make(Resources, len(c.UsedResources)),
 		Workloads:            make(map[string]*workload.Info, len(c.Workloads)),
 	}
-	for res, types := range c.UsedResources {
-		typesCopy := make(map[string]int64, len(types))
-		for k, v := range types {
-			typesCopy[k] = v
+	for res, flavors := range c.UsedResources {
+		flavorsCopy := make(map[string]int64, len(flavors))
+		for k, v := range flavors {
+			flavorsCopy[k] = v
 		}
-		copy.UsedResources[res] = typesCopy
+		copy.UsedResources[res] = flavorsCopy
 	}
 	for k, v := range c.Workloads {
 		// Shallow copy is enough.
@@ -73,27 +73,27 @@ func (c *Capacity) accumulateResources(cohort *Cohort) {
 	if cohort.RequestableResources == nil {
 		cohort.RequestableResources = make(Resources, len(c.RequestableResources))
 	}
-	for name, types := range c.RequestableResources {
+	for name, flavors := range c.RequestableResources {
 		req := cohort.RequestableResources[name]
 		if req == nil {
-			req = make(map[string]int64, len(types))
+			req = make(map[string]int64, len(flavors))
 			cohort.RequestableResources[name] = req
 		}
-		for _, capType := range types {
-			req[capType.Name] += workload.ResourceValue(name, capType.Quota.Guaranteed)
+		for _, flavor := range flavors {
+			req[flavor.Name] += workload.ResourceValue(name, flavor.Quota.Guaranteed)
 		}
 	}
 	if cohort.UsedResources == nil {
 		cohort.UsedResources = make(Resources, len(c.UsedResources))
 	}
-	for res, resTypes := range c.UsedResources {
+	for res, flavors := range c.UsedResources {
 		used := cohort.UsedResources[res]
 		if used == nil {
-			used = make(map[string]int64, len(resTypes))
+			used = make(map[string]int64, len(flavors))
 			cohort.UsedResources[res] = used
 		}
-		for rType, val := range resTypes {
-			used[rType] += val
+		for flavor, val := range flavors {
+			used[flavor] += val
 		}
 	}
 }

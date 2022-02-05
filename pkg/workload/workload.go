@@ -36,7 +36,7 @@ type Info struct {
 
 type Resources struct {
 	Requests Requests
-	Types    map[corev1.ResourceName]string
+	Flavors  map[corev1.ResourceName]string
 }
 
 func NewInfo(w *kueue.QueuedWorkload) *Info {
@@ -59,10 +59,10 @@ func totalRequests(podSets []kueue.PodSet) map[string]Resources {
 		setRes := Resources{}
 		setRes.Requests = podRequests(&ps.Spec)
 		setRes.Requests.scale(int64(ps.Count))
-		if ps.AssignedTypes != nil {
-			setRes.Types = map[corev1.ResourceName]string{}
-			for r, t := range ps.AssignedTypes {
-				setRes.Types[r] = t
+		if ps.AssignedFlavors != nil {
+			setRes.Flavors = map[corev1.ResourceName]string{}
+			for r, t := range ps.AssignedFlavors {
+				setRes.Flavors[r] = t
 			}
 		}
 		res[ps.Name] = setRes
@@ -73,7 +73,7 @@ func totalRequests(podSets []kueue.PodSet) map[string]Resources {
 // The following resources calculations are inspired on
 // https://github.com/kubernetes/kubernetes/blob/master/pkg/scheduler/framework/types.go
 
-// Requests maps ResourceName to type to value; for CPU it is tracked in MilliCPU.
+// Requests maps ResourceName to flavor to value; for CPU it is tracked in MilliCPU.
 type Requests map[corev1.ResourceName]int64
 
 func podRequests(spec *corev1.PodSpec) Requests {

@@ -30,13 +30,13 @@ type CapacitySpec struct {
 	// Autoscaler is possible to achieve that. Example:
 	//
 	// - name: cpu
-	//   types:
+	//   flavors:
 	//   - quota:
-	//      guaranteed: 100
+	//       guaranteed: 100
 	// - name: memory
-	//   types:
+	//   flavors:
 	//   - quota:
-	//      guaranteed: 100Gi
+	//       guaranteed: 100Gi
 	//
 	// +listType=map
 	// +listMapKey=name
@@ -61,14 +61,14 @@ type CapacitySpec struct {
 	//    the cohort (the 3 k80 GPUs), then tenantA jobs will get this remaining
 	//    capacity since tenantA is below its guaranteed limit.
 	// 4. If a tenantA workload doesn’t tolerate spot, then the workload will only
-	//    be eligible to consume on-demand cores (the next in the list of cpu types).
+	//    be eligible to consume on-demand cores (the next in the list of cpu flavors).
 	//
 	//  <UNRESOLVED>
-	// 5. While evaluating a resource type’s list, what should take precedence:
+	// 5. While evaluating a resource flavor’s list, what should take precedence:
 	//    honoring the preferred order in the list or keeping a usage under the
 	//    guaranteed capacity? For example, if tenantA’s current k80 usage is 10 and
 	//    tenantB’s usage is 5, should a future tenantA workload that asks for any
-	//    GPU type be assigned borrowed k80 capacity (since it is ordered first in
+	//    GPU model be assigned borrowed k80 capacity (since it is ordered first in
 	//    the list) or p100 since its usage is under tenantA’s guaranteed limit?
 	//    The tradeoff is honoring tenantA’s preferred order vs honoring fair
 	//    sharing of future tenantB’s jobs in a timely manner (or, when we have
@@ -87,7 +87,7 @@ type CapacitySpec struct {
 	// - name: cpu
 	//   - name: spot
 	//     quota:
-	//      guaranteed: 1000
+	//       guaranteed: 1000
 	//     labels
 	//     - cloud.provider.com/spot:true
 	//     taints
@@ -95,18 +95,18 @@ type CapacitySpec struct {
 	//       effect: NoSchedule
 	//   - name: on-demand
 	//     quota:
-	//      guaranteed: 100
+	//       guaranteed: 100
 	// - name: nvidia.com/gpus
 	//   - name: k80
 	//     quota:
-	//      guaranteed: 10
-	//      ceiling: 20
+	//       guaranteed: 10
+	//       ceiling: 20
 	//     labels:
 	//     - cloud.provider.com/accelerator: nvidia-tesla-k80
 	//   - name: p100
 	//     quota:
-	//      guaranteed: 10
-	//      ceiling: 20
+	//       guaranteed: 10
+	//       ceiling: 20
 	//     labels:
 	//     - cloud.provider.com/accelerator: nvidia-tesla-p100
 	//
@@ -118,14 +118,14 @@ type CapacitySpec struct {
 	// - name: cpu
 	//   - name: on-demand
 	//     quota:
-	//      guaranteed: 100
+	//       guaranteed: 100
 	// - name: nvidia.com/gpus
 	//   - name: k80
 	//     quota:
-	//      guaranteed: 10
-	//      ceiling: 20
+	//       guaranteed: 10
+	//       ceiling: 20
 	//     labels:
-	//       cloud.provider.com/accelerator: nvidia-tesla-k80
+	//     - cloud.provider.com/accelerator: nvidia-tesla-k80
 	//
 	// If empty, this Capacity cannot borrow from any other Capacity and vice versa.
 	//
@@ -138,31 +138,31 @@ type Resource struct {
 	// name of the resource. For example, cpu, memory or nvidia.com/gpu.
 	Name corev1.ResourceName `json:"name"`
 
-	// types is the list of different flavors of this resource and their limits.
-	// Typically two different “types” of the same resource represent
+	// flavors is the list of different flavors of this resource and their limits.
+	// Typically two different “flavors” of the same resource represent
 	// different hardware models (e.g., gpu models, cpu architectures) or
-	// pricing (on-demand vs spot cpus). The types are distinguished via labels and
+	// pricing (on-demand vs spot cpus). The flavors are distinguished via labels and
 	// taints.
 	//
 	// For example, if the resource is nvidia.com/gpu, and we want to define
-	// different limits for different gpu types, then the types must set different
-	// values of a shared key. For example:
+	// different limits for different gpu models, then each model is mapped to a
+	// flavor and must set different values of a shared key. For example:
 	//
 	// spec:
 	//  requestableResources:
 	// - name: nvidia.com/gpus
 	//   - name: k80
 	//     quota:
-	//      guaranteed: 10
+	//       guaranteed: 10
 	//     labels:
 	//       cloud.provider.com/accelerator: nvidia-tesla-k80
 	//   - name: p100
 	//     quota:
-	//      guaranteed: 10
+	//       guaranteed: 10
 	//     labels:
-	//      cloud.provider.com/accelerator: nvidia-tesla-p100
+	//       cloud.provider.com/accelerator: nvidia-tesla-p100
 	//
-	// The types are evaluated in order, selecting the first to satisfy a
+	// The flavors are evaluated in order, selecting the first to satisfy a
 	// workload’s requirements. Also the quantities are additive, in the example
 	// above the GPU quota in total is 20 (10 k80 + 10 p100).
 	// A workload is limited to the selected type by converting the labels to a node
@@ -170,7 +170,7 @@ type Resource struct {
 	// least one must exist.
 	//
 	// Note that a workload’s node affinity/selector constraints are evaluated
-	// against the labels, and so batch users can “filter” the types, but can’t
+	// against the labels, and so batch users can “filter” the flavors, but can’t
 	// force a different order. For example, the following workload affinity will
 	// only start the workload if P100 quota is available:
 	//
@@ -180,7 +180,7 @@ type Resource struct {
 	//
 	// Each type can also set taints so that it is opt-out by default.
 	// A workload’s tolerations are evaluated against those taints, and only the
-	// types that the workload tolerates are considered. For example, an admin
+	// flavors that the workload tolerates are considered. For example, an admin
 	// may choose to taint Spot CPU capacity, and if a workload doesn't tolerate it
 	// will only be eligible to consume on-demand capacity:
 	//
@@ -198,10 +198,10 @@ type Resource struct {
 	//
 	// +listType=map
 	// +listMapKey=name
-	Types []ResourceType `json:"types,omitempty"`
+	Flavors []ResourceFlavor `json:"flavors,omitempty"`
 }
 
-type ResourceType struct {
+type ResourceFlavor struct {
 	// name is the type name, e.g., nvidia-tesla-k80.
 	// +kubebuilder:default=default
 	Name string `json:"name"`

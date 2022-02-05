@@ -42,7 +42,7 @@ func TestSnapshot(t *testing.T) {
 				RequestableResources: []kueue.Resource{
 					{
 						Name: corev1.ResourceCPU,
-						Types: []kueue.ResourceType{
+						Flavors: []kueue.ResourceFlavor{
 							{
 								Name: "demand",
 								Quota: kueue.Quota{
@@ -69,7 +69,7 @@ func TestSnapshot(t *testing.T) {
 				RequestableResources: []kueue.Resource{
 					{
 						Name: corev1.ResourceCPU,
-						Types: []kueue.ResourceType{
+						Flavors: []kueue.ResourceFlavor{
 							{
 								Name: "spot",
 								Quota: kueue.Quota{
@@ -80,7 +80,7 @@ func TestSnapshot(t *testing.T) {
 					},
 					{
 						Name: "example.com/gpu",
-						Types: []kueue.ResourceType{
+						Flavors: []kueue.ResourceFlavor{
 							{
 								Quota: kueue.Quota{
 									Guaranteed: resource.MustParse("50"),
@@ -99,7 +99,7 @@ func TestSnapshot(t *testing.T) {
 				RequestableResources: []kueue.Resource{
 					{
 						Name: corev1.ResourceCPU,
-						Types: []kueue.ResourceType{
+						Flavors: []kueue.ResourceFlavor{
 							{
 								Quota: kueue.Quota{
 									Guaranteed: resource.MustParse("100"),
@@ -126,7 +126,7 @@ func TestSnapshot(t *testing.T) {
 						Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
 							corev1.ResourceCPU: "2",
 						}),
-						AssignedTypes: map[corev1.ResourceName]string{
+						AssignedFlavors: map[corev1.ResourceName]string{
 							corev1.ResourceCPU: "demand",
 						},
 					},
@@ -144,7 +144,7 @@ func TestSnapshot(t *testing.T) {
 							corev1.ResourceCPU: "1",
 							"example.com/gpu":  "2",
 						}),
-						AssignedTypes: map[corev1.ResourceName]string{
+						AssignedFlavors: map[corev1.ResourceName]string{
 							corev1.ResourceCPU: "spot",
 							"example.com/gpu":  "",
 						},
@@ -163,7 +163,7 @@ func TestSnapshot(t *testing.T) {
 							corev1.ResourceCPU: "1",
 							"example.com/gpu":  "1",
 						}),
-						AssignedTypes: map[corev1.ResourceName]string{
+						AssignedFlavors: map[corev1.ResourceName]string{
 							corev1.ResourceCPU: "spot",
 							"example.com/gpu":  "",
 						},
@@ -204,7 +204,7 @@ func TestSnapshot(t *testing.T) {
 			"foofoo": {
 				Name:   "foofoo",
 				Cohort: &wantCohorts[0],
-				RequestableResources: map[corev1.ResourceName][]kueue.ResourceType{
+				RequestableResources: map[corev1.ResourceName][]kueue.ResourceFlavor{
 					corev1.ResourceCPU: {
 						{
 							Name: "demand",
@@ -233,7 +233,7 @@ func TestSnapshot(t *testing.T) {
 			"foobar": {
 				Name:   "foobar",
 				Cohort: &wantCohorts[0],
-				RequestableResources: map[corev1.ResourceName][]kueue.ResourceType{
+				RequestableResources: map[corev1.ResourceName][]kueue.ResourceFlavor{
 					corev1.ResourceCPU: {
 						{
 							Name: "spot",
@@ -265,7 +265,7 @@ func TestSnapshot(t *testing.T) {
 			},
 			"bar": {
 				Name: "bar",
-				RequestableResources: map[corev1.ResourceName][]kueue.ResourceType{
+				RequestableResources: map[corev1.ResourceName][]kueue.ResourceFlavor{
 					corev1.ResourceCPU: {
 						{
 							Quota: kueue.Quota{

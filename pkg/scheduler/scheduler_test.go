@@ -29,15 +29,15 @@ import (
 	"gke-internal.googlesource.com/gke-batch/kueue/pkg/workload"
 )
 
-func TestEntryAssignTypes(t *testing.T) {
+func TestEntryAssignFlavors(t *testing.T) {
 	cases := map[string]struct {
 		wlPods      []kueue.PodSet
 		capacity    capacity.Capacity
 		wantFits    bool
-		wantTypes   map[string]map[corev1.ResourceName]string
+		wantFlavors map[string]map[corev1.ResourceName]string
 		wantBorrows capacity.Resources
 	}{
-		"single type, fits": {
+		"single flavor, fits": {
 			wlPods: []kueue.PodSet{
 				{
 					Count: 1,
@@ -49,20 +49,20 @@ func TestEntryAssignTypes(t *testing.T) {
 				},
 			},
 			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]kueue.ResourceType{
-					corev1.ResourceCPU:    defaultTypeNoBorrowing("1"),
-					corev1.ResourceMemory: defaultTypeNoBorrowing("2Mi"),
+				RequestableResources: map[corev1.ResourceName][]kueue.ResourceFlavor{
+					corev1.ResourceCPU:    defaultFlavorNoBorrowing("1"),
+					corev1.ResourceMemory: defaultFlavorNoBorrowing("2Mi"),
 				},
 			},
 			wantFits: true,
-			wantTypes: map[string]map[corev1.ResourceName]string{
+			wantFlavors: map[string]map[corev1.ResourceName]string{
 				"main": {
 					corev1.ResourceCPU:    "default",
 					corev1.ResourceMemory: "default",
 				},
 			},
 		},
-		"single type, used resources, doesn't fit": {
+		"single flavor, used resources, doesn't fit": {
 			wlPods: []kueue.PodSet{
 				{
 					Count: 1,
@@ -73,8 +73,8 @@ func TestEntryAssignTypes(t *testing.T) {
 				},
 			},
 			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]kueue.ResourceType{
-					corev1.ResourceCPU: defaultTypeNoBorrowing("4"),
+				RequestableResources: map[corev1.ResourceName][]kueue.ResourceFlavor{
+					corev1.ResourceCPU: defaultFlavorNoBorrowing("4"),
 				},
 				UsedResources: capacity.Resources{
 					corev1.ResourceCPU: {
@@ -83,7 +83,7 @@ func TestEntryAssignTypes(t *testing.T) {
 				},
 			},
 		},
-		"multiple types, fits": {
+		"multiple flavors, fits": {
 			wlPods: []kueue.PodSet{
 				{
 					Count: 1,
@@ -95,26 +95,26 @@ func TestEntryAssignTypes(t *testing.T) {
 				},
 			},
 			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]kueue.ResourceType{
-					corev1.ResourceCPU: noBorrowing([]quickType{
+				RequestableResources: map[corev1.ResourceName][]kueue.ResourceFlavor{
+					corev1.ResourceCPU: noBorrowing([]quickFlavor{
 						{name: "one", guaranteed: "2"},
 						{name: "two", guaranteed: "4"},
 					}),
-					corev1.ResourceMemory: noBorrowing([]quickType{
+					corev1.ResourceMemory: noBorrowing([]quickFlavor{
 						{name: "one", guaranteed: "1Gi"},
 						{name: "two", guaranteed: "5Mi"},
 					}),
 				},
 			},
 			wantFits: true,
-			wantTypes: map[string]map[corev1.ResourceName]string{
+			wantFlavors: map[string]map[corev1.ResourceName]string{
 				"main": {
 					corev1.ResourceCPU:    "two",
 					corev1.ResourceMemory: "one",
 				},
 			},
 		},
-		"multiple types, doesn't fit": {
+		"multiple flavors, doesn't fit": {
 			wlPods: []kueue.PodSet{
 				{
 					Count: 1,
@@ -126,19 +126,19 @@ func TestEntryAssignTypes(t *testing.T) {
 				},
 			},
 			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]kueue.ResourceType{
-					corev1.ResourceCPU: noBorrowing([]quickType{
+				RequestableResources: map[corev1.ResourceName][]kueue.ResourceFlavor{
+					corev1.ResourceCPU: noBorrowing([]quickFlavor{
 						{name: "one", guaranteed: "2"},
 						{name: "two", guaranteed: "4"},
 					}),
-					corev1.ResourceMemory: noBorrowing([]quickType{
+					corev1.ResourceMemory: noBorrowing([]quickFlavor{
 						{name: "one", guaranteed: "1Gi"},
 						{name: "two", guaranteed: "5Mi"},
 					}),
 				},
 			},
 		},
-		"multiple specs, fit different types": {
+		"multiple specs, fit different flavors": {
 			wlPods: []kueue.PodSet{
 				{
 					Count: 1,
@@ -156,15 +156,15 @@ func TestEntryAssignTypes(t *testing.T) {
 				},
 			},
 			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]kueue.ResourceType{
-					corev1.ResourceCPU: noBorrowing([]quickType{
+				RequestableResources: map[corev1.ResourceName][]kueue.ResourceFlavor{
+					corev1.ResourceCPU: noBorrowing([]quickFlavor{
 						{name: "one", guaranteed: "4"},
 						{name: "two", guaranteed: "10"},
 					}),
 				},
 			},
 			wantFits: true,
-			wantTypes: map[string]map[corev1.ResourceName]string{
+			wantFlavors: map[string]map[corev1.ResourceName]string{
 				"driver": {
 					corev1.ResourceCPU: "two",
 				},
@@ -193,7 +193,7 @@ func TestEntryAssignTypes(t *testing.T) {
 				},
 			},
 			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]kueue.ResourceType{
+				RequestableResources: map[corev1.ResourceName][]kueue.ResourceFlavor{
 					corev1.ResourceCPU: {
 						{
 							Name: "default",
@@ -225,7 +225,7 @@ func TestEntryAssignTypes(t *testing.T) {
 				},
 			},
 			wantFits: true,
-			wantTypes: map[string]map[corev1.ResourceName]string{
+			wantFlavors: map[string]map[corev1.ResourceName]string{
 				"driver": {
 					corev1.ResourceCPU:    "default",
 					corev1.ResourceMemory: "default",
@@ -255,7 +255,7 @@ func TestEntryAssignTypes(t *testing.T) {
 				},
 			},
 			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]kueue.ResourceType{
+				RequestableResources: map[corev1.ResourceName][]kueue.ResourceFlavor{
 					corev1.ResourceCPU: {
 						{
 							Name: "one",
@@ -287,7 +287,7 @@ func TestEntryAssignTypes(t *testing.T) {
 				},
 			},
 			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]kueue.ResourceType{
+				RequestableResources: map[corev1.ResourceName][]kueue.ResourceFlavor{
 					corev1.ResourceCPU: {
 						{
 							Name: "one",
@@ -321,19 +321,19 @@ func TestEntryAssignTypes(t *testing.T) {
 					},
 				}),
 			}
-			fits := e.assignTypes(&tc.capacity)
+			fits := e.assignFlavors(&tc.capacity)
 			if fits != tc.wantFits {
-				t.Errorf("e.assignTypes(_)=%t, want %t", fits, tc.wantFits)
+				t.Errorf("e.assignFlavors(_)=%t, want %t", fits, tc.wantFits)
 			}
-			var types map[string]map[corev1.ResourceName]string
+			var flavors map[string]map[corev1.ResourceName]string
 			if fits {
-				types = make(map[string]map[corev1.ResourceName]string)
+				flavors = make(map[string]map[corev1.ResourceName]string)
 				for name, podSet := range e.TotalRequests {
-					types[name] = podSet.Types
+					flavors[name] = podSet.Flavors
 				}
 			}
-			if diff := cmp.Diff(tc.wantTypes, types); diff != "" {
-				t.Errorf("Assigned unexpected types (-want,+got):\n%s", diff)
+			if diff := cmp.Diff(tc.wantFlavors, flavors); diff != "" {
+				t.Errorf("Assigned unexpected flavors (-want,+got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tc.wantBorrows, e.borrows); diff != "" {
 				t.Errorf("Calculated unexpected borrowing (-want,+got):\n%s", diff)
@@ -342,15 +342,15 @@ func TestEntryAssignTypes(t *testing.T) {
 	}
 }
 
-func defaultTypeNoBorrowing(guaranteed string) []kueue.ResourceType {
-	return noBorrowing([]quickType{{name: "default", guaranteed: guaranteed}})
+func defaultFlavorNoBorrowing(guaranteed string) []kueue.ResourceFlavor {
+	return noBorrowing([]quickFlavor{{name: "default", guaranteed: guaranteed}})
 }
 
-func noBorrowing(ts []quickType) []kueue.ResourceType {
-	types := make([]kueue.ResourceType, len(ts))
+func noBorrowing(ts []quickFlavor) []kueue.ResourceFlavor {
+	flavors := make([]kueue.ResourceFlavor, len(ts))
 	for i, t := range ts {
 		g := resource.MustParse(t.guaranteed)
-		types[i] = kueue.ResourceType{
+		flavors[i] = kueue.ResourceFlavor{
 			Name: t.name,
 			Quota: kueue.Quota{
 				Guaranteed: g,
@@ -358,10 +358,10 @@ func noBorrowing(ts []quickType) []kueue.ResourceType {
 			},
 		}
 	}
-	return types
+	return flavors
 }
 
-type quickType struct {
+type quickFlavor struct {
 	name       string
 	guaranteed string
 }

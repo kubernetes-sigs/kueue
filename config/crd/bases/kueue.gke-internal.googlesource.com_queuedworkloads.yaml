@@ -45,6 +45,12 @@ spec:
                   by a Pod spec and a count.
                 items:
                   properties:
+                    assignedFlavors:
+                      additionalProperties:
+                        type: string
+                      description: assignedFlavors lists the resources and the respective
+                        flavors assigned to the workload.
+                      type: object
                     count:
                       description: count is the number of Pods for the spec.
                       format: int32
@@ -7003,12 +7009,6 @@ spec:
                           type: array
                       required:
                       - containers
-                      type: object
-                    types:
-                      additionalProperties:
-                        type: string
-                      description: assignedTypes lists the resources and the respective
-                        types that this workload is assigned to.
                       type: object
                   required:
                   - count

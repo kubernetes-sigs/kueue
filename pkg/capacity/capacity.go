@@ -63,7 +63,7 @@ func newCohort(name string, cap int) *Cohort {
 type Capacity struct {
 	Name                 string
 	Cohort               *Cohort
-	RequestableResources map[corev1.ResourceName][]kueue.ResourceType
+	RequestableResources map[corev1.ResourceName][]kueue.ResourceFlavor
 	UsedResources        Resources
 	Workloads            map[string]*workload.Info
 }
@@ -77,12 +77,12 @@ func NewCapacity(cap *kueue.Capacity) *Capacity {
 	}
 
 	for _, r := range cap.Spec.RequestableResources {
-		if len(r.Types) == 0 {
+		if len(r.Flavors) == 0 {
 			continue
 		}
 
-		ts := make(map[string]int64, len(r.Types))
-		for _, t := range r.Types {
+		ts := make(map[string]int64, len(r.Flavors))
+		for _, t := range r.Flavors {
 			ts[t.Name] = 0
 		}
 		c.UsedResources[r.Name] = ts
@@ -115,12 +115,12 @@ func (c *Capacity) deleteWorkload(w *kueue.QueuedWorkload) error {
 
 func (c *Capacity) updateWorkloadUsage(wi *workload.Info, m int64) {
 	for _, ps := range wi.TotalRequests {
-		for wlRes, wlResTyp := range ps.Types {
+		for wlRes, wlResFlv := range ps.Flavors {
 			v, wlResExist := ps.Requests[wlRes]
-			capResTyp, capResExist := c.UsedResources[wlRes]
+			capResFlv, capResExist := c.UsedResources[wlRes]
 			if capResExist && wlResExist {
-				if _, capTypExist := capResTyp[wlResTyp]; capTypExist {
-					capResTyp[wlResTyp] += v * m
+				if _, capFlvExist := capResFlv[wlResFlv]; capFlvExist {
+					capResFlv[wlResFlv] += v * m
 				}
 			}
 		}
@@ -242,14 +242,14 @@ func (c *Cache) deleteCapacityFromCohort(cap *Capacity) {
 	cap.Cohort = nil
 }
 
-func resourcesByName(in []kueue.Resource) map[corev1.ResourceName][]kueue.ResourceType {
-	out := make(map[corev1.ResourceName][]kueue.ResourceType, len(in))
+func resourcesByName(in []kueue.Resource) map[corev1.ResourceName][]kueue.ResourceFlavor {
+	out := make(map[corev1.ResourceName][]kueue.ResourceFlavor, len(in))
 	for _, r := range in {
-		types := make([]kueue.ResourceType, len(r.Types))
-		for i := range types {
-			types[i] = *r.Types[i].DeepCopy()
+		flavors := make([]kueue.ResourceFlavor, len(r.Flavors))
+		for i := range flavors {
+			flavors[i] = *r.Flavors[i].DeepCopy()
 		}
-		out[r.Name] = types
+		out[r.Name] = flavors
 	}
 	return out
 }

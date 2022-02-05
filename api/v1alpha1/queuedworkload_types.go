@@ -67,10 +67,10 @@ type PodSet struct {
 	// count is the number of Pods for the spec.
 	Count int32 `json:"count"`
 
-	// assignedTypes lists the resources and the respective types that this workload is
-	// assigned to.
+	// assignedFlavors lists the resources and the respective flavors
+	// assigned to the workload.
 	// +optional
-	AssignedTypes map[corev1.ResourceName]string `json:"types,omitempty"`
+	AssignedFlavors map[corev1.ResourceName]string `json:"assignedFlavors,omitempty"`
 }
 
 // QueuedWorkloadStatus defines the observed state of QueuedWorkload

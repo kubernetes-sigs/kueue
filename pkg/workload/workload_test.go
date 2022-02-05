@@ -112,7 +112,7 @@ func TestNewInfo(t *testing.T) {
 							}),
 					},
 					Count: 1,
-					AssignedTypes: map[corev1.ResourceName]string{
+					AssignedFlavors: map[corev1.ResourceName]string{
 						corev1.ResourceCPU: "on-demand",
 					},
 				},
@@ -138,7 +138,7 @@ func TestNewInfo(t *testing.T) {
 				corev1.ResourceCPU:    10,
 				corev1.ResourceMemory: 512 * 1024,
 			},
-			Types: map[corev1.ResourceName]string{
+			Flavors: map[corev1.ResourceName]string{
 				corev1.ResourceCPU: "on-demand",
 			},
 		},

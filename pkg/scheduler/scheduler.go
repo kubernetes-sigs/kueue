@@ -61,7 +61,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 	snapshot := s.capacityCache.Snapshot()
 
 	// 3. Calculate requirements for assigning workloads to capacities
-	// (resource types, borrowing).
+	// (resource flavors, borrowing).
 	_ = calculateRequirementsForAssignments(ctx, headWorkloads, snapshot)
 	// TODO: schedule
 }
@@ -69,7 +69,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 // entry holds requirements for a workload to be scheduled in a capacity.
 type entry struct {
 	// workload.Info holds the workload from the API as well as resource usage
-	// and types assigned.
+	// and flavors assigned.
 	workload.Info
 	// borrows is the resouces that the workload would need to borrow from the
 	// cohort if it was scheduled in the capacity.
@@ -77,7 +77,7 @@ type entry struct {
 }
 
 // calculateRequirementsForAssignments returns the workloads with their
-// requirements (resource types, borrowing) if they were assigned to the
+// requirements (resource flavors, borrowing) if they were assigned to the
 // capacities in the snapshot.
 func calculateRequirementsForAssignments(ctx context.Context, workloads []workload.Info, snap capacity.Snapshot) []entry {
 	log := logr.FromContext(ctx)
@@ -90,7 +90,7 @@ func calculateRequirementsForAssignments(ctx context.Context, workloads []worklo
 			continue
 		}
 		e := entry{Info: w}
-		if !e.assignTypes(cap) {
+		if !e.assignFlavors(cap) {
 			log.V(2).Info("Workload didn't fit in remaining capacity even when borrowing")
 		}
 		entries = append(entries, e)
@@ -98,20 +98,20 @@ func calculateRequirementsForAssignments(ctx context.Context, workloads []worklo
 	return entries
 }
 
-// assignTypes calculates the types that should be assigned to this entry
+// assignFlavors calculates the flavors that should be assigned to this entry
 // if scheduled to this capacity, including details of how much it needs to
 // borrow from the cohort.
 // It returns whether the entry would fit. If it doesn't fit, the object is
 // unmodified.
-func (e *entry) assignTypes(cap *capacity.Capacity) bool {
-	typedRequests := make(map[string]workload.Resources, len(e.TotalRequests))
+func (e *entry) assignFlavors(cap *capacity.Capacity) bool {
+	flavoredRequests := make(map[string]workload.Resources, len(e.TotalRequests))
 	wUsed := make(capacity.Resources)
 	wBorrows := make(capacity.Resources)
 	for psName, podSet := range e.TotalRequests {
-		types := make(map[corev1.ResourceName]string, len(podSet.Requests))
+		flavors := make(map[corev1.ResourceName]string, len(podSet.Requests))
 		for resName, reqVal := range podSet.Requests {
-			rType, borrow := findTypeForResource(resName, reqVal, cap, wUsed[resName])
-			if rType == "" {
+			rFlavor, borrow := findFlavorForResource(resName, reqVal, cap, wUsed[resName])
+			if rFlavor == "" {
 				return false
 			}
 			if borrow > 0 {
@@ -120,55 +120,55 @@ func (e *entry) assignTypes(cap *capacity.Capacity) bool {
 				}
 				// Don't accumulate borrowing. The returned `borrow` already considers
 				// usage from previous pod sets.
-				wBorrows[resName][rType] = borrow
+				wBorrows[resName][rFlavor] = borrow
 			}
 			if wUsed[resName] == nil {
 				wUsed[resName] = make(map[string]int64)
 			}
-			wUsed[resName][rType] += reqVal
-			types[resName] = rType
+			wUsed[resName][rFlavor] += reqVal
+			flavors[resName] = rFlavor
 		}
-		typedRequests[psName] = workload.Resources{
+		flavoredRequests[psName] = workload.Resources{
 			Requests: podSet.Requests,
-			Types:    types,
+			Flavors:  flavors,
 		}
 	}
-	e.TotalRequests = typedRequests
+	e.TotalRequests = flavoredRequests
 	if len(wBorrows) > 0 {
 		e.borrows = wBorrows
 	}
 	return true
 }
 
-// findTypeForResources returns a type which can satisfy the resource request,
-// given that wUsed is the usage of types by previous podsets.
-// If it finds a type, also returns any borrowing required.
-func findTypeForResource(name corev1.ResourceName, val int64, cap *capacity.Capacity, wUsed map[string]int64) (string, int64) {
-	for _, rType := range cap.RequestableResources[name] {
+// findFlavorForResources returns a flavor which can satisfy the resource request,
+// given that wUsed is the usage of flavors by previous podsets.
+// If it finds a flavor, also returns any borrowing required.
+func findFlavorForResource(name corev1.ResourceName, val int64, cap *capacity.Capacity, wUsed map[string]int64) (string, int64) {
+	for _, rFlavor := range cap.RequestableResources[name] {
 		// Consider the usage assigned to previous pod sets.
-		ok, borrow := canAssignType(name, val+wUsed[rType.Name], cap, &rType)
+		ok, borrow := canAssignFlavor(name, val+wUsed[rFlavor.Name], cap, &rFlavor)
 		if ok {
-			return rType.Name, borrow
+			return rFlavor.Name, borrow
 		}
 	}
 	return "", 0
 }
 
-// canAssignType returns whether a requested resource fits in a specific type.
+// canAssignFlavor returns whether a requested resource fits in a specific flavor.
 // If it fits, also returns any borrowing required.
-func canAssignType(name corev1.ResourceName, val int64, cap *capacity.Capacity, rType *kueue.ResourceType) (bool, int64) {
-	ceiling := workload.ResourceValue(name, rType.Quota.Ceiling)
-	used := cap.UsedResources[name][rType.Name]
+func canAssignFlavor(name corev1.ResourceName, val int64, cap *capacity.Capacity, rFlavor *kueue.ResourceFlavor) (bool, int64) {
+	ceiling := workload.ResourceValue(name, rFlavor.Quota.Ceiling)
+	used := cap.UsedResources[name][rFlavor.Name]
 	if used+val > ceiling {
 		// Past borrowing limit.
 		return false, 0
 	}
-	guaranteed := workload.ResourceValue(name, rType.Quota.Guaranteed)
+	guaranteed := workload.ResourceValue(name, rFlavor.Quota.Guaranteed)
 	cohortUsed := used
 	cohortTotal := guaranteed
 	if cap.Cohort != nil {
-		cohortUsed = cap.Cohort.UsedResources[name][rType.Name]
-		cohortTotal = cap.Cohort.RequestableResources[name][rType.Name]
+		cohortUsed = cap.Cohort.UsedResources[name][rFlavor.Name]
+		cohortTotal = cap.Cohort.RequestableResources[name][rFlavor.Name]
 	}
 	borrow := used + val - guaranteed
 	if borrow < 0 {
