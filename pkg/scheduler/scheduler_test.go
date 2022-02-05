@@ -68,13 +68,13 @@ func TestEntryAssignTypes(t *testing.T) {
 					Count: 1,
 					Name:  "main",
 					Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-						corev1.ResourceCPU:    "2",
+						corev1.ResourceCPU: "2",
 					}),
 				},
 			},
 			capacity: capacity.Capacity{
 				RequestableResources: map[corev1.ResourceName][]kueue.ResourceType{
-					corev1.ResourceCPU:    defaultTypeNoBorrowing("4"),
+					corev1.ResourceCPU: defaultTypeNoBorrowing("4"),
 				},
 				UsedResources: capacity.Resources{
 					corev1.ResourceCPU: {
@@ -250,7 +250,7 @@ func TestEntryAssignTypes(t *testing.T) {
 					Count: 1,
 					Name:  "main",
 					Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-						corev1.ResourceCPU:    "2",
+						corev1.ResourceCPU: "2",
 					}),
 				},
 			},
@@ -282,7 +282,7 @@ func TestEntryAssignTypes(t *testing.T) {
 					Count: 1,
 					Name:  "main",
 					Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-						corev1.ResourceCPU:    "2",
+						corev1.ResourceCPU: "2",
 					}),
 				},
 			},
