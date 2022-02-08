@@ -204,10 +204,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		},
 	}
 	steps := []struct {
-		name        string
-		operation   func() error
-		wantResults map[string]result
-		wantError   string
+		name                 string
+		operation            func() error
+		wantResults          map[string]result
+		wantAssumedWorkloads map[string]string
+		wantError            string
 	}{
 		{
 			name: "add",
@@ -407,6 +408,102 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "assume",
+			operation: func() error {
+				workloads := []kueue.QueuedWorkload{
+					{
+						ObjectMeta: metav1.ObjectMeta{Name: "a"},
+						Spec: kueue.QueuedWorkloadSpec{
+							AssignedCapacity: "one",
+							Pods:             pods,
+						},
+					},
+					{
+						ObjectMeta: metav1.ObjectMeta{Name: "e"},
+						Spec: kueue.QueuedWorkloadSpec{
+							AssignedCapacity: "two",
+							Pods:             pods,
+						},
+					},
+				}
+				for i := range workloads {
+					if err := cache.AssumeWorkload(&workloads[i]); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+			wantResults: map[string]result{
+				"one": {
+					Workloads:     sets.NewString("a", "c"),
+					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 10, "spot": 15}},
+				},
+				"two": {
+					Workloads:     sets.NewString("b", "d", "e"),
+					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 10, "spot": 15}},
+				},
+			},
+			wantAssumedWorkloads: map[string]string{
+				"/a": "one",
+				"/e": "two",
+			},
+		},
+		{
+			name: "forget",
+			operation: func() error {
+				w := kueue.QueuedWorkload{
+					ObjectMeta: metav1.ObjectMeta{Name: "a"},
+					Spec: kueue.QueuedWorkloadSpec{
+						AssignedCapacity: "one",
+						Pods:             pods,
+					},
+				}
+				return cache.ForgetWorkload(&w)
+			},
+			wantResults: map[string]result{
+				"one": {
+					Workloads:     sets.NewString("c"),
+					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
+				},
+				"two": {
+					Workloads:     sets.NewString("b", "d", "e"),
+					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 10, "spot": 15}},
+				},
+			},
+			wantAssumedWorkloads: map[string]string{
+				"/e": "two",
+			},
+		},
+		{
+			name: "update assumed workload",
+			operation: func() error {
+				old := kueue.QueuedWorkload{
+					ObjectMeta: metav1.ObjectMeta{Name: "e"},
+					Spec: kueue.QueuedWorkloadSpec{
+						Pods: pods,
+					},
+				}
+				new := kueue.QueuedWorkload{
+					ObjectMeta: metav1.ObjectMeta{Name: "e"},
+					Spec: kueue.QueuedWorkloadSpec{
+						AssignedCapacity: "two",
+						Pods:             pods,
+					},
+				}
+				return cache.UpdateWorkload(&old, &new)
+			},
+			wantResults: map[string]result{
+				"one": {
+					Workloads:     sets.NewString("c"),
+					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
+				},
+				"two": {
+					Workloads:     sets.NewString("b", "d", "e"),
+					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 10, "spot": 15}},
+				},
+			},
+		},
 	}
 	for _, step := range steps {
 		t.Run(step.name, func(t *testing.T) {
@@ -424,6 +521,12 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			}
 			if diff := cmp.Diff(step.wantResults, gotWorkloads); diff != "" {
 				t.Errorf("Unexpected capacities (-want,+got):\n%s", diff)
+			}
+			if step.wantAssumedWorkloads == nil {
+				step.wantAssumedWorkloads = map[string]string{}
+			}
+			if diff := cmp.Diff(step.wantAssumedWorkloads, cache.assumedWorkloads); diff != "" {
+				t.Errorf("Unexpected assumed workloads (-want,+got):\n%s", diff)
 			}
 		})
 	}

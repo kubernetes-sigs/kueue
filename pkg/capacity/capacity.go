@@ -29,14 +29,16 @@ import (
 type Cache struct {
 	sync.Mutex
 
-	capacities map[string]*Capacity
-	cohorts    map[string]*Cohort
+	capacities       map[string]*Capacity
+	cohorts          map[string]*Cohort
+	assumedWorkloads map[string]string
 }
 
 func NewCache() *Cache {
 	return &Cache{
-		capacities: make(map[string]*Capacity),
-		cohorts:    make(map[string]*Cohort),
+		capacities:       make(map[string]*Capacity),
+		cohorts:          make(map[string]*Cohort),
+		assumedWorkloads: make(map[string]string),
 	}
 }
 
@@ -181,6 +183,9 @@ func (c *Cache) AddWorkload(w *kueue.QueuedWorkload) error {
 	if !ok {
 		return fmt.Errorf("capacity doesn't exist")
 	}
+
+	c.cleanupAssumedState(w)
+
 	return cap.addWorkload(w)
 }
 
@@ -197,6 +202,8 @@ func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.QueuedWorkload) error {
 			return err
 		}
 	}
+	c.cleanupAssumedState(oldWl)
+
 	cap, ok := c.capacities[string(newWl.Spec.AssignedCapacity)]
 	if !ok {
 		return fmt.Errorf("new capacity doesn't exist")
@@ -215,7 +222,67 @@ func (c *Cache) DeleteWorkload(w *kueue.QueuedWorkload) error {
 	if !ok {
 		return fmt.Errorf("capacity doesn't exist")
 	}
+
+	c.cleanupAssumedState(w)
+
 	return cap.deleteWorkload(w)
+}
+
+func (c *Cache) AssumeWorkload(w *kueue.QueuedWorkload) error {
+	c.Lock()
+	defer c.Unlock()
+
+	if w.Spec.AssignedCapacity == "" {
+		return fmt.Errorf("workload not assigned a capacity")
+	}
+
+	k := workload.Key(w)
+	assumedCap, assumed := c.assumedWorkloads[k]
+	if assumed {
+		return fmt.Errorf("the workload is already assumed to capacity %q", assumedCap)
+	}
+
+	cap, ok := c.capacities[string(w.Spec.AssignedCapacity)]
+	if !ok {
+		return fmt.Errorf("capacity doesn't exist")
+	}
+
+	if err := cap.addWorkload(w); err != nil {
+		return err
+	}
+	c.assumedWorkloads[k] = string(w.Spec.AssignedCapacity)
+	return nil
+}
+
+func (c *Cache) ForgetWorkload(w *kueue.QueuedWorkload) error {
+	c.Lock()
+	defer c.Unlock()
+
+	if _, assumed := c.assumedWorkloads[workload.Key(w)]; !assumed {
+		return fmt.Errorf("the workload is not assumed")
+	}
+	c.cleanupAssumedState(w)
+
+	cap, ok := c.capacities[string(w.Spec.AssignedCapacity)]
+	if !ok {
+		return fmt.Errorf("capacity doesn't exist")
+	}
+	return cap.deleteWorkload(w)
+}
+
+func (c *Cache) cleanupAssumedState(w *kueue.QueuedWorkload) {
+	k := workload.Key(w)
+	assumedCapName, assumed := c.assumedWorkloads[k]
+	if assumed {
+		// If the workload's assigned capacity is different from the assumed
+		// one, then we should also cleanup the assumed one.
+		if assumedCapName != string(w.Spec.AssignedCapacity) {
+			if assumedCap, exist := c.capacities[assumedCapName]; exist {
+				assumedCap.deleteWorkload(w)
+			}
+		}
+		delete(c.assumedWorkloads, k)
+	}
 }
 
 func (c *Cache) addCapacityToCohort(cap *Capacity, cohortName string) {
