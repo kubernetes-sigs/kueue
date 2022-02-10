@@ -49,6 +49,10 @@ func (s *Scheduler) Start(ctx context.Context) {
 }
 
 func (s *Scheduler) schedule(ctx context.Context) {
+	log, err := logr.FromContext(ctx)
+	if err != nil {
+		return
+	}
 	// 1. Get the heads from the queues, including their desired capacity.
 	// This operation blocks while the queues are empty.
 	headWorkloads := s.queues.Heads(ctx)
@@ -62,7 +66,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 
 	// 3. Calculate requirements for assigning workloads to capacities
 	// (resource flavors, borrowing).
-	_ = calculateRequirementsForAssignments(ctx, headWorkloads, snapshot)
+	_ = calculateRequirementsForAssignments(log, headWorkloads, snapshot)
 	// TODO: schedule
 }
 
@@ -79,8 +83,7 @@ type entry struct {
 // calculateRequirementsForAssignments returns the workloads with their
 // requirements (resource flavors, borrowing) if they were assigned to the
 // capacities in the snapshot.
-func calculateRequirementsForAssignments(ctx context.Context, workloads []workload.Info, snap capacity.Snapshot) []entry {
-	log := logr.FromContext(ctx)
+func calculateRequirementsForAssignments(log logr.Logger, workloads []workload.Info, snap capacity.Snapshot) []entry {
 	entries := make([]entry, 0, len(workloads))
 	for _, w := range workloads {
 		log := log.WithValues("queuedWorkload", klog.KObj(w.Obj), "capacity", w.Capacity)
