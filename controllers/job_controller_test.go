@@ -37,6 +37,7 @@ const (
 	parallelism  = 4
 	jobName      = "test-job"
 	jobNamespace = "default"
+	labelKey     = "cloud.provider.com/instance"
 
 	timeout  = time.Second * 10
 	duration = time.Second * 10
@@ -123,7 +124,10 @@ var _ = ginkgo.Describe("Job controller", func() {
 		}, duration, interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking the job is unsuspended when workload is assigned")
-		createdWorkload.Spec.AssignedCapacity = "capacity"
+		capacityName := "capacity"
+		gomega.Expect(k8sClient.Create(ctx, newTestCapacity(capacityName))).Should(gomega.Succeed())
+		createdWorkload.Spec.AssignedCapacity = kueue.CapacityReference(capacityName)
+		createdWorkload.Spec.Pods[0].AssignedFlavors = map[corev1.ResourceName]string{"cpu": "on-demand"}
 		gomega.Expect(k8sClient.Update(ctx, createdWorkload)).Should(gomega.Succeed())
 		gomega.Eventually(func() bool {
 			if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {
@@ -131,6 +135,8 @@ var _ = ginkgo.Describe("Job controller", func() {
 			}
 			return !*createdJob.Spec.Suspend
 		}, timeout, interval).Should(gomega.BeTrue())
+		gomega.Expect(len(createdJob.Spec.Template.Spec.NodeSelector)).Should(gomega.Equal(1))
+		gomega.Expect(createdJob.Spec.Template.Spec.NodeSelector[labelKey]).Should(gomega.Equal("on-demand"))
 		gomega.Consistently(func() bool {
 			if err := k8sClient.Get(ctx, lookupKey, createdWorkload); err != nil {
 				return false
@@ -138,7 +144,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 			return len(createdWorkload.Status.Conditions) == 0
 		}, duration, interval).Should(gomega.BeTrue())
 
-		ginkgo.By("checking the job gets suspended when parallelism changes")
+		ginkgo.By("checking the job gets suspended when parallelism changes and the added node selectors are removed")
 		newParallelism := int32(parallelism + 1)
 		createdJob.Spec.Parallelism = &newParallelism
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
@@ -146,7 +152,8 @@ var _ = ginkgo.Describe("Job controller", func() {
 			if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {
 				return false
 			}
-			return createdJob.Spec.Suspend != nil && *createdJob.Spec.Suspend
+			return createdJob.Spec.Suspend != nil && *createdJob.Spec.Suspend &&
+				len(createdJob.Spec.Template.Spec.NodeSelector) == 0
 		}, timeout, interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking the workload is updated with new count")
@@ -158,8 +165,9 @@ var _ = ginkgo.Describe("Job controller", func() {
 		}, timeout, interval).Should(gomega.BeTrue())
 		gomega.Expect(createdWorkload.Spec.AssignedCapacity).Should(gomega.BeEmpty())
 
-		ginkgo.By("checking the job is unsuspended when workload is assigned again")
+		ginkgo.By("checking the job is unsuspended and selectors added when workload is assigned again")
 		createdWorkload.Spec.AssignedCapacity = "capacity"
+		createdWorkload.Spec.Pods[0].AssignedFlavors = map[corev1.ResourceName]string{"cpu": "spot"}
 		gomega.Expect(k8sClient.Update(ctx, createdWorkload)).Should(gomega.Succeed())
 		gomega.Eventually(func() bool {
 			if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {
@@ -167,6 +175,8 @@ var _ = ginkgo.Describe("Job controller", func() {
 			}
 			return !*createdJob.Spec.Suspend
 		}, timeout, interval).Should(gomega.BeTrue())
+		gomega.Expect(len(createdJob.Spec.Template.Spec.NodeSelector)).Should(gomega.Equal(1))
+		gomega.Expect(createdJob.Spec.Template.Spec.NodeSelector[labelKey]).Should(gomega.Equal("spot"))
 		gomega.Consistently(func() bool {
 			if err := k8sClient.Get(ctx, lookupKey, createdWorkload); err != nil {
 				return false
@@ -221,6 +231,35 @@ func newTestJob(jobQueueName string) *batchv1.Job {
 							Name:    "c",
 							Image:   "pause",
 							Command: []string{},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func newTestCapacity(name string) *kueue.Capacity {
+	return &kueue.Capacity{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+		Spec: kueue.CapacitySpec{
+			RequestableResources: []kueue.Resource{
+				{
+					Name: "cpu",
+					Flavors: []kueue.ResourceFlavor{
+						{
+							Name: "on-demand",
+							Labels: map[string]string{
+								"cloud.provider.com/instance": "on-demand",
+							},
+						},
+						{
+							Name: "spot",
+							Labels: map[string]string{
+								"cloud.provider.com/instance": "spot",
+							},
 						},
 					},
 				},
