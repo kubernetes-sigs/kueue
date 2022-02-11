@@ -235,7 +235,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					},
 				}
 				for i := range workloads {
-					if err := cache.AddWorkload(&workloads[i]); err != nil {
+					if err := cache.AddOrUpdateWorkload(&workloads[i]); err != nil {
 						return err
 					}
 				}
@@ -259,7 +259,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{Name: "a"},
 					Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "three"},
 				}
-				return cache.AddWorkload(&w)
+				return cache.AddOrUpdateWorkload(&w)
 			},
 			wantError: "capacity doesn't exist",
 			wantResults: map[string]result{
@@ -274,15 +274,14 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 		},
 		{
-			name: "add error already exists",
+			name: "add already exists",
 			operation: func() error {
 				w := kueue.QueuedWorkload{
-					ObjectMeta: metav1.ObjectMeta{Name: "a"},
+					ObjectMeta: metav1.ObjectMeta{Name: "c"},
 					Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "one"},
 				}
-				return cache.AddWorkload(&w)
+				return cache.AddOrUpdateWorkload(&w)
 			},
-			wantError: "workload already exists in capacity",
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("a", "c"),

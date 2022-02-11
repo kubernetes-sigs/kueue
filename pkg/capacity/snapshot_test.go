@@ -174,7 +174,7 @@ func TestSnapshot(t *testing.T) {
 		},
 	}
 	for _, w := range workloads {
-		cache.AddWorkload(w.DeepCopy())
+		cache.AddOrUpdateWorkload(w.DeepCopy())
 	}
 	snapshot := cache.Snapshot()
 	wantCohorts := []Cohort{
