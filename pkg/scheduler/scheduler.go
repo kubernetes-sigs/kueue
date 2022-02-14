@@ -45,6 +45,7 @@ func New(queues *queue.Manager, cache *capacity.Cache, cl client.Client) *Schedu
 	return &Scheduler{
 		queues:        queues,
 		capacityCache: cache,
+		client:        cl,
 	}
 }
 
@@ -136,6 +137,7 @@ func calculateRequirementsForAssignments(log logr.Logger, workloads []workload.I
 		e := entry{Info: w}
 		if !e.assignFlavors(cap) {
 			log.V(2).Info("Workload didn't fit in remaining capacity even when borrowing")
+			continue
 		}
 		entries = append(entries, e)
 	}

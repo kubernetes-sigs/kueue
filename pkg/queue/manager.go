@@ -196,6 +196,32 @@ func (m *Manager) Heads(ctx context.Context) []workload.Info {
 	}
 }
 
+// Dump is a dump of the queues and it's elements.
+// Queues are empty after calling this method.
+// Only use for testing purposes.
+func (m *Manager) Dump() map[string][]string {
+	m.Lock()
+	defer m.Unlock()
+	if len(m.queues) == 0 {
+		return nil
+	}
+	dump := make(map[string][]string, len(m.queues))
+	for name, q := range m.queues {
+		if len(q.heap.items) == 0 {
+			continue
+		}
+		elements := make([]string, len(q.heap.items))
+		for i := range elements {
+			elements[i] = workload.Key(q.Pop().Obj)
+		}
+		dump[name] = elements
+	}
+	if len(dump) == 0 {
+		return nil
+	}
+	return dump
+}
+
 func (m *Manager) heads() []workload.Info {
 	var workloads []workload.Info
 	for _, q := range m.queues {

@@ -17,20 +17,675 @@ limitations under the License.
 package scheduler
 
 import (
+	"context"
 	"sort"
 	"testing"
 	"time"
 
+	logrtesting "github.com/go-logr/logr/testing"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
 	"gke-internal.googlesource.com/gke-batch/kueue/pkg/capacity"
+	"gke-internal.googlesource.com/gke-batch/kueue/pkg/queue"
 	utiltesting "gke-internal.googlesource.com/gke-batch/kueue/pkg/util/testing"
 	"gke-internal.googlesource.com/gke-batch/kueue/pkg/workload"
 )
+
+const (
+	timeout = 2 * time.Second
+)
+
+var (
+	filterAssignFields = cmp.Options{
+		cmpopts.IgnoreFields(kueue.QueuedWorkloadSpec{}, "QueueName"),
+		cmpopts.IgnoreFields(kueue.PodSet{}, "Count", "Spec"),
+	}
+)
+
+func TestSchedule(t *testing.T) {
+	capacities := []kueue.Capacity{
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "sales"},
+			Spec: kueue.CapacitySpec{
+				RequestableResources: []kueue.Resource{
+					{
+						Name: corev1.ResourceCPU,
+						Flavors: []kueue.ResourceFlavor{
+							{
+								Name: "default",
+								Quota: kueue.Quota{
+									Guaranteed: resource.MustParse("50"),
+									Ceiling:    resource.MustParse("50"),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "eng-alpha"},
+			Spec: kueue.CapacitySpec{
+				Cohort: "eng",
+				RequestableResources: []kueue.Resource{
+					{
+						Name: corev1.ResourceCPU,
+						Flavors: []kueue.ResourceFlavor{
+							{
+								Name: "on-demand",
+								Quota: kueue.Quota{
+									Guaranteed: resource.MustParse("50"),
+									Ceiling:    resource.MustParse("100"),
+								},
+							},
+							{
+								Name: "spot",
+								Quota: kueue.Quota{
+									Guaranteed: resource.MustParse("100"),
+									Ceiling:    resource.MustParse("100"),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "eng-beta"},
+			Spec: kueue.CapacitySpec{
+				Cohort: "eng",
+				RequestableResources: []kueue.Resource{
+					{
+						Name: corev1.ResourceCPU,
+						Flavors: []kueue.ResourceFlavor{
+							{
+								Name: "on-demand",
+								Quota: kueue.Quota{
+									Guaranteed: resource.MustParse("50"),
+									Ceiling:    resource.MustParse("60"),
+								},
+							},
+							{
+								Name: "spot",
+								Quota: kueue.Quota{
+									Guaranteed: resource.MustParse("0"),
+									Ceiling:    resource.MustParse("100"),
+								},
+							},
+						},
+					},
+					{
+						Name: "example.com/gpu",
+						Flavors: []kueue.ResourceFlavor{
+							{
+								Name: "model-a",
+								Quota: kueue.Quota{
+									Guaranteed: resource.MustParse("20"),
+									Ceiling:    resource.MustParse("20"),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	queues := []kueue.Queue{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "sales",
+				Name:      "main",
+			},
+			Spec: kueue.QueueSpec{
+				Capacity: "sales",
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "eng-alpha",
+				Name:      "main-a",
+			},
+			Spec: kueue.QueueSpec{
+				Capacity: "eng-alpha",
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "eng-beta",
+				Name:      "main-b",
+			},
+			Spec: kueue.QueueSpec{
+				Capacity: "eng-beta",
+			},
+		},
+	}
+	cases := map[string]struct {
+		workloads []kueue.QueuedWorkload
+		// wantAssignment is a summary of all the assignments in the cache after this cycle.
+		wantAssigment map[string]kueue.QueuedWorkloadSpec
+		// wantScheduled is the subset of assigments that got scheduled in this cycle.
+		wantScheduled []string
+		// wantLeft is the workload keys that are left in the queues after this cycle.
+		wantLeft map[string][]string
+	}{
+		"workload fits in single capacity": {
+			workloads: []kueue.QueuedWorkload{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "sales",
+						Name:      "foo",
+					},
+					Spec: kueue.QueuedWorkloadSpec{
+						QueueName: "main",
+						Pods: []kueue.PodSet{
+							{
+								Name:  "one",
+								Count: 10,
+								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+									corev1.ResourceCPU: "1",
+								}),
+							},
+						},
+					},
+				},
+			},
+			wantAssigment: map[string]kueue.QueuedWorkloadSpec{
+				"sales/foo": {
+					AssignedCapacity: "sales",
+					Pods: []kueue.PodSet{
+						{
+							Name: "one",
+							AssignedFlavors: map[corev1.ResourceName]string{
+								corev1.ResourceCPU: "default",
+							},
+						},
+					},
+				},
+			},
+			wantScheduled: []string{"sales/foo"},
+		},
+		"single capacity full": {
+			workloads: []kueue.QueuedWorkload{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "sales",
+						Name:      "new",
+					},
+					Spec: kueue.QueuedWorkloadSpec{
+						QueueName: "main",
+						Pods: []kueue.PodSet{
+							{
+								Name:  "one",
+								Count: 11,
+								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+									corev1.ResourceCPU: "1",
+								}),
+							},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "sales",
+						Name:      "assigned",
+					},
+					Spec: kueue.QueuedWorkloadSpec{
+						AssignedCapacity: "sales",
+						Pods: []kueue.PodSet{
+							{
+								Name:  "one",
+								Count: 40,
+								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+									corev1.ResourceCPU: "1",
+								}),
+								AssignedFlavors: map[corev1.ResourceName]string{
+									corev1.ResourceCPU: "default",
+								},
+							},
+						},
+					},
+				},
+			},
+			wantAssigment: map[string]kueue.QueuedWorkloadSpec{
+				"sales/assigned": {
+					AssignedCapacity: "sales",
+					Pods: []kueue.PodSet{
+						{
+							Name: "one",
+							AssignedFlavors: map[corev1.ResourceName]string{
+								corev1.ResourceCPU: "default",
+							},
+						},
+					},
+				},
+			},
+			wantLeft: map[string][]string{
+				"main": {"sales/new"},
+			},
+		},
+		"assign to different cohorts": {
+			workloads: []kueue.QueuedWorkload{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "sales",
+						Name:      "new",
+					},
+					Spec: kueue.QueuedWorkloadSpec{
+						QueueName: "main",
+						Pods: []kueue.PodSet{
+							{
+								Name:  "one",
+								Count: 1,
+								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+									corev1.ResourceCPU: "1",
+								}),
+							},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "eng-alpha",
+						Name:      "new",
+					},
+					Spec: kueue.QueuedWorkloadSpec{
+						QueueName: "main-a",
+						Pods: []kueue.PodSet{
+							{
+								Name:  "one",
+								Count: 51, // will borrow.
+								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+									corev1.ResourceCPU: "1",
+								}),
+							},
+						},
+					},
+				},
+			},
+			wantAssigment: map[string]kueue.QueuedWorkloadSpec{
+				"sales/new": {
+					AssignedCapacity: "sales",
+					Pods: []kueue.PodSet{
+						{
+							Name: "one",
+							AssignedFlavors: map[corev1.ResourceName]string{
+								corev1.ResourceCPU: "default",
+							},
+						},
+					},
+				},
+				"eng-alpha/new": {
+					AssignedCapacity: "eng-alpha",
+					Pods: []kueue.PodSet{
+						{
+							Name: "one",
+							AssignedFlavors: map[corev1.ResourceName]string{
+								corev1.ResourceCPU: "on-demand",
+							},
+						},
+					},
+				},
+			},
+			wantScheduled: []string{"sales/new", "eng-alpha/new"},
+		},
+		"assign to same cohort no borrowing": {
+			workloads: []kueue.QueuedWorkload{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "eng-alpha",
+						Name:      "new",
+					},
+					Spec: kueue.QueuedWorkloadSpec{
+						QueueName: "main-a",
+						Pods: []kueue.PodSet{
+							{
+								Name:  "one",
+								Count: 40,
+								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+									corev1.ResourceCPU: "1",
+								}),
+							},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "eng-beta",
+						Name:      "new",
+					},
+					Spec: kueue.QueuedWorkloadSpec{
+						QueueName: "main-b",
+						Pods: []kueue.PodSet{
+							{
+								Name:  "one",
+								Count: 40,
+								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+									corev1.ResourceCPU: "1",
+								}),
+							},
+						},
+					},
+				},
+			},
+			wantAssigment: map[string]kueue.QueuedWorkloadSpec{
+				"eng-alpha/new": {
+					AssignedCapacity: "eng-alpha",
+					Pods: []kueue.PodSet{
+						{
+							Name: "one",
+							AssignedFlavors: map[corev1.ResourceName]string{
+								corev1.ResourceCPU: "on-demand",
+							},
+						},
+					},
+				},
+				"eng-beta/new": {
+					AssignedCapacity: "eng-beta",
+					Pods: []kueue.PodSet{
+						{
+							Name: "one",
+							AssignedFlavors: map[corev1.ResourceName]string{
+								corev1.ResourceCPU: "on-demand",
+							},
+						},
+					},
+				},
+			},
+			wantScheduled: []string{"eng-alpha/new", "eng-beta/new"},
+		},
+		"assign multiple resources and flavors": {
+			workloads: []kueue.QueuedWorkload{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "eng-beta",
+						Name:      "new",
+					},
+					Spec: kueue.QueuedWorkloadSpec{
+						QueueName: "main-b",
+						Pods: []kueue.PodSet{
+							{
+								Name:  "one",
+								Count: 10,
+								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+									corev1.ResourceCPU: "6", // Needs to borrow.
+									"example.com/gpu":  "1",
+								}),
+							},
+							{
+								Name:  "two",
+								Count: 40,
+								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+									corev1.ResourceCPU: "1",
+								}),
+							},
+						},
+					},
+				},
+			},
+			wantAssigment: map[string]kueue.QueuedWorkloadSpec{
+				"eng-beta/new": {
+					AssignedCapacity: "eng-beta",
+					Pods: []kueue.PodSet{
+						{
+							Name: "one",
+							AssignedFlavors: map[corev1.ResourceName]string{
+								corev1.ResourceCPU: "on-demand",
+								"example.com/gpu":  "model-a",
+							},
+						},
+						{
+							Name: "two",
+							AssignedFlavors: map[corev1.ResourceName]string{
+								corev1.ResourceCPU: "spot",
+							},
+						},
+					},
+				},
+			},
+			wantScheduled: []string{"eng-beta/new"},
+		},
+		"cannot borrow if cohort was assigned": {
+			workloads: []kueue.QueuedWorkload{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "eng-alpha",
+						Name:      "new",
+					},
+					Spec: kueue.QueuedWorkloadSpec{
+						QueueName: "main-a",
+						Pods: []kueue.PodSet{
+							{
+								Name:  "one",
+								Count: 40,
+								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+									corev1.ResourceCPU: "1",
+								}),
+							},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "eng-beta",
+						Name:      "new",
+					},
+					Spec: kueue.QueuedWorkloadSpec{
+						QueueName: "main-b",
+						Pods: []kueue.PodSet{
+							{
+								Name:  "one",
+								Count: 51,
+								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+									corev1.ResourceCPU: "1",
+								}),
+							},
+						},
+					},
+				},
+			},
+			wantAssigment: map[string]kueue.QueuedWorkloadSpec{
+				"eng-alpha/new": {
+					AssignedCapacity: "eng-alpha",
+					Pods: []kueue.PodSet{
+						{
+							Name: "one",
+							AssignedFlavors: map[corev1.ResourceName]string{
+								corev1.ResourceCPU: "on-demand",
+							},
+						},
+					},
+				},
+			},
+			wantScheduled: []string{"eng-alpha/new"},
+			wantLeft: map[string][]string{
+				"main-b": {"eng-beta/new"},
+			},
+		},
+		"cannot borrow resource not listed in capacity": {
+			workloads: []kueue.QueuedWorkload{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "eng-alpha",
+						Name:      "new",
+					},
+					Spec: kueue.QueuedWorkloadSpec{
+						QueueName: "main-a",
+						Pods: []kueue.PodSet{
+							{
+								Name:  "one",
+								Count: 1,
+								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+									"example.com/gpu": "1",
+								}),
+							},
+						},
+					},
+				},
+			},
+			wantLeft: map[string][]string{
+				"main-a": {"eng-alpha/new"},
+			},
+		},
+		"not enough resources to borrow, fallback to next flavor": {
+			workloads: []kueue.QueuedWorkload{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "eng-alpha",
+						Name:      "new",
+					},
+					Spec: kueue.QueuedWorkloadSpec{
+						QueueName: "main-a",
+						Pods: []kueue.PodSet{
+							{
+								Name:  "one",
+								Count: 60,
+								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+									corev1.ResourceCPU: "1",
+								}),
+							},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "eng-beta",
+						Name:      "existing",
+					},
+					Spec: kueue.QueuedWorkloadSpec{
+						AssignedCapacity: "eng-beta",
+						Pods: []kueue.PodSet{
+							{
+								Name:  "one",
+								Count: 45,
+								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+									corev1.ResourceCPU: "1",
+								}),
+								AssignedFlavors: map[corev1.ResourceName]string{
+									corev1.ResourceCPU: "on-demand",
+								},
+							},
+						},
+					},
+				},
+			},
+			wantAssigment: map[string]kueue.QueuedWorkloadSpec{
+				"eng-alpha/new": {
+					AssignedCapacity: "eng-alpha",
+					Pods: []kueue.PodSet{
+						{
+							Name: "one",
+							AssignedFlavors: map[corev1.ResourceName]string{
+								corev1.ResourceCPU: "spot",
+							},
+						},
+					},
+				},
+				"eng-beta/existing": {
+					AssignedCapacity: "eng-beta",
+					Pods: []kueue.PodSet{
+						{
+							Name: "one",
+							AssignedFlavors: map[corev1.ResourceName]string{
+								corev1.ResourceCPU: "on-demand",
+							},
+						},
+					},
+				},
+			},
+			wantScheduled: []string{"eng-alpha/new"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			log := logrtesting.NewTestLoggerWithOptions(t, logrtesting.Options{
+				Verbosity: 2,
+			})
+			ctx := ctrl.LoggerInto(context.Background(), log)
+			scheme := runtime.NewScheme()
+			kueue.AddToScheme(scheme)
+			clientBuilder := fake.NewClientBuilder().WithScheme(scheme).WithLists(
+				&kueue.QueuedWorkloadList{Items: tc.workloads})
+			cl := clientBuilder.Build()
+			qManager := queue.NewManager(cl)
+			capCache := capacity.NewCache(cl)
+			// Workloads are loaded into queues or capacities as we add them.
+			for _, q := range queues {
+				if err := qManager.AddQueue(ctx, &q); err != nil {
+					t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
+				}
+			}
+			for _, c := range capacities {
+				if err := capCache.AddCapacity(ctx, &c); err != nil {
+					t.Fatalf("Inserting capacity %s in cache: %v", c.Name, err)
+				}
+			}
+			workloadWatch, err := cl.Watch(ctx, &kueue.QueuedWorkloadList{})
+			if err != nil {
+				t.Fatalf("Failed setting up watch: %v", err)
+			}
+			scheduler := New(qManager, capCache, cl)
+
+			scheduler.schedule(ctx)
+
+			// Verify assignments in API.
+			gotScheduled := make(map[string]kueue.QueuedWorkloadSpec)
+			timedOut := false
+			for !timedOut && len(gotScheduled) < len(tc.wantScheduled) {
+				select {
+				case evt := <-workloadWatch.ResultChan():
+					w, ok := evt.Object.(*kueue.QueuedWorkload)
+					if !ok {
+						t.Fatalf("Received update for %T, want QueuedWorkload", evt.Object)
+					}
+					if w.Spec.AssignedCapacity != "" {
+						gotScheduled[workload.Key(w)] = w.Spec
+					}
+				case <-time.After(timeout):
+					t.Errorf("Timed out waiting for QueuedWorkload updates")
+					timedOut = true
+				}
+			}
+			wantScheduled := make(map[string]kueue.QueuedWorkloadSpec)
+			for _, key := range tc.wantScheduled {
+				wantScheduled[key] = tc.wantAssigment[key]
+			}
+			if diff := cmp.Diff(wantScheduled, gotScheduled, filterAssignFields); diff != "" {
+				t.Errorf("Unexpected scheduled workloads (-want,+got):\n%s", diff)
+			}
+
+			// Verify assignments in capacity cache.
+			gotAssignments := make(map[string]kueue.QueuedWorkloadSpec)
+			snapshot := capCache.Snapshot()
+			for cName, cap := range snapshot.Capacities {
+				for name, w := range cap.Workloads {
+					if string(w.Obj.Spec.AssignedCapacity) != cName {
+						t.Errorf("Workload %s is assigned to capacity %s, but it is found as member of capacity %s", name, w.Obj.Spec.AssignedCapacity, cName)
+					}
+					gotAssignments[name] = w.Obj.Spec
+				}
+			}
+			if len(gotAssignments) == 0 {
+				gotAssignments = nil
+			}
+			if diff := cmp.Diff(tc.wantAssigment, gotAssignments, filterAssignFields...); diff != "" {
+				t.Errorf("Unexpected assigned capacities in cache (-want,+got):\n%s", diff)
+			}
+
+			qDump := qManager.Dump()
+			if diff := cmp.Diff(tc.wantLeft, qDump); diff != "" {
+				t.Errorf("Unexpected elements left in the queue (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
 
 func TestEntryAssignFlavors(t *testing.T) {
 	cases := map[string]struct {
