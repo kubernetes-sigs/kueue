@@ -53,7 +53,7 @@ func (q *Queue) PushIfNotPresent(info *workload.Info) bool {
 	if item != nil {
 		return false
 	}
-	heap.Push(&q.heap, info)
+	heap.Push(&q.heap, *info)
 	return true
 }
 

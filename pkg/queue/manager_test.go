@@ -116,6 +116,77 @@ func TestAddWorkload(t *testing.T) {
 	}
 }
 
+func TestRequeueWorkload(t *testing.T) {
+	scheme := runtime.NewScheme()
+	kueue.AddToScheme(scheme)
+	queues := []*kueue.Queue{
+		{ObjectMeta: metav1.ObjectMeta{Name: "foo"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "bar"}},
+	}
+	cases := []struct {
+		workload     *kueue.QueuedWorkload
+		inClient     bool
+		inQueue      bool
+		wantRequeued bool
+	}{
+		{
+			workload: &kueue.QueuedWorkload{
+				ObjectMeta: metav1.ObjectMeta{Name: "existing_queue_and_obj"},
+				Spec:       kueue.QueuedWorkloadSpec{QueueName: "foo"},
+			},
+			inClient:     true,
+			wantRequeued: true,
+		},
+		{
+			workload: &kueue.QueuedWorkload{
+				ObjectMeta: metav1.ObjectMeta{Name: "non_existing_queue"},
+				Spec:       kueue.QueuedWorkloadSpec{QueueName: "baz"},
+			},
+			inClient: true,
+		},
+		{
+			workload: &kueue.QueuedWorkload{
+				ObjectMeta: metav1.ObjectMeta{Name: "not_in_client"},
+				Spec:       kueue.QueuedWorkloadSpec{QueueName: "foo"},
+			},
+		},
+		{
+			workload: &kueue.QueuedWorkload{
+				ObjectMeta: metav1.ObjectMeta{Name: "already_in_queue"},
+				Spec:       kueue.QueuedWorkloadSpec{QueueName: "foo"},
+			},
+			inClient: true,
+			inQueue:  true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.workload.Name, func(t *testing.T) {
+			cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+			manager := NewManager(cl)
+			for _, q := range queues {
+				if err := manager.AddQueue(context.Background(), q); err != nil {
+					t.Fatalf("Failed adding queue %s: %v", q.Name, err)
+				}
+			}
+			// Adding workload to client after the queues are created, otherwise it
+			// will be in the queue.
+			ctx := context.Background()
+			if tc.inClient {
+				if err := cl.Create(ctx, tc.workload); err != nil {
+					t.Fatalf("Failed adding workload to client: %v", err)
+				}
+			}
+			if tc.inQueue {
+				_ = manager.AddWorkload(tc.workload)
+			}
+			info := workload.NewInfo(tc.workload)
+			if requeued := manager.RequeueWorkload(ctx, info); requeued != tc.wantRequeued {
+				t.Errorf("RequeueWorkload returned %t, want %t", requeued, tc.wantRequeued)
+			}
+		})
+	}
+}
+
 func TestUpdateWorkload(t *testing.T) {
 	scheme := runtime.NewScheme()
 	kueue.AddToScheme(scheme)
