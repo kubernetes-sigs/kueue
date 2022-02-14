@@ -77,8 +77,8 @@ func (r *QueuedWorkloadReconciler) Create(e event.CreateEvent) bool {
 		}
 		return false
 	}
-	if err := r.cache.AddOrUpdateWorkload(wl.DeepCopy()); err != nil {
-		log.Error(err, "Failed to add workload to cache")
+	if !r.cache.AddOrUpdateWorkload(wl.DeepCopy()) {
+		log.V(2).Info("Capacity for workload didn't exist; ignored for now")
 	}
 
 	return false
@@ -142,8 +142,8 @@ func (r *QueuedWorkloadReconciler) Update(e event.UpdateEvent) bool {
 
 	case prevStatus == pending && status == assigned:
 		r.queues.DeleteWorkload(oldWl)
-		if err := r.cache.AddOrUpdateWorkload(wl.DeepCopy()); err != nil {
-			log.Error(err, "Failed to add workload to cache")
+		if !r.cache.AddOrUpdateWorkload(wl.DeepCopy()) {
+			log.V(2).Info("Capacity for workload didn't exist; ignored for now")
 		}
 
 	case prevStatus == assigned && status == pending:

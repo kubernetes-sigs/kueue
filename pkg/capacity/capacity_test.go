@@ -17,19 +17,25 @@ limitations under the License.
 package capacity
 
 import (
+	"context"
+	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
 )
 
 func TestCacheCapacityOperations(t *testing.T) {
-	cache := NewCache()
+	scheme := runtime.NewScheme()
+	kueue.AddToScheme(scheme)
+	cache := NewCache(fake.NewClientBuilder().WithScheme(scheme).Build())
 	steps := []struct {
 		name           string
 		operation      func()
@@ -57,7 +63,7 @@ func TestCacheCapacityOperations(t *testing.T) {
 					},
 				}
 				for _, c := range capacities {
-					cache.AddCapacity(&c)
+					cache.AddCapacity(context.Background(), &c)
 				}
 			},
 			wantCapacities: sets.NewString("a", "b", "c", "d"),
@@ -164,16 +170,6 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 		},
 	}
-	cache := NewCache()
-	for _, c := range capacities {
-		cache.AddCapacity(&c)
-	}
-
-	type result struct {
-		Workloads     sets.String
-		UsedResources map[corev1.ResourceName]map[string]int64
-	}
-
 	pods := []kueue.PodSet{
 		{
 			Name: "driver",
@@ -203,6 +199,38 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			Count: 3,
 		},
 	}
+	scheme := runtime.NewScheme()
+	kueue.AddToScheme(scheme)
+	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		&kueue.QueuedWorkload{
+			ObjectMeta: metav1.ObjectMeta{Name: "a"},
+			Spec: kueue.QueuedWorkloadSpec{
+				AssignedCapacity: "one",
+				Pods:             pods,
+			},
+		},
+		&kueue.QueuedWorkload{
+			ObjectMeta: metav1.ObjectMeta{Name: "c"},
+			Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "one"},
+		},
+		&kueue.QueuedWorkload{
+			ObjectMeta: metav1.ObjectMeta{Name: "d"},
+			Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "two"},
+		},
+	).Build()
+	cache := NewCache(client)
+
+	for _, c := range capacities {
+		if err := cache.AddCapacity(context.Background(), &c); err != nil {
+			t.Fatalf("adding capacities: %v", err)
+		}
+	}
+
+	type result struct {
+		Workloads     sets.String
+		UsedResources map[corev1.ResourceName]map[string]int64
+	}
+
 	steps := []struct {
 		name                 string
 		operation            func() error
@@ -225,18 +253,10 @@ func TestCacheWorkloadOperations(t *testing.T) {
 						ObjectMeta: metav1.ObjectMeta{Name: "b"},
 						Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "two"},
 					},
-					{
-						ObjectMeta: metav1.ObjectMeta{Name: "c"},
-						Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "one"},
-					},
-					{
-						ObjectMeta: metav1.ObjectMeta{Name: "d"},
-						Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "two"},
-					},
 				}
 				for i := range workloads {
-					if err := cache.AddOrUpdateWorkload(&workloads[i]); err != nil {
-						return err
+					if !cache.AddOrUpdateWorkload(&workloads[i]) {
+						return fmt.Errorf("failed to add workload")
 					}
 				}
 				return nil
@@ -259,9 +279,12 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{Name: "a"},
 					Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "three"},
 				}
-				return cache.AddOrUpdateWorkload(&w)
+				if !cache.AddOrUpdateWorkload(&w) {
+					return fmt.Errorf("failed to add workload")
+				}
+				return nil
 			},
-			wantError: "capacity doesn't exist",
+			wantError: "failed to add workload",
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("a", "c"),
@@ -280,7 +303,10 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{Name: "c"},
 					Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "one"},
 				}
-				return cache.AddOrUpdateWorkload(&w)
+				if !cache.AddOrUpdateWorkload(&w) {
+					return fmt.Errorf("failed to add workload")
+				}
+				return nil
 			},
 			wantResults: map[string]result{
 				"one": {

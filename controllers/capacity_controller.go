@@ -54,7 +54,8 @@ func (r *CapacityReconciler) Create(e event.CreateEvent) bool {
 	cap := e.Object.(*kueue.Capacity)
 	log := r.log.WithValues("capacity", klog.KObj(cap))
 	log.V(2).Info("Capacity create event")
-	if err := r.cache.AddCapacity(cap); err != nil {
+	ctx := ctrl.LoggerInto(context.Background(), log)
+	if err := r.cache.AddCapacity(ctx, cap); err != nil {
 		log.Error(err, "Failed to add capacity to cache")
 	}
 	return false

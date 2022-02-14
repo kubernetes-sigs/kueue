@@ -17,25 +17,31 @@ limitations under the License.
 package capacity
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
 	"gke-internal.googlesource.com/gke-batch/kueue/pkg/workload"
 )
 
+const workloadCapacityKey = "spec.assignedCapacity"
+
 type Cache struct {
 	sync.Mutex
 
+	client           client.Client
 	capacities       map[string]*Capacity
 	cohorts          map[string]*Cohort
 	assumedWorkloads map[string]string
 }
 
-func NewCache() *Cache {
+func NewCache(client client.Client) *Cache {
 	return &Cache{
+		client:           client,
 		capacities:       make(map[string]*Capacity),
 		cohorts:          make(map[string]*Cohort),
 		assumedWorkloads: make(map[string]string),
@@ -128,7 +134,7 @@ func (c *Capacity) updateWorkloadUsage(wi *workload.Info, m int64) {
 	}
 }
 
-func (c *Cache) AddCapacity(cap *kueue.Capacity) error {
+func (c *Cache) AddCapacity(ctx context.Context, cap *kueue.Capacity) error {
 	c.Lock()
 	defer c.Unlock()
 
@@ -138,6 +144,20 @@ func (c *Cache) AddCapacity(cap *kueue.Capacity) error {
 	capImpl := NewCapacity(cap)
 	c.addCapacityToCohort(capImpl, cap.Spec.Cohort)
 	c.capacities[cap.Name] = capImpl
+	// On controller restart, an add capacity event may come after
+	// add workload events, and so here we explicity list and add existing workloads.
+	var workloads kueue.QueuedWorkloadList
+	if err := c.client.List(ctx, &workloads, client.MatchingFields{workloadCapacityKey: cap.Name}); err != nil {
+		return fmt.Errorf("listing workloads that match the queue: %w", err)
+	}
+	for i, w := range workloads.Items {
+		// Checking capacity name again because the field index is not available in tests.
+		if string(w.Spec.AssignedCapacity) != cap.Name {
+			continue
+		}
+		c.addOrUpdateWorkload(&workloads.Items[i])
+	}
+
 	return nil
 }
 
@@ -171,27 +191,31 @@ func (c *Cache) DeleteCapacity(cap *kueue.Capacity) {
 	delete(c.capacities, cap.Name)
 }
 
-func (c *Cache) AddOrUpdateWorkload(w *kueue.QueuedWorkload) error {
+func (c *Cache) AddOrUpdateWorkload(w *kueue.QueuedWorkload) bool {
 	c.Lock()
 	defer c.Unlock()
+	return c.addOrUpdateWorkload(w)
+}
+
+func (c *Cache) addOrUpdateWorkload(w *kueue.QueuedWorkload) bool {
 	if w.Spec.AssignedCapacity == "" {
-		return fmt.Errorf("workload not assigned a capacity")
+		return false
 	}
 
 	cap, ok := c.capacities[string(w.Spec.AssignedCapacity)]
 	if !ok {
-		return fmt.Errorf("capacity doesn't exist")
+		return false
 	}
 
 	c.cleanupAssumedState(w)
 
 	if _, exist := cap.Workloads[workload.Key(w)]; exist {
 		if err := cap.deleteWorkload(w); err != nil {
-			return err
+			return false
 		}
 	}
 
-	return cap.addWorkload(w)
+	return cap.addWorkload(w) == nil
 }
 
 func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.QueuedWorkload) error {
@@ -323,4 +347,11 @@ func resourcesByName(in []kueue.Resource) map[corev1.ResourceName][]kueue.Resour
 		out[r.Name] = flavors
 	}
 	return out
+}
+
+func SetupIndexes(indexer client.FieldIndexer) error {
+	return indexer.IndexField(context.Background(), &kueue.QueuedWorkload{}, workloadCapacityKey, func(o client.Object) []string {
+		wl := o.(*kueue.QueuedWorkload)
+		return []string{string(wl.Spec.AssignedCapacity)}
+	})
 }

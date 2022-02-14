@@ -17,6 +17,7 @@ limitations under the License.
 package capacity
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -24,6 +25,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
 	utiltesting "gke-internal.googlesource.com/gke-batch/kueue/pkg/util/testing"
@@ -31,7 +34,9 @@ import (
 )
 
 func TestSnapshot(t *testing.T) {
-	cache := NewCache()
+	scheme := runtime.NewScheme()
+	kueue.AddToScheme(scheme)
+	cache := NewCache(fake.NewClientBuilder().WithScheme(scheme).Build())
 	capacities := []kueue.Capacity{
 		{
 			ObjectMeta: metav1.ObjectMeta{
@@ -114,7 +119,7 @@ func TestSnapshot(t *testing.T) {
 	for _, cap := range capacities {
 		// Purposedly do not make a copy of cap. Clones of necessary fields are
 		// done in AddCapacity.
-		cache.AddCapacity(&cap)
+		cache.AddCapacity(context.Background(), &cap)
 	}
 	workloads := []kueue.QueuedWorkload{
 		{

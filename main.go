@@ -83,9 +83,12 @@ func main() {
 	if err := queue.SetupIndexes(mgr.GetFieldIndexer()); err != nil {
 		setupLog.Error(err, "Unable to setup queue indexes")
 	}
+	if err := capacity.SetupIndexes(mgr.GetFieldIndexer()); err != nil {
+		setupLog.Error(err, "Unable to setup capacity cache indexes")
+	}
 
 	queues := queue.NewManager(mgr.GetClient())
-	cache := capacity.NewCache()
+	cache := capacity.NewCache(mgr.GetClient())
 	if err = controllers.NewQueueReconciler(queues).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Queue")
 		os.Exit(1)
