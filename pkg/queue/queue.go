@@ -18,12 +18,23 @@ package queue
 
 import (
 	"container/heap"
+	"fmt"
 
 	"k8s.io/apimachinery/pkg/labels"
 
 	kueue "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
 	"gke-internal.googlesource.com/gke-batch/kueue/pkg/workload"
 )
+
+// Key is the key used to index the queue.
+func Key(q *kueue.Queue) string {
+	return fmt.Sprintf("%s/%s", q.Namespace, q.Name)
+}
+
+// keyForWorkload is the key to find the queue for the workload in the index.
+func keyForWorkload(w *kueue.QueuedWorkload) string {
+	return fmt.Sprintf("%s/%s", w.Namespace, w.Spec.QueueName)
+}
 
 // Queue is the internal implementation of kueue.Queue.
 type Queue struct {
@@ -49,7 +60,7 @@ func (q *Queue) setProperties(apiQueue *kueue.Queue) error {
 }
 
 func (q *Queue) PushIfNotPresent(info *workload.Info) bool {
-	item := q.heap.items[workload.Key(info.Obj)]
+	item := q.heap.items[info.Obj.Name]
 	if item != nil {
 		return false
 	}
@@ -58,7 +69,7 @@ func (q *Queue) PushIfNotPresent(info *workload.Info) bool {
 }
 
 func (q *Queue) PushOrUpdate(w *kueue.QueuedWorkload) {
-	item := q.heap.items[workload.Key(w)]
+	item := q.heap.items[w.Name]
 	info := *workload.NewInfo(w)
 	if item == nil {
 		heap.Push(&q.heap, info)
@@ -69,7 +80,7 @@ func (q *Queue) PushOrUpdate(w *kueue.QueuedWorkload) {
 }
 
 func (q *Queue) Delete(w *kueue.QueuedWorkload) {
-	item := q.heap.items[workload.Key(w)]
+	item := q.heap.items[w.Name]
 	if item != nil {
 		heap.Remove(&q.heap, item.index)
 	}
@@ -122,7 +133,7 @@ func (h *heapImpl) Swap(i, j int) {
 
 func (h *heapImpl) Push(x interface{}) {
 	wInfo := x.(workload.Info)
-	key := workload.Key(wInfo.Obj)
+	key := wInfo.Obj.Name
 	h.items[key] = &heapItem{
 		obj:   wInfo,
 		index: len(h.heap),

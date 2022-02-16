@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -40,7 +41,8 @@ import (
 )
 
 const (
-	timeout = 2 * time.Second
+	watchTimeout    = 2 * time.Second
+	queueingTimeout = time.Second
 )
 
 var (
@@ -151,7 +153,7 @@ func TestSchedule(t *testing.T) {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: "eng-alpha",
-				Name:      "main-a",
+				Name:      "main",
 			},
 			Spec: kueue.QueueSpec{
 				Capacity: "eng-alpha",
@@ -160,7 +162,7 @@ func TestSchedule(t *testing.T) {
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: "eng-beta",
-				Name:      "main-b",
+				Name:      "main",
 			},
 			Spec: kueue.QueueSpec{
 				Capacity: "eng-beta",
@@ -174,7 +176,7 @@ func TestSchedule(t *testing.T) {
 		// wantScheduled is the subset of assigments that got scheduled in this cycle.
 		wantScheduled []string
 		// wantLeft is the workload keys that are left in the queues after this cycle.
-		wantLeft map[string][]string
+		wantLeft map[string]sets.String
 	}{
 		"workload fits in single capacity": {
 			workloads: []kueue.QueuedWorkload{
@@ -267,8 +269,8 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantLeft: map[string][]string{
-				"main": {"sales/new"},
+			wantLeft: map[string]sets.String{
+				"sales/main": sets.NewString("new"),
 			},
 		},
 		"assign to different cohorts": {
@@ -297,7 +299,7 @@ func TestSchedule(t *testing.T) {
 						Name:      "new",
 					},
 					Spec: kueue.QueuedWorkloadSpec{
-						QueueName: "main-a",
+						QueueName: "main",
 						Pods: []kueue.PodSet{
 							{
 								Name:  "one",
@@ -344,7 +346,7 @@ func TestSchedule(t *testing.T) {
 						Name:      "new",
 					},
 					Spec: kueue.QueuedWorkloadSpec{
-						QueueName: "main-a",
+						QueueName: "main",
 						Pods: []kueue.PodSet{
 							{
 								Name:  "one",
@@ -362,7 +364,7 @@ func TestSchedule(t *testing.T) {
 						Name:      "new",
 					},
 					Spec: kueue.QueuedWorkloadSpec{
-						QueueName: "main-b",
+						QueueName: "main",
 						Pods: []kueue.PodSet{
 							{
 								Name:  "one",
@@ -409,7 +411,7 @@ func TestSchedule(t *testing.T) {
 						Name:      "new",
 					},
 					Spec: kueue.QueuedWorkloadSpec{
-						QueueName: "main-b",
+						QueueName: "main",
 						Pods: []kueue.PodSet{
 							{
 								Name:  "one",
@@ -460,7 +462,7 @@ func TestSchedule(t *testing.T) {
 						Name:      "new",
 					},
 					Spec: kueue.QueuedWorkloadSpec{
-						QueueName: "main-a",
+						QueueName: "main",
 						Pods: []kueue.PodSet{
 							{
 								Name:  "one",
@@ -478,7 +480,7 @@ func TestSchedule(t *testing.T) {
 						Name:      "new",
 					},
 					Spec: kueue.QueuedWorkloadSpec{
-						QueueName: "main-b",
+						QueueName: "main",
 						Pods: []kueue.PodSet{
 							{
 								Name:  "one",
@@ -505,8 +507,8 @@ func TestSchedule(t *testing.T) {
 				},
 			},
 			wantScheduled: []string{"eng-alpha/new"},
-			wantLeft: map[string][]string{
-				"main-b": {"eng-beta/new"},
+			wantLeft: map[string]sets.String{
+				"eng-beta/main": sets.NewString("new"),
 			},
 		},
 		"cannot borrow resource not listed in capacity": {
@@ -517,7 +519,7 @@ func TestSchedule(t *testing.T) {
 						Name:      "new",
 					},
 					Spec: kueue.QueuedWorkloadSpec{
-						QueueName: "main-a",
+						QueueName: "main",
 						Pods: []kueue.PodSet{
 							{
 								Name:  "one",
@@ -530,8 +532,8 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantLeft: map[string][]string{
-				"main-a": {"eng-alpha/new"},
+			wantLeft: map[string]sets.String{
+				"eng-alpha/main": sets.NewString("new"),
 			},
 		},
 		"not enough resources to borrow, fallback to next flavor": {
@@ -542,7 +544,7 @@ func TestSchedule(t *testing.T) {
 						Name:      "new",
 					},
 					Spec: kueue.QueuedWorkloadSpec{
-						QueueName: "main-a",
+						QueueName: "main",
 						Pods: []kueue.PodSet{
 							{
 								Name:  "one",
@@ -633,6 +635,9 @@ func TestSchedule(t *testing.T) {
 			}
 			scheduler := New(qManager, capCache, cl)
 
+			ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+			go qManager.CleanUpOnContext(ctx)
+			defer cancel()
 			scheduler.schedule(ctx)
 
 			// Verify assignments in API.
@@ -648,7 +653,7 @@ func TestSchedule(t *testing.T) {
 					if w.Spec.AssignedCapacity != "" {
 						gotScheduled[workload.Key(w)] = w.Spec
 					}
-				case <-time.After(timeout):
+				case <-time.After(watchTimeout):
 					t.Errorf("Timed out waiting for QueuedWorkload updates")
 					timedOut = true
 				}

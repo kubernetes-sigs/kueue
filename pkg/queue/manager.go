@@ -18,10 +18,12 @@ package queue
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
@@ -51,16 +53,17 @@ func (m *Manager) AddQueue(ctx context.Context, q *kueue.Queue) error {
 	m.Lock()
 	defer m.Unlock()
 
-	if _, ok := m.queues[q.Name]; ok {
+	key := Key(q)
+	if _, ok := m.queues[key]; ok {
 		return fmt.Errorf("queue %q already exists", q.Name)
 	}
 	qImpl := newQueue()
 	qImpl.setProperties(q)
-	m.queues[q.Name] = qImpl
+	m.queues[key] = qImpl
 	// Iterate through existing workloads, as workloads corresponding to this
 	// queue might have been added earlier.
 	var workloads kueue.QueuedWorkloadList
-	if err := m.client.List(ctx, &workloads, client.MatchingFields{workloadQueueKey: q.Name}); err != nil {
+	if err := m.client.List(ctx, &workloads, client.MatchingFields{workloadQueueKey: q.Name}, client.InNamespace(q.Namespace)); err != nil {
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
 	addedWorkloads := false
@@ -81,9 +84,9 @@ func (m *Manager) AddQueue(ctx context.Context, q *kueue.Queue) error {
 func (m *Manager) UpdateQueue(q *kueue.Queue) error {
 	m.Lock()
 	defer m.Unlock()
-	qImpl, ok := m.queues[q.Name]
+	qImpl, ok := m.queues[Key(q)]
 	if !ok {
-		return fmt.Errorf("queue %q doesn't exist", q.Name)
+		return errors.New("queue doesn't exist")
 	}
 	return qImpl.setProperties(q)
 }
@@ -91,24 +94,25 @@ func (m *Manager) UpdateQueue(q *kueue.Queue) error {
 func (m *Manager) DeleteQueue(q *kueue.Queue) {
 	m.Lock()
 	defer m.Unlock()
-	qImpl := m.queues[q.Name]
+	key := Key(q)
+	qImpl := m.queues[key]
 	if qImpl == nil {
 		return
 	}
-	delete(m.queues, q.Name)
+	delete(m.queues, key)
 }
 
-// AddWorkload adds workload to the corresponding queue. Returns whether the
-// queue existed.
-func (m *Manager) AddWorkload(w *kueue.QueuedWorkload) bool {
+// AddOrUpdateWorkload adds or updates workload to the corresponding queue.
+// Returns whether the queue existed.
+func (m *Manager) AddOrUpdateWorkload(w *kueue.QueuedWorkload) bool {
 	m.Lock()
 	defer m.Unlock()
-	return m.addWorkload(w)
+	return m.addOrUpdateWorkload(w)
 }
 
-func (m *Manager) addWorkload(w *kueue.QueuedWorkload) bool {
-	qName := w.Spec.QueueName
-	if q := m.queues[qName]; q != nil {
+func (m *Manager) addOrUpdateWorkload(w *kueue.QueuedWorkload) bool {
+	qKey := keyForWorkload(w)
+	if q := m.queues[qKey]; q != nil {
 		q.PushOrUpdate(w)
 		m.cond.Broadcast()
 		return true
@@ -123,8 +127,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info) bool
 	m.Lock()
 	defer m.Unlock()
 
-	qName := info.Obj.Spec.QueueName
-	q := m.queues[qName]
+	q := m.queues[keyForWorkload(info.Obj)]
 	if q == nil {
 		return false
 	}
@@ -132,7 +135,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info) bool
 	var w kueue.QueuedWorkload
 	err := m.client.Get(ctx, client.ObjectKeyFromObject(info.Obj), &w)
 	// Since the client is cached, the only possible error is NotFound
-	if errors.IsNotFound(err) {
+	if apierrors.IsNotFound(err) {
 		return false
 	}
 
@@ -141,28 +144,27 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info) bool
 
 func (m *Manager) DeleteWorkload(w *kueue.QueuedWorkload) {
 	m.Lock()
-	m.deleteWorkloadFromQueue(w, w.Spec.QueueName)
+	m.deleteWorkloadFromQueue(w, keyForWorkload(w))
 	m.Unlock()
 }
 
-func (m *Manager) deleteWorkloadFromQueue(w *kueue.QueuedWorkload, qName string) {
-	if q := m.queues[qName]; q != nil {
+func (m *Manager) deleteWorkloadFromQueue(w *kueue.QueuedWorkload, qKey string) {
+	if q := m.queues[qKey]; q != nil {
 		q.Delete(w)
 	}
 }
 
 // UpdateWorkload updates the workload to the corresponding queue or adds it if
 // it didn't exist. Returns whether the queue existed.
-func (m *Manager) UpdateWorkload(w *kueue.QueuedWorkload, prevQueue string) bool {
+func (m *Manager) UpdateWorkload(oldW, w *kueue.QueuedWorkload) bool {
 	m.Lock()
 	defer m.Unlock()
-	qName := w.Spec.QueueName
-	if prevQueue != qName {
-		m.deleteWorkloadFromQueue(w, prevQueue)
-		return m.addWorkload(w)
+	if oldW.Spec.QueueName != w.Spec.QueueName {
+		m.deleteWorkloadFromQueue(w, keyForWorkload(oldW))
+		return m.addOrUpdateWorkload(w)
 	}
 
-	if q := m.queues[qName]; q != nil {
+	if q := m.queues[keyForWorkload(w)]; q != nil {
 		q.PushOrUpdate(w)
 		return true
 	}
@@ -196,25 +198,24 @@ func (m *Manager) Heads(ctx context.Context) []workload.Info {
 	}
 }
 
-// Dump is a dump of the queues and it's elements.
-// Queues are empty after calling this method.
+// Dump is a dump of the queues and it's elements (unordered).
 // Only use for testing purposes.
-func (m *Manager) Dump() map[string][]string {
+func (m *Manager) Dump() map[string]sets.String {
 	m.Lock()
 	defer m.Unlock()
 	if len(m.queues) == 0 {
 		return nil
 	}
-	dump := make(map[string][]string, len(m.queues))
-	for name, q := range m.queues {
+	dump := make(map[string]sets.String, len(m.queues))
+	for key, q := range m.queues {
 		if len(q.heap.items) == 0 {
 			continue
 		}
-		elements := make([]string, len(q.heap.items))
-		for i := range elements {
-			elements[i] = workload.Key(q.Pop().Obj)
+		elements := make(sets.String, len(q.heap.items))
+		for _, e := range q.heap.items {
+			elements.Insert(e.obj.Obj.Name)
 		}
-		dump[name] = elements
+		dump[key] = elements
 	}
 	if len(dump) == 0 {
 		return nil

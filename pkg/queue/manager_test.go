@@ -31,40 +31,62 @@ import (
 	"gke-internal.googlesource.com/gke-batch/kueue/pkg/workload"
 )
 
-// TestOrphans verifies that pods added before adding the queue are preserved
-// and they persist after the queue recreation.
-func TestAddQueue(t *testing.T) {
+// TestAddQueueOrphans verifies that pods added before adding the queue are
+// preserved and they persist after the queue recreation.
+func TestAddQueueOrphans(t *testing.T) {
 	scheme := runtime.NewScheme()
 	kueue.AddToScheme(scheme)
 	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		&kueue.QueuedWorkload{
-			ObjectMeta: metav1.ObjectMeta{Name: "a"},
-			Spec:       kueue.QueuedWorkloadSpec{QueueName: "foo"},
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "earth",
+				Name:      "a",
+			},
+			Spec: kueue.QueuedWorkloadSpec{QueueName: "foo"},
 		},
 		&kueue.QueuedWorkload{
-			ObjectMeta: metav1.ObjectMeta{Name: "b"},
-			Spec:       kueue.QueuedWorkloadSpec{QueueName: "bar"},
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "earth",
+				Name:      "b",
+			},
+			Spec: kueue.QueuedWorkloadSpec{QueueName: "bar"},
 		},
 		&kueue.QueuedWorkload{
-			ObjectMeta: metav1.ObjectMeta{Name: "c"},
-			Spec:       kueue.QueuedWorkloadSpec{QueueName: "foo"},
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "earth",
+				Name:      "c",
+			},
+			Spec: kueue.QueuedWorkloadSpec{QueueName: "foo"},
 		},
 		&kueue.QueuedWorkload{
-			ObjectMeta: metav1.ObjectMeta{Name: "d"},
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "earth",
+				Name:      "d",
+			},
 			Spec: kueue.QueuedWorkloadSpec{
 				QueueName:        "foo",
 				AssignedCapacity: "capacity",
 			},
 		},
+		&kueue.QueuedWorkload{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "moon",
+				Name:      "a",
+			},
+			Spec: kueue.QueuedWorkloadSpec{QueueName: "foo"},
+		},
 	).Build()
 	manager := NewManager(client)
 	q := kueue.Queue{
-		ObjectMeta: metav1.ObjectMeta{Name: "foo"},
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "earth",
+			Name:      "foo",
+		},
 	}
 	if err := manager.AddQueue(context.Background(), &q); err != nil {
 		t.Fatalf("Failed adding queue: %v", err)
 	}
-	qImpl := manager.queues["foo"]
+	qImpl := manager.queues[Key(&q)]
 	workloadNames := popWorkloadNames(qImpl)
 	sort.Strings(workloadNames)
 	if diff := cmp.Diff([]string{"a", "c"}, workloadNames); diff != "" {
@@ -77,8 +99,8 @@ func TestAddWorkload(t *testing.T) {
 	kueue.AddToScheme(scheme)
 	manager := NewManager(fake.NewClientBuilder().WithScheme(scheme).Build())
 	queues := []*kueue.Queue{
-		{ObjectMeta: metav1.ObjectMeta{Name: "foo"}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "bar"}},
+		{ObjectMeta: metav1.ObjectMeta{Namespace: "earth", Name: "foo"}},
+		{ObjectMeta: metav1.ObjectMeta{Namespace: "mars", Name: "bar"}},
 	}
 	for _, q := range queues {
 		if err := manager.AddQueue(context.Background(), q); err != nil {
@@ -92,7 +114,8 @@ func TestAddWorkload(t *testing.T) {
 		{
 			workload: &kueue.QueuedWorkload{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "existing_queue",
+					Namespace: "earth",
+					Name:      "existing_queue",
 				},
 				Spec: kueue.QueuedWorkloadSpec{QueueName: "foo"},
 			},
@@ -101,15 +124,25 @@ func TestAddWorkload(t *testing.T) {
 		{
 			workload: &kueue.QueuedWorkload{
 				ObjectMeta: metav1.ObjectMeta{
-					Name: "non_existing_queue",
+					Namespace: "earth",
+					Name:      "non_existing_queue",
 				},
 				Spec: kueue.QueuedWorkloadSpec{QueueName: "baz"},
+			},
+		},
+		{
+			workload: &kueue.QueuedWorkload{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "mars",
+					Name:      "wrong_namespace",
+				},
+				Spec: kueue.QueuedWorkloadSpec{QueueName: "foo"},
 			},
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.workload.Name, func(t *testing.T) {
-			if added := manager.AddWorkload(tc.workload); added != tc.wantAdded {
+			if added := manager.AddOrUpdateWorkload(tc.workload); added != tc.wantAdded {
 				t.Errorf("AddWorkload returned %t, want %t", added, tc.wantAdded)
 			}
 		})
@@ -177,7 +210,7 @@ func TestRequeueWorkload(t *testing.T) {
 				}
 			}
 			if tc.inQueue {
-				_ = manager.AddWorkload(tc.workload)
+				_ = manager.AddOrUpdateWorkload(tc.workload)
 			}
 			info := workload.NewInfo(tc.workload)
 			if requeued := manager.RequeueWorkload(ctx, info); requeued != tc.wantRequeued {
@@ -221,7 +254,7 @@ func TestUpdateWorkload(t *testing.T) {
 			},
 			wantUpdated: true,
 			wantQueueOrder: map[string][]string{
-				"foo": {"b", "a"},
+				"/foo": {"b", "a"},
 			},
 		},
 		"between queues": {
@@ -241,8 +274,8 @@ func TestUpdateWorkload(t *testing.T) {
 			},
 			wantUpdated: true,
 			wantQueueOrder: map[string][]string{
-				"foo": {"b"},
-				"bar": {"a"},
+				"/foo": {"b"},
+				"/bar": {"a"},
 			},
 		},
 		"to non existent queue": {
@@ -258,7 +291,7 @@ func TestUpdateWorkload(t *testing.T) {
 			},
 			wantUpdated: false,
 			wantQueueOrder: map[string][]string{
-				"foo": nil,
+				"/foo": nil,
 			},
 		},
 		"from non existing queue": {
@@ -274,7 +307,7 @@ func TestUpdateWorkload(t *testing.T) {
 			},
 			wantUpdated: true,
 			wantQueueOrder: map[string][]string{
-				"foo": {"a"},
+				"/foo": {"a"},
 			},
 		},
 	}
@@ -289,12 +322,11 @@ func TestUpdateWorkload(t *testing.T) {
 				}
 			}
 			for _, w := range tc.workloads {
-				manager.AddWorkload(w)
+				manager.AddOrUpdateWorkload(w)
 			}
 			wl := tc.workloads[0].DeepCopy()
-			prevQueue := wl.Spec.QueueName
 			tc.update(wl)
-			if updated := manager.UpdateWorkload(wl, prevQueue); updated != tc.wantUpdated {
+			if updated := manager.UpdateWorkload(tc.workloads[0], wl); updated != tc.wantUpdated {
 				t.Errorf("UpdatedWorkload returned %t, want %t", updated, tc.wantUpdated)
 			}
 			queueOrder := make(map[string][]string)
@@ -363,7 +395,7 @@ func TestHeads(t *testing.T) {
 	}
 	for _, wl := range workloads {
 		wl := wl
-		manager.AddWorkload(&wl)
+		manager.AddOrUpdateWorkload(&wl)
 	}
 	wantHeads := []workload.Info{
 		{
@@ -429,7 +461,7 @@ func TestHeadsAsync(t *testing.T) {
 		manager := NewManager(fake.NewClientBuilder().WithScheme(scheme).Build())
 		manager.AddQueue(ctx, &q)
 		go func() {
-			manager.addWorkload(&wl)
+			manager.addOrUpdateWorkload(&wl)
 		}()
 		heads := manager.Heads(ctx)
 		if diff := cmp.Diff(wantHeads, heads); diff != "" {
