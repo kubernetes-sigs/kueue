@@ -31,6 +31,7 @@ spec:
         - /manager
         args:
         - --leader-elect
+        - "--zap-log-level=2"
         image: controller:latest
         name: manager
         securityContext:

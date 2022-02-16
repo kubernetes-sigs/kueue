@@ -121,7 +121,7 @@ func (r *QueuedWorkloadReconciler) Update(e event.UpdateEvent) bool {
 	}
 	prevStatus := workloadStatus(oldWl)
 	if prevStatus != status {
-		log = log.WithValues("prevStatus", status)
+		log = log.WithValues("prevStatus", prevStatus)
 	}
 	if oldWl.Spec.AssignedCapacity != wl.Spec.AssignedCapacity {
 		log = log.WithValues("prevCapacity", oldWl.Spec.AssignedCapacity)

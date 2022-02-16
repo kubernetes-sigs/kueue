@@ -133,8 +133,11 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 	// 3. handle a finished job
 	if jobFinished {
-		wlFinishedCond := newFinishedCondition(jobFinishedCond)
-		wl.Status.Conditions = append(wl.Status.Conditions, *wlFinishedCond)
+		added := false
+		wl.Status.Conditions, added = appendFinishedConditionIfNotExists(wl.Status.Conditions, jobFinishedCond)
+		if !added {
+			return ctrl.Result{}, nil
+		}
 		err := r.client.Status().Update(ctx, wl)
 		if err != nil {
 			log.Error(err, "Updating workload status")
@@ -378,20 +381,30 @@ func constructWorkloadFromJob(job *batchv1.Job, scheme *runtime.Scheme) (*kueue.
 	return w, nil
 }
 
-func newFinishedCondition(jobStatus batchv1.JobConditionType) *kueue.QueuedWorkloadCondition {
+func appendFinishedConditionIfNotExists(conds []kueue.QueuedWorkloadCondition, jobStatus batchv1.JobConditionType) ([]kueue.QueuedWorkloadCondition, bool) {
+	for i, c := range conds {
+		if c.Type == kueue.QueuedWorkloadFinished {
+			if c.Status == corev1.ConditionTrue {
+				return conds, false
+			}
+			conds = append(conds[:i], conds[i+1:]...)
+			break
+		}
+	}
 	message := "Job finished successfully"
 	if jobStatus == batchv1.JobFailed {
 		message = "Job failed"
 	}
 	now := metav1.Now()
-	return &kueue.QueuedWorkloadCondition{
+	conds = append(conds, kueue.QueuedWorkloadCondition{
 		Type:               kueue.QueuedWorkloadFinished,
 		Status:             corev1.ConditionTrue,
 		LastProbeTime:      now,
 		LastTransitionTime: now,
 		Reason:             "JobFinished",
 		Message:            message,
-	}
+	})
+	return conds, true
 }
 
 // From https://github.com/kubernetes/kubernetes/blob/master/pkg/controller/job/utils.go
