@@ -5,9 +5,9 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.8.0
   creationTimestamp: null
-  name: capacities.kueue.gke-internal.googlesource.com
+  name: capacities.kueue.x-k8s.io
 spec:
-  group: kueue.gke-internal.googlesource.com
+  group: kueue.x-k8s.io
   names:
     kind: Capacity
     listKind: CapacityList

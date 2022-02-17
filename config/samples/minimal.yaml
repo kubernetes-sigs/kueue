@@ -1,5 +1,5 @@
 ---
-apiVersion: kueue.gke-internal.googlesource.com/v1alpha1
+apiVersion: kueue.x-k8s.io/v1alpha1
 kind: Capacity
 metadata:
   name: cluster-total
@@ -18,7 +18,7 @@ spec:
         guaranteed: 36Gi
         ceiling: 36Gi
 ---
-apiVersion: kueue.gke-internal.googlesource.com/v1alpha1
+apiVersion: kueue.x-k8s.io/v1alpha1
 kind: Queue
 metadata:
   name: main

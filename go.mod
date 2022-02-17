@@ -1,4 +1,4 @@
-module gke-internal.googlesource.com/gke-batch/kueue
+module sigs.k8s.io/kueue
 
 go 1.17
 

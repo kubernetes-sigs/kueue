@@ -1,5 +1,5 @@
 /*
-Copyright 2022 Google LLC.
+Copyright 2022 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -28,9 +28,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	kueue "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
-	utiltesting "gke-internal.googlesource.com/gke-batch/kueue/pkg/util/testing"
-	"gke-internal.googlesource.com/gke-batch/kueue/pkg/workload"
+	kueue "sigs.k8s.io/kueue/api/v1alpha1"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestSnapshot(t *testing.T) {

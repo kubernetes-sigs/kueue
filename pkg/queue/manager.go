@@ -1,5 +1,5 @@
 /*
-Copyright 2022 Google LLC.
+Copyright 2022 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,8 +26,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
-	"gke-internal.googlesource.com/gke-batch/kueue/pkg/workload"
+	kueue "sigs.k8s.io/kueue/api/v1alpha1"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 const workloadQueueKey = "spec.queueName"

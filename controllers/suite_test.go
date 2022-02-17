@@ -1,5 +1,5 @@
 /*
-Copyright 2021 Google LLC.
+Copyright 2021 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -30,7 +30,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	kueuev1alpha1 "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
+	kueuev1alpha1 "sigs.k8s.io/kueue/api/v1alpha1"
 	//+kubebuilder:scaffold:imports
 )
 

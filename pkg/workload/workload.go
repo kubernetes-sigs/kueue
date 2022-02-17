@@ -1,5 +1,5 @@
 /*
-Copyright 2022 Google LLC.
+Copyright 2022 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
-	kueue "gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1"
+	kueue "sigs.k8s.io/kueue/api/v1alpha1"
 )
 
 // Info holds a QueuedWorkload object and some pre-processing.

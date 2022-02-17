@@ -1,34 +1,34 @@
-domain: gke-internal.googlesource.com
+domain: x-k8s.io
 layout:
 - go.kubebuilder.io/v3
 projectName: kueue
-repo: gke-internal.googlesource.com/gke-batch/kueue
+repo: sigs.k8s.io/kueue
 resources:
 - api:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: gke-internal.googlesource.com
+  domain: x-k8s.io
   group: kueue
   kind: Queue
-  path: gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1
+  path: sigs.k8s.io/kueue/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: gke-internal.googlesource.com
+  domain: x-k8s.io
   group: kueue
   kind: Capacity
-  path: gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1
+  path: sigs.k8s.io/kueue/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: gke-internal.googlesource.com
+  domain: x-k8s.io
   group: kueue
   kind: QueuedWorkload
-  path: gke-internal.googlesource.com/gke-batch/kueue/api/v1alpha1
+  path: sigs.k8s.io/kueue/api/v1alpha1
   version: v1alpha1
 version: "3"
