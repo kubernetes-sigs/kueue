@@ -10,6 +10,22 @@ and gatekeeper, respectively.
 [bit.ly/kueue-apis](https://bit.ly/kueue-apis) (please join the [mailing list](https://groups.google.com/a/kubernetes.io/g/wg-batch) to get access) discusses the
 API proposal and a high-level description of how it operates; while [bit.ly/kueue-controller-design](https://bit.ly/kueue-controller-design) presents the detailed design of the controller.
 
+## Running
+
+You can run Kueue with the following command:
+
+```sh
+IMG=registry.example.com/kueue:latest make docker-build docker-push deploy
+```
+
+The controller will run in the `kueue-system` namespace.
+Then, you can and apply some of the [samples](config/samples):
+
+```
+kubectl apply -f config/samples/minimal.yaml
+kubectl create -f config/samples/sample-job.yaml
+```
+
 ## Community, discussion, contribution, and support
 
 Learn how to engage with the Kubernetes community on the [community page](http://kubernetes.io/community/).

@@ -1,0 +1,21 @@
+# permissions for end users to view capacities.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: capacity-viewer-role
+rules:
+- apiGroups:
+  - kueue.gke-internal.googlesource.com
+  resources:
+  - capacities
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - kueue.gke-internal.googlesource.com
+  resources:
+  - capacities/status
+  verbs:
+  - get
+  

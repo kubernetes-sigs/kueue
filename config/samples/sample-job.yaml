@@ -1,0 +1,24 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: sample-job-
+  annotations:
+    controller.kubernetes.io/queue-name: main
+spec:
+  parallelism: 3
+  completions: 3
+  suspend: true
+  template:
+    spec:
+      containers:
+      - name: pi
+        image: perl
+        command: ["perl",  "-Mbignum=bpi", "-wle", "print bpi(2000)"]
+        resources:
+          requests:
+            cpu: 1
+            memory: "200Mi"
+          limits:
+            cpu: 1
+            memory: "200Mi"
+      restartPolicy: Never

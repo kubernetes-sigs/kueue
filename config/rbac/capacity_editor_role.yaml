@@ -1,0 +1,24 @@
+# permissions for end users to edit capacities.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: capacity-editor-role
+rules:
+- apiGroups:
+  - kueue.gke-internal.googlesource.com
+  resources:
+  - capacities
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kueue.gke-internal.googlesource.com
+  resources:
+  - capacities/status
+  verbs:
+  - get

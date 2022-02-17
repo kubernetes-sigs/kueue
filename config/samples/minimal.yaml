@@ -1,0 +1,26 @@
+---
+apiVersion: kueue.x-k8s.io/v1alpha1
+kind: Capacity
+metadata:
+  name: cluster-total
+spec:
+  requestableResources:
+  - name: "cpu"
+    flavors:
+    - name: default
+      quota:
+        guaranteed: 9
+        ceiling: 9
+  - name: "memory"
+    flavors:
+    - name: default
+      quota:
+        guaranteed: 36Gi
+        ceiling: 36Gi
+---
+apiVersion: kueue.x-k8s.io/v1alpha1
+kind: Queue
+metadata:
+  name: main
+spec:
+  capacity: cluster-total

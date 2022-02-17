@@ -1,0 +1,101 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  name: manager-role
+rules:
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - batch
+  resources:
+  - jobs/status
+  verbs:
+  - get
+- apiGroups:
+  - kueue.gke-internal.googlesource.com
+  resources:
+  - capacities
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kueue.gke-internal.googlesource.com
+  resources:
+  - capacities/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - kueue.gke-internal.googlesource.com
+  resources:
+  - capacities/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - kueue.gke-internal.googlesource.com
+  resources:
+  - queuedworkloads
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kueue.gke-internal.googlesource.com
+  resources:
+  - queuedworkloads/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - kueue.gke-internal.googlesource.com
+  resources:
+  - queuedworkloads/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - kueue.gke-internal.googlesource.com
+  resources:
+  - queues
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kueue.gke-internal.googlesource.com
+  resources:
+  - queues/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - kueue.gke-internal.googlesource.com
+  resources:
+  - queues/status
+  verbs:
+  - get
+  - patch
+  - update

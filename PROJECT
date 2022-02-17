@@ -1,0 +1,34 @@
+domain: x-k8s.io
+layout:
+- go.kubebuilder.io/v3
+projectName: kueue
+repo: sigs.k8s.io/kueue
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: x-k8s.io
+  group: kueue
+  kind: Queue
+  path: sigs.k8s.io/kueue/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: x-k8s.io
+  group: kueue
+  kind: Capacity
+  path: sigs.k8s.io/kueue/api/v1alpha1
+  version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: x-k8s.io
+  group: kueue
+  kind: QueuedWorkload
+  path: sigs.k8s.io/kueue/api/v1alpha1
+  version: v1alpha1
+version: "3"
