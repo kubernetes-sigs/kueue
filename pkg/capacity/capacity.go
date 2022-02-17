@@ -109,15 +109,15 @@ func (c *Capacity) addWorkload(w *kueue.QueuedWorkload) error {
 	return nil
 }
 
-func (c *Capacity) deleteWorkload(w *kueue.QueuedWorkload) error {
+func (c *Capacity) deleteWorkload(w *kueue.QueuedWorkload) {
 	k := workload.Key(w)
 	wi, exist := c.Workloads[k]
 	if !exist {
-		return fmt.Errorf("workload does not exist in capacity")
+		return
 	}
 	c.updateWorkloadUsage(wi, -1)
 	delete(c.Workloads, k)
-	return nil
+	return
 }
 
 func (c *Capacity) updateWorkloadUsage(wi *workload.Info, m int64) {
@@ -210,9 +210,7 @@ func (c *Cache) addOrUpdateWorkload(w *kueue.QueuedWorkload) bool {
 	c.cleanupAssumedState(w)
 
 	if _, exist := cap.Workloads[workload.Key(w)]; exist {
-		if err := cap.deleteWorkload(w); err != nil {
-			return false
-		}
+		cap.deleteWorkload(w)
 	}
 
 	return cap.addWorkload(w) == nil
@@ -226,9 +224,7 @@ func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.QueuedWorkload) error {
 		if !ok {
 			return fmt.Errorf("old capacity doesn't exist")
 		}
-		if err := cap.deleteWorkload(oldWl); err != nil {
-			return err
-		}
+		cap.deleteWorkload(oldWl)
 	}
 	c.cleanupAssumedState(oldWl)
 
@@ -253,7 +249,8 @@ func (c *Cache) DeleteWorkload(w *kueue.QueuedWorkload) error {
 
 	c.cleanupAssumedState(w)
 
-	return cap.deleteWorkload(w)
+	cap.deleteWorkload(w)
+	return nil
 }
 
 func (c *Cache) AssumeWorkload(w *kueue.QueuedWorkload) error {
@@ -295,7 +292,8 @@ func (c *Cache) ForgetWorkload(w *kueue.QueuedWorkload) error {
 	if !ok {
 		return fmt.Errorf("capacity doesn't exist")
 	}
-	return cap.deleteWorkload(w)
+	cap.deleteWorkload(w)
+	return nil
 }
 
 func (c *Cache) cleanupAssumedState(w *kueue.QueuedWorkload) {

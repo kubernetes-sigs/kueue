@@ -92,10 +92,7 @@ func (r *JobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var job batchv1.Job
 	if err := r.client.Get(ctx, req.NamespacedName, &job); err != nil {
-		r.log.Error(err, "unable to fetch Job")
-		// we'll ignore not-found errors, since they can't be fixed by an immediate
-		// requeue (we'll need to wait for a new notification), and we can get them
-		// on deleted requests.
+		// we'll ignore not-found errors, since there is nothing to do.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 

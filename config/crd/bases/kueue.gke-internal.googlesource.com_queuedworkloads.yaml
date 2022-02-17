@@ -1,10 +1,9 @@
-
 ---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.7.0
+    controller-gen.kubebuilder.io/version: v0.8.0
   creationTimestamp: null
   name: queuedworkloads.kueue.gke-internal.googlesource.com
 spec:
@@ -5595,9 +5594,9 @@ spec:
                                   with a pod if it doesn''t satisfy the spread constraint.
                                   - DoNotSchedule (default) tells the scheduler not
                                   to schedule it. - ScheduleAnyway tells the scheduler
-                                  to schedule the pod in any location,   but giving
+                                  to schedule the pod in any location, but giving
                                   higher precedence to topologies that would help
-                                  reduce the   skew. A constraint is considered "Unsatisfiable"
+                                  reduce the skew. A constraint is considered "Unsatisfiable"
                                   for an incoming pod if and only if every possible
                                   node assignment for that pod would violate "MaxSkew"
                                   on some topology. For example, in a 3-zone cluster,
@@ -6054,20 +6053,19 @@ spec:
                                   when the pod is removed. \n Use this if: a) the
                                   volume is only needed while the pod runs, b) features
                                   of normal volumes like restoring from snapshot or
-                                  capacity    tracking are needed, c) the storage
-                                  driver is specified through a storage class, and
-                                  d) the storage driver supports dynamic volume provisioning
-                                  through    a PersistentVolumeClaim (see EphemeralVolumeSource
-                                  for more    information on the connection between
-                                  this volume type    and PersistentVolumeClaim).
-                                  \n Use PersistentVolumeClaim or one of the vendor-specific
-                                  APIs for volumes that persist for longer than the
-                                  lifecycle of an individual pod. \n Use CSI for light-weight
-                                  local ephemeral volumes if the CSI driver is meant
-                                  to be used that way - see the documentation of the
-                                  driver for more information. \n A pod can use both
-                                  types of ephemeral volumes and persistent volumes
-                                  at the same time."
+                                  capacity tracking are needed, c) the storage driver
+                                  is specified through a storage class, and d) the
+                                  storage driver supports dynamic volume provisioning
+                                  through a PersistentVolumeClaim (see EphemeralVolumeSource
+                                  for more information on the connection between this
+                                  volume type and PersistentVolumeClaim). \n Use PersistentVolumeClaim
+                                  or one of the vendor-specific APIs for volumes that
+                                  persist for longer than the lifecycle of an individual
+                                  pod. \n Use CSI for light-weight local ephemeral
+                                  volumes if the CSI driver is meant to be used that
+                                  way - see the documentation of the driver for more
+                                  information. \n A pod can use both types of ephemeral
+                                  volumes and persistent volumes at the same time."
                                 properties:
                                   volumeClaimTemplate:
                                     description: "Will be used to create a stand-alone
@@ -6169,14 +6167,15 @@ spec:
                                               is non-empty. There are two important
                                               differences between DataSource and DataSourceRef:
                                               * While DataSource only allows two specific
-                                              types of objects, DataSourceRef   allows
+                                              types of objects, DataSourceRef allows
                                               any non-core object, as well as PersistentVolumeClaim
                                               objects. * While DataSource ignores
-                                              disallowed values (dropping them), DataSourceRef   preserves
-                                              all values, and generates an error if
-                                              a disallowed value is   specified. (Alpha)
-                                              Using this field requires the AnyVolumeDataSource
-                                              feature gate to be enabled.'
+                                              disallowed values (dropping them), DataSourceRef
+                                              preserves all values, and generates
+                                              an error if a disallowed value is specified.
+                                              (Alpha) Using this field requires the
+                                              AnyVolumeDataSource feature gate to
+                                              be enabled.'
                                             properties:
                                               apiGroup:
                                                 description: APIGroup is the group

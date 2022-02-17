@@ -39,9 +39,9 @@ const (
 	jobNamespace = "default"
 	labelKey     = "cloud.provider.com/instance"
 
-	timeout  = time.Second * 10
-	duration = time.Second * 10
-	interval = time.Millisecond * 250
+	timeout            = time.Second * 10
+	consistentDuration = time.Second * 3
+	interval           = time.Millisecond * 250
 )
 
 var (
@@ -121,7 +121,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 		gomega.Consistently(func() bool {
 			err := k8sClient.Get(ctx, lookupKey, createdWorkload)
 			return err == nil
-		}, duration, interval).Should(gomega.BeTrue())
+		}, consistentDuration, interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking the job is unsuspended when workload is assigned")
 		capacityName := "capacity"
@@ -142,7 +142,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 				return false
 			}
 			return len(createdWorkload.Status.Conditions) == 0
-		}, duration, interval).Should(gomega.BeTrue())
+		}, consistentDuration, interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking the job gets suspended when parallelism changes and the added node selectors are removed")
 		newParallelism := int32(parallelism + 1)
@@ -182,7 +182,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 				return false
 			}
 			return len(createdWorkload.Status.Conditions) == 0
-		}, duration, interval).Should(gomega.BeTrue())
+		}, consistentDuration, interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking the workload is finished when job is completed")
 		createdJob.Status.Conditions = append(createdJob.Status.Conditions,
@@ -201,7 +201,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 
 			return createdWorkload.Status.Conditions[0].Type == kueue.QueuedWorkloadFinished &&
 				createdWorkload.Status.Conditions[0].Status == corev1.ConditionTrue
-		}, duration, interval).Should(gomega.BeTrue())
+		}, timeout, interval).Should(gomega.BeTrue())
 	})
 })
 

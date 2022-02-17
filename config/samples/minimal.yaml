@@ -11,6 +11,12 @@ spec:
       quota:
         guaranteed: 9
         ceiling: 9
+  - name: "memory"
+    flavors:
+    - name: default
+      quota:
+        guaranteed: 36Gi
+        ceiling: 36Gi
 ---
 apiVersion: kueue.gke-internal.googlesource.com/v1alpha1
 kind: Queue
@@ -18,21 +24,3 @@ metadata:
   name: main
 spec:
   capacity: cluster-total
----
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: sample-job
-  annotations:
-    controller.kubernetes.io/queue-name: main
-spec:
-  parallelism: 3
-  completions: 3
-  suspend: true
-  template:
-    spec:
-      containers:
-      - name: pi
-        image: perl
-        command: ["perl",  "-Mbignum=bpi", "-wle", "print bpi(2000)"]
-      restartPolicy: Never

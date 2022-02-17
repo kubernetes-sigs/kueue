@@ -347,7 +347,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 		},
 		{
-			name: "update error old doesn't exist",
+			name: "update old doesn't exist",
 			operation: func() error {
 				old := kueue.QueuedWorkload{
 					ObjectMeta: metav1.ObjectMeta{Name: "e"},
@@ -359,14 +359,13 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				}
 				return cache.UpdateWorkload(&old, &new)
 			},
-			wantError: "workload does not exist in capacity",
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("c"),
 					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 				"two": {
-					Workloads:     sets.NewString("a", "b", "d"),
+					Workloads:     sets.NewString("a", "b", "d", "e"),
 					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 			},
@@ -386,7 +385,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 				"two": {
-					Workloads:     sets.NewString("b", "d"),
+					Workloads:     sets.NewString("b", "d", "e"),
 					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
@@ -407,28 +406,27 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 				"two": {
-					Workloads:     sets.NewString("b", "d"),
+					Workloads:     sets.NewString("b", "d", "e"),
 					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
 		},
 		{
-			name: "delete error workload doesn't exist",
+			name: "delete workload doesn't exist",
 			operation: func() error {
 				w := kueue.QueuedWorkload{
-					ObjectMeta: metav1.ObjectMeta{Name: "e"},
+					ObjectMeta: metav1.ObjectMeta{Name: "f"},
 					Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "one"},
 				}
 				return cache.DeleteWorkload(&w)
 			},
-			wantError: "workload does not exist in capacity",
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("c"),
 					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 				"two": {
-					Workloads:     sets.NewString("b", "d"),
+					Workloads:     sets.NewString("b", "d", "e"),
 					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
@@ -445,7 +443,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 						},
 					},
 					{
-						ObjectMeta: metav1.ObjectMeta{Name: "e"},
+						ObjectMeta: metav1.ObjectMeta{Name: "f"},
 						Spec: kueue.QueuedWorkloadSpec{
 							AssignedCapacity: "two",
 							Pods:             pods,
@@ -465,13 +463,13 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:     sets.NewString("b", "d", "e"),
+					Workloads:     sets.NewString("b", "d", "e", "f"),
 					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 			},
 			wantAssumedWorkloads: map[string]string{
 				"/a": "one",
-				"/e": "two",
+				"/f": "two",
 			},
 		},
 		{
@@ -492,25 +490,25 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 				"two": {
-					Workloads:     sets.NewString("b", "d", "e"),
+					Workloads:     sets.NewString("b", "d", "e", "f"),
 					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 			},
 			wantAssumedWorkloads: map[string]string{
-				"/e": "two",
+				"/f": "two",
 			},
 		},
 		{
 			name: "update assumed workload",
 			operation: func() error {
 				old := kueue.QueuedWorkload{
-					ObjectMeta: metav1.ObjectMeta{Name: "e"},
+					ObjectMeta: metav1.ObjectMeta{Name: "f"},
 					Spec: kueue.QueuedWorkloadSpec{
 						Pods: pods,
 					},
 				}
 				new := kueue.QueuedWorkload{
-					ObjectMeta: metav1.ObjectMeta{Name: "e"},
+					ObjectMeta: metav1.ObjectMeta{Name: "f"},
 					Spec: kueue.QueuedWorkloadSpec{
 						AssignedCapacity: "two",
 						Pods:             pods,
@@ -524,7 +522,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 				"two": {
-					Workloads:     sets.NewString("b", "d", "e"),
+					Workloads:     sets.NewString("b", "d", "e", "f"),
 					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 			},
