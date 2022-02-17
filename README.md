@@ -10,7 +10,9 @@ and gatekeeper, respectively.
 [bit.ly/kueue-apis](https://bit.ly/kueue-apis) (please join the [mailing list](https://groups.google.com/a/kubernetes.io/g/wg-batch) to get access) discusses the
 API proposal and a high-level description of how it operates; while [bit.ly/kueue-controller-design](https://bit.ly/kueue-controller-design) presents the detailed design of the controller.
 
-## Running
+## Usage
+
+**Requires k8s 1.22 or newer**
 
 You can run Kueue with the following command:
 
