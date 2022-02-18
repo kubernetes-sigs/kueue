@@ -56,7 +56,7 @@ fmt: ## Run go fmt against code.
 
 .PHONY: fmt-verify
 fmt-verify:
-	@out=`$(GO_FMT) -w -l -d ./...`; \
+	@out=`$(GO_FMT) -w -l -d $$(find . -name '*.go')`; \
 	if [ -n "$$out" ]; then \
 	    echo "$$out"; \
 	    exit 1; \
