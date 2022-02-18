@@ -11,6 +11,9 @@ else
 GOBIN=$(shell go env GOBIN)
 endif
 
+GO_CMD ?= go
+GO_FMT ?= gofmt
+
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
@@ -49,29 +52,49 @@ generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
-	go fmt ./...
+	$(GO_CMD) fmt ./...
+
+.PHONY: fmt-verify
+fmt-verify:
+	@out=`$(GO_FMT) -w -l -d ./...`; \
+	if [ -n "$$out" ]; then \
+	    echo "$$out"; \
+	    exit 1; \
+	fi
 
 .PHONY: vet
 vet: ## Run go vet against code.
-	go vet ./...
+	$(GO_CMD) vet ./...
 
 .PHONY: test
 test: generate fmt vet ## Run tests.
-	go test ./pkg/... -coverprofile cover.out
+	$(GO_CMD) test ./pkg/... -coverprofile cover.out
 
 .PHONY: test-integration
 test-integration: manifests generate fmt vet envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test ./test/integration/...
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" $(GO_CMD) test ./test/integration/...
+
+GOLANGCI_LINT = $(shell pwd)/bin/golangci-lint
+.PHONY: golangci-lint
+golangci-lint: ## Download golangci-lint locally if necessary.
+	$(call go-get-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/cmd/golangci-lint@v1.44.2)
+
+.PHONY: ci-lint
+ci-lint: golangci-lint
+	$(GOLANGCI_LINT) run --timeout 7m0s
+
+.PHONY: verify
+verify: ci-lint fmt-verify
 
 ##@ Build
 
 .PHONY: build
 build: generate fmt vet ## Build manager binary.
-	go build -o bin/manager main.go
+	$(GO_CMD) build -o bin/manager main.go
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
-	go run ./main.go
+	$(GO_CMD) run ./main.go
 
 .PHONY: docker-build
 docker-build: test ## Build docker image with the manager.
@@ -126,9 +149,9 @@ define go-get-tool
 set -e ;\
 TMP_DIR=$$(mktemp -d) ;\
 cd $$TMP_DIR ;\
-go mod init tmp ;\
+$(GO_CMD) mod init tmp ;\
 echo "Downloading $(2)" ;\
-GOBIN=$(PROJECT_DIR)/bin go get $(2) ;\
+GOBIN=$(PROJECT_DIR)/bin $(GO_CMD) get $(2) ;\
 rm -rf $$TMP_DIR ;\
 }
 endef
