@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controllers
+package job
 
 import (
 	"context"
@@ -33,11 +33,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
+	"sigs.k8s.io/kueue/pkg/constants"
 )
 
 var (
-	ownerKey        = ".metadata.controller"
-	queueAnnotation = "controller.kubernetes.io/queue-name"
+	ownerKey = ".metadata.controller"
 )
 
 // JobReconciler reconciles a Job object
@@ -47,7 +47,7 @@ type JobReconciler struct {
 	log    logr.Logger
 }
 
-func NewJobReconciler(scheme *runtime.Scheme, client client.Client) *JobReconciler {
+func NewReconciler(scheme *runtime.Scheme, client client.Client) *JobReconciler {
 	return &JobReconciler{
 		log:    ctrl.Log.WithName("job-reconciler"),
 		scheme: scheme,
@@ -289,7 +289,7 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job *batchv
 	}
 
 	// Create the corresponding workload.
-	wl, err := constructWorkloadFromJob(job, r.scheme)
+	wl, err := ConstructWorkloadFor(job, r.scheme)
 	if err != nil {
 		return err
 	}
@@ -355,7 +355,7 @@ func (r *JobReconciler) ensureAtMostOneWorkload(ctx context.Context, job *batchv
 	return match, nil
 }
 
-func constructWorkloadFromJob(job *batchv1.Job, scheme *runtime.Scheme) (*kueue.QueuedWorkload, error) {
+func ConstructWorkloadFor(job *batchv1.Job, scheme *runtime.Scheme) (*kueue.QueuedWorkload, error) {
 	w := &kueue.QueuedWorkload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      job.Name,
@@ -438,5 +438,5 @@ func jobAndWorkloadEqual(job *batchv1.Job, wl *kueue.QueuedWorkload) bool {
 }
 
 func queueName(job *batchv1.Job) string {
-	return job.Annotations[queueAnnotation]
+	return job.Annotations[constants.QueueAnnotation]
 }

@@ -32,8 +32,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	kueuev1alpha1 "sigs.k8s.io/kueue/api/v1alpha1"
-	"sigs.k8s.io/kueue/controllers"
 	"sigs.k8s.io/kueue/pkg/capacity"
+	"sigs.k8s.io/kueue/pkg/controller/core"
+	"sigs.k8s.io/kueue/pkg/controller/workload/job"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	//+kubebuilder:scaffold:imports
@@ -89,19 +90,19 @@ func main() {
 
 	queues := queue.NewManager(mgr.GetClient())
 	cache := capacity.NewCache(mgr.GetClient())
-	if err = controllers.NewQueueReconciler(queues).SetupWithManager(mgr); err != nil {
+	if err = core.NewQueueReconciler(queues).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Queue")
 		os.Exit(1)
 	}
-	if err = controllers.NewCapacityReconciler(cache).SetupWithManager(mgr); err != nil {
+	if err = core.NewCapacityReconciler(cache).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Capacity")
 		os.Exit(1)
 	}
-	if err = controllers.NewQueuedWorkloadReconciler(queues, cache).SetupWithManager(mgr); err != nil {
+	if err = core.NewQueuedWorkloadReconciler(queues, cache).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "QueuedWorkload")
 		os.Exit(1)
 	}
-	if err = controllers.NewJobReconciler(mgr.GetScheme(), mgr.GetClient()).SetupWithManager(mgr); err != nil {
+	if err = job.NewReconciler(mgr.GetScheme(), mgr.GetClient()).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Job")
 		os.Exit(1)
 	}
