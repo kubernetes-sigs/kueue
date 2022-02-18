@@ -131,7 +131,7 @@ func calculateRequirementsForAssignments(log logr.Logger, workloads []workload.I
 		log := log.WithValues("queuedWorkload", klog.KObj(w.Obj), "capacity", w.Capacity)
 		cap := snap.Capacities[w.Capacity]
 		if cap == nil {
-			log.V(3).Info("Capacity not found when calculating workload assingments")
+			log.V(3).Info("Capacity not found when calculating workload assignments")
 			continue
 		}
 		e := entry{Info: w}

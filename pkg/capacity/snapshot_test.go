@@ -117,7 +117,7 @@ func TestSnapshot(t *testing.T) {
 		},
 	}
 	for _, cap := range capacities {
-		// Purposedly do not make a copy of cap. Clones of necessary fields are
+		// Purposely  do not make a copy of cap. Clones of necessary fields are
 		// done in AddCapacity.
 		cache.AddCapacity(context.Background(), &cap)
 	}
