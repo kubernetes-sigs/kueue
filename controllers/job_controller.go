@@ -310,7 +310,7 @@ func (r *JobReconciler) ensureAtMostOneWorkload(ctx context.Context, job *batchv
 	for i := range workloads.Items {
 		w := &workloads.Items[i]
 		owner := metav1.GetControllerOf(w)
-		// Indexes don't work in unit tests, so we explicity check for the
+		// Indexes don't work in unit tests, so we explicitly check for the
 		// owner here.
 		if owner.Name != job.Name {
 			continue
