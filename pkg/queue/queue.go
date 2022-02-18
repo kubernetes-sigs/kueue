@@ -53,9 +53,8 @@ func newQueue() *Queue {
 	}
 }
 
-func (q *Queue) setProperties(apiQueue *kueue.Queue) error {
+func (q *Queue) setProperties(apiQueue *kueue.Queue) {
 	q.Capacity = string(apiQueue.Spec.Capacity)
-	return nil
 }
 
 func (q *Queue) PushIfNotPresent(info *workload.Info) bool {

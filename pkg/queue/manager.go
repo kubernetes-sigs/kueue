@@ -88,7 +88,8 @@ func (m *Manager) UpdateQueue(q *kueue.Queue) error {
 	if !ok {
 		return errors.New("queue doesn't exist")
 	}
-	return qImpl.setProperties(q)
+	qImpl.setProperties(q)
+	return nil
 }
 
 func (m *Manager) DeleteQueue(q *kueue.Queue) {

@@ -198,7 +198,12 @@ func (s *Scheduler) assign(ctx context.Context, e *entry) {
 		podSet.AssignedFlavors = e.TotalRequests[i].Flavors
 	}
 	newWorkload.Spec.AssignedCapacity = kueue.CapacityReference(e.Capacity)
-	s.capacityCache.AssumeWorkload(newWorkload)
+	if err := s.capacityCache.AssumeWorkload(newWorkload); err != nil {
+		log.Error(err, "Assuming workload failed")
+		log.V(2).Info("Requeueing")
+		s.queues.RequeueWorkload(ctx, &e.Info)
+		return
+	}
 	log.V(2).Info("Workload assumed in the cache")
 
 	go func() {
