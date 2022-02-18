@@ -991,8 +991,8 @@ func TestEntryAssignFlavors(t *testing.T) {
 			var flavors map[string]map[corev1.ResourceName]string
 			if fits {
 				flavors = make(map[string]map[corev1.ResourceName]string)
-				for name, podSet := range e.TotalRequests {
-					flavors[name] = podSet.Flavors
+				for _, podSet := range e.TotalRequests {
+					flavors[podSet.Name] = podSet.Flavors
 				}
 			}
 			if diff := cmp.Diff(tc.wantFlavors, flavors); diff != "" {

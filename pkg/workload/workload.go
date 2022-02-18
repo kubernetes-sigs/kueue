@@ -28,13 +28,14 @@ import (
 // Info holds a QueuedWorkload object and some pre-processing.
 type Info struct {
 	Obj *kueue.QueuedWorkload
-	// maps PodSet name to total resources requested by the set.
-	TotalRequests map[string]Resources
+	// list of total resources requested by the podsets.
+	TotalRequests []PodSetResources
 	// Populated from queue.
 	Capacity string
 }
 
-type Resources struct {
+type PodSetResources struct {
+	Name     string
 	Requests Requests
 	Flavors  map[corev1.ResourceName]string
 }
@@ -50,13 +51,15 @@ func Key(w *kueue.QueuedWorkload) string {
 	return fmt.Sprintf("%s/%s", w.Namespace, w.Name)
 }
 
-func totalRequests(podSets []kueue.PodSet) map[string]Resources {
+func totalRequests(podSets []kueue.PodSet) []PodSetResources {
 	if len(podSets) == 0 {
 		return nil
 	}
-	res := make(map[string]Resources)
+	res := make([]PodSetResources, 0, len(podSets))
 	for _, ps := range podSets {
-		setRes := Resources{}
+		setRes := PodSetResources{
+			Name: ps.Name,
+		}
 		setRes.Requests = podRequests(&ps.Spec)
 		setRes.Requests.scale(int64(ps.Count))
 		if ps.AssignedFlavors != nil {
@@ -65,7 +68,7 @@ func totalRequests(podSets []kueue.PodSet) map[string]Resources {
 				setRes.Flavors[r] = t
 			}
 		}
-		res[ps.Name] = setRes
+		res = append(res, setRes)
 	}
 	return res
 }

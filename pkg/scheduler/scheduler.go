@@ -150,10 +150,10 @@ func calculateRequirementsForAssignments(log logr.Logger, workloads []workload.I
 // It returns whether the entry would fit. If it doesn't fit, the object is
 // unmodified.
 func (e *entry) assignFlavors(cap *capacity.Capacity) bool {
-	flavoredRequests := make(map[string]workload.Resources, len(e.TotalRequests))
+	flavoredRequests := make([]workload.PodSetResources, 0, len(e.TotalRequests))
 	wUsed := make(capacity.Resources)
 	wBorrows := make(capacity.Resources)
-	for psName, podSet := range e.TotalRequests {
+	for _, podSet := range e.TotalRequests {
 		flavors := make(map[corev1.ResourceName]string, len(podSet.Requests))
 		for resName, reqVal := range podSet.Requests {
 			rFlavor, borrow := findFlavorForResource(resName, reqVal, cap, wUsed[resName])
@@ -174,10 +174,11 @@ func (e *entry) assignFlavors(cap *capacity.Capacity) bool {
 			wUsed[resName][rFlavor] += reqVal
 			flavors[resName] = rFlavor
 		}
-		flavoredRequests[psName] = workload.Resources{
+		flavoredRequests = append(flavoredRequests, workload.PodSetResources{
+			Name:     podSet.Name,
 			Requests: podSet.Requests,
 			Flavors:  flavors,
-		}
+		})
 	}
 	e.TotalRequests = flavoredRequests
 	if len(wBorrows) > 0 {
@@ -194,7 +195,7 @@ func (s *Scheduler) assign(ctx context.Context, e *entry) {
 	newWorkload := e.Obj.DeepCopy()
 	for i := range newWorkload.Spec.Pods {
 		podSet := &newWorkload.Spec.Pods[i]
-		podSet.AssignedFlavors = e.TotalRequests[podSet.Name].Flavors
+		podSet.AssignedFlavors = e.TotalRequests[i].Flavors
 	}
 	newWorkload.Spec.AssignedCapacity = kueue.CapacityReference(e.Capacity)
 	s.capacityCache.AssumeWorkload(newWorkload)
