@@ -22,7 +22,7 @@ rules:
   verbs:
   - get
 - apiGroups:
-  - kueue.gke-internal.googlesource.com
+  - kueue.x-k8s.io
   resources:
   - capacities
   verbs:
@@ -34,13 +34,13 @@ rules:
   - update
   - watch
 - apiGroups:
-  - kueue.gke-internal.googlesource.com
+  - kueue.x-k8s.io
   resources:
   - capacities/finalizers
   verbs:
   - update
 - apiGroups:
-  - kueue.gke-internal.googlesource.com
+  - kueue.x-k8s.io
   resources:
   - capacities/status
   verbs:
@@ -48,7 +48,7 @@ rules:
   - patch
   - update
 - apiGroups:
-  - kueue.gke-internal.googlesource.com
+  - kueue.x-k8s.io
   resources:
   - queuedworkloads
   verbs:
@@ -60,13 +60,13 @@ rules:
   - update
   - watch
 - apiGroups:
-  - kueue.gke-internal.googlesource.com
+  - kueue.x-k8s.io
   resources:
   - queuedworkloads/finalizers
   verbs:
   - update
 - apiGroups:
-  - kueue.gke-internal.googlesource.com
+  - kueue.x-k8s.io
   resources:
   - queuedworkloads/status
   verbs:
@@ -74,7 +74,7 @@ rules:
   - patch
   - update
 - apiGroups:
-  - kueue.gke-internal.googlesource.com
+  - kueue.x-k8s.io
   resources:
   - queues
   verbs:
@@ -86,13 +86,13 @@ rules:
   - update
   - watch
 - apiGroups:
-  - kueue.gke-internal.googlesource.com
+  - kueue.x-k8s.io
   resources:
   - queues/finalizers
   verbs:
   - update
 - apiGroups:
-  - kueue.gke-internal.googlesource.com
+  - kueue.x-k8s.io
   resources:
   - queues/status
   verbs:

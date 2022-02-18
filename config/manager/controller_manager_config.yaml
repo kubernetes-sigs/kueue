@@ -8,4 +8,4 @@ webhook:
   port: 9443
 leaderElection:
   leaderElect: true
-  resourceName: c1f6bfd2.gke-internal.googlesource.com
+  resourceName: c1f6bfd2.kueue.x-k8s.io
