@@ -612,7 +612,9 @@ func TestSchedule(t *testing.T) {
 			})
 			ctx := ctrl.LoggerInto(context.Background(), log)
 			scheme := runtime.NewScheme()
-			kueue.AddToScheme(scheme)
+			if err := kueue.AddToScheme(scheme); err != nil {
+				t.Fatalf("Failed adding kueue scheme: %v", err)
+			}
 			clientBuilder := fake.NewClientBuilder().WithScheme(scheme).WithLists(
 				&kueue.QueuedWorkloadList{Items: tc.workloads})
 			cl := clientBuilder.Build()

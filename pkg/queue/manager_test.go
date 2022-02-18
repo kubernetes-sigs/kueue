@@ -35,7 +35,9 @@ import (
 // preserved and they persist after the queue recreation.
 func TestAddQueueOrphans(t *testing.T) {
 	scheme := runtime.NewScheme()
-	kueue.AddToScheme(scheme)
+	if err := kueue.AddToScheme(scheme); err != nil {
+		t.Errorf("Failed adding queue\n%s", err)
+	}
 	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		&kueue.QueuedWorkload{
 			ObjectMeta: metav1.ObjectMeta{
@@ -96,7 +98,10 @@ func TestAddQueueOrphans(t *testing.T) {
 
 func TestAddWorkload(t *testing.T) {
 	scheme := runtime.NewScheme()
-	kueue.AddToScheme(scheme)
+	if err := kueue.AddToScheme(scheme); err != nil {
+		t.Errorf("Failed adding queue\n%s", err)
+
+	}
 	manager := NewManager(fake.NewClientBuilder().WithScheme(scheme).Build())
 	queues := []*kueue.Queue{
 		{ObjectMeta: metav1.ObjectMeta{Namespace: "earth", Name: "foo"}},
@@ -151,7 +156,10 @@ func TestAddWorkload(t *testing.T) {
 
 func TestRequeueWorkload(t *testing.T) {
 	scheme := runtime.NewScheme()
-	kueue.AddToScheme(scheme)
+	if err := kueue.AddToScheme(scheme); err != nil {
+		t.Errorf("Failed adding queue\n%s", err)
+
+	}
 	queues := []*kueue.Queue{
 		{ObjectMeta: metav1.ObjectMeta{Name: "foo"}},
 		{ObjectMeta: metav1.ObjectMeta{Name: "bar"}},
@@ -222,7 +230,9 @@ func TestRequeueWorkload(t *testing.T) {
 
 func TestUpdateWorkload(t *testing.T) {
 	scheme := runtime.NewScheme()
-	kueue.AddToScheme(scheme)
+	if err := kueue.AddToScheme(scheme); err != nil {
+		t.Errorf("Failed adding queue\n%s", err)
+	}
 	now := metav1.Now()
 	cases := map[string]struct {
 		queues         []string
@@ -343,7 +353,9 @@ func TestUpdateWorkload(t *testing.T) {
 func TestHeads(t *testing.T) {
 	ctx := context.Background()
 	scheme := runtime.NewScheme()
-	kueue.AddToScheme(scheme)
+	if err := kueue.AddToScheme(scheme); err != nil {
+		t.Errorf("Failed adding queue\n%s", err)
+	}
 	now := time.Now().Truncate(time.Second)
 
 	queues := []kueue.Queue{
@@ -391,7 +403,9 @@ func TestHeads(t *testing.T) {
 	}
 	manager := NewManager(fake.NewClientBuilder().WithScheme(scheme).Build())
 	for _, q := range queues {
-		manager.AddQueue(ctx, &q)
+		if err := manager.AddQueue(ctx, &q); err != nil {
+			t.Errorf("Failed adding queue\n%s", err)
+		}
 	}
 	for _, wl := range workloads {
 		wl := wl
@@ -423,7 +437,9 @@ func TestHeads(t *testing.T) {
 func TestHeadsAsync(t *testing.T) {
 	ctx := context.Background()
 	scheme := runtime.NewScheme()
-	kueue.AddToScheme(scheme)
+	if err := kueue.AddToScheme(scheme); err != nil {
+		t.Errorf("Failed adding queue\n%s", err)
+	}
 	now := time.Now().Truncate(time.Second)
 	wl := kueue.QueuedWorkload{
 		ObjectMeta: metav1.ObjectMeta{
@@ -449,7 +465,9 @@ func TestHeadsAsync(t *testing.T) {
 		client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&wl).Build()
 		manager := NewManager(client)
 		go func() {
-			manager.AddQueue(ctx, &q)
+			if err := manager.AddQueue(ctx, &q); err != nil {
+				t.Errorf("Failed adding queue\n%s", err)
+			}
 		}()
 		heads := manager.Heads(ctx)
 		if diff := cmp.Diff(wantHeads, heads); diff != "" {
@@ -459,7 +477,9 @@ func TestHeadsAsync(t *testing.T) {
 
 	t.Run("AddWorkload", func(t *testing.T) {
 		manager := NewManager(fake.NewClientBuilder().WithScheme(scheme).Build())
-		manager.AddQueue(ctx, &q)
+		if err := manager.AddQueue(ctx, &q); err != nil {
+			t.Errorf("Failed adding queue\n%s", err)
+		}
 		go func() {
 			manager.addOrUpdateWorkload(&wl)
 		}()

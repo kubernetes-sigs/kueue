@@ -117,7 +117,6 @@ func (c *Capacity) deleteWorkload(w *kueue.QueuedWorkload) {
 	}
 	c.updateWorkloadUsage(wi, -1)
 	delete(c.Workloads, k)
-	return
 }
 
 func (c *Capacity) updateWorkloadUsage(wi *workload.Info, m int64) {

@@ -58,7 +58,9 @@ func (m *Manager) AddQueue(ctx context.Context, q *kueue.Queue) error {
 		return fmt.Errorf("queue %q already exists", q.Name)
 	}
 	qImpl := newQueue()
-	qImpl.setProperties(q)
+	if err := qImpl.setProperties(q); err != nil {
+		return fmt.Errorf("failed setting queue properties %v", err)
+	}
 	m.queues[key] = qImpl
 	// Iterate through existing workloads, as workloads corresponding to this
 	// queue might have been added earlier.

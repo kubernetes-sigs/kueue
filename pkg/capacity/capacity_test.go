@@ -34,7 +34,9 @@ import (
 
 func TestCacheCapacityOperations(t *testing.T) {
 	scheme := runtime.NewScheme()
-	kueue.AddToScheme(scheme)
+	if err := kueue.AddToScheme(scheme); err != nil {
+		t.Fatalf("Failed adding kueue scheme: %v", err)
+	}
 	cache := NewCache(fake.NewClientBuilder().WithScheme(scheme).Build())
 	steps := []struct {
 		name           string
@@ -63,7 +65,9 @@ func TestCacheCapacityOperations(t *testing.T) {
 					},
 				}
 				for _, c := range capacities {
-					cache.AddCapacity(context.Background(), &c)
+					if err := cache.AddCapacity(context.Background(), &c); err != nil {
+						t.Fatalf("Failed adding capacity: %v", err)
+					}
 				}
 			},
 			wantCapacities: sets.NewString("a", "b", "c", "d"),
@@ -86,7 +90,9 @@ func TestCacheCapacityOperations(t *testing.T) {
 					},
 				}
 				for _, c := range capacities {
-					cache.UpdateCapacity(&c)
+					if err := cache.UpdateCapacity(&c); err != nil {
+						t.Fatalf("Failed updating capacity: %v", err)
+					}
 				}
 			},
 			wantCapacities: sets.NewString("a", "b", "c", "d"),
@@ -200,7 +206,9 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		},
 	}
 	scheme := runtime.NewScheme()
-	kueue.AddToScheme(scheme)
+	if err := kueue.AddToScheme(scheme); err != nil {
+		t.Fatalf("Failed adding kueue scheme: %v", err)
+	}
 	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		&kueue.QueuedWorkload{
 			ObjectMeta: metav1.ObjectMeta{Name: "a"},
