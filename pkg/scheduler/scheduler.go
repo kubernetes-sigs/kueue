@@ -80,7 +80,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 
 	// 5. Assign to capacities, ensuring that no more than one workload gets
 	// assigned to a capacity or a cohort (if borrowing).
-	// This is because there can be other worloads deeper in a queue whose head
+	// This is because there can be other workloads deeper in a queue whose head
 	// got assigned that should be scheduled before the heads of other queues.
 	usedCapacity := sets.NewString()
 	usedCohorts := sets.NewString()
@@ -117,7 +117,7 @@ type entry struct {
 	// workload.Info holds the workload from the API as well as resource usage
 	// and flavors assigned.
 	workload.Info
-	// borrows is the resouces that the workload would need to borrow from the
+	// borrows is the resources that the workload would need to borrow from the
 	// cohort if it was scheduled in the capacity.
 	borrows capacity.Resources
 }

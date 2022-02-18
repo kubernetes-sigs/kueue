@@ -145,7 +145,7 @@ func (c *Cache) AddCapacity(ctx context.Context, cap *kueue.Capacity) error {
 	c.addCapacityToCohort(capImpl, cap.Spec.Cohort)
 	c.capacities[cap.Name] = capImpl
 	// On controller restart, an add capacity event may come after
-	// add workload events, and so here we explicity list and add existing workloads.
+	// add workload events, and so here we explicitly list and add existing workloads.
 	var workloads kueue.QueuedWorkloadList
 	if err := c.client.List(ctx, &workloads, client.MatchingFields{workloadCapacityKey: cap.Name}); err != nil {
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
