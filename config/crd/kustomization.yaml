@@ -2,9 +2,9 @@
 # since it depends on service name and namespace that are out of this kustomize package.
 # It should be run by config/default
 resources:
-- bases/kueue.gke-internal.googlesource.com_queues.yaml
-- bases/kueue.gke-internal.googlesource.com_capacities.yaml
-- bases/kueue.gke-internal.googlesource.com_queuedworkloads.yaml
+- bases/kueue.x-k8s.io_queues.yaml
+- bases/kueue.x-k8s.io_capacities.yaml
+- bases/kueue.x-k8s.io_queuedworkloads.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 patchesStrategicMerge:

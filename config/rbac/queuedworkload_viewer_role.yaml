@@ -5,7 +5,7 @@ metadata:
   name: queuedworkload-viewer-role
 rules:
 - apiGroups:
-  - kueue.gke-internal.googlesource.com
+  - kueue.x-k8s.io
   resources:
   - queuedworkloads
   verbs:
@@ -13,7 +13,7 @@ rules:
   - list
   - watch
 - apiGroups:
-  - kueue.gke-internal.googlesource.com
+  - kueue.x-k8s.io
   resources:
   - queuedworkloads/status
   verbs:

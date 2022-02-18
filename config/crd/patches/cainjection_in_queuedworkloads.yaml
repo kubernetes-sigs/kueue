@@ -4,4 +4,4 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: $(CERTIFICATE_NAMESPACE)/$(CERTIFICATE_NAME)
-  name: queuedworkloads.kueue.gke-internal.googlesource.com
+  name: queuedworkloads.kueue.x-k8s.io
