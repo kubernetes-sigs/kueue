@@ -31,6 +31,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
+	"sigs.k8s.io/kueue/pkg/constants"
+	workloadjob "sigs.k8s.io/kueue/pkg/controller/workload/job"
 )
 
 const (
@@ -58,7 +60,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 		})
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "failed to create manager")
 
-		err = NewJobReconciler(mgr.GetScheme(), mgr.GetClient()).SetupWithManager(mgr)
+		err = workloadjob.NewReconciler(mgr.GetScheme(), mgr.GetClient()).SetupWithManager(mgr)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred())
 
 		ctx, cancel = context.WithCancel(context.TODO())
@@ -94,7 +96,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 
 		ginkgo.By("checking the workload is updated with queue name when the job does")
 		jobQueueName := "test-queue"
-		createdJob.Annotations = map[string]string{queueAnnotation: jobQueueName}
+		createdJob.Annotations = map[string]string{constants.QueueAnnotation: jobQueueName}
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
 
 		gomega.Eventually(func() bool {
@@ -105,7 +107,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 		}, timeout, interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking a second non-matching workload is deleted")
-		secondWl, _ := constructWorkloadFromJob(createdJob, scheme.Scheme)
+		secondWl, _ := workloadjob.ConstructWorkloadFor(createdJob, scheme.Scheme)
 		secondWl.Name = "second-workload"
 		secondWl.Spec.Pods[0].Count = parallelism + 1
 		gomega.Expect(k8sClient.Create(ctx, secondWl)).Should(gomega.Succeed())
@@ -208,7 +210,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 func newTestJob(jobQueueName string) *batchv1.Job {
 	annotations := map[string]string{}
 	if jobQueueName != "" {
-		annotations[queueAnnotation] = jobQueueName
+		annotations[constants.QueueAnnotation] = jobQueueName
 	}
 	p := int32(parallelism)
 	return &batchv1.Job{
