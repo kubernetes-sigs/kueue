@@ -36,8 +36,9 @@ import (
 )
 
 var (
-	ownerKey        = ".metadata.controller"
-	queueAnnotation = "controller.kubernetes.io/queue-name"
+	ownerKey = ".metadata.controller"
+	// TODO(#23): Use the kubernetes.io domain when graduating APIs to beta.
+	queueAnnotation = "kueue.x-k8s.io/queue-name"
 )
 
 // JobReconciler reconciles a Job object

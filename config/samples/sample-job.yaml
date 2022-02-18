@@ -3,7 +3,7 @@ kind: Job
 metadata:
   generateName: sample-job-
   annotations:
-    controller.kubernetes.io/queue-name: main
+    kueue.x-k8s.io/queue-name: main
 spec:
   parallelism: 3
   completions: 3
