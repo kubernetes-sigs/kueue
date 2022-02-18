@@ -38,7 +38,6 @@ func keyForWorkload(w *kueue.QueuedWorkload) string {
 
 // Queue is the internal implementation of kueue.Queue.
 type Queue struct {
-	Priority          int64
 	Capacity          string
 	NamespaceSelector labels.Selector
 
