@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"sort"
 
 	"github.com/go-logr/logr"
@@ -25,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -39,13 +41,15 @@ type Scheduler struct {
 	queues        *queue.Manager
 	capacityCache *capacity.Cache
 	client        client.Client
+	recorder      record.EventRecorder
 }
 
-func New(queues *queue.Manager, cache *capacity.Cache, cl client.Client) *Scheduler {
+func New(queues *queue.Manager, cache *capacity.Cache, cl client.Client, recorder record.EventRecorder) *Scheduler {
 	return &Scheduler{
 		queues:        queues,
 		capacityCache: cache,
 		client:        cl,
+		recorder:      recorder,
 	}
 }
 
@@ -209,6 +213,7 @@ func (s *Scheduler) assign(ctx context.Context, e *entry) {
 	go func() {
 		err := s.client.Update(ctx, newWorkload)
 		if err == nil {
+			s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Assigned", fmt.Sprintf("Assigned to capacity %v", e.Capacity))
 			log.V(2).Info("Successfully assigned capacity and resource flavors to workload")
 			return
 		}

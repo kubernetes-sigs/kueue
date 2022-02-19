@@ -33,6 +33,7 @@ import (
 
 	kueuev1alpha1 "sigs.k8s.io/kueue/api/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/capacity"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/workload/job"
 	"sigs.k8s.io/kueue/pkg/queue"
@@ -121,7 +122,8 @@ func main() {
 	go func() {
 		queues.CleanUpOnContext(ctx)
 	}()
-	sched := scheduler.New(queues, cache, mgr.GetClient())
+	sched := scheduler.New(queues, cache, mgr.GetClient(),
+		mgr.GetEventRecorderFor(constants.ManagerName))
 	go func() {
 		sched.Start(ctx)
 	}()
