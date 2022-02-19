@@ -30,11 +30,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/capacity"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -618,6 +620,9 @@ func TestSchedule(t *testing.T) {
 			clientBuilder := fake.NewClientBuilder().WithScheme(scheme).WithLists(
 				&kueue.QueuedWorkloadList{Items: tc.workloads})
 			cl := clientBuilder.Build()
+			broadcaster := record.NewBroadcaster()
+			recorder := broadcaster.NewRecorder(scheme,
+				corev1.EventSource{Component: constants.ManagerName})
 			qManager := queue.NewManager(cl)
 			capCache := capacity.NewCache(cl)
 			// Workloads are loaded into queues or capacities as we add them.
@@ -635,7 +640,7 @@ func TestSchedule(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed setting up watch: %v", err)
 			}
-			scheduler := New(qManager, capCache, cl)
+			scheduler := New(qManager, capCache, cl, recorder)
 
 			ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
 			go qManager.CleanUpOnContext(ctx)
