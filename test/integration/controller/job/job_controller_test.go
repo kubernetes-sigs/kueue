@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package controllers
+package job
 
 import (
 	"context"
@@ -33,13 +33,16 @@ import (
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/workload/job"
+	"sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 const (
-	parallelism  = 4
-	jobName      = "test-job"
-	jobNamespace = "default"
-	labelKey     = "cloud.provider.com/instance"
+	parallelism    = 4
+	jobName        = "test-job"
+	jobNamespace   = "default"
+	labelKey       = "cloud.provider.com/instance"
+	flavorOnDemand = "on-demand"
+	flavorSpot     = "spot"
 
 	timeout            = time.Second * 10
 	consistentDuration = time.Second * 3
@@ -58,16 +61,16 @@ var _ = ginkgo.Describe("Job controller", func() {
 		mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 			Scheme: scheme.Scheme,
 		})
-		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "failed to create manager")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "failed to create manager")
 
 		err = workloadjob.NewReconciler(mgr.GetScheme(), mgr.GetClient()).SetupWithManager(mgr)
-		gomega.Expect(err).ToNot(gomega.HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ctx, cancel = context.WithCancel(context.TODO())
 		go func() {
 			defer ginkgo.GinkgoRecover()
 			err = mgr.Start(ctx)
-			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "failed to run manager")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "failed to run manager")
 		}()
 	})
 
@@ -75,7 +78,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 
 	ginkgo.It("Should reconcile workload and job", func() {
 		ginkgo.By("checking the job gets suspended when created unsuspended")
-		job := newTestJob("")
+		job := testing.MakeJob(jobName, jobNamespace).Obj()
 		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 		lookupKey := types.NamespacedName{Name: jobName, Namespace: jobNamespace}
 		createdJob := &batchv1.Job{}
@@ -126,10 +129,14 @@ var _ = ginkgo.Describe("Job controller", func() {
 		}, consistentDuration, interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking the job is unsuspended when workload is assigned")
-		capacityName := "capacity"
-		gomega.Expect(k8sClient.Create(ctx, newTestCapacity(capacityName))).Should(gomega.Succeed())
-		createdWorkload.Spec.AssignedCapacity = kueue.CapacityReference(capacityName)
-		createdWorkload.Spec.Pods[0].AssignedFlavors = map[corev1.ResourceName]string{"cpu": "on-demand"}
+		capacity := testing.MakeCapacity("capacity").
+			Resource(testing.MakeResource(corev1.ResourceCPU).
+				Flavor(testing.MakeFlavor(flavorOnDemand, "5").Label(labelKey, flavorOnDemand).Obj()).
+				Flavor(testing.MakeFlavor(flavorSpot, "5").Label(labelKey, flavorSpot).Obj()).
+				Obj()).Obj()
+		gomega.Expect(k8sClient.Create(ctx, capacity)).Should(gomega.Succeed())
+		createdWorkload.Spec.AssignedCapacity = kueue.CapacityReference(capacity.Name)
+		createdWorkload.Spec.Pods[0].AssignedFlavors = map[corev1.ResourceName]string{corev1.ResourceCPU: flavorOnDemand}
 		gomega.Expect(k8sClient.Update(ctx, createdWorkload)).Should(gomega.Succeed())
 		gomega.Eventually(func() bool {
 			if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {
@@ -138,7 +145,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 			return !*createdJob.Spec.Suspend
 		}, timeout, interval).Should(gomega.BeTrue())
 		gomega.Expect(len(createdJob.Spec.Template.Spec.NodeSelector)).Should(gomega.Equal(1))
-		gomega.Expect(createdJob.Spec.Template.Spec.NodeSelector[labelKey]).Should(gomega.Equal("on-demand"))
+		gomega.Expect(createdJob.Spec.Template.Spec.NodeSelector[labelKey]).Should(gomega.Equal(flavorOnDemand))
 		gomega.Consistently(func() bool {
 			if err := k8sClient.Get(ctx, lookupKey, createdWorkload); err != nil {
 				return false
@@ -168,8 +175,8 @@ var _ = ginkgo.Describe("Job controller", func() {
 		gomega.Expect(createdWorkload.Spec.AssignedCapacity).Should(gomega.BeEmpty())
 
 		ginkgo.By("checking the job is unsuspended and selectors added when workload is assigned again")
-		createdWorkload.Spec.AssignedCapacity = "capacity"
-		createdWorkload.Spec.Pods[0].AssignedFlavors = map[corev1.ResourceName]string{"cpu": "spot"}
+		createdWorkload.Spec.AssignedCapacity = kueue.CapacityReference(capacity.Name)
+		createdWorkload.Spec.Pods[0].AssignedFlavors = map[corev1.ResourceName]string{corev1.ResourceCPU: flavorSpot}
 		gomega.Expect(k8sClient.Update(ctx, createdWorkload)).Should(gomega.Succeed())
 		gomega.Eventually(func() bool {
 			if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {
@@ -178,7 +185,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 			return !*createdJob.Spec.Suspend
 		}, timeout, interval).Should(gomega.BeTrue())
 		gomega.Expect(len(createdJob.Spec.Template.Spec.NodeSelector)).Should(gomega.Equal(1))
-		gomega.Expect(createdJob.Spec.Template.Spec.NodeSelector[labelKey]).Should(gomega.Equal("spot"))
+		gomega.Expect(createdJob.Spec.Template.Spec.NodeSelector[labelKey]).Should(gomega.Equal(flavorSpot))
 		gomega.Consistently(func() bool {
 			if err := k8sClient.Get(ctx, lookupKey, createdWorkload); err != nil {
 				return false
@@ -206,66 +213,3 @@ var _ = ginkgo.Describe("Job controller", func() {
 		}, timeout, interval).Should(gomega.BeTrue())
 	})
 })
-
-func newTestJob(jobQueueName string) *batchv1.Job {
-	annotations := map[string]string{}
-	if jobQueueName != "" {
-		annotations[constants.QueueAnnotation] = jobQueueName
-	}
-	p := int32(parallelism)
-	return &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        jobName,
-			Namespace:   jobNamespace,
-			Annotations: annotations,
-		},
-		TypeMeta: metav1.TypeMeta{
-			Kind: "Job",
-		},
-		Spec: batchv1.JobSpec{
-			Parallelism: &p,
-			Completions: &p,
-			Template: corev1.PodTemplateSpec{
-				Spec: corev1.PodSpec{
-					RestartPolicy: "Never",
-					Containers: []corev1.Container{
-						{
-							Name:    "c",
-							Image:   "pause",
-							Command: []string{},
-						},
-					},
-				},
-			},
-		},
-	}
-}
-
-func newTestCapacity(name string) *kueue.Capacity {
-	return &kueue.Capacity{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-		},
-		Spec: kueue.CapacitySpec{
-			RequestableResources: []kueue.Resource{
-				{
-					Name: "cpu",
-					Flavors: []kueue.ResourceFlavor{
-						{
-							Name: "on-demand",
-							Labels: map[string]string{
-								"cloud.provider.com/instance": "on-demand",
-							},
-						},
-						{
-							Name: "spot",
-							Labels: map[string]string{
-								"cloud.provider.com/instance": "spot",
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-}
