@@ -24,6 +24,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -276,12 +277,6 @@ func getNodeSelectors(cap *kueue.Capacity, w *kueue.QueuedWorkload) map[string]s
 func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job *batchv1.Job) error {
 	log := ctrl.LoggerFrom(ctx)
 
-	// If the job is running, suspend it.
-	if !jobSuspended(job) {
-		log.V(2).Info("Job running with no corresponding workload object, suspending")
-		return r.stopJob(ctx, nil, job)
-	}
-
 	// Wait until there are no active pods.
 	if job.Status.Active != 0 {
 		log.V(2).Info("Job is suspended but still has active pods, waiting")
@@ -299,10 +294,6 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job *batchv
 // ensureAtmostoneworkload finds a matching workload and deletes redundant ones.
 func (r *JobReconciler) ensureAtMostOneWorkload(ctx context.Context, job *batchv1.Job, workloads kueue.QueuedWorkloadList) (*kueue.QueuedWorkload, error) {
 	log := ctrl.LoggerFrom(ctx)
-
-	if len(workloads.Items) == 0 {
-		return nil, nil
-	}
 
 	// Find a matching workload first if there is one.
 	var toDelete []*kueue.QueuedWorkload
@@ -322,7 +313,7 @@ func (r *JobReconciler) ensureAtMostOneWorkload(ctx context.Context, job *batchv
 		}
 	}
 
-	// If the job is running, suspend it.
+	// If there is no matching workload and the job is running, suspend it.
 	if match == nil && !jobSuspended(job) {
 		log.V(2).Info("job with no matching workload, suspending")
 		var w *kueue.QueuedWorkload
@@ -337,18 +328,22 @@ func (r *JobReconciler) ensureAtMostOneWorkload(ctx context.Context, job *batchv
 		}
 	}
 
-	// Delete redundant workload instances.
+	// Delete duplicate workload instances.
+	existedWls := 0
 	for i := range toDelete {
-		if err := r.client.Delete(ctx, toDelete[i]); err != nil {
+		err := r.client.Delete(ctx, toDelete[i])
+		if err == nil || !apierrors.IsNotFound(err) {
+			existedWls++
+		}
+		if err != nil && !apierrors.IsNotFound(err) {
 			log.Error(err, "Failed to delete workload")
 		}
 	}
 
-	if match == nil {
-		return nil, fmt.Errorf("no matching workload was found, deleted %d existing workloads", len(toDelete))
-	}
-
-	if len(toDelete) != 0 {
+	if existedWls != 0 {
+		if match == nil {
+			return nil, fmt.Errorf("no matching workload was found, tried deleting %d existing workload(s)", existedWls)
+		}
 		return nil, fmt.Errorf("only one workload should exist, found %d", len(workloads.Items))
 	}
 
