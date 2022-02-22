@@ -676,8 +676,8 @@ func TestSchedule(t *testing.T) {
 			// Verify assignments in capacity cache.
 			gotAssignments := make(map[string]kueue.QueuedWorkloadSpec)
 			snapshot := capCache.Snapshot()
-			for cName, cap := range snapshot.Capacities {
-				for name, w := range cap.Workloads {
+			for cName, c := range snapshot.Capacities {
+				for name, w := range c.Workloads {
 					if string(w.Obj.Spec.AssignedCapacity) != cName {
 						t.Errorf("Workload %s is assigned to capacity %s, but it is found as member of capacity %s", name, w.Obj.Spec.AssignedCapacity, cName)
 					}

@@ -334,14 +334,14 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{Name: "a"},
 					Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "one"},
 				}
-				new := kueue.QueuedWorkload{
+				latest := kueue.QueuedWorkload{
 					ObjectMeta: metav1.ObjectMeta{Name: "a"},
 					Spec: kueue.QueuedWorkloadSpec{
 						AssignedCapacity: "two",
 						Pods:             pods,
 					},
 				}
-				return cache.UpdateWorkload(&old, &new)
+				return cache.UpdateWorkload(&old, &latest)
 			},
 			wantResults: map[string]result{
 				"one": {
@@ -361,11 +361,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{Name: "e"},
 					Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "one"},
 				}
-				new := kueue.QueuedWorkload{
+				latest := kueue.QueuedWorkload{
 					ObjectMeta: metav1.ObjectMeta{Name: "e"},
 					Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "two"},
 				}
-				return cache.UpdateWorkload(&old, &new)
+				return cache.UpdateWorkload(&old, &latest)
 			},
 			wantResults: map[string]result{
 				"one": {
@@ -515,14 +515,14 @@ func TestCacheWorkloadOperations(t *testing.T) {
 						Pods: pods,
 					},
 				}
-				new := kueue.QueuedWorkload{
+				latest := kueue.QueuedWorkload{
 					ObjectMeta: metav1.ObjectMeta{Name: "f"},
 					Spec: kueue.QueuedWorkloadSpec{
 						AssignedCapacity: "two",
 						Pods:             pods,
 					},
 				}
-				return cache.UpdateWorkload(&old, &new)
+				return cache.UpdateWorkload(&old, &latest)
 			},
 			wantResults: map[string]result{
 				"one": {

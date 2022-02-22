@@ -201,37 +201,37 @@ func (c *Cache) addOrUpdateWorkload(w *kueue.QueuedWorkload) bool {
 		return false
 	}
 
-	cap, ok := c.capacities[string(w.Spec.AssignedCapacity)]
+	capacity, ok := c.capacities[string(w.Spec.AssignedCapacity)]
 	if !ok {
 		return false
 	}
 
 	c.cleanupAssumedState(w)
 
-	if _, exist := cap.Workloads[workload.Key(w)]; exist {
-		cap.deleteWorkload(w)
+	if _, exist := capacity.Workloads[workload.Key(w)]; exist {
+		capacity.deleteWorkload(w)
 	}
 
-	return cap.addWorkload(w) == nil
+	return capacity.addWorkload(w) == nil
 }
 
 func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.QueuedWorkload) error {
 	c.Lock()
 	defer c.Unlock()
 	if oldWl.Spec.AssignedCapacity != "" {
-		cap, ok := c.capacities[string(oldWl.Spec.AssignedCapacity)]
+		capacity, ok := c.capacities[string(oldWl.Spec.AssignedCapacity)]
 		if !ok {
 			return fmt.Errorf("old capacity doesn't exist")
 		}
-		cap.deleteWorkload(oldWl)
+		capacity.deleteWorkload(oldWl)
 	}
 	c.cleanupAssumedState(oldWl)
 
-	cap, ok := c.capacities[string(newWl.Spec.AssignedCapacity)]
+	capacity, ok := c.capacities[string(newWl.Spec.AssignedCapacity)]
 	if !ok {
 		return fmt.Errorf("new capacity doesn't exist")
 	}
-	return cap.addWorkload(newWl)
+	return capacity.addWorkload(newWl)
 }
 
 func (c *Cache) DeleteWorkload(w *kueue.QueuedWorkload) error {
@@ -241,14 +241,14 @@ func (c *Cache) DeleteWorkload(w *kueue.QueuedWorkload) error {
 		return fmt.Errorf("workload not assigned a capacity")
 	}
 
-	cap, ok := c.capacities[string(w.Spec.AssignedCapacity)]
+	capacity, ok := c.capacities[string(w.Spec.AssignedCapacity)]
 	if !ok {
 		return fmt.Errorf("capacity doesn't exist")
 	}
 
 	c.cleanupAssumedState(w)
 
-	cap.deleteWorkload(w)
+	capacity.deleteWorkload(w)
 	return nil
 }
 
@@ -266,12 +266,12 @@ func (c *Cache) AssumeWorkload(w *kueue.QueuedWorkload) error {
 		return fmt.Errorf("the workload is already assumed to capacity %q", assumedCap)
 	}
 
-	cap, ok := c.capacities[string(w.Spec.AssignedCapacity)]
+	capacity, ok := c.capacities[string(w.Spec.AssignedCapacity)]
 	if !ok {
 		return fmt.Errorf("capacity doesn't exist")
 	}
 
-	if err := cap.addWorkload(w); err != nil {
+	if err := capacity.addWorkload(w); err != nil {
 		return err
 	}
 	c.assumedWorkloads[k] = string(w.Spec.AssignedCapacity)
@@ -287,11 +287,11 @@ func (c *Cache) ForgetWorkload(w *kueue.QueuedWorkload) error {
 	}
 	c.cleanupAssumedState(w)
 
-	cap, ok := c.capacities[string(w.Spec.AssignedCapacity)]
+	capacity, ok := c.capacities[string(w.Spec.AssignedCapacity)]
 	if !ok {
 		return fmt.Errorf("capacity doesn't exist")
 	}
-	cap.deleteWorkload(w)
+	capacity.deleteWorkload(w)
 	return nil
 }
 

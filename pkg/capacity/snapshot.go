@@ -31,13 +31,13 @@ func (c *Cache) Snapshot() Snapshot {
 	snap := Snapshot{
 		Capacities: make(map[string]*Capacity, len(c.capacities)),
 	}
-	for _, cap := range c.capacities {
-		snap.Capacities[cap.Name] = cap.snapshot()
+	for _, capacity := range c.capacities {
+		snap.Capacities[capacity.Name] = capacity.snapshot()
 	}
 	for _, cohort := range c.cohorts {
 		cohortCopy := newCohort(cohort.Name, len(cohort.members))
-		for cap := range cohort.members {
-			capCopy := snap.Capacities[cap.Name]
+		for capacity := range cohort.members {
+			capCopy := snap.Capacities[capacity.Name]
 			capCopy.accumulateResources(cohortCopy)
 			capCopy.Cohort = cohortCopy
 			cohortCopy.members[capCopy] = struct{}{}
@@ -49,7 +49,7 @@ func (c *Cache) Snapshot() Snapshot {
 // Snapshot creates a copy of Capacity that includes references to immutable
 // objects and deep copies of changing ones. A reference to the cohort is not included.
 func (c *Capacity) snapshot() *Capacity {
-	copy := &Capacity{
+	cc := &Capacity{
 		Name:                 c.Name,
 		RequestableResources: c.RequestableResources, // Shallow copy is enough.
 		UsedResources:        make(Resources, len(c.UsedResources)),
@@ -60,13 +60,13 @@ func (c *Capacity) snapshot() *Capacity {
 		for k, v := range flavors {
 			flavorsCopy[k] = v
 		}
-		copy.UsedResources[res] = flavorsCopy
+		cc.UsedResources[res] = flavorsCopy
 	}
 	for k, v := range c.Workloads {
 		// Shallow copy is enough.
-		copy.Workloads[k] = v
+		cc.Workloads[k] = v
 	}
-	return copy
+	return cc
 }
 
 func (c *Capacity) accumulateResources(cohort *Cohort) {

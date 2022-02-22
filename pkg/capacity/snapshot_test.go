@@ -118,10 +118,10 @@ func TestSnapshot(t *testing.T) {
 			},
 		},
 	}
-	for _, cap := range capacities {
+	for _, c := range capacities {
 		// Purposely  do not make a copy of cap. Clones of necessary fields are
 		// done in AddCapacity.
-		if err := cache.AddCapacity(context.Background(), &cap); err != nil {
+		if err := cache.AddCapacity(context.Background(), &c); err != nil {
 			t.Fatalf("Failed adding capacity: %v", err)
 		}
 	}

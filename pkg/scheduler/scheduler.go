@@ -93,8 +93,8 @@ func (s *Scheduler) schedule(ctx context.Context) {
 		if usedCapacity.Has(e.Capacity) {
 			continue
 		}
-		cap := snapshot.Capacities[e.Capacity]
-		if len(e.borrows) > 0 && cap.Cohort != nil && usedCohorts.Has(cap.Cohort.Name) {
+		c := snapshot.Capacities[e.Capacity]
+		if len(e.borrows) > 0 && c.Cohort != nil && usedCohorts.Has(c.Cohort.Name) {
 			continue
 		}
 		usedCapacity.Insert(e.Capacity)
@@ -106,8 +106,8 @@ func (s *Scheduler) schedule(ctx context.Context) {
 		}
 		// Even if there was a failure, we shouldn't assign other workloads to this
 		// cohort.
-		if cap.Cohort != nil {
-			usedCohorts.Insert(cap.Cohort.Name)
+		if c.Cohort != nil {
+			usedCohorts.Insert(c.Cohort.Name)
 		}
 	}
 
@@ -139,13 +139,13 @@ func calculateRequirementsForAssignments(log logr.Logger, workloads []workload.I
 	entries := make([]entry, 0, len(workloads))
 	for _, w := range workloads {
 		log := log.WithValues("queuedWorkload", klog.KObj(w.Obj), "capacity", w.Capacity)
-		cap := snap.Capacities[w.Capacity]
-		if cap == nil {
+		c := snap.Capacities[w.Capacity]
+		if c == nil {
 			log.V(3).Info("Capacity not found when calculating workload assignments")
 			continue
 		}
 		e := entry{Info: w}
-		if !e.assignFlavors(cap) {
+		if !e.assignFlavors(c) {
 			log.V(2).Info("Workload didn't fit in remaining capacity even when borrowing")
 			continue
 		}

@@ -52,28 +52,28 @@ func (r *CapacityReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 }
 
 func (r *CapacityReconciler) Create(e event.CreateEvent) bool {
-	cap := e.Object.(*kueue.Capacity)
-	log := r.log.WithValues("capacity", klog.KObj(cap))
+	c := e.Object.(*kueue.Capacity)
+	log := r.log.WithValues("capacity", klog.KObj(c))
 	log.V(2).Info("Capacity create event")
 	ctx := ctrl.LoggerInto(context.Background(), log)
-	if err := r.cache.AddCapacity(ctx, cap); err != nil {
+	if err := r.cache.AddCapacity(ctx, c); err != nil {
 		log.Error(err, "Failed to add capacity to cache")
 	}
 	return false
 }
 
 func (r *CapacityReconciler) Delete(e event.DeleteEvent) bool {
-	cap := e.Object.(*kueue.Capacity)
-	r.log.V(2).Info("Queue delete event", "capacity", klog.KObj(cap))
-	r.cache.DeleteCapacity(cap)
+	c := e.Object.(*kueue.Capacity)
+	r.log.V(2).Info("Queue delete event", "capacity", klog.KObj(c))
+	r.cache.DeleteCapacity(c)
 	return false
 }
 
 func (r *CapacityReconciler) Update(e event.UpdateEvent) bool {
-	cap := e.ObjectNew.(*kueue.Capacity)
-	log := r.log.WithValues("queue", klog.KObj(cap))
+	c := e.ObjectNew.(*kueue.Capacity)
+	log := r.log.WithValues("queue", klog.KObj(c))
 	log.V(2).Info("Capacity update event")
-	if err := r.cache.UpdateCapacity(cap); err != nil {
+	if err := r.cache.UpdateCapacity(c); err != nil {
 		log.Error(err, "Failed to update capacity in cache")
 	}
 	return false
