@@ -220,8 +220,8 @@ func (r *JobReconciler) startJob(ctx context.Context, w *kueue.QueuedWorkload, j
 	log := ctrl.LoggerFrom(ctx)
 
 	// Lookup the capacity to fetch the node affinity labels to apply on the job.
-	cap := kueue.Capacity{}
-	if err := r.client.Get(ctx, types.NamespacedName{Name: string(w.Spec.AssignedCapacity)}, &cap); err != nil {
+	capacity := kueue.Capacity{}
+	if err := r.client.Get(ctx, types.NamespacedName{Name: string(w.Spec.AssignedCapacity)}, &capacity); err != nil {
 		log.Error(err, "fetching capacity")
 		return err
 	}
@@ -229,7 +229,7 @@ func (r *JobReconciler) startJob(ctx context.Context, w *kueue.QueuedWorkload, j
 	if len(w.Spec.Pods) != 1 {
 		return fmt.Errorf("one podset must exist, found %d", len(w.Spec.Pods))
 	}
-	nodeSelector := getNodeSelectors(&cap, w)
+	nodeSelector := getNodeSelectors(&capacity, w)
 	if len(nodeSelector) != 0 {
 		if job.Spec.Template.Spec.NodeSelector == nil {
 			job.Spec.Template.Spec.NodeSelector = nodeSelector
