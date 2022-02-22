@@ -36,7 +36,7 @@ import (
 func TestSnapshot(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := kueue.AddToScheme(scheme); err != nil {
-		t.Errorf("Failed adding queue\n%s", err)
+		t.Fatalf("Failed adding kueue scheme: %s", err)
 	}
 	cache := NewCache(fake.NewClientBuilder().WithScheme(scheme).Build())
 	capacities := []kueue.Capacity{
@@ -290,13 +290,6 @@ func TestSnapshot(t *testing.T) {
 				Workloads: map[string]*workload.Info{},
 			},
 		},
-	}
-	for i, c := range wantCohorts {
-		for m := range c.members {
-			if m != nil {
-				m.Cohort = &wantCohorts[i]
-			}
-		}
 	}
 	if diff := cmp.Diff(wantSnapshot, snapshot, cmpopts.IgnoreUnexported(Cohort{})); diff != "" {
 		t.Errorf("Unexpected Snapshot (-want,+got):\n%s", diff)

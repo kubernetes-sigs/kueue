@@ -98,8 +98,14 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			continue
 		}
 		usedCapacity.Insert(e.Capacity)
-		s.assign(ctx, &e)
-		assignedWorkloads.Insert(workload.Key(e.Obj))
+		log := log.WithValues("queuedWorkload", klog.KObj(e.Obj), "capacity", e.Capacity)
+		if err := s.assign(ctrl.LoggerInto(ctx, log), &e); err != nil {
+			log.Error(err, "Failed assigning workload to capacity")
+		} else {
+			assignedWorkloads.Insert(workload.Key(e.Obj))
+		}
+		// Even if there was a failure, we shouldn't assign other workloads to this
+		// cohort.
 		if cap.Cohort != nil {
 			usedCohorts.Insert(cap.Cohort.Name)
 		}
@@ -111,7 +117,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			continue
 		}
 		if s.queues.RequeueWorkload(ctx, &w) {
-			log.V(2).Info("Workload requeued", "workload", klog.KObj(w.Obj), "queue", klog.KRef(w.Obj.Namespace, w.Obj.Spec.QueueName))
+			log.V(2).Info("Workload requeued", "queuedWorkload", klog.KObj(w.Obj), "queue", klog.KRef(w.Obj.Namespace, w.Obj.Spec.QueueName))
 		}
 	}
 }
@@ -194,8 +200,8 @@ func (e *entry) assignFlavors(cap *capacity.Capacity) bool {
 // assign sets the assigned capacity and flavors into the workload of
 // the entry, and asynchronously updates the object in the apiserver after
 // assuming it in the cache.
-func (s *Scheduler) assign(ctx context.Context, e *entry) {
-	log := ctrl.LoggerFrom(ctx).WithValues("queuedWorkload", klog.KObj(e.Obj), "capacity", e.Capacity)
+func (s *Scheduler) assign(ctx context.Context, e *entry) error {
+	log := ctrl.LoggerFrom(ctx)
 	newWorkload := e.Obj.DeepCopy()
 	for i := range newWorkload.Spec.Pods {
 		podSet := &newWorkload.Spec.Pods[i]
@@ -203,10 +209,7 @@ func (s *Scheduler) assign(ctx context.Context, e *entry) {
 	}
 	newWorkload.Spec.AssignedCapacity = kueue.CapacityReference(e.Capacity)
 	if err := s.capacityCache.AssumeWorkload(newWorkload); err != nil {
-		log.Error(err, "Assuming workload failed")
-		log.V(2).Info("Requeueing")
-		s.queues.RequeueWorkload(ctx, &e.Info)
-		return
+		return err
 	}
 	log.V(2).Info("Workload assumed in the cache")
 
@@ -228,6 +231,8 @@ func (s *Scheduler) assign(ctx context.Context, e *entry) {
 		log.V(2).Info("Requeueing")
 		s.queues.RequeueWorkload(ctx, &e.Info)
 	}()
+
+	return nil
 }
 
 // findFlavorForResources returns a flavor which can satisfy the resource request,
