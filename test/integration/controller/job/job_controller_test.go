@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
@@ -63,7 +64,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 		})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "failed to create manager")
 
-		err = workloadjob.NewReconciler(mgr.GetScheme(), mgr.GetClient()).SetupWithManager(mgr)
+		err = workloadjob.NewReconciler(mgr.GetScheme(), mgr.GetClient(), &record.FakeRecorder{}).SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ctx, cancel = context.WithCancel(context.TODO())
