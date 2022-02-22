@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/record"
+	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -163,10 +164,10 @@ func (e *entry) assignFlavors(cap *capacity.Capacity) bool {
 	flavoredRequests := make([]workload.PodSetResources, 0, len(e.TotalRequests))
 	wUsed := make(capacity.Resources)
 	wBorrows := make(capacity.Resources)
-	for _, podSet := range e.TotalRequests {
+	for i, podSet := range e.TotalRequests {
 		flavors := make(map[corev1.ResourceName]string, len(podSet.Requests))
 		for resName, reqVal := range podSet.Requests {
-			rFlavor, borrow := findFlavorForResource(resName, reqVal, cap, wUsed[resName])
+			rFlavor, borrow := findFlavorForResource(resName, reqVal, wUsed[resName], cap, &e.Obj.Spec.Pods[i].Spec)
 			if rFlavor == "" {
 				return false
 			}
@@ -238,10 +239,16 @@ func (s *Scheduler) assign(ctx context.Context, e *entry) error {
 // findFlavorForResources returns a flavor which can satisfy the resource request,
 // given that wUsed is the usage of flavors by previous podsets.
 // If it finds a flavor, also returns any borrowing required.
-func findFlavorForResource(name corev1.ResourceName, val int64, cap *capacity.Capacity, wUsed map[string]int64) (string, int64) {
+func findFlavorForResource(name corev1.ResourceName, val int64, wUsed map[string]int64, cap *capacity.Capacity, spec *corev1.PodSpec) (string, int64) {
 	for _, flavor := range cap.RequestableResources[name] {
+		_, untolerated := corev1helpers.FindMatchingUntoleratedTaint(flavor.Taints, spec.Tolerations, func(t *corev1.Taint) bool {
+			return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
+		})
+		if untolerated {
+			continue
+		}
 		// Consider the usage assigned to previous pod sets.
-		ok, borrow := canAssignFlavor(name, val+wUsed[flavor.Name], cap, &flavor)
+		ok, borrow := fitsFlavorLimits(name, val+wUsed[flavor.Name], cap, &flavor)
 		if ok {
 			return flavor.Name, borrow
 		}
@@ -249,9 +256,9 @@ func findFlavorForResource(name corev1.ResourceName, val int64, cap *capacity.Ca
 	return "", 0
 }
 
-// canAssignFlavor returns whether a requested resource fits in a specific flavor.
+// fitsFlavorLimits returns whether a requested resource fits in a specific flavor's quota limits.
 // If it fits, also returns any borrowing required.
-func canAssignFlavor(name corev1.ResourceName, val int64, cap *capacity.Capacity, flavor *capacity.FlavorQuota) (bool, int64) {
+func fitsFlavorLimits(name corev1.ResourceName, val int64, cap *capacity.Capacity, flavor *capacity.FlavorQuota) (bool, int64) {
 	used := cap.UsedResources[name][flavor.Name]
 	if used+val > flavor.Ceiling {
 		// Past borrowing limit.
