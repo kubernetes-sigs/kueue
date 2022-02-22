@@ -12,8 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+VERSION := $(shell git describe --tags --dirty --always)
 # Image URL to use all building/pushing image targets
-IMG ?= kueue:latest
+IMAGE_BUILD_CMD ?= docker build
+IMAGE_PUSH_CMD ?= docker push
+IMAGE_BUILD_EXTRA_OPTS ?=
+# TODO(#52): Add kueue to k8s gcr registry
+IMAGE_REGISTRY ?= gcr.io/k8s-staging-kueue
+IMAGE_NAME := kueue
+IMAGE_TAG_NAME ?= $(VERSION)
+IMAGE_REPO ?= $(IMAGE_REGISTRY)/$(IMAGE_NAME)
+IMAGE_TAG ?= $(IMAGE_REPO):$(IMAGE_TAG_NAME)
+
+# Use distroless as minimal base image to package the manager binary
+# Refer to https://github.com/GoogleContainerTools/distroless for more details
+BASE_IMAGE ?= gcr.io/distroless/static:nonroot
+BUILDER_IMAGE ?= golang:1.17
+
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.23
 
@@ -105,13 +120,17 @@ build: generate fmt vet ## Build manager binary.
 run: manifests generate fmt vet ## Run a controller from your host.
 	$(GO_CMD) run ./main.go
 
-.PHONY: docker-build
-docker-build: test ## Build docker image with the manager.
-	docker build -t ${IMG} .
+# Build the container image
+.PHONY: image-build
+image-build:
+	$(IMAGE_BUILD_CMD) -t $(IMAGE_TAG) \
+		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
+		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
+		$(IMAGE_BUILD_EXTRA_OPTS) ./
 
-.PHONY: docker-push
-docker-push: ## Push docker image with the manager.
-	docker push ${IMG}
+.PHONY: image-push
+image-push:
+	$(IMAGE_PUSH_CMD) $(IMAGE_TAG)
 
 ##@ Deployment
 
