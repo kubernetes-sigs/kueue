@@ -6,6 +6,14 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - update
+  - watch
+- apiGroups:
   - batch
   resources:
   - jobs

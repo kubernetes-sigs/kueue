@@ -41,6 +41,7 @@ func NewCapacityReconciler(cache *capacity.Cache) *CapacityReconciler {
 	}
 }
 
+//+kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=capacities,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=capacities/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=capacities/finalizers,verbs=update

@@ -83,6 +83,7 @@ func (r *JobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
+//+kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
 //+kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;update;patch
 //+kubebuilder:rbac:groups=batch,resources=jobs/status,verbs=get
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=queuedworkloads,verbs=get;list;watch;create;update;patch;delete

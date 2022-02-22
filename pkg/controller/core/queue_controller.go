@@ -41,6 +41,7 @@ func NewQueueReconciler(queues *queue.Manager) *QueueReconciler {
 	}
 }
 
+//+kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=queues,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=queues/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=queues/finalizers,verbs=update
