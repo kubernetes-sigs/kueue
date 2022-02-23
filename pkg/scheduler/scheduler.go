@@ -258,7 +258,7 @@ func findFlavorForResource(name corev1.ResourceName, val int64, wUsed map[string
 
 // fitsFlavorLimits returns whether a requested resource fits in a specific flavor's quota limits.
 // If it fits, also returns any borrowing required.
-func fitsFlavorLimits(name corev1.ResourceName, val int64, cap *capacity.Capacity, flavor *capacity.FlavorQuota) (bool, int64) {
+func fitsFlavorLimits(name corev1.ResourceName, val int64, cap *capacity.Capacity, flavor *capacity.FlavorInfo) (bool, int64) {
 	used := cap.UsedResources[name][flavor.Name]
 	if used+val > flavor.Ceiling {
 		// Past borrowing limit.
