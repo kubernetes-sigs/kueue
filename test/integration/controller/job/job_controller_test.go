@@ -18,6 +18,7 @@ package job
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/onsi/ginkgo"
@@ -34,12 +35,14 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/workload/job"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 const (
 	parallelism    = 4
 	jobName        = "test-job"
 	jobNamespace   = "default"
+	jobKey         = jobNamespace + "/" + jobName
 	labelKey       = "cloud.provider.com/instance"
 	flavorOnDemand = "on-demand"
 	flavorSpot     = "spot"
@@ -63,7 +66,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 		})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "failed to create manager")
 
-		err = workloadjob.NewReconciler(mgr.GetScheme(), mgr.GetClient()).SetupWithManager(mgr)
+		err = workloadjob.NewReconciler(mgr.GetScheme(), mgr.GetClient(), mgr.GetEventRecorderFor(constants.JobControllerName)).SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ctx, cancel = context.WithCancel(context.TODO())
@@ -101,7 +104,6 @@ var _ = ginkgo.Describe("Job controller", func() {
 		jobQueueName := "test-queue"
 		createdJob.Annotations = map[string]string{constants.QueueAnnotation: jobQueueName}
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
-
 		gomega.Eventually(func() bool {
 			if err := k8sClient.Get(ctx, lookupKey, createdWorkload); err != nil {
 				return false
@@ -127,6 +129,10 @@ var _ = ginkgo.Describe("Job controller", func() {
 			err := k8sClient.Get(ctx, lookupKey, createdWorkload)
 			return err == nil
 		}, consistentDuration, interval).Should(gomega.BeTrue())
+		gomega.Eventually(func() bool {
+			ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "DeletedQueuedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching QueuedWorkload: %v", workload.Key(secondWl)))
+			return ok
+		}, timeout, interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking the job is unsuspended when workload is assigned")
 		capacity := testing.MakeCapacity("capacity").
@@ -143,6 +149,10 @@ var _ = ginkgo.Describe("Job controller", func() {
 				return false
 			}
 			return !*createdJob.Spec.Suspend
+		}, timeout, interval).Should(gomega.BeTrue())
+		gomega.Eventually(func() bool {
+			ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Assigned to capacity %v", capacity.Name))
+			return ok
 		}, timeout, interval).Should(gomega.BeTrue())
 		gomega.Expect(len(createdJob.Spec.Template.Spec.NodeSelector)).Should(gomega.Equal(1))
 		gomega.Expect(createdJob.Spec.Template.Spec.NodeSelector[labelKey]).Should(gomega.Equal(flavorOnDemand))
@@ -163,6 +173,10 @@ var _ = ginkgo.Describe("Job controller", func() {
 			}
 			return createdJob.Spec.Suspend != nil && *createdJob.Spec.Suspend &&
 				len(createdJob.Spec.Template.Spec.NodeSelector) == 0
+		}, timeout, interval).Should(gomega.BeTrue())
+		gomega.Eventually(func() bool {
+			ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "DeletedQueuedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching QueuedWorkload: %v", jobKey))
+			return ok
 		}, timeout, interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking the workload is updated with new count")

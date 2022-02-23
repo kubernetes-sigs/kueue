@@ -103,7 +103,8 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "QueuedWorkload")
 		os.Exit(1)
 	}
-	if err = job.NewReconciler(mgr.GetScheme(), mgr.GetClient()).SetupWithManager(mgr); err != nil {
+	if err = job.NewReconciler(mgr.GetScheme(), mgr.GetClient(),
+		mgr.GetEventRecorderFor(constants.JobControllerName)).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Job")
 		os.Exit(1)
 	}

@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -35,6 +36,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var (
@@ -46,13 +48,15 @@ type JobReconciler struct {
 	client client.Client
 	scheme *runtime.Scheme
 	log    logr.Logger
+	record record.EventRecorder
 }
 
-func NewReconciler(scheme *runtime.Scheme, client client.Client) *JobReconciler {
+func NewReconciler(scheme *runtime.Scheme, client client.Client, record record.EventRecorder) *JobReconciler {
 	return &JobReconciler{
 		log:    ctrl.Log.WithName("job-reconciler"),
 		scheme: scheme,
 		client: client,
+		record: record,
 	}
 }
 
@@ -174,7 +178,7 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	if wl.Spec.AssignedCapacity == "" {
 		// 4.3 the job must be suspended if the workload is not yet assigned a capacity.
 		log.V(2).Info("Job running with no assigned capacity, suspending")
-		err := r.stopJob(ctx, wl, &job)
+		err := r.stopJob(ctx, wl, &job, "No capacity assigned")
 		if err != nil {
 			log.Error(err, "Suspending job with unassigned workload")
 		}
@@ -190,11 +194,13 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 // stopJob sends updates to suspend the job, reset the startTime so we can update the scheduling directives
 // later when unsuspending and resets the nodeSelector to its previous state based on what is available in
 // the workload (which should include the original affinities that the job had).
-func (r *JobReconciler) stopJob(ctx context.Context, w *kueue.QueuedWorkload, job *batchv1.Job) error {
+func (r *JobReconciler) stopJob(ctx context.Context, w *kueue.QueuedWorkload,
+	job *batchv1.Job, eventMsg string) error {
 	job.Spec.Suspend = pointer.BoolPtr(true)
 	if err := r.client.Update(ctx, job); err != nil {
 		return err
 	}
+	r.record.Eventf(job, corev1.EventTypeNormal, "Stopped", eventMsg)
 
 	// Reset start time so we can update the scheduling directives later when unsuspending.
 	if job.Status.StartTime != nil {
@@ -244,7 +250,13 @@ func (r *JobReconciler) startJob(ctx context.Context, w *kueue.QueuedWorkload, j
 	}
 
 	job.Spec.Suspend = pointer.BoolPtr(false)
-	return r.client.Update(ctx, job)
+	if err := r.client.Update(ctx, job); err != nil {
+		return err
+	}
+
+	r.record.Eventf(job, corev1.EventTypeNormal, "Started",
+		"Assigned to capacity %v", w.Spec.AssignedCapacity)
+	return nil
 }
 
 func getNodeSelectors(cap *kueue.Capacity, w *kueue.QueuedWorkload) map[string]string {
@@ -289,7 +301,13 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job *batchv
 	if err != nil {
 		return err
 	}
-	return r.client.Create(ctx, wl)
+	if err = r.client.Create(ctx, wl); err != nil {
+		return err
+	}
+
+	r.record.Eventf(job, corev1.EventTypeNormal, "CreatedQueuedWorkload",
+		"Created QueuedWorkload: %v", workload.Key(wl))
+	return nil
 }
 
 // ensureAtmostoneworkload finds a matching workload and deletes redundant ones.
@@ -324,7 +342,7 @@ func (r *JobReconciler) ensureAtMostOneWorkload(ctx context.Context, job *batchv
 			// than one workload...
 			w = &workloads.Items[0]
 		}
-		if err := r.stopJob(ctx, w, job); err != nil {
+		if err := r.stopJob(ctx, w, job, "No matching QueuedWorkload"); err != nil {
 			log.Error(err, "stopping job")
 		}
 	}
@@ -338,6 +356,10 @@ func (r *JobReconciler) ensureAtMostOneWorkload(ctx context.Context, job *batchv
 		}
 		if err != nil && !apierrors.IsNotFound(err) {
 			log.Error(err, "Failed to delete workload")
+		}
+		if err == nil {
+			r.record.Eventf(job, corev1.EventTypeNormal, "DeletedQueuedWorkload",
+				"Deleted not matching QueuedWorkload: %v", workload.Key(toDelete[i]))
 		}
 	}
 

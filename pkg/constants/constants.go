@@ -22,5 +22,6 @@ const (
 	// TODO(#23): Use the kubernetes.io domain when graduating APIs to beta.
 	QueueAnnotation = "kueue.x-k8s.io/queue-name"
 
-	ManagerName = "kueue-manager"
+	ManagerName       = "kueue-manager"
+	JobControllerName = "kueue-job-controller"
 )

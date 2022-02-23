@@ -108,7 +108,8 @@ var _ = ginkgo.BeforeSuite(func() {
 	err = kueuectrl.NewQueuedWorkloadReconciler(queues, cache).SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = workloadjob.NewReconciler(mgr.GetScheme(), mgr.GetClient()).SetupWithManager(mgr)
+	err = workloadjob.NewReconciler(mgr.GetScheme(), mgr.GetClient(),
+		mgr.GetEventRecorderFor(constants.JobControllerName)).SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	ctx, cancel = context.WithCancel(context.TODO())
