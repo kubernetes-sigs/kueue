@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
+	"sigs.k8s.io/kueue/pkg/util/pointer"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -34,7 +35,7 @@ const workloadCapacityKey = "spec.assignedCapacity"
 var capNotFoundErr = errors.New("capacity not found")
 
 type Cache struct {
-	sync.Mutex
+	sync.RWMutex
 
 	client           client.Client
 	capacities       map[string]*Capacity
@@ -304,6 +305,36 @@ func (c *Cache) ForgetWorkload(w *kueue.QueuedWorkload) error {
 	}
 	capacity.deleteWorkload(w)
 	return nil
+}
+
+// Usage reports the used resources and number of workloads assigned to the
+// capacity.
+func (c *Cache) Usage(capObj *kueue.Capacity) (map[corev1.ResourceName]map[string]kueue.Usage, int, error) {
+	c.RLock()
+	defer c.RUnlock()
+
+	capacity := c.capacities[capObj.Name]
+	if capacity == nil {
+		return nil, 0, capNotFoundErr
+	}
+	usage := make(map[corev1.ResourceName]map[string]kueue.Usage, len(capacity.UsedResources))
+	for rName, usedRes := range capacity.UsedResources {
+		rUsage := make(map[string]kueue.Usage)
+		requestable := capacity.RequestableResources[rName]
+		for _, flavor := range requestable {
+			used := usedRes[flavor.Name]
+			fUsage := kueue.Usage{
+				Total: pointer.Quantity(workload.ResourceQuantity(rName, used)),
+			}
+			borrowing := used - flavor.Guaranteed
+			if borrowing > 0 {
+				fUsage.Borrowed = pointer.Quantity(workload.ResourceQuantity(rName, borrowing))
+			}
+			rUsage[flavor.Name] = fUsage
+		}
+		usage[rName] = rUsage
+	}
+	return usage, len(capacity.Workloads), nil
 }
 
 func (c *Cache) cleanupAssumedState(w *kueue.QueuedWorkload) {

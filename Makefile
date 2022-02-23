@@ -32,6 +32,8 @@ BUILDER_IMAGE ?= golang:1.17
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.23
 
+INTEGRATION_TARGET ?= ./test/integration/...
+
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
 GOBIN=$(shell go env GOPATH)/bin
@@ -105,7 +107,7 @@ test: generate fmt vet ## Run tests.
 
 .PHONY: test-integration
 test-integration: manifests generate fmt vet envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" $(GO_CMD) test ./test/integration/...
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" $(GO_CMD) test $(INTEGRATION_TARGET)
 
 .PHONY: ci-lint
 ci-lint: golangci-lint

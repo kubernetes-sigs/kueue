@@ -223,6 +223,37 @@ spec:
             type: object
           status:
             description: CapacityStatus defines the observed state of Capacity
+            properties:
+              assignedWorkloads:
+                description: assignedWorkloads is the number of workloads currently
+                  assigned to this capacity.
+                format: int32
+                type: integer
+              usedResources:
+                additionalProperties:
+                  additionalProperties:
+                    properties:
+                      borrowing:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Borrowed is the used quantity past the guaranteed
+                          quota, borrowed from the cohort.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      total:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        description: Total is the total quantity of the resource used,
+                          including resources borrowed from the cohort.
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                    type: object
+                  type: object
+                description: usedResources are the resources (by flavor) currently
+                  in use by the workloads assigned to this capacity
+                type: object
             type: object
         type: object
     served: true

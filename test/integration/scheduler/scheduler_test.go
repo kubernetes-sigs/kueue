@@ -26,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	kueue "sigs.k8s.io/kueue/api/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -73,6 +74,16 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			return err == nil && !*createdProdJob1.Spec.Suspend
 		}, timeout, interval).Should(gomega.BeTrue())
 		gomega.Expect(createdProdJob1.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor))
+
+		// TODO(#68): Put this test in the suite for core controllers, independent of the scheduler.
+		ginkgo.By("checking capacity usage is updated")
+		gomega.Eventually(func() bool {
+			var capObj kueue.Capacity
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: "prod-capacity"}, &capObj); err != nil {
+				return false
+			}
+			return capObj.Status.AssignedWorkloads == 1
+		}).Should(gomega.BeTrue())
 
 		ginkgo.By("checking a second no-fit prod job does not start")
 		prodJob2 := testing.MakeJob("prod-job2", namespace).Queue(prodQueue.Name).AddResource(corev1.ResourceCPU, "5").Obj()

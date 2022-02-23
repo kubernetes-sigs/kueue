@@ -236,6 +236,23 @@ type Quota struct {
 
 // CapacityStatus defines the observed state of Capacity
 type CapacityStatus struct {
+	// usedResources are the resources (by flavor) currently in use by the
+	// workloads assigned to this capacity
+	UsedResources map[corev1.ResourceName]map[string]Usage `json:"usedResources,omitempty"`
+
+	// assignedWorkloads is the number of workloads currently assigned to this
+	// capacity.
+	AssignedWorkloads int32 `json:"assignedWorkloads,omitempty"`
+}
+
+type Usage struct {
+	// Total is the total quantity of the resource used, including resources
+	// borrowed from the cohort.
+	Total *resource.Quantity `json:"total,omitempty"`
+
+	// Borrowed is the used quantity past the guaranteed quota, borrowed from
+	// the cohort.
+	Borrowed *resource.Quantity `json:"borrowing,omitempty"`
 }
 
 //+kubebuilder:object:root=true

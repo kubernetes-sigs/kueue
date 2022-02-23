@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/go-logr/logr"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -47,13 +46,11 @@ var (
 type JobReconciler struct {
 	client client.Client
 	scheme *runtime.Scheme
-	log    logr.Logger
 	record record.EventRecorder
 }
 
 func NewReconciler(scheme *runtime.Scheme, client client.Client, record record.EventRecorder) *JobReconciler {
 	return &JobReconciler{
-		log:    ctrl.Log.WithName("job-reconciler"),
 		scheme: scheme,
 		client: client,
 		record: record,
@@ -102,9 +99,9 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	log := r.log.WithValues("job", klog.KObj(&job))
-	ctx = logr.NewContext(ctx, log)
-	log.V(2).Info("Job reconcile event")
+	log := ctrl.LoggerFrom(ctx).WithValues("job", klog.KObj(&job))
+	ctx = ctrl.LoggerInto(ctx, log)
+	log.V(2).Info("Reconciling Job")
 
 	var childWorkloads kueue.QueuedWorkloadList
 	if err := r.client.List(ctx, &childWorkloads, client.InNamespace(req.Namespace),
