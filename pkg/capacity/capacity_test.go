@@ -407,7 +407,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				}
 				return cache.DeleteWorkload(&w)
 			},
-			wantError: "capacity doesn't exist",
+			wantError: "capacity not found",
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("c"),

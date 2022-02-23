@@ -719,9 +719,9 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]kueue.ResourceFlavor{
-					corev1.ResourceCPU:    defaultFlavorNoBorrowing("1"),
-					corev1.ResourceMemory: defaultFlavorNoBorrowing("2Mi"),
+				RequestableResources: map[corev1.ResourceName][]capacity.FlavorQuota{
+					corev1.ResourceCPU:    defaultFlavorNoBorrowing(1000),
+					corev1.ResourceMemory: defaultFlavorNoBorrowing(2 * utiltesting.Mi),
 				},
 			},
 			wantFits: true,
@@ -743,8 +743,8 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]kueue.ResourceFlavor{
-					corev1.ResourceCPU: defaultFlavorNoBorrowing("4"),
+				RequestableResources: map[corev1.ResourceName][]capacity.FlavorQuota{
+					corev1.ResourceCPU: defaultFlavorNoBorrowing(4000),
 				},
 				UsedResources: capacity.Resources{
 					corev1.ResourceCPU: {
@@ -765,14 +765,14 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]kueue.ResourceFlavor{
-					corev1.ResourceCPU: noBorrowing([]quickFlavor{
-						{name: "one", guaranteed: "2"},
-						{name: "two", guaranteed: "4"},
+				RequestableResources: map[corev1.ResourceName][]capacity.FlavorQuota{
+					corev1.ResourceCPU: noBorrowing([]capacity.FlavorQuota{
+						{Name: "one", Guaranteed: 2000},
+						{Name: "two", Guaranteed: 4000},
 					}),
-					corev1.ResourceMemory: noBorrowing([]quickFlavor{
-						{name: "one", guaranteed: "1Gi"},
-						{name: "two", guaranteed: "5Mi"},
+					corev1.ResourceMemory: noBorrowing([]capacity.FlavorQuota{
+						{Name: "one", Guaranteed: utiltesting.Gi},
+						{Name: "two", Guaranteed: 5 * utiltesting.Mi},
 					}),
 				},
 			},
@@ -796,14 +796,14 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]kueue.ResourceFlavor{
-					corev1.ResourceCPU: noBorrowing([]quickFlavor{
-						{name: "one", guaranteed: "2"},
-						{name: "two", guaranteed: "4"},
+				RequestableResources: map[corev1.ResourceName][]capacity.FlavorQuota{
+					corev1.ResourceCPU: noBorrowing([]capacity.FlavorQuota{
+						{Name: "one", Guaranteed: 2000},
+						{Name: "two", Guaranteed: 4000},
 					}),
-					corev1.ResourceMemory: noBorrowing([]quickFlavor{
-						{name: "one", guaranteed: "1Gi"},
-						{name: "two", guaranteed: "5Mi"},
+					corev1.ResourceMemory: noBorrowing([]capacity.FlavorQuota{
+						{Name: "one", Guaranteed: utiltesting.Gi},
+						{Name: "two", Guaranteed: 5 * utiltesting.Mi},
 					}),
 				},
 			},
@@ -826,10 +826,10 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]kueue.ResourceFlavor{
-					corev1.ResourceCPU: noBorrowing([]quickFlavor{
-						{name: "one", guaranteed: "4"},
-						{name: "two", guaranteed: "10"},
+				RequestableResources: map[corev1.ResourceName][]capacity.FlavorQuota{
+					corev1.ResourceCPU: noBorrowing([]capacity.FlavorQuota{
+						{Name: "one", Guaranteed: 4000},
+						{Name: "two", Guaranteed: 10_000},
 					}),
 				},
 			},
@@ -863,23 +863,19 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]kueue.ResourceFlavor{
+				RequestableResources: map[corev1.ResourceName][]capacity.FlavorQuota{
 					corev1.ResourceCPU: {
 						{
-							Name: "default",
-							Quota: kueue.Quota{
-								Guaranteed: resource.MustParse("2"),
-								Ceiling:    resource.MustParse("100"),
-							},
+							Name:       "default",
+							Guaranteed: 2000,
+							Ceiling:    100_000,
 						},
 					},
 					corev1.ResourceMemory: {
 						{
-							Name: "default",
-							Quota: kueue.Quota{
-								Guaranteed: resource.MustParse("2Gi"),
-								Ceiling:    resource.MustParse("100Gi"),
-							},
+							Name:       "default",
+							Guaranteed: 2 * utiltesting.Gi,
+							Ceiling:    100 * utiltesting.Gi,
 						},
 					},
 				},
@@ -925,14 +921,12 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]kueue.ResourceFlavor{
+				RequestableResources: map[corev1.ResourceName][]capacity.FlavorQuota{
 					corev1.ResourceCPU: {
 						{
-							Name: "one",
-							Quota: kueue.Quota{
-								Guaranteed: resource.MustParse("1"),
-								Ceiling:    resource.MustParse("10"),
-							},
+							Name:       "one",
+							Guaranteed: 1000,
+							Ceiling:    10_000,
 						},
 					},
 				},
@@ -957,14 +951,12 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]kueue.ResourceFlavor{
+				RequestableResources: map[corev1.ResourceName][]capacity.FlavorQuota{
 					corev1.ResourceCPU: {
 						{
-							Name: "one",
-							Quota: kueue.Quota{
-								Guaranteed: resource.MustParse("1"),
-								Ceiling:    resource.MustParse("10"),
-							},
+							Name:       "one",
+							Guaranteed: 1000,
+							Ceiling:    10_000,
 						},
 					},
 				},
@@ -1065,26 +1057,13 @@ func TestEntryOrdering(t *testing.T) {
 	}
 }
 
-func defaultFlavorNoBorrowing(guaranteed string) []kueue.ResourceFlavor {
-	return noBorrowing([]quickFlavor{{name: "default", guaranteed: guaranteed}})
+func defaultFlavorNoBorrowing(guaranteed int64) []capacity.FlavorQuota {
+	return noBorrowing([]capacity.FlavorQuota{{Name: "default", Guaranteed: guaranteed}})
 }
 
-func noBorrowing(ts []quickFlavor) []kueue.ResourceFlavor {
-	flavors := make([]kueue.ResourceFlavor, len(ts))
-	for i, t := range ts {
-		g := resource.MustParse(t.guaranteed)
-		flavors[i] = kueue.ResourceFlavor{
-			Name: t.name,
-			Quota: kueue.Quota{
-				Guaranteed: g,
-				Ceiling:    g,
-			},
-		}
+func noBorrowing(flavors []capacity.FlavorQuota) []capacity.FlavorQuota {
+	for i := range flavors {
+		flavors[i].Ceiling = flavors[i].Guaranteed
 	}
 	return flavors
-}
-
-type quickFlavor struct {
-	name       string
-	guaranteed string
 }

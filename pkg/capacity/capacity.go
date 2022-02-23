@@ -18,6 +18,7 @@ package capacity
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -29,6 +30,8 @@ import (
 )
 
 const workloadCapacityKey = "spec.assignedCapacity"
+
+var capNotFoundErr = errors.New("capacity not found")
 
 type Cache struct {
 	sync.Mutex
@@ -71,9 +74,16 @@ func newCohort(name string, cap int) *Cohort {
 type Capacity struct {
 	Name                 string
 	Cohort               *Cohort
-	RequestableResources map[corev1.ResourceName][]kueue.ResourceFlavor
+	RequestableResources map[corev1.ResourceName][]FlavorQuota
 	UsedResources        Resources
 	Workloads            map[string]*workload.Info
+}
+
+// FlavorQuota holds a flavor name and its quota in integer format.
+type FlavorQuota struct {
+	Name       string
+	Guaranteed int64
+	Ceiling    int64
 }
 
 func NewCapacity(cap *kueue.Capacity) *Capacity {
@@ -165,7 +175,7 @@ func (c *Cache) UpdateCapacity(cap *kueue.Capacity) error {
 	defer c.Unlock()
 	capImpl, ok := c.capacities[cap.Name]
 	if !ok {
-		return fmt.Errorf("capacity doesn't exist")
+		return capNotFoundErr
 	}
 	capImpl.RequestableResources = resourcesByName(cap.Spec.RequestableResources)
 	if capImpl.Cohort != nil {
@@ -243,7 +253,7 @@ func (c *Cache) DeleteWorkload(w *kueue.QueuedWorkload) error {
 
 	capacity, ok := c.capacities[string(w.Spec.AssignedCapacity)]
 	if !ok {
-		return fmt.Errorf("capacity doesn't exist")
+		return capNotFoundErr
 	}
 
 	c.cleanupAssumedState(w)
@@ -268,7 +278,7 @@ func (c *Cache) AssumeWorkload(w *kueue.QueuedWorkload) error {
 
 	capacity, ok := c.capacities[string(w.Spec.AssignedCapacity)]
 	if !ok {
-		return fmt.Errorf("capacity doesn't exist")
+		return capNotFoundErr
 	}
 
 	if err := capacity.addWorkload(w); err != nil {
@@ -289,7 +299,7 @@ func (c *Cache) ForgetWorkload(w *kueue.QueuedWorkload) error {
 
 	capacity, ok := c.capacities[string(w.Spec.AssignedCapacity)]
 	if !ok {
-		return fmt.Errorf("capacity doesn't exist")
+		return capNotFoundErr
 	}
 	capacity.deleteWorkload(w)
 	return nil
@@ -334,12 +344,17 @@ func (c *Cache) deleteCapacityFromCohort(cap *Capacity) {
 	cap.Cohort = nil
 }
 
-func resourcesByName(in []kueue.Resource) map[corev1.ResourceName][]kueue.ResourceFlavor {
-	out := make(map[corev1.ResourceName][]kueue.ResourceFlavor, len(in))
+func resourcesByName(in []kueue.Resource) map[corev1.ResourceName][]FlavorQuota {
+	out := make(map[corev1.ResourceName][]FlavorQuota, len(in))
 	for _, r := range in {
-		flavors := make([]kueue.ResourceFlavor, len(r.Flavors))
+		flavors := make([]FlavorQuota, len(r.Flavors))
 		for i := range flavors {
-			flavors[i] = *r.Flavors[i].DeepCopy()
+			f := &r.Flavors[i]
+			flavors[i] = FlavorQuota{
+				Name:       f.Name,
+				Guaranteed: workload.ResourceValue(r.Name, f.Quota.Guaranteed),
+				Ceiling:    workload.ResourceValue(r.Name, f.Quota.Ceiling),
+			}
 		}
 		out[r.Name] = flavors
 	}

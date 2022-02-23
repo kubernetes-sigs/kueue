@@ -80,7 +80,7 @@ func (c *Capacity) accumulateResources(cohort *Cohort) {
 			cohort.RequestableResources[name] = req
 		}
 		for _, flavor := range flavors {
-			req[flavor.Name] += workload.ResourceValue(name, flavor.Quota.Guaranteed)
+			req[flavor.Name] += flavor.Guaranteed
 		}
 	}
 	if cohort.UsedResources == nil {

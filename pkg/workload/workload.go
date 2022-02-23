@@ -18,6 +18,7 @@ package workload
 
 import (
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -106,6 +107,20 @@ func ResourceValue(name corev1.ResourceName, q resource.Quantity) int64 {
 		return q.MilliValue()
 	}
 	return q.Value()
+}
+
+func ResourceQuantity(name corev1.ResourceName, v int64) resource.Quantity {
+	switch name {
+	case corev1.ResourceCPU:
+		return *resource.NewMilliQuantity(v, resource.DecimalSI)
+	case corev1.ResourceMemory, corev1.ResourceEphemeralStorage:
+		return *resource.NewQuantity(v, resource.BinarySI)
+	default:
+		if strings.HasPrefix(string(name), corev1.ResourceHugePagesPrefix) {
+			return *resource.NewQuantity(v, resource.BinarySI)
+		}
+		return *resource.NewQuantity(v, resource.DecimalSI)
+	}
 }
 
 func (r Requests) add(o Requests) {
