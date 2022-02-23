@@ -89,6 +89,7 @@ func TestSnapshot(t *testing.T) {
 						Name: "example.com/gpu",
 						Flavors: []kueue.ResourceFlavor{
 							{
+								Name: "default",
 								Quota: kueue.Quota{
 									Guaranteed: resource.MustParse("50"),
 								},
@@ -108,6 +109,7 @@ func TestSnapshot(t *testing.T) {
 						Name: corev1.ResourceCPU,
 						Flavors: []kueue.ResourceFlavor{
 							{
+								Name: "default",
 								Quota: kueue.Quota{
 									Guaranteed: resource.MustParse("100"),
 								},
@@ -155,7 +157,7 @@ func TestSnapshot(t *testing.T) {
 						}),
 						AssignedFlavors: map[corev1.ResourceName]string{
 							corev1.ResourceCPU: "spot",
-							"example.com/gpu":  "",
+							"example.com/gpu":  "default",
 						},
 					},
 				},
@@ -174,7 +176,7 @@ func TestSnapshot(t *testing.T) {
 						}),
 						AssignedFlavors: map[corev1.ResourceName]string{
 							corev1.ResourceCPU: "spot",
-							"example.com/gpu":  "",
+							"example.com/gpu":  "default",
 						},
 					},
 				},
@@ -195,7 +197,7 @@ func TestSnapshot(t *testing.T) {
 					"spot":   300_000,
 				},
 				"example.com/gpu": map[string]int64{
-					"": 50,
+					"default": 50,
 				},
 			},
 			UsedResources: Resources{
@@ -204,7 +206,7 @@ func TestSnapshot(t *testing.T) {
 					"spot":   10_000,
 				},
 				"example.com/gpu": map[string]int64{
-					"": 15,
+					"default": 15,
 				},
 			},
 		},
@@ -214,19 +216,15 @@ func TestSnapshot(t *testing.T) {
 			"foofoo": {
 				Name:   "foofoo",
 				Cohort: &wantCohorts[0],
-				RequestableResources: map[corev1.ResourceName][]kueue.ResourceFlavor{
+				RequestableResources: map[corev1.ResourceName][]FlavorQuota{
 					corev1.ResourceCPU: {
 						{
-							Name: "demand",
-							Quota: kueue.Quota{
-								Guaranteed: resource.MustParse("100"),
-							},
+							Name:       "demand",
+							Guaranteed: 100_000,
 						},
 						{
-							Name: "spot",
-							Quota: kueue.Quota{
-								Guaranteed: resource.MustParse("200"),
-							},
+							Name:       "spot",
+							Guaranteed: 200_000,
 						},
 					},
 				},
@@ -243,20 +241,17 @@ func TestSnapshot(t *testing.T) {
 			"foobar": {
 				Name:   "foobar",
 				Cohort: &wantCohorts[0],
-				RequestableResources: map[corev1.ResourceName][]kueue.ResourceFlavor{
+				RequestableResources: map[corev1.ResourceName][]FlavorQuota{
 					corev1.ResourceCPU: {
 						{
-							Name: "spot",
-							Quota: kueue.Quota{
-								Guaranteed: resource.MustParse("100"),
-							},
+							Name:       "spot",
+							Guaranteed: 100_000,
 						},
 					},
 					"example.com/gpu": {
 						{
-							Quota: kueue.Quota{
-								Guaranteed: resource.MustParse("50"),
-							},
+							Name:       "default",
+							Guaranteed: 50,
 						},
 					},
 				},
@@ -265,7 +260,7 @@ func TestSnapshot(t *testing.T) {
 						"spot": 10_000,
 					},
 					"example.com/gpu": map[string]int64{
-						"": 15,
+						"default": 15,
 					},
 				},
 				Workloads: map[string]*workload.Info{
@@ -275,17 +270,16 @@ func TestSnapshot(t *testing.T) {
 			},
 			"bar": {
 				Name: "bar",
-				RequestableResources: map[corev1.ResourceName][]kueue.ResourceFlavor{
+				RequestableResources: map[corev1.ResourceName][]FlavorQuota{
 					corev1.ResourceCPU: {
 						{
-							Quota: kueue.Quota{
-								Guaranteed: resource.MustParse("100"),
-							},
+							Name:       "default",
+							Guaranteed: 100_000,
 						},
 					},
 				},
 				UsedResources: Resources{
-					corev1.ResourceCPU: map[string]int64{"": 0},
+					corev1.ResourceCPU: map[string]int64{"default": 0},
 				},
 				Workloads: map[string]*workload.Info{},
 			},

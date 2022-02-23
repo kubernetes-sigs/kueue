@@ -251,21 +251,19 @@ func findFlavorForResource(name corev1.ResourceName, val int64, cap *capacity.Ca
 
 // canAssignFlavor returns whether a requested resource fits in a specific flavor.
 // If it fits, also returns any borrowing required.
-func canAssignFlavor(name corev1.ResourceName, val int64, cap *capacity.Capacity, rFlavor *kueue.ResourceFlavor) (bool, int64) {
-	ceiling := workload.ResourceValue(name, rFlavor.Quota.Ceiling)
-	used := cap.UsedResources[name][rFlavor.Name]
-	if used+val > ceiling {
+func canAssignFlavor(name corev1.ResourceName, val int64, cap *capacity.Capacity, flavor *capacity.FlavorQuota) (bool, int64) {
+	used := cap.UsedResources[name][flavor.Name]
+	if used+val > flavor.Ceiling {
 		// Past borrowing limit.
 		return false, 0
 	}
-	guaranteed := workload.ResourceValue(name, rFlavor.Quota.Guaranteed)
 	cohortUsed := used
-	cohortTotal := guaranteed
+	cohortTotal := flavor.Guaranteed
 	if cap.Cohort != nil {
-		cohortUsed = cap.Cohort.UsedResources[name][rFlavor.Name]
-		cohortTotal = cap.Cohort.RequestableResources[name][rFlavor.Name]
+		cohortUsed = cap.Cohort.UsedResources[name][flavor.Name]
+		cohortTotal = cap.Cohort.RequestableResources[name][flavor.Name]
 	}
-	borrow := used + val - guaranteed
+	borrow := used + val - flavor.Guaranteed
 	if borrow < 0 {
 		borrow = 0
 	}
