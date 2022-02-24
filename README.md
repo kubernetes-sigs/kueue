@@ -17,7 +17,7 @@ API proposal and a high-level description of how it operates; while [bit.ly/kueu
 You can run Kueue with the following command:
 
 ```sh
-IMAGE_REGISTRY=registry.example.com/my-user/kueue:latest make image-build image-push deploy
+IMAGE_REGISTRY=registry.example.com/my-user make image-build image-push deploy
 ```
 
 The controller will run in the `kueue-system` namespace.
