@@ -90,6 +90,11 @@ fmt-verify:
 	    exit 1; \
 	fi
 
+.PHONY: gomod-verify
+gomod-verify:
+	$(GO_CMD) mod tidy
+	git --no-pager diff --exit-code go.mod go.sum
+
 .PHONY: vet
 vet: ## Run go vet against code.
 	$(GO_CMD) vet ./...
@@ -107,8 +112,8 @@ ci-lint: golangci-lint
 	$(GOLANGCI_LINT) run --timeout 7m0s
 
 .PHONY: verify
-verify: vet ci-lint fmt-verify manifests generate
-	git diff --quiet config/crd/bases api
+verify: gomod-verify vet ci-lint fmt-verify manifests generate
+	git --no-pager diff --exit-code config/crd/bases api
 
 ##@ Build
 
