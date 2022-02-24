@@ -719,7 +719,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]capacity.FlavorQuota{
+				RequestableResources: map[corev1.ResourceName][]capacity.FlavorInfo{
 					corev1.ResourceCPU:    defaultFlavorNoBorrowing(1000),
 					corev1.ResourceMemory: defaultFlavorNoBorrowing(2 * utiltesting.Mi),
 				},
@@ -729,6 +729,44 @@ func TestEntryAssignFlavors(t *testing.T) {
 				"main": {
 					corev1.ResourceCPU:    "default",
 					corev1.ResourceMemory: "default",
+				},
+			},
+		},
+		"single flavor, fits tainted flavor": {
+			wlPods: []kueue.PodSet{
+				{
+					Count: 1,
+					Name:  "main",
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+								},
+							},
+						},
+						Tolerations: []corev1.Toleration{corev1.Toleration{
+							Key:      "instance",
+							Operator: corev1.TolerationOpEqual,
+							Value:    "spot",
+							Effect:   corev1.TaintEffectNoSchedule,
+						}},
+					}}},
+			capacity: capacity.Capacity{
+				RequestableResources: map[corev1.ResourceName][]capacity.FlavorInfo{
+					corev1.ResourceCPU: noBorrowing([]capacity.FlavorInfo{
+						{Name: "default", Guaranteed: 4000, Taints: []corev1.Taint{{
+							Key:    "instance",
+							Value:  "spot",
+							Effect: corev1.TaintEffectNoSchedule,
+						}}},
+					}),
+				},
+			},
+			wantFits: true,
+			wantFlavors: map[string]map[corev1.ResourceName]string{
+				"main": {
+					corev1.ResourceCPU: "default",
 				},
 			},
 		},
@@ -743,7 +781,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]capacity.FlavorQuota{
+				RequestableResources: map[corev1.ResourceName][]capacity.FlavorInfo{
 					corev1.ResourceCPU: defaultFlavorNoBorrowing(4000),
 				},
 				UsedResources: capacity.Resources{
@@ -765,12 +803,12 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]capacity.FlavorQuota{
-					corev1.ResourceCPU: noBorrowing([]capacity.FlavorQuota{
+				RequestableResources: map[corev1.ResourceName][]capacity.FlavorInfo{
+					corev1.ResourceCPU: noBorrowing([]capacity.FlavorInfo{
 						{Name: "one", Guaranteed: 2000},
 						{Name: "two", Guaranteed: 4000},
 					}),
-					corev1.ResourceMemory: noBorrowing([]capacity.FlavorQuota{
+					corev1.ResourceMemory: noBorrowing([]capacity.FlavorInfo{
 						{Name: "one", Guaranteed: utiltesting.Gi},
 						{Name: "two", Guaranteed: 5 * utiltesting.Mi},
 					}),
@@ -796,15 +834,44 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]capacity.FlavorQuota{
-					corev1.ResourceCPU: noBorrowing([]capacity.FlavorQuota{
+				RequestableResources: map[corev1.ResourceName][]capacity.FlavorInfo{
+					corev1.ResourceCPU: noBorrowing([]capacity.FlavorInfo{
 						{Name: "one", Guaranteed: 2000},
 						{Name: "two", Guaranteed: 4000},
 					}),
-					corev1.ResourceMemory: noBorrowing([]capacity.FlavorQuota{
+					corev1.ResourceMemory: noBorrowing([]capacity.FlavorInfo{
 						{Name: "one", Guaranteed: utiltesting.Gi},
 						{Name: "two", Guaranteed: 5 * utiltesting.Mi},
 					}),
+				},
+			},
+		},
+		"multiple flavors, fits while skipping tainted flavor": {
+			wlPods: []kueue.PodSet{
+				{
+					Count: 1,
+					Name:  "main",
+					Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+						corev1.ResourceCPU: "3",
+					}),
+				},
+			},
+			capacity: capacity.Capacity{
+				RequestableResources: map[corev1.ResourceName][]capacity.FlavorInfo{
+					corev1.ResourceCPU: noBorrowing([]capacity.FlavorInfo{
+						{Name: "one", Guaranteed: 4000, Taints: []corev1.Taint{{
+							Key:    "instance",
+							Value:  "spot",
+							Effect: corev1.TaintEffectNoSchedule,
+						}}},
+						{Name: "two", Guaranteed: 4000},
+					}),
+				},
+			},
+			wantFits: true,
+			wantFlavors: map[string]map[corev1.ResourceName]string{
+				"main": {
+					corev1.ResourceCPU: "two",
 				},
 			},
 		},
@@ -826,8 +893,8 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]capacity.FlavorQuota{
-					corev1.ResourceCPU: noBorrowing([]capacity.FlavorQuota{
+				RequestableResources: map[corev1.ResourceName][]capacity.FlavorInfo{
+					corev1.ResourceCPU: noBorrowing([]capacity.FlavorInfo{
 						{Name: "one", Guaranteed: 4000},
 						{Name: "two", Guaranteed: 10_000},
 					}),
@@ -863,7 +930,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]capacity.FlavorQuota{
+				RequestableResources: map[corev1.ResourceName][]capacity.FlavorInfo{
 					corev1.ResourceCPU: {
 						{
 							Name:       "default",
@@ -921,7 +988,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]capacity.FlavorQuota{
+				RequestableResources: map[corev1.ResourceName][]capacity.FlavorInfo{
 					corev1.ResourceCPU: {
 						{
 							Name:       "one",
@@ -951,7 +1018,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]capacity.FlavorQuota{
+				RequestableResources: map[corev1.ResourceName][]capacity.FlavorInfo{
 					corev1.ResourceCPU: {
 						{
 							Name:       "one",
@@ -1057,11 +1124,11 @@ func TestEntryOrdering(t *testing.T) {
 	}
 }
 
-func defaultFlavorNoBorrowing(guaranteed int64) []capacity.FlavorQuota {
-	return noBorrowing([]capacity.FlavorQuota{{Name: "default", Guaranteed: guaranteed}})
+func defaultFlavorNoBorrowing(guaranteed int64) []capacity.FlavorInfo {
+	return noBorrowing([]capacity.FlavorInfo{{Name: "default", Guaranteed: guaranteed}})
 }
 
-func noBorrowing(flavors []capacity.FlavorQuota) []capacity.FlavorQuota {
+func noBorrowing(flavors []capacity.FlavorInfo) []capacity.FlavorInfo {
 	for i := range flavors {
 		flavors[i].Ceiling = flavors[i].Guaranteed
 	}

@@ -74,16 +74,17 @@ func newCohort(name string, cap int) *Cohort {
 type Capacity struct {
 	Name                 string
 	Cohort               *Cohort
-	RequestableResources map[corev1.ResourceName][]FlavorQuota
+	RequestableResources map[corev1.ResourceName][]FlavorInfo
 	UsedResources        Resources
 	Workloads            map[string]*workload.Info
 }
 
-// FlavorQuota holds a flavor name and its quota in integer format.
-type FlavorQuota struct {
+// FlavorInfo holds processed flavor type.
+type FlavorInfo struct {
 	Name       string
 	Guaranteed int64
 	Ceiling    int64
+	Taints     []corev1.Taint
 }
 
 func NewCapacity(cap *kueue.Capacity) *Capacity {
@@ -344,16 +345,17 @@ func (c *Cache) deleteCapacityFromCohort(cap *Capacity) {
 	cap.Cohort = nil
 }
 
-func resourcesByName(in []kueue.Resource) map[corev1.ResourceName][]FlavorQuota {
-	out := make(map[corev1.ResourceName][]FlavorQuota, len(in))
+func resourcesByName(in []kueue.Resource) map[corev1.ResourceName][]FlavorInfo {
+	out := make(map[corev1.ResourceName][]FlavorInfo, len(in))
 	for _, r := range in {
-		flavors := make([]FlavorQuota, len(r.Flavors))
+		flavors := make([]FlavorInfo, len(r.Flavors))
 		for i := range flavors {
 			f := &r.Flavors[i]
-			flavors[i] = FlavorQuota{
+			flavors[i] = FlavorInfo{
 				Name:       f.Name,
 				Guaranteed: workload.ResourceValue(r.Name, f.Quota.Guaranteed),
 				Ceiling:    workload.ResourceValue(r.Name, f.Quota.Ceiling),
+				Taints:     append([]corev1.Taint(nil), f.Taints...),
 			}
 		}
 		out[r.Name] = flavors

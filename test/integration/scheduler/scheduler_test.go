@@ -33,8 +33,8 @@ import (
 
 var _ = ginkgo.Describe("Scheduler", func() {
 	const (
-		namespace = "default"
-		labelKey  = "cloud.provider.com/instance"
+		namespace   = "default"
+		instanceKey = "cloud.provider.com/instance"
 
 		timeout            = time.Second * 10
 		consistentDuration = time.Second * 3
@@ -47,7 +47,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		ginkgo.By("creating capacities and queues")
 		prodCapacity := testing.MakeCapacity("prod-capacity").
 			Resource(testing.MakeResource(corev1.ResourceCPU).
-				Flavor(testing.MakeFlavor(onDemandFlavor, "5").Label("cloud.provider.com/instance", onDemandFlavor).Obj()).
+				Flavor(testing.MakeFlavor(onDemandFlavor, "5").Label(instanceKey, onDemandFlavor).Obj()).
 				Obj()).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, prodCapacity)).Should(gomega.Succeed())
@@ -56,7 +56,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		devCapacity := testing.MakeCapacity("dev-capacity").
 			Resource(testing.MakeResource(corev1.ResourceCPU).
-				Flavor(testing.MakeFlavor(spotFlavor, "5").Label("cloud.provider.com/instance", spotFlavor).Obj()).
+				Flavor(testing.MakeFlavor(spotFlavor, "5").Label(instanceKey, spotFlavor).Obj()).
 				Obj()).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, devCapacity)).Should(gomega.Succeed())
@@ -72,7 +72,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			err := k8sClient.Get(ctx, lookupKey1, createdProdJob1)
 			return err == nil && !*createdProdJob1.Spec.Suspend
 		}, timeout, interval).Should(gomega.BeTrue())
-		gomega.Expect(createdProdJob1.Spec.Template.Spec.NodeSelector[labelKey]).Should(gomega.Equal(onDemandFlavor))
+		gomega.Expect(createdProdJob1.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor))
 
 		ginkgo.By("checking a second no-fit prod job does not start")
 		prodJob2 := testing.MakeJob("prod-job2", namespace).Queue(prodQueue.Name).AddResource(corev1.ResourceCPU, "5").Obj()
@@ -90,8 +90,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		gomega.Eventually(func() bool {
 			key := types.NamespacedName{Name: devJob.Name, Namespace: devJob.Namespace}
 			return k8sClient.Get(ctx, key, createdDevJob) == nil && !*createdDevJob.Spec.Suspend
-		}, consistentDuration, interval).Should(gomega.BeTrue())
-		gomega.Expect(createdDevJob.Spec.Template.Spec.NodeSelector[labelKey]).Should(gomega.Equal(spotFlavor))
+		}, timeout, interval).Should(gomega.BeTrue())
+		gomega.Expect(createdDevJob.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotFlavor))
 
 		ginkgo.By("checking the second prod job starts when the first finishes")
 		createdProdJob1.Status.Conditions = append(createdProdJob1.Status.Conditions,
@@ -105,7 +105,64 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		gomega.Eventually(func() bool {
 			return k8sClient.Get(ctx, lookupKey2, createdProdJob2) == nil && !*createdProdJob2.Spec.Suspend
 		}, timeout, interval).Should(gomega.BeTrue())
-		gomega.Expect(createdProdJob2.Spec.Template.Spec.NodeSelector[labelKey]).Should(gomega.Equal(onDemandFlavor))
+		gomega.Expect(createdProdJob2.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor))
+	})
+
+	ginkgo.It("Should schedule jobs on tolerated flavors", func() {
+		ginkgo.By("creating capacity and queue")
+		capacity := testing.MakeCapacity("tainted-capacity").
+			Resource(testing.MakeResource(corev1.ResourceCPU).
+				Flavor(testing.MakeFlavor(spotFlavor, "5").
+					Taint(corev1.Taint{
+						Key:    instanceKey,
+						Value:  spotFlavor,
+						Effect: corev1.TaintEffectNoSchedule,
+					}).
+					Label(instanceKey, spotFlavor).Obj()).
+				Flavor(testing.MakeFlavor(onDemandFlavor, "5").
+					Label(instanceKey, onDemandFlavor).Obj()).
+				Obj()).
+			Obj()
+		gomega.Expect(k8sClient.Create(ctx, capacity)).Should(gomega.Succeed())
+		queue := testing.MakeQueue("tainted-queue", namespace).Capacity(capacity.Name).Obj()
+		gomega.Expect(k8sClient.Create(ctx, queue)).Should(gomega.Succeed())
+
+		ginkgo.By("checking a job without toleration starts on the non-tainted flavor")
+		job1 := testing.MakeJob("on-demand-job1", namespace).Queue(queue.Name).AddResource(corev1.ResourceCPU, "5").Obj()
+		gomega.Expect(k8sClient.Create(ctx, job1)).Should(gomega.Succeed())
+		createdJob1 := &batchv1.Job{}
+		gomega.Eventually(func() bool {
+			lookupKey := types.NamespacedName{Name: job1.Name, Namespace: job1.Namespace}
+			return k8sClient.Get(ctx, lookupKey, createdJob1) == nil && !*createdJob1.Spec.Suspend
+		}, timeout, interval).Should(gomega.BeTrue())
+		gomega.Expect(createdJob1.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor))
+
+		// TODO(#8): uncomment the following once we have proper re-queueing.
+		// ginkgo.By("checking a second job without toleration doesn't start")
+		// job2 := testing.MakeJob("on-demand-job2", namespace).Queue(queue.Name).AddResource(corev1.ResourceCPU, "5").Obj()
+		// gomega.Expect(k8sClient.Create(ctx, job2)).Should(gomega.Succeed())
+		// createdJob2 := &batchv1.Job{}
+		// gomega.Consistently(func() bool {
+		// 	lookupKey := types.NamespacedName{Name: job2.Name, Namespace: job2.Namespace}
+		// 	return k8sClient.Get(ctx, lookupKey, createdJob2) == nil && *createdJob2.Spec.Suspend
+		// }, consistentDuration, interval).Should(gomega.BeTrue())
+
+		ginkgo.By("checking a third job with toleration starts")
+		job3 := testing.MakeJob("spot-job3", namespace).Queue(queue.Name).
+			Toleration(corev1.Toleration{
+				Key:      instanceKey,
+				Operator: corev1.TolerationOpEqual,
+				Value:    spotFlavor,
+				Effect:   corev1.TaintEffectNoSchedule,
+			}).
+			AddResource(corev1.ResourceCPU, "5").Obj()
+		gomega.Expect(k8sClient.Create(ctx, job3)).Should(gomega.Succeed())
+		createdJob3 := &batchv1.Job{}
+		gomega.Eventually(func() bool {
+			lookupKey := types.NamespacedName{Name: job3.Name, Namespace: job3.Namespace}
+			return k8sClient.Get(ctx, lookupKey, createdJob3) == nil && !*createdJob3.Spec.Suspend
+		}, timeout, interval).Should(gomega.BeTrue())
+		gomega.Expect(createdJob3.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotFlavor))
 	})
 
 	ginkgo.It("Should schedule jobs using borrowed capacity", func() {
@@ -113,7 +170,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		primaryCapacity := testing.MakeCapacity("primary-capacity").
 			Cohort("borrowing-cohort").
 			Resource(testing.MakeResource(corev1.ResourceCPU).
-				Flavor(testing.MakeFlavor(onDemandFlavor, "5").Ceiling("10").Label("cloud.provider.com/instance", onDemandFlavor).Obj()).
+				Flavor(testing.MakeFlavor(onDemandFlavor, "5").Ceiling("10").Label(instanceKey, onDemandFlavor).Obj()).
 				Obj()).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, primaryCapacity)).Should(gomega.Succeed())
@@ -133,13 +190,13 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		fallbackCapacity := testing.MakeCapacity("fallback-capacity").
 			Cohort("borrowing-cohort").
 			Resource(testing.MakeResource(corev1.ResourceCPU).
-				Flavor(testing.MakeFlavor(onDemandFlavor, "5").Ceiling("10").Label("cloud.provider.com/instance", onDemandFlavor).Obj()).
+				Flavor(testing.MakeFlavor(onDemandFlavor, "5").Ceiling("10").Label(instanceKey, onDemandFlavor).Obj()).
 				Obj()).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, fallbackCapacity)).Should(gomega.Succeed())
 		gomega.Eventually(func() bool {
 			return k8sClient.Get(ctx, lookupKey, createdJob) == nil && !*createdJob.Spec.Suspend
 		}, timeout, interval).Should(gomega.BeTrue())
-		gomega.Expect(createdJob.Spec.Template.Spec.NodeSelector[labelKey]).Should(gomega.Equal(onDemandFlavor))
+		gomega.Expect(createdJob.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor))
 	})
 })

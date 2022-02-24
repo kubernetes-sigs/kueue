@@ -81,6 +81,12 @@ func (j *JobWrapper) Queue(queue string) *JobWrapper {
 	return j
 }
 
+// AddToleration adds a toleration to the job.
+func (j *JobWrapper) Toleration(t corev1.Toleration) *JobWrapper {
+	j.Spec.Template.Spec.Tolerations = append(j.Spec.Template.Spec.Tolerations, t)
+	return j
+}
+
 // AddResource adds a resource request to the default container.
 func (j *JobWrapper) AddResource(r corev1.ResourceName, v string) *JobWrapper {
 	j.Spec.Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
@@ -187,8 +193,14 @@ func (f *FlavorWrapper) Ceiling(c string) *FlavorWrapper {
 	return f
 }
 
-// Labels sets the flavor labels.
+// Label adds a label to the flavor.
 func (f *FlavorWrapper) Label(k, v string) *FlavorWrapper {
 	f.Labels[k] = v
+	return f
+}
+
+// Taint adds a taint to the flavor.
+func (f *FlavorWrapper) Taint(t corev1.Taint) *FlavorWrapper {
+	f.Taints = append(f.Taints, t)
 	return f
 }
