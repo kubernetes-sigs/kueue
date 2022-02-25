@@ -17,7 +17,6 @@ limitations under the License.
 package job
 
 import (
-	"context"
 	"fmt"
 	"time"
 
@@ -29,7 +28,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
-	ctrl "sigs.k8s.io/controller-runtime"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -52,32 +50,9 @@ const (
 	interval           = time.Millisecond * 250
 )
 
-var (
-	ctx    context.Context
-	cancel context.CancelFunc
-)
-
 // +kubebuilder:docs-gen:collapse=Imports
 
 var _ = ginkgo.Describe("Job controller", func() {
-	ginkgo.BeforeEach(func() {
-		mgr, err := ctrl.NewManager(cfg, ctrl.Options{
-			Scheme: scheme.Scheme,
-		})
-		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "failed to create manager")
-
-		err = workloadjob.NewReconciler(mgr.GetScheme(), mgr.GetClient(), mgr.GetEventRecorderFor(constants.JobControllerName)).SetupWithManager(mgr)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		ctx, cancel = context.WithCancel(context.TODO())
-		go func() {
-			defer ginkgo.GinkgoRecover()
-			err = mgr.Start(ctx)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "failed to run manager")
-		}()
-	})
-
-	ginkgo.AfterEach(func() { cancel() })
 
 	ginkgo.It("Should reconcile workload and job", func() {
 		ginkgo.By("checking the job gets suspended when created unsuspended")

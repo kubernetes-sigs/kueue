@@ -17,66 +17,52 @@ limitations under the License.
 package job
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
-	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/envtest/printer"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	kueuev1alpha1 "sigs.k8s.io/kueue/api/v1alpha1"
+	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/workload/job"
+	"sigs.k8s.io/kueue/test/integration/framework"
 	//+kubebuilder:scaffold:imports
 )
-
-// These tests use Ginkgo (BDD-style Go testing framework). Refer to
-// http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
 var (
 	cfg       *rest.Config
 	k8sClient client.Client
 	testEnv   *envtest.Environment
+	ctx       context.Context
+	cancel    context.CancelFunc
 )
 
 func TestAPIs(t *testing.T) {
 	gomega.RegisterFailHandler(ginkgo.Fail)
 
 	ginkgo.RunSpecsWithDefaultAndCustomReporters(t,
-		"Controller Suite",
+		"Job Controller Suite",
 		[]ginkgo.Reporter{printer.NewlineReporter{}})
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	ctrl.SetLogger(zap.New(zap.WriteTo(ginkgo.GinkgoWriter), zap.UseDevMode(true)))
-
-	ginkgo.By("bootstrapping test environment")
-	testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{filepath.Join("..", "..", "..", "..", "config", "crd", "bases")},
-		ErrorIfCRDPathMissing: true,
-	}
-
-	var err error
-	cfg, err = testEnv.Start()
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(cfg).NotTo(gomega.BeNil())
-
-	err = kueuev1alpha1.AddToScheme(scheme.Scheme)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	//+kubebuilder:scaffold:scheme
-
-	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(k8sClient).NotTo(gomega.BeNil())
+	ctx, cancel = context.WithCancel(context.Background())
+	crdPath := filepath.Join("..", "..", "..", "..", "config", "crd", "bases")
+	cfg, k8sClient, testEnv = framework.BeforeSuite(ctx, crdPath, managerSetup)
 }, 60)
 
 var _ = ginkgo.AfterSuite(func() {
-	ginkgo.By("tearing down the test environment")
-	err := testEnv.Stop()
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	cancel()
+	framework.AfterSuite(testEnv)
 })
+
+func managerSetup(mgr manager.Manager) {
+	err := job.NewReconciler(mgr.GetScheme(), mgr.GetClient(), mgr.GetEventRecorderFor(constants.JobControllerName)).SetupWithManager(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
