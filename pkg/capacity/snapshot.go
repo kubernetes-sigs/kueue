@@ -54,6 +54,7 @@ func (c *Capacity) snapshot() *Capacity {
 		RequestableResources: c.RequestableResources, // Shallow copy is enough.
 		UsedResources:        make(Resources, len(c.UsedResources)),
 		Workloads:            make(map[string]*workload.Info, len(c.Workloads)),
+		LabelKeys:            c.LabelKeys, // Shallow copy is enough.
 	}
 	for res, flavors := range c.UsedResources {
 		flavorsCopy := make(map[string]int64, len(flavors))

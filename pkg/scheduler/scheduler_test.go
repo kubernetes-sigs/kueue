@@ -875,6 +875,222 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 		},
+		"multiple flavors, fits a node selector": {
+			wlPods: []kueue.PodSet{
+				{
+					Count: 1,
+					Name:  "main",
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+								},
+							},
+						},
+						// ignored:foo should get ignored
+						NodeSelector: map[string]string{"cpuType": "two", "ignored1": "foo"},
+						Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+							RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+								NodeSelectorTerms: []corev1.NodeSelectorTerm{
+									{
+										MatchExpressions: []corev1.NodeSelectorRequirement{
+											{
+												// this expression should get ignored
+												Key:      "ignored2",
+												Operator: corev1.NodeSelectorOpIn,
+												Values:   []string{"bar"},
+											},
+										},
+									},
+								},
+							}},
+						},
+					},
+				},
+			},
+			capacity: capacity.Capacity{
+				RequestableResources: map[corev1.ResourceName][]capacity.FlavorInfo{
+					corev1.ResourceCPU: noBorrowing([]capacity.FlavorInfo{
+						{Name: "one", Guaranteed: 4000, Labels: map[string]string{"cpuType": "one"}},
+						{Name: "two", Guaranteed: 4000, Labels: map[string]string{"cpuType": "two"}},
+					}),
+				},
+				LabelKeys: map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
+			},
+			wantFits: true,
+			wantFlavors: map[string]map[corev1.ResourceName]string{
+				"main": {
+					corev1.ResourceCPU: "two",
+				},
+			},
+		},
+		"multiple flavors, fits with node affinity": {
+			wlPods: []kueue.PodSet{
+				{
+					Count: 1,
+					Name:  "main",
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("1"),
+										corev1.ResourceMemory: resource.MustParse("1Mi"),
+									},
+								},
+							},
+						},
+						NodeSelector: map[string]string{"ignored1": "foo"},
+						Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+							RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+								NodeSelectorTerms: []corev1.NodeSelectorTerm{
+									{
+										MatchExpressions: []corev1.NodeSelectorRequirement{
+											{
+												Key:      "cpuType",
+												Operator: corev1.NodeSelectorOpIn,
+												Values:   []string{"two"},
+											},
+											{
+												Key:      "memType",
+												Operator: corev1.NodeSelectorOpIn,
+												Values:   []string{"two"},
+											},
+										},
+									},
+								},
+							}},
+						},
+					},
+				},
+			},
+			capacity: capacity.Capacity{
+				RequestableResources: map[corev1.ResourceName][]capacity.FlavorInfo{
+					corev1.ResourceCPU: noBorrowing([]capacity.FlavorInfo{
+						{Name: "one", Guaranteed: 4000, Labels: map[string]string{"cpuType": "one", "group": "group1"}},
+						{Name: "two", Guaranteed: 4000, Labels: map[string]string{"cpuType": "two"}},
+					}),
+					corev1.ResourceMemory: noBorrowing([]capacity.FlavorInfo{
+						{Name: "one", Guaranteed: utiltesting.Gi, Labels: map[string]string{"memType": "one"}},
+						{Name: "two", Guaranteed: utiltesting.Gi, Labels: map[string]string{"memType": "two"}},
+					}),
+				},
+				LabelKeys: map[corev1.ResourceName]sets.String{
+					corev1.ResourceCPU:    sets.NewString("cpuType", "group"),
+					corev1.ResourceMemory: sets.NewString("memType"),
+				},
+			},
+			wantFits: true,
+			wantFlavors: map[string]map[corev1.ResourceName]string{
+				"main": {
+					corev1.ResourceCPU:    "two",
+					corev1.ResourceMemory: "two",
+				},
+			},
+		},
+		"multiple flavors, node affinity fits any flavor": {
+			wlPods: []kueue.PodSet{
+				{
+					Count: 1,
+					Name:  "main",
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+								},
+							},
+						},
+						Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+							RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+								NodeSelectorTerms: []corev1.NodeSelectorTerm{
+									{
+										MatchExpressions: []corev1.NodeSelectorRequirement{
+											{
+												Key:      "ignored2",
+												Operator: corev1.NodeSelectorOpIn,
+												Values:   []string{"bar"},
+											},
+										},
+									},
+									{
+										MatchExpressions: []corev1.NodeSelectorRequirement{
+											{
+												// although this terms selects two
+												// the first term practically matches
+												// any flavor; and since the terms
+												// are ORed, any flavor can be selected.
+												Key:      "cpuType",
+												Operator: corev1.NodeSelectorOpIn,
+												Values:   []string{"two"},
+											},
+										},
+									},
+								},
+							}},
+						},
+					},
+				},
+			},
+			capacity: capacity.Capacity{
+				RequestableResources: map[corev1.ResourceName][]capacity.FlavorInfo{
+					corev1.ResourceCPU: noBorrowing([]capacity.FlavorInfo{
+						{Name: "one", Guaranteed: 4000, Labels: map[string]string{"cpuType": "one"}},
+						{Name: "two", Guaranteed: 4000, Labels: map[string]string{"cpuType": "two"}},
+					}),
+				},
+				LabelKeys: map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
+			},
+			wantFits: true,
+			wantFlavors: map[string]map[corev1.ResourceName]string{
+				"main": {
+					corev1.ResourceCPU: "one",
+				},
+			},
+		},
+		"multiple flavor, doesn't fit node affinity": {
+			wlPods: []kueue.PodSet{
+				{
+					Count: 1,
+					Name:  "main",
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+								},
+							},
+						},
+						Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+							RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+								NodeSelectorTerms: []corev1.NodeSelectorTerm{
+									{
+										MatchExpressions: []corev1.NodeSelectorRequirement{
+											{
+												Key:      "cpuType",
+												Operator: corev1.NodeSelectorOpIn,
+												Values:   []string{"three"},
+											},
+										},
+									},
+								},
+							}},
+						},
+					},
+				},
+			},
+			capacity: capacity.Capacity{
+				RequestableResources: map[corev1.ResourceName][]capacity.FlavorInfo{
+					corev1.ResourceCPU: noBorrowing([]capacity.FlavorInfo{
+						{Name: "one", Guaranteed: 4000, Labels: map[string]string{"cpuType": "one"}},
+						{Name: "two", Guaranteed: 4000, Labels: map[string]string{"cpuType": "two"}},
+					}),
+				},
+				LabelKeys: map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
+			},
+			wantFits: false,
+		},
 		"multiple specs, fit different flavors": {
 			wlPods: []kueue.PodSet{
 				{
@@ -1043,6 +1259,9 @@ func TestEntryAssignFlavors(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			log := logrtesting.NewTestLoggerWithOptions(t, logrtesting.Options{
+				Verbosity: 2,
+			})
 			e := entry{
 				Info: *workload.NewInfo(&kueue.QueuedWorkload{
 					Spec: kueue.QueuedWorkloadSpec{
@@ -1050,7 +1269,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 					},
 				}),
 			}
-			fits := e.assignFlavors(&tc.capacity)
+			fits := e.assignFlavors(log, &tc.capacity)
 			if fits != tc.wantFits {
 				t.Errorf("e.assignFlavors(_)=%t, want %t", fits, tc.wantFits)
 			}

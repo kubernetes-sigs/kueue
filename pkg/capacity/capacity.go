@@ -23,6 +23,7 @@ import (
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
@@ -77,6 +78,10 @@ type Capacity struct {
 	RequestableResources map[corev1.ResourceName][]FlavorInfo
 	UsedResources        Resources
 	Workloads            map[string]*workload.Info
+	// The set of key labels from all flavors of a resource.
+	// Those keys define the affinity terms of a workload
+	// that can be matched against the flavors.
+	LabelKeys map[corev1.ResourceName]sets.String
 }
 
 // FlavorInfo holds processed flavor type.
@@ -85,6 +90,7 @@ type FlavorInfo struct {
 	Guaranteed int64
 	Ceiling    int64
 	Taints     []corev1.Taint
+	Labels     map[string]string
 }
 
 func NewCapacity(cap *kueue.Capacity) *Capacity {
@@ -95,16 +101,28 @@ func NewCapacity(cap *kueue.Capacity) *Capacity {
 		Workloads:            map[string]*workload.Info{},
 	}
 
+	labelKeys := map[corev1.ResourceName]sets.String{}
 	for _, r := range cap.Spec.RequestableResources {
 		if len(r.Flavors) == 0 {
 			continue
 		}
 
+		resKeys := sets.NewString()
 		ts := make(map[string]int64, len(r.Flavors))
 		for _, t := range r.Flavors {
+			for k := range t.Labels {
+				resKeys.Insert(k)
+			}
 			ts[t.Name] = 0
 		}
+		if len(resKeys) != 0 {
+			labelKeys[r.Name] = resKeys
+		}
 		c.UsedResources[r.Name] = ts
+	}
+
+	if len(labelKeys) != 0 {
+		c.LabelKeys = labelKeys
 	}
 	return c
 }
@@ -351,12 +369,20 @@ func resourcesByName(in []kueue.Resource) map[corev1.ResourceName][]FlavorInfo {
 		flavors := make([]FlavorInfo, len(r.Flavors))
 		for i := range flavors {
 			f := &r.Flavors[i]
-			flavors[i] = FlavorInfo{
+			fInfo := FlavorInfo{
 				Name:       f.Name,
 				Guaranteed: workload.ResourceValue(r.Name, f.Quota.Guaranteed),
 				Ceiling:    workload.ResourceValue(r.Name, f.Quota.Ceiling),
 				Taints:     append([]corev1.Taint(nil), f.Taints...),
 			}
+			if len(f.Labels) != 0 {
+				fInfo.Labels = make(map[string]string, len(f.Labels))
+				for k, v := range f.Labels {
+					fInfo.Labels[k] = v
+				}
+			}
+			flavors[i] = fInfo
+
 		}
 		out[r.Name] = flavors
 	}
