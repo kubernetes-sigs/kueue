@@ -30,6 +30,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
+	"sigs.k8s.io/kueue/pkg/util/pointer"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestCacheCapacityOperations(t *testing.T) {
@@ -179,13 +182,10 @@ func TestCacheWorkloadOperations(t *testing.T) {
 	pods := []kueue.PodSet{
 		{
 			Name: "driver",
-			Spec: corev1.PodSpec{
-				Containers: containersForRequests(
-					map[corev1.ResourceName]string{
-						corev1.ResourceCPU:    "10m",
-						corev1.ResourceMemory: "512Ki",
-					}),
-			},
+			Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+				corev1.ResourceCPU:    "10m",
+				corev1.ResourceMemory: "512Ki",
+			}),
 			Count: 1,
 			AssignedFlavors: map[corev1.ResourceName]string{
 				corev1.ResourceCPU: "on-demand",
@@ -193,12 +193,10 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		},
 		{
 			Name: "workers",
-			Spec: corev1.PodSpec{
-				Containers: containersForRequests(
-					map[corev1.ResourceName]string{
-						corev1.ResourceCPU: "5m",
-					}),
-			},
+			Spec: utiltesting.PodSpecForRequest(
+				map[corev1.ResourceName]string{
+					corev1.ResourceCPU: "5m",
+				}),
 			AssignedFlavors: map[corev1.ResourceName]string{
 				corev1.ResourceCPU: "spot",
 			},
@@ -563,23 +561,165 @@ func TestCacheWorkloadOperations(t *testing.T) {
 	}
 }
 
+func TestCapacityUsage(t *testing.T) {
+	capacity := kueue.Capacity{
+		ObjectMeta: metav1.ObjectMeta{Name: "foo"},
+		Spec: kueue.CapacitySpec{
+			RequestableResources: []kueue.Resource{
+				{
+					Name: corev1.ResourceCPU,
+					Flavors: []kueue.ResourceFlavor{
+						{
+							Name: "default",
+							Quota: kueue.Quota{
+								Guaranteed: resource.MustParse("10"),
+								Ceiling:    resource.MustParse("20"),
+							},
+						},
+					},
+				},
+				{
+					Name: "example.com/gpu",
+					Flavors: []kueue.ResourceFlavor{
+						{
+							Name: "model_a",
+							Quota: kueue.Quota{
+								Guaranteed: resource.MustParse("5"),
+								Ceiling:    resource.MustParse("10"),
+							},
+						},
+						{
+							Name: "model_b",
+							Quota: kueue.Quota{
+								Guaranteed: resource.MustParse("5"),
+								Ceiling:    resource.MustParse("10"),
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	workloads := []kueue.QueuedWorkload{
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "one"},
+			Spec: kueue.QueuedWorkloadSpec{
+				AssignedCapacity: "foo",
+				Pods: []kueue.PodSet{
+					{
+						Count: 1,
+						Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+							corev1.ResourceCPU: "8",
+							"example.com/gpu":  "5",
+						}),
+						AssignedFlavors: map[corev1.ResourceName]string{
+							corev1.ResourceCPU: "default",
+							"example.com/gpu":  "model_a",
+						},
+					},
+				},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "two"},
+			Spec: kueue.QueuedWorkloadSpec{
+				AssignedCapacity: "foo",
+				Pods: []kueue.PodSet{
+					{
+						Count: 1,
+						Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+							corev1.ResourceCPU: "5",
+							"example.com/gpu":  "6",
+						}),
+						AssignedFlavors: map[corev1.ResourceName]string{
+							corev1.ResourceCPU: "default",
+							"example.com/gpu":  "model_b",
+						},
+					},
+				},
+			},
+		},
+	}
+	cases := map[string]struct {
+		workloads         []kueue.QueuedWorkload
+		wantUsedResources map[corev1.ResourceName]map[string]kueue.Usage
+		wantWorkloads     int
+	}{
+		"single no borrowing": {
+			workloads: workloads[:1],
+			wantUsedResources: map[corev1.ResourceName]map[string]kueue.Usage{
+				corev1.ResourceCPU: {
+					"default": kueue.Usage{
+						Total: pointer.Quantity(resource.MustParse("8")),
+					},
+				},
+				"example.com/gpu": {
+					"model_a": kueue.Usage{
+						Total: pointer.Quantity(resource.MustParse("5")),
+					},
+					"model_b": kueue.Usage{
+						Total: pointer.Quantity(resource.MustParse("0")),
+					},
+				},
+			},
+			wantWorkloads: 1,
+		},
+		"multiple borrowing": {
+			workloads: workloads,
+			wantUsedResources: map[corev1.ResourceName]map[string]kueue.Usage{
+				corev1.ResourceCPU: {
+					"default": kueue.Usage{
+						Total:    pointer.Quantity(resource.MustParse("13")),
+						Borrowed: pointer.Quantity(resource.MustParse("3")),
+					},
+				},
+				"example.com/gpu": {
+					"model_a": kueue.Usage{
+						Total: pointer.Quantity(resource.MustParse("5")),
+					},
+					"model_b": kueue.Usage{
+						Total:    pointer.Quantity(resource.MustParse("6")),
+						Borrowed: pointer.Quantity(resource.MustParse("1")),
+					},
+				},
+			},
+			wantWorkloads: 2,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			if err := kueue.AddToScheme(scheme); err != nil {
+				t.Fatalf("Failed adding kueue scheme: %v", err)
+			}
+			cache := NewCache(fake.NewClientBuilder().WithScheme(scheme).Build())
+			ctx := context.Background()
+			err := cache.AddCapacity(ctx, &capacity)
+			if err != nil {
+				t.Fatalf("Adding capacity: %v", err)
+			}
+			for _, w := range tc.workloads {
+				if added := cache.AddOrUpdateWorkload(&w); !added {
+					t.Fatalf("Workload %s was not added", workload.Key(&w))
+				}
+			}
+			resources, workloads, err := cache.Usage(&capacity)
+			if err != nil {
+				t.Fatalf("Couldn't get usage: %v", err)
+			}
+			if diff := cmp.Diff(tc.wantUsedResources, resources); diff != "" {
+				t.Errorf("Unexpected used resources (-want,+got):\n%s", diff)
+			}
+			if workloads != tc.wantWorkloads {
+				t.Errorf("Got %d workloads, want %d", workloads, tc.wantWorkloads)
+			}
+		})
+	}
+}
+
 func messageOrEmpty(err error) string {
 	if err == nil {
 		return ""
 	}
 	return err.Error()
-}
-
-func containersForRequests(requests ...map[corev1.ResourceName]string) []corev1.Container {
-	containers := make([]corev1.Container, len(requests))
-	for i, r := range requests {
-		rl := make(corev1.ResourceList, len(r))
-		for name, val := range r {
-			rl[name] = resource.MustParse(val)
-		}
-		containers[i].Resources = corev1.ResourceRequirements{
-			Requests: rl,
-		}
-	}
-	return containers
 }

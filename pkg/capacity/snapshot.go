@@ -25,8 +25,8 @@ type Snapshot struct {
 }
 
 func (c *Cache) Snapshot() Snapshot {
-	c.Lock()
-	defer c.Unlock()
+	c.RLock()
+	defer c.RUnlock()
 
 	snap := Snapshot{
 		Capacities: make(map[string]*Capacity, len(c.capacities)),
