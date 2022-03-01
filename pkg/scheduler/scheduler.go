@@ -18,7 +18,6 @@ package scheduler
 
 import (
 	"context"
-	"fmt"
 	"sort"
 
 	"github.com/go-logr/logr"
@@ -219,7 +218,7 @@ func (s *Scheduler) assign(ctx context.Context, e *entry) error {
 	go func() {
 		err := s.client.Update(ctx, newWorkload)
 		if err == nil {
-			s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Assigned", fmt.Sprintf("Assigned to capacity %v", e.Capacity))
+			s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Assigned", "Assigned to capacity %v", newWorkload.Spec.AssignedCapacity)
 			log.V(2).Info("Successfully assigned capacity and resource flavors to workload")
 			return
 		}

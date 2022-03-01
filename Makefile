@@ -43,6 +43,7 @@ endif
 
 GO_CMD ?= go
 GO_FMT ?= gofmt
+GO_TEST_FLAGS ?= -race
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.
@@ -103,7 +104,7 @@ vet: ## Run go vet against code.
 
 .PHONY: test
 test: generate fmt vet ## Run tests.
-	$(GO_CMD) test ./pkg/... -coverprofile cover.out
+	$(GO_CMD) test $(GO_TEST_FLAGS) ./pkg/... -coverprofile cover.out
 
 .PHONY: test-integration
 test-integration: manifests generate fmt vet envtest ## Run tests.

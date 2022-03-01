@@ -479,7 +479,7 @@ func TestHeadsAsync(t *testing.T) {
 			t.Errorf("Failed adding queue: %s", err)
 		}
 		go func() {
-			manager.addOrUpdateWorkload(&wl)
+			manager.AddOrUpdateWorkload(&wl)
 		}()
 		heads := manager.Heads(ctx)
 		if diff := cmp.Diff(wantHeads, heads); diff != "" {
