@@ -42,6 +42,14 @@ spec:
             type: object
           status:
             description: QueueStatus defines the observed state of Queue
+            properties:
+              pendingWorkloads:
+                description: PendingWorkloads is the number of workloads currently
+                  assigned to this queue not yet assigned to a Capacity.
+                format: int32
+                type: integer
+            required:
+            - pendingWorkloads
             type: object
         type: object
     served: true
