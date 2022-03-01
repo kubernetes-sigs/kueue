@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
@@ -55,12 +56,14 @@ func TestSnapshot(t *testing.T) {
 								Quota: kueue.Quota{
 									Guaranteed: resource.MustParse("100"),
 								},
+								Labels: map[string]string{"foo": "bar", "instance": "on-demand"},
 							},
 							{
 								Name: "spot",
 								Quota: kueue.Quota{
 									Guaranteed: resource.MustParse("200"),
 								},
+								Labels: map[string]string{"baz": "bar", "instance": "spot"},
 							},
 						},
 					},
@@ -221,10 +224,12 @@ func TestSnapshot(t *testing.T) {
 						{
 							Name:       "demand",
 							Guaranteed: 100_000,
+							Labels:     map[string]string{"foo": "bar", "instance": "on-demand"},
 						},
 						{
 							Name:       "spot",
 							Guaranteed: 200_000,
+							Labels:     map[string]string{"baz": "bar", "instance": "spot"},
 						},
 					},
 				},
@@ -237,6 +242,7 @@ func TestSnapshot(t *testing.T) {
 				Workloads: map[string]*workload.Info{
 					"/alpha": workload.NewInfo(&workloads[0]),
 				},
+				LabelKeys: map[corev1.ResourceName]sets.String{corev1.ResourceCPU: {"baz": {}, "foo": {}, "instance": {}}},
 			},
 			"foobar": {
 				Name:   "foobar",

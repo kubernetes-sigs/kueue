@@ -52,6 +52,7 @@ func MakeJob(name, ns string) *JobWrapper {
 							Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 						},
 					},
+					NodeSelector: map[string]string{},
 				},
 			},
 		},
@@ -81,9 +82,15 @@ func (j *JobWrapper) Queue(queue string) *JobWrapper {
 	return j
 }
 
-// AddToleration adds a toleration to the job.
+// Toleration adds a toleration to the job.
 func (j *JobWrapper) Toleration(t corev1.Toleration) *JobWrapper {
 	j.Spec.Template.Spec.Tolerations = append(j.Spec.Template.Spec.Tolerations, t)
+	return j
+}
+
+// NodeSelector adds a node selector to the job.
+func (j *JobWrapper) NodeSelector(k, v string) *JobWrapper {
+	j.Spec.Template.Spec.NodeSelector[k] = v
 	return j
 }
 

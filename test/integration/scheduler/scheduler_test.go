@@ -210,4 +210,41 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		}, timeout, interval).Should(gomega.BeTrue())
 		gomega.Expect(createdJob.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor))
 	})
+
+	ginkgo.It("Should schedule jobs with affinity to specific flavor", func() {
+		ginkgo.By("creating capacity and queue")
+		capacity := testing.MakeCapacity("affinity-capacity").
+			Resource(testing.MakeResource(corev1.ResourceCPU).
+				Flavor(testing.MakeFlavor(spotFlavor, "5").Label(instanceKey, spotFlavor).Obj()).
+				Flavor(testing.MakeFlavor(onDemandFlavor, "5").Label(instanceKey, onDemandFlavor).Obj()).
+				Obj()).
+			Obj()
+		gomega.Expect(k8sClient.Create(ctx, capacity)).Should(gomega.Succeed())
+		queue := testing.MakeQueue("affinity-queue", namespace).Capacity(capacity.Name).Obj()
+		gomega.Expect(k8sClient.Create(ctx, queue)).Should(gomega.Succeed())
+
+		ginkgo.By("checking a job without affinity starts on the first flavor")
+		job1 := testing.MakeJob("no-affinity-job", namespace).Queue(queue.Name).AddResource(corev1.ResourceCPU, "1").Obj()
+		gomega.Expect(k8sClient.Create(ctx, job1)).Should(gomega.Succeed())
+		createdJob1 := &batchv1.Job{}
+		gomega.Eventually(func() bool {
+			lookupKey := types.NamespacedName{Name: job1.Name, Namespace: job1.Namespace}
+			return k8sClient.Get(ctx, lookupKey, createdJob1) == nil && !*createdJob1.Spec.Suspend
+		}, timeout, interval).Should(gomega.BeTrue())
+		gomega.Expect(createdJob1.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotFlavor))
+
+		ginkgo.By("checking a second job with affinity to on-demand")
+		job2 := testing.MakeJob("affinity-job", namespace).Queue(queue.Name).
+			NodeSelector(instanceKey, onDemandFlavor).
+			NodeSelector("foo", "bar").
+			AddResource(corev1.ResourceCPU, "1").Obj()
+		gomega.Expect(k8sClient.Create(ctx, job2)).Should(gomega.Succeed())
+		createdJob2 := &batchv1.Job{}
+		gomega.Eventually(func() bool {
+			lookupKey := types.NamespacedName{Name: job2.Name, Namespace: job2.Namespace}
+			return k8sClient.Get(ctx, lookupKey, createdJob2) == nil && !*createdJob2.Spec.Suspend
+		}, timeout, interval).Should(gomega.BeTrue())
+		gomega.Expect(len(createdJob2.Spec.Template.Spec.NodeSelector)).Should(gomega.Equal(2))
+		gomega.Expect(createdJob2.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor))
+	})
 })
