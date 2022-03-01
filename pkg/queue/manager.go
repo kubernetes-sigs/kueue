@@ -33,7 +33,7 @@ import (
 const workloadQueueKey = "spec.queueName"
 
 type Manager struct {
-	sync.Mutex
+	sync.RWMutex
 	cond sync.Cond
 
 	client client.Client
@@ -45,7 +45,7 @@ func NewManager(client client.Client) *Manager {
 		client: client,
 		queues: make(map[string]*Queue),
 	}
-	m.cond.L = &m.Mutex
+	m.cond.L = &m.RWMutex
 	return m
 }
 
