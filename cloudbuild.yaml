@@ -1,0 +1,22 @@
+# See https://cloud.google.com/cloud-build/docs/build-config
+timeout: 3000s
+# A build step specifies an action that you want Prow to perform.
+# For each build step, Prow executes a job.
+steps:
+# see https://github.com/kubernetes/test-infra/tree/master/config/jobs/image-pushing
+  - name: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:v20211013-1be7868d8b
+    entrypoint: make
+    args:
+      - image-build
+      - image-push
+    env:
+    - IMAGE_REGISTRY=gcr.io/$PROJECT_ID
+    - _GIT_TAG=$_GIT_TAG
+    - IMAGE_EXTRA_TAG_NAMES=$_PULL_BASE_REF
+substitutions:
+# _GIT_TAG will be filled with a git-based tag for the image, of the form vYYYYMMDD-hash, and
+ # can be used as a substitution
+  _GIT_TAG: '0.0.0'
+  _PULL_BASE_REF: 'master'
+options:
+  substitution_option: ALLOW_LOOSE
