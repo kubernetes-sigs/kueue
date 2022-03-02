@@ -642,12 +642,12 @@ func TestCapacityUsage(t *testing.T) {
 	}
 	cases := map[string]struct {
 		workloads         []kueue.QueuedWorkload
-		wantUsedResources map[corev1.ResourceName]map[string]kueue.Usage
+		wantUsedResources kueue.UsedResources
 		wantWorkloads     int
 	}{
 		"single no borrowing": {
 			workloads: workloads[:1],
-			wantUsedResources: map[corev1.ResourceName]map[string]kueue.Usage{
+			wantUsedResources: kueue.UsedResources{
 				corev1.ResourceCPU: {
 					"default": kueue.Usage{
 						Total: pointer.Quantity(resource.MustParse("8")),
@@ -666,7 +666,7 @@ func TestCapacityUsage(t *testing.T) {
 		},
 		"multiple borrowing": {
 			workloads: workloads,
-			wantUsedResources: map[corev1.ResourceName]map[string]kueue.Usage{
+			wantUsedResources: kueue.UsedResources{
 				corev1.ResourceCPU: {
 					"default": kueue.Usage{
 						Total:    pointer.Quantity(resource.MustParse("13")),
