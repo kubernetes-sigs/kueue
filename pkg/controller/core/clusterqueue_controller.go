@@ -67,6 +67,9 @@ func (r *ClusterQueue) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Re
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(2).Info("Reconciling ClusterQueue")
 
+	// Shallow copy enough for now.
+	oldStatus := cqObj.Status
+
 	usage, workloads, err := r.cache.Usage(&cqObj)
 	if err != nil {
 		log.Error(err, "Failed getting usage from cache")
@@ -74,10 +77,10 @@ func (r *ClusterQueue) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Re
 		// but we didn't process that event yet.
 		return ctrl.Result{}, err
 	}
-	// Shallow copy enough for now.
-	oldStatus := cqObj.Status
+
 	cqObj.Status.UsedResources = usage
 	cqObj.Status.AdmittedWorkloads = int32(workloads)
+	cqObj.Status.PendingWorkloads = r.qManager.Pending(&cqObj)
 	if !equality.Semantic.DeepEqual(oldStatus, cqObj.Status) {
 		err = r.client.Status().Update(ctx, &cqObj)
 		return ctrl.Result{}, client.IgnoreNotFound(err)

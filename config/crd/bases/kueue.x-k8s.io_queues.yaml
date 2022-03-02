@@ -48,8 +48,6 @@ spec:
                   admitted to this queue not yet admitted to a ClusterQueue.
                 format: int32
                 type: integer
-            required:
-            - pendingWorkloads
             type: object
         type: object
     served: true

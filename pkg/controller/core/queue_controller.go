@@ -64,14 +64,16 @@ func (r *QueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(2).Info("Reconciling Queue")
 
-	pendingJobs, err := r.queues.Status(&queueObj)
+	// Shallow copy enough for now.
+	oldStatus := queueObj.Status
+
+	pending, err := r.queues.Status(&queueObj)
 	if err != nil {
 		r.log.Error(err, "Failed to retrieve queue status")
 		return ctrl.Result{}, err
 	}
 
-	oldStatus := queueObj.Status
-	queueObj.Status.PendingWorkloads = int32(pendingJobs)
+	queueObj.Status.PendingWorkloads = pending
 	if !equality.Semantic.DeepEqual(oldStatus, queueObj.Status) {
 		err := r.client.Status().Update(ctx, &queueObj)
 		return ctrl.Result{}, client.IgnoreNotFound(err)

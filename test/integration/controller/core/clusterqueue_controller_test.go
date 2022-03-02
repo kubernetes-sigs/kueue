@@ -45,6 +45,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 	var (
 		ns            *corev1.Namespace
 		clusterQueue  *kueue.ClusterQueue
+		Queue         *kueue.Queue
 		emptyCqStatus kueue.ClusterQueueStatus
 	)
 
@@ -70,6 +71,8 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 				Flavor(testing.MakeFlavor(flavorModelA, "5").Ceiling("10").Obj()).
 				Flavor(testing.MakeFlavor(flavorModelB, "5").Ceiling("10").Obj()).Obj()).Obj()
 		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+		Queue = testing.MakeQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		gomega.Expect(k8sClient.Create(ctx, Queue)).To(gomega.Succeed())
 		emptyCqStatus = kueue.ClusterQueueStatus{
 			AdmittedWorkloads: 0,
 			UsedResources: kueue.UsedResources{
@@ -92,18 +95,21 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 	ginkgo.It("Should update status when workloads are assigned and finish", func() {
 		workloads := []*kueue.QueuedWorkload{
 			testing.MakeQueuedWorkload("one", ns.Name).
-				Request(corev1.ResourceCPU, "2").Request(resourceGPU, "2").Obj(),
+				Request(corev1.ResourceCPU, "2").Request(resourceGPU, "2").Queue(Queue.Name).Obj(),
 			testing.MakeQueuedWorkload("two", ns.Name).
-				Request(corev1.ResourceCPU, "3").Request(resourceGPU, "3").Obj(),
+				Request(corev1.ResourceCPU, "3").Request(resourceGPU, "3").Queue(Queue.Name).Obj(),
 			testing.MakeQueuedWorkload("three", ns.Name).
-				Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
+				Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Queue(Queue.Name).Obj(),
 			testing.MakeQueuedWorkload("four", ns.Name).
-				Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
+				Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Queue(Queue.Name).Obj(),
 			testing.MakeQueuedWorkload("five", ns.Name).
-				Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
+				Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Queue(Queue.Name).Obj(),
 			testing.MakeQueuedWorkload("six", ns.Name).
-				Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
+				Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Queue(Queue.Name).Obj(),
 		}
+
+		//newCqStatus := emptyCqStatus
+		//newCqStatus.PendingWorkloads = 6
 
 		ginkgo.By("Creating workloads")
 		for _, w := range workloads {
@@ -115,7 +121,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			return updatedCq.Status
 		}, framework.Timeout, framework.Interval).Should(testing.Equal(emptyCqStatus))
 
-		ginkgo.By("Assigning workloads")
+		ginkgo.By("Admitting workloads")
 		admissions := []*kueue.Admission{
 			testing.MakeAdmission(clusterQueue.Name).
 				Flavor(corev1.ResourceCPU, flavorOnDemand).Flavor(resourceGPU, flavorModelA).Obj(),
@@ -138,6 +144,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
 			return updatedCQ.Status
 		}, framework.Timeout, framework.Interval).Should(testing.Equal(kueue.ClusterQueueStatus{
+			PendingWorkloads:  1,
 			AdmittedWorkloads: 4,
 			UsedResources: kueue.UsedResources{
 				corev1.ResourceCPU: {

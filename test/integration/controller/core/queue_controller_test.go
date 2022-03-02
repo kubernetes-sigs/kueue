@@ -51,7 +51,7 @@ var _ = ginkgo.Describe("Queue controller", func() {
 			Resource(testing.MakeResource(resourceGPU).
 				Flavor(testing.MakeFlavor(flavorModelA, "5").Ceiling("10").Obj()).
 				Flavor(testing.MakeFlavor(flavorModelB, "5").Ceiling("10").Obj()).Obj()).Obj()
-		Queue = testing.MakeQueue("queue", ns.Name).ClusterQueue("cluster-queue").Obj()
+		Queue = testing.MakeQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 		gomega.Expect(k8sClient.Create(ctx, Queue)).To(gomega.Succeed())
 	})
 
@@ -63,14 +63,11 @@ var _ = ginkgo.Describe("Queue controller", func() {
 	ginkgo.It("Should update status when workloads are created", func() {
 		workloads := []*kueue.QueuedWorkload{
 			testing.MakeQueuedWorkload("one", ns.Name).
-				Queue(Queue.Name).
-				Request(corev1.ResourceCPU, "2").Request(resourceGPU, "1").Obj(),
+				Request(corev1.ResourceCPU, "1").Queue(Queue.Name).Obj(),
 			testing.MakeQueuedWorkload("two", ns.Name).
-				Queue(Queue.Name).
-				Request(corev1.ResourceCPU, "3").Request(resourceGPU, "1").Obj(),
+				Request(corev1.ResourceCPU, "1").Queue(Queue.Name).Obj(),
 			testing.MakeQueuedWorkload("three", ns.Name).
-				Queue(Queue.Name).
-				Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
+				Request(corev1.ResourceCPU, "1").Queue(Queue.Name).Obj(),
 		}
 
 		ginkgo.By("Creating workloads")
@@ -82,6 +79,25 @@ var _ = ginkgo.Describe("Queue controller", func() {
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(Queue), &updatedQueue)).To(gomega.Succeed())
 			return updatedQueue.Status
 		}, framework.Timeout, framework.Interval).Should(testing.Equal(kueue.QueueStatus{PendingWorkloads: 3}))
+
+		ginkgo.By("Admitting workloads")
+		admissions := []*kueue.Admission{
+			testing.MakeAdmission(clusterQueue.Name).
+				Flavor(corev1.ResourceCPU, flavorOnDemand).Obj(),
+			testing.MakeAdmission(clusterQueue.Name).
+				Flavor(corev1.ResourceCPU, flavorOnDemand).Obj(),
+			testing.MakeAdmission(clusterQueue.Name).
+				Flavor(corev1.ResourceCPU, flavorOnDemand).Obj(),
+		}
+		for i, w := range workloads {
+			w.Spec.Admission = admissions[i]
+			gomega.Expect(k8sClient.Update(ctx, w)).To(gomega.Succeed())
+		}
+		gomega.Eventually(func() kueue.QueueStatus {
+			var updatedQueue kueue.Queue
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(Queue), &updatedQueue)).To(gomega.Succeed())
+			return updatedQueue.Status
+		}, framework.Timeout, framework.Interval).Should(testing.Equal(kueue.QueueStatus{PendingWorkloads: 0}))
 
 		ginkgo.By("Finishing workloads")
 		for _, w := range workloads {

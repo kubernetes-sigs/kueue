@@ -33,6 +33,8 @@ import (
 const (
 	workloadQueueKey     = "spec.queueName"
 	queueClusterQueueKey = "spec.clusterQueue"
+	admitted             = "admitted"
+	pending              = "pending"
 )
 
 var (
@@ -183,13 +185,22 @@ func (m *Manager) DeleteQueue(q *kueue.Queue) {
 	delete(m.queues, key)
 }
 
-func (m *Manager) Status(q *kueue.Queue) (int, error) {
+func (m *Manager) Status(q *kueue.Queue) (int32, error) {
 	m.RLock()
 	defer m.RUnlock()
-	if q := m.queues[Key(q)]; q != nil {
-		return len(q.items), nil
+
+	qImpl, ok := m.queues[Key(q)]
+	if !ok {
+		return 0, queueDoesNotExistErr
 	}
-	return 0, queueDoesNotExistErr
+
+	return int32(len(qImpl.items)), nil
+}
+
+func (m *Manager) Pending(cq *kueue.ClusterQueue) int32 {
+	m.RLock()
+	defer m.RUnlock()
+	return int32(len(m.clusterQueues[cq.Name].heapImpl.heap))
 }
 
 // AddOrUpdateWorkload adds or updates workload to the corresponding queue.
@@ -322,11 +333,11 @@ func (m *Manager) Dump() map[string]sets.String {
 	}
 	dump := make(map[string]sets.String, len(m.queues))
 	for key, cq := range m.clusterQueues {
-		if len(cq.heap.items) == 0 {
+		if len(cq.heapImpl.items) == 0 {
 			continue
 		}
-		elements := make(sets.String, len(cq.heap.items))
-		for _, e := range cq.heap.items {
+		elements := make(sets.String, len(cq.heapImpl.items))
+		for _, e := range cq.heapImpl.items {
 			elements.Insert(e.obj.Obj.Name)
 		}
 		dump[key] = elements

@@ -70,12 +70,12 @@ type ClusterQueue struct {
 	// across the queues in this ClusterQueue.
 	QueueingStrategy kueue.QueueingStrategy
 
-	heap heapImpl
+	heapImpl
 }
 
 func newClusterQueue(cq *kueue.ClusterQueue) *ClusterQueue {
 	cqImpl := &ClusterQueue{
-		heap: heapImpl{
+		heapImpl: heapImpl{
 			less:  creationFIFO,
 			items: make(map[string]*heapItem),
 		},
@@ -105,37 +105,37 @@ func (cq *ClusterQueue) DeleteFromQueue(q *Queue) {
 }
 
 func (cq *ClusterQueue) PushIfNotPresent(info *workload.Info) bool {
-	item := cq.heap.items[workload.Key(info.Obj)]
+	item := cq.heapImpl.items[workload.Key(info.Obj)]
 	if item != nil {
 		return false
 	}
-	heap.Push(&cq.heap, *info)
+	heap.Push(&cq.heapImpl, *info)
 	return true
 }
 
 func (cq *ClusterQueue) PushOrUpdate(w *kueue.QueuedWorkload) {
-	item := cq.heap.items[workload.Key(w)]
+	item := cq.heapImpl.items[workload.Key(w)]
 	info := *workload.NewInfo(w)
 	if item == nil {
-		heap.Push(&cq.heap, info)
+		heap.Push(&cq.heapImpl, info)
 		return
 	}
 	item.obj = info
-	heap.Fix(&cq.heap, item.index)
+	heap.Fix(&cq.heapImpl, item.index)
 }
 
 func (cq *ClusterQueue) Delete(w *kueue.QueuedWorkload) {
-	item := cq.heap.items[workload.Key(w)]
+	item := cq.heapImpl.items[workload.Key(w)]
 	if item != nil {
-		heap.Remove(&cq.heap, item.index)
+		heap.Remove(&cq.heapImpl, item.index)
 	}
 }
 
 func (cq *ClusterQueue) Pop() *workload.Info {
-	if cq.heap.Len() == 0 {
+	if cq.heapImpl.Len() == 0 {
 		return nil
 	}
-	w := heap.Pop(&cq.heap).(workload.Info)
+	w := heap.Pop(&cq.heapImpl).(workload.Info)
 	return &w
 }
 

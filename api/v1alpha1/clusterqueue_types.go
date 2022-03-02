@@ -264,9 +264,13 @@ type ClusterQueueStatus struct {
 	// workloads assigned to this clusterQueue.
 	UsedResources UsedResources `json:"usedResources,omitempty"`
 
-	// AdmittedWorkloads is the number of workloads currently assigned to this
+	// AdmittedWorkloads is the number of workloads currently admitted on this
 	// clusterQueue.
 	AdmittedWorkloads int32 `json:"admittedWorkloads,omitempty"`
+
+	// PendingWorkloads is the number of workloads currently assigned to this
+	// clusterQueue but not yet admitted.
+	PendingWorkloads int32 `json:"pendingWorkloads,omitempty"`
 }
 
 type UsedResources map[corev1.ResourceName]map[string]Usage
