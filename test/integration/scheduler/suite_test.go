@@ -76,7 +76,7 @@ func managerAndSchedulerSetup(mgr manager.Manager) {
 	queues := queue.NewManager(mgr.GetClient())
 	cache := capacity.NewCache(mgr.GetClient())
 
-	err = kueuectrl.NewQueueReconciler(queues).SetupWithManager(mgr)
+	err = kueuectrl.NewQueueReconciler(mgr.GetClient(), queues).SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = kueuectrl.NewCapacityReconciler(mgr.GetClient(), cache).SetupWithManager(mgr)

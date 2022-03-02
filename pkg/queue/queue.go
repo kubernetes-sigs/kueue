@@ -83,6 +83,7 @@ func (q *Queue) Delete(w *kueue.QueuedWorkload) {
 		heap.Remove(&q.heap, item.index)
 	}
 }
+
 func (q *Queue) Pop() *workload.Info {
 	if q.heap.Len() == 0 {
 		return nil

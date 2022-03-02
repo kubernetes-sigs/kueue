@@ -32,6 +32,9 @@ type CapacityReference string
 
 // QueueStatus defines the observed state of Queue
 type QueueStatus struct {
+	// PendingWorkloads is the number of workloads currently assigned to this
+	// queue not yet assigned to a Capacity.
+	PendingWorkloads int32 `json:"pendingWorkloads"`
 }
 
 //+kubebuilder:object:root=true

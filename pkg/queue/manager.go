@@ -32,8 +32,10 @@ import (
 
 const workloadQueueKey = "spec.queueName"
 
+var errQueueDoesntExist = errors.New("queue doesn't exist")
+
 type Manager struct {
-	sync.Mutex
+	sync.RWMutex
 	cond sync.Cond
 
 	client client.Client
@@ -45,7 +47,7 @@ func NewManager(client client.Client) *Manager {
 		client: client,
 		queues: make(map[string]*Queue),
 	}
-	m.cond.L = &m.Mutex
+	m.cond.L = &m.RWMutex
 	return m
 }
 
@@ -86,7 +88,7 @@ func (m *Manager) UpdateQueue(q *kueue.Queue) error {
 	defer m.Unlock()
 	qImpl, ok := m.queues[Key(q)]
 	if !ok {
-		return errors.New("queue doesn't exist")
+		return errQueueDoesntExist
 	}
 	qImpl.setProperties(q)
 	return nil
@@ -101,6 +103,15 @@ func (m *Manager) DeleteQueue(q *kueue.Queue) {
 		return
 	}
 	delete(m.queues, key)
+}
+
+func (m *Manager) Status(q *kueue.Queue) (int, error) {
+	m.RLock()
+	defer m.RUnlock()
+	if q := m.queues[Key(q)]; q != nil {
+		return q.heap.Len(), nil
+	}
+	return 0, errQueueDoesntExist
 }
 
 // AddOrUpdateWorkload adds or updates workload to the corresponding queue.
