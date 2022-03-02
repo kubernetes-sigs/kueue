@@ -63,11 +63,14 @@ var _ = ginkgo.Describe("Queue controller", func() {
 	ginkgo.It("Should update status when workloads are created", func() {
 		workloads := []*kueue.QueuedWorkload{
 			testing.MakeQueuedWorkload("one", ns.Name).
-				Request(corev1.ResourceCPU, "1").Queue(Queue.Name).Obj(),
+				Queue(Queue.Name).
+				Request(corev1.ResourceCPU, "2").Obj(),
 			testing.MakeQueuedWorkload("two", ns.Name).
-				Request(corev1.ResourceCPU, "1").Queue(Queue.Name).Obj(),
+				Queue(Queue.Name).
+				Request(corev1.ResourceCPU, "3").Obj(),
 			testing.MakeQueuedWorkload("three", ns.Name).
-				Request(corev1.ResourceCPU, "1").Queue(Queue.Name).Obj(),
+				Queue(Queue.Name).
+				Request(corev1.ResourceCPU, "1").Obj(),
 		}
 
 		ginkgo.By("Creating workloads")

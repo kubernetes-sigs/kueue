@@ -36,9 +36,9 @@ const (
 )
 
 var (
-	queueDoesNotExistErr         = errors.New("queue doesn't exist")
-	clusterQueueDoesNotExistErr  = errors.New("clusterQueue doesn't exist")
-	clusterQueueAlreadyExistsErr = errors.New("clusterQueue already exists")
+	errQueueDoesNotExist         = errors.New("queue doesn't exist")
+	errClusterQueueDoesNotExist  = errors.New("clusterQueue doesn't exist")
+	errClusterQueueAlreadyExists = errors.New("clusterQueue already exists")
 )
 
 type Manager struct {
@@ -65,7 +65,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 	defer m.Unlock()
 
 	if _, ok := m.clusterQueues[cq.Name]; ok {
-		return clusterQueueAlreadyExistsErr
+		return errClusterQueueAlreadyExists
 	}
 	cqImpl := newClusterQueue(cq)
 	m.clusterQueues[cq.Name] = cqImpl
@@ -99,7 +99,7 @@ func (m *Manager) UpdateClusterQueue(cq *kueue.ClusterQueue) error {
 	defer m.Unlock()
 	cqImpl, ok := m.clusterQueues[cq.Name]
 	if !ok {
-		return clusterQueueDoesNotExistErr
+		return errClusterQueueDoesNotExist
 	}
 	// TODO(#8): recreate heap based on a change of queueing policy.
 	cqImpl.update(cq)
@@ -152,7 +152,7 @@ func (m *Manager) UpdateQueue(q *kueue.Queue) error {
 	defer m.Unlock()
 	qImpl, ok := m.queues[Key(q)]
 	if !ok {
-		return queueDoesNotExistErr
+		return errQueueDoesNotExist
 	}
 	if qImpl.ClusterQueue != string(q.Spec.ClusterQueue) {
 		oldCQ := m.clusterQueues[qImpl.ClusterQueue]
@@ -183,22 +183,16 @@ func (m *Manager) DeleteQueue(q *kueue.Queue) {
 	delete(m.queues, key)
 }
 
-func (m *Manager) Status(q *kueue.Queue) (int32, error) {
+func (m *Manager) GetPendingQW(q *kueue.Queue) (int32, error) {
 	m.RLock()
 	defer m.RUnlock()
 
 	qImpl, ok := m.queues[Key(q)]
 	if !ok {
-		return 0, queueDoesNotExistErr
+		return 0, errQueueDoesNotExist
 	}
 
 	return int32(len(qImpl.items)), nil
-}
-
-func (m *Manager) Pending(cq *kueue.ClusterQueue) int32 {
-	m.RLock()
-	defer m.RUnlock()
-	return int32(len(m.clusterQueues[cq.Name].heapImpl.heap))
 }
 
 // AddOrUpdateWorkload adds or updates workload to the corresponding queue.

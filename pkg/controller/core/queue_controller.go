@@ -67,7 +67,11 @@ func (r *QueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	// Shallow copy enough for now.
 	oldStatus := queueObj.Status
 
+<<<<<<< HEAD
 	pending, err := r.queues.Status(&queueObj)
+=======
+	pending, err := r.queues.GetPendingQW(&queueObj)
+>>>>>>> 0e3b2da (Enhance Kueue.Queue.Status test suite)
 	if err != nil {
 		r.log.Error(err, "Failed to retrieve queue status")
 		return ctrl.Result{}, err
