@@ -327,7 +327,7 @@ func (c *Cache) ForgetWorkload(w *kueue.QueuedWorkload) error {
 
 // Usage reports the used resources and number of workloads assigned to the
 // capacity.
-func (c *Cache) Usage(capObj *kueue.Capacity) (map[corev1.ResourceName]map[string]kueue.Usage, int, error) {
+func (c *Cache) Usage(capObj *kueue.Capacity) (kueue.UsedResources, int, error) {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -335,7 +335,7 @@ func (c *Cache) Usage(capObj *kueue.Capacity) (map[corev1.ResourceName]map[strin
 	if capacity == nil {
 		return nil, 0, capNotFoundErr
 	}
-	usage := make(map[corev1.ResourceName]map[string]kueue.Usage, len(capacity.UsedResources))
+	usage := make(kueue.UsedResources, len(capacity.UsedResources))
 	for rName, usedRes := range capacity.UsedResources {
 		rUsage := make(map[string]kueue.Usage)
 		requestable := capacity.RequestableResources[rName]

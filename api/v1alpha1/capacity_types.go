@@ -238,12 +238,14 @@ type Quota struct {
 type CapacityStatus struct {
 	// usedResources are the resources (by flavor) currently in use by the
 	// workloads assigned to this capacity
-	UsedResources map[corev1.ResourceName]map[string]Usage `json:"usedResources,omitempty"`
+	UsedResources UsedResources `json:"usedResources,omitempty"`
 
 	// assignedWorkloads is the number of workloads currently assigned to this
 	// capacity.
 	AssignedWorkloads int32 `json:"assignedWorkloads,omitempty"`
 }
+
+type UsedResources map[corev1.ResourceName]map[string]Usage
 
 type Usage struct {
 	// Total is the total quantity of the resource used, including resources
