@@ -22,10 +22,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// CapacitySpec defines the desired state of Capacity
-type CapacitySpec struct {
+// ClusterQueueSpec defines the desired state of ClusterQueue
+type ClusterQueueSpec struct {
 	// requestableResources represent the total pod requests of workloads dispatched
-	// via this capacity. This doesn’t guarantee the actual availability of
+	// via this clusterQueue. This doesn’t guarantee the actual availability of
 	// resources, although an integration with a resource provisioner like Cluster
 	// Autoscaler is possible to achieve that. Example:
 	//
@@ -42,7 +42,7 @@ type CapacitySpec struct {
 	// +listMapKey=name
 	RequestableResources []Resource `json:"requestableResources,omitempty"`
 
-	// cohort that this Capacity belongs to. QCs that belong to the
+	// cohort that this ClusterQueue belongs to. QCs that belong to the
 	// same cohort can borrow unused resources from each other.
 	//
 	// A QC can be a member of a single borrowing cohort. A workload submitted
@@ -51,24 +51,24 @@ type CapacitySpec struct {
 	//
 	// In the example below, the following applies:
 	// 1. tenantB can run a workload consuming up to 20 k80 GPUs, meaning a resource
-	//    can be allocated from more than one capacity in a cohort.
+	//    can be allocated from more than one clusterQueue in a cohort.
 	// 2. tenantB can not consume any p100 GPUs or spot because its QC has no quota
 	//    defined for them, and so the ceiling is practically 0.
 	// 3. If both tenantA and tenantB are running jobs such that current usage for
 	//    tenantA is lower than its guaranteed quota (e.g., 5 k80 GPUS) while
 	//    tenantB’s usage is higher than its guaranteed quota (e.g., 12 k80 GPUs),
-	//    and both tenants have pending jobs requesting the remaining capacity of
+	//    and both tenants have pending jobs requesting the remaining clusterQueue of
 	//    the cohort (the 3 k80 GPUs), then tenantA jobs will get this remaining
-	//    capacity since tenantA is below its guaranteed limit.
+	//    clusterQueue since tenantA is below its guaranteed limit.
 	// 4. If a tenantA workload doesn’t tolerate spot, then the workload will only
 	//    be eligible to consume on-demand cores (the next in the list of cpu flavors).
 	//
 	//  <UNRESOLVED>
 	// 5. While evaluating a resource flavor’s list, what should take precedence:
 	//    honoring the preferred order in the list or keeping a usage under the
-	//    guaranteed capacity? For example, if tenantA’s current k80 usage is 10 and
+	//    guaranteed clusterQueue? For example, if tenantA’s current k80 usage is 10 and
 	//    tenantB’s usage is 5, should a future tenantA workload that asks for any
-	//    GPU model be assigned borrowed k80 capacity (since it is ordered first in
+	//    GPU model be assigned borrowed k80 clusterQueue (since it is ordered first in
 	//    the list) or p100 since its usage is under tenantA’s guaranteed limit?
 	//    The tradeoff is honoring tenantA’s preferred order vs honoring fair
 	//    sharing of future tenantB’s jobs in a timely manner (or, when we have
@@ -76,7 +76,7 @@ type CapacitySpec struct {
 	//
 	//    We could make that a user choice via a knob on the QC or Cohort if we
 	//    decide to have a dedicated object API for it and start with preferring to
-	//    consume guaranteed capacity first.
+	//    consume guaranteed clusterQueue first.
 	//  </UNRESOLVED>
 	//
 	// metadata:
@@ -127,7 +127,7 @@ type CapacitySpec struct {
 	//     labels:
 	//     - cloud.provider.com/accelerator: nvidia-tesla-k80
 	//
-	// If empty, this Capacity cannot borrow from any other Capacity and vice versa.
+	// If empty, this ClusterQueue cannot borrow from any other ClusterQueue and vice versa.
 	//
 	// The name style is similar to label keys. These are just names to link QCs
 	// together, and they are meaningless otherwise.
@@ -198,8 +198,8 @@ type Resource struct {
 	// Each type can also set taints so that it is opt-out by default.
 	// A workload’s tolerations are evaluated against those taints, and only the
 	// flavors that the workload tolerates are considered. For example, an admin
-	// may choose to taint Spot CPU capacity, and if a workload doesn't tolerate it
-	// will only be eligible to consume on-demand capacity:
+	// may choose to taint Spot CPU clusterQueue, and if a workload doesn't tolerate it
+	// will only be eligible to consume on-demand clusterQueue:
 	//
 	// - name: spot
 	//   quota:
@@ -241,24 +241,24 @@ type Quota struct {
 	// guaranteed amount of resource requests that are available to be used by
 	// running workloads assigned to this quota. This value should not exceed
 	// the Ceiling. The sum of guaranteed values in a cohort defines the maximum
-	// capacity that can be allocated for the cohort.
+	// clusterQueue that can be allocated for the cohort.
 	Guaranteed resource.Quantity `json:"guaranteed,omitempty"`
 
 	// ceiling is the upper limit on the amount of resource requests that
 	// could be used by running workloads assigned to this quota at a point in time.
 	// Resources can be borrowed from unused guaranteed quota of other
-	// Capacities in the same cohort. When not set, it is unlimited.
+	// ClusterQueues in the same cohort. When not set, it is unlimited.
 	Ceiling resource.Quantity `json:"ceiling,omitempty"`
 }
 
-// CapacityStatus defines the observed state of Capacity
-type CapacityStatus struct {
+// ClusterQueueStatus defines the observed state of ClusterQueue
+type ClusterQueueStatus struct {
 	// usedResources are the resources (by flavor) currently in use by the
-	// workloads assigned to this capacity
+	// workloads assigned to this clusterQueue.
 	UsedResources UsedResources `json:"usedResources,omitempty"`
 
 	// assignedWorkloads is the number of workloads currently assigned to this
-	// capacity.
+	// clusterQueue.
 	AssignedWorkloads int32 `json:"assignedWorkloads,omitempty"`
 }
 
@@ -278,24 +278,24 @@ type Usage struct {
 //+kubebuilder:resource:scope=Cluster
 //+kubebuilder:subresource:status
 
-// Capacity is the Schema for the capacities API
-type Capacity struct {
+// ClusterQueue is the Schema for the clusterQueue API.
+type ClusterQueue struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   CapacitySpec   `json:"spec,omitempty"`
-	Status CapacityStatus `json:"status,omitempty"`
+	Spec   ClusterQueueSpec   `json:"spec,omitempty"`
+	Status ClusterQueueStatus `json:"status,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 
-// CapacityList contains a list of Capacity
-type CapacityList struct {
+// ClusterQueueList contains a list of ClusterQueue
+type ClusterQueueList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []Capacity `json:"items"`
+	Items           []ClusterQueue `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&Capacity{}, &CapacityList{})
+	SchemeBuilder.Register(&ClusterQueue{}, &ClusterQueueList{})
 }

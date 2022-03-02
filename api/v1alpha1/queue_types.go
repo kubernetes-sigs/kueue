@@ -22,18 +22,17 @@ import (
 
 // QueueSpec defines the desired state of Queue
 type QueueSpec struct {
-	// capacity is a reference to a Capacity object form which resources
-	// are allocated to this queue.
-	Capacity CapacityReference `json:"capacity,omitempty"`
+	// clusterQueue is a reference to a clusterQueue that backs this queue.
+	ClusterQueue ClusterQueueReference `json:"clusterQueue,omitempty"`
 }
 
-// CapacityReference is the name of the Capacity.
-type CapacityReference string
+// ClusterQueueReference is the name of the ClusterQueue.
+type ClusterQueueReference string
 
 // QueueStatus defines the observed state of Queue
 type QueueStatus struct {
 	// PendingWorkloads is the number of workloads currently assigned to this
-	// queue not yet assigned to a Capacity.
+	// queue not yet assigned to a ClusterQueue.
 	PendingWorkloads int32 `json:"pendingWorkloads"`
 }
 

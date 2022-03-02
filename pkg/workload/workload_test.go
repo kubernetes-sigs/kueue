@@ -101,7 +101,7 @@ func TestPodRequests(t *testing.T) {
 func TestNewInfo(t *testing.T) {
 	qw := &kueue.QueuedWorkload{
 		Spec: kueue.QueuedWorkloadSpec{
-			Pods: []kueue.PodSet{
+			PodSets: []kueue.PodSet{
 				{
 					Name: "driver",
 					Spec: corev1.PodSpec{
@@ -112,9 +112,6 @@ func TestNewInfo(t *testing.T) {
 							}),
 					},
 					Count: 1,
-					AssignedFlavors: map[corev1.ResourceName]string{
-						corev1.ResourceCPU: "on-demand",
-					},
 				},
 				{
 					Name: "workers",
@@ -127,6 +124,16 @@ func TestNewInfo(t *testing.T) {
 							}),
 					},
 					Count: 3,
+				},
+			},
+			Admission: &kueue.Admission{
+				PodSetFlavors: []kueue.PodSetFlavors{
+					{
+						Name: "driver",
+						ResourceFlavors: map[corev1.ResourceName]string{
+							corev1.ResourceCPU: "on-demand",
+						},
+					},
 				},
 			},
 		},

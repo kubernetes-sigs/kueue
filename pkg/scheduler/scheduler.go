@@ -34,24 +34,24 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
-	"sigs.k8s.io/kueue/pkg/capacity"
+	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type Scheduler struct {
-	queues        *queue.Manager
-	capacityCache *capacity.Cache
-	client        client.Client
-	recorder      record.EventRecorder
+	queues   *queue.Manager
+	cache    *cache.Cache
+	client   client.Client
+	recorder record.EventRecorder
 }
 
-func New(queues *queue.Manager, cache *capacity.Cache, cl client.Client, recorder record.EventRecorder) *Scheduler {
+func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder record.EventRecorder) *Scheduler {
 	return &Scheduler{
-		queues:        queues,
-		capacityCache: cache,
-		client:        cl,
-		recorder:      recorder,
+		queues:   queues,
+		cache:    cache,
+		client:   cl,
+		recorder: recorder,
 	}
 }
 
@@ -66,7 +66,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	// 1. Get the heads from the queues, including their desired capacity.
+	// 1. Get the heads from the queues, including their desired clusterQueue.
 	// This operation blocks while the queues are empty.
 	headWorkloads := s.queues.Heads(ctx)
 	// No elements means the program is finishing.
@@ -74,39 +74,38 @@ func (s *Scheduler) schedule(ctx context.Context) {
 		return
 	}
 
-	// 2. Take a snapshot of the capacities and their usage.
-	snapshot := s.capacityCache.Snapshot()
+	// 2. Take a snapshot of the cache.
+	snapshot := s.cache.Snapshot()
 
-	// 3. Calculate requirements for assigning workloads to capacities
-	// (resource flavors, borrowing).
-	entries := calculateRequirementsForAssignments(log, headWorkloads, snapshot)
+	// 3. Calculate requirements for admitting workloads (resource flavors, borrowing).
+	entries := calculateRequirementsForAdmission(log, headWorkloads, snapshot)
 
 	// 4. Sort entries based on borrowing and timestamps.
 	sort.Sort(entryOrdering(entries))
 
-	// 5. Assign to capacities, ensuring that no more than one workload gets
-	// assigned to a capacity or a cohort (if borrowing).
+	// 5. Admit entries, ensuring that no more than one workload gets
+	// admitted by a clusterQueue or a cohort (if borrowing).
 	// This is because there can be other workloads deeper in a queue whose head
-	// got assigned that should be scheduled before the heads of other queues.
+	// got admitted that should be scheduled before the heads of other queues.
 	usedCapacity := sets.NewString()
 	usedCohorts := sets.NewString()
-	assignedWorkloads := sets.NewString()
+	admittedWorkloads := sets.NewString()
 	for _, e := range entries {
-		if usedCapacity.Has(e.Capacity) {
+		if usedCapacity.Has(e.ClusterQueue) {
 			continue
 		}
-		c := snapshot.Capacities[e.Capacity]
+		c := snapshot.ClusterQueues[e.ClusterQueue]
 		if len(e.borrows) > 0 && c.Cohort != nil && usedCohorts.Has(c.Cohort.Name) {
 			continue
 		}
-		usedCapacity.Insert(e.Capacity)
-		log := log.WithValues("queuedWorkload", klog.KObj(e.Obj), "capacity", e.Capacity)
-		if err := s.assign(ctrl.LoggerInto(ctx, log), &e); err != nil {
-			log.Error(err, "Failed assigning workload to capacity")
+		usedCapacity.Insert(e.ClusterQueue)
+		log := log.WithValues("queuedWorkload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue))
+		if err := s.admit(ctrl.LoggerInto(ctx, log), &e); err != nil {
+			log.Error(err, "Failed admitting workload by clusterQueue")
 		} else {
-			assignedWorkloads.Insert(workload.Key(e.Obj))
+			admittedWorkloads.Insert(workload.Key(e.Obj))
 		}
-		// Even if there was a failure, we shouldn't assign other workloads to this
+		// Even if there was a failure, we shouldn't admit other workloads to this
 		// cohort.
 		if c.Cohort != nil {
 			usedCohorts.Insert(c.Cohort.Name)
@@ -115,40 +114,40 @@ func (s *Scheduler) schedule(ctx context.Context) {
 
 	// 6. Requeue the heads that were not scheduled.
 	for _, w := range headWorkloads {
-		if assignedWorkloads.Has(workload.Key(w.Obj)) {
+		if admittedWorkloads.Has(workload.Key(w.Obj)) {
 			continue
 		}
 		if s.queues.RequeueWorkload(ctx, &w) {
-			log.V(2).Info("Workload requeued", "queuedWorkload", klog.KObj(w.Obj), "queue", klog.KRef(w.Obj.Namespace, w.Obj.Spec.QueueName))
+			log.V(2).Info("Workload re-queued", "queuedWorkload", klog.KObj(w.Obj), "queue", klog.KRef(w.Obj.Namespace, w.Obj.Spec.QueueName))
 		}
 	}
 }
 
-// entry holds requirements for a workload to be scheduled in a capacity.
+// entry holds requirements for a workload to be admitted by a clusterQueue.
 type entry struct {
 	// workload.Info holds the workload from the API as well as resource usage
 	// and flavors assigned.
 	workload.Info
 	// borrows is the resources that the workload would need to borrow from the
-	// cohort if it was scheduled in the capacity.
-	borrows capacity.Resources
+	// cohort if it was scheduled in the clusterQueue.
+	borrows cache.Resources
 }
 
-// calculateRequirementsForAssignments returns the workloads with their
-// requirements (resource flavors, borrowing) if they were assigned to the
-// capacities in the snapshot.
-func calculateRequirementsForAssignments(log logr.Logger, workloads []workload.Info, snap capacity.Snapshot) []entry {
+// calculateRequirementsForAdmission returns the workloads with their
+// requirements (resource flavors, borrowing) if they were admitted by the
+// clusterQueues in the snapshot.
+func calculateRequirementsForAdmission(log logr.Logger, workloads []workload.Info, snap cache.Snapshot) []entry {
 	entries := make([]entry, 0, len(workloads))
 	for _, w := range workloads {
-		log := log.WithValues("queuedWorkload", klog.KObj(w.Obj), "capacity", w.Capacity)
-		c := snap.Capacities[w.Capacity]
+		log := log.WithValues("queuedWorkload", klog.KObj(w.Obj), "clusterQueue", klog.KRef("", w.ClusterQueue))
+		c := snap.ClusterQueues[w.ClusterQueue]
 		if c == nil {
-			log.V(3).Info("Capacity not found when calculating workload assignments")
+			log.V(3).Info("ClusterQueue not found when calculating workload admission requirements")
 			continue
 		}
 		e := entry{Info: w}
 		if !e.assignFlavors(log, c) {
-			log.V(2).Info("Workload didn't fit in remaining capacity even when borrowing")
+			log.V(2).Info("Workload didn't fit in remaining clusterQueue even when borrowing")
 			continue
 		}
 		entries = append(entries, e)
@@ -157,18 +156,18 @@ func calculateRequirementsForAssignments(log logr.Logger, workloads []workload.I
 }
 
 // assignFlavors calculates the flavors that should be assigned to this entry
-// if scheduled to this capacity, including details of how much it needs to
+// if admitted by this clusterQueue, including details of how much it needs to
 // borrow from the cohort.
 // It returns whether the entry would fit. If it doesn't fit, the object is
 // unmodified.
-func (e *entry) assignFlavors(log logr.Logger, cap *capacity.Capacity) bool {
+func (e *entry) assignFlavors(log logr.Logger, cap *cache.ClusterQueue) bool {
 	flavoredRequests := make([]workload.PodSetResources, 0, len(e.TotalRequests))
-	wUsed := make(capacity.Resources)
-	wBorrows := make(capacity.Resources)
+	wUsed := make(cache.Resources)
+	wBorrows := make(cache.Resources)
 	for i, podSet := range e.TotalRequests {
 		flavors := make(map[corev1.ResourceName]string, len(podSet.Requests))
 		for resName, reqVal := range podSet.Requests {
-			rFlavor, borrow := findFlavorForResource(log, resName, reqVal, wUsed[resName], cap, &e.Obj.Spec.Pods[i].Spec)
+			rFlavor, borrow := findFlavorForResource(log, resName, reqVal, wUsed[resName], cap, &e.Obj.Spec.PodSets[i].Spec)
 			if rFlavor == "" {
 				return false
 			}
@@ -199,18 +198,24 @@ func (e *entry) assignFlavors(log logr.Logger, cap *capacity.Capacity) bool {
 	return true
 }
 
-// assign sets the assigned capacity and flavors into the workload of
+// admit sets the admitting clusterQueue and flavors into the workload of
 // the entry, and asynchronously updates the object in the apiserver after
 // assuming it in the cache.
-func (s *Scheduler) assign(ctx context.Context, e *entry) error {
+func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 	log := ctrl.LoggerFrom(ctx)
 	newWorkload := e.Obj.DeepCopy()
-	for i := range newWorkload.Spec.Pods {
-		podSet := &newWorkload.Spec.Pods[i]
-		podSet.AssignedFlavors = e.TotalRequests[i].Flavors
+	admission := &kueue.Admission{
+		ClusterQueue:  kueue.ClusterQueueReference(e.ClusterQueue),
+		PodSetFlavors: make([]kueue.PodSetFlavors, len(e.TotalRequests)),
 	}
-	newWorkload.Spec.AssignedCapacity = kueue.CapacityReference(e.Capacity)
-	if err := s.capacityCache.AssumeWorkload(newWorkload); err != nil {
+	for i := range e.TotalRequests {
+		admission.PodSetFlavors[i] = kueue.PodSetFlavors{
+			Name:            e.Obj.Spec.PodSets[i].Name,
+			ResourceFlavors: e.TotalRequests[i].Flavors,
+		}
+	}
+	newWorkload.Spec.Admission = admission
+	if err := s.cache.AssumeWorkload(newWorkload); err != nil {
 		return err
 	}
 	log.V(2).Info("Workload assumed in the cache")
@@ -218,19 +223,19 @@ func (s *Scheduler) assign(ctx context.Context, e *entry) error {
 	go func() {
 		err := s.client.Update(ctx, newWorkload)
 		if err == nil {
-			s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Assigned", "Assigned to capacity %v", newWorkload.Spec.AssignedCapacity)
-			log.V(2).Info("Successfully assigned capacity and resource flavors to workload")
+			s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v", admission.ClusterQueue)
+			log.V(2).Info("Workload successfully admitted and assigned flavors")
 			return
 		}
-		// Ignore errors because the workload or capacity could have been deleted
+		// Ignore errors because the workload or clusterQueue could have been deleted
 		// by an event.
-		_ = s.capacityCache.ForgetWorkload(newWorkload)
+		_ = s.cache.ForgetWorkload(newWorkload)
 		if errors.IsNotFound(err) {
-			log.V(2).Info("Workload not assigned because it was deleted")
+			log.V(2).Info("Workload not admitted because it was deleted")
 			return
 		}
-		log.Error(err, "Assigning capacity and resource flavors to workload")
-		log.V(2).Info("Requeueing")
+		log.Error(err, "Admitting workload and assigning flavors")
+		log.V(2).Info("Re-queueing")
 		s.queues.RequeueWorkload(ctx, &e.Info)
 	}()
 
@@ -245,7 +250,7 @@ func findFlavorForResource(
 	name corev1.ResourceName,
 	val int64,
 	wUsed map[string]int64,
-	cap *capacity.Capacity,
+	cap *cache.ClusterQueue,
 	spec *corev1.PodSpec) (string, int64) {
 	// We will only check against the flavors' labels for the resource.
 	selector := flavorSelector(spec, cap.LabelKeys[name])
@@ -264,7 +269,7 @@ func findFlavorForResource(
 			continue
 		}
 
-		// Consider the usage assigned to previous pod sets.
+		// Check considering the flavor usage by previous pod sets.
 		ok, borrow := fitsFlavorLimits(name, val+wUsed[flavor.Name], cap, &flavor)
 		if ok {
 			return flavor.Name, borrow
@@ -321,7 +326,7 @@ func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.String) nodeaffinity.
 
 // fitsFlavorLimits returns whether a requested resource fits in a specific flavor's quota limits.
 // If it fits, also returns any borrowing required.
-func fitsFlavorLimits(name corev1.ResourceName, val int64, cap *capacity.Capacity, flavor *capacity.FlavorInfo) (bool, int64) {
+func fitsFlavorLimits(name corev1.ResourceName, val int64, cap *cache.ClusterQueue, flavor *cache.FlavorInfo) (bool, int64) {
 	used := cap.UsedResources[name][flavor.Name]
 	if used+val > flavor.Ceiling {
 		// Past borrowing limit.

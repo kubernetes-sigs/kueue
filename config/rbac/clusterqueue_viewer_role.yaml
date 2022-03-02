@@ -1,13 +1,13 @@
-# permissions for end users to view capacities.
+# permissions for end users to view clusterqueues.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: capacity-viewer-role
+  name: clusterqueue-viewer-role
 rules:
 - apiGroups:
   - kueue.x-k8s.io
   resources:
-  - capacities
+  - clusterqueues
   verbs:
   - get
   - list
@@ -15,7 +15,7 @@ rules:
 - apiGroups:
   - kueue.x-k8s.io
   resources:
-  - capacities/status
+  - clusterqueues/status
   verbs:
   - get
   

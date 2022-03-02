@@ -41,11 +41,11 @@ const (
 	flavorModelB   = "model-b"
 )
 
-var _ = ginkgo.Describe("Capacity controller", func() {
+var _ = ginkgo.Describe("ClusterQueue controller", func() {
 	var (
 		ns             *corev1.Namespace
-		capacity       *kueue.Capacity
-		emptyCapStatus kueue.CapacityStatus
+		clusterQueue   *kueue.ClusterQueue
+		emptyCapStatus kueue.ClusterQueueStatus
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -62,15 +62,15 @@ var _ = ginkgo.Describe("Capacity controller", func() {
 	})
 
 	ginkgo.BeforeEach(func() {
-		capacity = testing.MakeCapacity("capacity").
+		clusterQueue = testing.MakeClusterQueue("cluster-queue").
 			Resource(testing.MakeResource(corev1.ResourceCPU).
 				Flavor(testing.MakeFlavor(flavorOnDemand, "5").Ceiling("10").Obj()).
 				Flavor(testing.MakeFlavor(flavorSpot, "5").Ceiling("10").Obj()).Obj()).
 			Resource(testing.MakeResource(resourceGPU).
 				Flavor(testing.MakeFlavor(flavorModelA, "5").Ceiling("10").Obj()).
 				Flavor(testing.MakeFlavor(flavorModelB, "5").Ceiling("10").Obj()).Obj()).Obj()
-		gomega.Expect(k8sClient.Create(ctx, capacity)).To(gomega.Succeed())
-		emptyCapStatus = kueue.CapacityStatus{
+		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+		emptyCapStatus = kueue.ClusterQueueStatus{
 			AssignedWorkloads: 0,
 			UsedResources: kueue.UsedResources{
 				corev1.ResourceCPU: {
@@ -86,52 +86,58 @@ var _ = ginkgo.Describe("Capacity controller", func() {
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(framework.DeleteCapacity(ctx, k8sClient, capacity)).To(gomega.Succeed())
+		gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, clusterQueue)).To(gomega.Succeed())
 	})
 
 	ginkgo.It("Should update status when workloads are assigned and finish", func() {
 		workloads := []*kueue.QueuedWorkload{
 			testing.MakeQueuedWorkload("one", ns.Name).
-				Request(corev1.ResourceCPU, "2").AssignFlavor(corev1.ResourceCPU, flavorOnDemand).
-				Request(resourceGPU, "2").AssignFlavor(resourceGPU, flavorModelA).Obj(),
+				Request(corev1.ResourceCPU, "2").Request(resourceGPU, "2").Obj(),
 			testing.MakeQueuedWorkload("two", ns.Name).
-				Request(corev1.ResourceCPU, "3").AssignFlavor(corev1.ResourceCPU, flavorOnDemand).
-				Request(resourceGPU, "3").AssignFlavor(resourceGPU, flavorModelA).Obj(),
+				Request(corev1.ResourceCPU, "3").Request(resourceGPU, "3").Obj(),
 			testing.MakeQueuedWorkload("three", ns.Name).
-				Request(corev1.ResourceCPU, "1").AssignFlavor(corev1.ResourceCPU, flavorOnDemand).
-				Request(resourceGPU, "1").AssignFlavor(resourceGPU, flavorModelB).Obj(),
+				Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
 			testing.MakeQueuedWorkload("four", ns.Name).
-				Request(corev1.ResourceCPU, "1").AssignFlavor(corev1.ResourceCPU, flavorSpot).
-				Request(resourceGPU, "1").AssignFlavor(resourceGPU, flavorModelB).Obj(),
+				Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
 			testing.MakeQueuedWorkload("five", ns.Name).
-				Request(corev1.ResourceCPU, "1").AssignFlavor(corev1.ResourceCPU, flavorSpot).
-				Request(resourceGPU, "1").AssignFlavor(resourceGPU, flavorModelB).Obj(),
+				Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
 			testing.MakeQueuedWorkload("six", ns.Name).
-				Request(corev1.ResourceCPU, "1").AssignFlavor(corev1.ResourceCPU, flavorSpot).
-				Request(resourceGPU, "1").AssignFlavor(resourceGPU, flavorModelA).Obj(),
+				Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
 		}
 
 		ginkgo.By("Creating workloads")
 		for _, w := range workloads {
 			gomega.Expect(k8sClient.Create(ctx, w)).To(gomega.Succeed())
 		}
-		gomega.Eventually(func() kueue.CapacityStatus {
-			var updatedCap kueue.Capacity
-			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(capacity), &updatedCap)).To(gomega.Succeed())
+		gomega.Eventually(func() kueue.ClusterQueueStatus {
+			var updatedCap kueue.ClusterQueue
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCap)).To(gomega.Succeed())
 			return updatedCap.Status
 		}, framework.Timeout, framework.Interval).Should(testing.Equal(emptyCapStatus))
 
 		ginkgo.By("Assigning workloads")
-		assignments := []string{capacity.Name, capacity.Name, capacity.Name, capacity.Name, "other", ""}
+		admissions := []*kueue.Admission{
+			testing.MakeAdmission(clusterQueue.Name).
+				Flavor(corev1.ResourceCPU, flavorOnDemand).Flavor(resourceGPU, flavorModelA).Obj(),
+			testing.MakeAdmission(clusterQueue.Name).
+				Flavor(corev1.ResourceCPU, flavorOnDemand).Flavor(resourceGPU, flavorModelA).Obj(),
+			testing.MakeAdmission(clusterQueue.Name).
+				Flavor(corev1.ResourceCPU, flavorOnDemand).Flavor(resourceGPU, flavorModelB).Obj(),
+			testing.MakeAdmission(clusterQueue.Name).
+				Flavor(corev1.ResourceCPU, flavorSpot).Flavor(resourceGPU, flavorModelB).Obj(),
+			testing.MakeAdmission("other").
+				Flavor(corev1.ResourceCPU, flavorSpot).Flavor(resourceGPU, flavorModelB).Obj(),
+			nil,
+		}
 		for i, w := range workloads {
-			w.Spec.AssignedCapacity = kueue.CapacityReference(assignments[i])
+			w.Spec.Admission = admissions[i]
 			gomega.Expect(k8sClient.Update(ctx, w)).To(gomega.Succeed())
 		}
-		gomega.Eventually(func() kueue.CapacityStatus {
-			var updatedCap kueue.Capacity
-			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(capacity), &updatedCap)).To(gomega.Succeed())
-			return updatedCap.Status
-		}, framework.Timeout, framework.Interval).Should(testing.Equal(kueue.CapacityStatus{
+		gomega.Eventually(func() kueue.ClusterQueueStatus {
+			var updatedCQ kueue.ClusterQueue
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
+			return updatedCQ.Status
+		}, framework.Timeout, framework.Interval).Should(testing.Equal(kueue.ClusterQueueStatus{
 			AssignedWorkloads: 4,
 			UsedResources: kueue.UsedResources{
 				corev1.ResourceCPU: {
@@ -162,9 +168,9 @@ var _ = ginkgo.Describe("Capacity controller", func() {
 			})
 			gomega.Expect(k8sClient.Status().Update(ctx, w)).To(gomega.Succeed())
 		}
-		gomega.Eventually(func() kueue.CapacityStatus {
-			var updatedCap kueue.Capacity
-			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(capacity), &updatedCap)).To(gomega.Succeed())
+		gomega.Eventually(func() kueue.ClusterQueueStatus {
+			var updatedCap kueue.ClusterQueue
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCap)).To(gomega.Succeed())
 			return updatedCap.Status
 		}, framework.Timeout, framework.Interval).Should(testing.Equal(emptyCapStatus))
 	})

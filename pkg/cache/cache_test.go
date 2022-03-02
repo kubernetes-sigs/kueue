@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package capacity
+package cache
 
 import (
 	"context"
@@ -35,45 +35,45 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-func TestCacheCapacityOperations(t *testing.T) {
+func TestCacheClusterQueueOperations(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := kueue.AddToScheme(scheme); err != nil {
 		t.Fatalf("Failed adding kueue scheme: %v", err)
 	}
-	cache := NewCache(fake.NewClientBuilder().WithScheme(scheme).Build())
+	cache := New(fake.NewClientBuilder().WithScheme(scheme).Build())
 	steps := []struct {
-		name           string
-		operation      func()
-		wantCapacities sets.String
-		wantCohorts    map[string]sets.String
+		name              string
+		operation         func()
+		wantClusterQueues sets.String
+		wantCohorts       map[string]sets.String
 	}{
 		{
 			name: "add",
 			operation: func() {
-				capacities := []kueue.Capacity{
+				clusterQueues := []kueue.ClusterQueue{
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "a"},
-						Spec:       kueue.CapacitySpec{Cohort: "one"},
+						Spec:       kueue.ClusterQueueSpec{Cohort: "one"},
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "b"},
-						Spec:       kueue.CapacitySpec{Cohort: "one"},
+						Spec:       kueue.ClusterQueueSpec{Cohort: "one"},
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "c"},
-						Spec:       kueue.CapacitySpec{Cohort: "two"},
+						Spec:       kueue.ClusterQueueSpec{Cohort: "two"},
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "d"},
 					},
 				}
-				for _, c := range capacities {
-					if err := cache.AddCapacity(context.Background(), &c); err != nil {
-						t.Fatalf("Failed adding capacity: %v", err)
+				for _, c := range clusterQueues {
+					if err := cache.AddClusterQueue(context.Background(), &c); err != nil {
+						t.Fatalf("Failed adding ClusterQueue: %v", err)
 					}
 				}
 			},
-			wantCapacities: sets.NewString("a", "b", "c", "d"),
+			wantClusterQueues: sets.NewString("a", "b", "c", "d"),
 			wantCohorts: map[string]sets.String{
 				"one": sets.NewString("a", "b"),
 				"two": sets.NewString("c"),
@@ -82,23 +82,23 @@ func TestCacheCapacityOperations(t *testing.T) {
 		{
 			name: "update",
 			operation: func() {
-				capacities := []kueue.Capacity{
+				clusterQueues := []kueue.ClusterQueue{
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "a"},
-						Spec:       kueue.CapacitySpec{Cohort: "two"},
+						Spec:       kueue.ClusterQueueSpec{Cohort: "two"},
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "b"},
-						Spec:       kueue.CapacitySpec{Cohort: "one"}, // No change.
+						Spec:       kueue.ClusterQueueSpec{Cohort: "one"}, // No change.
 					},
 				}
-				for _, c := range capacities {
-					if err := cache.UpdateCapacity(&c); err != nil {
-						t.Fatalf("Failed updating capacity: %v", err)
+				for _, c := range clusterQueues {
+					if err := cache.UpdateClusterQueue(&c); err != nil {
+						t.Fatalf("Failed updating ClusterQueue: %v", err)
 					}
 				}
 			},
-			wantCapacities: sets.NewString("a", "b", "c", "d"),
+			wantClusterQueues: sets.NewString("a", "b", "c", "d"),
 			wantCohorts: map[string]sets.String{
 				"one": sets.NewString("b"),
 				"two": sets.NewString("a", "c"),
@@ -107,15 +107,15 @@ func TestCacheCapacityOperations(t *testing.T) {
 		{
 			name: "delete",
 			operation: func() {
-				capacities := []kueue.Capacity{
+				clusterQueues := []kueue.ClusterQueue{
 					{ObjectMeta: metav1.ObjectMeta{Name: "b"}},
 					{ObjectMeta: metav1.ObjectMeta{Name: "d"}},
 				}
-				for _, c := range capacities {
-					cache.DeleteCapacity(&c)
+				for _, c := range clusterQueues {
+					cache.DeleteClusterQueue(&c)
 				}
 			},
-			wantCapacities: sets.NewString("a", "c"),
+			wantClusterQueues: sets.NewString("a", "c"),
 			wantCohorts: map[string]sets.String{
 				"two": sets.NewString("a", "c"),
 			},
@@ -124,20 +124,20 @@ func TestCacheCapacityOperations(t *testing.T) {
 	for _, step := range steps {
 		t.Run(step.name, func(t *testing.T) {
 			step.operation()
-			gotCapacities := sets.NewString()
-			nameForCapacity := make(map[*Capacity]string)
+			gotclusterQueues := sets.NewString()
+			nameForCapacity := make(map[*ClusterQueue]string)
 			gotCohorts := make(map[string]sets.String)
-			for name, capacity := range cache.capacities {
-				gotCapacities.Insert(name)
-				nameForCapacity[capacity] = name
+			for name, cq := range cache.clusterQueues {
+				gotclusterQueues.Insert(name)
+				nameForCapacity[cq] = name
 			}
-			if diff := cmp.Diff(step.wantCapacities, gotCapacities); diff != "" {
-				t.Errorf("Unexpected capacities (-want,+got):\n%s", diff)
+			if diff := cmp.Diff(step.wantClusterQueues, gotclusterQueues); diff != "" {
+				t.Errorf("Unexpected clusterQueues (-want,+got):\n%s", diff)
 			}
 			for name, cohort := range cache.cohorts {
 				gotCohort := sets.NewString()
-				for capacity := range cohort.members {
-					gotCohort.Insert(nameForCapacity[capacity])
+				for clusterQueues := range cohort.members {
+					gotCohort.Insert(nameForCapacity[clusterQueues])
 				}
 				gotCohorts[name] = gotCohort
 			}
@@ -149,10 +149,10 @@ func TestCacheCapacityOperations(t *testing.T) {
 }
 
 func TestCacheWorkloadOperations(t *testing.T) {
-	capacities := []kueue.Capacity{
+	clusterQueues := []kueue.ClusterQueue{
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "one"},
-			Spec: kueue.CapacitySpec{
+			Spec: kueue.ClusterQueueSpec{
 				RequestableResources: []kueue.Resource{
 					{
 						Name: "cpu",
@@ -166,7 +166,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "two"},
-			Spec: kueue.CapacitySpec{
+			Spec: kueue.ClusterQueueSpec{
 				RequestableResources: []kueue.Resource{
 					{
 						Name: "cpu",
@@ -179,7 +179,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 		},
 	}
-	pods := []kueue.PodSet{
+	podSets := []kueue.PodSet{
 		{
 			Name: "driver",
 			Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
@@ -187,9 +187,6 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				corev1.ResourceMemory: "512Ki",
 			}),
 			Count: 1,
-			AssignedFlavors: map[corev1.ResourceName]string{
-				corev1.ResourceCPU: "on-demand",
-			},
 		},
 		{
 			Name: "workers",
@@ -197,10 +194,21 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				map[corev1.ResourceName]string{
 					corev1.ResourceCPU: "5m",
 				}),
-			AssignedFlavors: map[corev1.ResourceName]string{
+			Count: 3,
+		},
+	}
+	podSetFlavors := []kueue.PodSetFlavors{
+		{
+			Name: "driver",
+			ResourceFlavors: map[corev1.ResourceName]string{
+				corev1.ResourceCPU: "on-demand",
+			},
+		},
+		{
+			Name: "workers",
+			ResourceFlavors: map[corev1.ResourceName]string{
 				corev1.ResourceCPU: "spot",
 			},
-			Count: 3,
 		},
 	}
 	scheme := runtime.NewScheme()
@@ -211,24 +219,31 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		&kueue.QueuedWorkload{
 			ObjectMeta: metav1.ObjectMeta{Name: "a"},
 			Spec: kueue.QueuedWorkloadSpec{
-				AssignedCapacity: "one",
-				Pods:             pods,
+				PodSets: podSets,
+				Admission: &kueue.Admission{
+					ClusterQueue:  "one",
+					PodSetFlavors: podSetFlavors,
+				},
 			},
 		},
 		&kueue.QueuedWorkload{
 			ObjectMeta: metav1.ObjectMeta{Name: "c"},
-			Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "one"},
+			Spec: kueue.QueuedWorkloadSpec{
+				Admission: &kueue.Admission{ClusterQueue: "one"},
+			},
 		},
 		&kueue.QueuedWorkload{
 			ObjectMeta: metav1.ObjectMeta{Name: "d"},
-			Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "two"},
+			Spec: kueue.QueuedWorkloadSpec{
+				Admission: &kueue.Admission{ClusterQueue: "two"},
+			},
 		},
 	).Build()
-	cache := NewCache(client)
+	cache := New(client)
 
-	for _, c := range capacities {
-		if err := cache.AddCapacity(context.Background(), &c); err != nil {
-			t.Fatalf("adding capacities: %v", err)
+	for _, c := range clusterQueues {
+		if err := cache.AddClusterQueue(context.Background(), &c); err != nil {
+			t.Fatalf("adding clusterQueues: %v", err)
 		}
 	}
 
@@ -251,13 +266,18 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "a"},
 						Spec: kueue.QueuedWorkloadSpec{
-							AssignedCapacity: "one",
-							Pods:             pods,
+							PodSets: podSets,
+							Admission: &kueue.Admission{
+								ClusterQueue:  "one",
+								PodSetFlavors: podSetFlavors,
+							},
 						},
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "b"},
-						Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "two"},
+						Spec: kueue.QueuedWorkloadSpec{
+							Admission: &kueue.Admission{ClusterQueue: "two"},
+						},
 					},
 				}
 				for i := range workloads {
@@ -279,11 +299,13 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 		},
 		{
-			name: "add error no capacity",
+			name: "add error no clusterQueue",
 			operation: func() error {
 				w := kueue.QueuedWorkload{
 					ObjectMeta: metav1.ObjectMeta{Name: "a"},
-					Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "three"},
+					Spec: kueue.QueuedWorkloadSpec{
+						Admission: &kueue.Admission{ClusterQueue: "three"},
+					},
 				}
 				if !cache.AddOrUpdateWorkload(&w) {
 					return fmt.Errorf("failed to add workload")
@@ -307,7 +329,9 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			operation: func() error {
 				w := kueue.QueuedWorkload{
 					ObjectMeta: metav1.ObjectMeta{Name: "c"},
-					Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "one"},
+					Spec: kueue.QueuedWorkloadSpec{
+						Admission: &kueue.Admission{ClusterQueue: "one"},
+					},
 				}
 				if !cache.AddOrUpdateWorkload(&w) {
 					return fmt.Errorf("failed to add workload")
@@ -330,13 +354,18 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			operation: func() error {
 				old := kueue.QueuedWorkload{
 					ObjectMeta: metav1.ObjectMeta{Name: "a"},
-					Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "one"},
+					Spec: kueue.QueuedWorkloadSpec{
+						Admission: &kueue.Admission{ClusterQueue: "one"},
+					},
 				}
 				latest := kueue.QueuedWorkload{
 					ObjectMeta: metav1.ObjectMeta{Name: "a"},
 					Spec: kueue.QueuedWorkloadSpec{
-						AssignedCapacity: "two",
-						Pods:             pods,
+						PodSets: podSets,
+						Admission: &kueue.Admission{
+							ClusterQueue:  "two",
+							PodSetFlavors: podSetFlavors,
+						},
 					},
 				}
 				return cache.UpdateWorkload(&old, &latest)
@@ -357,11 +386,15 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			operation: func() error {
 				old := kueue.QueuedWorkload{
 					ObjectMeta: metav1.ObjectMeta{Name: "e"},
-					Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "one"},
+					Spec: kueue.QueuedWorkloadSpec{
+						Admission: &kueue.Admission{ClusterQueue: "one"},
+					},
 				}
 				latest := kueue.QueuedWorkload{
 					ObjectMeta: metav1.ObjectMeta{Name: "e"},
-					Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "two"},
+					Spec: kueue.QueuedWorkloadSpec{
+						Admission: &kueue.Admission{ClusterQueue: "two"},
+					},
 				}
 				return cache.UpdateWorkload(&old, &latest)
 			},
@@ -381,7 +414,9 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			operation: func() error {
 				w := kueue.QueuedWorkload{
 					ObjectMeta: metav1.ObjectMeta{Name: "a"},
-					Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "two"},
+					Spec: kueue.QueuedWorkloadSpec{
+						Admission: &kueue.Admission{ClusterQueue: "two"},
+					},
 				}
 				return cache.DeleteWorkload(&w)
 			},
@@ -397,15 +432,17 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 		},
 		{
-			name: "delete error capacity doesn't exist",
+			name: "delete error clusterQueue doesn't exist",
 			operation: func() error {
 				w := kueue.QueuedWorkload{
 					ObjectMeta: metav1.ObjectMeta{Name: "a"},
-					Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "three"},
+					Spec: kueue.QueuedWorkloadSpec{
+						Admission: &kueue.Admission{ClusterQueue: "three"},
+					},
 				}
 				return cache.DeleteWorkload(&w)
 			},
-			wantError: "capacity not found",
+			wantError: "cluster queue not found",
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("c"),
@@ -422,7 +459,9 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			operation: func() error {
 				w := kueue.QueuedWorkload{
 					ObjectMeta: metav1.ObjectMeta{Name: "f"},
-					Spec:       kueue.QueuedWorkloadSpec{AssignedCapacity: "one"},
+					Spec: kueue.QueuedWorkloadSpec{
+						Admission: &kueue.Admission{ClusterQueue: "one"},
+					},
 				}
 				return cache.DeleteWorkload(&w)
 			},
@@ -444,15 +483,21 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "a"},
 						Spec: kueue.QueuedWorkloadSpec{
-							AssignedCapacity: "one",
-							Pods:             pods,
+							PodSets: podSets,
+							Admission: &kueue.Admission{
+								ClusterQueue:  "one",
+								PodSetFlavors: podSetFlavors,
+							},
 						},
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "f"},
 						Spec: kueue.QueuedWorkloadSpec{
-							AssignedCapacity: "two",
-							Pods:             pods,
+							PodSets: podSets,
+							Admission: &kueue.Admission{
+								ClusterQueue:  "two",
+								PodSetFlavors: podSetFlavors,
+							},
 						},
 					},
 				}
@@ -484,8 +529,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				w := kueue.QueuedWorkload{
 					ObjectMeta: metav1.ObjectMeta{Name: "a"},
 					Spec: kueue.QueuedWorkloadSpec{
-						AssignedCapacity: "one",
-						Pods:             pods,
+						PodSets: podSets,
+						Admission: &kueue.Admission{
+							ClusterQueue:  "one",
+							PodSetFlavors: podSetFlavors,
+						},
 					},
 				}
 				return cache.ForgetWorkload(&w)
@@ -505,22 +553,22 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 		},
 		{
-			name: "update assumed workload",
+			name: "add assumed workload",
 			operation: func() error {
-				old := kueue.QueuedWorkload{
+				w := kueue.QueuedWorkload{
 					ObjectMeta: metav1.ObjectMeta{Name: "f"},
 					Spec: kueue.QueuedWorkloadSpec{
-						Pods: pods,
+						PodSets: podSets,
+						Admission: &kueue.Admission{
+							ClusterQueue:  "two",
+							PodSetFlavors: podSetFlavors,
+						},
 					},
 				}
-				latest := kueue.QueuedWorkload{
-					ObjectMeta: metav1.ObjectMeta{Name: "f"},
-					Spec: kueue.QueuedWorkloadSpec{
-						AssignedCapacity: "two",
-						Pods:             pods,
-					},
+				if !cache.AddOrUpdateWorkload(&w) {
+					return fmt.Errorf("failed to add workload that was assumed")
 				}
-				return cache.UpdateWorkload(&old, &latest)
+				return nil
 			},
 			wantResults: map[string]result{
 				"one": {
@@ -541,15 +589,15 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
 			gotWorkloads := make(map[string]result)
-			for name, capacity := range cache.capacities {
+			for name, cq := range cache.clusterQueues {
 				c := sets.NewString()
-				for k := range capacity.Workloads {
-					c.Insert(capacity.Workloads[k].Obj.Name)
+				for k := range cq.Workloads {
+					c.Insert(cq.Workloads[k].Obj.Name)
 				}
-				gotWorkloads[name] = result{Workloads: c, UsedResources: capacity.UsedResources}
+				gotWorkloads[name] = result{Workloads: c, UsedResources: cq.UsedResources}
 			}
 			if diff := cmp.Diff(step.wantResults, gotWorkloads); diff != "" {
-				t.Errorf("Unexpected capacities (-want,+got):\n%s", diff)
+				t.Errorf("Unexpected clusterQueues (-want,+got):\n%s", diff)
 			}
 			if step.wantAssumedWorkloads == nil {
 				step.wantAssumedWorkloads = map[string]string{}
@@ -562,9 +610,9 @@ func TestCacheWorkloadOperations(t *testing.T) {
 }
 
 func TestCapacityUsage(t *testing.T) {
-	capacity := kueue.Capacity{
+	cq := kueue.ClusterQueue{
 		ObjectMeta: metav1.ObjectMeta{Name: "foo"},
-		Spec: kueue.CapacitySpec{
+		Spec: kueue.ClusterQueueSpec{
 			RequestableResources: []kueue.Resource{
 				{
 					Name: corev1.ResourceCPU,
@@ -604,17 +652,25 @@ func TestCapacityUsage(t *testing.T) {
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "one"},
 			Spec: kueue.QueuedWorkloadSpec{
-				AssignedCapacity: "foo",
-				Pods: []kueue.PodSet{
+				PodSets: []kueue.PodSet{
 					{
+						Name:  "main",
 						Count: 1,
 						Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
 							corev1.ResourceCPU: "8",
 							"example.com/gpu":  "5",
 						}),
-						AssignedFlavors: map[corev1.ResourceName]string{
-							corev1.ResourceCPU: "default",
-							"example.com/gpu":  "model_a",
+					},
+				},
+				Admission: &kueue.Admission{
+					ClusterQueue: "foo",
+					PodSetFlavors: []kueue.PodSetFlavors{
+						{
+							Name: "main",
+							ResourceFlavors: map[corev1.ResourceName]string{
+								corev1.ResourceCPU: "default",
+								"example.com/gpu":  "model_a",
+							},
 						},
 					},
 				},
@@ -623,17 +679,25 @@ func TestCapacityUsage(t *testing.T) {
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "two"},
 			Spec: kueue.QueuedWorkloadSpec{
-				AssignedCapacity: "foo",
-				Pods: []kueue.PodSet{
+				PodSets: []kueue.PodSet{
 					{
+						Name:  "main",
 						Count: 1,
 						Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
 							corev1.ResourceCPU: "5",
 							"example.com/gpu":  "6",
 						}),
-						AssignedFlavors: map[corev1.ResourceName]string{
-							corev1.ResourceCPU: "default",
-							"example.com/gpu":  "model_b",
+					},
+				},
+				Admission: &kueue.Admission{
+					ClusterQueue: "foo",
+					PodSetFlavors: []kueue.PodSetFlavors{
+						{
+							Name: "main",
+							ResourceFlavors: map[corev1.ResourceName]string{
+								corev1.ResourceCPU: "default",
+								"example.com/gpu":  "model_b",
+							},
 						},
 					},
 				},
@@ -692,18 +756,18 @@ func TestCapacityUsage(t *testing.T) {
 			if err := kueue.AddToScheme(scheme); err != nil {
 				t.Fatalf("Failed adding kueue scheme: %v", err)
 			}
-			cache := NewCache(fake.NewClientBuilder().WithScheme(scheme).Build())
+			cache := New(fake.NewClientBuilder().WithScheme(scheme).Build())
 			ctx := context.Background()
-			err := cache.AddCapacity(ctx, &capacity)
+			err := cache.AddClusterQueue(ctx, &cq)
 			if err != nil {
-				t.Fatalf("Adding capacity: %v", err)
+				t.Fatalf("Adding ClusterQueue: %v", err)
 			}
 			for _, w := range tc.workloads {
 				if added := cache.AddOrUpdateWorkload(&w); !added {
 					t.Fatalf("Workload %s was not added", workload.Key(&w))
 				}
 			}
-			resources, workloads, err := cache.Usage(&capacity)
+			resources, workloads, err := cache.Usage(&cq)
 			if err != nil {
 				t.Fatalf("Couldn't get usage: %v", err)
 			}

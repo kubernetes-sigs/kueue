@@ -26,14 +26,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
-	"sigs.k8s.io/kueue/pkg/capacity"
+	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/queue"
 )
 
 const (
 	// statuses for logging purposes
 	pending  = "pending"
-	assigned = "assigned"
+	admitted = "admitted"
 	finished = "finished"
 )
 
@@ -41,10 +41,10 @@ const (
 type QueuedWorkloadReconciler struct {
 	log    logr.Logger
 	queues *queue.Manager
-	cache  *capacity.Cache
+	cache  *cache.Cache
 }
 
-func NewQueuedWorkloadReconciler(queues *queue.Manager, cache *capacity.Cache) *QueuedWorkloadReconciler {
+func NewQueuedWorkloadReconciler(queues *queue.Manager, cache *cache.Cache) *QueuedWorkloadReconciler {
 	return &QueuedWorkloadReconciler{
 		log:    ctrl.Log.WithName("queued-workload-reconciler"),
 		queues: queues,
@@ -72,14 +72,14 @@ func (r *QueuedWorkloadReconciler) Create(e event.CreateEvent) bool {
 		return false
 	}
 
-	if wl.Spec.AssignedCapacity == "" {
+	if wl.Spec.Admission == nil {
 		if !r.queues.AddOrUpdateWorkload(wl.DeepCopy()) {
 			log.V(2).Info("Queue for workload didn't exist; ignored for now")
 		}
 		return false
 	}
 	if !r.cache.AddOrUpdateWorkload(wl.DeepCopy()) {
-		log.V(2).Info("Capacity for workload didn't exist; ignored for now")
+		log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 	}
 
 	return false
@@ -96,7 +96,7 @@ func (r *QueuedWorkloadReconciler) Delete(e event.DeleteEvent) bool {
 	// When assigning a capacity to a workload, we assume it in the cache. If
 	// the state is unknown, the workload could have been assumed and we need
 	// to clear it from the cache.
-	if wl.Spec.AssignedCapacity != "" || e.DeleteStateUnknown {
+	if wl.Spec.Admission != nil || e.DeleteStateUnknown {
 		if err := r.cache.DeleteWorkload(wl); err != nil {
 			if !e.DeleteStateUnknown {
 				log.Error(err, "Failed to delete workload from cache")
@@ -105,7 +105,7 @@ func (r *QueuedWorkloadReconciler) Delete(e event.DeleteEvent) bool {
 	}
 	// Even if the state is unknown, the last cached state tells us whether the
 	// workload was in the queues and should be cleared from them.
-	if wl.Spec.AssignedCapacity == "" {
+	if wl.Spec.Admission == nil {
 		r.queues.DeleteWorkload(wl)
 	}
 	return false
@@ -115,7 +115,7 @@ func (r *QueuedWorkloadReconciler) Update(e event.UpdateEvent) bool {
 	wl := e.ObjectNew.(*kueue.QueuedWorkload)
 	oldWl := e.ObjectOld.(*kueue.QueuedWorkload)
 	status := workloadStatus(wl)
-	log := r.log.WithValues("queuedWorkload", klog.KObj(wl), "queue", wl.Spec.QueueName, "capacity", wl.Spec.AssignedCapacity, "status", status)
+	log := r.log.WithValues("queuedWorkload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
 	prevQueue := oldWl.Spec.QueueName
 	if prevQueue != wl.Spec.QueueName {
 		log = log.WithValues("prevQueue", prevQueue)
@@ -124,14 +124,17 @@ func (r *QueuedWorkloadReconciler) Update(e event.UpdateEvent) bool {
 	if prevStatus != status {
 		log = log.WithValues("prevStatus", prevStatus)
 	}
-	if oldWl.Spec.AssignedCapacity != wl.Spec.AssignedCapacity {
-		log = log.WithValues("prevCapacity", oldWl.Spec.AssignedCapacity)
+	if wl.Spec.Admission != nil {
+		log = log.WithValues("clusterQueue", wl.Spec.Admission.ClusterQueue)
+	}
+	if oldWl.Spec.Admission != nil && (wl.Spec.Admission == nil || wl.Spec.Admission.ClusterQueue != oldWl.Spec.Admission.ClusterQueue) {
+		log = log.WithValues("prevCapacity", oldWl.Spec.Admission.ClusterQueue)
 	}
 	log.V(2).Info("QueuedWorkload update event")
 
 	switch {
 	case status == finished:
-		if err := r.cache.DeleteWorkload(oldWl); err != nil && prevStatus == assigned {
+		if err := r.cache.DeleteWorkload(oldWl); err != nil && prevStatus == admitted {
 			log.Error(err, "Failed to delete workload from cache")
 		}
 		r.queues.DeleteWorkload(oldWl)
@@ -141,13 +144,13 @@ func (r *QueuedWorkloadReconciler) Update(e event.UpdateEvent) bool {
 			log.V(2).Info("Queue for updated workload didn't exist; ignoring for now")
 		}
 
-	case prevStatus == pending && status == assigned:
+	case prevStatus == pending && status == admitted:
 		r.queues.DeleteWorkload(oldWl)
 		if !r.cache.AddOrUpdateWorkload(wl.DeepCopy()) {
-			log.V(2).Info("Capacity for workload didn't exist; ignored for now")
+			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 		}
 
-	case prevStatus == assigned && status == pending:
+	case prevStatus == admitted && status == pending:
 		if err := r.cache.DeleteWorkload(oldWl); err != nil {
 			log.Error(err, "Failed to delete workload from cache")
 		}
@@ -183,8 +186,8 @@ func workloadStatus(w *kueue.QueuedWorkload) string {
 	if workloadFinished(w) {
 		return finished
 	}
-	if w.Spec.AssignedCapacity != "" {
-		return assigned
+	if w.Spec.Admission != nil {
+		return admitted
 	}
 	return pending
 }

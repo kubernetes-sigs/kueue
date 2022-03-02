@@ -84,7 +84,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 		ginkgo.By("checking a second non-matching workload is deleted")
 		secondWl, _ := workloadjob.ConstructWorkloadFor(createdJob, scheme.Scheme)
 		secondWl.Name = "second-workload"
-		secondWl.Spec.Pods[0].Count = parallelism + 1
+		secondWl.Spec.PodSets[0].Count = parallelism + 1
 		gomega.Expect(k8sClient.Create(ctx, secondWl)).Should(gomega.Succeed())
 		gomega.Eventually(func() bool {
 			wl := &kueue.QueuedWorkload{}
@@ -105,14 +105,20 @@ var _ = ginkgo.Describe("Job controller", func() {
 		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking the job is unsuspended when workload is assigned")
-		capacity := testing.MakeCapacity("capacity").
+		capacity := testing.MakeClusterQueue("capacity").
 			Resource(testing.MakeResource(corev1.ResourceCPU).
 				Flavor(testing.MakeFlavor(flavorOnDemand, "5").Label(labelKey, flavorOnDemand).Obj()).
 				Flavor(testing.MakeFlavor(flavorSpot, "5").Label(labelKey, flavorSpot).Obj()).
 				Obj()).Obj()
 		gomega.Expect(k8sClient.Create(ctx, capacity)).Should(gomega.Succeed())
-		createdWorkload.Spec.AssignedCapacity = kueue.CapacityReference(capacity.Name)
-		createdWorkload.Spec.Pods[0].AssignedFlavors = map[corev1.ResourceName]string{corev1.ResourceCPU: flavorOnDemand}
+		createdWorkload.Spec.Admission = &kueue.Admission{
+			ClusterQueue: kueue.ClusterQueueReference(capacity.Name),
+			PodSetFlavors: []kueue.PodSetFlavors{{
+				ResourceFlavors: map[corev1.ResourceName]string{
+					corev1.ResourceCPU: flavorOnDemand,
+				},
+			}},
+		}
 		gomega.Expect(k8sClient.Update(ctx, createdWorkload)).Should(gomega.Succeed())
 		gomega.Eventually(func() bool {
 			if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {
@@ -121,7 +127,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 			return !*createdJob.Spec.Suspend
 		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 		gomega.Eventually(func() bool {
-			ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Assigned to capacity %v", capacity.Name))
+			ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Admitted by clusterQueue %v", capacity.Name))
 			return ok
 		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 		gomega.Expect(len(createdJob.Spec.Template.Spec.NodeSelector)).Should(gomega.Equal(1))
@@ -154,13 +160,19 @@ var _ = ginkgo.Describe("Job controller", func() {
 			if err := k8sClient.Get(ctx, lookupKey, createdWorkload); err != nil {
 				return false
 			}
-			return createdWorkload.Spec.Pods[0].Count == newParallelism
+			return createdWorkload.Spec.PodSets[0].Count == newParallelism
 		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
-		gomega.Expect(createdWorkload.Spec.AssignedCapacity).Should(gomega.BeEmpty())
+		gomega.Expect(createdWorkload.Spec.Admission).Should(gomega.BeNil())
 
 		ginkgo.By("checking the job is unsuspended and selectors added when workload is assigned again")
-		createdWorkload.Spec.AssignedCapacity = kueue.CapacityReference(capacity.Name)
-		createdWorkload.Spec.Pods[0].AssignedFlavors = map[corev1.ResourceName]string{corev1.ResourceCPU: flavorSpot}
+		createdWorkload.Spec.Admission = &kueue.Admission{
+			ClusterQueue: kueue.ClusterQueueReference(capacity.Name),
+			PodSetFlavors: []kueue.PodSetFlavors{{
+				ResourceFlavors: map[corev1.ResourceName]string{
+					corev1.ResourceCPU: flavorSpot,
+				},
+			}},
+		}
 		gomega.Expect(k8sClient.Update(ctx, createdWorkload)).Should(gomega.Succeed())
 		gomega.Eventually(func() bool {
 			if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {

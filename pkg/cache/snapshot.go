@@ -14,14 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package capacity
+package cache
 
 import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type Snapshot struct {
-	Capacities map[string]*Capacity
+	ClusterQueues map[string]*ClusterQueue
 }
 
 func (c *Cache) Snapshot() Snapshot {
@@ -29,15 +29,15 @@ func (c *Cache) Snapshot() Snapshot {
 	defer c.RUnlock()
 
 	snap := Snapshot{
-		Capacities: make(map[string]*Capacity, len(c.capacities)),
+		ClusterQueues: make(map[string]*ClusterQueue, len(c.clusterQueues)),
 	}
-	for _, capacity := range c.capacities {
-		snap.Capacities[capacity.Name] = capacity.snapshot()
+	for _, capacity := range c.clusterQueues {
+		snap.ClusterQueues[capacity.Name] = capacity.snapshot()
 	}
 	for _, cohort := range c.cohorts {
 		cohortCopy := newCohort(cohort.Name, len(cohort.members))
 		for capacity := range cohort.members {
-			capCopy := snap.Capacities[capacity.Name]
+			capCopy := snap.ClusterQueues[capacity.Name]
 			capCopy.accumulateResources(cohortCopy)
 			capCopy.Cohort = cohortCopy
 			cohortCopy.members[capCopy] = struct{}{}
@@ -46,10 +46,10 @@ func (c *Cache) Snapshot() Snapshot {
 	return snap
 }
 
-// Snapshot creates a copy of Capacity that includes references to immutable
+// Snapshot creates a copy of ClusterQueue that includes references to immutable
 // objects and deep copies of changing ones. A reference to the cohort is not included.
-func (c *Capacity) snapshot() *Capacity {
-	cc := &Capacity{
+func (c *ClusterQueue) snapshot() *ClusterQueue {
+	cc := &ClusterQueue{
 		Name:                 c.Name,
 		RequestableResources: c.RequestableResources, // Shallow copy is enough.
 		UsedResources:        make(Resources, len(c.UsedResources)),
@@ -70,7 +70,7 @@ func (c *Capacity) snapshot() *Capacity {
 	return cc
 }
 
-func (c *Capacity) accumulateResources(cohort *Cohort) {
+func (c *ClusterQueue) accumulateResources(cohort *Cohort) {
 	if cohort.RequestableResources == nil {
 		cohort.RequestableResources = make(Resources, len(c.RequestableResources))
 	}

@@ -108,8 +108,9 @@ func MakeQueuedWorkload(name, ns string) *QueuedWorkloadWrapper {
 	return &QueuedWorkloadWrapper{kueue.QueuedWorkload{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
 		Spec: kueue.QueuedWorkloadSpec{
-			Pods: []kueue.PodSet{
+			PodSets: []kueue.PodSet{
 				{
+					Name:  "main",
 					Count: 1,
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -121,7 +122,6 @@ func MakeQueuedWorkload(name, ns string) *QueuedWorkloadWrapper {
 							},
 						},
 					},
-					AssignedFlavors: make(map[corev1.ResourceName]string),
 				},
 			},
 		},
@@ -133,12 +133,31 @@ func (w *QueuedWorkloadWrapper) Obj() *kueue.QueuedWorkload {
 }
 
 func (w *QueuedWorkloadWrapper) Request(r corev1.ResourceName, q string) *QueuedWorkloadWrapper {
-	w.Spec.Pods[0].Spec.Containers[0].Resources.Requests[r] = resource.MustParse(q)
+	w.Spec.PodSets[0].Spec.Containers[0].Resources.Requests[r] = resource.MustParse(q)
 	return w
 }
 
-func (w *QueuedWorkloadWrapper) AssignFlavor(r corev1.ResourceName, f string) *QueuedWorkloadWrapper {
-	w.Spec.Pods[0].AssignedFlavors[r] = f
+// AdmissionWrapper wraps an Admission
+type AdmissionWrapper struct{ kueue.Admission }
+
+func MakeAdmission(cq string) *AdmissionWrapper {
+	return &AdmissionWrapper{kueue.Admission{
+		ClusterQueue: kueue.ClusterQueueReference(cq),
+		PodSetFlavors: []kueue.PodSetFlavors{
+			{
+				Name:            "main",
+				ResourceFlavors: make(map[corev1.ResourceName]string),
+			},
+		},
+	}}
+}
+
+func (w *AdmissionWrapper) Obj() *kueue.Admission {
+	return &w.Admission
+}
+
+func (w *AdmissionWrapper) Flavor(r corev1.ResourceName, f string) *AdmissionWrapper {
+	w.PodSetFlavors[0].ResourceFlavors[r] = f
 	return w
 }
 
@@ -162,42 +181,42 @@ func (q *QueueWrapper) Obj() *kueue.Queue {
 
 // Capacity updates the capacity the queue points to.
 func (q *QueueWrapper) Capacity(c string) *QueueWrapper {
-	q.Spec.Capacity = kueue.CapacityReference(c)
+	q.Spec.ClusterQueue = kueue.ClusterQueueReference(c)
 	return q
 }
 
-// CapacityWrapper wraps a Capacity.
-type CapacityWrapper struct{ kueue.Capacity }
+// ClusterQueueWrapper wraps a ClusterQueue.
+type ClusterQueueWrapper struct{ kueue.ClusterQueue }
 
-// MakeCapacity creates a wrapper for a Capacity.
-func MakeCapacity(name string) *CapacityWrapper {
-	return &CapacityWrapper{kueue.Capacity{
+// MakeClusterQueue creates a wrapper for a ClusterQueue.
+func MakeClusterQueue(name string) *ClusterQueueWrapper {
+	return &ClusterQueueWrapper{kueue.ClusterQueue{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 		},
 	}}
 }
 
-// Obj returns the inner Capacity.
-func (c *CapacityWrapper) Obj() *kueue.Capacity {
-	return &c.Capacity
+// Obj returns the inner ClusterQueue.
+func (c *ClusterQueueWrapper) Obj() *kueue.ClusterQueue {
+	return &c.ClusterQueue
 }
 
 // Cohort sets the borrowing cohort.
-func (c *CapacityWrapper) Cohort(cohort string) *CapacityWrapper {
+func (c *ClusterQueueWrapper) Cohort(cohort string) *ClusterQueueWrapper {
 	c.Spec.Cohort = cohort
 	return c
 }
 
-// QueueingStrategy sets the the queueing strategy in this Capacity.
-func (c *CapacityWrapper) QueueingStrategy(strategy kueue.QueueingStrategy) *CapacityWrapper {
-	c.Spec.QueueingStrategy = strategy
+// Resource adds a resource with flavors to the capacity.
+func (c *ClusterQueueWrapper) Resource(r *kueue.Resource) *ClusterQueueWrapper {
+	c.Spec.RequestableResources = append(c.Spec.RequestableResources, *r)
 	return c
 }
 
-// Resource adds a resource with flavors to the capacity.
-func (c *CapacityWrapper) Resource(r *kueue.Resource) *CapacityWrapper {
-	c.Spec.RequestableResources = append(c.Spec.RequestableResources, *r)
+// QueueingStrategy sets the queueing strategy in this ClusterQueue.
+func (c *ClusterQueueWrapper) QueueingStrategy(strategy kueue.QueueingStrategy) *ClusterQueueWrapper {
+	c.Spec.QueueingStrategy = strategy
 	return c
 }
 

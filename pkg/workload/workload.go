@@ -32,7 +32,7 @@ type Info struct {
 	// list of total resources requested by the podsets.
 	TotalRequests []PodSetResources
 	// Populated from queue.
-	Capacity string
+	ClusterQueue string
 }
 
 type PodSetResources struct {
@@ -44,7 +44,7 @@ type PodSetResources struct {
 func NewInfo(w *kueue.QueuedWorkload) *Info {
 	return &Info{
 		Obj:           w,
-		TotalRequests: totalRequests(w.Spec.Pods),
+		TotalRequests: totalRequests(&w.Spec),
 	}
 }
 
@@ -52,20 +52,28 @@ func Key(w *kueue.QueuedWorkload) string {
 	return fmt.Sprintf("%s/%s", w.Namespace, w.Name)
 }
 
-func totalRequests(podSets []kueue.PodSet) []PodSetResources {
-	if len(podSets) == 0 {
+func totalRequests(spec *kueue.QueuedWorkloadSpec) []PodSetResources {
+	if len(spec.PodSets) == 0 {
 		return nil
 	}
-	res := make([]PodSetResources, 0, len(podSets))
-	for _, ps := range podSets {
+	res := make([]PodSetResources, 0, len(spec.PodSets))
+	var podSetFlavors map[string]map[corev1.ResourceName]string
+	if spec.Admission != nil {
+		podSetFlavors = make(map[string]map[corev1.ResourceName]string, len(spec.Admission.PodSetFlavors))
+		for _, ps := range spec.Admission.PodSetFlavors {
+			podSetFlavors[ps.Name] = ps.ResourceFlavors
+		}
+	}
+	for _, ps := range spec.PodSets {
 		setRes := PodSetResources{
 			Name: ps.Name,
 		}
 		setRes.Requests = podRequests(&ps.Spec)
 		setRes.Requests.scale(int64(ps.Count))
-		if ps.AssignedFlavors != nil {
-			setRes.Flavors = map[corev1.ResourceName]string{}
-			for r, t := range ps.AssignedFlavors {
+		flavors := podSetFlavors[ps.Name]
+		if len(flavors) > 0 {
+			setRes.Flavors = make(map[corev1.ResourceName]string, len(flavors))
+			for r, t := range flavors {
 				setRes.Flavors[r] = t
 			}
 		}

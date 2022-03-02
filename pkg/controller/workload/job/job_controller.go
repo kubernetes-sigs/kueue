@@ -90,7 +90,7 @@ func (r *JobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=queuedworkloads,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=queuedworkloads/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=queuedworkloads/finalizers,verbs=update
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=capacities,verbs=get;list;watch
+//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues,verbs=get;list;watch
 
 func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var job batchv1.Job
@@ -147,9 +147,9 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 	// 4. Handle a not finished job
 	if jobSuspended(&job) {
-		// 4.1 start the job if the workload has been assigned, and the job is still suspended
-		if wl.Spec.AssignedCapacity != "" {
-			log.V(2).Info("Job assigned a capacity, unsuspending")
+		// 4.1 start the job if the workload has been admitted, and the job is still suspended
+		if wl.Spec.Admission != nil {
+			log.V(2).Info("Job admitted, unsuspending")
 			err := r.startJob(ctx, wl, &job)
 			if err != nil {
 				log.Error(err, "Unsuspending job")
@@ -168,22 +168,22 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			}
 			return ctrl.Result{}, err
 		}
-		log.V(3).Info("Job is suspended and workload not yet assigned a capacity, nothing to do")
+		log.V(3).Info("Job is suspended and workload not yet admitted a capacity, nothing to do")
 		return ctrl.Result{}, nil
 	}
 
-	if wl.Spec.AssignedCapacity == "" {
-		// 4.3 the job must be suspended if the workload is not yet assigned a capacity.
-		log.V(2).Info("Job running with no assigned capacity, suspending")
-		err := r.stopJob(ctx, wl, &job, "No capacity assigned")
+	if wl.Spec.Admission == nil {
+		// 4.3 the job must be suspended if the workload is not yet admitted.
+		log.V(2).Info("Running job is not admitted by a cluster queue, suspending")
+		err := r.stopJob(ctx, wl, &job, "Not admitted by cluster queue")
 		if err != nil {
-			log.Error(err, "Suspending job with unassigned workload")
+			log.Error(err, "Suspending job with non admitted workload")
 		}
 		return ctrl.Result{}, err
 	}
 
-	// 4.4 workload is assigned and job is running, nothing to do.
-	log.V(3).Info("Job running with an assigned capacity, nothing to do")
+	// 4.4 workload is admitted and job is running, nothing to do.
+	log.V(3).Info("Job running with admitted workload, nothing to do")
 	return ctrl.Result{}, nil
 
 }
@@ -208,9 +208,9 @@ func (r *JobReconciler) stopJob(ctx context.Context, w *kueue.QueuedWorkload,
 	}
 
 	if w != nil && !equality.Semantic.DeepEqual(job.Spec.Template.Spec.NodeSelector,
-		w.Spec.Pods[0].Spec.NodeSelector) {
+		w.Spec.PodSets[0].Spec.NodeSelector) {
 		job.Spec.Template.Spec.NodeSelector = map[string]string{}
-		for k, v := range w.Spec.Pods[0].Spec.NodeSelector {
+		for k, v := range w.Spec.PodSets[0].Spec.NodeSelector {
 			job.Spec.Template.Spec.NodeSelector[k] = v
 		}
 		return r.client.Update(ctx, job)
@@ -223,14 +223,14 @@ func (r *JobReconciler) startJob(ctx context.Context, w *kueue.QueuedWorkload, j
 	log := ctrl.LoggerFrom(ctx)
 
 	// Lookup the capacity to fetch the node affinity labels to apply on the job.
-	capacity := kueue.Capacity{}
-	if err := r.client.Get(ctx, types.NamespacedName{Name: string(w.Spec.AssignedCapacity)}, &capacity); err != nil {
+	capacity := kueue.ClusterQueue{}
+	if err := r.client.Get(ctx, types.NamespacedName{Name: string(w.Spec.Admission.ClusterQueue)}, &capacity); err != nil {
 		log.Error(err, "fetching capacity")
 		return err
 	}
 
-	if len(w.Spec.Pods) != 1 {
-		return fmt.Errorf("one podset must exist, found %d", len(w.Spec.Pods))
+	if len(w.Spec.PodSets) != 1 {
+		return fmt.Errorf("one podset must exist, found %d", len(w.Spec.PodSets))
 	}
 	nodeSelector := getNodeSelectors(&capacity, w)
 	if len(nodeSelector) != 0 {
@@ -252,12 +252,12 @@ func (r *JobReconciler) startJob(ctx context.Context, w *kueue.QueuedWorkload, j
 	}
 
 	r.record.Eventf(job, corev1.EventTypeNormal, "Started",
-		"Assigned to capacity %v", w.Spec.AssignedCapacity)
+		"Admitted by clusterQueue %v", w.Spec.Admission.ClusterQueue)
 	return nil
 }
 
-func getNodeSelectors(cap *kueue.Capacity, w *kueue.QueuedWorkload) map[string]string {
-	if len(w.Spec.Pods[0].AssignedFlavors) == 0 {
+func getNodeSelectors(cap *kueue.ClusterQueue, w *kueue.QueuedWorkload) map[string]string {
+	if len(w.Spec.Admission.PodSetFlavors[0].ResourceFlavors) == 0 {
 		return nil
 	}
 
@@ -272,7 +272,7 @@ func getNodeSelectors(cap *kueue.Capacity, w *kueue.QueuedWorkload) map[string]s
 	}
 
 	nodeSelector := map[string]string{}
-	for res, flvr := range w.Spec.Pods[0].AssignedFlavors {
+	for res, flvr := range w.Spec.Admission.PodSetFlavors[0].ResourceFlavors {
 		if capRes, existRes := flavors[res]; existRes {
 			if capFlvr, existFlvr := capRes[flvr]; existFlvr {
 				for k, v := range capFlvr.Labels {
@@ -377,7 +377,7 @@ func ConstructWorkloadFor(job *batchv1.Job, scheme *runtime.Scheme) (*kueue.Queu
 			Namespace: job.Namespace,
 		},
 		Spec: kueue.QueuedWorkloadSpec{
-			Pods: []kueue.PodSet{
+			PodSets: []kueue.PodSet{
 				{
 					Spec:  *job.Spec.Template.Spec.DeepCopy(),
 					Count: *job.Spec.Parallelism,
@@ -435,21 +435,21 @@ func jobSuspended(j *batchv1.Job) bool {
 }
 
 func jobAndWorkloadEqual(job *batchv1.Job, wl *kueue.QueuedWorkload) bool {
-	if len(wl.Spec.Pods) != 1 {
+	if len(wl.Spec.PodSets) != 1 {
 		return false
 	}
-	if *job.Spec.Parallelism != wl.Spec.Pods[0].Count {
+	if *job.Spec.Parallelism != wl.Spec.PodSets[0].Count {
 		return false
 	}
 
 	// nodeSelector may change, hence we are not checking checking for
 	// equality of the whole job.Spec.Template.Spec.
 	if !equality.Semantic.DeepEqual(job.Spec.Template.Spec.InitContainers,
-		wl.Spec.Pods[0].Spec.InitContainers) {
+		wl.Spec.PodSets[0].Spec.InitContainers) {
 		return false
 	}
 	return equality.Semantic.DeepEqual(job.Spec.Template.Spec.Containers,
-		wl.Spec.Pods[0].Spec.Containers)
+		wl.Spec.PodSets[0].Spec.Containers)
 }
 
 func queueName(job *batchv1.Job) string {

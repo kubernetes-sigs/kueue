@@ -128,7 +128,7 @@ type queuedWorkloadHandler struct{}
 
 func (h *queuedWorkloadHandler) Create(e event.CreateEvent, q workqueue.RateLimitingInterface) {
 	qw := e.Object.(*kueue.QueuedWorkload)
-	if qw.Spec.AssignedCapacity != "" {
+	if qw.Spec.Admission == nil {
 		q.Add(requestForQueueStatus(qw))
 	}
 }
@@ -144,7 +144,7 @@ func (h *queuedWorkloadHandler) Update(e event.UpdateEvent, q workqueue.RateLimi
 
 func (h *queuedWorkloadHandler) Delete(e event.DeleteEvent, q workqueue.RateLimitingInterface) {
 	qw := e.Object.(*kueue.QueuedWorkload)
-	if qw.Spec.AssignedCapacity == "" {
+	if qw.Spec.Admission == nil {
 		q.Add(requestForQueueStatus(qw))
 	}
 }
