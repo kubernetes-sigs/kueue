@@ -94,10 +94,52 @@ func (j *JobWrapper) NodeSelector(k, v string) *JobWrapper {
 	return j
 }
 
-// AddResource adds a resource request to the default container.
-func (j *JobWrapper) AddResource(r corev1.ResourceName, v string) *JobWrapper {
+// Request adds a resource request to the default container.
+func (j *JobWrapper) Request(r corev1.ResourceName, v string) *JobWrapper {
 	j.Spec.Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
 	return j
+}
+
+type QueuedWorkloadWrapper struct{ kueue.QueuedWorkload }
+
+// MakeQueuedWorkload creates a wrapper for a QueuedWorkload with a single
+// pod with a single container.
+func MakeQueuedWorkload(name, ns string) *QueuedWorkloadWrapper {
+	return &QueuedWorkloadWrapper{kueue.QueuedWorkload{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		Spec: kueue.QueuedWorkloadSpec{
+			Pods: []kueue.PodSet{
+				{
+					Count: 1,
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name: "c",
+								Resources: corev1.ResourceRequirements{
+									Requests: make(corev1.ResourceList),
+								},
+							},
+						},
+					},
+					AssignedFlavors: make(map[corev1.ResourceName]string),
+				},
+			},
+		},
+	}}
+}
+
+func (w *QueuedWorkloadWrapper) Obj() *kueue.QueuedWorkload {
+	return &w.QueuedWorkload
+}
+
+func (w *QueuedWorkloadWrapper) Request(r corev1.ResourceName, q string) *QueuedWorkloadWrapper {
+	w.Spec.Pods[0].Spec.Containers[0].Resources.Requests[r] = resource.MustParse(q)
+	return w
+}
+
+func (w *QueuedWorkloadWrapper) AssignFlavor(r corev1.ResourceName, f string) *QueuedWorkloadWrapper {
+	w.Spec.Pods[0].AssignedFlavors[r] = f
+	return w
 }
 
 // QueueWrapper wraps a Queue.
