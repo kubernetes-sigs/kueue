@@ -83,6 +83,11 @@ type Capacity struct {
 	// Those keys define the affinity terms of a workload
 	// that can be matched against the flavors.
 	LabelKeys map[corev1.ResourceName]sets.String
+
+	// TODO(#87) introduce a single heap for per Capacity.
+	// QueueingStrategy indicates the queueing strategy of the workloads
+	// across the queues in this Capacity.
+	QueueingStrategy kueue.QueueingStrategy
 }
 
 // FlavorInfo holds processed flavor type.
@@ -100,6 +105,7 @@ func NewCapacity(cap *kueue.Capacity) *Capacity {
 		RequestableResources: resourcesByName(cap.Spec.RequestableResources),
 		UsedResources:        make(Resources, len(cap.Spec.RequestableResources)),
 		Workloads:            map[string]*workload.Info{},
+		QueueingStrategy:     cap.Spec.QueueingStrategy,
 	}
 
 	labelKeys := map[corev1.ResourceName]sets.String{}

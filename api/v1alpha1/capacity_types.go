@@ -132,7 +132,24 @@ type CapacitySpec struct {
 	// The name style is similar to label keys. These are just names to link QCs
 	// together, and they are meaningless otherwise.
 	Cohort string `json:"cohort,omitempty"`
+
+	// QueueingStrategy indicates the queueing strategy of the workloads
+	// across the queues in this Capacity. This field is immutable.
+	// Current Supported Strategies:
+	//
+	// - StrictFIFO: workloads are sorted strictly by creation time.
+	//
+	// +kubebuilder:default=StrictFIFO
+	// +kubebuilder:validation:Enum=StrictFIFO
+	QueueingStrategy QueueingStrategy `json:"queueingStrategy,omitempty"`
 }
+
+type QueueingStrategy string
+
+const (
+	// StrictFIFO means that workloads are sorted strictly by creation time.
+	StrictFIFO QueueingStrategy = "StrictFIFO"
+)
 
 type Resource struct {
 	// name of the resource. For example, cpu, memory or nvidia.com/gpu.
