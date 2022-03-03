@@ -23,6 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/pointer"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
@@ -78,10 +79,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, devClusterQ)).Should(gomega.Succeed())
 
-		prodQueue = testing.MakeQueue("prod-queue", ns.Name).Capacity(prodClusterQ.Name).Obj()
+		prodQueue = testing.MakeQueue("prod-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
 		gomega.Expect(k8sClient.Create(ctx, prodQueue)).Should(gomega.Succeed())
 
-		devQueue = testing.MakeQueue("dev-queue", ns.Name).Capacity(devClusterQ.Name).Obj()
+		devQueue = testing.MakeQueue("dev-queue", ns.Name).ClusterQueue(devClusterQ.Name).Obj()
 		gomega.Expect(k8sClient.Create(ctx, devQueue)).Should(gomega.Succeed())
 	})
 
@@ -195,6 +196,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Obj()).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, fallbackCapacity)).Should(gomega.Succeed())
+		defer func() {
+			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, fallbackCapacity)).ToNot(gomega.HaveOccurred())
+		}()
 		gomega.Eventually(func() bool {
 			return k8sClient.Get(ctx, lookupKey, createdJob) == nil && !*createdJob.Spec.Suspend
 		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
@@ -225,5 +229,44 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 		gomega.Expect(len(createdJob2.Spec.Template.Spec.NodeSelector)).Should(gomega.Equal(2))
 		gomega.Expect(createdJob2.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor))
+	})
+
+	ginkgo.It("Should schedule jobs from the selected namespaces", func() {
+		clusterQ := testing.MakeClusterQueue("cluster-queue-with-selector").
+			NamespaceSelector(&metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{
+						Key:      "dep",
+						Operator: metav1.LabelSelectorOpIn,
+						Values:   []string{"eng"},
+					},
+				},
+			}).
+			Resource(testing.MakeResource(corev1.ResourceCPU).Flavor(testing.MakeFlavor(onDemandFlavor, "5").Obj()).Obj()).
+			Obj()
+		gomega.Expect(k8sClient.Create(ctx, clusterQ)).Should(gomega.Succeed())
+		defer func() {
+			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, clusterQ)).ToNot(gomega.HaveOccurred())
+		}()
+
+		queue := testing.MakeQueue("queue-for-selector", ns.Name).ClusterQueue(clusterQ.Name).Obj()
+		gomega.Expect(k8sClient.Create(ctx, queue)).Should(gomega.Succeed())
+
+		ginkgo.By("checking a job doesn't start at first")
+		job := testing.MakeJob("job", ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "1").Obj()
+		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+		createdJob := &batchv1.Job{}
+		gomega.Eventually(func() *bool {
+			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: job.Name, Namespace: job.Namespace}, createdJob)).Should(gomega.Succeed())
+			return createdJob.Spec.Suspend
+		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(true)))
+
+		ginkgo.By("checking the job starts after updating namespace labels to match QC selector")
+		ns.Labels = map[string]string{"dep": "eng"}
+		gomega.Expect(k8sClient.Update(ctx, ns)).Should(gomega.Succeed())
+		gomega.Eventually(func() *bool {
+			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: job.Name, Namespace: job.Namespace}, createdJob)).Should(gomega.Succeed())
+			return createdJob.Spec.Suspend
+		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
 	})
 })
