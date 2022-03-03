@@ -18,7 +18,6 @@ package job
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
@@ -34,6 +33,7 @@ import (
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/workload/job"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/test/integration/framework"
 )
 
 const (
@@ -44,16 +44,11 @@ const (
 	labelKey       = "cloud.provider.com/instance"
 	flavorOnDemand = "on-demand"
 	flavorSpot     = "spot"
-
-	timeout            = time.Second * 10
-	consistentDuration = time.Second * 3
-	interval           = time.Millisecond * 250
 )
 
 // +kubebuilder:docs-gen:collapse=Imports
 
 var _ = ginkgo.Describe("Job controller", func() {
-
 	ginkgo.It("Should reconcile workload and job", func() {
 		ginkgo.By("checking the job gets suspended when created unsuspended")
 		job := testing.MakeJob(jobName, jobNamespace).Obj()
@@ -65,14 +60,14 @@ var _ = ginkgo.Describe("Job controller", func() {
 				return false
 			}
 			return createdJob.Spec.Suspend != nil && *createdJob.Spec.Suspend
-		}, timeout, interval).Should(gomega.BeTrue())
+		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking the workload is created without queue assigned")
 		createdWorkload := &kueue.QueuedWorkload{}
 		gomega.Eventually(func() bool {
 			err := k8sClient.Get(ctx, lookupKey, createdWorkload)
 			return err == nil
-		}, timeout, interval).Should(gomega.BeTrue())
+		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 		gomega.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(""))
 
 		ginkgo.By("checking the workload is updated with queue name when the job does")
@@ -84,7 +79,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 				return false
 			}
 			return createdWorkload.Spec.QueueName == jobQueueName
-		}, timeout, interval).Should(gomega.BeTrue())
+		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking a second non-matching workload is deleted")
 		secondWl, _ := workloadjob.ConstructWorkloadFor(createdJob, scheme.Scheme)
@@ -98,16 +93,16 @@ var _ = ginkgo.Describe("Job controller", func() {
 				return true
 			}
 			return false
-		}, timeout, interval).Should(gomega.BeTrue())
+		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 		// check the original wl is still there
 		gomega.Consistently(func() bool {
 			err := k8sClient.Get(ctx, lookupKey, createdWorkload)
 			return err == nil
-		}, consistentDuration, interval).Should(gomega.BeTrue())
+		}, framework.ConsistentDuration, framework.Interval).Should(gomega.BeTrue())
 		gomega.Eventually(func() bool {
 			ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "DeletedQueuedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching QueuedWorkload: %v", workload.Key(secondWl)))
 			return ok
-		}, timeout, interval).Should(gomega.BeTrue())
+		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking the job is unsuspended when workload is assigned")
 		capacity := testing.MakeCapacity("capacity").
@@ -124,11 +119,11 @@ var _ = ginkgo.Describe("Job controller", func() {
 				return false
 			}
 			return !*createdJob.Spec.Suspend
-		}, timeout, interval).Should(gomega.BeTrue())
+		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 		gomega.Eventually(func() bool {
 			ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Assigned to capacity %v", capacity.Name))
 			return ok
-		}, timeout, interval).Should(gomega.BeTrue())
+		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 		gomega.Expect(len(createdJob.Spec.Template.Spec.NodeSelector)).Should(gomega.Equal(1))
 		gomega.Expect(createdJob.Spec.Template.Spec.NodeSelector[labelKey]).Should(gomega.Equal(flavorOnDemand))
 		gomega.Consistently(func() bool {
@@ -136,7 +131,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 				return false
 			}
 			return len(createdWorkload.Status.Conditions) == 0
-		}, consistentDuration, interval).Should(gomega.BeTrue())
+		}, framework.ConsistentDuration, framework.Interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking the job gets suspended when parallelism changes and the added node selectors are removed")
 		newParallelism := int32(parallelism + 1)
@@ -148,11 +143,11 @@ var _ = ginkgo.Describe("Job controller", func() {
 			}
 			return createdJob.Spec.Suspend != nil && *createdJob.Spec.Suspend &&
 				len(createdJob.Spec.Template.Spec.NodeSelector) == 0
-		}, timeout, interval).Should(gomega.BeTrue())
+		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 		gomega.Eventually(func() bool {
 			ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "DeletedQueuedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching QueuedWorkload: %v", jobKey))
 			return ok
-		}, timeout, interval).Should(gomega.BeTrue())
+		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking the workload is updated with new count")
 		gomega.Eventually(func() bool {
@@ -160,7 +155,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 				return false
 			}
 			return createdWorkload.Spec.Pods[0].Count == newParallelism
-		}, timeout, interval).Should(gomega.BeTrue())
+		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 		gomega.Expect(createdWorkload.Spec.AssignedCapacity).Should(gomega.BeEmpty())
 
 		ginkgo.By("checking the job is unsuspended and selectors added when workload is assigned again")
@@ -172,7 +167,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 				return false
 			}
 			return !*createdJob.Spec.Suspend
-		}, timeout, interval).Should(gomega.BeTrue())
+		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 		gomega.Expect(len(createdJob.Spec.Template.Spec.NodeSelector)).Should(gomega.Equal(1))
 		gomega.Expect(createdJob.Spec.Template.Spec.NodeSelector[labelKey]).Should(gomega.Equal(flavorSpot))
 		gomega.Consistently(func() bool {
@@ -180,7 +175,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 				return false
 			}
 			return len(createdWorkload.Status.Conditions) == 0
-		}, consistentDuration, interval).Should(gomega.BeTrue())
+		}, framework.ConsistentDuration, framework.Interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking the workload is finished when job is completed")
 		createdJob.Status.Conditions = append(createdJob.Status.Conditions,
@@ -199,6 +194,6 @@ var _ = ginkgo.Describe("Job controller", func() {
 
 			return createdWorkload.Status.Conditions[0].Type == kueue.QueuedWorkloadFinished &&
 				createdWorkload.Status.Conditions[0].Status == corev1.ConditionTrue
-		}, timeout, interval).Should(gomega.BeTrue())
+		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 	})
 })

@@ -17,12 +17,9 @@ limitations under the License.
 package core
 
 import (
-	"time"
-
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -30,6 +27,7 @@ import (
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/test/integration/framework"
 )
 
 // +kubebuilder:docs-gen:collapse=Imports
@@ -41,9 +39,6 @@ const (
 	flavorSpot     = "spot"
 	flavorModelA   = "model-a"
 	flavorModelB   = "model-b"
-
-	timeout  = time.Second * 5
-	interval = time.Millisecond * 250
 )
 
 var _ = ginkgo.Describe("Capacity controller", func() {
@@ -63,12 +58,7 @@ var _ = ginkgo.Describe("Capacity controller", func() {
 	})
 
 	ginkgo.AfterEach(func() {
-		if ns != nil {
-			err := k8sClient.Delete(ctx, ns)
-			if !errors.IsNotFound(err) {
-				gomega.Expect(err).ToNot(gomega.HaveOccurred())
-			}
-		}
+		gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -96,12 +86,7 @@ var _ = ginkgo.Describe("Capacity controller", func() {
 	})
 
 	ginkgo.AfterEach(func() {
-		if capacity != nil {
-			err := k8sClient.Delete(ctx, capacity)
-			if !errors.IsNotFound(err) {
-				gomega.Expect(err).ToNot(gomega.HaveOccurred())
-			}
-		}
+		gomega.Expect(framework.DeleteCapacity(ctx, k8sClient, capacity)).To(gomega.Succeed())
 	})
 
 	ginkgo.It("Should update status when workloads are assigned and finish", func() {
@@ -134,7 +119,7 @@ var _ = ginkgo.Describe("Capacity controller", func() {
 			var updatedCap kueue.Capacity
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(capacity), &updatedCap)).To(gomega.Succeed())
 			return updatedCap.Status
-		}, timeout, interval).Should(testing.Equal(emptyCapStatus))
+		}, framework.Timeout, framework.Interval).Should(testing.Equal(emptyCapStatus))
 
 		ginkgo.By("Assigning workloads")
 		assignments := []string{capacity.Name, capacity.Name, capacity.Name, capacity.Name, "other", ""}
@@ -146,7 +131,7 @@ var _ = ginkgo.Describe("Capacity controller", func() {
 			var updatedCap kueue.Capacity
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(capacity), &updatedCap)).To(gomega.Succeed())
 			return updatedCap.Status
-		}, timeout, interval).Should(testing.Equal(kueue.CapacityStatus{
+		}, framework.Timeout, framework.Interval).Should(testing.Equal(kueue.CapacityStatus{
 			AssignedWorkloads: 4,
 			UsedResources: kueue.UsedResources{
 				corev1.ResourceCPU: {
@@ -181,6 +166,6 @@ var _ = ginkgo.Describe("Capacity controller", func() {
 			var updatedCap kueue.Capacity
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(capacity), &updatedCap)).To(gomega.Succeed())
 			return updatedCap.Status
-		}, timeout, interval).Should(testing.Equal(emptyCapStatus))
+		}, framework.Timeout, framework.Interval).Should(testing.Equal(emptyCapStatus))
 	})
 })

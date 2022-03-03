@@ -21,6 +21,9 @@ import (
 
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -29,7 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	kueuev1alpha1 "sigs.k8s.io/kueue/api/v1alpha1"
+	kueue "sigs.k8s.io/kueue/api/v1alpha1"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -48,7 +51,7 @@ func BeforeSuite(ctx context.Context, crdPath string, mgrSetup ManagerSetup) (*r
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 	gomega.ExpectWithOffset(1, cfg).NotTo(gomega.BeNil())
 
-	err = kueuev1alpha1.AddToScheme(scheme.Scheme)
+	err = kueue.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	//+kubebuilder:scaffold:scheme
@@ -78,4 +81,33 @@ func AfterSuite(testEnv *envtest.Environment) {
 	ginkgo.By("tearing down the test environment")
 	err := testEnv.Stop()
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+}
+
+func DeleteCapacity(ctx context.Context, c client.Client, cap *kueue.Capacity) error {
+	if cap != nil {
+		if err := c.Delete(ctx, cap); err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+	}
+	return nil
+}
+
+// DeleteNamespace deletes all objects the tests typically create in the namespace.
+func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	if ns == nil {
+		return nil
+	}
+	if err := c.DeleteAllOf(ctx, &batchv1.Job{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	if err := c.DeleteAllOf(ctx, &kueue.Queue{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	if err := c.DeleteAllOf(ctx, &kueue.QueuedWorkload{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	if err := c.Delete(ctx, ns); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	return nil
 }
