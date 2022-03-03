@@ -82,6 +82,15 @@ spec:
                   vice versa. \n The name style is similar to label keys. These are
                   just names to link QCs together, and they are meaningless otherwise."
                 type: string
+              queueingStrategy:
+                default: StrictFIFO
+                description: "QueueingStrategy indicates the queueing strategy of
+                  the workloads across the queues in this Capacity. This field is
+                  immutable. Current Supported Strategies: \n - StrictFIFO: workloads
+                  are sorted strictly by creation time."
+                enum:
+                - StrictFIFO
+                type: string
               requestableResources:
                 description: "requestableResources represent the total pod requests
                   of workloads dispatched via this capacity. This doesn’t guarantee

@@ -189,7 +189,13 @@ func (c *CapacityWrapper) Cohort(cohort string) *CapacityWrapper {
 	return c
 }
 
-// AppendResource adds a resource with flavors to the capacity.
+// QueueingStrategy sets the the queueing strategy in this Capacity.
+func (c *CapacityWrapper) QueueingStrategy(strategy kueue.QueueingStrategy) *CapacityWrapper {
+	c.Spec.QueueingStrategy = strategy
+	return c
+}
+
+// Resource adds a resource with flavors to the capacity.
 func (c *CapacityWrapper) Resource(r *kueue.Resource) *CapacityWrapper {
 	c.Spec.RequestableResources = append(c.Spec.RequestableResources, *r)
 	return c
