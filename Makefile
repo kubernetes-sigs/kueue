@@ -35,6 +35,7 @@ ENVTEST_K8S_VERSION = 1.23
 # If this change will be impactful to you please leave a comment on https://github.com/onsi/ginkgo/issues/711
 # Learn more at: https://github.com/onsi/ginkgo/blob/ver2/docs/MIGRATING_TO_V2.md#removed-custom-reporters
 # To silence deprecations that can be silenced set the following environment variable:
+# TODO(#94): Upgrade ginko to V2
 ACK_GINKGO_DEPRECATIONS=1.16.5
 INTEGRATION_TARGET ?= ./test/integration/...
 
