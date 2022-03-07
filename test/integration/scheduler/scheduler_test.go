@@ -40,8 +40,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 	var (
 		ns           *corev1.Namespace
-		prodCapacity *kueue.Capacity
-		devCapacity  *kueue.Capacity
+		prodClusterQ *kueue.ClusterQueue
+		devClusterQ  *kueue.ClusterQueue
 		prodQueue    *kueue.Queue
 		devQueue     *kueue.Queue
 	)
@@ -53,7 +53,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			},
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-		prodCapacity = testing.MakeCapacity("prod-capacity").
+		prodClusterQ = testing.MakeClusterQueue("prod-cq").
 			Cohort("prod").
 			Resource(testing.MakeResource(corev1.ResourceCPU).
 				Flavor(testing.MakeFlavor(spotFlavor, "5").
@@ -68,27 +68,27 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					Label(instanceKey, onDemandFlavor).Obj()).
 				Obj()).
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, prodCapacity)).Should(gomega.Succeed())
+		gomega.Expect(k8sClient.Create(ctx, prodClusterQ)).Should(gomega.Succeed())
 
-		devCapacity = testing.MakeCapacity("dev-capacity").
+		devClusterQ = testing.MakeClusterQueue("dev-capacity").
 			Resource(testing.MakeResource(corev1.ResourceCPU).
 				Flavor(testing.MakeFlavor(spotFlavor, "5").Label(instanceKey, spotFlavor).Obj()).
 				Flavor(testing.MakeFlavor(onDemandFlavor, "5").Label(instanceKey, onDemandFlavor).Obj()).
 				Obj()).
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, devCapacity)).Should(gomega.Succeed())
+		gomega.Expect(k8sClient.Create(ctx, devClusterQ)).Should(gomega.Succeed())
 
-		prodQueue = testing.MakeQueue("prod-queue", ns.Name).Capacity(prodCapacity.Name).Obj()
+		prodQueue = testing.MakeQueue("prod-queue", ns.Name).Capacity(prodClusterQ.Name).Obj()
 		gomega.Expect(k8sClient.Create(ctx, prodQueue)).Should(gomega.Succeed())
 
-		devQueue = testing.MakeQueue("dev-queue", ns.Name).Capacity(devCapacity.Name).Obj()
+		devQueue = testing.MakeQueue("dev-queue", ns.Name).Capacity(devClusterQ.Name).Obj()
 		gomega.Expect(k8sClient.Create(ctx, devQueue)).Should(gomega.Succeed())
 	})
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).ToNot(gomega.HaveOccurred())
-		gomega.Expect(framework.DeleteCapacity(ctx, k8sClient, prodCapacity)).ToNot(gomega.HaveOccurred())
-		gomega.Expect(framework.DeleteCapacity(ctx, k8sClient, devCapacity)).ToNot(gomega.HaveOccurred())
+		gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, prodClusterQ)).ToNot(gomega.HaveOccurred())
+		gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, devClusterQ)).ToNot(gomega.HaveOccurred())
 		ns = nil
 	})
 
@@ -188,8 +188,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		}, framework.ConsistentDuration, framework.Interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking the job starts when a fallback capacity gets added")
-		fallbackCapacity := testing.MakeCapacity("fallback-capacity").
-			Cohort(prodCapacity.Spec.Cohort).
+		fallbackCapacity := testing.MakeClusterQueue("fallback-cq").
+			Cohort(prodClusterQ.Spec.Cohort).
 			Resource(testing.MakeResource(corev1.ResourceCPU).
 				Flavor(testing.MakeFlavor(onDemandFlavor, "5").Ceiling("10").Label(instanceKey, onDemandFlavor).Obj()).
 				Obj()).

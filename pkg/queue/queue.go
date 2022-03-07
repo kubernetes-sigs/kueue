@@ -38,7 +38,7 @@ func keyForWorkload(w *kueue.QueuedWorkload) string {
 
 // Queue is the internal implementation of kueue.Queue.
 type Queue struct {
-	Capacity          string
+	ClusterQueue      string
 	NamespaceSelector labels.Selector
 
 	heap heapImpl
@@ -54,7 +54,7 @@ func newQueue() *Queue {
 }
 
 func (q *Queue) setProperties(apiQueue *kueue.Queue) {
-	q.Capacity = string(apiQueue.Spec.Capacity)
+	q.ClusterQueue = string(apiQueue.Spec.ClusterQueue)
 }
 
 func (q *Queue) PushIfNotPresent(info *workload.Info) bool {

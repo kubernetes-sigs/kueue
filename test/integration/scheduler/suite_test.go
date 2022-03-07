@@ -30,7 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 
-	"sigs.k8s.io/kueue/pkg/capacity"
+	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	kueuectrl "sigs.k8s.io/kueue/pkg/controller/core"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/workload/job"
@@ -70,16 +70,16 @@ func managerAndSchedulerSetup(mgr manager.Manager) {
 	err := queue.SetupIndexes(mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = capacity.SetupIndexes(mgr.GetFieldIndexer())
+	err = cache.SetupIndexes(mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	queues := queue.NewManager(mgr.GetClient())
-	cache := capacity.NewCache(mgr.GetClient())
+	cache := cache.New(mgr.GetClient())
 
 	err = kueuectrl.NewQueueReconciler(mgr.GetClient(), queues).SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = kueuectrl.NewCapacityReconciler(mgr.GetClient(), cache).SetupWithManager(mgr)
+	err = kueuectrl.NewClusterQueueReconciler(mgr.GetClient(), cache).SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = kueuectrl.NewQueuedWorkloadReconciler(queues, cache).SetupWithManager(mgr)

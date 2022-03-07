@@ -24,7 +24,6 @@ import (
 
 	logrtesting "github.com/go-logr/logr/testing"
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,7 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
-	"sigs.k8s.io/kueue/pkg/capacity"
+	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -47,18 +46,11 @@ const (
 	queueingTimeout = time.Second
 )
 
-var (
-	filterAssignFields = cmp.Options{
-		cmpopts.IgnoreFields(kueue.QueuedWorkloadSpec{}, "QueueName"),
-		cmpopts.IgnoreFields(kueue.PodSet{}, "Count", "Spec"),
-	}
-)
-
 func TestSchedule(t *testing.T) {
-	capacities := []kueue.Capacity{
+	clusterQueues := []kueue.ClusterQueue{
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "sales"},
-			Spec: kueue.CapacitySpec{
+			Spec: kueue.ClusterQueueSpec{
 				RequestableResources: []kueue.Resource{
 					{
 						Name: corev1.ResourceCPU,
@@ -77,7 +69,7 @@ func TestSchedule(t *testing.T) {
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "eng-alpha"},
-			Spec: kueue.CapacitySpec{
+			Spec: kueue.ClusterQueueSpec{
 				Cohort: "eng",
 				RequestableResources: []kueue.Resource{
 					{
@@ -104,7 +96,7 @@ func TestSchedule(t *testing.T) {
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "eng-beta"},
-			Spec: kueue.CapacitySpec{
+			Spec: kueue.ClusterQueueSpec{
 				Cohort: "eng",
 				RequestableResources: []kueue.Resource{
 					{
@@ -149,7 +141,7 @@ func TestSchedule(t *testing.T) {
 				Name:      "main",
 			},
 			Spec: kueue.QueueSpec{
-				Capacity: "sales",
+				ClusterQueue: "sales",
 			},
 		},
 		{
@@ -158,7 +150,7 @@ func TestSchedule(t *testing.T) {
 				Name:      "main",
 			},
 			Spec: kueue.QueueSpec{
-				Capacity: "eng-alpha",
+				ClusterQueue: "eng-alpha",
 			},
 		},
 		{
@@ -167,20 +159,20 @@ func TestSchedule(t *testing.T) {
 				Name:      "main",
 			},
 			Spec: kueue.QueueSpec{
-				Capacity: "eng-beta",
+				ClusterQueue: "eng-beta",
 			},
 		},
 	}
 	cases := map[string]struct {
 		workloads []kueue.QueuedWorkload
-		// wantAssignment is a summary of all the assignments in the cache after this cycle.
-		wantAssigment map[string]kueue.QueuedWorkloadSpec
-		// wantScheduled is the subset of assigments that got scheduled in this cycle.
+		// wantAssignments is a summary of all the admissions in the cache after this cycle.
+		wantAssignments map[string]kueue.Admission
+		// wantScheduled is the subset of workloads that got scheduled/admitted in this cycle.
 		wantScheduled []string
 		// wantLeft is the workload keys that are left in the queues after this cycle.
 		wantLeft map[string]sets.String
 	}{
-		"workload fits in single capacity": {
+		"workload fits in single clusterQueue": {
 			workloads: []kueue.QueuedWorkload{
 				{
 					ObjectMeta: metav1.ObjectMeta{
@@ -189,7 +181,7 @@ func TestSchedule(t *testing.T) {
 					},
 					Spec: kueue.QueuedWorkloadSpec{
 						QueueName: "main",
-						Pods: []kueue.PodSet{
+						PodSets: []kueue.PodSet{
 							{
 								Name:  "one",
 								Count: 10,
@@ -201,13 +193,13 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantAssigment: map[string]kueue.QueuedWorkloadSpec{
+			wantAssignments: map[string]kueue.Admission{
 				"sales/foo": {
-					AssignedCapacity: "sales",
-					Pods: []kueue.PodSet{
+					ClusterQueue: "sales",
+					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							AssignedFlavors: map[corev1.ResourceName]string{
+							ResourceFlavors: map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "default",
 							},
 						},
@@ -216,7 +208,7 @@ func TestSchedule(t *testing.T) {
 			},
 			wantScheduled: []string{"sales/foo"},
 		},
-		"single capacity full": {
+		"single clusterQueue full": {
 			workloads: []kueue.QueuedWorkload{
 				{
 					ObjectMeta: metav1.ObjectMeta{
@@ -225,7 +217,7 @@ func TestSchedule(t *testing.T) {
 					},
 					Spec: kueue.QueuedWorkloadSpec{
 						QueueName: "main",
-						Pods: []kueue.PodSet{
+						PodSets: []kueue.PodSet{
 							{
 								Name:  "one",
 								Count: 11,
@@ -242,29 +234,36 @@ func TestSchedule(t *testing.T) {
 						Name:      "assigned",
 					},
 					Spec: kueue.QueuedWorkloadSpec{
-						AssignedCapacity: "sales",
-						Pods: []kueue.PodSet{
+						PodSets: []kueue.PodSet{
 							{
 								Name:  "one",
 								Count: 40,
 								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
 									corev1.ResourceCPU: "1",
 								}),
-								AssignedFlavors: map[corev1.ResourceName]string{
-									corev1.ResourceCPU: "default",
+							},
+						},
+						Admission: &kueue.Admission{
+							ClusterQueue: "sales",
+							PodSetFlavors: []kueue.PodSetFlavors{
+								{
+									Name: "one",
+									ResourceFlavors: map[corev1.ResourceName]string{
+										corev1.ResourceCPU: "default",
+									},
 								},
 							},
 						},
 					},
 				},
 			},
-			wantAssigment: map[string]kueue.QueuedWorkloadSpec{
+			wantAssignments: map[string]kueue.Admission{
 				"sales/assigned": {
-					AssignedCapacity: "sales",
-					Pods: []kueue.PodSet{
+					ClusterQueue: "sales",
+					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							AssignedFlavors: map[corev1.ResourceName]string{
+							ResourceFlavors: map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "default",
 							},
 						},
@@ -284,7 +283,7 @@ func TestSchedule(t *testing.T) {
 					},
 					Spec: kueue.QueuedWorkloadSpec{
 						QueueName: "main",
-						Pods: []kueue.PodSet{
+						PodSets: []kueue.PodSet{
 							{
 								Name:  "one",
 								Count: 1,
@@ -302,7 +301,7 @@ func TestSchedule(t *testing.T) {
 					},
 					Spec: kueue.QueuedWorkloadSpec{
 						QueueName: "main",
-						Pods: []kueue.PodSet{
+						PodSets: []kueue.PodSet{
 							{
 								Name:  "one",
 								Count: 51, // will borrow.
@@ -314,24 +313,24 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantAssigment: map[string]kueue.QueuedWorkloadSpec{
+			wantAssignments: map[string]kueue.Admission{
 				"sales/new": {
-					AssignedCapacity: "sales",
-					Pods: []kueue.PodSet{
+					ClusterQueue: "sales",
+					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							AssignedFlavors: map[corev1.ResourceName]string{
+							ResourceFlavors: map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "default",
 							},
 						},
 					},
 				},
 				"eng-alpha/new": {
-					AssignedCapacity: "eng-alpha",
-					Pods: []kueue.PodSet{
+					ClusterQueue: "eng-alpha",
+					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							AssignedFlavors: map[corev1.ResourceName]string{
+							ResourceFlavors: map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "on-demand",
 							},
 						},
@@ -349,7 +348,7 @@ func TestSchedule(t *testing.T) {
 					},
 					Spec: kueue.QueuedWorkloadSpec{
 						QueueName: "main",
-						Pods: []kueue.PodSet{
+						PodSets: []kueue.PodSet{
 							{
 								Name:  "one",
 								Count: 40,
@@ -367,7 +366,7 @@ func TestSchedule(t *testing.T) {
 					},
 					Spec: kueue.QueuedWorkloadSpec{
 						QueueName: "main",
-						Pods: []kueue.PodSet{
+						PodSets: []kueue.PodSet{
 							{
 								Name:  "one",
 								Count: 40,
@@ -379,24 +378,24 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantAssigment: map[string]kueue.QueuedWorkloadSpec{
+			wantAssignments: map[string]kueue.Admission{
 				"eng-alpha/new": {
-					AssignedCapacity: "eng-alpha",
-					Pods: []kueue.PodSet{
+					ClusterQueue: "eng-alpha",
+					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							AssignedFlavors: map[corev1.ResourceName]string{
+							ResourceFlavors: map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "on-demand",
 							},
 						},
 					},
 				},
 				"eng-beta/new": {
-					AssignedCapacity: "eng-beta",
-					Pods: []kueue.PodSet{
+					ClusterQueue: "eng-beta",
+					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							AssignedFlavors: map[corev1.ResourceName]string{
+							ResourceFlavors: map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "on-demand",
 							},
 						},
@@ -414,7 +413,7 @@ func TestSchedule(t *testing.T) {
 					},
 					Spec: kueue.QueuedWorkloadSpec{
 						QueueName: "main",
-						Pods: []kueue.PodSet{
+						PodSets: []kueue.PodSet{
 							{
 								Name:  "one",
 								Count: 10,
@@ -434,20 +433,20 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantAssigment: map[string]kueue.QueuedWorkloadSpec{
+			wantAssignments: map[string]kueue.Admission{
 				"eng-beta/new": {
-					AssignedCapacity: "eng-beta",
-					Pods: []kueue.PodSet{
+					ClusterQueue: "eng-beta",
+					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							AssignedFlavors: map[corev1.ResourceName]string{
+							ResourceFlavors: map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "on-demand",
 								"example.com/gpu":  "model-a",
 							},
 						},
 						{
 							Name: "two",
-							AssignedFlavors: map[corev1.ResourceName]string{
+							ResourceFlavors: map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "spot",
 							},
 						},
@@ -465,7 +464,7 @@ func TestSchedule(t *testing.T) {
 					},
 					Spec: kueue.QueuedWorkloadSpec{
 						QueueName: "main",
-						Pods: []kueue.PodSet{
+						PodSets: []kueue.PodSet{
 							{
 								Name:  "one",
 								Count: 40,
@@ -483,7 +482,7 @@ func TestSchedule(t *testing.T) {
 					},
 					Spec: kueue.QueuedWorkloadSpec{
 						QueueName: "main",
-						Pods: []kueue.PodSet{
+						PodSets: []kueue.PodSet{
 							{
 								Name:  "one",
 								Count: 51,
@@ -495,13 +494,13 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantAssigment: map[string]kueue.QueuedWorkloadSpec{
+			wantAssignments: map[string]kueue.Admission{
 				"eng-alpha/new": {
-					AssignedCapacity: "eng-alpha",
-					Pods: []kueue.PodSet{
+					ClusterQueue: "eng-alpha",
+					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							AssignedFlavors: map[corev1.ResourceName]string{
+							ResourceFlavors: map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "on-demand",
 							},
 						},
@@ -513,7 +512,7 @@ func TestSchedule(t *testing.T) {
 				"eng-beta/main": sets.NewString("new"),
 			},
 		},
-		"cannot borrow resource not listed in capacity": {
+		"cannot borrow resource not listed in clusterQueue": {
 			workloads: []kueue.QueuedWorkload{
 				{
 					ObjectMeta: metav1.ObjectMeta{
@@ -522,7 +521,7 @@ func TestSchedule(t *testing.T) {
 					},
 					Spec: kueue.QueuedWorkloadSpec{
 						QueueName: "main",
-						Pods: []kueue.PodSet{
+						PodSets: []kueue.PodSet{
 							{
 								Name:  "one",
 								Count: 1,
@@ -547,7 +546,7 @@ func TestSchedule(t *testing.T) {
 					},
 					Spec: kueue.QueuedWorkloadSpec{
 						QueueName: "main",
-						Pods: []kueue.PodSet{
+						PodSets: []kueue.PodSet{
 							{
 								Name:  "one",
 								Count: 60,
@@ -564,40 +563,47 @@ func TestSchedule(t *testing.T) {
 						Name:      "existing",
 					},
 					Spec: kueue.QueuedWorkloadSpec{
-						AssignedCapacity: "eng-beta",
-						Pods: []kueue.PodSet{
+						PodSets: []kueue.PodSet{
 							{
 								Name:  "one",
 								Count: 45,
 								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
 									corev1.ResourceCPU: "1",
 								}),
-								AssignedFlavors: map[corev1.ResourceName]string{
-									corev1.ResourceCPU: "on-demand",
+							},
+						},
+						Admission: &kueue.Admission{
+							ClusterQueue: "eng-beta",
+							PodSetFlavors: []kueue.PodSetFlavors{
+								{
+									Name: "one",
+									ResourceFlavors: map[corev1.ResourceName]string{
+										corev1.ResourceCPU: "on-demand",
+									},
 								},
 							},
 						},
 					},
 				},
 			},
-			wantAssigment: map[string]kueue.QueuedWorkloadSpec{
+			wantAssignments: map[string]kueue.Admission{
 				"eng-alpha/new": {
-					AssignedCapacity: "eng-alpha",
-					Pods: []kueue.PodSet{
+					ClusterQueue: "eng-alpha",
+					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							AssignedFlavors: map[corev1.ResourceName]string{
+							ResourceFlavors: map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "spot",
 							},
 						},
 					},
 				},
 				"eng-beta/existing": {
-					AssignedCapacity: "eng-beta",
-					Pods: []kueue.PodSet{
+					ClusterQueue: "eng-beta",
+					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							AssignedFlavors: map[corev1.ResourceName]string{
+							ResourceFlavors: map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "on-demand",
 							},
 						},
@@ -624,16 +630,16 @@ func TestSchedule(t *testing.T) {
 			recorder := broadcaster.NewRecorder(scheme,
 				corev1.EventSource{Component: constants.ManagerName})
 			qManager := queue.NewManager(cl)
-			capCache := capacity.NewCache(cl)
-			// Workloads are loaded into queues or capacities as we add them.
+			capCache := cache.New(cl)
+			// Workloads are loaded into queues or clusterQueues as we add them.
 			for _, q := range queues {
 				if err := qManager.AddQueue(ctx, &q); err != nil {
 					t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
 				}
 			}
-			for _, c := range capacities {
-				if err := capCache.AddCapacity(ctx, &c); err != nil {
-					t.Fatalf("Inserting capacity %s in cache: %v", c.Name, err)
+			for _, c := range clusterQueues {
+				if err := capCache.AddClusterQueue(ctx, &c); err != nil {
+					t.Fatalf("Inserting clusterQueue %s in cache: %v", c.Name, err)
 				}
 			}
 			workloadWatch, err := cl.Watch(ctx, &kueue.QueuedWorkloadList{})
@@ -648,7 +654,7 @@ func TestSchedule(t *testing.T) {
 			scheduler.schedule(ctx)
 
 			// Verify assignments in API.
-			gotScheduled := make(map[string]kueue.QueuedWorkloadSpec)
+			gotScheduled := make(map[string]kueue.Admission)
 			timedOut := false
 			for !timedOut && len(gotScheduled) < len(tc.wantScheduled) {
 				select {
@@ -657,38 +663,40 @@ func TestSchedule(t *testing.T) {
 					if !ok {
 						t.Fatalf("Received update for %T, want QueuedWorkload", evt.Object)
 					}
-					if w.Spec.AssignedCapacity != "" {
-						gotScheduled[workload.Key(w)] = w.Spec
+					if w.Spec.Admission != nil {
+						gotScheduled[workload.Key(w)] = *w.Spec.Admission
 					}
 				case <-time.After(watchTimeout):
 					t.Errorf("Timed out waiting for QueuedWorkload updates")
 					timedOut = true
 				}
 			}
-			wantScheduled := make(map[string]kueue.QueuedWorkloadSpec)
+			wantScheduled := make(map[string]kueue.Admission)
 			for _, key := range tc.wantScheduled {
-				wantScheduled[key] = tc.wantAssigment[key]
+				wantScheduled[key] = tc.wantAssignments[key]
 			}
-			if diff := cmp.Diff(wantScheduled, gotScheduled, filterAssignFields); diff != "" {
+			if diff := cmp.Diff(wantScheduled, gotScheduled); diff != "" {
 				t.Errorf("Unexpected scheduled workloads (-want,+got):\n%s", diff)
 			}
 
-			// Verify assignments in capacity cache.
-			gotAssignments := make(map[string]kueue.QueuedWorkloadSpec)
+			// Verify assignments in cache.
+			gotAssignments := make(map[string]kueue.Admission)
 			snapshot := capCache.Snapshot()
-			for cName, c := range snapshot.Capacities {
+			for cqName, c := range snapshot.ClusterQueues {
 				for name, w := range c.Workloads {
-					if string(w.Obj.Spec.AssignedCapacity) != cName {
-						t.Errorf("Workload %s is assigned to capacity %s, but it is found as member of capacity %s", name, w.Obj.Spec.AssignedCapacity, cName)
+					if w.Obj.Spec.Admission == nil {
+						t.Errorf("Workload %s is not admitted by a clusterQueue, but it is found as member of clusterQueue %s in the cache", name, cqName)
+					} else if string(w.Obj.Spec.Admission.ClusterQueue) != cqName {
+						t.Errorf("Workload %s is admitted by clusterQueue %s, but it is found as member of clusterQueue %s in the cache", name, w.Obj.Spec.Admission.ClusterQueue, cqName)
 					}
-					gotAssignments[name] = w.Obj.Spec
+					gotAssignments[name] = *w.Obj.Spec.Admission
 				}
 			}
 			if len(gotAssignments) == 0 {
 				gotAssignments = nil
 			}
-			if diff := cmp.Diff(tc.wantAssigment, gotAssignments, filterAssignFields...); diff != "" {
-				t.Errorf("Unexpected assigned capacities in cache (-want,+got):\n%s", diff)
+			if diff := cmp.Diff(tc.wantAssignments, gotAssignments); diff != "" {
+				t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
 			}
 
 			qDump := qManager.Dump()
@@ -701,11 +709,11 @@ func TestSchedule(t *testing.T) {
 
 func TestEntryAssignFlavors(t *testing.T) {
 	cases := map[string]struct {
-		wlPods      []kueue.PodSet
-		capacity    capacity.Capacity
-		wantFits    bool
-		wantFlavors map[string]map[corev1.ResourceName]string
-		wantBorrows capacity.Resources
+		wlPods       []kueue.PodSet
+		clusterQueue cache.ClusterQueue
+		wantFits     bool
+		wantFlavors  map[string]map[corev1.ResourceName]string
+		wantBorrows  cache.Resources
 	}{
 		"single flavor, fits": {
 			wlPods: []kueue.PodSet{
@@ -718,8 +726,8 @@ func TestEntryAssignFlavors(t *testing.T) {
 					}),
 				},
 			},
-			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]capacity.FlavorInfo{
+			clusterQueue: cache.ClusterQueue{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{
 					corev1.ResourceCPU:    defaultFlavorNoBorrowing(1000),
 					corev1.ResourceMemory: defaultFlavorNoBorrowing(2 * utiltesting.Mi),
 				},
@@ -752,9 +760,9 @@ func TestEntryAssignFlavors(t *testing.T) {
 							Effect:   corev1.TaintEffectNoSchedule,
 						}},
 					}}},
-			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]capacity.FlavorInfo{
-					corev1.ResourceCPU: noBorrowing([]capacity.FlavorInfo{
+			clusterQueue: cache.ClusterQueue{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{
+					corev1.ResourceCPU: noBorrowing([]cache.FlavorInfo{
 						{Name: "default", Guaranteed: 4000, Taints: []corev1.Taint{{
 							Key:    "instance",
 							Value:  "spot",
@@ -780,11 +788,11 @@ func TestEntryAssignFlavors(t *testing.T) {
 					}),
 				},
 			},
-			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]capacity.FlavorInfo{
+			clusterQueue: cache.ClusterQueue{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{
 					corev1.ResourceCPU: defaultFlavorNoBorrowing(4000),
 				},
-				UsedResources: capacity.Resources{
+				UsedResources: cache.Resources{
 					corev1.ResourceCPU: {
 						"default": 3_000,
 					},
@@ -802,13 +810,13 @@ func TestEntryAssignFlavors(t *testing.T) {
 					}),
 				},
 			},
-			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]capacity.FlavorInfo{
-					corev1.ResourceCPU: noBorrowing([]capacity.FlavorInfo{
+			clusterQueue: cache.ClusterQueue{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{
+					corev1.ResourceCPU: noBorrowing([]cache.FlavorInfo{
 						{Name: "one", Guaranteed: 2000},
 						{Name: "two", Guaranteed: 4000},
 					}),
-					corev1.ResourceMemory: noBorrowing([]capacity.FlavorInfo{
+					corev1.ResourceMemory: noBorrowing([]cache.FlavorInfo{
 						{Name: "one", Guaranteed: utiltesting.Gi},
 						{Name: "two", Guaranteed: 5 * utiltesting.Mi},
 					}),
@@ -833,13 +841,13 @@ func TestEntryAssignFlavors(t *testing.T) {
 					}),
 				},
 			},
-			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]capacity.FlavorInfo{
-					corev1.ResourceCPU: noBorrowing([]capacity.FlavorInfo{
+			clusterQueue: cache.ClusterQueue{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{
+					corev1.ResourceCPU: noBorrowing([]cache.FlavorInfo{
 						{Name: "one", Guaranteed: 2000},
 						{Name: "two", Guaranteed: 4000},
 					}),
-					corev1.ResourceMemory: noBorrowing([]capacity.FlavorInfo{
+					corev1.ResourceMemory: noBorrowing([]cache.FlavorInfo{
 						{Name: "one", Guaranteed: utiltesting.Gi},
 						{Name: "two", Guaranteed: 5 * utiltesting.Mi},
 					}),
@@ -856,9 +864,9 @@ func TestEntryAssignFlavors(t *testing.T) {
 					}),
 				},
 			},
-			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]capacity.FlavorInfo{
-					corev1.ResourceCPU: noBorrowing([]capacity.FlavorInfo{
+			clusterQueue: cache.ClusterQueue{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{
+					corev1.ResourceCPU: noBorrowing([]cache.FlavorInfo{
 						{Name: "one", Guaranteed: 4000, Taints: []corev1.Taint{{
 							Key:    "instance",
 							Value:  "spot",
@@ -909,9 +917,9 @@ func TestEntryAssignFlavors(t *testing.T) {
 					},
 				},
 			},
-			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]capacity.FlavorInfo{
-					corev1.ResourceCPU: noBorrowing([]capacity.FlavorInfo{
+			clusterQueue: cache.ClusterQueue{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{
+					corev1.ResourceCPU: noBorrowing([]cache.FlavorInfo{
 						{Name: "one", Guaranteed: 4000, Labels: map[string]string{"cpuType": "one"}},
 						{Name: "two", Guaranteed: 4000, Labels: map[string]string{"cpuType": "two"}},
 					}),
@@ -965,13 +973,13 @@ func TestEntryAssignFlavors(t *testing.T) {
 					},
 				},
 			},
-			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]capacity.FlavorInfo{
-					corev1.ResourceCPU: noBorrowing([]capacity.FlavorInfo{
+			clusterQueue: cache.ClusterQueue{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{
+					corev1.ResourceCPU: noBorrowing([]cache.FlavorInfo{
 						{Name: "one", Guaranteed: 4000, Labels: map[string]string{"cpuType": "one", "group": "group1"}},
 						{Name: "two", Guaranteed: 4000, Labels: map[string]string{"cpuType": "two"}},
 					}),
-					corev1.ResourceMemory: noBorrowing([]capacity.FlavorInfo{
+					corev1.ResourceMemory: noBorrowing([]cache.FlavorInfo{
 						{Name: "one", Guaranteed: utiltesting.Gi, Labels: map[string]string{"memType": "one"}},
 						{Name: "two", Guaranteed: utiltesting.Gi, Labels: map[string]string{"memType": "two"}},
 					}),
@@ -1033,9 +1041,9 @@ func TestEntryAssignFlavors(t *testing.T) {
 					},
 				},
 			},
-			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]capacity.FlavorInfo{
-					corev1.ResourceCPU: noBorrowing([]capacity.FlavorInfo{
+			clusterQueue: cache.ClusterQueue{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{
+					corev1.ResourceCPU: noBorrowing([]cache.FlavorInfo{
 						{Name: "one", Guaranteed: 4000, Labels: map[string]string{"cpuType": "one"}},
 						{Name: "two", Guaranteed: 4000, Labels: map[string]string{"cpuType": "two"}},
 					}),
@@ -1080,9 +1088,9 @@ func TestEntryAssignFlavors(t *testing.T) {
 					},
 				},
 			},
-			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]capacity.FlavorInfo{
-					corev1.ResourceCPU: noBorrowing([]capacity.FlavorInfo{
+			clusterQueue: cache.ClusterQueue{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{
+					corev1.ResourceCPU: noBorrowing([]cache.FlavorInfo{
 						{Name: "one", Guaranteed: 4000, Labels: map[string]string{"cpuType": "one"}},
 						{Name: "two", Guaranteed: 4000, Labels: map[string]string{"cpuType": "two"}},
 					}),
@@ -1108,9 +1116,9 @@ func TestEntryAssignFlavors(t *testing.T) {
 					}),
 				},
 			},
-			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]capacity.FlavorInfo{
-					corev1.ResourceCPU: noBorrowing([]capacity.FlavorInfo{
+			clusterQueue: cache.ClusterQueue{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{
+					corev1.ResourceCPU: noBorrowing([]cache.FlavorInfo{
 						{Name: "one", Guaranteed: 4000},
 						{Name: "two", Guaranteed: 10_000},
 					}),
@@ -1145,8 +1153,8 @@ func TestEntryAssignFlavors(t *testing.T) {
 					}),
 				},
 			},
-			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]capacity.FlavorInfo{
+			clusterQueue: cache.ClusterQueue{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{
 					corev1.ResourceCPU: {
 						{
 							Name:       "default",
@@ -1162,8 +1170,8 @@ func TestEntryAssignFlavors(t *testing.T) {
 						},
 					},
 				},
-				Cohort: &capacity.Cohort{
-					RequestableResources: capacity.Resources{
+				Cohort: &cache.Cohort{
+					RequestableResources: cache.Resources{
 						corev1.ResourceCPU: {
 							"default": 200_000,
 						},
@@ -1184,7 +1192,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 					corev1.ResourceMemory: "default",
 				},
 			},
-			wantBorrows: capacity.Resources{
+			wantBorrows: cache.Resources{
 				corev1.ResourceCPU: {
 					"default": 8_000,
 				},
@@ -1203,8 +1211,8 @@ func TestEntryAssignFlavors(t *testing.T) {
 					}),
 				},
 			},
-			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]capacity.FlavorInfo{
+			clusterQueue: cache.ClusterQueue{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{
 					corev1.ResourceCPU: {
 						{
 							Name:       "one",
@@ -1213,11 +1221,11 @@ func TestEntryAssignFlavors(t *testing.T) {
 						},
 					},
 				},
-				Cohort: &capacity.Cohort{
-					RequestableResources: capacity.Resources{
+				Cohort: &cache.Cohort{
+					RequestableResources: cache.Resources{
 						corev1.ResourceCPU: {"one": 10_000},
 					},
-					UsedResources: capacity.Resources{
+					UsedResources: cache.Resources{
 						corev1.ResourceCPU: {"one": 9_000},
 					},
 				},
@@ -1233,8 +1241,8 @@ func TestEntryAssignFlavors(t *testing.T) {
 					}),
 				},
 			},
-			capacity: capacity.Capacity{
-				RequestableResources: map[corev1.ResourceName][]capacity.FlavorInfo{
+			clusterQueue: cache.ClusterQueue{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{
 					corev1.ResourceCPU: {
 						{
 							Name:       "one",
@@ -1243,14 +1251,14 @@ func TestEntryAssignFlavors(t *testing.T) {
 						},
 					},
 				},
-				UsedResources: capacity.Resources{
+				UsedResources: cache.Resources{
 					corev1.ResourceCPU: {"one": 9_000},
 				},
-				Cohort: &capacity.Cohort{
-					RequestableResources: capacity.Resources{
+				Cohort: &cache.Cohort{
+					RequestableResources: cache.Resources{
 						corev1.ResourceCPU: {"one": 100_000},
 					},
-					UsedResources: capacity.Resources{
+					UsedResources: cache.Resources{
 						corev1.ResourceCPU: {"one": 9_000},
 					},
 				},
@@ -1265,11 +1273,11 @@ func TestEntryAssignFlavors(t *testing.T) {
 			e := entry{
 				Info: *workload.NewInfo(&kueue.QueuedWorkload{
 					Spec: kueue.QueuedWorkloadSpec{
-						Pods: tc.wlPods,
+						PodSets: tc.wlPods,
 					},
 				}),
 			}
-			fits := e.assignFlavors(log, &tc.capacity)
+			fits := e.assignFlavors(log, &tc.clusterQueue)
 			if fits != tc.wantFits {
 				t.Errorf("e.assignFlavors(_)=%t, want %t", fits, tc.wantFits)
 			}
@@ -1300,7 +1308,7 @@ func TestEntryOrdering(t *testing.T) {
 					CreationTimestamp: metav1.NewTime(now),
 				}},
 			},
-			borrows: capacity.Resources{
+			borrows: cache.Resources{
 				corev1.ResourceCPU: {},
 			},
 		},
@@ -1327,7 +1335,7 @@ func TestEntryOrdering(t *testing.T) {
 					CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
 				}},
 			},
-			borrows: capacity.Resources{
+			borrows: cache.Resources{
 				corev1.ResourceCPU: {},
 			},
 		},
@@ -1343,11 +1351,11 @@ func TestEntryOrdering(t *testing.T) {
 	}
 }
 
-func defaultFlavorNoBorrowing(guaranteed int64) []capacity.FlavorInfo {
-	return noBorrowing([]capacity.FlavorInfo{{Name: "default", Guaranteed: guaranteed}})
+func defaultFlavorNoBorrowing(guaranteed int64) []cache.FlavorInfo {
+	return noBorrowing([]cache.FlavorInfo{{Name: "default", Guaranteed: guaranteed}})
 }
 
-func noBorrowing(flavors []capacity.FlavorInfo) []capacity.FlavorInfo {
+func noBorrowing(flavors []cache.FlavorInfo) []cache.FlavorInfo {
 	for i := range flavors {
 		flavors[i].Ceiling = flavors[i].Guaranteed
 	}

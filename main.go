@@ -32,7 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	kueuev1alpha1 "sigs.k8s.io/kueue/api/v1alpha1"
-	"sigs.k8s.io/kueue/pkg/capacity"
+	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/workload/job"
@@ -85,18 +85,18 @@ func main() {
 	if err := queue.SetupIndexes(mgr.GetFieldIndexer()); err != nil {
 		setupLog.Error(err, "Unable to setup queue indexes")
 	}
-	if err := capacity.SetupIndexes(mgr.GetFieldIndexer()); err != nil {
-		setupLog.Error(err, "Unable to setup capacity cache indexes")
+	if err := cache.SetupIndexes(mgr.GetFieldIndexer()); err != nil {
+		setupLog.Error(err, "Unable to setup cache indexes")
 	}
 
 	queues := queue.NewManager(mgr.GetClient())
-	cache := capacity.NewCache(mgr.GetClient())
+	cache := cache.New(mgr.GetClient())
 	if err = core.NewQueueReconciler(mgr.GetClient(), queues).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Queue")
 		os.Exit(1)
 	}
-	if err = core.NewCapacityReconciler(mgr.GetClient(), cache).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Capacity")
+	if err = core.NewClusterQueueReconciler(mgr.GetClient(), cache).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ClusterQueue")
 		os.Exit(1)
 	}
 	if err = core.NewQueuedWorkloadReconciler(queues, cache).SetupWithManager(mgr); err != nil {

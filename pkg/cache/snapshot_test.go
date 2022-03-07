@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package capacity
+package cache
 
 import (
 	"context"
@@ -39,13 +39,13 @@ func TestSnapshot(t *testing.T) {
 	if err := kueue.AddToScheme(scheme); err != nil {
 		t.Fatalf("Failed adding kueue scheme: %s", err)
 	}
-	cache := NewCache(fake.NewClientBuilder().WithScheme(scheme).Build())
-	capacities := []kueue.Capacity{
+	cache := New(fake.NewClientBuilder().WithScheme(scheme).Build())
+	clusterQueues := []kueue.ClusterQueue{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "foofoo",
 			},
-			Spec: kueue.CapacitySpec{
+			Spec: kueue.ClusterQueueSpec{
 				Cohort: "foo",
 				RequestableResources: []kueue.Resource{
 					{
@@ -74,7 +74,7 @@ func TestSnapshot(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "foobar",
 			},
-			Spec: kueue.CapacitySpec{
+			Spec: kueue.ClusterQueueSpec{
 				Cohort: "foo",
 				RequestableResources: []kueue.Resource{
 					{
@@ -106,7 +106,7 @@ func TestSnapshot(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "bar",
 			},
-			Spec: kueue.CapacitySpec{
+			Spec: kueue.ClusterQueueSpec{
 				RequestableResources: []kueue.Resource{
 					{
 						Name: corev1.ResourceCPU,
@@ -123,10 +123,10 @@ func TestSnapshot(t *testing.T) {
 			},
 		},
 	}
-	for _, c := range capacities {
+	for _, c := range clusterQueues {
 		// Purposely  do not make a copy of cap. Clones of necessary fields are
-		// done in AddCapacity.
-		if err := cache.AddCapacity(context.Background(), &c); err != nil {
+		// done in AddClusterQueue.
+		if err := cache.AddClusterQueue(context.Background(), &c); err != nil {
 			t.Fatalf("Failed adding capacity: %v", err)
 		}
 	}
@@ -134,56 +134,80 @@ func TestSnapshot(t *testing.T) {
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "alpha"},
 			Spec: kueue.QueuedWorkloadSpec{
-				Pods: []kueue.PodSet{
+				PodSets: []kueue.PodSet{
 					{
+						Name:  "main",
 						Count: 5,
 						Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
 							corev1.ResourceCPU: "2",
 						}),
-						AssignedFlavors: map[corev1.ResourceName]string{
-							corev1.ResourceCPU: "demand",
+					},
+				},
+				Admission: &kueue.Admission{
+					ClusterQueue: "foofoo",
+					PodSetFlavors: []kueue.PodSetFlavors{
+						{
+							Name: "main",
+							ResourceFlavors: map[corev1.ResourceName]string{
+								corev1.ResourceCPU: "demand",
+							},
 						},
 					},
 				},
-				AssignedCapacity: "foofoo",
 			},
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "beta"},
 			Spec: kueue.QueuedWorkloadSpec{
-				Pods: []kueue.PodSet{
+				PodSets: []kueue.PodSet{
 					{
+						Name:  "main",
 						Count: 5,
 						Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
 							corev1.ResourceCPU: "1",
 							"example.com/gpu":  "2",
 						}),
-						AssignedFlavors: map[corev1.ResourceName]string{
-							corev1.ResourceCPU: "spot",
-							"example.com/gpu":  "default",
+					},
+				},
+				Admission: &kueue.Admission{
+					ClusterQueue: "foobar",
+					PodSetFlavors: []kueue.PodSetFlavors{
+						{
+							Name: "main",
+							ResourceFlavors: map[corev1.ResourceName]string{
+								corev1.ResourceCPU: "spot",
+								"example.com/gpu":  "default",
+							},
 						},
 					},
 				},
-				AssignedCapacity: "foobar",
 			},
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "gamma"},
 			Spec: kueue.QueuedWorkloadSpec{
-				Pods: []kueue.PodSet{
+				PodSets: []kueue.PodSet{
 					{
+						Name:  "main",
 						Count: 5,
 						Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
 							corev1.ResourceCPU: "1",
 							"example.com/gpu":  "1",
 						}),
-						AssignedFlavors: map[corev1.ResourceName]string{
-							corev1.ResourceCPU: "spot",
-							"example.com/gpu":  "default",
+					},
+				},
+				Admission: &kueue.Admission{
+					ClusterQueue: "foobar",
+					PodSetFlavors: []kueue.PodSetFlavors{
+						{
+							Name: "main",
+							ResourceFlavors: map[corev1.ResourceName]string{
+								corev1.ResourceCPU: "spot",
+								"example.com/gpu":  "default",
+							},
 						},
 					},
 				},
-				AssignedCapacity: "foobar",
 			},
 		},
 	}
@@ -215,7 +239,7 @@ func TestSnapshot(t *testing.T) {
 		},
 	}
 	wantSnapshot := Snapshot{
-		Capacities: map[string]*Capacity{
+		ClusterQueues: map[string]*ClusterQueue{
 			"foofoo": {
 				Name:   "foofoo",
 				Cohort: &wantCohorts[0],

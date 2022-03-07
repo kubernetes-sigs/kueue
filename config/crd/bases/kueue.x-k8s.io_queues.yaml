@@ -35,9 +35,9 @@ spec:
           spec:
             description: QueueSpec defines the desired state of Queue
             properties:
-              capacity:
-                description: capacity is a reference to a Capacity object form which
-                  resources are allocated to this queue.
+              clusterQueue:
+                description: clusterQueue is a reference to a clusterQueue that backs
+                  this queue.
                 type: string
             type: object
           status:
@@ -45,7 +45,7 @@ spec:
             properties:
               pendingWorkloads:
                 description: PendingWorkloads is the number of workloads currently
-                  assigned to this queue not yet assigned to a Capacity.
+                  assigned to this queue not yet assigned to a ClusterQueue.
                 format: int32
                 type: integer
             required:

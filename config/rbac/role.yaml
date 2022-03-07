@@ -32,7 +32,7 @@ rules:
 - apiGroups:
   - kueue.x-k8s.io
   resources:
-  - capacities
+  - clusterQueues
   verbs:
   - create
   - delete
@@ -44,17 +44,25 @@ rules:
 - apiGroups:
   - kueue.x-k8s.io
   resources:
-  - capacities/finalizers
+  - clusterQueues/finalizers
   verbs:
   - update
 - apiGroups:
   - kueue.x-k8s.io
   resources:
-  - capacities/status
+  - clusterQueues/status
   verbs:
   - get
   - patch
   - update
+- apiGroups:
+  - kueue.x-k8s.io
+  resources:
+  - clusterqueues
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - kueue.x-k8s.io
   resources:

@@ -71,7 +71,7 @@ func (m *Manager) AddQueue(ctx context.Context, q *kueue.Queue) error {
 	addedWorkloads := false
 	for i, w := range workloads.Items {
 		// Checking queue name again because the field index is not available in tests.
-		if w.Spec.QueueName != q.Name || w.Spec.AssignedCapacity != "" {
+		if w.Spec.QueueName != q.Name || w.Spec.Admission != nil {
 			continue
 		}
 		qImpl.PushOrUpdate(&workloads.Items[i])
@@ -241,7 +241,7 @@ func (m *Manager) heads() []workload.Info {
 		wl := q.Pop()
 		if wl != nil {
 			wlCopy := *wl
-			wlCopy.Capacity = q.Capacity
+			wlCopy.ClusterQueue = q.ClusterQueue
 			workloads = append(workloads, wlCopy)
 		}
 	}

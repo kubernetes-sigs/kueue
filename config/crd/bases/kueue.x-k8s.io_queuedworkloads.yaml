@@ -38,23 +38,48 @@ spec:
           spec:
             description: QueuedWorkloadSpec defines the desired state of QueuedWorkload
             properties:
-              capacity:
-                description: assignedCapacity is the name of the Capacity that this
-                  workload is assigned to.
-                type: string
+              admission:
+                description: admission holds the parameters of the admission of the
+                  workload by a ClusterQueue.
+                properties:
+                  clusterQueue:
+                    description: clusterQueue is the name of the ClusterQueue that
+                      admitted this workload.
+                    type: string
+                  podSetFlavors:
+                    description: podSetFlavors hold the admision results for each
+                      of the .spec.podSets entries.
+                    items:
+                      properties:
+                        name:
+                          default: main
+                          description: Name is the name of the podSet. It should match
+                            one of the names in .spec.podSets.
+                          type: string
+                        resourceFlavors:
+                          additionalProperties:
+                            type: string
+                          description: ResourceFlavors are the flavors assigned to
+                            the workload for each resource.
+                          type: object
+                      required:
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
+                required:
+                - clusterQueue
+                - podSetFlavors
+                type: object
               pods:
                 description: pods is a list of sets of homogeneous pods, each described
                   by a Pod spec and a count.
                 items:
                   properties:
-                    assignedFlavors:
-                      additionalProperties:
-                        type: string
-                      description: assignedFlavors lists the resources and the respective
-                        flavors assigned to the workload.
-                      type: object
                     count:
-                      description: count is the number of Pods for the spec.
+                      description: count is the number of pods for the spec.
                       format: int32
                       type: integer
                     name:
@@ -7297,7 +7322,6 @@ spec:
                     type: string
                 type: object
             required:
-            - capacity
             - queueName
             - workload
             type: object
@@ -7331,11 +7355,11 @@ spec:
                       description: status could be True, False or Unknown.
                       type: string
                     type:
-                      description: "type of condition could be: \n Assigned: the QueuedWorkload
-                        is assigned to a capacity. \n Active: the associated workload
-                        is active: it is not suspended or it has non-terminated pods.
-                        \n Finished: the associated workload finished running (failed
-                        or succeeded)."
+                      description: "type of condition could be: \n Admitted: the QueuedWorkload
+                        was admitted through a ClusterQueue. \n Active: the associated
+                        workload is active: it is not suspended or it has non-terminated
+                        pods. \n Finished: the associated workload finished running
+                        (failed or succeeded)."
                       type: string
                   required:
                   - status

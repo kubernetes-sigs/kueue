@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package capacity
+package cache
 
 import (
 	"context"
@@ -33,21 +33,23 @@ import (
 
 const workloadCapacityKey = "spec.assignedCapacity"
 
-var capNotFoundErr = errors.New("capacity not found")
+var cqNotFoundErr = errors.New("cluster queue not found")
 
+// Cache keeps track of the QueuedWorkloads that got admitted through
+// ClusterQueues.
 type Cache struct {
 	sync.RWMutex
 
 	client           client.Client
-	capacities       map[string]*Capacity
+	clusterQueues    map[string]*ClusterQueue
 	cohorts          map[string]*Cohort
 	assumedWorkloads map[string]string
 }
 
-func NewCache(client client.Client) *Cache {
+func New(client client.Client) *Cache {
 	return &Cache{
 		client:           client,
-		capacities:       make(map[string]*Capacity),
+		clusterQueues:    make(map[string]*ClusterQueue),
 		cohorts:          make(map[string]*Cohort),
 		assumedWorkloads: make(map[string]string),
 	}
@@ -55,10 +57,10 @@ func NewCache(client client.Client) *Cache {
 
 type Resources map[corev1.ResourceName]map[string]int64
 
-// Cohort is a set of Capacities that can borrow resources from each other.
+// Cohort is a set of ClusterQueues that can borrow resources from each other.
 type Cohort struct {
 	Name    string
-	members map[*Capacity]struct{}
+	members map[*ClusterQueue]struct{}
 
 	// These fields are only populated for a snapshot.
 	RequestableResources Resources
@@ -68,12 +70,12 @@ type Cohort struct {
 func newCohort(name string, cap int) *Cohort {
 	return &Cohort{
 		Name:    name,
-		members: make(map[*Capacity]struct{}, cap),
+		members: make(map[*ClusterQueue]struct{}, cap),
 	}
 }
 
-// Capacity is the internal implementation of kueue.Capacity
-type Capacity struct {
+// ClusterQueue is the internal implementation of kueue.ClusterQueue
+type ClusterQueue struct {
 	Name                 string
 	Cohort               *Cohort
 	RequestableResources map[corev1.ResourceName][]FlavorInfo
@@ -99,8 +101,8 @@ type FlavorInfo struct {
 	Labels     map[string]string
 }
 
-func NewCapacity(cap *kueue.Capacity) *Capacity {
-	c := &Capacity{
+func NewClusterQueue(cap *kueue.ClusterQueue) *ClusterQueue {
+	c := &ClusterQueue{
 		Name:                 cap.Name,
 		RequestableResources: resourcesByName(cap.Spec.RequestableResources),
 		UsedResources:        make(Resources, len(cap.Spec.RequestableResources)),
@@ -134,10 +136,10 @@ func NewCapacity(cap *kueue.Capacity) *Capacity {
 	return c
 }
 
-func (c *Capacity) addWorkload(w *kueue.QueuedWorkload) error {
+func (c *ClusterQueue) addWorkload(w *kueue.QueuedWorkload) error {
 	k := workload.Key(w)
 	if _, exist := c.Workloads[k]; exist {
-		return fmt.Errorf("workload already exists in capacity")
+		return fmt.Errorf("workload already exists in ClusterQueue")
 	}
 	wi := workload.NewInfo(w)
 	c.Workloads[k] = wi
@@ -145,7 +147,7 @@ func (c *Capacity) addWorkload(w *kueue.QueuedWorkload) error {
 	return nil
 }
 
-func (c *Capacity) deleteWorkload(w *kueue.QueuedWorkload) {
+func (c *ClusterQueue) deleteWorkload(w *kueue.QueuedWorkload) {
 	k := workload.Key(w)
 	wi, exist := c.Workloads[k]
 	if !exist {
@@ -155,7 +157,7 @@ func (c *Capacity) deleteWorkload(w *kueue.QueuedWorkload) {
 	delete(c.Workloads, k)
 }
 
-func (c *Capacity) updateWorkloadUsage(wi *workload.Info, m int64) {
+func (c *ClusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 	for _, ps := range wi.TotalRequests {
 		for wlRes, wlResFlv := range ps.Flavors {
 			v, wlResExist := ps.Requests[wlRes]
@@ -169,25 +171,25 @@ func (c *Capacity) updateWorkloadUsage(wi *workload.Info, m int64) {
 	}
 }
 
-func (c *Cache) AddCapacity(ctx context.Context, cap *kueue.Capacity) error {
+func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) error {
 	c.Lock()
 	defer c.Unlock()
 
-	if _, ok := c.capacities[cap.Name]; ok {
-		return fmt.Errorf("capacity already exists")
+	if _, ok := c.clusterQueues[cq.Name]; ok {
+		return fmt.Errorf("ClusterQueue already exists")
 	}
-	capImpl := NewCapacity(cap)
-	c.addCapacityToCohort(capImpl, cap.Spec.Cohort)
-	c.capacities[cap.Name] = capImpl
-	// On controller restart, an add capacity event may come after
+	cqImpl := NewClusterQueue(cq)
+	c.addClusterQueueToCohort(cqImpl, cq.Spec.Cohort)
+	c.clusterQueues[cq.Name] = cqImpl
+	// On controller restart, an add ClusterQueue event may come after
 	// add workload events, and so here we explicitly list and add existing workloads.
 	var workloads kueue.QueuedWorkloadList
-	if err := c.client.List(ctx, &workloads, client.MatchingFields{workloadCapacityKey: cap.Name}); err != nil {
+	if err := c.client.List(ctx, &workloads, client.MatchingFields{workloadCapacityKey: cq.Name}); err != nil {
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
 	for i, w := range workloads.Items {
-		// Checking capacity name again because the field index is not available in tests.
-		if string(w.Spec.AssignedCapacity) != cap.Name {
+		// Checking ClusterQueue name again because the field index is not available in tests.
+		if w.Spec.Admission == nil || string(w.Spec.Admission.ClusterQueue) != cq.Name {
 			continue
 		}
 		c.addOrUpdateWorkload(&workloads.Items[i])
@@ -196,34 +198,34 @@ func (c *Cache) AddCapacity(ctx context.Context, cap *kueue.Capacity) error {
 	return nil
 }
 
-func (c *Cache) UpdateCapacity(cap *kueue.Capacity) error {
+func (c *Cache) UpdateClusterQueue(cq *kueue.ClusterQueue) error {
 	c.Lock()
 	defer c.Unlock()
-	capImpl, ok := c.capacities[cap.Name]
+	cqImpl, ok := c.clusterQueues[cq.Name]
 	if !ok {
-		return capNotFoundErr
+		return cqNotFoundErr
 	}
-	capImpl.RequestableResources = resourcesByName(cap.Spec.RequestableResources)
-	if capImpl.Cohort != nil {
-		if capImpl.Cohort.Name != cap.Spec.Cohort {
-			c.deleteCapacityFromCohort(capImpl)
-			c.addCapacityToCohort(capImpl, cap.Spec.Cohort)
+	cqImpl.RequestableResources = resourcesByName(cq.Spec.RequestableResources)
+	if cqImpl.Cohort != nil {
+		if cqImpl.Cohort.Name != cq.Spec.Cohort {
+			c.deleteClusterQueueFromCohort(cqImpl)
+			c.addClusterQueueToCohort(cqImpl, cq.Spec.Cohort)
 		}
 	} else {
-		c.addCapacityToCohort(capImpl, cap.Spec.Cohort)
+		c.addClusterQueueToCohort(cqImpl, cq.Spec.Cohort)
 	}
 	return nil
 }
 
-func (c *Cache) DeleteCapacity(cap *kueue.Capacity) {
+func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	c.Lock()
 	defer c.Unlock()
-	capImpl, ok := c.capacities[cap.Name]
+	cqImpl, ok := c.clusterQueues[cq.Name]
 	if !ok {
 		return
 	}
-	c.deleteCapacityFromCohort(capImpl)
-	delete(c.capacities, cap.Name)
+	c.deleteClusterQueueFromCohort(cqImpl)
+	delete(c.clusterQueues, cq.Name)
 }
 
 func (c *Cache) AddOrUpdateWorkload(w *kueue.QueuedWorkload) bool {
@@ -233,58 +235,61 @@ func (c *Cache) AddOrUpdateWorkload(w *kueue.QueuedWorkload) bool {
 }
 
 func (c *Cache) addOrUpdateWorkload(w *kueue.QueuedWorkload) bool {
-	if w.Spec.AssignedCapacity == "" {
+	if w.Spec.Admission == nil {
 		return false
 	}
 
-	capacity, ok := c.capacities[string(w.Spec.AssignedCapacity)]
+	clusterQueue, ok := c.clusterQueues[string(w.Spec.Admission.ClusterQueue)]
 	if !ok {
 		return false
 	}
 
 	c.cleanupAssumedState(w)
 
-	if _, exist := capacity.Workloads[workload.Key(w)]; exist {
-		capacity.deleteWorkload(w)
+	if _, exist := clusterQueue.Workloads[workload.Key(w)]; exist {
+		clusterQueue.deleteWorkload(w)
 	}
 
-	return capacity.addWorkload(w) == nil
+	return clusterQueue.addWorkload(w) == nil
 }
 
 func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.QueuedWorkload) error {
 	c.Lock()
 	defer c.Unlock()
-	if oldWl.Spec.AssignedCapacity != "" {
-		capacity, ok := c.capacities[string(oldWl.Spec.AssignedCapacity)]
+	if oldWl.Spec.Admission != nil {
+		cq, ok := c.clusterQueues[string(oldWl.Spec.Admission.ClusterQueue)]
 		if !ok {
-			return fmt.Errorf("old capacity doesn't exist")
+			return fmt.Errorf("old ClusterQueue doesn't exist")
 		}
-		capacity.deleteWorkload(oldWl)
+		cq.deleteWorkload(oldWl)
 	}
 	c.cleanupAssumedState(oldWl)
 
-	capacity, ok := c.capacities[string(newWl.Spec.AssignedCapacity)]
-	if !ok {
-		return fmt.Errorf("new capacity doesn't exist")
+	if newWl.Spec.Admission == nil {
+		return nil
 	}
-	return capacity.addWorkload(newWl)
+	cq, ok := c.clusterQueues[string(newWl.Spec.Admission.ClusterQueue)]
+	if !ok {
+		return fmt.Errorf("new ClusterQueue doesn't exist")
+	}
+	return cq.addWorkload(newWl)
 }
 
 func (c *Cache) DeleteWorkload(w *kueue.QueuedWorkload) error {
 	c.Lock()
 	defer c.Unlock()
-	if w.Spec.AssignedCapacity == "" {
-		return fmt.Errorf("workload not assigned a capacity")
+	if w.Spec.Admission == nil {
+		return fmt.Errorf("workload not admitted through a ClusterQueue")
 	}
 
-	capacity, ok := c.capacities[string(w.Spec.AssignedCapacity)]
+	qc, ok := c.clusterQueues[string(w.Spec.Admission.ClusterQueue)]
 	if !ok {
-		return capNotFoundErr
+		return cqNotFoundErr
 	}
 
 	c.cleanupAssumedState(w)
 
-	capacity.deleteWorkload(w)
+	qc.deleteWorkload(w)
 	return nil
 }
 
@@ -292,25 +297,25 @@ func (c *Cache) AssumeWorkload(w *kueue.QueuedWorkload) error {
 	c.Lock()
 	defer c.Unlock()
 
-	if w.Spec.AssignedCapacity == "" {
-		return fmt.Errorf("workload not assigned a capacity")
+	if w.Spec.Admission == nil {
+		return fmt.Errorf("workload not admitted by a ClusterQueue")
 	}
 
 	k := workload.Key(w)
 	assumedCap, assumed := c.assumedWorkloads[k]
 	if assumed {
-		return fmt.Errorf("the workload is already assumed to capacity %q", assumedCap)
+		return fmt.Errorf("the workload is already assumed to ClusterQueue %q", assumedCap)
 	}
 
-	capacity, ok := c.capacities[string(w.Spec.AssignedCapacity)]
+	cq, ok := c.clusterQueues[string(w.Spec.Admission.ClusterQueue)]
 	if !ok {
-		return capNotFoundErr
+		return cqNotFoundErr
 	}
 
-	if err := capacity.addWorkload(w); err != nil {
+	if err := cq.addWorkload(w); err != nil {
 		return err
 	}
-	c.assumedWorkloads[k] = string(w.Spec.AssignedCapacity)
+	c.assumedWorkloads[k] = string(w.Spec.Admission.ClusterQueue)
 	return nil
 }
 
@@ -323,28 +328,31 @@ func (c *Cache) ForgetWorkload(w *kueue.QueuedWorkload) error {
 	}
 	c.cleanupAssumedState(w)
 
-	capacity, ok := c.capacities[string(w.Spec.AssignedCapacity)]
-	if !ok {
-		return capNotFoundErr
+	if w.Spec.Admission == nil {
+		return fmt.Errorf("workload was not admitted by a ClusterQueue")
 	}
-	capacity.deleteWorkload(w)
+
+	cq, ok := c.clusterQueues[string(w.Spec.Admission.ClusterQueue)]
+	if !ok {
+		return cqNotFoundErr
+	}
+	cq.deleteWorkload(w)
 	return nil
 }
 
-// Usage reports the used resources and number of workloads assigned to the
-// capacity.
-func (c *Cache) Usage(capObj *kueue.Capacity) (kueue.UsedResources, int, error) {
+// Usage reports the used resources and number of workloads admitted by the ClusterQueue.
+func (c *Cache) Usage(capObj *kueue.ClusterQueue) (kueue.UsedResources, int, error) {
 	c.RLock()
 	defer c.RUnlock()
 
-	capacity := c.capacities[capObj.Name]
-	if capacity == nil {
-		return nil, 0, capNotFoundErr
+	cq := c.clusterQueues[capObj.Name]
+	if cq == nil {
+		return nil, 0, cqNotFoundErr
 	}
-	usage := make(kueue.UsedResources, len(capacity.UsedResources))
-	for rName, usedRes := range capacity.UsedResources {
+	usage := make(kueue.UsedResources, len(cq.UsedResources))
+	for rName, usedRes := range cq.UsedResources {
 		rUsage := make(map[string]kueue.Usage)
-		requestable := capacity.RequestableResources[rName]
+		requestable := cq.RequestableResources[rName]
 		for _, flavor := range requestable {
 			used := usedRes[flavor.Name]
 			fUsage := kueue.Usage{
@@ -358,25 +366,25 @@ func (c *Cache) Usage(capObj *kueue.Capacity) (kueue.UsedResources, int, error) 
 		}
 		usage[rName] = rUsage
 	}
-	return usage, len(capacity.Workloads), nil
+	return usage, len(cq.Workloads), nil
 }
 
 func (c *Cache) cleanupAssumedState(w *kueue.QueuedWorkload) {
 	k := workload.Key(w)
-	assumedCapName, assumed := c.assumedWorkloads[k]
+	assumedCQName, assumed := c.assumedWorkloads[k]
 	if assumed {
-		// If the workload's assigned capacity is different from the assumed
+		// If the workload's assigned ClusterQueue is different from the assumed
 		// one, then we should also cleanup the assumed one.
-		if assumedCapName != string(w.Spec.AssignedCapacity) {
-			if assumedCap, exist := c.capacities[assumedCapName]; exist {
-				assumedCap.deleteWorkload(w)
+		if w.Spec.Admission != nil && assumedCQName != string(w.Spec.Admission.ClusterQueue) {
+			if assumedCQ, exist := c.clusterQueues[assumedCQName]; exist {
+				assumedCQ.deleteWorkload(w)
 			}
 		}
 		delete(c.assumedWorkloads, k)
 	}
 }
 
-func (c *Cache) addCapacityToCohort(cap *Capacity, cohortName string) {
+func (c *Cache) addClusterQueueToCohort(cq *ClusterQueue, cohortName string) {
 	if cohortName == "" {
 		return
 	}
@@ -385,19 +393,19 @@ func (c *Cache) addCapacityToCohort(cap *Capacity, cohortName string) {
 		cohort = newCohort(cohortName, 1)
 		c.cohorts[cohortName] = cohort
 	}
-	cohort.members[cap] = struct{}{}
-	cap.Cohort = cohort
+	cohort.members[cq] = struct{}{}
+	cq.Cohort = cohort
 }
 
-func (c *Cache) deleteCapacityFromCohort(cap *Capacity) {
-	if cap.Cohort == nil {
+func (c *Cache) deleteClusterQueueFromCohort(cq *ClusterQueue) {
+	if cq.Cohort == nil {
 		return
 	}
-	delete(cap.Cohort.members, cap)
-	if len(cap.Cohort.members) == 0 {
-		delete(c.cohorts, cap.Cohort.Name)
+	delete(cq.Cohort.members, cq)
+	if len(cq.Cohort.members) == 0 {
+		delete(c.cohorts, cq.Cohort.Name)
 	}
-	cap.Cohort = nil
+	cq.Cohort = nil
 }
 
 func resourcesByName(in []kueue.Resource) map[corev1.ResourceName][]FlavorInfo {
@@ -429,6 +437,9 @@ func resourcesByName(in []kueue.Resource) map[corev1.ResourceName][]FlavorInfo {
 func SetupIndexes(indexer client.FieldIndexer) error {
 	return indexer.IndexField(context.Background(), &kueue.QueuedWorkload{}, workloadCapacityKey, func(o client.Object) []string {
 		wl := o.(*kueue.QueuedWorkload)
-		return []string{string(wl.Spec.AssignedCapacity)}
+		if wl.Spec.Admission == nil {
+			return nil
+		}
+		return []string{string(wl.Spec.Admission.ClusterQueue)}
 	})
 }

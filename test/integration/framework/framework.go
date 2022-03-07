@@ -83,9 +83,9 @@ func AfterSuite(testEnv *envtest.Environment) {
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 }
 
-func DeleteCapacity(ctx context.Context, c client.Client, cap *kueue.Capacity) error {
-	if cap != nil {
-		if err := c.Delete(ctx, cap); err != nil && !apierrors.IsNotFound(err) {
+func DeleteClusterQueue(ctx context.Context, c client.Client, cq *kueue.ClusterQueue) error {
+	if cq != nil {
+		if err := c.Delete(ctx, cq); err != nil && !apierrors.IsNotFound(err) {
 			return err
 		}
 	}

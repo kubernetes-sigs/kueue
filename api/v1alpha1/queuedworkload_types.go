@@ -32,14 +32,32 @@ type QueuedWorkloadSpec struct {
 	//
 	// +listType=map
 	// +listMapKey=name
-	Pods []PodSet `json:"pods,omitempty"`
+	PodSets []PodSet `json:"pods,omitempty"`
 
 	// queueName is the name of the queue the QueuedWorkload is associated with.
 	QueueName string `json:"queueName"`
 
-	// assignedCapacity is the name of the Capacity that this workload is assigned
-	// to.
-	AssignedCapacity CapacityReference `json:"capacity"`
+	// admission holds the parameters of the admission of the workload by a ClusterQueue.
+	Admission *Admission `json:"admission,omitempty"`
+}
+
+type Admission struct {
+	// clusterQueue is the name of the ClusterQueue that admitted this workload.
+	ClusterQueue ClusterQueueReference `json:"clusterQueue"`
+
+	// podSetFlavors hold the admision results for each of the .spec.podSets entries.
+	// +listType=map
+	// +listMapKey=name
+	PodSetFlavors []PodSetFlavors `json:"podSetFlavors"`
+}
+
+type PodSetFlavors struct {
+	// Name is the name of the podSet. It should match one of the names in .spec.podSets.
+	// +kubebuilder:default=main
+	Name string `json:"name"`
+
+	// ResourceFlavors are the flavors assigned to the workload for each resource.
+	ResourceFlavors map[corev1.ResourceName]string `json:"resourceFlavors,omitempty"`
 }
 
 type WorkloadReference struct {
@@ -64,13 +82,8 @@ type PodSet struct {
 	// spec is the Pod spec.
 	Spec corev1.PodSpec `json:"spec"`
 
-	// count is the number of Pods for the spec.
+	// count is the number of pods for the spec.
 	Count int32 `json:"count"`
-
-	// assignedFlavors lists the resources and the respective flavors
-	// assigned to the workload.
-	// +optional
-	AssignedFlavors map[corev1.ResourceName]string `json:"assignedFlavors,omitempty"`
 }
 
 // QueuedWorkloadStatus defines the observed state of QueuedWorkload
@@ -86,7 +99,7 @@ type QueuedWorkloadStatus struct {
 type QueuedWorkloadCondition struct {
 	// type of condition could be:
 	//
-	// Assigned: the QueuedWorkload is assigned to a capacity.
+	// Admitted: the QueuedWorkload was admitted through a ClusterQueue.
 	//
 	// Active: the associated workload is active: it is not suspended or it has
 	// non-terminated pods.
@@ -119,9 +132,8 @@ type QueuedWorkloadCondition struct {
 type QueuedWorkloadConditionType string
 
 const (
-	// QueuedWorkloadAssigned means that the QueuedWorkload was assigned to a
-	// capacity.
-	QueuedWorkloadAssigned QueuedWorkloadConditionType = "Assigned"
+	// QueuedWorkloadAdmitted means that the QueuedWorkload was admitted by a ClusterQueue.
+	QueuedWorkloadAdmitted QueuedWorkloadConditionType = "Admitted"
 
 	// QueuedWorkloadActive means that the workload associated to the
 	// QueuedWorkload is active: it is not suspended or it has non-terminated

@@ -1,6 +1,6 @@
 ---
 apiVersion: kueue.x-k8s.io/v1alpha1
-kind: Capacity
+kind: ClusterQueue
 metadata:
   name: cluster-total
 spec:
@@ -23,4 +23,4 @@ kind: Queue
 metadata:
   name: main
 spec:
-  capacity: cluster-total
+  clusterQueue: cluster-total
