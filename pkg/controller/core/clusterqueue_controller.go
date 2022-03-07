@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+	"sigs.k8s.io/kueue/pkg/queue"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/cache"
@@ -36,16 +37,18 @@ import (
 
 // ClusterQueue reconciles a ClusterQueue object
 type ClusterQueue struct {
-	client client.Client
-	log    logr.Logger
-	cache  *cache.Cache
+	client   client.Client
+	log      logr.Logger
+	qManager *queue.Manager
+	cache    *cache.Cache
 }
 
-func NewClusterQueueReconciler(client client.Client, cache *cache.Cache) *ClusterQueue {
+func NewClusterQueueReconciler(client client.Client, qMgr *queue.Manager, cache *cache.Cache) *ClusterQueue {
 	return &ClusterQueue{
-		client: client,
-		log:    ctrl.Log.WithName("cluster-queue-reconciler"),
-		cache:  cache,
+		client:   client,
+		log:      ctrl.Log.WithName("cluster-queue-reconciler"),
+		qManager: qMgr,
+		cache:    cache,
 	}
 }
 
@@ -86,41 +89,48 @@ func (r *ClusterQueue) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Re
 // ClusterQueue associated with the event.
 
 func (r *ClusterQueue) Create(e event.CreateEvent) bool {
-	c, match := e.Object.(*kueue.ClusterQueue)
+	cq, match := e.Object.(*kueue.ClusterQueue)
 	if !match {
 		// No need to interact with the cache for other objects.
 		return true
 	}
-	log := r.log.WithValues("clusterQueue", klog.KObj(c))
+	log := r.log.WithValues("clusterQueue", klog.KObj(cq))
 	log.V(2).Info("ClusterQueue create event")
 	ctx := ctrl.LoggerInto(context.Background(), log)
-	if err := r.cache.AddClusterQueue(ctx, c); err != nil {
+	if err := r.cache.AddClusterQueue(ctx, cq); err != nil {
 		log.Error(err, "Failed to add clusterQueue to cache")
+	}
+	if err := r.qManager.AddClusterQueue(ctx, cq); err != nil {
+		log.Error(err, "Failed to add clusterQueue to queue manager")
 	}
 	return true
 }
 
 func (r *ClusterQueue) Delete(e event.DeleteEvent) bool {
-	c, match := e.Object.(*kueue.ClusterQueue)
+	cq, match := e.Object.(*kueue.ClusterQueue)
 	if !match {
 		// No need to interact with the cache for other objects.
 		return true
 	}
-	r.log.V(2).Info("Queue delete event", "clusterQueue", klog.KObj(c))
-	r.cache.DeleteClusterQueue(c)
+	r.log.V(2).Info("Queue delete event", "clusterQueue", klog.KObj(cq))
+	r.cache.DeleteClusterQueue(cq)
+	r.qManager.DeleteClusterQueue(cq)
 	return true
 }
 
 func (r *ClusterQueue) Update(e event.UpdateEvent) bool {
-	c, match := e.ObjectNew.(*kueue.ClusterQueue)
+	cq, match := e.ObjectNew.(*kueue.ClusterQueue)
 	if !match {
 		// No need to interact with the cache for other objects.
 		return true
 	}
-	log := r.log.WithValues("clusterQueue", klog.KObj(c))
+	log := r.log.WithValues("clusterQueue", klog.KObj(cq))
 	log.V(2).Info("ClusterQueue update event")
-	if err := r.cache.UpdateClusterQueue(c); err != nil {
+	if err := r.cache.UpdateClusterQueue(cq); err != nil {
 		log.Error(err, "Failed to update clusterQueue in cache")
+	}
+	if err := r.qManager.UpdateClusterQueue(cq); err != nil {
+		log.Error(err, "Failed to update clusterQueue in queue manager")
 	}
 	return true
 }

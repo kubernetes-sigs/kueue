@@ -95,7 +95,7 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Queue")
 		os.Exit(1)
 	}
-	if err = core.NewClusterQueueReconciler(mgr.GetClient(), cache).SetupWithManager(mgr); err != nil {
+	if err = core.NewClusterQueueReconciler(mgr.GetClient(), queues, cache).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ClusterQueue")
 		os.Exit(1)
 	}

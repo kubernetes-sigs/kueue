@@ -76,7 +76,7 @@ func managerSetup(mgr manager.Manager) {
 	err = core.NewQueueReconciler(mgr.GetClient(), queues).SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = core.NewClusterQueueReconciler(mgr.GetClient(), cCache).SetupWithManager(mgr)
+	err = core.NewClusterQueueReconciler(mgr.GetClient(), queues, cCache).SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = core.NewQueuedWorkloadReconciler(queues, cCache).SetupWithManager(mgr)
