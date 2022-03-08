@@ -19,6 +19,7 @@ package scheduler
 import (
 	"context"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -37,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
+	"sigs.k8s.io/kueue/pkg/util/function"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -647,6 +649,11 @@ func TestSchedule(t *testing.T) {
 				t.Fatalf("Failed setting up watch: %v", err)
 			}
 			scheduler := New(qManager, capCache, cl, recorder)
+			wg := sync.WaitGroup{}
+			scheduler.setFuncLogger(function.NewLogger(
+				func() { wg.Add(1) },
+				func() { wg.Done() },
+			))
 
 			ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
 			go qManager.CleanUpOnContext(ctx)
@@ -671,6 +678,7 @@ func TestSchedule(t *testing.T) {
 					timedOut = true
 				}
 			}
+			wg.Wait()
 			wantScheduled := make(map[string]kueue.Admission)
 			for _, key := range tc.wantScheduled {
 				wantScheduled[key] = tc.wantAssignments[key]

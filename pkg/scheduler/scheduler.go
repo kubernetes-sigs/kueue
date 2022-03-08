@@ -36,22 +36,25 @@ import (
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/queue"
+	"sigs.k8s.io/kueue/pkg/util/function"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type Scheduler struct {
-	queues   *queue.Manager
-	cache    *cache.Cache
-	client   client.Client
-	recorder record.EventRecorder
+	queues     *queue.Manager
+	cache      *cache.Cache
+	client     client.Client
+	recorder   record.EventRecorder
+	funcLogger function.Logger
 }
 
 func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder record.EventRecorder) *Scheduler {
 	return &Scheduler{
-		queues:   queues,
-		cache:    cache,
-		client:   cl,
-		recorder: recorder,
+		queues:     queues,
+		cache:      cache,
+		client:     cl,
+		recorder:   recorder,
+		funcLogger: function.DefaultLogger,
 	}
 }
 
@@ -59,6 +62,10 @@ func (s *Scheduler) Start(ctx context.Context) {
 	log := ctrl.LoggerFrom(ctx).WithName("scheduler")
 	ctx = ctrl.LoggerInto(ctx, log)
 	wait.UntilWithContext(ctx, s.schedule, 0)
+}
+
+func (s *Scheduler) setFuncLogger(logger function.Logger) {
+	s.funcLogger = logger
 }
 
 func (s *Scheduler) schedule(ctx context.Context) {
@@ -220,7 +227,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 	}
 	log.V(2).Info("Workload assumed in the cache")
 
-	go func() {
+	s.funcLogger.AsyncRun(func() {
 		err := s.client.Update(ctx, newWorkload)
 		if err == nil {
 			s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v", admission.ClusterQueue)
@@ -237,7 +244,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 		log.Error(err, "Admitting workload and assigning flavors")
 		log.V(2).Info("Re-queueing")
 		s.queues.RequeueWorkload(ctx, &e.Info)
-	}()
+	})
 
 	return nil
 }
