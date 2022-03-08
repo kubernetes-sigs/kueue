@@ -55,16 +55,16 @@ func NewClusterQueueReconciler(client client.Client, cache *cache.Cache) *Cluste
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterQueues/finalizers,verbs=update
 
 func (r *ClusterQueue) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	var capObj kueue.ClusterQueue
-	if err := r.client.Get(ctx, req.NamespacedName, &capObj); err != nil {
+	var cqObj kueue.ClusterQueue
+	if err := r.client.Get(ctx, req.NamespacedName, &cqObj); err != nil {
 		// we'll ignore not-found errors, since there is nothing to do.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	log := ctrl.LoggerFrom(ctx).WithValues("clusterQueue", klog.KObj(&capObj))
+	log := ctrl.LoggerFrom(ctx).WithValues("clusterQueue", klog.KObj(&cqObj))
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(2).Info("Reconciling ClusterQueue")
 
-	usage, workloads, err := r.cache.Usage(&capObj)
+	usage, workloads, err := r.cache.Usage(&cqObj)
 	if err != nil {
 		log.Error(err, "Failed getting usage from cache")
 		// This is likely because the cluster queue was recently removed,
@@ -72,11 +72,11 @@ func (r *ClusterQueue) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Re
 		return ctrl.Result{}, err
 	}
 	// Shallow copy enough for now.
-	oldStatus := capObj.Status
-	capObj.Status.UsedResources = usage
-	capObj.Status.AssignedWorkloads = int32(workloads)
-	if !equality.Semantic.DeepEqual(oldStatus, capObj.Status) {
-		err = r.client.Status().Update(ctx, &capObj)
+	oldStatus := cqObj.Status
+	cqObj.Status.UsedResources = usage
+	cqObj.Status.AssignedWorkloads = int32(workloads)
+	if !equality.Semantic.DeepEqual(oldStatus, cqObj.Status) {
+		err = r.client.Status().Update(ctx, &cqObj)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	return ctrl.Result{}, nil
@@ -95,7 +95,7 @@ func (r *ClusterQueue) Create(e event.CreateEvent) bool {
 	log.V(2).Info("ClusterQueue create event")
 	ctx := ctrl.LoggerInto(context.Background(), log)
 	if err := r.cache.AddClusterQueue(ctx, c); err != nil {
-		log.Error(err, "Failed to add capacity to cache")
+		log.Error(err, "Failed to add clusterQueue to cache")
 	}
 	return true
 }
@@ -120,7 +120,7 @@ func (r *ClusterQueue) Update(e event.UpdateEvent) bool {
 	log := r.log.WithValues("clusterQueue", klog.KObj(c))
 	log.V(2).Info("ClusterQueue update event")
 	if err := r.cache.UpdateClusterQueue(c); err != nil {
-		log.Error(err, "Failed to update capacity in cache")
+		log.Error(err, "Failed to update clusterQueue in cache")
 	}
 	return true
 }
@@ -137,32 +137,32 @@ type assignedWorkloadHandler struct{}
 func (h *assignedWorkloadHandler) Create(e event.CreateEvent, q workqueue.RateLimitingInterface) {
 	w := e.Object.(*kueue.QueuedWorkload)
 	if w.Spec.Admission != nil {
-		q.Add(requestForWorkloadCapacity(w))
+		q.Add(requestForWorkloadClusterQueue(w))
 	}
 }
 
 func (h *assignedWorkloadHandler) Update(e event.UpdateEvent, q workqueue.RateLimitingInterface) {
 	oldW := e.ObjectOld.(*kueue.QueuedWorkload)
 	if oldW.Spec.Admission != nil {
-		q.Add(requestForWorkloadCapacity(oldW))
+		q.Add(requestForWorkloadClusterQueue(oldW))
 	}
 	newW := e.ObjectNew.(*kueue.QueuedWorkload)
 	if newW.Spec.Admission != nil && (oldW.Spec.Admission == nil || newW.Spec.Admission.ClusterQueue != oldW.Spec.Admission.ClusterQueue) {
-		q.Add(requestForWorkloadCapacity(newW))
+		q.Add(requestForWorkloadClusterQueue(newW))
 	}
 }
 
 func (h *assignedWorkloadHandler) Delete(e event.DeleteEvent, q workqueue.RateLimitingInterface) {
 	w := e.Object.(*kueue.QueuedWorkload)
 	if w.Spec.Admission != nil {
-		q.Add(requestForWorkloadCapacity(w))
+		q.Add(requestForWorkloadClusterQueue(w))
 	}
 }
 
 func (h *assignedWorkloadHandler) Generic(e event.GenericEvent, q workqueue.RateLimitingInterface) {
 }
 
-func requestForWorkloadCapacity(w *kueue.QueuedWorkload) reconcile.Request {
+func requestForWorkloadClusterQueue(w *kueue.QueuedWorkload) reconcile.Request {
 	return reconcile.Request{
 		NamespacedName: types.NamespacedName{
 			Name: string(w.Spec.Admission.ClusterQueue),

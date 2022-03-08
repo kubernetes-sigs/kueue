@@ -71,7 +71,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, prodClusterQ)).Should(gomega.Succeed())
 
-		devClusterQ = testing.MakeClusterQueue("dev-capacity").
+		devClusterQ = testing.MakeClusterQueue("dev-clusterqueue").
 			Resource(testing.MakeResource(corev1.ResourceCPU).
 				Flavor(testing.MakeFlavor(spotFlavor, "5").Label(instanceKey, spotFlavor).Obj()).
 				Flavor(testing.MakeFlavor(onDemandFlavor, "5").Label(instanceKey, onDemandFlavor).Obj()).
@@ -93,7 +93,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		ns = nil
 	})
 
-	ginkgo.It("Should schedule jobs as they fit in their capacities", func() {
+	ginkgo.It("Should schedule jobs as they fit in their ClusterQueue", func() {
 		ginkgo.By("checking the first prod job starts")
 		prodJob1 := testing.MakeJob("prod-job1", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
 		gomega.Expect(k8sClient.Create(ctx, prodJob1)).Should(gomega.Succeed())
@@ -178,7 +178,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		gomega.Expect(createdJob3.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotFlavor))
 	})
 
-	ginkgo.It("Should schedule jobs using borrowed capacity", func() {
+	ginkgo.It("Should schedule jobs using borrowed ClusterQueue", func() {
 		ginkgo.By("checking a no-fit job does not start")
 		job := testing.MakeJob("job", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "10").Obj()
 		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
@@ -188,16 +188,16 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			return k8sClient.Get(ctx, lookupKey, createdJob) == nil && *createdJob.Spec.Suspend
 		}, framework.ConsistentDuration, framework.Interval).Should(gomega.BeTrue())
 
-		ginkgo.By("checking the job starts when a fallback capacity gets added")
-		fallbackCapacity := testing.MakeClusterQueue("fallback-cq").
+		ginkgo.By("checking the job starts when a fallback ClusterQueue gets added")
+		fallbackClusterQueue := testing.MakeClusterQueue("fallback-cq").
 			Cohort(prodClusterQ.Spec.Cohort).
 			Resource(testing.MakeResource(corev1.ResourceCPU).
 				Flavor(testing.MakeFlavor(onDemandFlavor, "5").Ceiling("10").Label(instanceKey, onDemandFlavor).Obj()).
 				Obj()).
 			Obj()
-		gomega.Expect(k8sClient.Create(ctx, fallbackCapacity)).Should(gomega.Succeed())
+		gomega.Expect(k8sClient.Create(ctx, fallbackClusterQueue)).Should(gomega.Succeed())
 		defer func() {
-			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, fallbackCapacity)).ToNot(gomega.HaveOccurred())
+			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, fallbackClusterQueue)).ToNot(gomega.HaveOccurred())
 		}()
 		gomega.Eventually(func() bool {
 			return k8sClient.Get(ctx, lookupKey, createdJob) == nil && !*createdJob.Spec.Suspend

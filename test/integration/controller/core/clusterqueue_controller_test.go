@@ -43,9 +43,9 @@ const (
 
 var _ = ginkgo.Describe("ClusterQueue controller", func() {
 	var (
-		ns             *corev1.Namespace
-		clusterQueue   *kueue.ClusterQueue
-		emptyCapStatus kueue.ClusterQueueStatus
+		ns            *corev1.Namespace
+		clusterQueue  *kueue.ClusterQueue
+		emptyCqStatus kueue.ClusterQueueStatus
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -70,7 +70,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 				Flavor(testing.MakeFlavor(flavorModelA, "5").Ceiling("10").Obj()).
 				Flavor(testing.MakeFlavor(flavorModelB, "5").Ceiling("10").Obj()).Obj()).Obj()
 		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
-		emptyCapStatus = kueue.ClusterQueueStatus{
+		emptyCqStatus = kueue.ClusterQueueStatus{
 			AssignedWorkloads: 0,
 			UsedResources: kueue.UsedResources{
 				corev1.ResourceCPU: {
@@ -110,10 +110,10 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			gomega.Expect(k8sClient.Create(ctx, w)).To(gomega.Succeed())
 		}
 		gomega.Eventually(func() kueue.ClusterQueueStatus {
-			var updatedCap kueue.ClusterQueue
-			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCap)).To(gomega.Succeed())
-			return updatedCap.Status
-		}, framework.Timeout, framework.Interval).Should(testing.Equal(emptyCapStatus))
+			var updatedCq kueue.ClusterQueue
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
+			return updatedCq.Status
+		}, framework.Timeout, framework.Interval).Should(testing.Equal(emptyCqStatus))
 
 		ginkgo.By("Assigning workloads")
 		admissions := []*kueue.Admission{
@@ -169,9 +169,9 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			gomega.Expect(k8sClient.Status().Update(ctx, w)).To(gomega.Succeed())
 		}
 		gomega.Eventually(func() kueue.ClusterQueueStatus {
-			var updatedCap kueue.ClusterQueue
-			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCap)).To(gomega.Succeed())
-			return updatedCap.Status
-		}, framework.Timeout, framework.Interval).Should(testing.Equal(emptyCapStatus))
+			var updatedCq kueue.ClusterQueue
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
+			return updatedCq.Status
+		}, framework.Timeout, framework.Interval).Should(testing.Equal(emptyCqStatus))
 	})
 })

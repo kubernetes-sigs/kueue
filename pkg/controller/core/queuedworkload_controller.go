@@ -93,7 +93,7 @@ func (r *QueuedWorkloadReconciler) Delete(e event.DeleteEvent) bool {
 	}
 	log := r.log.WithValues("queuedWorkload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
 	log.V(2).Info("QueuedWorkload delete event")
-	// When assigning a capacity to a workload, we assume it in the cache. If
+	// When assigning a clusterQueue to a workload, we assume it in the cache. If
 	// the state is unknown, the workload could have been assumed and we need
 	// to clear it from the cache.
 	if wl.Spec.Admission != nil || e.DeleteStateUnknown {
@@ -128,7 +128,7 @@ func (r *QueuedWorkloadReconciler) Update(e event.UpdateEvent) bool {
 		log = log.WithValues("clusterQueue", wl.Spec.Admission.ClusterQueue)
 	}
 	if oldWl.Spec.Admission != nil && (wl.Spec.Admission == nil || wl.Spec.Admission.ClusterQueue != oldWl.Spec.Admission.ClusterQueue) {
-		log = log.WithValues("prevCapacity", oldWl.Spec.Admission.ClusterQueue)
+		log = log.WithValues("prevClusterQueue", oldWl.Spec.Admission.ClusterQueue)
 	}
 	log.V(2).Info("QueuedWorkload update event")
 

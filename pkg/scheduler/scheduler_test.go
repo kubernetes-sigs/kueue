@@ -701,7 +701,7 @@ func TestSchedule(t *testing.T) {
 			recorder := broadcaster.NewRecorder(scheme,
 				corev1.EventSource{Component: constants.ManagerName})
 			qManager := queue.NewManager(cl)
-			capCache := cache.New(cl)
+			cqCache := cache.New(cl)
 			// Workloads are loaded into queues or clusterQueues as we add them.
 			for _, q := range queues {
 				if err := qManager.AddQueue(ctx, &q); err != nil {
@@ -709,7 +709,7 @@ func TestSchedule(t *testing.T) {
 				}
 			}
 			for _, c := range clusterQueues {
-				if err := capCache.AddClusterQueue(ctx, &c); err != nil {
+				if err := cqCache.AddClusterQueue(ctx, &c); err != nil {
 					t.Fatalf("Inserting clusterQueue %s in cache: %v", c.Name, err)
 				}
 			}
@@ -717,7 +717,7 @@ func TestSchedule(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed setting up watch: %v", err)
 			}
-			scheduler := New(qManager, capCache, cl, recorder)
+			scheduler := New(qManager, cqCache, cl, recorder)
 			wg := sync.WaitGroup{}
 			scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
 				func() { wg.Add(1) },
@@ -758,7 +758,7 @@ func TestSchedule(t *testing.T) {
 
 			// Verify assignments in cache.
 			gotAssignments := make(map[string]kueue.Admission)
-			snapshot := capCache.Snapshot()
+			snapshot := cqCache.Snapshot()
 			for cqName, c := range snapshot.ClusterQueues {
 				for name, w := range c.Workloads {
 					if w.Obj.Spec.Admission == nil {

@@ -31,16 +31,16 @@ func (c *Cache) Snapshot() Snapshot {
 	snap := Snapshot{
 		ClusterQueues: make(map[string]*ClusterQueue, len(c.clusterQueues)),
 	}
-	for _, capacity := range c.clusterQueues {
-		snap.ClusterQueues[capacity.Name] = capacity.snapshot()
+	for _, cq := range c.clusterQueues {
+		snap.ClusterQueues[cq.Name] = cq.snapshot()
 	}
 	for _, cohort := range c.cohorts {
 		cohortCopy := newCohort(cohort.Name, len(cohort.members))
-		for capacity := range cohort.members {
-			capCopy := snap.ClusterQueues[capacity.Name]
-			capCopy.accumulateResources(cohortCopy)
-			capCopy.Cohort = cohortCopy
-			cohortCopy.members[capCopy] = struct{}{}
+		for cq := range cohort.members {
+			cqCopy := snap.ClusterQueues[cq.Name]
+			cqCopy.accumulateResources(cohortCopy)
+			cqCopy.Cohort = cohortCopy
+			cohortCopy.members[cqCopy] = struct{}{}
 		}
 	}
 	return snap

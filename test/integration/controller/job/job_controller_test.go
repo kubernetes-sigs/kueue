@@ -105,14 +105,14 @@ var _ = ginkgo.Describe("Job controller", func() {
 		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking the job is unsuspended when workload is assigned")
-		capacity := testing.MakeClusterQueue("capacity").
+		clusterQueue := testing.MakeClusterQueue("cluster-queue").
 			Resource(testing.MakeResource(corev1.ResourceCPU).
 				Flavor(testing.MakeFlavor(flavorOnDemand, "5").Label(labelKey, flavorOnDemand).Obj()).
 				Flavor(testing.MakeFlavor(flavorSpot, "5").Label(labelKey, flavorSpot).Obj()).
 				Obj()).Obj()
-		gomega.Expect(k8sClient.Create(ctx, capacity)).Should(gomega.Succeed())
+		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
 		createdWorkload.Spec.Admission = &kueue.Admission{
-			ClusterQueue: kueue.ClusterQueueReference(capacity.Name),
+			ClusterQueue: kueue.ClusterQueueReference(clusterQueue.Name),
 			PodSetFlavors: []kueue.PodSetFlavors{{
 				ResourceFlavors: map[corev1.ResourceName]string{
 					corev1.ResourceCPU: flavorOnDemand,
@@ -127,7 +127,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 			return !*createdJob.Spec.Suspend
 		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 		gomega.Eventually(func() bool {
-			ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Admitted by clusterQueue %v", capacity.Name))
+			ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Admitted by clusterQueue %v", clusterQueue.Name))
 			return ok
 		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 		gomega.Expect(len(createdJob.Spec.Template.Spec.NodeSelector)).Should(gomega.Equal(1))
@@ -166,7 +166,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 
 		ginkgo.By("checking the job is unsuspended and selectors added when workload is assigned again")
 		createdWorkload.Spec.Admission = &kueue.Admission{
-			ClusterQueue: kueue.ClusterQueueReference(capacity.Name),
+			ClusterQueue: kueue.ClusterQueueReference(clusterQueue.Name),
 			PodSetFlavors: []kueue.PodSetFlavors{{
 				ResourceFlavors: map[corev1.ResourceName]string{
 					corev1.ResourceCPU: flavorSpot,
