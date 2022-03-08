@@ -51,7 +51,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 	ginkgo.BeforeEach(func() {
 		ns = &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "core-",
+				GenerateName: "core-clusterqueue-",
 			},
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())

@@ -31,8 +31,8 @@ type ClusterQueueReference string
 
 // QueueStatus defines the observed state of Queue
 type QueueStatus struct {
-	// PendingWorkloads is the number of workloads currently assigned to this
-	// queue not yet assigned to a ClusterQueue.
+	// PendingWorkloads is the number of workloads currently admitted to this
+	// queue not yet admitted to a ClusterQueue.
 	PendingWorkloads int32 `json:"pendingWorkloads"`
 }
 

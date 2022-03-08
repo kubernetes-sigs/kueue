@@ -45,7 +45,7 @@ spec:
             properties:
               pendingWorkloads:
                 description: PendingWorkloads is the number of workloads currently
-                  assigned to this queue not yet assigned to a ClusterQueue.
+                  admitted to this queue not yet admitted to a ClusterQueue.
                 format: int32
                 type: integer
             required:
