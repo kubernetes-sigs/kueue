@@ -137,6 +137,12 @@ func (w *QueuedWorkloadWrapper) Request(r corev1.ResourceName, q string) *Queued
 	return w
 }
 
+// Queue updates the queue name of the job
+func (w *QueuedWorkloadWrapper) Queue(queue string) *QueuedWorkloadWrapper {
+	w.Spec.QueueName = queue
+	return w
+}
+
 // AdmissionWrapper wraps an Admission
 type AdmissionWrapper struct{ kueue.Admission }
 

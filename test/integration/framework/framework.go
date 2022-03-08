@@ -92,6 +92,15 @@ func DeleteClusterQueue(ctx context.Context, c client.Client, cq *kueue.ClusterQ
 	return nil
 }
 
+func DeleteQueue(ctx context.Context, c client.Client, q *kueue.Queue) error {
+	if q != nil {
+		if err := c.Delete(ctx, q); err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+	}
+	return nil
+}
+
 // DeleteNamespace deletes all objects the tests typically create in the namespace.
 func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
 	if ns == nil {
