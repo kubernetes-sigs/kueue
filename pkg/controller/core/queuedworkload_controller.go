@@ -32,9 +32,11 @@ import (
 
 const (
 	// statuses for logging purposes
-	pending  = "pending"
-	admitted = "admitted"
-	finished = "finished"
+	pending                 = "pending"
+	admitted                = "admitted"
+	finished                = "finished"
+	queueDoesntExist        = "Queue for updated workload didn't exist; ignoring for now"
+	clusterQueueDoesntExist = "ClusterQueue for workload didn't exist; ignored for now"
 )
 
 // QueuedWorkloadReconciler reconciles a QueuedWorkload object
@@ -116,6 +118,7 @@ func (r *QueuedWorkloadReconciler) Update(e event.UpdateEvent) bool {
 	oldWl := e.ObjectOld.(*kueue.QueuedWorkload)
 	status := workloadStatus(wl)
 	log := r.log.WithValues("queuedWorkload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
+	ctx := ctrl.LoggerInto(context.Background(), log)
 	prevQueue := oldWl.Spec.QueueName
 	if prevQueue != wl.Spec.QueueName {
 		log = log.WithValues("prevQueue", prevQueue)
@@ -139,15 +142,17 @@ func (r *QueuedWorkloadReconciler) Update(e event.UpdateEvent) bool {
 		}
 		r.queues.DeleteWorkload(oldWl)
 
-	case prevStatus == pending && status == pending:
+	case prevStatus == pending && status == admitted:
 		if !r.queues.UpdateWorkload(oldWl, wl.DeepCopy()) {
-			log.V(2).Info("Queue for updated workload didn't exist; ignoring for now")
+			_ = r.cache.UpdateWorkloadStatus(ctx, wl.DeepCopy(), kueue.QueuedWorkloadPending, queueDoesntExist, "Updating")
+			log.V(2).Info(queueDoesntExist)
 		}
 
 	case prevStatus == pending && status == admitted:
 		r.queues.DeleteWorkload(oldWl)
 		if !r.cache.AddOrUpdateWorkload(wl.DeepCopy()) {
-			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
+			log.V(2).Info(clusterQueueDoesntExist)
+			_ = r.cache.UpdateWorkloadStatus(ctx, wl.DeepCopy(), kueue.QueuedWorkloadPending, clusterQueueDoesntExist, "Updating")
 		}
 
 	case prevStatus == admitted && status == pending:
@@ -155,7 +160,8 @@ func (r *QueuedWorkloadReconciler) Update(e event.UpdateEvent) bool {
 			log.Error(err, "Failed to delete workload from cache")
 		}
 		if !r.queues.AddOrUpdateWorkload(wl.DeepCopy()) {
-			log.V(2).Info("Queue for workload didn't exist; ignored for now")
+			_ = r.cache.UpdateWorkloadStatus(ctx, wl.DeepCopy(), kueue.QueuedWorkloadPending, queueDoesntExist, "Updating")
+			log.V(2).Info(queueDoesntExist)
 		}
 
 	default:

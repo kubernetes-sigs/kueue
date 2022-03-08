@@ -830,12 +830,13 @@ func TestEntryAssignFlavors(t *testing.T) {
 								},
 							},
 						},
-						Tolerations: []corev1.Toleration{corev1.Toleration{
-							Key:      "instance",
-							Operator: corev1.TolerationOpEqual,
-							Value:    "spot",
-							Effect:   corev1.TaintEffectNoSchedule,
-						}},
+						Tolerations: []corev1.Toleration{
+							{
+								Key:      "instance",
+								Operator: corev1.TolerationOpEqual,
+								Value:    "spot",
+								Effect:   corev1.TaintEffectNoSchedule,
+							}},
 					}}},
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{

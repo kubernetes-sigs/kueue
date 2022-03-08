@@ -7328,9 +7328,8 @@ spec:
           status:
             description: QueuedWorkloadStatus defines the observed state of QueuedWorkload
             properties:
-              conditions:
-                description: conditions hold the latest available observations of
-                  the QueuedWorkload current state.
+              record:
+                description: conditions holds observations of the QueuedWorkload state.
                 items:
                   properties:
                     lastProbeTime:

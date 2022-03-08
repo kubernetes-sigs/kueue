@@ -172,6 +172,7 @@ func (c *ClusterQueue) deleteWorkload(w *kueue.QueuedWorkload) {
 		return
 	}
 	c.updateWorkloadUsage(wi, -1)
+
 	delete(c.Workloads, k)
 }
 
@@ -362,6 +363,28 @@ func (c *Cache) ForgetWorkload(w *kueue.QueuedWorkload) error {
 	}
 	cq.deleteWorkload(w)
 	return nil
+}
+
+// UpdateWorkloadStatus is a wrapper to update the condition of a workload
+// sets a new current condition and stores it on Conditions
+func (c *Cache) UpdateWorkloadStatus(ctx context.Context, wl *kueue.QueuedWorkload, wlct kueue.QueuedWorkloadConditionType, message, reason string) error {
+	c.Lock()
+	defer c.Unlock()
+	var newWl kueue.QueuedWorkload
+	if err := c.client.Get(ctx, client.ObjectKeyFromObject(wl), &newWl); err != nil {
+		return err
+	}
+	now := metav1.Now()
+	condition := kueue.QueuedWorkloadCondition{
+		Type:               wlct,
+		Status:             corev1.ConditionTrue,
+		LastProbeTime:      now,
+		LastTransitionTime: now,
+		Reason:             reason,
+		Message:            message,
+	}
+	newWl.Status.Conditions = append(wl.Status.Conditions, condition)
+	return c.client.Status().Update(ctx, &newWl)
 }
 
 // Usage reports the used resources and number of workloads admitted by the ClusterQueue.

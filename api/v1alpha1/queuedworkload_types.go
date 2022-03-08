@@ -88,16 +88,17 @@ type PodSet struct {
 
 // QueuedWorkloadStatus defines the observed state of QueuedWorkload
 type QueuedWorkloadStatus struct {
-	// conditions hold the latest available observations of the QueuedWorkload
-	// current state.
+	// conditions holds observations of the QueuedWorkload state.
 	// +optional
 	// +listType=map
 	// +listMapKey=type
-	Conditions []QueuedWorkloadCondition `json:"conditions,omitempty"`
+	Conditions []QueuedWorkloadCondition `json:"record,omitempty"`
 }
 
 type QueuedWorkloadCondition struct {
 	// type of condition could be:
+	//
+	// Pending: the QueuedWorkload has not been admitted through a ClusterQueue.
 	//
 	// Admitted: the QueuedWorkload was admitted through a ClusterQueue.
 	//
@@ -129,6 +130,10 @@ type QueuedWorkloadCondition struct {
 type QueuedWorkloadConditionType string
 
 const (
+	// QueuedWorkloadPending means that the QueuedWorkload has not been
+	// admitted by a ClusterQueue yet.
+	QueuedWorkloadPending QueuedWorkloadConditionType = "Pending"
+
 	// QueuedWorkloadAdmitted means that the QueuedWorkload was admitted by a ClusterQueue.
 	QueuedWorkloadAdmitted QueuedWorkloadConditionType = "Admitted"
 
@@ -136,6 +141,10 @@ const (
 	// ResourceClaim finished running (failed or succeeded).
 	QueuedWorkloadFinished QueuedWorkloadConditionType = "Finished"
 )
+
+func (qwct *QueuedWorkloadConditionType) ToString() string {
+	return string(*qwct)
+}
 
 //+kubebuilder:object:root=true
 //+kubebuilder:resource:shortName={workload,qw}

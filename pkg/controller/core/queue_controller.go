@@ -21,13 +21,10 @@ import (
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
@@ -124,48 +121,11 @@ func (r *QueueReconciler) Generic(e event.GenericEvent) bool {
 	return true
 }
 
-type queuedWorkloadHandler struct{}
-
-func (h *queuedWorkloadHandler) Create(e event.CreateEvent, q workqueue.RateLimitingInterface) {
-	qw := e.Object.(*kueue.QueuedWorkload)
-	if qw.Spec.Admission == nil {
-		q.Add(requestForQueueStatus(qw))
-	}
-}
-
-func (h *queuedWorkloadHandler) Update(e event.UpdateEvent, q workqueue.RateLimitingInterface) {
-	oldQW := e.ObjectOld.(*kueue.QueuedWorkload)
-	newQW := e.ObjectOld.(*kueue.QueuedWorkload)
-	q.Add(requestForQueueStatus(newQW))
-	if newQW.Spec.QueueName != oldQW.Spec.QueueName {
-		q.Add(requestForQueueStatus(oldQW))
-	}
-}
-
-func (h *queuedWorkloadHandler) Delete(e event.DeleteEvent, q workqueue.RateLimitingInterface) {
-	qw := e.Object.(*kueue.QueuedWorkload)
-	if qw.Spec.Admission == nil {
-		q.Add(requestForQueueStatus(qw))
-	}
-}
-
-func (h *queuedWorkloadHandler) Generic(e event.GenericEvent, q workqueue.RateLimitingInterface) {
-}
-
-func requestForQueueStatus(w *kueue.QueuedWorkload) reconcile.Request {
-	return reconcile.Request{
-		NamespacedName: types.NamespacedName{
-			Name:      w.Spec.QueueName,
-			Namespace: w.Namespace,
-		},
-	}
-}
-
 // SetupWithManager sets up the controller with the Manager.
 func (r *QueueReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.Queue{}).
-		Watches(&source.Kind{Type: &kueue.QueuedWorkload{}}, &queuedWorkloadHandler{}).
+		Watches(&source.Kind{Type: &kueue.QueuedWorkload{}}, &WorkloadHandler{}).
 		WithEventFilter(r).
 		Complete(r)
 }

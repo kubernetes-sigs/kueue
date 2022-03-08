@@ -21,13 +21,10 @@ import (
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
@@ -130,51 +127,11 @@ func (r *ClusterQueue) Generic(e event.GenericEvent) bool {
 	return true
 }
 
-// assignedWorkloadHandler signals the controller to reconcile the ClusterQueue
-// assigned to the workload in the event.
-type assignedWorkloadHandler struct{}
-
-func (h *assignedWorkloadHandler) Create(e event.CreateEvent, q workqueue.RateLimitingInterface) {
-	w := e.Object.(*kueue.QueuedWorkload)
-	if w.Spec.Admission != nil {
-		q.Add(requestForWorkloadClusterQueue(w))
-	}
-}
-
-func (h *assignedWorkloadHandler) Update(e event.UpdateEvent, q workqueue.RateLimitingInterface) {
-	oldW := e.ObjectOld.(*kueue.QueuedWorkload)
-	if oldW.Spec.Admission != nil {
-		q.Add(requestForWorkloadClusterQueue(oldW))
-	}
-	newW := e.ObjectNew.(*kueue.QueuedWorkload)
-	if newW.Spec.Admission != nil && (oldW.Spec.Admission == nil || newW.Spec.Admission.ClusterQueue != oldW.Spec.Admission.ClusterQueue) {
-		q.Add(requestForWorkloadClusterQueue(newW))
-	}
-}
-
-func (h *assignedWorkloadHandler) Delete(e event.DeleteEvent, q workqueue.RateLimitingInterface) {
-	w := e.Object.(*kueue.QueuedWorkload)
-	if w.Spec.Admission != nil {
-		q.Add(requestForWorkloadClusterQueue(w))
-	}
-}
-
-func (h *assignedWorkloadHandler) Generic(e event.GenericEvent, q workqueue.RateLimitingInterface) {
-}
-
-func requestForWorkloadClusterQueue(w *kueue.QueuedWorkload) reconcile.Request {
-	return reconcile.Request{
-		NamespacedName: types.NamespacedName{
-			Name: string(w.Spec.Admission.ClusterQueue),
-		},
-	}
-}
-
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClusterQueue) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.ClusterQueue{}).
-		Watches(&source.Kind{Type: &kueue.QueuedWorkload{}}, &assignedWorkloadHandler{}).
+		Watches(&source.Kind{Type: &kueue.QueuedWorkload{}}, &WorkloadHandler{}).
 		WithEventFilter(r).
 		Complete(r)
 }

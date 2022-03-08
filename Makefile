@@ -109,7 +109,7 @@ test: generate fmt vet ## Run tests.
 .PHONY: test-integration
 test-integration: manifests generate fmt vet envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
-	$(GO_CMD) test -v $(INTEGRATION_TARGET)
+	$(GO_CMD) test $(INTEGRATION_TARGET)
 
 .PHONY: ci-lint
 ci-lint: golangci-lint
