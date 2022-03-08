@@ -51,6 +51,15 @@ func TestSchedule(t *testing.T) {
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "sales"},
 			Spec: kueue.ClusterQueueSpec{
+				NamespaceSelector: &metav1.LabelSelector{
+					MatchExpressions: []metav1.LabelSelectorRequirement{
+						{
+							Key:      "dep",
+							Operator: metav1.LabelSelectorOpIn,
+							Values:   []string{"sales"},
+						},
+					},
+				},
 				RequestableResources: []kueue.Resource{
 					{
 						Name: corev1.ResourceCPU,
@@ -71,6 +80,15 @@ func TestSchedule(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "eng-alpha"},
 			Spec: kueue.ClusterQueueSpec{
 				Cohort: "eng",
+				NamespaceSelector: &metav1.LabelSelector{
+					MatchExpressions: []metav1.LabelSelectorRequirement{
+						{
+							Key:      "dep",
+							Operator: metav1.LabelSelectorOpIn,
+							Values:   []string{"eng"},
+						},
+					},
+				},
 				RequestableResources: []kueue.Resource{
 					{
 						Name: corev1.ResourceCPU,
@@ -98,6 +116,15 @@ func TestSchedule(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "eng-beta"},
 			Spec: kueue.ClusterQueueSpec{
 				Cohort: "eng",
+				NamespaceSelector: &metav1.LabelSelector{
+					MatchExpressions: []metav1.LabelSelectorRequirement{
+						{
+							Key:      "dep",
+							Operator: metav1.LabelSelectorOpIn,
+							Values:   []string{"eng"},
+						},
+					},
+				},
 				RequestableResources: []kueue.Resource{
 					{
 						Name: corev1.ResourceCPU,
@@ -142,6 +169,15 @@ func TestSchedule(t *testing.T) {
 			},
 			Spec: kueue.QueueSpec{
 				ClusterQueue: "sales",
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "sales",
+				Name:      "blocked",
+			},
+			Spec: kueue.QueueSpec{
+				ClusterQueue: "eng-alpha",
 			},
 		},
 		{
@@ -272,6 +308,31 @@ func TestSchedule(t *testing.T) {
 			},
 			wantLeft: map[string]sets.String{
 				"sales/main": sets.NewString("new"),
+			},
+		},
+		"failed to match clusterQueue selector": {
+			workloads: []kueue.QueuedWorkload{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "sales",
+						Name:      "new",
+					},
+					Spec: kueue.QueuedWorkloadSpec{
+						QueueName: "blocked",
+						PodSets: []kueue.PodSet{
+							{
+								Name:  "one",
+								Count: 1,
+								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+									corev1.ResourceCPU: "1",
+								}),
+							},
+						},
+					},
+				},
+			},
+			wantLeft: map[string]sets.String{
+				"sales/blocked": sets.NewString("new"),
 			},
 		},
 		"assign to different cohorts": {
@@ -623,8 +684,16 @@ func TestSchedule(t *testing.T) {
 			if err := kueue.AddToScheme(scheme); err != nil {
 				t.Fatalf("Failed adding kueue scheme: %v", err)
 			}
-			clientBuilder := fake.NewClientBuilder().WithScheme(scheme).WithLists(
-				&kueue.QueuedWorkloadList{Items: tc.workloads})
+			if err := corev1.AddToScheme(scheme); err != nil {
+				t.Fatalf("Failed adding kueue scheme: %v", err)
+			}
+			clientBuilder := fake.NewClientBuilder().WithScheme(scheme).
+				WithLists(&kueue.QueuedWorkloadList{Items: tc.workloads}).
+				WithObjects(
+					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-alpha", Labels: map[string]string{"dep": "eng"}}},
+					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-beta", Labels: map[string]string{"dep": "eng"}}},
+					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "sales", Labels: map[string]string{"dep": "sales"}}},
+				)
 			cl := clientBuilder.Build()
 			broadcaster := record.NewBroadcaster()
 			recorder := broadcaster.NewRecorder(scheme,

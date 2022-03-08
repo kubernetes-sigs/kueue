@@ -24,6 +24,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/record"
@@ -62,10 +64,8 @@ func (s *Scheduler) Start(ctx context.Context) {
 }
 
 func (s *Scheduler) schedule(ctx context.Context) {
-	log, err := logr.FromContext(ctx)
-	if err != nil {
-		return
-	}
+	log := ctrl.LoggerFrom(ctx)
+
 	// 1. Get the heads from the queues, including their desired clusterQueue.
 	// This operation blocks while the queues are empty.
 	headWorkloads := s.queues.Heads(ctx)
@@ -78,7 +78,8 @@ func (s *Scheduler) schedule(ctx context.Context) {
 	snapshot := s.cache.Snapshot()
 
 	// 3. Calculate requirements for admitting workloads (resource flavors, borrowing).
-	entries := calculateRequirementsForAdmission(log, headWorkloads, snapshot)
+	// (resource flavors, borrowing).
+	entries := s.nominate(ctx, headWorkloads, snapshot)
 
 	// 4. Sort entries based on borrowing and timestamps.
 	sort.Sort(entryOrdering(entries))
@@ -87,18 +88,18 @@ func (s *Scheduler) schedule(ctx context.Context) {
 	// admitted by a clusterQueue or a cohort (if borrowing).
 	// This is because there can be other workloads deeper in a queue whose head
 	// got admitted that should be scheduled before the heads of other queues.
-	usedCapacity := sets.NewString()
+	usedClusterQueue := sets.NewString()
 	usedCohorts := sets.NewString()
 	admittedWorkloads := sets.NewString()
 	for _, e := range entries {
-		if usedCapacity.Has(e.ClusterQueue) {
+		if usedClusterQueue.Has(e.ClusterQueue) {
 			continue
 		}
 		c := snapshot.ClusterQueues[e.ClusterQueue]
 		if len(e.borrows) > 0 && c.Cohort != nil && usedCohorts.Has(c.Cohort.Name) {
 			continue
 		}
-		usedCapacity.Insert(e.ClusterQueue)
+		usedClusterQueue.Insert(e.ClusterQueue)
 		log := log.WithValues("queuedWorkload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue))
 		if err := s.admit(ctrl.LoggerInto(ctx, log), &e); err != nil {
 			log.Error(err, "Failed admitting workload by clusterQueue")
@@ -133,20 +134,29 @@ type entry struct {
 	borrows cache.Resources
 }
 
-// calculateRequirementsForAdmission returns the workloads with their
-// requirements (resource flavors, borrowing) if they were admitted by the
-// clusterQueues in the snapshot.
-func calculateRequirementsForAdmission(log logr.Logger, workloads []workload.Info, snap cache.Snapshot) []entry {
+// nominate returns the workloads with their requirements (resource flavors, borrowing) if
+// they were admitted by the clusterQueues in the snapshot.
+func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, snap cache.Snapshot) []entry {
+	log := ctrl.LoggerFrom(ctx)
 	entries := make([]entry, 0, len(workloads))
 	for _, w := range workloads {
 		log := log.WithValues("queuedWorkload", klog.KObj(w.Obj), "clusterQueue", klog.KRef("", w.ClusterQueue))
-		c := snap.ClusterQueues[w.ClusterQueue]
-		if c == nil {
+		cq := snap.ClusterQueues[w.ClusterQueue]
+		if cq == nil {
 			log.V(3).Info("ClusterQueue not found when calculating workload admission requirements")
 			continue
 		}
+		ns := corev1.Namespace{}
+		if err := s.client.Get(ctx, types.NamespacedName{Name: w.Obj.Namespace}, &ns); err != nil {
+			log.Error(err, "Looking up namespace")
+			continue
+		}
+		if !cq.NamespaceSelector.Matches(labels.Set(ns.Labels)) {
+			log.V(2).Info("Workload namespace doesn't match clusterQueue selector")
+			continue
+		}
 		e := entry{Info: w}
-		if !e.assignFlavors(log, c) {
+		if !e.assignFlavors(log, cq) {
 			log.V(2).Info("Workload didn't fit in remaining clusterQueue even when borrowing")
 			continue
 		}

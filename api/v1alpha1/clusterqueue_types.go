@@ -134,7 +134,7 @@ type ClusterQueueSpec struct {
 	Cohort string `json:"cohort,omitempty"`
 
 	// QueueingStrategy indicates the queueing strategy of the workloads
-	// across the queues in this Capacity. This field is immutable.
+	// across the queues in this ClusterQueue. This field is immutable.
 	// Current Supported Strategies:
 	//
 	// - StrictFIFO: workloads are sorted strictly by creation time.
@@ -142,6 +142,13 @@ type ClusterQueueSpec struct {
 	// +kubebuilder:default=StrictFIFO
 	// +kubebuilder:validation:Enum=StrictFIFO
 	QueueingStrategy QueueingStrategy `json:"queueingStrategy,omitempty"`
+
+	// namespaceSelector defines which namespaces are allowed to submit workloads to
+	// this clusterQueue. Beyond this basic support for policy, an policy agent like
+	// Gatekeeper should be used to enforce more advanced policies.
+	// Defaults to null which is a nothing selector (no namespaces eligible).
+	// If set to an empty selector `{}`, then all namespaces are eligible.
+	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
 }
 
 type QueueingStrategy string

@@ -22,9 +22,11 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -44,7 +46,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 	steps := []struct {
 		name              string
 		operation         func()
-		wantClusterQueues sets.String
+		wantClusterQueues map[string]*ClusterQueue
 		wantCohorts       map[string]sets.String
 	}{
 		{
@@ -53,11 +55,34 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				clusterQueues := []kueue.ClusterQueue{
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "a"},
-						Spec:       kueue.ClusterQueueSpec{Cohort: "one"},
+						Spec: kueue.ClusterQueueSpec{
+							RequestableResources: []kueue.Resource{
+								{
+									Name: corev1.ResourceCPU,
+									Flavors: []kueue.ResourceFlavor{
+										{
+											Name: "default",
+											Quota: kueue.Quota{
+												Guaranteed: resource.MustParse("10"),
+												Ceiling:    resource.MustParse("20"),
+											},
+											Labels: map[string]string{"cpuType": "default"},
+										},
+									},
+								}},
+							Cohort: "one",
+						},
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "b"},
-						Spec:       kueue.ClusterQueueSpec{Cohort: "one"},
+						Spec: kueue.ClusterQueueSpec{
+							RequestableResources: []kueue.Resource{
+								{
+									Name:    corev1.ResourceCPU,
+									Flavors: []kueue.ResourceFlavor{{Name: "default"}},
+								}},
+							Cohort: "one",
+						},
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "c"},
@@ -73,7 +98,38 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					}
 				}
 			},
-			wantClusterQueues: sets.NewString("a", "b", "c", "d"),
+			wantClusterQueues: map[string]*ClusterQueue{
+				"a": {
+					Name: "a",
+					RequestableResources: map[corev1.ResourceName][]FlavorInfo{
+						corev1.ResourceCPU: {{Name: "default", Guaranteed: 10000, Ceiling: 20000,
+							Labels: map[string]string{"cpuType": "default"}}},
+					},
+					NamespaceSelector: labels.Nothing(),
+					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
+					UsedResources:     Resources{corev1.ResourceCPU: {"default": 0}},
+				},
+				"b": {
+					Name: "b",
+					RequestableResources: map[corev1.ResourceName][]FlavorInfo{
+						corev1.ResourceCPU: {{Name: "default"}},
+					},
+					NamespaceSelector: labels.Nothing(),
+					UsedResources:     Resources{corev1.ResourceCPU: {"default": 0}},
+				},
+				"c": {
+					Name:                 "c",
+					RequestableResources: map[corev1.ResourceName][]FlavorInfo{},
+					NamespaceSelector:    labels.Nothing(),
+					UsedResources:        Resources{},
+				},
+				"d": {
+					Name:                 "d",
+					RequestableResources: map[corev1.ResourceName][]FlavorInfo{},
+					NamespaceSelector:    labels.Nothing(),
+					UsedResources:        Resources{},
+				},
+			},
 			wantCohorts: map[string]sets.String{
 				"one": sets.NewString("a", "b"),
 				"two": sets.NewString("c"),
@@ -85,11 +141,34 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				clusterQueues := []kueue.ClusterQueue{
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "a"},
-						Spec:       kueue.ClusterQueueSpec{Cohort: "two"},
+						Spec: kueue.ClusterQueueSpec{
+							RequestableResources: []kueue.Resource{
+								{
+									Name: corev1.ResourceCPU,
+									Flavors: []kueue.ResourceFlavor{
+										{
+											Name: "default",
+											Quota: kueue.Quota{
+												Guaranteed: resource.MustParse("5"),
+												Ceiling:    resource.MustParse("10"),
+											},
+											Labels: map[string]string{
+												"cpuType": "default",
+												"region":  "central",
+											},
+										},
+									},
+								}},
+							Cohort: "two",
+						},
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "b"},
-						Spec:       kueue.ClusterQueueSpec{Cohort: "one"}, // No change.
+						Spec: kueue.ClusterQueueSpec{
+							// remove the only flavor
+							Cohort:            "one",                   // No change.
+							NamespaceSelector: &metav1.LabelSelector{}, // everything
+						},
 					},
 				}
 				for _, c := range clusterQueues {
@@ -98,7 +177,37 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					}
 				}
 			},
-			wantClusterQueues: sets.NewString("a", "b", "c", "d"),
+			wantClusterQueues: map[string]*ClusterQueue{
+				"a": {
+					Name: "a",
+					RequestableResources: map[corev1.ResourceName][]FlavorInfo{
+						corev1.ResourceCPU: {{Name: "default", Guaranteed: 5000, Ceiling: 10000,
+							Labels: map[string]string{"cpuType": "default", "region": "central"},
+						}},
+					},
+					NamespaceSelector: labels.Nothing(),
+					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType", "region")},
+					UsedResources:     Resources{corev1.ResourceCPU: {"default": 0}},
+				},
+				"b": {
+					Name:                 "b",
+					RequestableResources: map[corev1.ResourceName][]FlavorInfo{},
+					NamespaceSelector:    labels.Everything(),
+					UsedResources:        Resources{},
+				},
+				"c": {
+					Name:                 "c",
+					RequestableResources: map[corev1.ResourceName][]FlavorInfo{},
+					NamespaceSelector:    labels.Nothing(),
+					UsedResources:        Resources{},
+				},
+				"d": {
+					Name:                 "d",
+					RequestableResources: map[corev1.ResourceName][]FlavorInfo{},
+					NamespaceSelector:    labels.Nothing(),
+					UsedResources:        Resources{},
+				},
+			},
 			wantCohorts: map[string]sets.String{
 				"one": sets.NewString("b"),
 				"two": sets.NewString("a", "c"),
@@ -108,36 +217,46 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			name: "delete",
 			operation: func() {
 				clusterQueues := []kueue.ClusterQueue{
-					{ObjectMeta: metav1.ObjectMeta{Name: "b"}},
+					{ObjectMeta: metav1.ObjectMeta{Name: "a"}},
 					{ObjectMeta: metav1.ObjectMeta{Name: "d"}},
 				}
 				for _, c := range clusterQueues {
 					cache.DeleteClusterQueue(&c)
 				}
 			},
-			wantClusterQueues: sets.NewString("a", "c"),
+			wantClusterQueues: map[string]*ClusterQueue{
+				"b": {
+					Name:                 "b",
+					RequestableResources: map[corev1.ResourceName][]FlavorInfo{},
+					NamespaceSelector:    labels.Everything(),
+					UsedResources:        Resources{},
+				},
+				"c": {
+					Name:                 "c",
+					RequestableResources: map[corev1.ResourceName][]FlavorInfo{},
+					NamespaceSelector:    labels.Nothing(),
+					UsedResources:        Resources{},
+				},
+			},
 			wantCohorts: map[string]sets.String{
-				"two": sets.NewString("a", "c"),
+				"one": sets.NewString("b"),
+				"two": sets.NewString("c"),
 			},
 		},
 	}
 	for _, step := range steps {
 		t.Run(step.name, func(t *testing.T) {
 			step.operation()
-			gotclusterQueues := sets.NewString()
-			nameForCapacity := make(map[*ClusterQueue]string)
-			gotCohorts := make(map[string]sets.String)
-			for name, cq := range cache.clusterQueues {
-				gotclusterQueues.Insert(name)
-				nameForCapacity[cq] = name
-			}
-			if diff := cmp.Diff(step.wantClusterQueues, gotclusterQueues); diff != "" {
+			if diff := cmp.Diff(step.wantClusterQueues, cache.clusterQueues,
+				cmpopts.IgnoreFields(ClusterQueue{}, "Cohort", "Workloads")); diff != "" {
 				t.Errorf("Unexpected clusterQueues (-want,+got):\n%s", diff)
 			}
+
+			gotCohorts := map[string]sets.String{}
 			for name, cohort := range cache.cohorts {
 				gotCohort := sets.NewString()
-				for clusterQueues := range cohort.members {
-					gotCohort.Insert(nameForCapacity[clusterQueues])
+				for cq := range cohort.members {
+					gotCohort.Insert(cq.Name)
 				}
 				gotCohorts[name] = gotCohort
 			}
@@ -609,7 +728,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 	}
 }
 
-func TestCapacityUsage(t *testing.T) {
+func TestClusterQueueUsage(t *testing.T) {
 	cq := kueue.ClusterQueue{
 		ObjectMeta: metav1.ObjectMeta{Name: "foo"},
 		Spec: kueue.ClusterQueueSpec{

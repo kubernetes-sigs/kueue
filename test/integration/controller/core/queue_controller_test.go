@@ -51,8 +51,7 @@ var _ = ginkgo.Describe("Queue controller", func() {
 			Resource(testing.MakeResource(resourceGPU).
 				Flavor(testing.MakeFlavor(flavorModelA, "5").Ceiling("10").Obj()).
 				Flavor(testing.MakeFlavor(flavorModelB, "5").Ceiling("10").Obj()).Obj()).Obj()
-		Queue = testing.MakeQueue("queue", ns.Name).
-			Capacity("cluster-queue").Obj()
+		Queue = testing.MakeQueue("queue", ns.Name).ClusterQueue("cluster-queue").Obj()
 		gomega.Expect(k8sClient.Create(ctx, Queue)).To(gomega.Succeed())
 	})
 

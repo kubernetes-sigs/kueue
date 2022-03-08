@@ -185,8 +185,8 @@ func (q *QueueWrapper) Obj() *kueue.Queue {
 	return &q.Queue
 }
 
-// Capacity updates the capacity the queue points to.
-func (q *QueueWrapper) Capacity(c string) *QueueWrapper {
+// ClusterQueue updates the clusterQueue the queue points to.
+func (q *QueueWrapper) ClusterQueue(c string) *QueueWrapper {
 	q.Spec.ClusterQueue = kueue.ClusterQueueReference(c)
 	return q
 }
@@ -194,11 +194,15 @@ func (q *QueueWrapper) Capacity(c string) *QueueWrapper {
 // ClusterQueueWrapper wraps a ClusterQueue.
 type ClusterQueueWrapper struct{ kueue.ClusterQueue }
 
-// MakeClusterQueue creates a wrapper for a ClusterQueue.
+// MakeClusterQueue creates a wrapper for a ClusterQueue with a
+// select-all NamespaceSelector.
 func MakeClusterQueue(name string) *ClusterQueueWrapper {
 	return &ClusterQueueWrapper{kueue.ClusterQueue{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
+		},
+		Spec: kueue.ClusterQueueSpec{
+			NamespaceSelector: &metav1.LabelSelector{},
 		},
 	}}
 }
@@ -214,7 +218,7 @@ func (c *ClusterQueueWrapper) Cohort(cohort string) *ClusterQueueWrapper {
 	return c
 }
 
-// Resource adds a resource with flavors to the capacity.
+// Resource adds a resource with flavors.
 func (c *ClusterQueueWrapper) Resource(r *kueue.Resource) *ClusterQueueWrapper {
 	c.Spec.RequestableResources = append(c.Spec.RequestableResources, *r)
 	return c
@@ -223,6 +227,12 @@ func (c *ClusterQueueWrapper) Resource(r *kueue.Resource) *ClusterQueueWrapper {
 // QueueingStrategy sets the queueing strategy in this ClusterQueue.
 func (c *ClusterQueueWrapper) QueueingStrategy(strategy kueue.QueueingStrategy) *ClusterQueueWrapper {
 	c.Spec.QueueingStrategy = strategy
+	return c
+}
+
+// NamespaceSelector sets the namespace selector.
+func (c *ClusterQueueWrapper) NamespaceSelector(s *metav1.LabelSelector) *ClusterQueueWrapper {
+	c.Spec.NamespaceSelector = s
 	return c
 }
 

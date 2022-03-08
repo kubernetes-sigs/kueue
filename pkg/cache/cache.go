@@ -23,6 +23,8 @@ import (
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -31,7 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-const workloadCapacityKey = "spec.assignedCapacity"
+const workloadClusterQueueKey = "spec.admission.clusterQueue"
 
 var cqNotFoundErr = errors.New("cluster queue not found")
 
@@ -86,10 +88,11 @@ type ClusterQueue struct {
 	// that can be matched against the flavors.
 	LabelKeys map[corev1.ResourceName]sets.String
 
-	// TODO(#87) introduce a single heap for per Capacity.
+	// TODO(#87) introduce a single heap for per ClusterQueue.
 	// QueueingStrategy indicates the queueing strategy of the workloads
-	// across the queues in this Capacity.
-	QueueingStrategy kueue.QueueingStrategy
+	// across the queues in this ClusterQueue.
+	QueueingStrategy  kueue.QueueingStrategy
+	NamespaceSelector labels.Selector
 }
 
 // FlavorInfo holds processed flavor type.
@@ -101,39 +104,54 @@ type FlavorInfo struct {
 	Labels     map[string]string
 }
 
-func NewClusterQueue(cap *kueue.ClusterQueue) *ClusterQueue {
+func NewClusterQueue(cap *kueue.ClusterQueue) (*ClusterQueue, error) {
 	c := &ClusterQueue{
-		Name:                 cap.Name,
-		RequestableResources: resourcesByName(cap.Spec.RequestableResources),
-		UsedResources:        make(Resources, len(cap.Spec.RequestableResources)),
-		Workloads:            map[string]*workload.Info{},
-		QueueingStrategy:     cap.Spec.QueueingStrategy,
+		Name:             cap.Name,
+		Workloads:        map[string]*workload.Info{},
+		QueueingStrategy: cap.Spec.QueueingStrategy,
+	}
+	if err := c.update(cap); err != nil {
+		return nil, err
 	}
 
+	return c, nil
+}
+
+func (c *ClusterQueue) update(in *kueue.ClusterQueue) error {
+	c.RequestableResources = resourcesByName(in.Spec.RequestableResources)
+	nsSelector, err := metav1.LabelSelectorAsSelector(in.Spec.NamespaceSelector)
+	if err != nil {
+		return err
+	}
+	c.NamespaceSelector = nsSelector
 	labelKeys := map[corev1.ResourceName]sets.String{}
-	for _, r := range cap.Spec.RequestableResources {
+	usedResources := make(Resources, len(in.Spec.RequestableResources))
+	for _, r := range in.Spec.RequestableResources {
 		if len(r.Flavors) == 0 {
 			continue
 		}
 
+		existingUsedFlavors := c.UsedResources[r.Name]
+		usedFlavors := make(map[string]int64, len(r.Flavors))
 		resKeys := sets.NewString()
-		ts := make(map[string]int64, len(r.Flavors))
 		for _, t := range r.Flavors {
+			usedFlavors[t.Name] = existingUsedFlavors[t.Name]
 			for k := range t.Labels {
 				resKeys.Insert(k)
 			}
-			ts[t.Name] = 0
 		}
+
+		usedResources[r.Name] = usedFlavors
 		if len(resKeys) != 0 {
 			labelKeys[r.Name] = resKeys
 		}
-		c.UsedResources[r.Name] = ts
 	}
+	c.UsedResources = usedResources
 
 	if len(labelKeys) != 0 {
 		c.LabelKeys = labelKeys
 	}
-	return c
+	return nil
 }
 
 func (c *ClusterQueue) addWorkload(w *kueue.QueuedWorkload) error {
@@ -178,13 +196,17 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 	if _, ok := c.clusterQueues[cq.Name]; ok {
 		return fmt.Errorf("ClusterQueue already exists")
 	}
-	cqImpl := NewClusterQueue(cq)
+	cqImpl, err := NewClusterQueue(cq)
+	if err != nil {
+		return err
+	}
 	c.addClusterQueueToCohort(cqImpl, cq.Spec.Cohort)
 	c.clusterQueues[cq.Name] = cqImpl
 	// On controller restart, an add ClusterQueue event may come after
+
 	// add workload events, and so here we explicitly list and add existing workloads.
 	var workloads kueue.QueuedWorkloadList
-	if err := c.client.List(ctx, &workloads, client.MatchingFields{workloadCapacityKey: cq.Name}); err != nil {
+	if err := c.client.List(ctx, &workloads, client.MatchingFields{workloadClusterQueueKey: cq.Name}); err != nil {
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
 	for i, w := range workloads.Items {
@@ -205,7 +227,9 @@ func (c *Cache) UpdateClusterQueue(cq *kueue.ClusterQueue) error {
 	if !ok {
 		return cqNotFoundErr
 	}
-	cqImpl.RequestableResources = resourcesByName(cq.Spec.RequestableResources)
+	if err := cqImpl.update(cq); err != nil {
+		return err
+	}
 	if cqImpl.Cohort != nil {
 		if cqImpl.Cohort.Name != cq.Spec.Cohort {
 			c.deleteClusterQueueFromCohort(cqImpl)
@@ -435,7 +459,7 @@ func resourcesByName(in []kueue.Resource) map[corev1.ResourceName][]FlavorInfo {
 }
 
 func SetupIndexes(indexer client.FieldIndexer) error {
-	return indexer.IndexField(context.Background(), &kueue.QueuedWorkload{}, workloadCapacityKey, func(o client.Object) []string {
+	return indexer.IndexField(context.Background(), &kueue.QueuedWorkload{}, workloadClusterQueueKey, func(o client.Object) []string {
 		wl := o.(*kueue.QueuedWorkload)
 		if wl.Spec.Admission == nil {
 			return nil

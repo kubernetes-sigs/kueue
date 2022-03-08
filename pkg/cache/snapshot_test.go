@@ -25,6 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -266,7 +267,8 @@ func TestSnapshot(t *testing.T) {
 				Workloads: map[string]*workload.Info{
 					"/alpha": workload.NewInfo(&workloads[0]),
 				},
-				LabelKeys: map[corev1.ResourceName]sets.String{corev1.ResourceCPU: {"baz": {}, "foo": {}, "instance": {}}},
+				LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: {"baz": {}, "foo": {}, "instance": {}}},
+				NamespaceSelector: labels.Nothing(),
 			},
 			"foobar": {
 				Name:   "foobar",
@@ -297,6 +299,7 @@ func TestSnapshot(t *testing.T) {
 					"/beta":  workload.NewInfo(&workloads[1]),
 					"/gamma": workload.NewInfo(&workloads[2]),
 				},
+				NamespaceSelector: labels.Nothing(),
 			},
 			"bar": {
 				Name: "bar",
@@ -311,7 +314,8 @@ func TestSnapshot(t *testing.T) {
 				UsedResources: Resources{
 					corev1.ResourceCPU: map[string]int64{"default": 0},
 				},
-				Workloads: map[string]*workload.Info{},
+				Workloads:         map[string]*workload.Info{},
+				NamespaceSelector: labels.Nothing(),
 			},
 		},
 	}
