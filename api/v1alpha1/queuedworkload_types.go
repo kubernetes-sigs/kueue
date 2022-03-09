@@ -45,7 +45,7 @@ type Admission struct {
 	// clusterQueue is the name of the ClusterQueue that admitted this workload.
 	ClusterQueue ClusterQueueReference `json:"clusterQueue"`
 
-	// podSetFlavors hold the admision results for each of the .spec.podSets entries.
+	// podSetFlavors hold the admission results for each of the .spec.podSets entries.
 	// +listType=map
 	// +listMapKey=name
 	PodSetFlavors []PodSetFlavors `json:"podSetFlavors"`
