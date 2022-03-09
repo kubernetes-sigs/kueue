@@ -32,11 +32,6 @@ BUILDER_IMAGE ?= golang:1.17
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.23
 
-# If this change will be impactful to you please leave a comment on https://github.com/onsi/ginkgo/issues/711
-# Learn more at: https://github.com/onsi/ginkgo/blob/ver2/docs/MIGRATING_TO_V2.md#removed-custom-reporters
-# To silence deprecations that can be silenced set the following environment variable:
-# TODO(#94): Upgrade ginko to V2
-ACK_GINKGO_DEPRECATIONS=1.16.5
 INTEGRATION_TARGET ?= ./test/integration/...
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
@@ -113,7 +108,8 @@ test: generate fmt vet ## Run tests.
 
 .PHONY: test-integration
 test-integration: manifests generate fmt vet envtest ## Run tests.
-	ACK_GINKGO_DEPRECATIONS=$(ACK_GINKGO_DEPRECATIONS) KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" $(GO_CMD) test -v $(INTEGRATION_TARGET)
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
+	$(GO_CMD) test -v $(INTEGRATION_TARGET)
 
 .PHONY: ci-lint
 ci-lint: golangci-lint
