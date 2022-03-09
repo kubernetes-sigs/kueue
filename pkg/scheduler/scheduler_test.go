@@ -38,7 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
-	"sigs.k8s.io/kueue/pkg/util/function"
+	"sigs.k8s.io/kueue/pkg/util/routine"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -650,7 +650,7 @@ func TestSchedule(t *testing.T) {
 			}
 			scheduler := New(qManager, capCache, cl, recorder)
 			wg := sync.WaitGroup{}
-			scheduler.setFuncLogger(function.NewLogger(
+			scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
 				func() { wg.Add(1) },
 				func() { wg.Done() },
 			))
