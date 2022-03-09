@@ -21,12 +21,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/onsi/ginkgo"
+	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	"sigs.k8s.io/controller-runtime/pkg/envtest/printer"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 
@@ -50,16 +49,16 @@ var (
 func TestScheduler(t *testing.T) {
 	gomega.RegisterFailHandler(ginkgo.Fail)
 
-	ginkgo.RunSpecsWithDefaultAndCustomReporters(t,
+	ginkgo.RunSpecs(t,
 		"Scheduler Suite",
-		[]ginkgo.Reporter{printer.NewlineReporter{}})
+	)
 }
 
 var _ = ginkgo.BeforeSuite(func() {
 	ctx, cancel = context.WithCancel(context.Background())
 	crdPath := filepath.Join("..", "..", "..", "config", "crd", "bases")
 	cfg, k8sClient, testEnv = framework.BeforeSuite(ctx, crdPath, managerAndSchedulerSetup)
-}, 60)
+})
 
 var _ = ginkgo.AfterSuite(func() {
 	cancel()
