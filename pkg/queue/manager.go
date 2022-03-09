@@ -191,7 +191,7 @@ func (m *Manager) CleanUpOnContext(ctx context.Context) {
 	m.cond.Broadcast()
 }
 
-// Heads returns the heads of the queues, along with their associated capacity.
+// Heads returns the heads of the queues, along with their associated ClusterQueue.
 // It blocks if the queues empty until they have elements or the context terminates.
 func (m *Manager) Heads(ctx context.Context) []workload.Info {
 	m.Lock()

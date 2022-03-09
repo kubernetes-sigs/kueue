@@ -69,10 +69,10 @@ type Cohort struct {
 	UsedResources        Resources
 }
 
-func newCohort(name string, cap int) *Cohort {
+func newCohort(name string, size int) *Cohort {
 	return &Cohort{
 		Name:    name,
-		members: make(map[*ClusterQueue]struct{}, cap),
+		members: make(map[*ClusterQueue]struct{}, size),
 	}
 }
 
@@ -104,13 +104,13 @@ type FlavorInfo struct {
 	Labels     map[string]string
 }
 
-func NewClusterQueue(cap *kueue.ClusterQueue) (*ClusterQueue, error) {
+func NewClusterQueue(cq *kueue.ClusterQueue) (*ClusterQueue, error) {
 	c := &ClusterQueue{
-		Name:             cap.Name,
+		Name:             cq.Name,
 		Workloads:        map[string]*workload.Info{},
-		QueueingStrategy: cap.Spec.QueueingStrategy,
+		QueueingStrategy: cq.Spec.QueueingStrategy,
 	}
-	if err := c.update(cap); err != nil {
+	if err := c.update(cq); err != nil {
 		return nil, err
 	}
 
@@ -179,10 +179,10 @@ func (c *ClusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 	for _, ps := range wi.TotalRequests {
 		for wlRes, wlResFlv := range ps.Flavors {
 			v, wlResExist := ps.Requests[wlRes]
-			capResFlv, capResExist := c.UsedResources[wlRes]
-			if capResExist && wlResExist {
-				if _, capFlvExist := capResFlv[wlResFlv]; capFlvExist {
-					capResFlv[wlResFlv] += v * m
+			cqResFlv, cqResExist := c.UsedResources[wlRes]
+			if cqResExist && wlResExist {
+				if _, cqFlvExist := cqResFlv[wlResFlv]; cqFlvExist {
+					cqResFlv[wlResFlv] += v * m
 				}
 			}
 		}
@@ -326,9 +326,9 @@ func (c *Cache) AssumeWorkload(w *kueue.QueuedWorkload) error {
 	}
 
 	k := workload.Key(w)
-	assumedCap, assumed := c.assumedWorkloads[k]
+	assumedCq, assumed := c.assumedWorkloads[k]
 	if assumed {
-		return fmt.Errorf("the workload is already assumed to ClusterQueue %q", assumedCap)
+		return fmt.Errorf("the workload is already assumed to ClusterQueue %q", assumedCq)
 	}
 
 	cq, ok := c.clusterQueues[string(w.Spec.Admission.ClusterQueue)]
@@ -365,11 +365,11 @@ func (c *Cache) ForgetWorkload(w *kueue.QueuedWorkload) error {
 }
 
 // Usage reports the used resources and number of workloads admitted by the ClusterQueue.
-func (c *Cache) Usage(capObj *kueue.ClusterQueue) (kueue.UsedResources, int, error) {
+func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (kueue.UsedResources, int, error) {
 	c.RLock()
 	defer c.RUnlock()
 
-	cq := c.clusterQueues[capObj.Name]
+	cq := c.clusterQueues[cqObj.Name]
 	if cq == nil {
 		return nil, 0, cqNotFoundErr
 	}

@@ -168,7 +168,7 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			}
 			return ctrl.Result{}, err
 		}
-		log.V(3).Info("Job is suspended and workload not yet admitted a capacity, nothing to do")
+		log.V(3).Info("Job is suspended and workload not yet admitted by a clusterQueue, nothing to do")
 		return ctrl.Result{}, nil
 	}
 
@@ -222,17 +222,17 @@ func (r *JobReconciler) stopJob(ctx context.Context, w *kueue.QueuedWorkload,
 func (r *JobReconciler) startJob(ctx context.Context, w *kueue.QueuedWorkload, job *batchv1.Job) error {
 	log := ctrl.LoggerFrom(ctx)
 
-	// Lookup the capacity to fetch the node affinity labels to apply on the job.
-	capacity := kueue.ClusterQueue{}
-	if err := r.client.Get(ctx, types.NamespacedName{Name: string(w.Spec.Admission.ClusterQueue)}, &capacity); err != nil {
-		log.Error(err, "fetching capacity")
+	// Lookup the clusterQueue to fetch the node affinity labels to apply on the job.
+	clusterQueue := kueue.ClusterQueue{}
+	if err := r.client.Get(ctx, types.NamespacedName{Name: string(w.Spec.Admission.ClusterQueue)}, &clusterQueue); err != nil {
+		log.Error(err, "fetching ClusterQueue")
 		return err
 	}
 
 	if len(w.Spec.PodSets) != 1 {
 		return fmt.Errorf("one podset must exist, found %d", len(w.Spec.PodSets))
 	}
-	nodeSelector := getNodeSelectors(&capacity, w)
+	nodeSelector := getNodeSelectors(&clusterQueue, w)
 	if len(nodeSelector) != 0 {
 		if job.Spec.Template.Spec.NodeSelector == nil {
 			job.Spec.Template.Spec.NodeSelector = nodeSelector
@@ -256,15 +256,15 @@ func (r *JobReconciler) startJob(ctx context.Context, w *kueue.QueuedWorkload, j
 	return nil
 }
 
-func getNodeSelectors(cap *kueue.ClusterQueue, w *kueue.QueuedWorkload) map[string]string {
+func getNodeSelectors(cq *kueue.ClusterQueue, w *kueue.QueuedWorkload) map[string]string {
 	if len(w.Spec.Admission.PodSetFlavors[0].ResourceFlavors) == 0 {
 		return nil
 	}
 
 	// Create a map of resources-to-flavors.
 	// May be cache this?
-	flavors := make(map[corev1.ResourceName]map[string]*kueue.ResourceFlavor, len(cap.Spec.RequestableResources))
-	for _, r := range cap.Spec.RequestableResources {
+	flavors := make(map[corev1.ResourceName]map[string]*kueue.ResourceFlavor, len(cq.Spec.RequestableResources))
+	for _, r := range cq.Spec.RequestableResources {
 		flavors[r.Name] = make(map[string]*kueue.ResourceFlavor, len(r.Flavors))
 		for j := range r.Flavors {
 			flavors[r.Name][r.Flavors[j].Name] = &r.Flavors[j]
@@ -273,9 +273,9 @@ func getNodeSelectors(cap *kueue.ClusterQueue, w *kueue.QueuedWorkload) map[stri
 
 	nodeSelector := map[string]string{}
 	for res, flvr := range w.Spec.Admission.PodSetFlavors[0].ResourceFlavors {
-		if capRes, existRes := flavors[res]; existRes {
-			if capFlvr, existFlvr := capRes[flvr]; existFlvr {
-				for k, v := range capFlvr.Labels {
+		if cqRes, existRes := flavors[res]; existRes {
+			if cqFlvr, existFlvr := cqRes[flvr]; existFlvr {
+				for k, v := range cqFlvr.Labels {
 					nodeSelector[k] = v
 				}
 			}

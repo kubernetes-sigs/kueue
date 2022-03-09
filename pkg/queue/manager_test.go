@@ -167,13 +167,13 @@ func TestStatus(t *testing.T) {
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "foo"},
 			Spec: kueue.QueueSpec{
-				ClusterQueue: "fooCap",
+				ClusterQueue: "fooCq",
 			},
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "bar"},
 			Spec: kueue.QueueSpec{
-				ClusterQueue: "barCap",
+				ClusterQueue: "barCq",
 			},
 		},
 	}
@@ -452,19 +452,19 @@ func TestHeads(t *testing.T) {
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "foo"},
 			Spec: kueue.QueueSpec{
-				ClusterQueue: "fooCap",
+				ClusterQueue: "fooCq",
 			},
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "bar"},
 			Spec: kueue.QueueSpec{
-				ClusterQueue: "barCap",
+				ClusterQueue: "barCq",
 			},
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "baz"},
 			Spec: kueue.QueueSpec{
-				ClusterQueue: "bazCap",
+				ClusterQueue: "bazCq",
 			},
 		},
 	}
@@ -504,11 +504,11 @@ func TestHeads(t *testing.T) {
 	wantHeads := []workload.Info{
 		{
 			Obj:          &workloads[1],
-			ClusterQueue: "barCap",
+			ClusterQueue: "barCq",
 		},
 		{
 			Obj:          &workloads[2],
-			ClusterQueue: "fooCap",
+			ClusterQueue: "fooCq",
 		},
 	}
 
@@ -540,13 +540,13 @@ func TestHeadsAsync(t *testing.T) {
 	q := kueue.Queue{
 		ObjectMeta: metav1.ObjectMeta{Name: "foo"},
 		Spec: kueue.QueueSpec{
-			ClusterQueue: "fooCap",
+			ClusterQueue: "fooCq",
 		},
 	}
 	wantHeads := []workload.Info{
 		{
 			Obj:          &wl,
-			ClusterQueue: "fooCap",
+			ClusterQueue: "fooCq",
 		},
 	}
 

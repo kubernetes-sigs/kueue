@@ -125,10 +125,10 @@ func TestSnapshot(t *testing.T) {
 		},
 	}
 	for _, c := range clusterQueues {
-		// Purposely  do not make a copy of cap. Clones of necessary fields are
+		// Purposely  do not make a copy of clusterQueues. Clones of necessary fields are
 		// done in AddClusterQueue.
 		if err := cache.AddClusterQueue(context.Background(), &c); err != nil {
-			t.Fatalf("Failed adding capacity: %v", err)
+			t.Fatalf("Failed adding ClusterQueue: %v", err)
 		}
 	}
 	workloads := []kueue.QueuedWorkload{

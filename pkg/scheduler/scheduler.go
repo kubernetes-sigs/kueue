@@ -177,14 +177,14 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 // borrow from the cohort.
 // It returns whether the entry would fit. If it doesn't fit, the object is
 // unmodified.
-func (e *entry) assignFlavors(log logr.Logger, cap *cache.ClusterQueue) bool {
+func (e *entry) assignFlavors(log logr.Logger, cq *cache.ClusterQueue) bool {
 	flavoredRequests := make([]workload.PodSetResources, 0, len(e.TotalRequests))
 	wUsed := make(cache.Resources)
 	wBorrows := make(cache.Resources)
 	for i, podSet := range e.TotalRequests {
 		flavors := make(map[corev1.ResourceName]string, len(podSet.Requests))
 		for resName, reqVal := range podSet.Requests {
-			rFlavor, borrow := findFlavorForResource(log, resName, reqVal, wUsed[resName], cap, &e.Obj.Spec.PodSets[i].Spec)
+			rFlavor, borrow := findFlavorForResource(log, resName, reqVal, wUsed[resName], cq, &e.Obj.Spec.PodSets[i].Spec)
 			if rFlavor == "" {
 				return false
 			}
@@ -267,11 +267,11 @@ func findFlavorForResource(
 	name corev1.ResourceName,
 	val int64,
 	wUsed map[string]int64,
-	cap *cache.ClusterQueue,
+	cq *cache.ClusterQueue,
 	spec *corev1.PodSpec) (string, int64) {
 	// We will only check against the flavors' labels for the resource.
-	selector := flavorSelector(spec, cap.LabelKeys[name])
-	for _, flavor := range cap.RequestableResources[name] {
+	selector := flavorSelector(spec, cq.LabelKeys[name])
+	for _, flavor := range cq.RequestableResources[name] {
 		_, untolerated := corev1helpers.FindMatchingUntoleratedTaint(flavor.Taints, spec.Tolerations, func(t *corev1.Taint) bool {
 			return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
 		})
@@ -287,7 +287,7 @@ func findFlavorForResource(
 		}
 
 		// Check considering the flavor usage by previous pod sets.
-		ok, borrow := fitsFlavorLimits(name, val+wUsed[flavor.Name], cap, &flavor)
+		ok, borrow := fitsFlavorLimits(name, val+wUsed[flavor.Name], cq, &flavor)
 		if ok {
 			return flavor.Name, borrow
 		}
@@ -343,17 +343,17 @@ func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.String) nodeaffinity.
 
 // fitsFlavorLimits returns whether a requested resource fits in a specific flavor's quota limits.
 // If it fits, also returns any borrowing required.
-func fitsFlavorLimits(name corev1.ResourceName, val int64, cap *cache.ClusterQueue, flavor *cache.FlavorInfo) (bool, int64) {
-	used := cap.UsedResources[name][flavor.Name]
+func fitsFlavorLimits(name corev1.ResourceName, val int64, cq *cache.ClusterQueue, flavor *cache.FlavorInfo) (bool, int64) {
+	used := cq.UsedResources[name][flavor.Name]
 	if used+val > flavor.Ceiling {
 		// Past borrowing limit.
 		return false, 0
 	}
 	cohortUsed := used
 	cohortTotal := flavor.Guaranteed
-	if cap.Cohort != nil {
-		cohortUsed = cap.Cohort.UsedResources[name][flavor.Name]
-		cohortTotal = cap.Cohort.RequestableResources[name][flavor.Name]
+	if cq.Cohort != nil {
+		cohortUsed = cq.Cohort.UsedResources[name][flavor.Name]
+		cohortTotal = cq.Cohort.RequestableResources[name][flavor.Name]
 	}
 	borrow := used + val - flavor.Guaranteed
 	if borrow < 0 {
