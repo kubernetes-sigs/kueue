@@ -47,7 +47,7 @@ spec:
                       admitted this workload.
                     type: string
                   podSetFlavors:
-                    description: podSetFlavors hold the admision results for each
+                    description: podSetFlavors hold the admission results for each
                       of the .spec.podSets entries.
                     items:
                       properties:
