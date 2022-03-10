@@ -101,9 +101,6 @@ type QueuedWorkloadCondition struct {
 	//
 	// Admitted: the QueuedWorkload was admitted through a ClusterQueue.
 	//
-	// Active: the associated workload is active: it is not suspended or it has
-	// non-terminated pods.
-	//
 	// Finished: the associated workload finished running (failed or succeeded).
 	Type QueuedWorkloadConditionType `json:"type"`
 
@@ -134,11 +131,6 @@ type QueuedWorkloadConditionType string
 const (
 	// QueuedWorkloadAdmitted means that the QueuedWorkload was admitted by a ClusterQueue.
 	QueuedWorkloadAdmitted QueuedWorkloadConditionType = "Admitted"
-
-	// QueuedWorkloadActive means that the workload associated to the
-	// QueuedWorkload is active: it is not suspended or it has non-terminated
-	// Pods.
-	QueuedWorkloadActive QueuedWorkloadConditionType = "Active"
 
 	// QueuedWorkloadFinished means that the workload associated to the
 	// ResourceClaim finished running (failed or succeeded).
