@@ -20,8 +20,6 @@ import (
 	"container/heap"
 	"fmt"
 
-	"k8s.io/apimachinery/pkg/labels"
-
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -31,64 +29,113 @@ func Key(q *kueue.Queue) string {
 	return fmt.Sprintf("%s/%s", q.Namespace, q.Name)
 }
 
-// keyForWorkload is the key to find the queue for the workload in the index.
-func keyForWorkload(w *kueue.QueuedWorkload) string {
+// queueKeyForWorkload is the key to find the queue for the workload in the index.
+func queueKeyForWorkload(w *kueue.QueuedWorkload) string {
 	return fmt.Sprintf("%s/%s", w.Namespace, w.Spec.QueueName)
 }
 
 // Queue is the internal implementation of kueue.Queue.
 type Queue struct {
-	ClusterQueue      string
-	NamespaceSelector labels.Selector
+	ClusterQueue string
+
+	items map[string]*workload.Info
+}
+
+func newQueue(q *kueue.Queue) *Queue {
+	qImpl := &Queue{
+		items: make(map[string]*workload.Info),
+	}
+	qImpl.update(q)
+	return qImpl
+}
+
+func (q *Queue) update(apiQueue *kueue.Queue) {
+	q.ClusterQueue = string(apiQueue.Spec.ClusterQueue)
+}
+
+func (q *Queue) AddOrUpdate(w *kueue.QueuedWorkload) {
+	key := workload.Key(w)
+	info := q.items[key]
+	if info != nil {
+		info.Obj = w
+		return
+	}
+	q.items[key] = workload.NewInfo(w)
+}
+
+// ClusterQueue is the internal implementation of kueue.ClusterQueue that
+// holds pending workloads.
+type ClusterQueue struct {
+	// QueueingStrategy indicates the queueing strategy of the workloads
+	// across the queues in this ClusterQueue.
+	QueueingStrategy kueue.QueueingStrategy
 
 	heap heapImpl
 }
 
-func newQueue() *Queue {
-	return &Queue{
+func newClusterQueue(cq *kueue.ClusterQueue) *ClusterQueue {
+	cqImpl := &ClusterQueue{
 		heap: heapImpl{
 			less:  creationFIFO,
 			items: make(map[string]*heapItem),
 		},
 	}
+	cqImpl.update(cq)
+	return cqImpl
 }
 
-func (q *Queue) setProperties(apiQueue *kueue.Queue) {
-	q.ClusterQueue = string(apiQueue.Spec.ClusterQueue)
+func (cq *ClusterQueue) update(apiCQ *kueue.ClusterQueue) {
+	cq.QueueingStrategy = apiCQ.Spec.QueueingStrategy
 }
 
-func (q *Queue) PushIfNotPresent(info *workload.Info) bool {
-	item := q.heap.items[info.Obj.Name]
+func (cq *ClusterQueue) AddFromQueue(q *Queue) bool {
+	added := false
+	for _, w := range q.items {
+		if cq.PushIfNotPresent(w) {
+			added = true
+		}
+	}
+	return added
+}
+
+func (cq *ClusterQueue) DeleteFromQueue(q *Queue) {
+	for _, w := range q.items {
+		cq.Delete(w.Obj)
+	}
+}
+
+func (cq *ClusterQueue) PushIfNotPresent(info *workload.Info) bool {
+	item := cq.heap.items[workload.Key(info.Obj)]
 	if item != nil {
 		return false
 	}
-	heap.Push(&q.heap, *info)
+	heap.Push(&cq.heap, *info)
 	return true
 }
 
-func (q *Queue) PushOrUpdate(w *kueue.QueuedWorkload) {
-	item := q.heap.items[w.Name]
+func (cq *ClusterQueue) PushOrUpdate(w *kueue.QueuedWorkload) {
+	item := cq.heap.items[workload.Key(w)]
 	info := *workload.NewInfo(w)
 	if item == nil {
-		heap.Push(&q.heap, info)
+		heap.Push(&cq.heap, info)
 		return
 	}
 	item.obj = info
-	heap.Fix(&q.heap, item.index)
+	heap.Fix(&cq.heap, item.index)
 }
 
-func (q *Queue) Delete(w *kueue.QueuedWorkload) {
-	item := q.heap.items[w.Name]
+func (cq *ClusterQueue) Delete(w *kueue.QueuedWorkload) {
+	item := cq.heap.items[workload.Key(w)]
 	if item != nil {
-		heap.Remove(&q.heap, item.index)
+		heap.Remove(&cq.heap, item.index)
 	}
 }
 
-func (q *Queue) Pop() *workload.Info {
-	if q.heap.Len() == 0 {
+func (cq *ClusterQueue) Pop() *workload.Info {
+	if cq.heap.Len() == 0 {
 		return nil
 	}
-	w := heap.Pop(&q.heap).(workload.Info)
+	w := heap.Pop(&cq.heap).(workload.Info)
 	return &w
 }
 
@@ -132,7 +179,7 @@ func (h *heapImpl) Swap(i, j int) {
 
 func (h *heapImpl) Push(x interface{}) {
 	wInfo := x.(workload.Info)
-	key := wInfo.Obj.Name
+	key := workload.Key(wInfo.Obj)
 	h.items[key] = &heapItem{
 		obj:   wInfo,
 		index: len(h.heap),

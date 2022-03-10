@@ -25,76 +25,136 @@ import (
 	"github.com/google/go-cmp/cmp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
+const headsTimeout = 3 * time.Second
+
 // TestAddQueueOrphans verifies that pods added before adding the queue are
-// preserved and they persist after the queue recreation.
+// present when the queue is added.
 func TestAddQueueOrphans(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := kueue.AddToScheme(scheme); err != nil {
 		t.Fatalf("Failed adding kueue scheme: %s", err)
 	}
-	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		&kueue.QueuedWorkload{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "earth",
-				Name:      "a",
-			},
-			Spec: kueue.QueuedWorkloadSpec{QueueName: "foo"},
-		},
-		&kueue.QueuedWorkload{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "earth",
-				Name:      "b",
-			},
-			Spec: kueue.QueuedWorkloadSpec{QueueName: "bar"},
-		},
-		&kueue.QueuedWorkload{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "earth",
-				Name:      "c",
-			},
-			Spec: kueue.QueuedWorkloadSpec{QueueName: "foo"},
-		},
-		&kueue.QueuedWorkload{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "earth",
-				Name:      "d",
-			},
-			Spec: kueue.QueuedWorkloadSpec{
-				QueueName: "foo",
-				Admission: &kueue.Admission{
-					ClusterQueue: "cluster-queue",
-				},
-			},
-		},
-		&kueue.QueuedWorkload{
-			ObjectMeta: metav1.ObjectMeta{
-				Namespace: "moon",
-				Name:      "a",
-			},
-			Spec: kueue.QueuedWorkloadSpec{QueueName: "foo"},
-		},
+	kClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		utiltesting.MakeQueuedWorkload("a", "earth").Queue("foo").Obj(),
+		utiltesting.MakeQueuedWorkload("b", "earth").Queue("bar").Obj(),
+		utiltesting.MakeQueuedWorkload("c", "earth").Queue("foo").Obj(),
+		utiltesting.MakeQueuedWorkload("d", "earth").Queue("foo").
+			Admit(utiltesting.MakeAdmission("cq").Obj()).Obj(),
+		utiltesting.MakeQueuedWorkload("a", "moon").Queue("foo").Obj(),
 	).Build()
-	manager := NewManager(client)
-	q := kueue.Queue{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: "earth",
-			Name:      "foo",
-		},
-	}
-	if err := manager.AddQueue(context.Background(), &q); err != nil {
+	manager := NewManager(kClient)
+	q := utiltesting.MakeQueue("foo", "earth").Obj()
+	if err := manager.AddQueue(context.Background(), q); err != nil {
 		t.Fatalf("Failed adding queue: %v", err)
 	}
-	qImpl := manager.queues[Key(&q)]
-	workloadNames := popWorkloadNames(qImpl)
-	sort.Strings(workloadNames)
-	if diff := cmp.Diff([]string{"a", "c"}, workloadNames); diff != "" {
+	qImpl := manager.queues[Key(q)]
+	workloadNames := workloadNamesFromQ(qImpl)
+	if diff := cmp.Diff(sets.NewString("earth/a", "earth/c"), workloadNames); diff != "" {
 		t.Errorf("Unexpected items in queue foo (-want,+got):\n%s", diff)
+	}
+}
+
+// TestAddClusterQueueOrphans verifies that pods added before adding the
+// clusterQueue are present when the clusterQueue is added.
+func TestAddClusterQueueOrphans(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := kueue.AddToScheme(scheme); err != nil {
+		t.Fatalf("Failed adding kueue scheme: %v", err)
+	}
+	now := time.Now()
+	queues := []*kueue.Queue{
+		utiltesting.MakeQueue("foo", "").ClusterQueue("cq").Obj(),
+		utiltesting.MakeQueue("bar", "").ClusterQueue("cq").Obj(),
+	}
+	kClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		utiltesting.MakeQueuedWorkload("a", "").Queue("foo").Creation(now.Add(time.Second)).Obj(),
+		utiltesting.MakeQueuedWorkload("b", "").Queue("bar").Creation(now).Obj(),
+		utiltesting.MakeQueuedWorkload("c", "").Queue("foo").
+			Admit(utiltesting.MakeAdmission("cq").Obj()).Obj(),
+		utiltesting.MakeQueuedWorkload("d", "").Queue("baz").Obj(),
+		queues[0],
+		queues[1],
+	).Build()
+	ctx := context.Background()
+	manager := NewManager(kClient)
+	for _, q := range queues {
+		if err := manager.AddQueue(ctx, q); err != nil {
+			t.Fatalf("Failed adding queue %s: %v", q.Name, err)
+		}
+	}
+	cq := utiltesting.MakeClusterQueue("cq").Obj()
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed adding cluster queue %s: %v", cq.Name, err)
+	}
+	workloads := popNamesFromCQ(manager.clusterQueues[cq.Name])
+	wantWorkloads := []string{"/b", "/a"}
+	if diff := cmp.Diff(wantWorkloads, workloads); diff != "" {
+		t.Errorf("Workloads poped in the wrong order from clusterQueue:\n%s", diff)
+	}
+}
+
+// TestUpdateQueue tests that workloads are transferred between clusterQueues
+// when the queue points to a different clusterQueue.
+func TestUpdateQueue(t *testing.T) {
+	clusterQueues := []*kueue.ClusterQueue{
+		utiltesting.MakeClusterQueue("cq1").Obj(),
+		utiltesting.MakeClusterQueue("cq2").Obj(),
+	}
+	queues := []*kueue.Queue{
+		utiltesting.MakeQueue("foo", "").ClusterQueue("cq1").Obj(),
+		utiltesting.MakeQueue("bar", "").ClusterQueue("cq2").Obj(),
+	}
+	now := time.Now()
+	workloads := []*kueue.QueuedWorkload{
+		utiltesting.MakeQueuedWorkload("a", "").Queue("foo").Creation(now.Add(time.Second)).Obj(),
+		utiltesting.MakeQueuedWorkload("b", "").Queue("bar").Creation(now).Obj(),
+	}
+	// Setup.
+	scheme := runtime.NewScheme()
+	if err := kueue.AddToScheme(scheme); err != nil {
+		t.Fatalf("Failed adding kueue scheme: %s", err)
+	}
+	ctx := context.Background()
+	manager := NewManager(fake.NewClientBuilder().WithScheme(scheme).Build())
+	for _, cq := range clusterQueues {
+		if err := manager.AddClusterQueue(ctx, cq); err != nil {
+			t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
+		}
+	}
+	for _, q := range queues {
+		if err := manager.AddQueue(ctx, q); err != nil {
+			t.Fatalf("Failed adding queue %s: %v", q.Name, err)
+		}
+	}
+	for _, w := range workloads {
+		manager.AddOrUpdateWorkload(w)
+	}
+
+	// Update cluster queue of first queue.
+	queues[0].Spec.ClusterQueue = "cq2"
+	if err := manager.UpdateQueue(queues[0]); err != nil {
+		t.Fatalf("Failed updating queue: %v", err)
+	}
+
+	// Verification.
+	workloadOrders := make(map[string][]string)
+	for name, cq := range manager.clusterQueues {
+		workloadOrders[name] = popNamesFromCQ(cq)
+	}
+	wantWorkloadOrders := map[string][]string{
+		"cq1": nil,
+		"cq2": {"/b", "/a"},
+	}
+	if diff := cmp.Diff(wantWorkloadOrders, workloadOrders); diff != "" {
+		t.Errorf("workloads poped in the wrong order from clusterQueues:\n%s", diff)
 	}
 }
 
@@ -104,9 +164,13 @@ func TestAddWorkload(t *testing.T) {
 		t.Fatalf("Failed adding kueue scheme: %s", err)
 	}
 	manager := NewManager(fake.NewClientBuilder().WithScheme(scheme).Build())
+	cq := utiltesting.MakeClusterQueue("cq").Obj()
+	if err := manager.AddClusterQueue(context.Background(), cq); err != nil {
+		t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
+	}
 	queues := []*kueue.Queue{
-		{ObjectMeta: metav1.ObjectMeta{Namespace: "earth", Name: "foo"}},
-		{ObjectMeta: metav1.ObjectMeta{Namespace: "mars", Name: "bar"}},
+		utiltesting.MakeQueue("foo", "earth").ClusterQueue("cq").Obj(),
+		utiltesting.MakeQueue("bar", "mars").Obj(),
 	}
 	for _, q := range queues {
 		if err := manager.AddQueue(context.Background(), q); err != nil {
@@ -134,6 +198,15 @@ func TestAddWorkload(t *testing.T) {
 					Name:      "non_existing_queue",
 				},
 				Spec: kueue.QueuedWorkloadSpec{QueueName: "baz"},
+			},
+		},
+		{
+			workload: &kueue.QueuedWorkload{
+				ObjectMeta: metav1.ObjectMeta{
+					Namespace: "mars",
+					Name:      "non_existing_cluster_queue",
+				},
+				Spec: kueue.QueuedWorkloadSpec{QueueName: "bar"},
 			},
 		},
 		{
@@ -229,7 +302,7 @@ func TestStatus(t *testing.T) {
 		"fake": {
 			queue:      &kueue.Queue{ObjectMeta: metav1.ObjectMeta{Name: "fake"}},
 			wantStatus: 0,
-			wantErr:    errQueueDoesntExist,
+			wantErr:    queueDoesNotExistErr,
 		},
 	}
 	for name, tc := range cases {
@@ -250,9 +323,10 @@ func TestRequeueWorkload(t *testing.T) {
 	if err := kueue.AddToScheme(scheme); err != nil {
 		t.Fatalf("Failed adding kueue scheme: %s", err)
 	}
+	cq := utiltesting.MakeClusterQueue("cq").Obj()
 	queues := []*kueue.Queue{
-		{ObjectMeta: metav1.ObjectMeta{Name: "foo"}},
-		{ObjectMeta: metav1.ObjectMeta{Name: "bar"}},
+		utiltesting.MakeQueue("foo", "").ClusterQueue("cq").Obj(),
+		utiltesting.MakeQueue("bar", "").Obj(),
 	}
 	cases := []struct {
 		workload     *kueue.QueuedWorkload
@@ -277,6 +351,13 @@ func TestRequeueWorkload(t *testing.T) {
 		},
 		{
 			workload: &kueue.QueuedWorkload{
+				ObjectMeta: metav1.ObjectMeta{Name: "non_existing_cluster_queue"},
+				Spec:       kueue.QueuedWorkloadSpec{QueueName: "bar"},
+			},
+			inClient: true,
+		},
+		{
+			workload: &kueue.QueuedWorkload{
 				ObjectMeta: metav1.ObjectMeta{Name: "not_in_client"},
 				Spec:       kueue.QueuedWorkloadSpec{QueueName: "foo"},
 			},
@@ -294,14 +375,17 @@ func TestRequeueWorkload(t *testing.T) {
 		t.Run(tc.workload.Name, func(t *testing.T) {
 			cl := fake.NewClientBuilder().WithScheme(scheme).Build()
 			manager := NewManager(cl)
+			ctx := context.Background()
+			if err := manager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Failed adding cluster queue %s: %v", cq.Name, err)
+			}
 			for _, q := range queues {
-				if err := manager.AddQueue(context.Background(), q); err != nil {
+				if err := manager.AddQueue(ctx, q); err != nil {
 					t.Fatalf("Failed adding queue %s: %v", q.Name, err)
 				}
 			}
 			// Adding workload to client after the queues are created, otherwise it
 			// will be in the queue.
-			ctx := context.Background()
 			if tc.inClient {
 				if err := cl.Create(ctx, tc.workload); err != nil {
 					t.Fatalf("Failed adding workload to client: %v", err)
@@ -323,102 +407,140 @@ func TestUpdateWorkload(t *testing.T) {
 	if err := kueue.AddToScheme(scheme); err != nil {
 		t.Fatalf("Failed adding kueue scheme: %s", err)
 	}
-	now := metav1.Now()
+	now := time.Now()
 	cases := map[string]struct {
-		queues         []string
-		workloads      []*kueue.QueuedWorkload
-		update         func(*kueue.QueuedWorkload)
-		wantUpdated    bool
-		wantQueueOrder map[string][]string
+		clusterQueues    []*kueue.ClusterQueue
+		queues           []*kueue.Queue
+		workloads        []*kueue.QueuedWorkload
+		update           func(*kueue.QueuedWorkload)
+		wantUpdated      bool
+		wantQueueOrder   map[string][]string
+		wantQueueMembers map[string]sets.String
 	}{
 		"in queue": {
-			queues: []string{"foo"},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue("cq").Obj(),
+			},
+			queues: []*kueue.Queue{
+				utiltesting.MakeQueue("foo", "").ClusterQueue("cq").Obj(),
+			},
 			workloads: []*kueue.QueuedWorkload{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:              "a",
-						CreationTimestamp: now,
-					},
-					Spec: kueue.QueuedWorkloadSpec{QueueName: "foo"},
-				},
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:              "b",
-						CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
-					},
-					Spec: kueue.QueuedWorkloadSpec{QueueName: "foo"},
-				},
+				utiltesting.MakeQueuedWorkload("a", "").Queue("foo").Creation(now).Obj(),
+				utiltesting.MakeQueuedWorkload("b", "").Queue("foo").Creation(now.Add(time.Second)).Obj(),
 			},
 			update: func(w *kueue.QueuedWorkload) {
 				w.CreationTimestamp = metav1.NewTime(now.Add(time.Minute))
 			},
 			wantUpdated: true,
 			wantQueueOrder: map[string][]string{
-				"/foo": {"b", "a"},
+				"cq": {"/b", "/a"},
+			},
+			wantQueueMembers: map[string]sets.String{
+				"/foo": sets.NewString("/a", "/b"),
 			},
 		},
 		"between queues": {
-			queues: []string{"foo", "bar"},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue("cq").Obj(),
+			},
+			queues: []*kueue.Queue{
+				utiltesting.MakeQueue("foo", "").ClusterQueue("cq").Obj(),
+				utiltesting.MakeQueue("bar", "").ClusterQueue("cq").Obj(),
+			},
 			workloads: []*kueue.QueuedWorkload{
-				{
-					ObjectMeta: metav1.ObjectMeta{Name: "a"},
-					Spec:       kueue.QueuedWorkloadSpec{QueueName: "foo"},
-				},
-				{
-					ObjectMeta: metav1.ObjectMeta{Name: "b"},
-					Spec:       kueue.QueuedWorkloadSpec{QueueName: "foo"},
-				},
+				utiltesting.MakeQueuedWorkload("a", "").Queue("foo").Obj(),
 			},
 			update: func(w *kueue.QueuedWorkload) {
 				w.Spec.QueueName = "bar"
 			},
 			wantUpdated: true,
 			wantQueueOrder: map[string][]string{
-				"/foo": {"b"},
-				"/bar": {"a"},
+				"cq": {"/a"},
+			},
+			wantQueueMembers: map[string]sets.String{
+				"/foo": sets.NewString(),
+				"/bar": sets.NewString("/a"),
 			},
 		},
-		"to non existent queue": {
-			queues: []string{"foo"},
+		"between cluster queues": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue("cq1").Obj(),
+				utiltesting.MakeClusterQueue("cq2").Obj(),
+			},
+			queues: []*kueue.Queue{
+				utiltesting.MakeQueue("foo", "").ClusterQueue("cq1").Obj(),
+				utiltesting.MakeQueue("bar", "").ClusterQueue("cq2").Obj(),
+			},
 			workloads: []*kueue.QueuedWorkload{
-				{
-					ObjectMeta: metav1.ObjectMeta{Name: "a"},
-					Spec:       kueue.QueuedWorkloadSpec{QueueName: "foo"},
-				},
+				utiltesting.MakeQueuedWorkload("a", "").Queue("foo").Obj(),
 			},
 			update: func(w *kueue.QueuedWorkload) {
 				w.Spec.QueueName = "bar"
 			},
-			wantUpdated: false,
+			wantUpdated: true,
 			wantQueueOrder: map[string][]string{
-				"/foo": nil,
+				"cq1": nil,
+				"cq2": {"/a"},
+			},
+			wantQueueMembers: map[string]sets.String{
+				"/foo": sets.NewString(),
+				"/bar": sets.NewString("/a"),
+			},
+		},
+		"to non existent queue": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue("cq").Obj(),
+			},
+			queues: []*kueue.Queue{
+				utiltesting.MakeQueue("foo", "").ClusterQueue("cq").Obj(),
+			},
+			workloads: []*kueue.QueuedWorkload{
+				utiltesting.MakeQueuedWorkload("a", "").Queue("foo").Obj(),
+			},
+			update: func(w *kueue.QueuedWorkload) {
+				w.Spec.QueueName = "bar"
+			},
+			wantQueueOrder: map[string][]string{
+				"cq": nil,
+			},
+			wantQueueMembers: map[string]sets.String{
+				"/foo": sets.NewString(),
 			},
 		},
 		"from non existing queue": {
-			queues: []string{"foo"},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue("cq").Obj(),
+			},
+			queues: []*kueue.Queue{
+				utiltesting.MakeQueue("foo", "").ClusterQueue("cq").Obj(),
+			},
 			workloads: []*kueue.QueuedWorkload{
-				{
-					ObjectMeta: metav1.ObjectMeta{Name: "a"},
-					Spec:       kueue.QueuedWorkloadSpec{QueueName: "bar"},
-				},
+				utiltesting.MakeQueuedWorkload("a", "").Queue("bar").Obj(),
 			},
 			update: func(w *kueue.QueuedWorkload) {
 				w.Spec.QueueName = "foo"
 			},
 			wantUpdated: true,
 			wantQueueOrder: map[string][]string{
-				"/foo": {"a"},
+				"cq": {"/a"},
+			},
+			wantQueueMembers: map[string]sets.String{
+				"/foo": sets.NewString("/a"),
 			},
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			manager := NewManager(fake.NewClientBuilder().WithScheme(scheme).Build())
-			for _, qName := range tc.queues {
-				if err := manager.AddQueue(context.Background(), &kueue.Queue{
-					ObjectMeta: metav1.ObjectMeta{Name: qName},
-				}); err != nil {
-					t.Fatalf("Adding queue %q: %v", qName, err)
+			ctx := context.Background()
+			for _, cq := range tc.clusterQueues {
+				if err := manager.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("Adding cluster queue %s: %v", cq.Name, err)
+				}
+			}
+			for _, q := range tc.queues {
+				if err := manager.AddQueue(ctx, q); err != nil {
+					t.Fatalf("Adding queue %q: %v", q.Name, err)
 				}
 			}
 			for _, w := range tc.workloads {
@@ -430,24 +552,36 @@ func TestUpdateWorkload(t *testing.T) {
 				t.Errorf("UpdatedWorkload returned %t, want %t", updated, tc.wantUpdated)
 			}
 			queueOrder := make(map[string][]string)
-			for name, q := range manager.queues {
-				queueOrder[name] = popWorkloadNames(q)
+			for name, cq := range manager.clusterQueues {
+				queueOrder[name] = popNamesFromCQ(cq)
 			}
 			if diff := cmp.Diff(tc.wantQueueOrder, queueOrder); diff != "" {
-				t.Errorf("Elements poped in the wrong order from queues (-want,+got):\n%s", diff)
+				t.Errorf("Elements poped in the wrong order from clusterQueues (-want,+got):\n%s", diff)
+			}
+			queueMembers := make(map[string]sets.String)
+			for name, q := range manager.queues {
+				queueMembers[name] = workloadNamesFromQ(q)
+			}
+			if diff := cmp.Diff(tc.wantQueueMembers, queueMembers); diff != "" {
+				t.Errorf("Elements present in wrong queues (-want,+got):\n%s", diff)
 			}
 		})
 	}
 }
 
 func TestHeads(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), headsTimeout)
+	defer cancel()
 	scheme := runtime.NewScheme()
 	if err := kueue.AddToScheme(scheme); err != nil {
 		t.Fatalf("Failed adding kueue scheme: %s", err)
 	}
 	now := time.Now().Truncate(time.Second)
 
+	clusterQueues := []kueue.ClusterQueue{
+		*utiltesting.MakeClusterQueue("fooCq").Obj(),
+		*utiltesting.MakeClusterQueue("barCq").Obj(),
+	}
 	queues := []kueue.Queue{
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "foo"},
@@ -492,11 +626,17 @@ func TestHeads(t *testing.T) {
 		},
 	}
 	manager := NewManager(fake.NewClientBuilder().WithScheme(scheme).Build())
-	for _, q := range queues {
-		if err := manager.AddQueue(ctx, &q); err != nil {
-			t.Errorf("Failed adding queue: %s", err)
+	for _, cq := range clusterQueues {
+		if err := manager.AddClusterQueue(ctx, &cq); err != nil {
+			t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
 		}
 	}
+	for _, q := range queues {
+		if err := manager.AddQueue(ctx, &q); err != nil {
+			t.Fatalf("Failed adding queue %s: %s", q.Name, err)
+		}
+	}
+	go manager.CleanUpOnContext(ctx)
 	for _, wl := range workloads {
 		wl := wl
 		manager.AddOrUpdateWorkload(&wl)
@@ -524,12 +664,12 @@ func TestHeads(t *testing.T) {
 // TestHeadAsync ensures that Heads call is blocked until the queues are filled
 // asynchronously.
 func TestHeadsAsync(t *testing.T) {
-	ctx := context.Background()
 	scheme := runtime.NewScheme()
 	if err := kueue.AddToScheme(scheme); err != nil {
 		t.Fatalf("Failed adding kueue scheme: %s", err)
 	}
 	now := time.Now().Truncate(time.Second)
+	cq := utiltesting.MakeClusterQueue("fooCq").Obj()
 	wl := kueue.QueuedWorkload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:              "a",
@@ -549,34 +689,65 @@ func TestHeadsAsync(t *testing.T) {
 			ClusterQueue: "fooCq",
 		},
 	}
-
-	t.Run("AddQueue", func(t *testing.T) {
-		client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&wl).Build()
-		manager := NewManager(client)
-		go func() {
-			if err := manager.AddQueue(ctx, &q); err != nil {
-				t.Errorf("Failed adding queue: %s", err)
+	cases := map[string]struct {
+		initialObjs []client.Object
+		op          func(context.Context, *Manager)
+	}{
+		"AddClusterQueue": {
+			initialObjs: []client.Object{&wl, &q},
+			op: func(ctx context.Context, mgr *Manager) {
+				if err := mgr.AddQueue(ctx, &q); err != nil {
+					t.Errorf("Failed adding queue: %s", err)
+				}
+				mgr.AddOrUpdateWorkload(&wl)
+				go func() {
+					if err := mgr.AddClusterQueue(ctx, cq); err != nil {
+						t.Errorf("Failed adding clusterQueue: %v", err)
+					}
+				}()
+			},
+		},
+		"AddQueue": {
+			initialObjs: []client.Object{&wl},
+			op: func(ctx context.Context, mgr *Manager) {
+				if err := mgr.AddClusterQueue(ctx, cq); err != nil {
+					t.Errorf("Failed adding clusterQueue: %v", err)
+				}
+				go func() {
+					if err := mgr.AddQueue(ctx, &q); err != nil {
+						t.Errorf("Failed adding queue: %s", err)
+					}
+				}()
+			},
+		},
+		"AddWorkload": {
+			op: func(ctx context.Context, mgr *Manager) {
+				if err := mgr.AddClusterQueue(ctx, cq); err != nil {
+					t.Errorf("Failed adding clusterQueue: %v", err)
+				}
+				if err := mgr.AddQueue(ctx, &q); err != nil {
+					t.Errorf("Failed adding queue: %s", err)
+				}
+				go func() {
+					mgr.AddOrUpdateWorkload(&wl)
+				}()
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), headsTimeout)
+			defer cancel()
+			client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tc.initialObjs...).Build()
+			manager := NewManager(client)
+			go manager.CleanUpOnContext(ctx)
+			tc.op(ctx, manager)
+			heads := manager.Heads(ctx)
+			if diff := cmp.Diff(wantHeads, heads); diff != "" {
+				t.Errorf("GetHeads returned wrong heads (-want,+got):\n%s", diff)
 			}
-		}()
-		heads := manager.Heads(ctx)
-		if diff := cmp.Diff(wantHeads, heads); diff != "" {
-			t.Errorf("GetHeads returned wrong heads (-want,+got):\n%s", diff)
-		}
-	})
-
-	t.Run("AddWorkload", func(t *testing.T) {
-		manager := NewManager(fake.NewClientBuilder().WithScheme(scheme).Build())
-		if err := manager.AddQueue(ctx, &q); err != nil {
-			t.Errorf("Failed adding queue: %s", err)
-		}
-		go func() {
-			manager.AddOrUpdateWorkload(&wl)
-		}()
-		heads := manager.Heads(ctx)
-		if diff := cmp.Diff(wantHeads, heads); diff != "" {
-			t.Errorf("GetHeads returned wrong heads (-want,+got):\n%s", diff)
-		}
-	})
+		})
+	}
 }
 
 // TestHeadsCancelled ensures that the Heads call returns when the context is closed.
@@ -593,10 +764,21 @@ func TestHeadsCancelled(t *testing.T) {
 	}
 }
 
-func popWorkloadNames(q *Queue) []string {
+// popNamesFromCQ pops all the workloads from the clusterQueue and returns
+// the keyed names in the order they are popped.
+func popNamesFromCQ(cq *ClusterQueue) []string {
 	var names []string
-	for w := q.Pop(); w != nil; w = q.Pop() {
-		names = append(names, w.Obj.Name)
+	for w := cq.Pop(); w != nil; w = cq.Pop() {
+		names = append(names, workload.Key(w.Obj))
+	}
+	return names
+}
+
+// workloadNamesFromQ returns all the names of the workloads in a queue.
+func workloadNamesFromQ(q *Queue) sets.String {
+	names := sets.NewString()
+	for k := range q.items {
+		names.Insert(k)
 	}
 	return names
 }

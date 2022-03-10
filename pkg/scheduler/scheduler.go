@@ -92,21 +92,17 @@ func (s *Scheduler) schedule(ctx context.Context) {
 	sort.Sort(entryOrdering(entries))
 
 	// 5. Admit entries, ensuring that no more than one workload gets
-	// admitted by a clusterQueue or a cohort (if borrowing).
-	// This is because there can be other workloads deeper in a queue whose head
-	// got admitted that should be scheduled before the heads of other queues.
-	usedClusterQueue := sets.NewString()
+	// admitted by a cohort (if borrowing).
+	// This is because there can be other workloads deeper in a clusterQueue whose
+	// head got admitted that should be scheduled in the cohort before the heads
+	// of other clusterQueues.
 	usedCohorts := sets.NewString()
 	admittedWorkloads := sets.NewString()
 	for _, e := range entries {
-		if usedClusterQueue.Has(e.ClusterQueue) {
-			continue
-		}
 		c := snapshot.ClusterQueues[e.ClusterQueue]
 		if len(e.borrows) > 0 && c.Cohort != nil && usedCohorts.Has(c.Cohort.Name) {
 			continue
 		}
-		usedClusterQueue.Insert(e.ClusterQueue)
 		log := log.WithValues("queuedWorkload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue))
 		if err := s.admit(ctrl.LoggerInto(ctx, log), &e); err != nil {
 			log.Error(err, "Failed admitting workload by clusterQueue")

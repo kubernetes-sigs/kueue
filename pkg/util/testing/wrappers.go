@@ -17,6 +17,8 @@ limitations under the License.
 package testing
 
 import (
+	"time"
+
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -137,9 +139,18 @@ func (w *QueuedWorkloadWrapper) Request(r corev1.ResourceName, q string) *Queued
 	return w
 }
 
-// Queue updates the queue name of the job
-func (w *QueuedWorkloadWrapper) Queue(queue string) *QueuedWorkloadWrapper {
-	w.Spec.QueueName = queue
+func (w *QueuedWorkloadWrapper) Queue(q string) *QueuedWorkloadWrapper {
+	w.Spec.QueueName = q
+	return w
+}
+
+func (w *QueuedWorkloadWrapper) Admit(a *kueue.Admission) *QueuedWorkloadWrapper {
+	w.Spec.Admission = a
+	return w
+}
+
+func (w *QueuedWorkloadWrapper) Creation(t time.Time) *QueuedWorkloadWrapper {
+	w.CreationTimestamp = metav1.NewTime(t)
 	return w
 }
 

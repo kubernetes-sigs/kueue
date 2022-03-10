@@ -309,7 +309,7 @@ func TestSchedule(t *testing.T) {
 				},
 			},
 			wantLeft: map[string]sets.String{
-				"sales/main": sets.NewString("new"),
+				"sales": sets.NewString("new"),
 			},
 		},
 		"failed to match clusterQueue selector": {
@@ -334,7 +334,7 @@ func TestSchedule(t *testing.T) {
 				},
 			},
 			wantLeft: map[string]sets.String{
-				"sales/blocked": sets.NewString("new"),
+				"eng-alpha": sets.NewString("new"),
 			},
 		},
 		"assign to different cohorts": {
@@ -572,7 +572,7 @@ func TestSchedule(t *testing.T) {
 			},
 			wantScheduled: []string{"eng-alpha/new"},
 			wantLeft: map[string]sets.String{
-				"eng-beta/main": sets.NewString("new"),
+				"eng-beta": sets.NewString("new"),
 			},
 		},
 		"cannot borrow resource not listed in clusterQueue": {
@@ -597,7 +597,7 @@ func TestSchedule(t *testing.T) {
 				},
 			},
 			wantLeft: map[string]sets.String{
-				"eng-alpha/main": sets.NewString("new"),
+				"eng-alpha": sets.NewString("new"),
 			},
 		},
 		"not enough resources to borrow, fallback to next flavor": {
@@ -690,7 +690,7 @@ func TestSchedule(t *testing.T) {
 				t.Fatalf("Failed adding kueue scheme: %v", err)
 			}
 			clientBuilder := fake.NewClientBuilder().WithScheme(scheme).
-				WithLists(&kueue.QueuedWorkloadList{Items: tc.workloads}).
+				WithLists(&kueue.QueuedWorkloadList{Items: tc.workloads}, &kueue.QueueList{Items: queues}).
 				WithObjects(
 					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-alpha", Labels: map[string]string{"dep": "eng"}}},
 					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-beta", Labels: map[string]string{"dep": "eng"}}},
@@ -708,9 +708,12 @@ func TestSchedule(t *testing.T) {
 					t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
 				}
 			}
-			for _, c := range clusterQueues {
-				if err := cqCache.AddClusterQueue(ctx, &c); err != nil {
-					t.Fatalf("Inserting clusterQueue %s in cache: %v", c.Name, err)
+			for _, cq := range clusterQueues {
+				if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
+					t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+				}
+				if err := qManager.AddClusterQueue(ctx, &cq); err != nil {
+					t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
 				}
 			}
 			workloadWatch, err := cl.Watch(ctx, &kueue.QueuedWorkloadList{})

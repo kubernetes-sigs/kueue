@@ -55,7 +55,6 @@ func (c *ClusterQueue) snapshot() *ClusterQueue {
 		UsedResources:        make(Resources, len(c.UsedResources)),
 		Workloads:            make(map[string]*workload.Info, len(c.Workloads)),
 		LabelKeys:            c.LabelKeys, // Shallow copy is enough.
-		QueueingStrategy:     c.QueueingStrategy,
 		NamespaceSelector:    c.NamespaceSelector,
 	}
 	for res, flavors := range c.UsedResources {

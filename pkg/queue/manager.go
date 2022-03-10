@@ -30,25 +30,90 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-const workloadQueueKey = "spec.queueName"
+const (
+	workloadQueueKey     = "spec.queueName"
+	queueClusterQueueKey = "spec.clusterQueue"
+)
 
-var errQueueDoesntExist = errors.New("queue doesn't exist")
+var (
+	queueDoesNotExistErr         = errors.New("queue doesn't exist")
+	clusterQueueDoesNotExistErr  = errors.New("clusterQueue doesn't exist")
+	clusterQueueAlreadyExistsErr = errors.New("clusterQueue already exists")
+)
 
 type Manager struct {
 	sync.RWMutex
 	cond sync.Cond
 
-	client client.Client
-	queues map[string]*Queue
+	client        client.Client
+	clusterQueues map[string]*ClusterQueue
+	queues        map[string]*Queue
 }
 
 func NewManager(client client.Client) *Manager {
 	m := &Manager{
-		client: client,
-		queues: make(map[string]*Queue),
+		client:        client,
+		queues:        make(map[string]*Queue),
+		clusterQueues: make(map[string]*ClusterQueue),
 	}
 	m.cond.L = &m.RWMutex
 	return m
+}
+
+func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) error {
+	m.Lock()
+	defer m.Unlock()
+
+	if _, ok := m.clusterQueues[cq.Name]; ok {
+		return clusterQueueAlreadyExistsErr
+	}
+	cqImpl := newClusterQueue(cq)
+	m.clusterQueues[cq.Name] = cqImpl
+
+	// Iterate through existing queues, as queues corresponding to this cluster
+	// queue might have been added earlier.
+	var queues kueue.QueueList
+	if err := m.client.List(ctx, &queues, client.MatchingFields{queueClusterQueueKey: cq.Name}); err != nil {
+		return fmt.Errorf("listing queues pointing to the cluster queue: %w", err)
+	}
+	addedWorkloads := false
+	for _, q := range queues.Items {
+		// Checking clusterQueue name again because the field index is not available in tests.
+		if string(q.Spec.ClusterQueue) != cq.Name {
+			continue
+		}
+		qImpl := m.queues[Key(&q)]
+		if qImpl != nil {
+			added := cqImpl.AddFromQueue(qImpl)
+			addedWorkloads = addedWorkloads || added
+		}
+	}
+	if addedWorkloads {
+		m.cond.Broadcast()
+	}
+	return nil
+}
+
+func (m *Manager) UpdateClusterQueue(cq *kueue.ClusterQueue) error {
+	m.Lock()
+	defer m.Unlock()
+	cqImpl, ok := m.clusterQueues[cq.Name]
+	if !ok {
+		return clusterQueueDoesNotExistErr
+	}
+	// TODO(#8): recreate heap based on a change of queueing policy.
+	cqImpl.update(cq)
+	return nil
+}
+
+func (m *Manager) DeleteClusterQueue(cq *kueue.ClusterQueue) {
+	m.Lock()
+	defer m.Unlock()
+	cqImpl := m.clusterQueues[cq.Name]
+	if cqImpl == nil {
+		return
+	}
+	delete(m.clusterQueues, cq.Name)
 }
 
 func (m *Manager) AddQueue(ctx context.Context, q *kueue.Queue) error {
@@ -59,8 +124,7 @@ func (m *Manager) AddQueue(ctx context.Context, q *kueue.Queue) error {
 	if _, ok := m.queues[key]; ok {
 		return fmt.Errorf("queue %q already exists", q.Name)
 	}
-	qImpl := newQueue()
-	qImpl.setProperties(q)
+	qImpl := newQueue(q)
 	m.queues[key] = qImpl
 	// Iterate through existing workloads, as workloads corresponding to this
 	// queue might have been added earlier.
@@ -68,16 +132,16 @@ func (m *Manager) AddQueue(ctx context.Context, q *kueue.Queue) error {
 	if err := m.client.List(ctx, &workloads, client.MatchingFields{workloadQueueKey: q.Name}, client.InNamespace(q.Namespace)); err != nil {
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
-	addedWorkloads := false
-	for i, w := range workloads.Items {
+	for _, w := range workloads.Items {
+		w := w
 		// Checking queue name again because the field index is not available in tests.
 		if w.Spec.QueueName != q.Name || w.Spec.Admission != nil {
 			continue
 		}
-		qImpl.PushOrUpdate(&workloads.Items[i])
-		addedWorkloads = true
+		qImpl.AddOrUpdate(&w)
 	}
-	if addedWorkloads {
+	cq := m.clusterQueues[qImpl.ClusterQueue]
+	if cq != nil && cq.AddFromQueue(qImpl) {
 		m.cond.Broadcast()
 	}
 	return nil
@@ -88,9 +152,19 @@ func (m *Manager) UpdateQueue(q *kueue.Queue) error {
 	defer m.Unlock()
 	qImpl, ok := m.queues[Key(q)]
 	if !ok {
-		return errQueueDoesntExist
+		return queueDoesNotExistErr
 	}
-	qImpl.setProperties(q)
+	if qImpl.ClusterQueue != string(q.Spec.ClusterQueue) {
+		oldCQ := m.clusterQueues[qImpl.ClusterQueue]
+		if oldCQ != nil {
+			oldCQ.DeleteFromQueue(qImpl)
+		}
+		newCQ := m.clusterQueues[string(q.Spec.ClusterQueue)]
+		if newCQ != nil && newCQ.AddFromQueue(qImpl) {
+			m.cond.Broadcast()
+		}
+	}
+	qImpl.update(q)
 	return nil
 }
 
@@ -102,6 +176,10 @@ func (m *Manager) DeleteQueue(q *kueue.Queue) {
 	if qImpl == nil {
 		return
 	}
+	cq := m.clusterQueues[qImpl.ClusterQueue]
+	if cq != nil {
+		cq.DeleteFromQueue(qImpl)
+	}
 	delete(m.queues, key)
 }
 
@@ -109,9 +187,9 @@ func (m *Manager) Status(q *kueue.Queue) (int, error) {
 	m.RLock()
 	defer m.RUnlock()
 	if q := m.queues[Key(q)]; q != nil {
-		return q.heap.Len(), nil
+		return len(q.items), nil
 	}
-	return 0, errQueueDoesntExist
+	return 0, queueDoesNotExistErr
 }
 
 // AddOrUpdateWorkload adds or updates workload to the corresponding queue.
@@ -123,13 +201,19 @@ func (m *Manager) AddOrUpdateWorkload(w *kueue.QueuedWorkload) bool {
 }
 
 func (m *Manager) addOrUpdateWorkload(w *kueue.QueuedWorkload) bool {
-	qKey := keyForWorkload(w)
-	if q := m.queues[qKey]; q != nil {
-		q.PushOrUpdate(w)
-		m.cond.Broadcast()
-		return true
+	qKey := queueKeyForWorkload(w)
+	q := m.queues[qKey]
+	if q == nil {
+		return false
 	}
-	return false
+	q.AddOrUpdate(w)
+	cq := m.clusterQueues[q.ClusterQueue]
+	if cq == nil {
+		return false
+	}
+	cq.PushOrUpdate(w)
+	m.cond.Broadcast()
+	return true
 }
 
 // RequeueWorkload requeues the workload ensuring that the queue and the
@@ -139,7 +223,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info) bool
 	m.Lock()
 	defer m.Unlock()
 
-	q := m.queues[keyForWorkload(info.Obj)]
+	q := m.queues[queueKeyForWorkload(info.Obj)]
 	if q == nil {
 		return false
 	}
@@ -151,18 +235,31 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info) bool
 		return false
 	}
 
-	return q.PushIfNotPresent(info)
+	key := workload.Key(info.Obj)
+	q.items[key] = info
+
+	cq := m.clusterQueues[q.ClusterQueue]
+	if cq == nil {
+		return false
+	}
+	return cq.PushIfNotPresent(info)
 }
 
 func (m *Manager) DeleteWorkload(w *kueue.QueuedWorkload) {
 	m.Lock()
-	m.deleteWorkloadFromQueue(w, keyForWorkload(w))
+	m.deleteWorkloadFromQueueAndClusterQueue(w, queueKeyForWorkload(w))
 	m.Unlock()
 }
 
-func (m *Manager) deleteWorkloadFromQueue(w *kueue.QueuedWorkload, qKey string) {
-	if q := m.queues[qKey]; q != nil {
-		q.Delete(w)
+func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(w *kueue.QueuedWorkload, qKey string) {
+	q := m.queues[qKey]
+	if q == nil {
+		return
+	}
+	delete(q.items, workload.Key(w))
+	cq := m.clusterQueues[q.ClusterQueue]
+	if cq != nil {
+		cq.Delete(w)
 	}
 }
 
@@ -172,12 +269,17 @@ func (m *Manager) UpdateWorkload(oldW, w *kueue.QueuedWorkload) bool {
 	m.Lock()
 	defer m.Unlock()
 	if oldW.Spec.QueueName != w.Spec.QueueName {
-		m.deleteWorkloadFromQueue(w, keyForWorkload(oldW))
+		m.deleteWorkloadFromQueueAndClusterQueue(w, queueKeyForWorkload(oldW))
 		return m.addOrUpdateWorkload(w)
 	}
 
-	if q := m.queues[keyForWorkload(w)]; q != nil {
-		q.PushOrUpdate(w)
+	q := m.queues[queueKeyForWorkload(w)]
+	if q == nil {
+		return false
+	}
+	cq := m.clusterQueues[q.ClusterQueue]
+	if cq != nil {
+		cq.PushOrUpdate(w)
 		return true
 	}
 	return false
@@ -219,12 +321,12 @@ func (m *Manager) Dump() map[string]sets.String {
 		return nil
 	}
 	dump := make(map[string]sets.String, len(m.queues))
-	for key, q := range m.queues {
-		if len(q.heap.items) == 0 {
+	for key, cq := range m.clusterQueues {
+		if len(cq.heap.items) == 0 {
 			continue
 		}
-		elements := make(sets.String, len(q.heap.items))
-		for _, e := range q.heap.items {
+		elements := make(sets.String, len(cq.heap.items))
+		for _, e := range cq.heap.items {
 			elements.Insert(e.obj.Obj.Name)
 		}
 		dump[key] = elements
@@ -237,20 +339,34 @@ func (m *Manager) Dump() map[string]sets.String {
 
 func (m *Manager) heads() []workload.Info {
 	var workloads []workload.Info
-	for _, q := range m.queues {
-		wl := q.Pop()
-		if wl != nil {
-			wlCopy := *wl
-			wlCopy.ClusterQueue = q.ClusterQueue
-			workloads = append(workloads, wlCopy)
+	for cqName, cq := range m.clusterQueues {
+		wl := cq.Pop()
+		if wl == nil {
+			continue
 		}
+		wlCopy := *wl
+		wlCopy.ClusterQueue = cqName
+		workloads = append(workloads, wlCopy)
+		q := m.queues[queueKeyForWorkload(wl.Obj)]
+		delete(q.items, workload.Key(wl.Obj))
 	}
 	return workloads
 }
 
 func SetupIndexes(indexer client.FieldIndexer) error {
-	return indexer.IndexField(context.Background(), &kueue.QueuedWorkload{}, workloadQueueKey, func(o client.Object) []string {
+	err := indexer.IndexField(context.Background(), &kueue.QueuedWorkload{}, workloadQueueKey, func(o client.Object) []string {
 		wl := o.(*kueue.QueuedWorkload)
 		return []string{wl.Spec.QueueName}
 	})
+	if err != nil {
+		return fmt.Errorf("setting index on queue for QueuedWorkload: %w", err)
+	}
+	err = indexer.IndexField(context.Background(), &kueue.Queue{}, queueClusterQueueKey, func(o client.Object) []string {
+		q := o.(*kueue.Queue)
+		return []string{string(q.Spec.ClusterQueue)}
+	})
+	if err != nil {
+		return fmt.Errorf("setting index on clusterQueue for Queue: %w", err)
+	}
+	return nil
 }

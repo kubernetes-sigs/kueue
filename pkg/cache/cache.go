@@ -76,7 +76,8 @@ func newCohort(name string, size int) *Cohort {
 	}
 }
 
-// ClusterQueue is the internal implementation of kueue.ClusterQueue
+// ClusterQueue is the internal implementation of kueue.ClusterQueue that
+// holds admitted workloads.
 type ClusterQueue struct {
 	Name                 string
 	Cohort               *Cohort
@@ -88,10 +89,6 @@ type ClusterQueue struct {
 	// that can be matched against the flavors.
 	LabelKeys map[corev1.ResourceName]sets.String
 
-	// TODO(#87) introduce a single heap for per ClusterQueue.
-	// QueueingStrategy indicates the queueing strategy of the workloads
-	// across the queues in this ClusterQueue.
-	QueueingStrategy  kueue.QueueingStrategy
 	NamespaceSelector labels.Selector
 }
 
@@ -106,9 +103,8 @@ type FlavorInfo struct {
 
 func NewClusterQueue(cq *kueue.ClusterQueue) (*ClusterQueue, error) {
 	c := &ClusterQueue{
-		Name:             cq.Name,
-		Workloads:        map[string]*workload.Info{},
-		QueueingStrategy: cq.Spec.QueueingStrategy,
+		Name:      cq.Name,
+		Workloads: map[string]*workload.Info{},
 	}
 	if err := c.update(cq); err != nil {
 		return nil, err

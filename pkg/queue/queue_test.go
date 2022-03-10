@@ -21,12 +21,15 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
 )
 
-func TestFIFOQueue(t *testing.T) {
-	q := newQueue()
+func TestFIFOClusterQueue(t *testing.T) {
+	q := newClusterQueue(&kueue.ClusterQueue{
+		Spec: kueue.ClusterQueueSpec{
+			QueueingStrategy: kueue.StrictFIFO,
+		},
+	})
 	now := metav1.Now()
 	ws := []*kueue.QueuedWorkload{
 		{
