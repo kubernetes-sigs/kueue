@@ -74,7 +74,7 @@ func (r *ClusterQueue) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Re
 	// Shallow copy enough for now.
 	oldStatus := cqObj.Status
 	cqObj.Status.UsedResources = usage
-	cqObj.Status.AssignedWorkloads = int32(workloads)
+	cqObj.Status.AdmittedWorkloads = int32(workloads)
 	if !equality.Semantic.DeepEqual(oldStatus, cqObj.Status) {
 		err = r.client.Status().Update(ctx, &cqObj)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
