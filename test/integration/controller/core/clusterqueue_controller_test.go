@@ -71,7 +71,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 				Flavor(testing.MakeFlavor(flavorModelB, "5").Ceiling("10").Obj()).Obj()).Obj()
 		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 		emptyCqStatus = kueue.ClusterQueueStatus{
-			AssignedWorkloads: 0,
+			AdmittedWorkloads: 0,
 			UsedResources: kueue.UsedResources{
 				corev1.ResourceCPU: {
 					flavorOnDemand: {Total: pointer.Quantity(resource.MustParse("0"))},
@@ -138,7 +138,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
 			return updatedCQ.Status
 		}, framework.Timeout, framework.Interval).Should(testing.Equal(kueue.ClusterQueueStatus{
-			AssignedWorkloads: 4,
+			AdmittedWorkloads: 4,
 			UsedResources: kueue.UsedResources{
 				corev1.ResourceCPU: {
 					flavorOnDemand: {

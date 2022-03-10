@@ -283,8 +283,8 @@ spec:
           status:
             description: ClusterQueueStatus defines the observed state of ClusterQueue
             properties:
-              assignedWorkloads:
-                description: assignedWorkloads is the number of workloads currently
+              admittedWorkloads:
+                description: AdmittedWorkloads is the number of workloads currently
                   assigned to this clusterQueue.
                 format: int32
                 type: integer
