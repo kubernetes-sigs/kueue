@@ -7356,10 +7356,8 @@ spec:
                       type: string
                     type:
                       description: "type of condition could be: \n Admitted: the QueuedWorkload
-                        was admitted through a ClusterQueue. \n Active: the associated
-                        workload is active: it is not suspended or it has non-terminated
-                        pods. \n Finished: the associated workload finished running
-                        (failed or succeeded)."
+                        was admitted through a ClusterQueue. \n Finished: the associated
+                        workload finished running (failed or succeeded)."
                       type: string
                   required:
                   - status
