@@ -33,8 +33,6 @@ import (
 const (
 	workloadQueueKey     = "spec.queueName"
 	queueClusterQueueKey = "spec.clusterQueue"
-	admitted             = "admitted"
-	pending              = "pending"
 )
 
 var (
