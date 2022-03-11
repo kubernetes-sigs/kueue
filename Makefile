@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-VERSION := $(shell git describe --tags --dirty --always)
+VERSION ?= $(shell git describe --tags --dirty --always)
 # Image URL to use all building/pushing image targets
 IMAGE_BUILD_CMD ?= docker build
 IMAGE_PUSH_CMD ?= docker push

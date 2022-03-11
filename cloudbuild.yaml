@@ -12,11 +12,14 @@ steps:
     env:
     - IMAGE_REGISTRY=gcr.io/$PROJECT_ID
     - _GIT_TAG=$_GIT_TAG
+    # set devel, as the tag that tracks main branch
+    # this will be modified everytime a release is cut
+    - VERSION="devel"
     - IMAGE_EXTRA_TAG_NAMES=$_PULL_BASE_REF
 substitutions:
 # _GIT_TAG will be filled with a git-based tag for the image, of the form vYYYYMMDD-hash, and
  # can be used as a substitution
   _GIT_TAG: '0.0.0'
-  _PULL_BASE_REF: 'master'
+  _PULL_BASE_REF: 'main'
 options:
   substitution_option: ALLOW_LOOSE
