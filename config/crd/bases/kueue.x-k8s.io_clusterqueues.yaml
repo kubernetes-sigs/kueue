@@ -285,7 +285,12 @@ spec:
             properties:
               admittedWorkloads:
                 description: AdmittedWorkloads is the number of workloads currently
-                  assigned to this clusterQueue.
+                  admitted to this clusterQueue.
+                format: int32
+                type: integer
+              pendingdWorkloads:
+                description: PendingWorkloads is the number of workloads currently
+                  waiting to be admitted to this clusterQueue.
                 format: int32
                 type: integer
               usedResources:

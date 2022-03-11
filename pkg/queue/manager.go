@@ -192,6 +192,12 @@ func (m *Manager) Status(q *kueue.Queue) (int, error) {
 	return 0, queueDoesNotExistErr
 }
 
+func (m *Manager) Pending(cq *kueue.ClusterQueue) int32 {
+	m.RLock()
+	defer m.RUnlock()
+	return int32(len(m.clusterQueues[cq.Name].heap.heap))
+}
+
 // AddOrUpdateWorkload adds or updates workload to the corresponding queue.
 // Returns whether the queue existed.
 func (m *Manager) AddOrUpdateWorkload(w *kueue.QueuedWorkload) bool {

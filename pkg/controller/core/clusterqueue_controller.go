@@ -20,6 +20,7 @@ import (
 	"context"
 
 	"github.com/go-logr/logr"
+
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
@@ -67,21 +68,18 @@ func (r *ClusterQueue) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Re
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(2).Info("Reconciling ClusterQueue")
 
-	usage, workloads, err := r.cache.Usage(&cqObj)
+	status, err := r.Status(&cqObj)
 	if err != nil {
-		log.Error(err, "Failed getting usage from cache")
-		// This is likely because the cluster queue was recently removed,
-		// but we didn't process that event yet.
+		log.Error(err, "Failed getting status from cache")
 		return ctrl.Result{}, err
 	}
-	// Shallow copy enough for now.
-	oldStatus := cqObj.Status
-	cqObj.Status.UsedResources = usage
-	cqObj.Status.AdmittedWorkloads = int32(workloads)
-	if !equality.Semantic.DeepEqual(oldStatus, cqObj.Status) {
-		err = r.client.Status().Update(ctx, &cqObj)
+
+	if !equality.Semantic.DeepEqual(status, cqObj.Status) {
+		cqObj.Status = status
+		err := r.client.Status().Update(ctx, &cqObj)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -187,4 +185,20 @@ func (r *ClusterQueue) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&source.Kind{Type: &kueue.QueuedWorkload{}}, &assignedWorkloadHandler{}).
 		WithEventFilter(r).
 		Complete(r)
+}
+
+func (r *ClusterQueue) Status(cq *kueue.ClusterQueue) (kueue.ClusterQueueStatus, error) {
+	usage, workloads, err := r.cache.Usage(cq)
+	if err != nil {
+		r.log.Error(err, "Failed getting usage from cache")
+		// This is likely because the cluster queue was recently removed,
+		// but we didn't process that event yet.
+		return kueue.ClusterQueueStatus{}, err
+	}
+
+	return kueue.ClusterQueueStatus{
+		UsedResources:     usage,
+		AdmittedWorkloads: int32(workloads),
+		PendingWorkloads:  r.qManager.Pending(cq),
+	}, nil
 }
