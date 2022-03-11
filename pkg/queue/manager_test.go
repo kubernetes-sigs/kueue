@@ -272,7 +272,15 @@ func TestStatus(t *testing.T) {
 			},
 			Spec: kueue.QueuedWorkloadSpec{QueueName: "foo"},
 		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:              "d",
+				CreationTimestamp: metav1.NewTime(now),
+			},
+			Spec: kueue.QueuedWorkloadSpec{QueueName: "foo"},
+		},
 	}
+
 	manager := NewManager(fake.NewClientBuilder().WithScheme(scheme).Build())
 	for _, q := range queues {
 		if err := manager.AddQueue(ctx, &q); err != nil {
@@ -286,12 +294,12 @@ func TestStatus(t *testing.T) {
 
 	cases := map[string]struct {
 		queue      *kueue.Queue
-		wantStatus int
+		wantStatus int32
 		wantErr    error
 	}{
 		"foo": {
 			queue:      &queues[0],
-			wantStatus: 2,
+			wantStatus: 3,
 			wantErr:    nil,
 		},
 		"bar": {
@@ -302,12 +310,12 @@ func TestStatus(t *testing.T) {
 		"fake": {
 			queue:      &kueue.Queue{ObjectMeta: metav1.ObjectMeta{Name: "fake"}},
 			wantStatus: 0,
-			wantErr:    queueDoesNotExistErr,
+			wantErr:    errQueueDoesNotExist,
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			status, err := manager.Status(tc.queue)
+			status, err := manager.PendingWorkloads(tc.queue)
 			if err != tc.wantErr {
 				t.Errorf("Should have failed with: %s", err)
 			}
