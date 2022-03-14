@@ -262,15 +262,18 @@ type Quota struct {
 type ClusterQueueStatus struct {
 	// usedResources are the resources (by flavor) currently in use by the
 	// workloads assigned to this clusterQueue.
-	UsedResources UsedResources `json:"usedResources,omitempty"`
+	// +optional
+	UsedResources UsedResources `json:"usedResources"`
 
 	// PendingWorkloads is the number of workloads currently waiting to be
 	// admitted to this clusterQueue.
-	PendingWorkloads int32 `json:"pendingdWorkloads,omitempty"`
+	// +optional
+	PendingWorkloads int32 `json:"pendingdWorkloads"`
 
 	// AdmittedWorkloads is the number of workloads currently admitted to this
 	// clusterQueue.
-	AdmittedWorkloads int32 `json:"admittedWorkloads,omitempty"`
+	// +optional
+	AdmittedWorkloads int32 `json:"admittedWorkloads"`
 }
 
 type UsedResources map[corev1.ResourceName]map[string]Usage
