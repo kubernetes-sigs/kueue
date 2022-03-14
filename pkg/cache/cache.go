@@ -35,7 +35,7 @@ import (
 
 const workloadClusterQueueKey = "spec.admission.clusterQueue"
 
-var cqNotFoundErr = errors.New("cluster queue not found")
+var errCqNotFound = errors.New("cluster queue not found")
 
 // Cache keeps track of the QueuedWorkloads that got admitted through
 // ClusterQueues.
@@ -221,7 +221,7 @@ func (c *Cache) UpdateClusterQueue(cq *kueue.ClusterQueue) error {
 	defer c.Unlock()
 	cqImpl, ok := c.clusterQueues[cq.Name]
 	if !ok {
-		return cqNotFoundErr
+		return errCqNotFound
 	}
 	if err := cqImpl.update(cq); err != nil {
 		return err
@@ -304,7 +304,7 @@ func (c *Cache) DeleteWorkload(w *kueue.QueuedWorkload) error {
 
 	qc, ok := c.clusterQueues[string(w.Spec.Admission.ClusterQueue)]
 	if !ok {
-		return cqNotFoundErr
+		return errCqNotFound
 	}
 
 	c.cleanupAssumedState(w)
@@ -329,7 +329,7 @@ func (c *Cache) AssumeWorkload(w *kueue.QueuedWorkload) error {
 
 	cq, ok := c.clusterQueues[string(w.Spec.Admission.ClusterQueue)]
 	if !ok {
-		return cqNotFoundErr
+		return errCqNotFound
 	}
 
 	if err := cq.addWorkload(w); err != nil {
@@ -354,7 +354,7 @@ func (c *Cache) ForgetWorkload(w *kueue.QueuedWorkload) error {
 
 	cq, ok := c.clusterQueues[string(w.Spec.Admission.ClusterQueue)]
 	if !ok {
-		return cqNotFoundErr
+		return errCqNotFound
 	}
 	cq.deleteWorkload(w)
 	return nil
@@ -367,7 +367,7 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (kueue.UsedResources, int, erro
 
 	cq := c.clusterQueues[cqObj.Name]
 	if cq == nil {
-		return nil, 0, cqNotFoundErr
+		return nil, 0, errCqNotFound
 	}
 	usage := make(kueue.UsedResources, len(cq.UsedResources))
 	for rName, usedRes := range cq.UsedResources {
