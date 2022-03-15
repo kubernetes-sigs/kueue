@@ -14,6 +14,14 @@ rules:
   - update
   - watch
 - apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - batch
   resources:
   - jobs
@@ -32,7 +40,7 @@ rules:
 - apiGroups:
   - kueue.x-k8s.io
   resources:
-  - clusterQueues
+  - clusterqueues
   verbs:
   - create
   - delete
@@ -44,25 +52,17 @@ rules:
 - apiGroups:
   - kueue.x-k8s.io
   resources:
-  - clusterQueues/finalizers
+  - clusterqueues/finalizers
   verbs:
   - update
 - apiGroups:
   - kueue.x-k8s.io
   resources:
-  - clusterQueues/status
+  - clusterqueues/status
   verbs:
   - get
   - patch
   - update
-- apiGroups:
-  - kueue.x-k8s.io
-  resources:
-  - clusterqueues
-  verbs:
-  - get
-  - list
-  - watch
 - apiGroups:
   - kueue.x-k8s.io
   resources:
