@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
@@ -146,25 +147,25 @@ type assignedWorkloadHandler struct{}
 func (h *assignedWorkloadHandler) Create(e event.CreateEvent, q workqueue.RateLimitingInterface) {
 	w := e.Object.(*kueue.QueuedWorkload)
 	if w.Spec.Admission != nil {
-		q.Add(requestForWorkloadClusterQueue(w))
+		q.AddAfter(requestForWorkloadClusterQueue(w), constants.UpdatesBatchPeriod)
 	}
 }
 
 func (h *assignedWorkloadHandler) Update(e event.UpdateEvent, q workqueue.RateLimitingInterface) {
 	oldW := e.ObjectOld.(*kueue.QueuedWorkload)
 	if oldW.Spec.Admission != nil {
-		q.Add(requestForWorkloadClusterQueue(oldW))
+		q.AddAfter(requestForWorkloadClusterQueue(oldW), constants.UpdatesBatchPeriod)
 	}
 	newW := e.ObjectNew.(*kueue.QueuedWorkload)
 	if newW.Spec.Admission != nil && (oldW.Spec.Admission == nil || newW.Spec.Admission.ClusterQueue != oldW.Spec.Admission.ClusterQueue) {
-		q.Add(requestForWorkloadClusterQueue(newW))
+		q.AddAfter(requestForWorkloadClusterQueue(newW), constants.UpdatesBatchPeriod)
 	}
 }
 
 func (h *assignedWorkloadHandler) Delete(e event.DeleteEvent, q workqueue.RateLimitingInterface) {
 	w := e.Object.(*kueue.QueuedWorkload)
 	if w.Spec.Admission != nil {
-		q.Add(requestForWorkloadClusterQueue(w))
+		q.AddAfter(requestForWorkloadClusterQueue(w), constants.UpdatesBatchPeriod)
 	}
 }
 
