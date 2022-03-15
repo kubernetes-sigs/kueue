@@ -227,7 +227,7 @@ spec:
                                 pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                                 x-kubernetes-int-or-string: true
                             type: object
-                          taint:
+                          taints:
                             description: taints associated with this constraint that
                               workloads must explicitly “tolerate” to be able to use
                               this type. e.g., cloud.provider.com/preemptible="true":NoSchedule

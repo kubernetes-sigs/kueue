@@ -241,7 +241,7 @@ type ResourceFlavor struct {
 	// taints associated with this constraint that workloads must explicitly
 	// “tolerate” to be able to use this type.
 	// e.g., cloud.provider.com/preemptible="true":NoSchedule
-	Taints []corev1.Taint `json:"taint,omitempty"`
+	Taints []corev1.Taint `json:"taints,omitempty"`
 }
 
 type Quota struct {
