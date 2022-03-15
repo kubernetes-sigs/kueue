@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
 )
 
@@ -131,23 +132,23 @@ type queuedWorkloadHandler struct{}
 func (h *queuedWorkloadHandler) Create(e event.CreateEvent, q workqueue.RateLimitingInterface) {
 	qw := e.Object.(*kueue.QueuedWorkload)
 	if qw.Spec.Admission == nil {
-		q.Add(requestForQueueStatus(qw))
+		q.AddAfter(requestForQueueStatus(qw), constants.UpdatesBatchPeriod)
 	}
 }
 
 func (h *queuedWorkloadHandler) Update(e event.UpdateEvent, q workqueue.RateLimitingInterface) {
 	oldQW := e.ObjectOld.(*kueue.QueuedWorkload)
 	newQW := e.ObjectOld.(*kueue.QueuedWorkload)
-	q.Add(requestForQueueStatus(newQW))
+	q.AddAfter(requestForQueueStatus(newQW), constants.UpdatesBatchPeriod)
 	if newQW.Spec.QueueName != oldQW.Spec.QueueName {
-		q.Add(requestForQueueStatus(oldQW))
+		q.AddAfter(requestForQueueStatus(oldQW), constants.UpdatesBatchPeriod)
 	}
 }
 
 func (h *queuedWorkloadHandler) Delete(e event.DeleteEvent, q workqueue.RateLimitingInterface) {
 	qw := e.Object.(*kueue.QueuedWorkload)
 	if qw.Spec.Admission == nil {
-		q.Add(requestForQueueStatus(qw))
+		q.AddAfter(requestForQueueStatus(qw), constants.UpdatesBatchPeriod)
 	}
 }
 

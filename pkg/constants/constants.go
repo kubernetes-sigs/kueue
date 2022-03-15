@@ -16,6 +16,8 @@ limitations under the License.
 
 package constants
 
+import "time"
+
 const (
 	// QueueAnnotation is the annotation in the workload that holds the queue name.
 	//
@@ -24,4 +26,8 @@ const (
 
 	ManagerName       = "kueue-manager"
 	JobControllerName = "kueue-job-controller"
+
+	// UpdatesBatchPeriod is the batch period to hold queuedworkload updates
+	// before syncing a Queue and CLusterQueue onbjects.
+	UpdatesBatchPeriod = 3 * time.Second
 )
