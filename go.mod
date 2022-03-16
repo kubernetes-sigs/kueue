@@ -1,6 +1,6 @@
 module sigs.k8s.io/kueue
 
-go 1.17
+go 1.18
 
 require (
 	github.com/go-logr/logr v1.2.2
