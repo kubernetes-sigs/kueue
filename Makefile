@@ -196,7 +196,7 @@ TMP_DIR=$$(mktemp -d) ;\
 cd $$TMP_DIR ;\
 $(GO_CMD) mod init tmp ;\
 echo "Downloading $(2)" ;\
-GOBIN=$(PROJECT_DIR)/bin $(GO_CMD) get $(2) ;\
+GOBIN=$(PROJECT_DIR)/bin $(GO_CMD) install $(2) ;\
 rm -rf $$TMP_DIR ;\
 }
 endef
