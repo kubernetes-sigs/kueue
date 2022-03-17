@@ -21,7 +21,14 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/pointer"
+
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
+)
+
+const (
+	lowPriority  = 0
+	highPriority = 1000
 )
 
 func TestFIFOClusterQueue(t *testing.T) {
@@ -81,5 +88,100 @@ func TestFIFOClusterQueue(t *testing.T) {
 	got = q.Pop()
 	if got != nil {
 		t.Errorf("Queue is not empty, poped workload %q", got.Obj.Name)
+	}
+}
+
+func TestStrictFIFO(t *testing.T) {
+	t1 := time.Now()
+	t2 := t1.Add(time.Second)
+	for _, tt := range []struct {
+		name     string
+		w1       *kueue.QueuedWorkload
+		w2       *kueue.QueuedWorkload
+		expected string
+	}{
+		{
+			name: "w1.priority is higher than w2.priority",
+			w1: &kueue.QueuedWorkload{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "w1",
+					CreationTimestamp: metav1.NewTime(t1),
+				},
+				Spec: kueue.QueuedWorkloadSpec{
+					PriorityClassName: "highPriority",
+					Priority:          pointer.Int32(highPriority),
+				},
+			},
+			w2: &kueue.QueuedWorkload{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "w2",
+					CreationTimestamp: metav1.NewTime(t2),
+				},
+				Spec: kueue.QueuedWorkloadSpec{
+					PriorityClassName: "lowPriority",
+					Priority:          pointer.Int32(lowPriority),
+				},
+			},
+			expected: "w1",
+		},
+		{
+			name: "w1.priority equals w2.priority and w1.create time is earlier than w2.create time",
+			w1: &kueue.QueuedWorkload{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "w1",
+					CreationTimestamp: metav1.NewTime(t1),
+				},
+			},
+			w2: &kueue.QueuedWorkload{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "w2",
+					CreationTimestamp: metav1.NewTime(t2),
+				},
+			},
+			expected: "w1",
+		},
+		{
+			name: "p1.priority is lower than p2.priority and w1.create time is earlier than w2.create time",
+			w1: &kueue.QueuedWorkload{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "w1",
+					CreationTimestamp: metav1.NewTime(t1),
+				},
+				Spec: kueue.QueuedWorkloadSpec{
+					PriorityClassName: "lowPriority",
+					Priority:          pointer.Int32(lowPriority),
+				},
+			},
+			w2: &kueue.QueuedWorkload{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "w2",
+					CreationTimestamp: metav1.NewTime(t2),
+				},
+				Spec: kueue.QueuedWorkloadSpec{
+					PriorityClassName: "highPriority",
+					Priority:          pointer.Int32(highPriority),
+				},
+			},
+			expected: "w2",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			q := newClusterQueue(&kueue.ClusterQueue{
+				Spec: kueue.ClusterQueueSpec{
+					QueueingStrategy: kueue.StrictFIFO,
+				},
+			})
+
+			q.PushOrUpdate(tt.w1)
+			q.PushOrUpdate(tt.w2)
+
+			got := q.Pop()
+			if got == nil {
+				t.Fatal("Queue is empty")
+			}
+			if got.Obj.Name != tt.expected {
+				t.Errorf("Poped workload %q want %q", got.Obj.Name, tt.expected)
+			}
+		})
 	}
 }

@@ -21,6 +21,7 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1 "k8s.io/api/scheduling/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/pointer"
@@ -78,6 +79,12 @@ func (j *JobWrapper) Parallelism(p int32) *JobWrapper {
 	return j
 }
 
+// PriorityClass updates job priorityclass.
+func (j *JobWrapper) PriorityClass(pc string) *JobWrapper {
+	j.Spec.Template.Spec.PriorityClassName = pc
+	return j
+}
+
 // Queue updates the queue name of the job
 func (j *JobWrapper) Queue(queue string) *JobWrapper {
 	j.Annotations[constants.QueueAnnotation] = queue
@@ -100,6 +107,31 @@ func (j *JobWrapper) NodeSelector(k, v string) *JobWrapper {
 func (j *JobWrapper) Request(r corev1.ResourceName, v string) *JobWrapper {
 	j.Spec.Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
 	return j
+}
+
+// PriorityClassWrapper wraps a PriorityClass.
+type PriorityClassWrapper struct {
+	schedulingv1.PriorityClass
+}
+
+// MakePriorityClass creates a wrapper for a PriorityClass.
+func MakePriorityClass(name string) *PriorityClassWrapper {
+	return &PriorityClassWrapper{schedulingv1.PriorityClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		}},
+	}
+}
+
+// PriorityValue update value of PriorityClass。
+func (p *PriorityClassWrapper) PriorityValue(v int32) *PriorityClassWrapper {
+	p.Value = v
+	return p
+}
+
+// Obj returns the inner PriorityClass.
+func (p *PriorityClassWrapper) Obj() *schedulingv1.PriorityClass {
+	return &p.PriorityClass
 }
 
 type QueuedWorkloadWrapper struct{ kueue.QueuedWorkload }
@@ -151,6 +183,11 @@ func (w *QueuedWorkloadWrapper) Admit(a *kueue.Admission) *QueuedWorkloadWrapper
 
 func (w *QueuedWorkloadWrapper) Creation(t time.Time) *QueuedWorkloadWrapper {
 	w.CreationTimestamp = metav1.NewTime(t)
+	return w
+}
+
+func (w *QueuedWorkloadWrapper) PriorityClass(priorityClassName string) *QueuedWorkloadWrapper {
+	w.Spec.PriorityClassName = priorityClassName
 	return w
 }
 

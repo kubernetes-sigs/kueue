@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
+	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -140,6 +141,12 @@ func (cq *ClusterQueue) Pop() *workload.Info {
 }
 
 func creationFIFO(a, b workload.Info) bool {
+	p1 := utilpriority.Priority(a.Obj)
+	p2 := utilpriority.Priority(b.Obj)
+
+	if p1 != p2 {
+		return p1 > p2
+	}
 	return a.Obj.CreationTimestamp.Before(&b.Obj.CreationTimestamp)
 }
 

@@ -35,6 +35,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/constants"
+	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -294,7 +295,7 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job *batchv
 	}
 
 	// Create the corresponding workload.
-	wl, err := ConstructWorkloadFor(job, r.scheme)
+	wl, err := ConstructWorkloadFor(ctx, r.client, job, r.scheme)
 	if err != nil {
 		return err
 	}
@@ -370,7 +371,8 @@ func (r *JobReconciler) ensureAtMostOneWorkload(ctx context.Context, job *batchv
 	return match, nil
 }
 
-func ConstructWorkloadFor(job *batchv1.Job, scheme *runtime.Scheme) (*kueue.QueuedWorkload, error) {
+func ConstructWorkloadFor(ctx context.Context, client client.Client,
+	job *batchv1.Job, scheme *runtime.Scheme) (*kueue.QueuedWorkload, error) {
 	w := &kueue.QueuedWorkload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      job.Name,
@@ -386,6 +388,16 @@ func ConstructWorkloadFor(job *batchv1.Job, scheme *runtime.Scheme) (*kueue.Queu
 			QueueName: queueName(job),
 		},
 	}
+
+	// Populate priority from priority class.
+	priorityClassName, p, err := utilpriority.GetPriorityFromPriorityClass(
+		ctx, client, job.Spec.Template.Spec.PriorityClassName)
+	if err != nil {
+		return nil, err
+	}
+	w.Spec.Priority = &p
+	w.Spec.PriorityClassName = priorityClassName
+
 	if err := ctrl.SetControllerReference(job, w, scheme); err != nil {
 		return nil, err
 	}
