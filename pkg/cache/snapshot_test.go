@@ -244,7 +244,7 @@ func TestSnapshot(t *testing.T) {
 			"foofoo": {
 				Name:   "foofoo",
 				Cohort: &wantCohorts[0],
-				RequestableResources: map[corev1.ResourceName][]FlavorInfo{
+				RequestableResources: map[corev1.ResourceName][]FlavorLimits{
 					corev1.ResourceCPU: {
 						{
 							Name:       "demand",
@@ -273,7 +273,7 @@ func TestSnapshot(t *testing.T) {
 			"foobar": {
 				Name:   "foobar",
 				Cohort: &wantCohorts[0],
-				RequestableResources: map[corev1.ResourceName][]FlavorInfo{
+				RequestableResources: map[corev1.ResourceName][]FlavorLimits{
 					corev1.ResourceCPU: {
 						{
 							Name:       "spot",
@@ -303,7 +303,7 @@ func TestSnapshot(t *testing.T) {
 			},
 			"bar": {
 				Name: "bar",
-				RequestableResources: map[corev1.ResourceName][]FlavorInfo{
+				RequestableResources: map[corev1.ResourceName][]FlavorLimits{
 					corev1.ResourceCPU: {
 						{
 							Name:       "default",

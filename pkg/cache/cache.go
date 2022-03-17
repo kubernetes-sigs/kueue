@@ -81,19 +81,18 @@ func newCohort(name string, size int) *Cohort {
 type ClusterQueue struct {
 	Name                 string
 	Cohort               *Cohort
-	RequestableResources map[corev1.ResourceName][]FlavorInfo
+	RequestableResources map[corev1.ResourceName][]FlavorLimits
 	UsedResources        Resources
 	Workloads            map[string]*workload.Info
+	NamespaceSelector    labels.Selector
 	// The set of key labels from all flavors of a resource.
 	// Those keys define the affinity terms of a workload
 	// that can be matched against the flavors.
 	LabelKeys map[corev1.ResourceName]sets.String
-
-	NamespaceSelector labels.Selector
 }
 
-// FlavorInfo holds processed flavor type.
-type FlavorInfo struct {
+// FlavorLimits holds a processed ClusterQueue flavor quota.
+type FlavorLimits struct {
 	Name       string
 	Guaranteed int64
 	Ceiling    int64
@@ -198,8 +197,8 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 	}
 	c.addClusterQueueToCohort(cqImpl, cq.Spec.Cohort)
 	c.clusterQueues[cq.Name] = cqImpl
-	// On controller restart, an add ClusterQueue event may come after
 
+	// On controller restart, an add ClusterQueue event may come after
 	// add workload events, and so here we explicitly list and add existing workloads.
 	var workloads kueue.QueuedWorkloadList
 	if err := c.client.List(ctx, &workloads, client.MatchingFields{workloadClusterQueueKey: cq.Name}); err != nil {
@@ -428,13 +427,13 @@ func (c *Cache) deleteClusterQueueFromCohort(cq *ClusterQueue) {
 	cq.Cohort = nil
 }
 
-func resourcesByName(in []kueue.Resource) map[corev1.ResourceName][]FlavorInfo {
-	out := make(map[corev1.ResourceName][]FlavorInfo, len(in))
+func resourcesByName(in []kueue.Resource) map[corev1.ResourceName][]FlavorLimits {
+	out := make(map[corev1.ResourceName][]FlavorLimits, len(in))
 	for _, r := range in {
-		flavors := make([]FlavorInfo, len(r.Flavors))
+		flavors := make([]FlavorLimits, len(r.Flavors))
 		for i := range flavors {
 			f := &r.Flavors[i]
-			fInfo := FlavorInfo{
+			fInfo := FlavorLimits{
 				Name:       f.Name,
 				Guaranteed: workload.ResourceValue(r.Name, f.Quota.Guaranteed),
 				Ceiling:    workload.ResourceValue(r.Name, f.Quota.Ceiling),
