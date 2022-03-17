@@ -39,6 +39,20 @@ type QueuedWorkloadSpec struct {
 
 	// admission holds the parameters of the admission of the workload by a ClusterQueue.
 	Admission *Admission `json:"admission,omitempty"`
+
+	// If specified, indicates the queuedWorkload's priority.
+	// "system-node-critical" and "system-cluster-critical" are two special
+	// keywords which indicate the highest priorities with the former being
+	// the highest priority. Any other name must be defined by creating a
+	// PriorityClass object with that name. If not specified, the queuedWorkload
+	// priority will be default or zero if there is no default.
+	PriorityClassName string `json:"priorityClassName,omitempty"`
+
+	// Priority determines the order of access to the resources managed by the
+	// ClusterQueue where the workload is queued.
+	// The priority value is populated from PriorityClassName.
+	// The higher the value, the higher the priority.
+	Priority *int32 `json:"priority,omitempty"`
 }
 
 type Admission struct {

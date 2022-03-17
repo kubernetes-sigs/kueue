@@ -37,13 +37,15 @@ import (
 )
 
 const (
-	parallelism    = 4
-	jobName        = "test-job"
-	jobNamespace   = "default"
-	jobKey         = jobNamespace + "/" + jobName
-	labelKey       = "cloud.provider.com/instance"
-	flavorOnDemand = "on-demand"
-	flavorSpot     = "spot"
+	parallelism       = 4
+	jobName           = "test-job"
+	jobNamespace      = "default"
+	jobKey            = jobNamespace + "/" + jobName
+	labelKey          = "cloud.provider.com/instance"
+	flavorOnDemand    = "on-demand"
+	flavorSpot        = "spot"
+	priorityClassName = "test-priority-class"
+	priorityValue     = 10
 )
 
 // +kubebuilder:docs-gen:collapse=Imports
@@ -51,7 +53,10 @@ const (
 var _ = ginkgo.Describe("Job controller", func() {
 	ginkgo.It("Should reconcile workload and job", func() {
 		ginkgo.By("checking the job gets suspended when created unsuspended")
-		job := testing.MakeJob(jobName, jobNamespace).Obj()
+		priorityClass := testing.MakePriorityClass(priorityClassName).
+			PriorityValue(int32(priorityValue)).Obj()
+		gomega.Expect(k8sClient.Create(ctx, priorityClass)).Should(gomega.Succeed())
+		job := testing.MakeJob(jobName, jobNamespace).PriorityClass(priorityClassName).Obj()
 		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 		lookupKey := types.NamespacedName{Name: jobName, Namespace: jobNamespace}
 		createdJob := &batchv1.Job{}
@@ -70,6 +75,10 @@ var _ = ginkgo.Describe("Job controller", func() {
 		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 		gomega.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(""))
 
+		ginkgo.By("checking the workload is created with priority and priorityName")
+		gomega.Expect(createdWorkload.Spec.PriorityClassName).Should(gomega.Equal(priorityClassName))
+		gomega.Expect(*createdWorkload.Spec.Priority).Should(gomega.Equal(int32(priorityValue)))
+
 		ginkgo.By("checking the workload is updated with queue name when the job does")
 		jobQueueName := "test-queue"
 		createdJob.Annotations = map[string]string{constants.QueueAnnotation: jobQueueName}
@@ -82,7 +91,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking a second non-matching workload is deleted")
-		secondWl, _ := workloadjob.ConstructWorkloadFor(createdJob, scheme.Scheme)
+		secondWl, _ := workloadjob.ConstructWorkloadFor(ctx, k8sClient, createdJob, scheme.Scheme)
 		secondWl.Name = "second-workload"
 		secondWl.Spec.PodSets[0].Count = parallelism + 1
 		gomega.Expect(k8sClient.Create(ctx, secondWl)).Should(gomega.Succeed())
