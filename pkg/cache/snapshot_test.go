@@ -51,7 +51,7 @@ func TestSnapshot(t *testing.T) {
 				RequestableResources: []kueue.Resource{
 					{
 						Name: corev1.ResourceCPU,
-						Flavors: []kueue.ResourceFlavor{
+						Flavors: []kueue.Flavor{
 							{
 								Name: "demand",
 								Quota: kueue.Quota{
@@ -80,7 +80,7 @@ func TestSnapshot(t *testing.T) {
 				RequestableResources: []kueue.Resource{
 					{
 						Name: corev1.ResourceCPU,
-						Flavors: []kueue.ResourceFlavor{
+						Flavors: []kueue.Flavor{
 							{
 								Name: "spot",
 								Quota: kueue.Quota{
@@ -91,7 +91,7 @@ func TestSnapshot(t *testing.T) {
 					},
 					{
 						Name: "example.com/gpu",
-						Flavors: []kueue.ResourceFlavor{
+						Flavors: []kueue.Flavor{
 							{
 								Name: "default",
 								Quota: kueue.Quota{
@@ -111,7 +111,7 @@ func TestSnapshot(t *testing.T) {
 				RequestableResources: []kueue.Resource{
 					{
 						Name: corev1.ResourceCPU,
-						Flavors: []kueue.ResourceFlavor{
+						Flavors: []kueue.Flavor{
 							{
 								Name: "default",
 								Quota: kueue.Quota{
@@ -149,7 +149,7 @@ func TestSnapshot(t *testing.T) {
 					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "main",
-							ResourceFlavors: map[corev1.ResourceName]string{
+							Flavors: map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "demand",
 							},
 						},
@@ -175,7 +175,7 @@ func TestSnapshot(t *testing.T) {
 					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "main",
-							ResourceFlavors: map[corev1.ResourceName]string{
+							Flavors: map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "spot",
 								"example.com/gpu":  "default",
 							},
@@ -202,7 +202,7 @@ func TestSnapshot(t *testing.T) {
 					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "main",
-							ResourceFlavors: map[corev1.ResourceName]string{
+							Flavors: map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "spot",
 								"example.com/gpu":  "default",
 							},

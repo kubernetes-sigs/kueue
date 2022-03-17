@@ -61,7 +61,7 @@ func totalRequests(spec *kueue.QueuedWorkloadSpec) []PodSetResources {
 	if spec.Admission != nil {
 		podSetFlavors = make(map[string]map[corev1.ResourceName]string, len(spec.Admission.PodSetFlavors))
 		for _, ps := range spec.Admission.PodSetFlavors {
-			podSetFlavors[ps.Name] = ps.ResourceFlavors
+			podSetFlavors[ps.Name] = ps.Flavors
 		}
 	}
 	for _, ps := range spec.PodSets {

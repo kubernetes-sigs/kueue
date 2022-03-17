@@ -130,7 +130,7 @@ func TestNewInfo(t *testing.T) {
 				PodSetFlavors: []kueue.PodSetFlavors{
 					{
 						Name: "driver",
-						ResourceFlavors: map[corev1.ResourceName]string{
+						Flavors: map[corev1.ResourceName]string{
 							corev1.ResourceCPU: "on-demand",
 						},
 					},

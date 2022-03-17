@@ -222,10 +222,10 @@ type Resource struct {
 	//
 	// +listType=map
 	// +listMapKey=name
-	Flavors []ResourceFlavor `json:"flavors,omitempty"`
+	Flavors []Flavor `json:"flavors,omitempty"`
 }
 
-type ResourceFlavor struct {
+type Flavor struct {
 	// name is the type name, e.g., nvidia-tesla-k80.
 	// +kubebuilder:default=default
 	Name string `json:"name"`

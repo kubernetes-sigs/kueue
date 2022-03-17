@@ -114,7 +114,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 		createdWorkload.Spec.Admission = &kueue.Admission{
 			ClusterQueue: kueue.ClusterQueueReference(clusterQueue.Name),
 			PodSetFlavors: []kueue.PodSetFlavors{{
-				ResourceFlavors: map[corev1.ResourceName]string{
+				Flavors: map[corev1.ResourceName]string{
 					corev1.ResourceCPU: flavorOnDemand,
 				},
 			}},
@@ -168,7 +168,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 		createdWorkload.Spec.Admission = &kueue.Admission{
 			ClusterQueue: kueue.ClusterQueueReference(clusterQueue.Name),
 			PodSetFlavors: []kueue.PodSetFlavors{{
-				ResourceFlavors: map[corev1.ResourceName]string{
+				Flavors: map[corev1.ResourceName]string{
 					corev1.ResourceCPU: flavorSpot,
 				},
 			}},

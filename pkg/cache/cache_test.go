@@ -59,7 +59,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							RequestableResources: []kueue.Resource{
 								{
 									Name: corev1.ResourceCPU,
-									Flavors: []kueue.ResourceFlavor{
+									Flavors: []kueue.Flavor{
 										{
 											Name: "default",
 											Quota: kueue.Quota{
@@ -79,7 +79,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							RequestableResources: []kueue.Resource{
 								{
 									Name:    corev1.ResourceCPU,
-									Flavors: []kueue.ResourceFlavor{{Name: "default"}},
+									Flavors: []kueue.Flavor{{Name: "default"}},
 								}},
 							Cohort: "one",
 						},
@@ -145,7 +145,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							RequestableResources: []kueue.Resource{
 								{
 									Name: corev1.ResourceCPU,
-									Flavors: []kueue.ResourceFlavor{
+									Flavors: []kueue.Flavor{
 										{
 											Name: "default",
 											Quota: kueue.Quota{
@@ -275,7 +275,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				RequestableResources: []kueue.Resource{
 					{
 						Name: "cpu",
-						Flavors: []kueue.ResourceFlavor{
+						Flavors: []kueue.Flavor{
 							{Name: "on-demand"},
 							{Name: "spot"},
 						},
@@ -289,7 +289,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				RequestableResources: []kueue.Resource{
 					{
 						Name: "cpu",
-						Flavors: []kueue.ResourceFlavor{
+						Flavors: []kueue.Flavor{
 							{Name: "on-demand"},
 							{Name: "spot"},
 						},
@@ -319,13 +319,13 @@ func TestCacheWorkloadOperations(t *testing.T) {
 	podSetFlavors := []kueue.PodSetFlavors{
 		{
 			Name: "driver",
-			ResourceFlavors: map[corev1.ResourceName]string{
+			Flavors: map[corev1.ResourceName]string{
 				corev1.ResourceCPU: "on-demand",
 			},
 		},
 		{
 			Name: "workers",
-			ResourceFlavors: map[corev1.ResourceName]string{
+			Flavors: map[corev1.ResourceName]string{
 				corev1.ResourceCPU: "spot",
 			},
 		},
@@ -735,7 +735,7 @@ func TestClusterQueueUsage(t *testing.T) {
 			RequestableResources: []kueue.Resource{
 				{
 					Name: corev1.ResourceCPU,
-					Flavors: []kueue.ResourceFlavor{
+					Flavors: []kueue.Flavor{
 						{
 							Name: "default",
 							Quota: kueue.Quota{
@@ -747,7 +747,7 @@ func TestClusterQueueUsage(t *testing.T) {
 				},
 				{
 					Name: "example.com/gpu",
-					Flavors: []kueue.ResourceFlavor{
+					Flavors: []kueue.Flavor{
 						{
 							Name: "model_a",
 							Quota: kueue.Quota{
@@ -786,7 +786,7 @@ func TestClusterQueueUsage(t *testing.T) {
 					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "main",
-							ResourceFlavors: map[corev1.ResourceName]string{
+							Flavors: map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "default",
 								"example.com/gpu":  "model_a",
 							},
@@ -813,7 +813,7 @@ func TestClusterQueueUsage(t *testing.T) {
 					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "main",
-							ResourceFlavors: map[corev1.ResourceName]string{
+							Flavors: map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "default",
 								"example.com/gpu":  "model_b",
 							},

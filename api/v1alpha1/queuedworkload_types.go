@@ -56,8 +56,8 @@ type PodSetFlavors struct {
 	// +kubebuilder:default=main
 	Name string `json:"name"`
 
-	// ResourceFlavors are the flavors assigned to the workload for each resource.
-	ResourceFlavors map[corev1.ResourceName]string `json:"resourceFlavors,omitempty"`
+	// Flavors are the flavors assigned to the workload for each resource.
+	Flavors map[corev1.ResourceName]string `json:"flavors,omitempty"`
 }
 
 type WorkloadReference struct {

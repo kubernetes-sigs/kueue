@@ -257,22 +257,22 @@ func (r *JobReconciler) startJob(ctx context.Context, w *kueue.QueuedWorkload, j
 }
 
 func getNodeSelectors(cq *kueue.ClusterQueue, w *kueue.QueuedWorkload) map[string]string {
-	if len(w.Spec.Admission.PodSetFlavors[0].ResourceFlavors) == 0 {
+	if len(w.Spec.Admission.PodSetFlavors[0].Flavors) == 0 {
 		return nil
 	}
 
 	// Create a map of resources-to-flavors.
 	// May be cache this?
-	flavors := make(map[corev1.ResourceName]map[string]*kueue.ResourceFlavor, len(cq.Spec.RequestableResources))
+	flavors := make(map[corev1.ResourceName]map[string]*kueue.Flavor, len(cq.Spec.RequestableResources))
 	for _, r := range cq.Spec.RequestableResources {
-		flavors[r.Name] = make(map[string]*kueue.ResourceFlavor, len(r.Flavors))
+		flavors[r.Name] = make(map[string]*kueue.Flavor, len(r.Flavors))
 		for j := range r.Flavors {
 			flavors[r.Name][r.Flavors[j].Name] = &r.Flavors[j]
 		}
 	}
 
 	nodeSelector := map[string]string{}
-	for res, flvr := range w.Spec.Admission.PodSetFlavors[0].ResourceFlavors {
+	for res, flvr := range w.Spec.Admission.PodSetFlavors[0].Flavors {
 		if cqRes, existRes := flavors[res]; existRes {
 			if cqFlvr, existFlvr := cqRes[flvr]; existFlvr {
 				for k, v := range cqFlvr.Labels {
