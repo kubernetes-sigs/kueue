@@ -101,7 +101,7 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "ClusterQueue")
 		os.Exit(1)
 	}
-	if err = core.NewQueuedWorkloadReconciler(queues, cache).SetupWithManager(mgr); err != nil {
+	if err = core.NewQueuedWorkloadReconciler(mgr.GetClient(), queues, cache).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "QueuedWorkload")
 		os.Exit(1)
 	}
