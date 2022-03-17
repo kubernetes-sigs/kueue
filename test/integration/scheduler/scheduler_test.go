@@ -269,4 +269,56 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			return createdJob.Spec.Suspend
 		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
 	})
+
+	ginkgo.It("Should schedule jobs according to their priorities", func() {
+		queue := testing.MakeQueue("queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
+
+		highPriorityClass := testing.MakePriorityClass("high-priority-class").PriorityValue(100).Obj()
+		gomega.Expect(k8sClient.Create(ctx, highPriorityClass)).Should(gomega.Succeed())
+
+		lowPriorityClass := testing.MakePriorityClass("low-priority-class").PriorityValue(10).Obj()
+		gomega.Expect(k8sClient.Create(ctx, lowPriorityClass)).Should(gomega.Succeed())
+
+		jobLowPriority := testing.MakeJob("job-low-priority", ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "5").PriorityClass(lowPriorityClass.Name).Obj()
+		gomega.Expect(k8sClient.Create(ctx, jobLowPriority)).Should(gomega.Succeed())
+		jobHighPriority := testing.MakeJob("job-high-priority", ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "5").PriorityClass(highPriorityClass.Name).Obj()
+		gomega.Expect(k8sClient.Create(ctx, jobHighPriority)).Should(gomega.Succeed())
+
+		ginkgo.By("checking that workload1 is created with priority and priorityName")
+		createdLowPriorityWorkload := &kueue.QueuedWorkload{}
+		gomega.Eventually(func() bool {
+			lookupKey := types.NamespacedName{Name: jobLowPriority.Name, Namespace: jobLowPriority.Namespace}
+			err := k8sClient.Get(ctx, lookupKey, createdLowPriorityWorkload)
+			return err == nil
+		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
+		gomega.Expect(createdLowPriorityWorkload.Spec.PriorityClassName).Should(gomega.Equal(lowPriorityClass.Name))
+		gomega.Expect(*createdLowPriorityWorkload.Spec.Priority).Should(gomega.Equal(lowPriorityClass.Value))
+
+		ginkgo.By("checking that workload2 is created with priority and priorityName")
+		createdHighPriorityWorkload := &kueue.QueuedWorkload{}
+		gomega.Eventually(func() bool {
+			lookupKey := types.NamespacedName{Name: jobHighPriority.Name, Namespace: jobHighPriority.Namespace}
+			err := k8sClient.Get(ctx, lookupKey, createdHighPriorityWorkload)
+			return err == nil
+		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
+		gomega.Expect(createdHighPriorityWorkload.Spec.PriorityClassName).Should(gomega.Equal(highPriorityClass.Name))
+		gomega.Expect(*createdHighPriorityWorkload.Spec.Priority).Should(gomega.Equal(highPriorityClass.Value))
+
+		// delay creating the queue until after workloads are created.
+		gomega.Expect(k8sClient.Create(ctx, queue)).Should(gomega.Succeed())
+
+		ginkgo.By("checking the job with low priority continues to be suspended")
+		createdJob1 := &batchv1.Job{}
+		gomega.Consistently(func() bool {
+			return k8sClient.Get(ctx, types.NamespacedName{Name: jobLowPriority.Name, Namespace: ns.Name},
+				createdJob1) == nil && *createdJob1.Spec.Suspend
+		}, framework.ConsistentDuration, framework.Interval).Should(gomega.BeTrue())
+
+		ginkgo.By("checking the job with high priority starts")
+		createdJob2 := &batchv1.Job{}
+		gomega.Eventually(func() *bool {
+			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: jobHighPriority.Name, Namespace: ns.Name}, createdJob2)).Should(gomega.Succeed())
+			return createdJob2.Spec.Suspend
+		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
+	})
 })
