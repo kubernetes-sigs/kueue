@@ -162,8 +162,8 @@ func MakeAdmission(cq string) *AdmissionWrapper {
 		ClusterQueue: kueue.ClusterQueueReference(cq),
 		PodSetFlavors: []kueue.PodSetFlavors{
 			{
-				Name:            "main",
-				ResourceFlavors: make(map[corev1.ResourceName]string),
+				Name:    "main",
+				Flavors: make(map[corev1.ResourceName]string),
 			},
 		},
 	}}
@@ -174,7 +174,7 @@ func (w *AdmissionWrapper) Obj() *kueue.Admission {
 }
 
 func (w *AdmissionWrapper) Flavor(r corev1.ResourceName, f string) *AdmissionWrapper {
-	w.PodSetFlavors[0].ResourceFlavors[r] = f
+	w.PodSetFlavors[0].Flavors[r] = f
 	return w
 }
 
@@ -263,17 +263,17 @@ func (r *ResourceWrapper) Obj() *kueue.Resource {
 }
 
 // Flavor appends a flavor.
-func (r *ResourceWrapper) Flavor(f *kueue.ResourceFlavor) *ResourceWrapper {
+func (r *ResourceWrapper) Flavor(f *kueue.Flavor) *ResourceWrapper {
 	r.Flavors = append(r.Flavors, *f)
 	return r
 }
 
 // FlavorWrapper wraps a resource flavor.
-type FlavorWrapper struct{ kueue.ResourceFlavor }
+type FlavorWrapper struct{ kueue.Flavor }
 
 // MakeFlavor creates a wrapper for a resource flavor.
 func MakeFlavor(name, guaranteed string) *FlavorWrapper {
-	return &FlavorWrapper{kueue.ResourceFlavor{
+	return &FlavorWrapper{kueue.Flavor{
 		Name: name,
 		Quota: kueue.Quota{
 			Guaranteed: resource.MustParse(guaranteed),
@@ -284,8 +284,8 @@ func MakeFlavor(name, guaranteed string) *FlavorWrapper {
 }
 
 // Obj returns the inner resource flavor.
-func (f *FlavorWrapper) Obj() *kueue.ResourceFlavor {
-	return &f.ResourceFlavor
+func (f *FlavorWrapper) Obj() *kueue.Flavor {
+	return &f.Flavor
 }
 
 // Ceiling updates the flavor ceiling.

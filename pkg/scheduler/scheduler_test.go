@@ -65,7 +65,7 @@ func TestSchedule(t *testing.T) {
 				RequestableResources: []kueue.Resource{
 					{
 						Name: corev1.ResourceCPU,
-						Flavors: []kueue.ResourceFlavor{
+						Flavors: []kueue.Flavor{
 							{
 								Name: "default",
 								Quota: kueue.Quota{
@@ -94,7 +94,7 @@ func TestSchedule(t *testing.T) {
 				RequestableResources: []kueue.Resource{
 					{
 						Name: corev1.ResourceCPU,
-						Flavors: []kueue.ResourceFlavor{
+						Flavors: []kueue.Flavor{
 							{
 								Name: "on-demand",
 								Quota: kueue.Quota{
@@ -130,7 +130,7 @@ func TestSchedule(t *testing.T) {
 				RequestableResources: []kueue.Resource{
 					{
 						Name: corev1.ResourceCPU,
-						Flavors: []kueue.ResourceFlavor{
+						Flavors: []kueue.Flavor{
 							{
 								Name: "on-demand",
 								Quota: kueue.Quota{
@@ -149,7 +149,7 @@ func TestSchedule(t *testing.T) {
 					},
 					{
 						Name: "example.com/gpu",
-						Flavors: []kueue.ResourceFlavor{
+						Flavors: []kueue.Flavor{
 							{
 								Name: "model-a",
 								Quota: kueue.Quota{
@@ -237,7 +237,7 @@ func TestSchedule(t *testing.T) {
 					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							ResourceFlavors: map[corev1.ResourceName]string{
+							Flavors: map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "default",
 							},
 						},
@@ -286,7 +286,7 @@ func TestSchedule(t *testing.T) {
 							PodSetFlavors: []kueue.PodSetFlavors{
 								{
 									Name: "one",
-									ResourceFlavors: map[corev1.ResourceName]string{
+									Flavors: map[corev1.ResourceName]string{
 										corev1.ResourceCPU: "default",
 									},
 								},
@@ -301,7 +301,7 @@ func TestSchedule(t *testing.T) {
 					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							ResourceFlavors: map[corev1.ResourceName]string{
+							Flavors: map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "default",
 							},
 						},
@@ -382,7 +382,7 @@ func TestSchedule(t *testing.T) {
 					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							ResourceFlavors: map[corev1.ResourceName]string{
+							Flavors: map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "default",
 							},
 						},
@@ -393,7 +393,7 @@ func TestSchedule(t *testing.T) {
 					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							ResourceFlavors: map[corev1.ResourceName]string{
+							Flavors: map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "on-demand",
 							},
 						},
@@ -447,7 +447,7 @@ func TestSchedule(t *testing.T) {
 					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							ResourceFlavors: map[corev1.ResourceName]string{
+							Flavors: map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "on-demand",
 							},
 						},
@@ -458,7 +458,7 @@ func TestSchedule(t *testing.T) {
 					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							ResourceFlavors: map[corev1.ResourceName]string{
+							Flavors: map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "on-demand",
 							},
 						},
@@ -502,14 +502,14 @@ func TestSchedule(t *testing.T) {
 					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							ResourceFlavors: map[corev1.ResourceName]string{
+							Flavors: map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "on-demand",
 								"example.com/gpu":  "model-a",
 							},
 						},
 						{
 							Name: "two",
-							ResourceFlavors: map[corev1.ResourceName]string{
+							Flavors: map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "spot",
 							},
 						},
@@ -563,7 +563,7 @@ func TestSchedule(t *testing.T) {
 					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							ResourceFlavors: map[corev1.ResourceName]string{
+							Flavors: map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "on-demand",
 							},
 						},
@@ -640,7 +640,7 @@ func TestSchedule(t *testing.T) {
 							PodSetFlavors: []kueue.PodSetFlavors{
 								{
 									Name: "one",
-									ResourceFlavors: map[corev1.ResourceName]string{
+									Flavors: map[corev1.ResourceName]string{
 										corev1.ResourceCPU: "on-demand",
 									},
 								},
@@ -655,7 +655,7 @@ func TestSchedule(t *testing.T) {
 					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							ResourceFlavors: map[corev1.ResourceName]string{
+							Flavors: map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "spot",
 							},
 						},
@@ -666,7 +666,7 @@ func TestSchedule(t *testing.T) {
 					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							ResourceFlavors: map[corev1.ResourceName]string{
+							Flavors: map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "on-demand",
 							},
 						},

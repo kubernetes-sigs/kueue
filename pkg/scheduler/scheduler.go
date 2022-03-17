@@ -223,8 +223,8 @@ func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 	}
 	for i := range e.TotalRequests {
 		admission.PodSetFlavors[i] = kueue.PodSetFlavors{
-			Name:            e.Obj.Spec.PodSets[i].Name,
-			ResourceFlavors: e.TotalRequests[i].Flavors,
+			Name:    e.Obj.Spec.PodSets[i].Name,
+			Flavors: e.TotalRequests[i].Flavors,
 		}
 	}
 	newWorkload.Spec.Admission = admission

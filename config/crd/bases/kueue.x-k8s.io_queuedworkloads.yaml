@@ -51,17 +51,17 @@ spec:
                       of the .spec.podSets entries.
                     items:
                       properties:
+                        flavors:
+                          additionalProperties:
+                            type: string
+                          description: Flavors are the flavors assigned to the workload
+                            for each resource.
+                          type: object
                         name:
                           default: main
                           description: Name is the name of the podSet. It should match
                             one of the names in .spec.podSets.
                           type: string
-                        resourceFlavors:
-                          additionalProperties:
-                            type: string
-                          description: ResourceFlavors are the flavors assigned to
-                            the workload for each resource.
-                          type: object
                       required:
                       - name
                       type: object
