@@ -810,7 +810,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
 					corev1.ResourceCPU:    defaultFlavorNoBorrowing(1000),
 					corev1.ResourceMemory: defaultFlavorNoBorrowing(2 * utiltesting.Mi),
 				},
@@ -844,8 +844,8 @@ func TestEntryAssignFlavors(t *testing.T) {
 						}},
 					}}},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{
-					corev1.ResourceCPU: noBorrowing([]cache.FlavorInfo{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
+					corev1.ResourceCPU: noBorrowing([]cache.FlavorLimits{
 						{Name: "default", Guaranteed: 4000, Taints: []corev1.Taint{{
 							Key:    "instance",
 							Value:  "spot",
@@ -872,7 +872,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
 					corev1.ResourceCPU: defaultFlavorNoBorrowing(4000),
 				},
 				UsedResources: cache.Resources{
@@ -894,12 +894,12 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{
-					corev1.ResourceCPU: noBorrowing([]cache.FlavorInfo{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
+					corev1.ResourceCPU: noBorrowing([]cache.FlavorLimits{
 						{Name: "one", Guaranteed: 2000},
 						{Name: "two", Guaranteed: 4000},
 					}),
-					corev1.ResourceMemory: noBorrowing([]cache.FlavorInfo{
+					corev1.ResourceMemory: noBorrowing([]cache.FlavorLimits{
 						{Name: "one", Guaranteed: utiltesting.Gi},
 						{Name: "two", Guaranteed: 5 * utiltesting.Mi},
 					}),
@@ -925,12 +925,12 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{
-					corev1.ResourceCPU: noBorrowing([]cache.FlavorInfo{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
+					corev1.ResourceCPU: noBorrowing([]cache.FlavorLimits{
 						{Name: "one", Guaranteed: 2000},
 						{Name: "two", Guaranteed: 4000},
 					}),
-					corev1.ResourceMemory: noBorrowing([]cache.FlavorInfo{
+					corev1.ResourceMemory: noBorrowing([]cache.FlavorLimits{
 						{Name: "one", Guaranteed: utiltesting.Gi},
 						{Name: "two", Guaranteed: 5 * utiltesting.Mi},
 					}),
@@ -948,8 +948,8 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{
-					corev1.ResourceCPU: noBorrowing([]cache.FlavorInfo{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
+					corev1.ResourceCPU: noBorrowing([]cache.FlavorLimits{
 						{Name: "one", Guaranteed: 4000, Taints: []corev1.Taint{{
 							Key:    "instance",
 							Value:  "spot",
@@ -1001,8 +1001,8 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{
-					corev1.ResourceCPU: noBorrowing([]cache.FlavorInfo{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
+					corev1.ResourceCPU: noBorrowing([]cache.FlavorLimits{
 						{Name: "one", Guaranteed: 4000, Labels: map[string]string{"cpuType": "one"}},
 						{Name: "two", Guaranteed: 4000, Labels: map[string]string{"cpuType": "two"}},
 					}),
@@ -1057,12 +1057,12 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{
-					corev1.ResourceCPU: noBorrowing([]cache.FlavorInfo{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
+					corev1.ResourceCPU: noBorrowing([]cache.FlavorLimits{
 						{Name: "one", Guaranteed: 4000, Labels: map[string]string{"cpuType": "one", "group": "group1"}},
 						{Name: "two", Guaranteed: 4000, Labels: map[string]string{"cpuType": "two"}},
 					}),
-					corev1.ResourceMemory: noBorrowing([]cache.FlavorInfo{
+					corev1.ResourceMemory: noBorrowing([]cache.FlavorLimits{
 						{Name: "one", Guaranteed: utiltesting.Gi, Labels: map[string]string{"memType": "one"}},
 						{Name: "two", Guaranteed: utiltesting.Gi, Labels: map[string]string{"memType": "two"}},
 					}),
@@ -1125,8 +1125,8 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{
-					corev1.ResourceCPU: noBorrowing([]cache.FlavorInfo{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
+					corev1.ResourceCPU: noBorrowing([]cache.FlavorLimits{
 						{Name: "one", Guaranteed: 4000, Labels: map[string]string{"cpuType": "one"}},
 						{Name: "two", Guaranteed: 4000, Labels: map[string]string{"cpuType": "two"}},
 					}),
@@ -1172,8 +1172,8 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{
-					corev1.ResourceCPU: noBorrowing([]cache.FlavorInfo{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
+					corev1.ResourceCPU: noBorrowing([]cache.FlavorLimits{
 						{Name: "one", Guaranteed: 4000, Labels: map[string]string{"cpuType": "one"}},
 						{Name: "two", Guaranteed: 4000, Labels: map[string]string{"cpuType": "two"}},
 					}),
@@ -1200,8 +1200,8 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{
-					corev1.ResourceCPU: noBorrowing([]cache.FlavorInfo{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
+					corev1.ResourceCPU: noBorrowing([]cache.FlavorLimits{
 						{Name: "one", Guaranteed: 4000},
 						{Name: "two", Guaranteed: 10_000},
 					}),
@@ -1237,7 +1237,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
 					corev1.ResourceCPU: {
 						{
 							Name:       "default",
@@ -1295,7 +1295,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
 					corev1.ResourceCPU: {
 						{
 							Name:       "one",
@@ -1325,7 +1325,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorInfo{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
 					corev1.ResourceCPU: {
 						{
 							Name:       "one",
@@ -1434,11 +1434,11 @@ func TestEntryOrdering(t *testing.T) {
 	}
 }
 
-func defaultFlavorNoBorrowing(guaranteed int64) []cache.FlavorInfo {
-	return noBorrowing([]cache.FlavorInfo{{Name: "default", Guaranteed: guaranteed}})
+func defaultFlavorNoBorrowing(guaranteed int64) []cache.FlavorLimits {
+	return noBorrowing([]cache.FlavorLimits{{Name: "default", Guaranteed: guaranteed}})
 }
 
-func noBorrowing(flavors []cache.FlavorInfo) []cache.FlavorInfo {
+func noBorrowing(flavors []cache.FlavorLimits) []cache.FlavorLimits {
 	for i := range flavors {
 		flavors[i].Ceiling = flavors[i].Guaranteed
 	}

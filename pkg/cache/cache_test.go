@@ -101,7 +101,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			wantClusterQueues: map[string]*ClusterQueue{
 				"a": {
 					Name: "a",
-					RequestableResources: map[corev1.ResourceName][]FlavorInfo{
+					RequestableResources: map[corev1.ResourceName][]FlavorLimits{
 						corev1.ResourceCPU: {{Name: "default", Guaranteed: 10000, Ceiling: 20000,
 							Labels: map[string]string{"cpuType": "default"}}},
 					},
@@ -111,7 +111,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				},
 				"b": {
 					Name: "b",
-					RequestableResources: map[corev1.ResourceName][]FlavorInfo{
+					RequestableResources: map[corev1.ResourceName][]FlavorLimits{
 						corev1.ResourceCPU: {{Name: "default"}},
 					},
 					NamespaceSelector: labels.Nothing(),
@@ -119,13 +119,13 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				},
 				"c": {
 					Name:                 "c",
-					RequestableResources: map[corev1.ResourceName][]FlavorInfo{},
+					RequestableResources: map[corev1.ResourceName][]FlavorLimits{},
 					NamespaceSelector:    labels.Nothing(),
 					UsedResources:        Resources{},
 				},
 				"d": {
 					Name:                 "d",
-					RequestableResources: map[corev1.ResourceName][]FlavorInfo{},
+					RequestableResources: map[corev1.ResourceName][]FlavorLimits{},
 					NamespaceSelector:    labels.Nothing(),
 					UsedResources:        Resources{},
 				},
@@ -180,7 +180,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			wantClusterQueues: map[string]*ClusterQueue{
 				"a": {
 					Name: "a",
-					RequestableResources: map[corev1.ResourceName][]FlavorInfo{
+					RequestableResources: map[corev1.ResourceName][]FlavorLimits{
 						corev1.ResourceCPU: {{Name: "default", Guaranteed: 5000, Ceiling: 10000,
 							Labels: map[string]string{"cpuType": "default", "region": "central"},
 						}},
@@ -191,19 +191,19 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				},
 				"b": {
 					Name:                 "b",
-					RequestableResources: map[corev1.ResourceName][]FlavorInfo{},
+					RequestableResources: map[corev1.ResourceName][]FlavorLimits{},
 					NamespaceSelector:    labels.Everything(),
 					UsedResources:        Resources{},
 				},
 				"c": {
 					Name:                 "c",
-					RequestableResources: map[corev1.ResourceName][]FlavorInfo{},
+					RequestableResources: map[corev1.ResourceName][]FlavorLimits{},
 					NamespaceSelector:    labels.Nothing(),
 					UsedResources:        Resources{},
 				},
 				"d": {
 					Name:                 "d",
-					RequestableResources: map[corev1.ResourceName][]FlavorInfo{},
+					RequestableResources: map[corev1.ResourceName][]FlavorLimits{},
 					NamespaceSelector:    labels.Nothing(),
 					UsedResources:        Resources{},
 				},
@@ -227,13 +227,13 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			wantClusterQueues: map[string]*ClusterQueue{
 				"b": {
 					Name:                 "b",
-					RequestableResources: map[corev1.ResourceName][]FlavorInfo{},
+					RequestableResources: map[corev1.ResourceName][]FlavorLimits{},
 					NamespaceSelector:    labels.Everything(),
 					UsedResources:        Resources{},
 				},
 				"c": {
 					Name:                 "c",
-					RequestableResources: map[corev1.ResourceName][]FlavorInfo{},
+					RequestableResources: map[corev1.ResourceName][]FlavorLimits{},
 					NamespaceSelector:    labels.Nothing(),
 					UsedResources:        Resources{},
 				},
