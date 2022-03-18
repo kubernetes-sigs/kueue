@@ -32,6 +32,7 @@ spec:
         args:
         - --leader-elect
         - "--zap-log-level=2"
+        imagePullPolicy: Always
         image: controller:latest
         name: manager
         securityContext:
