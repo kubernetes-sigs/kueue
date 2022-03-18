@@ -4,6 +4,7 @@ kind: ClusterQueue
 metadata:
   name: cluster-total
 spec:
+  namespaceSelector: {}
   requestableResources:
   - name: "cpu"
     flavors:
