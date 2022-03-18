@@ -251,6 +251,7 @@ func MakeClusterQueue(name string) *ClusterQueueWrapper {
 		},
 		Spec: kueue.ClusterQueueSpec{
 			NamespaceSelector: &metav1.LabelSelector{},
+			QueueingStrategy:  kueue.StrictFIFO,
 		},
 	}}
 }

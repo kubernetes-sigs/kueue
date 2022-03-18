@@ -74,15 +74,24 @@ type ClusterQueue struct {
 	heap heapImpl
 }
 
-func newClusterQueue(cq *kueue.ClusterQueue) *ClusterQueue {
+func newClusterQueue(cq *kueue.ClusterQueue) (*ClusterQueue, error) {
+	var less lessFunc
+
+	switch cq.Spec.QueueingStrategy {
+	case kueue.StrictFIFO:
+		less = strictFIFO
+	default:
+		return nil, fmt.Errorf("invalid QueueingStrategy %q", cq.Spec.QueueingStrategy)
+	}
+
 	cqImpl := &ClusterQueue{
 		heap: heapImpl{
-			less:  creationFIFO,
+			less:  less,
 			items: make(map[string]*heapItem),
 		},
 	}
 	cqImpl.update(cq)
-	return cqImpl
+	return cqImpl, nil
 }
 
 func (cq *ClusterQueue) update(apiCQ *kueue.ClusterQueue) {
@@ -140,7 +149,10 @@ func (cq *ClusterQueue) Pop() *workload.Info {
 	return &w
 }
 
-func creationFIFO(a, b workload.Info) bool {
+// strictFIFO is the function used by the clusterQueue heap algorithm to sort
+// workloads. It sorts workloads based on their priority.
+// When priorities are equal, it uses workloads.creationTimestamp.
+func strictFIFO(a, b workload.Info) bool {
 	p1 := utilpriority.Priority(a.Obj)
 	p2 := utilpriority.Priority(b.Obj)
 

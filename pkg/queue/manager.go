@@ -67,7 +67,12 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 	if _, ok := m.clusterQueues[cq.Name]; ok {
 		return errClusterQueueAlreadyExists
 	}
-	cqImpl := newClusterQueue(cq)
+
+	cqImpl, err := newClusterQueue(cq)
+	if err != nil {
+		return err
+	}
+
 	m.clusterQueues[cq.Name] = cqImpl
 
 	// Iterate through existing queues, as queues corresponding to this cluster
