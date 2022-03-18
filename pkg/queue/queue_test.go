@@ -32,11 +32,14 @@ const (
 )
 
 func TestFIFOClusterQueue(t *testing.T) {
-	q := newClusterQueue(&kueue.ClusterQueue{
+	q, err := newClusterQueue(&kueue.ClusterQueue{
 		Spec: kueue.ClusterQueueSpec{
 			QueueingStrategy: kueue.StrictFIFO,
 		},
 	})
+	if err != nil {
+		t.Fatalf("Failed creating ClusterQueue %v", err)
+	}
 	now := metav1.Now()
 	ws := []*kueue.QueuedWorkload{
 		{
@@ -166,11 +169,14 @@ func TestStrictFIFO(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			q := newClusterQueue(&kueue.ClusterQueue{
+			q, err := newClusterQueue(&kueue.ClusterQueue{
 				Spec: kueue.ClusterQueueSpec{
 					QueueingStrategy: kueue.StrictFIFO,
 				},
 			})
+			if err != nil {
+				t.Fatalf("Failed creating ClusterQueue %v", err)
+			}
 
 			q.PushOrUpdate(tt.w1)
 			q.PushOrUpdate(tt.w2)

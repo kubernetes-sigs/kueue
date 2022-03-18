@@ -62,6 +62,7 @@ func TestSchedule(t *testing.T) {
 						},
 					},
 				},
+				QueueingStrategy: kueue.StrictFIFO,
 				RequestableResources: []kueue.Resource{
 					{
 						Name: corev1.ResourceCPU,
@@ -91,6 +92,7 @@ func TestSchedule(t *testing.T) {
 						},
 					},
 				},
+				QueueingStrategy: kueue.StrictFIFO,
 				RequestableResources: []kueue.Resource{
 					{
 						Name: corev1.ResourceCPU,
@@ -127,6 +129,7 @@ func TestSchedule(t *testing.T) {
 						},
 					},
 				},
+				QueueingStrategy: kueue.StrictFIFO,
 				RequestableResources: []kueue.Resource{
 					{
 						Name: corev1.ResourceCPU,
