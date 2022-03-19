@@ -186,18 +186,6 @@ spec:
                         name: on-demand quota: guaranteed: 100"
                       items:
                         properties:
-                          labels:
-                            additionalProperties:
-                              type: string
-                            description: 'labels associated with this type. Those
-                              labels are matched against or converted to node affinity
-                              constraints on the workload’s pods. For example, cloud.provider.com/accelerator:
-                              nvidia-tesla-k80.'
-                            type: object
-                          name:
-                            default: default
-                            description: name is the type name, e.g., nvidia-tesla-k80.
-                            type: string
                           quota:
                             description: quota is the limit of resource usage at a
                               point in time.
@@ -227,46 +215,18 @@ spec:
                                 pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                                 x-kubernetes-int-or-string: true
                             type: object
-                          taints:
-                            description: taints associated with this constraint that
-                              workloads must explicitly “tolerate” to be able to use
-                              this type. e.g., cloud.provider.com/preemptible="true":NoSchedule
-                            items:
-                              description: The node this Taint is attached to has
-                                the "effect" on any pod that does not tolerate the
-                                Taint.
-                              properties:
-                                effect:
-                                  description: Required. The effect of the taint on
-                                    pods that do not tolerate the taint. Valid effects
-                                    are NoSchedule, PreferNoSchedule and NoExecute.
-                                  type: string
-                                key:
-                                  description: Required. The taint key to be applied
-                                    to a node.
-                                  type: string
-                                timeAdded:
-                                  description: TimeAdded represents the time at which
-                                    the taint was added. It is only written for NoExecute
-                                    taints.
-                                  format: date-time
-                                  type: string
-                                value:
-                                  description: The taint value corresponding to the
-                                    taint key.
-                                  type: string
-                              required:
-                              - effect
-                              - key
-                              type: object
-                            type: array
+                          resourceFlavor:
+                            default: default
+                            description: resourceFlavor is a reference to the resourceFlavor
+                              that defines this flavor.
+                            type: string
                         required:
-                        - name
                         - quota
+                        - resourceFlavor
                         type: object
                       type: array
                       x-kubernetes-list-map-keys:
-                      - name
+                      - resourceFlavor
                       x-kubernetes-list-type: map
                     name:
                       description: name of the resource. For example, cpu, memory

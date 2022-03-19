@@ -49,6 +49,12 @@ const (
 )
 
 func TestSchedule(t *testing.T) {
+	resourceFlavors := []*kueue.ResourceFlavor{
+		{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "on-demand"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "spot"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "model-a"}},
+	}
 	clusterQueues := []kueue.ClusterQueue{
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "sales"},
@@ -68,7 +74,7 @@ func TestSchedule(t *testing.T) {
 						Name: corev1.ResourceCPU,
 						Flavors: []kueue.Flavor{
 							{
-								Name: "default",
+								ResourceFlavor: "default",
 								Quota: kueue.Quota{
 									Guaranteed: resource.MustParse("50"),
 									Ceiling:    resource.MustParse("50"),
@@ -98,14 +104,14 @@ func TestSchedule(t *testing.T) {
 						Name: corev1.ResourceCPU,
 						Flavors: []kueue.Flavor{
 							{
-								Name: "on-demand",
+								ResourceFlavor: "on-demand",
 								Quota: kueue.Quota{
 									Guaranteed: resource.MustParse("50"),
 									Ceiling:    resource.MustParse("100"),
 								},
 							},
 							{
-								Name: "spot",
+								ResourceFlavor: "spot",
 								Quota: kueue.Quota{
 									Guaranteed: resource.MustParse("100"),
 									Ceiling:    resource.MustParse("100"),
@@ -135,14 +141,14 @@ func TestSchedule(t *testing.T) {
 						Name: corev1.ResourceCPU,
 						Flavors: []kueue.Flavor{
 							{
-								Name: "on-demand",
+								ResourceFlavor: "on-demand",
 								Quota: kueue.Quota{
 									Guaranteed: resource.MustParse("50"),
 									Ceiling:    resource.MustParse("60"),
 								},
 							},
 							{
-								Name: "spot",
+								ResourceFlavor: "spot",
 								Quota: kueue.Quota{
 									Guaranteed: resource.MustParse("0"),
 									Ceiling:    resource.MustParse("100"),
@@ -154,7 +160,7 @@ func TestSchedule(t *testing.T) {
 						Name: "example.com/gpu",
 						Flavors: []kueue.Flavor{
 							{
-								Name: "model-a",
+								ResourceFlavor: "model-a",
 								Quota: kueue.Quota{
 									Guaranteed: resource.MustParse("20"),
 									Ceiling:    resource.MustParse("20"),
@@ -719,6 +725,9 @@ func TestSchedule(t *testing.T) {
 					t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
 				}
 			}
+			for i := range resourceFlavors {
+				cqCache.AddOrUpdateResourceFlavor(resourceFlavors[i])
+			}
 			workloadWatch, err := cl.Watch(ctx, &kueue.QueuedWorkloadList{})
 			if err != nil {
 				t.Fatalf("Failed setting up watch: %v", err)
@@ -791,6 +800,28 @@ func TestSchedule(t *testing.T) {
 }
 
 func TestEntryAssignFlavors(t *testing.T) {
+	resourceFlavors := map[string]*kueue.ResourceFlavor{
+		"default": {
+			ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		},
+		"one": {
+			ObjectMeta: metav1.ObjectMeta{Name: "one"},
+			Labels:     map[string]string{"type": "one"},
+		},
+		"two": {
+			ObjectMeta: metav1.ObjectMeta{Name: "two"},
+			Labels:     map[string]string{"type": "two"},
+		},
+		"tainted": {
+			ObjectMeta: metav1.ObjectMeta{Name: "tainted"},
+			Taints: []corev1.Taint{{
+				Key:    "instance",
+				Value:  "spot",
+				Effect: corev1.TaintEffectNoSchedule,
+			}},
+		},
+	}
+
 	cases := map[string]struct {
 		wlPods       []kueue.PodSet
 		clusterQueue cache.ClusterQueue
@@ -846,18 +877,14 @@ func TestEntryAssignFlavors(t *testing.T) {
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
 					corev1.ResourceCPU: noBorrowing([]cache.FlavorLimits{
-						{Name: "default", Guaranteed: 4000, Taints: []corev1.Taint{{
-							Key:    "instance",
-							Value:  "spot",
-							Effect: corev1.TaintEffectNoSchedule,
-						}}},
+						{Name: "tainted", Guaranteed: 4000},
 					}),
 				},
 			},
 			wantFits: true,
 			wantFlavors: map[string]map[corev1.ResourceName]string{
 				"main": {
-					corev1.ResourceCPU: "default",
+					corev1.ResourceCPU: "tainted",
 				},
 			},
 		},
@@ -950,11 +977,32 @@ func TestEntryAssignFlavors(t *testing.T) {
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
 					corev1.ResourceCPU: noBorrowing([]cache.FlavorLimits{
-						{Name: "one", Guaranteed: 4000, Taints: []corev1.Taint{{
-							Key:    "instance",
-							Value:  "spot",
-							Effect: corev1.TaintEffectNoSchedule,
-						}}},
+						{Name: "tainted", Guaranteed: 4000},
+						{Name: "two", Guaranteed: 4000},
+					}),
+				},
+			},
+			wantFits: true,
+			wantFlavors: map[string]map[corev1.ResourceName]string{
+				"main": {
+					corev1.ResourceCPU: "two",
+				},
+			},
+		},
+		"multiple flavors, skips missing ResourceFlavor": {
+			wlPods: []kueue.PodSet{
+				{
+					Count: 1,
+					Name:  "main",
+					Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+						corev1.ResourceCPU: "3",
+					}),
+				},
+			},
+			clusterQueue: cache.ClusterQueue{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
+					corev1.ResourceCPU: noBorrowing([]cache.FlavorLimits{
+						{Name: "non-existant", Guaranteed: 4000},
 						{Name: "two", Guaranteed: 4000},
 					}),
 				},
@@ -980,7 +1028,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 							},
 						},
 						// ignored:foo should get ignored
-						NodeSelector: map[string]string{"cpuType": "two", "ignored1": "foo"},
+						NodeSelector: map[string]string{"type": "two", "ignored1": "foo"},
 						Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
 							RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
 								NodeSelectorTerms: []corev1.NodeSelectorTerm{
@@ -1003,8 +1051,8 @@ func TestEntryAssignFlavors(t *testing.T) {
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
 					corev1.ResourceCPU: noBorrowing([]cache.FlavorLimits{
-						{Name: "one", Guaranteed: 4000, Labels: map[string]string{"cpuType": "one"}},
-						{Name: "two", Guaranteed: 4000, Labels: map[string]string{"cpuType": "two"}},
+						{Name: "one", Guaranteed: 4000},
+						{Name: "two", Guaranteed: 4000},
 					}),
 				},
 				LabelKeys: map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
@@ -1039,12 +1087,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 									{
 										MatchExpressions: []corev1.NodeSelectorRequirement{
 											{
-												Key:      "cpuType",
-												Operator: corev1.NodeSelectorOpIn,
-												Values:   []string{"two"},
-											},
-											{
-												Key:      "memType",
+												Key:      "type",
 												Operator: corev1.NodeSelectorOpIn,
 												Values:   []string{"two"},
 											},
@@ -1059,17 +1102,13 @@ func TestEntryAssignFlavors(t *testing.T) {
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
 					corev1.ResourceCPU: noBorrowing([]cache.FlavorLimits{
-						{Name: "one", Guaranteed: 4000, Labels: map[string]string{"cpuType": "one", "group": "group1"}},
-						{Name: "two", Guaranteed: 4000, Labels: map[string]string{"cpuType": "two"}},
+						{Name: "one", Guaranteed: 4000},
+						{Name: "two", Guaranteed: 4000},
 					}),
 					corev1.ResourceMemory: noBorrowing([]cache.FlavorLimits{
-						{Name: "one", Guaranteed: utiltesting.Gi, Labels: map[string]string{"memType": "one"}},
-						{Name: "two", Guaranteed: utiltesting.Gi, Labels: map[string]string{"memType": "two"}},
+						{Name: "one", Guaranteed: utiltesting.Gi},
+						{Name: "two", Guaranteed: utiltesting.Gi},
 					}),
-				},
-				LabelKeys: map[corev1.ResourceName]sets.String{
-					corev1.ResourceCPU:    sets.NewString("cpuType", "group"),
-					corev1.ResourceMemory: sets.NewString("memType"),
 				},
 			},
 			wantFits: true,
@@ -1127,11 +1166,10 @@ func TestEntryAssignFlavors(t *testing.T) {
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
 					corev1.ResourceCPU: noBorrowing([]cache.FlavorLimits{
-						{Name: "one", Guaranteed: 4000, Labels: map[string]string{"cpuType": "one"}},
-						{Name: "two", Guaranteed: 4000, Labels: map[string]string{"cpuType": "two"}},
+						{Name: "one", Guaranteed: 4000},
+						{Name: "two", Guaranteed: 4000},
 					}),
 				},
-				LabelKeys: map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
 			},
 			wantFits: true,
 			wantFlavors: map[string]map[corev1.ResourceName]string{
@@ -1159,7 +1197,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 									{
 										MatchExpressions: []corev1.NodeSelectorRequirement{
 											{
-												Key:      "cpuType",
+												Key:      "type",
 												Operator: corev1.NodeSelectorOpIn,
 												Values:   []string{"three"},
 											},
@@ -1174,8 +1212,8 @@ func TestEntryAssignFlavors(t *testing.T) {
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
 					corev1.ResourceCPU: noBorrowing([]cache.FlavorLimits{
-						{Name: "one", Guaranteed: 4000, Labels: map[string]string{"cpuType": "one"}},
-						{Name: "two", Guaranteed: 4000, Labels: map[string]string{"cpuType": "two"}},
+						{Name: "one", Guaranteed: 4000},
+						{Name: "two", Guaranteed: 4000},
 					}),
 				},
 				LabelKeys: map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
@@ -1360,7 +1398,8 @@ func TestEntryAssignFlavors(t *testing.T) {
 					},
 				}),
 			}
-			fits := e.assignFlavors(log, &tc.clusterQueue)
+			tc.clusterQueue.UpdateLabelKeys(resourceFlavors)
+			fits := e.assignFlavors(log, resourceFlavors, &tc.clusterQueue)
 			if fits != tc.wantFits {
 				t.Errorf("e.assignFlavors(_)=%t, want %t", fits, tc.wantFits)
 			}

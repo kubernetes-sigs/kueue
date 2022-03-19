@@ -310,18 +310,17 @@ func (r *ResourceWrapper) Flavor(f *kueue.Flavor) *ResourceWrapper {
 type FlavorWrapper struct{ kueue.Flavor }
 
 // MakeFlavor creates a wrapper for a resource flavor.
-func MakeFlavor(name, guaranteed string) *FlavorWrapper {
+func MakeFlavor(rf, guaranteed string) *FlavorWrapper {
 	return &FlavorWrapper{kueue.Flavor{
-		Name: name,
+		ResourceFlavor: kueue.ResourceFlavorReference(rf),
 		Quota: kueue.Quota{
 			Guaranteed: resource.MustParse(guaranteed),
 			Ceiling:    resource.MustParse(guaranteed),
 		},
-		Labels: map[string]string{},
 	}}
 }
 
-// Obj returns the inner resource flavor.
+// Obj returns the inner flavor.
 func (f *FlavorWrapper) Obj() *kueue.Flavor {
 	return &f.Flavor
 }
@@ -332,14 +331,32 @@ func (f *FlavorWrapper) Ceiling(c string) *FlavorWrapper {
 	return f
 }
 
-// Label adds a label to the flavor.
-func (f *FlavorWrapper) Label(k, v string) *FlavorWrapper {
-	f.Labels[k] = v
-	return f
+// ResourceFlavorWrapper wraps a ResourceFlavor.
+type ResourceFlavorWrapper struct{ kueue.ResourceFlavor }
+
+// MakeResourceFlavor creates a wrapper for a ResourceFlavor.
+func MakeResourceFlavor(name string) *ResourceFlavorWrapper {
+	return &ResourceFlavorWrapper{kueue.ResourceFlavor{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+		Labels: map[string]string{},
+	}}
 }
 
-// Taint adds a taint to the flavor.
-func (f *FlavorWrapper) Taint(t corev1.Taint) *FlavorWrapper {
-	f.Taints = append(f.Taints, t)
-	return f
+// Obj returns the inner ResourceFlavor.
+func (rf *ResourceFlavorWrapper) Obj() *kueue.ResourceFlavor {
+	return &rf.ResourceFlavor
+}
+
+// Label adds a label to the ResourceFlavor.
+func (rf *ResourceFlavorWrapper) Label(k, v string) *ResourceFlavorWrapper {
+	rf.Labels[k] = v
+	return rf
+}
+
+// Taint adds a taint to the ResourceFlavor.
+func (rf *ResourceFlavorWrapper) Taint(t corev1.Taint) *ResourceFlavorWrapper {
+	rf.Taints = append(rf.Taints, t)
+	return rf
 }

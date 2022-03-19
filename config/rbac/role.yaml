@@ -116,6 +116,14 @@ rules:
   - patch
   - update
 - apiGroups:
+  - kueue.x-k8s.io
+  resources:
+  - resourceflavors
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - scheduling.k8s.io
   resources:
   - priorityclasses

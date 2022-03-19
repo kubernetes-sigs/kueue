@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
@@ -92,7 +93,7 @@ func (r *JobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=queuedworkloads,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=queuedworkloads/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=queuedworkloads/finalizers,verbs=update
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues,verbs=get;list;watch
+//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 
 func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var job batchv1.Job
@@ -224,17 +225,13 @@ func (r *JobReconciler) stopJob(ctx context.Context, w *kueue.QueuedWorkload,
 func (r *JobReconciler) startJob(ctx context.Context, w *kueue.QueuedWorkload, job *batchv1.Job) error {
 	log := ctrl.LoggerFrom(ctx)
 
-	// Lookup the clusterQueue to fetch the node affinity labels to apply on the job.
-	clusterQueue := kueue.ClusterQueue{}
-	if err := r.client.Get(ctx, types.NamespacedName{Name: string(w.Spec.Admission.ClusterQueue)}, &clusterQueue); err != nil {
-		log.Error(err, "fetching ClusterQueue")
-		return err
-	}
-
 	if len(w.Spec.PodSets) != 1 {
 		return fmt.Errorf("one podset must exist, found %d", len(w.Spec.PodSets))
 	}
-	nodeSelector := getNodeSelectors(&clusterQueue, w)
+	nodeSelector, err := r.getNodeSelectors(ctx, w)
+	if err != nil {
+		return err
+	}
 	if len(nodeSelector) != 0 {
 		if job.Spec.Template.Spec.NodeSelector == nil {
 			job.Spec.Template.Spec.NodeSelector = nodeSelector
@@ -258,32 +255,28 @@ func (r *JobReconciler) startJob(ctx context.Context, w *kueue.QueuedWorkload, j
 	return nil
 }
 
-func getNodeSelectors(cq *kueue.ClusterQueue, w *kueue.QueuedWorkload) map[string]string {
+func (r *JobReconciler) getNodeSelectors(ctx context.Context, w *kueue.QueuedWorkload) (map[string]string, error) {
 	if len(w.Spec.Admission.PodSetFlavors[0].Flavors) == 0 {
-		return nil
+		return nil, nil
 	}
 
-	// Create a map of resources-to-flavors.
-	// May be cache this?
-	flavors := make(map[corev1.ResourceName]map[string]*kueue.Flavor, len(cq.Spec.RequestableResources))
-	for _, r := range cq.Spec.RequestableResources {
-		flavors[r.Name] = make(map[string]*kueue.Flavor, len(r.Flavors))
-		for j := range r.Flavors {
-			flavors[r.Name][r.Flavors[j].Name] = &r.Flavors[j]
-		}
-	}
-
+	processedFlvs := sets.NewString()
 	nodeSelector := map[string]string{}
-	for res, flvr := range w.Spec.Admission.PodSetFlavors[0].Flavors {
-		if cqRes, existRes := flavors[res]; existRes {
-			if cqFlvr, existFlvr := cqRes[flvr]; existFlvr {
-				for k, v := range cqFlvr.Labels {
-					nodeSelector[k] = v
-				}
-			}
+	for _, flvName := range w.Spec.Admission.PodSetFlavors[0].Flavors {
+		if processedFlvs.Has(flvName) {
+			continue
 		}
+		// Lookup the ResourceFlavors to fetch the node affinity labels to apply on the job.
+		flv := kueue.ResourceFlavor{}
+		if err := r.client.Get(ctx, types.NamespacedName{Name: flvName}, &flv); err != nil {
+			return nil, err
+		}
+		for k, v := range flv.Labels {
+			nodeSelector[k] = v
+		}
+		processedFlvs.Insert(flvName)
 	}
-	return nodeSelector
+	return nodeSelector, nil
 }
 
 func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job *batchv1.Job) error {

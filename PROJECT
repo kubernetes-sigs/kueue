@@ -15,7 +15,7 @@ resources:
   version: v1alpha1
 - api:
     crdVersion: v1
-    namespaced: true
+    namespaced: false
   controller: true
   domain: x-k8s.io
   group: kueue
@@ -33,7 +33,7 @@ resources:
   version: v1alpha1
 - api:
     crdVersion: v1
-    namespaced: true
+    namespaced: false
   domain: x-k8s.io
   group: kueue
   kind: ResourceFlavor

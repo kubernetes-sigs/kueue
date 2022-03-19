@@ -159,7 +159,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 			continue
 		}
 		e := entry{Info: w}
-		if !e.assignFlavors(log, cq) {
+		if !e.assignFlavors(log, snap.ResourceFlavors, cq) {
 			log.V(2).Info("Workload didn't fit in remaining clusterQueue even when borrowing")
 			continue
 		}
@@ -173,14 +173,14 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 // borrow from the cohort.
 // It returns whether the entry would fit. If it doesn't fit, the object is
 // unmodified.
-func (e *entry) assignFlavors(log logr.Logger, cq *cache.ClusterQueue) bool {
+func (e *entry) assignFlavors(log logr.Logger, resourceFlavors map[string]*kueue.ResourceFlavor, cq *cache.ClusterQueue) bool {
 	flavoredRequests := make([]workload.PodSetResources, 0, len(e.TotalRequests))
 	wUsed := make(cache.Resources)
 	wBorrows := make(cache.Resources)
 	for i, podSet := range e.TotalRequests {
 		flavors := make(map[corev1.ResourceName]string, len(podSet.Requests))
 		for resName, reqVal := range podSet.Requests {
-			rFlavor, borrow := findFlavorForResource(log, resName, reqVal, wUsed[resName], cq, &e.Obj.Spec.PodSets[i].Spec)
+			rFlavor, borrow := findFlavorForResource(log, resName, reqVal, wUsed[resName], resourceFlavors, cq, &e.Obj.Spec.PodSets[i].Spec)
 			if rFlavor == "" {
 				return false
 			}
@@ -263,11 +263,17 @@ func findFlavorForResource(
 	name corev1.ResourceName,
 	val int64,
 	wUsed map[string]int64,
+	resourceFlavors map[string]*kueue.ResourceFlavor,
 	cq *cache.ClusterQueue,
 	spec *corev1.PodSpec) (string, int64) {
 	// We will only check against the flavors' labels for the resource.
 	selector := flavorSelector(spec, cq.LabelKeys[name])
-	for _, flavor := range cq.RequestableResources[name] {
+	for _, flvLimit := range cq.RequestableResources[name] {
+		flavor, exist := resourceFlavors[flvLimit.Name]
+		if !exist {
+			log.Error(nil, "Flavor %v not found", flvLimit.Name)
+			continue
+		}
 		_, untolerated := corev1helpers.FindMatchingUntoleratedTaint(flavor.Taints, spec.Tolerations, func(t *corev1.Taint) bool {
 			return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
 		})
@@ -283,7 +289,7 @@ func findFlavorForResource(
 		}
 
 		// Check considering the flavor usage by previous pod sets.
-		ok, borrow := fitsFlavorLimits(name, val+wUsed[flavor.Name], cq, &flavor)
+		ok, borrow := fitsFlavorLimits(name, val+wUsed[flavor.Name], cq, &flvLimit)
 		if ok {
 			return flavor.Name, borrow
 		}

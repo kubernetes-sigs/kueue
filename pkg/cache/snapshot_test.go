@@ -53,18 +53,16 @@ func TestSnapshot(t *testing.T) {
 						Name: corev1.ResourceCPU,
 						Flavors: []kueue.Flavor{
 							{
-								Name: "demand",
+								ResourceFlavor: "demand",
 								Quota: kueue.Quota{
 									Guaranteed: resource.MustParse("100"),
 								},
-								Labels: map[string]string{"foo": "bar", "instance": "on-demand"},
 							},
 							{
-								Name: "spot",
+								ResourceFlavor: "spot",
 								Quota: kueue.Quota{
 									Guaranteed: resource.MustParse("200"),
 								},
-								Labels: map[string]string{"baz": "bar", "instance": "spot"},
 							},
 						},
 					},
@@ -82,7 +80,7 @@ func TestSnapshot(t *testing.T) {
 						Name: corev1.ResourceCPU,
 						Flavors: []kueue.Flavor{
 							{
-								Name: "spot",
+								ResourceFlavor: "spot",
 								Quota: kueue.Quota{
 									Guaranteed: resource.MustParse("100"),
 								},
@@ -93,7 +91,7 @@ func TestSnapshot(t *testing.T) {
 						Name: "example.com/gpu",
 						Flavors: []kueue.Flavor{
 							{
-								Name: "default",
+								ResourceFlavor: "default",
 								Quota: kueue.Quota{
 									Guaranteed: resource.MustParse("50"),
 								},
@@ -113,7 +111,7 @@ func TestSnapshot(t *testing.T) {
 						Name: corev1.ResourceCPU,
 						Flavors: []kueue.Flavor{
 							{
-								Name: "default",
+								ResourceFlavor: "default",
 								Quota: kueue.Quota{
 									Guaranteed: resource.MustParse("100"),
 								},
@@ -125,11 +123,24 @@ func TestSnapshot(t *testing.T) {
 		},
 	}
 	for _, c := range clusterQueues {
-		// Purposely  do not make a copy of clusterQueues. Clones of necessary fields are
+		// Purposely do not make a copy of clusterQueues. Clones of necessary fields are
 		// done in AddClusterQueue.
 		if err := cache.AddClusterQueue(context.Background(), &c); err != nil {
 			t.Fatalf("Failed adding ClusterQueue: %v", err)
 		}
+	}
+	flavors := []kueue.ResourceFlavor{
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "demand"},
+			Labels:     map[string]string{"foo": "bar", "instance": "demand"},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "spot"},
+			Labels:     map[string]string{"baz": "bar", "instance": "spot"},
+		},
+	}
+	for i := range flavors {
+		cache.AddOrUpdateResourceFlavor(&flavors[i])
 	}
 	workloads := []kueue.QueuedWorkload{
 		{
@@ -249,12 +260,10 @@ func TestSnapshot(t *testing.T) {
 						{
 							Name:       "demand",
 							Guaranteed: 100_000,
-							Labels:     map[string]string{"foo": "bar", "instance": "on-demand"},
 						},
 						{
 							Name:       "spot",
 							Guaranteed: 200_000,
-							Labels:     map[string]string{"baz": "bar", "instance": "spot"},
 						},
 					},
 				},
@@ -300,6 +309,7 @@ func TestSnapshot(t *testing.T) {
 					"/gamma": workload.NewInfo(&workloads[2]),
 				},
 				NamespaceSelector: labels.Nothing(),
+				LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: {"baz": {}, "instance": {}}},
 			},
 			"bar": {
 				Name: "bar",
@@ -316,6 +326,16 @@ func TestSnapshot(t *testing.T) {
 				},
 				Workloads:         map[string]*workload.Info{},
 				NamespaceSelector: labels.Nothing(),
+			},
+		},
+		ResourceFlavors: map[string]*kueue.ResourceFlavor{
+			"demand": {
+				ObjectMeta: metav1.ObjectMeta{Name: "demand"},
+				Labels:     map[string]string{"foo": "bar", "instance": "demand"},
+			},
+			"spot": {
+				ObjectMeta: metav1.ObjectMeta{Name: "spot"},
+				Labels:     map[string]string{"baz": "bar", "instance": "spot"},
 			},
 		},
 	}
