@@ -42,8 +42,6 @@ const (
 	jobNamespace      = "default"
 	jobKey            = jobNamespace + "/" + jobName
 	labelKey          = "cloud.provider.com/instance"
-	flavorOnDemand    = "on-demand"
-	flavorSpot        = "spot"
 	priorityClassName = "test-priority-class"
 	priorityValue     = 10
 )
@@ -114,17 +112,21 @@ var _ = ginkgo.Describe("Job controller", func() {
 		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking the job is unsuspended when workload is assigned")
+		onDemandFlavor := testing.MakeResourceFlavor("on-demand").Label(labelKey, "on-demand").Obj()
+		gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).Should(gomega.Succeed())
+		spotFlavor := testing.MakeResourceFlavor("spot").Label(labelKey, "spot").Obj()
+		gomega.Expect(k8sClient.Create(ctx, spotFlavor)).Should(gomega.Succeed())
 		clusterQueue := testing.MakeClusterQueue("cluster-queue").
 			Resource(testing.MakeResource(corev1.ResourceCPU).
-				Flavor(testing.MakeFlavor(flavorOnDemand, "5").Label(labelKey, flavorOnDemand).Obj()).
-				Flavor(testing.MakeFlavor(flavorSpot, "5").Label(labelKey, flavorSpot).Obj()).
+				Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Obj()).
+				Flavor(testing.MakeFlavor(spotFlavor.Name, "5").Obj()).
 				Obj()).Obj()
 		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
 		createdWorkload.Spec.Admission = &kueue.Admission{
 			ClusterQueue: kueue.ClusterQueueReference(clusterQueue.Name),
 			PodSetFlavors: []kueue.PodSetFlavors{{
 				Flavors: map[corev1.ResourceName]string{
-					corev1.ResourceCPU: flavorOnDemand,
+					corev1.ResourceCPU: onDemandFlavor.Name,
 				},
 			}},
 		}
@@ -140,7 +142,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 			return ok
 		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 		gomega.Expect(len(createdJob.Spec.Template.Spec.NodeSelector)).Should(gomega.Equal(1))
-		gomega.Expect(createdJob.Spec.Template.Spec.NodeSelector[labelKey]).Should(gomega.Equal(flavorOnDemand))
+		gomega.Expect(createdJob.Spec.Template.Spec.NodeSelector[labelKey]).Should(gomega.Equal(onDemandFlavor.Name))
 		gomega.Consistently(func() bool {
 			if err := k8sClient.Get(ctx, lookupKey, createdWorkload); err != nil {
 				return false
@@ -178,7 +180,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 			ClusterQueue: kueue.ClusterQueueReference(clusterQueue.Name),
 			PodSetFlavors: []kueue.PodSetFlavors{{
 				Flavors: map[corev1.ResourceName]string{
-					corev1.ResourceCPU: flavorSpot,
+					corev1.ResourceCPU: spotFlavor.Name,
 				},
 			}},
 		}
@@ -190,7 +192,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 			return !*createdJob.Spec.Suspend
 		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 		gomega.Expect(len(createdJob.Spec.Template.Spec.NodeSelector)).Should(gomega.Equal(1))
-		gomega.Expect(createdJob.Spec.Template.Spec.NodeSelector[labelKey]).Should(gomega.Equal(flavorSpot))
+		gomega.Expect(createdJob.Spec.Template.Spec.NodeSelector[labelKey]).Should(gomega.Equal(spotFlavor.Name))
 		gomega.Consistently(func() bool {
 			if err := k8sClient.Get(ctx, lookupKey, createdWorkload); err != nil {
 				return false

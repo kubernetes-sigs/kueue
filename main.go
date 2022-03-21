@@ -105,6 +105,10 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "QueuedWorkload")
 		os.Exit(1)
 	}
+	if err = core.NewResourceFlavorReconciler(cache).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ResourceFlavor")
+		os.Exit(1)
+	}
 	if err = job.NewReconciler(mgr.GetScheme(), mgr.GetClient(),
 		mgr.GetEventRecorderFor(constants.JobControllerName)).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Job")

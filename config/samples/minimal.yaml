@@ -1,3 +1,7 @@
+apiVersion: kueue.x-k8s.io/v1alpha1
+kind: ResourceFlavor
+metadata:
+  name: default
 ---
 apiVersion: kueue.x-k8s.io/v1alpha1
 kind: ClusterQueue
@@ -8,13 +12,13 @@ spec:
   requestableResources:
   - name: "cpu"
     flavors:
-    - name: default
+    - resourceFlavor: default
       quota:
         guaranteed: 9
         ceiling: 9
   - name: "memory"
     flavors:
-    - name: default
+    - resourceFlavor: default
       quota:
         guaranteed: 36Gi
         ceiling: 36Gi

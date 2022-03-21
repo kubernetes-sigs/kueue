@@ -17,11 +17,13 @@ limitations under the License.
 package cache
 
 import (
+	kueue "sigs.k8s.io/kueue/api/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type Snapshot struct {
-	ClusterQueues map[string]*ClusterQueue
+	ClusterQueues   map[string]*ClusterQueue
+	ResourceFlavors map[string]*kueue.ResourceFlavor
 }
 
 func (c *Cache) Snapshot() Snapshot {
@@ -29,10 +31,15 @@ func (c *Cache) Snapshot() Snapshot {
 	defer c.RUnlock()
 
 	snap := Snapshot{
-		ClusterQueues: make(map[string]*ClusterQueue, len(c.clusterQueues)),
+		ClusterQueues:   make(map[string]*ClusterQueue, len(c.clusterQueues)),
+		ResourceFlavors: make(map[string]*kueue.ResourceFlavor, len(c.resourceFlavors)),
 	}
 	for _, cq := range c.clusterQueues {
 		snap.ClusterQueues[cq.Name] = cq.snapshot()
+	}
+	for _, rf := range c.resourceFlavors {
+		// Shallow copy is enough
+		snap.ResourceFlavors[rf.Name] = rf
 	}
 	for _, cohort := range c.cohorts {
 		cohortCopy := newCohort(cohort.Name, len(cohort.members))

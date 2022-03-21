@@ -221,28 +221,21 @@ type Resource struct {
 	//     guaranteed: 100
 	//
 	// +listType=map
-	// +listMapKey=name
+	// +listMapKey=resourceFlavor
 	Flavors []Flavor `json:"flavors,omitempty"`
 }
 
 type Flavor struct {
-	// name is the type name, e.g., nvidia-tesla-k80.
+	// resourceFlavor is a reference to the resourceFlavor that defines this flavor.
 	// +kubebuilder:default=default
-	Name string `json:"name"`
+	ResourceFlavor ResourceFlavorReference `json:"resourceFlavor"`
 
 	// quota is the limit of resource usage at a point in time.
 	Quota Quota `json:"quota"`
-
-	// labels associated with this type. Those labels are matched against or
-	// converted to node affinity constraints on the workload’s pods.
-	// For example, cloud.provider.com/accelerator: nvidia-tesla-k80.
-	Labels map[string]string `json:"labels,omitempty"`
-
-	// taints associated with this constraint that workloads must explicitly
-	// “tolerate” to be able to use this type.
-	// e.g., cloud.provider.com/preemptible="true":NoSchedule
-	Taints []corev1.Taint `json:"taints,omitempty"`
 }
+
+// ResourceFlavorReference is the name of the ResourceFlavor.
+type ResourceFlavorReference string
 
 type Quota struct {
 	// guaranteed amount of resource requests that are available to be used by
