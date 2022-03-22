@@ -1,6 +1,0 @@
-apiVersion: kueue.x-k8s.io/v1alpha1
-kind: ResourceFlavor
-metadata:
-  name: resourceflavor-sample
-spec:
-  # TODO(user): Add fields here
