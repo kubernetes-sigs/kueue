@@ -271,7 +271,7 @@ func findFlavorForResource(
 	for _, flvLimit := range cq.RequestableResources[name] {
 		flavor, exist := resourceFlavors[flvLimit.Name]
 		if !exist {
-			log.Error(nil, "Flavor %v not found", flvLimit.Name)
+			log.Error(nil, "Flavor not found", "Flavor", flvLimit.Name)
 			continue
 		}
 		_, untolerated := corev1helpers.FindMatchingUntoleratedTaint(flavor.Taints, spec.Tolerations, func(t *corev1.Taint) bool {
