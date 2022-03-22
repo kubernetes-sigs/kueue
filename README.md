@@ -1,14 +1,23 @@
 # Kueue
 
-Kueue is a set of APIs and controller for job queueing. It is a job-level manager that decides when 
-a job should start (as in pods can be created) and when it should stop (as in active pods should be 
-deleted). The main design principle for Kueue is to avoid duplicating existing functionality: autoscaling, 
-pod-to-node scheduling, job lifecycle management and advanced admission control are the responsibility of 
-core k8s components or commonly accepted frameworks, namely cluster-autoscaler, kube-scheduler and kube-controller-manager 
-and gatekeeper, respectively.
+Kueue is a set of APIs and controller for [job](docs/concepts/queued_workload.md)
+[queueing](docs/concepts/README.md#queueing). It is a job-level manager that
+decides when a job should be [admitted](docs/concepts/README.md#admission) to start
+(as in pods can be created) and when it should stop (as in active pods should be 
+deleted).
 
-[bit.ly/kueue-apis](https://bit.ly/kueue-apis) (please join the [mailing list](https://groups.google.com/a/kubernetes.io/g/wg-batch) to get access) discusses the
-API proposal and a high-level description of how it operates; while [bit.ly/kueue-controller-design](https://bit.ly/kueue-controller-design) presents the detailed design of the controller.
+The main design principle for Kueue is to avoid duplicating mature functionality
+in [Kubernetes components](https://kubernetes.io/docs/concepts/overview/components/)
+and well-established third-party controllers. Autoscaling, pod-to-node scheduling and
+job lifecycle management are the responsibility of cluster-autoscaler,
+kube-scheduler and kube-controller-manager, respectively. Advanced
+admission control can be delegated to controllers such as [gatekeeper](https://github.com/open-policy-agent/gatekeeper).
+
+<!-- TODO(#64) Remove links to google docs once the contents have been migrated to this repo -->
+[bit.ly/kueue-apis](https://bit.ly/kueue-apis) (please join the [mailing list](https://groups.google.com/a/kubernetes.io/g/wg-batch)
+to get access) discusses the API proposal and a high-level description of how it
+operates; while [bit.ly/kueue-controller-design](https://bit.ly/kueue-controller-design)
+presents the detailed design of the controller.
 
 ## Usage
 
