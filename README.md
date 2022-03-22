@@ -24,7 +24,6 @@ The controller will run in the `kueue-system` namespace.
 Then, you can and apply some of the [samples](config/samples):
 
 ```
-kubectl apply -f config/samples/kueue_v1alpha1_resourceflavor.yaml
 kubectl apply -f config/samples/minimal.yaml
 kubectl create -f config/samples/sample-job.yaml
 ```
