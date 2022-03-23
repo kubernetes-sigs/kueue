@@ -14,9 +14,11 @@ kube-scheduler and kube-controller-manager, respectively. Advanced
 admission control can be delegated to controllers such as [gatekeeper](https://github.com/open-policy-agent/gatekeeper).
 
 <!-- TODO(#64) Remove links to google docs once the contents have been migrated to this repo -->
-[bit.ly/kueue-apis](https://bit.ly/kueue-apis) (please join the [mailing list](https://groups.google.com/a/kubernetes.io/g/wg-batch)
+Learn more by reading the design docs:
+- [bit.ly/kueue-apis](https://bit.ly/kueue-apis) (please join the [mailing list](https://groups.google.com/a/kubernetes.io/g/wg-batch)
 to get access) discusses the API proposal and a high-level description of how it
-operates; while [bit.ly/kueue-controller-design](https://bit.ly/kueue-controller-design)
+operates.
+- [bit.ly/kueue-controller-design](https://bit.ly/kueue-controller-design)
 presents the detailed design of the controller.
 
 ## Usage

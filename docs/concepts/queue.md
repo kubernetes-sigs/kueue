@@ -1,6 +1,6 @@
 # Queue
 
-A `Queue` is a namespaced resource that groups closely related workloads
+A `Queue` is a namespaced object that groups closely related workloads
 belonging to a single tenant. A `Queue` points to one [`ClusterQueue`](cluster_queue.md)
 from which resources are allocated to run its workloads.
 

@@ -35,11 +35,11 @@ as _workload scheduling_ or _job scheduling_ (not to be confused with
 
 ### [Cohort](cluster_queue.md#cohort)
 
-A group of cluster queues that can borrow unused resources from each other.
+A group of ClusterQueues that can borrow unused quota from each other.
 
 ### Queueing
 
-The time between a workload is created until it is admitted by Cluster Queue.
+The time between a workload is created until it is admitted by a ClusterQueue.
 Typically, the workload will compete with other workloads for available
-resources based on the fair sharing rules for the Cluster Queue.
+quota based on the fair sharing rules of the ClusterQueue.
 

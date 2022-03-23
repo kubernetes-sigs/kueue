@@ -11,7 +11,7 @@ For this reason, we sometimes use the word _job_ to refer to any workload, and
 `Job` when we refer specifically to the Kubernetes API.
 
 However, Kueue does not directly manipulate `Job` objects. Instead, Kueue
-manages `QueuedWorkload` resources that represent the resource requirements
+manages `QueuedWorkload` objects that represent the resource requirements
 of an arbitrary workload. Kueue automatically creates a `QueuedWorkload` for
 each `Job` object and syncs the decisions and statuses.
 
