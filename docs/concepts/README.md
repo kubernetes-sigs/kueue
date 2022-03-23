@@ -1,5 +1,8 @@
 # Concepts
 
+This section helps you learn about the components, APIs and abstractions 
+that Kueue uses to represent your cluster and workloads.
+
 ## APIs
 
 ### [Cluster Queue](cluster_queue.md)

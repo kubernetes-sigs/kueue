@@ -21,23 +21,35 @@ operates.
 - [bit.ly/kueue-controller-design](https://bit.ly/kueue-controller-design)
 presents the detailed design of the controller.
 
-## Usage
+## Installation
 
-**Requires k8s 1.22 or newer**
+**Requires Kubernetes 1.22 or newer**. Learn how to [install the Kubernetes tools](https://kubernetes.io/docs/tasks/tools/).
 
-You can run Kueue with the following command:
+You can deploy Kueue in your cluster with the following command:
 
 ```sh
 IMAGE_REGISTRY=registry.example.com/my-user make image-build image-push deploy
 ```
 
 The controller will run in the `kueue-system` namespace.
-Then, you can and apply some of the [samples](config/samples):
+
+## Usage
+
+A minimal configuration can be set by running the [samples](config/samples):
 
 ```
 kubectl apply -f config/samples/minimal.yaml
+```
+
+Then you can run a job with:
+
+```
 kubectl create -f config/samples/sample-job.yaml
 ```
+
+Learn more about:
+- Kueue [concepts](docs/concepts).
+- Common and advanced [tasks](docs/tasks).
 
 ## Community, discussion, contribution, and support
 
