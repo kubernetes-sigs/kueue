@@ -85,9 +85,13 @@ var _ = ginkgo.Describe("Queue controller", func() {
 
 		ginkgo.By("Admitting workloads")
 		for _, w := range workloads {
-			w.Spec.Admission = testing.MakeAdmission(clusterQueue.Name).
-				Flavor(corev1.ResourceCPU, flavorOnDemand).Obj()
-			gomega.Expect(k8sClient.Update(ctx, w)).To(gomega.Succeed())
+			gomega.Eventually(func() error {
+				var newWL kueue.QueuedWorkload
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
+				newWL.Spec.Admission = testing.MakeAdmission(clusterQueue.Name).
+					Flavor(corev1.ResourceCPU, flavorOnDemand).Obj()
+				return k8sClient.Update(ctx, &newWL)
+			}, framework.Timeout, framework.Interval).Should(gomega.Succeed())
 		}
 		gomega.Eventually(func() kueue.QueueStatus {
 			var updatedQueue kueue.Queue
@@ -97,11 +101,15 @@ var _ = ginkgo.Describe("Queue controller", func() {
 
 		ginkgo.By("Finishing workloads")
 		for _, w := range workloads {
-			w.Status.Conditions = append(w.Status.Conditions, kueue.QueuedWorkloadCondition{
-				Type:   kueue.QueuedWorkloadFinished,
-				Status: corev1.ConditionTrue,
-			})
-			gomega.Expect(k8sClient.Status().Update(ctx, w)).To(gomega.Succeed())
+			gomega.Eventually(func() error {
+				var newWL kueue.QueuedWorkload
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
+				newWL.Status.Conditions = append(w.Status.Conditions, kueue.QueuedWorkloadCondition{
+					Type:   kueue.QueuedWorkloadFinished,
+					Status: corev1.ConditionTrue,
+				})
+				return k8sClient.Status().Update(ctx, &newWL)
+			}, framework.Timeout, framework.Interval).Should(gomega.Succeed())
 		}
 		gomega.Eventually(func() kueue.QueueStatus {
 			var updatedQueue kueue.Queue

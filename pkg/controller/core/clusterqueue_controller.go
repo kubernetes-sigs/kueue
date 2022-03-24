@@ -157,7 +157,8 @@ func (h *assignedWorkloadHandler) Update(e event.UpdateEvent, q workqueue.RateLi
 		q.AddAfter(requestForWorkloadClusterQueue(oldW), constants.UpdatesBatchPeriod)
 	}
 	newW := e.ObjectNew.(*kueue.QueuedWorkload)
-	if newW.Spec.Admission != nil && (oldW.Spec.Admission == nil || newW.Spec.Admission.ClusterQueue != oldW.Spec.Admission.ClusterQueue) {
+	if newW.Spec.Admission != nil && (oldW.Spec.Admission == nil || workloadFinished(newW) ||
+		newW.Spec.Admission.ClusterQueue != oldW.Spec.Admission.ClusterQueue) {
 		q.AddAfter(requestForWorkloadClusterQueue(newW), constants.UpdatesBatchPeriod)
 	}
 }

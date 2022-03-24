@@ -17,11 +17,14 @@ limitations under the License.
 package workload
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
 )
@@ -154,4 +157,71 @@ func max(v1, v2 int64) int64 {
 		return v1
 	}
 	return v2
+}
+
+// getWorkloadCondition extracts the provided condition from the given status and returns that.
+// Returns -1 if the condition is not present, and the index of the located condition.
+func getWorkloadCondition(status *kueue.QueuedWorkloadStatus, conditionType kueue.QueuedWorkloadConditionType) int {
+	if status == nil {
+		return -1
+	}
+	if status.Conditions == nil {
+		return -1
+	}
+	for i := range status.Conditions {
+		if status.Conditions[i].Type == conditionType {
+			return i
+		}
+	}
+	return -1
+}
+
+// UpdateWorkloadStatus is a wrapper to update the condition of a workload
+func UpdateWorkloadStatus(ctx context.Context,
+	c client.Client,
+	wl *kueue.QueuedWorkload,
+	conditionType kueue.QueuedWorkloadConditionType,
+	conditionStatus corev1.ConditionStatus,
+	reason, message string) error {
+	conditionIndex := getWorkloadCondition(&wl.Status, conditionType)
+
+	now := metav1.Now()
+	condition := kueue.QueuedWorkloadCondition{
+		Type:               conditionType,
+		Status:             conditionStatus,
+		LastProbeTime:      now,
+		LastTransitionTime: now,
+		Reason:             reason,
+		Message:            message,
+	}
+	var newWl kueue.QueuedWorkload
+
+	if conditionIndex == -1 {
+		wl.Status.Conditions = append(wl.Status.Conditions, condition)
+		return c.Status().Update(ctx, wl)
+	}
+
+	wl.Status.Conditions[conditionIndex] = condition
+
+	return c.Status().Update(ctx, &newWl)
+}
+
+func UpdateWorkloadStatusIfChanged(ctx context.Context,
+	c client.Client,
+	wl *kueue.QueuedWorkload,
+	conditionType kueue.QueuedWorkloadConditionType,
+	conditionStatus corev1.ConditionStatus,
+	reason, message string) error {
+	i := getWorkloadCondition(&wl.Status, conditionType)
+	if i == -1 {
+		// We are adding new pod condition.
+		return UpdateWorkloadStatus(ctx, c, wl, conditionType, conditionStatus, reason, message)
+	}
+	if wl.Status.Conditions[i].Status == conditionStatus && wl.Status.Conditions[i].Type == conditionType &&
+		wl.Status.Conditions[i].Reason == reason && wl.Status.Conditions[i].Message == message {
+		// No need to update
+		return nil
+	}
+	// Updating an existing condition
+	return UpdateWorkloadStatus(ctx, c, wl, conditionType, conditionStatus, reason, message)
 }

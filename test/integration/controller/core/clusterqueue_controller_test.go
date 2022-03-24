@@ -133,8 +133,12 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			nil,
 		}
 		for i, w := range workloads {
-			w.Spec.Admission = admissions[i]
-			gomega.Expect(k8sClient.Update(ctx, w)).To(gomega.Succeed())
+			gomega.Eventually(func() error {
+				var newWL kueue.QueuedWorkload
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
+				newWL.Spec.Admission = admissions[i]
+				return k8sClient.Update(ctx, &newWL)
+			}, framework.Timeout, framework.Interval).Should(gomega.Succeed())
 		}
 		gomega.Eventually(func() kueue.ClusterQueueStatus {
 			var updatedCQ kueue.ClusterQueue
@@ -166,11 +170,15 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 
 		ginkgo.By("Finishing workloads")
 		for _, w := range workloads {
-			w.Status.Conditions = append(w.Status.Conditions, kueue.QueuedWorkloadCondition{
-				Type:   kueue.QueuedWorkloadFinished,
-				Status: corev1.ConditionTrue,
-			})
-			gomega.Expect(k8sClient.Status().Update(ctx, w)).To(gomega.Succeed())
+			gomega.Eventually(func() error {
+				var newWL kueue.QueuedWorkload
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
+				newWL.Status.Conditions = append(newWL.Status.Conditions, kueue.QueuedWorkloadCondition{
+					Type:   kueue.QueuedWorkloadFinished,
+					Status: corev1.ConditionTrue,
+				})
+				return k8sClient.Status().Update(ctx, &newWL)
+			}, framework.Timeout, framework.Interval).Should(gomega.Succeed())
 		}
 		gomega.Eventually(func() kueue.ClusterQueueStatus {
 			var updatedCq kueue.ClusterQueue

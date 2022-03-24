@@ -106,6 +106,10 @@ func (s *Scheduler) schedule(ctx context.Context) {
 		log := log.WithValues("queuedWorkload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue))
 		if err := s.admit(ctrl.LoggerInto(ctx, log), &e); err != nil {
 			log.Error(err, "Failed admitting workload by clusterQueue")
+			err := workload.UpdateWorkloadStatus(ctx, s.client, e.Obj, kueue.QueuedWorkloadAdmitted, corev1.ConditionFalse, "Pending", err.Error())
+			if err != nil {
+				log.Error(err, "Updating QueuedWorkload status")
+			}
 		} else {
 			admittedWorkloads.Insert(workload.Key(e.Obj))
 		}
@@ -121,9 +125,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 		if admittedWorkloads.Has(workload.Key(w.Obj)) {
 			continue
 		}
-		if s.queues.RequeueWorkload(ctx, &w) {
-			log.V(2).Info("Workload re-queued", "queuedWorkload", klog.KObj(w.Obj), "queue", klog.KRef(w.Obj.Namespace, w.Obj.Spec.QueueName))
-		}
+		s.requeueAndUpdate(log, ctx, &w, "workload didn't fit")
 	}
 }
 
@@ -248,8 +250,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 			return
 		}
 		log.Error(err, "Admitting workload and assigning flavors")
-		log.V(2).Info("Re-queueing")
-		s.queues.RequeueWorkload(ctx, &e.Info)
+		s.requeueAndUpdate(log, ctx, &e.Info, err.Error())
 	})
 
 	return nil
@@ -393,4 +394,14 @@ func (e entryOrdering) Less(i, j int) bool {
 	}
 	// 2. FIFO
 	return a.Obj.CreationTimestamp.Before(&b.Obj.CreationTimestamp)
+}
+
+func (s *Scheduler) requeueAndUpdate(log logr.Logger, ctx context.Context, w *workload.Info, message string) {
+	if s.queues.RequeueWorkload(ctx, w) {
+		log.V(2).Info("Workload re-queued", "queuedWorkload", klog.KObj(w.Obj), "queue", klog.KRef(w.Obj.Namespace, w.Obj.Spec.QueueName))
+	}
+	if err := workload.UpdateWorkloadStatus(ctx, s.client, w.Obj, kueue.QueuedWorkloadAdmitted, corev1.ConditionFalse,
+		"Pending", message); err != nil {
+		log.Error(err, "Updating QueuedWorkload status")
+	}
 }

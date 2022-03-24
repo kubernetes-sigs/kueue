@@ -18,16 +18,19 @@ package core
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/queue"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 const (
@@ -42,11 +45,13 @@ type QueuedWorkloadReconciler struct {
 	log    logr.Logger
 	queues *queue.Manager
 	cache  *cache.Cache
+	client client.Client
 }
 
-func NewQueuedWorkloadReconciler(queues *queue.Manager, cache *cache.Cache) *QueuedWorkloadReconciler {
+func NewQueuedWorkloadReconciler(client client.Client, queues *queue.Manager, cache *cache.Cache) *QueuedWorkloadReconciler {
 	return &QueuedWorkloadReconciler{
 		log:    ctrl.Log.WithName("queued-workload-reconciler"),
+		client: client,
 		queues: queues,
 		cache:  cache,
 	}
@@ -58,7 +63,29 @@ func NewQueuedWorkloadReconciler(queues *queue.Manager, cache *cache.Cache) *Que
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=queuedworkloads/finalizers,verbs=update
 
 func (r *QueuedWorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	// No-op. All work is done in the event handler.
+	var wl kueue.QueuedWorkload
+	if err := r.client.Get(ctx, req.NamespacedName, &wl); err != nil {
+		// we'll ignore not-found errors, since there is nothing to do.
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	log := ctrl.LoggerFrom(ctx).WithValues("queuedWorkload", klog.KObj(&wl))
+	ctx = ctrl.LoggerInto(ctx, log)
+	log.V(2).Info("Reconciling QueuedWorkload")
+
+	status := workloadStatus(&wl)
+	q, qOK := r.queues.QueueExists(&wl)
+	if status == pending && !qOK {
+		err := workload.UpdateWorkloadStatusIfChanged(ctx, r.client, &wl, kueue.QueuedWorkloadAdmitted, corev1.ConditionFalse,
+			"Inadmissible", fmt.Sprintf("Queue %s for workload doesn't exist", wl.Spec.QueueName))
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	if status == pending && !r.queues.ClusterQueueExists(&wl) {
+		err := workload.UpdateWorkloadStatusIfChanged(ctx, r.client, &wl, kueue.QueuedWorkloadAdmitted, corev1.ConditionFalse,
+			"Inadmissible", fmt.Sprintf("ClusterQueue %s doesn't exist", q.ClusterQueue))
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -69,20 +96,20 @@ func (r *QueuedWorkloadReconciler) Create(e event.CreateEvent) bool {
 	log.V(2).Info("QueuedWorkload create event")
 
 	if status == finished {
-		return false
+		return true
 	}
 
 	if wl.Spec.Admission == nil {
 		if !r.queues.AddOrUpdateWorkload(wl.DeepCopy()) {
 			log.V(2).Info("Queue for workload didn't exist; ignored for now")
 		}
-		return false
+		return true
 	}
 	if !r.cache.AddOrUpdateWorkload(wl.DeepCopy()) {
 		log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 	}
 
-	return false
+	return true
 }
 
 func (r *QueuedWorkloadReconciler) Delete(e event.DeleteEvent) bool {
@@ -108,7 +135,7 @@ func (r *QueuedWorkloadReconciler) Delete(e event.DeleteEvent) bool {
 	if wl.Spec.Admission == nil {
 		r.queues.DeleteWorkload(wl)
 	}
-	return false
+	return true
 }
 
 func (r *QueuedWorkloadReconciler) Update(e event.UpdateEvent) bool {
@@ -162,11 +189,11 @@ func (r *QueuedWorkloadReconciler) Update(e event.UpdateEvent) bool {
 		// Workload update in the cache is handled here; however, some fields are immutable
 		// and are not supposed to actually change anything.
 		if err := r.cache.UpdateWorkload(oldWl, wl.DeepCopy()); err != nil {
-			log.Error(err, "Failed to update workload in cache")
+			log.Error(err, "Updating workload in cache")
 		}
 	}
 
-	return false
+	return true
 }
 
 func (r *QueuedWorkloadReconciler) Generic(e event.GenericEvent) bool {
