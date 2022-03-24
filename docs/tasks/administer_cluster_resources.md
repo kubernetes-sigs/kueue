@@ -1,6 +1,6 @@
 # Administer Cluster resources
 
-This page shows you how to represent your cluster resource limits and to
+This page shows you how to represent your cluster resource quotas and to
 establish fair sharing rules among the tenants.
 
 The intended audience for this page are cluster administrators.
@@ -10,12 +10,21 @@ The intended audience for this page are cluster administrators.
 You need to have a Kubernetes cluster, the kubectl command-line tool
 must be configured to communicate with your cluster, and [Kueue installed](/README.md#installation).
 
-## Single Cluster Queue setup
+## Single ClusterQueue setup
 
-### 1. Create a [Cluster Queue](/docs/concepts/cluster_queue.md)
+In the following steps, you will create a queuing system with a single
+ClusterQueue to govern the quota of your cluster.
 
-Create a single ClusterQueue to represent the resource limits for your
-entire cluster.
+You can perform all these steps at once by applying [config/samples/single-clusterqueue-setup.yaml](/config/samples/single-clusterqueue-setup.yaml):
+
+```shell
+kubectl apply -f config/samples/single-clusterqueue-setup.yaml
+```
+
+### 1. Create a [ClusterQueue](/docs/concepts/cluster_queue.md)
+
+Create a single ClusterQueue to represent the resource quotas for your entire
+cluster.
 
 ```shell
 kubectl apply -f cluster-total.yaml
@@ -53,9 +62,9 @@ to the `guaranteed` quota.
 
 The empty `namespaceSelector` allows any namespace to use these resources.
 
-### 2. Create a [Resource Flavor](/docs/concepts/cluster_queue.md#resource-flavors)
+### 2. Create a [ResourceFlavor](/docs/concepts/cluster_queue.md#resource-flavors)
 
-The `ClusterQueue` is not ready to be used yet, as the `default` flavor is not
+The ClusterQueue is not ready to be used yet, as the `default` flavor is not
 defined.
 
 Typically, a resource flavor has node labels and/or taints to scope which nodes
@@ -80,9 +89,10 @@ field in the ClusterQueue.
 ### 3. Create [Queues](/docs/concepts/queue.md)
 
 Users cannot directly send [workloads](/docs/concepts/queued_workload.md) to
-Queues. Instead, users need to send their workloads to a Queue in their namespace.
+ClusterQueues. Instead, users need to send their workloads to a Queue in their
+namespace.
 Thus, for the queuing system to be complete, you need to create a Queue in
-each namespace that needs to have access to the corresponding ClusterQueue.
+each namespace that needs access to the ClusterQueue.
 
 ```shell
 kubectl apply -f default-user-queue.yaml

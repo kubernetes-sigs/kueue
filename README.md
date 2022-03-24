@@ -38,7 +38,7 @@ The controller will run in the `kueue-system` namespace.
 A minimal configuration can be set by running the [samples](config/samples):
 
 ```
-kubectl apply -f config/samples/minimal.yaml
+kubectl apply -f config/samples/single-clusterqueue-setup.yaml
 ```
 
 Then you can run a job with:

@@ -2,7 +2,7 @@
 
 ## Understand Kueue
 
-Learn about kubernetes and its fundamental concepts.
+Learn about Kueue and its fundamental concepts.
 
 [**View concepts**](concepts)
 
