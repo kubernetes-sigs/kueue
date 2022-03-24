@@ -24,10 +24,10 @@ import (
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/pointer"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/util/pointer"
 )
 
 // JobWrapper wraps a Job.
@@ -42,8 +42,8 @@ func MakeJob(name, ns string) *JobWrapper {
 			Annotations: make(map[string]string, 1),
 		},
 		Spec: batchv1.JobSpec{
-			Parallelism: pointer.Int32Ptr(1),
-			Suspend:     pointer.BoolPtr(true),
+			Parallelism: pointer.Int32(1),
+			Suspend:     pointer.Bool(true),
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					RestartPolicy: "Never",
@@ -69,13 +69,13 @@ func (j *JobWrapper) Obj() *batchv1.Job {
 
 // Suspend updates the suspend status of the job
 func (j *JobWrapper) Suspend(s bool) *JobWrapper {
-	j.Spec.Suspend = pointer.BoolPtr(s)
+	j.Spec.Suspend = pointer.Bool(s)
 	return j
 }
 
 // Parallelism updates job parallelism.
 func (j *JobWrapper) Parallelism(p int32) *JobWrapper {
-	j.Spec.Parallelism = pointer.Int32Ptr(p)
+	j.Spec.Parallelism = pointer.Int32(p)
 	return j
 }
 
@@ -315,7 +315,6 @@ func MakeFlavor(rf, guaranteed string) *FlavorWrapper {
 		ResourceFlavor: kueue.ResourceFlavorReference(rf),
 		Quota: kueue.Quota{
 			Guaranteed: resource.MustParse(guaranteed),
-			Ceiling:    resource.MustParse(guaranteed),
 		},
 	}}
 }
@@ -327,7 +326,7 @@ func (f *FlavorWrapper) Obj() *kueue.Flavor {
 
 // Ceiling updates the flavor ceiling.
 func (f *FlavorWrapper) Ceiling(c string) *FlavorWrapper {
-	f.Quota.Ceiling = resource.MustParse(c)
+	f.Quota.Ceiling = pointer.Quantity(resource.MustParse(c))
 	return f
 }
 

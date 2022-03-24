@@ -97,7 +97,7 @@ type ClusterQueue struct {
 type FlavorLimits struct {
 	Name       string
 	Guaranteed int64
-	Ceiling    int64
+	Ceiling    *int64
 }
 
 func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*ClusterQueue, error) {
@@ -138,7 +138,7 @@ func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[string
 	return nil
 }
 
-// UpdateLabelkeys updates a ClusterQueue's LabelKeys based on the passed ResourceFlavors set.
+// UpdateLabelKeys updates a ClusterQueue's LabelKeys based on the passed ResourceFlavors set.
 // Exported only for testing.
 func (c *ClusterQueue) UpdateLabelKeys(flavors map[string]*kueue.ResourceFlavor) {
 	labelKeys := map[corev1.ResourceName]sets.String{}
@@ -473,7 +473,9 @@ func resourceLimitsByName(in []kueue.Resource) map[corev1.ResourceName][]FlavorL
 			fLimits := FlavorLimits{
 				Name:       string(f.ResourceFlavor),
 				Guaranteed: workload.ResourceValue(r.Name, f.Quota.Guaranteed),
-				Ceiling:    workload.ResourceValue(r.Name, f.Quota.Ceiling),
+			}
+			if f.Quota.Ceiling != nil {
+				fLimits.Ceiling = pointer.Int64(workload.ResourceValue(r.Name, *f.Quota.Ceiling))
 			}
 			flavors[i] = fLimits
 

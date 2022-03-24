@@ -33,6 +33,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/kueue/pkg/util/pointer"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/cache"
@@ -77,7 +78,7 @@ func TestSchedule(t *testing.T) {
 								ResourceFlavor: "default",
 								Quota: kueue.Quota{
 									Guaranteed: resource.MustParse("50"),
-									Ceiling:    resource.MustParse("50"),
+									Ceiling:    pointer.Quantity(resource.MustParse("50")),
 								},
 							},
 						},
@@ -107,14 +108,14 @@ func TestSchedule(t *testing.T) {
 								ResourceFlavor: "on-demand",
 								Quota: kueue.Quota{
 									Guaranteed: resource.MustParse("50"),
-									Ceiling:    resource.MustParse("100"),
+									Ceiling:    pointer.Quantity(resource.MustParse("100")),
 								},
 							},
 							{
 								ResourceFlavor: "spot",
 								Quota: kueue.Quota{
 									Guaranteed: resource.MustParse("100"),
-									Ceiling:    resource.MustParse("100"),
+									Ceiling:    pointer.Quantity(resource.MustParse("100")),
 								},
 							},
 						},
@@ -144,14 +145,14 @@ func TestSchedule(t *testing.T) {
 								ResourceFlavor: "on-demand",
 								Quota: kueue.Quota{
 									Guaranteed: resource.MustParse("50"),
-									Ceiling:    resource.MustParse("60"),
+									Ceiling:    pointer.Quantity(resource.MustParse("60")),
 								},
 							},
 							{
 								ResourceFlavor: "spot",
 								Quota: kueue.Quota{
 									Guaranteed: resource.MustParse("0"),
-									Ceiling:    resource.MustParse("100"),
+									Ceiling:    pointer.Quantity(resource.MustParse("100")),
 								},
 							},
 						},
@@ -163,7 +164,7 @@ func TestSchedule(t *testing.T) {
 								ResourceFlavor: "model-a",
 								Quota: kueue.Quota{
 									Guaranteed: resource.MustParse("20"),
-									Ceiling:    resource.MustParse("20"),
+									Ceiling:    pointer.Quantity(resource.MustParse("20")),
 								},
 							},
 						},
@@ -842,8 +843,8 @@ func TestEntryAssignFlavors(t *testing.T) {
 			},
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
-					corev1.ResourceCPU:    defaultFlavorNoBorrowing(1000),
-					corev1.ResourceMemory: defaultFlavorNoBorrowing(2 * utiltesting.Mi),
+					corev1.ResourceCPU:    {{Name: "default", Guaranteed: 1000}},
+					corev1.ResourceMemory: {{Name: "default", Guaranteed: 2 * utiltesting.Mi}},
 				},
 			},
 			wantFits: true,
@@ -867,18 +868,20 @@ func TestEntryAssignFlavors(t *testing.T) {
 								},
 							},
 						},
-						Tolerations: []corev1.Toleration{corev1.Toleration{
+						Tolerations: []corev1.Toleration{{
 							Key:      "instance",
 							Operator: corev1.TolerationOpEqual,
 							Value:    "spot",
 							Effect:   corev1.TaintEffectNoSchedule,
 						}},
-					}}},
+					},
+				},
+			},
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
-					corev1.ResourceCPU: noBorrowing([]cache.FlavorLimits{
+					corev1.ResourceCPU: {
 						{Name: "tainted", Guaranteed: 4000},
-					}),
+					},
 				},
 			},
 			wantFits: true,
@@ -900,7 +903,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 			},
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
-					corev1.ResourceCPU: defaultFlavorNoBorrowing(4000),
+					corev1.ResourceCPU: {{Name: "default", Guaranteed: 4000}},
 				},
 				UsedResources: cache.Resources{
 					corev1.ResourceCPU: {
@@ -922,14 +925,14 @@ func TestEntryAssignFlavors(t *testing.T) {
 			},
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
-					corev1.ResourceCPU: noBorrowing([]cache.FlavorLimits{
+					corev1.ResourceCPU: {
 						{Name: "one", Guaranteed: 2000},
 						{Name: "two", Guaranteed: 4000},
-					}),
-					corev1.ResourceMemory: noBorrowing([]cache.FlavorLimits{
+					},
+					corev1.ResourceMemory: {
 						{Name: "one", Guaranteed: utiltesting.Gi},
 						{Name: "two", Guaranteed: 5 * utiltesting.Mi},
-					}),
+					},
 				},
 			},
 			wantFits: true,
@@ -953,14 +956,14 @@ func TestEntryAssignFlavors(t *testing.T) {
 			},
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
-					corev1.ResourceCPU: noBorrowing([]cache.FlavorLimits{
+					corev1.ResourceCPU: {
 						{Name: "one", Guaranteed: 2000},
 						{Name: "two", Guaranteed: 4000},
-					}),
-					corev1.ResourceMemory: noBorrowing([]cache.FlavorLimits{
+					},
+					corev1.ResourceMemory: {
 						{Name: "one", Guaranteed: utiltesting.Gi},
 						{Name: "two", Guaranteed: 5 * utiltesting.Mi},
-					}),
+					},
 				},
 			},
 		},
@@ -976,10 +979,10 @@ func TestEntryAssignFlavors(t *testing.T) {
 			},
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
-					corev1.ResourceCPU: noBorrowing([]cache.FlavorLimits{
+					corev1.ResourceCPU: {
 						{Name: "tainted", Guaranteed: 4000},
 						{Name: "two", Guaranteed: 4000},
-					}),
+					},
 				},
 			},
 			wantFits: true,
@@ -1001,10 +1004,10 @@ func TestEntryAssignFlavors(t *testing.T) {
 			},
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
-					corev1.ResourceCPU: noBorrowing([]cache.FlavorLimits{
+					corev1.ResourceCPU: {
 						{Name: "non-existent", Guaranteed: 4000},
 						{Name: "two", Guaranteed: 4000},
-					}),
+					},
 				},
 			},
 			wantFits: true,
@@ -1050,10 +1053,10 @@ func TestEntryAssignFlavors(t *testing.T) {
 			},
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
-					corev1.ResourceCPU: noBorrowing([]cache.FlavorLimits{
+					corev1.ResourceCPU: {
 						{Name: "one", Guaranteed: 4000},
 						{Name: "two", Guaranteed: 4000},
-					}),
+					},
 				},
 				LabelKeys: map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
 			},
@@ -1101,14 +1104,14 @@ func TestEntryAssignFlavors(t *testing.T) {
 			},
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
-					corev1.ResourceCPU: noBorrowing([]cache.FlavorLimits{
+					corev1.ResourceCPU: {
 						{Name: "one", Guaranteed: 4000},
 						{Name: "two", Guaranteed: 4000},
-					}),
-					corev1.ResourceMemory: noBorrowing([]cache.FlavorLimits{
+					},
+					corev1.ResourceMemory: {
 						{Name: "one", Guaranteed: utiltesting.Gi},
 						{Name: "two", Guaranteed: utiltesting.Gi},
-					}),
+					},
 				},
 			},
 			wantFits: true,
@@ -1165,10 +1168,10 @@ func TestEntryAssignFlavors(t *testing.T) {
 			},
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
-					corev1.ResourceCPU: noBorrowing([]cache.FlavorLimits{
+					corev1.ResourceCPU: {
 						{Name: "one", Guaranteed: 4000},
 						{Name: "two", Guaranteed: 4000},
-					}),
+					},
 				},
 			},
 			wantFits: true,
@@ -1211,10 +1214,10 @@ func TestEntryAssignFlavors(t *testing.T) {
 			},
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
-					corev1.ResourceCPU: noBorrowing([]cache.FlavorLimits{
+					corev1.ResourceCPU: {
 						{Name: "one", Guaranteed: 4000},
 						{Name: "two", Guaranteed: 4000},
-					}),
+					},
 				},
 				LabelKeys: map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
 			},
@@ -1239,10 +1242,10 @@ func TestEntryAssignFlavors(t *testing.T) {
 			},
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
-					corev1.ResourceCPU: noBorrowing([]cache.FlavorLimits{
+					corev1.ResourceCPU: {
 						{Name: "one", Guaranteed: 4000},
 						{Name: "two", Guaranteed: 10_000},
-					}),
+					},
 				},
 			},
 			wantFits: true,
@@ -1280,14 +1283,14 @@ func TestEntryAssignFlavors(t *testing.T) {
 						{
 							Name:       "default",
 							Guaranteed: 2000,
-							Ceiling:    100_000,
+							Ceiling:    pointer.Int64(100_000),
 						},
 					},
 					corev1.ResourceMemory: {
 						{
 							Name:       "default",
 							Guaranteed: 2 * utiltesting.Gi,
-							Ceiling:    100 * utiltesting.Gi,
+							// No ceiling.
 						},
 					},
 				},
@@ -1338,7 +1341,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 						{
 							Name:       "one",
 							Guaranteed: 1000,
-							Ceiling:    10_000,
+							// No ceiling.
 						},
 					},
 				},
@@ -1368,7 +1371,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 						{
 							Name:       "one",
 							Guaranteed: 1000,
-							Ceiling:    10_000,
+							Ceiling:    pointer.Int64(10_000),
 						},
 					},
 				},
@@ -1471,15 +1474,4 @@ func TestEntryOrdering(t *testing.T) {
 	if diff := cmp.Diff(wantOrder, order); diff != "" {
 		t.Errorf("Unexpected order (-want,+got):\n%s", diff)
 	}
-}
-
-func defaultFlavorNoBorrowing(guaranteed int64) []cache.FlavorLimits {
-	return noBorrowing([]cache.FlavorLimits{{Name: "default", Guaranteed: guaranteed}})
-}
-
-func noBorrowing(flavors []cache.FlavorLimits) []cache.FlavorLimits {
-	for i := range flavors {
-		flavors[i].Ceiling = flavors[i].Guaranteed
-	}
-	return flavors
 }

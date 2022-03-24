@@ -348,7 +348,7 @@ func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.String) nodeaffinity.
 // If it fits, also returns any borrowing required.
 func fitsFlavorLimits(name corev1.ResourceName, val int64, cq *cache.ClusterQueue, flavor *cache.FlavorLimits) (bool, int64) {
 	used := cq.UsedResources[name][flavor.Name]
-	if used+val > flavor.Ceiling {
+	if flavor.Ceiling != nil && used+val > *flavor.Ceiling {
 		// Past borrowing limit.
 		return false, 0
 	}

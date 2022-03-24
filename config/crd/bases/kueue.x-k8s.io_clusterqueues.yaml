@@ -199,7 +199,7 @@ spec:
                                   workloads assigned to this quota at a point in time.
                                   Resources can be borrowed from unused guaranteed
                                   quota of other ClusterQueues in the same cohort.
-                                  When not set, it is unlimited.
+                                  When null, it is unlimited.
                                 pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                                 x-kubernetes-int-or-string: true
                               guaranteed:

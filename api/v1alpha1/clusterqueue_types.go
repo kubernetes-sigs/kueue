@@ -247,8 +247,8 @@ type Quota struct {
 	// ceiling is the upper limit on the amount of resource requests that
 	// could be used by running workloads assigned to this quota at a point in time.
 	// Resources can be borrowed from unused guaranteed quota of other
-	// ClusterQueues in the same cohort. When not set, it is unlimited.
-	Ceiling resource.Quantity `json:"ceiling,omitempty"`
+	// ClusterQueues in the same cohort. When null, it is unlimited.
+	Ceiling *resource.Quantity `json:"ceiling,omitempty"`
 }
 
 // ClusterQueueStatus defines the observed state of ClusterQueue
