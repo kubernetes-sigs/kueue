@@ -17,7 +17,7 @@ Please do not remove items from the checklist
         `git branch release-0.$MAJ master`
   - [ ] An OWNER pushes the new release branch with
         `git push release-0.$MAJ`
-- [ ] Update things like README, deployment templates, docs, configuration, test/e2e flags, submit a PR agains the release branch
+- [ ] Update things like README, deployment templates, docs, configuration, test/e2e flags, submit a PR against the release branch
 - An OWNER prepares a draft release
   - [ ] Create a draft release at [Github releases page](https://github.com/kubernetes-sigs/kueue/releases)
   - [ ] Write the change log into the draft release

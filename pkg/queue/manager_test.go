@@ -97,7 +97,7 @@ func TestAddClusterQueueOrphans(t *testing.T) {
 	workloads := popNamesFromCQ(manager.clusterQueues[cq.Name])
 	wantWorkloads := []string{"/b", "/a"}
 	if diff := cmp.Diff(wantWorkloads, workloads); diff != "" {
-		t.Errorf("Workloads poped in the wrong order from clusterQueue:\n%s", diff)
+		t.Errorf("Workloads popped in the wrong order from clusterQueue:\n%s", diff)
 	}
 }
 
@@ -154,7 +154,7 @@ func TestUpdateQueue(t *testing.T) {
 		"cq2": {"/b", "/a"},
 	}
 	if diff := cmp.Diff(wantWorkloadOrders, workloadOrders); diff != "" {
-		t.Errorf("workloads poped in the wrong order from clusterQueues:\n%s", diff)
+		t.Errorf("workloads popped in the wrong order from clusterQueues:\n%s", diff)
 	}
 }
 
@@ -564,7 +564,7 @@ func TestUpdateWorkload(t *testing.T) {
 				queueOrder[name] = popNamesFromCQ(cq)
 			}
 			if diff := cmp.Diff(tc.wantQueueOrder, queueOrder); diff != "" {
-				t.Errorf("Elements poped in the wrong order from clusterQueues (-want,+got):\n%s", diff)
+				t.Errorf("Elements popped in the wrong order from clusterQueues (-want,+got):\n%s", diff)
 			}
 			queueMembers := make(map[string]sets.String)
 			for name, q := range manager.queues {
