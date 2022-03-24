@@ -261,7 +261,7 @@ type ClusterQueueStatus struct {
 	// PendingWorkloads is the number of workloads currently waiting to be
 	// admitted to this clusterQueue.
 	// +optional
-	PendingWorkloads int32 `json:"pendingdWorkloads"`
+	PendingWorkloads int32 `json:"pendingWorkloads"`
 
 	// AdmittedWorkloads is the number of workloads currently admitted to this
 	// clusterQueue.
