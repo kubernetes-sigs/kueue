@@ -1002,7 +1002,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
 					corev1.ResourceCPU: noBorrowing([]cache.FlavorLimits{
-						{Name: "non-existant", Guaranteed: 4000},
+						{Name: "non-existent", Guaranteed: 4000},
 						{Name: "two", Guaranteed: 4000},
 					}),
 				},

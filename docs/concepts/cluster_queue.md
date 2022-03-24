@@ -9,7 +9,7 @@ Only cluster administrators should create `ClusterQueue` objects.
 
 ## Resource Flavors
 
-Resources in a cluster are typically not homogeneus. Resources could differ in:
+Resources in a cluster are typically not homogeneous. Resources could differ in:
 - pricing and availability (ex: spot vs on-demand VMs)
 - architecture (ex: x86 vs ARM CPUs)
 - brands and models (ex: Radeon 7000 vs Nvidia A100 vs T4 GPUs)

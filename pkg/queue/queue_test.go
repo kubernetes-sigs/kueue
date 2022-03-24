@@ -69,7 +69,7 @@ func TestFIFOClusterQueue(t *testing.T) {
 		t.Fatal("Queue is empty")
 	}
 	if got.Obj.Name != "before" {
-		t.Errorf("Poped workload %q want %q", got.Obj.Name, "before")
+		t.Errorf("Popped workload %q want %q", got.Obj.Name, "before")
 	}
 	q.PushOrUpdate(&kueue.QueuedWorkload{
 		ObjectMeta: metav1.ObjectMeta{
@@ -82,7 +82,7 @@ func TestFIFOClusterQueue(t *testing.T) {
 		t.Fatal("Queue is empty")
 	}
 	if got.Obj.Name != "after" {
-		t.Errorf("Poped workload %q want %q", got.Obj.Name, "after")
+		t.Errorf("Popped workload %q want %q", got.Obj.Name, "after")
 	}
 
 	q.Delete(&kueue.QueuedWorkload{
@@ -90,7 +90,7 @@ func TestFIFOClusterQueue(t *testing.T) {
 	})
 	got = q.Pop()
 	if got != nil {
-		t.Errorf("Queue is not empty, poped workload %q", got.Obj.Name)
+		t.Errorf("Queue is not empty, popped workload %q", got.Obj.Name)
 	}
 }
 
@@ -186,7 +186,7 @@ func TestStrictFIFO(t *testing.T) {
 				t.Fatal("Queue is empty")
 			}
 			if got.Obj.Name != tt.expected {
-				t.Errorf("Poped workload %q want %q", got.Obj.Name, tt.expected)
+				t.Errorf("Popped workload %q want %q", got.Obj.Name, tt.expected)
 			}
 		})
 	}
