@@ -148,26 +148,26 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		log := log.WithValues("queuedWorkload", klog.KObj(w.Obj), "clusterQueue", klog.KRef("", w.ClusterQueue))
 		cq := snap.ClusterQueues[w.ClusterQueue]
 		if cq == nil {
-			log.V(3).Info("ClusterQueue not found when calculating workload admission requirements")
-			skipEntry = true
 			message = "ClusterQueue not found when calculating workload admission requirements"
+			log.V(3).Info(message)
+			skipEntry = true
 		}
 		ns := corev1.Namespace{}
 		if err := s.client.Get(ctx, types.NamespacedName{Name: w.Obj.Namespace}, &ns); err != nil {
-			log.Error(err, "Looking up namespace")
-			skipEntry = true
 			message = "Looking up namespace"
+			log.Error(err, message)
+			skipEntry = true	
 		}
 		if !cq.NamespaceSelector.Matches(labels.Set(ns.Labels)) {
-			log.V(2).Info("Workload namespace doesn't match clusterQueue selector")
-			skipEntry = true
 			message = "Workload namespace doesn't match clusterQueue selector"
+			log.V(2).Info(message)
+			skipEntry = true	
 		}
 		e := entry{Info: w}
 		if !e.assignFlavors(log, snap.ResourceFlavors, cq) {
-			log.V(2).Info("Workload didn't fit in remaining clusterQueue even when borrowing")
-			skipEntry = true
 			message = "Workload didn't fit in remaining clusterQueue even when borrowing"
+			log.V(2).Info(message)
+			skipEntry = true
 		}
 		if skipEntry {
 			err := workload.UpdateWorkloadStatus(ctx, s.client, w.Obj, kueue.QueuedWorkloadAdmitted, corev1.ConditionFalse, "Pending", message)
