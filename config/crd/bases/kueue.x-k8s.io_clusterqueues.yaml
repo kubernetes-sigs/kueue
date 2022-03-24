@@ -248,7 +248,7 @@ spec:
                   admitted to this clusterQueue.
                 format: int32
                 type: integer
-              pendingdWorkloads:
+              pendingWorkloads:
                 description: PendingWorkloads is the number of workloads currently
                   waiting to be admitted to this clusterQueue.
                 format: int32
