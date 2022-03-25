@@ -44,21 +44,16 @@ spec:
     - resourceFlavor: default
       quota:
         guaranteed: 9
-        ceiling: 9
   - name: "memory"
     flavors:
     - resourceFlavor: default
       quota:
         guaranteed: 36Gi
-        ceiling: 36Gi
 ```
 
 This ClusterQueue governs the usage of [resource types](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#resource-types)
 `cpu` and `memory`. Each resource type has a single [resource flavor](/docs/concepts/cluster_queue.md#resource-flavors),
 named `default` with a guaranteed quota.
-As there is a single ClusterQueue in the cluster, it is not possible for the
-ClusterQueue to borrow resources from anywhere. Thus, the `ceiling` is equal
-to the `guaranteed` quota.
 
 The empty `namespaceSelector` allows any namespace to use these resources.
 

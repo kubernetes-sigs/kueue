@@ -46,6 +46,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		onDemandFlavor      *kueue.ResourceFlavor
 		spotTaintedFlavor   *kueue.ResourceFlavor
 		spotUntaintedFlavor *kueue.ResourceFlavor
+		spotToleration      corev1.Toleration
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -67,6 +68,12 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Effect: corev1.TaintEffectNoSchedule,
 			}).Obj()
 		gomega.Expect(k8sClient.Create(ctx, spotTaintedFlavor)).Should(gomega.Succeed())
+		spotToleration = corev1.Toleration{
+			Key:      instanceKey,
+			Operator: corev1.TolerationOpEqual,
+			Value:    spotTaintedFlavor.Name,
+			Effect:   corev1.TaintEffectNoSchedule,
+		}
 
 		spotUntaintedFlavor = testing.MakeResourceFlavor("spot-untainted").Label(instanceKey, "spot-untainted").Obj()
 		gomega.Expect(k8sClient.Create(ctx, spotUntaintedFlavor)).Should(gomega.Succeed())
@@ -74,8 +81,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		prodClusterQ = testing.MakeClusterQueue("prod-cq").
 			Cohort("prod").
 			Resource(testing.MakeResource(corev1.ResourceCPU).
-				Flavor(testing.MakeFlavor(spotTaintedFlavor.Name, "5").Obj()).
-				Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Ceiling("10").Obj()).
+				Flavor(testing.MakeFlavor(spotTaintedFlavor.Name, "5").Ceiling("5").Obj()).
+				Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Obj()).
 				Obj()).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, prodClusterQ)).Should(gomega.Succeed())
@@ -175,12 +182,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		ginkgo.By("checking a third job with toleration starts")
 		job3 := testing.MakeJob("spot-job3", ns.Name).Queue(prodQueue.Name).
-			Toleration(corev1.Toleration{
-				Key:      instanceKey,
-				Operator: corev1.TolerationOpEqual,
-				Value:    spotTaintedFlavor.Name,
-				Effect:   corev1.TaintEffectNoSchedule,
-			}).
+			Toleration(spotToleration).
 			Request(corev1.ResourceCPU, "5").Obj()
 		gomega.Expect(k8sClient.Create(ctx, job3)).Should(gomega.Succeed())
 		createdJob3 := &batchv1.Job{}
@@ -193,7 +195,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 	ginkgo.It("Should schedule jobs using borrowed ClusterQueue", func() {
 		ginkgo.By("checking a no-fit job does not start")
-		job := testing.MakeJob("job", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "10").Obj()
+		job := testing.MakeJob("job", ns.Name).Queue(prodQueue.Name).
+			Request(corev1.ResourceCPU, "10").Toleration(spotToleration).Obj()
 		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 		lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
 		createdJob := &batchv1.Job{}
@@ -205,7 +208,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		fallbackClusterQueue := testing.MakeClusterQueue("fallback-cq").
 			Cohort(prodClusterQ.Spec.Cohort).
 			Resource(testing.MakeResource(corev1.ResourceCPU).
-				Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Ceiling("10").Obj()).
+				Flavor(testing.MakeFlavor(spotTaintedFlavor.Name, "5").Obj()). // prod-cq can't borrow this flavor due to its ceiling.
+				Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Obj()).
 				Obj()).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, fallbackClusterQueue)).Should(gomega.Succeed())
