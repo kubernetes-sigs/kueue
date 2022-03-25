@@ -20,6 +20,7 @@ import (
 	"context"
 
 	"github.com/go-logr/logr"
+	"sigs.k8s.io/kueue/pkg/constants"
 
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/types"
@@ -30,7 +31,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
@@ -39,18 +39,20 @@ import (
 
 // ClusterQueue reconciles a ClusterQueue object
 type ClusterQueue struct {
-	client   client.Client
-	log      logr.Logger
-	qManager *queue.Manager
-	cache    *cache.Cache
+	client     client.Client
+	log        logr.Logger
+	qManager   *queue.Manager
+	cache      *cache.Cache
+	qwUpdateCh chan event.GenericEvent
 }
 
 func NewClusterQueueReconciler(client client.Client, qMgr *queue.Manager, cache *cache.Cache) *ClusterQueue {
 	return &ClusterQueue{
-		client:   client,
-		log:      ctrl.Log.WithName("cluster-queue-reconciler"),
-		qManager: qMgr,
-		cache:    cache,
+		client:     client,
+		log:        ctrl.Log.WithName("cluster-queue-reconciler"),
+		qManager:   qMgr,
+		cache:      cache,
+		qwUpdateCh: make(chan event.GenericEvent),
 	}
 }
 
@@ -83,6 +85,10 @@ func (r *ClusterQueue) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Re
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *ClusterQueue) NotifyQWUpdate(w *kueue.QueuedWorkload) {
+	r.qwUpdateCh <- event.GenericEvent{Object: w}
 }
 
 // Event handlers return true to signal the controller to reconcile the
@@ -140,13 +146,22 @@ func (r *ClusterQueue) Generic(e event.GenericEvent) bool {
 	return true
 }
 
-// workloadHandler signals the controller to reconcile the ClusterQueue
+// cqWorkloadHandler signals the controller to reconcile the ClusterQueue
 // assigned to the workload in the event.
-type workloadHandler struct {
+type cqWorkloadHandler struct {
 	qManager *queue.Manager
 }
 
-func (h *workloadHandler) Create(e event.CreateEvent, q workqueue.RateLimitingInterface) {
+func (h *cqWorkloadHandler) Create(event.CreateEvent, workqueue.RateLimitingInterface) {
+}
+
+func (h *cqWorkloadHandler) Update(event.UpdateEvent, workqueue.RateLimitingInterface) {
+}
+
+func (h *cqWorkloadHandler) Delete(event.DeleteEvent, workqueue.RateLimitingInterface) {
+}
+
+func (h *cqWorkloadHandler) Generic(e event.GenericEvent, q workqueue.RateLimitingInterface) {
 	w := e.Object.(*kueue.QueuedWorkload)
 	req := h.requestForWorkloadClusterQueue(w)
 	if req != nil {
@@ -154,32 +169,7 @@ func (h *workloadHandler) Create(e event.CreateEvent, q workqueue.RateLimitingIn
 	}
 }
 
-func (h *workloadHandler) Update(e event.UpdateEvent, q workqueue.RateLimitingInterface) {
-	oldW := e.ObjectOld.(*kueue.QueuedWorkload)
-	oldReq := h.requestForWorkloadClusterQueue(oldW)
-	if oldReq != nil {
-		q.AddAfter(*oldReq, constants.UpdatesBatchPeriod)
-	}
-	newW := e.ObjectNew.(*kueue.QueuedWorkload)
-	newReq := h.requestForWorkloadClusterQueue(newW)
-	// Enqueue the CQ for the new object if it's different from the old one.
-	if newReq != nil && (oldReq == nil || oldReq.Name != newReq.Name) {
-		q.AddAfter(*newReq, constants.UpdatesBatchPeriod)
-	}
-}
-
-func (h *workloadHandler) Delete(e event.DeleteEvent, q workqueue.RateLimitingInterface) {
-	w := e.Object.(*kueue.QueuedWorkload)
-	req := h.requestForWorkloadClusterQueue(w)
-	if req != nil {
-		q.AddAfter(*req, constants.UpdatesBatchPeriod)
-	}
-}
-
-func (h *workloadHandler) Generic(e event.GenericEvent, q workqueue.RateLimitingInterface) {
-}
-
-func (h *workloadHandler) requestForWorkloadClusterQueue(w *kueue.QueuedWorkload) *reconcile.Request {
+func (h *cqWorkloadHandler) requestForWorkloadClusterQueue(w *kueue.QueuedWorkload) *reconcile.Request {
 	var name string
 	if w.Spec.Admission != nil {
 		name = string(w.Spec.Admission.ClusterQueue)
@@ -199,12 +189,12 @@ func (h *workloadHandler) requestForWorkloadClusterQueue(w *kueue.QueuedWorkload
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClusterQueue) SetupWithManager(mgr ctrl.Manager) error {
-	wHandler := workloadHandler{
+	wHandler := cqWorkloadHandler{
 		qManager: r.qManager,
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.ClusterQueue{}).
-		Watches(&source.Kind{Type: &kueue.QueuedWorkload{}}, &wHandler).
+		Watches(&source.Channel{Source: r.qwUpdateCh}, &wHandler).
 		WithEventFilter(r).
 		Complete(r)
 }
