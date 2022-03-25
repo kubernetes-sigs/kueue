@@ -29,7 +29,7 @@ const (
 
 	// UpdatesBatchPeriod is the batch period to hold queuedworkload updates
 	// before syncing a Queue and CLusterQueue onbjects.
-	UpdatesBatchPeriod = 3 * time.Second
+	UpdatesBatchPeriod = time.Second
 
 	// DefaultPriority is used to set priority of workloads
 	// that do not specify any priority class and there is no priority class

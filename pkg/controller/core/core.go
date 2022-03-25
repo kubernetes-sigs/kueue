@@ -25,14 +25,15 @@ import (
 // SetupControllers sets up the core controllers. It returns the name of the
 // controller that failed to create and an error, if any.
 func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache) (string, error) {
-	if err := NewQueueReconciler(mgr.GetClient(), qManager).SetupWithManager(mgr); err != nil {
+	qRec := NewQueueReconciler(mgr.GetClient(), qManager)
+	if err := qRec.SetupWithManager(mgr); err != nil {
 		return "Queue", err
 	}
 	cqRec := NewClusterQueueReconciler(mgr.GetClient(), qManager, cc)
 	if err := cqRec.SetupWithManager(mgr); err != nil {
 		return "ClusterQueue", err
 	}
-	if err := NewQueuedWorkloadReconciler(mgr.GetClient(), qManager, cc, cqRec).SetupWithManager(mgr); err != nil {
+	if err := NewQueuedWorkloadReconciler(mgr.GetClient(), qManager, cc, qRec, cqRec).SetupWithManager(mgr); err != nil {
 		return "QueuedWorkload", err
 	}
 	if err := NewResourceFlavorReconciler(cc).SetupWithManager(mgr); err != nil {

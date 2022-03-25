@@ -29,25 +29,31 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+	"sigs.k8s.io/kueue/pkg/constants"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
 )
 
 // QueueReconciler reconciles a Queue object
 type QueueReconciler struct {
-	client client.Client
-	log    logr.Logger
-	queues *queue.Manager
+	client     client.Client
+	log        logr.Logger
+	queues     *queue.Manager
+	qwUpdateCh chan event.GenericEvent
 }
 
 func NewQueueReconciler(client client.Client, queues *queue.Manager) *QueueReconciler {
 	return &QueueReconciler{
-		log:    ctrl.Log.WithName("queue-reconciler"),
-		queues: queues,
-		client: client,
+		log:        ctrl.Log.WithName("queue-reconciler"),
+		queues:     queues,
+		client:     client,
+		qwUpdateCh: make(chan event.GenericEvent),
 	}
+}
+
+func (r *QueueReconciler) NotifyQWUpdate(w *kueue.QueuedWorkload) {
+	r.qwUpdateCh <- event.GenericEvent{Object: w}
 }
 
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
@@ -127,48 +133,36 @@ func (r *QueueReconciler) Generic(e event.GenericEvent) bool {
 	return true
 }
 
-type queuedWorkloadHandler struct{}
+type qWorkloadHandler struct{}
 
-func (h *queuedWorkloadHandler) Create(e event.CreateEvent, q workqueue.RateLimitingInterface) {
-	qw := e.Object.(*kueue.QueuedWorkload)
-	if qw.Spec.Admission == nil {
-		q.AddAfter(requestForQueueStatus(qw), constants.UpdatesBatchPeriod)
+func (h *qWorkloadHandler) Create(event.CreateEvent, workqueue.RateLimitingInterface) {
+}
+
+func (h *qWorkloadHandler) Update(event.UpdateEvent, workqueue.RateLimitingInterface) {
+}
+
+func (h *qWorkloadHandler) Delete(event.DeleteEvent, workqueue.RateLimitingInterface) {
+}
+
+func (h *qWorkloadHandler) Generic(e event.GenericEvent, q workqueue.RateLimitingInterface) {
+	w := e.Object.(*kueue.QueuedWorkload)
+	if w.Name == "" {
+		return
 	}
-}
-
-func (h *queuedWorkloadHandler) Update(e event.UpdateEvent, q workqueue.RateLimitingInterface) {
-	oldQW := e.ObjectOld.(*kueue.QueuedWorkload)
-	newQW := e.ObjectOld.(*kueue.QueuedWorkload)
-	q.AddAfter(requestForQueueStatus(newQW), constants.UpdatesBatchPeriod)
-	if newQW.Spec.QueueName != oldQW.Spec.QueueName {
-		q.AddAfter(requestForQueueStatus(oldQW), constants.UpdatesBatchPeriod)
-	}
-}
-
-func (h *queuedWorkloadHandler) Delete(e event.DeleteEvent, q workqueue.RateLimitingInterface) {
-	qw := e.Object.(*kueue.QueuedWorkload)
-	if qw.Spec.Admission == nil {
-		q.AddAfter(requestForQueueStatus(qw), constants.UpdatesBatchPeriod)
-	}
-}
-
-func (h *queuedWorkloadHandler) Generic(e event.GenericEvent, q workqueue.RateLimitingInterface) {
-}
-
-func requestForQueueStatus(w *kueue.QueuedWorkload) reconcile.Request {
-	return reconcile.Request{
+	req := reconcile.Request{
 		NamespacedName: types.NamespacedName{
 			Name:      w.Spec.QueueName,
 			Namespace: w.Namespace,
 		},
 	}
+	q.AddAfter(req, constants.UpdatesBatchPeriod)
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *QueueReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.Queue{}).
-		Watches(&source.Kind{Type: &kueue.QueuedWorkload{}}, &queuedWorkloadHandler{}).
+		Watches(&source.Channel{Source: r.qwUpdateCh}, &qWorkloadHandler{}).
 		WithEventFilter(r).
 		Complete(r)
 }
