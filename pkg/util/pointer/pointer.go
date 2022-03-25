@@ -16,8 +16,17 @@ limitations under the License.
 
 package pointer
 
-import "k8s.io/apimachinery/pkg/api/resource"
+import (
+	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/utils/pointer"
+)
 
 func Quantity(q resource.Quantity) *resource.Quantity {
 	return &q
 }
+
+var (
+	Int32 = pointer.Int32
+	Int64 = pointer.Int64
+	Bool  = pointer.Bool
+)

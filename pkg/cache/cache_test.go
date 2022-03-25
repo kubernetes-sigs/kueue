@@ -45,16 +45,15 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				RequestableResources: []kueue.Resource{
 					{
 						Name: corev1.ResourceCPU,
-						Flavors: []kueue.Flavor{
-							{
-								ResourceFlavor: "default",
-								Quota: kueue.Quota{
-									Guaranteed: resource.MustParse("10"),
-									Ceiling:    resource.MustParse("20"),
-								},
+						Flavors: []kueue.Flavor{{
+							ResourceFlavor: "default",
+							Quota: kueue.Quota{
+								Guaranteed: resource.MustParse("10"),
+								Ceiling:    pointer.Quantity(resource.MustParse("20")),
 							},
-						},
-					}},
+						}},
+					},
+				},
 				Cohort: "one",
 			},
 		},
@@ -63,9 +62,15 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			Spec: kueue.ClusterQueueSpec{
 				RequestableResources: []kueue.Resource{
 					{
-						Name:    corev1.ResourceCPU,
-						Flavors: []kueue.Flavor{{ResourceFlavor: "default"}},
-					}},
+						Name: corev1.ResourceCPU,
+						Flavors: []kueue.Flavor{{
+							ResourceFlavor: "default",
+							Quota: kueue.Quota{
+								Guaranteed: resource.MustParse("15"),
+							},
+						}},
+					},
+				},
 				Cohort: "one",
 			},
 		},
@@ -107,7 +112,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"a": {
 					Name: "a",
 					RequestableResources: map[corev1.ResourceName][]FlavorLimits{
-						corev1.ResourceCPU: {{Name: "default", Guaranteed: 10000, Ceiling: 20000}},
+						corev1.ResourceCPU: {{Name: "default", Guaranteed: 10000, Ceiling: pointer.Int64(20000)}},
 					},
 					NamespaceSelector: labels.Nothing(),
 					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
@@ -116,7 +121,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"b": {
 					Name: "b",
 					RequestableResources: map[corev1.ResourceName][]FlavorLimits{
-						corev1.ResourceCPU: {{Name: "default"}},
+						corev1.ResourceCPU: {{Name: "default", Guaranteed: 15000}},
 					},
 					NamespaceSelector: labels.Nothing(),
 					UsedResources:     Resources{corev1.ResourceCPU: {"default": 0}},
@@ -141,7 +146,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			},
 		},
 		{
-			name: "add flavors after queue capacties",
+			name: "add flavors after queue capacities",
 			operation: func(cache *Cache) {
 				for _, c := range initialClusterQueues {
 					if err := cache.AddClusterQueue(context.Background(), &c); err != nil {
@@ -157,7 +162,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"a": {
 					Name: "a",
 					RequestableResources: map[corev1.ResourceName][]FlavorLimits{
-						corev1.ResourceCPU: {{Name: "default", Guaranteed: 10000, Ceiling: 20000}},
+						corev1.ResourceCPU: {{Name: "default", Guaranteed: 10000, Ceiling: pointer.Int64(20000)}},
 					},
 					NamespaceSelector: labels.Nothing(),
 					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
@@ -166,7 +171,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"b": {
 					Name: "b",
 					RequestableResources: map[corev1.ResourceName][]FlavorLimits{
-						corev1.ResourceCPU: {{Name: "default"}},
+						corev1.ResourceCPU: {{Name: "default", Guaranteed: 15000}},
 					},
 					NamespaceSelector: labels.Nothing(),
 					UsedResources:     Resources{corev1.ResourceCPU: {"default": 0}},
@@ -206,7 +211,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 											ResourceFlavor: "default",
 											Quota: kueue.Quota{
 												Guaranteed: resource.MustParse("5"),
-												Ceiling:    resource.MustParse("10"),
+												Ceiling:    pointer.Quantity(resource.MustParse("10")),
 											},
 										},
 									},
@@ -237,7 +242,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"a": {
 					Name: "a",
 					RequestableResources: map[corev1.ResourceName][]FlavorLimits{
-						corev1.ResourceCPU: {{Name: "default", Guaranteed: 5000, Ceiling: 10000}},
+						corev1.ResourceCPU: {{Name: "default", Guaranteed: 5000, Ceiling: pointer.Int64(10000)}},
 					},
 					NamespaceSelector: labels.Nothing(),
 					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType", "region")},
@@ -283,7 +288,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"b": {
 					Name: "b",
 					RequestableResources: map[corev1.ResourceName][]FlavorLimits{
-						corev1.ResourceCPU: {{Name: "default"}},
+						corev1.ResourceCPU: {{Name: "default", Guaranteed: 15000}},
 					},
 					NamespaceSelector: labels.Nothing(),
 					UsedResources:     Resources{corev1.ResourceCPU: {"default": 0}},
@@ -799,7 +804,7 @@ func TestClusterQueueUsage(t *testing.T) {
 							ResourceFlavor: "default",
 							Quota: kueue.Quota{
 								Guaranteed: resource.MustParse("10"),
-								Ceiling:    resource.MustParse("20"),
+								Ceiling:    pointer.Quantity(resource.MustParse("20")),
 							},
 						},
 					},
@@ -811,14 +816,14 @@ func TestClusterQueueUsage(t *testing.T) {
 							ResourceFlavor: "model_a",
 							Quota: kueue.Quota{
 								Guaranteed: resource.MustParse("5"),
-								Ceiling:    resource.MustParse("10"),
+								Ceiling:    pointer.Quantity(resource.MustParse("10")),
 							},
 						},
 						{
 							ResourceFlavor: "model_b",
 							Quota: kueue.Quota{
 								Guaranteed: resource.MustParse("5"),
-								Ceiling:    resource.MustParse("10"),
+								// No ceiling.
 							},
 						},
 					},
