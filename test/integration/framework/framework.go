@@ -24,6 +24,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -115,7 +116,8 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 	if ns == nil {
 		return nil
 	}
-	if err := c.DeleteAllOf(ctx, &batchv1.Job{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
+	err := c.DeleteAllOf(ctx, &batchv1.Job{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
+	if err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
 	if err := c.DeleteAllOf(ctx, &kueue.Queue{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {

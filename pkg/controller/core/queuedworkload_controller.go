@@ -73,16 +73,15 @@ func (r *QueuedWorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	log.V(2).Info("Reconciling QueuedWorkload")
 
 	status := workloadStatus(&wl)
-	q, qOK := r.queues.QueueExists(&wl)
-	if status == pending && !qOK {
+	if status == pending && !r.queues.QueueForWorkloadExists(&wl) {
 		err := workload.UpdateWorkloadStatusIfChanged(ctx, r.client, &wl, kueue.QueuedWorkloadAdmitted, corev1.ConditionFalse,
-			"Inadmissible", fmt.Sprintf("Queue %s for workload doesn't exist", wl.Spec.QueueName))
+			"Inadmissible", fmt.Sprintf("Queue %s doesn't exist", wl.Spec.QueueName))
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-
-	if status == pending && !r.queues.ClusterQueueExists(&wl) {
+	cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)
+	if status == pending && !cqOk {
 		err := workload.UpdateWorkloadStatusIfChanged(ctx, r.client, &wl, kueue.QueuedWorkloadAdmitted, corev1.ConditionFalse,
-			"Inadmissible", fmt.Sprintf("ClusterQueue %s doesn't exist", q.ClusterQueue))
+			"Inadmissible", fmt.Sprintf("ClusterQueue %s doesn't exist", cqName))
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 

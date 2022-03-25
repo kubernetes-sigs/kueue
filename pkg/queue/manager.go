@@ -206,19 +206,26 @@ func (m *Manager) Pending(cq *kueue.ClusterQueue) int32 {
 	return int32(len(m.clusterQueues[cq.Name].heap.heap))
 }
 
-func (m *Manager) QueueExists(wl *kueue.QueuedWorkload) (*Queue, bool) {
+func (m *Manager) QueueForWorkloadExists(wl *kueue.QueuedWorkload) bool {
 	m.RLock()
 	defer m.RUnlock()
-	q, ok := m.queues[queueKeyForWorkload(wl)]
-	return q, ok
+	_, ok := m.queues[queueKeyForWorkload(wl)]
+	return ok
 
 }
 
-func (m *Manager) ClusterQueueExists(wl *kueue.QueuedWorkload) bool {
+// ClusterQueueForWorkload returns the name of the ClusterQueue where the
+// workload should be queued and whether it exists.
+// Returns empty string if the queue doesn't exist.
+func (m *Manager) ClusterQueueForWorkload(wl *kueue.QueuedWorkload) (string, bool) {
 	m.RLock()
 	defer m.RUnlock()
-	_, ok := m.clusterQueues[m.queues[queueKeyForWorkload(wl)].ClusterQueue]
-	return ok
+	q, ok := m.queues[queueKeyForWorkload(wl)]
+	if !ok {
+		return "", false
+	}
+	_, ok = m.clusterQueues[q.ClusterQueue]
+	return q.ClusterQueue, ok
 }
 
 // AddOrUpdateWorkload adds or updates workload to the corresponding queue.
