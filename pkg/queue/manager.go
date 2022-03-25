@@ -46,7 +46,7 @@ type Manager struct {
 	cond sync.Cond
 
 	client        client.Client
-	clusterQueues map[string]*ClusterQueue
+	clusterQueues map[string]ClusterQueue
 	queues        map[string]*Queue
 }
 
@@ -54,7 +54,7 @@ func NewManager(client client.Client) *Manager {
 	m := &Manager{
 		client:        client,
 		queues:        make(map[string]*Queue),
-		clusterQueues: make(map[string]*ClusterQueue),
+		clusterQueues: make(map[string]ClusterQueue),
 	}
 	m.cond.L = &m.RWMutex
 	return m
@@ -107,7 +107,7 @@ func (m *Manager) UpdateClusterQueue(cq *kueue.ClusterQueue) error {
 		return errClusterQueueDoesNotExist
 	}
 	// TODO(#8): recreate heap based on a change of queueing policy.
-	cqImpl.update(cq)
+	cqImpl.Update(cq)
 	return nil
 }
 
@@ -203,7 +203,7 @@ func (m *Manager) PendingWorkloads(q *kueue.Queue) (int32, error) {
 func (m *Manager) Pending(cq *kueue.ClusterQueue) int32 {
 	m.RLock()
 	defer m.RUnlock()
-	return int32(len(m.clusterQueues[cq.Name].heap.heap))
+	return m.clusterQueues[cq.Name].Pending()
 }
 
 func (m *Manager) QueueExists(wl *kueue.QueuedWorkload) (*Queue, bool) {
@@ -351,14 +351,9 @@ func (m *Manager) Dump() map[string]sets.String {
 	}
 	dump := make(map[string]sets.String, len(m.queues))
 	for key, cq := range m.clusterQueues {
-		if len(cq.heap.items) == 0 {
-			continue
+		if elements, ok := cq.Dump(); ok {
+			dump[key] = elements
 		}
-		elements := make(sets.String, len(cq.heap.items))
-		for _, e := range cq.heap.items {
-			elements.Insert(e.obj.Obj.Name)
-		}
-		dump[key] = elements
 	}
 	if len(dump) == 0 {
 		return nil
