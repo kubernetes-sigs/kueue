@@ -57,7 +57,7 @@ var _ = ginkgo.Describe("QueuedWorkload controller", func() {
 		})
 		ginkgo.It("Should update status when workloads are created", func() {
 			wl = testing.MakeQueuedWorkload("one", ns.Name).Request(corev1.ResourceCPU, "1").Obj()
-			message = fmt.Sprintf("Queue %s for workload doesn't exist", "")
+			message = fmt.Sprintf("Queue %s doesn't exist", "")
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 			gomega.Eventually(func() int {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
@@ -74,7 +74,7 @@ var _ = ginkgo.Describe("QueuedWorkload controller", func() {
 		})
 		ginkgo.It("Should update status when workloads are created", func() {
 			wl = testing.MakeQueuedWorkload("two", ns.Name).Queue("nonCreatedQueue").Request(corev1.ResourceCPU, "1").Obj()
-			message = fmt.Sprintf("Queue %s for workload doesn't exist", "nonCreatedQueue")
+			message = fmt.Sprintf("Queue %s doesn't exist", "nonCreatedQueue")
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 			gomega.Eventually(func() int {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())

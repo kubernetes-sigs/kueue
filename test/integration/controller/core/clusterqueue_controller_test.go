@@ -88,7 +88,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 		gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, clusterQueue)).To(gomega.Succeed())
 	})
 
-	ginkgo.FIt("Should update status when workloads are assigned and finish", func() {
+	ginkgo.It("Should update status when workloads are assigned and finish", func() {
 		workloads := []*kueue.QueuedWorkload{
 			testing.MakeQueuedWorkload("one", ns.Name).Queue(queue.Name).
 				Request(corev1.ResourceCPU, "2").Request(resourceGPU, "2").Obj(),

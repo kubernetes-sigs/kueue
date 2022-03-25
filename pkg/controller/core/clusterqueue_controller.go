@@ -140,52 +140,71 @@ func (r *ClusterQueue) Generic(e event.GenericEvent) bool {
 	return true
 }
 
-// assignedWorkloadHandler signals the controller to reconcile the ClusterQueue
+// workloadHandler signals the controller to reconcile the ClusterQueue
 // assigned to the workload in the event.
-type assignedWorkloadHandler struct{}
+type workloadHandler struct {
+	qManager *queue.Manager
+}
 
-func (h *assignedWorkloadHandler) Create(e event.CreateEvent, q workqueue.RateLimitingInterface) {
+func (h *workloadHandler) Create(e event.CreateEvent, q workqueue.RateLimitingInterface) {
 	w := e.Object.(*kueue.QueuedWorkload)
-	if w.Spec.Admission != nil {
-		q.AddAfter(requestForWorkloadClusterQueue(w), constants.UpdatesBatchPeriod)
+	req := h.requestForWorkloadClusterQueue(w)
+	if req != nil {
+		q.AddAfter(*req, constants.UpdatesBatchPeriod)
 	}
 }
 
-func (h *assignedWorkloadHandler) Update(e event.UpdateEvent, q workqueue.RateLimitingInterface) {
+func (h *workloadHandler) Update(e event.UpdateEvent, q workqueue.RateLimitingInterface) {
 	oldW := e.ObjectOld.(*kueue.QueuedWorkload)
-	if oldW.Spec.Admission != nil {
-		q.AddAfter(requestForWorkloadClusterQueue(oldW), constants.UpdatesBatchPeriod)
+	oldReq := h.requestForWorkloadClusterQueue(oldW)
+	if oldReq != nil {
+		q.AddAfter(*oldReq, constants.UpdatesBatchPeriod)
 	}
 	newW := e.ObjectNew.(*kueue.QueuedWorkload)
-	if newW.Spec.Admission != nil && (oldW.Spec.Admission == nil || workloadFinished(newW) ||
-		newW.Spec.Admission.ClusterQueue != oldW.Spec.Admission.ClusterQueue) {
-		q.AddAfter(requestForWorkloadClusterQueue(newW), constants.UpdatesBatchPeriod)
+	newReq := h.requestForWorkloadClusterQueue(newW)
+	// Enqueue the CQ for the new object if it's different from the old one.
+	if newReq != nil && (oldReq == nil || oldReq.Name != newReq.Name) {
+		q.AddAfter(*newReq, constants.UpdatesBatchPeriod)
 	}
 }
 
-func (h *assignedWorkloadHandler) Delete(e event.DeleteEvent, q workqueue.RateLimitingInterface) {
+func (h *workloadHandler) Delete(e event.DeleteEvent, q workqueue.RateLimitingInterface) {
 	w := e.Object.(*kueue.QueuedWorkload)
-	if w.Spec.Admission != nil {
-		q.AddAfter(requestForWorkloadClusterQueue(w), constants.UpdatesBatchPeriod)
+	req := h.requestForWorkloadClusterQueue(w)
+	if req != nil {
+		q.AddAfter(*req, constants.UpdatesBatchPeriod)
 	}
 }
 
-func (h *assignedWorkloadHandler) Generic(e event.GenericEvent, q workqueue.RateLimitingInterface) {
+func (h *workloadHandler) Generic(e event.GenericEvent, q workqueue.RateLimitingInterface) {
 }
 
-func requestForWorkloadClusterQueue(w *kueue.QueuedWorkload) reconcile.Request {
-	return reconcile.Request{
+func (h *workloadHandler) requestForWorkloadClusterQueue(w *kueue.QueuedWorkload) *reconcile.Request {
+	var name string
+	if w.Spec.Admission != nil {
+		name = string(w.Spec.Admission.ClusterQueue)
+	} else {
+		var ok bool
+		name, ok = h.qManager.ClusterQueueForWorkload(w)
+		if !ok {
+			return nil
+		}
+	}
+	return &reconcile.Request{
 		NamespacedName: types.NamespacedName{
-			Name: string(w.Spec.Admission.ClusterQueue),
+			Name: name,
 		},
 	}
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClusterQueue) SetupWithManager(mgr ctrl.Manager) error {
+	wHandler := workloadHandler{
+		qManager: r.qManager,
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.ClusterQueue{}).
-		Watches(&source.Kind{Type: &kueue.QueuedWorkload{}}, &assignedWorkloadHandler{}).
+		Watches(&source.Kind{Type: &kueue.QueuedWorkload{}}, &wHandler).
 		WithEventFilter(r).
 		Complete(r)
 }
