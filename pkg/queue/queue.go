@@ -17,11 +17,9 @@ limitations under the License.
 package queue
 
 import (
-	"container/heap"
 	"fmt"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
-	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -62,104 +60,6 @@ func (q *Queue) AddOrUpdate(w *kueue.QueuedWorkload) {
 		return
 	}
 	q.items[key] = workload.NewInfo(w)
-}
-
-// ClusterQueue is the internal implementation of kueue.ClusterQueue that
-// holds pending workloads.
-type ClusterQueue struct {
-	// QueueingStrategy indicates the queueing strategy of the workloads
-	// across the queues in this ClusterQueue.
-	QueueingStrategy kueue.QueueingStrategy
-
-	heap heapImpl
-}
-
-func newClusterQueue(cq *kueue.ClusterQueue) (*ClusterQueue, error) {
-	var less lessFunc
-
-	switch cq.Spec.QueueingStrategy {
-	case kueue.StrictFIFO:
-		less = strictFIFO
-	default:
-		return nil, fmt.Errorf("invalid QueueingStrategy %q", cq.Spec.QueueingStrategy)
-	}
-
-	cqImpl := &ClusterQueue{
-		heap: heapImpl{
-			less:  less,
-			items: make(map[string]*heapItem),
-		},
-	}
-	cqImpl.update(cq)
-	return cqImpl, nil
-}
-
-func (cq *ClusterQueue) update(apiCQ *kueue.ClusterQueue) {
-	cq.QueueingStrategy = apiCQ.Spec.QueueingStrategy
-}
-
-func (cq *ClusterQueue) AddFromQueue(q *Queue) bool {
-	added := false
-	for _, w := range q.items {
-		if cq.PushIfNotPresent(w) {
-			added = true
-		}
-	}
-	return added
-}
-
-func (cq *ClusterQueue) DeleteFromQueue(q *Queue) {
-	for _, w := range q.items {
-		cq.Delete(w.Obj)
-	}
-}
-
-func (cq *ClusterQueue) PushIfNotPresent(info *workload.Info) bool {
-	item := cq.heap.items[workload.Key(info.Obj)]
-	if item != nil {
-		return false
-	}
-	heap.Push(&cq.heap, *info)
-	return true
-}
-
-func (cq *ClusterQueue) PushOrUpdate(w *kueue.QueuedWorkload) {
-	item := cq.heap.items[workload.Key(w)]
-	info := *workload.NewInfo(w)
-	if item == nil {
-		heap.Push(&cq.heap, info)
-		return
-	}
-	item.obj = info
-	heap.Fix(&cq.heap, item.index)
-}
-
-func (cq *ClusterQueue) Delete(w *kueue.QueuedWorkload) {
-	item := cq.heap.items[workload.Key(w)]
-	if item != nil {
-		heap.Remove(&cq.heap, item.index)
-	}
-}
-
-func (cq *ClusterQueue) Pop() *workload.Info {
-	if cq.heap.Len() == 0 {
-		return nil
-	}
-	w := heap.Pop(&cq.heap).(workload.Info)
-	return &w
-}
-
-// strictFIFO is the function used by the clusterQueue heap algorithm to sort
-// workloads. It sorts workloads based on their priority.
-// When priorities are equal, it uses workloads.creationTimestamp.
-func strictFIFO(a, b workload.Info) bool {
-	p1 := utilpriority.Priority(a.Obj)
-	p2 := utilpriority.Priority(b.Obj)
-
-	if p1 != p2 {
-		return p1 > p2
-	}
-	return a.Obj.CreationTimestamp.Before(&b.Obj.CreationTimestamp)
 }
 
 // heap.Interface implementation inspired by
