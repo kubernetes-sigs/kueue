@@ -15,7 +15,16 @@ spec:
     singular: queue
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Backing ClusterQueue
+      jsonPath: .spec.clusterQueue
+      name: ClusterQueue
+      type: string
+    - description: Number of pending workloads
+      jsonPath: .status.pendingWorkloads
+      name: Pending Workloads
+      type: integer
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: Queue is the Schema for the queues API

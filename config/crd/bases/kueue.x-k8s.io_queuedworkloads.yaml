@@ -14,11 +14,25 @@ spec:
     plural: queuedworkloads
     shortNames:
     - workload
+    - workloads
     - qw
     singular: queuedworkload
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Name of the queue this workload was submitted to
+      jsonPath: .spec.queueName
+      name: Queue
+      type: string
+    - description: Name of the ClusterQueue that admitted this workload
+      jsonPath: .spec.admission.clusterQueue
+      name: Admitted by
+      type: string
+    - description: Time this workload was created
+      jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: QueuedWorkload is the Schema for the queuedworkloads API

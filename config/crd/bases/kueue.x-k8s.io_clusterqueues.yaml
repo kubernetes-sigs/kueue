@@ -15,7 +15,26 @@ spec:
     singular: clusterqueue
   scope: Cluster
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Cohort that this ClusterQueue belongs to
+      jsonPath: .spec.cohort
+      name: Cohort
+      type: string
+    - description: The queueing strategy used to prioritize workloads
+      jsonPath: .spec.queueingStrategy
+      name: Strategy
+      priority: 1
+      type: string
+    - description: Number of pending workloads
+      jsonPath: .status.pendingWorkloads
+      name: Pending Workloads
+      type: integer
+    - description: Number of admitted workloads that haven't finished yet
+      jsonPath: .status.admittedWorkloads
+      name: Admitted Workloads
+      priority: 1
+      type: integer
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: ClusterQueue is the Schema for the clusterQueue API.
@@ -245,7 +264,7 @@ spec:
             properties:
               admittedWorkloads:
                 description: AdmittedWorkloads is the number of workloads currently
-                  admitted to this clusterQueue.
+                  admitted to this clusterQueue and haven't finished yet.
                 format: int32
                 type: integer
               pendingWorkloads:

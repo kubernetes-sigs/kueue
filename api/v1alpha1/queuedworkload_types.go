@@ -152,8 +152,11 @@ const (
 )
 
 //+kubebuilder:object:root=true
-//+kubebuilder:resource:shortName={workload,qw}
+//+kubebuilder:resource:shortName={workload,workloads,qw}
 //+kubebuilder:subresource:status
+//+kubebuilder:printcolumn:name="Queue",JSONPath=".spec.queueName",type=string,description="Name of the queue this workload was submitted to"
+//+kubebuilder:printcolumn:name="Admitted by",JSONPath=".spec.admission.clusterQueue",type=string,description="Name of the ClusterQueue that admitted this workload"
+//+kubebuilder:printcolumn:name="Age",JSONPath=".metadata.creationTimestamp",type=date,description="Time this workload was created"
 
 // QueuedWorkload is the Schema for the queuedworkloads API
 type QueuedWorkload struct {
