@@ -40,20 +40,26 @@ const (
 	finished = "finished"
 )
 
-// QueuedWorkloadReconciler reconciles a QueuedWorkload object
-type QueuedWorkloadReconciler struct {
-	log    logr.Logger
-	queues *queue.Manager
-	cache  *cache.Cache
-	client client.Client
+type QWUpdateWatcher interface {
+	NotifyQueuedWorkloadUpdate(*kueue.QueuedWorkload)
 }
 
-func NewQueuedWorkloadReconciler(client client.Client, queues *queue.Manager, cache *cache.Cache) *QueuedWorkloadReconciler {
+// QueuedWorkloadReconciler reconciles a QueuedWorkload object
+type QueuedWorkloadReconciler struct {
+	log      logr.Logger
+	queues   *queue.Manager
+	cache    *cache.Cache
+	client   client.Client
+	watchers []QWUpdateWatcher
+}
+
+func NewQueuedWorkloadReconciler(client client.Client, queues *queue.Manager, cache *cache.Cache, watchers ...QWUpdateWatcher) *QueuedWorkloadReconciler {
 	return &QueuedWorkloadReconciler{
-		log:    ctrl.Log.WithName("queued-workload-reconciler"),
-		client: client,
-		queues: queues,
-		cache:  cache,
+		log:      ctrl.Log.WithName("queued-workload-reconciler"),
+		client:   client,
+		queues:   queues,
+		cache:    cache,
+		watchers: watchers,
 	}
 }
 
@@ -90,6 +96,7 @@ func (r *QueuedWorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 func (r *QueuedWorkloadReconciler) Create(e event.CreateEvent) bool {
 	wl := e.Object.(*kueue.QueuedWorkload)
+	defer r.notifyWatchers(wl)
 	status := workloadStatus(wl)
 	log := r.log.WithValues("queuedWorkload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
 	log.V(2).Info("QueuedWorkload create event")
@@ -113,6 +120,7 @@ func (r *QueuedWorkloadReconciler) Create(e event.CreateEvent) bool {
 
 func (r *QueuedWorkloadReconciler) Delete(e event.DeleteEvent) bool {
 	wl := e.Object.(*kueue.QueuedWorkload)
+	defer r.notifyWatchers(wl)
 	status := "unknown"
 	if !e.DeleteStateUnknown {
 		status = workloadStatus(wl)
@@ -138,8 +146,10 @@ func (r *QueuedWorkloadReconciler) Delete(e event.DeleteEvent) bool {
 }
 
 func (r *QueuedWorkloadReconciler) Update(e event.UpdateEvent) bool {
-	wl := e.ObjectNew.(*kueue.QueuedWorkload)
 	oldWl := e.ObjectOld.(*kueue.QueuedWorkload)
+	wl := e.ObjectNew.(*kueue.QueuedWorkload)
+	defer r.notifyWatchers(oldWl)
+	defer r.notifyWatchers(wl)
 	status := workloadStatus(wl)
 	log := r.log.WithValues("queuedWorkload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
 	prevQueue := oldWl.Spec.QueueName
@@ -198,6 +208,12 @@ func (r *QueuedWorkloadReconciler) Update(e event.UpdateEvent) bool {
 func (r *QueuedWorkloadReconciler) Generic(e event.GenericEvent) bool {
 	r.log.V(3).Info("Ignore generic event", "obj", klog.KObj(e.Object), "kind", e.Object.GetObjectKind().GroupVersionKind())
 	return false
+}
+
+func (r *QueuedWorkloadReconciler) notifyWatchers(wl *kueue.QueuedWorkload) {
+	for _, w := range r.watchers {
+		w.NotifyQueuedWorkloadUpdate(wl)
+	}
 }
 
 // SetupWithManager sets up the controller with the Manager.

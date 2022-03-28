@@ -92,22 +92,9 @@ func main() {
 	}
 
 	queues := queue.NewManager(mgr.GetClient())
-	cache := cache.New(mgr.GetClient())
-	if err = core.NewQueueReconciler(mgr.GetClient(), queues).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Queue")
-		os.Exit(1)
-	}
-	if err = core.NewClusterQueueReconciler(mgr.GetClient(), queues, cache).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ClusterQueue")
-		os.Exit(1)
-	}
-	if err = core.NewQueuedWorkloadReconciler(mgr.GetClient(), queues, cache).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "QueuedWorkload")
-		os.Exit(1)
-	}
-	if err = core.NewResourceFlavorReconciler(cache).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ResourceFlavor")
-		os.Exit(1)
+	cCache := cache.New(mgr.GetClient())
+	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache); err != nil {
+		setupLog.Error(err, "Unable to create controller", "controller", failedCtrl)
 	}
 	if err = job.NewReconciler(mgr.GetScheme(), mgr.GetClient(),
 		mgr.GetEventRecorderFor(constants.JobControllerName)).SetupWithManager(mgr); err != nil {
@@ -129,7 +116,7 @@ func main() {
 	go func() {
 		queues.CleanUpOnContext(ctx)
 	}()
-	sched := scheduler.New(queues, cache, mgr.GetClient(),
+	sched := scheduler.New(queues, cCache, mgr.GetClient(),
 		mgr.GetEventRecorderFor(constants.ManagerName))
 	go func() {
 		sched.Start(ctx)

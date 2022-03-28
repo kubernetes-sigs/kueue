@@ -20,6 +20,7 @@ import (
 	"context"
 
 	"github.com/go-logr/logr"
+	"sigs.k8s.io/kueue/pkg/constants"
 
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/types"
@@ -30,27 +31,30 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/cache"
 )
 
-// ClusterQueue reconciles a ClusterQueue object
-type ClusterQueue struct {
-	client   client.Client
-	log      logr.Logger
-	qManager *queue.Manager
-	cache    *cache.Cache
+const qwUpdateBuffer = 10
+
+// ClusterQueueReconciler reconciles a ClusterQueue object
+type ClusterQueueReconciler struct {
+	client     client.Client
+	log        logr.Logger
+	qManager   *queue.Manager
+	cache      *cache.Cache
+	qwUpdateCh chan event.GenericEvent
 }
 
-func NewClusterQueueReconciler(client client.Client, qMgr *queue.Manager, cache *cache.Cache) *ClusterQueue {
-	return &ClusterQueue{
-		client:   client,
-		log:      ctrl.Log.WithName("cluster-queue-reconciler"),
-		qManager: qMgr,
-		cache:    cache,
+func NewClusterQueueReconciler(client client.Client, qMgr *queue.Manager, cache *cache.Cache) *ClusterQueueReconciler {
+	return &ClusterQueueReconciler{
+		client:     client,
+		log:        ctrl.Log.WithName("cluster-queue-reconciler"),
+		qManager:   qMgr,
+		cache:      cache,
+		qwUpdateCh: make(chan event.GenericEvent, qwUpdateBuffer),
 	}
 }
 
@@ -60,7 +64,7 @@ func NewClusterQueueReconciler(client client.Client, qMgr *queue.Manager, cache 
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues/finalizers,verbs=update
 
-func (r *ClusterQueue) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var cqObj kueue.ClusterQueue
 	if err := r.client.Get(ctx, req.NamespacedName, &cqObj); err != nil {
 		// we'll ignore not-found errors, since there is nothing to do.
@@ -85,10 +89,14 @@ func (r *ClusterQueue) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Re
 	return ctrl.Result{}, nil
 }
 
+func (r *ClusterQueueReconciler) NotifyQueuedWorkloadUpdate(w *kueue.QueuedWorkload) {
+	r.qwUpdateCh <- event.GenericEvent{Object: w}
+}
+
 // Event handlers return true to signal the controller to reconcile the
 // ClusterQueue associated with the event.
 
-func (r *ClusterQueue) Create(e event.CreateEvent) bool {
+func (r *ClusterQueueReconciler) Create(e event.CreateEvent) bool {
 	cq, match := e.Object.(*kueue.ClusterQueue)
 	if !match {
 		// No need to interact with the cache for other objects.
@@ -106,7 +114,7 @@ func (r *ClusterQueue) Create(e event.CreateEvent) bool {
 	return true
 }
 
-func (r *ClusterQueue) Delete(e event.DeleteEvent) bool {
+func (r *ClusterQueueReconciler) Delete(e event.DeleteEvent) bool {
 	cq, match := e.Object.(*kueue.ClusterQueue)
 	if !match {
 		// No need to interact with the cache for other objects.
@@ -118,7 +126,7 @@ func (r *ClusterQueue) Delete(e event.DeleteEvent) bool {
 	return true
 }
 
-func (r *ClusterQueue) Update(e event.UpdateEvent) bool {
+func (r *ClusterQueueReconciler) Update(e event.UpdateEvent) bool {
 	cq, match := e.ObjectNew.(*kueue.ClusterQueue)
 	if !match {
 		// No need to interact with the cache for other objects.
@@ -135,18 +143,29 @@ func (r *ClusterQueue) Update(e event.UpdateEvent) bool {
 	return true
 }
 
-func (r *ClusterQueue) Generic(e event.GenericEvent) bool {
+func (r *ClusterQueueReconciler) Generic(e event.GenericEvent) bool {
 	r.log.V(3).Info("Ignore generic event", "obj", klog.KObj(e.Object), "kind", e.Object.GetObjectKind().GroupVersionKind())
 	return true
 }
 
-// workloadHandler signals the controller to reconcile the ClusterQueue
-// assigned to the workload in the event.
-type workloadHandler struct {
+// cqWorkloadHandler signals the controller to reconcile the ClusterQueue
+// associated to the workload in the event.
+// Since the events come from a channel Source, only the Generic handler will
+// receive events.
+type cqWorkloadHandler struct {
 	qManager *queue.Manager
 }
 
-func (h *workloadHandler) Create(e event.CreateEvent, q workqueue.RateLimitingInterface) {
+func (h *cqWorkloadHandler) Create(event.CreateEvent, workqueue.RateLimitingInterface) {
+}
+
+func (h *cqWorkloadHandler) Update(event.UpdateEvent, workqueue.RateLimitingInterface) {
+}
+
+func (h *cqWorkloadHandler) Delete(event.DeleteEvent, workqueue.RateLimitingInterface) {
+}
+
+func (h *cqWorkloadHandler) Generic(e event.GenericEvent, q workqueue.RateLimitingInterface) {
 	w := e.Object.(*kueue.QueuedWorkload)
 	req := h.requestForWorkloadClusterQueue(w)
 	if req != nil {
@@ -154,32 +173,7 @@ func (h *workloadHandler) Create(e event.CreateEvent, q workqueue.RateLimitingIn
 	}
 }
 
-func (h *workloadHandler) Update(e event.UpdateEvent, q workqueue.RateLimitingInterface) {
-	oldW := e.ObjectOld.(*kueue.QueuedWorkload)
-	oldReq := h.requestForWorkloadClusterQueue(oldW)
-	if oldReq != nil {
-		q.AddAfter(*oldReq, constants.UpdatesBatchPeriod)
-	}
-	newW := e.ObjectNew.(*kueue.QueuedWorkload)
-	newReq := h.requestForWorkloadClusterQueue(newW)
-	// Enqueue the CQ for the new object if it's different from the old one.
-	if newReq != nil && (oldReq == nil || oldReq.Name != newReq.Name) {
-		q.AddAfter(*newReq, constants.UpdatesBatchPeriod)
-	}
-}
-
-func (h *workloadHandler) Delete(e event.DeleteEvent, q workqueue.RateLimitingInterface) {
-	w := e.Object.(*kueue.QueuedWorkload)
-	req := h.requestForWorkloadClusterQueue(w)
-	if req != nil {
-		q.AddAfter(*req, constants.UpdatesBatchPeriod)
-	}
-}
-
-func (h *workloadHandler) Generic(e event.GenericEvent, q workqueue.RateLimitingInterface) {
-}
-
-func (h *workloadHandler) requestForWorkloadClusterQueue(w *kueue.QueuedWorkload) *reconcile.Request {
+func (h *cqWorkloadHandler) requestForWorkloadClusterQueue(w *kueue.QueuedWorkload) *reconcile.Request {
 	var name string
 	if w.Spec.Admission != nil {
 		name = string(w.Spec.Admission.ClusterQueue)
@@ -198,18 +192,18 @@ func (h *workloadHandler) requestForWorkloadClusterQueue(w *kueue.QueuedWorkload
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *ClusterQueue) SetupWithManager(mgr ctrl.Manager) error {
-	wHandler := workloadHandler{
+func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	wHandler := cqWorkloadHandler{
 		qManager: r.qManager,
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.ClusterQueue{}).
-		Watches(&source.Kind{Type: &kueue.QueuedWorkload{}}, &wHandler).
+		Watches(&source.Channel{Source: r.qwUpdateCh}, &wHandler).
 		WithEventFilter(r).
 		Complete(r)
 }
 
-func (r *ClusterQueue) Status(cq *kueue.ClusterQueue) (kueue.ClusterQueueStatus, error) {
+func (r *ClusterQueueReconciler) Status(cq *kueue.ClusterQueue) (kueue.ClusterQueueStatus, error) {
 	usage, workloads, err := r.cache.Usage(cq)
 	if err != nil {
 		r.log.Error(err, "Failed getting usage from cache")

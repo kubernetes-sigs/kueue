@@ -31,7 +31,7 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
-	kueuectrl "sigs.k8s.io/kueue/pkg/controller/core"
+	"sigs.k8s.io/kueue/pkg/controller/core"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/workload/job"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -73,25 +73,16 @@ func managerAndSchedulerSetup(mgr manager.Manager) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	queues := queue.NewManager(mgr.GetClient())
-	cache := cache.New(mgr.GetClient())
+	cCache := cache.New(mgr.GetClient())
 
-	err = kueuectrl.NewQueueReconciler(mgr.GetClient(), queues).SetupWithManager(mgr)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	err = kueuectrl.NewClusterQueueReconciler(mgr.GetClient(), queues, cache).SetupWithManager(mgr)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	err = kueuectrl.NewQueuedWorkloadReconciler(mgr.GetClient(), queues, cache).SetupWithManager(mgr)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-	err = kueuectrl.NewResourceFlavorReconciler(cache).SetupWithManager(mgr)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	failedCtrl, err := core.SetupControllers(mgr, queues, cCache)
+	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 	err = workloadjob.NewReconciler(mgr.GetScheme(), mgr.GetClient(),
 		mgr.GetEventRecorderFor(constants.JobControllerName)).SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	sched := scheduler.New(queues, cache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.ManagerName))
+	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.ManagerName))
 	go func() {
 		sched.Start(ctx)
 	}()
