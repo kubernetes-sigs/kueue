@@ -17,11 +17,17 @@ limitations under the License.
 package workload
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
 )
@@ -161,6 +167,107 @@ func TestNewInfo(t *testing.T) {
 	}
 	if diff := cmp.Diff(info.TotalRequests, wantRequests); diff != "" {
 		t.Errorf("NewInfo returned unexpected total requests (-want,+got):\n%s", diff)
+	}
+}
+
+var ignoreConditionTimestamps = cmpopts.IgnoreFields(kueue.QueuedWorkloadCondition{}, "LastProbeTime", "LastTransitionTime")
+
+func TestUpdateWorkloadStatus(t *testing.T) {
+	cases := map[string]struct {
+		oldStatus  kueue.QueuedWorkloadStatus
+		condType   kueue.QueuedWorkloadConditionType
+		condStatus corev1.ConditionStatus
+		reason     string
+		message    string
+		wantStatus kueue.QueuedWorkloadStatus
+	}{
+		"initial empty": {
+			condType:   kueue.QueuedWorkloadAdmitted,
+			condStatus: corev1.ConditionFalse,
+			reason:     "Pending",
+			message:    "didn't fit",
+			wantStatus: kueue.QueuedWorkloadStatus{
+				Conditions: []kueue.QueuedWorkloadCondition{
+					{
+						Type:    kueue.QueuedWorkloadAdmitted,
+						Status:  corev1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "didn't fit",
+					},
+				},
+			},
+		},
+		"same condition type": {
+			oldStatus: kueue.QueuedWorkloadStatus{
+				Conditions: []kueue.QueuedWorkloadCondition{
+					{
+						Type:    kueue.QueuedWorkloadAdmitted,
+						Status:  corev1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "didn't fit",
+					},
+				},
+			},
+			condType:   kueue.QueuedWorkloadAdmitted,
+			condStatus: corev1.ConditionTrue,
+			reason:     "Admitted",
+			wantStatus: kueue.QueuedWorkloadStatus{
+				Conditions: []kueue.QueuedWorkloadCondition{
+					{
+						Type:   kueue.QueuedWorkloadAdmitted,
+						Status: corev1.ConditionTrue,
+						Reason: "Admitted",
+					},
+				},
+			},
+		},
+		"different condition type": {
+			oldStatus: kueue.QueuedWorkloadStatus{
+				Conditions: []kueue.QueuedWorkloadCondition{
+					{
+						Type:   kueue.QueuedWorkloadAdmitted,
+						Status: corev1.ConditionTrue,
+					},
+				},
+			},
+			condType:   kueue.QueuedWorkloadFinished,
+			condStatus: corev1.ConditionTrue,
+			wantStatus: kueue.QueuedWorkloadStatus{
+				Conditions: []kueue.QueuedWorkloadCondition{
+					{
+						Type:   kueue.QueuedWorkloadAdmitted,
+						Status: corev1.ConditionTrue,
+					},
+					{
+						Type:   kueue.QueuedWorkloadFinished,
+						Status: corev1.ConditionTrue,
+					},
+				},
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			if err := kueue.AddToScheme(scheme); err != nil {
+				t.Fatalf("Failed to add kueue scheme: %v", err)
+			}
+			workload := utiltesting.MakeQueuedWorkload("foo", "bar").Obj()
+			workload.Status = tc.oldStatus
+			cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(workload).Build()
+			ctx := context.Background()
+			err := UpdateWorkloadStatus(ctx, cl, workload, tc.condType, tc.condStatus, tc.reason, tc.message)
+			if err != nil {
+				t.Fatalf("Failed updating status: %v", err)
+			}
+			var updatedQW kueue.QueuedWorkload
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(workload), &updatedQW); err != nil {
+				t.Fatalf("Failed obtaining updated object: %v", err)
+			}
+			if diff := cmp.Diff(tc.wantStatus, updatedQW.Status, ignoreConditionTimestamps); diff != "" {
+				t.Errorf("Unexpected status after updating (-want,+got):\n%s", diff)
+			}
+		})
 	}
 }
 

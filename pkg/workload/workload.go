@@ -194,14 +194,15 @@ func UpdateWorkloadStatus(ctx context.Context,
 		Reason:             reason,
 		Message:            message,
 	}
-	var newWl kueue.QueuedWorkload
+	// Avoid modifying the object in the cache.
+	newWl := *wl
+	newWl.Status = *newWl.Status.DeepCopy()
 
 	if conditionIndex == -1 {
-		wl.Status.Conditions = append(wl.Status.Conditions, condition)
-		return c.Status().Update(ctx, wl)
+		newWl.Status.Conditions = append(newWl.Status.Conditions, condition)
+	} else {
+		newWl.Status.Conditions[conditionIndex] = condition
 	}
-
-	wl.Status.Conditions[conditionIndex] = condition
 
 	return c.Status().Update(ctx, &newWl)
 }

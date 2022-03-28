@@ -400,8 +400,8 @@ func (s *Scheduler) requeueAndUpdate(log logr.Logger, ctx context.Context, w *wo
 	if s.queues.RequeueWorkload(ctx, w) {
 		log.V(2).Info("Workload re-queued", "queuedWorkload", klog.KObj(w.Obj), "queue", klog.KRef(w.Obj.Namespace, w.Obj.Spec.QueueName))
 	}
-	if err := workload.UpdateWorkloadStatus(ctx, s.client, w.Obj, kueue.QueuedWorkloadAdmitted, corev1.ConditionFalse,
-		"Pending", message); err != nil {
+	err := workload.UpdateWorkloadStatus(ctx, s.client, w.Obj, kueue.QueuedWorkloadAdmitted, corev1.ConditionFalse, "Pending", message)
+	if err != nil {
 		log.Error(err, "Updating QueuedWorkload status")
 	}
 }
