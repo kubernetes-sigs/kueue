@@ -48,11 +48,11 @@ func NewQueueReconciler(client client.Client, queues *queue.Manager) *QueueRecon
 		log:        ctrl.Log.WithName("queue-reconciler"),
 		queues:     queues,
 		client:     client,
-		qwUpdateCh: make(chan event.GenericEvent),
+		qwUpdateCh: make(chan event.GenericEvent, qwUpdateBuffer),
 	}
 }
 
-func (r *QueueReconciler) NotifyQWUpdate(w *kueue.QueuedWorkload) {
+func (r *QueueReconciler) NotifyQueuedWorkloadUpdate(w *kueue.QueuedWorkload) {
 	r.qwUpdateCh <- event.GenericEvent{Object: w}
 }
 
@@ -133,6 +133,10 @@ func (r *QueueReconciler) Generic(e event.GenericEvent) bool {
 	return true
 }
 
+// qWorkloadHandler signals the controller to reconcile the Queue associated
+// to the workload in the event.
+// Since the events come from a channel Source, only the Generic handler will
+// receive events.
 type qWorkloadHandler struct{}
 
 func (h *qWorkloadHandler) Create(event.CreateEvent, workqueue.RateLimitingInterface) {

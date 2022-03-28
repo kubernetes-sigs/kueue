@@ -41,7 +41,7 @@ const (
 )
 
 type QWUpdateWatcher interface {
-	NotifyQWUpdate(*kueue.QueuedWorkload)
+	NotifyQueuedWorkloadUpdate(*kueue.QueuedWorkload)
 }
 
 // QueuedWorkloadReconciler reconciles a QueuedWorkload object
@@ -96,6 +96,7 @@ func (r *QueuedWorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 func (r *QueuedWorkloadReconciler) Create(e event.CreateEvent) bool {
 	wl := e.Object.(*kueue.QueuedWorkload)
+	defer r.notifyWatchers(wl)
 	status := workloadStatus(wl)
 	log := r.log.WithValues("queuedWorkload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
 	log.V(2).Info("QueuedWorkload create event")
@@ -104,7 +105,6 @@ func (r *QueuedWorkloadReconciler) Create(e event.CreateEvent) bool {
 		return true
 	}
 
-	defer r.notifyWatchers(wl)
 	if wl.Spec.Admission == nil {
 		if !r.queues.AddOrUpdateWorkload(wl.DeepCopy()) {
 			log.V(2).Info("Queue for workload didn't exist; ignored for now")
@@ -120,6 +120,7 @@ func (r *QueuedWorkloadReconciler) Create(e event.CreateEvent) bool {
 
 func (r *QueuedWorkloadReconciler) Delete(e event.DeleteEvent) bool {
 	wl := e.Object.(*kueue.QueuedWorkload)
+	defer r.notifyWatchers(wl)
 	status := "unknown"
 	if !e.DeleteStateUnknown {
 		status = workloadStatus(wl)
@@ -141,13 +142,14 @@ func (r *QueuedWorkloadReconciler) Delete(e event.DeleteEvent) bool {
 	if wl.Spec.Admission == nil {
 		r.queues.DeleteWorkload(wl)
 	}
-	r.notifyWatchers(wl)
 	return true
 }
 
 func (r *QueuedWorkloadReconciler) Update(e event.UpdateEvent) bool {
-	wl := e.ObjectNew.(*kueue.QueuedWorkload)
 	oldWl := e.ObjectOld.(*kueue.QueuedWorkload)
+	wl := e.ObjectNew.(*kueue.QueuedWorkload)
+	defer r.notifyWatchers(oldWl)
+	defer r.notifyWatchers(wl)
 	status := workloadStatus(wl)
 	log := r.log.WithValues("queuedWorkload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
 	prevQueue := oldWl.Spec.QueueName
@@ -200,9 +202,6 @@ func (r *QueuedWorkloadReconciler) Update(e event.UpdateEvent) bool {
 		}
 	}
 
-	r.notifyWatchers(oldWl)
-	r.notifyWatchers(wl)
-
 	return true
 }
 
@@ -213,7 +212,7 @@ func (r *QueuedWorkloadReconciler) Generic(e event.GenericEvent) bool {
 
 func (r *QueuedWorkloadReconciler) notifyWatchers(wl *kueue.QueuedWorkload) {
 	for _, w := range r.watchers {
-		w.NotifyQWUpdate(wl)
+		w.NotifyQueuedWorkloadUpdate(wl)
 	}
 }
 

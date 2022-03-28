@@ -37,6 +37,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache"
 )
 
+const qwUpdateBuffer = 10
+
 // ClusterQueueReconciler reconciles a ClusterQueue object
 type ClusterQueueReconciler struct {
 	client     client.Client
@@ -52,7 +54,7 @@ func NewClusterQueueReconciler(client client.Client, qMgr *queue.Manager, cache 
 		log:        ctrl.Log.WithName("cluster-queue-reconciler"),
 		qManager:   qMgr,
 		cache:      cache,
-		qwUpdateCh: make(chan event.GenericEvent),
+		qwUpdateCh: make(chan event.GenericEvent, qwUpdateBuffer),
 	}
 }
 
@@ -87,7 +89,7 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	return ctrl.Result{}, nil
 }
 
-func (r *ClusterQueueReconciler) NotifyQWUpdate(w *kueue.QueuedWorkload) {
+func (r *ClusterQueueReconciler) NotifyQueuedWorkloadUpdate(w *kueue.QueuedWorkload) {
 	r.qwUpdateCh <- event.GenericEvent{Object: w}
 }
 
@@ -147,7 +149,9 @@ func (r *ClusterQueueReconciler) Generic(e event.GenericEvent) bool {
 }
 
 // cqWorkloadHandler signals the controller to reconcile the ClusterQueue
-// assigned to the workload in the event.
+// associated to the workload in the event.
+// Since the events come from a channel Source, only the Generic handler will
+// receive events.
 type cqWorkloadHandler struct {
 	qManager *queue.Manager
 }
