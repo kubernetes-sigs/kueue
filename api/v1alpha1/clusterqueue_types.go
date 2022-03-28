@@ -264,7 +264,7 @@ type ClusterQueueStatus struct {
 	PendingWorkloads int32 `json:"pendingWorkloads"`
 
 	// AdmittedWorkloads is the number of workloads currently admitted to this
-	// clusterQueue.
+	// clusterQueue and haven't finished yet.
 	// +optional
 	AdmittedWorkloads int32 `json:"admittedWorkloads"`
 }
@@ -284,6 +284,10 @@ type Usage struct {
 //+kubebuilder:object:root=true
 //+kubebuilder:resource:scope=Cluster
 //+kubebuilder:subresource:status
+//+kubebuilder:printcolumn:name="Cohort",JSONPath=".spec.cohort",type=string,description="Cohort that this ClusterQueue belongs to"
+//+kubebuilder:printcolumn:name="Strategy",JSONPath=".spec.queueingStrategy",type=string,description="The queueing strategy used to prioritize workloads",priority=1
+//+kubebuilder:printcolumn:name="Pending Workloads",JSONPath=".status.pendingWorkloads",type=integer,description="Number of pending workloads"
+//+kubebuilder:printcolumn:name="Admitted Workloads",JSONPath=".status.admittedWorkloads",type=integer,description="Number of admitted workloads that haven't finished yet",priority=1
 
 // ClusterQueue is the Schema for the clusterQueue API.
 type ClusterQueue struct {
