@@ -3,7 +3,7 @@
 This page shows you how to represent your cluster resource quotas and to
 establish fair sharing rules among the tenants.
 
-The intended audience for this page are cluster administrators.
+The intended audience for this page are [batch administrators](/docs/tasks/README.md#as-a-batch-administrator).
 
 ## Before you begin
 
@@ -103,3 +103,7 @@ metadata:
 spec:
   clusterQueue: cluster-total
 ```
+
+## What's next?
+
+- Learn how to [run jobs](run_jobs.md).
