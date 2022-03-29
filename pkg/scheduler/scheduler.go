@@ -165,6 +165,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 			log.V(2).Info("Workload didn't fit in remaining clusterQueue even when borrowing")
 			continue
 		}
+		log.V(3).Info("Nominated workload for admission")
 		entries = append(entries, e)
 	}
 	return entries
@@ -397,8 +398,8 @@ func (e entryOrdering) Less(i, j int) bool {
 }
 
 func (s *Scheduler) requeueAndUpdate(log logr.Logger, ctx context.Context, w *workload.Info, message string) {
-	existed := s.queues.RequeueWorkload(ctx, w)
-	log.V(2).Info("Workload re-queued", "queuedWorkload", klog.KObj(w.Obj), "queue", klog.KRef(w.Obj.Namespace, w.Obj.Spec.QueueName), "existed", existed)
+	added := s.queues.RequeueWorkload(ctx, w)
+	log.V(2).Info("Workload re-queued", "queuedWorkload", klog.KObj(w.Obj), "queue", klog.KRef(w.Obj.Namespace, w.Obj.Spec.QueueName), "added", added)
 	err := workload.UpdateWorkloadStatus(ctx, s.client, w.Obj, kueue.QueuedWorkloadAdmitted, corev1.ConditionFalse, "Pending", message)
 	if err != nil {
 		log.Error(err, "Could not update QueuedWorkload status")

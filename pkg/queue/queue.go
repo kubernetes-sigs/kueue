@@ -54,12 +54,17 @@ func (q *Queue) update(apiQueue *kueue.Queue) {
 
 func (q *Queue) AddOrUpdate(w *kueue.QueuedWorkload) {
 	key := workload.Key(w)
-	info := q.items[key]
-	if info != nil {
-		info.Obj = w
-		return
-	}
 	q.items[key] = workload.NewInfo(w)
+}
+
+func (q *Queue) AddIfNotPresent(w *workload.Info) bool {
+	key := workload.Key(w.Obj)
+	_, ok := q.items[key]
+	if !ok {
+		q.items[key] = w
+		return true
+	}
+	return false
 }
 
 // heap.Interface implementation inspired by

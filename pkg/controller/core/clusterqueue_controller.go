@@ -144,7 +144,7 @@ func (r *ClusterQueueReconciler) Update(e event.UpdateEvent) bool {
 }
 
 func (r *ClusterQueueReconciler) Generic(e event.GenericEvent) bool {
-	r.log.V(3).Info("Ignore generic event", "obj", klog.KObj(e.Object), "kind", e.Object.GetObjectKind().GroupVersionKind())
+	r.log.V(3).Info("Got QueuedWorkload event", "queuedWorkload", klog.KObj(e.Object))
 	return true
 }
 
