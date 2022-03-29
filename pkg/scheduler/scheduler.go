@@ -42,6 +42,11 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
+const (
+	workloadDidntFit   = "workload didn't fit"
+	errCouldNotAdmitWL = "Could not admit workload and assigning flavors in apiserver"
+)
+
 type Scheduler struct {
 	queues                  *queue.Manager
 	cache                   *cache.Cache
@@ -125,7 +130,8 @@ func (s *Scheduler) schedule(ctx context.Context) {
 		if admittedWorkloads.Has(workload.Key(w.Obj)) {
 			continue
 		}
-		s.requeueAndUpdate(log, ctx, &w, "workload didn't fit")
+		s.requeueAndUpdate(log, ctx, &w, workloadDidntFit)
+		s.recorder.Eventf(w.Obj, corev1.EventTypeNormal, "Pending", workloadDidntFit)
 	}
 }
 
@@ -250,8 +256,9 @@ func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 			log.V(2).Info("Workload not admitted because it was deleted")
 			return
 		}
-		log.Error(err, "Could not admit workload and assigning flavors in apiserver")
+		log.Error(err, errCouldNotAdmitWL)
 		s.requeueAndUpdate(log, ctx, &e.Info, err.Error())
+		s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Pending", "%s: %v", errCouldNotAdmitWL, err)
 	})
 
 	return nil
