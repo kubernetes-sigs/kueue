@@ -18,7 +18,4 @@ spec:
           requests:
             cpu: 1
             memory: "200Mi"
-          limits:
-            cpu: 1
-            memory: "200Mi"
       restartPolicy: Never
