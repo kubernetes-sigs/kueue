@@ -276,7 +276,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		gomega.Eventually(func() *bool {
 			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: job.Name, Namespace: job.Namespace}, createdJob)).Should(gomega.Succeed())
 			return createdJob.Spec.Suspend
-		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(true)))
+		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(true)), "Job should be suspended")
 
 		ginkgo.By("checking the job starts after updating namespace labels to match QC selector")
 		ns.Labels = map[string]string{"dep": "eng"}
@@ -284,7 +284,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		gomega.Eventually(func() *bool {
 			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: job.Name, Namespace: job.Namespace}, createdJob)).Should(gomega.Succeed())
 			return createdJob.Spec.Suspend
-		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
+		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)), "Job should be unsuspended")
 	})
 
 	ginkgo.It("Should schedule jobs according to their priorities", func() {

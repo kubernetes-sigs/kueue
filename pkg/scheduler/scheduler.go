@@ -249,7 +249,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 			log.V(2).Info("Workload not admitted because it was deleted")
 			return
 		}
-		log.Error(err, "Admitting workload and assigning flavors")
+		log.Error(err, "Could not admit workload and assigning flavors in apiserver")
 		s.requeueAndUpdate(log, ctx, &e.Info, err.Error())
 	})
 
@@ -397,11 +397,10 @@ func (e entryOrdering) Less(i, j int) bool {
 }
 
 func (s *Scheduler) requeueAndUpdate(log logr.Logger, ctx context.Context, w *workload.Info, message string) {
-	if s.queues.RequeueWorkload(ctx, w) {
-		log.V(2).Info("Workload re-queued", "queuedWorkload", klog.KObj(w.Obj), "queue", klog.KRef(w.Obj.Namespace, w.Obj.Spec.QueueName))
-	}
+	existed := s.queues.RequeueWorkload(ctx, w)
+	log.V(2).Info("Workload re-queued", "queuedWorkload", klog.KObj(w.Obj), "queue", klog.KRef(w.Obj.Namespace, w.Obj.Spec.QueueName), "existed", existed)
 	err := workload.UpdateWorkloadStatus(ctx, s.client, w.Obj, kueue.QueuedWorkloadAdmitted, corev1.ConditionFalse, "Pending", message)
 	if err != nil {
-		log.Error(err, "Updating QueuedWorkload status")
+		log.Error(err, "Could not update QueuedWorkload status")
 	}
 }
