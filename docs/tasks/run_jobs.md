@@ -1,15 +1,17 @@
 # Run Jobs
 
-This page show you how to run a Job in a Kubernetes cluster with Kueue enabled.
+This page shows you how to run a Job in a Kubernetes cluster with Kueue enabled.
 
-The intended audience for this page are [batch users](/docs/tasks/README.md#as-a-batch-user)
+The intended audience for this page are [batch users](/docs/tasks/README.md#as-a-batch-user).
 
 ## Before you begin
 
-You need to have a Kubernetes cluster, the kubectl command-line tool
-must be configured to communicate with your cluster, and [Kueue installed](/README.md#installation).
+Make sure the following conditions are met:
 
-The cluster should have [quotas configured](administer_cluster_quotas.md).
+- A Kubernetes cluster is running.
+- The kubectl command-line tool has communication with your cluster.
+- [Kueue is installed](/README.md#installation).
+- The cluster has [quotas configured](administer_cluster_quotas.md).
 
 ## 0. Identify the queues available in your namespace
 
@@ -19,7 +21,7 @@ Run the following command to list the Queues available in your namespace.
 kubectl -n default get queues
 ```
 
-The output is similar to:
+The output is similar to the following:
 
 ```
 NAME   CLUSTERQUEUE    PENDING WORKLOADS
@@ -31,12 +33,13 @@ Queue.
 
 ## 1. Define the Job
 
-Running a Job in Kueue is not much different from [running a Job in a Kubernetes cluster](https://kubernetes.io/docs/tasks/job/)
-without Kueue. The differences are:
+Running a Job in Kueue is similar to [running a Job in a Kubernetes cluster](https://kubernetes.io/docs/tasks/job/)
+without Kueue. However, you must consider the following differences:
+
 - You should create the Job in a [suspended state](https://kubernetes.io/docs/concepts/workloads/controllers/job/#suspending-a-job),
-  as Kueue will decide when it's the best time to start it.
-- You have to set the Queue you want to submit the Job to. This is done through
-  the annotation `kueue.x-k8s.io/queue-name`.
+  as Kueue will decide when it's the best time to start the Job.
+- You have to set the Queue you want to submit the Job to. Use the
+ `kueue.x-k8s.io/queue-name` annotation.
 - You should include the resource requests for each Job Pod.
 
 Here is a sample Job with three Pods that just sleep for a few seconds.
@@ -82,7 +85,7 @@ for this Job with a matching name.
 kubectl -n default get workloads
 ```
 
-The output will be similar to:
+The output will be similar to the following:
 
 ```
 NAME               QUEUE   ADMITTED BY     AGE
@@ -91,14 +94,14 @@ sample-job-sl4bm   main                    1s
 
 ## 3. (Optional) Monitor the status of the workload
 
-You can run the following command to see the status of the workload.
+You can see the workload status with the following command:
 
 ```shell
 kubectl -n default describe workload sample-job-sl4bm
 ```
 
 If the ClusterQueue doesn't have enough quota to run the workload, the output
-will be similar to:
+will be similar to the following:
 
 ```
 Name:         sample-job-jtz5f                                                                                                                                       
@@ -122,16 +125,27 @@ Status:
 Events:               <none>
 ```
 
-After some time, when the ClusterQueue has enough quota to run the workload,
-the output of `kubectl -n default get workloads` will look similar to:
+When the ClusterQueue has enough quota to run the workload, it will admit
+the workload. To see if the workload was admitted, run the following command:
+
+```shell
+kubectl -n default get workloads
+```
+
+The output is similar to the following:
 
 ```
 NAME               QUEUE   ADMITTED BY     AGE
 sample-job-sl4bm   main    cluster-total   45s
 ```
 
-And when you run `kubectl -n default describe workload sample-job-sl4bm` again,
-you will observe an event for the workload admission.
+To view the event for the workload admission, run the following command:
+
+```shell
+kubectl -n default describe workload sample-job-sl4bm
+```
+
+The output is similar to the following:
 
 ```
 ...
@@ -141,8 +155,13 @@ Events:
   Normal  Admitted  50s   kueue-manager  Admitted by ClusterQueue cluster-total
 ```
 
-Finally, once the workload has finished executing, you will observe a status
-condition.
+To continue monitoring the workload progress, you can run the following command:
+
+```shell
+kubectl -n default describe workload sample-job-sl4bm
+```
+
+Once the workload has finished running, the output is similar to the following:
 
 ```
 ...
@@ -158,13 +177,13 @@ Status:
 ...
 ```
 
-You can find other details in the Job status by running:
+To review more details about the Job status, run the following command:
 
 ```shell
 kubectl -n default describe job sample-job-sl4bm
 ```
 
-The output will be similar to:
+The output is similar to the following:
 
 ```
 Name:             sample-job-sl4bm
@@ -188,3 +207,6 @@ Events:
   Normal  Resumed                19m   job-controller        Job resumed
   Normal  Completed              18m   job-controller        Job completed
 ```
+
+Since events have a timestamp with a resolution of seconds, the events might
+be listed in a slightly different order from which they actually occurred.

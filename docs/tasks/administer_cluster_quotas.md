@@ -1,14 +1,17 @@
 # Administer Cluster resources
 
-This page shows you how to represent your cluster resource quotas and to
-establish fair sharing rules among the tenants.
+This page shows you how to manage your cluster resource quotas and to establish
+fair sharing rules among the tenants.
 
 The intended audience for this page are [batch administrators](/docs/tasks/README.md#as-a-batch-administrator).
 
 ## Before you begin
 
-You need to have a Kubernetes cluster, the kubectl command-line tool
-must be configured to communicate with your cluster, and [Kueue installed](/README.md#installation).
+Make sure the following conditions are met:
+
+- A Kubernetes cluster is running.
+- The kubectl command-line tool has communication with your cluster.
+- [Kueue is installed](/README.md#installation).
 
 ## Single ClusterQueue setup
 
