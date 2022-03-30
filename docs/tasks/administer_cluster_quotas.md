@@ -13,7 +13,7 @@ Make sure the following conditions are met:
 - The kubectl command-line tool has communication with your cluster.
 - [Kueue is installed](/README.md#installation).
 
-## Single ClusterQueue setup
+## Single ClusterQueue, single flavor setup {#single-queue-single-flavor}
 
 In the following steps, you will create a queuing system with a single
 ClusterQueue to govern the quota of your cluster.
@@ -106,6 +106,84 @@ metadata:
 spec:
   clusterQueue: cluster-total
 ```
+
+## Multiple ResourceFlavors setup
+
+You can define quotas for different [resource flavors](/docs/concepts/cluster_queue.md#resource-flavors).
+
+For the rest of this section, assume that your cluster has nodes with two CPU
+architectures, namely `x86` and `arm`, specified in the node label `cpu-arch`
+
+### 1. Create ResourceFlavors
+
+To create the ResourceFlavors, run the following command:
+
+```shell
+kubectl apply -f flavor-x86.yaml flavor-arm.yaml
+```
+
+```yaml
+# flavor-x86.yaml
+apiVersion: kueue.x-k8s.io/v1alpha1
+kind: ResourceFlavor
+metadata:
+  name: x86
+labels:
+  cpu-arch: x86
+```
+
+```yaml
+# flavor-arm.yaml
+apiVersion: kueue.x-k8s.io/v1alpha1
+kind: ResourceFlavor
+metadata:
+  name: arm
+labels:
+  cpu-arch: arm
+```
+
+### 2. Create a ClusterQueue referencing the flavors
+
+To create the ResourceFlavors, run the following command:
+
+```shell
+kubectl apply -f cluster-total.yaml
+```
+
+```yaml
+# cluster-total.yaml
+apiVersion: kueue.x-k8s.io/v1alpha1
+kind: ClusterQueue
+metadata:
+  name: cluster-total
+spec:
+  namespaceSelector: {}
+  requestableResources:
+  - name: "cpu"
+    flavors:
+    - resourceFlavor: x86
+      quota:
+        guaranteed: 9
+    - resourceFlavor: arm
+      quota:
+        guaranteed: 12
+  - name: "memory"
+    flavors:
+    - resourceFlavor: default
+      quota:
+        guaranteed: 84Gi
+```
+
+The flavor names in the fields `.spec.requestableResources[*].flavors[*].resourceFlavor`
+should match the names of the ResourceFlavors created earlier.
+
+Note that `memory` is referencing the `default` flavor created in the [single flavor setup](#single-queue-single-flavor).
+This means that you don't want to distinguish if the memory is given from `x86`
+or `arm` nodes.
+
+**Warning**
+
+Using the same flavors in multiple resources is [not supported](https://github.com/kubernetes-sigs/kueue/issues/167).
 
 ## What's next?
 

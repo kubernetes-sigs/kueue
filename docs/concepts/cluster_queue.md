@@ -120,3 +120,7 @@ metadata:
 ClusterQueues can be grouped in _cohorts_. ClusterQueues that belong to the
 same cohort can borrow unused quota from each other, if they have matching
 resource flavors.
+
+## What's next?
+
+- Learn how to [administer cluster quotas](/docs/tasks/administer_cluster_quotas.md).
