@@ -2,7 +2,7 @@
 
 A _queued workload_ (or simply _workload_) is an application that will run to
 completion. It can be composed by one or multiple Pods that, loosely or tightly
-coupled, that, as a whole, complete a task. A workload is the unit of [admission](README.md#admission.md)
+coupled, that, as a whole, complete a task. A workload is the unit of [admission](.#admission)
 in Kueue.
 
 The prototypical workload can be represented with a

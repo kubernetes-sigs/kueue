@@ -1,10 +1,9 @@
 # Kueue
 
 Kueue is a set of APIs and controller for [job](docs/concepts/queued_workload.md)
-[queueing](docs/concepts/README.md#queueing). It is a job-level manager that
-decides when a job should be [admitted](docs/concepts/README.md#admission) to start
-(as in pods can be created) and when it should stop (as in active pods should be 
-deleted).
+[queueing](docs/concepts#queueing). It is a job-level manager that decides when
+a job should be [admitted](docs/concepts#admission) to start (as in pods can be
+created) and when it should stop (as in active pods should be deleted).
 
 The main design principle for Kueue is to avoid duplicating mature functionality
 in [Kubernetes components](https://kubernetes.io/docs/concepts/overview/components/)

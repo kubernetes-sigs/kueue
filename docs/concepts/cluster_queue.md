@@ -5,7 +5,7 @@ such as CPU, memory and hardware accelerators. A `ClusterQueue` defines:
 - The resource _flavors_ that it manages, with usage limits and order of consumption.
 - Fair sharing rules across the tenants of the cluster.
 
-Only cluster administrators should create `ClusterQueue` objects.
+Only [cluster administrators](/docs/tasks#batch-administrator) should create `ClusterQueue` objects.
 
 ## Resource Flavors
 

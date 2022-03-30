@@ -2,7 +2,7 @@
 
 This page shows you how to run a Job in a Kubernetes cluster with Kueue enabled.
 
-The intended audience for this page are [batch users](/docs/tasks/README.md#as-a-batch-user).
+The intended audience for this page are [batch users](/docs/tasks#batch-user).
 
 ## Before you begin
 
