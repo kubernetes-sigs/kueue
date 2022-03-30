@@ -106,3 +106,11 @@ func (c *ClusterQueueImpl) Dump() (sets.String, bool) {
 	}
 	return elements, true
 }
+
+func (c *ClusterQueueImpl) Info(key string) *workload.Info {
+	item := c.heap.items[key]
+	if item != nil {
+		return &item.obj
+	}
+	return nil
+}

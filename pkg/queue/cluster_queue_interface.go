@@ -56,6 +56,9 @@ type ClusterQueue interface {
 	// this ClusterQueue. It returns false if the queue is empty.
 	// Otherwise returns true.
 	Dump() (sets.String, bool)
+	// Info returns workload.Info for the workload key.
+	// Users of this method should not modify the returned object.
+	Info(string) *workload.Info
 }
 
 var registry = map[kueue.QueueingStrategy]func(cq *kueue.ClusterQueue) (ClusterQueue, error){

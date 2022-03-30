@@ -272,10 +272,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info) bool
 		return false
 	}
 
-	if !q.AddIfNotPresent(info) {
-		return false
-	}
-
+	q.AddIfNotPresent(info)
 	cq := m.clusterQueues[q.ClusterQueue]
 	if cq == nil {
 		return false
@@ -312,21 +309,8 @@ func (m *Manager) UpdateWorkload(oldW, w *kueue.QueuedWorkload) bool {
 	defer m.Unlock()
 	if oldW.Spec.QueueName != w.Spec.QueueName {
 		m.deleteWorkloadFromQueueAndClusterQueue(w, queueKeyForWorkload(oldW))
-		return m.addOrUpdateWorkload(w)
 	}
-
-	q := m.queues[queueKeyForWorkload(w)]
-	if q == nil {
-		return false
-	}
-	q.AddOrUpdate(w)
-	cq := m.clusterQueues[q.ClusterQueue]
-	if cq != nil {
-		cq.PushOrUpdate(w)
-		m.cond.Broadcast()
-		return true
-	}
-	return false
+	return m.addOrUpdateWorkload(w)
 }
 
 // CleanUpOnContext tracks the context. When closed, it wakes routines waiting
