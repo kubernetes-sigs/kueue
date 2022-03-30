@@ -24,6 +24,7 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
@@ -271,14 +272,16 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info) bool
 		return false
 	}
 
-	key := workload.Key(info.Obj)
-	q.items[key] = info
-
+	q.AddIfNotPresent(info)
 	cq := m.clusterQueues[q.ClusterQueue]
 	if cq == nil {
 		return false
 	}
-	return cq.PushIfNotPresent(info)
+	added := cq.PushIfNotPresent(info)
+	if added {
+		m.cond.Broadcast()
+	}
+	return added
 }
 
 func (m *Manager) DeleteWorkload(w *kueue.QueuedWorkload) {
@@ -306,19 +309,8 @@ func (m *Manager) UpdateWorkload(oldW, w *kueue.QueuedWorkload) bool {
 	defer m.Unlock()
 	if oldW.Spec.QueueName != w.Spec.QueueName {
 		m.deleteWorkloadFromQueueAndClusterQueue(w, queueKeyForWorkload(oldW))
-		return m.addOrUpdateWorkload(w)
 	}
-
-	q := m.queues[queueKeyForWorkload(w)]
-	if q == nil {
-		return false
-	}
-	cq := m.clusterQueues[q.ClusterQueue]
-	if cq != nil {
-		cq.PushOrUpdate(w)
-		return true
-	}
-	return false
+	return m.addOrUpdateWorkload(w)
 }
 
 // CleanUpOnContext tracks the context. When closed, it wakes routines waiting
@@ -334,8 +326,10 @@ func (m *Manager) CleanUpOnContext(ctx context.Context) {
 func (m *Manager) Heads(ctx context.Context) []workload.Info {
 	m.Lock()
 	defer m.Unlock()
+	log := ctrl.LoggerFrom(ctx)
 	for {
 		workloads := m.heads()
+		log.V(3).Info("Obtained ClusterQueue heads", "count", len(workloads))
 		if len(workloads) != 0 {
 			return workloads
 		}

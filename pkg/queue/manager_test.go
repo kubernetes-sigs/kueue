@@ -559,6 +559,25 @@ func TestUpdateWorkload(t *testing.T) {
 			if updated := manager.UpdateWorkload(tc.workloads[0], wl); updated != tc.wantUpdated {
 				t.Errorf("UpdatedWorkload returned %t, want %t", updated, tc.wantUpdated)
 			}
+			q := manager.queues[queueKeyForWorkload(wl)]
+			if q != nil {
+				key := workload.Key(wl)
+				item := q.items[key]
+				if item == nil {
+					t.Errorf("Object not stored in queue")
+				} else if diff := cmp.Diff(wl, item.Obj); diff != "" {
+					t.Errorf("Object stored in queue differs (-want,+got):\n%s", diff)
+				}
+				cq := manager.clusterQueues[q.ClusterQueue]
+				if cq != nil {
+					item := cq.Info(key)
+					if item == nil {
+						t.Errorf("Object not stored in clusterQueue")
+					} else if diff := cmp.Diff(wl, item.Obj); diff != "" {
+						t.Errorf("Object stored in clusterQueue differs (-want,+got):\n%s", diff)
+					}
+				}
+			}
 			queueOrder := make(map[string][]string)
 			for name, cq := range manager.clusterQueues {
 				queueOrder[name] = popNamesFromCQ(cq)
@@ -738,6 +757,37 @@ func TestHeadsAsync(t *testing.T) {
 				}
 				go func() {
 					mgr.AddOrUpdateWorkload(&wl)
+				}()
+			},
+		},
+		"UpdateWorkload": {
+			op: func(ctx context.Context, mgr *Manager) {
+				if err := mgr.AddClusterQueue(ctx, cq); err != nil {
+					t.Errorf("Failed adding clusterQueue: %v", err)
+				}
+				if err := mgr.AddQueue(ctx, &q); err != nil {
+					t.Errorf("Failed adding queue: %s", err)
+				}
+				go func() {
+					wlCopy := wl.DeepCopy()
+					wlCopy.ResourceVersion = "old"
+					mgr.UpdateWorkload(wlCopy, &wl)
+				}()
+			},
+		},
+		"RequeueWorkload": {
+			initialObjs: []client.Object{&wl},
+			op: func(ctx context.Context, mgr *Manager) {
+				if err := mgr.AddClusterQueue(ctx, cq); err != nil {
+					t.Errorf("Failed adding clusterQueue: %v", err)
+				}
+				if err := mgr.AddQueue(ctx, &q); err != nil {
+					t.Errorf("Failed adding queue: %s", err)
+				}
+				// Remove the initial workload from the manager.
+				mgr.Heads(ctx)
+				go func() {
+					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl))
 				}()
 			},
 		},
