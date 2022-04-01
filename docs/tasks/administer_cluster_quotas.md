@@ -13,10 +13,11 @@ Make sure the following conditions are met:
 - The kubectl command-line tool has communication with your cluster.
 - [Kueue is installed](/README.md#installation).
 
-## Single ClusterQueue, single flavor setup {#single-queue-single-flavor}
+## Single ClusterQueue and single ResourceFlavor setup
 
 In the following steps, you will create a queuing system with a single
-ClusterQueue to govern the quota of your cluster.
+ClusterQueue and a single [ResourceFlavor](/docs/concepts/cluster_queue.md#resourceflavor-object)
+to govern the quota of your cluster.
 
 You can perform all these steps at once by applying [config/samples/single-clusterqueue-setup.yaml](/config/samples/single-clusterqueue-setup.yaml):
 
@@ -29,9 +30,7 @@ kubectl apply -f config/samples/single-clusterqueue-setup.yaml
 Create a single ClusterQueue to represent the resource quotas for your entire
 cluster.
 
-```shell
-kubectl apply -f cluster-total.yaml
-```
+Write the manifest for the ClusterQueue. It should look similar to the following:
 
 ```yaml
 # cluster-total.yaml
@@ -54,13 +53,19 @@ spec:
         guaranteed: 36Gi
 ```
 
+To create the ClusterQueue, run the following command:
+
+```shell
+kubectl apply -f cluster-total.yaml
+```
+
 This ClusterQueue governs the usage of [resource types](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#resource-types)
-`cpu` and `memory`. Each resource type has a single [resource flavor](/docs/concepts/cluster_queue.md#resource-flavors),
+`cpu` and `memory`. Each resource type has a single [resource flavor](/docs/concepts/cluster_queue.md#resourceflavor-object),
 named `default` with a guaranteed quota.
 
 The empty `namespaceSelector` allows any namespace to use these resources.
 
-### 2. Create a [ResourceFlavor](/docs/concepts/cluster_queue.md#resource-flavors)
+### 2. Create a [ResourceFlavor](/docs/concepts/cluster_queue.md#resourceflavor-object)
 
 The ClusterQueue is not ready to be used yet, as the `default` flavor is not
 defined.
@@ -69,9 +74,7 @@ Typically, a resource flavor has node labels and/or taints to scope which nodes
 can provide it. However, since we are using a single flavor to represent all the
 resources available in the cluster, you can create an empty ResourceFlavor.
 
-```shell
-kubectl apply -f default-flavor.yaml
-```
+Write the manifest for the ResourceFlavor. It should look similar to the following:
 
 ```yaml
 # default-flavor.yaml
@@ -79,6 +82,12 @@ apiVersion: kueue.x-k8s.io/v1alpha1
 kind: ResourceFlavor
 metadata:
   name: default
+```
+
+To create the ResourceFlavor, run the following command:
+
+```shell
+kubectl apply -f default-flavor.yaml
 ```
 
 The `.metadata.name` matches the `.spec.requestableResources[*].flavors[0].resourceFlavor`
@@ -92,9 +101,7 @@ namespace.
 Thus, for the queuing system to be complete, you need to create a Queue in
 each namespace that needs access to the ClusterQueue.
 
-```shell
-kubectl apply -f default-user-queue.yaml
-```
+Write the manifest for the Queue. It should look similar to the following:
 
 ```yaml
 # default-user-queue.yaml
@@ -107,20 +114,28 @@ spec:
   clusterQueue: cluster-total
 ```
 
+To create the Queue, run the following command:
+
+```shell
+kubectl apply -f default-user-queue.yaml
+```
+
 ## Multiple ResourceFlavors setup
 
-You can define quotas for different [resource flavors](/docs/concepts/cluster_queue.md#resource-flavors).
+You can define quotas for different [resource flavors](/docs/concepts/cluster_queue.md#resourceflavor-object).
 
 For the rest of this section, assume that your cluster has nodes with two CPU
-architectures, namely `x86` and `arm`, specified in the node label `cpu-arch`
+architectures, namely `x86` and `arm`, specified in the node label `cpu-arch`.
+
+**Limitations**
+
+- Using the same flavors in multiple `.requestableResources` of a ClusterQueue
+  is [not supported](https://github.com/kubernetes-sigs/kueue/issues/167).
 
 ### 1. Create ResourceFlavors
 
-To create the ResourceFlavors, run the following command:
-
-```shell
-kubectl apply -f flavor-x86.yaml flavor-arm.yaml
-```
+Write the manifests for the ResourceFlavors. They should look similar to the
+following:
 
 ```yaml
 # flavor-x86.yaml
@@ -142,13 +157,21 @@ labels:
   cpu-arch: arm
 ```
 
-### 2. Create a ClusterQueue referencing the flavors
-
 To create the ResourceFlavors, run the following command:
 
 ```shell
-kubectl apply -f cluster-total.yaml
+kubectl apply -f flavor-x86.yaml flavor-arm.yaml
 ```
+
+The labels set in the ResourceFlavors should match the labels in your nodes.
+If you are using [cluster autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)
+(or equivalent controllers), make sure it is configured to add those labels when
+adding new nodes.
+
+### 2. Create a ClusterQueue referencing the flavors
+
+Write the manifest for the ClusterQueue that references the flavors. It should
+look similar to the following:
 
 ```yaml
 # cluster-total.yaml
@@ -177,13 +200,15 @@ spec:
 The flavor names in the fields `.spec.requestableResources[*].flavors[*].resourceFlavor`
 should match the names of the ResourceFlavors created earlier.
 
-Note that `memory` is referencing the `default` flavor created in the [single flavor setup](#single-queue-single-flavor).
+Note that `memory` is referencing the `default` flavor created in the [single flavor setup](#single-clusterqueue-and-single-resourceflavor-setup)
 This means that you don't want to distinguish if the memory is given from `x86`
 or `arm` nodes.
 
-**Warning**
+To create the ClusterQueue, run the following command:
 
-Using the same flavors in multiple resources is [not supported](https://github.com/kubernetes-sigs/kueue/issues/167).
+```shell
+kubectl apply -f cluster-total.yaml
+```
 
 ## What's next?
 
