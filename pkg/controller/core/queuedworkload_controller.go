@@ -136,7 +136,11 @@ func (r *QueuedWorkloadReconciler) Delete(e event.DeleteEvent) bool {
 				log.Error(err, "Failed to delete workload from cache")
 			}
 		}
+
+		// trigger the move of associated inadmissibleWorkloads if required.
+		r.queues.QueueAssociatedInadmissibleWorkloads(wl)
 	}
+
 	// Even if the state is unknown, the last cached state tells us whether the
 	// workload was in the queues and should be cleared from them.
 	if wl.Spec.Admission == nil {
@@ -175,6 +179,9 @@ func (r *QueuedWorkloadReconciler) Update(e event.UpdateEvent) bool {
 		}
 		r.queues.DeleteWorkload(oldWl)
 
+		// trigger the move of associated inadmissibleWorkloads if required.
+		r.queues.QueueAssociatedInadmissibleWorkloads(wl)
+
 	case prevStatus == pending && status == pending:
 		if !r.queues.UpdateWorkload(oldWl, wl.DeepCopy()) {
 			log.V(2).Info("Queue for updated workload didn't exist; ignoring for now")
@@ -190,6 +197,9 @@ func (r *QueuedWorkloadReconciler) Update(e event.UpdateEvent) bool {
 		if err := r.cache.DeleteWorkload(oldWl); err != nil {
 			log.Error(err, "Failed to delete workload from cache")
 		}
+		// trigger the move of associated inadmissibleWorkloads if required.
+		r.queues.QueueAssociatedInadmissibleWorkloads(wl)
+
 		if !r.queues.AddOrUpdateWorkload(wl.DeepCopy()) {
 			log.V(2).Info("Queue for workload didn't exist; ignored for now")
 		}

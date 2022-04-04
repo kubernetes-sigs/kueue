@@ -24,6 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/pointer"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
@@ -43,6 +44,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		devClusterQ         *kueue.ClusterQueue
 		prodQueue           *kueue.Queue
 		devQueue            *kueue.Queue
+		prodBEClusterQ      *kueue.ClusterQueue
+		devBEClusterQ       *kueue.ClusterQueue
+		prodBEQueue         *kueue.Queue
+		devBEQueue          *kueue.Queue
 		onDemandFlavor      *kueue.ResourceFlavor
 		spotTaintedFlavor   *kueue.ResourceFlavor
 		spotUntaintedFlavor *kueue.ResourceFlavor
@@ -95,18 +100,41 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, devClusterQ)).Should(gomega.Succeed())
 
+		prodBEClusterQ = testing.MakeClusterQueue("prod-be-cq").
+			Cohort("be").QueueingStrategy(kueue.BestEffortFIFO).
+			Resource(testing.MakeResource(corev1.ResourceCPU).
+				Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Ceiling("10").Obj()).
+				Obj()).
+			Obj()
+		gomega.Expect(k8sClient.Create(ctx, prodBEClusterQ)).Should(gomega.Succeed())
+
+		devBEClusterQ = testing.MakeClusterQueue("dev-be-cq").
+			Cohort("be").QueueingStrategy(kueue.BestEffortFIFO).
+			Resource(testing.MakeResource(corev1.ResourceCPU).
+				Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Ceiling("10").Obj()).
+				Obj()).
+			Obj()
+		gomega.Expect(k8sClient.Create(ctx, devBEClusterQ)).Should(gomega.Succeed())
+
 		prodQueue = testing.MakeQueue("prod-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
 		gomega.Expect(k8sClient.Create(ctx, prodQueue)).Should(gomega.Succeed())
 
 		devQueue = testing.MakeQueue("dev-queue", ns.Name).ClusterQueue(devClusterQ.Name).Obj()
 		gomega.Expect(k8sClient.Create(ctx, devQueue)).Should(gomega.Succeed())
 
+		prodBEQueue = testing.MakeQueue("prod-be-queue", ns.Name).ClusterQueue(prodBEClusterQ.Name).Obj()
+		gomega.Expect(k8sClient.Create(ctx, prodBEQueue)).Should(gomega.Succeed())
+
+		devBEQueue = testing.MakeQueue("dev-be-queue", ns.Name).ClusterQueue(devBEClusterQ.Name).Obj()
+		gomega.Expect(k8sClient.Create(ctx, devBEQueue)).Should(gomega.Succeed())
 	})
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).ToNot(gomega.HaveOccurred())
 		gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, prodClusterQ)).ToNot(gomega.HaveOccurred())
 		gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, devClusterQ)).ToNot(gomega.HaveOccurred())
+		gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, prodBEClusterQ)).ToNot(gomega.HaveOccurred())
+		gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, devBEClusterQ)).ToNot(gomega.HaveOccurred())
 		gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, onDemandFlavor)).ToNot(gomega.HaveOccurred())
 		gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, spotTaintedFlavor)).ToNot(gomega.HaveOccurred())
 		gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, spotUntaintedFlavor)).ToNot(gomega.HaveOccurred())
@@ -164,10 +192,11 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		job1 := testing.MakeJob("on-demand-job1", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "5").Obj()
 		gomega.Expect(k8sClient.Create(ctx, job1)).Should(gomega.Succeed())
 		createdJob1 := &batchv1.Job{}
-		gomega.Eventually(func() bool {
+		gomega.Eventually(func() *bool {
 			lookupKey := types.NamespacedName{Name: job1.Name, Namespace: job1.Namespace}
-			return k8sClient.Get(ctx, lookupKey, createdJob1) == nil && !*createdJob1.Spec.Suspend
-		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob1)).Should(gomega.Succeed())
+			return createdJob1.Spec.Suspend
+		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
 		gomega.Expect(createdJob1.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 
 		// TODO(#8): uncomment the following once we have proper re-queueing.
@@ -227,10 +256,11 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		job1 := testing.MakeJob("no-affinity-job", ns.Name).Queue(devQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
 		gomega.Expect(k8sClient.Create(ctx, job1)).Should(gomega.Succeed())
 		createdJob1 := &batchv1.Job{}
-		gomega.Eventually(func() bool {
+		gomega.Eventually(func() *bool {
 			lookupKey := types.NamespacedName{Name: job1.Name, Namespace: job1.Namespace}
-			return k8sClient.Get(ctx, lookupKey, createdJob1) == nil && !*createdJob1.Spec.Suspend
-		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob1)).Should(gomega.Succeed())
+			return createdJob1.Spec.Suspend
+		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
 		gomega.Expect(createdJob1.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
 
 		ginkgo.By("checking a second job with affinity to on-demand")
@@ -337,5 +367,149 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: jobHighPriority.Name, Namespace: ns.Name}, createdJob2)).Should(gomega.Succeed())
 			return createdJob2.Spec.Suspend
 		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
+	})
+
+	ginkgo.It("Should re-enqueue by the delete event of workload belonging to the same ClusterQueue", func() {
+		job1 := testing.MakeJob("on-demand-job1", ns.Name).Queue(prodBEQueue.Name).Request(corev1.ResourceCPU, "8").Obj()
+		gomega.Expect(k8sClient.Create(ctx, job1)).Should(gomega.Succeed())
+
+		createdJob1 := &batchv1.Job{}
+		gomega.Eventually(func() *bool {
+			lookupKey := types.NamespacedName{Name: job1.Name, Namespace: job1.Namespace}
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob1)).Should(gomega.Succeed())
+			return createdJob1.Spec.Suspend
+		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
+		gomega.Expect(createdJob1.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
+
+		job2 := testing.MakeJob("on-demand-job2", ns.Name).Queue(prodBEQueue.Name).Request(corev1.ResourceCPU, "8").Obj()
+		gomega.Expect(k8sClient.Create(ctx, job2)).Should(gomega.Succeed())
+		createdJob2 := &batchv1.Job{}
+		gomega.Consistently(func() *bool {
+			lookupKey := types.NamespacedName{Name: job2.Name, Namespace: job2.Namespace}
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob2)).Should(gomega.Succeed())
+			return createdJob2.Spec.Suspend
+		}, framework.ConsistentDuration, framework.Interval).Should(gomega.Equal(pointer.Bool(true)))
+
+		job3 := testing.MakeJob("on-demand-job3", ns.Name).Queue(prodBEQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
+		gomega.Expect(k8sClient.Create(ctx, job3)).Should(gomega.Succeed())
+		createdJob3 := &batchv1.Job{}
+		gomega.Eventually(func() *bool {
+			lookupKey := types.NamespacedName{Name: job3.Name, Namespace: job3.Namespace}
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob3)).Should(gomega.Succeed())
+			return createdJob3.Spec.Suspend
+		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
+		gomega.Expect(createdJob3.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
+
+		ginkgo.By("deleting job1")
+		gomega.Expect(k8sClient.Delete(ctx, job1)).Should(gomega.Succeed())
+		// Simulated deletion of workload by ownerReference of job1.
+		gomega.Expect(k8sClient.Delete(ctx,
+			&kueue.QueuedWorkload{ObjectMeta: metav1.ObjectMeta{
+				Name:      job1.Name,
+				Namespace: job1.Namespace,
+			}})).Should(gomega.Succeed())
+		gomega.Eventually(func() *bool {
+			lookupKey := types.NamespacedName{Name: job2.Name, Namespace: job2.Namespace}
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob2)).Should(gomega.Succeed())
+			return createdJob2.Spec.Suspend
+		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
+
+		gomega.Expect(createdJob2.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
+	})
+
+	ginkgo.It("Should re-enqueue by the delete event of workload belonging to the same Cohort", func() {
+		job1 := testing.MakeJob("on-demand-job1", ns.Name).Queue(prodBEQueue.Name).Request(corev1.ResourceCPU, "8").Obj()
+		gomega.Expect(k8sClient.Create(ctx, job1)).Should(gomega.Succeed())
+
+		createdJob1 := &batchv1.Job{}
+		gomega.Eventually(func() *bool {
+			lookupKey := types.NamespacedName{Name: job1.Name, Namespace: job1.Namespace}
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob1)).Should(gomega.Succeed())
+			return createdJob1.Spec.Suspend
+		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
+		gomega.Expect(createdJob1.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
+
+		job2 := testing.MakeJob("on-demand-job2", ns.Name).Queue(devBEQueue.Name).Request(corev1.ResourceCPU, "8").Obj()
+		gomega.Expect(k8sClient.Create(ctx, job2)).Should(gomega.Succeed())
+		createdJob2 := &batchv1.Job{}
+		gomega.Consistently(func() *bool {
+			lookupKey := types.NamespacedName{Name: job2.Name, Namespace: job2.Namespace}
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob2)).Should(gomega.Succeed())
+			return createdJob2.Spec.Suspend
+		}, framework.ConsistentDuration, framework.Interval).Should(gomega.Equal(pointer.Bool(true)))
+
+		job3 := testing.MakeJob("on-demand-job3", ns.Name).Queue(prodBEQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
+		gomega.Expect(k8sClient.Create(ctx, job3)).Should(gomega.Succeed())
+		createdJob3 := &batchv1.Job{}
+		gomega.Eventually(func() *bool {
+			lookupKey := types.NamespacedName{Name: job3.Name, Namespace: job3.Namespace}
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob3)).Should(gomega.Succeed())
+			return createdJob3.Spec.Suspend
+		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
+		gomega.Expect(createdJob3.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
+
+		ginkgo.By("deleting job1")
+		gomega.Expect(k8sClient.Delete(ctx, job1, client.GracePeriodSeconds(-1))).Should(gomega.Succeed())
+		// Simulated deletion of workload by ownerReference of job1.
+		gomega.Expect(k8sClient.Delete(ctx,
+			&kueue.QueuedWorkload{ObjectMeta: metav1.ObjectMeta{
+				Name:      job1.Name,
+				Namespace: job1.Namespace,
+			}})).Should(gomega.Succeed())
+
+		gomega.Eventually(func() *bool {
+			lookupKey := types.NamespacedName{Name: job2.Name, Namespace: job2.Namespace}
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob2)).Should(gomega.Succeed())
+			return createdJob2.Spec.Suspend
+		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
+		gomega.Expect(createdJob2.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
+	})
+
+	ginkgo.It("Should re-enqueue by the updated event of ClusterQueue", func() {
+		job1 := testing.MakeJob("on-demand-job1", ns.Name).Queue(prodBEQueue.Name).Request(corev1.ResourceCPU, "8").Obj()
+		gomega.Expect(k8sClient.Create(ctx, job1)).Should(gomega.Succeed())
+
+		createdJob1 := &batchv1.Job{}
+		gomega.Eventually(func() *bool {
+			lookupKey := types.NamespacedName{Name: job1.Name, Namespace: job1.Namespace}
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob1)).Should(gomega.Succeed())
+			return createdJob1.Spec.Suspend
+		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
+		gomega.Expect(createdJob1.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
+
+		job2 := testing.MakeJob("on-demand-job2", ns.Name).Queue(devBEQueue.
+			Name).Request(corev1.ResourceCPU, "8").Obj()
+		gomega.Expect(k8sClient.Create(ctx, job2)).Should(gomega.Succeed())
+		createdJob2 := &batchv1.Job{}
+		gomega.Consistently(func() *bool {
+			lookupKey := types.NamespacedName{Name: job2.Name, Namespace: job2.Namespace}
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob2)).Should(gomega.Succeed())
+			return createdJob2.Spec.Suspend
+		}, framework.ConsistentDuration, framework.Interval).Should(gomega.Equal(pointer.Bool(true)))
+
+		job3 := testing.MakeJob("on-demand-job3", ns.Name).Queue(prodBEQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
+		gomega.Expect(k8sClient.Create(ctx, job3)).Should(gomega.Succeed())
+		createdJob3 := &batchv1.Job{}
+		gomega.Eventually(func() *bool {
+			lookupKey := types.NamespacedName{Name: job3.Name, Namespace: job3.Namespace}
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob3)).Should(gomega.Succeed())
+			return createdJob3.Spec.Suspend
+		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
+		gomega.Expect(createdJob3.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
+
+		ginkgo.By("updating ClusterQueue")
+		devCq := &kueue.ClusterQueue{}
+		gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: devBEClusterQ.Name}, devCq)).Should(gomega.Succeed())
+
+		updatedResource := testing.MakeResource(corev1.ResourceCPU).Flavor(testing.MakeFlavor(onDemandFlavor.Name, "13").Ceiling("13").Obj()).Obj()
+		devCq.Spec.RequestableResources = []kueue.Resource{*updatedResource}
+		gomega.Expect(k8sClient.Update(ctx, devCq)).Should(gomega.Succeed())
+
+		gomega.Eventually(func() *bool {
+			lookupKey := types.NamespacedName{Name: job2.Name, Namespace: job2.Namespace}
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob2)).Should(gomega.Succeed())
+			return createdJob2.Spec.Suspend
+		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
+		gomega.Expect(createdJob2.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 	})
 })

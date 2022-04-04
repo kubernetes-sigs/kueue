@@ -29,6 +29,8 @@ import (
 type ClusterQueue interface {
 	// Update updates the properties of this ClusterQueue.
 	Update(*kueue.ClusterQueue)
+	// Cohort returns the Cohort of this ClusterQueue.
+	Cohort() string
 
 	// AddFromQueue pushes all workloads belonging to this queue to
 	// the ClusterQueue. If at least one workload is added, returns true.
@@ -38,9 +40,6 @@ type ClusterQueue interface {
 	// the ClusterQueue.
 	DeleteFromQueue(*Queue)
 
-	// PushIfNotPresent pushes the workload to ClusterQueue.
-	// If the workload is already present, returns false. Otherwise returns true.
-	PushIfNotPresent(*workload.Info) bool
 	// PushOrUpdate pushes the workload to ClusterQueue.
 	// If the workload is already present, updates with the new one.
 	PushOrUpdate(*kueue.QueuedWorkload)
@@ -49,6 +48,17 @@ type ClusterQueue interface {
 	// Pop removes the head of the queue and returns it. It returns nil if the
 	// queue is empty.
 	Pop() *workload.Info
+
+	// AddInadmissibleIfNotPresent inserts a workload that could not be
+	// admitted back into the ClusterQueue. The implementation might choose to
+	// keep it in temporary placeholder stage where it doesn't compete with
+	// other workloads, until cluster events free up quota. The workload should
+	// not be reinserted if it's already in the ClusterQueue.
+	AddInadmissibleIfNotPresent(*workload.Info) bool
+	// QueueInadmissibleWorkloads moves all workloads put in temporary placeholder stage
+	// to the ClusterQueue. If at least one workload is moved,
+	// returns true. Otherwise returns false.
+	QueueInadmissibleWorkloads() bool
 
 	// Pending returns the number of pending workloads.
 	Pending() int32
@@ -62,7 +72,8 @@ type ClusterQueue interface {
 }
 
 var registry = map[kueue.QueueingStrategy]func(cq *kueue.ClusterQueue) (ClusterQueue, error){
-	StrictFIFO: newClusterQueueStrictFIFO,
+	StrictFIFO:     newClusterQueueStrictFIFO,
+	BestEffortFIFO: newClusterQueueBestEffortFIFO,
 }
 
 func newClusterQueue(cq *kueue.ClusterQueue) (ClusterQueue, error) {
