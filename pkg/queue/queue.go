@@ -67,6 +67,7 @@ func (q *Queue) AddIfNotPresent(w *workload.Info) bool {
 	return false
 }
 
+// TODO define a Heap pkg and construct if by NewHeap
 // heap.Interface implementation inspired by
 // https://github.com/kubernetes/kubernetes/blob/master/pkg/scheduler/internal/heap/heap.go
 

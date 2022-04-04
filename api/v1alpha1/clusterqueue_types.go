@@ -137,10 +137,15 @@ type ClusterQueueSpec struct {
 	// across the queues in this ClusterQueue. This field is immutable.
 	// Current Supported Strategies:
 	//
-	// - StrictFIFO: workloads are sorted strictly by creation time.
+	// - StrictFIFO: workloads are ordered strictly by creation time.
+	// Older workloads that can't be admitted will block admitting newer
+	// workloads even if they fit available quota.
+	// - BestEffortFIFO：workloads are ordered by creation time,
+	// however older workloads that can't be admitted will not block
+	// admitting newer workloads that fit existing quota.
 	//
 	// +kubebuilder:default=StrictFIFO
-	// +kubebuilder:validation:Enum=StrictFIFO
+	// +kubebuilder:validation:Enum=StrictFIFO;BestEffortFIFO
 	QueueingStrategy QueueingStrategy `json:"queueingStrategy,omitempty"`
 
 	// namespaceSelector defines which namespaces are allowed to submit workloads to
@@ -154,8 +159,15 @@ type ClusterQueueSpec struct {
 type QueueingStrategy string
 
 const (
-	// StrictFIFO means that workloads are sorted strictly by creation time.
+	// StrictFIFO means that workloads are ordered strictly by creation time.
+	// Older workloads that can't be admitted will block admitting newer
+	// workloads even if they fit available quota.
 	StrictFIFO QueueingStrategy = "StrictFIFO"
+
+	// BestEffortFIFO means that workloads are ordered by creation time,
+	// however older workloads that can't be admitted will not block
+	// admitting newer workloads that fit existing quota.
+	BestEffortFIFO QueueingStrategy = "BestEffortFIFO"
 )
 
 type Resource struct {

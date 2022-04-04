@@ -49,6 +49,9 @@ type Manager struct {
 	client        client.Client
 	clusterQueues map[string]ClusterQueue
 	queues        map[string]*Queue
+
+	// Key is cohort's name. Value is a set of associated ClusterQueue names.
+	cohorts map[string]sets.String
 }
 
 func NewManager(client client.Client) *Manager {
@@ -56,6 +59,7 @@ func NewManager(client client.Client) *Manager {
 		client:        client,
 		queues:        make(map[string]*Queue),
 		clusterQueues: make(map[string]ClusterQueue),
+		cohorts:       make(map[string]sets.String),
 	}
 	m.cond.L = &m.RWMutex
 	return m
@@ -76,6 +80,11 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 
 	m.clusterQueues[cq.Name] = cqImpl
 
+	cohort := cq.Spec.Cohort
+	if cohort != "" {
+		m.addCohort(cohort, cq.Name)
+	}
+
 	// Iterate through existing queues, as queues corresponding to this cluster
 	// queue might have been added earlier.
 	var queues kueue.QueueList
@@ -94,7 +103,9 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 			addedWorkloads = addedWorkloads || added
 		}
 	}
-	if addedWorkloads {
+
+	queued := m.queueAllInadmissibleWorkloadsInCohort(cqImpl)
+	if queued || addedWorkloads {
 		m.cond.Broadcast()
 	}
 	return nil
@@ -107,8 +118,20 @@ func (m *Manager) UpdateClusterQueue(cq *kueue.ClusterQueue) error {
 	if !ok {
 		return errClusterQueueDoesNotExist
 	}
+	oldCohort := cqImpl.Cohort()
+
 	// TODO(#8): recreate heap based on a change of queueing policy.
 	cqImpl.Update(cq)
+	newCohort := cqImpl.Cohort()
+	if oldCohort != newCohort {
+		m.updateCohort(oldCohort, newCohort, cq.Name)
+	}
+
+	// TODO(#8): Selectively move workloads based on the exact event.
+	if m.queueAllInadmissibleWorkloadsInCohort(cqImpl) {
+		m.cond.Broadcast()
+	}
+
 	return nil
 }
 
@@ -120,6 +143,11 @@ func (m *Manager) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 		return
 	}
 	delete(m.clusterQueues, cq.Name)
+
+	cohort := cq.Spec.Cohort
+	if cohort != "" {
+		m.deleteCohort(cohort, cq.Name)
+	}
 }
 
 func (m *Manager) AddQueue(ctx context.Context, q *kueue.Queue) error {
@@ -277,7 +305,8 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info) bool
 	if cq == nil {
 		return false
 	}
-	added := cq.PushIfNotPresent(info)
+
+	added := cq.AddInadmissibleIfNotPresent(info)
 	if added {
 		m.cond.Broadcast()
 	}
@@ -300,6 +329,53 @@ func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(w *kueue.QueuedWorkload
 	if cq != nil {
 		cq.Delete(w)
 	}
+}
+
+// QueueAssociatedInadmissibleWorkloads moves all associated workloads from
+// inadmissibleWorkloads to heap. If at least one workload is moved,
+// returns true. Otherwise returns false.
+func (m *Manager) QueueAssociatedInadmissibleWorkloads(w *kueue.QueuedWorkload) {
+	m.Lock()
+	defer m.Unlock()
+
+	q := m.queues[queueKeyForWorkload(w)]
+	if q == nil {
+		return
+	}
+
+	cq := m.clusterQueues[q.ClusterQueue]
+	if cq == nil {
+		return
+	}
+
+	if m.queueAllInadmissibleWorkloadsInCohort(cq) {
+		m.cond.Broadcast()
+	}
+}
+
+// queueAllInadmissibleWorkloadsInCohort moves all workloads in the same
+// cohort with this ClusterQueue from inadmissibleWorkloads to heap. If the
+// cohort of this ClusterQueue is empty, it just moves all workloads in this
+// ClusterQueue. If at least one workload is moved, returns true. Otherwise
+// returns false.
+// The events listed below could make workloads in the same cohort admissible.
+// Then queueAllInadmissibleWorkloadsInCohort need to be invoked.
+// 1. delete events for any admitted workload in the cohort.
+// 2. add events of any cluster queue in the cohort.
+// 3. update events of any cluster queue in the cohort.
+func (m *Manager) queueAllInadmissibleWorkloadsInCohort(cq ClusterQueue) bool {
+	cohort := cq.Cohort()
+	if cohort == "" {
+		return cq.QueueInadmissibleWorkloads()
+	}
+
+	queued := false
+	for cqName := range m.cohorts[cohort] {
+		if clusterQueue, ok := m.clusterQueues[cqName]; ok {
+			queued = clusterQueue.QueueInadmissibleWorkloads() || queued
+		}
+	}
+	return queued
 }
 
 // UpdateWorkload updates the workload to the corresponding queue or adds it if
@@ -376,6 +452,27 @@ func (m *Manager) heads() []workload.Info {
 		delete(q.items, workload.Key(wl.Obj))
 	}
 	return workloads
+}
+
+func (m *Manager) addCohort(cohort string, cqName string) {
+	if m.cohorts[cohort] == nil {
+		m.cohorts[cohort] = make(sets.String)
+	}
+	m.cohorts[cohort].Insert(cqName)
+}
+
+func (m *Manager) deleteCohort(cohort string, cqName string) {
+	if m.cohorts[cohort] != nil {
+		m.cohorts[cohort].Delete(cqName)
+		if len(m.cohorts[cohort]) == 0 {
+			delete(m.cohorts, cohort)
+		}
+	}
+}
+
+func (m *Manager) updateCohort(oldCohort string, newCohort string, cqName string) {
+	m.deleteCohort(oldCohort, cqName)
+	m.addCohort(newCohort, cqName)
 }
 
 func SetupIndexes(indexer client.FieldIndexer) error {

@@ -32,19 +32,25 @@ type ClusterQueueImpl struct {
 	// across the queues in this ClusterQueue.
 	QueueingStrategy kueue.QueueingStrategy
 
-	heap heapImpl
+	heap   heapImpl
+	cohort string
 }
 
 var _ ClusterQueue = &ClusterQueueImpl{}
 
 func (c *ClusterQueueImpl) Update(apiCQ *kueue.ClusterQueue) {
 	c.QueueingStrategy = apiCQ.Spec.QueueingStrategy
+	c.cohort = apiCQ.Spec.Cohort
+}
+
+func (c *ClusterQueueImpl) Cohort() string {
+	return c.cohort
 }
 
 func (c *ClusterQueueImpl) AddFromQueue(q *Queue) bool {
 	added := false
 	for _, w := range q.items {
-		if c.PushIfNotPresent(w) {
+		if c.pushIfNotPresent(w) {
 			added = true
 		}
 	}
@@ -57,7 +63,9 @@ func (c *ClusterQueueImpl) DeleteFromQueue(q *Queue) {
 	}
 }
 
-func (c *ClusterQueueImpl) PushIfNotPresent(info *workload.Info) bool {
+// pushIfNotPresent pushes the workload to ClusterQueue.
+// If the workload is already present, returns false. Otherwise returns true.
+func (c *ClusterQueueImpl) pushIfNotPresent(info *workload.Info) bool {
 	item := c.heap.items[workload.Key(info.Obj)]
 	if item != nil {
 		return false
@@ -82,6 +90,14 @@ func (c *ClusterQueueImpl) Delete(w *kueue.QueuedWorkload) {
 	if item != nil {
 		heap.Remove(&c.heap, item.index)
 	}
+}
+
+func (c *ClusterQueueImpl) AddInadmissibleIfNotPresent(wInfo *workload.Info) bool {
+	return c.pushIfNotPresent(wInfo)
+}
+
+func (c *ClusterQueueImpl) QueueInadmissibleWorkloads() bool {
+	return false
 }
 
 func (c *ClusterQueueImpl) Pop() *workload.Info {
