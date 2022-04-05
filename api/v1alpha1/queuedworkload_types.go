@@ -19,14 +19,10 @@ package v1alpha1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 // QueuedWorkloadSpec defines the desired state of QueuedWorkload
 type QueuedWorkloadSpec struct {
-	// workload that requested these resources.
-	Workload WorkloadReference `json:"workload"`
-
 	// pods is a list of sets of homogeneous pods, each described by a Pod spec
 	// and a count.
 	//
@@ -72,20 +68,6 @@ type PodSetFlavors struct {
 
 	// Flavors are the flavors assigned to the workload for each resource.
 	Flavors map[corev1.ResourceName]string `json:"flavors,omitempty"`
-}
-
-type WorkloadReference struct {
-	// apiVersion of the referent. It includes the API group, if applicable.
-	APIVersion string `json:"apiVersion,omitempty"`
-
-	// kind of the referent.
-	Kind string `json:"kind,omitempty"`
-
-	// name of the referent.
-	Name string `json:"name,omitempty"`
-
-	// uid of the referent.
-	UID types.UID `json:"uid,omitempty"`
 }
 
 type PodSet struct {
