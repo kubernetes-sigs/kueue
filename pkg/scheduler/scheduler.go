@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"sort"
 
 	"github.com/go-logr/logr"
@@ -43,7 +44,6 @@ import (
 )
 
 const (
-	workloadDidntFit   = "workload didn't fit"
 	errCouldNotAdmitWL = "Could not admit workload and assigning flavors in apiserver"
 )
 
@@ -167,13 +167,13 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		ns := corev1.Namespace{}
 		e := entry{Info: w}
 		if cq == nil {
-			e.noAdmissionReason = "ClusterQueue not found when calculating workload admission requirements"
+			e.noAdmissionReason = "ClusterQueue not found"
 		} else if err := s.client.Get(ctx, types.NamespacedName{Name: w.Obj.Namespace}, &ns); err != nil {
-			e.noAdmissionReason = err.Error()
+			e.noAdmissionReason = fmt.Sprintf("Could not obtain workload namespace: %v", err)
 		} else if !cq.NamespaceSelector.Matches(labels.Set(ns.Labels)) {
-			e.noAdmissionReason = "Workload namespace doesn't match clusterQueue selector"
+			e.noAdmissionReason = "Workload namespace doesn't match ClusterQueue selector"
 		} else if !e.assignFlavors(log, snap.ResourceFlavors, cq) {
-			e.noAdmissionReason = "Workload didn't fit remaining quota even when borrowing"
+			e.noAdmissionReason = "Workload didn't fit in the remaining quota"
 		} else {
 			e.admissible = true
 			log.V(3).Info("Nominated workload for admission")
