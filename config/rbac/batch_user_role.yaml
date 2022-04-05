@@ -1,0 +1,9 @@
+# permissions for end users to run jobs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: batch-user-role
+aggregationRule:
+  clusterRoleSelectors:
+  - matchLabels:
+      rbac.kueue.x-k8s.io/batch-user: "true"
