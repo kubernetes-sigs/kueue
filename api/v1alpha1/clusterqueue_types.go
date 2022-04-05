@@ -144,7 +144,7 @@ type ClusterQueueSpec struct {
 	// however older workloads that can't be admitted will not block
 	// admitting newer workloads that fit existing quota.
 	//
-	// +kubebuilder:default=StrictFIFO
+	// +kubebuilder:default=BestEffortFIFO
 	// +kubebuilder:validation:Enum=StrictFIFO;BestEffortFIFO
 	QueueingStrategy QueueingStrategy `json:"queueingStrategy,omitempty"`
 
