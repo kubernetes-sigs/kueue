@@ -152,7 +152,7 @@ spec:
                     type: object
                 type: object
               queueingStrategy:
-                default: StrictFIFO
+                default: BestEffortFIFO
                 description: "QueueingStrategy indicates the queueing strategy of
                   the workloads across the queues in this ClusterQueue. This field
                   is immutable. Current Supported Strategies: \n - StrictFIFO: workloads
