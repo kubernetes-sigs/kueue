@@ -102,21 +102,28 @@ func (s *Scheduler) schedule(ctx context.Context) {
 	// head got admitted that should be scheduled in the cohort before the heads
 	// of other clusterQueues.
 	usedCohorts := sets.NewString()
-	admittedWorkloads := sets.NewString()
-	for _, e := range entries {
+	for i := range entries {
+		e := &entries[i]
+		if !e.admissible {
+			continue
+		}
 		c := snapshot.ClusterQueues[e.ClusterQueue]
 		if len(e.borrows) > 0 && c.Cohort != nil && usedCohorts.Has(c.Cohort.Name) {
+			e.admissible = false
+			// TODO(): we shouldn't emit an event or update the workload condition in this
+			// case, just re-queue directly.
+			e.noAdmissionReason = "cohort used in this cycle"
 			continue
 		}
 		log := log.WithValues("queuedWorkload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue))
-		if err := s.admit(ctrl.LoggerInto(ctx, log), &e); err != nil {
+		if err := s.admit(ctrl.LoggerInto(ctx, log), e); err != nil {
 			log.Error(err, "Failed admitting workload by clusterQueue")
+			e.admissible = false
+			e.noAdmissionReason = err.Error()
 			err := workload.UpdateWorkloadStatus(ctx, s.client, e.Obj, kueue.QueuedWorkloadAdmitted, corev1.ConditionFalse, "Pending", err.Error())
 			if err != nil {
 				log.Error(err, "Updating QueuedWorkload status")
 			}
-		} else {
-			admittedWorkloads.Insert(workload.Key(e.Obj))
 		}
 		// Even if there was a failure, we shouldn't admit other workloads to this
 		// cohort.
@@ -126,12 +133,12 @@ func (s *Scheduler) schedule(ctx context.Context) {
 	}
 
 	// 6. Requeue the heads that were not scheduled.
-	for _, w := range headWorkloads {
-		if admittedWorkloads.Has(workload.Key(w.Obj)) {
+	for _, e := range entries {
+		if e.admissible {
 			continue
 		}
-		s.requeueAndUpdate(log, ctx, &w, workloadDidntFit)
-		s.recorder.Eventf(w.Obj, corev1.EventTypeNormal, "Pending", workloadDidntFit)
+		s.requeueAndUpdate(log, ctx, &e.Info, e.noAdmissionReason)
+		s.recorder.Eventf(e.Obj, corev1.EventTypeNormal, "Pending", e.noAdmissionReason)
 	}
 }
 
@@ -143,6 +150,10 @@ type entry struct {
 	// borrows is the resources that the workload would need to borrow from the
 	// cohort if it was scheduled in the clusterQueue.
 	borrows cache.Resources
+	// indicates if the workload is admissible
+	admissible bool
+	// the reason if the workload wasn't admitted
+	noAdmissionReason string
 }
 
 // nominate returns the workloads with their requirements (resource flavors, borrowing) if
@@ -153,25 +164,20 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 	for _, w := range workloads {
 		log := log.WithValues("queuedWorkload", klog.KObj(w.Obj), "clusterQueue", klog.KRef("", w.ClusterQueue))
 		cq := snap.ClusterQueues[w.ClusterQueue]
-		if cq == nil {
-			log.V(3).Info("ClusterQueue not found when calculating workload admission requirements")
-			continue
-		}
 		ns := corev1.Namespace{}
-		if err := s.client.Get(ctx, types.NamespacedName{Name: w.Obj.Namespace}, &ns); err != nil {
-			log.Error(err, "Looking up namespace")
-			continue
-		}
-		if !cq.NamespaceSelector.Matches(labels.Set(ns.Labels)) {
-			log.V(2).Info("Workload namespace doesn't match clusterQueue selector")
-			continue
-		}
 		e := entry{Info: w}
-		if !e.assignFlavors(log, snap.ResourceFlavors, cq) {
-			log.V(2).Info("Workload didn't fit in remaining clusterQueue even when borrowing")
-			continue
+		if cq == nil {
+			e.noAdmissionReason = "ClusterQueue not found when calculating workload admission requirements"
+		} else if err := s.client.Get(ctx, types.NamespacedName{Name: w.Obj.Namespace}, &ns); err != nil {
+			e.noAdmissionReason = err.Error()
+		} else if !cq.NamespaceSelector.Matches(labels.Set(ns.Labels)) {
+			e.noAdmissionReason = "Workload namespace doesn't match clusterQueue selector"
+		} else if !e.assignFlavors(log, snap.ResourceFlavors, cq) {
+			e.noAdmissionReason = "Workload didn't fit remaining quota even when borrowing"
+		} else {
+			e.admissible = true
+			log.V(3).Info("Nominated workload for admission")
 		}
-		log.V(3).Info("Nominated workload for admission")
 		entries = append(entries, e)
 	}
 	return entries
