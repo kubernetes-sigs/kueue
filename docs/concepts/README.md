@@ -20,7 +20,7 @@ single tenant.
 An application that will run to completion. It is the unit of _admission_ in
 Kueue. Sometimes referred to as _job_.
 
-### [Resource Flavor](cluster_queue.md#resource-flavors)
+### [Resource Flavor](cluster_queue.md#resource-flavor)
 
 A kind or type of resource in a cluster. It could distinguish among different
 characteristics of resources such as availability, pricing, architecture,
