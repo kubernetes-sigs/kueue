@@ -8,6 +8,8 @@ personas such as _batch administrators_ and _batch users_.
 A _batch administrator_ manages the cluster infrastructure and establishes
 quotas and queues.
 
+- As a batch administrator, you can learn how to [setup role-based access control](manage_rbac.md)
+  to Kueue objects.
 - As a batch administrator, you can learn how to
   [administer cluster quotas](administer_cluster_quotas.md) with Queues and
   ClusterQueues.
