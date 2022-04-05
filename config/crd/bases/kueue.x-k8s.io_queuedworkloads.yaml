@@ -7333,26 +7333,8 @@ spec:
                 description: queueName is the name of the queue the QueuedWorkload
                   is associated with.
                 type: string
-              workload:
-                description: workload that requested these resources.
-                properties:
-                  apiVersion:
-                    description: apiVersion of the referent. It includes the API group,
-                      if applicable.
-                    type: string
-                  kind:
-                    description: kind of the referent.
-                    type: string
-                  name:
-                    description: name of the referent.
-                    type: string
-                  uid:
-                    description: uid of the referent.
-                    type: string
-                type: object
             required:
             - queueName
-            - workload
             type: object
           status:
             description: QueuedWorkloadStatus defines the observed state of QueuedWorkload
