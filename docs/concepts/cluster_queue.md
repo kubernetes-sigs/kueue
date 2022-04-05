@@ -81,7 +81,12 @@ taints:
   value: "true"
 ```
 
-You can use the `.metadata.name` to reference a flavor from a ClusterQueue.
+You can use the `.metadata.name` to reference a flavor from a ClusterQueue in
+the `.spec.requestableResources[*].flavors[*].resourceFlavor` field.
+
+For each resource of each [pod set](queued_workload.md#pod-sets) in a
+QueuedWorkload, Kueue assigns the first flavor in the `.spec.requestableResources[*].resources.flavors`
+list that has enough unused quota.
 
 ### ResourceFlavor labels
 
