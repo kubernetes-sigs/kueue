@@ -53,6 +53,25 @@ namespaceSelector:
     - team-a
 ```
 
+## Queueing strategy
+
+You can set different queueing strategies in a ClusterQueue using the
+`.spec.queueingStrategy` field. The queueing strategy determines how workloads
+are ordered in the ClusterQueue and how they are re-queued after an unsuccessful
+[admission](.#admission) attempt.
+
+The following are the supported queueing strategies:
+
+- `StrictFIFO`: Workloads are ordered first by [priority](queued_workload.md#priority)
+  and then by `.metadata.creationTimestamp`. Older workloads that can't be
+  admitted will block newer workloads, even if the newer workloads fit in the
+  available quota.
+- `BestEffortFIFO`: Workloads are ordered the same way as `StrictFIFO`. However,
+  older workloads that can't be admitted will not block newer workloads that
+  fit in the available quota.
+
+The default queueing strategy is `BestEffortFIFO`.
+
 ## ResourceFlavor object
 
 Resources in a cluster are typically not homogeneous. Resources could differ in:
