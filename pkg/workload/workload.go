@@ -159,9 +159,9 @@ func max(v1, v2 int64) int64 {
 	return v2
 }
 
-// getWorkloadCondition extracts the provided condition from the given status and returns that.
-// Returns -1 if the condition is not present, and the index of the located condition.
-func getWorkloadCondition(status *kueue.QueuedWorkloadStatus, conditionType kueue.QueuedWorkloadConditionType) int {
+// FindConditionIndex finds the provided condition from the given status and returns the index.
+// Returns -1 if the condition is not present.
+func FindConditionIndex(status *kueue.QueuedWorkloadStatus, conditionType kueue.QueuedWorkloadConditionType) int {
 	if status == nil {
 		return -1
 	}
@@ -176,14 +176,14 @@ func getWorkloadCondition(status *kueue.QueuedWorkloadStatus, conditionType kueu
 	return -1
 }
 
-// UpdateWorkloadStatus is a wrapper to update the condition of a workload
-func UpdateWorkloadStatus(ctx context.Context,
+// UpdateStatus updates the condition of a workload.
+func UpdateStatus(ctx context.Context,
 	c client.Client,
 	wl *kueue.QueuedWorkload,
 	conditionType kueue.QueuedWorkloadConditionType,
 	conditionStatus corev1.ConditionStatus,
 	reason, message string) error {
-	conditionIndex := getWorkloadCondition(&wl.Status, conditionType)
+	conditionIndex := FindConditionIndex(&wl.Status, conditionType)
 
 	now := metav1.Now()
 	condition := kueue.QueuedWorkloadCondition{
@@ -213,10 +213,10 @@ func UpdateWorkloadStatusIfChanged(ctx context.Context,
 	conditionType kueue.QueuedWorkloadConditionType,
 	conditionStatus corev1.ConditionStatus,
 	reason, message string) error {
-	i := getWorkloadCondition(&wl.Status, conditionType)
+	i := FindConditionIndex(&wl.Status, conditionType)
 	if i == -1 {
 		// We are adding new pod condition.
-		return UpdateWorkloadStatus(ctx, c, wl, conditionType, conditionStatus, reason, message)
+		return UpdateStatus(ctx, c, wl, conditionType, conditionStatus, reason, message)
 	}
 	if wl.Status.Conditions[i].Status == conditionStatus && wl.Status.Conditions[i].Type == conditionType &&
 		wl.Status.Conditions[i].Reason == reason && wl.Status.Conditions[i].Message == message {
@@ -224,5 +224,5 @@ func UpdateWorkloadStatusIfChanged(ctx context.Context,
 		return nil
 	}
 	// Updating an existing condition
-	return UpdateWorkloadStatus(ctx, c, wl, conditionType, conditionStatus, reason, message)
+	return UpdateStatus(ctx, c, wl, conditionType, conditionStatus, reason, message)
 }

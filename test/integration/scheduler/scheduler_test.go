@@ -512,4 +512,30 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
 		gomega.Expect(createdJob2.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 	})
+
+	ginkgo.It("Should admit two small workloads after a big one finishes", func() {
+		bigWl := testing.MakeQueuedWorkload("big-wl", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "5").Obj()
+		ginkgo.By("Creating big workload")
+		gomega.Expect(k8sClient.Create(ctx, bigWl)).Should(gomega.Succeed())
+
+		framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, bigWl)
+
+		smallWl1 := testing.MakeQueuedWorkload("small-wl-1", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "2.5").Obj()
+		smallWl2 := testing.MakeQueuedWorkload("small-wl-2", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "2.5").Obj()
+		ginkgo.By("Creating two small workloads")
+		gomega.Expect(k8sClient.Create(ctx, smallWl1)).Should(gomega.Succeed())
+		gomega.Expect(k8sClient.Create(ctx, smallWl2)).Should(gomega.Succeed())
+
+		framework.ExpectWorkloadsToBePending(ctx, k8sClient, smallWl1, smallWl2)
+
+		ginkgo.By("Marking the big workload as finished")
+		framework.UpdateWorkloadStatus(ctx, k8sClient, bigWl, func(wl *kueue.QueuedWorkload) {
+			wl.Status.Conditions = append(wl.Status.Conditions, kueue.QueuedWorkloadCondition{
+				Type:   kueue.QueuedWorkloadFinished,
+				Status: corev1.ConditionTrue,
+			})
+		})
+
+		framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, smallWl1, smallWl2)
+	})
 })
