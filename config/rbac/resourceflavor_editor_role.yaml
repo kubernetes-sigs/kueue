@@ -3,6 +3,8 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: resourceflavor-editor-role
+  labels:
+    rbac.kueue.x-k8s.io/batch-admin: "true"
 rules:
 - apiGroups:
   - kueue.x-k8s.io
@@ -16,9 +18,3 @@ rules:
   - patch
   - update
   - watch
-- apiGroups:
-  - kueue.x-k8s.io
-  resources:
-  - resourceflavors/status
-  verbs:
-  - get

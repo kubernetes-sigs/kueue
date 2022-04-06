@@ -1,23 +1,27 @@
-# permissions for end users to view queues.
+# permissions for end users to edit jobs.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: queue-viewer-role
+  name: job-editor-role
   labels:
     rbac.kueue.x-k8s.io/batch-admin: "true"
     rbac.kueue.x-k8s.io/batch-user: "true"
 rules:
 - apiGroups:
-  - kueue.x-k8s.io
+  - batch
   resources:
-  - queues
+  - jobs
   verbs:
+  - create
+  - delete
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
-  - kueue.x-k8s.io
+  - batch
   resources:
-  - queues/status
+  - jobs/status
   verbs:
   - get

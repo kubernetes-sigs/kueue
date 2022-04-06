@@ -16,3 +16,16 @@ resources:
 - auth_proxy_role.yaml
 - auth_proxy_role_binding.yaml
 - auth_proxy_client_clusterrole.yaml
+# ClusterRoles for Kueue APIs
+- batch_admin_role.yaml
+- batch_user_role.yaml
+- clusterqueue_editor_role.yaml
+- clusterqueue_viewer_role.yaml
+- job_editor_role.yaml
+- job_viewer_role.yaml
+- queue_editor_role.yaml
+- queue_viewer_role.yaml
+- queuedworkload_editor_role.yaml
+- queuedworkload_viewer_role.yaml
+- resourceflavor_editor_role.yaml
+- resourceflavor_viewer_role.yaml
