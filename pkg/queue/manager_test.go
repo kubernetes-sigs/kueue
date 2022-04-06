@@ -378,6 +378,17 @@ func TestRequeueWorkload(t *testing.T) {
 			inClient: true,
 			inQueue:  true,
 		},
+		{
+			workload: &kueue.QueuedWorkload{
+				ObjectMeta: metav1.ObjectMeta{Name: "already_admitted"},
+				Spec: kueue.QueuedWorkloadSpec{
+					QueueName: "foo",
+					Admission: &kueue.Admission{},
+				},
+			},
+			inClient: true,
+			inQueue:  true,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.workload.Name, func(t *testing.T) {

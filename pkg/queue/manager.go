@@ -282,8 +282,8 @@ func (m *Manager) addOrUpdateWorkload(w *kueue.QueuedWorkload) bool {
 }
 
 // RequeueWorkload requeues the workload ensuring that the queue and the
-// workload still exist in the client cache. It won't requeue if the workload
-// is already in the queue (possible if the workload was updated).
+// workload still exist in the client cache and it's not admitted. It won't
+// requeue if the workload is already in the queue (possible if the workload was updated).
 func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info) bool {
 	m.Lock()
 	defer m.Unlock()
@@ -296,7 +296,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info) bool
 	var w kueue.QueuedWorkload
 	err := m.client.Get(ctx, client.ObjectKeyFromObject(info.Obj), &w)
 	// Since the client is cached, the only possible error is NotFound
-	if apierrors.IsNotFound(err) {
+	if apierrors.IsNotFound(err) || w.Spec.Admission != nil {
 		return false
 	}
 
