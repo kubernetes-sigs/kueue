@@ -71,7 +71,8 @@ var _ = ginkgo.Describe("Job controller", func() {
 			err := k8sClient.Get(ctx, lookupKey, createdWorkload)
 			return err == nil
 		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
-		gomega.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(""))
+		gomega.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(""), "The QueuedWorkload shouldn't have .spec.queueName set")
+		gomega.Expect(metav1.IsControlledBy(createdWorkload, job)).To(gomega.BeTrue(), "The QueuedWorkload should be owned by the Job")
 
 		ginkgo.By("checking the workload is created with priority and priorityName")
 		gomega.Expect(createdWorkload.Spec.PriorityClassName).Should(gomega.Equal(priorityClassName))
