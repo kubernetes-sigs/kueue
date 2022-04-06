@@ -256,7 +256,7 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 			workload.Status = tc.oldStatus
 			cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(workload).Build()
 			ctx := context.Background()
-			err := UpdateWorkloadStatus(ctx, cl, workload, tc.condType, tc.condStatus, tc.reason, tc.message)
+			err := UpdateStatus(ctx, cl, workload, tc.condType, tc.condStatus, tc.reason, tc.message)
 			if err != nil {
 				t.Fatalf("Failed updating status: %v", err)
 			}

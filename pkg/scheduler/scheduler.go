@@ -120,7 +120,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			log.Error(err, "Failed admitting workload by clusterQueue")
 			e.admissible = false
 			e.noAdmissionReason = err.Error()
-			err := workload.UpdateWorkloadStatus(ctx, s.client, e.Obj, kueue.QueuedWorkloadAdmitted, corev1.ConditionFalse, "Pending", err.Error())
+			err := workload.UpdateStatus(ctx, s.client, e.Obj, kueue.QueuedWorkloadAdmitted, corev1.ConditionFalse, "Pending", err.Error())
 			if err != nil {
 				log.Error(err, "Updating QueuedWorkload status")
 			}
@@ -413,7 +413,7 @@ func (e entryOrdering) Less(i, j int) bool {
 func (s *Scheduler) requeueAndUpdate(log logr.Logger, ctx context.Context, w *workload.Info, message string) {
 	added := s.queues.RequeueWorkload(ctx, w)
 	log.V(2).Info("Workload re-queued", "queuedWorkload", klog.KObj(w.Obj), "queue", klog.KRef(w.Obj.Namespace, w.Obj.Spec.QueueName), "added", added)
-	err := workload.UpdateWorkloadStatus(ctx, s.client, w.Obj, kueue.QueuedWorkloadAdmitted, corev1.ConditionFalse, "Pending", message)
+	err := workload.UpdateStatus(ctx, s.client, w.Obj, kueue.QueuedWorkloadAdmitted, corev1.ConditionFalse, "Pending", message)
 	if err != nil {
 		log.Error(err, "Could not update QueuedWorkload status")
 	}

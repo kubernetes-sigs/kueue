@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/kueue/pkg/workload"
 
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
 	//+kubebuilder:scaffold:imports
@@ -131,4 +132,46 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 		return err
 	}
 	return nil
+}
+
+func ExpectWorkloadsToBeAdmitted(ctx context.Context, k8sClient client.Client, cqName string, wls ...*kueue.QueuedWorkload) {
+	gomega.EventuallyWithOffset(1, func() int {
+		admitted := 0
+		var updatedWorkload kueue.QueuedWorkload
+		for _, wl := range wls {
+			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
+			if updatedWorkload.Spec.Admission != nil && string(updatedWorkload.Spec.Admission.ClusterQueue) == cqName {
+				admitted++
+			}
+		}
+		return admitted
+	}).Should(gomega.Equal(len(wls)), "Not enough workloads were admitted")
+}
+
+func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wls ...*kueue.QueuedWorkload) {
+	gomega.EventuallyWithOffset(1, func() int {
+		pending := 0
+		var updatedWorkload kueue.QueuedWorkload
+		for _, wl := range wls {
+			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
+			idx := workload.FindConditionIndex(&updatedWorkload.Status, kueue.QueuedWorkloadAdmitted)
+			if idx == -1 {
+				continue
+			}
+			cond := updatedWorkload.Status.Conditions[idx]
+			if cond.Status == corev1.ConditionFalse && cond.Reason == "Pending" && wl.Spec.Admission == nil {
+				pending++
+			}
+		}
+		return pending
+	}).Should(gomega.Equal(len(wls)), "Not enough workloads are pending")
+}
+
+func UpdateWorkloadStatus(ctx context.Context, k8sClient client.Client, wl *kueue.QueuedWorkload, update func(*kueue.QueuedWorkload)) {
+	gomega.EventuallyWithOffset(1, func() error {
+		var updatedWl kueue.QueuedWorkload
+		gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+		update(&updatedWl)
+		return k8sClient.Status().Update(ctx, &updatedWl)
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
