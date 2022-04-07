@@ -6,7 +6,7 @@ coupled, that, as a whole, complete a task. A workload is the unit of [admission
 in Kueue.
 
 The prototypical workload can be represented with a
-[Kubernetes `v1/batch.Job`](https://kubernetes.io/docs/concepts/workloads/controllers/job/).
+[Kubernetes `batch/v1.Job`](https://kubernetes.io/docs/concepts/workloads/controllers/job/).
 For this reason, we sometimes use the word _job_ to refer to any workload, and
 `Job` when we refer specifically to the Kubernetes API.
 
@@ -51,6 +51,15 @@ the following fields:
 - `count` is the number of pods that use the same `spec`.
 - `name` is a human-readable identifier for the group of pods. You can use the
   role of the Pods in the workload, like `driver`, `worker`, `parameter-server`, etc.
+
+## Priority
+
+QueuedWorkloads have a priority that influences the [order in which they are admitted by a ClusterQueue](cluster_queue.md#queueing-strategy).
+You can see the priority of the QueuedWorkload in the field `.spec.priority`.
+
+For a `batch/v1.Job`, Kueue sets the priority of the QueuedWorkload based on the
+[pod priority](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/)
+of the Job's pod template.
 
 ## Custom workloads
 
