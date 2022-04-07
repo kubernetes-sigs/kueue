@@ -104,22 +104,23 @@ func (s *Scheduler) schedule(ctx context.Context) {
 	usedCohorts := sets.NewString()
 	for i := range entries {
 		e := &entries[i]
-		if !e.admissible {
+		if e.status != nominated {
 			continue
 		}
 		c := snapshot.ClusterQueues[e.ClusterQueue]
 		if len(e.borrows) > 0 && c.Cohort != nil && usedCohorts.Has(c.Cohort.Name) {
-			e.admissible = false
 			// TODO(): we shouldn't emit an event or update the workload condition in this
 			// case, just re-queue directly.
-			e.noAdmissionReason = "cohort used in this cycle"
+			e.status = skipped
+			e.inadmissibleReason = "cohort used in this cycle"
 			continue
 		}
 		log := log.WithValues("queuedWorkload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue))
-		if err := s.admit(ctrl.LoggerInto(ctx, log), e); err != nil {
-			log.Error(err, "Failed admitting workload by clusterQueue")
-			e.admissible = false
-			e.noAdmissionReason = err.Error()
+		if err := s.admit(ctrl.LoggerInto(ctx, log), e); err == nil {
+			e.status = assumed
+		} else {
+			log.Error(err, "Failed to admit workload")
+			e.inadmissibleReason = fmt.Sprintf("Failed to admit workload: %v", err)
 			err := workload.UpdateStatus(ctx, s.client, e.Obj, kueue.QueuedWorkloadAdmitted, corev1.ConditionFalse, "Pending", err.Error())
 			if err != nil {
 				log.Error(err, "Updating QueuedWorkload status")
@@ -134,13 +135,25 @@ func (s *Scheduler) schedule(ctx context.Context) {
 
 	// 6. Requeue the heads that were not scheduled.
 	for _, e := range entries {
-		if e.admissible {
-			continue
+		log := log.WithValues("queuedWorkload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue))
+		log.V(3).Info("Workload evaluated for admission", "status", e.status, "reason", e.inadmissibleReason)
+		if e.status != assumed {
+			s.requeueAndUpdate(log, ctx, &e.Info, e.inadmissibleReason)
+			s.recorder.Eventf(e.Obj, corev1.EventTypeNormal, "Pending", e.inadmissibleReason)
 		}
-		s.requeueAndUpdate(log, ctx, &e.Info, e.noAdmissionReason)
-		s.recorder.Eventf(e.Obj, corev1.EventTypeNormal, "Pending", e.noAdmissionReason)
 	}
 }
+
+type entryStatus string
+
+const (
+	// indicates if the workload was nominated for admission.
+	nominated entryStatus = "nominated"
+	// indicates if the workload was nominated but skipped in this cycle.
+	skipped entryStatus = "skipped"
+	// indicates if the workload was assumed to have been admitted.
+	assumed entryStatus = "assumed"
+)
 
 // entry holds requirements for a workload to be admitted by a clusterQueue.
 type entry struct {
@@ -149,11 +162,9 @@ type entry struct {
 	workload.Info
 	// borrows is the resources that the workload would need to borrow from the
 	// cohort if it was scheduled in the clusterQueue.
-	borrows cache.Resources
-	// indicates if the workload is admissible
-	admissible bool
-	// the reason if the workload wasn't admitted
-	noAdmissionReason string
+	borrows            cache.Resources
+	status             entryStatus
+	inadmissibleReason string
 }
 
 // nominate returns the workloads with their requirements (resource flavors, borrowing) if
@@ -167,16 +178,15 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		ns := corev1.Namespace{}
 		e := entry{Info: w}
 		if cq == nil {
-			e.noAdmissionReason = "ClusterQueue not found"
+			e.inadmissibleReason = "ClusterQueue not found"
 		} else if err := s.client.Get(ctx, types.NamespacedName{Name: w.Obj.Namespace}, &ns); err != nil {
-			e.noAdmissionReason = fmt.Sprintf("Could not obtain workload namespace: %v", err)
+			e.inadmissibleReason = fmt.Sprintf("Could not obtain workload namespace: %v", err)
 		} else if !cq.NamespaceSelector.Matches(labels.Set(ns.Labels)) {
-			e.noAdmissionReason = "Workload namespace doesn't match ClusterQueue selector"
+			e.inadmissibleReason = "Workload namespace doesn't match ClusterQueue selector"
 		} else if !e.assignFlavors(log, snap.ResourceFlavors, cq) {
-			e.noAdmissionReason = "Workload didn't fit in the remaining quota"
+			e.inadmissibleReason = "Workload didn't fit in the remaining quota"
 		} else {
-			e.admissible = true
-			log.V(3).Info("Nominated workload for admission")
+			e.status = nominated
 		}
 		entries = append(entries, e)
 	}
