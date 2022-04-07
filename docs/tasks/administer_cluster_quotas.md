@@ -210,6 +210,171 @@ To create the ClusterQueue, run the following command:
 kubectl apply -f cluster-total.yaml
 ```
 
+## Multiple ClusterQueues and borrowing cohorts
+
+Two or more ClusterQueues can borrow unused quota from other ClusterQueues in
+the same [cohort](/docs/concepts/cluster_queue.md#cohort).
+
+Using the following example, you can establish a cohort `team-ab` that includes
+ClusterQueues `team-a-cq` and `team-b-cq`.
+
+```yaml
+# team-a-cq.yaml
+apiVersion: kueue.x-k8s.io/v1alpha1
+kind: ClusterQueue
+metadata:
+  name: team-a-cq
+spec:
+  namespaceSelector: {}
+  cohort: team-ab
+  requestableResources:
+  - name: "cpu"
+    flavors:
+    - resourceFlavor: default
+      quota:
+        guaranteed: 9
+        ceiling: 15
+  - name: "memory"
+    flavors:
+    - resourceFlavor: default
+      quota:
+        guaranteed: 36Gi
+        ceiling: 60Gi
+```
+
+```yaml
+# team-b-cq.yaml
+apiVersion: kueue.x-k8s.io/v1alpha1
+kind: ClusterQueue
+metadata:
+  name: team-b-cq
+spec:
+  namespaceSelector: {}
+  cohort: team-ab
+  requestableResources:
+  - name: "cpu"
+    flavors:
+    - resourceFlavor: default
+      quota:
+        guaranteed: 12
+  - name: "memory"
+    flavors:
+    - resourceFlavor: default
+      quota:
+        guaranteed: 48Gi
+```
+
+Note that the ClusterQueue `team-a-cq` also defines [ceilings](/docs/concepts/cluster_queue.md#ceilings).
+This restricts the ability of the ClusterQueue to borrow the unused quota from
+the cohort up to the configured ceiling, even if the quota is completely unused.
+
+To create these ClusterQueues, save the preceding manifests and run the
+following command:
+
+```shell
+kubectl apply -f team-a-cq.yaml -f team-b-cq.yaml
+```
+
+## Multiple ClusterQueue with dedicated and fallback flavors
+
+A ClusterQueue can borrow resources from the [cohort](/docs/concepts/cluster_queue.md#cohort)
+even if the ClusterQueue has zero guaranteed quota for a flavor. This allows you
+to give dedicated quota for a flavor and fallback to quota for a different
+flavor, shared with other tenants.
+
+Such setup can be accomplished with a ClusterQueue for each tenant and an extra
+ClusterQueue for the shared resources. For example, the manifests for two
+tenants look like the following:
+
+```yaml
+# team-a-cq.yaml
+apiVersion: kueue.x-k8s.io/v1alpha1
+kind: ClusterQueue
+metadata:
+  name: team-a-cq
+spec:
+  namespaceSelector: {}
+  cohort: team-ab
+  requestableResources:
+  - name: "cpu"
+    flavors:
+    - resourceFlavor: arm
+      quota:
+        guaranteed: 9
+        ceiling: 9
+    - resourceFlavor: x86
+      quota:
+        guaranteed: 0
+  - name: "memory"
+    flavors:
+    - resourceFlavor: default
+      quota:
+        guaranteed: 36Gi
+```
+
+```yaml
+# team-b-cq.yaml
+apiVersion: kueue.x-k8s.io/v1alpha1
+kind: ClusterQueue
+metadata:
+  name: team-b-cq
+spec:
+  namespaceSelector: {}
+  cohort: team-ab
+  requestableResources:
+  - name: "cpu"
+    flavors:
+    - resourceFlavor: arm
+      quota:
+        guaranteed: 12
+    - resourceFlavor: x86
+      quota:
+        guaranteed: 0
+  - name: "memory"
+    flavors:
+    - resourceFlavor: default
+      quota:
+        guaranteed: 48Gi
+```
+
+```yaml
+# shared-cq.yaml
+apiVersion: kueue.x-k8s.io/v1alpha1
+kind: ClusterQueue
+metadata:
+  name: shared-cq
+spec:
+  namespaceSelector: {}
+  cohort: team-ab
+  requestableResources:
+  - name: "cpu"
+    flavors:
+    - resourceFlavor: x86
+      quota:
+        guaranteed: 6
+  - name: "memory"
+    flavors:
+    - resourceFlavor: default
+      quota:
+        guaranteed: 24Gi
+```
+
+Note the following setup:
+
+- `team-a-cq` and `team-b-cq` define a `ceiling` equal to their `guaranteed`
+  quota for the `arm` flavor. Therefore, they can't borrow this flavor from each
+  other.
+- `team-a-cq` and `team-b-cq` define `guaranteed: 0` for the `x86` flavor.
+  Therefore, they don't have any dedicated quota for the flavor and they can
+  only borrow it from `shared-cq`.
+
+To create these ClusterQueues, save the preceding manifests and run the
+following command:
+
+```shell
+kubectl apply -f team-a-cq.yaml -f team-b-cq.yaml -f shared-cq.yaml
+```
+
 ## What's next?
 
 - Learn how to [run jobs](run_jobs.md).
