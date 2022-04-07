@@ -94,9 +94,9 @@ type ClusterQueue struct {
 
 // FlavorLimits holds a processed ClusterQueue flavor quota.
 type FlavorLimits struct {
-	Name       string
-	Guaranteed int64
-	Ceiling    *int64
+	Name string
+	Min  int64
+	Max  *int64
 }
 
 func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*ClusterQueue, error) {
@@ -413,7 +413,7 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (kueue.UsedResources, int, erro
 			fUsage := kueue.Usage{
 				Total: pointer.Quantity(workload.ResourceQuantity(rName, used)),
 			}
-			borrowing := used - flavor.Guaranteed
+			borrowing := used - flavor.Min
 			if borrowing > 0 {
 				fUsage.Borrowed = pointer.Quantity(workload.ResourceQuantity(rName, borrowing))
 			}
@@ -470,11 +470,11 @@ func resourceLimitsByName(in []kueue.Resource) map[corev1.ResourceName][]FlavorL
 		for i := range flavors {
 			f := &r.Flavors[i]
 			fLimits := FlavorLimits{
-				Name:       string(f.ResourceFlavor),
-				Guaranteed: workload.ResourceValue(r.Name, f.Quota.Guaranteed),
+				Name: string(f.ResourceFlavor),
+				Min:  workload.ResourceValue(r.Name, f.Quota.Min),
 			}
-			if f.Quota.Ceiling != nil {
-				fLimits.Ceiling = pointer.Int64(workload.ResourceValue(r.Name, *f.Quota.Ceiling))
+			if f.Quota.Max != nil {
+				fLimits.Max = pointer.Int64(workload.ResourceValue(r.Name, *f.Quota.Max))
 			}
 			flavors[i] = fLimits
 

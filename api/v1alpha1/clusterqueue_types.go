@@ -32,11 +32,11 @@ type ClusterQueueSpec struct {
 	// - name: cpu
 	//   flavors:
 	//   - quota:
-	//       guaranteed: 100
+	//       min: 100
 	// - name: memory
 	//   flavors:
 	//   - quota:
-	//       guaranteed: 100Gi
+	//       min: 100Gi
 	//
 	// +listType=map
 	// +listMapKey=name
@@ -53,31 +53,17 @@ type ClusterQueueSpec struct {
 	// 1. tenantB can run a workload consuming up to 20 k80 GPUs, meaning a resource
 	//    can be allocated from more than one clusterQueue in a cohort.
 	// 2. tenantB can not consume any p100 GPUs or spot because its QC has no quota
-	//    defined for them, and so the ceiling is practically 0.
+	//    defined for them, and so the max is implicitly 0.
 	// 3. If both tenantA and tenantB are running jobs such that current usage for
-	//    tenantA is lower than its guaranteed quota (e.g., 5 k80 GPUS) while
-	//    tenantB’s usage is higher than its guaranteed quota (e.g., 12 k80 GPUs),
+	//    tenantA is lower than its min quota (e.g., 5 k80 GPUS) while
+	//    tenantB’s usage is higher than its min quota (e.g., 12 k80 GPUs),
 	//    and both tenants have pending jobs requesting the remaining clusterQueue of
 	//    the cohort (the 3 k80 GPUs), then tenantA jobs will get this remaining
-	//    clusterQueue since tenantA is below its guaranteed limit.
+	//    clusterQueue since tenantA is below its min limit.
 	// 4. If a tenantA workload doesn’t tolerate spot, then the workload will only
 	//    be eligible to consume on-demand cores (the next in the list of cpu flavors).
-	//
-	//  <UNRESOLVED>
-	// 5. While evaluating a resource flavor’s list, what should take precedence:
-	//    honoring the preferred order in the list or keeping a usage under the
-	//    guaranteed clusterQueue? For example, if tenantA’s current k80 usage is 10 and
-	//    tenantB’s usage is 5, should a future tenantA workload that asks for any
-	//    GPU model be assigned borrowed k80 clusterQueue (since it is ordered first in
-	//    the list) or p100 since its usage is under tenantA’s guaranteed limit?
-	//    The tradeoff is honoring tenantA’s preferred order vs honoring fair
-	//    sharing of future tenantB’s jobs in a timely manner (or, when we have
-	//    preemption, reduce the chance of preempting tenantA’s workload)
-	//
-	//    We could make that a user choice via a knob on the QC or Cohort if we
-	//    decide to have a dedicated object API for it and start with preferring to
-	//    consume guaranteed clusterQueue first.
-	//  </UNRESOLVED>
+	// 5. Before considering on-demand, the workload will get assigned spot if
+	//    the quota can be borrowed from the cohort.
 	//
 	// metadata:
 	//  name: tenantA
@@ -87,26 +73,21 @@ type ClusterQueueSpec struct {
 	// - name: cpu
 	//   - name: spot
 	//     quota:
-	//       guaranteed: 1000
-	//     labels
-	//     - cloud.provider.com/spot:true
-	//     taints
-	//     - key: cloud.provider.com/spot
-	//       effect: NoSchedule
+	//       min: 1000
 	//   - name: on-demand
 	//     quota:
-	//       guaranteed: 100
+	//       min: 100
 	// - name: nvidia.com/gpus
 	//   - name: k80
 	//     quota:
-	//       guaranteed: 10
-	//       ceiling: 20
+	//       min: 10
+	//       max: 20
 	//     labels:
 	//     - cloud.provider.com/accelerator: nvidia-tesla-k80
 	//   - name: p100
 	//     quota:
-	//       guaranteed: 10
-	//       ceiling: 20
+	//       min: 10
+	//       max: 20
 	//     labels:
 	//     - cloud.provider.com/accelerator: nvidia-tesla-p100
 	//
@@ -118,12 +99,12 @@ type ClusterQueueSpec struct {
 	// - name: cpu
 	//   - name: on-demand
 	//     quota:
-	//       guaranteed: 100
+	//       min: 100
 	// - name: nvidia.com/gpus
 	//   - name: k80
 	//     quota:
-	//       guaranteed: 10
-	//       ceiling: 20
+	//       min: 10
+	//       max: 20
 	//     labels:
 	//     - cloud.provider.com/accelerator: nvidia-tesla-k80
 	//
@@ -189,48 +170,17 @@ type Resource struct {
 	// - name: nvidia.com/gpus
 	//   - name: k80
 	//     quota:
-	//       guaranteed: 10
-	//     labels:
-	//       cloud.provider.com/accelerator: nvidia-tesla-k80
+	//       min: 10
 	//   - name: p100
 	//     quota:
-	//       guaranteed: 10
-	//     labels:
-	//       cloud.provider.com/accelerator: nvidia-tesla-p100
+	//       min: 10
 	//
 	// The flavors are evaluated in order, selecting the first to satisfy a
 	// workload’s requirements. Also the quantities are additive, in the example
 	// above the GPU quota in total is 20 (10 k80 + 10 p100).
 	// A workload is limited to the selected type by converting the labels to a node
-	// selector that gets injected into the workload. ​​This list can’t be empty, at
-	// least one must exist.
-	//
-	// Note that a workload’s node affinity/selector constraints are evaluated
-	// against the labels, and so batch users can “filter” the flavors, but can’t
-	// force a different order. For example, the following workload affinity will
-	// only start the workload if P100 quota is available:
-	//
-	// matchExpressions:
-	// - key: cloud.provider.com/accelerator
-	//   value: nvidia-tesla-p100
-	//
-	// Each type can also set taints so that it is opt-out by default.
-	// A workload’s tolerations are evaluated against those taints, and only the
-	// flavors that the workload tolerates are considered. For example, an admin
-	// may choose to taint Spot CPU clusterQueue, and if a workload doesn't tolerate it
-	// will only be eligible to consume on-demand clusterQueue:
-	//
-	// - name: spot
-	//   quota:
-	//     guaranteed: 1000
-	//   labels
-	//   - cloud.provider.com/spot:true
-	//   taints
-	//   - key: cloud.provider.com/spot
-	//     effect: NoSchedule
-	// - name: on-demand
-	//   quota:
-	//     guaranteed: 100
+	// selector that gets injected into the workload. This list can’t be empty, at
+	// least one flavor must exist.
 	//
 	// +listType=map
 	// +listMapKey=resourceFlavor
@@ -250,17 +200,19 @@ type Flavor struct {
 type ResourceFlavorReference string
 
 type Quota struct {
-	// guaranteed amount of resource requests that are available to be used by
-	// running workloads assigned to this quota. This value should not exceed
-	// the Ceiling. The sum of guaranteed values in a cohort defines the maximum
-	// clusterQueue that can be allocated for the cohort.
-	Guaranteed resource.Quantity `json:"guaranteed,omitempty"`
+	// min amount of resource requests that are available to be used by workloads
+	// admitted by this ClusterQueue at a point in time.
+	// The sum of min quotas for a flavor in a cohort defines the maximum amount
+	// of resources that can be allocated by a ClusterQueue in the cohort.
+	Min resource.Quantity `json:"min,omitempty"`
 
-	// ceiling is the upper limit on the amount of resource requests that
-	// could be used by running workloads assigned to this quota at a point in time.
-	// Resources can be borrowed from unused guaranteed quota of other
-	// ClusterQueues in the same cohort. When null, it is unlimited.
-	Ceiling *resource.Quantity `json:"ceiling,omitempty"`
+	// max is the upper limit on the amount of resource requests that
+	// can be used by workloads admitted by this ClusterQueue at a point in time.
+	// Resources can be borrowed from unused min quota of other
+	// ClusterQueues in the same cohort.
+	// If not null, it must be greater than or equal to min.
+	// If null, there is no upper limit for borrowing.
+	Max *resource.Quantity `json:"max,omitempty"`
 }
 
 // ClusterQueueStatus defines the observed state of ClusterQueue
@@ -288,8 +240,7 @@ type Usage struct {
 	// borrowed from the cohort.
 	Total *resource.Quantity `json:"total,omitempty"`
 
-	// Borrowed is the used quantity past the guaranteed quota, borrowed from
-	// the cohort.
+	// Borrowed is the used quantity past the min quota, borrowed from the cohort.
 	Borrowed *resource.Quantity `json:"borrowing,omitempty"`
 }
 

@@ -21,12 +21,12 @@ spec:
     flavors:
     - resourceFlavor: default
       quota:
-        guaranteed: 9
+        min: 9
   - name: "memory"
     flavors:
     - resourceFlavor: default
       quota:
-        guaranteed: 36Gi
+        min: 36Gi
 ```
 
 This ClusterQueue admits [workloads](workload.md) if and only if:
@@ -177,9 +177,10 @@ When borrowing, Kueue satisfies the following semantics:
 
 - When assigning flavors, Kueue goes through the list of flavors in
   `.spec.requestableResources[*].flavors`. For each flavor, Kueue attempts to
-  fit the workload using the guaranteed quota of the ClusterQueue or the unused
-  quota in the cohort. If the workload doesn't fit, Kueue proceeds evaluating
-  the next flavor in the list.
+  fit the workload using the min quota of the ClusterQueue or the unused
+  min quota of other ClusterQueues in the cohort, up to the max quota of the
+  ClusterQueue. If the workload doesn't fit, Kueue proceeds evaluating the next
+  flavor in the list.
 - Borrowing happens per-flavor. A ClusterQueue can only borrow quota of flavors
   it defines.
 
@@ -200,12 +201,12 @@ spec:
     flavors:
     - resourceFlavor: default
       quota:
-        guaranteed: 9
+        min: 9
   - name: "memory"
     flavors:
     - resourceFlavor: default
       quota:
-        guaranteed: 36Gi
+        min: 36Gi
 ```
 
 ```yaml
@@ -221,12 +222,12 @@ spec:
     flavors:
     - resourceFlavor: default
       quota:
-        guaranteed: 12
+        min: 12
   - name: "memory"
     flavors:
     - resourceFlavor: default
       quota:
-        guaranteed: 48Gi
+        min: 48Gi
 ```
 
 ClusterQueue `team-a-cq` can admit workloads depending on the following
@@ -236,22 +237,22 @@ scenarios:
   `team-a-cq` can admit workloads with resources adding up to `12+9=21` CPUs and
   `48+36=84Gi` of memory.
 - If ClusterQueue `team-b-cq` has pending workloads and the ClusterQueue
-  `team-a-cq` has all its `guaranteed` quota used, Kueue will admit workloads in
+  `team-a-cq` has all its `min` quota used, Kueue will admit workloads in
   ClusterQueue `team-b-cq` before admitting any new workloads in `team-a-cq`.
-  Therefore, Kueue ensures the `guaranteed` quota for `team-b-cq` is met.
+  Therefore, Kueue ensures the `min` quota for `team-b-cq` is met.
 
 **Note**: Kueue [does not support preemption](https://github.com/kubernetes-sigs/kueue/issues/83).
 No admitted workloads will be stopped to make space for new workloads.
 
-### Ceilings
+### Max quotas
 
 To limit the amount of resources that a ClusterQueue can borrow from others,
-you can set the `.spec.requestableResources[*].flavors[*].quota.ceiling`
+you can set the `.spec.requestableResources[*].flavors[*].quota.max`
 [quantity](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/quantity/) field.
-The `ceiling` must be greater than or equal to `guaranteed`.
+`max` must be greater than or equal to `min`.
 
-If, for a given flavor, the `ceiling` field is empty or null, a ClusterQueue can
-borrow the sum of the guaranteed quotas in all the ClusterQueues in the cohort.
+If, for a given flavor, the `max` field is empty or null, a ClusterQueue can
+borrow up to the sum of min quotas from all the ClusterQueues in the cohort.
 
 ## What's next?
 

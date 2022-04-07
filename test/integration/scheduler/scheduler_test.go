@@ -86,7 +86,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		prodClusterQ = testing.MakeClusterQueue("prod-cq").
 			Cohort("prod").
 			Resource(testing.MakeResource(corev1.ResourceCPU).
-				Flavor(testing.MakeFlavor(spotTaintedFlavor.Name, "5").Ceiling("5").Obj()).
+				Flavor(testing.MakeFlavor(spotTaintedFlavor.Name, "5").Max("5").Obj()).
 				Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Obj()).
 				Obj()).
 			Obj()
@@ -103,7 +103,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		prodBEClusterQ = testing.MakeClusterQueue("prod-be-cq").
 			Cohort("be").QueueingStrategy(kueue.BestEffortFIFO).
 			Resource(testing.MakeResource(corev1.ResourceCPU).
-				Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Ceiling("10").Obj()).
+				Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Max("10").Obj()).
 				Obj()).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, prodBEClusterQ)).Should(gomega.Succeed())
@@ -111,7 +111,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		devBEClusterQ = testing.MakeClusterQueue("dev-be-cq").
 			Cohort("be").QueueingStrategy(kueue.BestEffortFIFO).
 			Resource(testing.MakeResource(corev1.ResourceCPU).
-				Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Ceiling("10").Obj()).
+				Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Max("10").Obj()).
 				Obj()).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, devBEClusterQ)).Should(gomega.Succeed())
@@ -237,7 +237,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		fallbackClusterQueue := testing.MakeClusterQueue("fallback-cq").
 			Cohort(prodClusterQ.Spec.Cohort).
 			Resource(testing.MakeResource(corev1.ResourceCPU).
-				Flavor(testing.MakeFlavor(spotTaintedFlavor.Name, "5").Obj()). // prod-cq can't borrow this flavor due to its ceiling.
+				Flavor(testing.MakeFlavor(spotTaintedFlavor.Name, "5").Obj()). // prod-cq can't borrow this flavor due to its max quota.
 				Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Obj()).
 				Obj()).
 			Obj()
@@ -501,7 +501,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		devCq := &kueue.ClusterQueue{}
 		gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: devBEClusterQ.Name}, devCq)).Should(gomega.Succeed())
 
-		updatedResource := testing.MakeResource(corev1.ResourceCPU).Flavor(testing.MakeFlavor(onDemandFlavor.Name, "13").Ceiling("13").Obj()).Obj()
+		updatedResource := testing.MakeResource(corev1.ResourceCPU).Flavor(testing.MakeFlavor(onDemandFlavor.Name, "13").Max("13").Obj()).Obj()
 		devCq.Spec.RequestableResources = []kueue.Resource{*updatedResource}
 		gomega.Expect(k8sClient.Update(ctx, devCq)).Should(gomega.Succeed())
 

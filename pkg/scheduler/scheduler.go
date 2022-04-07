@@ -375,17 +375,17 @@ func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.String) nodeaffinity.
 // If it fits, also returns any borrowing required.
 func fitsFlavorLimits(name corev1.ResourceName, val int64, cq *cache.ClusterQueue, flavor *cache.FlavorLimits) (bool, int64) {
 	used := cq.UsedResources[name][flavor.Name]
-	if flavor.Ceiling != nil && used+val > *flavor.Ceiling {
+	if flavor.Max != nil && used+val > *flavor.Max {
 		// Past borrowing limit.
 		return false, 0
 	}
 	cohortUsed := used
-	cohortTotal := flavor.Guaranteed
+	cohortTotal := flavor.Min
 	if cq.Cohort != nil {
 		cohortUsed = cq.Cohort.UsedResources[name][flavor.Name]
 		cohortTotal = cq.Cohort.RequestableResources[name][flavor.Name]
 	}
-	borrow := used + val - flavor.Guaranteed
+	borrow := used + val - flavor.Min
 	if borrow < 0 {
 		borrow = 0
 	}
@@ -408,18 +408,18 @@ func (e entryOrdering) Swap(i, j int) {
 }
 
 // Less is the ordering criteria:
-// 1. guaranteed before borrowing.
+// 1. request under min quota before borrowing.
 // 2. FIFO on creation timestamp.
 func (e entryOrdering) Less(i, j int) bool {
 	a := e[i]
 	b := e[j]
-	// 1. Prefer guaranteed (not borrowing)
-	aGuaranteed := len(a.borrows) == 0
-	bGuaranteed := len(b.borrows) == 0
-	if aGuaranteed != bGuaranteed {
-		return aGuaranteed
+	// 1. Request under min quota.
+	aMin := len(a.borrows) == 0
+	bMin := len(b.borrows) == 0
+	if aMin != bMin {
+		return aMin
 	}
-	// 2. FIFO
+	// 2. FIFO.
 	return a.Obj.CreationTimestamp.Before(&b.Obj.CreationTimestamp)
 }
 

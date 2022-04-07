@@ -310,11 +310,11 @@ func (r *ResourceWrapper) Flavor(f *kueue.Flavor) *ResourceWrapper {
 type FlavorWrapper struct{ kueue.Flavor }
 
 // MakeFlavor creates a wrapper for a resource flavor.
-func MakeFlavor(rf, guaranteed string) *FlavorWrapper {
+func MakeFlavor(rf, min string) *FlavorWrapper {
 	return &FlavorWrapper{kueue.Flavor{
 		ResourceFlavor: kueue.ResourceFlavorReference(rf),
 		Quota: kueue.Quota{
-			Guaranteed: resource.MustParse(guaranteed),
+			Min: resource.MustParse(min),
 		},
 	}}
 }
@@ -324,9 +324,9 @@ func (f *FlavorWrapper) Obj() *kueue.Flavor {
 	return &f.Flavor
 }
 
-// Ceiling updates the flavor ceiling.
-func (f *FlavorWrapper) Ceiling(c string) *FlavorWrapper {
-	f.Quota.Ceiling = pointer.Quantity(resource.MustParse(c))
+// Max updates the flavor max.
+func (f *FlavorWrapper) Max(c string) *FlavorWrapper {
+	f.Quota.Max = pointer.Quantity(resource.MustParse(c))
 	return f
 }
 

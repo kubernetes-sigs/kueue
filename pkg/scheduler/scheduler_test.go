@@ -77,8 +77,8 @@ func TestSchedule(t *testing.T) {
 							{
 								ResourceFlavor: "default",
 								Quota: kueue.Quota{
-									Guaranteed: resource.MustParse("50"),
-									Ceiling:    pointer.Quantity(resource.MustParse("50")),
+									Min: resource.MustParse("50"),
+									Max: pointer.Quantity(resource.MustParse("50")),
 								},
 							},
 						},
@@ -107,15 +107,15 @@ func TestSchedule(t *testing.T) {
 							{
 								ResourceFlavor: "on-demand",
 								Quota: kueue.Quota{
-									Guaranteed: resource.MustParse("50"),
-									Ceiling:    pointer.Quantity(resource.MustParse("100")),
+									Min: resource.MustParse("50"),
+									Max: pointer.Quantity(resource.MustParse("100")),
 								},
 							},
 							{
 								ResourceFlavor: "spot",
 								Quota: kueue.Quota{
-									Guaranteed: resource.MustParse("100"),
-									Ceiling:    pointer.Quantity(resource.MustParse("100")),
+									Min: resource.MustParse("100"),
+									Max: pointer.Quantity(resource.MustParse("100")),
 								},
 							},
 						},
@@ -144,15 +144,15 @@ func TestSchedule(t *testing.T) {
 							{
 								ResourceFlavor: "on-demand",
 								Quota: kueue.Quota{
-									Guaranteed: resource.MustParse("50"),
-									Ceiling:    pointer.Quantity(resource.MustParse("60")),
+									Min: resource.MustParse("50"),
+									Max: pointer.Quantity(resource.MustParse("60")),
 								},
 							},
 							{
 								ResourceFlavor: "spot",
 								Quota: kueue.Quota{
-									Guaranteed: resource.MustParse("0"),
-									Ceiling:    pointer.Quantity(resource.MustParse("100")),
+									Min: resource.MustParse("0"),
+									Max: pointer.Quantity(resource.MustParse("100")),
 								},
 							},
 						},
@@ -163,8 +163,8 @@ func TestSchedule(t *testing.T) {
 							{
 								ResourceFlavor: "model-a",
 								Quota: kueue.Quota{
-									Guaranteed: resource.MustParse("20"),
-									Ceiling:    pointer.Quantity(resource.MustParse("20")),
+									Min: resource.MustParse("20"),
+									Max: pointer.Quantity(resource.MustParse("20")),
 								},
 							},
 						},
@@ -843,8 +843,8 @@ func TestEntryAssignFlavors(t *testing.T) {
 			},
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
-					corev1.ResourceCPU:    {{Name: "default", Guaranteed: 1000}},
-					corev1.ResourceMemory: {{Name: "default", Guaranteed: 2 * utiltesting.Mi}},
+					corev1.ResourceCPU:    {{Name: "default", Min: 1000}},
+					corev1.ResourceMemory: {{Name: "default", Min: 2 * utiltesting.Mi}},
 				},
 			},
 			wantFits: true,
@@ -880,7 +880,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
 					corev1.ResourceCPU: {
-						{Name: "tainted", Guaranteed: 4000},
+						{Name: "tainted", Min: 4000},
 					},
 				},
 			},
@@ -903,7 +903,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 			},
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
-					corev1.ResourceCPU: {{Name: "default", Guaranteed: 4000}},
+					corev1.ResourceCPU: {{Name: "default", Min: 4000}},
 				},
 				UsedResources: cache.Resources{
 					corev1.ResourceCPU: {
@@ -926,12 +926,12 @@ func TestEntryAssignFlavors(t *testing.T) {
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
 					corev1.ResourceCPU: {
-						{Name: "one", Guaranteed: 2000},
-						{Name: "two", Guaranteed: 4000},
+						{Name: "one", Min: 2000},
+						{Name: "two", Min: 4000},
 					},
 					corev1.ResourceMemory: {
-						{Name: "one", Guaranteed: utiltesting.Gi},
-						{Name: "two", Guaranteed: 5 * utiltesting.Mi},
+						{Name: "one", Min: utiltesting.Gi},
+						{Name: "two", Min: 5 * utiltesting.Mi},
 					},
 				},
 			},
@@ -957,12 +957,12 @@ func TestEntryAssignFlavors(t *testing.T) {
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
 					corev1.ResourceCPU: {
-						{Name: "one", Guaranteed: 2000},
-						{Name: "two", Guaranteed: 4000},
+						{Name: "one", Min: 2000},
+						{Name: "two", Min: 4000},
 					},
 					corev1.ResourceMemory: {
-						{Name: "one", Guaranteed: utiltesting.Gi},
-						{Name: "two", Guaranteed: 5 * utiltesting.Mi},
+						{Name: "one", Min: utiltesting.Gi},
+						{Name: "two", Min: 5 * utiltesting.Mi},
 					},
 				},
 			},
@@ -980,8 +980,8 @@ func TestEntryAssignFlavors(t *testing.T) {
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
 					corev1.ResourceCPU: {
-						{Name: "tainted", Guaranteed: 4000},
-						{Name: "two", Guaranteed: 4000},
+						{Name: "tainted", Min: 4000},
+						{Name: "two", Min: 4000},
 					},
 				},
 			},
@@ -1005,8 +1005,8 @@ func TestEntryAssignFlavors(t *testing.T) {
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
 					corev1.ResourceCPU: {
-						{Name: "non-existent", Guaranteed: 4000},
-						{Name: "two", Guaranteed: 4000},
+						{Name: "non-existent", Min: 4000},
+						{Name: "two", Min: 4000},
 					},
 				},
 			},
@@ -1054,8 +1054,8 @@ func TestEntryAssignFlavors(t *testing.T) {
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
 					corev1.ResourceCPU: {
-						{Name: "one", Guaranteed: 4000},
-						{Name: "two", Guaranteed: 4000},
+						{Name: "one", Min: 4000},
+						{Name: "two", Min: 4000},
 					},
 				},
 				LabelKeys: map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
@@ -1105,12 +1105,12 @@ func TestEntryAssignFlavors(t *testing.T) {
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
 					corev1.ResourceCPU: {
-						{Name: "one", Guaranteed: 4000},
-						{Name: "two", Guaranteed: 4000},
+						{Name: "one", Min: 4000},
+						{Name: "two", Min: 4000},
 					},
 					corev1.ResourceMemory: {
-						{Name: "one", Guaranteed: utiltesting.Gi},
-						{Name: "two", Guaranteed: utiltesting.Gi},
+						{Name: "one", Min: utiltesting.Gi},
+						{Name: "two", Min: utiltesting.Gi},
 					},
 				},
 			},
@@ -1169,8 +1169,8 @@ func TestEntryAssignFlavors(t *testing.T) {
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
 					corev1.ResourceCPU: {
-						{Name: "one", Guaranteed: 4000},
-						{Name: "two", Guaranteed: 4000},
+						{Name: "one", Min: 4000},
+						{Name: "two", Min: 4000},
 					},
 				},
 			},
@@ -1215,8 +1215,8 @@ func TestEntryAssignFlavors(t *testing.T) {
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
 					corev1.ResourceCPU: {
-						{Name: "one", Guaranteed: 4000},
-						{Name: "two", Guaranteed: 4000},
+						{Name: "one", Min: 4000},
+						{Name: "two", Min: 4000},
 					},
 				},
 				LabelKeys: map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
@@ -1243,8 +1243,8 @@ func TestEntryAssignFlavors(t *testing.T) {
 			clusterQueue: cache.ClusterQueue{
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
 					corev1.ResourceCPU: {
-						{Name: "one", Guaranteed: 4000},
-						{Name: "two", Guaranteed: 10_000},
+						{Name: "one", Min: 4000},
+						{Name: "two", Min: 10_000},
 					},
 				},
 			},
@@ -1281,16 +1281,16 @@ func TestEntryAssignFlavors(t *testing.T) {
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
 					corev1.ResourceCPU: {
 						{
-							Name:       "default",
-							Guaranteed: 2000,
-							Ceiling:    pointer.Int64(100_000),
+							Name: "default",
+							Min:  2000,
+							Max:  pointer.Int64(100_000),
 						},
 					},
 					corev1.ResourceMemory: {
 						{
-							Name:       "default",
-							Guaranteed: 2 * utiltesting.Gi,
-							// No ceiling.
+							Name: "default",
+							Min:  2 * utiltesting.Gi,
+							// No max.
 						},
 					},
 				},
@@ -1339,9 +1339,9 @@ func TestEntryAssignFlavors(t *testing.T) {
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
 					corev1.ResourceCPU: {
 						{
-							Name:       "one",
-							Guaranteed: 1000,
-							// No ceiling.
+							Name: "one",
+							Min:  1000,
+							// No max.
 						},
 					},
 				},
@@ -1355,7 +1355,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 		},
-		"past ceiling": {
+		"past max": {
 			wlPods: []kueue.PodSet{
 				{
 					Count: 1,
@@ -1369,9 +1369,9 @@ func TestEntryAssignFlavors(t *testing.T) {
 				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
 					corev1.ResourceCPU: {
 						{
-							Name:       "one",
-							Guaranteed: 1000,
-							Ceiling:    pointer.Int64(10_000),
+							Name: "one",
+							Min:  1000,
+							Max:  pointer.Int64(10_000),
 						},
 					},
 				},

@@ -55,13 +55,13 @@ func TestSnapshot(t *testing.T) {
 							{
 								ResourceFlavor: "demand",
 								Quota: kueue.Quota{
-									Guaranteed: resource.MustParse("100"),
+									Min: resource.MustParse("100"),
 								},
 							},
 							{
 								ResourceFlavor: "spot",
 								Quota: kueue.Quota{
-									Guaranteed: resource.MustParse("200"),
+									Min: resource.MustParse("200"),
 								},
 							},
 						},
@@ -82,7 +82,7 @@ func TestSnapshot(t *testing.T) {
 							{
 								ResourceFlavor: "spot",
 								Quota: kueue.Quota{
-									Guaranteed: resource.MustParse("100"),
+									Min: resource.MustParse("100"),
 								},
 							},
 						},
@@ -93,7 +93,7 @@ func TestSnapshot(t *testing.T) {
 							{
 								ResourceFlavor: "default",
 								Quota: kueue.Quota{
-									Guaranteed: resource.MustParse("50"),
+									Min: resource.MustParse("50"),
 								},
 							},
 						},
@@ -113,7 +113,7 @@ func TestSnapshot(t *testing.T) {
 							{
 								ResourceFlavor: "default",
 								Quota: kueue.Quota{
-									Guaranteed: resource.MustParse("100"),
+									Min: resource.MustParse("100"),
 								},
 							},
 						},
@@ -258,12 +258,12 @@ func TestSnapshot(t *testing.T) {
 				RequestableResources: map[corev1.ResourceName][]FlavorLimits{
 					corev1.ResourceCPU: {
 						{
-							Name:       "demand",
-							Guaranteed: 100_000,
+							Name: "demand",
+							Min:  100_000,
 						},
 						{
-							Name:       "spot",
-							Guaranteed: 200_000,
+							Name: "spot",
+							Min:  200_000,
 						},
 					},
 				},
@@ -285,14 +285,14 @@ func TestSnapshot(t *testing.T) {
 				RequestableResources: map[corev1.ResourceName][]FlavorLimits{
 					corev1.ResourceCPU: {
 						{
-							Name:       "spot",
-							Guaranteed: 100_000,
+							Name: "spot",
+							Min:  100_000,
 						},
 					},
 					"example.com/gpu": {
 						{
-							Name:       "default",
-							Guaranteed: 50,
+							Name: "default",
+							Min:  50,
 						},
 					},
 				},
@@ -316,8 +316,8 @@ func TestSnapshot(t *testing.T) {
 				RequestableResources: map[corev1.ResourceName][]FlavorLimits{
 					corev1.ResourceCPU: {
 						{
-							Name:       "default",
-							Guaranteed: 100_000,
+							Name: "default",
+							Min:  100_000,
 						},
 					},
 				},
