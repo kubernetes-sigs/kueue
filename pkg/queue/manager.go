@@ -306,7 +306,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info) bool
 		return false
 	}
 
-	added := cq.AddInadmissibleIfNotPresent(info)
+	added := cq.RequeueIfNotPresent(info, true)
 	if added {
 		m.cond.Broadcast()
 	}

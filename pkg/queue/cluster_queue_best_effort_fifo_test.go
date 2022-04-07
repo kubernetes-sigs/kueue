@@ -100,7 +100,7 @@ func TestClusterQueueBestEffortFIFO(t *testing.T) {
 			}
 
 			for _, w := range test.inadmissibleWorkloadsToAdd {
-				cq.AddInadmissibleIfNotPresent(w)
+				cq.RequeueIfNotPresent(w, true)
 			}
 
 			for _, w := range test.workloadsToUpdate {
