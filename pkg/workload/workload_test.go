@@ -105,8 +105,8 @@ func TestPodRequests(t *testing.T) {
 }
 
 func TestNewInfo(t *testing.T) {
-	qw := &kueue.QueuedWorkload{
-		Spec: kueue.QueuedWorkloadSpec{
+	wl := &kueue.Workload{
+		Spec: kueue.WorkloadSpec{
 			PodSets: []kueue.PodSet{
 				{
 					Name: "driver",
@@ -144,7 +144,7 @@ func TestNewInfo(t *testing.T) {
 			},
 		},
 	}
-	info := NewInfo(qw)
+	info := NewInfo(wl)
 	wantRequests := []PodSetResources{
 		{
 			Name: "driver",
@@ -170,26 +170,26 @@ func TestNewInfo(t *testing.T) {
 	}
 }
 
-var ignoreConditionTimestamps = cmpopts.IgnoreFields(kueue.QueuedWorkloadCondition{}, "LastProbeTime", "LastTransitionTime")
+var ignoreConditionTimestamps = cmpopts.IgnoreFields(kueue.WorkloadCondition{}, "LastProbeTime", "LastTransitionTime")
 
 func TestUpdateWorkloadStatus(t *testing.T) {
 	cases := map[string]struct {
-		oldStatus  kueue.QueuedWorkloadStatus
-		condType   kueue.QueuedWorkloadConditionType
+		oldStatus  kueue.WorkloadStatus
+		condType   kueue.WorkloadConditionType
 		condStatus corev1.ConditionStatus
 		reason     string
 		message    string
-		wantStatus kueue.QueuedWorkloadStatus
+		wantStatus kueue.WorkloadStatus
 	}{
 		"initial empty": {
-			condType:   kueue.QueuedWorkloadAdmitted,
+			condType:   kueue.WorkloadAdmitted,
 			condStatus: corev1.ConditionFalse,
 			reason:     "Pending",
 			message:    "didn't fit",
-			wantStatus: kueue.QueuedWorkloadStatus{
-				Conditions: []kueue.QueuedWorkloadCondition{
+			wantStatus: kueue.WorkloadStatus{
+				Conditions: []kueue.WorkloadCondition{
 					{
-						Type:    kueue.QueuedWorkloadAdmitted,
+						Type:    kueue.WorkloadAdmitted,
 						Status:  corev1.ConditionFalse,
 						Reason:  "Pending",
 						Message: "didn't fit",
@@ -198,23 +198,23 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 			},
 		},
 		"same condition type": {
-			oldStatus: kueue.QueuedWorkloadStatus{
-				Conditions: []kueue.QueuedWorkloadCondition{
+			oldStatus: kueue.WorkloadStatus{
+				Conditions: []kueue.WorkloadCondition{
 					{
-						Type:    kueue.QueuedWorkloadAdmitted,
+						Type:    kueue.WorkloadAdmitted,
 						Status:  corev1.ConditionFalse,
 						Reason:  "Pending",
 						Message: "didn't fit",
 					},
 				},
 			},
-			condType:   kueue.QueuedWorkloadAdmitted,
+			condType:   kueue.WorkloadAdmitted,
 			condStatus: corev1.ConditionTrue,
 			reason:     "Admitted",
-			wantStatus: kueue.QueuedWorkloadStatus{
-				Conditions: []kueue.QueuedWorkloadCondition{
+			wantStatus: kueue.WorkloadStatus{
+				Conditions: []kueue.WorkloadCondition{
 					{
-						Type:   kueue.QueuedWorkloadAdmitted,
+						Type:   kueue.WorkloadAdmitted,
 						Status: corev1.ConditionTrue,
 						Reason: "Admitted",
 					},
@@ -222,24 +222,24 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 			},
 		},
 		"different condition type": {
-			oldStatus: kueue.QueuedWorkloadStatus{
-				Conditions: []kueue.QueuedWorkloadCondition{
+			oldStatus: kueue.WorkloadStatus{
+				Conditions: []kueue.WorkloadCondition{
 					{
-						Type:   kueue.QueuedWorkloadAdmitted,
+						Type:   kueue.WorkloadAdmitted,
 						Status: corev1.ConditionTrue,
 					},
 				},
 			},
-			condType:   kueue.QueuedWorkloadFinished,
+			condType:   kueue.WorkloadFinished,
 			condStatus: corev1.ConditionTrue,
-			wantStatus: kueue.QueuedWorkloadStatus{
-				Conditions: []kueue.QueuedWorkloadCondition{
+			wantStatus: kueue.WorkloadStatus{
+				Conditions: []kueue.WorkloadCondition{
 					{
-						Type:   kueue.QueuedWorkloadAdmitted,
+						Type:   kueue.WorkloadAdmitted,
 						Status: corev1.ConditionTrue,
 					},
 					{
-						Type:   kueue.QueuedWorkloadFinished,
+						Type:   kueue.WorkloadFinished,
 						Status: corev1.ConditionTrue,
 					},
 				},
@@ -252,7 +252,7 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 			if err := kueue.AddToScheme(scheme); err != nil {
 				t.Fatalf("Failed to add kueue scheme: %v", err)
 			}
-			workload := utiltesting.MakeQueuedWorkload("foo", "bar").Obj()
+			workload := utiltesting.MakeWorkload("foo", "bar").Obj()
 			workload.Status = tc.oldStatus
 			cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(workload).Build()
 			ctx := context.Background()
@@ -260,11 +260,11 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed updating status: %v", err)
 			}
-			var updatedQW kueue.QueuedWorkload
-			if err := cl.Get(ctx, client.ObjectKeyFromObject(workload), &updatedQW); err != nil {
+			var updatedWl kueue.Workload
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(workload), &updatedWl); err != nil {
 				t.Fatalf("Failed obtaining updated object: %v", err)
 			}
-			if diff := cmp.Diff(tc.wantStatus, updatedQW.Status, ignoreConditionTimestamps); diff != "" {
+			if diff := cmp.Diff(tc.wantStatus, updatedWl.Status, ignoreConditionTimestamps); diff != "" {
 				t.Errorf("Unexpected status after updating (-want,+got):\n%s", diff)
 			}
 		})

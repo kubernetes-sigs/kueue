@@ -40,7 +40,7 @@ type QueueReconciler struct {
 	client     client.Client
 	log        logr.Logger
 	queues     *queue.Manager
-	qwUpdateCh chan event.GenericEvent
+	wlUpdateCh chan event.GenericEvent
 }
 
 func NewQueueReconciler(client client.Client, queues *queue.Manager) *QueueReconciler {
@@ -48,12 +48,12 @@ func NewQueueReconciler(client client.Client, queues *queue.Manager) *QueueRecon
 		log:        ctrl.Log.WithName("queue-reconciler"),
 		queues:     queues,
 		client:     client,
-		qwUpdateCh: make(chan event.GenericEvent, qwUpdateBuffer),
+		wlUpdateCh: make(chan event.GenericEvent, wlUpdateChBuffer),
 	}
 }
 
-func (r *QueueReconciler) NotifyQueuedWorkloadUpdate(w *kueue.QueuedWorkload) {
-	r.qwUpdateCh <- event.GenericEvent{Object: w}
+func (r *QueueReconciler) NotifyWorkloadUpdate(w *kueue.Workload) {
+	r.wlUpdateCh <- event.GenericEvent{Object: w}
 }
 
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
@@ -129,7 +129,7 @@ func (r *QueueReconciler) Update(e event.UpdateEvent) bool {
 }
 
 func (r *QueueReconciler) Generic(e event.GenericEvent) bool {
-	r.log.V(3).Info("Got QueuedWorkload event", "queuedWorkload", klog.KObj(e.Object))
+	r.log.V(3).Info("Got Workload event", "workload", klog.KObj(e.Object))
 	return true
 }
 
@@ -149,7 +149,7 @@ func (h *qWorkloadHandler) Delete(event.DeleteEvent, workqueue.RateLimitingInter
 }
 
 func (h *qWorkloadHandler) Generic(e event.GenericEvent, q workqueue.RateLimitingInterface) {
-	w := e.Object.(*kueue.QueuedWorkload)
+	w := e.Object.(*kueue.Workload)
 	if w.Name == "" {
 		return
 	}
@@ -166,7 +166,7 @@ func (h *qWorkloadHandler) Generic(e event.GenericEvent, q workqueue.RateLimitin
 func (r *QueueReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.Queue{}).
-		Watches(&source.Channel{Source: r.qwUpdateCh}, &qWorkloadHandler{}).
+		Watches(&source.Channel{Source: r.wlUpdateCh}, &qWorkloadHandler{}).
 		WithEventFilter(r).
 		Complete(r)
 }

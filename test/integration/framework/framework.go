@@ -125,7 +125,7 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 	if err := c.DeleteAllOf(ctx, &kueue.Queue{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
-	if err := c.DeleteAllOf(ctx, &kueue.QueuedWorkload{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
+	if err := c.DeleteAllOf(ctx, &kueue.Workload{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
 	if err := c.Delete(ctx, ns); err != nil && !apierrors.IsNotFound(err) {
@@ -134,10 +134,10 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 	return nil
 }
 
-func ExpectWorkloadsToBeAdmitted(ctx context.Context, k8sClient client.Client, cqName string, wls ...*kueue.QueuedWorkload) {
+func ExpectWorkloadsToBeAdmitted(ctx context.Context, k8sClient client.Client, cqName string, wls ...*kueue.Workload) {
 	gomega.EventuallyWithOffset(1, func() int {
 		admitted := 0
-		var updatedWorkload kueue.QueuedWorkload
+		var updatedWorkload kueue.Workload
 		for _, wl := range wls {
 			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
 			if updatedWorkload.Spec.Admission != nil && string(updatedWorkload.Spec.Admission.ClusterQueue) == cqName {
@@ -148,13 +148,13 @@ func ExpectWorkloadsToBeAdmitted(ctx context.Context, k8sClient client.Client, c
 	}).Should(gomega.Equal(len(wls)), "Not enough workloads were admitted")
 }
 
-func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wls ...*kueue.QueuedWorkload) {
+func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
 	gomega.EventuallyWithOffset(1, func() int {
 		pending := 0
-		var updatedWorkload kueue.QueuedWorkload
+		var updatedWorkload kueue.Workload
 		for _, wl := range wls {
 			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-			idx := workload.FindConditionIndex(&updatedWorkload.Status, kueue.QueuedWorkloadAdmitted)
+			idx := workload.FindConditionIndex(&updatedWorkload.Status, kueue.WorkloadAdmitted)
 			if idx == -1 {
 				continue
 			}
@@ -167,9 +167,9 @@ func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wl
 	}).Should(gomega.Equal(len(wls)), "Not enough workloads are pending")
 }
 
-func UpdateWorkloadStatus(ctx context.Context, k8sClient client.Client, wl *kueue.QueuedWorkload, update func(*kueue.QueuedWorkload)) {
+func UpdateWorkloadStatus(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, update func(*kueue.Workload)) {
 	gomega.EventuallyWithOffset(1, func() error {
-		var updatedWl kueue.QueuedWorkload
+		var updatedWl kueue.Workload
 		gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
 		update(&updatedWl)
 		return k8sClient.Status().Update(ctx, &updatedWl)

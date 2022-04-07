@@ -78,7 +78,7 @@ You can run the Job with the following command:
 kubectl create -f sample-job.yaml
 ```
 
-Internally, Kueue will create a corresponding [QueuedWorkload](/docs/concepts/queued_workload.md)
+Internally, Kueue will create a corresponding [Workload](/docs/concepts/workload.md)
 for this Job with a matching name.
 
 ```shell
@@ -104,12 +104,12 @@ If the ClusterQueue doesn't have enough quota to run the workload, the output
 will be similar to the following:
 
 ```
-Name:         sample-job-jtz5f                                                                                                                                       
-Namespace:    default                                                                                                                                                
-Labels:       <none>                                                                                                                                                 
-Annotations:  <none>                                                                                                                                                 
-API Version:  kueue.x-k8s.io/v1alpha1                                                                                                                                
-Kind:         QueuedWorkload                                                                                                                                         
+Name:         sample-job-jtz5f
+Namespace:    default
+Labels:       <none>
+Annotations:  <none>
+API Version:  kueue.x-k8s.io/v1alpha1
+Kind:         Workload
 Metadata:
   ...
 Spec:
@@ -196,16 +196,16 @@ Pods Statuses:    0 Active / 3 Succeeded / 0 Failed
 Pod Template:
   ...
 Events:
-  Type    Reason                 Age   From                  Message
-  ----    ------                 ----  ----                  -------
-  Normal  Suspended              22m   job-controller        Job suspended
-  Normal  CreatedQueuedWorkload  22m   kueue-job-controller  Created QueuedWorkload: default/sample-job-rxb6q
-  Normal  SuccessfulCreate       19m   job-controller        Created pod: sample-job-rxb6q-7bqld
-  Normal  Started                19m   kueue-job-controller  Admitted by clusterQueue cluster-total
-  Normal  SuccessfulCreate       19m   job-controller        Created pod: sample-job-rxb6q-7jw4z
-  Normal  SuccessfulCreate       19m   job-controller        Created pod: sample-job-rxb6q-m7wgm
-  Normal  Resumed                19m   job-controller        Job resumed
-  Normal  Completed              18m   job-controller        Job completed
+  Type    Reason            Age   From                  Message
+  ----    ------            ----  ----                  -------
+  Normal  Suspended         22m   job-controller        Job suspended
+  Normal  CreatedWorkload   22m   kueue-job-controller  Created Workload: default/sample-job-rxb6q
+  Normal  SuccessfulCreate  19m   job-controller        Created pod: sample-job-rxb6q-7bqld
+  Normal  Started           19m   kueue-job-controller  Admitted by clusterQueue cluster-total
+  Normal  SuccessfulCreate  19m   job-controller        Created pod: sample-job-rxb6q-7jw4z
+  Normal  SuccessfulCreate  19m   job-controller        Created pod: sample-job-rxb6q-m7wgm
+  Normal  Resumed           19m   job-controller        Job resumed
+  Normal  Completed         18m   job-controller        Job completed
 ```
 
 Since events have a timestamp with a resolution of seconds, the events might

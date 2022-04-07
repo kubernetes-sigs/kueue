@@ -29,7 +29,7 @@ func Key(q *kueue.Queue) string {
 }
 
 // queueKeyForWorkload is the key to find the queue for the workload in the index.
-func queueKeyForWorkload(w *kueue.QueuedWorkload) string {
+func queueKeyForWorkload(w *kueue.Workload) string {
 	return fmt.Sprintf("%s/%s", w.Namespace, w.Spec.QueueName)
 }
 
@@ -52,7 +52,7 @@ func (q *Queue) update(apiQueue *kueue.Queue) {
 	q.ClusterQueue = string(apiQueue.Spec.ClusterQueue)
 }
 
-func (q *Queue) AddOrUpdate(w *kueue.QueuedWorkload) {
+func (q *Queue) AddOrUpdate(w *kueue.Workload) {
 	key := workload.Key(w)
 	q.items[key] = workload.NewInfo(w)
 }

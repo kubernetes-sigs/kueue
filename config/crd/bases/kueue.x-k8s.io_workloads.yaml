@@ -5,18 +5,14 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.8.0
   creationTimestamp: null
-  name: queuedworkloads.kueue.x-k8s.io
+  name: workloads.kueue.x-k8s.io
 spec:
   group: kueue.x-k8s.io
   names:
-    kind: QueuedWorkload
-    listKind: QueuedWorkloadList
-    plural: queuedworkloads
-    shortNames:
-    - workload
-    - workloads
-    - qw
-    singular: queuedworkload
+    kind: Workload
+    listKind: WorkloadList
+    plural: workloads
+    singular: workload
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -35,7 +31,7 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: QueuedWorkload is the Schema for the queuedworkloads API
+        description: Workload is the Schema for the workloads API
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -50,7 +46,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: QueuedWorkloadSpec defines the desired state of QueuedWorkload
+            description: WorkloadSpec defines the desired state of Workload
             properties:
               admission:
                 description: admission holds the parameters of the admission of the
@@ -7322,26 +7318,26 @@ spec:
                 format: int32
                 type: integer
               priorityClassName:
-                description: If specified, indicates the queuedWorkload's priority.
-                  "system-node-critical" and "system-cluster-critical" are two special
-                  keywords which indicate the highest priorities with the former being
-                  the highest priority. Any other name must be defined by creating
-                  a PriorityClass object with that name. If not specified, the queuedWorkload
-                  priority will be default or zero if there is no default.
+                description: If specified, indicates the workload's priority. "system-node-critical"
+                  and "system-cluster-critical" are two special keywords which indicate
+                  the highest priorities with the former being the highest priority.
+                  Any other name must be defined by creating a PriorityClass object
+                  with that name. If not specified, the workload priority will be
+                  default or zero if there is no default.
                 type: string
               queueName:
-                description: queueName is the name of the queue the QueuedWorkload
-                  is associated with.
+                description: queueName is the name of the queue the Workload is associated
+                  with.
                 type: string
             required:
             - queueName
             type: object
           status:
-            description: QueuedWorkloadStatus defines the observed state of QueuedWorkload
+            description: WorkloadStatus defines the observed state of Workload
             properties:
               conditions:
                 description: conditions hold the latest available observations of
-                  the QueuedWorkload current state.
+                  the Workload current state.
                 items:
                   properties:
                     lastProbeTime:
@@ -7366,7 +7362,7 @@ spec:
                       description: status could be True, False or Unknown.
                       type: string
                     type:
-                      description: "type of condition could be: \n Admitted: the QueuedWorkload
+                      description: "type of condition could be: \n Admitted: the Workload
                         was admitted through a ClusterQueue. \n Finished: the associated
                         workload finished running (failed or succeeded)."
                       type: string

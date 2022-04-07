@@ -15,7 +15,7 @@ limits and fair sharing rules.
 A namespaced resource that groups closely related workloads belonging to a
 single tenant.
 
-### [Queued Workload](queued_workload.md)
+### [Workload](workload.md)
 
 An application that will run to completion. It is the unit of _admission_ in
 Kueue. Sometimes referred to as _job_.

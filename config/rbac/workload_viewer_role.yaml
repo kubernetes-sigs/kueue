@@ -1,26 +1,23 @@
-# permissions for end users to edit queuedworkloads.
+# permissions for end users to view workloads.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: queuedworkload-editor-role
+  name: workload-viewer-role
   labels:
     rbac.kueue.x-k8s.io/batch-admin: "true"
+    rbac.kueue.x-k8s.io/batch-user: "true"
 rules:
 - apiGroups:
   - kueue.x-k8s.io
   resources:
-  - queuedworkloads
+  - workloads
   verbs:
-  - create
-  - delete
   - get
   - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - kueue.x-k8s.io
   resources:
-  - queuedworkloads/status
+  - workloads/status
   verbs:
   - get

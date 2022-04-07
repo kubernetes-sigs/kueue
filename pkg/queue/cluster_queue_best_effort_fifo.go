@@ -53,7 +53,7 @@ func newClusterQueueBestEffortFIFO(cq *kueue.ClusterQueue) (ClusterQueue, error)
 	return cqBE, nil
 }
 
-func (cq *ClusterQueueBestEffortFIFO) PushOrUpdate(w *kueue.QueuedWorkload) {
+func (cq *ClusterQueueBestEffortFIFO) PushOrUpdate(w *kueue.Workload) {
 	key := workload.Key(w)
 	oldInfo := cq.inadmissibleWorkloads[key]
 	if oldInfo != nil {
@@ -70,7 +70,7 @@ func (cq *ClusterQueueBestEffortFIFO) PushOrUpdate(w *kueue.QueuedWorkload) {
 	cq.ClusterQueueImpl.PushOrUpdate(w)
 }
 
-func (cq *ClusterQueueBestEffortFIFO) Delete(w *kueue.QueuedWorkload) {
+func (cq *ClusterQueueBestEffortFIFO) Delete(w *kueue.Workload) {
 	delete(cq.inadmissibleWorkloads, workload.Key(w))
 	cq.ClusterQueueImpl.Delete(w)
 }

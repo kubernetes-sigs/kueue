@@ -399,9 +399,9 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		t.Fatalf("Failed adding kueue scheme: %v", err)
 	}
 	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		&kueue.QueuedWorkload{
+		&kueue.Workload{
 			ObjectMeta: metav1.ObjectMeta{Name: "a"},
-			Spec: kueue.QueuedWorkloadSpec{
+			Spec: kueue.WorkloadSpec{
 				PodSets: podSets,
 				Admission: &kueue.Admission{
 					ClusterQueue:  "one",
@@ -409,15 +409,15 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				},
 			},
 		},
-		&kueue.QueuedWorkload{
+		&kueue.Workload{
 			ObjectMeta: metav1.ObjectMeta{Name: "c"},
-			Spec: kueue.QueuedWorkloadSpec{
+			Spec: kueue.WorkloadSpec{
 				Admission: &kueue.Admission{ClusterQueue: "one"},
 			},
 		},
-		&kueue.QueuedWorkload{
+		&kueue.Workload{
 			ObjectMeta: metav1.ObjectMeta{Name: "d"},
-			Spec: kueue.QueuedWorkloadSpec{
+			Spec: kueue.WorkloadSpec{
 				Admission: &kueue.Admission{ClusterQueue: "two"},
 			},
 		},
@@ -445,10 +445,10 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "add",
 			operation: func() error {
-				workloads := []kueue.QueuedWorkload{
+				workloads := []kueue.Workload{
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "a"},
-						Spec: kueue.QueuedWorkloadSpec{
+						Spec: kueue.WorkloadSpec{
 							PodSets: podSets,
 							Admission: &kueue.Admission{
 								ClusterQueue:  "one",
@@ -458,7 +458,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "b"},
-						Spec: kueue.QueuedWorkloadSpec{
+						Spec: kueue.WorkloadSpec{
 							Admission: &kueue.Admission{ClusterQueue: "two"},
 						},
 					},
@@ -484,9 +484,9 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "add error no clusterQueue",
 			operation: func() error {
-				w := kueue.QueuedWorkload{
+				w := kueue.Workload{
 					ObjectMeta: metav1.ObjectMeta{Name: "a"},
-					Spec: kueue.QueuedWorkloadSpec{
+					Spec: kueue.WorkloadSpec{
 						Admission: &kueue.Admission{ClusterQueue: "three"},
 					},
 				}
@@ -510,9 +510,9 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "add already exists",
 			operation: func() error {
-				w := kueue.QueuedWorkload{
+				w := kueue.Workload{
 					ObjectMeta: metav1.ObjectMeta{Name: "c"},
-					Spec: kueue.QueuedWorkloadSpec{
+					Spec: kueue.WorkloadSpec{
 						Admission: &kueue.Admission{ClusterQueue: "one"},
 					},
 				}
@@ -535,15 +535,15 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "update",
 			operation: func() error {
-				old := kueue.QueuedWorkload{
+				old := kueue.Workload{
 					ObjectMeta: metav1.ObjectMeta{Name: "a"},
-					Spec: kueue.QueuedWorkloadSpec{
+					Spec: kueue.WorkloadSpec{
 						Admission: &kueue.Admission{ClusterQueue: "one"},
 					},
 				}
-				latest := kueue.QueuedWorkload{
+				latest := kueue.Workload{
 					ObjectMeta: metav1.ObjectMeta{Name: "a"},
-					Spec: kueue.QueuedWorkloadSpec{
+					Spec: kueue.WorkloadSpec{
 						PodSets: podSets,
 						Admission: &kueue.Admission{
 							ClusterQueue:  "two",
@@ -567,15 +567,15 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "update old doesn't exist",
 			operation: func() error {
-				old := kueue.QueuedWorkload{
+				old := kueue.Workload{
 					ObjectMeta: metav1.ObjectMeta{Name: "e"},
-					Spec: kueue.QueuedWorkloadSpec{
+					Spec: kueue.WorkloadSpec{
 						Admission: &kueue.Admission{ClusterQueue: "one"},
 					},
 				}
-				latest := kueue.QueuedWorkload{
+				latest := kueue.Workload{
 					ObjectMeta: metav1.ObjectMeta{Name: "e"},
-					Spec: kueue.QueuedWorkloadSpec{
+					Spec: kueue.WorkloadSpec{
 						Admission: &kueue.Admission{ClusterQueue: "two"},
 					},
 				}
@@ -595,9 +595,9 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "delete",
 			operation: func() error {
-				w := kueue.QueuedWorkload{
+				w := kueue.Workload{
 					ObjectMeta: metav1.ObjectMeta{Name: "a"},
-					Spec: kueue.QueuedWorkloadSpec{
+					Spec: kueue.WorkloadSpec{
 						Admission: &kueue.Admission{ClusterQueue: "two"},
 					},
 				}
@@ -617,9 +617,9 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "delete error clusterQueue doesn't exist",
 			operation: func() error {
-				w := kueue.QueuedWorkload{
+				w := kueue.Workload{
 					ObjectMeta: metav1.ObjectMeta{Name: "a"},
-					Spec: kueue.QueuedWorkloadSpec{
+					Spec: kueue.WorkloadSpec{
 						Admission: &kueue.Admission{ClusterQueue: "three"},
 					},
 				}
@@ -640,9 +640,9 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "delete workload doesn't exist",
 			operation: func() error {
-				w := kueue.QueuedWorkload{
+				w := kueue.Workload{
 					ObjectMeta: metav1.ObjectMeta{Name: "f"},
-					Spec: kueue.QueuedWorkloadSpec{
+					Spec: kueue.WorkloadSpec{
 						Admission: &kueue.Admission{ClusterQueue: "one"},
 					},
 				}
@@ -662,10 +662,10 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "assume",
 			operation: func() error {
-				workloads := []kueue.QueuedWorkload{
+				workloads := []kueue.Workload{
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "a"},
-						Spec: kueue.QueuedWorkloadSpec{
+						Spec: kueue.WorkloadSpec{
 							PodSets: podSets,
 							Admission: &kueue.Admission{
 								ClusterQueue:  "one",
@@ -675,7 +675,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "f"},
-						Spec: kueue.QueuedWorkloadSpec{
+						Spec: kueue.WorkloadSpec{
 							PodSets: podSets,
 							Admission: &kueue.Admission{
 								ClusterQueue:  "two",
@@ -709,9 +709,9 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "forget",
 			operation: func() error {
-				w := kueue.QueuedWorkload{
+				w := kueue.Workload{
 					ObjectMeta: metav1.ObjectMeta{Name: "a"},
-					Spec: kueue.QueuedWorkloadSpec{
+					Spec: kueue.WorkloadSpec{
 						PodSets: podSets,
 						Admission: &kueue.Admission{
 							ClusterQueue:  "one",
@@ -738,9 +738,9 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			name: "add assumed workload",
 			operation: func() error {
-				w := kueue.QueuedWorkload{
+				w := kueue.Workload{
 					ObjectMeta: metav1.ObjectMeta{Name: "f"},
-					Spec: kueue.QueuedWorkloadSpec{
+					Spec: kueue.WorkloadSpec{
 						PodSets: podSets,
 						Admission: &kueue.Admission{
 							ClusterQueue:  "two",
@@ -831,10 +831,10 @@ func TestClusterQueueUsage(t *testing.T) {
 			},
 		},
 	}
-	workloads := []kueue.QueuedWorkload{
+	workloads := []kueue.Workload{
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "one"},
-			Spec: kueue.QueuedWorkloadSpec{
+			Spec: kueue.WorkloadSpec{
 				PodSets: []kueue.PodSet{
 					{
 						Name:  "main",
@@ -861,7 +861,7 @@ func TestClusterQueueUsage(t *testing.T) {
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "two"},
-			Spec: kueue.QueuedWorkloadSpec{
+			Spec: kueue.WorkloadSpec{
 				PodSets: []kueue.PodSet{
 					{
 						Name:  "main",
@@ -888,7 +888,7 @@ func TestClusterQueueUsage(t *testing.T) {
 		},
 	}
 	cases := map[string]struct {
-		workloads         []kueue.QueuedWorkload
+		workloads         []kueue.Workload
 		wantUsedResources kueue.UsedResources
 		wantWorkloads     int
 	}{

@@ -27,8 +27,8 @@ const (
 	ManagerName       = "kueue-manager"
 	JobControllerName = "kueue-job-controller"
 
-	// UpdatesBatchPeriod is the batch period to hold queuedworkload updates
-	// before syncing a Queue and CLusterQueue onbjects.
+	// UpdatesBatchPeriod is the batch period to hold workload updates
+	// before syncing a Queue and ClusterQueue objects.
 	UpdatesBatchPeriod = time.Second
 
 	// DefaultPriority is used to set priority of workloads

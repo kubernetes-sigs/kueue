@@ -30,11 +30,11 @@ import (
 func TestClusterQueueBestEffortFIFO(t *testing.T) {
 	clusterQueue := utiltesting.MakeClusterQueue("cq").QueueingStrategy(
 		kueue.BestEffortFIFO).Obj()
-	var workloads = []*kueue.QueuedWorkload{
-		utiltesting.MakeQueuedWorkload("w1", "ns1").Queue("q1").Obj(),
-		utiltesting.MakeQueuedWorkload("w2", "ns2").Queue("q2").Obj(),
+	var workloads = []*kueue.Workload{
+		utiltesting.MakeWorkload("w1", "ns1").Queue("q1").Obj(),
+		utiltesting.MakeWorkload("w2", "ns2").Queue("q2").Obj(),
 	}
-	var updatedWorkloads = make([]*kueue.QueuedWorkload, len(workloads))
+	var updatedWorkloads = make([]*kueue.Workload, len(workloads))
 
 	updatedWorkloads[0] = workloads[0].DeepCopy()
 	updatedWorkloads[0].Spec.QueueName = "q2"
@@ -43,46 +43,46 @@ func TestClusterQueueBestEffortFIFO(t *testing.T) {
 
 	tests := []struct {
 		name                       string
-		workloadsToAdd             []*kueue.QueuedWorkload
+		workloadsToAdd             []*kueue.Workload
 		inadmissibleWorkloadsToAdd []*workload.Info
-		workloadsToUpdate          []*kueue.QueuedWorkload
-		workloadsToDelete          []*kueue.QueuedWorkload
+		workloadsToUpdate          []*kueue.Workload
+		workloadsToDelete          []*kueue.Workload
 		queueInadmissibleWorkloads bool
 		wantWorkloads              sets.String
 	}{
 		{
 			name:                       "add, update, delete workload",
-			workloadsToAdd:             []*kueue.QueuedWorkload{workloads[0], workloads[1]},
+			workloadsToAdd:             []*kueue.Workload{workloads[0], workloads[1]},
 			inadmissibleWorkloadsToAdd: []*workload.Info{},
-			workloadsToUpdate:          []*kueue.QueuedWorkload{updatedWorkloads[0]},
-			workloadsToDelete:          []*kueue.QueuedWorkload{workloads[0]},
+			workloadsToUpdate:          []*kueue.Workload{updatedWorkloads[0]},
+			workloadsToDelete:          []*kueue.Workload{workloads[0]},
 			queueInadmissibleWorkloads: false,
 			wantWorkloads:              sets.NewString(workloads[1].Name),
 		},
 		{
 			name:                       "update inadmissible workload",
-			workloadsToAdd:             []*kueue.QueuedWorkload{workloads[0]},
+			workloadsToAdd:             []*kueue.Workload{workloads[0]},
 			inadmissibleWorkloadsToAdd: []*workload.Info{workload.NewInfo(workloads[1])},
-			workloadsToUpdate:          []*kueue.QueuedWorkload{updatedWorkloads[1]},
-			workloadsToDelete:          []*kueue.QueuedWorkload{},
+			workloadsToUpdate:          []*kueue.Workload{updatedWorkloads[1]},
+			workloadsToDelete:          []*kueue.Workload{},
 			queueInadmissibleWorkloads: false,
 			wantWorkloads:              sets.NewString(workloads[0].Name, workloads[1].Name),
 		},
 		{
 			name:                       "re-queue inadmissible workload",
-			workloadsToAdd:             []*kueue.QueuedWorkload{workloads[0]},
+			workloadsToAdd:             []*kueue.Workload{workloads[0]},
 			inadmissibleWorkloadsToAdd: []*workload.Info{workload.NewInfo(workloads[1])},
-			workloadsToUpdate:          []*kueue.QueuedWorkload{},
-			workloadsToDelete:          []*kueue.QueuedWorkload{},
+			workloadsToUpdate:          []*kueue.Workload{},
+			workloadsToDelete:          []*kueue.Workload{},
 			queueInadmissibleWorkloads: true,
 			wantWorkloads:              sets.NewString(workloads[0].Name, workloads[1].Name),
 		},
 		{
 			name:                       "delete inadmissible workload",
-			workloadsToAdd:             []*kueue.QueuedWorkload{workloads[0]},
+			workloadsToAdd:             []*kueue.Workload{workloads[0]},
 			inadmissibleWorkloadsToAdd: []*workload.Info{workload.NewInfo(workloads[1])},
-			workloadsToUpdate:          []*kueue.QueuedWorkload{},
-			workloadsToDelete:          []*kueue.QueuedWorkload{workloads[1]},
+			workloadsToUpdate:          []*kueue.Workload{},
+			workloadsToDelete:          []*kueue.Workload{workloads[1]},
 			queueInadmissibleWorkloads: true,
 			wantWorkloads:              sets.NewString(workloads[0].Name),
 		},

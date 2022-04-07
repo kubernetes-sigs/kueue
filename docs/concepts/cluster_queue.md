@@ -29,7 +29,7 @@ spec:
         guaranteed: 36Gi
 ```
 
-This ClusterQueue admits [workloads](queued_workload.md) if and only if:
+This ClusterQueue admits [workloads](workload.md) if and only if:
 - The sum of the CPU requests is less than or equal to 9.
 - The sum of the memory requests is less than or equal to 36Gi.
 
@@ -64,7 +64,7 @@ are ordered in the ClusterQueue and how they are re-queued after an unsuccessful
 
 The following are the supported queueing strategies:
 
-- `StrictFIFO`: Workloads are ordered first by [priority](queued_workload.md#priority)
+- `StrictFIFO`: Workloads are ordered first by [priority](workload.md#priority)
   and then by `.metadata.creationTimestamp`. Older workloads that can't be
   admitted will block newer workloads, even if the newer workloads fit in the
   available quota.
@@ -105,8 +105,8 @@ taints:
 You can use the `.metadata.name` to reference a flavor from a ClusterQueue in
 the `.spec.requestableResources[*].flavors[*].resourceFlavor` field.
 
-For each resource of each [pod set](queued_workload.md#pod-sets) in a
-QueuedWorkload, Kueue assigns the first flavor in the `.spec.requestableResources[*].resources.flavors`
+For each resource of each [pod set](workload.md#pod-sets) in a Workload, Kueue
+assigns the first flavor in the `.spec.requestableResources[*].resources.flavors`
 list that has enough unused quota in the ClusterQueue or the ClusterQueue's
 [cohort](#cohort).
 
@@ -125,7 +125,7 @@ steps:
 1. When admitting a workload, Kueue evaluates the
    [`.nodeSelector`](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector)
    and [`.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution`](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#node-affinity)
-   fields in the PodSpecs of your [QueuedWorkloads](queued_workload.md) against the
+   fields in the PodSpecs of your [Workload](workload.md) against the
    ResourceFlavor labels.
 2. Once the workload is admitted, Kueue adds the ResourceFlavor labels to the
   `.nodeSelector` of the underlying workload Pod templates, if the workload

@@ -25,7 +25,7 @@ resources:
 - job_viewer_role.yaml
 - queue_editor_role.yaml
 - queue_viewer_role.yaml
-- queuedworkload_editor_role.yaml
-- queuedworkload_viewer_role.yaml
+- workload_editor_role.yaml
+- workload_viewer_role.yaml
 - resourceflavor_editor_role.yaml
 - resourceflavor_viewer_role.yaml

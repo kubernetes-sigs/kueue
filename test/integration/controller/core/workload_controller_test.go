@@ -32,19 +32,19 @@ import (
 
 // +kubebuilder:docs-gen:collapse=Imports
 
-var _ = ginkgo.Describe("QueuedWorkload controller", func() {
+var _ = ginkgo.Describe("Workload controller", func() {
 	var (
 		ns                   *corev1.Namespace
-		updatedQueueWorkload kueue.QueuedWorkload
+		updatedQueueWorkload kueue.Workload
 		queue                *kueue.Queue
-		wl                   *kueue.QueuedWorkload
+		wl                   *kueue.Workload
 		message              string
 	)
 
 	ginkgo.BeforeEach(func() {
 		ns = &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "core-queuedworkload-",
+				GenerateName: "core-workload-",
 			},
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
@@ -52,11 +52,11 @@ var _ = ginkgo.Describe("QueuedWorkload controller", func() {
 
 	ginkgo.When("the queue is not defined in the workload", func() {
 		ginkgo.AfterEach(func() {
-			updatedQueueWorkload = kueue.QueuedWorkload{}
+			updatedQueueWorkload = kueue.Workload{}
 			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		})
 		ginkgo.It("Should update status when workloads are created", func() {
-			wl = testing.MakeQueuedWorkload("one", ns.Name).Request(corev1.ResourceCPU, "1").Obj()
+			wl = testing.MakeWorkload("one", ns.Name).Request(corev1.ResourceCPU, "1").Obj()
 			message = fmt.Sprintf("Queue %s doesn't exist", "")
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 			gomega.Eventually(func() int {
@@ -69,11 +69,11 @@ var _ = ginkgo.Describe("QueuedWorkload controller", func() {
 
 	ginkgo.When("the queue doesn't exist", func() {
 		ginkgo.AfterEach(func() {
-			updatedQueueWorkload = kueue.QueuedWorkload{}
+			updatedQueueWorkload = kueue.Workload{}
 			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		})
 		ginkgo.It("Should update status when workloads are created", func() {
-			wl = testing.MakeQueuedWorkload("two", ns.Name).Queue("nonCreatedQueue").Request(corev1.ResourceCPU, "1").Obj()
+			wl = testing.MakeWorkload("two", ns.Name).Queue("nonCreatedQueue").Request(corev1.ResourceCPU, "1").Obj()
 			message = fmt.Sprintf("Queue %s doesn't exist", "nonCreatedQueue")
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 			gomega.Eventually(func() int {
@@ -92,13 +92,13 @@ var _ = ginkgo.Describe("QueuedWorkload controller", func() {
 		ginkgo.AfterEach(func() {
 			gomega.Expect(framework.DeleteQueue(ctx, k8sClient, queue)).To(gomega.Succeed())
 			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			updatedQueueWorkload = kueue.QueuedWorkload{}
+			updatedQueueWorkload = kueue.Workload{}
 		})
 		ginkgo.It("Should update status when workloads are created", func() {
-			wl = testing.MakeQueuedWorkload("three", ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "1").Obj()
+			wl = testing.MakeWorkload("three", ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "1").Obj()
 			message = fmt.Sprintf("ClusterQueue %s doesn't exist", "fooclusterqueue")
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
-			gomega.Eventually(func() []kueue.QueuedWorkloadCondition {
+			gomega.Eventually(func() []kueue.WorkloadCondition {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
 				return updatedQueueWorkload.Status.Conditions
 			}, framework.Timeout, framework.Interval).ShouldNot(gomega.BeNil())
