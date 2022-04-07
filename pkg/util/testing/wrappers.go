@@ -134,14 +134,14 @@ func (p *PriorityClassWrapper) Obj() *schedulingv1.PriorityClass {
 	return &p.PriorityClass
 }
 
-type QueuedWorkloadWrapper struct{ kueue.QueuedWorkload }
+type WorkloadWrapper struct{ kueue.Workload }
 
-// MakeQueuedWorkload creates a wrapper for a QueuedWorkload with a single
+// MakeWorkload creates a wrapper for a Workload with a single
 // pod with a single container.
-func MakeQueuedWorkload(name, ns string) *QueuedWorkloadWrapper {
-	return &QueuedWorkloadWrapper{kueue.QueuedWorkload{
+func MakeWorkload(name, ns string) *WorkloadWrapper {
+	return &WorkloadWrapper{kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
-		Spec: kueue.QueuedWorkloadSpec{
+		Spec: kueue.WorkloadSpec{
 			PodSets: []kueue.PodSet{
 				{
 					Name:  "main",
@@ -162,31 +162,31 @@ func MakeQueuedWorkload(name, ns string) *QueuedWorkloadWrapper {
 	}}
 }
 
-func (w *QueuedWorkloadWrapper) Obj() *kueue.QueuedWorkload {
-	return &w.QueuedWorkload
+func (w *WorkloadWrapper) Obj() *kueue.Workload {
+	return &w.Workload
 }
 
-func (w *QueuedWorkloadWrapper) Request(r corev1.ResourceName, q string) *QueuedWorkloadWrapper {
+func (w *WorkloadWrapper) Request(r corev1.ResourceName, q string) *WorkloadWrapper {
 	w.Spec.PodSets[0].Spec.Containers[0].Resources.Requests[r] = resource.MustParse(q)
 	return w
 }
 
-func (w *QueuedWorkloadWrapper) Queue(q string) *QueuedWorkloadWrapper {
+func (w *WorkloadWrapper) Queue(q string) *WorkloadWrapper {
 	w.Spec.QueueName = q
 	return w
 }
 
-func (w *QueuedWorkloadWrapper) Admit(a *kueue.Admission) *QueuedWorkloadWrapper {
+func (w *WorkloadWrapper) Admit(a *kueue.Admission) *WorkloadWrapper {
 	w.Spec.Admission = a
 	return w
 }
 
-func (w *QueuedWorkloadWrapper) Creation(t time.Time) *QueuedWorkloadWrapper {
+func (w *WorkloadWrapper) Creation(t time.Time) *WorkloadWrapper {
 	w.CreationTimestamp = metav1.NewTime(t)
 	return w
 }
 
-func (w *QueuedWorkloadWrapper) PriorityClass(priorityClassName string) *QueuedWorkloadWrapper {
+func (w *WorkloadWrapper) PriorityClass(priorityClassName string) *WorkloadWrapper {
 	w.Spec.PriorityClassName = priorityClassName
 	return w
 }

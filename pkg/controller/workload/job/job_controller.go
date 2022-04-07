@@ -62,10 +62,10 @@ func NewReconciler(scheme *runtime.Scheme, client client.Client, record record.E
 // SetupWithManager sets up the controller with the Manager. It indexes workloads
 // based on the owning jobs.
 func (r *JobReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &kueue.QueuedWorkload{}, ownerKey, func(rawObj client.Object) []string {
-		// grab the QueuedWorkload object, extract the owner...
-		qw := rawObj.(*kueue.QueuedWorkload)
-		owner := metav1.GetControllerOf(qw)
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &kueue.Workload{}, ownerKey, func(rawObj client.Object) []string {
+		// grab the Workload object, extract the owner...
+		wl := rawObj.(*kueue.Workload)
+		owner := metav1.GetControllerOf(wl)
 		if owner == nil {
 			return nil
 		}
@@ -82,7 +82,7 @@ func (r *JobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&batchv1.Job{}).
-		Owns(&kueue.QueuedWorkload{}).
+		Owns(&kueue.Workload{}).
 		Complete(r)
 }
 
@@ -90,9 +90,9 @@ func (r *JobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
 //+kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;update;patch
 //+kubebuilder:rbac:groups=batch,resources=jobs/status,verbs=get
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=queuedworkloads,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=queuedworkloads/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=queuedworkloads/finalizers,verbs=update
+//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 
 func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -106,7 +106,7 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(2).Info("Reconciling Job")
 
-	var childWorkloads kueue.QueuedWorkloadList
+	var childWorkloads kueue.WorkloadList
 	if err := r.client.List(ctx, &childWorkloads, client.InNamespace(req.Namespace),
 		client.MatchingFields{ownerKey: req.Name}); err != nil {
 		log.Error(err, "Unable to list child workloads")
@@ -194,7 +194,7 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 // stopJob sends updates to suspend the job, reset the startTime so we can update the scheduling directives
 // later when unsuspending and resets the nodeSelector to its previous state based on what is available in
 // the workload (which should include the original affinities that the job had).
-func (r *JobReconciler) stopJob(ctx context.Context, w *kueue.QueuedWorkload,
+func (r *JobReconciler) stopJob(ctx context.Context, w *kueue.Workload,
 	job *batchv1.Job, eventMsg string) error {
 	job.Spec.Suspend = pointer.BoolPtr(true)
 	if err := r.client.Update(ctx, job); err != nil {
@@ -222,7 +222,7 @@ func (r *JobReconciler) stopJob(ctx context.Context, w *kueue.QueuedWorkload,
 	return nil
 }
 
-func (r *JobReconciler) startJob(ctx context.Context, w *kueue.QueuedWorkload, job *batchv1.Job) error {
+func (r *JobReconciler) startJob(ctx context.Context, w *kueue.Workload, job *batchv1.Job) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	if len(w.Spec.PodSets) != 1 {
@@ -255,7 +255,7 @@ func (r *JobReconciler) startJob(ctx context.Context, w *kueue.QueuedWorkload, j
 	return nil
 }
 
-func (r *JobReconciler) getNodeSelectors(ctx context.Context, w *kueue.QueuedWorkload) (map[string]string, error) {
+func (r *JobReconciler) getNodeSelectors(ctx context.Context, w *kueue.Workload) (map[string]string, error) {
 	if len(w.Spec.Admission.PodSetFlavors[0].Flavors) == 0 {
 		return nil, nil
 	}
@@ -297,18 +297,18 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job *batchv
 		return err
 	}
 
-	r.record.Eventf(job, corev1.EventTypeNormal, "CreatedQueuedWorkload",
-		"Created QueuedWorkload: %v", workload.Key(wl))
+	r.record.Eventf(job, corev1.EventTypeNormal, "CreatedWorkload",
+		"Created Workload: %v", workload.Key(wl))
 	return nil
 }
 
 // ensureAtmostoneworkload finds a matching workload and deletes redundant ones.
-func (r *JobReconciler) ensureAtMostOneWorkload(ctx context.Context, job *batchv1.Job, workloads kueue.QueuedWorkloadList) (*kueue.QueuedWorkload, error) {
+func (r *JobReconciler) ensureAtMostOneWorkload(ctx context.Context, job *batchv1.Job, workloads kueue.WorkloadList) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Find a matching workload first if there is one.
-	var toDelete []*kueue.QueuedWorkload
-	var match *kueue.QueuedWorkload
+	var toDelete []*kueue.Workload
+	var match *kueue.Workload
 	for i := range workloads.Items {
 		w := &workloads.Items[i]
 		owner := metav1.GetControllerOf(w)
@@ -327,14 +327,14 @@ func (r *JobReconciler) ensureAtMostOneWorkload(ctx context.Context, job *batchv
 	// If there is no matching workload and the job is running, suspend it.
 	if match == nil && !jobSuspended(job) {
 		log.V(2).Info("job with no matching workload, suspending")
-		var w *kueue.QueuedWorkload
+		var w *kueue.Workload
 		if len(workloads.Items) == 1 {
 			// The job may have been modified and hence the existing workload
 			// doesn't match the job anymore. All bets are off if there are more
 			// than one workload...
 			w = &workloads.Items[0]
 		}
-		if err := r.stopJob(ctx, w, job, "No matching QueuedWorkload"); err != nil {
+		if err := r.stopJob(ctx, w, job, "No matching Workload"); err != nil {
 			log.Error(err, "stopping job")
 		}
 	}
@@ -350,8 +350,8 @@ func (r *JobReconciler) ensureAtMostOneWorkload(ctx context.Context, job *batchv
 			log.Error(err, "Failed to delete workload")
 		}
 		if err == nil {
-			r.record.Eventf(job, corev1.EventTypeNormal, "DeletedQueuedWorkload",
-				"Deleted not matching QueuedWorkload: %v", workload.Key(toDelete[i]))
+			r.record.Eventf(job, corev1.EventTypeNormal, "DeletedWorkload",
+				"Deleted not matching Workload: %v", workload.Key(toDelete[i]))
 		}
 	}
 
@@ -366,13 +366,13 @@ func (r *JobReconciler) ensureAtMostOneWorkload(ctx context.Context, job *batchv
 }
 
 func ConstructWorkloadFor(ctx context.Context, client client.Client,
-	job *batchv1.Job, scheme *runtime.Scheme) (*kueue.QueuedWorkload, error) {
-	w := &kueue.QueuedWorkload{
+	job *batchv1.Job, scheme *runtime.Scheme) (*kueue.Workload, error) {
+	w := &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      job.Name,
 			Namespace: job.Namespace,
 		},
-		Spec: kueue.QueuedWorkloadSpec{
+		Spec: kueue.WorkloadSpec{
 			PodSets: []kueue.PodSet{
 				{
 					Spec:  *job.Spec.Template.Spec.DeepCopy(),
@@ -399,9 +399,9 @@ func ConstructWorkloadFor(ctx context.Context, client client.Client,
 	return w, nil
 }
 
-func appendFinishedConditionIfNotExists(conds []kueue.QueuedWorkloadCondition, jobStatus batchv1.JobConditionType) ([]kueue.QueuedWorkloadCondition, bool) {
+func appendFinishedConditionIfNotExists(conds []kueue.WorkloadCondition, jobStatus batchv1.JobConditionType) ([]kueue.WorkloadCondition, bool) {
 	for i, c := range conds {
-		if c.Type == kueue.QueuedWorkloadFinished {
+		if c.Type == kueue.WorkloadFinished {
 			if c.Status == corev1.ConditionTrue {
 				return conds, false
 			}
@@ -414,8 +414,8 @@ func appendFinishedConditionIfNotExists(conds []kueue.QueuedWorkloadCondition, j
 		message = "Job failed"
 	}
 	now := metav1.Now()
-	conds = append(conds, kueue.QueuedWorkloadCondition{
-		Type:               kueue.QueuedWorkloadFinished,
+	conds = append(conds, kueue.WorkloadCondition{
+		Type:               kueue.WorkloadFinished,
 		Status:             corev1.ConditionTrue,
 		LastProbeTime:      now,
 		LastTransitionTime: now,
@@ -440,7 +440,7 @@ func jobSuspended(j *batchv1.Job) bool {
 
 }
 
-func jobAndWorkloadEqual(job *batchv1.Job, wl *kueue.QueuedWorkload) bool {
+func jobAndWorkloadEqual(job *batchv1.Job, wl *kueue.Workload) bool {
 	if len(wl.Spec.PodSets) != 1 {
 		return false
 	}

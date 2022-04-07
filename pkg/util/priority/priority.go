@@ -28,7 +28,7 @@ import (
 )
 
 // Priority returns priority of the given workload.
-func Priority(w *kueue.QueuedWorkload) int32 {
+func Priority(w *kueue.Workload) int32 {
 	if w.Spec.Priority != nil {
 		return *w.Spec.Priority
 	}

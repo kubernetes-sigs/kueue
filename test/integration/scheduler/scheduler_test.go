@@ -332,7 +332,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		gomega.Expect(k8sClient.Create(ctx, jobHighPriority)).Should(gomega.Succeed())
 
 		ginkgo.By("checking that workload1 is created with priority and priorityName")
-		createdLowPriorityWorkload := &kueue.QueuedWorkload{}
+		createdLowPriorityWorkload := &kueue.Workload{}
 		gomega.Eventually(func() bool {
 			lookupKey := types.NamespacedName{Name: jobLowPriority.Name, Namespace: jobLowPriority.Namespace}
 			err := k8sClient.Get(ctx, lookupKey, createdLowPriorityWorkload)
@@ -342,7 +342,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		gomega.Expect(*createdLowPriorityWorkload.Spec.Priority).Should(gomega.Equal(lowPriorityClass.Value))
 
 		ginkgo.By("checking that workload2 is created with priority and priorityName")
-		createdHighPriorityWorkload := &kueue.QueuedWorkload{}
+		createdHighPriorityWorkload := &kueue.Workload{}
 		gomega.Eventually(func() bool {
 			lookupKey := types.NamespacedName{Name: jobHighPriority.Name, Namespace: jobHighPriority.Namespace}
 			err := k8sClient.Get(ctx, lookupKey, createdHighPriorityWorkload)
@@ -404,7 +404,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		gomega.Expect(k8sClient.Delete(ctx, job1)).Should(gomega.Succeed())
 		// Simulated deletion of workload by ownerReference of job1.
 		gomega.Expect(k8sClient.Delete(ctx,
-			&kueue.QueuedWorkload{ObjectMeta: metav1.ObjectMeta{
+			&kueue.Workload{ObjectMeta: metav1.ObjectMeta{
 				Name:      job1.Name,
 				Namespace: job1.Namespace,
 			}})).Should(gomega.Succeed())
@@ -452,7 +452,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		gomega.Expect(k8sClient.Delete(ctx, job1, client.GracePeriodSeconds(-1))).Should(gomega.Succeed())
 		// Simulated deletion of workload by ownerReference of job1.
 		gomega.Expect(k8sClient.Delete(ctx,
-			&kueue.QueuedWorkload{ObjectMeta: metav1.ObjectMeta{
+			&kueue.Workload{ObjectMeta: metav1.ObjectMeta{
 				Name:      job1.Name,
 				Namespace: job1.Namespace,
 			}})).Should(gomega.Succeed())
@@ -514,14 +514,14 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	})
 
 	ginkgo.It("Should admit two small workloads after a big one finishes", func() {
-		bigWl := testing.MakeQueuedWorkload("big-wl", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "5").Obj()
+		bigWl := testing.MakeWorkload("big-wl", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "5").Obj()
 		ginkgo.By("Creating big workload")
 		gomega.Expect(k8sClient.Create(ctx, bigWl)).Should(gomega.Succeed())
 
 		framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, bigWl)
 
-		smallWl1 := testing.MakeQueuedWorkload("small-wl-1", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "2.5").Obj()
-		smallWl2 := testing.MakeQueuedWorkload("small-wl-2", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "2.5").Obj()
+		smallWl1 := testing.MakeWorkload("small-wl-1", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "2.5").Obj()
+		smallWl2 := testing.MakeWorkload("small-wl-2", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "2.5").Obj()
 		ginkgo.By("Creating two small workloads")
 		gomega.Expect(k8sClient.Create(ctx, smallWl1)).Should(gomega.Succeed())
 		gomega.Expect(k8sClient.Create(ctx, smallWl2)).Should(gomega.Succeed())
@@ -529,9 +529,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		framework.ExpectWorkloadsToBePending(ctx, k8sClient, smallWl1, smallWl2)
 
 		ginkgo.By("Marking the big workload as finished")
-		framework.UpdateWorkloadStatus(ctx, k8sClient, bigWl, func(wl *kueue.QueuedWorkload) {
-			wl.Status.Conditions = append(wl.Status.Conditions, kueue.QueuedWorkloadCondition{
-				Type:   kueue.QueuedWorkloadFinished,
+		framework.UpdateWorkloadStatus(ctx, k8sClient, bigWl, func(wl *kueue.Workload) {
+			wl.Status.Conditions = append(wl.Status.Conditions, kueue.WorkloadCondition{
+				Type:   kueue.WorkloadFinished,
 				Status: corev1.ConditionTrue,
 			})
 		})

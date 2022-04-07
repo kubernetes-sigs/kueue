@@ -37,8 +37,7 @@ const workloadClusterQueueKey = "spec.admission.clusterQueue"
 
 var errCqNotFound = errors.New("cluster queue not found")
 
-// Cache keeps track of the QueuedWorkloads that got admitted through
-// ClusterQueues.
+// Cache keeps track of the Workloads that got admitted through ClusterQueues.
 type Cache struct {
 	sync.RWMutex
 
@@ -168,7 +167,7 @@ func (c *ClusterQueue) UpdateLabelKeys(flavors map[string]*kueue.ResourceFlavor)
 	}
 }
 
-func (c *ClusterQueue) addWorkload(w *kueue.QueuedWorkload) error {
+func (c *ClusterQueue) addWorkload(w *kueue.Workload) error {
 	k := workload.Key(w)
 	if _, exist := c.Workloads[k]; exist {
 		return fmt.Errorf("workload already exists in ClusterQueue")
@@ -179,7 +178,7 @@ func (c *ClusterQueue) addWorkload(w *kueue.QueuedWorkload) error {
 	return nil
 }
 
-func (c *ClusterQueue) deleteWorkload(w *kueue.QueuedWorkload) {
+func (c *ClusterQueue) deleteWorkload(w *kueue.Workload) {
 	k := workload.Key(w)
 	wi, exist := c.Workloads[k]
 	if !exist {
@@ -237,7 +236,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 
 	// On controller restart, an add ClusterQueue event may come after
 	// add workload events, and so here we explicitly list and add existing workloads.
-	var workloads kueue.QueuedWorkloadList
+	var workloads kueue.WorkloadList
 	if err := c.client.List(ctx, &workloads, client.MatchingFields{workloadClusterQueueKey: cq.Name}); err != nil {
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
@@ -284,13 +283,13 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	delete(c.clusterQueues, cq.Name)
 }
 
-func (c *Cache) AddOrUpdateWorkload(w *kueue.QueuedWorkload) bool {
+func (c *Cache) AddOrUpdateWorkload(w *kueue.Workload) bool {
 	c.Lock()
 	defer c.Unlock()
 	return c.addOrUpdateWorkload(w)
 }
 
-func (c *Cache) addOrUpdateWorkload(w *kueue.QueuedWorkload) bool {
+func (c *Cache) addOrUpdateWorkload(w *kueue.Workload) bool {
 	if w.Spec.Admission == nil {
 		return false
 	}
@@ -309,7 +308,7 @@ func (c *Cache) addOrUpdateWorkload(w *kueue.QueuedWorkload) bool {
 	return clusterQueue.addWorkload(w) == nil
 }
 
-func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.QueuedWorkload) error {
+func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.Workload) error {
 	c.Lock()
 	defer c.Unlock()
 	if oldWl.Spec.Admission != nil {
@@ -331,7 +330,7 @@ func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.QueuedWorkload) error {
 	return cq.addWorkload(newWl)
 }
 
-func (c *Cache) DeleteWorkload(w *kueue.QueuedWorkload) error {
+func (c *Cache) DeleteWorkload(w *kueue.Workload) error {
 	c.Lock()
 	defer c.Unlock()
 	if w.Spec.Admission == nil {
@@ -349,7 +348,7 @@ func (c *Cache) DeleteWorkload(w *kueue.QueuedWorkload) error {
 	return nil
 }
 
-func (c *Cache) AssumeWorkload(w *kueue.QueuedWorkload) error {
+func (c *Cache) AssumeWorkload(w *kueue.Workload) error {
 	c.Lock()
 	defer c.Unlock()
 
@@ -375,7 +374,7 @@ func (c *Cache) AssumeWorkload(w *kueue.QueuedWorkload) error {
 	return nil
 }
 
-func (c *Cache) ForgetWorkload(w *kueue.QueuedWorkload) error {
+func (c *Cache) ForgetWorkload(w *kueue.Workload) error {
 	c.Lock()
 	defer c.Unlock()
 
@@ -425,7 +424,7 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (kueue.UsedResources, int, erro
 	return usage, len(cq.Workloads), nil
 }
 
-func (c *Cache) cleanupAssumedState(w *kueue.QueuedWorkload) {
+func (c *Cache) cleanupAssumedState(w *kueue.Workload) {
 	k := workload.Key(w)
 	assumedCQName, assumed := c.assumedWorkloads[k]
 	if assumed {
@@ -486,8 +485,8 @@ func resourceLimitsByName(in []kueue.Resource) map[corev1.ResourceName][]FlavorL
 }
 
 func SetupIndexes(indexer client.FieldIndexer) error {
-	return indexer.IndexField(context.Background(), &kueue.QueuedWorkload{}, workloadClusterQueueKey, func(o client.Object) []string {
-		wl := o.(*kueue.QueuedWorkload)
+	return indexer.IndexField(context.Background(), &kueue.Workload{}, workloadClusterQueueKey, func(o client.Object) []string {
+		wl := o.(*kueue.Workload)
 		if wl.Spec.Admission == nil {
 			return nil
 		}

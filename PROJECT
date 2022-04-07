@@ -28,7 +28,7 @@ resources:
   controller: true
   domain: x-k8s.io
   group: kueue
-  kind: QueuedWorkload
+  kind: Workload
   path: sigs.k8s.io/kueue/api/v1alpha1
   version: v1alpha1
 - api:

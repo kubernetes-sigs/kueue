@@ -41,7 +41,7 @@ func TestFIFOClusterQueue(t *testing.T) {
 		t.Fatalf("Failed creating ClusterQueue %v", err)
 	}
 	now := metav1.Now()
-	ws := []*kueue.QueuedWorkload{
+	ws := []*kueue.Workload{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:              "now",
@@ -71,7 +71,7 @@ func TestFIFOClusterQueue(t *testing.T) {
 	if got.Obj.Name != "before" {
 		t.Errorf("Popped workload %q want %q", got.Obj.Name, "before")
 	}
-	q.PushOrUpdate(&kueue.QueuedWorkload{
+	q.PushOrUpdate(&kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:              "after",
 			CreationTimestamp: metav1.NewTime(now.Add(-time.Minute)),
@@ -85,7 +85,7 @@ func TestFIFOClusterQueue(t *testing.T) {
 		t.Errorf("Popped workload %q want %q", got.Obj.Name, "after")
 	}
 
-	q.Delete(&kueue.QueuedWorkload{
+	q.Delete(&kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{Name: "now"},
 	})
 	got = q.Pop()
@@ -99,28 +99,28 @@ func TestStrictFIFO(t *testing.T) {
 	t2 := t1.Add(time.Second)
 	for _, tt := range []struct {
 		name     string
-		w1       *kueue.QueuedWorkload
-		w2       *kueue.QueuedWorkload
+		w1       *kueue.Workload
+		w2       *kueue.Workload
 		expected string
 	}{
 		{
 			name: "w1.priority is higher than w2.priority",
-			w1: &kueue.QueuedWorkload{
+			w1: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:              "w1",
 					CreationTimestamp: metav1.NewTime(t1),
 				},
-				Spec: kueue.QueuedWorkloadSpec{
+				Spec: kueue.WorkloadSpec{
 					PriorityClassName: "highPriority",
 					Priority:          pointer.Int32(highPriority),
 				},
 			},
-			w2: &kueue.QueuedWorkload{
+			w2: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:              "w2",
 					CreationTimestamp: metav1.NewTime(t2),
 				},
-				Spec: kueue.QueuedWorkloadSpec{
+				Spec: kueue.WorkloadSpec{
 					PriorityClassName: "lowPriority",
 					Priority:          pointer.Int32(lowPriority),
 				},
@@ -129,13 +129,13 @@ func TestStrictFIFO(t *testing.T) {
 		},
 		{
 			name: "w1.priority equals w2.priority and w1.create time is earlier than w2.create time",
-			w1: &kueue.QueuedWorkload{
+			w1: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:              "w1",
 					CreationTimestamp: metav1.NewTime(t1),
 				},
 			},
-			w2: &kueue.QueuedWorkload{
+			w2: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:              "w2",
 					CreationTimestamp: metav1.NewTime(t2),
@@ -145,22 +145,22 @@ func TestStrictFIFO(t *testing.T) {
 		},
 		{
 			name: "p1.priority is lower than p2.priority and w1.create time is earlier than w2.create time",
-			w1: &kueue.QueuedWorkload{
+			w1: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:              "w1",
 					CreationTimestamp: metav1.NewTime(t1),
 				},
-				Spec: kueue.QueuedWorkloadSpec{
+				Spec: kueue.WorkloadSpec{
 					PriorityClassName: "lowPriority",
 					Priority:          pointer.Int32(lowPriority),
 				},
 			},
-			w2: &kueue.QueuedWorkload{
+			w2: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:              "w2",
 					CreationTimestamp: metav1.NewTime(t2),
 				},
-				Spec: kueue.QueuedWorkloadSpec{
+				Spec: kueue.WorkloadSpec{
 					PriorityClassName: "highPriority",
 					Priority:          pointer.Int32(highPriority),
 				},

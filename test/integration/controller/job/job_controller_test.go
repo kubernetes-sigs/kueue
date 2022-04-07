@@ -66,13 +66,13 @@ var _ = ginkgo.Describe("Job controller", func() {
 		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking the workload is created without queue assigned")
-		createdWorkload := &kueue.QueuedWorkload{}
+		createdWorkload := &kueue.Workload{}
 		gomega.Eventually(func() bool {
 			err := k8sClient.Get(ctx, lookupKey, createdWorkload)
 			return err == nil
 		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
-		gomega.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(""), "The QueuedWorkload shouldn't have .spec.queueName set")
-		gomega.Expect(metav1.IsControlledBy(createdWorkload, job)).To(gomega.BeTrue(), "The QueuedWorkload should be owned by the Job")
+		gomega.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(""), "The Workload shouldn't have .spec.queueName set")
+		gomega.Expect(metav1.IsControlledBy(createdWorkload, job)).To(gomega.BeTrue(), "The Workload should be owned by the Job")
 
 		ginkgo.By("checking the workload is created with priority and priorityName")
 		gomega.Expect(createdWorkload.Spec.PriorityClassName).Should(gomega.Equal(priorityClassName))
@@ -95,7 +95,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 		secondWl.Spec.PodSets[0].Count = parallelism + 1
 		gomega.Expect(k8sClient.Create(ctx, secondWl)).Should(gomega.Succeed())
 		gomega.Eventually(func() bool {
-			wl := &kueue.QueuedWorkload{}
+			wl := &kueue.Workload{}
 			key := types.NamespacedName{Name: secondWl.Name, Namespace: secondWl.Namespace}
 			if err := k8sClient.Get(ctx, key, wl); err != nil && apierrors.IsNotFound(err) {
 				return true
@@ -108,7 +108,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 			return err == nil
 		}, framework.ConsistentDuration, framework.Interval).Should(gomega.BeTrue())
 		gomega.Eventually(func() bool {
-			ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "DeletedQueuedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching QueuedWorkload: %v", workload.Key(secondWl)))
+			ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "DeletedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching Workload: %v", workload.Key(secondWl)))
 			return ok
 		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 
@@ -163,7 +163,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 				len(createdJob.Spec.Template.Spec.NodeSelector) == 0
 		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 		gomega.Eventually(func() bool {
-			ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "DeletedQueuedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching QueuedWorkload: %v", jobKey))
+			ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "DeletedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching Workload: %v", jobKey))
 			return ok
 		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 
@@ -216,7 +216,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 				return false
 			}
 
-			return createdWorkload.Status.Conditions[0].Type == kueue.QueuedWorkloadFinished &&
+			return createdWorkload.Status.Conditions[0].Type == kueue.WorkloadFinished &&
 				createdWorkload.Status.Conditions[0].Status == corev1.ConditionTrue
 		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 	})

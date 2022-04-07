@@ -212,7 +212,7 @@ func TestSchedule(t *testing.T) {
 		},
 	}
 	cases := map[string]struct {
-		workloads []kueue.QueuedWorkload
+		workloads []kueue.Workload
 		// wantAssignments is a summary of all the admissions in the cache after this cycle.
 		wantAssignments map[string]kueue.Admission
 		// wantScheduled is the subset of workloads that got scheduled/admitted in this cycle.
@@ -221,13 +221,13 @@ func TestSchedule(t *testing.T) {
 		wantLeft map[string]sets.String
 	}{
 		"workload fits in single clusterQueue": {
-			workloads: []kueue.QueuedWorkload{
+			workloads: []kueue.Workload{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: "sales",
 						Name:      "foo",
 					},
-					Spec: kueue.QueuedWorkloadSpec{
+					Spec: kueue.WorkloadSpec{
 						QueueName: "main",
 						PodSets: []kueue.PodSet{
 							{
@@ -257,13 +257,13 @@ func TestSchedule(t *testing.T) {
 			wantScheduled: []string{"sales/foo"},
 		},
 		"single clusterQueue full": {
-			workloads: []kueue.QueuedWorkload{
+			workloads: []kueue.Workload{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: "sales",
 						Name:      "new",
 					},
-					Spec: kueue.QueuedWorkloadSpec{
+					Spec: kueue.WorkloadSpec{
 						QueueName: "main",
 						PodSets: []kueue.PodSet{
 							{
@@ -281,7 +281,7 @@ func TestSchedule(t *testing.T) {
 						Namespace: "sales",
 						Name:      "assigned",
 					},
-					Spec: kueue.QueuedWorkloadSpec{
+					Spec: kueue.WorkloadSpec{
 						PodSets: []kueue.PodSet{
 							{
 								Name:  "one",
@@ -323,13 +323,13 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"failed to match clusterQueue selector": {
-			workloads: []kueue.QueuedWorkload{
+			workloads: []kueue.Workload{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: "sales",
 						Name:      "new",
 					},
-					Spec: kueue.QueuedWorkloadSpec{
+					Spec: kueue.WorkloadSpec{
 						QueueName: "blocked",
 						PodSets: []kueue.PodSet{
 							{
@@ -348,13 +348,13 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"assign to different cohorts": {
-			workloads: []kueue.QueuedWorkload{
+			workloads: []kueue.Workload{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: "sales",
 						Name:      "new",
 					},
-					Spec: kueue.QueuedWorkloadSpec{
+					Spec: kueue.WorkloadSpec{
 						QueueName: "main",
 						PodSets: []kueue.PodSet{
 							{
@@ -372,7 +372,7 @@ func TestSchedule(t *testing.T) {
 						Namespace: "eng-alpha",
 						Name:      "new",
 					},
-					Spec: kueue.QueuedWorkloadSpec{
+					Spec: kueue.WorkloadSpec{
 						QueueName: "main",
 						PodSets: []kueue.PodSet{
 							{
@@ -413,13 +413,13 @@ func TestSchedule(t *testing.T) {
 			wantScheduled: []string{"sales/new", "eng-alpha/new"},
 		},
 		"assign to same cohort no borrowing": {
-			workloads: []kueue.QueuedWorkload{
+			workloads: []kueue.Workload{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: "eng-alpha",
 						Name:      "new",
 					},
-					Spec: kueue.QueuedWorkloadSpec{
+					Spec: kueue.WorkloadSpec{
 						QueueName: "main",
 						PodSets: []kueue.PodSet{
 							{
@@ -437,7 +437,7 @@ func TestSchedule(t *testing.T) {
 						Namespace: "eng-beta",
 						Name:      "new",
 					},
-					Spec: kueue.QueuedWorkloadSpec{
+					Spec: kueue.WorkloadSpec{
 						QueueName: "main",
 						PodSets: []kueue.PodSet{
 							{
@@ -478,13 +478,13 @@ func TestSchedule(t *testing.T) {
 			wantScheduled: []string{"eng-alpha/new", "eng-beta/new"},
 		},
 		"assign multiple resources and flavors": {
-			workloads: []kueue.QueuedWorkload{
+			workloads: []kueue.Workload{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: "eng-beta",
 						Name:      "new",
 					},
-					Spec: kueue.QueuedWorkloadSpec{
+					Spec: kueue.WorkloadSpec{
 						QueueName: "main",
 						PodSets: []kueue.PodSet{
 							{
@@ -529,13 +529,13 @@ func TestSchedule(t *testing.T) {
 			wantScheduled: []string{"eng-beta/new"},
 		},
 		"cannot borrow if cohort was assigned": {
-			workloads: []kueue.QueuedWorkload{
+			workloads: []kueue.Workload{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: "eng-alpha",
 						Name:      "new",
 					},
-					Spec: kueue.QueuedWorkloadSpec{
+					Spec: kueue.WorkloadSpec{
 						QueueName: "main",
 						PodSets: []kueue.PodSet{
 							{
@@ -553,7 +553,7 @@ func TestSchedule(t *testing.T) {
 						Namespace: "eng-beta",
 						Name:      "new",
 					},
-					Spec: kueue.QueuedWorkloadSpec{
+					Spec: kueue.WorkloadSpec{
 						QueueName: "main",
 						PodSets: []kueue.PodSet{
 							{
@@ -586,13 +586,13 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"cannot borrow resource not listed in clusterQueue": {
-			workloads: []kueue.QueuedWorkload{
+			workloads: []kueue.Workload{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: "eng-alpha",
 						Name:      "new",
 					},
-					Spec: kueue.QueuedWorkloadSpec{
+					Spec: kueue.WorkloadSpec{
 						QueueName: "main",
 						PodSets: []kueue.PodSet{
 							{
@@ -611,13 +611,13 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 		"not enough resources to borrow, fallback to next flavor": {
-			workloads: []kueue.QueuedWorkload{
+			workloads: []kueue.Workload{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: "eng-alpha",
 						Name:      "new",
 					},
-					Spec: kueue.QueuedWorkloadSpec{
+					Spec: kueue.WorkloadSpec{
 						QueueName: "main",
 						PodSets: []kueue.PodSet{
 							{
@@ -635,7 +635,7 @@ func TestSchedule(t *testing.T) {
 						Namespace: "eng-beta",
 						Name:      "existing",
 					},
-					Spec: kueue.QueuedWorkloadSpec{
+					Spec: kueue.WorkloadSpec{
 						PodSets: []kueue.PodSet{
 							{
 								Name:  "one",
@@ -700,7 +700,7 @@ func TestSchedule(t *testing.T) {
 				t.Fatalf("Failed adding kueue scheme: %v", err)
 			}
 			clientBuilder := fake.NewClientBuilder().WithScheme(scheme).
-				WithLists(&kueue.QueuedWorkloadList{Items: tc.workloads}, &kueue.QueueList{Items: queues}).
+				WithLists(&kueue.WorkloadList{Items: tc.workloads}, &kueue.QueueList{Items: queues}).
 				WithObjects(
 					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-alpha", Labels: map[string]string{"dep": "eng"}}},
 					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-beta", Labels: map[string]string{"dep": "eng"}}},
@@ -729,7 +729,7 @@ func TestSchedule(t *testing.T) {
 			for i := range resourceFlavors {
 				cqCache.AddOrUpdateResourceFlavor(resourceFlavors[i])
 			}
-			workloadWatch, err := cl.Watch(ctx, &kueue.QueuedWorkloadList{})
+			workloadWatch, err := cl.Watch(ctx, &kueue.WorkloadList{})
 			if err != nil {
 				t.Fatalf("Failed setting up watch: %v", err)
 			}
@@ -751,15 +751,15 @@ func TestSchedule(t *testing.T) {
 			for !timedOut && len(gotScheduled) < len(tc.wantScheduled) {
 				select {
 				case evt := <-workloadWatch.ResultChan():
-					w, ok := evt.Object.(*kueue.QueuedWorkload)
+					w, ok := evt.Object.(*kueue.Workload)
 					if !ok {
-						t.Fatalf("Received update for %T, want QueuedWorkload", evt.Object)
+						t.Fatalf("Received update for %T, want Workload", evt.Object)
 					}
 					if w.Spec.Admission != nil {
 						gotScheduled[workload.Key(w)] = *w.Spec.Admission
 					}
 				case <-time.After(watchTimeout):
-					t.Errorf("Timed out waiting for QueuedWorkload updates")
+					t.Errorf("Timed out waiting for Workload updates")
 					timedOut = true
 				}
 			}
@@ -1395,8 +1395,8 @@ func TestEntryAssignFlavors(t *testing.T) {
 				Verbosity: 2,
 			})
 			e := entry{
-				Info: *workload.NewInfo(&kueue.QueuedWorkload{
-					Spec: kueue.QueuedWorkloadSpec{
+				Info: *workload.NewInfo(&kueue.Workload{
+					Spec: kueue.WorkloadSpec{
 						PodSets: tc.wlPods,
 					},
 				}),
@@ -1428,7 +1428,7 @@ func TestEntryOrdering(t *testing.T) {
 	input := []entry{
 		{
 			Info: workload.Info{
-				Obj: &kueue.QueuedWorkload{ObjectMeta: metav1.ObjectMeta{
+				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
 					Name:              "alpha",
 					CreationTimestamp: metav1.NewTime(now),
 				}},
@@ -1439,7 +1439,7 @@ func TestEntryOrdering(t *testing.T) {
 		},
 		{
 			Info: workload.Info{
-				Obj: &kueue.QueuedWorkload{ObjectMeta: metav1.ObjectMeta{
+				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
 					Name:              "beta",
 					CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
 				}},
@@ -1447,7 +1447,7 @@ func TestEntryOrdering(t *testing.T) {
 		},
 		{
 			Info: workload.Info{
-				Obj: &kueue.QueuedWorkload{ObjectMeta: metav1.ObjectMeta{
+				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
 					Name:              "gamma",
 					CreationTimestamp: metav1.NewTime(now.Add(2 * time.Second)),
 				}},
@@ -1455,7 +1455,7 @@ func TestEntryOrdering(t *testing.T) {
 		},
 		{
 			Info: workload.Info{
-				Obj: &kueue.QueuedWorkload{ObjectMeta: metav1.ObjectMeta{
+				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
 					Name:              "delta",
 					CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
 				}},

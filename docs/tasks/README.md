@@ -16,7 +16,7 @@ quotas and queues.
 
 ## Batch user
 
-A _batch user_ runs [workloads](/docs/concepts/queued_workload.md). A typical
+A _batch user_ runs [workloads](/docs/concepts/workload.md). A typical
 batch user is a researcher, AI/ML engineer, data scientist, among others.
 
 - As a batch user, you can learn how to [run a Job on a cluster](run_jobs.md)

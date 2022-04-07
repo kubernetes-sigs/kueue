@@ -37,7 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache"
 )
 
-const qwUpdateBuffer = 10
+const wlUpdateChBuffer = 10
 
 // ClusterQueueReconciler reconciles a ClusterQueue object
 type ClusterQueueReconciler struct {
@@ -45,7 +45,7 @@ type ClusterQueueReconciler struct {
 	log        logr.Logger
 	qManager   *queue.Manager
 	cache      *cache.Cache
-	qwUpdateCh chan event.GenericEvent
+	wlUpdateCh chan event.GenericEvent
 }
 
 func NewClusterQueueReconciler(client client.Client, qMgr *queue.Manager, cache *cache.Cache) *ClusterQueueReconciler {
@@ -54,7 +54,7 @@ func NewClusterQueueReconciler(client client.Client, qMgr *queue.Manager, cache 
 		log:        ctrl.Log.WithName("cluster-queue-reconciler"),
 		qManager:   qMgr,
 		cache:      cache,
-		qwUpdateCh: make(chan event.GenericEvent, qwUpdateBuffer),
+		wlUpdateCh: make(chan event.GenericEvent, wlUpdateChBuffer),
 	}
 }
 
@@ -89,8 +89,8 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	return ctrl.Result{}, nil
 }
 
-func (r *ClusterQueueReconciler) NotifyQueuedWorkloadUpdate(w *kueue.QueuedWorkload) {
-	r.qwUpdateCh <- event.GenericEvent{Object: w}
+func (r *ClusterQueueReconciler) NotifyWorkloadUpdate(w *kueue.Workload) {
+	r.wlUpdateCh <- event.GenericEvent{Object: w}
 }
 
 // Event handlers return true to signal the controller to reconcile the
@@ -144,7 +144,7 @@ func (r *ClusterQueueReconciler) Update(e event.UpdateEvent) bool {
 }
 
 func (r *ClusterQueueReconciler) Generic(e event.GenericEvent) bool {
-	r.log.V(3).Info("Got QueuedWorkload event", "queuedWorkload", klog.KObj(e.Object))
+	r.log.V(3).Info("Got Workload event", "workload", klog.KObj(e.Object))
 	return true
 }
 
@@ -166,14 +166,14 @@ func (h *cqWorkloadHandler) Delete(event.DeleteEvent, workqueue.RateLimitingInte
 }
 
 func (h *cqWorkloadHandler) Generic(e event.GenericEvent, q workqueue.RateLimitingInterface) {
-	w := e.Object.(*kueue.QueuedWorkload)
+	w := e.Object.(*kueue.Workload)
 	req := h.requestForWorkloadClusterQueue(w)
 	if req != nil {
 		q.AddAfter(*req, constants.UpdatesBatchPeriod)
 	}
 }
 
-func (h *cqWorkloadHandler) requestForWorkloadClusterQueue(w *kueue.QueuedWorkload) *reconcile.Request {
+func (h *cqWorkloadHandler) requestForWorkloadClusterQueue(w *kueue.Workload) *reconcile.Request {
 	var name string
 	if w.Spec.Admission != nil {
 		name = string(w.Spec.Admission.ClusterQueue)
@@ -198,7 +198,7 @@ func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.ClusterQueue{}).
-		Watches(&source.Channel{Source: r.qwUpdateCh}, &wHandler).
+		Watches(&source.Channel{Source: r.wlUpdateCh}, &wHandler).
 		WithEventFilter(r).
 		Complete(r)
 }

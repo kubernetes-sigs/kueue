@@ -142,10 +142,10 @@ func TestSnapshot(t *testing.T) {
 	for i := range flavors {
 		cache.AddOrUpdateResourceFlavor(&flavors[i])
 	}
-	workloads := []kueue.QueuedWorkload{
+	workloads := []kueue.Workload{
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "alpha"},
-			Spec: kueue.QueuedWorkloadSpec{
+			Spec: kueue.WorkloadSpec{
 				PodSets: []kueue.PodSet{
 					{
 						Name:  "main",
@@ -170,7 +170,7 @@ func TestSnapshot(t *testing.T) {
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "beta"},
-			Spec: kueue.QueuedWorkloadSpec{
+			Spec: kueue.WorkloadSpec{
 				PodSets: []kueue.PodSet{
 					{
 						Name:  "main",
@@ -197,7 +197,7 @@ func TestSnapshot(t *testing.T) {
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "gamma"},
-			Spec: kueue.QueuedWorkloadSpec{
+			Spec: kueue.WorkloadSpec{
 				PodSets: []kueue.PodSet{
 					{
 						Name:  "main",

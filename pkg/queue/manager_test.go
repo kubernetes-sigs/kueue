@@ -43,12 +43,12 @@ func TestAddQueueOrphans(t *testing.T) {
 		t.Fatalf("Failed adding kueue scheme: %s", err)
 	}
 	kClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		utiltesting.MakeQueuedWorkload("a", "earth").Queue("foo").Obj(),
-		utiltesting.MakeQueuedWorkload("b", "earth").Queue("bar").Obj(),
-		utiltesting.MakeQueuedWorkload("c", "earth").Queue("foo").Obj(),
-		utiltesting.MakeQueuedWorkload("d", "earth").Queue("foo").
+		utiltesting.MakeWorkload("a", "earth").Queue("foo").Obj(),
+		utiltesting.MakeWorkload("b", "earth").Queue("bar").Obj(),
+		utiltesting.MakeWorkload("c", "earth").Queue("foo").Obj(),
+		utiltesting.MakeWorkload("d", "earth").Queue("foo").
 			Admit(utiltesting.MakeAdmission("cq").Obj()).Obj(),
-		utiltesting.MakeQueuedWorkload("a", "moon").Queue("foo").Obj(),
+		utiltesting.MakeWorkload("a", "moon").Queue("foo").Obj(),
 	).Build()
 	manager := NewManager(kClient)
 	q := utiltesting.MakeQueue("foo", "earth").Obj()
@@ -75,11 +75,11 @@ func TestAddClusterQueueOrphans(t *testing.T) {
 		utiltesting.MakeQueue("bar", "").ClusterQueue("cq").Obj(),
 	}
 	kClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		utiltesting.MakeQueuedWorkload("a", "").Queue("foo").Creation(now.Add(time.Second)).Obj(),
-		utiltesting.MakeQueuedWorkload("b", "").Queue("bar").Creation(now).Obj(),
-		utiltesting.MakeQueuedWorkload("c", "").Queue("foo").
+		utiltesting.MakeWorkload("a", "").Queue("foo").Creation(now.Add(time.Second)).Obj(),
+		utiltesting.MakeWorkload("b", "").Queue("bar").Creation(now).Obj(),
+		utiltesting.MakeWorkload("c", "").Queue("foo").
 			Admit(utiltesting.MakeAdmission("cq").Obj()).Obj(),
-		utiltesting.MakeQueuedWorkload("d", "").Queue("baz").Obj(),
+		utiltesting.MakeWorkload("d", "").Queue("baz").Obj(),
 		queues[0],
 		queues[1],
 	).Build()
@@ -113,9 +113,9 @@ func TestUpdateQueue(t *testing.T) {
 		utiltesting.MakeQueue("bar", "").ClusterQueue("cq2").Obj(),
 	}
 	now := time.Now()
-	workloads := []*kueue.QueuedWorkload{
-		utiltesting.MakeQueuedWorkload("a", "").Queue("foo").Creation(now.Add(time.Second)).Obj(),
-		utiltesting.MakeQueuedWorkload("b", "").Queue("bar").Creation(now).Obj(),
+	workloads := []*kueue.Workload{
+		utiltesting.MakeWorkload("a", "").Queue("foo").Creation(now.Add(time.Second)).Obj(),
+		utiltesting.MakeWorkload("b", "").Queue("bar").Creation(now).Obj(),
 	}
 	// Setup.
 	scheme := runtime.NewScheme()
@@ -178,44 +178,44 @@ func TestAddWorkload(t *testing.T) {
 		}
 	}
 	cases := []struct {
-		workload  *kueue.QueuedWorkload
+		workload  *kueue.Workload
 		wantAdded bool
 	}{
 		{
-			workload: &kueue.QueuedWorkload{
+			workload: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "earth",
 					Name:      "existing_queue",
 				},
-				Spec: kueue.QueuedWorkloadSpec{QueueName: "foo"},
+				Spec: kueue.WorkloadSpec{QueueName: "foo"},
 			},
 			wantAdded: true,
 		},
 		{
-			workload: &kueue.QueuedWorkload{
+			workload: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "earth",
 					Name:      "non_existing_queue",
 				},
-				Spec: kueue.QueuedWorkloadSpec{QueueName: "baz"},
+				Spec: kueue.WorkloadSpec{QueueName: "baz"},
 			},
 		},
 		{
-			workload: &kueue.QueuedWorkload{
+			workload: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "mars",
 					Name:      "non_existing_cluster_queue",
 				},
-				Spec: kueue.QueuedWorkloadSpec{QueueName: "bar"},
+				Spec: kueue.WorkloadSpec{QueueName: "bar"},
 			},
 		},
 		{
-			workload: &kueue.QueuedWorkload{
+			workload: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Namespace: "mars",
 					Name:      "wrong_namespace",
 				},
-				Spec: kueue.QueuedWorkloadSpec{QueueName: "foo"},
+				Spec: kueue.WorkloadSpec{QueueName: "foo"},
 			},
 		},
 	}
@@ -250,34 +250,34 @@ func TestStatus(t *testing.T) {
 			},
 		},
 	}
-	workloads := []kueue.QueuedWorkload{
+	workloads := []kueue.Workload{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:              "a",
 				CreationTimestamp: metav1.NewTime(now.Add(time.Hour)),
 			},
-			Spec: kueue.QueuedWorkloadSpec{QueueName: "foo"},
+			Spec: kueue.WorkloadSpec{QueueName: "foo"},
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:              "b",
 				CreationTimestamp: metav1.NewTime(now),
 			},
-			Spec: kueue.QueuedWorkloadSpec{QueueName: "bar"},
+			Spec: kueue.WorkloadSpec{QueueName: "bar"},
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:              "c",
 				CreationTimestamp: metav1.NewTime(now),
 			},
-			Spec: kueue.QueuedWorkloadSpec{QueueName: "foo"},
+			Spec: kueue.WorkloadSpec{QueueName: "foo"},
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:              "d",
 				CreationTimestamp: metav1.NewTime(now),
 			},
-			Spec: kueue.QueuedWorkloadSpec{QueueName: "foo"},
+			Spec: kueue.WorkloadSpec{QueueName: "foo"},
 		},
 	}
 
@@ -337,51 +337,51 @@ func TestRequeueWorkload(t *testing.T) {
 		utiltesting.MakeQueue("bar", "").Obj(),
 	}
 	cases := []struct {
-		workload     *kueue.QueuedWorkload
+		workload     *kueue.Workload
 		inClient     bool
 		inQueue      bool
 		wantRequeued bool
 	}{
 		{
-			workload: &kueue.QueuedWorkload{
+			workload: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{Name: "existing_queue_and_obj"},
-				Spec:       kueue.QueuedWorkloadSpec{QueueName: "foo"},
+				Spec:       kueue.WorkloadSpec{QueueName: "foo"},
 			},
 			inClient:     true,
 			wantRequeued: true,
 		},
 		{
-			workload: &kueue.QueuedWorkload{
+			workload: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{Name: "non_existing_queue"},
-				Spec:       kueue.QueuedWorkloadSpec{QueueName: "baz"},
+				Spec:       kueue.WorkloadSpec{QueueName: "baz"},
 			},
 			inClient: true,
 		},
 		{
-			workload: &kueue.QueuedWorkload{
+			workload: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{Name: "non_existing_cluster_queue"},
-				Spec:       kueue.QueuedWorkloadSpec{QueueName: "bar"},
+				Spec:       kueue.WorkloadSpec{QueueName: "bar"},
 			},
 			inClient: true,
 		},
 		{
-			workload: &kueue.QueuedWorkload{
+			workload: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{Name: "not_in_client"},
-				Spec:       kueue.QueuedWorkloadSpec{QueueName: "foo"},
+				Spec:       kueue.WorkloadSpec{QueueName: "foo"},
 			},
 		},
 		{
-			workload: &kueue.QueuedWorkload{
+			workload: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{Name: "already_in_queue"},
-				Spec:       kueue.QueuedWorkloadSpec{QueueName: "foo"},
+				Spec:       kueue.WorkloadSpec{QueueName: "foo"},
 			},
 			inClient: true,
 			inQueue:  true,
 		},
 		{
-			workload: &kueue.QueuedWorkload{
+			workload: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{Name: "already_admitted"},
-				Spec: kueue.QueuedWorkloadSpec{
+				Spec: kueue.WorkloadSpec{
 					QueueName: "foo",
 					Admission: &kueue.Admission{},
 				},
@@ -430,8 +430,8 @@ func TestUpdateWorkload(t *testing.T) {
 	cases := map[string]struct {
 		clusterQueues    []*kueue.ClusterQueue
 		queues           []*kueue.Queue
-		workloads        []*kueue.QueuedWorkload
-		update           func(*kueue.QueuedWorkload)
+		workloads        []*kueue.Workload
+		update           func(*kueue.Workload)
 		wantUpdated      bool
 		wantQueueOrder   map[string][]string
 		wantQueueMembers map[string]sets.String
@@ -443,11 +443,11 @@ func TestUpdateWorkload(t *testing.T) {
 			queues: []*kueue.Queue{
 				utiltesting.MakeQueue("foo", "").ClusterQueue("cq").Obj(),
 			},
-			workloads: []*kueue.QueuedWorkload{
-				utiltesting.MakeQueuedWorkload("a", "").Queue("foo").Creation(now).Obj(),
-				utiltesting.MakeQueuedWorkload("b", "").Queue("foo").Creation(now.Add(time.Second)).Obj(),
+			workloads: []*kueue.Workload{
+				utiltesting.MakeWorkload("a", "").Queue("foo").Creation(now).Obj(),
+				utiltesting.MakeWorkload("b", "").Queue("foo").Creation(now.Add(time.Second)).Obj(),
 			},
-			update: func(w *kueue.QueuedWorkload) {
+			update: func(w *kueue.Workload) {
 				w.CreationTimestamp = metav1.NewTime(now.Add(time.Minute))
 			},
 			wantUpdated: true,
@@ -466,10 +466,10 @@ func TestUpdateWorkload(t *testing.T) {
 				utiltesting.MakeQueue("foo", "").ClusterQueue("cq").Obj(),
 				utiltesting.MakeQueue("bar", "").ClusterQueue("cq").Obj(),
 			},
-			workloads: []*kueue.QueuedWorkload{
-				utiltesting.MakeQueuedWorkload("a", "").Queue("foo").Obj(),
+			workloads: []*kueue.Workload{
+				utiltesting.MakeWorkload("a", "").Queue("foo").Obj(),
 			},
-			update: func(w *kueue.QueuedWorkload) {
+			update: func(w *kueue.Workload) {
 				w.Spec.QueueName = "bar"
 			},
 			wantUpdated: true,
@@ -490,10 +490,10 @@ func TestUpdateWorkload(t *testing.T) {
 				utiltesting.MakeQueue("foo", "").ClusterQueue("cq1").Obj(),
 				utiltesting.MakeQueue("bar", "").ClusterQueue("cq2").Obj(),
 			},
-			workloads: []*kueue.QueuedWorkload{
-				utiltesting.MakeQueuedWorkload("a", "").Queue("foo").Obj(),
+			workloads: []*kueue.Workload{
+				utiltesting.MakeWorkload("a", "").Queue("foo").Obj(),
 			},
-			update: func(w *kueue.QueuedWorkload) {
+			update: func(w *kueue.Workload) {
 				w.Spec.QueueName = "bar"
 			},
 			wantUpdated: true,
@@ -513,10 +513,10 @@ func TestUpdateWorkload(t *testing.T) {
 			queues: []*kueue.Queue{
 				utiltesting.MakeQueue("foo", "").ClusterQueue("cq").Obj(),
 			},
-			workloads: []*kueue.QueuedWorkload{
-				utiltesting.MakeQueuedWorkload("a", "").Queue("foo").Obj(),
+			workloads: []*kueue.Workload{
+				utiltesting.MakeWorkload("a", "").Queue("foo").Obj(),
 			},
-			update: func(w *kueue.QueuedWorkload) {
+			update: func(w *kueue.Workload) {
 				w.Spec.QueueName = "bar"
 			},
 			wantQueueOrder: map[string][]string{
@@ -533,10 +533,10 @@ func TestUpdateWorkload(t *testing.T) {
 			queues: []*kueue.Queue{
 				utiltesting.MakeQueue("foo", "").ClusterQueue("cq").Obj(),
 			},
-			workloads: []*kueue.QueuedWorkload{
-				utiltesting.MakeQueuedWorkload("a", "").Queue("bar").Obj(),
+			workloads: []*kueue.Workload{
+				utiltesting.MakeWorkload("a", "").Queue("bar").Obj(),
 			},
-			update: func(w *kueue.QueuedWorkload) {
+			update: func(w *kueue.Workload) {
 				w.Spec.QueueName = "foo"
 			},
 			wantUpdated: true,
@@ -640,27 +640,27 @@ func TestHeads(t *testing.T) {
 			},
 		},
 	}
-	workloads := []kueue.QueuedWorkload{
+	workloads := []kueue.Workload{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:              "a",
 				CreationTimestamp: metav1.NewTime(now.Add(time.Hour)),
 			},
-			Spec: kueue.QueuedWorkloadSpec{QueueName: "foo"},
+			Spec: kueue.WorkloadSpec{QueueName: "foo"},
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:              "b",
 				CreationTimestamp: metav1.NewTime(now),
 			},
-			Spec: kueue.QueuedWorkloadSpec{QueueName: "bar"},
+			Spec: kueue.WorkloadSpec{QueueName: "bar"},
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:              "c",
 				CreationTimestamp: metav1.NewTime(now),
 			},
-			Spec: kueue.QueuedWorkloadSpec{QueueName: "foo"},
+			Spec: kueue.WorkloadSpec{QueueName: "foo"},
 		},
 	}
 	manager := NewManager(fake.NewClientBuilder().WithScheme(scheme).Build())
@@ -708,12 +708,12 @@ func TestHeadsAsync(t *testing.T) {
 	}
 	now := time.Now().Truncate(time.Second)
 	cq := utiltesting.MakeClusterQueue("fooCq").Obj()
-	wl := kueue.QueuedWorkload{
+	wl := kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:              "a",
 			CreationTimestamp: metav1.NewTime(now),
 		},
-		Spec: kueue.QueuedWorkloadSpec{QueueName: "foo"},
+		Spec: kueue.WorkloadSpec{QueueName: "foo"},
 	}
 	q := kueue.Queue{
 		ObjectMeta: metav1.ObjectMeta{Name: "foo"},

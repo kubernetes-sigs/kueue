@@ -115,15 +115,15 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			e.inadmissibleReason = "cohort used in this cycle"
 			continue
 		}
-		log := log.WithValues("queuedWorkload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue))
+		log := log.WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue))
 		if err := s.admit(ctrl.LoggerInto(ctx, log), e); err == nil {
 			e.status = assumed
 		} else {
 			log.Error(err, "Failed to admit workload")
 			e.inadmissibleReason = fmt.Sprintf("Failed to admit workload: %v", err)
-			err := workload.UpdateStatus(ctx, s.client, e.Obj, kueue.QueuedWorkloadAdmitted, corev1.ConditionFalse, "Pending", err.Error())
+			err := workload.UpdateStatus(ctx, s.client, e.Obj, kueue.WorkloadAdmitted, corev1.ConditionFalse, "Pending", err.Error())
 			if err != nil {
-				log.Error(err, "Updating QueuedWorkload status")
+				log.Error(err, "Updating Workload status")
 			}
 		}
 		// Even if there was a failure, we shouldn't admit other workloads to this
@@ -135,8 +135,11 @@ func (s *Scheduler) schedule(ctx context.Context) {
 
 	// 6. Requeue the heads that were not scheduled.
 	for _, e := range entries {
-		log := log.WithValues("queuedWorkload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue))
-		log.V(3).Info("Workload evaluated for admission", "status", e.status, "reason", e.inadmissibleReason)
+		log.V(3).Info("Workload evaluated for admission",
+			"workload", klog.KObj(e.Obj),
+			"clusterQueue", klog.KRef("", e.ClusterQueue),
+			"status", e.status,
+			"reason", e.inadmissibleReason)
 		if e.status != assumed {
 			s.requeueAndUpdate(log, ctx, &e.Info, e.inadmissibleReason)
 			s.recorder.Eventf(e.Obj, corev1.EventTypeNormal, "Pending", e.inadmissibleReason)
@@ -173,7 +176,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 	log := ctrl.LoggerFrom(ctx)
 	entries := make([]entry, 0, len(workloads))
 	for _, w := range workloads {
-		log := log.WithValues("queuedWorkload", klog.KObj(w.Obj), "clusterQueue", klog.KRef("", w.ClusterQueue))
+		log := log.WithValues("workload", klog.KObj(w.Obj), "clusterQueue", klog.KRef("", w.ClusterQueue))
 		cq := snap.ClusterQueues[w.ClusterQueue]
 		ns := corev1.Namespace{}
 		e := entry{Info: w}
@@ -422,9 +425,9 @@ func (e entryOrdering) Less(i, j int) bool {
 
 func (s *Scheduler) requeueAndUpdate(log logr.Logger, ctx context.Context, w *workload.Info, message string) {
 	added := s.queues.RequeueWorkload(ctx, w)
-	log.V(2).Info("Workload re-queued", "queuedWorkload", klog.KObj(w.Obj), "queue", klog.KRef(w.Obj.Namespace, w.Obj.Spec.QueueName), "added", added)
-	err := workload.UpdateStatus(ctx, s.client, w.Obj, kueue.QueuedWorkloadAdmitted, corev1.ConditionFalse, "Pending", message)
+	log.V(2).Info("Workload re-queued", "workload", klog.KObj(w.Obj), "queue", klog.KRef(w.Obj.Namespace, w.Obj.Spec.QueueName), "added", added)
+	err := workload.UpdateStatus(ctx, s.client, w.Obj, kueue.WorkloadAdmitted, corev1.ConditionFalse, "Pending", message)
 	if err != nil {
-		log.Error(err, "Could not update QueuedWorkload status")
+		log.Error(err, "Could not update Workload status")
 	}
 }

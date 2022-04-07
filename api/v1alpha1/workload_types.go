@@ -21,8 +21,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// QueuedWorkloadSpec defines the desired state of QueuedWorkload
-type QueuedWorkloadSpec struct {
+// WorkloadSpec defines the desired state of Workload
+type WorkloadSpec struct {
 	// pods is a list of sets of homogeneous pods, each described by a Pod spec
 	// and a count.
 	//
@@ -30,17 +30,17 @@ type QueuedWorkloadSpec struct {
 	// +listMapKey=name
 	PodSets []PodSet `json:"pods,omitempty"`
 
-	// queueName is the name of the queue the QueuedWorkload is associated with.
+	// queueName is the name of the queue the Workload is associated with.
 	QueueName string `json:"queueName"`
 
 	// admission holds the parameters of the admission of the workload by a ClusterQueue.
 	Admission *Admission `json:"admission,omitempty"`
 
-	// If specified, indicates the queuedWorkload's priority.
+	// If specified, indicates the workload's priority.
 	// "system-node-critical" and "system-cluster-critical" are two special
 	// keywords which indicate the highest priorities with the former being
 	// the highest priority. Any other name must be defined by creating a
-	// PriorityClass object with that name. If not specified, the queuedWorkload
+	// PriorityClass object with that name. If not specified, the workload
 	// priority will be default or zero if there is no default.
 	PriorityClassName string `json:"priorityClassName,omitempty"`
 
@@ -82,23 +82,23 @@ type PodSet struct {
 	Count int32 `json:"count"`
 }
 
-// QueuedWorkloadStatus defines the observed state of QueuedWorkload
-type QueuedWorkloadStatus struct {
-	// conditions hold the latest available observations of the QueuedWorkload
+// WorkloadStatus defines the observed state of Workload
+type WorkloadStatus struct {
+	// conditions hold the latest available observations of the Workload
 	// current state.
 	// +optional
 	// +listType=map
 	// +listMapKey=type
-	Conditions []QueuedWorkloadCondition `json:"conditions,omitempty"`
+	Conditions []WorkloadCondition `json:"conditions,omitempty"`
 }
 
-type QueuedWorkloadCondition struct {
+type WorkloadCondition struct {
 	// type of condition could be:
 	//
-	// Admitted: the QueuedWorkload was admitted through a ClusterQueue.
+	// Admitted: the Workload was admitted through a ClusterQueue.
 	//
 	// Finished: the associated workload finished running (failed or succeeded).
-	Type QueuedWorkloadConditionType `json:"type"`
+	Type WorkloadConditionType `json:"type"`
 
 	// status could be True, False or Unknown.
 	Status corev1.ConditionStatus `json:"status"`
@@ -122,42 +122,41 @@ type QueuedWorkloadCondition struct {
 	Message string `json:"message,omitempty"`
 }
 
-type QueuedWorkloadConditionType string
+type WorkloadConditionType string
 
 const (
-	// QueuedWorkloadAdmitted means that the QueuedWorkload was admitted by a ClusterQueue.
-	QueuedWorkloadAdmitted QueuedWorkloadConditionType = "Admitted"
+	// WorkloadAdmitted means that the Workload was admitted by a ClusterQueue.
+	WorkloadAdmitted WorkloadConditionType = "Admitted"
 
-	// QueuedWorkloadFinished means that the workload associated to the
+	// WorkloadFinished means that the workload associated to the
 	// ResourceClaim finished running (failed or succeeded).
-	QueuedWorkloadFinished QueuedWorkloadConditionType = "Finished"
+	WorkloadFinished WorkloadConditionType = "Finished"
 )
 
 //+kubebuilder:object:root=true
-//+kubebuilder:resource:shortName={workload,workloads,qw}
 //+kubebuilder:subresource:status
 //+kubebuilder:printcolumn:name="Queue",JSONPath=".spec.queueName",type=string,description="Name of the queue this workload was submitted to"
 //+kubebuilder:printcolumn:name="Admitted by",JSONPath=".spec.admission.clusterQueue",type=string,description="Name of the ClusterQueue that admitted this workload"
 //+kubebuilder:printcolumn:name="Age",JSONPath=".metadata.creationTimestamp",type=date,description="Time this workload was created"
 
-// QueuedWorkload is the Schema for the queuedworkloads API
-type QueuedWorkload struct {
+// Workload is the Schema for the workloads API
+type Workload struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   QueuedWorkloadSpec   `json:"spec,omitempty"`
-	Status QueuedWorkloadStatus `json:"status,omitempty"`
+	Spec   WorkloadSpec   `json:"spec,omitempty"`
+	Status WorkloadStatus `json:"status,omitempty"`
 }
 
 //+kubebuilder:object:root=true
 
-// QueuedWorkloadList contains a list of ResourceClaim
-type QueuedWorkloadList struct {
+// WorkloadList contains a list of ResourceClaim
+type WorkloadList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []QueuedWorkload `json:"items"`
+	Items           []Workload `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&QueuedWorkload{}, &QueuedWorkloadList{})
+	SchemeBuilder.Register(&Workload{}, &WorkloadList{})
 }

@@ -21,9 +21,9 @@ When you install Kueue, the following set of ClusterRoles are created for the
 two main personas that we assume will interact with Kueue:
 
 - `kueue-batch-admin-role` includes the permissions to manage ClusterQueues,
-  Queues, QueuedWorkloads, and ResourceFlavors.
+  Queues, Workloads, and ResourceFlavors.
 - `kueue-batch-user-role` includes the permissions to manage [Jobs](https://kubernetes.io/docs/concepts/workloads/controllers/job/)
-  and to view Queues and QueuedWorkloads.
+  and to view Queues and Workloads.
 
 ## Giving permissions to a batch administrator
 
@@ -62,7 +62,7 @@ kubectl apply -f batch-admin-role-binding.yaml
 A batch user typically requires permissions to:
 - Create and view Jobs in their namespace.
 - View the queues available in their namespace.
-- View the status of their [workloads](/docs/concepts/queued_workload.md) in their namespace.
+- View the status of their [workloads](/docs/concepts/workload.md) in their namespace.
 
 To give these permissions to a group of users `team-a@example.com` for the
 namespace `team-a`, create a RoleBinding with a manifest similar to the

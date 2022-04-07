@@ -29,9 +29,9 @@ import (
 	kueue "sigs.k8s.io/kueue/api/v1alpha1"
 )
 
-// Info holds a QueuedWorkload object and some pre-processing.
+// Info holds a Workload object and some pre-processing.
 type Info struct {
-	Obj *kueue.QueuedWorkload
+	Obj *kueue.Workload
 	// list of total resources requested by the podsets.
 	TotalRequests []PodSetResources
 	// Populated from queue.
@@ -44,18 +44,18 @@ type PodSetResources struct {
 	Flavors  map[corev1.ResourceName]string
 }
 
-func NewInfo(w *kueue.QueuedWorkload) *Info {
+func NewInfo(w *kueue.Workload) *Info {
 	return &Info{
 		Obj:           w,
 		TotalRequests: totalRequests(&w.Spec),
 	}
 }
 
-func Key(w *kueue.QueuedWorkload) string {
+func Key(w *kueue.Workload) string {
 	return fmt.Sprintf("%s/%s", w.Namespace, w.Name)
 }
 
-func totalRequests(spec *kueue.QueuedWorkloadSpec) []PodSetResources {
+func totalRequests(spec *kueue.WorkloadSpec) []PodSetResources {
 	if len(spec.PodSets) == 0 {
 		return nil
 	}
@@ -161,7 +161,7 @@ func max(v1, v2 int64) int64 {
 
 // FindConditionIndex finds the provided condition from the given status and returns the index.
 // Returns -1 if the condition is not present.
-func FindConditionIndex(status *kueue.QueuedWorkloadStatus, conditionType kueue.QueuedWorkloadConditionType) int {
+func FindConditionIndex(status *kueue.WorkloadStatus, conditionType kueue.WorkloadConditionType) int {
 	if status == nil {
 		return -1
 	}
@@ -179,14 +179,14 @@ func FindConditionIndex(status *kueue.QueuedWorkloadStatus, conditionType kueue.
 // UpdateStatus updates the condition of a workload.
 func UpdateStatus(ctx context.Context,
 	c client.Client,
-	wl *kueue.QueuedWorkload,
-	conditionType kueue.QueuedWorkloadConditionType,
+	wl *kueue.Workload,
+	conditionType kueue.WorkloadConditionType,
 	conditionStatus corev1.ConditionStatus,
 	reason, message string) error {
 	conditionIndex := FindConditionIndex(&wl.Status, conditionType)
 
 	now := metav1.Now()
-	condition := kueue.QueuedWorkloadCondition{
+	condition := kueue.WorkloadCondition{
 		Type:               conditionType,
 		Status:             conditionStatus,
 		LastProbeTime:      now,
@@ -209,8 +209,8 @@ func UpdateStatus(ctx context.Context,
 
 func UpdateWorkloadStatusIfChanged(ctx context.Context,
 	c client.Client,
-	wl *kueue.QueuedWorkload,
-	conditionType kueue.QueuedWorkloadConditionType,
+	wl *kueue.Workload,
+	conditionType kueue.WorkloadConditionType,
 	conditionStatus corev1.ConditionStatus,
 	reason, message string) error {
 	i := FindConditionIndex(&wl.Status, conditionType)

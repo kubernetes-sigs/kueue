@@ -74,7 +74,7 @@ func (c *ClusterQueueImpl) pushIfNotPresent(info *workload.Info) bool {
 	return true
 }
 
-func (c *ClusterQueueImpl) PushOrUpdate(w *kueue.QueuedWorkload) {
+func (c *ClusterQueueImpl) PushOrUpdate(w *kueue.Workload) {
 	item := c.heap.items[workload.Key(w)]
 	info := *workload.NewInfo(w)
 	if item == nil {
@@ -85,7 +85,7 @@ func (c *ClusterQueueImpl) PushOrUpdate(w *kueue.QueuedWorkload) {
 	heap.Fix(&c.heap, item.index)
 }
 
-func (c *ClusterQueueImpl) Delete(w *kueue.QueuedWorkload) {
+func (c *ClusterQueueImpl) Delete(w *kueue.Workload) {
 	item := c.heap.items[workload.Key(w)]
 	if item != nil {
 		heap.Remove(&c.heap, item.index)

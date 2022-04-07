@@ -162,7 +162,7 @@ func (m *Manager) AddQueue(ctx context.Context, q *kueue.Queue) error {
 	m.queues[key] = qImpl
 	// Iterate through existing workloads, as workloads corresponding to this
 	// queue might have been added earlier.
-	var workloads kueue.QueuedWorkloadList
+	var workloads kueue.WorkloadList
 	if err := m.client.List(ctx, &workloads, client.MatchingFields{workloadQueueKey: q.Name}, client.InNamespace(q.Namespace)); err != nil {
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
@@ -235,7 +235,7 @@ func (m *Manager) Pending(cq *kueue.ClusterQueue) int32 {
 	return m.clusterQueues[cq.Name].Pending()
 }
 
-func (m *Manager) QueueForWorkloadExists(wl *kueue.QueuedWorkload) bool {
+func (m *Manager) QueueForWorkloadExists(wl *kueue.Workload) bool {
 	m.RLock()
 	defer m.RUnlock()
 	_, ok := m.queues[queueKeyForWorkload(wl)]
@@ -246,7 +246,7 @@ func (m *Manager) QueueForWorkloadExists(wl *kueue.QueuedWorkload) bool {
 // ClusterQueueForWorkload returns the name of the ClusterQueue where the
 // workload should be queued and whether it exists.
 // Returns empty string if the queue doesn't exist.
-func (m *Manager) ClusterQueueForWorkload(wl *kueue.QueuedWorkload) (string, bool) {
+func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (string, bool) {
 	m.RLock()
 	defer m.RUnlock()
 	q, ok := m.queues[queueKeyForWorkload(wl)]
@@ -259,13 +259,13 @@ func (m *Manager) ClusterQueueForWorkload(wl *kueue.QueuedWorkload) (string, boo
 
 // AddOrUpdateWorkload adds or updates workload to the corresponding queue.
 // Returns whether the queue existed.
-func (m *Manager) AddOrUpdateWorkload(w *kueue.QueuedWorkload) bool {
+func (m *Manager) AddOrUpdateWorkload(w *kueue.Workload) bool {
 	m.Lock()
 	defer m.Unlock()
 	return m.addOrUpdateWorkload(w)
 }
 
-func (m *Manager) addOrUpdateWorkload(w *kueue.QueuedWorkload) bool {
+func (m *Manager) addOrUpdateWorkload(w *kueue.Workload) bool {
 	qKey := queueKeyForWorkload(w)
 	q := m.queues[qKey]
 	if q == nil {
@@ -293,7 +293,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info) bool
 		return false
 	}
 
-	var w kueue.QueuedWorkload
+	var w kueue.Workload
 	err := m.client.Get(ctx, client.ObjectKeyFromObject(info.Obj), &w)
 	// Since the client is cached, the only possible error is NotFound
 	if apierrors.IsNotFound(err) || w.Spec.Admission != nil {
@@ -313,13 +313,13 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info) bool
 	return added
 }
 
-func (m *Manager) DeleteWorkload(w *kueue.QueuedWorkload) {
+func (m *Manager) DeleteWorkload(w *kueue.Workload) {
 	m.Lock()
 	m.deleteWorkloadFromQueueAndClusterQueue(w, queueKeyForWorkload(w))
 	m.Unlock()
 }
 
-func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(w *kueue.QueuedWorkload, qKey string) {
+func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(w *kueue.Workload, qKey string) {
 	q := m.queues[qKey]
 	if q == nil {
 		return
@@ -334,7 +334,7 @@ func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(w *kueue.QueuedWorkload
 // QueueAssociatedInadmissibleWorkloads moves all associated workloads from
 // inadmissibleWorkloads to heap. If at least one workload is moved,
 // returns true. Otherwise returns false.
-func (m *Manager) QueueAssociatedInadmissibleWorkloads(w *kueue.QueuedWorkload) {
+func (m *Manager) QueueAssociatedInadmissibleWorkloads(w *kueue.Workload) {
 	m.Lock()
 	defer m.Unlock()
 
@@ -380,7 +380,7 @@ func (m *Manager) queueAllInadmissibleWorkloadsInCohort(cq ClusterQueue) bool {
 
 // UpdateWorkload updates the workload to the corresponding queue or adds it if
 // it didn't exist. Returns whether the queue existed.
-func (m *Manager) UpdateWorkload(oldW, w *kueue.QueuedWorkload) bool {
+func (m *Manager) UpdateWorkload(oldW, w *kueue.Workload) bool {
 	m.Lock()
 	defer m.Unlock()
 	if oldW.Spec.QueueName != w.Spec.QueueName {
@@ -476,12 +476,12 @@ func (m *Manager) updateCohort(oldCohort string, newCohort string, cqName string
 }
 
 func SetupIndexes(indexer client.FieldIndexer) error {
-	err := indexer.IndexField(context.Background(), &kueue.QueuedWorkload{}, workloadQueueKey, func(o client.Object) []string {
-		wl := o.(*kueue.QueuedWorkload)
+	err := indexer.IndexField(context.Background(), &kueue.Workload{}, workloadQueueKey, func(o client.Object) []string {
+		wl := o.(*kueue.Workload)
 		return []string{wl.Spec.QueueName}
 	})
 	if err != nil {
-		return fmt.Errorf("setting index on queue for QueuedWorkload: %w", err)
+		return fmt.Errorf("setting index on queue for Workload: %w", err)
 	}
 	err = indexer.IndexField(context.Background(), &kueue.Queue{}, queueClusterQueueKey, func(o client.Object) []string {
 		q := o.(*kueue.Queue)

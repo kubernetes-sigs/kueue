@@ -40,22 +40,22 @@ const (
 	finished = "finished"
 )
 
-type QWUpdateWatcher interface {
-	NotifyQueuedWorkloadUpdate(*kueue.QueuedWorkload)
+type WorkloadUpdateWatcher interface {
+	NotifyWorkloadUpdate(*kueue.Workload)
 }
 
-// QueuedWorkloadReconciler reconciles a QueuedWorkload object
-type QueuedWorkloadReconciler struct {
+// WorkloadReconciler reconciles a Workload object
+type WorkloadReconciler struct {
 	log      logr.Logger
 	queues   *queue.Manager
 	cache    *cache.Cache
 	client   client.Client
-	watchers []QWUpdateWatcher
+	watchers []WorkloadUpdateWatcher
 }
 
-func NewQueuedWorkloadReconciler(client client.Client, queues *queue.Manager, cache *cache.Cache, watchers ...QWUpdateWatcher) *QueuedWorkloadReconciler {
-	return &QueuedWorkloadReconciler{
-		log:      ctrl.Log.WithName("queued-workload-reconciler"),
+func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *cache.Cache, watchers ...WorkloadUpdateWatcher) *WorkloadReconciler {
+	return &WorkloadReconciler{
+		log:      ctrl.Log.WithName("workload-reconciler"),
 		client:   client,
 		queues:   queues,
 		cache:    cache,
@@ -64,29 +64,29 @@ func NewQueuedWorkloadReconciler(client client.Client, queues *queue.Manager, ca
 }
 
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=queuedworkloads,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=queuedworkloads/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=queuedworkloads/finalizers,verbs=update
+//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
 
-func (r *QueuedWorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	var wl kueue.QueuedWorkload
+func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	var wl kueue.Workload
 	if err := r.client.Get(ctx, req.NamespacedName, &wl); err != nil {
 		// we'll ignore not-found errors, since there is nothing to do.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	log := ctrl.LoggerFrom(ctx).WithValues("queuedWorkload", klog.KObj(&wl))
+	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(&wl))
 	ctx = ctrl.LoggerInto(ctx, log)
-	log.V(2).Info("Reconciling QueuedWorkload")
+	log.V(2).Info("Reconciling Workload")
 
 	status := workloadStatus(&wl)
 	if status == pending && !r.queues.QueueForWorkloadExists(&wl) {
-		err := workload.UpdateWorkloadStatusIfChanged(ctx, r.client, &wl, kueue.QueuedWorkloadAdmitted, corev1.ConditionFalse,
+		err := workload.UpdateWorkloadStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, corev1.ConditionFalse,
 			"Inadmissible", fmt.Sprintf("Queue %s doesn't exist", wl.Spec.QueueName))
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)
 	if status == pending && !cqOk {
-		err := workload.UpdateWorkloadStatusIfChanged(ctx, r.client, &wl, kueue.QueuedWorkloadAdmitted, corev1.ConditionFalse,
+		err := workload.UpdateWorkloadStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, corev1.ConditionFalse,
 			"Inadmissible", fmt.Sprintf("ClusterQueue %s doesn't exist", cqName))
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -94,12 +94,12 @@ func (r *QueuedWorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return ctrl.Result{}, nil
 }
 
-func (r *QueuedWorkloadReconciler) Create(e event.CreateEvent) bool {
-	wl := e.Object.(*kueue.QueuedWorkload)
+func (r *WorkloadReconciler) Create(e event.CreateEvent) bool {
+	wl := e.Object.(*kueue.Workload)
 	defer r.notifyWatchers(wl)
 	status := workloadStatus(wl)
-	log := r.log.WithValues("queuedWorkload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
-	log.V(2).Info("QueuedWorkload create event")
+	log := r.log.WithValues("workload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
+	log.V(2).Info("Workload create event")
 
 	if status == finished {
 		return true
@@ -118,15 +118,15 @@ func (r *QueuedWorkloadReconciler) Create(e event.CreateEvent) bool {
 	return true
 }
 
-func (r *QueuedWorkloadReconciler) Delete(e event.DeleteEvent) bool {
-	wl := e.Object.(*kueue.QueuedWorkload)
+func (r *WorkloadReconciler) Delete(e event.DeleteEvent) bool {
+	wl := e.Object.(*kueue.Workload)
 	defer r.notifyWatchers(wl)
 	status := "unknown"
 	if !e.DeleteStateUnknown {
 		status = workloadStatus(wl)
 	}
-	log := r.log.WithValues("queuedWorkload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
-	log.V(2).Info("QueuedWorkload delete event")
+	log := r.log.WithValues("workload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
+	log.V(2).Info("Workload delete event")
 	// When assigning a clusterQueue to a workload, we assume it in the cache. If
 	// the state is unknown, the workload could have been assumed and we need
 	// to clear it from the cache.
@@ -149,13 +149,13 @@ func (r *QueuedWorkloadReconciler) Delete(e event.DeleteEvent) bool {
 	return true
 }
 
-func (r *QueuedWorkloadReconciler) Update(e event.UpdateEvent) bool {
-	oldWl := e.ObjectOld.(*kueue.QueuedWorkload)
-	wl := e.ObjectNew.(*kueue.QueuedWorkload)
+func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
+	oldWl := e.ObjectOld.(*kueue.Workload)
+	wl := e.ObjectNew.(*kueue.Workload)
 	defer r.notifyWatchers(oldWl)
 	defer r.notifyWatchers(wl)
 	status := workloadStatus(wl)
-	log := r.log.WithValues("queuedWorkload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
+	log := r.log.WithValues("workload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
 	prevQueue := oldWl.Spec.QueueName
 	if prevQueue != wl.Spec.QueueName {
 		log = log.WithValues("prevQueue", prevQueue)
@@ -170,7 +170,7 @@ func (r *QueuedWorkloadReconciler) Update(e event.UpdateEvent) bool {
 	if oldWl.Spec.Admission != nil && (wl.Spec.Admission == nil || wl.Spec.Admission.ClusterQueue != oldWl.Spec.Admission.ClusterQueue) {
 		log = log.WithValues("prevClusterQueue", oldWl.Spec.Admission.ClusterQueue)
 	}
-	log.V(2).Info("QueuedWorkload update event")
+	log.V(2).Info("Workload update event")
 
 	switch {
 	case status == finished:
@@ -215,26 +215,26 @@ func (r *QueuedWorkloadReconciler) Update(e event.UpdateEvent) bool {
 	return true
 }
 
-func (r *QueuedWorkloadReconciler) Generic(e event.GenericEvent) bool {
+func (r *WorkloadReconciler) Generic(e event.GenericEvent) bool {
 	r.log.V(3).Info("Ignore generic event", "obj", klog.KObj(e.Object), "kind", e.Object.GetObjectKind().GroupVersionKind())
 	return false
 }
 
-func (r *QueuedWorkloadReconciler) notifyWatchers(wl *kueue.QueuedWorkload) {
+func (r *WorkloadReconciler) notifyWatchers(wl *kueue.Workload) {
 	for _, w := range r.watchers {
-		w.NotifyQueuedWorkloadUpdate(wl)
+		w.NotifyWorkloadUpdate(wl)
 	}
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *QueuedWorkloadReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&kueue.QueuedWorkload{}).
+		For(&kueue.Workload{}).
 		WithEventFilter(r).
 		Complete(r)
 }
 
-func workloadStatus(w *kueue.QueuedWorkload) string {
+func workloadStatus(w *kueue.Workload) string {
 	if workloadFinished(w) {
 		return finished
 	}
@@ -244,9 +244,9 @@ func workloadStatus(w *kueue.QueuedWorkload) string {
 	return pending
 }
 
-func workloadFinished(w *kueue.QueuedWorkload) bool {
+func workloadFinished(w *kueue.Workload) bool {
 	for _, c := range w.Status.Conditions {
-		if c.Type == kueue.QueuedWorkloadFinished {
+		if c.Type == kueue.WorkloadFinished {
 			return c.Status == corev1.ConditionTrue
 		}
 	}
