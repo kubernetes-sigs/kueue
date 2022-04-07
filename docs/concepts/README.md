@@ -1,6 +1,6 @@
 # Concepts
 
-This section helps you learn about the components, APIs and abstractions 
+This section helps you learn about the components, APIs and abstractions
 that Kueue uses to represent your cluster and workloads.
 
 ## APIs
@@ -20,7 +20,7 @@ single tenant.
 An application that will run to completion. It is the unit of _admission_ in
 Kueue. Sometimes referred to as _job_.
 
-### [Resource Flavor](cluster_queue.md#resource-flavor)
+### [Resource Flavor](cluster_queue.md#resourceflavor-object)
 
 A kind or type of resource in a cluster. It could distinguish among different
 characteristics of resources such as availability, pricing, architecture,
@@ -45,4 +45,3 @@ A group of ClusterQueues that can borrow unused quota from each other.
 The time between a workload is created until it is admitted by a ClusterQueue.
 Typically, the workload will compete with other workloads for available
 quota based on the fair sharing rules of the ClusterQueue.
-
