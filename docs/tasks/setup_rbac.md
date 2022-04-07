@@ -1,6 +1,6 @@
 # Manage role-based access control
 
-This page shows you how to setup role-based acess control (RBAC) in your cluster
+This page shows you how to setup role-based access control (RBAC) in your cluster
 to control the types of users that can view and create Kueue objects.
 
 The page is intended for a [batch administrator](/docs/tasks#batch-administrator).
@@ -11,7 +11,7 @@ Make sure the following conditions are met:
 
 - A Kubernetes cluster is running.
 - The kubectl command-line tool has communication with your cluster.
-- [Kueue is installed](/README.md#installation).
+- [Kueue is installed](/docs/setup/install).
 
 This page assumes you are already familiar with [RBAC in kubernetes](https://kubernetes.io/docs/reference/access-authn-authz/rbac/).
 

@@ -11,7 +11,7 @@ Make sure the following conditions are met:
 
 - A Kubernetes cluster is running.
 - The kubectl command-line tool has communication with your cluster.
-- [Kueue is installed](/README.md#installation).
+- [Kueue is installed](/docs/setup/install).
 
 ## Single ClusterQueue and single ResourceFlavor setup
 
