@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-VERSION ?= $(shell git describe --tags --dirty --always)
+GIT_TAG ?= $(shell git describe --tags --dirty --always)
 # Image URL to use all building/pushing image targets
 IMAGE_BUILD_CMD ?= docker build
 IMAGE_PUSH_CMD ?= docker push
@@ -20,9 +20,15 @@ IMAGE_BUILD_EXTRA_OPTS ?=
 # TODO(#52): Add kueue to k8s gcr registry
 IMAGE_REGISTRY ?= gcr.io/k8s-staging-kueue
 IMAGE_NAME := kueue
-IMAGE_TAG_NAME ?= $(VERSION)
 IMAGE_REPO ?= $(IMAGE_REGISTRY)/$(IMAGE_NAME)
-IMAGE_TAG ?= $(IMAGE_REPO):$(IMAGE_TAG_NAME)
+IMAGE_TAG ?= $(IMAGE_REPO):$(GIT_TAG)
+
+ifdef EXTRA_TAG
+IMAGE_EXTRA_TAG ?= $(IMAGE_REPO):$(EXTRA_TAG)
+endif
+ifdef IMAGE_EXTRA_TAG
+IMAGE_BUILD_EXTRA_OPTS += -t $(IMAGE_EXTRA_TAG)
+endif
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
@@ -140,6 +146,9 @@ image-build:
 .PHONY: image-push
 image-push:
 	$(IMAGE_PUSH_CMD) $(IMAGE_TAG)
+	if [ -n "$(IMAGE_EXTRA_TAG)" ]; then \
+	  $(IMAGE_PUSH_CMD) $(IMAGE_EXTRA_TAG); \
+	fi
 
 ##@ Deployment
 
