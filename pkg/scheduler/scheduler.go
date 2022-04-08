@@ -109,8 +109,6 @@ func (s *Scheduler) schedule(ctx context.Context) {
 		}
 		c := snapshot.ClusterQueues[e.ClusterQueue]
 		if len(e.borrows) > 0 && c.Cohort != nil && usedCohorts.Has(c.Cohort.Name) {
-			// TODO(): we shouldn't emit an event or update the workload condition in this
-			// case, just re-queue directly.
 			e.status = skipped
 			e.inadmissibleReason = "cohort used in this cycle"
 			continue
@@ -119,12 +117,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 		if err := s.admit(ctrl.LoggerInto(ctx, log), e); err == nil {
 			e.status = assumed
 		} else {
-			log.Error(err, "Failed to admit workload")
 			e.inadmissibleReason = fmt.Sprintf("Failed to admit workload: %v", err)
-			err := workload.UpdateStatus(ctx, s.client, e.Obj, kueue.WorkloadAdmitted, corev1.ConditionFalse, "Pending", err.Error())
-			if err != nil {
-				log.Error(err, "Updating Workload status")
-			}
 		}
 		// Even if there was a failure, we shouldn't admit other workloads to this
 		// cohort.
@@ -141,8 +134,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			"status", e.status,
 			"reason", e.inadmissibleReason)
 		if e.status != assumed {
-			s.requeueAndUpdate(log, ctx, &e.Info, e.inadmissibleReason)
-			s.recorder.Eventf(e.Obj, corev1.EventTypeNormal, "Pending", e.inadmissibleReason)
+			s.requeueAndUpdate(log, ctx, e)
 		}
 	}
 }
@@ -275,9 +267,9 @@ func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 			log.V(2).Info("Workload not admitted because it was deleted")
 			return
 		}
+
 		log.Error(err, errCouldNotAdmitWL)
-		s.requeueAndUpdate(log, ctx, &e.Info, err.Error())
-		s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Pending", "%s: %v", errCouldNotAdmitWL, err)
+		s.requeueAndUpdate(log, ctx, *e)
 	})
 
 	return nil
@@ -423,11 +415,15 @@ func (e entryOrdering) Less(i, j int) bool {
 	return a.Obj.CreationTimestamp.Before(&b.Obj.CreationTimestamp)
 }
 
-func (s *Scheduler) requeueAndUpdate(log logr.Logger, ctx context.Context, w *workload.Info, message string) {
-	added := s.queues.RequeueWorkload(ctx, w)
-	log.V(2).Info("Workload re-queued", "workload", klog.KObj(w.Obj), "queue", klog.KRef(w.Obj.Namespace, w.Obj.Spec.QueueName), "added", added)
-	err := workload.UpdateStatus(ctx, s.client, w.Obj, kueue.WorkloadAdmitted, corev1.ConditionFalse, "Pending", message)
-	if err != nil {
-		log.Error(err, "Could not update Workload status")
+func (s *Scheduler) requeueAndUpdate(log logr.Logger, ctx context.Context, e entry) {
+	added := s.queues.RequeueWorkload(ctx, &e.Info, e.status != "")
+	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "queue", klog.KRef(e.Obj.Namespace, e.Obj.Spec.QueueName), "added", added, "status", e.status)
+
+	if e.status == "" {
+		err := workload.UpdateStatus(ctx, s.client, e.Obj, kueue.WorkloadAdmitted, corev1.ConditionFalse, "Pending", e.inadmissibleReason)
+		if err != nil {
+			log.Error(err, "Could not update Workload status")
+		}
+		s.recorder.Eventf(e.Obj, corev1.EventTypeNormal, "Pending", e.inadmissibleReason)
 	}
 }

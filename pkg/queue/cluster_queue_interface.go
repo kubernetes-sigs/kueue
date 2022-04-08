@@ -50,12 +50,14 @@ type ClusterQueue interface {
 	Pop() *workload.Info
 
 	// RequeueIfNotPresent inserts a workload that was not
-	// admitted back into the ClusterQueue. If the boolean is false,
-	// it means that we couldn't determine if the workload was admissible
-	// in the last cycle. If the boolean is true, the implementation might
+	// admitted back into the ClusterQueue. If the boolean is true,
+	// the workloads should be put back in the queue immediately,
+	// because we couldn't determine if the workload was admissible
+	// in the last cycle. If the boolean is false, the implementation might
 	// choose to keep it in temporary placeholder stage where it doesn't
 	// compete with other workloads, until cluster events free up quota.
 	// The workload should not be reinserted if it's already in the ClusterQueue.
+	// Returns true if the workload was inserted.
 	RequeueIfNotPresent(*workload.Info, bool) bool
 	// QueueInadmissibleWorkloads moves all workloads put in temporary placeholder stage
 	// to the ClusterQueue. If at least one workload is moved,

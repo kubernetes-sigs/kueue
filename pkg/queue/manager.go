@@ -284,7 +284,7 @@ func (m *Manager) addOrUpdateWorkload(w *kueue.Workload) bool {
 // RequeueWorkload requeues the workload ensuring that the queue and the
 // workload still exist in the client cache and it's not admitted. It won't
 // requeue if the workload is already in the queue (possible if the workload was updated).
-func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info) bool {
+func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, immediate bool) bool {
 	m.Lock()
 	defer m.Unlock()
 
@@ -306,7 +306,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info) bool
 		return false
 	}
 
-	added := cq.RequeueIfNotPresent(info, true)
+	added := cq.RequeueIfNotPresent(info, immediate)
 	if added {
 		m.cond.Broadcast()
 	}

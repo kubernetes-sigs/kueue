@@ -25,6 +25,7 @@ import (
 
 	logrtesting "github.com/go-logr/logr/testing"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 
@@ -1473,5 +1475,118 @@ func TestEntryOrdering(t *testing.T) {
 	wantOrder := []string{"beta", "gamma", "alpha", "delta"}
 	if diff := cmp.Diff(wantOrder, order); diff != "" {
 		t.Errorf("Unexpected order (-want,+got):\n%s", diff)
+	}
+}
+
+var ignoreConditionTimestamps = cmpopts.IgnoreFields(kueue.WorkloadCondition{}, "LastProbeTime", "LastTransitionTime")
+
+func TestRequeueAndUpdate(t *testing.T) {
+	cq := utiltesting.MakeClusterQueue("cq").QueueingStrategy(kueue.BestEffortFIFO).Obj()
+	q1 := utiltesting.MakeQueue("q1", "ns1").ClusterQueue("cq").Obj()
+	w1 := utiltesting.MakeWorkload("w1", "ns1").Queue("q1").Obj()
+
+	cases := []struct {
+		name          string
+		e             entry
+		wantWorkloads map[string]sets.String
+		wantStatus    kueue.WorkloadStatus
+	}{
+		{
+			name: "workload didn't fit",
+			e: entry{
+				status:             "",
+				inadmissibleReason: "didn't fit",
+			},
+			wantStatus: kueue.WorkloadStatus{
+				Conditions: []kueue.WorkloadCondition{
+					{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  corev1.ConditionFalse,
+						Reason:  "Pending",
+						Message: "didn't fit",
+					},
+				},
+			},
+		},
+		{
+			name: "assumed",
+			e: entry{
+				status:             assumed,
+				inadmissibleReason: "",
+			},
+			wantWorkloads: map[string]sets.String{
+				"cq": sets.NewString(w1.Name),
+			},
+		},
+		{
+			name: "nominated",
+			e: entry{
+				status:             nominated,
+				inadmissibleReason: "failed to admit workload",
+			},
+			wantWorkloads: map[string]sets.String{
+				"cq": sets.NewString(w1.Name),
+			},
+		},
+		{
+			name: "skipped",
+			e: entry{
+				status:             skipped,
+				inadmissibleReason: "cohort used in this cycle",
+			},
+			wantWorkloads: map[string]sets.String{
+				"cq": sets.NewString(w1.Name),
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			log := logrtesting.NewTestLoggerWithOptions(t, logrtesting.Options{
+				Verbosity: 2,
+			})
+			ctx := ctrl.LoggerInto(context.Background(), log)
+			scheme := runtime.NewScheme()
+			if err := kueue.AddToScheme(scheme); err != nil {
+				t.Fatalf("Failed adding kueue scheme: %v", err)
+			}
+			if err := corev1.AddToScheme(scheme); err != nil {
+				t.Fatalf("Failed adding kueue scheme: %v", err)
+			}
+
+			clientBuilder := fake.NewClientBuilder().WithScheme(scheme).WithObjects(w1, q1, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns1"}})
+			cl := clientBuilder.Build()
+			broadcaster := record.NewBroadcaster()
+			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.ManagerName})
+			qManager := queue.NewManager(cl)
+			cqCache := cache.New(cl)
+			scheduler := New(qManager, cqCache, cl, recorder)
+			if err := qManager.AddQueue(ctx, q1); err != nil {
+				t.Fatalf("Inserting queue %s/%s in manager: %v", q1.Namespace, q1.Name, err)
+			}
+			if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+			}
+
+			wInfos := qManager.Heads(ctx)
+			if len(wInfos) != 1 {
+				t.Fatalf("Failed getting heads in cluster queue")
+			}
+			tc.e.Info = wInfos[0]
+			scheduler.requeueAndUpdate(log, ctx, tc.e)
+
+			qDump := qManager.Dump()
+			if diff := cmp.Diff(tc.wantWorkloads, qDump); diff != "" {
+				t.Errorf("Unexpected elements in the cluster queue (-want,+got):\n%s", diff)
+			}
+
+			var updatedWl kueue.Workload
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(w1), &updatedWl); err != nil {
+				t.Fatalf("Failed obtaining updated object: %v", err)
+			}
+			if diff := cmp.Diff(tc.wantStatus, updatedWl.Status, ignoreConditionTimestamps); diff != "" {
+				t.Errorf("Unexpected status after updating (-want,+got):\n%s", diff)
+			}
+		})
 	}
 }

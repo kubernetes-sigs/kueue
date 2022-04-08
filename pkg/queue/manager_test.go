@@ -326,7 +326,7 @@ func TestStatus(t *testing.T) {
 	}
 }
 
-func TestRequeueWorkload(t *testing.T) {
+func TestRequeueWorkloadStrictFIFO(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := kueue.AddToScheme(scheme); err != nil {
 		t.Fatalf("Failed adding kueue scheme: %s", err)
@@ -414,7 +414,7 @@ func TestRequeueWorkload(t *testing.T) {
 				_ = manager.AddOrUpdateWorkload(tc.workload)
 			}
 			info := workload.NewInfo(tc.workload)
-			if requeued := manager.RequeueWorkload(ctx, info, false); requeued != tc.wantRequeued {
+			if requeued := manager.RequeueWorkload(ctx, info, true); requeued != tc.wantRequeued {
 				t.Errorf("RequeueWorkload returned %t, want %t", requeued, tc.wantRequeued)
 			}
 		})
@@ -798,7 +798,7 @@ func TestHeadsAsync(t *testing.T) {
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
 				go func() {
-					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), false)
+					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), true)
 				}()
 			},
 		},
