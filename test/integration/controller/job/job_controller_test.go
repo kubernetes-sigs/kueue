@@ -28,7 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 
-	kueue "sigs.k8s.io/kueue/api/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/core/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/workload/job"
 	"sigs.k8s.io/kueue/pkg/util/testing"

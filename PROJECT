@@ -1,6 +1,7 @@
 domain: x-k8s.io
 layout:
 - go.kubebuilder.io/v3
+multigroup: true
 projectName: kueue
 repo: sigs.k8s.io/kueue
 resources:
@@ -15,7 +16,6 @@ resources:
   version: v1alpha1
 - api:
     crdVersion: v1
-    namespaced: false
   controller: true
   domain: x-k8s.io
   group: kueue
@@ -33,7 +33,6 @@ resources:
   version: v1alpha1
 - api:
     crdVersion: v1
-    namespaced: false
   domain: x-k8s.io
   group: kueue
   kind: ResourceFlavor
