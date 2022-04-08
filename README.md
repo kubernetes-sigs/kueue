@@ -22,15 +22,18 @@ presents the detailed design of the controller.
 
 ## Installation
 
-**Requires Kubernetes 1.22 or newer**. Learn how to [install the Kubernetes tools](https://kubernetes.io/docs/tasks/tools/).
+**Requires Kubernetes 1.22 or newer**.
 
-You can deploy Kueue in your cluster with the following command:
+To install the latest development version of Kueue in your cluster, run the
+following command:
 
-```sh
-IMAGE_REGISTRY=registry.example.com/my-user make image-build image-push deploy
+```shell
+kubectl apply -k github.com/kubernetes-sigs/kueue/config/default
 ```
 
-The controller will run in the `kueue-system` namespace.
+The controller runs in the `kueue-system` namespace.
+
+Read the [installation guide](/docs/setup/install.md) to learn more.
 
 ## Usage
 
