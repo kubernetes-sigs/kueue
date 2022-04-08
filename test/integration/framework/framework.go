@@ -164,7 +164,7 @@ func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wl
 			}
 		}
 		return pending
-	}).Should(gomega.Equal(len(wls)), "Not enough workloads are pending")
+	}, Timeout, Interval).Should(gomega.Equal(len(wls)), "Not enough workloads are pending")
 }
 
 func UpdateWorkloadStatus(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, update func(*kueue.Workload)) {
