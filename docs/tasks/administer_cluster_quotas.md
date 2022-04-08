@@ -45,12 +45,12 @@ spec:
     flavors:
     - resourceFlavor: default
       quota:
-        guaranteed: 9
+        min: 9
   - name: "memory"
     flavors:
     - resourceFlavor: default
       quota:
-        guaranteed: 36Gi
+        min: 36Gi
 ```
 
 To create the ClusterQueue, run the following command:
@@ -61,7 +61,7 @@ kubectl apply -f cluster-total.yaml
 
 This ClusterQueue governs the usage of [resource types](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#resource-types)
 `cpu` and `memory`. Each resource type has a single [resource flavor](/docs/concepts/cluster_queue.md#resourceflavor-object),
-named `default` with a guaranteed quota.
+named `default` with a min quota.
 
 The empty `namespaceSelector` allows any namespace to use these resources.
 
@@ -186,15 +186,15 @@ spec:
     flavors:
     - resourceFlavor: x86
       quota:
-        guaranteed: 9
+        min: 9
     - resourceFlavor: arm
       quota:
-        guaranteed: 12
+        min: 12
   - name: "memory"
     flavors:
     - resourceFlavor: default
       quota:
-        guaranteed: 84Gi
+        min: 84Gi
 ```
 
 The flavor names in the fields `.spec.requestableResources[*].flavors[*].resourceFlavor`
@@ -232,14 +232,14 @@ spec:
     flavors:
     - resourceFlavor: default
       quota:
-        guaranteed: 9
-        ceiling: 15
+        min: 9
+        max: 15
   - name: "memory"
     flavors:
     - resourceFlavor: default
       quota:
-        guaranteed: 36Gi
-        ceiling: 60Gi
+        min: 36Gi
+        max: 60Gi
 ```
 
 ```yaml
@@ -256,17 +256,17 @@ spec:
     flavors:
     - resourceFlavor: default
       quota:
-        guaranteed: 12
+        min: 12
   - name: "memory"
     flavors:
     - resourceFlavor: default
       quota:
-        guaranteed: 48Gi
+        min: 48Gi
 ```
 
-Note that the ClusterQueue `team-a-cq` also defines [ceilings](/docs/concepts/cluster_queue.md#ceilings).
+Note that the ClusterQueue `team-a-cq` also defines [max quotas](/docs/concepts/cluster_queue.md#max-quotas).
 This restricts the ability of the ClusterQueue to borrow the unused quota from
-the cohort up to the configured ceiling, even if the quota is completely unused.
+the cohort up to the configured `max`, even if the quota is completely unused.
 
 To create these ClusterQueues, save the preceding manifests and run the
 following command:
@@ -278,9 +278,9 @@ kubectl apply -f team-a-cq.yaml -f team-b-cq.yaml
 ## Multiple ClusterQueue with dedicated and fallback flavors
 
 A ClusterQueue can borrow resources from the [cohort](/docs/concepts/cluster_queue.md#cohort)
-even if the ClusterQueue has zero guaranteed quota for a flavor. This allows you
-to give dedicated quota for a flavor and fallback to quota for a different
-flavor, shared with other tenants.
+even if the ClusterQueue has zero min quota for a flavor. This allows you to
+give dedicated quota for a flavor and fallback to quota for a different flavor,
+shared with other tenants.
 
 Such setup can be accomplished with a ClusterQueue for each tenant and an extra
 ClusterQueue for the shared resources. For example, the manifests for two
@@ -300,16 +300,16 @@ spec:
     flavors:
     - resourceFlavor: arm
       quota:
-        guaranteed: 9
-        ceiling: 9
+        min: 9
+        max: 9
     - resourceFlavor: x86
       quota:
-        guaranteed: 0
+        min: 0
   - name: "memory"
     flavors:
     - resourceFlavor: default
       quota:
-        guaranteed: 36Gi
+        min: 36Gi
 ```
 
 ```yaml
@@ -326,15 +326,15 @@ spec:
     flavors:
     - resourceFlavor: arm
       quota:
-        guaranteed: 12
+        min: 12
     - resourceFlavor: x86
       quota:
-        guaranteed: 0
+        min: 0
   - name: "memory"
     flavors:
     - resourceFlavor: default
       quota:
-        guaranteed: 48Gi
+        min: 48Gi
 ```
 
 ```yaml
@@ -351,20 +351,20 @@ spec:
     flavors:
     - resourceFlavor: x86
       quota:
-        guaranteed: 6
+        min: 6
   - name: "memory"
     flavors:
     - resourceFlavor: default
       quota:
-        guaranteed: 24Gi
+        min: 24Gi
 ```
 
 Note the following setup:
 
-- `team-a-cq` and `team-b-cq` define a `ceiling` equal to their `guaranteed`
+- `team-a-cq` and `team-b-cq` define a `max` equal to their `min`
   quota for the `arm` flavor. Therefore, they can't borrow this flavor from each
   other.
-- `team-a-cq` and `team-b-cq` define `guaranteed: 0` for the `x86` flavor.
+- `team-a-cq` and `team-b-cq` define `min: 0` for the `x86` flavor.
   Therefore, they don't have any dedicated quota for the flavor and they can
   only borrow it from `shared-cq`.
 

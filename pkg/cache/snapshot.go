@@ -89,7 +89,7 @@ func (c *ClusterQueue) accumulateResources(cohort *Cohort) {
 			cohort.RequestableResources[name] = req
 		}
 		for _, flavor := range flavors {
-			req[flavor.Name] += flavor.Guaranteed
+			req[flavor.Name] += flavor.Min
 		}
 	}
 	if cohort.UsedResources == nil {
