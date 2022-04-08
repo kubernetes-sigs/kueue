@@ -35,7 +35,10 @@ import (
 
 const workloadClusterQueueKey = "spec.admission.clusterQueue"
 
-var errCqNotFound = errors.New("cluster queue not found")
+var (
+	errCqNotFound          = errors.New("cluster queue not found")
+	errWorkloadNotAdmitted = errors.New("workload not admitted by a ClusterQueue")
+)
 
 // Cache keeps track of the Workloads that got admitted through ClusterQueues.
 type Cache struct {
@@ -334,7 +337,7 @@ func (c *Cache) DeleteWorkload(w *kueue.Workload) error {
 	c.Lock()
 	defer c.Unlock()
 	if w.Spec.Admission == nil {
-		return fmt.Errorf("workload not admitted through a ClusterQueue")
+		return errWorkloadNotAdmitted
 	}
 
 	qc, ok := c.clusterQueues[string(w.Spec.Admission.ClusterQueue)]
@@ -353,7 +356,7 @@ func (c *Cache) AssumeWorkload(w *kueue.Workload) error {
 	defer c.Unlock()
 
 	if w.Spec.Admission == nil {
-		return fmt.Errorf("workload not admitted by a ClusterQueue")
+		return errWorkloadNotAdmitted
 	}
 
 	k := workload.Key(w)
@@ -384,7 +387,7 @@ func (c *Cache) ForgetWorkload(w *kueue.Workload) error {
 	c.cleanupAssumedState(w)
 
 	if w.Spec.Admission == nil {
-		return fmt.Errorf("workload was not admitted by a ClusterQueue")
+		return errWorkloadNotAdmitted
 	}
 
 	cq, ok := c.clusterQueues[string(w.Spec.Admission.ClusterQueue)]
