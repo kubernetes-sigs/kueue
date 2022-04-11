@@ -70,7 +70,7 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 				QueueingStrategy: kueue.StrictFIFO,
-				RequestableResources: []kueue.Resource{
+				Resources: []kueue.Resource{
 					{
 						Name: corev1.ResourceCPU,
 						Flavors: []kueue.Flavor{
@@ -100,7 +100,7 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 				QueueingStrategy: kueue.StrictFIFO,
-				RequestableResources: []kueue.Resource{
+				Resources: []kueue.Resource{
 					{
 						Name: corev1.ResourceCPU,
 						Flavors: []kueue.Flavor{
@@ -137,7 +137,7 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 				QueueingStrategy: kueue.StrictFIFO,
-				RequestableResources: []kueue.Resource{
+				Resources: []kueue.Resource{
 					{
 						Name: corev1.ResourceCPU,
 						Flavors: []kueue.Flavor{

@@ -75,18 +75,18 @@ spec:
                   will only be eligible to consume on-demand cores (the next in the
                   list of cpu flavors). 5. Before considering on-demand, the workload
                   will get assigned spot if the quota can be borrowed from the cohort.
-                  \n metadata: name: tenantA spec: cohort: borrowing-cohort requestableResources:
+                  \n metadata: name: tenantA spec: cohort: borrowing-cohort resources:
                   - name: cpu - name: spot quota: min: 1000 - name: on-demand quota:
                   min: 100 - name: nvidia.com/gpus - name: k80 quota: min: 10 max:
                   20 labels: - cloud.provider.com/accelerator: nvidia-tesla-k80 -
                   name: p100 quota: min: 10 max: 20 labels: - cloud.provider.com/accelerator:
                   nvidia-tesla-p100 \n metadata: name: tenantB spec: cohort: borrowing-cohort
-                  requestableResources: - name: cpu - name: on-demand quota: min:
-                  100 - name: nvidia.com/gpus - name: k80 quota: min: 10 max: 20 labels:
-                  - cloud.provider.com/accelerator: nvidia-tesla-k80 \n If empty,
-                  this ClusterQueue cannot borrow from any other ClusterQueue and
-                  vice versa. \n The name style is similar to label keys. These are
-                  just names to link QCs together, and they are meaningless otherwise."
+                  resources: - name: cpu - name: on-demand quota: min: 100 - name:
+                  nvidia.com/gpus - name: k80 quota: min: 10 max: 20 labels: - cloud.provider.com/accelerator:
+                  nvidia-tesla-k80 \n If empty, this ClusterQueue cannot borrow from
+                  any other ClusterQueue and vice versa. \n The name style is similar
+                  to label keys. These are just names to link QCs together, and they
+                  are meaningless otherwise."
                 type: string
               namespaceSelector:
                 description: namespaceSelector defines which namespaces are allowed
@@ -151,13 +151,13 @@ spec:
                 - StrictFIFO
                 - BestEffortFIFO
                 type: string
-              requestableResources:
-                description: "requestableResources represent the total pod requests
-                  of workloads dispatched via this clusterQueue. This doesn’t guarantee
-                  the actual availability of resources, although an integration with
-                  a resource provisioner like Cluster Autoscaler is possible to achieve
-                  that. Example: \n - name: cpu flavors: - quota: min: 100 - name:
-                  memory flavors: - quota: min: 100Gi"
+              resources:
+                description: "resources represent the total pod requests of workloads
+                  dispatched via this clusterQueue. This doesn’t guarantee the actual
+                  availability of resources, although an integration with a resource
+                  provisioner like Cluster Autoscaler is possible to achieve that.
+                  Example: \n - name: cpu flavors: - quota: min: 100 - name: memory
+                  flavors: - quota: min: 100Gi"
                 items:
                   properties:
                     flavors:
@@ -169,15 +169,15 @@ spec:
                         \n For example, if the resource is nvidia.com/gpu, and we
                         want to define different limits for different gpu models,
                         then each model is mapped to a flavor and must set different
-                        values of a shared key. For example: \n spec: requestableResources:
-                        - name: nvidia.com/gpus - name: k80 quota: min: 10 - name:
-                        p100 quota: min: 10 \n The flavors are evaluated in order,
-                        selecting the first to satisfy a workload’s requirements.
-                        Also the quantities are additive, in the example above the
-                        GPU quota in total is 20 (10 k80 + 10 p100). A workload is
-                        limited to the selected type by converting the labels to a
-                        node selector that gets injected into the workload. This list
-                        can’t be empty, at least one flavor must exist."
+                        values of a shared key. For example: \n spec: resources: -
+                        name: nvidia.com/gpus - name: k80 quota: min: 10 - name: p100
+                        quota: min: 10 \n The flavors are evaluated in order, selecting
+                        the first to satisfy a workload’s requirements. Also the quantities
+                        are additive, in the example above the GPU quota in total
+                        is 20 (10 k80 + 10 p100). A workload is limited to the selected
+                        type by converting the labels to a node selector that gets
+                        injected into the workload. This list can’t be empty, at least
+                        one flavor must exist."
                       items:
                         properties:
                           name:

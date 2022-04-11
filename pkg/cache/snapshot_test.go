@@ -48,7 +48,7 @@ func TestSnapshot(t *testing.T) {
 			},
 			Spec: kueue.ClusterQueueSpec{
 				Cohort: "foo",
-				RequestableResources: []kueue.Resource{
+				Resources: []kueue.Resource{
 					{
 						Name: corev1.ResourceCPU,
 						Flavors: []kueue.Flavor{
@@ -75,7 +75,7 @@ func TestSnapshot(t *testing.T) {
 			},
 			Spec: kueue.ClusterQueueSpec{
 				Cohort: "foo",
-				RequestableResources: []kueue.Resource{
+				Resources: []kueue.Resource{
 					{
 						Name: corev1.ResourceCPU,
 						Flavors: []kueue.Flavor{
@@ -106,7 +106,7 @@ func TestSnapshot(t *testing.T) {
 				Name: "bar",
 			},
 			Spec: kueue.ClusterQueueSpec{
-				RequestableResources: []kueue.Resource{
+				Resources: []kueue.Resource{
 					{
 						Name: corev1.ResourceCPU,
 						Flavors: []kueue.Flavor{

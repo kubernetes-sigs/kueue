@@ -42,7 +42,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "a"},
 			Spec: kueue.ClusterQueueSpec{
-				RequestableResources: []kueue.Resource{
+				Resources: []kueue.Resource{
 					{
 						Name: corev1.ResourceCPU,
 						Flavors: []kueue.Flavor{{
@@ -60,7 +60,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "b"},
 			Spec: kueue.ClusterQueueSpec{
-				RequestableResources: []kueue.Resource{
+				Resources: []kueue.Resource{
 					{
 						Name: corev1.ResourceCPU,
 						Flavors: []kueue.Flavor{{
@@ -203,7 +203,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					{
 						ObjectMeta: metav1.ObjectMeta{Name: "a"},
 						Spec: kueue.ClusterQueueSpec{
-							RequestableResources: []kueue.Resource{
+							Resources: []kueue.Resource{
 								{
 									Name: corev1.ResourceCPU,
 									Flavors: []kueue.Flavor{
@@ -336,7 +336,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "one"},
 			Spec: kueue.ClusterQueueSpec{
-				RequestableResources: []kueue.Resource{
+				Resources: []kueue.Resource{
 					{
 						Name: "cpu",
 						Flavors: []kueue.Flavor{
@@ -350,7 +350,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "two"},
 			Spec: kueue.ClusterQueueSpec{
-				RequestableResources: []kueue.Resource{
+				Resources: []kueue.Resource{
 					{
 						Name: "cpu",
 						Flavors: []kueue.Flavor{
@@ -796,7 +796,7 @@ func TestClusterQueueUsage(t *testing.T) {
 	cq := kueue.ClusterQueue{
 		ObjectMeta: metav1.ObjectMeta{Name: "foo"},
 		Spec: kueue.ClusterQueueSpec{
-			RequestableResources: []kueue.Resource{
+			Resources: []kueue.Resource{
 				{
 					Name: corev1.ResourceCPU,
 					Flavors: []kueue.Flavor{
