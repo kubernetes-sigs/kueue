@@ -83,7 +83,7 @@ spec:
                 - clusterQueue
                 - podSetFlavors
                 type: object
-              pods:
+              podSets:
                 description: pods is a list of sets of homogeneous pods, each described
                   by a Pod spec and a count.
                 items:

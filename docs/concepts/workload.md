@@ -23,7 +23,7 @@ metadata:
   name: sample-job
   namespace: default
 spec:
-  pods:
+  podSets:
   - count: 3
     name: main
     spec:

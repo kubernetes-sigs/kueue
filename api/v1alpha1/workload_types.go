@@ -28,7 +28,7 @@ type WorkloadSpec struct {
 	//
 	// +listType=map
 	// +listMapKey=name
-	PodSets []PodSet `json:"pods,omitempty"`
+	PodSets []PodSet `json:"podSets,omitempty"`
 
 	// queueName is the name of the queue the Workload is associated with.
 	QueueName string `json:"queueName"`
