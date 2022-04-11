@@ -131,7 +131,7 @@ func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[string
 		existingUsedFlavors := c.UsedResources[r.Name]
 		usedFlavors := make(map[string]int64, len(r.Flavors))
 		for _, f := range r.Flavors {
-			usedFlavors[string(f.ResourceFlavor)] = existingUsedFlavors[string(f.ResourceFlavor)]
+			usedFlavors[string(f.Name)] = existingUsedFlavors[string(f.Name)]
 		}
 		usedResources[r.Name] = usedFlavors
 	}
@@ -473,7 +473,7 @@ func resourceLimitsByName(in []kueue.Resource) map[corev1.ResourceName][]FlavorL
 		for i := range flavors {
 			f := &r.Flavors[i]
 			fLimits := FlavorLimits{
-				Name: string(f.ResourceFlavor),
+				Name: string(f.Name),
 				Min:  workload.ResourceValue(r.Name, f.Quota.Min),
 			}
 			if f.Quota.Max != nil {

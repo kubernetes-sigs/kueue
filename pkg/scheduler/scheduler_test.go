@@ -75,7 +75,7 @@ func TestSchedule(t *testing.T) {
 						Name: corev1.ResourceCPU,
 						Flavors: []kueue.Flavor{
 							{
-								ResourceFlavor: "default",
+								Name: "default",
 								Quota: kueue.Quota{
 									Min: resource.MustParse("50"),
 									Max: pointer.Quantity(resource.MustParse("50")),
@@ -105,14 +105,14 @@ func TestSchedule(t *testing.T) {
 						Name: corev1.ResourceCPU,
 						Flavors: []kueue.Flavor{
 							{
-								ResourceFlavor: "on-demand",
+								Name: "on-demand",
 								Quota: kueue.Quota{
 									Min: resource.MustParse("50"),
 									Max: pointer.Quantity(resource.MustParse("100")),
 								},
 							},
 							{
-								ResourceFlavor: "spot",
+								Name: "spot",
 								Quota: kueue.Quota{
 									Min: resource.MustParse("100"),
 									Max: pointer.Quantity(resource.MustParse("100")),
@@ -142,14 +142,14 @@ func TestSchedule(t *testing.T) {
 						Name: corev1.ResourceCPU,
 						Flavors: []kueue.Flavor{
 							{
-								ResourceFlavor: "on-demand",
+								Name: "on-demand",
 								Quota: kueue.Quota{
 									Min: resource.MustParse("50"),
 									Max: pointer.Quantity(resource.MustParse("60")),
 								},
 							},
 							{
-								ResourceFlavor: "spot",
+								Name: "spot",
 								Quota: kueue.Quota{
 									Min: resource.MustParse("0"),
 									Max: pointer.Quantity(resource.MustParse("100")),
@@ -161,7 +161,7 @@ func TestSchedule(t *testing.T) {
 						Name: "example.com/gpu",
 						Flavors: []kueue.Flavor{
 							{
-								ResourceFlavor: "model-a",
+								Name: "model-a",
 								Quota: kueue.Quota{
 									Min: resource.MustParse("20"),
 									Max: pointer.Quantity(resource.MustParse("20")),

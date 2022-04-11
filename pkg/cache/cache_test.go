@@ -46,7 +46,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					{
 						Name: corev1.ResourceCPU,
 						Flavors: []kueue.Flavor{{
-							ResourceFlavor: "default",
+							Name: "default",
 							Quota: kueue.Quota{
 								Min: resource.MustParse("10"),
 								Max: pointer.Quantity(resource.MustParse("20")),
@@ -64,7 +64,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					{
 						Name: corev1.ResourceCPU,
 						Flavors: []kueue.Flavor{{
-							ResourceFlavor: "default",
+							Name: "default",
 							Quota: kueue.Quota{
 								Min: resource.MustParse("15"),
 							},
@@ -208,7 +208,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 									Name: corev1.ResourceCPU,
 									Flavors: []kueue.Flavor{
 										{
-											ResourceFlavor: "default",
+											Name: "default",
 											Quota: kueue.Quota{
 												Min: resource.MustParse("5"),
 												Max: pointer.Quantity(resource.MustParse("10")),
@@ -340,8 +340,8 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					{
 						Name: "cpu",
 						Flavors: []kueue.Flavor{
-							{ResourceFlavor: "on-demand"},
-							{ResourceFlavor: "spot"},
+							{Name: "on-demand"},
+							{Name: "spot"},
 						},
 					},
 				},
@@ -354,8 +354,8 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					{
 						Name: "cpu",
 						Flavors: []kueue.Flavor{
-							{ResourceFlavor: "on-demand"},
-							{ResourceFlavor: "spot"},
+							{Name: "on-demand"},
+							{Name: "spot"},
 						},
 					},
 				},
@@ -801,7 +801,7 @@ func TestClusterQueueUsage(t *testing.T) {
 					Name: corev1.ResourceCPU,
 					Flavors: []kueue.Flavor{
 						{
-							ResourceFlavor: "default",
+							Name: "default",
 							Quota: kueue.Quota{
 								Min: resource.MustParse("10"),
 								Max: pointer.Quantity(resource.MustParse("20")),
@@ -813,14 +813,14 @@ func TestClusterQueueUsage(t *testing.T) {
 					Name: "example.com/gpu",
 					Flavors: []kueue.Flavor{
 						{
-							ResourceFlavor: "model_a",
+							Name: "model_a",
 							Quota: kueue.Quota{
 								Min: resource.MustParse("5"),
 								Max: pointer.Quantity(resource.MustParse("10")),
 							},
 						},
 						{
-							ResourceFlavor: "model_b",
+							Name: "model_b",
 							Quota: kueue.Quota{
 								Min: resource.MustParse("5"),
 								// No max.
