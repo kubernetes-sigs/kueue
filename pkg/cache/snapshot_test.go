@@ -53,13 +53,13 @@ func TestSnapshot(t *testing.T) {
 						Name: corev1.ResourceCPU,
 						Flavors: []kueue.Flavor{
 							{
-								ResourceFlavor: "demand",
+								Name: "demand",
 								Quota: kueue.Quota{
 									Min: resource.MustParse("100"),
 								},
 							},
 							{
-								ResourceFlavor: "spot",
+								Name: "spot",
 								Quota: kueue.Quota{
 									Min: resource.MustParse("200"),
 								},
@@ -80,7 +80,7 @@ func TestSnapshot(t *testing.T) {
 						Name: corev1.ResourceCPU,
 						Flavors: []kueue.Flavor{
 							{
-								ResourceFlavor: "spot",
+								Name: "spot",
 								Quota: kueue.Quota{
 									Min: resource.MustParse("100"),
 								},
@@ -91,7 +91,7 @@ func TestSnapshot(t *testing.T) {
 						Name: "example.com/gpu",
 						Flavors: []kueue.Flavor{
 							{
-								ResourceFlavor: "default",
+								Name: "default",
 								Quota: kueue.Quota{
 									Min: resource.MustParse("50"),
 								},
@@ -111,7 +111,7 @@ func TestSnapshot(t *testing.T) {
 						Name: corev1.ResourceCPU,
 						Flavors: []kueue.Flavor{
 							{
-								ResourceFlavor: "default",
+								Name: "default",
 								Quota: kueue.Quota{
 									Min: resource.MustParse("100"),
 								},

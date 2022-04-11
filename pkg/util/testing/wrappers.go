@@ -312,7 +312,7 @@ type FlavorWrapper struct{ kueue.Flavor }
 // MakeFlavor creates a wrapper for a resource flavor.
 func MakeFlavor(rf, min string) *FlavorWrapper {
 	return &FlavorWrapper{kueue.Flavor{
-		ResourceFlavor: kueue.ResourceFlavorReference(rf),
+		Name: kueue.ResourceFlavorReference(rf),
 		Quota: kueue.Quota{
 			Min: resource.MustParse(min),
 		},

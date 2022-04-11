@@ -183,14 +183,14 @@ type Resource struct {
 	// least one flavor must exist.
 	//
 	// +listType=map
-	// +listMapKey=resourceFlavor
+	// +listMapKey=name
 	Flavors []Flavor `json:"flavors,omitempty"`
 }
 
 type Flavor struct {
-	// resourceFlavor is a reference to the resourceFlavor that defines this flavor.
+	// name is a reference to the resourceFlavor that defines this flavor.
 	// +kubebuilder:default=default
-	ResourceFlavor ResourceFlavorReference `json:"resourceFlavor"`
+	Name ResourceFlavorReference `json:"name"`
 
 	// quota is the limit of resource usage at a point in time.
 	Quota Quota `json:"quota"`

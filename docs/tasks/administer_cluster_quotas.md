@@ -43,12 +43,12 @@ spec:
   requestableResources:
   - name: "cpu"
     flavors:
-    - resourceFlavor: default
+    - name: default
       quota:
         min: 9
   - name: "memory"
     flavors:
-    - resourceFlavor: default
+    - name: default
       quota:
         min: 36Gi
 ```
@@ -184,15 +184,15 @@ spec:
   requestableResources:
   - name: "cpu"
     flavors:
-    - resourceFlavor: x86
+    - name: x86
       quota:
         min: 9
-    - resourceFlavor: arm
+    - name: arm
       quota:
         min: 12
   - name: "memory"
     flavors:
-    - resourceFlavor: default
+    - name: default
       quota:
         min: 84Gi
 ```
@@ -230,13 +230,13 @@ spec:
   requestableResources:
   - name: "cpu"
     flavors:
-    - resourceFlavor: default
+    - name: default
       quota:
         min: 9
         max: 15
   - name: "memory"
     flavors:
-    - resourceFlavor: default
+    - name: default
       quota:
         min: 36Gi
         max: 60Gi
@@ -254,12 +254,12 @@ spec:
   requestableResources:
   - name: "cpu"
     flavors:
-    - resourceFlavor: default
+    - name: default
       quota:
         min: 12
   - name: "memory"
     flavors:
-    - resourceFlavor: default
+    - name: default
       quota:
         min: 48Gi
 ```
@@ -298,16 +298,16 @@ spec:
   requestableResources:
   - name: "cpu"
     flavors:
-    - resourceFlavor: arm
+    - name: arm
       quota:
         min: 9
         max: 9
-    - resourceFlavor: x86
+    - name: x86
       quota:
         min: 0
   - name: "memory"
     flavors:
-    - resourceFlavor: default
+    - name: default
       quota:
         min: 36Gi
 ```
@@ -324,16 +324,16 @@ spec:
   requestableResources:
   - name: "cpu"
     flavors:
-    - resourceFlavor: arm
+    - name: arm
       quota:
         min: 12
         max: 12
-    - resourceFlavor: x86
+    - name: x86
       quota:
         min: 0
   - name: "memory"
     flavors:
-    - resourceFlavor: default
+    - name: default
       quota:
         min: 48Gi
 ```
@@ -350,12 +350,12 @@ spec:
   requestableResources:
   - name: "cpu"
     flavors:
-    - resourceFlavor: x86
+    - name: x86
       quota:
         min: 6
   - name: "memory"
     flavors:
-    - resourceFlavor: default
+    - name: default
       quota:
         min: 24Gi
 ```

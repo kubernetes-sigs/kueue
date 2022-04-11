@@ -19,12 +19,12 @@ spec:
   requestableResources:
   - name: "cpu"
     flavors:
-    - resourceFlavor: default
+    - name: default
       quota:
         min: 9
   - name: "memory"
     flavors:
-    - resourceFlavor: default
+    - name: default
       quota:
         min: 36Gi
 ```
@@ -103,7 +103,7 @@ taints:
 ```
 
 You can use the `.metadata.name` to reference a flavor from a ClusterQueue in
-the `.spec.requestableResources[*].flavors[*].resourceFlavor` field.
+the `.spec.requestableResources[*].flavors[*].name` field.
 
 For each resource of each [pod set](workload.md#pod-sets) in a Workload, Kueue
 assigns the first flavor in the `.spec.requestableResources[*].resources.flavors`
@@ -199,12 +199,12 @@ spec:
   requestableResources:
   - name: "cpu"
     flavors:
-    - resourceFlavor: default
+    - name: default
       quota:
         min: 9
   - name: "memory"
     flavors:
-    - resourceFlavor: default
+    - name: default
       quota:
         min: 36Gi
 ```
@@ -220,12 +220,12 @@ spec:
   requestableResources:
   - name: "cpu"
     flavors:
-    - resourceFlavor: default
+    - name: default
       quota:
         min: 12
   - name: "memory"
     flavors:
-    - resourceFlavor: default
+    - name: default
       quota:
         min: 48Gi
 ```

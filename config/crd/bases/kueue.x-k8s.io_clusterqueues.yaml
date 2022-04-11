@@ -180,6 +180,11 @@ spec:
                         can’t be empty, at least one flavor must exist."
                       items:
                         properties:
+                          name:
+                            default: default
+                            description: name is a reference to the resourceFlavor
+                              that defines this flavor.
+                            type: string
                           quota:
                             description: quota is the limit of resource usage at a
                               point in time.
@@ -210,18 +215,13 @@ spec:
                                 pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                                 x-kubernetes-int-or-string: true
                             type: object
-                          resourceFlavor:
-                            default: default
-                            description: resourceFlavor is a reference to the resourceFlavor
-                              that defines this flavor.
-                            type: string
                         required:
+                        - name
                         - quota
-                        - resourceFlavor
                         type: object
                       type: array
                       x-kubernetes-list-map-keys:
-                      - resourceFlavor
+                      - name
                       x-kubernetes-list-type: map
                     name:
                       description: name of the resource. For example, cpu, memory
