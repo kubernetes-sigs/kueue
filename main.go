@@ -17,7 +17,9 @@ limitations under the License.
 package main
 
 import (
+	"bytes"
 	"flag"
+	"fmt"
 	"os"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -26,12 +28,14 @@ import (
 
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	configv1alpha1 "sigs.k8s.io/kueue/apis/config/v1alpha1"
 	kueuev1alpha1 "sigs.k8s.io/kueue/apis/core/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -52,32 +56,46 @@ func init() {
 	utilruntime.Must(schedulingv1.AddToScheme(scheme))
 
 	utilruntime.Must(kueuev1alpha1.AddToScheme(scheme))
+	utilruntime.Must(configv1alpha1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
 func main() {
-	var metricsAddr string
-	var enableLeaderElection bool
-	var probeAddr string
-	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
-	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
-	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
-		"Enable leader election for controller manager. "+
-			"Enabling this will ensure there is only one active controller manager.")
+	var configFile string
+	flag.StringVar(&configFile, "config", "",
+		"The controller will load its initial configuration from this file. "+
+			"Omit this flag to use the default configuration values. ")
+
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	options := ctrl.Options{
 		Scheme:                 scheme,
-		MetricsBindAddress:     metricsAddr,
+		HealthProbeBindAddress: ":8081",
+		MetricsBindAddress:     ":8080",
 		Port:                   9443,
-		HealthProbeBindAddress: probeAddr,
-		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "c1f6bfd2.kueue.x-k8s.io",
-	})
+	}
+	var err error
+	config := configv1alpha1.Configuration{}
+	if configFile != "" {
+		options, err = options.AndFrom(ctrl.ConfigFile().AtPath(configFile).OfKind(&config))
+		if err != nil {
+			setupLog.Error(err, "unable to load the config file")
+			os.Exit(1)
+		}
+		cfgStr, err := encodeConfig(&config)
+		if err != nil {
+			setupLog.Error(err, "unable to encode config file")
+			os.Exit(1)
+		}
+		setupLog.Info("Successfully loaded config file", "config", cfgStr)
+	}
+
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), options)
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
@@ -94,8 +112,11 @@ func main() {
 	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache); err != nil {
 		setupLog.Error(err, "Unable to create controller", "controller", failedCtrl)
 	}
-	if err = job.NewReconciler(mgr.GetScheme(), mgr.GetClient(),
-		mgr.GetEventRecorderFor(constants.JobControllerName)).SetupWithManager(mgr); err != nil {
+	if err = job.NewReconciler(mgr.GetScheme(),
+		mgr.GetClient(),
+		mgr.GetEventRecorderFor(constants.JobControllerName),
+		job.WithManageJobsWithoutQueueName(config.ManageJobsWithoutQueueName),
+	).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Job")
 		os.Exit(1)
 	}
@@ -124,4 +145,20 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+func encodeConfig(cfg *configv1alpha1.Configuration) (string, error) {
+	codecs := serializer.NewCodecFactory(scheme)
+	const mediaType = runtime.ContentTypeYAML
+	info, ok := runtime.SerializerInfoForMediaType(codecs.SupportedMediaTypes(), mediaType)
+	if !ok {
+		return "", fmt.Errorf("unable to locate encoder -- %q is not a supported media type", mediaType)
+	}
+
+	encoder := codecs.EncoderForVersion(info.Serializer, configv1alpha1.GroupVersion)
+	buf := new(bytes.Buffer)
+	if err := encoder.Encode(cfg, buf); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }

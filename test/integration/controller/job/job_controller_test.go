@@ -64,7 +64,7 @@ var (
 var _ = ginkgo.Describe("Job controller", func() {
 	ginkgo.BeforeEach(func() {
 		fwk = &framework.Framework{
-			ManagerSetup: managerSetup(job.WithProcessJobsWithoutQueueName(true)),
+			ManagerSetup: managerSetup(job.WithManageJobsWithoutQueueName(true)),
 			CRDPath:      crdPath,
 		}
 		ctx, cfg, k8sClient = fwk.Setup()

@@ -38,4 +38,11 @@ resources:
   kind: ResourceFlavor
   path: sigs.k8s.io/kueue/api/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+  domain: x-k8s.io
+  group: config
+  kind: KueueConfiguration
+  path: sigs.k8s.io/kueue/apis/config/v1alpha1
+  version: v1alpha1
 version: "3"
