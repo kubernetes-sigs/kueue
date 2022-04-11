@@ -25,7 +25,6 @@ import (
 	"github.com/onsi/gomega"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"sigs.k8s.io/kueue/pkg/cache"
@@ -38,9 +37,8 @@ import (
 var (
 	cfg       *rest.Config
 	k8sClient client.Client
-	testEnv   *envtest.Environment
 	ctx       context.Context
-	cancel    context.CancelFunc
+	fwk       *framework.Framework
 )
 
 func TestAPIs(t *testing.T) {
@@ -52,14 +50,15 @@ func TestAPIs(t *testing.T) {
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	ctx, cancel = context.WithCancel(context.Background())
-	crdPath := filepath.Join("..", "..", "..", "..", "config", "crd", "bases")
-	cfg, k8sClient, testEnv = framework.BeforeSuite(ctx, crdPath, managerSetup)
+	fwk = &framework.Framework{
+		ManagerSetup: managerSetup,
+		CRDPath:      filepath.Join("..", "..", "..", "..", "config", "crd", "bases"),
+	}
+	ctx, cfg, k8sClient = fwk.Setup()
 })
 
 var _ = ginkgo.AfterSuite(func() {
-	cancel()
-	framework.AfterSuite(testEnv)
+	fwk.Teardown()
 })
 
 func managerSetup(mgr manager.Manager) {

@@ -41,16 +41,23 @@ import (
 
 type ManagerSetup func(manager.Manager)
 
-func BeforeSuite(ctx context.Context, crdPath string, mgrSetup ManagerSetup) (*rest.Config, client.Client, *envtest.Environment) {
+type Framework struct {
+	CRDPath      string
+	ManagerSetup ManagerSetup
+	testEnv      *envtest.Environment
+	cancel       context.CancelFunc
+}
+
+func (f *Framework) Setup() (context.Context, *rest.Config, client.Client) {
 	ctrl.SetLogger(zap.New(zap.WriteTo(ginkgo.GinkgoWriter), zap.UseDevMode(true), zap.Level(zapcore.Level(-3))))
 
 	ginkgo.By("bootstrapping test environment")
-	testEnv := &envtest.Environment{
-		CRDDirectoryPaths:     []string{crdPath},
+	f.testEnv = &envtest.Environment{
+		CRDDirectoryPaths:     []string{f.CRDPath},
 		ErrorIfCRDPathMissing: true,
 	}
 
-	cfg, err := testEnv.Start()
+	cfg, err := f.testEnv.Start()
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 	gomega.ExpectWithOffset(1, cfg).NotTo(gomega.BeNil())
 
@@ -69,7 +76,9 @@ func BeforeSuite(ctx context.Context, crdPath string, mgrSetup ManagerSetup) (*r
 	})
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "failed to create manager")
 
-	mgrSetup(mgr)
+	f.ManagerSetup(mgr)
+	ctx, cancel := context.WithCancel(context.Background())
+	f.cancel = cancel
 
 	go func() {
 		defer ginkgo.GinkgoRecover()
@@ -77,12 +86,13 @@ func BeforeSuite(ctx context.Context, crdPath string, mgrSetup ManagerSetup) (*r
 		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "failed to run manager")
 	}()
 
-	return cfg, k8sClient, testEnv
+	return ctx, cfg, k8sClient
 }
 
-func AfterSuite(testEnv *envtest.Environment) {
+func (f *Framework) Teardown() {
 	ginkgo.By("tearing down the test environment")
-	err := testEnv.Stop()
+	f.cancel()
+	err := f.testEnv.Stop()
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 }
 

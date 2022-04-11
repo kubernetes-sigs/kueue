@@ -17,29 +17,16 @@ limitations under the License.
 package job
 
 import (
-	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	"k8s.io/client-go/rest"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/workload/job"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	//+kubebuilder:scaffold:imports
-)
-
-var (
-	cfg       *rest.Config
-	k8sClient client.Client
-	testEnv   *envtest.Environment
-	ctx       context.Context
-	cancel    context.CancelFunc
 )
 
 func TestAPIs(t *testing.T) {
@@ -50,18 +37,14 @@ func TestAPIs(t *testing.T) {
 	)
 }
 
-var _ = ginkgo.BeforeSuite(func() {
-	ctx, cancel = context.WithCancel(context.Background())
-	crdPath := filepath.Join("..", "..", "..", "..", "config", "crd", "bases")
-	cfg, k8sClient, testEnv = framework.BeforeSuite(ctx, crdPath, managerSetup)
-})
-
-var _ = ginkgo.AfterSuite(func() {
-	cancel()
-	framework.AfterSuite(testEnv)
-})
-
-func managerSetup(mgr manager.Manager) {
-	err := job.NewReconciler(mgr.GetScheme(), mgr.GetClient(), mgr.GetEventRecorderFor(constants.JobControllerName)).SetupWithManager(mgr)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+func managerSetup(opts ...job.Option) framework.ManagerSetup {
+	return func(mgr manager.Manager) {
+		reconciler := job.NewReconciler(
+			mgr.GetScheme(),
+			mgr.GetClient(),
+			mgr.GetEventRecorderFor(constants.JobControllerName),
+			opts...)
+		err := reconciler.SetupWithManager(mgr)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 }

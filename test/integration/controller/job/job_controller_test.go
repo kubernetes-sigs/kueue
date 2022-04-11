@@ -17,7 +17,9 @@ limitations under the License.
 package job
 
 import (
+	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -27,9 +29,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/core/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/workload/job"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/workload/job"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -46,10 +51,28 @@ const (
 	priorityValue     = 10
 )
 
+var (
+	cfg       *rest.Config
+	k8sClient client.Client
+	ctx       context.Context
+	fwk       *framework.Framework
+	crdPath   = filepath.Join("..", "..", "..", "..", "config", "crd", "bases")
+)
+
 // +kubebuilder:docs-gen:collapse=Imports
 
 var _ = ginkgo.Describe("Job controller", func() {
-	ginkgo.It("Should reconcile workload and job", func() {
+	ginkgo.BeforeEach(func() {
+		fwk = &framework.Framework{
+			ManagerSetup: managerSetup(job.WithProcessJobsWithoutQueueName(true)),
+			CRDPath:      crdPath,
+		}
+		ctx, cfg, k8sClient = fwk.Setup()
+	})
+	ginkgo.AfterEach(func() {
+		fwk.Teardown()
+	})
+	ginkgo.It("Should reconcile workload and job for all jobs", func() {
 		ginkgo.By("checking the job gets suspended when created unsuspended")
 		priorityClass := testing.MakePriorityClass(priorityClassName).
 			PriorityValue(int32(priorityValue)).Obj()
@@ -219,5 +242,39 @@ var _ = ginkgo.Describe("Job controller", func() {
 			return createdWorkload.Status.Conditions[0].Type == kueue.WorkloadFinished &&
 				createdWorkload.Status.Conditions[0].Status == corev1.ConditionTrue
 		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
+	})
+})
+
+var _ = ginkgo.Describe("Job controller for workloads with no queue set", func() {
+	ginkgo.BeforeEach(func() {
+		fwk = &framework.Framework{
+			ManagerSetup: managerSetup(),
+			CRDPath:      crdPath,
+		}
+		ctx, cfg, k8sClient = fwk.Setup()
+	})
+	ginkgo.AfterEach(func() {
+		fwk.Teardown()
+	})
+	ginkgo.It("Should reconcile jobs only when queue is set", func() {
+		ginkgo.By("checking the workload is not created when queue name is not set")
+		job := testing.MakeJob(jobName, jobNamespace).Obj()
+		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+		lookupKey := types.NamespacedName{Name: jobName, Namespace: jobNamespace}
+		createdJob := &batchv1.Job{}
+		gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+
+		createdWorkload := &kueue.Workload{}
+		gomega.Consistently(func() bool {
+			return apierrors.IsNotFound(k8sClient.Get(ctx, lookupKey, createdWorkload))
+		}, framework.ConsistentDuration, framework.Interval).Should(gomega.BeTrue())
+
+		ginkgo.By("checking the workload is created when queue name is set")
+		jobQueueName := "test-queue"
+		createdJob.Annotations = map[string]string{constants.QueueAnnotation: jobQueueName}
+		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
+		gomega.Eventually(func() error {
+			return k8sClient.Get(ctx, lookupKey, createdWorkload)
+		}, framework.Timeout, framework.Interval).Should(gomega.Succeed())
 	})
 })
