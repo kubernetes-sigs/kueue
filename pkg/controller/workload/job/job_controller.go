@@ -34,7 +34,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/api/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/core/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"

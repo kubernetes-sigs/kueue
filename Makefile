@@ -117,7 +117,7 @@ ci-lint: golangci-lint
 
 .PHONY: verify
 verify: gomod-verify vet ci-lint fmt-verify manifests generate
-	git --no-pager diff --exit-code config/crd/bases api
+	git --no-pager diff --exit-code config/crd/bases apis
 
 ##@ Build
 

@@ -22,7 +22,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"k8s.io/apimachinery/pkg/util/sets"
 
-	kueue "sigs.k8s.io/kueue/api/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/core/v1alpha1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )

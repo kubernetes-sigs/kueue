@@ -35,7 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 
-	kueue "sigs.k8s.io/kueue/api/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/core/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/queue"

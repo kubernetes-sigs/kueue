@@ -17,7 +17,7 @@ limitations under the License.
 package queue
 
 import (
-	kueue "sigs.k8s.io/kueue/api/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/core/v1alpha1"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
