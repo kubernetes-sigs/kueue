@@ -327,6 +327,7 @@ spec:
     - resourceFlavor: arm
       quota:
         min: 12
+        max: 12
     - resourceFlavor: x86
       quota:
         min: 0
