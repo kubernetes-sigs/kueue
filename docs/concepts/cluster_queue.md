@@ -16,7 +16,7 @@ metadata:
   name: cluster-total
 spec:
   namespaceSelector: {}
-  requestableResources:
+  resources:
   - name: "cpu"
     flavors:
     - name: default
@@ -103,10 +103,10 @@ taints:
 ```
 
 You can use the `.metadata.name` to reference a flavor from a ClusterQueue in
-the `.spec.requestableResources[*].flavors[*].name` field.
+the `.spec.resources[*].flavors[*].name` field.
 
 For each resource of each [pod set](workload.md#pod-sets) in a Workload, Kueue
-assigns the first flavor in the `.spec.requestableResources[*].resources.flavors`
+assigns the first flavor in the `.spec.resources[*].flavors`
 list that has enough unused quota in the ClusterQueue or the ClusterQueue's
 [cohort](#cohort).
 
@@ -176,7 +176,7 @@ ClusterQueue.
 When borrowing, Kueue satisfies the following semantics:
 
 - When assigning flavors, Kueue goes through the list of flavors in
-  `.spec.requestableResources[*].flavors`. For each flavor, Kueue attempts to
+  `.spec.resources[*].flavors`. For each flavor, Kueue attempts to
   fit the workload using the min quota of the ClusterQueue or the unused
   min quota of other ClusterQueues in the cohort, up to the max quota of the
   ClusterQueue. If the workload doesn't fit, Kueue proceeds evaluating the next
@@ -196,7 +196,7 @@ metadata:
 spec:
   namespaceSelector: {}
   cohort: team-ab
-  requestableResources:
+  resources:
   - name: "cpu"
     flavors:
     - name: default
@@ -217,7 +217,7 @@ metadata:
 spec:
   namespaceSelector: {}
   cohort: team-ab
-  requestableResources:
+  resources:
   - name: "cpu"
     flavors:
     - name: default
@@ -247,7 +247,7 @@ No admitted workloads will be stopped to make space for new workloads.
 ### Max quotas
 
 To limit the amount of resources that a ClusterQueue can borrow from others,
-you can set the `.spec.requestableResources[*].flavors[*].quota.max`
+you can set the `.spec.resources[*].flavors[*].quota.max`
 [quantity](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/quantity/) field.
 `max` must be greater than or equal to `min`.
 

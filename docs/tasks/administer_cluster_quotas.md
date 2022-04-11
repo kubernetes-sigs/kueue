@@ -40,7 +40,7 @@ metadata:
   name: cluster-total
 spec:
   namespaceSelector: {} # match all.
-  requestableResources:
+  resources:
   - name: "cpu"
     flavors:
     - name: default
@@ -90,7 +90,7 @@ To create the ResourceFlavor, run the following command:
 kubectl apply -f default-flavor.yaml
 ```
 
-The `.metadata.name` matches the `.spec.requestableResources[*].flavors[0].resourceFlavor`
+The `.metadata.name` matches the `.spec.resources[*].flavors[0].resourceFlavor`
 field in the ClusterQueue.
 
 ### 3. Create [Queues](/docs/concepts/queue.md)
@@ -129,7 +129,7 @@ architectures, namely `x86` and `arm`, specified in the node label `cpu-arch`.
 
 **Limitations**
 
-- Using the same flavors in multiple `.requestableResources` of a ClusterQueue
+- Using the same flavors in multiple `.resources` of a ClusterQueue
   is [not supported](https://github.com/kubernetes-sigs/kueue/issues/167).
 
 ### 1. Create ResourceFlavors
@@ -181,7 +181,7 @@ metadata:
   name: cluster-total
 spec:
   namespaceSelector: {}
-  requestableResources:
+  resources:
   - name: "cpu"
     flavors:
     - name: x86
@@ -197,7 +197,7 @@ spec:
         min: 84Gi
 ```
 
-The flavor names in the fields `.spec.requestableResources[*].flavors[*].resourceFlavor`
+The flavor names in the fields `.spec.resources[*].flavors[*].resourceFlavor`
 should match the names of the ResourceFlavors created earlier.
 
 Note that `memory` is referencing the `default` flavor created in the [single flavor setup](#single-clusterqueue-and-single-resourceflavor-setup)
@@ -227,7 +227,7 @@ metadata:
 spec:
   namespaceSelector: {}
   cohort: team-ab
-  requestableResources:
+  resources:
   - name: "cpu"
     flavors:
     - name: default
@@ -251,7 +251,7 @@ metadata:
 spec:
   namespaceSelector: {}
   cohort: team-ab
-  requestableResources:
+  resources:
   - name: "cpu"
     flavors:
     - name: default
@@ -295,7 +295,7 @@ metadata:
 spec:
   namespaceSelector: {}
   cohort: team-ab
-  requestableResources:
+  resources:
   - name: "cpu"
     flavors:
     - name: arm
@@ -321,7 +321,7 @@ metadata:
 spec:
   namespaceSelector: {}
   cohort: team-ab
-  requestableResources:
+  resources:
   - name: "cpu"
     flavors:
     - name: arm
@@ -347,7 +347,7 @@ metadata:
 spec:
   namespaceSelector: {}
   cohort: team-ab
-  requestableResources:
+  resources:
   - name: "cpu"
     flavors:
     - name: x86

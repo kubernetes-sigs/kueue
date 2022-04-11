@@ -24,7 +24,7 @@ import (
 
 // ClusterQueueSpec defines the desired state of ClusterQueue
 type ClusterQueueSpec struct {
-	// requestableResources represent the total pod requests of workloads dispatched
+	// resources represent the total pod requests of workloads dispatched
 	// via this clusterQueue. This doesn’t guarantee the actual availability of
 	// resources, although an integration with a resource provisioner like Cluster
 	// Autoscaler is possible to achieve that. Example:
@@ -40,7 +40,7 @@ type ClusterQueueSpec struct {
 	//
 	// +listType=map
 	// +listMapKey=name
-	RequestableResources []Resource `json:"requestableResources,omitempty"`
+	Resources []Resource `json:"resources,omitempty"`
 
 	// cohort that this ClusterQueue belongs to. QCs that belong to the
 	// same cohort can borrow unused resources from each other.
@@ -69,7 +69,7 @@ type ClusterQueueSpec struct {
 	//  name: tenantA
 	// spec:
 	//  cohort: borrowing-cohort
-	//  requestableResources:
+	//  resources:
 	// - name: cpu
 	//   - name: spot
 	//     quota:
@@ -95,7 +95,7 @@ type ClusterQueueSpec struct {
 	//  name: tenantB
 	// spec:
 	//  cohort: borrowing-cohort
-	//  requestableResources:
+	//  resources:
 	// - name: cpu
 	//   - name: on-demand
 	//     quota:
@@ -166,7 +166,7 @@ type Resource struct {
 	// flavor and must set different values of a shared key. For example:
 	//
 	// spec:
-	//  requestableResources:
+	//  resources:
 	// - name: nvidia.com/gpus
 	//   - name: k80
 	//     quota:

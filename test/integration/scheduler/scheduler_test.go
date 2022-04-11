@@ -502,7 +502,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: devBEClusterQ.Name}, devCq)).Should(gomega.Succeed())
 
 		updatedResource := testing.MakeResource(corev1.ResourceCPU).Flavor(testing.MakeFlavor(onDemandFlavor.Name, "13").Max("13").Obj()).Obj()
-		devCq.Spec.RequestableResources = []kueue.Resource{*updatedResource}
+		devCq.Spec.Resources = []kueue.Resource{*updatedResource}
 		gomega.Expect(k8sClient.Update(ctx, devCq)).Should(gomega.Succeed())
 
 		gomega.Eventually(func() *bool {

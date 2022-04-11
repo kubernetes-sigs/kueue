@@ -115,15 +115,15 @@ func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*ClusterQueue, error) {
 }
 
 func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[string]*kueue.ResourceFlavor) error {
-	c.RequestableResources = resourceLimitsByName(in.Spec.RequestableResources)
+	c.RequestableResources = resourceLimitsByName(in.Spec.Resources)
 	nsSelector, err := metav1.LabelSelectorAsSelector(in.Spec.NamespaceSelector)
 	if err != nil {
 		return err
 	}
 	c.NamespaceSelector = nsSelector
 
-	usedResources := make(Resources, len(in.Spec.RequestableResources))
-	for _, r := range in.Spec.RequestableResources {
+	usedResources := make(Resources, len(in.Spec.Resources))
+	for _, r := range in.Spec.Resources {
 		if len(r.Flavors) == 0 {
 			continue
 		}

@@ -9,15 +9,15 @@ metadata:
   name: cluster-total
 spec:
   namespaceSelector: {}
-  requestableResources:
+  resources:
   - name: "cpu"
     flavors:
-    - resourceFlavor: default
+    - name: default
       quota:
         min: 9
   - name: "memory"
     flavors:
-    - resourceFlavor: default
+    - name: default
       quota:
         min: 36Gi
 ---

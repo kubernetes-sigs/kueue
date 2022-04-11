@@ -269,7 +269,7 @@ func (c *ClusterQueueWrapper) Cohort(cohort string) *ClusterQueueWrapper {
 
 // Resource adds a resource with flavors.
 func (c *ClusterQueueWrapper) Resource(r *kueue.Resource) *ClusterQueueWrapper {
-	c.Spec.RequestableResources = append(c.Spec.RequestableResources, *r)
+	c.Spec.Resources = append(c.Spec.Resources, *r)
 	return c
 }
 
@@ -285,10 +285,10 @@ func (c *ClusterQueueWrapper) NamespaceSelector(s *metav1.LabelSelector) *Cluste
 	return c
 }
 
-// ResourceWrapper wraps a requestable resource.
+// ResourceWrapper wraps a resource.
 type ResourceWrapper struct{ kueue.Resource }
 
-// MakeResource creates a wrapper for a requestable resource.
+// MakeResource creates a wrapper for a resource.
 func MakeResource(name corev1.ResourceName) *ResourceWrapper {
 	return &ResourceWrapper{kueue.Resource{
 		Name: name,
