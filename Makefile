@@ -147,6 +147,8 @@ ifndef ignore-not-found
   ignore-not-found = false
 endif
 
+clean-manifests = (cd config/manager && $(KUSTOMIZE) edit set image controller=gcr.io/k8s-staging-kueue/kueue:main)
+
 .PHONY: install
 install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
 	$(KUSTOMIZE) build config/crd | kubectl apply -f -
@@ -159,11 +161,20 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMAGE_TAG}
 	$(KUSTOMIZE) build config/default | kubectl apply -f -
-	cd config/manager && $(KUSTOMIZE) edit set image controller=gcr.io/k8s-staging-kueue/kueue:devel
+	@$(call clean-manifests)
 
 .PHONY: undeploy
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
 	$(KUSTOMIZE) build config/default | kubectl delete --ignore-not-found=$(ignore-not-found) -f -
+
+##@ Release
+.PHONY: artifacts
+artifacts: kustomize
+	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMAGE_TAG}
+	@mkdir -p artifacts
+	@rm -r artifacts/*
+	$(KUSTOMIZE) build config/default -o artifacts/manifests.yaml
+	@$(call clean-manifests)
 
 ##@ Tools
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
