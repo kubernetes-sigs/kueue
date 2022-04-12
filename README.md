@@ -24,11 +24,10 @@ presents the detailed design of the controller.
 
 **Requires Kubernetes 1.22 or newer**.
 
-To install the latest development version of Kueue in your cluster, run the
-following command:
+To install the latest release of Kueue in your cluster, run the following command:
 
 ```shell
-kubectl apply -k github.com/kubernetes-sigs/kueue/config/default
+kubectl apply -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.1.0/manifests.yaml
 ```
 
 The controller runs in the `kueue-system` namespace.
