@@ -46,24 +46,24 @@ var (
 
 // JobReconciler reconciles a Job object
 type JobReconciler struct {
-	client                      client.Client
-	scheme                      *runtime.Scheme
-	record                      record.EventRecorder
-	processJobsWithoutQueueName bool
+	client                     client.Client
+	scheme                     *runtime.Scheme
+	record                     record.EventRecorder
+	manageJobsWithoutQueueName bool
 }
 
 type options struct {
-	processJobsWithoutQueueName bool
+	manageJobsWithoutQueueName bool
 }
 
 // Option configures the reconciler.
 type Option func(*options)
 
-// WithProcessJobsWithoutQueueName indicates if the controller should reconcile
+// WithManageJobsWithoutQueueName indicates if the controller should reconcile
 // jobs that don't set the queue name annotation.
-func WithProcessJobsWithoutQueueName(f bool) Option {
+func WithManageJobsWithoutQueueName(f bool) Option {
 	return func(o *options) {
-		o.processJobsWithoutQueueName = f
+		o.manageJobsWithoutQueueName = f
 	}
 }
 
@@ -81,10 +81,10 @@ func NewReconciler(
 	}
 
 	return &JobReconciler{
-		scheme:                      scheme,
-		client:                      client,
-		record:                      record,
-		processJobsWithoutQueueName: options.processJobsWithoutQueueName,
+		scheme:                     scheme,
+		client:                     client,
+		record:                     record,
+		manageJobsWithoutQueueName: options.manageJobsWithoutQueueName,
 	}
 }
 
@@ -133,7 +133,7 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 	log := ctrl.LoggerFrom(ctx).WithValues("job", klog.KObj(&job))
 	ctx = ctrl.LoggerInto(ctx, log)
-	if queueName(&job) == "" && !r.processJobsWithoutQueueName {
+	if queueName(&job) == "" && !r.manageJobsWithoutQueueName {
 		log.V(3).Info(fmt.Sprintf("%s annotation is not set, ignoring the job", constants.QueueAnnotation))
 		return ctrl.Result{}, nil
 	}
