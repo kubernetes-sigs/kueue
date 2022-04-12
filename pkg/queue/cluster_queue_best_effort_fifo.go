@@ -39,7 +39,7 @@ const BestEffortFIFO = kueue.BestEffortFIFO
 func newClusterQueueBestEffortFIFO(cq *kueue.ClusterQueue) (ClusterQueue, error) {
 	cqImpl := ClusterQueueImpl{
 		heap: heapImpl{
-			less:  byCreationTime,
+			less:  byPriority,
 			items: make(map[string]*heapItem),
 		},
 	}

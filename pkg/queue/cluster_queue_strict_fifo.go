@@ -35,7 +35,7 @@ const StrictFIFO = kueue.StrictFIFO
 func newClusterQueueStrictFIFO(cq *kueue.ClusterQueue) (ClusterQueue, error) {
 	cqImpl := &ClusterQueueImpl{
 		heap: heapImpl{
-			less:  byCreationTime,
+			less:  byPriority,
 			items: make(map[string]*heapItem),
 		},
 	}
@@ -43,10 +43,10 @@ func newClusterQueueStrictFIFO(cq *kueue.ClusterQueue) (ClusterQueue, error) {
 	return cqImpl, nil
 }
 
-// byCreationTime is the function used by the clusterQueue heap algorithm to sort
+// byPriority is the function used by the clusterQueue heap algorithm to sort
 // workloads. It sorts workloads based on their priority.
 // When priorities are equal, it uses workloads.creationTimestamp.
-func byCreationTime(a, b workload.Info) bool {
+func byPriority(a, b workload.Info) bool {
 	p1 := utilpriority.Priority(a.Obj)
 	p2 := utilpriority.Priority(b.Obj)
 
