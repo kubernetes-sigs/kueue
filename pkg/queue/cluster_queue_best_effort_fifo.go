@@ -75,9 +75,15 @@ func (cq *ClusterQueueBestEffortFIFO) Delete(w *kueue.Workload) {
 	cq.ClusterQueueImpl.Delete(w)
 }
 
-// AddInadmissibleIfNotPresent inserts a workload that cannot be admitted into
-// the inadmissibleWorkloads in ClusterQueue, unless it is already in the queue.
-func (cq *ClusterQueueBestEffortFIFO) AddInadmissibleIfNotPresent(wInfo *workload.Info) bool {
+// RequeueIfNotPresent inserts a workload that cannot be admitted into
+// ClusterQueue, unless it is already in the queue. If immediate is true,
+// the workload will be pushed back to heap directly. If not,
+// the workload will be put into the inadmissibleWorkloads.
+func (cq *ClusterQueueBestEffortFIFO) RequeueIfNotPresent(wInfo *workload.Info, immediate bool) bool {
+	if immediate {
+		return cq.ClusterQueueImpl.pushIfNotPresent(wInfo)
+	}
+
 	key := workload.Key(wInfo.Obj)
 	if cq.inadmissibleWorkloads[key] != nil {
 		return false

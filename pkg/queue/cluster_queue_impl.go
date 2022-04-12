@@ -92,7 +92,7 @@ func (c *ClusterQueueImpl) Delete(w *kueue.Workload) {
 	}
 }
 
-func (c *ClusterQueueImpl) AddInadmissibleIfNotPresent(wInfo *workload.Info) bool {
+func (c *ClusterQueueImpl) RequeueIfNotPresent(wInfo *workload.Info, _ bool) bool {
 	return c.pushIfNotPresent(wInfo)
 }
 

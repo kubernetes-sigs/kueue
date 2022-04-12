@@ -103,7 +103,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		prodBEClusterQ = testing.MakeClusterQueue("prod-be-cq").
 			Cohort("be").QueueingStrategy(kueue.BestEffortFIFO).
 			Resource(testing.MakeResource(corev1.ResourceCPU).
-				Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Max("10").Obj()).
+				Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Max("15").Obj()).
 				Obj()).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, prodBEClusterQ)).Should(gomega.Succeed())
@@ -111,7 +111,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		devBEClusterQ = testing.MakeClusterQueue("dev-be-cq").
 			Cohort("be").QueueingStrategy(kueue.BestEffortFIFO).
 			Resource(testing.MakeResource(corev1.ResourceCPU).
-				Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Max("10").Obj()).
+				Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Max("15").Obj()).
 				Obj()).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, devBEClusterQ)).Should(gomega.Succeed())
@@ -537,5 +537,31 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, smallWl1, smallWl2)
+	})
+
+	ginkgo.It("Should schedule workloads borrowing quota from ClusterQueues in the same Cohort", func() {
+		wl1 := testing.MakeWorkload("wl-1", ns.Name).Queue(prodBEQueue.Name).Request(corev1.ResourceCPU, "11").Obj()
+		wl2 := testing.MakeWorkload("wl-2", ns.Name).Queue(devBEQueue.Name).Request(corev1.ResourceCPU, "11").Obj()
+
+		ginkgo.By("Creating two workloads")
+		gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
+		gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
+		framework.ExpectWorkloadsToBePending(ctx, k8sClient, wl1, wl2)
+
+		// Make sure workloads are in the same scheduling cycle.
+		testBEClusterQ := testing.MakeClusterQueue("test-be-cq").
+			Cohort("be").QueueingStrategy(kueue.BestEffortFIFO).
+			Resource(testing.MakeResource(corev1.ResourceCPU).
+				Flavor(testing.MakeFlavor(onDemandFlavor.Name,
+					"15").Max("15").Obj()).
+				Obj()).
+			Obj()
+		gomega.Expect(k8sClient.Create(ctx, testBEClusterQ)).Should(gomega.Succeed())
+		defer func() {
+			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, testBEClusterQ)).Should(gomega.Succeed())
+		}()
+
+		framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodBEClusterQ.Name, wl1)
+		framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, devBEClusterQ.Name, wl2)
 	})
 })
