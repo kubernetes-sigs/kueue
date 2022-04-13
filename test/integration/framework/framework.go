@@ -39,7 +39,7 @@ import (
 	//+kubebuilder:scaffold:imports
 )
 
-type ManagerSetup func(manager.Manager)
+type ManagerSetup func(manager.Manager, context.Context)
 
 type Framework struct {
 	CRDPath      string
@@ -76,9 +76,9 @@ func (f *Framework) Setup() (context.Context, *rest.Config, client.Client) {
 	})
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "failed to create manager")
 
-	f.ManagerSetup(mgr)
 	ctx, cancel := context.WithCancel(context.Background())
 	f.cancel = cancel
+	f.ManagerSetup(mgr, ctx)
 
 	go func() {
 		defer ginkgo.GinkgoRecover()

@@ -61,7 +61,7 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
-func managerSetup(mgr manager.Manager) {
+func managerSetup(mgr manager.Manager, ctx context.Context) {
 	err := queue.SetupIndexes(mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
