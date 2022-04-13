@@ -64,7 +64,7 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
-func managerAndSchedulerSetup(mgr manager.Manager) {
+func managerAndSchedulerSetup(mgr manager.Manager, ctx context.Context) {
 	err := queue.SetupIndexes(mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

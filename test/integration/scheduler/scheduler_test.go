@@ -147,10 +147,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		gomega.Expect(k8sClient.Create(ctx, prodJob1)).Should(gomega.Succeed())
 		lookupKey1 := types.NamespacedName{Name: prodJob1.Name, Namespace: prodJob1.Namespace}
 		createdProdJob1 := &batchv1.Job{}
-		gomega.Eventually(func() bool {
-			err := k8sClient.Get(ctx, lookupKey1, createdProdJob1)
-			return err == nil && !*createdProdJob1.Spec.Suspend
-		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
+		gomega.Eventually(func() *bool {
+			gomega.Expect(k8sClient.Get(ctx, lookupKey1, createdProdJob1)).Should(gomega.Succeed())
+			return createdProdJob1.Spec.Suspend
+		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
 		gomega.Expect(createdProdJob1.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 
 		ginkgo.By("checking a second no-fit prod job does not start")
@@ -158,18 +158,20 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		gomega.Expect(k8sClient.Create(ctx, prodJob2)).Should(gomega.Succeed())
 		lookupKey2 := types.NamespacedName{Name: prodJob2.Name, Namespace: prodJob2.Namespace}
 		createdProdJob2 := &batchv1.Job{}
-		gomega.Consistently(func() bool {
-			return k8sClient.Get(ctx, lookupKey2, createdProdJob2) == nil && *createdProdJob2.Spec.Suspend
-		}, framework.ConsistentDuration, framework.Interval).Should(gomega.BeTrue())
+		gomega.Consistently(func() *bool {
+			gomega.Expect(k8sClient.Get(ctx, lookupKey2, createdProdJob2)).Should(gomega.Succeed())
+			return createdProdJob2.Spec.Suspend
+		}, framework.ConsistentDuration, framework.Interval).Should(gomega.Equal(pointer.Bool(true)))
 
 		ginkgo.By("checking a dev job starts")
 		devJob := testing.MakeJob("dev-job", ns.Name).Queue(devQueue.Name).Request(corev1.ResourceCPU, "5").Obj()
 		gomega.Expect(k8sClient.Create(ctx, devJob)).Should(gomega.Succeed())
 		createdDevJob := &batchv1.Job{}
-		gomega.Eventually(func() bool {
-			key := types.NamespacedName{Name: devJob.Name, Namespace: devJob.Namespace}
-			return k8sClient.Get(ctx, key, createdDevJob) == nil && !*createdDevJob.Spec.Suspend
-		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
+		gomega.Eventually(func() *bool {
+			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: devJob.Name, Namespace: devJob.Namespace}, createdDevJob)).
+				Should(gomega.Succeed())
+			return createdDevJob.Spec.Suspend
+		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
 		gomega.Expect(createdDevJob.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
 
 		ginkgo.By("checking the second prod job starts when the first finishes")
@@ -181,9 +183,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				LastTransitionTime: metav1.Now(),
 			})
 		gomega.Expect(k8sClient.Status().Update(ctx, createdProdJob1)).Should(gomega.Succeed())
-		gomega.Eventually(func() bool {
-			return k8sClient.Get(ctx, lookupKey2, createdProdJob2) == nil && !*createdProdJob2.Spec.Suspend
-		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
+		gomega.Eventually(func() *bool {
+			gomega.Expect(k8sClient.Get(ctx, lookupKey2, createdProdJob2)).Should(gomega.Succeed())
+			return createdProdJob2.Spec.Suspend
+		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
 		gomega.Expect(createdProdJob2.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 	})
 
@@ -215,10 +218,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			Request(corev1.ResourceCPU, "5").Obj()
 		gomega.Expect(k8sClient.Create(ctx, job3)).Should(gomega.Succeed())
 		createdJob3 := &batchv1.Job{}
-		gomega.Eventually(func() bool {
-			lookupKey := types.NamespacedName{Name: job3.Name, Namespace: job3.Namespace}
-			return k8sClient.Get(ctx, lookupKey, createdJob3) == nil && !*createdJob3.Spec.Suspend
-		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
+		gomega.Eventually(func() *bool {
+			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: job3.Name, Namespace: job3.Namespace}, createdJob3)).Should(gomega.Succeed())
+			return createdJob3.Spec.Suspend
+		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
 		gomega.Expect(createdJob3.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotTaintedFlavor.Name))
 	})
 
@@ -229,9 +232,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 		lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
 		createdJob := &batchv1.Job{}
-		gomega.Consistently(func() bool {
-			return k8sClient.Get(ctx, lookupKey, createdJob) == nil && *createdJob.Spec.Suspend
-		}, framework.ConsistentDuration, framework.Interval).Should(gomega.BeTrue())
+		gomega.Consistently(func() *bool {
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+			return createdJob.Spec.Suspend
+		}, framework.ConsistentDuration, framework.Interval).Should(gomega.Equal(pointer.Bool(true)))
 
 		ginkgo.By("checking the job starts when a fallback ClusterQueue gets added")
 		fallbackClusterQueue := testing.MakeClusterQueue("fallback-cq").
@@ -245,9 +249,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		defer func() {
 			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, fallbackClusterQueue)).ToNot(gomega.HaveOccurred())
 		}()
-		gomega.Eventually(func() bool {
-			return k8sClient.Get(ctx, lookupKey, createdJob) == nil && !*createdJob.Spec.Suspend
-		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
+		gomega.Eventually(func() *bool {
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+			return createdJob.Spec.Suspend
+		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
 		gomega.Expect(createdJob.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 	})
 
@@ -333,21 +338,19 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		ginkgo.By("checking that workload1 is created with priority and priorityName")
 		createdLowPriorityWorkload := &kueue.Workload{}
-		gomega.Eventually(func() bool {
+		gomega.Eventually(func() error {
 			lookupKey := types.NamespacedName{Name: jobLowPriority.Name, Namespace: jobLowPriority.Namespace}
-			err := k8sClient.Get(ctx, lookupKey, createdLowPriorityWorkload)
-			return err == nil
-		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
+			return k8sClient.Get(ctx, lookupKey, createdLowPriorityWorkload)
+		}, framework.Timeout, framework.Interval).Should(gomega.Succeed())
 		gomega.Expect(createdLowPriorityWorkload.Spec.PriorityClassName).Should(gomega.Equal(lowPriorityClass.Name))
 		gomega.Expect(*createdLowPriorityWorkload.Spec.Priority).Should(gomega.Equal(lowPriorityClass.Value))
 
 		ginkgo.By("checking that workload2 is created with priority and priorityName")
 		createdHighPriorityWorkload := &kueue.Workload{}
-		gomega.Eventually(func() bool {
+		gomega.Eventually(func() error {
 			lookupKey := types.NamespacedName{Name: jobHighPriority.Name, Namespace: jobHighPriority.Namespace}
-			err := k8sClient.Get(ctx, lookupKey, createdHighPriorityWorkload)
-			return err == nil
-		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
+			return k8sClient.Get(ctx, lookupKey, createdHighPriorityWorkload)
+		}, framework.Timeout, framework.Interval).Should(gomega.Succeed())
 		gomega.Expect(createdHighPriorityWorkload.Spec.PriorityClassName).Should(gomega.Equal(highPriorityClass.Name))
 		gomega.Expect(*createdHighPriorityWorkload.Spec.Priority).Should(gomega.Equal(highPriorityClass.Value))
 
@@ -356,10 +359,11 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		ginkgo.By("checking the job with low priority continues to be suspended")
 		createdJob1 := &batchv1.Job{}
-		gomega.Consistently(func() bool {
-			return k8sClient.Get(ctx, types.NamespacedName{Name: jobLowPriority.Name, Namespace: ns.Name},
-				createdJob1) == nil && *createdJob1.Spec.Suspend
-		}, framework.ConsistentDuration, framework.Interval).Should(gomega.BeTrue())
+		gomega.Consistently(func() *bool {
+			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: jobLowPriority.Name, Namespace: ns.Name},
+				createdJob1)).Should(gomega.Succeed())
+			return createdJob1.Spec.Suspend
+		}, framework.ConsistentDuration, framework.Interval).Should(gomega.Equal(pointer.Bool(true)))
 
 		ginkgo.By("checking the job with high priority starts")
 		createdJob2 := &batchv1.Job{}

@@ -17,6 +17,7 @@ limitations under the License.
 package job
 
 import (
+	"context"
 	"testing"
 
 	"github.com/onsi/ginkgo/v2"
@@ -38,7 +39,7 @@ func TestAPIs(t *testing.T) {
 }
 
 func managerSetup(opts ...job.Option) framework.ManagerSetup {
-	return func(mgr manager.Manager) {
+	return func(mgr manager.Manager, ctx context.Context) {
 		reconciler := job.NewReconciler(
 			mgr.GetScheme(),
 			mgr.GetClient(),
