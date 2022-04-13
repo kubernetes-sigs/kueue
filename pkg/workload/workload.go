@@ -162,10 +162,7 @@ func max(v1, v2 int64) int64 {
 // FindConditionIndex finds the provided condition from the given status and returns the index.
 // Returns -1 if the condition is not present.
 func FindConditionIndex(status *kueue.WorkloadStatus, conditionType kueue.WorkloadConditionType) int {
-	if status == nil {
-		return -1
-	}
-	if status.Conditions == nil {
+	if status == nil || status.Conditions == nil {
 		return -1
 	}
 	for i := range status.Conditions {
@@ -207,7 +204,7 @@ func UpdateStatus(ctx context.Context,
 	return c.Status().Update(ctx, &newWl)
 }
 
-func UpdateWorkloadStatusIfChanged(ctx context.Context,
+func UpdateStatusIfChanged(ctx context.Context,
 	c client.Client,
 	wl *kueue.Workload,
 	conditionType kueue.WorkloadConditionType,
@@ -225,4 +222,9 @@ func UpdateWorkloadStatusIfChanged(ctx context.Context,
 	}
 	// Updating an existing condition
 	return UpdateStatus(ctx, c, wl, conditionType, conditionStatus, reason, message)
+}
+
+func InCondition(w *kueue.Workload, condition kueue.WorkloadConditionType) bool {
+	i := FindConditionIndex(&w.Status, condition)
+	return i != -1 && w.Status.Conditions[i].Status == corev1.ConditionTrue
 }

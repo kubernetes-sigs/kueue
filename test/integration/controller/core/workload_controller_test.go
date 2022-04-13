@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	kueue "sigs.k8s.io/kueue/apis/core/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 )
 
@@ -39,6 +40,7 @@ var _ = ginkgo.Describe("Workload controller", func() {
 		queue                *kueue.Queue
 		wl                   *kueue.Workload
 		message              string
+		clusterQueue         *kueue.ClusterQueue
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -103,6 +105,41 @@ var _ = ginkgo.Describe("Workload controller", func() {
 				return updatedQueueWorkload.Status.Conditions
 			}, framework.Timeout, framework.Interval).ShouldNot(gomega.BeNil())
 			gomega.Expect(updatedQueueWorkload.Status.Conditions[0].Message).To(testing.Equal(message))
+		})
+	})
+
+	ginkgo.When("the workload is admitted", func() {
+		ginkgo.BeforeEach(func() {
+			clusterQueue = testing.MakeClusterQueue("cluster-queue").
+				Resource(testing.MakeResource(resourceGPU).
+					Flavor(testing.MakeFlavor(flavorOnDemand, "5").Max("10").Obj()).Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+
+			queue = testing.MakeQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, queue)).To(gomega.Succeed())
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, clusterQueue)).To(gomega.Succeed())
+			updatedQueueWorkload = kueue.Workload{}
+			clusterQueue = nil
+		})
+
+		ginkgo.It("Should update the workload's condition", func() {
+			ginkgo.By("Create workload")
+			wl = testing.MakeWorkload("one", ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "1").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			ginkgo.By("Admit workload")
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
+			updatedQueueWorkload.Spec.Admission = testing.MakeAdmission(clusterQueue.Name).
+				Flavor(corev1.ResourceCPU, flavorOnDemand).Obj()
+			gomega.Expect(k8sClient.Update(ctx, &updatedQueueWorkload)).To(gomega.Succeed())
+			gomega.Eventually(func() bool {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
+				return workload.InCondition(&updatedQueueWorkload, kueue.WorkloadAdmitted)
+			}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 		})
 	})
 })

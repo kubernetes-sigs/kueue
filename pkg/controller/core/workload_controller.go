@@ -80,14 +80,19 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	status := workloadStatus(&wl)
 	if status == pending && !r.queues.QueueForWorkloadExists(&wl) {
-		err := workload.UpdateWorkloadStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, corev1.ConditionFalse,
+		err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, corev1.ConditionFalse,
 			"Inadmissible", fmt.Sprintf("Queue %s doesn't exist", wl.Spec.QueueName))
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)
 	if status == pending && !cqOk {
-		err := workload.UpdateWorkloadStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, corev1.ConditionFalse,
+		err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, corev1.ConditionFalse,
 			"Inadmissible", fmt.Sprintf("ClusterQueue %s doesn't exist", cqName))
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	if status == admitted {
+		err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, corev1.ConditionTrue, "", "")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -154,6 +159,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 	wl := e.ObjectNew.(*kueue.Workload)
 	defer r.notifyWatchers(oldWl)
 	defer r.notifyWatchers(wl)
+
 	status := workloadStatus(wl)
 	log := r.log.WithValues("workload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
 	prevQueue := oldWl.Spec.QueueName
@@ -235,20 +241,11 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func workloadStatus(w *kueue.Workload) string {
-	if workloadFinished(w) {
+	if workload.InCondition(w, kueue.WorkloadFinished) {
 		return finished
 	}
 	if w.Spec.Admission != nil {
 		return admitted
 	}
 	return pending
-}
-
-func workloadFinished(w *kueue.Workload) bool {
-	for _, c := range w.Status.Conditions {
-		if c.Type == kueue.WorkloadFinished {
-			return c.Status == corev1.ConditionTrue
-		}
-	}
-	return false
 }
