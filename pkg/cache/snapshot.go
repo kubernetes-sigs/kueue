@@ -17,7 +17,7 @@ limitations under the License.
 package cache
 
 import (
-	kueue "sigs.k8s.io/kueue/apis/core/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
