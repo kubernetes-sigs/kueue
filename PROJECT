@@ -12,7 +12,7 @@ resources:
   domain: x-k8s.io
   group: kueue
   kind: Queue
-  path: sigs.k8s.io/kueue/api/v1alpha1
+  path: sigs.k8s.io/kueue/apis/kueue/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
@@ -20,7 +20,7 @@ resources:
   domain: x-k8s.io
   group: kueue
   kind: ClusterQueue
-  path: sigs.k8s.io/kueue/api/v1alpha1
+  path: sigs.k8s.io/kueue/apis/kueue/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
@@ -29,18 +29,18 @@ resources:
   domain: x-k8s.io
   group: kueue
   kind: Workload
-  path: sigs.k8s.io/kueue/api/v1alpha1
+  path: sigs.k8s.io/kueue/apis/kueue/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
   domain: x-k8s.io
   group: kueue
   kind: ResourceFlavor
-  path: sigs.k8s.io/kueue/api/v1alpha1
+  path: sigs.k8s.io/kueue/apis/kueue/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
-  domain: x-k8s.io
+  domain: kueue.x-k8s.io
   group: config
   kind: KueueConfiguration
   path: sigs.k8s.io/kueue/apis/config/v1alpha1

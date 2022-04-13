@@ -36,7 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	configv1alpha1 "sigs.k8s.io/kueue/apis/config/v1alpha1"
-	kueuev1alpha1 "sigs.k8s.io/kueue/apis/core/v1alpha1"
+	kueuev1alpha1 "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
