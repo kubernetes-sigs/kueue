@@ -18,6 +18,10 @@ package framework
 
 import (
 	"context"
+	"crypto/tls"
+	"fmt"
+	"net"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -33,16 +37,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/kueue/pkg/workload"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	//+kubebuilder:scaffold:imports
+	"sigs.k8s.io/kueue/pkg/workload"
+	// +kubebuilder:scaffold:imports
 )
 
 type ManagerSetup func(manager.Manager, context.Context)
 
 type Framework struct {
 	CRDPath      string
+	WebhookPath  string
 	ManagerSetup ManagerSetup
 	testEnv      *envtest.Environment
 	cancel       context.CancelFunc
@@ -56,6 +61,10 @@ func (f *Framework) Setup() (context.Context, *rest.Config, client.Client) {
 		CRDDirectoryPaths:     []string{f.CRDPath},
 		ErrorIfCRDPathMissing: true,
 	}
+	webhookEnabled := len(f.WebhookPath) > 0
+	if webhookEnabled {
+		f.testEnv.WebhookInstallOptions.Paths = []string{f.WebhookPath}
+	}
 
 	cfg, err := f.testEnv.Start()
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
@@ -64,16 +73,21 @@ func (f *Framework) Setup() (context.Context, *rest.Config, client.Client) {
 	err = kueue.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
-	//+kubebuilder:scaffold:scheme
+	// +kubebuilder:scaffold:scheme
 
 	k8sClient, err := client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 	gomega.ExpectWithOffset(1, k8sClient).NotTo(gomega.BeNil())
 
-	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
+	webhookInstallOptions := &f.testEnv.WebhookInstallOptions
+	mgrOpts := manager.Options{
 		Scheme:             scheme.Scheme,
 		MetricsBindAddress: "0", // disable metrics to avoid conflicts between packages.
-	})
+		Host:               webhookInstallOptions.LocalServingHost,
+		Port:               webhookInstallOptions.LocalServingPort,
+		CertDir:            webhookInstallOptions.LocalServingCertDir,
+	}
+	mgr, err := ctrl.NewManager(cfg, mgrOpts)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "failed to create manager")
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -85,6 +99,20 @@ func (f *Framework) Setup() (context.Context, *rest.Config, client.Client) {
 		err := mgr.Start(ctx)
 		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "failed to run manager")
 	}()
+
+	if webhookEnabled {
+		// wait for the webhook server to get ready
+		dialer := &net.Dialer{Timeout: time.Second}
+		addrPort := fmt.Sprintf("%s:%d", webhookInstallOptions.LocalServingHost, webhookInstallOptions.LocalServingPort)
+		gomega.Eventually(func() error {
+			conn, err := tls.DialWithDialer(dialer, "tcp", addrPort, &tls.Config{InsecureSkipVerify: true})
+			if err != nil {
+				return err
+			}
+			conn.Close()
+			return nil
+		}).Should(gomega.Succeed())
+	}
 
 	return ctx, cfg, k8sClient
 }
