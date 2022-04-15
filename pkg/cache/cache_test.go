@@ -432,7 +432,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 
 	type result struct {
 		Workloads     sets.String
-		UsedResources map[corev1.ResourceName]map[string]int64
+		UsedResources Resources
 	}
 
 	steps := []struct {
@@ -473,11 +473,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("a", "c"),
-					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 10, "spot": 15}},
+					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
 					Workloads:     sets.NewString("b", "d"),
-					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
+					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
 		},
@@ -499,11 +499,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("a", "c"),
-					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 10, "spot": 15}},
+					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
 					Workloads:     sets.NewString("b", "d"),
-					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
+					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
 		},
@@ -524,11 +524,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("a", "c"),
-					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 10, "spot": 15}},
+					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
 					Workloads:     sets.NewString("b", "d"),
-					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
+					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
 		},
@@ -556,11 +556,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("c"),
-					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
+					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 				"two": {
 					Workloads:     sets.NewString("a", "b", "d"),
-					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 10, "spot": 15}},
+					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 			},
 		},
@@ -584,11 +584,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("c"),
-					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
+					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 				"two": {
 					Workloads:     sets.NewString("a", "b", "d", "e"),
-					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 10, "spot": 15}},
+					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 			},
 		},
@@ -606,11 +606,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("c"),
-					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
+					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 				"two": {
 					Workloads:     sets.NewString("b", "d", "e"),
-					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
+					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
 		},
@@ -629,11 +629,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("c"),
-					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
+					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 				"two": {
 					Workloads:     sets.NewString("b", "d", "e"),
-					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
+					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
 		},
@@ -651,11 +651,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("c"),
-					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
+					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 				"two": {
 					Workloads:     sets.NewString("b", "d", "e"),
-					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
+					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
 		},
@@ -694,11 +694,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("a", "c"),
-					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 10, "spot": 15}},
+					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
 					Workloads:     sets.NewString("b", "d", "e", "f"),
-					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 10, "spot": 15}},
+					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 			},
 			wantAssumedWorkloads: map[string]string{
@@ -724,11 +724,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("c"),
-					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
+					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 				"two": {
 					Workloads:     sets.NewString("b", "d", "e", "f"),
-					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 10, "spot": 15}},
+					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 			},
 			wantAssumedWorkloads: map[string]string{
@@ -756,11 +756,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("c"),
-					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 0, "spot": 0}},
+					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 				"two": {
 					Workloads:     sets.NewString("b", "d", "e", "f"),
-					UsedResources: map[corev1.ResourceName]map[string]int64{"cpu": {"on-demand": 10, "spot": 15}},
+					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 			},
 		},
