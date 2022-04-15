@@ -37,15 +37,9 @@ var _ ClusterQueue = &ClusterQueueBestEffortFIFO{}
 const BestEffortFIFO = kueue.BestEffortFIFO
 
 func newClusterQueueBestEffortFIFO(cq *kueue.ClusterQueue) (ClusterQueue, error) {
-	cqImpl := ClusterQueueImpl{
-		heap: heapImpl{
-			less:  byCreationTime,
-			items: make(map[string]*heapItem),
-		},
-	}
-
+	cqImpl := newClusterQueueImpl(keyFunc, byCreationTime)
 	cqBE := &ClusterQueueBestEffortFIFO{
-		ClusterQueueImpl:      &cqImpl,
+		ClusterQueueImpl:      cqImpl,
 		inadmissibleWorkloads: make(map[string]*workload.Info),
 	}
 
@@ -89,7 +83,7 @@ func (cq *ClusterQueueBestEffortFIFO) RequeueIfNotPresent(wInfo *workload.Info, 
 		return false
 	}
 
-	if item := cq.heap.items[key]; item != nil {
+	if data := cq.heap.GetByKey(key); data != nil {
 		return false
 	}
 

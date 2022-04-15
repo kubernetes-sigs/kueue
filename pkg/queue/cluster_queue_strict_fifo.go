@@ -33,12 +33,7 @@ var _ ClusterQueue = &ClusterQueueStrictFIFO{}
 const StrictFIFO = kueue.StrictFIFO
 
 func newClusterQueueStrictFIFO(cq *kueue.ClusterQueue) (ClusterQueue, error) {
-	cqImpl := &ClusterQueueImpl{
-		heap: heapImpl{
-			less:  byCreationTime,
-			items: make(map[string]*heapItem),
-		},
-	}
+	cqImpl := newClusterQueueImpl(keyFunc, byCreationTime)
 	cqImpl.Update(cq)
 	return cqImpl, nil
 }
@@ -46,12 +41,14 @@ func newClusterQueueStrictFIFO(cq *kueue.ClusterQueue) (ClusterQueue, error) {
 // byCreationTime is the function used by the clusterQueue heap algorithm to sort
 // workloads. It sorts workloads based on their priority.
 // When priorities are equal, it uses workloads.creationTimestamp.
-func byCreationTime(a, b workload.Info) bool {
-	p1 := utilpriority.Priority(a.Obj)
-	p2 := utilpriority.Priority(b.Obj)
+func byCreationTime(a, b interface{}) bool {
+	objA := a.(*workload.Info)
+	objB := b.(*workload.Info)
+	p1 := utilpriority.Priority(objA.Obj)
+	p2 := utilpriority.Priority(objB.Obj)
 
 	if p1 != p2 {
 		return p1 > p2
 	}
-	return a.Obj.CreationTimestamp.Before(&b.Obj.CreationTimestamp)
+	return objA.Obj.CreationTimestamp.Before(&objB.Obj.CreationTimestamp)
 }
