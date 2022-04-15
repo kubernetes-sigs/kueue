@@ -17,11 +17,10 @@ limitations under the License.
 package queue
 
 import (
-	"container/heap"
-
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	"sigs.k8s.io/kueue/pkg/util/heap"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -32,8 +31,14 @@ type ClusterQueueImpl struct {
 	// across the queues in this ClusterQueue.
 	QueueingStrategy kueue.QueueingStrategy
 
-	heap   heapImpl
+	heap   heap.Heap
 	cohort string
+}
+
+func newClusterQueueImpl(keyFunc func(obj interface{}) string, lessFunc func(a, b interface{}) bool) *ClusterQueueImpl {
+	return &ClusterQueueImpl{
+		heap: heap.New(keyFunc, lessFunc),
+	}
 }
 
 var _ ClusterQueue = &ClusterQueueImpl{}
@@ -49,8 +54,8 @@ func (c *ClusterQueueImpl) Cohort() string {
 
 func (c *ClusterQueueImpl) AddFromQueue(q *Queue) bool {
 	added := false
-	for _, w := range q.items {
-		if c.pushIfNotPresent(w) {
+	for _, info := range q.items {
+		if c.pushIfNotPresent(info) {
 			added = true
 		}
 	}
@@ -66,30 +71,16 @@ func (c *ClusterQueueImpl) DeleteFromQueue(q *Queue) {
 // pushIfNotPresent pushes the workload to ClusterQueue.
 // If the workload is already present, returns false. Otherwise returns true.
 func (c *ClusterQueueImpl) pushIfNotPresent(info *workload.Info) bool {
-	item := c.heap.items[workload.Key(info.Obj)]
-	if item != nil {
-		return false
-	}
-	heap.Push(&c.heap, *info)
-	return true
+	return c.heap.PushIfNotPresent(info)
 }
 
 func (c *ClusterQueueImpl) PushOrUpdate(w *kueue.Workload) {
-	item := c.heap.items[workload.Key(w)]
-	info := *workload.NewInfo(w)
-	if item == nil {
-		heap.Push(&c.heap, info)
-		return
-	}
-	item.obj = info
-	heap.Fix(&c.heap, item.index)
+	info := workload.NewInfo(w)
+	c.heap.PushOrUpdate(info)
 }
 
 func (c *ClusterQueueImpl) Delete(w *kueue.Workload) {
-	item := c.heap.items[workload.Key(w)]
-	if item != nil {
-		heap.Remove(&c.heap, item.index)
-	}
+	c.heap.Delete(workload.Key(w))
 }
 
 func (c *ClusterQueueImpl) RequeueIfNotPresent(wInfo *workload.Info, _ bool) bool {
@@ -104,29 +95,34 @@ func (c *ClusterQueueImpl) Pop() *workload.Info {
 	if c.heap.Len() == 0 {
 		return nil
 	}
-	w := heap.Pop(&c.heap).(workload.Info)
-	return &w
+
+	info := c.heap.Pop()
+	if info == nil {
+		return nil
+	}
+	return info.(*workload.Info)
 }
 
 func (c *ClusterQueueImpl) Pending() int32 {
-	return int32(len(c.heap.heap))
+	return int32(c.heap.Len())
 }
 
 func (c *ClusterQueueImpl) Dump() (sets.String, bool) {
-	if len(c.heap.items) == 0 {
+	if c.heap.Len() == 0 {
 		return sets.NewString(), false
 	}
-	elements := make(sets.String, len(c.heap.items))
-	for _, e := range c.heap.items {
-		elements.Insert(e.obj.Obj.Name)
+	elements := make(sets.String, c.heap.Len())
+	for _, e := range c.heap.List() {
+		info := e.(*workload.Info)
+		elements.Insert(info.Obj.Name)
 	}
 	return elements, true
 }
 
 func (c *ClusterQueueImpl) Info(key string) *workload.Info {
-	item := c.heap.items[key]
-	if item != nil {
-		return &item.obj
+	info := c.heap.GetByKey(key)
+	if info == nil {
+		return nil
 	}
-	return nil
+	return info.(*workload.Info)
 }
