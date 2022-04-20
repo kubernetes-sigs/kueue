@@ -204,6 +204,11 @@ func (w *WorkloadWrapper) Priority(priority *int32) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) PodSets(podSets []kueue.PodSet) *WorkloadWrapper {
+	w.Spec.PodSets = podSets
+	return w
+}
+
 // AdmissionWrapper wraps an Admission
 type AdmissionWrapper struct{ kueue.Admission }
 
