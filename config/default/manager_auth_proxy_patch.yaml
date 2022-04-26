@@ -20,6 +20,3 @@ spec:
         - containerPort: 8443
           protocol: TCP
           name: https
-      - name: manager
-        args:
-        - "--zap-log-level=2"

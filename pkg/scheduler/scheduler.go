@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -35,6 +36,7 @@ import (
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/kueue/pkg/metrics"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/cache"
@@ -85,6 +87,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 	if len(headWorkloads) == 0 {
 		return
 	}
+	startTime := time.Now()
 
 	// 2. Take a snapshot of the cache.
 	snapshot := s.cache.Snapshot()
@@ -127,6 +130,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 	}
 
 	// 6. Requeue the heads that were not scheduled.
+	result := metrics.InadmissibleAdmissionResult
 	for _, e := range entries {
 		log.V(3).Info("Workload evaluated for admission",
 			"workload", klog.KObj(e.Obj),
@@ -135,8 +139,11 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			"reason", e.inadmissibleReason)
 		if e.status != assumed {
 			s.requeueAndUpdate(log, ctx, e)
+		} else {
+			result = metrics.SuccessAdmissionResult
 		}
 	}
+	metrics.AdmissionAttempt(result, time.Since(startTime))
 }
 
 type entryStatus string
