@@ -67,6 +67,7 @@ func totalRequests(spec *kueue.WorkloadSpec) []PodSetResources {
 			podSetFlavors[ps.Name] = ps.Flavors
 		}
 	}
+
 	for _, ps := range spec.PodSets {
 		setRes := PodSetResources{
 			Name: ps.Name,
