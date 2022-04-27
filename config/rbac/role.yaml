@@ -124,6 +124,13 @@ rules:
   - patch
   - update
 - apiGroups:
+  - node.k8s.io
+  resources:
+  - runtimeclasses
+  verbs:
+  - get
+  - list
+- apiGroups:
   - scheduling.k8s.io
   resources:
   - priorityclasses

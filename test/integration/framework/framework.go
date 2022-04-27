@@ -24,6 +24,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	nodev1 "k8s.io/api/node/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -140,6 +141,15 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 	}
 	if err := c.Delete(ctx, ns); err != nil && !apierrors.IsNotFound(err) {
 		return err
+	}
+	return nil
+}
+
+func DeleteRuntimeClass(ctx context.Context, c client.Client, runtimeClass *nodev1.RuntimeClass) error {
+	if runtimeClass != nil {
+		if err := c.Delete(ctx, runtimeClass); err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
 	}
 	return nil
 }

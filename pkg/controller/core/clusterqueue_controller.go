@@ -120,7 +120,7 @@ func (r *ClusterQueueReconciler) Delete(e event.DeleteEvent) bool {
 		// No need to interact with the cache for other objects.
 		return true
 	}
-	r.log.V(2).Info("Queue delete event", "clusterQueue", klog.KObj(cq))
+	r.log.V(2).Info("ClusterQueue delete event", "clusterQueue", klog.KObj(cq))
 	r.cache.DeleteClusterQueue(cq)
 	r.qManager.DeleteClusterQueue(cq)
 	return true

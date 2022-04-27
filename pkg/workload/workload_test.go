@@ -58,12 +58,9 @@ func TestPodRequests(t *testing.T) {
 						corev1.ResourceMemory: "2Ki",
 					},
 				),
-				Overhead: corev1.ResourceList{
-					corev1.ResourceCPU: resource.MustParse("0.1"),
-				},
 			},
 			wantRequests: Requests{
-				corev1.ResourceCPU:              115,
+				corev1.ResourceCPU:              15,
 				corev1.ResourceMemory:           2048,
 				corev1.ResourceEphemeralStorage: 1024,
 			},
@@ -91,6 +88,37 @@ func TestPodRequests(t *testing.T) {
 			wantRequests: Requests{
 				"ex.com/gpu": 3,
 				"ex.com/ssd": 1,
+			},
+		},
+		"Pod Overhead defined": {
+			spec: corev1.PodSpec{
+				Containers: containersForRequests(
+					map[corev1.ResourceName]string{
+						corev1.ResourceCPU:    "10m",
+						corev1.ResourceMemory: "1Ki",
+					},
+					map[corev1.ResourceName]string{
+						corev1.ResourceCPU:              "5m",
+						corev1.ResourceEphemeralStorage: "1Ki",
+					},
+				),
+				InitContainers: containersForRequests(
+					map[corev1.ResourceName]string{
+						corev1.ResourceCPU:    "10m",
+						corev1.ResourceMemory: "1Ki",
+					},
+					map[corev1.ResourceName]string{
+						corev1.ResourceMemory: "2Ki",
+					},
+				),
+				Overhead: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("0.1"),
+				},
+			},
+			wantRequests: Requests{
+				corev1.ResourceCPU:              115,
+				corev1.ResourceMemory:           2048,
+				corev1.ResourceEphemeralStorage: 1024,
 			},
 		},
 	}

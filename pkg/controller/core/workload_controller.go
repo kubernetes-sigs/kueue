@@ -22,6 +22,8 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	nodev1 "k8s.io/api/node/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -67,6 +69,7 @@ func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *c
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
+//+kubebuilder:rbac:groups=node.k8s.io,resources=runtimeclasses,verbs=get;list
 
 func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var wl kueue.Workload
@@ -110,13 +113,16 @@ func (r *WorkloadReconciler) Create(e event.CreateEvent) bool {
 		return true
 	}
 
+	wlCopy := wl.DeepCopy()
+	handlePodOverhead(wlCopy, r.client)
+
 	if wl.Spec.Admission == nil {
-		if !r.queues.AddOrUpdateWorkload(wl.DeepCopy()) {
+		if !r.queues.AddOrUpdateWorkload(wlCopy) {
 			log.V(2).Info("Queue for workload didn't exist; ignored for now")
 		}
 		return true
 	}
-	if !r.cache.AddOrUpdateWorkload(wl.DeepCopy()) {
+	if !r.cache.AddOrUpdateWorkload(wlCopy) {
 		log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 	}
 
@@ -178,6 +184,10 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 	}
 	log.V(2).Info("Workload update event")
 
+	wlCopy := wl.DeepCopy()
+	// We do not handle old workload here as it will be deleted or replaced by new one anyway.
+	handlePodOverhead(wlCopy, r.client)
+
 	switch {
 	case status == finished:
 		if err := r.cache.DeleteWorkload(oldWl); err != nil && prevStatus == admitted {
@@ -189,13 +199,13 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 		r.queues.QueueAssociatedInadmissibleWorkloads(wl)
 
 	case prevStatus == pending && status == pending:
-		if !r.queues.UpdateWorkload(oldWl, wl.DeepCopy()) {
+		if !r.queues.UpdateWorkload(oldWl, wlCopy) {
 			log.V(2).Info("Queue for updated workload didn't exist; ignoring for now")
 		}
 
 	case prevStatus == pending && status == admitted:
 		r.queues.DeleteWorkload(oldWl)
-		if !r.cache.AddOrUpdateWorkload(wl.DeepCopy()) {
+		if !r.cache.AddOrUpdateWorkload(wlCopy) {
 			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 		}
 
@@ -206,14 +216,14 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 		// trigger the move of associated inadmissibleWorkloads if required.
 		r.queues.QueueAssociatedInadmissibleWorkloads(wl)
 
-		if !r.queues.AddOrUpdateWorkload(wl.DeepCopy()) {
+		if !r.queues.AddOrUpdateWorkload(wlCopy) {
 			log.V(2).Info("Queue for workload didn't exist; ignored for now")
 		}
 
 	default:
 		// Workload update in the cache is handled here; however, some fields are immutable
 		// and are not supposed to actually change anything.
-		if err := r.cache.UpdateWorkload(oldWl, wl.DeepCopy()); err != nil {
+		if err := r.cache.UpdateWorkload(oldWl, wlCopy); err != nil {
 			log.Error(err, "Updating workload in cache")
 		}
 	}
@@ -248,4 +258,25 @@ func workloadStatus(w *kueue.Workload) string {
 		return admitted
 	}
 	return pending
+}
+
+// We do not verify Pod's RuntimeClass legality here as this will be performed in admission controller.
+// As a result, the pod's Overhead is not always correct. E.g. if we set a non-existent runtime class name to
+// `pod.Spec.RuntimeClassName` and we also set the `pod.Spec.Overhead`, in real world, the pod creation will be
+// rejected due to the mismatch with RuntimeClass. However, in the future we assume that they are correct.
+func handlePodOverhead(wl *kueue.Workload, c client.Client) {
+	ctx := context.Background()
+
+	for i, pod := range wl.Spec.PodSets {
+		if pod.Spec.RuntimeClassName != nil && len(pod.Spec.Overhead) == 0 {
+			var runtimeClass nodev1.RuntimeClass
+			if err := c.Get(ctx, types.NamespacedName{Name: *pod.Spec.RuntimeClassName}, &runtimeClass); err != nil {
+				klog.Error(err, "Could not get RuntimeClass")
+				continue
+			}
+			if runtimeClass.Overhead != nil {
+				wl.Spec.PodSets[i].Spec.Overhead = runtimeClass.Overhead.PodFixed
+			}
+		}
+	}
 }

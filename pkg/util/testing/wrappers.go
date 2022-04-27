@@ -21,6 +21,7 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	nodev1 "k8s.io/api/node/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -191,6 +192,13 @@ func (w *WorkloadWrapper) PriorityClass(priorityClassName string) *WorkloadWrapp
 	return w
 }
 
+func (w *WorkloadWrapper) RuntimeClass(name string) *WorkloadWrapper {
+	for i := range w.Spec.PodSets {
+		w.Spec.PodSets[i].Spec.RuntimeClassName = &name
+	}
+	return w
+}
+
 // AdmissionWrapper wraps an Admission
 type AdmissionWrapper struct{ kueue.Admission }
 
@@ -358,4 +366,30 @@ func (rf *ResourceFlavorWrapper) Label(k, v string) *ResourceFlavorWrapper {
 func (rf *ResourceFlavorWrapper) Taint(t corev1.Taint) *ResourceFlavorWrapper {
 	rf.Taints = append(rf.Taints, t)
 	return rf
+}
+
+// RuntimeClassWrapper wraps a RuntimeClass.
+type RuntimeClassWrapper struct{ nodev1.RuntimeClass }
+
+// MakeRuntimeClass creates a wrapper for a Runtime.
+func MakeRuntimeClass(name, handler string) *RuntimeClassWrapper {
+	return &RuntimeClassWrapper{nodev1.RuntimeClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+		Handler: handler,
+	}}
+}
+
+// Overhead adds a Overhead to the RuntimeClass.
+func (rc *RuntimeClassWrapper) PodOverhead(resources corev1.ResourceList) *RuntimeClassWrapper {
+	rc.Overhead = &nodev1.Overhead{
+		PodFixed: resources,
+	}
+	return rc
+}
+
+// Obj returns the inner flavor.
+func (rc *RuntimeClassWrapper) Obj() *nodev1.RuntimeClass {
+	return &rc.RuntimeClass
 }
