@@ -37,7 +37,7 @@ var (
 		prometheus.CounterOpts{
 			Subsystem: subsystemName,
 			Name:      "admission_attempts_total",
-			Help:      "Number of attempts to admit pods, by result. `success` means that at least one workload was admitted, `inadmissible` means that no workload was admitted.",
+			Help:      "Number of attempts to admit one or more workloads, broken down by result. `success` means that at least one workload was admitted, `inadmissible` means that no workload was admitted.",
 		}, []string{"result"},
 	)
 
@@ -45,7 +45,7 @@ var (
 		prometheus.HistogramOpts{
 			Subsystem: subsystemName,
 			Name:      "admission_attempt_duration_seconds",
-			Help:      "Latency of an admission attempt",
+			Help:      "Latency of an admission attempt, broken down by result.",
 		}, []string{"result"},
 	)
 )
