@@ -106,3 +106,7 @@ func (cq *ClusterQueueBestEffortFIFO) QueueInadmissibleWorkloads() bool {
 	cq.inadmissibleWorkloads = make(map[string]*workload.Info)
 	return true
 }
+
+func (cq *ClusterQueueBestEffortFIFO) Pending() int32 {
+	return cq.ClusterQueueImpl.Pending() + int32(len(cq.inadmissibleWorkloads))
+}
