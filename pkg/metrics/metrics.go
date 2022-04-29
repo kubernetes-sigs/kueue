@@ -48,6 +48,13 @@ var (
 			Help:      "Latency of an admission attempt, broken down by result.",
 		}, []string{"result"},
 	)
+
+	PendingWorkloads = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: subsystemName,
+			Name:      "pending_workloads",
+			Help:      "Number of pending workloads, per queue and cluster_queue.",
+		}, []string{"cluster_queue", "queue"})
 )
 
 func AdmissionAttempt(result AdmissionResult, duration time.Duration) {
@@ -55,9 +62,10 @@ func AdmissionAttempt(result AdmissionResult, duration time.Duration) {
 	admissionAttemptLatency.WithLabelValues(string(result)).Observe(duration.Seconds())
 }
 
-func init() {
+func Register() {
 	metrics.Registry.MustRegister(
 		admissionAttempts,
 		admissionAttemptLatency,
+		PendingWorkloads,
 	)
 }

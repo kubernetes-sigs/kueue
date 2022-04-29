@@ -33,6 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/component-base/metrics/testutil"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -40,6 +41,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/workload"
 	// +kubebuilder:scaffold:imports
 )
@@ -213,6 +216,15 @@ func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wl
 		}
 		return pending
 	}, Timeout, Interval).Should(gomega.Equal(len(wls)), "Not enough workloads are pending")
+}
+
+func ExpectPendingWorkloadsMetric(q *kueue.Queue, v int) {
+	metric := metrics.PendingWorkloads.WithLabelValues(string(q.Spec.ClusterQueue), queue.Key(q))
+	gomega.EventuallyWithOffset(1, func() int {
+		v, err := testutil.GetGaugeMetricValue(metric)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred())
+		return int(v)
+	}, Timeout, Interval).Should(gomega.Equal(v))
 }
 
 func UpdateWorkloadStatus(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, update func(*kueue.Workload)) {
