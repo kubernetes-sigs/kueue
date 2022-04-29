@@ -27,9 +27,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func TestPodRequests(t *testing.T) {

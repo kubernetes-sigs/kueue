@@ -87,6 +87,7 @@ func main() {
 			setupLog.Error(err, "unable to load the config file")
 			os.Exit(1)
 		}
+
 		cfgStr, err := encodeConfig(&config)
 		if err != nil {
 			setupLog.Error(err, "unable to encode config file")

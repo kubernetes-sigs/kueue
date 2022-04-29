@@ -18,6 +18,7 @@ package core
 
 import (
 	ctrl "sigs.k8s.io/controller-runtime"
+
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/queue"
 )
