@@ -41,55 +41,61 @@ func TestClusterQueueBestEffortFIFO(t *testing.T) {
 	updatedWorkloads[1] = workloads[1].DeepCopy()
 	updatedWorkloads[1].Spec.QueueName = "q1"
 
-	tests := []struct {
-		name                       string
+	tests := map[string]struct {
 		workloadsToAdd             []*kueue.Workload
 		inadmissibleWorkloadsToAdd []*workload.Info
 		workloadsToUpdate          []*kueue.Workload
 		workloadsToDelete          []*kueue.Workload
 		queueInadmissibleWorkloads bool
-		wantWorkloads              sets.String
+		wantActiveWorkloads        sets.String
+		wantPending                int32
 	}{
-		{
-			name:                       "add, update, delete workload",
+		"add, update, delete workload": {
 			workloadsToAdd:             []*kueue.Workload{workloads[0], workloads[1]},
 			inadmissibleWorkloadsToAdd: []*workload.Info{},
 			workloadsToUpdate:          []*kueue.Workload{updatedWorkloads[0]},
 			workloadsToDelete:          []*kueue.Workload{workloads[0]},
-			queueInadmissibleWorkloads: false,
-			wantWorkloads:              sets.NewString(workloads[1].Name),
+			wantActiveWorkloads:        sets.NewString(workloads[1].Name),
+			wantPending:                1,
 		},
-		{
-			name:                       "update inadmissible workload",
+		"re-queue inadmissible workload": {
 			workloadsToAdd:             []*kueue.Workload{workloads[0]},
 			inadmissibleWorkloadsToAdd: []*workload.Info{workload.NewInfo(workloads[1])},
-			workloadsToUpdate:          []*kueue.Workload{updatedWorkloads[1]},
+			workloadsToUpdate:          []*kueue.Workload{},
 			workloadsToDelete:          []*kueue.Workload{},
-			queueInadmissibleWorkloads: false,
-			wantWorkloads:              sets.NewString(workloads[0].Name, workloads[1].Name),
+			wantActiveWorkloads:        sets.NewString(workloads[0].Name),
+			wantPending:                2,
 		},
-		{
-			name:                       "re-queue inadmissible workload",
+		"re-queue inadmissible workload and flush": {
 			workloadsToAdd:             []*kueue.Workload{workloads[0]},
 			inadmissibleWorkloadsToAdd: []*workload.Info{workload.NewInfo(workloads[1])},
 			workloadsToUpdate:          []*kueue.Workload{},
 			workloadsToDelete:          []*kueue.Workload{},
 			queueInadmissibleWorkloads: true,
-			wantWorkloads:              sets.NewString(workloads[0].Name, workloads[1].Name),
+			wantActiveWorkloads:        sets.NewString(workloads[0].Name, workloads[1].Name),
+			wantPending:                2,
 		},
-		{
-			name:                       "delete inadmissible workload",
+		"update inadmissible workload": {
+			workloadsToAdd:             []*kueue.Workload{workloads[0]},
+			inadmissibleWorkloadsToAdd: []*workload.Info{workload.NewInfo(workloads[1])},
+			workloadsToUpdate:          []*kueue.Workload{updatedWorkloads[1]},
+			workloadsToDelete:          []*kueue.Workload{},
+			wantActiveWorkloads:        sets.NewString(workloads[0].Name, workloads[1].Name),
+			wantPending:                2,
+		},
+		"delete inadmissible workload": {
 			workloadsToAdd:             []*kueue.Workload{workloads[0]},
 			inadmissibleWorkloadsToAdd: []*workload.Info{workload.NewInfo(workloads[1])},
 			workloadsToUpdate:          []*kueue.Workload{},
 			workloadsToDelete:          []*kueue.Workload{workloads[1]},
 			queueInadmissibleWorkloads: true,
-			wantWorkloads:              sets.NewString(workloads[0].Name),
+			wantActiveWorkloads:        sets.NewString(workloads[0].Name),
+			wantPending:                1,
 		},
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
 			cq, err := newClusterQueueBestEffortFIFO(clusterQueue)
 			if err != nil {
 				t.Fatalf("Failed creating ClusterQueue %v", err)
@@ -116,8 +122,11 @@ func TestClusterQueueBestEffortFIFO(t *testing.T) {
 			}
 
 			gotWorkloads, _ := cq.Dump()
-			if diff := cmp.Diff(test.wantWorkloads, gotWorkloads); diff != "" {
+			if diff := cmp.Diff(test.wantActiveWorkloads, gotWorkloads); diff != "" {
 				t.Errorf("Unexpected items in cluster foo (-want,+got):\n%s", diff)
+			}
+			if got := cq.Pending(); got != test.wantPending {
+				t.Errorf("Got %d pending workloads, want %d", got, test.wantPending)
 			}
 		})
 	}
