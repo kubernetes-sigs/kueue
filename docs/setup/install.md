@@ -7,6 +7,7 @@ Make sure the following conditions are met:
 - A Kubernetes cluster with version 1.21 or newer is running. Learn how to [install the Kubernetes tools](https://kubernetes.io/docs/tasks/tools/).
 - The SuspendJob [feature gate](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/) is enabled. In Kubernetes 1.22 or newer, the feature gate is enabled by default.
 - The kubectl command-line tool has communication with your cluster.
+- The [cert-manager](https://github.com/cert-manager/cert-manager) is installed in your cluster. Learn how to [install cert-manager](https://cert-manager.io/docs/installation/).
 
 ## Install a released version
 
@@ -52,5 +53,5 @@ IMAGE_REGISTRY=registry.example.com/my-user make image-build image-push deploy
 To uninstall Kueue, run the following command:
 
 ```sh
-$ make undeploy 
+make undeploy
 ```
