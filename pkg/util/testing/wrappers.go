@@ -199,6 +199,11 @@ func (w *WorkloadWrapper) RuntimeClass(name string) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) Priority(priority *int32) *WorkloadWrapper {
+	w.Spec.Priority = priority
+	return w
+}
+
 // AdmissionWrapper wraps an Admission
 type AdmissionWrapper struct{ kueue.Admission }
 
@@ -259,7 +264,7 @@ func MakeClusterQueue(name string) *ClusterQueueWrapper {
 		},
 		Spec: kueue.ClusterQueueSpec{
 			NamespaceSelector: &metav1.LabelSelector{},
-			QueueingStrategy:  kueue.StrictFIFO,
+			QueueingStrategy:  kueue.BestEffortFIFO,
 		},
 	}}
 }

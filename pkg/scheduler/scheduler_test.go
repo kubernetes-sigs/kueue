@@ -1481,7 +1481,7 @@ func TestEntryOrdering(t *testing.T) {
 var ignoreConditionTimestamps = cmpopts.IgnoreFields(kueue.WorkloadCondition{}, "LastProbeTime", "LastTransitionTime")
 
 func TestRequeueAndUpdate(t *testing.T) {
-	cq := utiltesting.MakeClusterQueue("cq").QueueingStrategy(kueue.BestEffortFIFO).Obj()
+	cq := utiltesting.MakeClusterQueue("cq").Obj()
 	q1 := utiltesting.MakeQueue("q1", "ns1").ClusterQueue("cq").Obj()
 	w1 := utiltesting.MakeWorkload("w1", "ns1").Queue("q1").Obj()
 
