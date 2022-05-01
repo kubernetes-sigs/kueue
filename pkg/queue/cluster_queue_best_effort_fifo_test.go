@@ -28,8 +28,7 @@ import (
 )
 
 func TestClusterQueueBestEffortFIFO(t *testing.T) {
-	clusterQueue := utiltesting.MakeClusterQueue("cq").QueueingStrategy(
-		kueue.BestEffortFIFO).Obj()
+	clusterQueue := utiltesting.MakeClusterQueue("cq").Obj()
 	var workloads = []*kueue.Workload{
 		utiltesting.MakeWorkload("w1", "ns1").Queue("q1").Obj(),
 		utiltesting.MakeWorkload("w2", "ns2").Queue("q2").Obj(),
