@@ -41,55 +41,57 @@ func TestClusterQueueBestEffortFIFO(t *testing.T) {
 	updatedWorkloads[1].Spec.QueueName = "q1"
 
 	tests := map[string]struct {
-		workloadsToAdd             []*kueue.Workload
-		inadmissibleWorkloadsToAdd []*workload.Info
-		workloadsToUpdate          []*kueue.Workload
-		workloadsToDelete          []*kueue.Workload
-		queueInadmissibleWorkloads bool
-		wantActiveWorkloads        sets.String
-		wantPending                int32
+		workloadsToAdd                 []*kueue.Workload
+		inadmissibleWorkloadsToRequeue []*workload.Info
+		admissibleWorkloadsToRequeue   []*workload.Info
+		workloadsToUpdate              []*kueue.Workload
+		workloadsToDelete              []*kueue.Workload
+		queueInadmissibleWorkloads     bool
+		wantActiveWorkloads            sets.String
+		wantPending                    int32
 	}{
 		"add, update, delete workload": {
-			workloadsToAdd:             []*kueue.Workload{workloads[0], workloads[1]},
-			inadmissibleWorkloadsToAdd: []*workload.Info{},
-			workloadsToUpdate:          []*kueue.Workload{updatedWorkloads[0]},
-			workloadsToDelete:          []*kueue.Workload{workloads[0]},
-			wantActiveWorkloads:        sets.NewString(workloads[1].Name),
-			wantPending:                1,
+			workloadsToAdd:                 []*kueue.Workload{workloads[0], workloads[1]},
+			inadmissibleWorkloadsToRequeue: []*workload.Info{},
+			workloadsToUpdate:              []*kueue.Workload{updatedWorkloads[0]},
+			workloadsToDelete:              []*kueue.Workload{workloads[0]},
+			wantActiveWorkloads:            sets.NewString(workloads[1].Name),
+			wantPending:                    1,
 		},
 		"re-queue inadmissible workload": {
-			workloadsToAdd:             []*kueue.Workload{workloads[0]},
-			inadmissibleWorkloadsToAdd: []*workload.Info{workload.NewInfo(workloads[1])},
-			workloadsToUpdate:          []*kueue.Workload{},
-			workloadsToDelete:          []*kueue.Workload{},
-			wantActiveWorkloads:        sets.NewString(workloads[0].Name),
-			wantPending:                2,
+			workloadsToAdd:                 []*kueue.Workload{workloads[0]},
+			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[1])},
+			wantActiveWorkloads:            sets.NewString(workloads[0].Name),
+			wantPending:                    2,
+		},
+		"re-queue admissible workload that was inadmissible": {
+			workloadsToAdd:                 []*kueue.Workload{workloads[0]},
+			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[1])},
+			admissibleWorkloadsToRequeue:   []*workload.Info{workload.NewInfo(workloads[1])},
+			wantActiveWorkloads:            sets.NewString(workloads[0].Name, workloads[1].Name),
+			wantPending:                    2,
 		},
 		"re-queue inadmissible workload and flush": {
-			workloadsToAdd:             []*kueue.Workload{workloads[0]},
-			inadmissibleWorkloadsToAdd: []*workload.Info{workload.NewInfo(workloads[1])},
-			workloadsToUpdate:          []*kueue.Workload{},
-			workloadsToDelete:          []*kueue.Workload{},
-			queueInadmissibleWorkloads: true,
-			wantActiveWorkloads:        sets.NewString(workloads[0].Name, workloads[1].Name),
-			wantPending:                2,
+			workloadsToAdd:                 []*kueue.Workload{workloads[0]},
+			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[1])},
+			queueInadmissibleWorkloads:     true,
+			wantActiveWorkloads:            sets.NewString(workloads[0].Name, workloads[1].Name),
+			wantPending:                    2,
 		},
 		"update inadmissible workload": {
-			workloadsToAdd:             []*kueue.Workload{workloads[0]},
-			inadmissibleWorkloadsToAdd: []*workload.Info{workload.NewInfo(workloads[1])},
-			workloadsToUpdate:          []*kueue.Workload{updatedWorkloads[1]},
-			workloadsToDelete:          []*kueue.Workload{},
-			wantActiveWorkloads:        sets.NewString(workloads[0].Name, workloads[1].Name),
-			wantPending:                2,
+			workloadsToAdd:                 []*kueue.Workload{workloads[0]},
+			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[1])},
+			workloadsToUpdate:              []*kueue.Workload{updatedWorkloads[1]},
+			wantActiveWorkloads:            sets.NewString(workloads[0].Name, workloads[1].Name),
+			wantPending:                    2,
 		},
 		"delete inadmissible workload": {
-			workloadsToAdd:             []*kueue.Workload{workloads[0]},
-			inadmissibleWorkloadsToAdd: []*workload.Info{workload.NewInfo(workloads[1])},
-			workloadsToUpdate:          []*kueue.Workload{},
-			workloadsToDelete:          []*kueue.Workload{workloads[1]},
-			queueInadmissibleWorkloads: true,
-			wantActiveWorkloads:        sets.NewString(workloads[0].Name),
-			wantPending:                1,
+			workloadsToAdd:                 []*kueue.Workload{workloads[0]},
+			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[1])},
+			workloadsToDelete:              []*kueue.Workload{workloads[1]},
+			queueInadmissibleWorkloads:     true,
+			wantActiveWorkloads:            sets.NewString(workloads[0].Name),
+			wantPending:                    1,
 		},
 	}
 
@@ -104,8 +106,11 @@ func TestClusterQueueBestEffortFIFO(t *testing.T) {
 				cq.PushOrUpdate(w)
 			}
 
-			for _, w := range test.inadmissibleWorkloadsToAdd {
+			for _, w := range test.inadmissibleWorkloadsToRequeue {
 				cq.RequeueIfNotPresent(w, false)
+			}
+			for _, w := range test.admissibleWorkloadsToRequeue {
+				cq.RequeueIfNotPresent(w, true)
 			}
 
 			for _, w := range test.workloadsToUpdate {
