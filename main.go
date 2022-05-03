@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/workload/job"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	//+kubebuilder:scaffold:imports
@@ -95,6 +96,7 @@ func main() {
 		}
 		setupLog.Info("Successfully loaded config file", "config", cfgStr)
 	}
+	metrics.Register()
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), options)
 	if err != nil {

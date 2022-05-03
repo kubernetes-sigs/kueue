@@ -178,6 +178,7 @@ func (m *Manager) AddQueue(ctx context.Context, q *kueue.Queue) error {
 	if cq != nil && cq.AddFromQueue(qImpl) {
 		m.cond.Broadcast()
 	}
+	qImpl.reportPendingWorkloads()
 	return nil
 }
 
@@ -189,6 +190,7 @@ func (m *Manager) UpdateQueue(q *kueue.Queue) error {
 		return errQueueDoesNotExist
 	}
 	if qImpl.ClusterQueue != string(q.Spec.ClusterQueue) {
+		qImpl.resetPendingWorkloads()
 		oldCQ := m.clusterQueues[qImpl.ClusterQueue]
 		if oldCQ != nil {
 			oldCQ.DeleteFromQueue(qImpl)
@@ -199,6 +201,7 @@ func (m *Manager) UpdateQueue(q *kueue.Queue) error {
 		}
 	}
 	qImpl.update(q)
+	qImpl.reportPendingWorkloads()
 	return nil
 }
 
@@ -215,6 +218,7 @@ func (m *Manager) DeleteQueue(q *kueue.Queue) {
 		cq.DeleteFromQueue(qImpl)
 	}
 	delete(m.queues, key)
+	qImpl.resetPendingWorkloads()
 }
 
 func (m *Manager) PendingWorkloads(q *kueue.Queue) (int32, error) {
@@ -272,6 +276,7 @@ func (m *Manager) addOrUpdateWorkload(w *kueue.Workload) bool {
 		return false
 	}
 	q.AddOrUpdate(w)
+	q.reportPendingWorkloads()
 	cq := m.clusterQueues[q.ClusterQueue]
 	if cq == nil {
 		return false
@@ -301,6 +306,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, imme
 	}
 
 	q.AddIfNotPresent(info)
+	q.reportPendingWorkloads()
 	cq := m.clusterQueues[q.ClusterQueue]
 	if cq == nil {
 		return false
@@ -325,6 +331,7 @@ func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(w *kueue.Workload, qKey
 		return
 	}
 	delete(q.items, workload.Key(w))
+	q.reportPendingWorkloads()
 	cq := m.clusterQueues[q.ClusterQueue]
 	if cq != nil {
 		cq.Delete(w)
@@ -450,6 +457,7 @@ func (m *Manager) heads() []workload.Info {
 		workloads = append(workloads, wlCopy)
 		q := m.queues[queueKeyForWorkload(wl.Obj)]
 		delete(q.items, workload.Key(wl.Obj))
+		q.reportPendingWorkloads()
 	}
 	return workloads
 }

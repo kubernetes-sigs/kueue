@@ -82,6 +82,7 @@ var _ = ginkgo.Describe("Queue controller", func() {
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
 			return updatedQueue.Status
 		}, framework.Timeout, framework.Interval).Should(testing.Equal(kueue.QueueStatus{PendingWorkloads: 3}))
+		framework.ExpectPendingWorkloadsMetric(queue, 3)
 
 		ginkgo.By("Admitting workloads")
 		for _, w := range workloads {
@@ -98,6 +99,7 @@ var _ = ginkgo.Describe("Queue controller", func() {
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
 			return updatedQueue.Status
 		}, framework.Timeout, framework.Interval).Should(testing.Equal(kueue.QueueStatus{PendingWorkloads: 0}))
+		framework.ExpectPendingWorkloadsMetric(queue, 0)
 
 		ginkgo.By("Finishing workloads")
 		for _, w := range workloads {

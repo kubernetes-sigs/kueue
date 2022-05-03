@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -40,6 +41,7 @@ func queueKeyForWorkload(w *kueue.Workload) string {
 
 // Queue is the internal implementation of kueue.Queue.
 type Queue struct {
+	Key          string
 	ClusterQueue string
 
 	items map[string]*workload.Info
@@ -47,6 +49,7 @@ type Queue struct {
 
 func newQueue(q *kueue.Queue) *Queue {
 	qImpl := &Queue{
+		Key:   Key(q),
 		items: make(map[string]*workload.Info),
 	}
 	qImpl.update(q)
@@ -70,4 +73,12 @@ func (q *Queue) AddIfNotPresent(w *workload.Info) bool {
 		return true
 	}
 	return false
+}
+
+func (q *Queue) reportPendingWorkloads() {
+	metrics.PendingWorkloads.WithLabelValues(q.ClusterQueue, q.Key).Set(float64(len(q.items)))
+}
+
+func (q *Queue) resetPendingWorkloads() {
+	metrics.PendingWorkloads.DeleteLabelValues(q.ClusterQueue, q.Key)
 }
