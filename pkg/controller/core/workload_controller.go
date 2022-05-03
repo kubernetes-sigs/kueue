@@ -114,7 +114,7 @@ func (r *WorkloadReconciler) Create(e event.CreateEvent) bool {
 	}
 
 	wlCopy := wl.DeepCopy()
-	handlePodOverhead(wlCopy, r.client)
+	handlePodOverhead(r.log, wlCopy, r.client)
 
 	if wl.Spec.Admission == nil {
 		if !r.queues.AddOrUpdateWorkload(wlCopy) {
@@ -186,7 +186,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 
 	wlCopy := wl.DeepCopy()
 	// We do not handle old workload here as it will be deleted or replaced by new one anyway.
-	handlePodOverhead(wlCopy, r.client)
+	handlePodOverhead(r.log, wlCopy, r.client)
 
 	switch {
 	case status == finished:
@@ -264,14 +264,14 @@ func workloadStatus(w *kueue.Workload) string {
 // As a result, the pod's Overhead is not always correct. E.g. if we set a non-existent runtime class name to
 // `pod.Spec.RuntimeClassName` and we also set the `pod.Spec.Overhead`, in real world, the pod creation will be
 // rejected due to the mismatch with RuntimeClass. However, in the future we assume that they are correct.
-func handlePodOverhead(wl *kueue.Workload, c client.Client) {
+func handlePodOverhead(log logr.Logger, wl *kueue.Workload, c client.Client) {
 	ctx := context.Background()
 
 	for i, pod := range wl.Spec.PodSets {
 		if pod.Spec.RuntimeClassName != nil && len(pod.Spec.Overhead) == 0 {
 			var runtimeClass nodev1.RuntimeClass
 			if err := c.Get(ctx, types.NamespacedName{Name: *pod.Spec.RuntimeClassName}, &runtimeClass); err != nil {
-				klog.Error(err, "Could not get RuntimeClass")
+				log.Error(err, "Could not get RuntimeClass")
 				continue
 			}
 			if runtimeClass.Overhead != nil {
