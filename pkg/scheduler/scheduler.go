@@ -256,6 +256,9 @@ func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 	}
 	newWorkload.Spec.Admission = admission
 	if err := s.cache.AssumeWorkload(newWorkload); err != nil {
+		// Ignore errors because the workload or clusterQueue could have been deleted
+		// by an event.
+		_ = s.cache.ForgetWorkload(newWorkload)
 		return err
 	}
 	log.V(2).Info("Workload assumed in the cache")
