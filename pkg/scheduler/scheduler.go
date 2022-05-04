@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -47,6 +48,7 @@ import (
 
 const (
 	errCouldNotAdmitWL = "Could not admit workload and assigning flavors in apiserver"
+	noteLengthLimit    = 1024
 )
 
 type Scheduler struct {
@@ -185,8 +187,8 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 			e.inadmissibleReason = fmt.Sprintf("Could not obtain workload namespace: %v", err)
 		} else if !cq.NamespaceSelector.Matches(labels.Set(ns.Labels)) {
 			e.inadmissibleReason = "Workload namespace doesn't match ClusterQueue selector"
-		} else if !e.assignFlavors(log, snap.ResourceFlavors, cq) {
-			e.inadmissibleReason = "Workload didn't fit in the remaining quota"
+		} else if status := e.assignFlavors(log, snap.ResourceFlavors, cq); !status.IsSuccess() {
+			e.inadmissibleReason = truncateMessage(status.Message())
 		} else {
 			e.status = nominated
 		}
@@ -195,21 +197,64 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 	return entries
 }
 
+type admissionStatus struct {
+	podSet       string
+	resourceName string
+	reasons      []string
+	err          error
+}
+
+// Message returns a concatenated message on reasons of the admissionStatus.
+func (s *admissionStatus) Message() string {
+	if s.IsSuccess() {
+		return ""
+	}
+	if s.IsError() {
+		return fmt.Sprintf("Could not assign a flavor for %s in podSet %s: %v", s.resourceName, s.podSet, s.err)
+	}
+	msg := strings.Join(s.reasons, ", ")
+	return fmt.Sprintf("Workload didn't fit, insufficient %s for podSet %s: %s", s.resourceName, s.podSet, msg)
+}
+
+// AppendReason appends given reasons to the admissionStatus.
+func (s *admissionStatus) AppendReason(reasons ...string) {
+	s.reasons = append(s.reasons, reasons...)
+}
+
+// IsSuccess returns true if "admissionStatus" is nil.
+func (s *admissionStatus) IsSuccess() bool {
+	return s == nil
+}
+
+// IsError returns true if "admissionStatus" has error.
+func (s *admissionStatus) IsError() bool {
+	return s != nil && s.err != nil
+}
+
+// asStatus wraps an error in a admissionStatus.
+func asStatus(err error) *admissionStatus {
+	return &admissionStatus{
+		err: err,
+	}
+}
+
 // assignFlavors calculates the flavors that should be assigned to this entry
 // if admitted by this clusterQueue, including details of how much it needs to
 // borrow from the cohort.
-// It returns whether the entry would fit. If it doesn't fit, the object is
-// unmodified.
-func (e *entry) assignFlavors(log logr.Logger, resourceFlavors map[string]*kueue.ResourceFlavor, cq *cache.ClusterQueue) bool {
+// It returns admissionStatus indicating whether the entry fits. If it doesn't fit,
+// the entry is unmodified.
+func (e *entry) assignFlavors(log logr.Logger, resourceFlavors map[string]*kueue.ResourceFlavor, cq *cache.ClusterQueue) *admissionStatus {
 	flavoredRequests := make([]workload.PodSetResources, 0, len(e.TotalRequests))
 	wUsed := make(cache.Resources)
 	wBorrows := make(cache.Resources)
 	for i, podSet := range e.TotalRequests {
 		flavors := make(map[corev1.ResourceName]string, len(podSet.Requests))
 		for resName, reqVal := range podSet.Requests {
-			rFlavor, borrow := findFlavorForResource(log, resName, reqVal, wUsed[resName], resourceFlavors, cq, &e.Obj.Spec.PodSets[i].Spec)
-			if rFlavor == "" {
-				return false
+			rFlavor, borrow, status := findFlavorForResource(log, resName, reqVal, wUsed[resName], resourceFlavors, cq, &e.Obj.Spec.PodSets[i].Spec)
+			if !status.IsSuccess() {
+				status.resourceName = string(resName)
+				status.podSet = e.Obj.Spec.PodSets[i].Name
+				return status
 			}
 			if borrow > 0 {
 				if wBorrows[resName] == nil {
@@ -235,7 +280,7 @@ func (e *entry) assignFlavors(log logr.Logger, resourceFlavors map[string]*kueue
 	if len(wBorrows) > 0 {
 		e.borrows = wBorrows
 	}
-	return true
+	return nil
 }
 
 // admit sets the admitting clusterQueue and flavors into the workload of
@@ -292,36 +337,48 @@ func findFlavorForResource(
 	wUsed map[string]int64,
 	resourceFlavors map[string]*kueue.ResourceFlavor,
 	cq *cache.ClusterQueue,
-	spec *corev1.PodSpec) (string, int64) {
+	spec *corev1.PodSpec) (string, int64, *admissionStatus) {
+	var status admissionStatus
+
+	if _, exists := cq.RequestableResources[name]; !exists {
+		return "", 0, asStatus(fmt.Errorf("resource unavailable in ClusterQueue"))
+	}
+
 	// We will only check against the flavors' labels for the resource.
 	selector := flavorSelector(spec, cq.LabelKeys[name])
 	for _, flvLimit := range cq.RequestableResources[name] {
 		flavor, exist := resourceFlavors[flvLimit.Name]
 		if !exist {
 			log.Error(nil, "Flavor not found", "Flavor", flvLimit.Name)
+			status.AppendReason(fmt.Sprintf("flavor %s not found", flvLimit.Name))
 			continue
 		}
-		_, untolerated := corev1helpers.FindMatchingUntoleratedTaint(flavor.Taints, spec.Tolerations, func(t *corev1.Taint) bool {
+		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(flavor.Taints, spec.Tolerations, func(t *corev1.Taint) bool {
 			return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
 		})
 		if untolerated {
+			status.AppendReason(fmt.Sprintf("untolerated taint %s in flavor %s", taint, flvLimit.Name))
 			continue
 		}
 		if match, err := selector.Match(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Labels: flavor.Labels}}); !match || err != nil {
 			if err != nil {
-				log.Error(err, "Matching workload affinity against flavor; no flavor assigned")
-				return "", 0
+				return "", 0, asStatus(fmt.Errorf("matching affinity flavor %s: %w", flvLimit.Name, err))
 			}
+			status.AppendReason(fmt.Sprintf("flavor %s doesn't match with node affinity", flvLimit.Name))
 			continue
 		}
 
 		// Check considering the flavor usage by previous pod sets.
-		ok, borrow := fitsFlavorLimits(name, val+wUsed[flavor.Name], cq, &flvLimit)
-		if ok {
-			return flavor.Name, borrow
+		borrow, s := fitsFlavorLimits(name, val+wUsed[flavor.Name], cq, &flvLimit)
+		if s.IsSuccess() {
+			return flavor.Name, borrow, nil
 		}
+		if s.IsError() {
+			return "", 0, s
+		}
+		status.AppendReason(s.reasons...)
 	}
-	return "", 0
+	return "", 0, &status
 }
 
 func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.String) nodeaffinity.RequiredNodeAffinity {
@@ -372,11 +429,12 @@ func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.String) nodeaffinity.
 
 // fitsFlavorLimits returns whether a requested resource fits in a specific flavor's quota limits.
 // If it fits, also returns any borrowing required.
-func fitsFlavorLimits(name corev1.ResourceName, val int64, cq *cache.ClusterQueue, flavor *cache.FlavorLimits) (bool, int64) {
+func fitsFlavorLimits(name corev1.ResourceName, val int64, cq *cache.ClusterQueue, flavor *cache.FlavorLimits) (int64, *admissionStatus) {
+	var status admissionStatus
 	used := cq.UsedResources[name][flavor.Name]
 	if flavor.Max != nil && used+val > *flavor.Max {
-		// Past borrowing limit.
-		return false, 0
+		status.AppendReason(fmt.Sprintf("borrowing limit for flavor %s exceeded", flavor.Name))
+		return 0, &status
 	}
 	cohortUsed := used
 	cohortTotal := flavor.Min
@@ -388,12 +446,18 @@ func fitsFlavorLimits(name corev1.ResourceName, val int64, cq *cache.ClusterQueu
 	if borrow < 0 {
 		borrow = 0
 	}
-	if cohortUsed+val > cohortTotal {
-		// Doesn't fit even with borrowing.
+
+	lack := cohortUsed + val - cohortTotal
+	if lack > 0 {
+		if cq.Cohort == nil {
+			status.AppendReason(fmt.Sprintf("insufficient quota for flavor %s, %d more needed", flavor.Name, lack))
+		} else {
+			status.AppendReason(fmt.Sprintf("insufficient quota for flavor %s, %d more needed after borrowing", flavor.Name, lack))
+		}
 		// TODO(PostMVP): preemption could help if borrow == 0
-		return false, 0
+		return 0, &status
 	}
-	return true, borrow
+	return borrow, nil
 }
 
 type entryOrdering []entry
@@ -433,4 +497,14 @@ func (s *Scheduler) requeueAndUpdate(log logr.Logger, ctx context.Context, e ent
 		}
 		s.recorder.Eventf(e.Obj, corev1.EventTypeNormal, "Pending", e.inadmissibleReason)
 	}
+}
+
+// truncateMessage truncates a message if it hits the NoteLengthLimit.
+func truncateMessage(message string) string {
+	max := noteLengthLimit
+	if len(message) <= max {
+		return message
+	}
+	suffix := " ..."
+	return message[:max-len(suffix)] + suffix
 }

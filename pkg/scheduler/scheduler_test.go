@@ -19,6 +19,7 @@ package scheduler
 import (
 	"context"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -831,6 +832,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 		wantFits     bool
 		wantFlavors  map[string]map[corev1.ResourceName]string
 		wantBorrows  cache.Resources
+		wantMsg      string
 	}{
 		"single flavor, fits": {
 			wlPods: []kueue.PodSet{
@@ -994,7 +996,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 		},
-		"multiple flavors, skips missing ResourceFlavor": {
+		"multiple flavors, skip missing ResourceFlavor": {
 			wlPods: []kueue.PodSet{
 				{
 					Count: 1,
@@ -1224,6 +1226,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 				LabelKeys: map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
 			},
 			wantFits: false,
+			wantMsg:  "doesn't match with node affinity",
 		},
 		"multiple specs, fit different flavors": {
 			wlPods: []kueue.PodSet{
@@ -1390,6 +1393,26 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 		},
+		"resource not listed in clusterQueue": {
+			wlPods: []kueue.PodSet{
+				{
+					Count: 1,
+					Name:  "main",
+					Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+						"example.com/gpu": "1",
+					}),
+				},
+			},
+			clusterQueue: cache.ClusterQueue{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
+					corev1.ResourceCPU: {
+						{Name: "one", Min: 4000},
+					},
+				},
+			},
+			wantFits: false,
+			wantMsg:  "resource unavailable in ClusterQueue",
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -1404,12 +1427,17 @@ func TestEntryAssignFlavors(t *testing.T) {
 				}),
 			}
 			tc.clusterQueue.UpdateLabelKeys(resourceFlavors)
-			fits := e.assignFlavors(log, resourceFlavors, &tc.clusterQueue)
-			if fits != tc.wantFits {
-				t.Errorf("e.assignFlavors(_)=%t, want %t", fits, tc.wantFits)
+			status := e.assignFlavors(log, resourceFlavors, &tc.clusterQueue)
+			if status.IsSuccess() != tc.wantFits {
+				t.Errorf("e.assignFlavors(_)=%t, want %t", status.IsSuccess(), tc.wantFits)
+			}
+			if !tc.wantFits {
+				if !strings.Contains(status.Message(), tc.wantMsg) {
+					t.Errorf("got msg %s, want msg containing %s", status.Message(), tc.wantMsg)
+				}
 			}
 			var flavors map[string]map[corev1.ResourceName]string
-			if fits {
+			if status.IsSuccess() {
 				flavors = make(map[string]map[corev1.ResourceName]string)
 				for _, podSet := range e.TotalRequests {
 					flavors[podSet.Name] = podSet.Flavors
