@@ -58,7 +58,10 @@ type Framework struct {
 }
 
 func (f *Framework) Setup() (context.Context, *rest.Config, client.Client) {
-	ctrl.SetLogger(zap.New(zap.WriteTo(ginkgo.GinkgoWriter), zap.UseDevMode(true), zap.Level(zapcore.Level(-3))))
+	logTimeEncodeOpt := func(o *zap.Options) {
+		o.TimeEncoder = zapcore.RFC3339NanoTimeEncoder
+	}
+	ctrl.SetLogger(zap.New(zap.WriteTo(ginkgo.GinkgoWriter), zap.UseDevMode(true), zap.Level(zapcore.Level(-3)), logTimeEncodeOpt))
 
 	ginkgo.By("bootstrapping test environment")
 	f.testEnv = &envtest.Environment{

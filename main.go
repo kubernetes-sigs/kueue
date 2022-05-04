@@ -26,6 +26,7 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	"go.uber.org/zap/zapcore"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
@@ -67,7 +68,9 @@ func main() {
 		"The controller will load its initial configuration from this file. "+
 			"Omit this flag to use the default configuration values. ")
 
-	opts := zap.Options{}
+	opts := zap.Options{
+		TimeEncoder: zapcore.RFC3339NanoTimeEncoder,
+	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
