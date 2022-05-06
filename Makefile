@@ -113,9 +113,9 @@ test: generate fmt vet ## Run tests.
 	$(GO_CMD) test $(GO_TEST_FLAGS) ./pkg/... -coverprofile cover.out
 
 .PHONY: test-integration
-test-integration: manifests generate fmt vet envtest ## Run tests.
+test-integration: manifests generate fmt vet envtest ginkgo ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
-	$(GO_CMD) test -v $(INTEGRATION_TARGET)
+	$(GINKGO) -v $(INTEGRATION_TARGET)
 
 .PHONY: ci-lint
 ci-lint: golangci-lint
@@ -206,3 +206,8 @@ ENVTEST = $(shell pwd)/bin/setup-envtest
 .PHONY: envtest
 envtest: ## Download envtest-setup locally if necessary.
 	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+
+GINKGO = $(shell pwd)/bin/ginkgo
+.PHONY: ginkgo
+ginkgo: ## Download ginkgo locally if necessary.
+	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install github.com/onsi/ginkgo/v2/ginkgo@v2.1.4
