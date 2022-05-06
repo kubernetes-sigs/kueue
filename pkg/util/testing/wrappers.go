@@ -209,6 +209,11 @@ func (w *WorkloadWrapper) PodSets(podSets []kueue.PodSet) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) Toleration(t corev1.Toleration) *WorkloadWrapper {
+	w.Spec.PodSets[0].Spec.Tolerations = append(w.Spec.PodSets[0].Spec.Tolerations, t)
+	return w
+}
+
 // AdmissionWrapper wraps an Admission
 type AdmissionWrapper struct{ kueue.Admission }
 
@@ -391,7 +396,7 @@ func MakeRuntimeClass(name, handler string) *RuntimeClassWrapper {
 	}}
 }
 
-// Overhead adds a Overhead to the RuntimeClass.
+// PodOverhead adds a Overhead to the RuntimeClass.
 func (rc *RuntimeClassWrapper) PodOverhead(resources corev1.ResourceList) *RuntimeClassWrapper {
 	rc.Overhead = &nodev1.Overhead{
 		PodFixed: resources,
