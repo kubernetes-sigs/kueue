@@ -166,41 +166,35 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		framework.ExpectPendingWorkloadsMetric(prodQueue, 0)
 	})
 
-	ginkgo.It("Should schedule jobs on tolerated flavors", func() {
-		ginkgo.By("checking a job without toleration starts on the non-tainted flavor")
-		job1 := testing.MakeJob("on-demand-job1", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "5").Obj()
-		gomega.Expect(k8sClient.Create(ctx, job1)).Should(gomega.Succeed())
-		createdJob1 := &batchv1.Job{}
-		gomega.Eventually(func() *bool {
-			lookupKey := types.NamespacedName{Name: job1.Name, Namespace: job1.Namespace}
-			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob1)).Should(gomega.Succeed())
-			return createdJob1.Spec.Suspend
-		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
-		gomega.Expect(createdJob1.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
+	ginkgo.It("Should schedule workloads on tolerated flavors", func() {
+		ginkgo.By("checking a workload without toleration starts on the non-tainted flavor")
+		wl1 := testing.MakeWorkload("on-demand-wl1", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "5").Obj()
+		gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
+
+		expectAdmission := testing.MakeAdmission(prodClusterQ.Name).Flavor(corev1.ResourceCPU, onDemandFlavor.Name).Obj()
+		wlCopy := &kueue.Workload{}
+		gomega.Eventually(func() *kueue.Admission {
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wlCopy)).To(gomega.Succeed())
+			return wlCopy.Spec.Admission
+		}, framework.Timeout, framework.Interval).Should(testing.Equal(expectAdmission))
 		framework.ExpectPendingWorkloadsMetric(prodQueue, 0)
 
-		// TODO(#8): uncomment the following once we have proper re-queueing.
-		// ginkgo.By("checking a second job without toleration doesn't start")
-		// job2 := testing.MakeJob("on-demand-job2", namespace).Queue(queue.Name).Request(corev1.ResourceCPU, "5").Obj()
-		// gomega.Expect(k8sClient.Create(ctx, job2)).Should(gomega.Succeed())
-		// createdJob2 := &batchv1.Job{}
-		// gomega.Consistently(func() bool {
-		// 	lookupKey := types.NamespacedName{Name: job2.Name, Namespace: job2.Namespace}
-		// 	return k8sClient.Get(ctx, lookupKey, createdJob2) == nil && *createdJob2.Spec.Suspend
-		// }, consistentDuration, interval).Should(gomega.BeTrue())
+		ginkgo.By("checking a second workload without toleration doesn't start")
+		wl2 := testing.MakeWorkload("on-demand-wl2", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "5").Obj()
+		gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
+		framework.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
+		framework.ExpectPendingWorkloadsMetric(prodQueue, 1)
 
-		ginkgo.By("checking a third job with toleration starts")
-		job3 := testing.MakeJob("spot-job3", ns.Name).Queue(prodQueue.Name).
-			Toleration(spotToleration).
-			Request(corev1.ResourceCPU, "5").Obj()
-		gomega.Expect(k8sClient.Create(ctx, job3)).Should(gomega.Succeed())
-		createdJob3 := &batchv1.Job{}
-		gomega.Eventually(func() *bool {
-			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: job3.Name, Namespace: job3.Namespace}, createdJob3)).Should(gomega.Succeed())
-			return createdJob3.Spec.Suspend
-		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
-		gomega.Expect(createdJob3.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotTaintedFlavor.Name))
-		framework.ExpectPendingWorkloadsMetric(prodQueue, 0)
+		ginkgo.By("checking a third workload with toleration starts")
+		wl3 := testing.MakeWorkload("on-demand-wl3", ns.Name).Queue(prodQueue.Name).Toleration(spotToleration).Request(corev1.ResourceCPU, "5").Obj()
+		gomega.Expect(k8sClient.Create(ctx, wl3)).Should(gomega.Succeed())
+
+		expectAdmission = testing.MakeAdmission(prodClusterQ.Name).Flavor(corev1.ResourceCPU, spotTaintedFlavor.Name).Obj()
+		gomega.Eventually(func() *kueue.Admission {
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl3), wlCopy)).To(gomega.Succeed())
+			return wlCopy.Spec.Admission
+		}, framework.Timeout, framework.Interval).Should(testing.Equal(expectAdmission))
+		framework.ExpectPendingWorkloadsMetric(prodQueue, 1)
 	})
 
 	ginkgo.It("Should schedule jobs using borrowed ClusterQueue", func() {
