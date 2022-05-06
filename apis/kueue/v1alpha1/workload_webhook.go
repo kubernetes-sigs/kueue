@@ -18,6 +18,8 @@ package v1alpha1
 
 import (
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -58,15 +60,45 @@ var _ webhook.Validator = &Workload{}
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
 func (r *Workload) ValidateCreate() error {
-	return nil
+	return ValidateWorkload(r).ToAggregate()
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
 func (r *Workload) ValidateUpdate(old runtime.Object) error {
-	return nil
+	return ValidateWorkload(r).ToAggregate()
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
 func (r *Workload) ValidateDelete() error {
 	return nil
+}
+
+func ValidateWorkload(obj *Workload) field.ErrorList {
+	var allErrs field.ErrorList
+	specField := field.NewPath("spec")
+	podSetsField := specField.Child("podSets")
+	if len(obj.Spec.PodSets) == 0 {
+		allErrs = append(allErrs, field.Required(podSetsField, "at least one podSet is required"))
+	}
+
+	for i, podSet := range obj.Spec.PodSets {
+		if podSet.Count <= 0 {
+			allErrs = append(allErrs, field.Invalid(
+				podSetsField.Index(i).Child("count"),
+				podSet.Count,
+				"count must be greater than 0"),
+			)
+		}
+	}
+
+	if len(obj.Spec.PriorityClassName) > 0 {
+		msgs := validation.IsDNS1123Subdomain(obj.Spec.PriorityClassName)
+		if len(msgs) > 0 {
+			classNameField := specField.Child("priorityClassName")
+			for _, msg := range msgs {
+				allErrs = append(allErrs, field.Invalid(classNameField, obj.Spec.PriorityClassName, msg))
+			}
+		}
+	}
+	return allErrs
 }
