@@ -25,6 +25,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -58,10 +59,16 @@ type Framework struct {
 }
 
 func (f *Framework) Setup() (context.Context, *rest.Config, client.Client) {
-	logTimeEncodeOpt := func(o *zap.Options) {
-		o.TimeEncoder = zapcore.RFC3339NanoTimeEncoder
+	opts := zap.Options{
+		TimeEncoder: zapcore.RFC3339NanoTimeEncoder,
+		ZapOpts:     []zaplog.Option{zaplog.AddCaller(), zaplog.AddCallerSkip(-1)},
 	}
-	ctrl.SetLogger(zap.New(zap.WriteTo(ginkgo.GinkgoWriter), zap.UseDevMode(true), zap.Level(zapcore.Level(-3)), logTimeEncodeOpt))
+	ctrl.SetLogger(zap.New(
+		zap.WriteTo(ginkgo.GinkgoWriter),
+		zap.UseDevMode(true),
+		zap.Level(zapcore.Level(-3)),
+		zap.UseFlagOptions(&opts)),
+	)
 
 	ginkgo.By("bootstrapping test environment")
 	f.testEnv = &envtest.Environment{
