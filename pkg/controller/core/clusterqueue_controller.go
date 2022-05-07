@@ -107,6 +107,7 @@ func (r *ClusterQueueReconciler) Create(e event.CreateEvent) bool {
 	if err := r.cache.AddClusterQueue(ctx, cq); err != nil {
 		log.Error(err, "Failed to add clusterQueue to cache")
 	}
+
 	if err := r.qManager.AddClusterQueue(ctx, cq); err != nil {
 		log.Error(err, "Failed to add clusterQueue to queue manager")
 	}
@@ -133,6 +134,7 @@ func (r *ClusterQueueReconciler) Update(e event.UpdateEvent) bool {
 	}
 	log := r.log.WithValues("clusterQueue", klog.KObj(cq))
 	log.V(2).Info("ClusterQueue update event")
+
 	if err := r.cache.UpdateClusterQueue(cq); err != nil {
 		log.Error(err, "Failed to update clusterQueue in cache")
 	}

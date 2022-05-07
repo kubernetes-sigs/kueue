@@ -26,18 +26,21 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/queue"
 )
 
 // ResourceFlavorReconciler reconciles a ResourceFlavor object
 type ResourceFlavorReconciler struct {
-	log   logr.Logger
-	cache *cache.Cache
+	log      logr.Logger
+	qManager *queue.Manager
+	cache    *cache.Cache
 }
 
-func NewResourceFlavorReconciler(cache *cache.Cache) *ResourceFlavorReconciler {
+func NewResourceFlavorReconciler(qMgr *queue.Manager, cache *cache.Cache) *ResourceFlavorReconciler {
 	return &ResourceFlavorReconciler{
-		log:   ctrl.Log.WithName("resourceflavor-reconciler"),
-		cache: cache,
+		log:      ctrl.Log.WithName("resourceflavor-reconciler"),
+		cache:    cache,
+		qManager: qMgr,
 	}
 }
 
@@ -53,9 +56,15 @@ func (r *ResourceFlavorReconciler) Create(e event.CreateEvent) bool {
 	if !match {
 		return false
 	}
+
 	log := r.log.WithValues("resourceFlavor", klog.KObj(flv))
 	log.V(2).Info("ResourceFlavor create event")
-	r.cache.AddOrUpdateResourceFlavor(flv.DeepCopy())
+
+	// As long as one clusterQueue becomes active,
+	// we should inform clusterQueue controller to broadcast the event.
+	if cqNames := r.cache.AddOrUpdateResourceFlavor(flv.DeepCopy()); len(cqNames) > 0 {
+		r.qManager.QueueInadmissibleWorkloads(cqNames)
+	}
 	return false
 }
 
@@ -64,9 +73,13 @@ func (r *ResourceFlavorReconciler) Delete(e event.DeleteEvent) bool {
 	if !match {
 		return false
 	}
+
 	log := r.log.WithValues("resourceFlavor", klog.KObj(flv))
 	log.V(2).Info("ResourceFlavor delete event")
-	r.cache.DeleteResourceFlavor(flv)
+
+	if cqNames := r.cache.DeleteResourceFlavor(flv); len(cqNames) > 0 {
+		r.qManager.QueueInadmissibleWorkloads(cqNames)
+	}
 	return false
 }
 
@@ -75,9 +88,13 @@ func (r *ResourceFlavorReconciler) Update(e event.UpdateEvent) bool {
 	if !match {
 		return false
 	}
+
 	log := r.log.WithValues("resourceFlavor", klog.KObj(flv))
 	log.V(2).Info("ResourceFlavor update event")
-	r.cache.AddOrUpdateResourceFlavor(flv.DeepCopy())
+
+	if cqNames := r.cache.AddOrUpdateResourceFlavor(flv.DeepCopy()); len(cqNames) > 0 {
+		r.qManager.QueueInadmissibleWorkloads(cqNames)
+	}
 	return false
 }
 

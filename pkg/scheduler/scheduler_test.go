@@ -175,6 +175,25 @@ func TestSchedule(t *testing.T) {
 				},
 			},
 		},
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "flavor-nonexistent-cq"},
+			Spec: kueue.ClusterQueueSpec{
+				QueueingStrategy: kueue.StrictFIFO,
+				Resources: []kueue.Resource{
+					{
+						Name: corev1.ResourceCPU,
+						Flavors: []kueue.Flavor{
+							{
+								Name: "nonexistent-flavor",
+								Quota: kueue.Quota{
+									Min: resource.MustParse("50"),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 	queues := []kueue.Queue{
 		{
@@ -211,6 +230,24 @@ func TestSchedule(t *testing.T) {
 			},
 			Spec: kueue.QueueSpec{
 				ClusterQueue: "eng-beta",
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "sales",
+				Name:      "flavor-nonexistent-queue",
+			},
+			Spec: kueue.QueueSpec{
+				ClusterQueue: "flavor-nonexistent-cq",
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "sales",
+				Name:      "cq-nonexistent-queue",
+			},
+			Spec: kueue.QueueSpec{
+				ClusterQueue: "nonexistent-cq",
 			},
 		},
 	}
@@ -688,6 +725,53 @@ func TestSchedule(t *testing.T) {
 			},
 			wantScheduled: []string{"eng-alpha/new"},
 		},
+		"workload should not fit in nonexistent clusterQueue": {
+			workloads: []kueue.Workload{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "sales",
+						Name:      "foo",
+					},
+					Spec: kueue.WorkloadSpec{
+						QueueName: "cq-nonexistent-queue",
+						PodSets: []kueue.PodSet{
+							{
+								Name:  "one",
+								Count: 10,
+								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+									corev1.ResourceCPU: "1",
+								}),
+							},
+						},
+					},
+				},
+			},
+		},
+		"workload should not fit in flavor nonexistent clusterQueue": {
+			workloads: []kueue.Workload{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "sales",
+						Name:      "foo",
+					},
+					Spec: kueue.WorkloadSpec{
+						QueueName: "flavor-nonexistent-queue",
+						PodSets: []kueue.PodSet{
+							{
+								Name:  "one",
+								Count: 10,
+								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+									corev1.ResourceCPU: "1",
+								}),
+							},
+						},
+					},
+				},
+			},
+			wantLeft: map[string]sets.String{
+				"flavor-nonexistent-cq": sets.NewString("foo"),
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -721,6 +805,9 @@ func TestSchedule(t *testing.T) {
 					t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
 				}
 			}
+			for i := range resourceFlavors {
+				cqCache.AddOrUpdateResourceFlavor(resourceFlavors[i])
+			}
 			for _, cq := range clusterQueues {
 				if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
 					t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
@@ -728,9 +815,6 @@ func TestSchedule(t *testing.T) {
 				if err := qManager.AddClusterQueue(ctx, &cq); err != nil {
 					t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
 				}
-			}
-			for i := range resourceFlavors {
-				cqCache.AddOrUpdateResourceFlavor(resourceFlavors[i])
 			}
 			workloadWatch, err := cl.Watch(ctx, &kueue.WorkloadList{})
 			if err != nil {
@@ -915,6 +999,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 					},
 				},
 			},
+			wantMsg: "insufficient quota for flavor default, 1000 more needed",
 		},
 		"multiple flavors, fits": {
 			wlPods: []kueue.PodSet{
@@ -970,6 +1055,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 					},
 				},
 			},
+			wantMsg: "insufficient quota for flavor one, 2100 more needed, insufficient quota for flavor two, 100 more needed",
 		},
 		"multiple flavors, fits while skipping tainted flavor": {
 			wlPods: []kueue.PodSet{
@@ -1226,7 +1312,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 				LabelKeys: map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
 			},
 			wantFits: false,
-			wantMsg:  "doesn't match with node affinity",
+			wantMsg:  "flavor one doesn't match with node affinity",
 		},
 		"multiple specs, fit different flavors": {
 			wlPods: []kueue.PodSet{
@@ -1359,6 +1445,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 					},
 				},
 			},
+			wantMsg: "insufficient quota for flavor one, 1000 more needed after borrowing",
 		},
 		"past max": {
 			wlPods: []kueue.PodSet{
@@ -1392,6 +1479,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 					},
 				},
 			},
+			wantMsg: "borrowing limit for flavor one exceeded",
 		},
 		"resource not listed in clusterQueue": {
 			wlPods: []kueue.PodSet{
@@ -1413,6 +1501,23 @@ func TestEntryAssignFlavors(t *testing.T) {
 			wantFits: false,
 			wantMsg:  "resource unavailable in ClusterQueue",
 		},
+		"flavor not found": {
+			wlPods: []kueue.PodSet{
+				{
+					Count: 1,
+					Name:  "main",
+					Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+						corev1.ResourceCPU: "1",
+					}),
+				},
+			},
+			clusterQueue: cache.ClusterQueue{
+				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
+					corev1.ResourceCPU: {{Name: "nonexistent-flavor", Min: 1000}},
+				},
+			},
+			wantMsg: "flavor nonexistent-flavor not found",
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -1426,13 +1531,13 @@ func TestEntryAssignFlavors(t *testing.T) {
 					},
 				}),
 			}
-			tc.clusterQueue.UpdateLabelKeys(resourceFlavors)
+			tc.clusterQueue.UpdateWithFlavors(resourceFlavors)
 			status := e.assignFlavors(log, resourceFlavors, &tc.clusterQueue)
 			if status.IsSuccess() != tc.wantFits {
 				t.Errorf("e.assignFlavors(_)=%t, want %t", status.IsSuccess(), tc.wantFits)
 			}
 			if !tc.wantFits {
-				if !strings.Contains(status.Message(), tc.wantMsg) {
+				if len(tc.wantMsg) == 0 || !strings.Contains(status.Message(), tc.wantMsg) {
 					t.Errorf("got msg %s, want msg containing %s", status.Message(), tc.wantMsg)
 				}
 			}

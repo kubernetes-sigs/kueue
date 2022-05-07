@@ -181,8 +181,10 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		cq := snap.ClusterQueues[w.ClusterQueue]
 		ns := corev1.Namespace{}
 		e := entry{Info: w}
-		if cq == nil {
-			e.inadmissibleReason = "ClusterQueue not found"
+		if snap.InactiveClusterQueueSets.Has(w.ClusterQueue) {
+			e.inadmissibleReason = fmt.Sprintf("ClusterQueue %s is inactive", w.ClusterQueue)
+		} else if cq == nil {
+			e.inadmissibleReason = fmt.Sprintf("ClusterQueue %s not found", w.ClusterQueue)
 		} else if err := s.client.Get(ctx, types.NamespacedName{Name: w.Obj.Namespace}, &ns); err != nil {
 			e.inadmissibleReason = fmt.Sprintf("Could not obtain workload namespace: %v", err)
 		} else if !cq.NamespaceSelector.Matches(labels.Set(ns.Labels)) {
@@ -488,7 +490,7 @@ func (e entryOrdering) Less(i, j int) bool {
 
 func (s *Scheduler) requeueAndUpdate(log logr.Logger, ctx context.Context, e entry) {
 	added := s.queues.RequeueWorkload(ctx, &e.Info, e.status != "")
-	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "queue", klog.KRef(e.Obj.Namespace, e.Obj.Spec.QueueName), "added", added, "status", e.status)
+	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", e.ClusterQueue, "queue", klog.KRef(e.Obj.Namespace, e.Obj.Spec.QueueName), "added", added, "status", e.status)
 
 	if e.status == "" {
 		err := workload.UpdateStatus(ctx, s.client, e.Obj, kueue.WorkloadAdmitted, corev1.ConditionFalse, "Pending", e.inadmissibleReason)

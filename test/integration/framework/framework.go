@@ -221,6 +221,26 @@ func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wl
 	}, Timeout, Interval).Should(gomega.Equal(len(wls)), "Not enough workloads are pending")
 }
 
+func ExpectWorkloadsToBeFrozen(ctx context.Context, k8sClient client.Client, cq string, wls ...*kueue.Workload) {
+	gomega.EventuallyWithOffset(1, func() int {
+		frozen := 0
+		var updatedWorkload kueue.Workload
+		for _, wl := range wls {
+			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
+			idx := workload.FindConditionIndex(&updatedWorkload.Status, kueue.WorkloadAdmitted)
+			if idx == -1 {
+				continue
+			}
+			msg := fmt.Sprintf("ClusterQueue %s is inactive", cq)
+			cond := updatedWorkload.Status.Conditions[idx]
+			if cond.Status == corev1.ConditionFalse && cond.Reason == "Inadmissible" && wl.Spec.Admission == nil && cond.Message == msg {
+				frozen++
+			}
+		}
+		return frozen
+	}, Timeout, Interval).Should(gomega.Equal(len(wls)), "Not enough workloads are frozen")
+}
+
 func ExpectPendingWorkloadsMetric(q *kueue.Queue, v int) {
 	metric := metrics.PendingWorkloads.WithLabelValues(string(q.Spec.ClusterQueue), queue.Key(q))
 	gomega.EventuallyWithOffset(1, func() int {

@@ -112,6 +112,8 @@ var _ = ginkgo.Describe("Workload controller", func() {
 
 	ginkgo.When("the workload is admitted", func() {
 		ginkgo.BeforeEach(func() {
+			flavor := testing.MakeResourceFlavor(flavorOnDemand).Obj()
+			gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())
 			clusterQueue = testing.MakeClusterQueue("cluster-queue").
 				Resource(testing.MakeResource(resourceGPU).
 					Flavor(testing.MakeFlavor(flavorOnDemand, "5").Max("10").Obj()).Obj()).
