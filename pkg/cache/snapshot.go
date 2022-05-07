@@ -17,13 +17,16 @@ limitations under the License.
 package cache
 
 import (
+	"k8s.io/apimachinery/pkg/util/sets"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type Snapshot struct {
-	ClusterQueues   map[string]*ClusterQueue
-	ResourceFlavors map[string]*kueue.ResourceFlavor
+	ClusterQueues            map[string]*ClusterQueue
+	ResourceFlavors          map[string]*kueue.ResourceFlavor
+	InactiveClusterQueueSets sets.String
 }
 
 func (c *Cache) Snapshot() Snapshot {
@@ -31,10 +34,15 @@ func (c *Cache) Snapshot() Snapshot {
 	defer c.RUnlock()
 
 	snap := Snapshot{
-		ClusterQueues:   make(map[string]*ClusterQueue, len(c.clusterQueues)),
-		ResourceFlavors: make(map[string]*kueue.ResourceFlavor, len(c.resourceFlavors)),
+		ClusterQueues:            make(map[string]*ClusterQueue, len(c.clusterQueues)),
+		ResourceFlavors:          make(map[string]*kueue.ResourceFlavor, len(c.resourceFlavors)),
+		InactiveClusterQueueSets: sets.NewString(),
 	}
 	for _, cq := range c.clusterQueues {
+		if !cq.Active() {
+			snap.InactiveClusterQueueSets.Insert(cq.Name)
+			continue
+		}
 		snap.ClusterQueues[cq.Name] = cq.snapshot()
 	}
 	for _, rf := range c.resourceFlavors {
@@ -44,10 +52,12 @@ func (c *Cache) Snapshot() Snapshot {
 	for _, cohort := range c.cohorts {
 		cohortCopy := newCohort(cohort.Name, len(cohort.members))
 		for cq := range cohort.members {
-			cqCopy := snap.ClusterQueues[cq.Name]
-			cqCopy.accumulateResources(cohortCopy)
-			cqCopy.Cohort = cohortCopy
-			cohortCopy.members[cqCopy] = struct{}{}
+			if cq.Active() {
+				cqCopy := snap.ClusterQueues[cq.Name]
+				cqCopy.accumulateResources(cohortCopy)
+				cqCopy.Cohort = cohortCopy
+				cohortCopy.members[cqCopy] = struct{}{}
+			}
 		}
 	}
 	return snap
@@ -63,6 +73,7 @@ func (c *ClusterQueue) snapshot() *ClusterQueue {
 		Workloads:            make(map[string]*workload.Info, len(c.Workloads)),
 		LabelKeys:            c.LabelKeys, // Shallow copy is enough.
 		NamespaceSelector:    c.NamespaceSelector,
+		Status:               c.Status,
 	}
 	for res, flavors := range c.UsedResources {
 		flavorsCopy := make(map[string]int64, len(flavors))

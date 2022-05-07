@@ -37,7 +37,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 	if err := NewWorkloadReconciler(mgr.GetClient(), qManager, cc, qRec, cqRec).SetupWithManager(mgr); err != nil {
 		return "Workload", err
 	}
-	if err := NewResourceFlavorReconciler(cc).SetupWithManager(mgr); err != nil {
+	if err := NewResourceFlavorReconciler(qManager, cc).SetupWithManager(mgr); err != nil {
 		return "ResourceFlavor", err
 	}
 	return "", nil

@@ -103,6 +103,27 @@ func TestSnapshot(t *testing.T) {
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{
+				Name: "flavor-nonexistent-cq",
+			},
+			Spec: kueue.ClusterQueueSpec{
+				Cohort: "foo",
+				Resources: []kueue.Resource{
+					{
+						Name: corev1.ResourceCPU,
+						Flavors: []kueue.Flavor{
+							{
+								Name: "nonexistent-flavor",
+								Quota: kueue.Quota{
+									Min: resource.MustParse("100"),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
 				Name: "bar",
 			},
 			Spec: kueue.ClusterQueueSpec{
@@ -138,7 +159,12 @@ func TestSnapshot(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "spot"},
 			Labels:     map[string]string{"baz": "bar", "instance": "spot"},
 		},
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "default"},
+			Labels:     nil,
+		},
 	}
+
 	for i := range flavors {
 		cache.AddOrUpdateResourceFlavor(&flavors[i])
 	}
@@ -222,31 +248,44 @@ func TestSnapshot(t *testing.T) {
 				},
 			},
 		},
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "sigma"},
+			Spec: kueue.WorkloadSpec{
+				PodSets: []kueue.PodSet{
+					{
+						Name:  "main",
+						Count: 5,
+						Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+							corev1.ResourceCPU: "1",
+						}),
+					},
+				},
+				Admission: nil,
+			},
+		},
 	}
 	for _, w := range workloads {
 		cache.AddOrUpdateWorkload(w.DeepCopy())
 	}
 	snapshot := cache.Snapshot()
-	wantCohorts := []Cohort{
-		{
-			Name: "foo",
-			RequestableResources: Resources{
-				corev1.ResourceCPU: map[string]int64{
-					"demand": 100_000,
-					"spot":   300_000,
-				},
-				"example.com/gpu": map[string]int64{
-					"default": 50,
-				},
+	wantCohort := Cohort{
+		Name: "foo",
+		RequestableResources: Resources{
+			corev1.ResourceCPU: map[string]int64{
+				"demand": 100_000,
+				"spot":   300_000,
 			},
-			UsedResources: Resources{
-				corev1.ResourceCPU: map[string]int64{
-					"demand": 10_000,
-					"spot":   10_000,
-				},
-				"example.com/gpu": map[string]int64{
-					"default": 15,
-				},
+			"example.com/gpu": map[string]int64{
+				"default": 50,
+			},
+		},
+		UsedResources: Resources{
+			corev1.ResourceCPU: map[string]int64{
+				"demand": 10_000,
+				"spot":   10_000,
+			},
+			"example.com/gpu": map[string]int64{
+				"default": 15,
 			},
 		},
 	}
@@ -254,7 +293,7 @@ func TestSnapshot(t *testing.T) {
 		ClusterQueues: map[string]*ClusterQueue{
 			"foofoo": {
 				Name:   "foofoo",
-				Cohort: &wantCohorts[0],
+				Cohort: &wantCohort,
 				RequestableResources: map[corev1.ResourceName][]FlavorLimits{
 					corev1.ResourceCPU: {
 						{
@@ -278,10 +317,11 @@ func TestSnapshot(t *testing.T) {
 				},
 				LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: {"baz": {}, "foo": {}, "instance": {}}},
 				NamespaceSelector: labels.Nothing(),
+				Status:            Active,
 			},
 			"foobar": {
 				Name:   "foobar",
-				Cohort: &wantCohorts[0],
+				Cohort: &wantCohort,
 				RequestableResources: map[corev1.ResourceName][]FlavorLimits{
 					corev1.ResourceCPU: {
 						{
@@ -310,6 +350,7 @@ func TestSnapshot(t *testing.T) {
 				},
 				NamespaceSelector: labels.Nothing(),
 				LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: {"baz": {}, "instance": {}}},
+				Status:            Active,
 			},
 			"bar": {
 				Name: "bar",
@@ -326,9 +367,14 @@ func TestSnapshot(t *testing.T) {
 				},
 				Workloads:         map[string]*workload.Info{},
 				NamespaceSelector: labels.Nothing(),
+				Status:            Active,
 			},
 		},
 		ResourceFlavors: map[string]*kueue.ResourceFlavor{
+			"default": {
+				ObjectMeta: metav1.ObjectMeta{Name: "default"},
+				Labels:     nil,
+			},
 			"demand": {
 				ObjectMeta: metav1.ObjectMeta{Name: "demand"},
 				Labels:     map[string]string{"foo": "bar", "instance": "demand"},
@@ -338,6 +384,7 @@ func TestSnapshot(t *testing.T) {
 				Labels:     map[string]string{"baz": "bar", "instance": "spot"},
 			},
 		},
+		InactiveClusterQueueSets: sets.String{"flavor-nonexistent-cq": {}},
 	}
 	if diff := cmp.Diff(wantSnapshot, snapshot, cmpopts.IgnoreUnexported(Cohort{})); diff != "" {
 		t.Errorf("Unexpected Snapshot (-want,+got):\n%s", diff)

@@ -627,8 +627,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		strictFIFOClusterQ := testing.MakeClusterQueue("strict-fifo-cq").
 			QueueingStrategy(kueue.StrictFIFO).
 			Resource(testing.MakeResource(corev1.ResourceCPU).
-				Flavor(testing.MakeFlavor(onDemandFlavor.Name,
-					"5").Max("5").Obj()).
+				Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Max("5").Obj()).
 				Obj()).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, strictFIFOClusterQ)).Should(gomega.Succeed())
@@ -658,5 +657,61 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Expect(k8sClient.Get(ctx, lookupKey, wl3)).Should(gomega.Succeed())
 			return wl3.Spec.Admission == nil
 		}, framework.ConsistentDuration, framework.Interval).Should(gomega.Equal(true))
+	})
+
+	ginkgo.Context("When clusterQueue references nonexistent flavors", func() {
+		var (
+			fooFlavor *kueue.ResourceFlavor
+			fooQ      *kueue.Queue
+			fooCq     *kueue.ClusterQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			fooCq = testing.MakeClusterQueue("foo-cq").
+				QueueingStrategy(kueue.BestEffortFIFO).
+				Resource(testing.MakeResource(corev1.ResourceCPU).
+					Flavor(testing.MakeFlavor("foo-flavor", "15").Obj()).
+					Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, fooCq)).Should(gomega.Succeed())
+			fooQ = testing.MakeQueue("foo-queue", ns.Name).ClusterQueue(fooCq.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, fooQ)).Should(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, fooCq)).To(gomega.Succeed())
+			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, fooFlavor)).To(gomega.Succeed())
+		})
+
+		ginkgo.It("Should be inactive until the flavor is created", func() {
+			ginkgo.By("Creating one workload")
+			wl := testing.MakeWorkload("workload", ns.Name).Queue(fooQ.Name).Request(corev1.ResourceCPU, "1").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
+			framework.ExpectWorkloadsToBeFrozen(ctx, k8sClient, fooCq.Name, wl)
+
+			ginkgo.By("Creating foo flavor")
+			fooFlavor = testing.MakeResourceFlavor("foo-flavor").Obj()
+			gomega.Expect(k8sClient.Create(ctx, fooFlavor)).Should(gomega.Succeed())
+			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, fooCq.Name, wl)
+		})
+
+		ginkgo.It("Should be inactive when corresponding flavors deleted", func() {
+			ginkgo.By("Creating foo flavors")
+			fooFlavor = testing.MakeResourceFlavor("foo-flavor").Obj()
+			gomega.Expect(k8sClient.Create(ctx, fooFlavor)).Should(gomega.Succeed())
+
+			ginkgo.By("Creating one workload")
+			wl1 := testing.MakeWorkload("workload", ns.Name).Queue(fooQ.Name).Request(corev1.ResourceCPU, "1").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
+			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, fooCq.Name, wl1)
+
+			ginkgo.By("Deleting foo flavors")
+			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, fooFlavor)).To(gomega.Succeed())
+
+			ginkgo.By("Creating another workloads")
+			wl2 := testing.MakeWorkload("wl-2", ns.Name).Queue(fooQ.Name).Request(corev1.ResourceCPU, "1").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
+			framework.ExpectWorkloadsToBeFrozen(ctx, k8sClient, fooCq.Name, wl2)
+		})
 	})
 })

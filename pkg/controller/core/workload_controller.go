@@ -94,6 +94,12 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	if status == pending && !r.cache.ClusterQueueActive(cqName) {
+		err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, corev1.ConditionFalse,
+			"Inadmissible", fmt.Sprintf("ClusterQueue %s is inactive", cqName))
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
 	if status == admitted {
 		err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, corev1.ConditionTrue, "", "")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
