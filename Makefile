@@ -180,10 +180,9 @@ undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/confi
 .PHONY: artifacts
 artifacts: kustomize
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMAGE_TAG}
+	if [ -d artifacts ]; then rm -rf artifacts; fi
 	@mkdir -p artifacts
-	@rm -r artifacts/*
 	$(KUSTOMIZE) build config/default -o artifacts/manifests.yaml
-	@$(call clean-manifests)
 
 ##@ Tools
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))

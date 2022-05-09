@@ -22,7 +22,7 @@ Please do not remove items from the checklist
 - [ ] An OWNER [prepares a draft release](https://github.com/kubernetes-sigs/kueue/releases)
   - [ ] Write the change log into the draft release.
   - [ ] Run
-      `make artifacts IMAGE_REGISTRY=k8s.gcr.io/kueue GIT_TAG=$VERSION`
+      `make artifacts IMAGE_REGISTRY=registry.k8s.io/kueue GIT_TAG=$VERSION`
       to generate the artifacts and upload the files in the `artifacts` folder
       to the draft release.
 - [ ] An OWNER creates a signed tag running
@@ -37,7 +37,7 @@ Please do not remove items from the checklist
       updating `k8s.gcr.io/images/k8s-staging-kueue/images.yaml` to
       [promote the container images](https://github.com/kubernetes/k8s.io/tree/main/k8s.gcr.io#image-promoter)
       to production: <!-- example kubernetes/k8s.io#3612-->
-- [ ] Wait for the PR to be merged and verify that the image `k8s.gcr.io/kueue/kueue:$VERSION` is available.
+- [ ] Wait for the PR to be merged and verify that the image `registry.k8s.io/kueue/kueue:$VERSION` is available.
 - [ ] Publish the draft release prepared at the [Github releases page](https://github.com/kubernetes-sigs/kueue/releases).
 - [ ] Add a link to the tagged release in this issue: <!-- example https://github.com/kubernetes-sigs/kueue/releases/tag/v0.1.0 -->
 - [ ] Send an announcement email to `sig-scheduling@kubernetes.io` and `wg-batch@kubernetes.io` with the subject `[ANNOUNCE] kueue $VERSION is released`
