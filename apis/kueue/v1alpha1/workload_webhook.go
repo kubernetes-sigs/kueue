@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -65,7 +66,7 @@ func (r *Workload) ValidateCreate() error {
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
 func (r *Workload) ValidateUpdate(old runtime.Object) error {
-	return ValidateWorkload(r).ToAggregate()
+	return ValidateWorkloadUpdate(r, old.(*Workload)).ToAggregate()
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
@@ -101,4 +102,9 @@ func ValidateWorkload(obj *Workload) field.ErrorList {
 		}
 	}
 	return allErrs
+}
+
+func ValidateWorkloadUpdate(newObj, oldObj *Workload) field.ErrorList {
+	return append(ValidateWorkload(newObj),
+		apivalidation.ValidateImmutableField(newObj.Spec.PodSets, oldObj.Spec.PodSets, field.NewPath("spec", "podSets"))...)
 }

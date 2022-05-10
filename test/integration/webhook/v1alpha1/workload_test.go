@@ -91,13 +91,24 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 	})
 
 	ginkgo.Context("When updating a Workload", func() {
-		ginkgo.It("Should validate spec.podSet.count", func() {
+		ginkgo.It("Should allow the change of priority", func() {
 			ginkgo.By("Creating a new Workload")
 			workload := testing.MakeWorkload(workloadName, ns.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
 
-			ginkgo.By("Updating the Workload")
-			workload.Spec.PodSets[0].Count = -1
+			ginkgo.By("Updating the priority")
+			priority := int32(10)
+			workload.Spec.Priority = &priority
+			gomega.Expect(k8sClient.Update(ctx, workload)).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should forbid the change of spec.podSet", func() {
+			ginkgo.By("Creating a new Workload")
+			workload := testing.MakeWorkload(workloadName, ns.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
+
+			ginkgo.By("Updating podSet")
+			workload.Spec.PodSets[0].Count = 10
 			err := k8sClient.Update(ctx, workload)
 			gomega.Expect(err).Should(gomega.HaveOccurred())
 			gomega.Expect(errors.IsForbidden(err)).Should(gomega.BeTrue(), "error: %v", err)
