@@ -169,7 +169,7 @@ func (m *Manager) AddQueue(ctx context.Context, q *kueue.Queue) error {
 		if w.Spec.QueueName != q.Name || w.Spec.Admission != nil {
 			continue
 		}
-		qImpl.AddOrUpdate(&w)
+		qImpl.AddOrUpdate(workload.NewInfo(&w))
 	}
 	cq := m.clusterQueues[qImpl.ClusterQueue]
 	if cq != nil && cq.AddFromQueue(qImpl) {
@@ -272,13 +272,14 @@ func (m *Manager) addOrUpdateWorkload(w *kueue.Workload) bool {
 	if q == nil {
 		return false
 	}
-	q.AddOrUpdate(w)
+	wInfo := workload.NewInfo(w)
+	q.AddOrUpdate(wInfo)
 	q.reportPendingWorkloads()
 	cq := m.clusterQueues[q.ClusterQueue]
 	if cq == nil {
 		return false
 	}
-	cq.PushOrUpdate(w)
+	cq.PushOrUpdate(wInfo)
 	m.Broadcast()
 	return true
 }
@@ -302,15 +303,14 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, imme
 	if q == nil {
 		return false
 	}
-	q.AddOrUpdate(&w)
+	info.Update(&w)
+	q.AddOrUpdate(info)
 	q.reportPendingWorkloads()
 	cq := m.clusterQueues[q.ClusterQueue]
 	if cq == nil {
 		return false
 	}
 
-	// TODO(#162) Update the info object instead of constructing one.
-	info = workload.NewInfo(&w)
 	added := cq.RequeueIfNotPresent(info, immediate)
 	if added {
 		m.Broadcast()

@@ -43,7 +43,7 @@ type ClusterQueue interface {
 
 	// PushOrUpdate pushes the workload to ClusterQueue.
 	// If the workload is already present, updates with the new one.
-	PushOrUpdate(*kueue.Workload)
+	PushOrUpdate(*workload.Info)
 	// Delete removes the workload from ClusterQueue.
 	Delete(*kueue.Workload)
 	// Pop removes the head of the queue and returns it. It returns nil if the
