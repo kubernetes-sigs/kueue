@@ -26,6 +26,7 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -70,6 +71,7 @@ func main() {
 
 	opts := zap.Options{
 		TimeEncoder: zapcore.RFC3339NanoTimeEncoder,
+		ZapOpts:     []zaplog.Option{zaplog.AddCaller(), zaplog.AddCallerSkip(-1)},
 	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
