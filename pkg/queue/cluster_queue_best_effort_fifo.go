@@ -69,6 +69,16 @@ func (cq *ClusterQueueBestEffortFIFO) Delete(w *kueue.Workload) {
 	cq.ClusterQueueImpl.Delete(w)
 }
 
+func (cq *ClusterQueueBestEffortFIFO) DeleteFromQueue(q *Queue) {
+	for _, w := range q.items {
+		key := workload.Key(w.Obj)
+		if wl := cq.inadmissibleWorkloads[key]; wl != nil {
+			delete(cq.inadmissibleWorkloads, key)
+		}
+	}
+	cq.ClusterQueueImpl.DeleteFromQueue(q)
+}
+
 // RequeueIfNotPresent inserts a workload that cannot be admitted into
 // ClusterQueue, unless it is already in the queue. If immediate is true,
 // the workload will be pushed back to heap directly. If not,

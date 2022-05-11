@@ -135,3 +135,43 @@ func TestClusterQueueBestEffortFIFO(t *testing.T) {
 		})
 	}
 }
+
+func TestDeleteFromQueue(t *testing.T) {
+	cq := utiltesting.MakeClusterQueue("cq").Obj()
+	cqImpl, err := newClusterQueueBestEffortFIFO(cq)
+	if err != nil {
+		t.Fatalf("Failed creating ClusterQueue %v", err)
+	}
+	q := utiltesting.MakeQueue("foo", "").ClusterQueue(cq.Name).Obj()
+	qImpl := newQueue(q)
+	wl1 := utiltesting.MakeWorkload("wl1", "").Queue(q.Name).Obj()
+	wl2 := utiltesting.MakeWorkload("wl2", "").Queue(q.Name).Obj()
+	wl3 := utiltesting.MakeWorkload("wl3", "").Queue(q.Name).Obj()
+	wl4 := utiltesting.MakeWorkload("wl4", "").Queue(q.Name).Obj()
+	admissibleworkloads := []*kueue.Workload{wl1, wl2}
+	inadmissibleWorkloads := []*kueue.Workload{wl3, wl4}
+
+	for _, w := range admissibleworkloads {
+		cqImpl.PushOrUpdate(w)
+		qImpl.AddOrUpdate(w)
+	}
+
+	for _, w := range inadmissibleWorkloads {
+		cqImpl.RequeueIfNotPresent(workload.NewInfo(w), false)
+		qImpl.AddOrUpdate(w)
+	}
+
+	wantPending := len(admissibleworkloads) + len(inadmissibleWorkloads)
+	if pending := cqImpl.Pending(); pending != int32(wantPending) {
+		t.Errorf("clusterQueue's workload number not right, want %v, got %v", wantPending, pending)
+	}
+	fifo := cqImpl.(*ClusterQueueBestEffortFIFO)
+	if len(fifo.inadmissibleWorkloads) != len(inadmissibleWorkloads) {
+		t.Errorf("clusterQueue's workload number in inadmissibleWorkloads not right, want %v, got %v", len(inadmissibleWorkloads), len(fifo.inadmissibleWorkloads))
+	}
+
+	cqImpl.DeleteFromQueue(qImpl)
+	if cqImpl.Pending() != 0 {
+		t.Error("clusterQueue should be empty")
+	}
+}
