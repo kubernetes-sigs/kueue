@@ -61,7 +61,7 @@ func TestClusterQueueBestEffortFIFO(t *testing.T) {
 		"re-queue inadmissible workload": {
 			workloadsToAdd:                 []*kueue.Workload{workloads[0]},
 			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[1])},
-			wantActiveWorkloads:            sets.NewString(workloads[0].Name),
+			wantActiveWorkloads:            sets.NewString(workloads[0].Name, workloads[1].Name),
 			wantPending:                    2,
 		},
 		"re-queue admissible workload that was inadmissible": {

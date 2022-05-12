@@ -18,6 +18,7 @@ package queue
 
 import (
 	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -125,4 +126,17 @@ func (cq *ClusterQueueBestEffortFIFO) QueueInadmissibleWorkloads() bool {
 
 func (cq *ClusterQueueBestEffortFIFO) Pending() int32 {
 	return cq.ClusterQueueImpl.Pending() + int32(len(cq.inadmissibleWorkloads))
+}
+
+func (cq *ClusterQueueBestEffortFIFO) Dump() (sets.String, bool) {
+	elements, ok := cq.ClusterQueueImpl.Dump()
+	if !ok && len(cq.inadmissibleWorkloads) == 0 {
+		return sets.NewString(), false
+	}
+
+	for _, w := range cq.inadmissibleWorkloads {
+		elements.Insert(w.Obj.Name)
+	}
+
+	return elements, true
 }

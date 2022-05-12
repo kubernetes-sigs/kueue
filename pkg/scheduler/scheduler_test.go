@@ -1630,6 +1630,9 @@ func TestRequeueAndUpdate(t *testing.T) {
 				status:             "",
 				inadmissibleReason: "didn't fit",
 			},
+			wantWorkloads: map[string]sets.String{
+				"cq": sets.NewString(w1.Name),
+			},
 			wantStatus: kueue.WorkloadStatus{
 				Conditions: []kueue.WorkloadCondition{
 					{
