@@ -77,11 +77,14 @@ func getDefaultPriorityClass(ctx context.Context, client client.Client) (*schedu
 	// we pick the one with the lowest priority value.
 	var defaultPC *schedulingv1.PriorityClass
 	for _, pci := range pcs.Items {
-		if pci.GlobalDefault {
-			if defaultPC == nil || defaultPC.Value > pci.Value {
-				defaultPC = &pci
+		item := pci
+
+		if item.GlobalDefault {
+			if defaultPC == nil || defaultPC.Value > item.Value {
+				defaultPC = &item
 			}
 		}
 	}
+
 	return defaultPC, nil
 }
