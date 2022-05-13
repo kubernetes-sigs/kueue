@@ -797,8 +797,8 @@ func TestSchedule(t *testing.T) {
 			broadcaster := record.NewBroadcaster()
 			recorder := broadcaster.NewRecorder(scheme,
 				corev1.EventSource{Component: constants.ManagerName})
-			qManager := queue.NewManager(cl)
 			cqCache := cache.New(cl)
+			qManager := queue.NewManager(cl, cqCache)
 			// Workloads are loaded into queues or clusterQueues as we add them.
 			for _, q := range queues {
 				if err := qManager.AddQueue(ctx, &q); err != nil {
@@ -1615,8 +1615,8 @@ var ignoreConditionTimestamps = cmpopts.IgnoreFields(kueue.WorkloadCondition{}, 
 
 func TestRequeueAndUpdate(t *testing.T) {
 	cq := utiltesting.MakeClusterQueue("cq").Obj()
-	q1 := utiltesting.MakeQueue("q1", "ns1").ClusterQueue("cq").Obj()
-	w1 := utiltesting.MakeWorkload("w1", "ns1").Queue("q1").Obj()
+	q1 := utiltesting.MakeQueue("q1", "ns1").ClusterQueue(cq.Name).Obj()
+	w1 := utiltesting.MakeWorkload("w1", "ns1").Queue(q1.Name).Obj()
 
 	cases := []struct {
 		name          string
@@ -1691,14 +1691,20 @@ func TestRequeueAndUpdate(t *testing.T) {
 			cl := clientBuilder.Build()
 			broadcaster := record.NewBroadcaster()
 			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.ManagerName})
-			qManager := queue.NewManager(cl)
 			cqCache := cache.New(cl)
+			qManager := queue.NewManager(cl, cqCache)
 			scheduler := New(qManager, cqCache, cl, recorder)
 			if err := qManager.AddQueue(ctx, q1); err != nil {
 				t.Fatalf("Inserting queue %s/%s in manager: %v", q1.Namespace, q1.Name, err)
 			}
 			if err := qManager.AddClusterQueue(ctx, cq); err != nil {
 				t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+			}
+			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Inserting clusterQueue %s to cache: %v", cq.Name, err)
+			}
+			if !cqCache.ClusterQueueActive(cq.Name) {
+				t.Fatalf("Status of ClusterQueue %s should be active", cq.Name)
 			}
 
 			wInfos := qManager.Heads(ctx)
