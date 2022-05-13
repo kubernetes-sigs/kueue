@@ -47,6 +47,7 @@ type Manager struct {
 	cond sync.Cond
 
 	client        client.Client
+	statusChecker StatusChecker
 	clusterQueues map[string]ClusterQueue
 	queues        map[string]*Queue
 
@@ -54,9 +55,10 @@ type Manager struct {
 	cohorts map[string]sets.String
 }
 
-func NewManager(client client.Client) *Manager {
+func NewManager(client client.Client, checker StatusChecker) *Manager {
 	m := &Manager{
 		client:        client,
+		statusChecker: checker,
 		queues:        make(map[string]*Queue),
 		clusterQueues: make(map[string]ClusterQueue),
 		cohorts:       make(map[string]sets.String),
@@ -473,6 +475,10 @@ func (m *Manager) Dump() map[string]sets.String {
 func (m *Manager) heads() []workload.Info {
 	var workloads []workload.Info
 	for cqName, cq := range m.clusterQueues {
+		// Cache might be nil in tests, if cache is nil, we'll skip the check.
+		if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
+			continue
+		}
 		wl := cq.Pop()
 		if wl == nil {
 			continue

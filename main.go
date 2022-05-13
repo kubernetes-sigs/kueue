@@ -113,8 +113,8 @@ func main() {
 		setupLog.Error(err, "Unable to setup cache indexes")
 	}
 
-	queues := queue.NewManager(mgr.GetClient())
 	cCache := cache.New(mgr.GetClient())
+	queues := queue.NewManager(mgr.GetClient(), cCache)
 	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache); err != nil {
 		setupLog.Error(err, "Unable to create controller", "controller", failedCtrl)
 	}

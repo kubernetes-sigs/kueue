@@ -64,6 +64,10 @@ func (r *ResourceFlavorReconciler) Create(e event.CreateEvent) bool {
 	// we should inform clusterQueue controller to broadcast the event.
 	if cqNames := r.cache.AddOrUpdateResourceFlavor(flv.DeepCopy()); len(cqNames) > 0 {
 		r.qManager.QueueInadmissibleWorkloads(cqNames)
+		// If at least one CQ becomes active, then those CQs should now get evaluated by the scheduler;
+		// note that the workloads in those CQs are not necessarily "inadmissible", and hence we trigger a
+		// broadcast here in all cases.
+		r.qManager.Broadcast()
 	}
 	return false
 }
