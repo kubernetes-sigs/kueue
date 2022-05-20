@@ -51,6 +51,10 @@ func NewInfo(w *kueue.Workload) *Info {
 	}
 }
 
+func (i *Info) Update(wl *kueue.Workload) {
+	i.Obj = wl
+}
+
 func Key(w *kueue.Workload) string {
 	return fmt.Sprintf("%s/%s", w.Namespace, w.Name)
 }

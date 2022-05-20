@@ -103,7 +103,7 @@ func TestClusterQueueBestEffortFIFO(t *testing.T) {
 			}
 
 			for _, w := range test.workloadsToAdd {
-				cq.PushOrUpdate(w)
+				cq.PushOrUpdate(workload.NewInfo(w))
 			}
 
 			for _, w := range test.inadmissibleWorkloadsToRequeue {
@@ -114,7 +114,7 @@ func TestClusterQueueBestEffortFIFO(t *testing.T) {
 			}
 
 			for _, w := range test.workloadsToUpdate {
-				cq.PushOrUpdate(w)
+				cq.PushOrUpdate(workload.NewInfo(w))
 			}
 
 			for _, w := range test.workloadsToDelete {
@@ -152,13 +152,15 @@ func TestDeleteFromQueue(t *testing.T) {
 	inadmissibleWorkloads := []*kueue.Workload{wl3, wl4}
 
 	for _, w := range admissibleworkloads {
-		cqImpl.PushOrUpdate(w)
-		qImpl.AddOrUpdate(w)
+		wInfo := workload.NewInfo(w)
+		cqImpl.PushOrUpdate(wInfo)
+		qImpl.AddOrUpdate(wInfo)
 	}
 
 	for _, w := range inadmissibleWorkloads {
-		cqImpl.RequeueIfNotPresent(workload.NewInfo(w), false)
-		qImpl.AddOrUpdate(w)
+		wInfo := workload.NewInfo(w)
+		cqImpl.RequeueIfNotPresent(wInfo, false)
+		qImpl.AddOrUpdate(wInfo)
 	}
 
 	wantPending := len(admissibleworkloads) + len(inadmissibleWorkloads)

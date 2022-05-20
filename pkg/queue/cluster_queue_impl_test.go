@@ -35,14 +35,14 @@ func Test_PushOrUpdate(t *testing.T) {
 	if cq.Pending() != 0 {
 		t.Error("ClusterQueue should be empty")
 	}
-	cq.PushOrUpdate(wl)
+	cq.PushOrUpdate(workload.NewInfo(wl))
 	if cq.Pending() != 1 {
 		t.Error("ClusterQueue should have one workload")
 	}
 
 	// Just used to validate the update operation.
 	wl.ResourceVersion = "1"
-	cq.PushOrUpdate(wl)
+	cq.PushOrUpdate(workload.NewInfo(wl))
 	newWl := cq.Pop()
 	if cq.Pending() != 0 || newWl.Obj.ResourceVersion != "1" {
 		t.Error("failed to update a workload in ClusterQueue")
@@ -52,8 +52,8 @@ func Test_PushOrUpdate(t *testing.T) {
 func Test_Pop(t *testing.T) {
 	cq := newClusterQueueImpl(keyFunc, byCreationTime)
 	now := time.Now()
-	wl1 := utiltesting.MakeWorkload("workload-1", defaultNamespace).Creation(now).Obj()
-	wl2 := utiltesting.MakeWorkload("workload-2", defaultNamespace).Creation(now.Add(time.Second)).Obj()
+	wl1 := workload.NewInfo(utiltesting.MakeWorkload("workload-1", defaultNamespace).Creation(now).Obj())
+	wl2 := workload.NewInfo(utiltesting.MakeWorkload("workload-2", defaultNamespace).Creation(now.Add(time.Second)).Obj())
 	if cq.Pop() != nil {
 		t.Error("ClusterQueue should be empty")
 	}
@@ -76,8 +76,8 @@ func Test_Delete(t *testing.T) {
 	cq := newClusterQueueImpl(keyFunc, byCreationTime)
 	wl1 := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
 	wl2 := utiltesting.MakeWorkload("workload-2", defaultNamespace).Obj()
-	cq.PushOrUpdate(wl1)
-	cq.PushOrUpdate(wl2)
+	cq.PushOrUpdate(workload.NewInfo(wl1))
+	cq.PushOrUpdate(workload.NewInfo(wl2))
 	if cq.Pending() != 2 {
 		t.Error("ClusterQueue should have two workload")
 	}
@@ -95,8 +95,8 @@ func Test_Delete(t *testing.T) {
 
 func Test_Dump(t *testing.T) {
 	cq := newClusterQueueImpl(keyFunc, byCreationTime)
-	wl1 := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
-	wl2 := utiltesting.MakeWorkload("workload-2", defaultNamespace).Obj()
+	wl1 := workload.NewInfo(utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj())
+	wl2 := workload.NewInfo(utiltesting.MakeWorkload("workload-2", defaultNamespace).Obj())
 	if _, ok := cq.Dump(); ok {
 		t.Error("ClusterQueue should be empty")
 	}
@@ -113,7 +113,7 @@ func Test_Info(t *testing.T) {
 	if info := cq.Info(keyFunc(workload.NewInfo(wl))); info != nil {
 		t.Error("workload doesn't exist")
 	}
-	cq.PushOrUpdate(wl)
+	cq.PushOrUpdate(workload.NewInfo(wl))
 	if info := cq.Info(keyFunc(workload.NewInfo(wl))); info == nil {
 		t.Error("expected workload to exist")
 	}
@@ -127,7 +127,7 @@ func Test_AddFromQueue(t *testing.T) {
 			wl.Name: workload.NewInfo(wl),
 		},
 	}
-	cq.PushOrUpdate(wl)
+	cq.PushOrUpdate(workload.NewInfo(wl))
 	if added := cq.AddFromQueue(queue); added {
 		t.Error("expected workload not to be added")
 	}

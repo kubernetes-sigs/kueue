@@ -74,8 +74,7 @@ func (c *ClusterQueueImpl) pushIfNotPresent(info *workload.Info) bool {
 	return c.heap.PushIfNotPresent(info)
 }
 
-func (c *ClusterQueueImpl) PushOrUpdate(w *kueue.Workload) {
-	info := workload.NewInfo(w)
+func (c *ClusterQueueImpl) PushOrUpdate(info *workload.Info) {
 	c.heap.PushOrUpdate(info)
 }
 

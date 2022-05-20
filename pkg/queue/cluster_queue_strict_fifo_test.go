@@ -24,6 +24,7 @@ import (
 	"k8s.io/utils/pointer"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 const (
@@ -62,7 +63,7 @@ func TestFIFOClusterQueue(t *testing.T) {
 		},
 	}
 	for _, w := range ws {
-		q.PushOrUpdate(w)
+		q.PushOrUpdate(workload.NewInfo(w))
 	}
 	got := q.Pop()
 	if got == nil {
@@ -71,12 +72,13 @@ func TestFIFOClusterQueue(t *testing.T) {
 	if got.Obj.Name != "before" {
 		t.Errorf("Popped workload %q want %q", got.Obj.Name, "before")
 	}
-	q.PushOrUpdate(&kueue.Workload{
+	wlInfo := workload.NewInfo(&kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:              "after",
 			CreationTimestamp: metav1.NewTime(now.Add(-time.Minute)),
 		},
 	})
+	q.PushOrUpdate(wlInfo)
 	got = q.Pop()
 	if got == nil {
 		t.Fatal("Queue is empty")
@@ -178,8 +180,8 @@ func TestStrictFIFO(t *testing.T) {
 				t.Fatalf("Failed creating ClusterQueue %v", err)
 			}
 
-			q.PushOrUpdate(tt.w1)
-			q.PushOrUpdate(tt.w2)
+			q.PushOrUpdate(workload.NewInfo(tt.w1))
+			q.PushOrUpdate(workload.NewInfo(tt.w2))
 
 			got := q.Pop()
 			if got == nil {

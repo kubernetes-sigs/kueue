@@ -60,9 +60,9 @@ func (q *Queue) update(apiQueue *kueue.Queue) {
 	q.ClusterQueue = string(apiQueue.Spec.ClusterQueue)
 }
 
-func (q *Queue) AddOrUpdate(w *kueue.Workload) {
-	key := workload.Key(w)
-	q.items[key] = workload.NewInfo(w)
+func (q *Queue) AddOrUpdate(info *workload.Info) {
+	key := workload.Key(info.Obj)
+	q.items[key] = info
 }
 
 func (q *Queue) AddIfNotPresent(w *workload.Info) bool {

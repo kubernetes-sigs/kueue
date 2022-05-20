@@ -47,21 +47,21 @@ func newClusterQueueBestEffortFIFO(cq *kueue.ClusterQueue) (ClusterQueue, error)
 	return cqBE, nil
 }
 
-func (cq *ClusterQueueBestEffortFIFO) PushOrUpdate(w *kueue.Workload) {
-	key := workload.Key(w)
+func (cq *ClusterQueueBestEffortFIFO) PushOrUpdate(wInfo *workload.Info) {
+	key := workload.Key(wInfo.Obj)
 	oldInfo := cq.inadmissibleWorkloads[key]
 	if oldInfo != nil {
 		// update in place if the workload was inadmissible and didn't change
 		// to potentially become admissible.
-		if equality.Semantic.DeepEqual(oldInfo.Obj.Spec, w.Spec) {
-			cq.inadmissibleWorkloads[key] = workload.NewInfo(w)
+		if equality.Semantic.DeepEqual(oldInfo.Obj.Spec, wInfo.Obj.Spec) {
+			cq.inadmissibleWorkloads[key] = wInfo
 			return
 		}
 		// otherwise move or update in place in the queue.
 		delete(cq.inadmissibleWorkloads, key)
 	}
 
-	cq.ClusterQueueImpl.PushOrUpdate(w)
+	cq.ClusterQueueImpl.PushOrUpdate(wInfo)
 }
 
 func (cq *ClusterQueueBestEffortFIFO) Delete(w *kueue.Workload) {
