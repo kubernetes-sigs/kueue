@@ -548,36 +548,17 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		t.Fatalf("Failed adding kueue scheme: %v", err)
 	}
 	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
-		&kueue.Workload{
-			ObjectMeta: metav1.ObjectMeta{Name: "a"},
-			Spec: kueue.WorkloadSpec{
-				PodSets: podSets,
-				Admission: &kueue.Admission{
-					ClusterQueue:  "one",
-					PodSetFlavors: podSetFlavors,
-				},
-			},
-		},
-		&kueue.Workload{
-			ObjectMeta: metav1.ObjectMeta{Name: "c"},
-			Spec: kueue.WorkloadSpec{
-				Admission: &kueue.Admission{ClusterQueue: "one"},
-			},
-		},
-		&kueue.Workload{
-			ObjectMeta: metav1.ObjectMeta{Name: "d"},
-			Spec: kueue.WorkloadSpec{
-				Admission: &kueue.Admission{ClusterQueue: "two"},
-			},
-		},
+		utiltesting.MakeWorkload("a", "").PodSets(podSets).Admit(&kueue.Admission{
+			ClusterQueue:  "one",
+			PodSetFlavors: podSetFlavors,
+		}).Obj(),
+		utiltesting.MakeWorkload("b", "").Admit(&kueue.Admission{
+			ClusterQueue: "one",
+		}).Obj(),
+		utiltesting.MakeWorkload("c", "").PodSets(podSets).Admit(&kueue.Admission{
+			ClusterQueue: "two",
+		}).Obj(),
 	).Build()
-	cache := New(client)
-
-	for _, c := range clusterQueues {
-		if err := cache.AddClusterQueue(context.Background(), &c); err != nil {
-			t.Fatalf("adding clusterQueues: %v", err)
-		}
-	}
 
 	type result struct {
 		Workloads     sets.String
@@ -586,34 +567,25 @@ func TestCacheWorkloadOperations(t *testing.T) {
 
 	steps := []struct {
 		name                 string
-		operation            func() error
+		operation            func(cache *Cache) error
 		wantResults          map[string]result
 		wantAssumedWorkloads map[string]string
 		wantError            string
 	}{
 		{
 			name: "add",
-			operation: func() error {
-				workloads := []kueue.Workload{
-					{
-						ObjectMeta: metav1.ObjectMeta{Name: "a"},
-						Spec: kueue.WorkloadSpec{
-							PodSets: podSets,
-							Admission: &kueue.Admission{
-								ClusterQueue:  "one",
-								PodSetFlavors: podSetFlavors,
-							},
-						},
-					},
-					{
-						ObjectMeta: metav1.ObjectMeta{Name: "b"},
-						Spec: kueue.WorkloadSpec{
-							Admission: &kueue.Admission{ClusterQueue: "two"},
-						},
-					},
+			operation: func(cache *Cache) error {
+				workloads := []*kueue.Workload{
+					utiltesting.MakeWorkload("a", "").PodSets(podSets).Admit(&kueue.Admission{
+						ClusterQueue:  "one",
+						PodSetFlavors: podSetFlavors,
+					}).Obj(),
+					utiltesting.MakeWorkload("d", "").Admit(&kueue.Admission{
+						ClusterQueue: "two",
+					}).Obj(),
 				}
 				for i := range workloads {
-					if !cache.AddOrUpdateWorkload(&workloads[i]) {
+					if !cache.AddOrUpdateWorkload(workloads[i]) {
 						return fmt.Errorf("failed to add workload")
 					}
 				}
@@ -621,25 +593,22 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.NewString("a", "c"),
+					Workloads:     sets.NewString("a", "b"),
 					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:     sets.NewString("b", "d"),
+					Workloads:     sets.NewString("c", "d"),
 					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
 		},
 		{
-			name: "add error no clusterQueue",
-			operation: func() error {
-				w := kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{Name: "a"},
-					Spec: kueue.WorkloadSpec{
-						Admission: &kueue.Admission{ClusterQueue: "three"},
-					},
-				}
-				if !cache.AddOrUpdateWorkload(&w) {
+			name: "add error clusterQueue doesn't exist",
+			operation: func(cache *Cache) error {
+				w := utiltesting.MakeWorkload("d", "").Admit(&kueue.Admission{
+					ClusterQueue: "three",
+				}).Obj()
+				if !cache.AddOrUpdateWorkload(w) {
 					return fmt.Errorf("failed to add workload")
 				}
 				return nil
@@ -647,194 +616,201 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantError: "failed to add workload",
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.NewString("a", "c"),
+					Workloads:     sets.NewString("a", "b"),
 					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:     sets.NewString("b", "d"),
+					Workloads:     sets.NewString("c"),
 					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
 		},
 		{
 			name: "add already exists",
-			operation: func() error {
-				w := kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{Name: "c"},
-					Spec: kueue.WorkloadSpec{
-						Admission: &kueue.Admission{ClusterQueue: "one"},
-					},
-				}
-				if !cache.AddOrUpdateWorkload(&w) {
+			operation: func(cache *Cache) error {
+				w := utiltesting.MakeWorkload("b", "").Admit(&kueue.Admission{
+					ClusterQueue: "one",
+				}).Obj()
+				if !cache.AddOrUpdateWorkload(w) {
 					return fmt.Errorf("failed to add workload")
 				}
 				return nil
 			},
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.NewString("a", "c"),
+					Workloads:     sets.NewString("a", "b"),
 					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:     sets.NewString("b", "d"),
+					Workloads:     sets.NewString("c"),
 					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
 		},
 		{
 			name: "update",
-			operation: func() error {
-				old := kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{Name: "a"},
-					Spec: kueue.WorkloadSpec{
-						Admission: &kueue.Admission{ClusterQueue: "one"},
-					},
-				}
-				latest := kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{Name: "a"},
-					Spec: kueue.WorkloadSpec{
-						PodSets: podSets,
-						Admission: &kueue.Admission{
-							ClusterQueue:  "two",
-							PodSetFlavors: podSetFlavors,
-						},
-					},
-				}
-				return cache.UpdateWorkload(&old, &latest)
+			operation: func(cache *Cache) error {
+				old := utiltesting.MakeWorkload("a", "").Admit(&kueue.Admission{
+					ClusterQueue: "one",
+				}).Obj()
+				latest := utiltesting.MakeWorkload("a", "").PodSets(podSets).Admit(&kueue.Admission{
+					ClusterQueue:  "two",
+					PodSetFlavors: podSetFlavors,
+				}).Obj()
+				return cache.UpdateWorkload(old, latest)
 			},
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.NewString("c"),
+					Workloads:     sets.NewString("b"),
 					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 				"two": {
-					Workloads:     sets.NewString("a", "b", "d"),
+					Workloads:     sets.NewString("a", "c"),
 					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 			},
 		},
 		{
-			name: "update old doesn't exist",
-			operation: func() error {
-				old := kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{Name: "e"},
-					Spec: kueue.WorkloadSpec{
-						Admission: &kueue.Admission{ClusterQueue: "one"},
-					},
-				}
-				latest := kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{Name: "e"},
-					Spec: kueue.WorkloadSpec{
-						Admission: &kueue.Admission{ClusterQueue: "two"},
-					},
-				}
-				return cache.UpdateWorkload(&old, &latest)
+			name: "update error old clusterQueue doesn't exist",
+			operation: func(cache *Cache) error {
+				old := utiltesting.MakeWorkload("d", "").Admit(&kueue.Admission{
+					ClusterQueue: "three",
+				}).Obj()
+				latest := utiltesting.MakeWorkload("d", "").Admit(&kueue.Admission{
+					ClusterQueue: "one",
+				}).Obj()
+				return cache.UpdateWorkload(old, latest)
 			},
+			wantError: "old ClusterQueue doesn't exist",
 			wantResults: map[string]result{
 				"one": {
+					Workloads:     sets.NewString("a", "b"),
+					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
+				},
+				"two": {
 					Workloads:     sets.NewString("c"),
 					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
 				},
-				"two": {
-					Workloads:     sets.NewString("a", "b", "d", "e"),
+			},
+		},
+		{
+			name: "update error new clusterQueue doesn't exist",
+			operation: func(cache *Cache) error {
+				old := utiltesting.MakeWorkload("d", "").Admit(&kueue.Admission{
+					ClusterQueue: "one",
+				}).Obj()
+				latest := utiltesting.MakeWorkload("d", "").Admit(&kueue.Admission{
+					ClusterQueue: "three",
+				}).Obj()
+				return cache.UpdateWorkload(old, latest)
+			},
+			wantError: "new ClusterQueue doesn't exist",
+			wantResults: map[string]result{
+				"one": {
+					Workloads:     sets.NewString("a", "b"),
 					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
+				},
+				"two": {
+					Workloads:     sets.NewString("c"),
+					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
+				},
+			},
+		},
+		{
+			name: "update workload which doesn't exist.",
+			operation: func(cache *Cache) error {
+				old := utiltesting.MakeWorkload("d", "").Admit(&kueue.Admission{
+					ClusterQueue: "one",
+				}).Obj()
+				latest := utiltesting.MakeWorkload("d", "").Admit(&kueue.Admission{
+					ClusterQueue: "two",
+				}).Obj()
+				return cache.UpdateWorkload(old, latest)
+			},
+			wantResults: map[string]result{
+				"one": {
+					Workloads:     sets.NewString("a", "b"),
+					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
+				},
+				"two": {
+					Workloads:     sets.NewString("c", "d"),
+					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
 		},
 		{
 			name: "delete",
-			operation: func() error {
-				w := kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{Name: "a"},
-					Spec: kueue.WorkloadSpec{
-						Admission: &kueue.Admission{ClusterQueue: "two"},
-					},
-				}
-				return cache.DeleteWorkload(&w)
+			operation: func(cache *Cache) error {
+				w := utiltesting.MakeWorkload("a", "").Admit(&kueue.Admission{
+					ClusterQueue: "one",
+				}).Obj()
+				return cache.DeleteWorkload(w)
 			},
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.NewString("c"),
+					Workloads:     sets.NewString("b"),
 					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 				"two": {
-					Workloads:     sets.NewString("b", "d", "e"),
+					Workloads:     sets.NewString("c"),
 					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
 		},
 		{
 			name: "delete error clusterQueue doesn't exist",
-			operation: func() error {
-				w := kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{Name: "a"},
-					Spec: kueue.WorkloadSpec{
-						Admission: &kueue.Admission{ClusterQueue: "three"},
-					},
-				}
-				return cache.DeleteWorkload(&w)
+			operation: func(cache *Cache) error {
+				w := utiltesting.MakeWorkload("a", "").Admit(&kueue.Admission{
+					ClusterQueue: "three",
+				}).Obj()
+				return cache.DeleteWorkload(w)
 			},
 			wantError: "cluster queue not found",
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.NewString("c"),
-					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
+					Workloads:     sets.NewString("a", "b"),
+					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:     sets.NewString("b", "d", "e"),
+					Workloads:     sets.NewString("c"),
 					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
 		},
 		{
-			name: "delete workload doesn't exist",
-			operation: func() error {
-				w := kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{Name: "f"},
-					Spec: kueue.WorkloadSpec{
-						Admission: &kueue.Admission{ClusterQueue: "one"},
-					},
-				}
-				return cache.DeleteWorkload(&w)
+			name: "delete workload which doesn't exist",
+			operation: func(cache *Cache) error {
+				w := utiltesting.MakeWorkload("d", "").Admit(&kueue.Admission{
+					ClusterQueue: "one",
+				}).Obj()
+				return cache.DeleteWorkload(w)
 			},
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.NewString("c"),
-					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
+					Workloads:     sets.NewString("a", "b"),
+					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:     sets.NewString("b", "d", "e"),
+					Workloads:     sets.NewString("c"),
 					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
 		},
 		{
 			name: "assume",
-			operation: func() error {
-				workloads := []kueue.Workload{
-					{
-						ObjectMeta: metav1.ObjectMeta{Name: "a"},
-						Spec: kueue.WorkloadSpec{
-							PodSets: podSets,
-							Admission: &kueue.Admission{
-								ClusterQueue:  "one",
-								PodSetFlavors: podSetFlavors,
-							},
-						},
-					},
-					{
-						ObjectMeta: metav1.ObjectMeta{Name: "f"},
-						Spec: kueue.WorkloadSpec{
-							PodSets: podSets,
-							Admission: &kueue.Admission{
-								ClusterQueue:  "two",
-								PodSetFlavors: podSetFlavors,
-							},
-						},
-					},
+			operation: func(cache *Cache) error {
+				workloads := []*kueue.Workload{
+					utiltesting.MakeWorkload("d", "").PodSets(podSets).Admit(&kueue.Admission{
+						ClusterQueue:  "one",
+						PodSetFlavors: podSetFlavors,
+					}).Obj(),
+					utiltesting.MakeWorkload("e", "").PodSets(podSets).Admit(&kueue.Admission{
+						ClusterQueue:  "two",
+						PodSetFlavors: podSetFlavors,
+					}).Obj(),
 				}
 				for i := range workloads {
-					if err := cache.AssumeWorkload(&workloads[i]); err != nil {
+					if err := cache.AssumeWorkload(workloads[i]); err != nil {
 						return err
 					}
 				}
@@ -842,81 +818,153 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.NewString("a", "c"),
-					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
+					Workloads:     sets.NewString("a", "b", "d"),
+					UsedResources: Resources{"cpu": {"on-demand": 20, "spot": 30}},
 				},
 				"two": {
-					Workloads:     sets.NewString("b", "d", "e", "f"),
+					Workloads:     sets.NewString("c", "e"),
 					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 			},
 			wantAssumedWorkloads: map[string]string{
-				"/a": "one",
-				"/f": "two",
+				"/d": "one",
+				"/e": "two",
 			},
 		},
 		{
-			name: "forget",
-			operation: func() error {
-				w := kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{Name: "a"},
-					Spec: kueue.WorkloadSpec{
-						PodSets: podSets,
-						Admission: &kueue.Admission{
-							ClusterQueue:  "one",
-							PodSetFlavors: podSetFlavors,
-						},
-					},
+			name: "assume error clusterQueue doesn't exist",
+			operation: func(cache *Cache) error {
+				w := utiltesting.MakeWorkload("d", "").PodSets(podSets).Admit(&kueue.Admission{
+					ClusterQueue: "three",
+				}).Obj()
+				if err := cache.AssumeWorkload(w); err != nil {
+					return err
 				}
-				return cache.ForgetWorkload(&w)
+				return nil
 			},
+			wantError: "cluster queue not found",
 			wantResults: map[string]result{
 				"one": {
+					Workloads:     sets.NewString("a", "b"),
+					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
+				},
+				"two": {
 					Workloads:     sets.NewString("c"),
 					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
 				},
+			},
+			wantAssumedWorkloads: map[string]string{},
+		},
+		{
+			name: "forget",
+			operation: func(cache *Cache) error {
+				workloads := []*kueue.Workload{
+					utiltesting.MakeWorkload("d", "").PodSets(podSets).Admit(&kueue.Admission{
+						ClusterQueue:  "one",
+						PodSetFlavors: podSetFlavors,
+					}).Obj(),
+					utiltesting.MakeWorkload("e", "").PodSets(podSets).Admit(&kueue.Admission{
+						ClusterQueue:  "two",
+						PodSetFlavors: podSetFlavors,
+					}).Obj(),
+				}
+				for i := range workloads {
+					if err := cache.AssumeWorkload(workloads[i]); err != nil {
+						return err
+					}
+				}
+
+				w := workloads[0]
+				return cache.ForgetWorkload(w)
+			},
+			wantResults: map[string]result{
+				"one": {
+					Workloads:     sets.NewString("a", "b"),
+					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
+				},
 				"two": {
-					Workloads:     sets.NewString("b", "d", "e", "f"),
+					Workloads:     sets.NewString("c", "e"),
 					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 			},
 			wantAssumedWorkloads: map[string]string{
-				"/f": "two",
+				"/e": "two",
+			},
+		},
+		{
+			name: "forget error workload is not assumed",
+			operation: func(cache *Cache) error {
+				w := utiltesting.MakeWorkload("b", "").Admit(&kueue.Admission{
+					ClusterQueue: "one",
+				}).Obj()
+				if err := cache.ForgetWorkload(w); err != nil {
+					return err
+				}
+				return nil
+			},
+			wantError: "the workload is not assumed",
+			wantResults: map[string]result{
+				"one": {
+					Workloads:     sets.NewString("a", "b"),
+					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
+				},
+				"two": {
+					Workloads:     sets.NewString("c"),
+					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
+				},
 			},
 		},
 		{
 			name: "add assumed workload",
-			operation: func() error {
-				w := kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{Name: "f"},
-					Spec: kueue.WorkloadSpec{
-						PodSets: podSets,
-						Admission: &kueue.Admission{
-							ClusterQueue:  "two",
-							PodSetFlavors: podSetFlavors,
-						},
-					},
+			operation: func(cache *Cache) error {
+				workloads := []*kueue.Workload{
+					utiltesting.MakeWorkload("d", "").PodSets(podSets).Admit(&kueue.Admission{
+						ClusterQueue:  "one",
+						PodSetFlavors: podSetFlavors,
+					}).Obj(),
+					utiltesting.MakeWorkload("e", "").PodSets(podSets).Admit(&kueue.Admission{
+						ClusterQueue:  "two",
+						PodSetFlavors: podSetFlavors,
+					}).Obj(),
 				}
-				if !cache.AddOrUpdateWorkload(&w) {
-					return fmt.Errorf("failed to add workload that was assumed")
+				for i := range workloads {
+					if err := cache.AssumeWorkload(workloads[i]); err != nil {
+						return err
+					}
+				}
+
+				w := workloads[0]
+				if !cache.AddOrUpdateWorkload(w) {
+					return fmt.Errorf("failed to add workload")
 				}
 				return nil
 			},
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.NewString("c"),
-					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
+					Workloads:     sets.NewString("a", "b", "d"),
+					UsedResources: Resources{"cpu": {"on-demand": 20, "spot": 30}},
 				},
 				"two": {
-					Workloads:     sets.NewString("b", "d", "e", "f"),
+					Workloads:     sets.NewString("c", "e"),
 					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
 				},
+			},
+			wantAssumedWorkloads: map[string]string{
+				"/e": "two",
 			},
 		},
 	}
 	for _, step := range steps {
 		t.Run(step.name, func(t *testing.T) {
-			gotError := step.operation()
+			cache := New(client)
+
+			for _, c := range clusterQueues {
+				if err := cache.AddClusterQueue(context.Background(), &c); err != nil {
+					t.Fatalf("Failed adding clusterQueue: %v", err)
+				}
+			}
+
+			gotError := step.operation(cache)
 			if diff := cmp.Diff(step.wantError, messageOrEmpty(gotError)); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
