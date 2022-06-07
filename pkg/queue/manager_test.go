@@ -572,7 +572,7 @@ func TestUpdateWorkload(t *testing.T) {
 			if updated := manager.UpdateWorkload(tc.workloads[0], wl); updated != tc.wantUpdated {
 				t.Errorf("UpdatedWorkload returned %t, want %t", updated, tc.wantUpdated)
 			}
-			q := manager.queues[queueKeyForWorkload(wl)]
+			q := manager.queues[workload.QueueKey(wl)]
 			if q != nil {
 				key := workload.Key(wl)
 				item := q.items[key]
