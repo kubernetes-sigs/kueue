@@ -18,6 +18,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -46,6 +47,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
+	"sigs.k8s.io/kueue/pkg/util/cert"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -108,31 +110,79 @@ func main() {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
+
+	certsReady := make(chan struct{})
+	if err = cert.ManageCerts(mgr, certsReady); err != nil {
+		setupLog.Error(err, "unable to set up cert rotation")
+		os.Exit(1)
+	}
+
+	cCache := cache.New(mgr.GetClient())
+	queues := queue.NewManager(mgr.GetClient(), cCache)
+
+	setupIndexes(mgr)
+
+	setupProbeEndpoints(mgr)
+	// Cert won't be ready until manager starts, so start a goroutine here which
+	// will block until the cert is ready before setting up the controllers.
+	// Controllers who register after manager starts will start directly.
+	go setupControllers(mgr, cCache, queues, certsReady, config.ManageJobsWithoutQueueName)
+
+	ctx := ctrl.SetupSignalHandler()
+	go func() {
+		queues.CleanUpOnContext(ctx)
+	}()
+
+	setupScheduler(ctx, mgr, cCache, queues)
+
+	setupLog.Info("starting manager")
+	if err := mgr.Start(ctx); err != nil {
+		setupLog.Error(err, "problem running manager")
+		os.Exit(1)
+	}
+}
+
+func setupIndexes(mgr ctrl.Manager) {
 	if err := queue.SetupIndexes(mgr.GetFieldIndexer()); err != nil {
 		setupLog.Error(err, "Unable to setup queue indexes")
 	}
 	if err := cache.SetupIndexes(mgr.GetFieldIndexer()); err != nil {
 		setupLog.Error(err, "Unable to setup cache indexes")
 	}
+	if err := job.SetupIndexes(mgr.GetFieldIndexer()); err != nil {
+		setupLog.Error(err, "Unable to setup job indexes")
+	}
+}
 
-	cCache := cache.New(mgr.GetClient())
-	queues := queue.NewManager(mgr.GetClient(), cCache)
+func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, manageJobsWithoutQueueName bool) {
+	// The controllers won't work until the webhooks are operating, and the webhook won't work until the
+	// certs are all in place.
+	setupLog.Info("Waiting for certificate generation to complete")
+	<-certsReady
+	setupLog.Info("Certs ready")
+
 	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache); err != nil {
 		setupLog.Error(err, "Unable to create controller", "controller", failedCtrl)
+		os.Exit(1)
 	}
-	if err = job.NewReconciler(mgr.GetScheme(),
+	if err := job.NewReconciler(mgr.GetScheme(),
 		mgr.GetClient(),
 		mgr.GetEventRecorderFor(constants.JobControllerName),
-		job.WithManageJobsWithoutQueueName(config.ManageJobsWithoutQueueName),
+		job.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName),
 	).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Job")
 		os.Exit(1)
 	}
-	if err = (&kueuev1alpha1.Workload{}).SetupWebhookWithManager(mgr); err != nil {
+	if err := (&kueuev1alpha1.Workload{}).SetupWebhookWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "Workload")
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder
+}
+
+// setupProbeEndpoints registers the health endpoints
+func setupProbeEndpoints(mgr ctrl.Manager) {
+	defer setupLog.Info("Probe endpoints are configured on healthz and readyz")
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")
@@ -142,21 +192,16 @@ func main() {
 		setupLog.Error(err, "unable to set up ready check")
 		os.Exit(1)
 	}
+}
 
-	ctx := ctrl.SetupSignalHandler()
-	go func() {
-		queues.CleanUpOnContext(ctx)
-	}()
-	sched := scheduler.New(queues, cCache, mgr.GetClient(),
-		mgr.GetEventRecorderFor(constants.ManagerName))
-	go func() {
-		sched.Start(ctx)
-	}()
-	setupLog.Info("starting manager")
-	if err := mgr.Start(ctx); err != nil {
-		setupLog.Error(err, "problem running manager")
-		os.Exit(1)
-	}
+func setupScheduler(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager) {
+	sched := scheduler.New(
+		queues,
+		cCache,
+		mgr.GetClient(),
+		mgr.GetEventRecorderFor(constants.ManagerName),
+	)
+	go sched.Start(ctx)
 }
 
 func encodeConfig(cfg *configv1alpha1.Configuration) (string, error) {

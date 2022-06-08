@@ -91,9 +91,16 @@ func NewReconciler(
 // SetupWithManager sets up the controller with the Manager. It indexes workloads
 // based on the owning jobs.
 func (r *JobReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &kueue.Workload{}, ownerKey, func(rawObj client.Object) []string {
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&batchv1.Job{}).
+		Owns(&kueue.Workload{}).
+		Complete(r)
+}
+
+func SetupIndexes(indexer client.FieldIndexer) error {
+	return indexer.IndexField(context.Background(), &kueue.Workload{}, ownerKey, func(o client.Object) []string {
 		// grab the Workload object, extract the owner...
-		wl := rawObj.(*kueue.Workload)
+		wl := o.(*kueue.Workload)
 		owner := metav1.GetControllerOf(wl)
 		if owner == nil {
 			return nil
@@ -102,17 +109,9 @@ func (r *JobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		if owner.APIVersion != "batch/v1" || owner.Kind != "Job" {
 			return nil
 		}
-
 		// ...and if so, return it
 		return []string{owner.Name}
-	}); err != nil {
-		return err
-	}
-
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&batchv1.Job{}).
-		Owns(&kueue.Workload{}).
-		Complete(r)
+	})
 }
 
 //+kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
