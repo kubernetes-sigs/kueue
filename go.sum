@@ -396,6 +396,8 @@ github.com/onsi/gomega v1.7.1/go.mod h1:XdKZgCCFLUoM/7CFJVPcG8C1xQ1AJ0vpAezJrB7J
 github.com/onsi/gomega v1.10.1/go.mod h1:iN09h71vgCQne3DLsj+A5owkum+a2tYe+TOCB1ybHNo=
 github.com/onsi/gomega v1.19.0 h1:4ieX6qQjPP/BfC3mpsAtIGGlxTWPeA3Inl/7DtXw1tw=
 github.com/onsi/gomega v1.19.0/go.mod h1:LY+I3pBVzYsTBU1AnDwOSxaYi9WoWiqgwooUqq9yPro=
+github.com/open-policy-agent/cert-controller v0.3.0 h1:9eUgN3yYMZsfyW7qdW8+CX9YZCUb5R5JfRTj0cqaSVg=
+github.com/open-policy-agent/cert-controller v0.3.0/go.mod h1:uOQW+2tMU51vSxy1Yt162oVUTMdqLuotC0aObQxrh6k=
 github.com/opentracing/opentracing-go v1.1.0/go.mod h1:UkNAQd3GIcIGf0SeVgPpRdFStlNbqXla1AfSYxPUl2o=
 github.com/pascaldekloe/goe v0.0.0-20180627143212-57f6aae5913c/go.mod h1:lzWF7FIEvWOWxwDKqyGYQf6ZUaNfKdP144TG7ZOy1lc=
 github.com/pelletier/go-toml v1.2.0/go.mod h1:5z9KED0ma1S8pY6P1sdut58dfprrGBbd/94hg7ilaic=
@@ -1034,6 +1036,7 @@ k8s.io/klog/v2 v2.2.0/go.mod h1:Od+F08eJP+W3HUb4pSrPpgp9DGU4GzlpG/TmITuYh/Y=
 k8s.io/klog/v2 v2.30.0/go.mod h1:y1WjHnz7Dj687irZUWR/WLkLc5N1YHtjLdmgWjndZn0=
 k8s.io/klog/v2 v2.40.1 h1:P4RRucWk/lFOlDdkAr3mc7iWFkgKrZY9qZMAgek06S4=
 k8s.io/klog/v2 v2.40.1/go.mod h1:y1WjHnz7Dj687irZUWR/WLkLc5N1YHtjLdmgWjndZn0=
+k8s.io/kube-aggregator v0.23.2 h1:6CoZZqNdFc9benrgSJJ0GQGgFtKjI0y3UwlBbioXtc8=
 k8s.io/kube-openapi v0.0.0-20211115234752-e816edb12b65/go.mod h1:sX9MT8g7NVZM5lVL/j8QyCCJe8YSMW30QvGZWaCIDIk=
 k8s.io/kube-openapi v0.0.0-20220124234850-424119656bbf h1:M9XBsiMslw2lb2ZzglC0TOkBPK5NQi0/noUrdnoFwUg=
 k8s.io/kube-openapi v0.0.0-20220124234850-424119656bbf/go.mod h1:sX9MT8g7NVZM5lVL/j8QyCCJe8YSMW30QvGZWaCIDIk=

@@ -7,7 +7,6 @@ Make sure the following conditions are met:
 - A Kubernetes cluster with version 1.21 or newer is running. Learn how to [install the Kubernetes tools](https://kubernetes.io/docs/tasks/tools/).
 - The SuspendJob [feature gate](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/) is enabled. In Kubernetes 1.22 or newer, the feature gate is enabled by default.
 - The kubectl command-line tool has communication with your cluster.
-- The [cert-manager](https://github.com/cert-manager/cert-manager) is installed in your cluster. Learn how to [install cert-manager](https://cert-manager.io/docs/installation/).
 
 ## Install a released version
 
@@ -20,7 +19,7 @@ kubectl apply -f https://github.com/kubernetes-sigs/kueue/releases/download/$VER
 
 ## Install a custom-configured released version
 
-To install a custom-configured released version of Kueue in your cluster, execute the following steps: 
+To install a custom-configured released version of Kueue in your cluster, execute the following steps:
 
 1. Download the release's `manifests.yaml` file:
 
@@ -29,9 +28,9 @@ VERSION=v0.1.0
 wget https://github.com/kubernetes-sigs/kueue/releases/download/$VERSION/manifests.yaml
 ```
 2. With an editor of your preference, open `manifests.yaml`.
-3. In the `kueue-manager-config` ConfigMap manifest, edit the 
+3. In the `kueue-manager-config` ConfigMap manifest, edit the
 `controller_manager_config.yaml` data entry. The entry represents
-the default Kueue Configuration 
+the default Kueue Configuration
 struct ([v1alpha1@v0.1.0](https://pkg.go.dev/sigs.k8s.io/kueue@v0.1.0/apis/config/v1alpha1#Configuration)).
 The contents of the ConfigMap are similar to the following:
 
