@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -699,6 +700,8 @@ func TestHeads(t *testing.T) {
 	}
 }
 
+var ignoreTypeMeta = cmpopts.IgnoreTypes(metav1.TypeMeta{})
+
 // TestHeadAsync ensures that Heads call is blocked until the queues are filled
 // asynchronously.
 func TestHeadsAsync(t *testing.T) {
@@ -707,7 +710,10 @@ func TestHeadsAsync(t *testing.T) {
 		t.Fatalf("Failed adding kueue scheme: %s", err)
 	}
 	now := time.Now().Truncate(time.Second)
-	cq := utiltesting.MakeClusterQueue("fooCq").Obj()
+	clusterQueues := []*kueue.ClusterQueue{
+		utiltesting.MakeClusterQueue("fooCq").Obj(),
+		utiltesting.MakeClusterQueue("barCq").Obj(),
+	}
 	wl := kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:              "a",
@@ -715,68 +721,90 @@ func TestHeadsAsync(t *testing.T) {
 		},
 		Spec: kueue.WorkloadSpec{QueueName: "foo"},
 	}
-	q := kueue.Queue{
-		ObjectMeta: metav1.ObjectMeta{Name: "foo"},
-		Spec: kueue.QueueSpec{
-			ClusterQueue: "fooCq",
-		},
-	}
-	wantHeads := []workload.Info{
+	var newWl kueue.Workload
+	queues := []kueue.Queue{
 		{
-			Obj:          &wl,
-			ClusterQueue: "fooCq",
+			ObjectMeta: metav1.ObjectMeta{Name: "foo"},
+			Spec: kueue.QueueSpec{
+				ClusterQueue: "fooCq",
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "bar"},
+			Spec: kueue.QueueSpec{
+				ClusterQueue: "barCq",
+			},
 		},
 	}
 	cases := map[string]struct {
 		initialObjs []client.Object
 		op          func(context.Context, *Manager)
+		wantHeads   []workload.Info
 	}{
 		"AddClusterQueue": {
-			initialObjs: []client.Object{&wl, &q},
+			initialObjs: []client.Object{&wl, &queues[0]},
 			op: func(ctx context.Context, mgr *Manager) {
-				if err := mgr.AddQueue(ctx, &q); err != nil {
+				if err := mgr.AddQueue(ctx, &queues[0]); err != nil {
 					t.Errorf("Failed adding queue: %s", err)
 				}
 				mgr.AddOrUpdateWorkload(&wl)
 				go func() {
-					if err := mgr.AddClusterQueue(ctx, cq); err != nil {
+					if err := mgr.AddClusterQueue(ctx, clusterQueues[0]); err != nil {
 						t.Errorf("Failed adding clusterQueue: %v", err)
 					}
 				}()
+			},
+			wantHeads: []workload.Info{
+				{
+					Obj:          &wl,
+					ClusterQueue: "fooCq",
+				},
 			},
 		},
 		"AddQueue": {
 			initialObjs: []client.Object{&wl},
 			op: func(ctx context.Context, mgr *Manager) {
-				if err := mgr.AddClusterQueue(ctx, cq); err != nil {
+				if err := mgr.AddClusterQueue(ctx, clusterQueues[0]); err != nil {
 					t.Errorf("Failed adding clusterQueue: %v", err)
 				}
 				go func() {
-					if err := mgr.AddQueue(ctx, &q); err != nil {
+					if err := mgr.AddQueue(ctx, &queues[0]); err != nil {
 						t.Errorf("Failed adding queue: %s", err)
 					}
 				}()
 			},
+			wantHeads: []workload.Info{
+				{
+					Obj:          &wl,
+					ClusterQueue: "fooCq",
+				},
+			},
 		},
 		"AddWorkload": {
 			op: func(ctx context.Context, mgr *Manager) {
-				if err := mgr.AddClusterQueue(ctx, cq); err != nil {
+				if err := mgr.AddClusterQueue(ctx, clusterQueues[0]); err != nil {
 					t.Errorf("Failed adding clusterQueue: %v", err)
 				}
-				if err := mgr.AddQueue(ctx, &q); err != nil {
+				if err := mgr.AddQueue(ctx, &queues[0]); err != nil {
 					t.Errorf("Failed adding queue: %s", err)
 				}
 				go func() {
 					mgr.AddOrUpdateWorkload(&wl)
 				}()
 			},
+			wantHeads: []workload.Info{
+				{
+					Obj:          &wl,
+					ClusterQueue: "fooCq",
+				},
+			},
 		},
 		"UpdateWorkload": {
 			op: func(ctx context.Context, mgr *Manager) {
-				if err := mgr.AddClusterQueue(ctx, cq); err != nil {
+				if err := mgr.AddClusterQueue(ctx, clusterQueues[0]); err != nil {
 					t.Errorf("Failed adding clusterQueue: %v", err)
 				}
-				if err := mgr.AddQueue(ctx, &q); err != nil {
+				if err := mgr.AddQueue(ctx, &queues[0]); err != nil {
 					t.Errorf("Failed adding queue: %s", err)
 				}
 				go func() {
@@ -785,14 +813,20 @@ func TestHeadsAsync(t *testing.T) {
 					mgr.UpdateWorkload(wlCopy, &wl)
 				}()
 			},
+			wantHeads: []workload.Info{
+				{
+					Obj:          &wl,
+					ClusterQueue: "fooCq",
+				},
+			},
 		},
 		"RequeueWorkload": {
 			initialObjs: []client.Object{&wl},
 			op: func(ctx context.Context, mgr *Manager) {
-				if err := mgr.AddClusterQueue(ctx, cq); err != nil {
+				if err := mgr.AddClusterQueue(ctx, clusterQueues[0]); err != nil {
 					t.Errorf("Failed adding clusterQueue: %v", err)
 				}
-				if err := mgr.AddQueue(ctx, &q); err != nil {
+				if err := mgr.AddQueue(ctx, &queues[0]); err != nil {
 					t.Errorf("Failed adding queue: %s", err)
 				}
 				// Remove the initial workload from the manager.
@@ -800,6 +834,72 @@ func TestHeadsAsync(t *testing.T) {
 				go func() {
 					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), true)
 				}()
+			},
+			wantHeads: []workload.Info{
+				{
+					Obj:          &wl,
+					ClusterQueue: "fooCq",
+				},
+			},
+		},
+		"RequeueWithOutOfDateWorkload": {
+			initialObjs: []client.Object{&wl},
+			op: func(ctx context.Context, mgr *Manager) {
+				if err := mgr.AddClusterQueue(ctx, clusterQueues[0]); err != nil {
+					t.Errorf("Failed adding clusterQueue: %v", err)
+				}
+				if err := mgr.AddQueue(ctx, &queues[0]); err != nil {
+					t.Errorf("Failed adding queue: %s", err)
+				}
+
+				newWl = wl
+				newWl.Annotations = map[string]string{"foo": "bar"}
+				if err := mgr.client.Update(ctx, &newWl, &client.UpdateOptions{}); err != nil {
+					t.Errorf("Failed to update the workload; %s", err)
+				}
+				// Remove the initial workload from the manager.
+				mgr.Heads(ctx)
+				go func() {
+					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), true)
+				}()
+			},
+			wantHeads: []workload.Info{
+				{
+					Obj:          &newWl,
+					ClusterQueue: "fooCq",
+				},
+			},
+		},
+		"RequeueWithQueueChangedWorkload": {
+			initialObjs: []client.Object{&wl},
+			op: func(ctx context.Context, mgr *Manager) {
+				for _, cq := range clusterQueues {
+					if err := mgr.AddClusterQueue(ctx, cq); err != nil {
+						t.Errorf("Failed adding clusterQueue: %v", err)
+					}
+				}
+				for _, q := range queues {
+					if err := mgr.AddQueue(ctx, &q); err != nil {
+						t.Errorf("Failed adding queue: %s", err)
+					}
+				}
+
+				newWl = wl
+				newWl.Spec.QueueName = "bar"
+				if err := mgr.client.Update(ctx, &newWl, &client.UpdateOptions{}); err != nil {
+					t.Errorf("Failed to update the workload; %s", err)
+				}
+				// Remove the initial workload from the manager.
+				mgr.Heads(ctx)
+				go func() {
+					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), true)
+				}()
+			},
+			wantHeads: []workload.Info{
+				{
+					Obj:          &newWl,
+					ClusterQueue: "barCq",
+				},
 			},
 		},
 	}
@@ -812,7 +912,7 @@ func TestHeadsAsync(t *testing.T) {
 			go manager.CleanUpOnContext(ctx)
 			tc.op(ctx, manager)
 			heads := manager.Heads(ctx)
-			if diff := cmp.Diff(wantHeads, heads); diff != "" {
+			if diff := cmp.Diff(tc.wantHeads, heads, ignoreTypeMeta); diff != "" {
 				t.Errorf("GetHeads returned wrong heads (-want,+got):\n%s", diff)
 			}
 		})

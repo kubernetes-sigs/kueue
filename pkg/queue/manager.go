@@ -288,24 +288,26 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, imme
 	m.Lock()
 	defer m.Unlock()
 
-	q := m.queues[queueKeyForWorkload(info.Obj)]
-	if q == nil {
-		return false
-	}
-
 	var w kueue.Workload
+	// Always get the newest workload to avoid requeuing the out-of-date obj.
 	err := m.client.Get(ctx, client.ObjectKeyFromObject(info.Obj), &w)
 	// Since the client is cached, the only possible error is NotFound
 	if apierrors.IsNotFound(err) || w.Spec.Admission != nil {
 		return false
 	}
 
-	q.AddIfNotPresent(info)
+	q := m.queues[queueKeyForWorkload(&w)]
+	if q == nil {
+		return false
+	}
+	q.AddOrUpdate(&w)
 	cq := m.clusterQueues[q.ClusterQueue]
 	if cq == nil {
 		return false
 	}
 
+	// TODO(#162) Update the info object instead of constructing one.
+	info = workload.NewInfo(&w)
 	added := cq.RequeueIfNotPresent(info, immediate)
 	if added {
 		m.cond.Broadcast()
