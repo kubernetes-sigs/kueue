@@ -18,6 +18,8 @@ package core
 
 import (
 	"context"
+	"fmt"
+	"reflect"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -104,6 +106,12 @@ func (r *ClusterQueueReconciler) Create(e event.CreateEvent) bool {
 	log := r.log.WithValues("clusterQueue", klog.KObj(cq))
 	log.V(2).Info("ClusterQueue create event")
 	ctx := ctrl.LoggerInto(context.Background(), log)
+
+	if err := r.updateReferences(&kueue.ClusterQueue{}, cq, log); err != nil {
+		log.Error(err, "Failed to update resource flavor reference")
+		return false
+	}
+
 	if err := r.cache.AddClusterQueue(ctx, cq); err != nil {
 		log.Error(err, "Failed to add clusterQueue to cache")
 	}
@@ -120,7 +128,15 @@ func (r *ClusterQueueReconciler) Delete(e event.DeleteEvent) bool {
 		// No need to interact with the cache for other objects.
 		return true
 	}
-	r.log.V(2).Info("ClusterQueue delete event", "clusterQueue", klog.KObj(cq))
+
+	log := r.log.WithValues("clusterQueue", klog.KObj(cq))
+	log.V(2).Info("ClusterQueue delete event")
+	newCq := cq.DeepCopy()
+	newCq.Spec = kueue.ClusterQueueSpec{}
+	if err := r.updateReferences(cq, newCq, log); err != nil {
+		r.log.Error(err, "Fail to remove resource flavor reference")
+		return false
+	}
 	r.cache.DeleteClusterQueue(cq)
 	r.qManager.DeleteClusterQueue(cq)
 	return true
@@ -135,6 +151,15 @@ func (r *ClusterQueueReconciler) Update(e event.UpdateEvent) bool {
 	log := r.log.WithValues("clusterQueue", klog.KObj(cq))
 	log.V(2).Info("ClusterQueue update event")
 
+	// Only catch resource updates.
+	oldCQ, match := e.ObjectOld.(*kueue.ClusterQueue)
+	if match && !reflect.DeepEqual(oldCQ.Spec.Resources, cq.Spec.Resources) {
+		if err := r.updateReferences(oldCQ, cq, log); err != nil {
+			log.Error(err, "Fail to update resource flavor reference")
+			return false
+		}
+	}
+
 	if err := r.cache.UpdateClusterQueue(cq); err != nil {
 		log.Error(err, "Failed to update clusterQueue in cache")
 	}
@@ -142,6 +167,75 @@ func (r *ClusterQueueReconciler) Update(e event.UpdateEvent) bool {
 		log.Error(err, "Failed to update clusterQueue in queue manager")
 	}
 	return true
+}
+
+func (r *ClusterQueueReconciler) updateReferences(oldCQ *kueue.ClusterQueue, cq *kueue.ClusterQueue, log logr.Logger) error {
+	oldFlavors := make(map[string]string)
+	for _, res := range oldCQ.Spec.Resources {
+		for _, f := range res.Flavors {
+			oldFlavors[string(f.Name)] = ""
+		}
+	}
+	newFlavors := make(map[string]string)
+	for _, res := range cq.Spec.Resources {
+		for _, f := range res.Flavors {
+			newFlavors[string(f.Name)] = ""
+		}
+	}
+
+	needRemove := make(map[string]string)
+	for k := range oldFlavors {
+		if _, ok := newFlavors[k]; !ok {
+			needRemove[k] = ""
+		}
+	}
+	needAdd := make(map[string]string)
+	for k := range newFlavors {
+		if _, ok := oldFlavors[k]; !ok {
+			needAdd[k] = ""
+		}
+	}
+
+	if err := r.updateResourceFlavorReferences(cq, needRemove, true, log); err != nil {
+		return err
+	}
+	if err := r.updateResourceFlavorReferences(cq, needAdd, false, log); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *ClusterQueueReconciler) updateResourceFlavorReferences(cq *kueue.ClusterQueue, objs map[string]string, deletion bool, log logr.Logger) error {
+	var resourceFlavors kueue.ResourceFlavorList
+	if err := r.client.List(context.TODO(), &resourceFlavors); err != nil {
+		return err
+	}
+
+	rfCache := make(map[string]*kueue.ResourceFlavor)
+	for i, rf := range resourceFlavors.Items {
+		rfCache[rf.Name] = &resourceFlavors.Items[i]
+	}
+
+	for k := range objs {
+		if rf, ok := rfCache[k]; ok {
+			if deletion {
+				delete(rf.ClusterQueues, kueue.ClusterQueueReference(cq.Name))
+			} else {
+				if rf.ClusterQueues == nil {
+					rf.ClusterQueues = make(map[kueue.ClusterQueueReference]string, 0)
+				}
+				rf.ClusterQueues[kueue.ClusterQueueReference(cq.Name)] = ""
+			}
+			if err := r.client.Update(context.TODO(), rf); err != nil {
+				log.Error(err, "Fail to update resource flavor reference")
+			}
+		} else {
+			log.Error(fmt.Errorf("resource falvor %s does not exit", k), "Cannot find resource flavor")
+		}
+	}
+
+	return nil
 }
 
 func (r *ClusterQueueReconciler) Generic(e event.GenericEvent) bool {

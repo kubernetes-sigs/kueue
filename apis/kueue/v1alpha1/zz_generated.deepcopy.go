@@ -358,6 +358,13 @@ func (in *ResourceFlavor) DeepCopyInto(out *ResourceFlavor) {
 	*out = *in
 	out.TypeMeta = in.TypeMeta
 	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
+	if in.ClusterQueues != nil {
+		in, out := &in.ClusterQueues, &out.ClusterQueues
+		*out = make(map[ClusterQueueReference]string, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
+	}
 	if in.Labels != nil {
 		in, out := &in.Labels, &out.Labels
 		*out = make(map[string]string, len(*in))

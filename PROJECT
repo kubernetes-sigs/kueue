@@ -42,6 +42,10 @@ resources:
   kind: ResourceFlavor
   path: sigs.k8s.io/kueue/apis/kueue/v1alpha1
   version: v1alpha1
+  webhooks:
+    defaulting: true
+    validation: true
+    webhookVersion: v1
 - api:
     crdVersion: v1
   domain: kueue.x-k8s.io

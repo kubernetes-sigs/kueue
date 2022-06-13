@@ -29,6 +29,8 @@ type ResourceFlavor struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
+	ClusterQueues map[ClusterQueueReference]string `json:"clusterQueues,omitempty"`
+
 	// labels associated with this flavor. They are matched against or
 	// converted to node affinity constraints on the workload’s pods.
 	// For example, cloud.provider.com/accelerator: nvidia-tesla-k80.
