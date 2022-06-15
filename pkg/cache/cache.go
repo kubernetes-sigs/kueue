@@ -101,6 +101,7 @@ type ClusterQueue struct {
 	RequestableResources map[corev1.ResourceName][]FlavorLimits
 	UsedResources        Resources
 	Workloads            map[string]*workload.Info
+	AssumedWorkloads     sets.String
 	NamespaceSelector    labels.Selector
 	// The set of key labels from all flavors of a resource.
 	// Those keys define the affinity terms of a workload
@@ -118,8 +119,9 @@ type FlavorLimits struct {
 
 func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*ClusterQueue, error) {
 	cqImpl := &ClusterQueue{
-		Name:      cq.Name,
-		Workloads: map[string]*workload.Info{},
+		Name:             cq.Name,
+		Workloads:        map[string]*workload.Info{},
+		AssumedWorkloads: sets.String{},
 	}
 	if err := cqImpl.update(cq, c.resourceFlavors); err != nil {
 		return nil, err
@@ -218,6 +220,7 @@ func (c *ClusterQueue) deleteWorkload(w *kueue.Workload) {
 	}
 	c.updateWorkloadUsage(wi, -1)
 	delete(c.Workloads, k)
+	c.AssumedWorkloads.Delete(k)
 }
 
 func (c *ClusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
@@ -400,7 +403,6 @@ func (c *Cache) DeleteWorkload(w *kueue.Workload) error {
 	}
 
 	c.cleanupAssumedState(w)
-
 	cq.deleteWorkload(w)
 	return nil
 }
@@ -427,8 +429,20 @@ func (c *Cache) AssumeWorkload(w *kueue.Workload) error {
 	if err := cq.addWorkload(w); err != nil {
 		return err
 	}
-	c.assumedWorkloads[k] = string(w.Spec.Admission.ClusterQueue)
+	c.addAssumedWorkload(cq, k)
 	return nil
+}
+
+func (c *Cache) addAssumedWorkload(cq *ClusterQueue, key string) {
+	c.assumedWorkloads[key] = cq.Name
+	cq.AssumedWorkloads.Insert(key)
+}
+
+func (c *Cache) deleteAssumedWorkload(cqName, key string) {
+	delete(c.assumedWorkloads, key)
+	if cq, exists := c.clusterQueues[cqName]; exists {
+		cq.AssumedWorkloads.Delete(key)
+	}
 }
 
 func (c *Cache) ForgetWorkload(w *kueue.Workload) error {
@@ -493,7 +507,7 @@ func (c *Cache) cleanupAssumedState(w *kueue.Workload) {
 				assumedCQ.deleteWorkload(w)
 			}
 		}
-		delete(c.assumedWorkloads, k)
+		c.deleteAssumedWorkload(string(w.Spec.Admission.ClusterQueue), k)
 	}
 }
 
