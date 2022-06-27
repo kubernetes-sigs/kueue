@@ -561,9 +561,8 @@ func TestCacheWorkloadOperations(t *testing.T) {
 	).Build()
 
 	type result struct {
-		Workloads        sets.String
-		AssumedWorkloads sets.String
-		UsedResources    Resources
+		Workloads     sets.String
+		UsedResources Resources
 	}
 
 	steps := []struct {
@@ -819,41 +818,18 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[string]result{
 				"one": {
-					Workloads:        sets.NewString("a", "b", "d"),
-					AssumedWorkloads: sets.NewString("/d"),
-					UsedResources:    Resources{"cpu": {"on-demand": 20, "spot": 30}},
+					Workloads:     sets.NewString("a", "b", "d"),
+					UsedResources: Resources{"cpu": {"on-demand": 20, "spot": 30}},
 				},
 				"two": {
-					Workloads:        sets.NewString("c", "e"),
-					AssumedWorkloads: sets.NewString("/e"),
-					UsedResources:    Resources{"cpu": {"on-demand": 10, "spot": 15}},
+					Workloads:     sets.NewString("c", "e"),
+					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 			},
 			wantAssumedWorkloads: map[string]string{
 				"/d": "one",
 				"/e": "two",
 			},
-		},
-		{
-			name: "assume existing workload",
-			operation: func(cache *Cache) error {
-				workload := utiltesting.MakeWorkload("a", "").PodSets(podSets).Admit(&kueue.Admission{
-					ClusterQueue:  "one",
-					PodSetFlavors: podSetFlavors,
-				}).Obj()
-				return cache.AssumeWorkload(workload)
-			},
-			wantResults: map[string]result{
-				"one": {
-					Workloads:     sets.NewString("a", "b"),
-					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
-				},
-				"two": {
-					Workloads:     sets.NewString("c"),
-					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
-				},
-			},
-			wantError: "workload already exists in ClusterQueue",
 		},
 		{
 			name: "assume error clusterQueue doesn't exist",
@@ -878,45 +854,6 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				},
 			},
 			wantAssumedWorkloads: map[string]string{},
-		},
-		{
-			name: "update a workload's clusterQueue",
-			operation: func(cache *Cache) error {
-				workloads := []*kueue.Workload{
-					utiltesting.MakeWorkload("d", "").PodSets(podSets).Admit(&kueue.Admission{
-						ClusterQueue:  "one",
-						PodSetFlavors: podSetFlavors,
-					}).Obj(),
-					utiltesting.MakeWorkload("e", "").PodSets(podSets).Admit(&kueue.Admission{
-						ClusterQueue:  "two",
-						PodSetFlavors: podSetFlavors,
-					}).Obj(),
-				}
-				for i := range workloads {
-					if err := cache.AssumeWorkload(workloads[i]); err != nil {
-						return err
-					}
-				}
-
-				newWorkload := utiltesting.MakeWorkload("d", "").PodSets(podSets).Admit(&kueue.Admission{
-					ClusterQueue: "two",
-				}).Obj()
-				return cache.UpdateWorkload(workloads[0], newWorkload)
-			},
-			wantResults: map[string]result{
-				"one": {
-					Workloads:     sets.NewString("a", "b"),
-					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
-				},
-				"two": {
-					Workloads:        sets.NewString("c", "d", "e"),
-					AssumedWorkloads: sets.NewString("/e"),
-					UsedResources:    Resources{"cpu": {"on-demand": 10, "spot": 15}},
-				},
-			},
-			wantAssumedWorkloads: map[string]string{
-				"/e": "two",
-			},
 		},
 		{
 			name: "forget",
@@ -946,9 +883,8 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:        sets.NewString("c", "e"),
-					AssumedWorkloads: sets.NewString("/e"),
-					UsedResources:    Resources{"cpu": {"on-demand": 10, "spot": 15}},
+					Workloads:     sets.NewString("c", "e"),
+					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 			},
 			wantAssumedWorkloads: map[string]string{
@@ -1009,44 +945,8 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					UsedResources: Resources{"cpu": {"on-demand": 20, "spot": 30}},
 				},
 				"two": {
-					Workloads:        sets.NewString("c", "e"),
-					AssumedWorkloads: sets.NewString("/e"),
-					UsedResources:    Resources{"cpu": {"on-demand": 10, "spot": 15}},
-				},
-			},
-			wantAssumedWorkloads: map[string]string{
-				"/e": "two",
-			},
-		},
-		{
-			name: "delete assumed workload",
-			operation: func(cache *Cache) error {
-				workloads := []*kueue.Workload{
-					utiltesting.MakeWorkload("d", "").PodSets(podSets).Admit(&kueue.Admission{
-						ClusterQueue:  "one",
-						PodSetFlavors: podSetFlavors,
-					}).Obj(),
-					utiltesting.MakeWorkload("e", "").PodSets(podSets).Admit(&kueue.Admission{
-						ClusterQueue:  "two",
-						PodSetFlavors: podSetFlavors,
-					}).Obj(),
-				}
-				for i := range workloads {
-					if err := cache.AssumeWorkload(workloads[i]); err != nil {
-						return err
-					}
-				}
-				return cache.DeleteWorkload(workloads[0])
-			},
-			wantResults: map[string]result{
-				"one": {
-					Workloads:     sets.NewString("a", "b"),
+					Workloads:     sets.NewString("c", "e"),
 					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
-				},
-				"two": {
-					Workloads:        sets.NewString("c", "e"),
-					AssumedWorkloads: sets.NewString("/e"),
-					UsedResources:    Resources{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 			},
 			wantAssumedWorkloads: map[string]string{
@@ -1074,11 +974,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				for k := range cq.Workloads {
 					c.Insert(cq.Workloads[k].Obj.Name)
 				}
-				gotWorkloads[name] = result{
-					Workloads:        c,
-					AssumedWorkloads: cq.AssumedWorkloads,
-					UsedResources:    cq.UsedResources,
-				}
+				gotWorkloads[name] = result{Workloads: c, UsedResources: cq.UsedResources}
 			}
 			if diff := cmp.Diff(step.wantResults, gotWorkloads); diff != "" {
 				t.Errorf("Unexpected clusterQueues (-want,+got):\n%s", diff)
