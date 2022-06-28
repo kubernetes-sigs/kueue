@@ -31,11 +31,12 @@ import (
 	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
+const (
+	testWorkloadName      = "test-workload"
+	testWorkloadNamespace = "test-ns"
+)
+
 func TestValidateWorkload(t *testing.T) {
-	const (
-		objName = "name"
-		objNs   = "ns"
-	)
 	specField := field.NewPath("spec")
 	podSetsField := specField.Child("podSets")
 	testCases := map[string]struct {
@@ -43,13 +44,13 @@ func TestValidateWorkload(t *testing.T) {
 		wantErr  field.ErrorList
 	}{
 		"should have at least one podSet": {
-			workload: testingutil.MakeWorkload(objName, objNs).PodSets(nil).Obj(),
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(nil).Obj(),
 			wantErr: field.ErrorList{
 				field.Required(podSetsField, ""),
 			},
 		},
 		"count should be greater than 0": {
-			workload: testingutil.MakeWorkload(objName, objNs).PodSets([]PodSet{
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets([]PodSet{
 				{
 					Name:  "main",
 					Count: -1,
@@ -70,7 +71,7 @@ func TestValidateWorkload(t *testing.T) {
 			},
 		},
 		"should have valid priorityClassName": {
-			workload: testingutil.MakeWorkload(objName, objNs).PriorityClass("invalid_class").Obj(),
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PriorityClass("invalid_class").Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(specField.Child("priorityClassName"), "invalid_class", ""),
 			},
@@ -84,6 +85,66 @@ func TestValidateWorkload(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantErr[0], errList[0], cmpopts.IgnoreFields(field.Error{}, "Detail")); diff != "" {
 				t.Errorf("ValidateWorkload() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateWorkloadUpdate(t *testing.T) {
+	testCases := map[string]struct {
+		before, after *Workload
+		wantErr       field.ErrorList
+	}{
+		"podSets should not be updated: count": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets([]PodSet{
+				{
+					Name:  "main",
+					Count: 2,
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name: "c",
+								Resources: corev1.ResourceRequirements{
+									Requests: make(corev1.ResourceList),
+								},
+							},
+						},
+					},
+				},
+			}).Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec").Child("podSets"), nil, ""),
+			},
+		},
+		"podSets should not be updated: podSpec": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets([]PodSet{
+				{
+					Name:  "main",
+					Count: 1,
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name: "c-after",
+								Resources: corev1.ResourceRequirements{
+									Requests: make(corev1.ResourceList),
+								},
+							},
+						},
+					},
+				},
+			}).Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec").Child("podSets"), nil, ""),
+			},
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			errList := ValidateWorkloadUpdate(tc.before, tc.after)
+			if diff := cmp.Diff(tc.wantErr, errList, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
+				t.Errorf("ValidateWorkloadUpdate() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
