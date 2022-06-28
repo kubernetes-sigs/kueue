@@ -59,15 +59,15 @@ type Framework struct {
 }
 
 func (f *Framework) Setup() (context.Context, *rest.Config, client.Client) {
-	opts := zap.Options{
-		TimeEncoder: zapcore.RFC3339NanoTimeEncoder,
-		ZapOpts:     []zaplog.Option{zaplog.AddCaller(), zaplog.AddCallerSkip(-1)},
+	opts := func(o *zap.Options) {
+		o.TimeEncoder = zapcore.RFC3339NanoTimeEncoder
+		o.ZapOpts = []zaplog.Option{zaplog.AddCaller(), zaplog.AddCallerSkip(-1)}
 	}
 	ctrl.SetLogger(zap.New(
 		zap.WriteTo(ginkgo.GinkgoWriter),
 		zap.UseDevMode(true),
 		zap.Level(zapcore.Level(-3)),
-		zap.UseFlagOptions(&opts)),
+		opts),
 	)
 
 	ginkgo.By("bootstrapping test environment")
