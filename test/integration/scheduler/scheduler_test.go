@@ -705,13 +705,14 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
 			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, fooCq.Name, wl1)
 
-			ginkgo.By("Deleting foo flavors")
+			ginkgo.By("Deleting clusterQueue and foo flavors")
+			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, fooCq)).To(gomega.Succeed())
 			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, fooFlavor)).To(gomega.Succeed())
 
 			ginkgo.By("Creating another workloads")
 			wl2 := testing.MakeWorkload("wl-2", ns.Name).Queue(fooQ.Name).Request(corev1.ResourceCPU, "1").Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
-			framework.ExpectWorkloadsToBeFrozen(ctx, k8sClient, fooCq.Name, wl2)
+			gomega.Expect(wl2.Status.Conditions).Should(gomega.BeEmpty())
 		})
 	})
 })
