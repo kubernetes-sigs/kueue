@@ -36,7 +36,9 @@ import (
 	"sigs.k8s.io/kueue/pkg/queue"
 )
 
-const wlUpdateChBuffer = 10
+type ClusterQueueUpdateWatcher interface {
+	NotifyClusterQueueUpdate(*kueue.ClusterQueue, *kueue.ClusterQueue)
+}
 
 // ClusterQueueReconciler reconciles a ClusterQueue object
 type ClusterQueueReconciler struct {
@@ -45,15 +47,17 @@ type ClusterQueueReconciler struct {
 	qManager   *queue.Manager
 	cache      *cache.Cache
 	wlUpdateCh chan event.GenericEvent
+	watchers   []ClusterQueueUpdateWatcher
 }
 
-func NewClusterQueueReconciler(client client.Client, qMgr *queue.Manager, cache *cache.Cache) *ClusterQueueReconciler {
+func NewClusterQueueReconciler(client client.Client, qMgr *queue.Manager, cache *cache.Cache, watchers ...ClusterQueueUpdateWatcher) *ClusterQueueReconciler {
 	return &ClusterQueueReconciler{
 		client:     client,
 		log:        ctrl.Log.WithName("cluster-queue-reconciler"),
 		qManager:   qMgr,
 		cache:      cache,
-		wlUpdateCh: make(chan event.GenericEvent, wlUpdateChBuffer),
+		wlUpdateCh: make(chan event.GenericEvent, updateChBuffer),
+		watchers:   watchers,
 	}
 }
 
@@ -92,6 +96,12 @@ func (r *ClusterQueueReconciler) NotifyWorkloadUpdate(w *kueue.Workload) {
 	r.wlUpdateCh <- event.GenericEvent{Object: w}
 }
 
+func (r *ClusterQueueReconciler) notifyWatchers(oldCQ, newCQ *kueue.ClusterQueue) {
+	for _, w := range r.watchers {
+		w.NotifyClusterQueueUpdate(oldCQ, newCQ)
+	}
+}
+
 // Event handlers return true to signal the controller to reconcile the
 // ClusterQueue associated with the event.
 
@@ -120,6 +130,8 @@ func (r *ClusterQueueReconciler) Delete(e event.DeleteEvent) bool {
 		// No need to interact with the cache for other objects.
 		return true
 	}
+	defer r.notifyWatchers(cq, nil)
+
 	r.log.V(2).Info("ClusterQueue delete event", "clusterQueue", klog.KObj(cq))
 	r.cache.DeleteClusterQueue(cq)
 	r.qManager.DeleteClusterQueue(cq)
@@ -127,25 +139,32 @@ func (r *ClusterQueueReconciler) Delete(e event.DeleteEvent) bool {
 }
 
 func (r *ClusterQueueReconciler) Update(e event.UpdateEvent) bool {
-	cq, match := e.ObjectNew.(*kueue.ClusterQueue)
+	oldCq, match := e.ObjectOld.(*kueue.ClusterQueue)
 	if !match {
 		// No need to interact with the cache for other objects.
 		return true
 	}
-	log := r.log.WithValues("clusterQueue", klog.KObj(cq))
+	newCq, match := e.ObjectNew.(*kueue.ClusterQueue)
+	if !match {
+		// No need to interact with the cache for other objects.
+		return true
+	}
+	defer r.notifyWatchers(oldCq, newCq)
+
+	log := r.log.WithValues("clusterQueue", klog.KObj(newCq))
 	log.V(2).Info("ClusterQueue update event")
 
-	if err := r.cache.UpdateClusterQueue(cq); err != nil {
+	if err := r.cache.UpdateClusterQueue(newCq); err != nil {
 		log.Error(err, "Failed to update clusterQueue in cache")
 	}
-	if err := r.qManager.UpdateClusterQueue(cq); err != nil {
+	if err := r.qManager.UpdateClusterQueue(newCq); err != nil {
 		log.Error(err, "Failed to update clusterQueue in queue manager")
 	}
 	return true
 }
 
 func (r *ClusterQueueReconciler) Generic(e event.GenericEvent) bool {
-	r.log.V(3).Info("Got Workload event", "workload", klog.KObj(e.Object))
+	r.log.V(2).Info("Got Workload event", "workload", klog.KObj(e.Object))
 	return true
 }
 

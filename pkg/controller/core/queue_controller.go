@@ -48,7 +48,7 @@ func NewQueueReconciler(client client.Client, queues *queue.Manager) *QueueRecon
 		log:        ctrl.Log.WithName("queue-reconciler"),
 		queues:     queues,
 		client:     client,
-		wlUpdateCh: make(chan event.GenericEvent, wlUpdateChBuffer),
+		wlUpdateCh: make(chan event.GenericEvent, updateChBuffer),
 	}
 }
 

@@ -234,6 +234,17 @@ func (c *ClusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 	}
 }
 
+func (c *ClusterQueue) flavorInUse(flavor string) bool {
+	for _, flvLimits := range c.RequestableResources {
+		for _, l := range flvLimits {
+			if flavor == l.Name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (c *Cache) updateClusterQueues() sets.String {
 	cqs := sets.NewString()
 
@@ -519,6 +530,18 @@ func (c *Cache) deleteClusterQueueFromCohort(cq *ClusterQueue) {
 		delete(c.cohorts, cq.Cohort.Name)
 	}
 	cq.Cohort = nil
+}
+
+func (c *Cache) FlavorInUse(flavor string) (string, bool) {
+	c.RLock()
+	defer c.RUnlock()
+
+	for _, cq := range c.clusterQueues {
+		if cq.flavorInUse(flavor) {
+			return cq.Name, true
+		}
+	}
+	return "", false
 }
 
 func resourceLimitsByName(in []kueue.Resource) map[corev1.ResourceName][]FlavorLimits {

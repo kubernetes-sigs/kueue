@@ -1161,6 +1161,67 @@ func TestClusterQueueUsage(t *testing.T) {
 	}
 }
 
+func TestFlavorInUse(t *testing.T) {
+	rf := utiltesting.MakeResourceFlavor("x86").Obj()
+	flavor := utiltesting.MakeFlavor(rf.Name, "5").Obj()
+	fooCq := utiltesting.MakeClusterQueue("fooCq").
+		Resource(utiltesting.MakeResource("cpu").Flavor(flavor).Obj()).
+		Obj()
+	barCq := utiltesting.MakeClusterQueue("barCq").Obj()
+
+	tests := []struct {
+		name                           string
+		clusterQueues                  []*kueue.ClusterQueue
+		wantInUse                      bool
+		wantInUseInUseClusterQueueName string
+	}{
+		{
+			name: "single clusterQueue with flavor in use",
+			clusterQueues: []*kueue.ClusterQueue{
+				fooCq,
+			},
+			wantInUse:                      true,
+			wantInUseInUseClusterQueueName: fooCq.Name,
+		},
+		{
+			name: "single clusterQueue with no flavor",
+			clusterQueues: []*kueue.ClusterQueue{
+				barCq,
+			},
+		},
+		{
+			name: "multiple clusterQueues with flavor in use",
+			clusterQueues: []*kueue.ClusterQueue{
+				fooCq,
+				barCq,
+			},
+			wantInUse:                      true,
+			wantInUseInUseClusterQueueName: fooCq.Name,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			scheme := runtime.NewScheme()
+			if err := kueue.AddToScheme(scheme); err != nil {
+				t.Fatalf("Failed adding kueue scheme: %v", err)
+			}
+			cache := New(fake.NewClientBuilder().WithScheme(scheme).Build())
+			cache.AddOrUpdateResourceFlavor(rf)
+			for _, cq := range tc.clusterQueues {
+				if err := cache.AddClusterQueue(ctx, cq); err != nil {
+					t.Errorf("failed to add clusterQueue %s", cq.Name)
+				}
+			}
+
+			name, ok := cache.FlavorInUse(string(flavor.Name))
+			if (tc.wantInUse != ok) || (name != tc.wantInUseInUseClusterQueueName) {
+				t.Errorf("flavor is in use by clusterQueue %s, but got %s", tc.wantInUseInUseClusterQueueName, name)
+			}
+		})
+	}
+}
+
 func messageOrEmpty(err error) string {
 	if err == nil {
 		return ""

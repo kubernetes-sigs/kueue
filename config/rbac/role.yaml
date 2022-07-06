@@ -121,9 +121,17 @@ rules:
   resources:
   - resourceflavors
   verbs:
+  - delete
   - get
   - list
+  - update
   - watch
+- apiGroups:
+  - kueue.x-k8s.io
+  resources:
+  - resourceflavors/finalizers
+  verbs:
+  - update
 - apiGroups:
   - kueue.x-k8s.io
   resources:
