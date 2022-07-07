@@ -308,7 +308,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 	log.V(2).Info("Workload assumed in the cache")
 
 	s.admissionRoutineWrapper.Run(func() {
-		err := s.client.Update(ctx, newWorkload)
+		err := s.client.Update(ctx, newWorkload.DeepCopy())
 		if err == nil {
 			s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v", admission.ClusterQueue)
 			log.V(2).Info("Workload successfully admitted and assigned flavors")
