@@ -53,8 +53,8 @@ var (
 		prometheus.GaugeOpts{
 			Subsystem: subsystemName,
 			Name:      "pending_workloads",
-			Help:      "Number of pending workloads, per queue and cluster_queue.",
-		}, []string{"cluster_queue", "queue"})
+			Help:      "Number of pending workloads, per cluster_queue.",
+		}, []string{"cluster_queue"})
 )
 
 func AdmissionAttempt(result AdmissionResult, duration time.Duration) {
