@@ -520,26 +520,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Expect(k8sClient.Create(ctx, fooFlavor)).Should(gomega.Succeed())
 			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, fooCq.Name, wl)
 		})
-
-		ginkgo.It("Should be inactive when corresponding flavors deleted", func() {
-			ginkgo.By("Creating foo flavors")
-			fooFlavor := testing.MakeResourceFlavor("foo-flavor").Obj()
-			gomega.Expect(k8sClient.Create(ctx, fooFlavor)).Should(gomega.Succeed())
-
-			ginkgo.By("Creating one workload")
-			wl1 := testing.MakeWorkload("workload", ns.Name).Queue(fooQ.Name).Request(corev1.ResourceCPU, "1").Obj()
-			gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
-			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, fooCq.Name, wl1)
-
-			ginkgo.By("Deleting clusterQueue and foo flavors")
-			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, fooCq)).To(gomega.Succeed())
-			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, fooFlavor)).To(gomega.Succeed())
-
-			ginkgo.By("Creating another workloads")
-			wl2 := testing.MakeWorkload("wl-2", ns.Name).Queue(fooQ.Name).Request(corev1.ResourceCPU, "1").Obj()
-			gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
-			gomega.Expect(wl2.Status.Conditions).Should(gomega.BeEmpty())
-		})
 	})
 
 	ginkgo.When("Using taints in resourceFlavors", func() {
