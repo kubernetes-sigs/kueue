@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
 )
@@ -40,13 +41,15 @@ type QueueReconciler struct {
 	client     client.Client
 	log        logr.Logger
 	queues     *queue.Manager
+	cache      *cache.Cache
 	wlUpdateCh chan event.GenericEvent
 }
 
-func NewQueueReconciler(client client.Client, queues *queue.Manager) *QueueReconciler {
+func NewQueueReconciler(client client.Client, queues *queue.Manager, cache *cache.Cache) *QueueReconciler {
 	return &QueueReconciler{
 		log:        ctrl.Log.WithName("queue-reconciler"),
 		queues:     queues,
+		cache:      cache,
 		client:     client,
 		wlUpdateCh: make(chan event.GenericEvent, updateChBuffer),
 	}
@@ -98,7 +101,10 @@ func (r *QueueReconciler) Create(e event.CreateEvent) bool {
 	log.V(2).Info("Queue create event")
 	ctx := logr.NewContext(context.Background(), log)
 	if err := r.queues.AddQueue(ctx, q); err != nil {
-		log.Error(err, "Failed to add queue to system")
+		log.Error(err, "Failed to add queue to the queueing system")
+	}
+	if err := r.cache.AddQueue(q); err != nil {
+		log.Error(err, "Failed to add queue to the cache")
 	}
 	return true
 }
@@ -111,6 +117,7 @@ func (r *QueueReconciler) Delete(e event.DeleteEvent) bool {
 	}
 	r.log.V(2).Info("Queue delete event", "queue", klog.KObj(q))
 	r.queues.DeleteQueue(q)
+	r.cache.DeleteQueue(q)
 	return true
 }
 
@@ -123,7 +130,11 @@ func (r *QueueReconciler) Update(e event.UpdateEvent) bool {
 	log := r.log.WithValues("queue", klog.KObj(q))
 	log.V(2).Info("Queue update event")
 	if err := r.queues.UpdateQueue(q); err != nil {
-		log.Error(err, "Failed to update queue in system")
+		log.Error(err, "Failed to update queue in the queueing system")
+	}
+	oldQ := e.ObjectOld.(*kueue.Queue)
+	if err := r.cache.UpdateQueue(oldQ, q); err != nil {
+		log.Error(err, "Failed to update queue in the cache")
 	}
 	return true
 }

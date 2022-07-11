@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -461,7 +462,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			cache := New(fake.NewClientBuilder().WithScheme(scheme).Build())
 			tc.operation(cache)
 			if diff := cmp.Diff(tc.wantClusterQueues, cache.clusterQueues,
-				cmpopts.IgnoreFields(ClusterQueue{}, "Cohort", "Workloads")); diff != "" {
+				cmpopts.IgnoreFields(ClusterQueue{}, "Cohort", "Workloads"), cmpopts.IgnoreUnexported(ClusterQueue{})); diff != "" {
 				t.Errorf("Unexpected clusterQueues (-want,+got):\n%s", diff)
 			}
 
@@ -547,7 +548,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 	if err := kueue.AddToScheme(scheme); err != nil {
 		t.Fatalf("Failed adding kueue scheme: %v", err)
 	}
-	client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		utiltesting.MakeWorkload("a", "").PodSets(podSets).Admit(&kueue.Admission{
 			ClusterQueue:  "one",
 			PodSetFlavors: podSetFlavors,
@@ -583,11 +584,10 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					utiltesting.MakeWorkload("d", "").Admit(&kueue.Admission{
 						ClusterQueue: "two",
 					}).Obj(),
+					utiltesting.MakeWorkload("pending", "").Obj(),
 				}
 				for i := range workloads {
-					if !cache.AddOrUpdateWorkload(workloads[i]) {
-						return fmt.Errorf("failed to add workload")
-					}
+					cache.AddOrUpdateWorkload(workloads[i])
 				}
 				return nil
 			},
@@ -956,7 +956,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 	}
 	for _, step := range steps {
 		t.Run(step.name, func(t *testing.T) {
-			cache := New(client)
+			cache := New(cl)
 
 			for _, c := range clusterQueues {
 				if err := cache.AddClusterQueue(context.Background(), &c); err != nil {
@@ -1156,6 +1156,254 @@ func TestClusterQueueUsage(t *testing.T) {
 			}
 			if workloads != tc.wantWorkloads {
 				t.Errorf("Got %d workloads, want %d", workloads, tc.wantWorkloads)
+			}
+		})
+	}
+}
+
+func TestCacheQueueOperations(t *testing.T) {
+	cqs := []*kueue.ClusterQueue{
+		utiltesting.MakeClusterQueue("foo").Obj(),
+		utiltesting.MakeClusterQueue("bar").Obj(),
+	}
+	queues := []*kueue.Queue{
+		utiltesting.MakeQueue("alpha", "ns1").ClusterQueue("foo").Obj(),
+		utiltesting.MakeQueue("beta", "ns2").ClusterQueue("foo").Obj(),
+		utiltesting.MakeQueue("gamma", "ns1").ClusterQueue("bar").Obj(),
+	}
+	workloads := []*kueue.Workload{
+		utiltesting.MakeWorkload("job1", "ns1").Queue("alpha").Admit(utiltesting.MakeAdmission("foo").Obj()).Obj(),
+		utiltesting.MakeWorkload("job2", "ns2").Queue("beta").Admit(utiltesting.MakeAdmission("foo").Obj()).Obj(),
+		utiltesting.MakeWorkload("job3", "ns1").Queue("gamma").Admit(utiltesting.MakeAdmission("bar").Obj()).Obj(),
+		utiltesting.MakeWorkload("job4", "ns2").Queue("beta").Admit(utiltesting.MakeAdmission("foo").Obj()).Obj(),
+	}
+	insertAllClusterQueues := func(ctx context.Context, cl client.Client, cache *Cache) error {
+		for _, cq := range cqs {
+			cq := cq.DeepCopy()
+			if err := cl.Create(ctx, cq); err != nil {
+				return err
+			}
+			if err := cache.AddClusterQueue(ctx, cq); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	insertAllQueues := func(ctx context.Context, cl client.Client, cache *Cache) error {
+		for _, q := range queues {
+			q := q.DeepCopy()
+			if err := cl.Create(ctx, q.DeepCopy()); err != nil {
+				return err
+			}
+			if err := cache.AddQueue(q); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	insertAllWorkloads := func(ctx context.Context, cl client.Client, cache *Cache) error {
+		for _, wl := range workloads {
+			wl := wl.DeepCopy()
+			if err := cl.Create(ctx, wl); err != nil {
+				return err
+			}
+			cache.AddOrUpdateWorkload(wl)
+		}
+		return nil
+	}
+	cases := map[string]struct {
+		ops             []func(context.Context, client.Client, *Cache) error
+		wantQueueCounts map[string]map[string]int
+	}{
+		"insert cqs, queues, workloads": {
+			ops: []func(ctx context.Context, cl client.Client, cache *Cache) error{
+				insertAllClusterQueues,
+				insertAllQueues,
+				insertAllWorkloads,
+			},
+			wantQueueCounts: map[string]map[string]int{
+				"foo": {
+					"ns1/alpha": 1,
+					"ns2/beta":  2,
+				},
+				"bar": {
+					"ns1/gamma": 1,
+				},
+			},
+		},
+		"insert cqs, workloads but no queues": {
+			ops: []func(context.Context, client.Client, *Cache) error{
+				insertAllClusterQueues,
+				insertAllWorkloads,
+			},
+			wantQueueCounts: map[string]map[string]int{
+				"foo": {},
+				"bar": {},
+			},
+		},
+		"insert queues, workloads but no cqs": {
+			ops: []func(context.Context, client.Client, *Cache) error{
+				insertAllQueues,
+				insertAllWorkloads,
+			},
+			wantQueueCounts: map[string]map[string]int{},
+		},
+		"insert queues last": {
+			ops: []func(context.Context, client.Client, *Cache) error{
+				insertAllClusterQueues,
+				insertAllWorkloads,
+				insertAllQueues,
+			},
+			wantQueueCounts: map[string]map[string]int{
+				"foo": {
+					"ns1/alpha": 1,
+					"ns2/beta":  2,
+				},
+				"bar": {
+					"ns1/gamma": 1,
+				},
+			},
+		},
+		"insert cqs last": {
+			ops: []func(context.Context, client.Client, *Cache) error{
+				insertAllQueues,
+				insertAllWorkloads,
+				insertAllClusterQueues,
+			},
+			wantQueueCounts: map[string]map[string]int{
+				"foo": {
+					"ns1/alpha": 1,
+					"ns2/beta":  2,
+				},
+				"bar": {
+					"ns1/gamma": 1,
+				},
+			},
+		},
+		"assume": {
+			ops: []func(context.Context, client.Client, *Cache) error{
+				insertAllClusterQueues,
+				insertAllQueues,
+				func(ctx context.Context, cl client.Client, cache *Cache) error {
+					wl := workloads[0].DeepCopy()
+					if err := cl.Create(ctx, wl); err != nil {
+						return err
+					}
+					return cache.AssumeWorkload(wl)
+				},
+			},
+			wantQueueCounts: map[string]map[string]int{
+				"foo": {
+					"ns1/alpha": 1,
+					"ns2/beta":  0,
+				},
+				"bar": {
+					"ns1/gamma": 0,
+				},
+			},
+		},
+		"assume and forget": {
+			ops: []func(context.Context, client.Client, *Cache) error{
+				insertAllClusterQueues,
+				insertAllQueues,
+				func(ctx context.Context, cl client.Client, cache *Cache) error {
+					wl := workloads[0].DeepCopy()
+					if err := cl.Create(ctx, wl); err != nil {
+						return err
+					}
+					if err := cache.AssumeWorkload(wl); err != nil {
+						return err
+					}
+					return cache.ForgetWorkload(wl)
+				},
+			},
+			wantQueueCounts: map[string]map[string]int{
+				"foo": {
+					"ns1/alpha": 0,
+					"ns2/beta":  0,
+				},
+				"bar": {
+					"ns1/gamma": 0,
+				},
+			},
+		},
+		"delete workload": {
+			ops: []func(ctx context.Context, cl client.Client, cache *Cache) error{
+				insertAllClusterQueues,
+				insertAllQueues,
+				insertAllWorkloads,
+				func(ctx context.Context, cl client.Client, cache *Cache) error {
+					return cache.DeleteWorkload(workloads[0])
+				},
+			},
+			wantQueueCounts: map[string]map[string]int{
+				"foo": {
+					"ns1/alpha": 0,
+					"ns2/beta":  2,
+				},
+				"bar": {
+					"ns1/gamma": 1,
+				},
+			},
+		},
+		"delete cq": {
+			ops: []func(ctx context.Context, cl client.Client, cache *Cache) error{
+				insertAllClusterQueues,
+				insertAllQueues,
+				insertAllWorkloads,
+				func(ctx context.Context, cl client.Client, cache *Cache) error {
+					cache.DeleteClusterQueue(cqs[0])
+					return nil
+				},
+			},
+			wantQueueCounts: map[string]map[string]int{
+				"bar": {
+					"ns1/gamma": 1,
+				},
+			},
+		},
+		"delete queue": {
+			ops: []func(ctx context.Context, cl client.Client, cache *Cache) error{
+				insertAllClusterQueues,
+				insertAllQueues,
+				insertAllWorkloads,
+				func(ctx context.Context, cl client.Client, cache *Cache) error {
+					cache.DeleteQueue(queues[0])
+					return nil
+				},
+			},
+			wantQueueCounts: map[string]map[string]int{
+				"foo": {
+					"ns2/beta": 2,
+				},
+				"bar": {
+					"ns1/gamma": 1,
+				},
+			},
+		},
+		// Not tested: changing a workload's queue and changing a queue's cluster queue.
+		// These operations should not be allowed by the webhook.
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			if err := kueue.AddToScheme(scheme); err != nil {
+				t.Fatalf("Failed adding kueue scheme: %v", err)
+			}
+			cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+			cache := New(cl)
+			ctx := context.Background()
+			for i, op := range tc.ops {
+				if err := op(ctx, cl, cache); err != nil {
+					t.Fatalf("Running op %d: %v", i, err)
+				}
+			}
+			qCounts := make(map[string]map[string]int)
+			for _, cq := range cache.clusterQueues {
+				qCounts[cq.Name] = cq.admittedWorkloadsPerQueue
+			}
+			if diff := cmp.Diff(tc.wantQueueCounts, qCounts); diff != "" {
+				t.Errorf("Wrong active workloads counters for queues (-want,+got):\n%s", diff)
 			}
 		})
 	}

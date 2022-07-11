@@ -240,7 +240,7 @@ func (m *Manager) Pending(cq *kueue.ClusterQueue) int32 {
 func (m *Manager) QueueForWorkloadExists(wl *kueue.Workload) bool {
 	m.RLock()
 	defer m.RUnlock()
-	_, ok := m.queues[queueKeyForWorkload(wl)]
+	_, ok := m.queues[workload.QueueKey(wl)]
 	return ok
 
 }
@@ -251,7 +251,7 @@ func (m *Manager) QueueForWorkloadExists(wl *kueue.Workload) bool {
 func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (string, bool) {
 	m.RLock()
 	defer m.RUnlock()
-	q, ok := m.queues[queueKeyForWorkload(wl)]
+	q, ok := m.queues[workload.QueueKey(wl)]
 	if !ok {
 		return "", false
 	}
@@ -268,7 +268,7 @@ func (m *Manager) AddOrUpdateWorkload(w *kueue.Workload) bool {
 }
 
 func (m *Manager) addOrUpdateWorkload(w *kueue.Workload) bool {
-	qKey := queueKeyForWorkload(w)
+	qKey := workload.QueueKey(w)
 	q := m.queues[qKey]
 	if q == nil {
 		return false
@@ -300,7 +300,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, imme
 		return false
 	}
 
-	q := m.queues[queueKeyForWorkload(&w)]
+	q := m.queues[workload.QueueKey(&w)]
 	if q == nil {
 		return false
 	}
@@ -321,7 +321,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, imme
 
 func (m *Manager) DeleteWorkload(w *kueue.Workload) {
 	m.Lock()
-	m.deleteWorkloadFromQueueAndClusterQueue(w, queueKeyForWorkload(w))
+	m.deleteWorkloadFromQueueAndClusterQueue(w, workload.QueueKey(w))
 	m.Unlock()
 }
 
@@ -345,7 +345,7 @@ func (m *Manager) QueueAssociatedInadmissibleWorkloads(w *kueue.Workload) {
 	m.Lock()
 	defer m.Unlock()
 
-	q := m.queues[queueKeyForWorkload(w)]
+	q := m.queues[workload.QueueKey(w)]
 	if q == nil {
 		return
 	}
@@ -417,7 +417,7 @@ func (m *Manager) UpdateWorkload(oldW, w *kueue.Workload) bool {
 	m.Lock()
 	defer m.Unlock()
 	if oldW.Spec.QueueName != w.Spec.QueueName {
-		m.deleteWorkloadFromQueueAndClusterQueue(w, queueKeyForWorkload(oldW))
+		m.deleteWorkloadFromQueueAndClusterQueue(w, workload.QueueKey(oldW))
 	}
 	return m.addOrUpdateWorkload(w)
 }
@@ -486,7 +486,7 @@ func (m *Manager) heads() []workload.Info {
 		wlCopy := *wl
 		wlCopy.ClusterQueue = cqName
 		workloads = append(workloads, wlCopy)
-		q := m.queues[queueKeyForWorkload(wl.Obj)]
+		q := m.queues[workload.QueueKey(wl.Obj)]
 		delete(q.items, workload.Key(wl.Obj))
 	}
 	return workloads

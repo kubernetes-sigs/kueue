@@ -33,11 +33,6 @@ func Key(q *kueue.Queue) string {
 	return fmt.Sprintf("%s/%s", q.Namespace, q.Name)
 }
 
-// queueKeyForWorkload is the key to find the queue for the workload in the index.
-func queueKeyForWorkload(w *kueue.Workload) string {
-	return fmt.Sprintf("%s/%s", w.Namespace, w.Spec.QueueName)
-}
-
 // Queue is the internal implementation of kueue.Queue.
 type Queue struct {
 	Key          string

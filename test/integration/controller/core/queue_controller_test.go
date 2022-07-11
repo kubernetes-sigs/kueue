@@ -47,10 +47,11 @@ var _ = ginkgo.Describe("Queue controller", func() {
 	})
 
 	ginkgo.BeforeEach(func() {
-		clusterQueue = testing.MakeClusterQueue("clusterQueue_queue-controller").
+		clusterQueue = testing.MakeClusterQueue("cluster-queue.queue-controller").
 			Resource(testing.MakeResource(resourceGPU).
 				Flavor(testing.MakeFlavor(flavorModelA, "5").Max("10").Obj()).
 				Flavor(testing.MakeFlavor(flavorModelB, "5").Max("10").Obj()).Obj()).Obj()
+		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 		queue = testing.MakeQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 		gomega.Expect(k8sClient.Create(ctx, queue)).To(gomega.Succeed())
 	})

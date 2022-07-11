@@ -59,6 +59,10 @@ func Key(w *kueue.Workload) string {
 	return fmt.Sprintf("%s/%s", w.Namespace, w.Name)
 }
 
+func QueueKey(w *kueue.Workload) string {
+	return fmt.Sprintf("%s/%s", w.Namespace, w.Spec.QueueName)
+}
+
 func totalRequests(spec *kueue.WorkloadSpec) []PodSetResources {
 	if len(spec.PodSets) == 0 {
 		return nil
