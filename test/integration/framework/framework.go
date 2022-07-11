@@ -43,7 +43,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/workload"
 	// +kubebuilder:scaffold:imports
 )
@@ -248,8 +247,8 @@ func ExpectWorkloadsToBeFrozen(ctx context.Context, k8sClient client.Client, cq 
 	}, Timeout, Interval).Should(gomega.Equal(len(wls)), "Not enough workloads are frozen")
 }
 
-func ExpectPendingWorkloadsMetric(q *kueue.Queue, v int) {
-	metric := metrics.PendingWorkloads.WithLabelValues(string(q.Spec.ClusterQueue), queue.Key(q))
+func ExpectPendingWorkloadsMetric(cq *kueue.ClusterQueue, v int) {
+	metric := metrics.PendingWorkloads.WithLabelValues(cq.Name)
 	gomega.EventuallyWithOffset(1, func() int {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred())

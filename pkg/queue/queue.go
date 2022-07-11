@@ -20,7 +20,6 @@ import (
 	"fmt"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -73,12 +72,4 @@ func (q *Queue) AddIfNotPresent(w *workload.Info) bool {
 		return true
 	}
 	return false
-}
-
-func (q *Queue) reportPendingWorkloads() {
-	metrics.PendingWorkloads.WithLabelValues(q.ClusterQueue, q.Key).Set(float64(len(q.items)))
-}
-
-func (q *Queue) resetPendingWorkloads() {
-	metrics.PendingWorkloads.DeleteLabelValues(q.ClusterQueue, q.Key)
 }
