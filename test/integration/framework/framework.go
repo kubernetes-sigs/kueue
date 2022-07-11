@@ -44,7 +44,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/workload"
-	// +kubebuilder:scaffold:imports
 )
 
 type ManagerSetup func(manager.Manager, context.Context)
@@ -249,6 +248,15 @@ func ExpectWorkloadsToBeFrozen(ctx context.Context, k8sClient client.Client, cq 
 
 func ExpectPendingWorkloadsMetric(cq *kueue.ClusterQueue, v int) {
 	metric := metrics.PendingWorkloads.WithLabelValues(cq.Name)
+	gomega.EventuallyWithOffset(1, func() int {
+		v, err := testutil.GetGaugeMetricValue(metric)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred())
+		return int(v)
+	}, Timeout, Interval).Should(gomega.Equal(v))
+}
+
+func ExpectAdmittedActiveWorkloadsMetric(cq *kueue.ClusterQueue, v int) {
+	metric := metrics.AdmittedActiveWorkloads.WithLabelValues(cq.Name)
 	gomega.EventuallyWithOffset(1, func() int {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred())

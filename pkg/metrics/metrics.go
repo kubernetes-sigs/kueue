@@ -56,6 +56,14 @@ var (
 			Help:      "Number of pending workloads, per cluster_queue.",
 		}, []string{"cluster_queue"},
 	)
+
+	AdmittedActiveWorkloads = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: subsystemName,
+			Name:      "admitted_active_workloads",
+			Help:      "Number of admitted workloads that are active (unsuspended and not finished), per cluster_queue",
+		}, []string{"cluster_queue"},
+	)
 )
 
 func AdmissionAttempt(result AdmissionResult, duration time.Duration) {
@@ -68,5 +76,6 @@ func Register() {
 		admissionAttempts,
 		admissionAttemptLatency,
 		PendingWorkloads,
+		AdmittedActiveWorkloads,
 	)
 }

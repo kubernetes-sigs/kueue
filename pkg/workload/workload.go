@@ -34,7 +34,8 @@ type Info struct {
 	Obj *kueue.Workload
 	// list of total resources requested by the podsets.
 	TotalRequests []PodSetResources
-	// Populated from queue.
+	// Populated from the queue during admission or from the admission field if
+	// already admitted.
 	ClusterQueue string
 }
 
@@ -45,10 +46,14 @@ type PodSetResources struct {
 }
 
 func NewInfo(w *kueue.Workload) *Info {
-	return &Info{
+	info := &Info{
 		Obj:           w,
 		TotalRequests: totalRequests(&w.Spec),
 	}
+	if w.Spec.Admission != nil {
+		info.ClusterQueue = string(w.Spec.Admission.ClusterQueue)
+	}
+	return info
 }
 
 func (i *Info) Update(wl *kueue.Workload) {

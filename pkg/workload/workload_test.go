@@ -133,68 +133,113 @@ func TestPodRequests(t *testing.T) {
 }
 
 func TestNewInfo(t *testing.T) {
-	wl := &kueue.Workload{
-		Spec: kueue.WorkloadSpec{
-			PodSets: []kueue.PodSet{
-				{
-					Name: "driver",
-					Spec: corev1.PodSpec{
-						Containers: containersForRequests(
-							map[corev1.ResourceName]string{
-								corev1.ResourceCPU:    "10m",
-								corev1.ResourceMemory: "512Ki",
-							}),
+	cases := map[string]struct {
+		workload kueue.Workload
+		wantInfo Info
+	}{
+		"pending": {
+			workload: kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						{
+							Name: "driver",
+							Spec: corev1.PodSpec{
+								Containers: containersForRequests(
+									map[corev1.ResourceName]string{
+										corev1.ResourceCPU:    "10m",
+										corev1.ResourceMemory: "512Ki",
+									}),
+							},
+							Count: 1,
+						},
 					},
-					Count: 1,
-				},
-				{
-					Name: "workers",
-					Spec: corev1.PodSpec{
-						Containers: containersForRequests(
-							map[corev1.ResourceName]string{
-								corev1.ResourceCPU:    "5m",
-								corev1.ResourceMemory: "1Mi",
-								"ex.com/gpu":          "1",
-							}),
-					},
-					Count: 3,
 				},
 			},
-			Admission: &kueue.Admission{
-				PodSetFlavors: []kueue.PodSetFlavors{
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
 					{
 						Name: "driver",
+						Requests: Requests{
+							corev1.ResourceCPU:    10,
+							corev1.ResourceMemory: 512 * 1024,
+						},
+					},
+				},
+			},
+		},
+		"admitted": {
+			workload: kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						{
+							Name: "driver",
+							Spec: corev1.PodSpec{
+								Containers: containersForRequests(
+									map[corev1.ResourceName]string{
+										corev1.ResourceCPU:    "10m",
+										corev1.ResourceMemory: "512Ki",
+									}),
+							},
+							Count: 1,
+						},
+						{
+							Name: "workers",
+							Spec: corev1.PodSpec{
+								Containers: containersForRequests(
+									map[corev1.ResourceName]string{
+										corev1.ResourceCPU:    "5m",
+										corev1.ResourceMemory: "1Mi",
+										"ex.com/gpu":          "1",
+									}),
+							},
+							Count: 3,
+						},
+					},
+					Admission: &kueue.Admission{
+						ClusterQueue: "foo",
+						PodSetFlavors: []kueue.PodSetFlavors{
+							{
+								Name: "driver",
+								Flavors: map[corev1.ResourceName]string{
+									corev1.ResourceCPU: "on-demand",
+								},
+							},
+						},
+					},
+				},
+			},
+			wantInfo: Info{
+				ClusterQueue: "foo",
+				TotalRequests: []PodSetResources{
+					{
+						Name: "driver",
+						Requests: Requests{
+							corev1.ResourceCPU:    10,
+							corev1.ResourceMemory: 512 * 1024,
+						},
 						Flavors: map[corev1.ResourceName]string{
 							corev1.ResourceCPU: "on-demand",
+						},
+					},
+					{
+						Name: "workers",
+						Requests: Requests{
+							corev1.ResourceCPU:    15,
+							corev1.ResourceMemory: 3 * 1024 * 1024,
+							"ex.com/gpu":          3,
 						},
 					},
 				},
 			},
 		},
 	}
-	info := NewInfo(wl)
-	wantRequests := []PodSetResources{
-		{
-			Name: "driver",
-			Requests: Requests{
-				corev1.ResourceCPU:    10,
-				corev1.ResourceMemory: 512 * 1024,
-			},
-			Flavors: map[corev1.ResourceName]string{
-				corev1.ResourceCPU: "on-demand",
-			},
-		},
-		{
-			Name: "workers",
-			Requests: Requests{
-				corev1.ResourceCPU:    15,
-				corev1.ResourceMemory: 3 * 1024 * 1024,
-				"ex.com/gpu":          3,
-			},
-		},
-	}
-	if diff := cmp.Diff(info.TotalRequests, wantRequests); diff != "" {
-		t.Errorf("NewInfo returned unexpected total requests (-want,+got):\n%s", diff)
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			info := NewInfo(&tc.workload)
+			if diff := cmp.Diff(info, &tc.wantInfo, cmpopts.IgnoreFields(Info{}, "Obj")); diff != "" {
+				t.Errorf("NewInfo(_) = (-want,+got):\n%s", diff)
+			}
+		})
 	}
 }
 
