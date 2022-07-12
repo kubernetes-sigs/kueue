@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -216,6 +217,7 @@ func (c *ClusterQueue) addWorkload(w *kueue.Workload) error {
 	wi := workload.NewInfo(w)
 	c.Workloads[k] = wi
 	c.updateWorkloadUsage(wi, 1)
+	reportAdmittedActiveWorkloads(wi.ClusterQueue, len(c.Workloads))
 	return nil
 }
 
@@ -227,6 +229,7 @@ func (c *ClusterQueue) deleteWorkload(w *kueue.Workload) {
 	}
 	c.updateWorkloadUsage(wi, -1)
 	delete(c.Workloads, k)
+	reportAdmittedActiveWorkloads(wi.ClusterQueue, len(c.Workloads))
 }
 
 func (c *ClusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
@@ -398,6 +401,7 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	}
 	c.deleteClusterQueueFromCohort(cqImpl)
 	delete(c.clusterQueues, cq.Name)
+	metrics.AdmittedActiveWorkloads.DeleteLabelValues(cq.Name)
 }
 
 func (c *Cache) AddQueue(q *kueue.Queue) error {
@@ -668,4 +672,8 @@ func workloadBelongsToQueue(wl *kueue.Workload, q *kueue.Queue) bool {
 // Key is the key used to index the queue.
 func queueKey(q *kueue.Queue) string {
 	return fmt.Sprintf("%s/%s", q.Namespace, q.Name)
+}
+
+func reportAdmittedActiveWorkloads(cqName string, val int) {
+	metrics.AdmittedActiveWorkloads.WithLabelValues(cqName).Set(float64(val))
 }

@@ -135,6 +135,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
 			gomega.Expect(createdProdJob1.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 			framework.ExpectPendingWorkloadsMetric(prodClusterQ, 0)
+			framework.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
 
 			ginkgo.By("checking a second no-fit prod job does not start")
 			prodJob2 := testing.MakeJob("prod-job2", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "5").Obj()
@@ -146,6 +147,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				return createdProdJob2.Spec.Suspend
 			}, framework.ConsistentDuration, framework.Interval).Should(gomega.Equal(pointer.Bool(true)))
 			framework.ExpectPendingWorkloadsMetric(prodClusterQ, 1)
+			framework.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
 
 			ginkgo.By("checking a dev job starts")
 			devJob := testing.MakeJob("dev-job", ns.Name).Queue(devQueue.Name).Request(corev1.ResourceCPU, "5").Obj()
@@ -158,6 +160,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
 			gomega.Expect(createdDevJob.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
 			framework.ExpectPendingWorkloadsMetric(devClusterQ, 0)
+			framework.ExpectAdmittedActiveWorkloadsMetric(devClusterQ, 1)
 
 			ginkgo.By("checking the second prod job starts when the first finishes")
 			createdProdJob1.Status.Conditions = append(createdProdJob1.Status.Conditions,
@@ -174,6 +177,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
 			gomega.Expect(createdProdJob2.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 			framework.ExpectPendingWorkloadsMetric(prodClusterQ, 0)
+			framework.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
 		})
 
 		ginkgo.It("Should schedule jobs according to their priorities", func() {
@@ -209,6 +213,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Expect(*createdHighPriorityWorkload.Spec.Priority).Should(gomega.Equal(highPriorityClass.Value))
 
 			framework.ExpectPendingWorkloadsMetric(prodClusterQ, 0)
+			framework.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 0)
 			// delay creating the queue until after workloads are created.
 			gomega.Expect(k8sClient.Create(ctx, queue)).Should(gomega.Succeed())
 
@@ -228,6 +233,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
 
 			framework.ExpectPendingWorkloadsMetric(prodClusterQ, 1)
+			framework.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
 		})
 	})
 
@@ -260,6 +266,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.It("Should re-enqueue by the delete event of workload belonging to the same ClusterQueue", func() {
+			ginkgo.By("First big workload starts")
 			job1 := testing.MakeJob("on-demand-job1", ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "4").Obj()
 			gomega.Expect(k8sClient.Create(ctx, job1)).Should(gomega.Succeed())
 
@@ -271,7 +278,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
 			gomega.Expect(createdJob1.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 			framework.ExpectPendingWorkloadsMetric(cq, 0)
+			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 1)
 
+			ginkgo.By("Second big workload is pending")
 			job2 := testing.MakeJob("on-demand-job2", ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "4").Obj()
 			gomega.Expect(k8sClient.Create(ctx, job2)).Should(gomega.Succeed())
 			createdJob2 := &batchv1.Job{}
@@ -281,7 +290,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				return createdJob2.Spec.Suspend
 			}, framework.ConsistentDuration, framework.Interval).Should(gomega.Equal(pointer.Bool(true)))
 			framework.ExpectPendingWorkloadsMetric(cq, 1)
+			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 1)
 
+			ginkgo.By("Third small workload starts")
 			job3 := testing.MakeJob("on-demand-job3", ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "1").Obj()
 			gomega.Expect(k8sClient.Create(ctx, job3)).Should(gomega.Succeed())
 			createdJob3 := &batchv1.Job{}
@@ -292,8 +303,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
 			gomega.Expect(createdJob3.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 			framework.ExpectPendingWorkloadsMetric(cq, 1)
+			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 2)
 
-			ginkgo.By("deleting job1")
+			ginkgo.By("Second big workload starts after the first one is deleted")
 			gomega.Expect(k8sClient.Delete(ctx, job1, client.PropagationPolicy(metav1.DeletePropagationBackground))).Should(gomega.Succeed())
 			// Simulated deletion of workload by ownerReference of job1.
 			gomega.Expect(k8sClient.Delete(ctx,
@@ -308,6 +320,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
 			gomega.Expect(createdJob2.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 			framework.ExpectPendingWorkloadsMetric(cq, 0)
+			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 2)
 		})
 
 		ginkgo.It("Should re-enqueue by the delete event of workload belonging to the same Cohort", func() {
@@ -325,6 +338,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			fooQ := testing.MakeQueue("foo-queue", ns.Name).ClusterQueue(fooCQ.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, fooQ)).Should(gomega.Succeed())
 
+			ginkgo.By("First big workload starts")
 			job1 := testing.MakeJob("on-demand-job1", ns.Name).Queue(fooQ.Name).Request(corev1.ResourceCPU, "8").Obj()
 			gomega.Expect(k8sClient.Create(ctx, job1)).Should(gomega.Succeed())
 
@@ -336,7 +350,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
 			gomega.Expect(createdJob1.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 			framework.ExpectPendingWorkloadsMetric(fooCQ, 0)
+			framework.ExpectAdmittedActiveWorkloadsMetric(fooCQ, 1)
 
+			ginkgo.By("Second big workload is pending")
 			job2 := testing.MakeJob("on-demand-job2",
 				ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "8").Obj()
 			gomega.Expect(k8sClient.Create(ctx, job2)).Should(gomega.Succeed())
@@ -347,7 +363,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				return createdJob2.Spec.Suspend
 			}, framework.ConsistentDuration, framework.Interval).Should(gomega.Equal(pointer.Bool(true)))
 			framework.ExpectPendingWorkloadsMetric(cq, 1)
+			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 0)
 
+			ginkgo.By("Third small workload starts")
 			job3 := testing.MakeJob("on-demand-job3", ns.Name).Queue(fooQ.Name).Request(corev1.ResourceCPU, "2").Obj()
 			gomega.Expect(k8sClient.Create(ctx, job3)).Should(gomega.Succeed())
 			createdJob3 := &batchv1.Job{}
@@ -358,8 +376,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
 			gomega.Expect(createdJob3.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 			framework.ExpectPendingWorkloadsMetric(fooCQ, 0)
+			framework.ExpectAdmittedActiveWorkloadsMetric(fooCQ, 2)
 
-			ginkgo.By("deleting job1")
+			ginkgo.By("Second big workload starts after the first one is deleted")
 			gomega.Expect(k8sClient.Delete(ctx, job1, client.PropagationPolicy(metav1.DeletePropagationBackground))).Should(gomega.Succeed())
 			// Simulated deletion of workload by ownerReference of job1.
 			gomega.Expect(k8sClient.Delete(ctx,
@@ -375,6 +394,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
 			gomega.Expect(createdJob2.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 			framework.ExpectPendingWorkloadsMetric(cq, 0)
+			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 1)
 		})
 	})
 
@@ -411,6 +431,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				return createdJob2.Spec.Suspend
 			}, framework.ConsistentDuration, framework.Interval).Should(gomega.Equal(pointer.Bool(true)))
 			framework.ExpectPendingWorkloadsMetric(cq, 1)
+			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 0)
 
 			ginkgo.By("updating ClusterQueue")
 			updatedCq := &kueue.ClusterQueue{}
@@ -427,6 +448,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
 			gomega.Expect(createdJob2.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 			framework.ExpectPendingWorkloadsMetric(cq, 0)
+			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 1)
 		})
 	})
 
@@ -473,6 +495,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				return createdJob.Spec.Suspend
 			}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(true)), "Job should be suspended")
 			framework.ExpectPendingWorkloadsMetric(cq, 1)
+			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 0)
 
 			ginkgo.By("checking the job starts after updating namespace labels to match QC selector")
 			ns.Labels = map[string]string{"dep": "eng"}
@@ -482,6 +505,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				return createdJob.Spec.Suspend
 			}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)), "Job should be unsuspended")
 			framework.ExpectPendingWorkloadsMetric(cq, 0)
+			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 1)
 		})
 	})
 
@@ -513,6 +537,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
 			framework.ExpectWorkloadsToBeFrozen(ctx, k8sClient, fooCQ.Name, wl)
 			framework.ExpectPendingWorkloadsMetric(fooCQ, 1)
+			framework.ExpectAdmittedActiveWorkloadsMetric(fooCQ, 0)
 
 			ginkgo.By("Creating foo flavor")
 			fooFlavor := testing.MakeResourceFlavor("foo-flavor").Obj()
@@ -522,6 +547,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Expect(k8sClient.Create(ctx, fooFlavor)).Should(gomega.Succeed())
 			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, fooCQ.Name, wl)
 			framework.ExpectPendingWorkloadsMetric(fooCQ, 0)
+			framework.ExpectAdmittedActiveWorkloadsMetric(fooCQ, 1)
 		})
 	})
 
@@ -566,12 +592,14 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				return wlCopy.Spec.Admission
 			}, framework.Timeout, framework.Interval).Should(testing.Equal(expectAdmission))
 			framework.ExpectPendingWorkloadsMetric(cq, 0)
+			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 1)
 
 			ginkgo.By("checking a second workload without toleration doesn't start")
 			wl2 := testing.MakeWorkload("on-demand-wl2", ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "5").Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
 			framework.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
 			framework.ExpectPendingWorkloadsMetric(cq, 1)
+			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 1)
 
 			ginkgo.By("checking a third workload with toleration starts")
 			wl3 := testing.MakeWorkload("on-demand-wl3", ns.Name).Queue(queue.Name).Toleration(spotToleration).Request(corev1.ResourceCPU, "5").Obj()
@@ -583,6 +611,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				return wlCopy.Spec.Admission
 			}, framework.Timeout, framework.Interval).Should(testing.Equal(expectAdmission))
 			framework.ExpectPendingWorkloadsMetric(cq, 1)
+			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 2)
 		})
 	})
 
@@ -626,6 +655,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
 			gomega.Expect(createdJob1.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
 			framework.ExpectPendingWorkloadsMetric(cq, 0)
+			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 1)
 
 			ginkgo.By("checking a second job with affinity to on-demand")
 			job2 := testing.MakeJob("affinity-job", ns.Name).Queue(queue.Name).
@@ -641,6 +671,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Expect(len(createdJob2.Spec.Template.Spec.NodeSelector)).Should(gomega.Equal(2))
 			gomega.Expect(createdJob2.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 			framework.ExpectPendingWorkloadsMetric(cq, 0)
+			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 2)
 		})
 	})
 
@@ -682,6 +713,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				return createdJob.Spec.Suspend
 			}, framework.ConsistentDuration, framework.Interval).Should(gomega.Equal(pointer.Bool(true)))
 			framework.ExpectPendingWorkloadsMetric(cq, 1)
+			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 0)
 
 			ginkgo.By("checking the job starts when a fallback ClusterQueue gets added")
 			fallbackClusterQueue := testing.MakeClusterQueue("fallback-cq").
@@ -702,6 +734,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
 			gomega.Expect(createdJob.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 			framework.ExpectPendingWorkloadsMetric(cq, 0)
+			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 1)
 		})
 
 		ginkgo.It("Should schedule workloads borrowing quota from ClusterQueues in the same Cohort", func() {
@@ -741,8 +774,11 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			framework.ExpectWorkloadsToBePending(ctx, k8sClient, wl1, wl2)
 			framework.ExpectPendingWorkloadsMetric(prodBEClusterQ, 1)
 			framework.ExpectPendingWorkloadsMetric(devBEClusterQ, 1)
+			framework.ExpectAdmittedActiveWorkloadsMetric(prodBEClusterQ, 0)
+			framework.ExpectAdmittedActiveWorkloadsMetric(devBEClusterQ, 0)
 
-			// Make sure workloads are in the same scheduling cycle.
+			// Delay cluster queue creation to make sure workloads are in the same
+			// scheduling cycle.
 			testBEClusterQ := testing.MakeClusterQueue("test-be-cq").
 				Cohort("be").
 				Resource(testing.MakeResource(corev1.ResourceCPU).
@@ -759,6 +795,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, devBEClusterQ.Name, wl2)
 			framework.ExpectPendingWorkloadsMetric(prodBEClusterQ, 0)
 			framework.ExpectPendingWorkloadsMetric(devBEClusterQ, 0)
+			framework.ExpectAdmittedActiveWorkloadsMetric(prodBEClusterQ, 1)
+			framework.ExpectAdmittedActiveWorkloadsMetric(devBEClusterQ, 1)
 		})
 	})
 
@@ -793,6 +831,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, cq.Name, bigWl)
 			framework.ExpectPendingWorkloadsMetric(cq, 0)
+			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 1)
 
 			smallWl1 := testing.MakeWorkload("small-wl-1", ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "2.5").Obj()
 			smallWl2 := testing.MakeWorkload("small-wl-2", ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "2.5").Obj()
@@ -802,6 +841,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			framework.ExpectWorkloadsToBePending(ctx, k8sClient, smallWl1, smallWl2)
 			framework.ExpectPendingWorkloadsMetric(cq, 2)
+			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 1)
 
 			ginkgo.By("Marking the big workload as finished")
 			framework.UpdateWorkloadStatus(ctx, k8sClient, bigWl, func(wl *kueue.Workload) {
@@ -813,6 +853,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, cq.Name, smallWl1, smallWl2)
 			framework.ExpectPendingWorkloadsMetric(cq, 0)
+			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 2)
 		})
 	})
 

@@ -119,6 +119,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 				UsedResources:    emptyUsedResources,
 			}))
 			framework.ExpectPendingWorkloadsMetric(clusterQueue, 5)
+			framework.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 0)
 
 			ginkgo.By("Admitting workloads")
 			admissions := []*kueue.Admission{
@@ -170,6 +171,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 				},
 			}))
 			framework.ExpectPendingWorkloadsMetric(clusterQueue, 1)
+			framework.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 4)
 
 			ginkgo.By("Finishing workloads")
 			for _, w := range workloads {
@@ -191,6 +193,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 				UsedResources: emptyUsedResources,
 			}))
 			framework.ExpectPendingWorkloadsMetric(clusterQueue, 0)
+			framework.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 0)
 		})
 	})
 })
