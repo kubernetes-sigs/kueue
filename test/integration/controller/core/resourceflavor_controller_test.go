@@ -24,7 +24,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	"sigs.k8s.io/kueue/pkg/controller/core"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 )
@@ -65,7 +64,7 @@ var _ = ginkgo.Describe("ResourceFlavor controller", func() {
 					return nil
 				}
 				return rf.GetFinalizers()
-			}, framework.Timeout, framework.Interval).Should(utiltesting.Equal([]string{core.ResourceFlavorFinalizerName}))
+			}, framework.Timeout, framework.Interval).Should(utiltesting.Equal([]string{kueue.ResourceInUseFinalizerName}))
 		})
 
 		ginkgo.It("Should handle resourceFlavor update events successfully", func() {
@@ -89,7 +88,7 @@ var _ = ginkgo.Describe("ResourceFlavor controller", func() {
 					return nil
 				}
 				return newRF.GetFinalizers()
-			}, framework.Timeout, framework.Interval).Should(utiltesting.Equal([]string{core.ResourceFlavorFinalizerName}))
+			}, framework.Timeout, framework.Interval).Should(utiltesting.Equal([]string{kueue.ResourceInUseFinalizerName}))
 		})
 	})
 
@@ -118,14 +117,17 @@ var _ = ginkgo.Describe("ResourceFlavor controller", func() {
 			gomega.Eventually(func() []string {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf)).To(gomega.Succeed())
 				return rf.GetFinalizers()
-			}, framework.Timeout, framework.Interval).Should(utiltesting.Equal([]string{core.ResourceFlavorFinalizerName}))
+			}, framework.Timeout, framework.Interval).Should(utiltesting.Equal([]string{kueue.ResourceInUseFinalizerName}))
 			gomega.Expect(rf.GetDeletionTimestamp()).ShouldNot(gomega.BeNil())
 
 			ginkgo.By("Update clusterQueue's cohort")
 			var cq kueue.ClusterQueue
-			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &cq)).To(gomega.Succeed())
-			cq.Spec.Cohort = "foo-cohort"
-			gomega.Expect(k8sClient.Update(ctx, &cq)).To(gomega.Succeed())
+			gomega.Eventually(func() error {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &cq)).To(gomega.Succeed())
+				cq.Spec.Cohort = "foo-cohort"
+				return k8sClient.Update(ctx, &cq)
+			}, framework.Timeout, framework.Interval).Should(gomega.Succeed())
+
 			gomega.Eventually(func() error {
 				return k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf)
 			}, framework.Timeout, framework.Interval).Should(gomega.Succeed())
@@ -147,7 +149,7 @@ var _ = ginkgo.Describe("ResourceFlavor controller", func() {
 			gomega.Eventually(func() []string {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf)).To(gomega.Succeed())
 				return rf.GetFinalizers()
-			}, framework.Timeout, framework.Interval).Should(utiltesting.Equal([]string{core.ResourceFlavorFinalizerName}))
+			}, framework.Timeout, framework.Interval).Should(utiltesting.Equal([]string{kueue.ResourceInUseFinalizerName}))
 			gomega.Expect(rf.GetDeletionTimestamp()).ShouldNot(gomega.BeNil())
 
 			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, clusterQueue)).To(gomega.Succeed())

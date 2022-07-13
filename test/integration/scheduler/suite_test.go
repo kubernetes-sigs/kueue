@@ -30,7 +30,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
-	"sigs.k8s.io/kueue/pkg/controller/workload/job"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/workload/job"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
@@ -78,7 +77,7 @@ func managerAndSchedulerSetup(mgr manager.Manager, ctx context.Context) {
 	failedCtrl, err := core.SetupControllers(mgr, queues, cCache)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
-	err = job.SetupIndexes(mgr.GetFieldIndexer())
+	err = workloadjob.SetupIndexes(mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = workloadjob.NewReconciler(mgr.GetScheme(), mgr.GetClient(),
 		mgr.GetEventRecorderFor(constants.JobControllerName)).SetupWithManager(mgr)

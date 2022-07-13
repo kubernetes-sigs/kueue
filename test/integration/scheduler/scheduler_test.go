@@ -74,10 +74,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		spotUntaintedFlavor = testing.MakeResourceFlavor("spot-untainted").Label(instanceKey, "spot-untainted").Obj()
 	})
 
-	ginkgo.AfterEach(func() {
-		gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-	})
-
 	ginkgo.When("Scheduling v1.Job", func() {
 		var (
 			prodClusterQ *kueue.ClusterQueue
@@ -116,9 +112,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, prodClusterQ)).To(gomega.Succeed())
-			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, devClusterQ)).To(gomega.Succeed())
-			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, onDemandFlavor)).To(gomega.Succeed())
+			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			framework.ExpectedClusterQueueToBeDeleted(ctx, k8sClient, prodClusterQ, true)
+			framework.ExpectedClusterQueueToBeDeleted(ctx, k8sClient, devClusterQ, true)
+			framework.ExpectedResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, spotTaintedFlavor)).To(gomega.Succeed())
 			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, spotUntaintedFlavor)).To(gomega.Succeed())
 		})
@@ -260,8 +257,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.AfterEach(func() {
+			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, cq)).To(gomega.Succeed())
-			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, onDemandFlavor)).To(gomega.Succeed())
+			framework.ExpectedResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, spotTaintedFlavor)).To(gomega.Succeed())
 		})
 
@@ -418,7 +416,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, cq)).To(gomega.Succeed())
+			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			framework.ExpectedClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
 			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, onDemandFlavor)).To(gomega.Succeed())
 		})
 		ginkgo.It("Should re-enqueue by the update event of ClusterQueue", func() {
@@ -481,8 +480,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, cq)).ToNot(gomega.HaveOccurred())
-			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, onDemandFlavor)).To(gomega.Succeed())
+			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			framework.ExpectedClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
+			framework.ExpectedResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.It("Should schedule jobs from the selected namespaces", func() {
@@ -528,7 +528,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, fooCQ)).To(gomega.Succeed())
+			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			framework.ExpectedClusterQueueToBeDeleted(ctx, k8sClient, fooCQ, true)
 		})
 
 		ginkgo.It("Should be inactive until the flavor is created", func() {
@@ -541,10 +542,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			ginkgo.By("Creating foo flavor")
 			fooFlavor := testing.MakeResourceFlavor("foo-flavor").Obj()
+			gomega.Expect(k8sClient.Create(ctx, fooFlavor)).Should(gomega.Succeed())
 			defer func() {
 				gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, fooFlavor)).To(gomega.Succeed())
 			}()
-			gomega.Expect(k8sClient.Create(ctx, fooFlavor)).Should(gomega.Succeed())
 			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, fooCQ.Name, wl)
 			framework.ExpectPendingWorkloadsMetric(fooCQ, 0)
 			framework.ExpectAdmittedActiveWorkloadsMetric(fooCQ, 1)
@@ -575,8 +576,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, cq)).To(gomega.Succeed())
-			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, onDemandFlavor)).To(gomega.Succeed())
+			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			framework.ExpectedClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
+			framework.ExpectedResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, spotTaintedFlavor)).To(gomega.Succeed())
 		})
 
@@ -638,8 +640,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, cq)).ToNot(gomega.HaveOccurred())
-			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, onDemandFlavor)).To(gomega.Succeed())
+			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			framework.ExpectedClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
+			framework.ExpectedResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, spotUntaintedFlavor)).To(gomega.Succeed())
 		})
 
@@ -676,30 +679,35 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	})
 
 	ginkgo.When("Using cohorts for fair-sharing", func() {
+		var (
+			prodBEClusterQ *kueue.ClusterQueue
+			devBEClusterQ  *kueue.ClusterQueue
+		)
+
 		ginkgo.BeforeEach(func() {
 			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).Should(gomega.Succeed())
 			gomega.Expect(k8sClient.Create(ctx, spotTaintedFlavor)).Should(gomega.Succeed())
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, onDemandFlavor)).To(gomega.Succeed())
+			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			framework.ExpectedClusterQueueToBeDeleted(ctx, k8sClient, prodBEClusterQ, true)
+			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, devBEClusterQ)).ToNot(gomega.HaveOccurred())
+			framework.ExpectedResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, spotTaintedFlavor)).To(gomega.Succeed())
 		})
 
 		ginkgo.It("Should schedule jobs using borrowed ClusterQueue", func() {
-			cq := testing.MakeClusterQueue("cluster-queue").
+			prodBEClusterQ = testing.MakeClusterQueue("prod-be-cq").
 				Cohort("be").
 				Resource(testing.MakeResource(corev1.ResourceCPU).
 					Flavor(testing.MakeFlavor(spotTaintedFlavor.Name, "5").Max("5").Obj()).
 					Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Obj()).
 					Obj()).
 				Obj()
-			gomega.Expect(k8sClient.Create(ctx, cq)).Should(gomega.Succeed())
-			defer func() {
-				gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, cq)).ToNot(gomega.HaveOccurred())
-			}()
+			gomega.Expect(k8sClient.Create(ctx, prodBEClusterQ)).Should(gomega.Succeed())
 
-			queue := testing.MakeQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			queue := testing.MakeQueue("queue", ns.Name).ClusterQueue(prodBEClusterQ.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, queue)).Should(gomega.Succeed())
 
 			ginkgo.By("checking a no-fit job does not start")
@@ -712,12 +720,12 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 				return createdJob.Spec.Suspend
 			}, framework.ConsistentDuration, framework.Interval).Should(gomega.Equal(pointer.Bool(true)))
-			framework.ExpectPendingWorkloadsMetric(cq, 1)
-			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 0)
+			framework.ExpectPendingWorkloadsMetric(prodBEClusterQ, 1)
+			framework.ExpectAdmittedActiveWorkloadsMetric(prodBEClusterQ, 0)
 
 			ginkgo.By("checking the job starts when a fallback ClusterQueue gets added")
 			fallbackClusterQueue := testing.MakeClusterQueue("fallback-cq").
-				Cohort(cq.Spec.Cohort).
+				Cohort(prodBEClusterQ.Spec.Cohort).
 				Resource(testing.MakeResource(corev1.ResourceCPU).
 					Flavor(testing.MakeFlavor(spotTaintedFlavor.Name, "5").Obj()). // cluster-queue can't borrow this flavor due to its max quota.
 					Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Obj()).
@@ -733,32 +741,26 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				return createdJob.Spec.Suspend
 			}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
 			gomega.Expect(createdJob.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
-			framework.ExpectPendingWorkloadsMetric(cq, 0)
-			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 1)
+			framework.ExpectPendingWorkloadsMetric(prodBEClusterQ, 0)
+			framework.ExpectAdmittedActiveWorkloadsMetric(prodBEClusterQ, 1)
 		})
 
 		ginkgo.It("Should schedule workloads borrowing quota from ClusterQueues in the same Cohort", func() {
-			prodBEClusterQ := testing.MakeClusterQueue("prod-be-cq").
+			prodBEClusterQ = testing.MakeClusterQueue("prod-be-cq").
 				Cohort("be").
 				Resource(testing.MakeResource(corev1.ResourceCPU).
 					Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Max("15").Obj()).
 					Obj()).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, prodBEClusterQ)).Should(gomega.Succeed())
-			defer func() {
-				gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, prodBEClusterQ)).ToNot(gomega.HaveOccurred())
-			}()
 
-			devBEClusterQ := testing.MakeClusterQueue("dev-be-cq").
+			devBEClusterQ = testing.MakeClusterQueue("dev-be-cq").
 				Cohort("be").
 				Resource(testing.MakeResource(corev1.ResourceCPU).
 					Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Max("15").Obj()).
 					Obj()).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, devBEClusterQ)).Should(gomega.Succeed())
-			defer func() {
-				gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, devBEClusterQ)).ToNot(gomega.HaveOccurred())
-			}()
 
 			prodBEQueue := testing.MakeQueue("prod-be-queue", ns.Name).ClusterQueue(prodBEClusterQ.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, prodBEQueue)).Should(gomega.Succeed())
@@ -820,8 +822,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, cq)).ToNot(gomega.HaveOccurred())
-			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, onDemandFlavor)).To(gomega.Succeed())
+			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			framework.ExpectedClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
+			framework.ExpectedResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.It("Should admit two small workloads after a big one finishes", func() {
@@ -872,8 +875,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, strictFIFOClusterQ)).To(gomega.Succeed())
-			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, onDemandFlavor)).To(gomega.Succeed())
+			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			framework.ExpectedClusterQueueToBeDeleted(ctx, k8sClient, strictFIFOClusterQ, true)
+			framework.ExpectedResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.It("Should schedule workloads by their priority strictly in StrictFIFO", func() {
@@ -901,6 +905,50 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				return wl3.Spec.Admission == nil
 			}, framework.ConsistentDuration, framework.Interval).Should(gomega.Equal(true))
 			framework.ExpectPendingWorkloadsMetric(strictFIFOClusterQ, 2)
+		})
+	})
+
+	ginkgo.When("Deleting clusterQueues", func() {
+		var (
+			cq    *kueue.ClusterQueue
+			queue *kueue.Queue
+		)
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			framework.ExpectedClusterQueueToBeDeleted(ctx, k8sClient, cq, false)
+		})
+
+		ginkgo.It("Should not admit new created workloads", func() {
+			ginkgo.By("Create clusterQueue")
+			cq = testing.MakeClusterQueue("cluster-queue").Obj()
+			gomega.Expect(k8sClient.Create(ctx, cq)).Should(gomega.Succeed())
+			queue = testing.MakeQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, queue)).Should(gomega.Succeed())
+
+			ginkgo.By("New created workloads should be admitted")
+			wl1 := testing.MakeWorkload("workload1", ns.Name).Queue(queue.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
+			defer func() {
+				gomega.Expect(framework.DeleteWorkload(ctx, k8sClient, wl1)).To(gomega.Succeed())
+			}()
+			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, cq.Name, wl1)
+
+			ginkgo.By("Delete clusterQueue")
+			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, cq)).To(gomega.Succeed())
+			gomega.Consistently(func() []string {
+				var newCQ kueue.ClusterQueue
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &newCQ)).To(gomega.Succeed())
+				return newCQ.GetFinalizers()
+			}, framework.ConsistentDuration, framework.Interval).Should(gomega.Equal([]string{kueue.ResourceInUseFinalizerName}))
+
+			ginkgo.By("New created workloads should be frozen")
+			wl2 := testing.MakeWorkload("workload2", ns.Name).Queue(queue.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
+			defer func() {
+				gomega.Expect(framework.DeleteWorkload(ctx, k8sClient, wl2)).To(gomega.Succeed())
+			}()
+			framework.ExpectWorkloadsToBeFrozen(ctx, k8sClient, cq.Name, wl2)
 		})
 	})
 })

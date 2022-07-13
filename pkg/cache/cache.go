@@ -96,6 +96,8 @@ const (
 	// Active means the ClusterQueue can admit new workloads and its quota
 	// can be borrowed by other ClusterQueues in the cohort.
 	Active
+	// Terminating means the clusterQueue is in pending deletion.
+	Terminating
 )
 
 // ClusterQueue is the internal implementation of kueue.ClusterQueue that
@@ -171,11 +173,14 @@ func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[string
 // UpdateWithFlavors updates a ClusterQueue based on the passed ResourceFlavors set.
 // Exported only for testing.
 func (c *ClusterQueue) UpdateWithFlavors(flavors map[string]*kueue.ResourceFlavor) {
+	status := Active
 	if flavorNotFound := c.updateLabelKeys(flavors); flavorNotFound {
-		c.Status = Pending
-		return
+		status = Pending
 	}
-	c.Status = Active
+
+	if c.Status != Terminating {
+		c.Status = status
+	}
 }
 
 func (c *ClusterQueue) updateLabelKeys(flavors map[string]*kueue.ResourceFlavor) bool {
@@ -315,13 +320,43 @@ func (c *Cache) DeleteResourceFlavor(rf *kueue.ResourceFlavor) sets.String {
 }
 
 func (c *Cache) ClusterQueueActive(name string) bool {
+	return c.clusterQueueInStatus(name, Active)
+}
+
+func (c *Cache) ClusterQueueTerminating(name string) bool {
+	return c.clusterQueueInStatus(name, Terminating)
+}
+
+func (c *Cache) clusterQueueInStatus(name string, status ClusterQueueStatus) bool {
 	c.RLock()
 	defer c.RUnlock()
+
 	cq, exists := c.clusterQueues[name]
 	if !exists {
 		return false
 	}
-	return cq != nil && cq.Active()
+	return cq != nil && cq.Status == status
+}
+
+func (c *Cache) TerminateClusterQueue(name string) {
+	c.Lock()
+	defer c.Unlock()
+	if cq, exists := c.clusterQueues[name]; exists {
+		cq.Status = Terminating
+	}
+}
+
+// ClusterQueueEmpty indicates whether there's any active workload admitted by
+// the provided clusterQueue.
+// Return true if the clusterQueue doesn't exist.
+func (c *Cache) ClusterQueueEmpty(name string) bool {
+	c.RLock()
+	defer c.RUnlock()
+	cq, exists := c.clusterQueues[name]
+	if !exists {
+		return true
+	}
+	return len(cq.Workloads) == 0
 }
 
 func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) error {

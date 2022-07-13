@@ -43,6 +43,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -134,6 +135,15 @@ func (f *Framework) Teardown() {
 	f.cancel()
 	err := f.testEnv.Stop()
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+}
+
+func DeleteWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) error {
+	if wl != nil {
+		if err := c.Delete(ctx, wl); err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+	}
+	return nil
 }
 
 func DeleteClusterQueue(ctx context.Context, c client.Client, cq *kueue.ClusterQueue) error {
@@ -271,4 +281,24 @@ func UpdateWorkloadStatus(ctx context.Context, k8sClient client.Client, wl *kueu
 		update(&updatedWl)
 		return k8sClient.Status().Update(ctx, &updatedWl)
 	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func ExpectedClusterQueueToBeDeleted(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, deleteCq bool) {
+	if deleteCq {
+		gomega.Expect(DeleteClusterQueue(ctx, k8sClient, cq)).ToNot(gomega.HaveOccurred())
+	}
+	gomega.Eventually(func() error {
+		var newCQ kueue.ClusterQueue
+		return k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &newCQ)
+	}, Timeout, Interval).Should(testing.BeNotFoundError())
+}
+
+func ExpectedResourceFlavorToBeDeleted(ctx context.Context, k8sClient client.Client, rf *kueue.ResourceFlavor, deleteRf bool) {
+	if deleteRf {
+		gomega.Expect(DeleteResourceFlavor(ctx, k8sClient, rf)).ToNot(gomega.HaveOccurred())
+	}
+	gomega.Eventually(func() error {
+		var newRF kueue.ResourceFlavor
+		return k8sClient.Get(ctx, client.ObjectKeyFromObject(rf), &newRF)
+	}, Timeout, Interval).Should(testing.BeNotFoundError())
 }

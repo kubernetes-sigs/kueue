@@ -26,6 +26,7 @@ import (
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
@@ -76,6 +77,31 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	log := ctrl.LoggerFrom(ctx).WithValues("clusterQueue", klog.KObj(&cqObj))
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(2).Info("Reconciling ClusterQueue")
+
+	if cqObj.ObjectMeta.DeletionTimestamp.IsZero() {
+		if !controllerutil.ContainsFinalizer(&cqObj, kueue.ResourceInUseFinalizerName) {
+			controllerutil.AddFinalizer(&cqObj, kueue.ResourceInUseFinalizerName)
+			if err := r.client.Update(ctx, &cqObj); err != nil {
+				return ctrl.Result{}, client.IgnoreNotFound(err)
+			}
+		}
+	} else {
+		if !r.cache.ClusterQueueTerminating(cqObj.Name) {
+			r.cache.TerminateClusterQueue(cqObj.Name)
+		}
+
+		if controllerutil.ContainsFinalizer(&cqObj, kueue.ResourceInUseFinalizerName) {
+			// The clusterQueue is being deleted, remove the finalizer only if
+			// there are no active admitted workloads.
+			if r.cache.ClusterQueueEmpty(cqObj.Name) {
+				controllerutil.RemoveFinalizer(&cqObj, kueue.ResourceInUseFinalizerName)
+				if err := r.client.Update(ctx, &cqObj); err != nil {
+					return ctrl.Result{}, client.IgnoreNotFound(err)
+				}
+			}
+			return ctrl.Result{}, nil
+		}
+	}
 
 	status, err := r.Status(&cqObj)
 	if err != nil {
@@ -149,10 +175,14 @@ func (r *ClusterQueueReconciler) Update(e event.UpdateEvent) bool {
 		// No need to interact with the cache for other objects.
 		return true
 	}
-	defer r.notifyWatchers(oldCq, newCq)
 
 	log := r.log.WithValues("clusterQueue", klog.KObj(newCq))
 	log.V(2).Info("ClusterQueue update event")
+
+	if newCq.DeletionTimestamp != nil {
+		return true
+	}
+	defer r.notifyWatchers(oldCq, newCq)
 
 	if err := r.cache.UpdateClusterQueue(newCq); err != nil {
 		log.Error(err, "Failed to update clusterQueue in cache")
