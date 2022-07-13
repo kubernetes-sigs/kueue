@@ -14,6 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Rename the package to avoid circular dependencies which is caused by "sigs.k8s.io/kueue/pkg/util/testing".
+// See also: https://github.com/golang/go/wiki/CodeReviewComments#import-dot
+
 package v1alpha1_test
 
 import (
@@ -27,33 +30,67 @@ import (
 	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
-// Rename the package to avoid circular dependencies which is caused by "sigs.k8s.io/kueue/pkg/util/testing".
-// See also: https://github.com/golang/go/wiki/CodeReviewComments#import-dot
+const (
+	testQueueName      = "test-queue"
+	testQueueNamespace = "test-queue-ns"
+)
 
-func TestValidateQueueUpdate(t *testing.T) {
-	const (
-		objName = "name"
-		objNs   = "ns"
-	)
+func TestValidateQueueCreate(t *testing.T) {
 	testCases := map[string]struct {
-		before, after *Queue
-		wantErr       field.ErrorList
+		queue   *Queue
+		wantErr field.ErrorList
 	}{
-		"clusterQueue cannot be updated": {
-			before: testingutil.MakeQueue(objName, objNs).ClusterQueue("foo").Obj(),
-			after:  testingutil.MakeQueue(objName, objNs).ClusterQueue("bar").Obj(),
+		"should reject invalid name": {
+			queue: testingutil.MakeQueue("invalid_name", testQueueNamespace).Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec").Child("clusterQueue"), nil, ""),
+				field.Invalid(field.NewPath("metadata").Child("name"), "invalid_name", ""),
 			},
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			errList := ValidateQueueUpdate(tc.before, tc.after)
+			errList := ValidateQueueCreate(tc.queue)
 			if len(errList) == 0 {
-				t.Fatalf("Unexpected error: %v, want %v", errList, tc.wantErr)
+				t.Fatalf("Unexpected success, want %v", tc.wantErr)
 			}
-			if diff := cmp.Diff(tc.wantErr[0], errList[0], cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
+			if diff := cmp.Diff(tc.wantErr, errList, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
+				t.Errorf("ValidateQueueCreate() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateQueueUpdate(t *testing.T) {
+	testCases := map[string]struct {
+		before, after *Queue
+		wantErr       field.ErrorList
+	}{
+		"clusterQueue cannot be updated": {
+			before: testingutil.MakeQueue(testQueueName, testQueueNamespace).ClusterQueue("foo").Obj(),
+			after:  testingutil.MakeQueue(testQueueName, testQueueNamespace).ClusterQueue("bar").Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec").Child("clusterQueue"), nil, ""),
+			},
+		},
+		"status could be updated": {
+			before: testingutil.MakeQueue(testQueueName, testQueueNamespace).Obj(),
+			after:  testingutil.MakeQueue(testQueueName, testQueueNamespace).PendingWorkloads(10).Obj(),
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			errList := ValidateQueueUpdate(tc.before, tc.after)
+			if len(tc.wantErr) == 0 {
+				if len(errList) > 0 {
+					t.Fatalf("Unexpected error: %v", errList)
+				}
+				return
+			}
+
+			if len(errList) == 0 {
+				t.Fatalf("Unexpected success, want %v", tc.wantErr)
+			}
+			if diff := cmp.Diff(tc.wantErr, errList, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("ValidateQueueUpdate() mismatch (-want +got):\n%s", diff)
 			}
 		})

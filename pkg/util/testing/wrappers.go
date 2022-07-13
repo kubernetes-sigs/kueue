@@ -262,6 +262,12 @@ func (q *QueueWrapper) ClusterQueue(c string) *QueueWrapper {
 	return q
 }
 
+// PendingWorkloads updates the pendingWorkloads in status.
+func (q *QueueWrapper) PendingWorkloads(n int32) *QueueWrapper {
+	q.Status.PendingWorkloads = n
+	return q
+}
+
 // ClusterQueueWrapper wraps a ClusterQueue.
 type ClusterQueueWrapper struct{ kueue.ClusterQueue }
 

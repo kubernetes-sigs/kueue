@@ -26,11 +26,11 @@ import (
 )
 
 // log is for logging in this package.
-var queuelog = ctrl.Log.WithName("queue-webhook")
+var queueLog = ctrl.Log.WithName("queue-webhook")
 
-func (r *Queue) SetupWebhookWithManager(mgr ctrl.Manager) error {
+func (q *Queue) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
-		For(r).
+		For(q).
 		Complete()
 }
 
@@ -39,19 +39,24 @@ func (r *Queue) SetupWebhookWithManager(mgr ctrl.Manager) error {
 var _ webhook.Validator = &Queue{}
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
-func (r *Queue) ValidateCreate() error {
-	return nil
+func (q *Queue) ValidateCreate() error {
+	queueLog.V(5).Info("Validating create", "queue", klog.KObj(q))
+	return ValidateQueueCreate(q).ToAggregate()
 }
 
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
-func (r *Queue) ValidateUpdate(old runtime.Object) error {
-	queuelog.V(5).Info("validate update", "queue", klog.KObj(r))
-	return ValidateQueueUpdate(r, old.(*Queue)).ToAggregate()
+func (q *Queue) ValidateUpdate(old runtime.Object) error {
+	queueLog.V(5).Info("Validating update", "queue", klog.KObj(q))
+	return ValidateQueueUpdate(q, old.(*Queue)).ToAggregate()
 }
 
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
-func (r *Queue) ValidateDelete() error {
+func (q *Queue) ValidateDelete() error {
 	return nil
+}
+
+func ValidateQueueCreate(q *Queue) field.ErrorList {
+	return apivalidation.ValidateObjectMetaAccessor(q.GetObjectMeta(), true, apivalidation.NameIsDNSLabel, field.NewPath("metadata"))
 }
 
 func ValidateQueueUpdate(newObj, oldObj *Queue) field.ErrorList {
