@@ -20,6 +20,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -42,7 +43,19 @@ const (
 )
 
 var _ = ginkgo.Describe("ClusterQueue controller", func() {
-	var ns *corev1.Namespace
+	var (
+		ns                 *corev1.Namespace
+		emptyUsedResources = kueue.UsedResources{
+			corev1.ResourceCPU: {
+				flavorOnDemand: {Total: pointer.Quantity(resource.MustParse("0"))},
+				flavorSpot:     {Total: pointer.Quantity(resource.MustParse("0"))},
+			},
+			resourceGPU: {
+				flavorModelA: {Total: pointer.Quantity(resource.MustParse("0"))},
+				flavorModelB: {Total: pointer.Quantity(resource.MustParse("0"))},
+			},
+		}
+	)
 
 	ginkgo.BeforeEach(func() {
 		ns = &corev1.Namespace{
@@ -59,18 +72,8 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 
 	ginkgo.When("Reconciling clusterQueue status", func() {
 		var (
-			clusterQueue       *kueue.ClusterQueue
-			queue              *kueue.Queue
-			emptyUsedResources = kueue.UsedResources{
-				corev1.ResourceCPU: {
-					flavorOnDemand: {Total: pointer.Quantity(resource.MustParse("0"))},
-					flavorSpot:     {Total: pointer.Quantity(resource.MustParse("0"))},
-				},
-				resourceGPU: {
-					flavorModelA: {Total: pointer.Quantity(resource.MustParse("0"))},
-					flavorModelB: {Total: pointer.Quantity(resource.MustParse("0"))},
-				},
-			}
+			clusterQueue *kueue.ClusterQueue
+			queue        *kueue.Queue
 		)
 
 		ginkgo.BeforeEach(func() {
@@ -194,6 +197,76 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			}))
 			framework.ExpectPendingWorkloadsMetric(clusterQueue, 0)
 			framework.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 0)
+		})
+	})
+
+	ginkgo.When("Creating clusterQueues", func() {
+		var cq *kueue.ClusterQueue
+		ginkgo.BeforeEach(func() {
+			cq = testing.MakeClusterQueue("foo-cq").Obj()
+			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, cq)).To(gomega.Succeed())
+		})
+
+		ginkgo.It("Should add a finalizer to the clusterQueue", func() {
+			gomega.Eventually(func() []string {
+				var newCQ kueue.ClusterQueue
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &newCQ)).To(gomega.Succeed())
+				return newCQ.GetFinalizers()
+			}, framework.Timeout, framework.Interval).Should(gomega.Equal([]string{kueue.ResourceInUseFinalizerName}))
+		})
+	})
+
+	ginkgo.When("Deleting clusterQueues", func() {
+		var (
+			cq    *kueue.ClusterQueue
+			queue *kueue.Queue
+		)
+
+		ginkgo.BeforeEach(func() {
+			cq = testing.MakeClusterQueue("foo-cq").Obj()
+			queue = testing.MakeQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, queue)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+		})
+
+		ginkgo.It("Should delete clusterQueues successfully when no admitted workloads are running", func() {
+			framework.ExpectedClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
+		})
+
+		ginkgo.It("Should stuck in termination until admitted workloads finished running", func() {
+			ginkgo.By("Admit workloads")
+			admission := testing.MakeAdmission(cq.Name).Obj()
+			wl := testing.MakeWorkload("workload", ns.Name).Queue(queue.Name).Admit(admission).Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			ginkgo.By("Delete clusterQueue")
+			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, cq)).To(gomega.Succeed())
+			var newCQ kueue.ClusterQueue
+			gomega.Eventually(func() []string {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &newCQ)).To(gomega.Succeed())
+				return newCQ.GetFinalizers()
+			}, framework.Timeout, framework.Interval).Should(gomega.Equal([]string{kueue.ResourceInUseFinalizerName}))
+
+			ginkgo.By("Finish workloads")
+			gomega.Eventually(func() error {
+				var newWL kueue.Workload
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &newWL)).To(gomega.Succeed())
+				newWL.Status.Conditions = append(newWL.Status.Conditions, kueue.WorkloadCondition{
+					Type:   kueue.WorkloadFinished,
+					Status: corev1.ConditionTrue,
+				})
+				return k8sClient.Status().Update(ctx, &newWL)
+			}, framework.Timeout, framework.Interval).Should(gomega.BeNil())
+
+			ginkgo.By("The clusterQueue will be deleted")
+			gomega.Eventually(func() bool {
+				var newCQ kueue.ClusterQueue
+				err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &newCQ)
+				return err != nil && apierrors.IsNotFound(err)
+			}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 		})
 	})
 })

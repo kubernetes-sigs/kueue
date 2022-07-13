@@ -1418,18 +1418,18 @@ func TestFlavorInUse(t *testing.T) {
 	barCq := utiltesting.MakeClusterQueue("barCq").Obj()
 
 	tests := []struct {
-		name                           string
-		clusterQueues                  []*kueue.ClusterQueue
-		wantInUse                      bool
-		wantInUseInUseClusterQueueName string
+		name                      string
+		clusterQueues             []*kueue.ClusterQueue
+		wantInUse                 bool
+		wantInUseClusterQueueName string
 	}{
 		{
 			name: "single clusterQueue with flavor in use",
 			clusterQueues: []*kueue.ClusterQueue{
 				fooCq,
 			},
-			wantInUse:                      true,
-			wantInUseInUseClusterQueueName: fooCq.Name,
+			wantInUse:                 true,
+			wantInUseClusterQueueName: fooCq.Name,
 		},
 		{
 			name: "single clusterQueue with no flavor",
@@ -1443,8 +1443,8 @@ func TestFlavorInUse(t *testing.T) {
 				fooCq,
 				barCq,
 			},
-			wantInUse:                      true,
-			wantInUseInUseClusterQueueName: fooCq.Name,
+			wantInUse:                 true,
+			wantInUseClusterQueueName: fooCq.Name,
 		},
 	}
 	for _, tc := range tests {
@@ -1463,8 +1463,83 @@ func TestFlavorInUse(t *testing.T) {
 			}
 
 			name, ok := cache.FlavorInUse(string(flavor.Name))
-			if (tc.wantInUse != ok) || (name != tc.wantInUseInUseClusterQueueName) {
-				t.Errorf("flavor is in use by clusterQueue %s, but got %s", tc.wantInUseInUseClusterQueueName, name)
+			if (tc.wantInUse != ok) || (name != tc.wantInUseClusterQueueName) {
+				t.Errorf("flavor is in use by clusterQueue %s, but got %s", tc.wantInUseClusterQueueName, name)
+			}
+		})
+	}
+}
+
+func TestUpdateWithFlavors(t *testing.T) {
+	rf := utiltesting.MakeResourceFlavor("x86").Obj()
+	flavor := utiltesting.MakeFlavor(rf.Name, "5").Obj()
+
+	testcases := []struct {
+		name         string
+		curStatus    ClusterQueueStatus
+		clusterQueue *kueue.ClusterQueue
+		flavors      map[string]*kueue.ResourceFlavor
+		wantStatus   ClusterQueueStatus
+	}{
+		{
+			name:      "Pending clusterQueue updated existent flavors",
+			curStatus: Pending,
+			clusterQueue: utiltesting.MakeClusterQueue("cq").
+				Resource(utiltesting.MakeResource("cpu").Flavor(flavor).Obj()).
+				Obj(),
+			flavors: map[string]*kueue.ResourceFlavor{
+				rf.Name: rf,
+			},
+			wantStatus: Active,
+		},
+		{
+			name:      "Active clusterQueue updated with not found flavors",
+			curStatus: Active,
+			clusterQueue: utiltesting.MakeClusterQueue("cq").
+				Resource(utiltesting.MakeResource("cpu").Flavor(flavor).Obj()).
+				Obj(),
+			flavors:    map[string]*kueue.ResourceFlavor{},
+			wantStatus: Pending,
+		},
+		{
+			name:      "Terminating clusterQueue updated with existent flavors",
+			curStatus: Terminating,
+			clusterQueue: utiltesting.MakeClusterQueue("cq").
+				Resource(utiltesting.MakeResource("cpu").Flavor(flavor).Obj()).
+				Obj(),
+			flavors: map[string]*kueue.ResourceFlavor{
+				rf.Name: rf,
+			},
+			wantStatus: Terminating,
+		},
+		{
+			name:      "Terminating clusterQueue updated with not found flavors",
+			curStatus: Terminating,
+			clusterQueue: utiltesting.MakeClusterQueue("cq").
+				Resource(utiltesting.MakeResource("cpu").Flavor(flavor).Obj()).
+				Obj(),
+			flavors:    map[string]*kueue.ResourceFlavor{},
+			wantStatus: Terminating,
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			if err := kueue.AddToScheme(scheme); err != nil {
+				t.Fatalf("Failed adding kueue scheme: %v", err)
+			}
+			cache := New(fake.NewClientBuilder().WithScheme(scheme).Build())
+			cq, err := cache.newClusterQueue(tc.clusterQueue)
+			if err != nil {
+				t.Fatalf("failed to new clusterQueue %v", err)
+			}
+
+			cq.Status = tc.curStatus
+			cq.UpdateWithFlavors(tc.flavors)
+
+			if cq.Status != tc.wantStatus {
+				t.Fatalf("got different status, want: %v, got: %v", tc.wantStatus, cq.Status)
 			}
 		})
 	}

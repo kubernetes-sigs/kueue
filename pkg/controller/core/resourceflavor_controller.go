@@ -36,8 +36,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/queue"
 )
 
-const ResourceFlavorFinalizerName = "kueue.x-k8s.io/resourceflavor-in-use"
-
 // ResourceFlavorReconciler reconciles a ResourceFlavor object
 type ResourceFlavorReconciler struct {
 	log        logr.Logger
@@ -71,14 +69,14 @@ func (r *ResourceFlavorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	log.V(2).Info("Reconciling ResourceFlavor")
 
 	if flavor.ObjectMeta.DeletionTimestamp.IsZero() {
-		if !controllerutil.ContainsFinalizer(&flavor, ResourceFlavorFinalizerName) {
-			controllerutil.AddFinalizer(&flavor, ResourceFlavorFinalizerName)
+		if !controllerutil.ContainsFinalizer(&flavor, kueue.ResourceInUseFinalizerName) {
+			controllerutil.AddFinalizer(&flavor, kueue.ResourceInUseFinalizerName)
 			if err := r.client.Update(ctx, &flavor); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
 	} else {
-		if controllerutil.ContainsFinalizer(&flavor, ResourceFlavorFinalizerName) {
+		if controllerutil.ContainsFinalizer(&flavor, kueue.ResourceInUseFinalizerName) {
 			if cqName, ok := r.cache.FlavorInUse(flavor.Name); ok {
 				log.V(3).Info("resourceFlavor is still in use", "ClusterQueue", cqName)
 				// We avoid to return error here to prevent backoff requeue, which is passive and wasteful.
@@ -87,7 +85,7 @@ func (r *ResourceFlavorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				return ctrl.Result{}, nil
 			}
 
-			controllerutil.RemoveFinalizer(&flavor, ResourceFlavorFinalizerName)
+			controllerutil.RemoveFinalizer(&flavor, kueue.ResourceInUseFinalizerName)
 			if err := r.client.Update(ctx, &flavor); err != nil {
 				return ctrl.Result{}, err
 			}
