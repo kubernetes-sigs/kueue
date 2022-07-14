@@ -69,7 +69,7 @@ func (c *ClusterQueue) snapshot() *ClusterQueue {
 	cc := &ClusterQueue{
 		Name:                 c.Name,
 		RequestableResources: c.RequestableResources, // Shallow copy is enough.
-		UsedResources:        make(Resources, len(c.UsedResources)),
+		UsedResources:        make(ResourceQuantities, len(c.UsedResources)),
 		Workloads:            make(map[string]*workload.Info, len(c.Workloads)),
 		LabelKeys:            c.LabelKeys, // Shallow copy is enough.
 		NamespaceSelector:    c.NamespaceSelector,
@@ -91,20 +91,20 @@ func (c *ClusterQueue) snapshot() *ClusterQueue {
 
 func (c *ClusterQueue) accumulateResources(cohort *Cohort) {
 	if cohort.RequestableResources == nil {
-		cohort.RequestableResources = make(Resources, len(c.RequestableResources))
+		cohort.RequestableResources = make(ResourceQuantities, len(c.RequestableResources))
 	}
-	for name, flavors := range c.RequestableResources {
+	for name, res := range c.RequestableResources {
 		req := cohort.RequestableResources[name]
 		if req == nil {
-			req = make(map[string]int64, len(flavors))
+			req = make(map[string]int64, len(res.Flavors))
 			cohort.RequestableResources[name] = req
 		}
-		for _, flavor := range flavors {
+		for _, flavor := range res.Flavors {
 			req[flavor.Name] += flavor.Min
 		}
 	}
 	if cohort.UsedResources == nil {
-		cohort.UsedResources = make(Resources, len(c.UsedResources))
+		cohort.UsedResources = make(ResourceQuantities, len(c.UsedResources))
 	}
 	for res, flavors := range c.UsedResources {
 		used := cohort.UsedResources[res]
