@@ -20,7 +20,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -262,11 +261,10 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			}, framework.Timeout, framework.Interval).Should(gomega.BeNil())
 
 			ginkgo.By("The clusterQueue will be deleted")
-			gomega.Eventually(func() bool {
+			gomega.Eventually(func() error {
 				var newCQ kueue.ClusterQueue
-				err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &newCQ)
-				return err != nil && apierrors.IsNotFound(err)
-			}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
+				return k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &newCQ)
+			}, framework.Timeout, framework.Interval).Should(testing.BeNotFoundError())
 		})
 	})
 })
