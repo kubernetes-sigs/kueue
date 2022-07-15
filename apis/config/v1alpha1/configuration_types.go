@@ -38,8 +38,9 @@ type Configuration struct {
 	// Defaults to false; therefore, those jobs are not managed and if they are created
 	// unsuspended, they will start immediately.
 	ManageJobsWithoutQueueName bool `json:"manageJobsWithoutQueueName"`
-}
 
-func init() {
-	SchemeBuilder.Register(&Configuration{})
+	// EnableInternalCertManagement controls whether to enable internal cert management or not.
+	// Defaults to true. If you want to use a third-party management, e.g. cert-manager,
+	// set it to false. See the user guide for more information.
+	EnableInternalCertManagement *bool `json:"enableInternalCertManagement,omitempty"`
 }

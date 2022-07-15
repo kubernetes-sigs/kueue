@@ -80,29 +80,8 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
-	options := ctrl.Options{
-		Scheme:                 scheme,
-		HealthProbeBindAddress: ":8081",
-		MetricsBindAddress:     ":8080",
-		Port:                   9443,
-		LeaderElectionID:       "c1f6bfd2.kueue.x-k8s.io",
-	}
-	var err error
-	config := configv1alpha1.Configuration{}
-	if configFile != "" {
-		options, err = options.AndFrom(ctrl.ConfigFile().AtPath(configFile).OfKind(&config))
-		if err != nil {
-			setupLog.Error(err, "unable to load the config file")
-			os.Exit(1)
-		}
+	options, config := apply(configFile)
 
-		cfgStr, err := encodeConfig(&config)
-		if err != nil {
-			setupLog.Error(err, "unable to encode config file")
-			os.Exit(1)
-		}
-		setupLog.Info("Successfully loaded config file", "config", cfgStr)
-	}
 	metrics.Register()
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), options)
@@ -112,9 +91,14 @@ func main() {
 	}
 
 	certsReady := make(chan struct{})
-	if err = cert.ManageCerts(mgr, certsReady); err != nil {
-		setupLog.Error(err, "unable to set up cert rotation")
-		os.Exit(1)
+
+	if *config.EnableInternalCertManagement {
+		if err = cert.ManageCerts(mgr, certsReady); err != nil {
+			setupLog.Error(err, "unable to set up cert rotation")
+			os.Exit(1)
+		}
+	} else {
+		close(certsReady)
 	}
 
 	cCache := cache.New(mgr.GetClient())
@@ -218,4 +202,48 @@ func encodeConfig(cfg *configv1alpha1.Configuration) (string, error) {
 		return "", err
 	}
 	return buf.String(), nil
+}
+
+func apply(configFile string) (ctrl.Options, configv1alpha1.Configuration) {
+	var err error
+	options := ctrl.Options{
+		Scheme: scheme,
+	}
+
+	config := configv1alpha1.Configuration{}
+
+	if configFile == "" {
+		scheme.Default(&config)
+	} else {
+		options, err = options.AndFrom(ctrl.ConfigFile().AtPath(configFile).OfKind(&config))
+		if err != nil {
+			setupLog.Error(err, "unable to load the config file")
+			os.Exit(1)
+		}
+
+		cfgStr, err := encodeConfig(&config)
+		if err != nil {
+			setupLog.Error(err, "unable to encode config file")
+			os.Exit(1)
+		}
+		setupLog.Info("Successfully loaded config file", "config", cfgStr)
+	}
+
+	setOptionDefaults(&options)
+	return options, config
+}
+
+func setOptionDefaults(opt *ctrl.Options) {
+	if opt.Port == 0 {
+		opt.Port = 9443
+	}
+	if opt.HealthProbeBindAddress == "" {
+		opt.HealthProbeBindAddress = ":8081"
+	}
+	if opt.MetricsBindAddress == "" {
+		opt.MetricsBindAddress = ":8080"
+	}
+	if opt.LeaderElectionID == "" {
+		opt.LeaderElectionID = "c1f6bfd2.kueue.x-k8s.io"
+	}
 }
