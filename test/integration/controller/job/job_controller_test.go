@@ -117,14 +117,11 @@ var _ = ginkgo.Describe("Job controller", func() {
 		secondWl.Name = "second-workload"
 		secondWl.Spec.PodSets[0].Count = parallelism + 1
 		gomega.Expect(k8sClient.Create(ctx, secondWl)).Should(gomega.Succeed())
-		gomega.Eventually(func() bool {
+		gomega.Eventually(func() error {
 			wl := &kueue.Workload{}
 			key := types.NamespacedName{Name: secondWl.Name, Namespace: secondWl.Namespace}
-			if err := k8sClient.Get(ctx, key, wl); err != nil && apierrors.IsNotFound(err) {
-				return true
-			}
-			return false
-		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
+			return k8sClient.Get(ctx, key, wl)
+		}, framework.Timeout, framework.Interval).Should(testing.BeNotFoundError())
 		// check the original wl is still there
 		gomega.Consistently(func() bool {
 			err := k8sClient.Get(ctx, lookupKey, createdWorkload)
