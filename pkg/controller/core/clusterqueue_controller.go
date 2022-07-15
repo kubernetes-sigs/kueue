@@ -20,8 +20,10 @@ import (
 	"context"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -241,13 +243,47 @@ func (h *cqWorkloadHandler) requestForWorkloadClusterQueue(w *kueue.Workload) *r
 	}
 }
 
+// cqNamespaceHandler handles namespace update events.
+type cqNamespaceHandler struct {
+	qManager *queue.Manager
+	cache    *cache.Cache
+}
+
+func (h *cqNamespaceHandler) Create(e event.CreateEvent, q workqueue.RateLimitingInterface) {
+}
+
+func (h *cqNamespaceHandler) Update(e event.UpdateEvent, q workqueue.RateLimitingInterface) {
+	oldNs := e.ObjectOld.(*corev1.Namespace)
+	oldMatchingCqs := h.cache.MatchingClusterQueues(oldNs.Labels)
+	newNs := e.ObjectNew.(*corev1.Namespace)
+	newMatchingCqs := h.cache.MatchingClusterQueues(newNs.Labels)
+	cqs := sets.NewString()
+	for cq := range newMatchingCqs {
+		if !oldMatchingCqs.Has(cq) {
+			cqs.Insert(cq)
+		}
+	}
+	h.qManager.QueueInadmissibleWorkloads(cqs)
+}
+
+func (h *cqNamespaceHandler) Delete(event.DeleteEvent, workqueue.RateLimitingInterface) {
+}
+
+func (h *cqNamespaceHandler) Generic(event.GenericEvent, workqueue.RateLimitingInterface) {
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	wHandler := cqWorkloadHandler{
 		qManager: r.qManager,
 	}
+	nsHandler := cqNamespaceHandler{
+		qManager: r.qManager,
+		cache:    r.cache,
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.ClusterQueue{}).
+		Watches(&source.Kind{Type: &corev1.Namespace{}}, &nsHandler).
 		Watches(&source.Channel{Source: r.wlUpdateCh}, &wHandler).
 		WithEventFilter(r).
 		Complete(r)

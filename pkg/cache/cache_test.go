@@ -1545,6 +1545,43 @@ func TestUpdateWithFlavors(t *testing.T) {
 	}
 }
 
+func TestMatchingClusterQueues(t *testing.T) {
+	clusterQueues := []*kueue.ClusterQueue{
+		utiltesting.MakeClusterQueue("matching1").
+			NamespaceSelector(&metav1.LabelSelector{}).Obj(),
+		utiltesting.MakeClusterQueue("not-matching").
+			NamespaceSelector(nil).Obj(),
+		utiltesting.MakeClusterQueue("matching2").
+			NamespaceSelector(&metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{
+						Key:      "dep",
+						Operator: metav1.LabelSelectorOpIn,
+						Values:   []string{"eng"},
+					},
+				},
+			}).Obj(),
+	}
+	wantCQs := sets.NewString("matching1", "matching2")
+
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	if err := kueue.AddToScheme(scheme); err != nil {
+		t.Fatalf("Failed adding kueue scheme: %v", err)
+	}
+	cache := New(fake.NewClientBuilder().WithScheme(scheme).Build())
+	for _, cq := range clusterQueues {
+		if err := cache.AddClusterQueue(ctx, cq); err != nil {
+			t.Errorf("failed to add clusterQueue %s", cq.Name)
+		}
+	}
+
+	gotCQs := cache.MatchingClusterQueues(map[string]string{"dep": "eng"})
+	if diff := cmp.Diff(wantCQs, gotCQs); diff != "" {
+		t.Errorf("Wrong ClusterQueues (-want,+got):\n%s", diff)
+	}
+}
+
 func messageOrEmpty(err error) string {
 	if err == nil {
 		return ""

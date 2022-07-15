@@ -461,7 +461,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).Should(gomega.Succeed())
 
 			cq = testing.MakeClusterQueue("cluster-queue-with-selector").
-				QueueingStrategy(kueue.StrictFIFO).
 				NamespaceSelector(&metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
 						{
@@ -485,7 +484,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			framework.ExpectedResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
-		ginkgo.It("Should schedule jobs from the selected namespaces", func() {
+		ginkgo.It("Should schedule jobs from the selected namespaces after label update", func() {
 			ginkgo.By("checking a job doesn't start at first")
 			job := testing.MakeJob("job", ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "1").Obj()
 			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
