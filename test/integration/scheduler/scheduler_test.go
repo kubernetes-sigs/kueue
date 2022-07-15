@@ -453,8 +453,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 	ginkgo.When("Using clusterQueue NamespaceSelector", func() {
 		var (
-			cq    *kueue.ClusterQueue
-			queue *kueue.Queue
+			cq       *kueue.ClusterQueue
+			queue    *kueue.Queue
+			nsFoo    *corev1.Namespace
+			queueFoo *kueue.Queue
 		)
 
 		ginkgo.BeforeEach(func() {
@@ -474,36 +476,55 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, cq)).Should(gomega.Succeed())
 
-			queue = testing.MakeQueue("queue-for-selector", ns.Name).ClusterQueue(cq.Name).Obj()
+			queue = testing.MakeQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, queue)).Should(gomega.Succeed())
+
+			nsFoo = &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					GenerateName: "foo-",
+				},
+			}
+			gomega.Expect(k8sClient.Create(ctx, nsFoo)).To(gomega.Succeed())
+			queueFoo = testing.MakeQueue("foo", nsFoo.Name).ClusterQueue(cq.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, queueFoo)).Should(gomega.Succeed())
 		})
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, nsFoo)).To(gomega.Succeed())
 			framework.ExpectedClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
 			framework.ExpectedResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.It("Should schedule jobs from the selected namespaces after label update", func() {
-			ginkgo.By("checking a job doesn't start at first")
-			job := testing.MakeJob("job", ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "1").Obj()
-			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
-			createdJob := &batchv1.Job{}
+			ginkgo.By("checking jobs don't start at first")
+			job1 := testing.MakeJob("job1", ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "1").Obj()
+			gomega.Expect(k8sClient.Create(ctx, job1)).Should(gomega.Succeed())
+			createdJob1 := &batchv1.Job{}
 			gomega.Eventually(func() *bool {
-				gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: job.Name, Namespace: job.Namespace}, createdJob)).Should(gomega.Succeed())
-				return createdJob.Spec.Suspend
+				gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: job1.Name, Namespace: job1.Namespace}, createdJob1)).Should(gomega.Succeed())
+				return createdJob1.Spec.Suspend
 			}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(true)), "Job should be suspended")
-			framework.ExpectPendingWorkloadsMetric(cq, 1)
+
+			job2 := testing.MakeJob("job2", nsFoo.Name).Queue(queueFoo.Name).Request(corev1.ResourceCPU, "1").Obj()
+			gomega.Expect(k8sClient.Create(ctx, job2)).Should(gomega.Succeed())
+			createdJob2 := &batchv1.Job{}
+			gomega.Eventually(func() *bool {
+				gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: job2.Name, Namespace: job2.Namespace}, createdJob2)).Should(gomega.Succeed())
+				return createdJob2.Spec.Suspend
+			}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(true)), "Job should be suspended")
+
+			framework.ExpectPendingWorkloadsMetric(cq, 2)
 			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 0)
 
-			ginkgo.By("checking the job starts after updating namespace labels to match QC selector")
+			ginkgo.By("checking the first job starts after updating namespace labels to match QC selector")
 			ns.Labels = map[string]string{"dep": "eng"}
 			gomega.Expect(k8sClient.Update(ctx, ns)).Should(gomega.Succeed())
 			gomega.Eventually(func() *bool {
-				gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: job.Name, Namespace: job.Namespace}, createdJob)).Should(gomega.Succeed())
-				return createdJob.Spec.Suspend
+				gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: job1.Name, Namespace: job1.Namespace}, createdJob1)).Should(gomega.Succeed())
+				return createdJob1.Spec.Suspend
 			}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)), "Job should be unsuspended")
-			framework.ExpectPendingWorkloadsMetric(cq, 0)
+			framework.ExpectPendingWorkloadsMetric(cq, 1)
 			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 1)
 		})
 	})
