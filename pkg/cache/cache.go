@@ -669,6 +669,20 @@ func (c *Cache) FlavorInUse(flavor string) (string, bool) {
 	return "", false
 }
 
+func (c *Cache) MatchingClusterQueues(nsLabels map[string]string) sets.String {
+	c.RLock()
+	defer c.RUnlock()
+
+	cqs := sets.NewString()
+	for _, cq := range c.clusterQueues {
+		if cq.NamespaceSelector.Matches(labels.Set(nsLabels)) {
+			cqs.Insert(cq.Name)
+		}
+	}
+
+	return cqs
+}
+
 func resourceLimitsByName(in []kueue.Resource) map[corev1.ResourceName][]FlavorLimits {
 	out := make(map[corev1.ResourceName][]FlavorLimits, len(in))
 	for _, r := range in {
