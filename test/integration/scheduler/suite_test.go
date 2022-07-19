@@ -56,6 +56,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
 		ManagerSetup: managerAndSchedulerSetup,
 		CRDPath:      filepath.Join("..", "..", "..", "config", "crd", "bases"),
+		WebhookPath:  filepath.Join("..", "..", "..", "config", "webhook"),
 	}
 	ctx, cfg, k8sClient = fwk.Setup()
 })
@@ -76,6 +77,9 @@ func managerAndSchedulerSetup(mgr manager.Manager, ctx context.Context) {
 
 	failedCtrl, err := core.SetupControllers(mgr, queues, cCache)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+
+	failedWebhook, err := core.SetupWebhooks(mgr)
+	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 	err = workloadjob.SetupIndexes(mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())

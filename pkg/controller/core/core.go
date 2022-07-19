@@ -19,6 +19,7 @@ package core
 import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	kueuev1alpha1 "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/queue"
 )
@@ -42,6 +43,19 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 	}
 	if err := NewWorkloadReconciler(mgr.GetClient(), qManager, cc, qRec, cqRec).SetupWithManager(mgr); err != nil {
 		return "Workload", err
+	}
+	return "", nil
+}
+
+// SetupWebhooks sets up the webhooks for core controllers. It returns the name of the
+// webhook that failed to create and an error, if any.
+func SetupWebhooks(mgr ctrl.Manager) (string, error) {
+	if err := (&kueuev1alpha1.Workload{}).SetupWebhookWithManager(mgr); err != nil {
+		return "Workload", err
+	}
+
+	if err := (&kueuev1alpha1.ResourceFlavor{}).SetupWebhookWithManager(mgr); err != nil {
+		return "ResourceFlavor", err
 	}
 	return "", nil
 }

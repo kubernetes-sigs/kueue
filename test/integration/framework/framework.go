@@ -293,7 +293,7 @@ func ExpectClusterQueueToBeDeleted(ctx context.Context, k8sClient client.Client,
 	}, Timeout, Interval).Should(testing.BeNotFoundError())
 }
 
-func ExpectedResourceFlavorToBeDeleted(ctx context.Context, k8sClient client.Client, rf *kueue.ResourceFlavor, deleteRf bool) {
+func ExpectResourceFlavorToBeDeleted(ctx context.Context, k8sClient client.Client, rf *kueue.ResourceFlavor, deleteRf bool) {
 	if deleteRf {
 		gomega.Expect(DeleteResourceFlavor(ctx, k8sClient, rf)).ToNot(gomega.HaveOccurred())
 	}

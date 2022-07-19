@@ -27,7 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	kueuev1alpha1 "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	// +kubebuilder:scaffold:imports
 )
@@ -51,8 +51,8 @@ var _ = ginkgo.BeforeSuite(func() {
 		CRDPath:     filepath.Join("..", "..", "..", "..", "config", "crd", "bases"),
 		WebhookPath: filepath.Join("..", "..", "..", "..", "config", "webhook"),
 		ManagerSetup: func(mgr manager.Manager, ctx context.Context) {
-			err := (&kueuev1alpha1.Workload{}).SetupWebhookWithManager(mgr)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			failedWebhook, err := core.SetupWebhooks(mgr)
+			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 		},
 	}
 	ctx, cfg, k8sClient = fwk.Setup()

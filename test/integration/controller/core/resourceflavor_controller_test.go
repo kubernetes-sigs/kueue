@@ -54,7 +54,7 @@ var _ = ginkgo.Describe("ResourceFlavor controller", func() {
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, resourceFlavor)).To(gomega.Succeed())
+			framework.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 		})
 
 		ginkgo.It("Should have finalizer in new created resourceFlavor", func() {
