@@ -232,7 +232,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 		})
 
 		ginkgo.It("Should delete clusterQueues successfully when no admitted workloads are running", func() {
-			framework.ExpectedClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
+			framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
 		})
 
 		ginkgo.It("Should stuck in termination until admitted workloads finished running", func() {

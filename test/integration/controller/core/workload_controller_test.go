@@ -171,7 +171,7 @@ var _ = ginkgo.Describe("Workload controller", func() {
 		ginkgo.AfterEach(func() {
 			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			gomega.Expect(framework.DeleteRuntimeClass(ctx, k8sClient, runtimeClass)).To(gomega.Succeed())
-			framework.ExpectedClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		})
 
 		ginkgo.It("Should accumulate RuntimeClass's overhead", func() {
@@ -216,7 +216,7 @@ var _ = ginkgo.Describe("Workload controller", func() {
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			framework.ExpectedClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		})
 
 		ginkgo.It("Should not accumulate RuntimeClass's overhead", func() {

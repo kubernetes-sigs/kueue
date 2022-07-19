@@ -113,8 +113,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			framework.ExpectedClusterQueueToBeDeleted(ctx, k8sClient, prodClusterQ, true)
-			framework.ExpectedClusterQueueToBeDeleted(ctx, k8sClient, devClusterQ, true)
+			framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, prodClusterQ, true)
+			framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, devClusterQ, true)
 			framework.ExpectedResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, spotTaintedFlavor)).To(gomega.Succeed())
 			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, spotUntaintedFlavor)).To(gomega.Succeed())
@@ -417,7 +417,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			framework.ExpectedClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
+			framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
 			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, onDemandFlavor)).To(gomega.Succeed())
 		})
 		ginkgo.It("Should re-enqueue by the update event of ClusterQueue", func() {
@@ -492,7 +492,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		ginkgo.AfterEach(func() {
 			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, nsFoo)).To(gomega.Succeed())
-			framework.ExpectedClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
+			framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
 			framework.ExpectedResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
@@ -549,7 +549,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			framework.ExpectedClusterQueueToBeDeleted(ctx, k8sClient, fooCQ, true)
+			framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, fooCQ, true)
 		})
 
 		ginkgo.It("Should be inactive until the flavor is created", func() {
@@ -597,7 +597,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			framework.ExpectedClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
+			framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
 			framework.ExpectedResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, spotTaintedFlavor)).To(gomega.Succeed())
 		})
@@ -661,7 +661,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			framework.ExpectedClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
+			framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
 			framework.ExpectedResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, spotUntaintedFlavor)).To(gomega.Succeed())
 		})
@@ -711,7 +711,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			framework.ExpectedClusterQueueToBeDeleted(ctx, k8sClient, prodBEClusterQ, true)
+			framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, prodBEClusterQ, true)
 			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, devBEClusterQ)).ToNot(gomega.HaveOccurred())
 			framework.ExpectedResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, spotTaintedFlavor)).To(gomega.Succeed())
@@ -843,7 +843,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			framework.ExpectedClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
+			framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
 			framework.ExpectedResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
@@ -896,7 +896,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			framework.ExpectedClusterQueueToBeDeleted(ctx, k8sClient, strictFIFOClusterQ, true)
+			framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, strictFIFOClusterQ, true)
 			framework.ExpectedResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
@@ -936,7 +936,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			framework.ExpectedClusterQueueToBeDeleted(ctx, k8sClient, cq, false)
+			framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, false)
 		})
 
 		ginkgo.It("Should not admit new created workloads", func() {
