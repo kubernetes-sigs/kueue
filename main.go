@@ -157,8 +157,8 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 		setupLog.Error(err, "unable to create controller", "controller", "Job")
 		os.Exit(1)
 	}
-	if err := (&kueuev1alpha1.Workload{}).SetupWebhookWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create webhook", "webhook", "Workload")
+	if failedWebhook, err := core.SetupWebhooks(mgr); err != nil {
+		setupLog.Error(err, "Unable to create webhook", "webhook", failedWebhook)
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder

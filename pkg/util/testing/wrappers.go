@@ -371,6 +371,14 @@ func (rf *ResourceFlavorWrapper) Obj() *kueue.ResourceFlavor {
 	return &rf.ResourceFlavor
 }
 
+// MultiLabels adds multi labels to the ResourceFlavor.
+func (rf *ResourceFlavorWrapper) MultiLabels(kv map[string]string) *ResourceFlavorWrapper {
+	for k, v := range kv {
+		rf.Labels[k] = v
+	}
+	return rf
+}
+
 // Label adds a label to the ResourceFlavor.
 func (rf *ResourceFlavorWrapper) Label(k, v string) *ResourceFlavorWrapper {
 	rf.Labels[k] = v
