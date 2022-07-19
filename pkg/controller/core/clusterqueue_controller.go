@@ -81,6 +81,8 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	log.V(2).Info("Reconciling ClusterQueue")
 
 	if cqObj.ObjectMeta.DeletionTimestamp.IsZero() {
+		// Although we'll add the finalizer via webhook mutation now, this is still useful
+		// as a fallback.
 		if !controllerutil.ContainsFinalizer(&cqObj, kueue.ResourceInUseFinalizerName) {
 			controllerutil.AddFinalizer(&cqObj, kueue.ResourceInUseFinalizerName)
 			if err := r.client.Update(ctx, &cqObj); err != nil {

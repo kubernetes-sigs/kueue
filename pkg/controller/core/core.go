@@ -57,5 +57,9 @@ func SetupWebhooks(mgr ctrl.Manager) (string, error) {
 	if err := (&kueuev1alpha1.ResourceFlavor{}).SetupWebhookWithManager(mgr); err != nil {
 		return "ResourceFlavor", err
 	}
+
+	if err := (&kueuev1alpha1.ClusterQueue{}).SetupWebhookWithManager(mgr); err != nil {
+		return "ClusterQueue", err
+	}
 	return "", nil
 }
