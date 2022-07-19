@@ -283,7 +283,7 @@ func UpdateWorkloadStatus(ctx context.Context, k8sClient client.Client, wl *kueu
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-func ExpectedClusterQueueToBeDeleted(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, deleteCq bool) {
+func ExpectClusterQueueToBeDeleted(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, deleteCq bool) {
 	if deleteCq {
 		gomega.Expect(DeleteClusterQueue(ctx, k8sClient, cq)).ToNot(gomega.HaveOccurred())
 	}
