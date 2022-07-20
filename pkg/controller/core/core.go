@@ -61,5 +61,9 @@ func SetupWebhooks(mgr ctrl.Manager) (string, error) {
 	if err := (&kueuev1alpha1.ClusterQueue{}).SetupWebhookWithManager(mgr); err != nil {
 		return "ClusterQueue", err
 	}
+
+	if err := (&kueuev1alpha1.Queue{}).SetupWebhookWithManager(mgr); err != nil {
+		return "Queue", err
+	}
 	return "", nil
 }
