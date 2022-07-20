@@ -56,7 +56,11 @@ func (q *Queue) ValidateDelete() error {
 }
 
 func ValidateQueueCreate(q *Queue) field.ErrorList {
-	return apivalidation.ValidateObjectMetaAccessor(q.GetObjectMeta(), true, apivalidation.NameIsDNSLabel, field.NewPath("metadata"))
+	var allErrs field.ErrorList
+	for _, msg := range apivalidation.NameIsDNSSubdomain(string(q.Spec.ClusterQueue), false) {
+		allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "clusterQueue"), q.Spec.ClusterQueue, msg))
+	}
+	return allErrs
 }
 
 func ValidateQueueUpdate(newObj, oldObj *Queue) field.ErrorList {

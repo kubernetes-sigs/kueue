@@ -40,10 +40,10 @@ func TestValidateQueueCreate(t *testing.T) {
 		queue   *Queue
 		wantErr field.ErrorList
 	}{
-		"should reject invalid name": {
-			queue: testingutil.MakeQueue("invalid_name", testQueueNamespace).Obj(),
+		"should reject invalid clusterQueue": {
+			queue: testingutil.MakeQueue(testQueueName, testQueueNamespace).ClusterQueue("invalid_queue").Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("metadata").Child("name"), "invalid_name", ""),
+				field.Invalid(field.NewPath("spec").Child("clusterQueue"), "invalid_name", ""),
 			},
 		},
 	}
