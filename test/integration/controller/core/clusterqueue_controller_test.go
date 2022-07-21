@@ -199,25 +199,6 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 		})
 	})
 
-	ginkgo.When("Creating clusterQueues", func() {
-		var cq *kueue.ClusterQueue
-		ginkgo.BeforeEach(func() {
-			cq = testing.MakeClusterQueue("foo-cq").Obj()
-			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
-		})
-		ginkgo.AfterEach(func() {
-			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, cq)).To(gomega.Succeed())
-		})
-
-		ginkgo.It("Should add a finalizer to the clusterQueue", func() {
-			gomega.Eventually(func() []string {
-				var newCQ kueue.ClusterQueue
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &newCQ)).To(gomega.Succeed())
-				return newCQ.GetFinalizers()
-			}, framework.Timeout, framework.Interval).Should(gomega.Equal([]string{kueue.ResourceInUseFinalizerName}))
-		})
-	})
-
 	ginkgo.When("Deleting clusterQueues", func() {
 		var (
 			cq    *kueue.ClusterQueue
