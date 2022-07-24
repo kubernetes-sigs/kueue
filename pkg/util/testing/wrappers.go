@@ -156,6 +156,7 @@ func MakeWorkload(name, ns string) *WorkloadWrapper {
 								},
 							},
 						},
+						NodeSelector: map[string]string{},
 					},
 				},
 			},
@@ -211,6 +212,11 @@ func (w *WorkloadWrapper) PodSets(podSets []kueue.PodSet) *WorkloadWrapper {
 
 func (w *WorkloadWrapper) Toleration(t corev1.Toleration) *WorkloadWrapper {
 	w.Spec.PodSets[0].Spec.Tolerations = append(w.Spec.PodSets[0].Spec.Tolerations, t)
+	return w
+}
+
+func (w *WorkloadWrapper) NodeSelector(k, v string) *WorkloadWrapper {
+	w.Spec.PodSets[0].Spec.NodeSelector[k] = v
 	return w
 }
 
