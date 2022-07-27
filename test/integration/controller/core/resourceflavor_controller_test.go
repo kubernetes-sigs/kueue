@@ -46,52 +46,6 @@ var _ = ginkgo.Describe("ResourceFlavor controller", func() {
 		gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
-	ginkgo.When("no clusterQueue references resourceFlavors", func() {
-		var resourceFlavor *kueue.ResourceFlavor
-		ginkgo.BeforeEach(func() {
-			resourceFlavor = utiltesting.MakeResourceFlavor("cq-refer-resourceflavor").Obj()
-			gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).To(gomega.Succeed())
-		})
-
-		ginkgo.AfterEach(func() {
-			framework.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, resourceFlavor, true)
-		})
-
-		ginkgo.It("Should have finalizer in new created resourceFlavor", func() {
-			var rf kueue.ResourceFlavor
-			gomega.Eventually(func() []string {
-				if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf); err != nil {
-					return nil
-				}
-				return rf.GetFinalizers()
-			}, framework.Timeout, framework.Interval).Should(utiltesting.Equal([]string{kueue.ResourceInUseFinalizerName}))
-		})
-
-		ginkgo.It("Should handle resourceFlavor update events successfully", func() {
-			var rf kueue.ResourceFlavor
-			labels := map[string]string{"foo": "bar"}
-
-			gomega.Eventually(func() map[string]string {
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf)).To(gomega.Succeed())
-				rf.Labels = labels
-				if err := k8sClient.Update(ctx, &rf); err != nil {
-					return nil
-				}
-				return rf.Labels
-			}, framework.Timeout, framework.Interval).Should(utiltesting.Equal(labels))
-			gomega.Expect(rf.GetDeletionTimestamp()).Should(gomega.BeNil())
-
-			// TODO: When (issue#283) is resolved, remove the `Eventually` grammar.
-			gomega.Eventually(func() []string {
-				var newRF kueue.ResourceFlavor
-				if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &newRF); err != nil {
-					return nil
-				}
-				return newRF.GetFinalizers()
-			}, framework.Timeout, framework.Interval).Should(utiltesting.Equal([]string{kueue.ResourceInUseFinalizerName}))
-		})
-	})
-
 	ginkgo.When("one clusterQueue references resourceFlavors", func() {
 		var resourceFlavor *kueue.ResourceFlavor
 		var clusterQueue *kueue.ClusterQueue
