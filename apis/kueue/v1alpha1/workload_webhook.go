@@ -105,6 +105,27 @@ func ValidateWorkload(obj *Workload) field.ErrorList {
 }
 
 func ValidateWorkloadUpdate(newObj, oldObj *Workload) field.ErrorList {
-	return append(ValidateWorkload(newObj),
-		apivalidation.ValidateImmutableField(newObj.Spec.PodSets, oldObj.Spec.PodSets, field.NewPath("spec", "podSets"))...)
+	allErrs := field.ErrorList{}
+	allErrs = append(allErrs, ValidateWorkload(newObj)...)
+	allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PodSets, oldObj.Spec.PodSets, field.NewPath("spec", "podSets"))...)
+	allErrs = append(allErrs, validateQueueNameUpdate(newObj.Spec.QueueName, oldObj.Spec.QueueName)...)
+	allErrs = append(allErrs, validateAdmissionUpdate(newObj.Spec.Admission, oldObj.Spec.Admission)...)
+
+	return allErrs
+}
+
+/// validateQueueNameUpdate validates that queueName is set once
+func validateQueueNameUpdate(new, old string) field.ErrorList {
+	if len(old) == 0 {
+		return field.ErrorList{}
+	}
+	return apivalidation.ValidateImmutableField(new, old, field.NewPath("spec", "queueName"))
+}
+
+// validateAdmissionUpdate validates that admission is set once
+func validateAdmissionUpdate(new, old *Admission) field.ErrorList {
+	if old == nil {
+		return field.ErrorList{}
+	}
+	return apivalidation.ValidateImmutableField(new, old, field.NewPath("spec", "admission"))
 }
