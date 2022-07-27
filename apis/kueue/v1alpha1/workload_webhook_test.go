@@ -139,6 +139,36 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				field.Invalid(field.NewPath("spec").Child("podSets"), nil, ""),
 			},
 		},
+		"queueName can be updated when not set": {
+			before:  testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
+			after:   testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("queue").Obj(),
+			wantErr: field.ErrorList{},
+		},
+		"queueName should not be updated once set": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("queue1").Obj(),
+			after:  testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("queue2").Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec").Child("queueName"), nil, ""),
+			},
+		},
+		"admission can be updated when not set": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Admit(
+				testingutil.MakeAdmission("cluster-queue").Flavor("on-demand", "5").Obj(),
+			).Obj(),
+			wantErr: field.ErrorList{},
+		},
+		"admission should not be updated once set": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Admit(
+				testingutil.MakeAdmission("cluster-queue").Obj(),
+			).Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Admit(
+				testingutil.MakeAdmission("cluster-queue").Flavor("on-demand", "5").Obj(),
+			).Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec").Child("admission"), nil, ""),
+			},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {

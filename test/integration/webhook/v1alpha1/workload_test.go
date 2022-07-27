@@ -113,5 +113,31 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			gomega.Expect(err).Should(gomega.HaveOccurred())
 			gomega.Expect(errors.IsForbidden(err)).Should(gomega.BeTrue(), "error: %v", err)
 		})
+
+		ginkgo.It("Should forbid the change of spec.queueName", func() {
+			ginkgo.By("Creating a new Workload")
+			workload := testing.MakeWorkload(workloadName, ns.Name).Queue("queue1").Obj()
+			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
+
+			ginkgo.By("Updating queueName")
+			workload.Spec.QueueName = "queue2"
+			err := k8sClient.Update(ctx, workload)
+			gomega.Expect(err).Should(gomega.HaveOccurred())
+			gomega.Expect(errors.IsForbidden(err)).Should(gomega.BeTrue(), "error: %v", err)
+		})
+
+		ginkgo.It("Should forbid the change of spec.admission", func() {
+			ginkgo.By("Creating a new Workload")
+			workload := testing.MakeWorkload(workloadName, ns.Name).Admit(
+				testing.MakeAdmission("cluster-queue").Obj(),
+			).Obj()
+			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
+
+			ginkgo.By("Updating queueName")
+			workload.Spec.Admission.ClusterQueue = "foo-clusterQueue"
+			err := k8sClient.Update(ctx, workload)
+			gomega.Expect(err).Should(gomega.HaveOccurred())
+			gomega.Expect(errors.IsForbidden(err)).Should(gomega.BeTrue(), "error: %v", err)
+		})
 	})
 })
