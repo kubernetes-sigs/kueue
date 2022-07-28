@@ -14,6 +14,10 @@ resources:
   kind: Queue
   path: sigs.k8s.io/kueue/apis/kueue/v1alpha1
   version: v1alpha1
+  webhooks:
+    defaulting: false
+    validation: true
+    webhookVersion: v1
 - api:
     crdVersion: v1
   controller: true
