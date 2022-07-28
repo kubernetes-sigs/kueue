@@ -40,8 +40,8 @@ func TestValidateQueueCreate(t *testing.T) {
 		queue   *Queue
 		wantErr field.ErrorList
 	}{
-		"should reject invalid clusterQueue": {
-			queue: testingutil.MakeQueue(testQueueName, testQueueNamespace).ClusterQueue("invalid_queue").Obj(),
+		"should reject queue creation with an invalid clusterQueue": {
+			queue: testingutil.MakeQueue(testQueueName, testQueueNamespace).ClusterQueue("invalid_cluster_queue").Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec").Child("clusterQueue"), "invalid_name", ""),
 			},
@@ -50,9 +50,6 @@ func TestValidateQueueCreate(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			errList := ValidateQueueCreate(tc.queue)
-			if len(errList) == 0 {
-				t.Fatalf("Unexpected success, want %v", tc.wantErr)
-			}
 			if diff := cmp.Diff(tc.wantErr, errList, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("ValidateQueueCreate() mismatch (-want +got):\n%s", diff)
 			}
@@ -73,23 +70,14 @@ func TestValidateQueueUpdate(t *testing.T) {
 			},
 		},
 		"status could be updated": {
-			before: testingutil.MakeQueue(testQueueName, testQueueNamespace).Obj(),
-			after:  testingutil.MakeQueue(testQueueName, testQueueNamespace).PendingWorkloads(10).Obj(),
+			before:  testingutil.MakeQueue(testQueueName, testQueueNamespace).Obj(),
+			after:   testingutil.MakeQueue(testQueueName, testQueueNamespace).PendingWorkloads(10).Obj(),
+			wantErr: field.ErrorList{},
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			errList := ValidateQueueUpdate(tc.before, tc.after)
-			if len(tc.wantErr) == 0 {
-				if len(errList) > 0 {
-					t.Fatalf("Unexpected error: %v", errList)
-				}
-				return
-			}
-
-			if len(errList) == 0 {
-				t.Fatalf("Unexpected success, want %v", tc.wantErr)
-			}
 			if diff := cmp.Diff(tc.wantErr, errList, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("ValidateQueueUpdate() mismatch (-want +got):\n%s", diff)
 			}

@@ -57,8 +57,9 @@ func (q *Queue) ValidateDelete() error {
 
 func ValidateQueueCreate(q *Queue) field.ErrorList {
 	var allErrs field.ErrorList
+	clusterQueuePath := field.NewPath("spec", "clusterQueue")
 	for _, msg := range apivalidation.NameIsDNSSubdomain(string(q.Spec.ClusterQueue), false) {
-		allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "clusterQueue"), q.Spec.ClusterQueue, msg))
+		allErrs = append(allErrs, field.Invalid(clusterQueuePath, q.Spec.ClusterQueue, msg))
 	}
 	return allErrs
 }

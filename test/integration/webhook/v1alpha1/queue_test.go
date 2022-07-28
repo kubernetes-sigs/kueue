@@ -26,7 +26,7 @@ import (
 const queueName = "queue-test"
 
 var _ = ginkgo.Describe("Queue validating webhook", func() {
-	ginkgo.Context("When updating a Queue", func() {
+	ginkgo.When("Updating a Queue", func() {
 		ginkgo.It("Should allow the change of status", func() {
 			ginkgo.By("Creating a new Queue")
 			obj := testing.MakeQueue(queueName, ns.Name).ClusterQueue("foo").Obj()
