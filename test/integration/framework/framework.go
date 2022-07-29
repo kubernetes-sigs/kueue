@@ -32,6 +32,7 @@ import (
 	nodev1 "k8s.io/api/node/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/component-base/metrics/testutil"
@@ -254,6 +255,15 @@ func ExpectWorkloadsToBeFrozen(ctx context.Context, k8sClient client.Client, cq 
 		}
 		return frozen
 	}, Timeout, Interval).Should(gomega.Equal(len(wls)), "Not enough workloads are frozen")
+}
+
+func ExpectWorkloadToBeAdmittedAs(ctx context.Context, k8sClient client.Client, wlNsName types.NamespacedName,
+	admission *kueue.Admission) {
+	wlCopy := &kueue.Workload{}
+	gomega.Eventually(func() *kueue.Admission {
+		gomega.Expect(k8sClient.Get(ctx, wlNsName, wlCopy)).Should(gomega.Succeed())
+		return wlCopy.Spec.Admission
+	}, Timeout, Interval).Should(testing.Equal(admission))
 }
 
 func ExpectPendingWorkloadsMetric(cq *kueue.ClusterQueue, v int) {
