@@ -900,6 +900,14 @@ func TestEntryAssignFlavors(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "two"},
 			Labels:     map[string]string{"type": "two"},
 		},
+		"b_one": {
+			ObjectMeta: metav1.ObjectMeta{Name: "b_one"},
+			Labels:     map[string]string{"b_type": "one"},
+		},
+		"b_two": {
+			ObjectMeta: metav1.ObjectMeta{Name: "b_two"},
+			Labels:     map[string]string{"b_type": "two"},
+		},
 		"tainted": {
 			ObjectMeta: metav1.ObjectMeta{Name: "tainted"},
 			Taints: []corev1.Taint{{
@@ -915,7 +923,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 		clusterQueue cache.ClusterQueue
 		wantFits     bool
 		wantFlavors  map[string]map[corev1.ResourceName]string
-		wantBorrows  cache.Resources
+		wantBorrows  cache.ResourceQuantities
 		wantMsg      string
 	}{
 		"single flavor, fits": {
@@ -930,9 +938,9 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
-					corev1.ResourceCPU:    {{Name: "default", Min: 1000}},
-					corev1.ResourceMemory: {{Name: "default", Min: 2 * utiltesting.Mi}},
+				RequestableResources: map[corev1.ResourceName]*cache.Resource{
+					corev1.ResourceCPU:    {Flavors: []cache.FlavorLimits{{Name: "default", Min: 1000}}},
+					corev1.ResourceMemory: {Flavors: []cache.FlavorLimits{{Name: "default", Min: 2 * utiltesting.Mi}}},
 				},
 			},
 			wantFits: true,
@@ -966,9 +974,9 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
+				RequestableResources: map[corev1.ResourceName]*cache.Resource{
 					corev1.ResourceCPU: {
-						{Name: "tainted", Min: 4000},
+						Flavors: []cache.FlavorLimits{{Name: "tainted", Min: 4000}},
 					},
 				},
 			},
@@ -990,18 +998,18 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
-					corev1.ResourceCPU: {{Name: "default", Min: 4000}},
+				RequestableResources: map[corev1.ResourceName]*cache.Resource{
+					corev1.ResourceCPU: {Flavors: []cache.FlavorLimits{{Name: "default", Min: 4000}}},
 				},
-				UsedResources: cache.Resources{
+				UsedResources: cache.ResourceQuantities{
 					corev1.ResourceCPU: {
 						"default": 3_000,
 					},
 				},
 			},
-			wantMsg: "insufficient quota for flavor default, 1000 more needed",
+			wantMsg: "insufficient quota for cpu flavor default, 1 more needed",
 		},
-		"multiple flavors, fits": {
+		"multiple independent flavors, fits": {
 			wlPods: []kueue.PodSet{
 				{
 					Count: 1,
@@ -1013,14 +1021,18 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
+				RequestableResources: map[corev1.ResourceName]*cache.Resource{
 					corev1.ResourceCPU: {
-						{Name: "one", Min: 2000},
-						{Name: "two", Min: 4000},
+						Flavors: []cache.FlavorLimits{
+							{Name: "one", Min: 2000},
+							{Name: "two", Min: 4000},
+						},
 					},
 					corev1.ResourceMemory: {
-						{Name: "one", Min: utiltesting.Gi},
-						{Name: "two", Min: 5 * utiltesting.Mi},
+						Flavors: []cache.FlavorLimits{
+							{Name: "b_one", Min: utiltesting.Gi},
+							{Name: "b_two", Min: 5 * utiltesting.Mi},
+						},
 					},
 				},
 			},
@@ -1028,34 +1040,81 @@ func TestEntryAssignFlavors(t *testing.T) {
 			wantFlavors: map[string]map[corev1.ResourceName]string{
 				"main": {
 					corev1.ResourceCPU:    "two",
-					corev1.ResourceMemory: "one",
+					corev1.ResourceMemory: "b_one",
 				},
 			},
 		},
-		"multiple flavors, doesn't fit": {
+		"some codependent flavors, fits": {
 			wlPods: []kueue.PodSet{
 				{
 					Count: 1,
 					Name:  "main",
 					Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-						corev1.ResourceCPU:    "4.1",
-						corev1.ResourceMemory: "0.5Gi",
+						corev1.ResourceCPU:    "3",
+						corev1.ResourceMemory: "10Mi",
+						"example.com/gpu":     "3",
 					}),
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
+				RequestableResources: map[corev1.ResourceName]*cache.Resource{
 					corev1.ResourceCPU: {
-						{Name: "one", Min: 2000},
-						{Name: "two", Min: 4000},
+						Flavors: []cache.FlavorLimits{
+							{Name: "one", Min: 2000},
+							{Name: "two", Min: 4000},
+						},
 					},
 					corev1.ResourceMemory: {
-						{Name: "one", Min: utiltesting.Gi},
-						{Name: "two", Min: 5 * utiltesting.Mi},
+						Flavors: []cache.FlavorLimits{
+							{Name: "one", Min: utiltesting.Gi},
+							{Name: "two", Min: 15 * utiltesting.Mi},
+						},
+					},
+					"example.com/gpu": {
+						Flavors: []cache.FlavorLimits{
+							{Name: "b_one", Min: 4},
+							{Name: "b_two", Min: 2},
+						},
 					},
 				},
 			},
-			wantMsg: "insufficient quota for flavor one, 2100 more needed, insufficient quota for flavor two, 100 more needed",
+			wantFits: true,
+			wantFlavors: map[string]map[corev1.ResourceName]string{
+				"main": {
+					corev1.ResourceCPU:    "two",
+					corev1.ResourceMemory: "two",
+					"example.com/gpu":     "b_one",
+				},
+			},
+		},
+		"codependent flavors, doesn't fit": {
+			wlPods: []kueue.PodSet{
+				{
+					Count: 1,
+					Name:  "main",
+					Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+						corev1.ResourceCPU:    "3",
+						corev1.ResourceMemory: "10Mi",
+					}),
+				},
+			},
+			clusterQueue: cache.ClusterQueue{
+				RequestableResources: map[corev1.ResourceName]*cache.Resource{
+					corev1.ResourceCPU: {
+						Flavors: []cache.FlavorLimits{
+							{Name: "one", Min: 2000},
+							{Name: "two", Min: 4000},
+						},
+					},
+					corev1.ResourceMemory: {
+						Flavors: []cache.FlavorLimits{
+							{Name: "one", Min: utiltesting.Gi},
+							{Name: "two", Min: 5 * utiltesting.Mi},
+						},
+					},
+				},
+			},
+			wantMsg: "insufficient quota for cpu flavor one, 1 more needed; insufficient quota for memory flavor two, 5Mi more needed",
 		},
 		"multiple flavors, fits while skipping tainted flavor": {
 			wlPods: []kueue.PodSet{
@@ -1068,10 +1127,12 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
+				RequestableResources: map[corev1.ResourceName]*cache.Resource{
 					corev1.ResourceCPU: {
-						{Name: "tainted", Min: 4000},
-						{Name: "two", Min: 4000},
+						Flavors: []cache.FlavorLimits{
+							{Name: "tainted", Min: 4000},
+							{Name: "two", Min: 4000},
+						},
 					},
 				},
 			},
@@ -1093,10 +1154,12 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
+				RequestableResources: map[corev1.ResourceName]*cache.Resource{
 					corev1.ResourceCPU: {
-						{Name: "non-existent", Min: 4000},
-						{Name: "two", Min: 4000},
+						Flavors: []cache.FlavorLimits{
+							{Name: "non-existent", Min: 4000},
+							{Name: "two", Min: 4000},
+						},
 					},
 				},
 			},
@@ -1142,10 +1205,13 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
+				RequestableResources: map[corev1.ResourceName]*cache.Resource{
 					corev1.ResourceCPU: {
-						{Name: "one", Min: 4000},
-						{Name: "two", Min: 4000},
+						Flavors: []cache.FlavorLimits{
+							{Name: "non-existent", Min: 4000},
+							{Name: "one", Min: 4000},
+							{Name: "two", Min: 4000},
+						},
 					},
 				},
 				LabelKeys: map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
@@ -1193,14 +1259,18 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
+				RequestableResources: map[corev1.ResourceName]*cache.Resource{
 					corev1.ResourceCPU: {
-						{Name: "one", Min: 4000},
-						{Name: "two", Min: 4000},
+						Flavors: []cache.FlavorLimits{
+							{Name: "one", Min: 4000},
+							{Name: "two", Min: 4000},
+						},
 					},
 					corev1.ResourceMemory: {
-						{Name: "one", Min: utiltesting.Gi},
-						{Name: "two", Min: utiltesting.Gi},
+						Flavors: []cache.FlavorLimits{
+							{Name: "one", Min: utiltesting.Gi},
+							{Name: "two", Min: utiltesting.Gi},
+						},
 					},
 				},
 			},
@@ -1257,10 +1327,12 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
+				RequestableResources: map[corev1.ResourceName]*cache.Resource{
 					corev1.ResourceCPU: {
-						{Name: "one", Min: 4000},
-						{Name: "two", Min: 4000},
+						Flavors: []cache.FlavorLimits{
+							{Name: "one", Min: 4000},
+							{Name: "two", Min: 4000},
+						},
 					},
 				},
 			},
@@ -1303,10 +1375,12 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
+				RequestableResources: map[corev1.ResourceName]*cache.Resource{
 					corev1.ResourceCPU: {
-						{Name: "one", Min: 4000},
-						{Name: "two", Min: 4000},
+						Flavors: []cache.FlavorLimits{
+							{Name: "one", Min: 4000},
+							{Name: "two", Min: 4000},
+						},
 					},
 				},
 				LabelKeys: map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
@@ -1332,10 +1406,12 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
+				RequestableResources: map[corev1.ResourceName]*cache.Resource{
 					corev1.ResourceCPU: {
-						{Name: "one", Min: 4000},
-						{Name: "two", Min: 10_000},
+						Flavors: []cache.FlavorLimits{
+							{Name: "one", Min: 4000},
+							{Name: "two", Min: 10_000},
+						},
 					},
 				},
 			},
@@ -1369,24 +1445,28 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
+				RequestableResources: map[corev1.ResourceName]*cache.Resource{
 					corev1.ResourceCPU: {
-						{
-							Name: "default",
-							Min:  2000,
-							Max:  pointer.Int64(100_000),
+						Flavors: []cache.FlavorLimits{
+							{
+								Name: "default",
+								Min:  2000,
+								Max:  pointer.Int64(100_000),
+							},
 						},
 					},
 					corev1.ResourceMemory: {
-						{
-							Name: "default",
-							Min:  2 * utiltesting.Gi,
-							// No max.
+						Flavors: []cache.FlavorLimits{
+							{
+								Name: "default",
+								Min:  2 * utiltesting.Gi,
+								// No max.
+							},
 						},
 					},
 				},
 				Cohort: &cache.Cohort{
-					RequestableResources: cache.Resources{
+					RequestableResources: cache.ResourceQuantities{
 						corev1.ResourceCPU: {
 							"default": 200_000,
 						},
@@ -1407,7 +1487,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 					corev1.ResourceMemory: "default",
 				},
 			},
-			wantBorrows: cache.Resources{
+			wantBorrows: cache.ResourceQuantities{
 				corev1.ResourceCPU: {
 					"default": 8_000,
 				},
@@ -1427,25 +1507,27 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
+				RequestableResources: map[corev1.ResourceName]*cache.Resource{
 					corev1.ResourceCPU: {
-						{
-							Name: "one",
-							Min:  1000,
-							// No max.
+						Flavors: []cache.FlavorLimits{
+							{
+								Name: "one",
+								Min:  1000,
+								// No max.
+							},
 						},
 					},
 				},
 				Cohort: &cache.Cohort{
-					RequestableResources: cache.Resources{
+					RequestableResources: cache.ResourceQuantities{
 						corev1.ResourceCPU: {"one": 10_000},
 					},
-					UsedResources: cache.Resources{
+					UsedResources: cache.ResourceQuantities{
 						corev1.ResourceCPU: {"one": 9_000},
 					},
 				},
 			},
-			wantMsg: "insufficient quota for flavor one, 1000 more needed after borrowing",
+			wantMsg: "insufficient quota for cpu flavor one, 1 more needed after borrowing",
 		},
 		"past max": {
 			wlPods: []kueue.PodSet{
@@ -1458,28 +1540,30 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
+				RequestableResources: map[corev1.ResourceName]*cache.Resource{
 					corev1.ResourceCPU: {
-						{
-							Name: "one",
-							Min:  1000,
-							Max:  pointer.Int64(10_000),
+						Flavors: []cache.FlavorLimits{
+							{
+								Name: "one",
+								Min:  1000,
+								Max:  pointer.Int64(10_000),
+							},
 						},
 					},
 				},
-				UsedResources: cache.Resources{
+				UsedResources: cache.ResourceQuantities{
 					corev1.ResourceCPU: {"one": 9_000},
 				},
 				Cohort: &cache.Cohort{
-					RequestableResources: cache.Resources{
+					RequestableResources: cache.ResourceQuantities{
 						corev1.ResourceCPU: {"one": 100_000},
 					},
-					UsedResources: cache.Resources{
+					UsedResources: cache.ResourceQuantities{
 						corev1.ResourceCPU: {"one": 9_000},
 					},
 				},
 			},
-			wantMsg: "borrowing limit for flavor one exceeded",
+			wantMsg: "borrowing limit for cpu flavor one exceeded",
 		},
 		"resource not listed in clusterQueue": {
 			wlPods: []kueue.PodSet{
@@ -1492,14 +1576,33 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
+				RequestableResources: map[corev1.ResourceName]*cache.Resource{
 					corev1.ResourceCPU: {
-						{Name: "one", Min: 4000},
+						Flavors: []cache.FlavorLimits{
+							{Name: "one", Min: 4000},
+						},
 					},
 				},
 			},
 			wantFits: false,
-			wantMsg:  "resource unavailable in ClusterQueue",
+			wantMsg:  "resource example.com/gpu unavailable in ClusterQueue",
+		},
+		"resource not found": {
+			wlPods: []kueue.PodSet{
+				{
+					Count: 1,
+					Name:  "main",
+					Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+						"unknown_resource": "1",
+					}),
+				},
+			},
+			clusterQueue: cache.ClusterQueue{
+				RequestableResources: map[corev1.ResourceName]*cache.Resource{
+					corev1.ResourceCPU: {Flavors: []cache.FlavorLimits{{Name: "one", Min: 1000}}},
+				},
+			},
+			wantMsg: "resource unknown_resource unavailable in ClusterQueue",
 		},
 		"flavor not found": {
 			wlPods: []kueue.PodSet{
@@ -1512,8 +1615,8 @@ func TestEntryAssignFlavors(t *testing.T) {
 				},
 			},
 			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName][]cache.FlavorLimits{
-					corev1.ResourceCPU: {{Name: "nonexistent-flavor", Min: 1000}},
+				RequestableResources: map[corev1.ResourceName]*cache.Resource{
+					corev1.ResourceCPU: {Flavors: []cache.FlavorLimits{{Name: "nonexistent-flavor", Min: 1000}}},
 				},
 			},
 			wantMsg: "flavor nonexistent-flavor not found",
@@ -1524,6 +1627,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 			log := logrtesting.NewTestLoggerWithOptions(t, logrtesting.Options{
 				Verbosity: 2,
 			})
+			tc.clusterQueue.UpdateCodependentResources()
 			e := entry{
 				Info: *workload.NewInfo(&kueue.Workload{
 					Spec: kueue.WorkloadSpec{
@@ -1538,7 +1642,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 			}
 			if !tc.wantFits {
 				if len(tc.wantMsg) == 0 || !strings.Contains(status.Message(), tc.wantMsg) {
-					t.Errorf("got msg %s, want msg containing %s", status.Message(), tc.wantMsg)
+					t.Errorf("got msg:\n%s\nwant msg containing:\n%s", status.Message(), tc.wantMsg)
 				}
 			}
 			var flavors map[string]map[corev1.ResourceName]string
@@ -1568,7 +1672,7 @@ func TestEntryOrdering(t *testing.T) {
 					CreationTimestamp: metav1.NewTime(now),
 				}},
 			},
-			borrows: cache.Resources{
+			borrows: cache.ResourceQuantities{
 				corev1.ResourceCPU: {},
 			},
 		},
@@ -1595,7 +1699,7 @@ func TestEntryOrdering(t *testing.T) {
 					CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
 				}},
 			},
-			borrows: cache.Resources{
+			borrows: cache.ResourceQuantities{
 				corev1.ResourceCPU: {},
 			},
 		},
