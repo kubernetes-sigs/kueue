@@ -88,7 +88,7 @@ var _ = ginkgo.Describe("ResourceFlavor controller", func() {
 
 			ginkgo.By("Update clusterQueue's flavor")
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &cq)).To(gomega.Succeed())
-			cq.Spec.Resources[0].Flavors[0].Name = "foo-resourceFlavor"
+			cq.Spec.Resources[0].Flavors[0].Name = "foo-resourceflavor"
 			gomega.Expect(k8sClient.Update(ctx, &cq)).To(gomega.Succeed())
 
 			gomega.Eventually(func() error {
