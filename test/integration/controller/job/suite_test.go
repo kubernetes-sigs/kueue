@@ -24,8 +24,12 @@ import (
 	"github.com/onsi/gomega"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
+	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/workload/job"
+	"sigs.k8s.io/kueue/pkg/queue"
+	"sigs.k8s.io/kueue/pkg/scheduler"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	//+kubebuilder:scaffold:imports
 )
@@ -49,5 +53,32 @@ func managerSetup(opts ...job.Option) framework.ManagerSetup {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = reconciler.SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+}
+
+func managerAndSchedulerSetup(opts ...job.Option) framework.ManagerSetup {
+	return func(mgr manager.Manager, ctx context.Context) {
+		err := queue.SetupIndexes(mgr.GetFieldIndexer())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		err = cache.SetupIndexes(mgr.GetFieldIndexer())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		cCache := cache.New(mgr.GetClient())
+		queues := queue.NewManager(mgr.GetClient(), cCache)
+
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+
+		err = job.SetupIndexes(mgr.GetFieldIndexer())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = job.NewReconciler(mgr.GetScheme(), mgr.GetClient(),
+			mgr.GetEventRecorderFor(constants.JobControllerName), opts...).SetupWithManager(mgr)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.ManagerName))
+		go func() {
+			sched.Start(ctx)
+		}()
 	}
 }
