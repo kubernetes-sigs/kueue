@@ -139,5 +139,13 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			gomega.Expect(err).Should(gomega.HaveOccurred())
 			gomega.Expect(errors.IsForbidden(err)).Should(gomega.BeTrue(), "error: %v", err)
 		})
+
+		ginkgo.It("Should have priority once priorityClassName is set", func() {
+			ginkgo.By("Creating a new Workload")
+			workload := testing.MakeWorkload(workloadName, ns.Name).PriorityClass("priority").Obj()
+			err := k8sClient.Create(ctx, workload)
+			gomega.Expect(err).Should(gomega.HaveOccurred())
+			gomega.Expect(errors.IsForbidden(err)).Should(gomega.BeTrue(), "error: %v", err)
+		})
 	})
 })
