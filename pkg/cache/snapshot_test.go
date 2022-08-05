@@ -270,7 +270,7 @@ func TestSnapshot(t *testing.T) {
 	snapshot := cache.Snapshot()
 	wantCohort := Cohort{
 		Name: "foo",
-		RequestableResources: Resources{
+		RequestableResources: ResourceQuantities{
 			corev1.ResourceCPU: map[string]int64{
 				"demand": 100_000,
 				"spot":   300_000,
@@ -279,7 +279,7 @@ func TestSnapshot(t *testing.T) {
 				"default": 50,
 			},
 		},
-		UsedResources: Resources{
+		UsedResources: ResourceQuantities{
 			corev1.ResourceCPU: map[string]int64{
 				"demand": 10_000,
 				"spot":   10_000,
@@ -294,19 +294,21 @@ func TestSnapshot(t *testing.T) {
 			"foofoo": {
 				Name:   "foofoo",
 				Cohort: &wantCohort,
-				RequestableResources: map[corev1.ResourceName][]FlavorLimits{
+				RequestableResources: map[corev1.ResourceName]*Resource{
 					corev1.ResourceCPU: {
-						{
-							Name: "demand",
-							Min:  100_000,
-						},
-						{
-							Name: "spot",
-							Min:  200_000,
+						Flavors: []FlavorLimits{
+							{
+								Name: "demand",
+								Min:  100_000,
+							},
+							{
+								Name: "spot",
+								Min:  200_000,
+							},
 						},
 					},
 				},
-				UsedResources: Resources{
+				UsedResources: ResourceQuantities{
 					corev1.ResourceCPU: map[string]int64{
 						"demand": 10_000,
 						"spot":   0,
@@ -322,21 +324,25 @@ func TestSnapshot(t *testing.T) {
 			"foobar": {
 				Name:   "foobar",
 				Cohort: &wantCohort,
-				RequestableResources: map[corev1.ResourceName][]FlavorLimits{
+				RequestableResources: map[corev1.ResourceName]*Resource{
 					corev1.ResourceCPU: {
-						{
-							Name: "spot",
-							Min:  100_000,
+						Flavors: []FlavorLimits{
+							{
+								Name: "spot",
+								Min:  100_000,
+							},
 						},
 					},
 					"example.com/gpu": {
-						{
-							Name: "default",
-							Min:  50,
+						Flavors: []FlavorLimits{
+							{
+								Name: "default",
+								Min:  50,
+							},
 						},
 					},
 				},
-				UsedResources: Resources{
+				UsedResources: ResourceQuantities{
 					corev1.ResourceCPU: map[string]int64{
 						"spot": 10_000,
 					},
@@ -354,15 +360,17 @@ func TestSnapshot(t *testing.T) {
 			},
 			"bar": {
 				Name: "bar",
-				RequestableResources: map[corev1.ResourceName][]FlavorLimits{
+				RequestableResources: map[corev1.ResourceName]*Resource{
 					corev1.ResourceCPU: {
-						{
-							Name: "default",
-							Min:  100_000,
+						Flavors: []FlavorLimits{
+							{
+								Name: "default",
+								Min:  100_000,
+							},
 						},
 					},
 				},
-				UsedResources: Resources{
+				UsedResources: ResourceQuantities{
 					corev1.ResourceCPU: map[string]int64{"default": 0},
 				},
 				Workloads:         map[string]*workload.Info{},

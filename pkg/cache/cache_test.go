@@ -129,45 +129,47 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			wantClusterQueues: map[string]*ClusterQueue{
 				"a": {
 					Name: "a",
-					RequestableResources: map[corev1.ResourceName][]FlavorLimits{
-						corev1.ResourceCPU: {{Name: "default", Min: 10000, Max: pointer.Int64(20000)}},
+					RequestableResources: map[corev1.ResourceName]*Resource{
+						corev1.ResourceCPU: {
+							Flavors: []FlavorLimits{{Name: "default", Min: 10000, Max: pointer.Int64(20000)}},
+						},
 					},
 					NamespaceSelector: labels.Nothing(),
 					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
-					UsedResources:     Resources{corev1.ResourceCPU: {"default": 0}},
+					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
 					Status:            Active,
 				},
 				"b": {
 					Name: "b",
-					RequestableResources: map[corev1.ResourceName][]FlavorLimits{
-						corev1.ResourceCPU: {{Name: "default", Min: 15000}},
+					RequestableResources: map[corev1.ResourceName]*Resource{
+						corev1.ResourceCPU: {Flavors: []FlavorLimits{{Name: "default", Min: 15000}}},
 					},
 					NamespaceSelector: labels.Nothing(),
-					UsedResources:     Resources{corev1.ResourceCPU: {"default": 0}},
+					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
 					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
 					Status:            Active,
 				},
 				"c": {
 					Name:                 "c",
-					RequestableResources: map[corev1.ResourceName][]FlavorLimits{},
+					RequestableResources: map[corev1.ResourceName]*Resource{},
 					NamespaceSelector:    labels.Nothing(),
-					UsedResources:        Resources{},
+					UsedResources:        ResourceQuantities{},
 					Status:               Active,
 				},
 				"d": {
 					Name:                 "d",
-					RequestableResources: map[corev1.ResourceName][]FlavorLimits{},
+					RequestableResources: map[corev1.ResourceName]*Resource{},
 					NamespaceSelector:    labels.Nothing(),
-					UsedResources:        Resources{},
+					UsedResources:        ResourceQuantities{},
 					Status:               Active,
 				},
 				"e": {
 					Name: "e",
-					RequestableResources: map[corev1.ResourceName][]FlavorLimits{
-						corev1.ResourceCPU: {{Name: "nonexistent-flavor", Min: 15000}},
+					RequestableResources: map[corev1.ResourceName]*Resource{
+						corev1.ResourceCPU: {Flavors: []FlavorLimits{{Name: "nonexistent-flavor", Min: 15000}}},
 					},
 					NamespaceSelector: labels.Nothing(),
-					UsedResources:     Resources{corev1.ResourceCPU: {"nonexistent-flavor": 0}},
+					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"nonexistent-flavor": 0}},
 					LabelKeys:         nil,
 					Status:            Pending,
 				},
@@ -193,45 +195,45 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			wantClusterQueues: map[string]*ClusterQueue{
 				"a": {
 					Name: "a",
-					RequestableResources: map[corev1.ResourceName][]FlavorLimits{
-						corev1.ResourceCPU: {{Name: "default", Min: 10000, Max: pointer.Int64(20000)}},
+					RequestableResources: map[corev1.ResourceName]*Resource{
+						corev1.ResourceCPU: {Flavors: []FlavorLimits{{Name: "default", Min: 10000, Max: pointer.Int64(20000)}}},
 					},
 					NamespaceSelector: labels.Nothing(),
 					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
-					UsedResources:     Resources{corev1.ResourceCPU: {"default": 0}},
+					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
 					Status:            Active,
 				},
 				"b": {
 					Name: "b",
-					RequestableResources: map[corev1.ResourceName][]FlavorLimits{
-						corev1.ResourceCPU: {{Name: "default", Min: 15000}},
+					RequestableResources: map[corev1.ResourceName]*Resource{
+						corev1.ResourceCPU: {Flavors: []FlavorLimits{{Name: "default", Min: 15000}}},
 					},
 					NamespaceSelector: labels.Nothing(),
-					UsedResources:     Resources{corev1.ResourceCPU: {"default": 0}},
+					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
 					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
 					Status:            Active,
 				},
 				"c": {
 					Name:                 "c",
-					RequestableResources: map[corev1.ResourceName][]FlavorLimits{},
+					RequestableResources: map[corev1.ResourceName]*Resource{},
 					NamespaceSelector:    labels.Nothing(),
-					UsedResources:        Resources{},
+					UsedResources:        ResourceQuantities{},
 					Status:               Active,
 				},
 				"d": {
 					Name:                 "d",
-					RequestableResources: map[corev1.ResourceName][]FlavorLimits{},
+					RequestableResources: map[corev1.ResourceName]*Resource{},
 					NamespaceSelector:    labels.Nothing(),
-					UsedResources:        Resources{},
+					UsedResources:        ResourceQuantities{},
 					Status:               Active,
 				},
 				"e": {
 					Name: "e",
-					RequestableResources: map[corev1.ResourceName][]FlavorLimits{
-						corev1.ResourceCPU: {{Name: "nonexistent-flavor", Min: 15000}},
+					RequestableResources: map[corev1.ResourceName]*Resource{
+						corev1.ResourceCPU: {Flavors: []FlavorLimits{{Name: "nonexistent-flavor", Min: 15000}}},
 					},
 					NamespaceSelector: labels.Nothing(),
-					UsedResources:     Resources{corev1.ResourceCPU: {"nonexistent-flavor": 0}},
+					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"nonexistent-flavor": 0}},
 					LabelKeys:         nil,
 					Status:            Pending,
 				},
@@ -306,42 +308,42 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			wantClusterQueues: map[string]*ClusterQueue{
 				"a": {
 					Name: "a",
-					RequestableResources: map[corev1.ResourceName][]FlavorLimits{
-						corev1.ResourceCPU: {{Name: "default", Min: 5000, Max: pointer.Int64(10000)}},
+					RequestableResources: map[corev1.ResourceName]*Resource{
+						corev1.ResourceCPU: {Flavors: []FlavorLimits{{Name: "default", Min: 5000, Max: pointer.Int64(10000)}}},
 					},
 					NamespaceSelector: labels.Nothing(),
 					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType", "region")},
-					UsedResources:     Resources{corev1.ResourceCPU: {"default": 0}},
+					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
 					Status:            Active,
 				},
 				"b": {
 					Name:                 "b",
-					RequestableResources: map[corev1.ResourceName][]FlavorLimits{},
+					RequestableResources: map[corev1.ResourceName]*Resource{},
 					NamespaceSelector:    labels.Everything(),
-					UsedResources:        Resources{},
+					UsedResources:        ResourceQuantities{},
 					Status:               Active,
 				},
 				"c": {
 					Name:                 "c",
-					RequestableResources: map[corev1.ResourceName][]FlavorLimits{},
+					RequestableResources: map[corev1.ResourceName]*Resource{},
 					NamespaceSelector:    labels.Nothing(),
-					UsedResources:        Resources{},
+					UsedResources:        ResourceQuantities{},
 					Status:               Active,
 				},
 				"d": {
 					Name:                 "d",
-					RequestableResources: map[corev1.ResourceName][]FlavorLimits{},
+					RequestableResources: map[corev1.ResourceName]*Resource{},
 					NamespaceSelector:    labels.Nothing(),
-					UsedResources:        Resources{},
+					UsedResources:        ResourceQuantities{},
 					Status:               Active,
 				},
 				"e": {
 					Name: "e",
-					RequestableResources: map[corev1.ResourceName][]FlavorLimits{
-						corev1.ResourceCPU: {{Name: "default", Min: 5000, Max: pointer.Int64(10000)}},
+					RequestableResources: map[corev1.ResourceName]*Resource{
+						corev1.ResourceCPU: {Flavors: []FlavorLimits{{Name: "default", Min: 5000, Max: pointer.Int64(10000)}}},
 					},
 					NamespaceSelector: labels.Nothing(),
-					UsedResources:     Resources{corev1.ResourceCPU: {"default": 0}},
+					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
 					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType", "region")},
 					Status:            Active,
 				},
@@ -366,28 +368,28 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			wantClusterQueues: map[string]*ClusterQueue{
 				"b": {
 					Name: "b",
-					RequestableResources: map[corev1.ResourceName][]FlavorLimits{
-						corev1.ResourceCPU: {{Name: "default", Min: 15000}},
+					RequestableResources: map[corev1.ResourceName]*Resource{
+						corev1.ResourceCPU: {Flavors: []FlavorLimits{{Name: "default", Min: 15000}}},
 					},
 					NamespaceSelector: labels.Nothing(),
-					UsedResources:     Resources{corev1.ResourceCPU: {"default": 0}},
+					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
 					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
 					Status:            Active,
 				},
 				"c": {
 					Name:                 "c",
-					RequestableResources: map[corev1.ResourceName][]FlavorLimits{},
+					RequestableResources: map[corev1.ResourceName]*Resource{},
 					NamespaceSelector:    labels.Nothing(),
-					UsedResources:        Resources{},
+					UsedResources:        ResourceQuantities{},
 					Status:               Active,
 				},
 				"e": {
 					Name: "e",
-					RequestableResources: map[corev1.ResourceName][]FlavorLimits{
-						corev1.ResourceCPU: {{Name: "nonexistent-flavor", Min: 15000}},
+					RequestableResources: map[corev1.ResourceName]*Resource{
+						corev1.ResourceCPU: {Flavors: []FlavorLimits{{Name: "nonexistent-flavor", Min: 15000}}},
 					},
 					NamespaceSelector: labels.Nothing(),
-					UsedResources:     Resources{corev1.ResourceCPU: {"nonexistent-flavor": 0}},
+					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"nonexistent-flavor": 0}},
 					LabelKeys:         nil,
 					Status:            Pending,
 				},
@@ -408,45 +410,45 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			wantClusterQueues: map[string]*ClusterQueue{
 				"a": {
 					Name: "a",
-					RequestableResources: map[corev1.ResourceName][]FlavorLimits{
-						corev1.ResourceCPU: {{Name: "default", Min: 10000, Max: pointer.Int64(20000)}},
+					RequestableResources: map[corev1.ResourceName]*Resource{
+						corev1.ResourceCPU: {Flavors: []FlavorLimits{{Name: "default", Min: 10000, Max: pointer.Int64(20000)}}},
 					},
 					NamespaceSelector: labels.Nothing(),
 					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
-					UsedResources:     Resources{corev1.ResourceCPU: {"default": 0}},
+					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
 					Status:            Active,
 				},
 				"b": {
 					Name: "b",
-					RequestableResources: map[corev1.ResourceName][]FlavorLimits{
-						corev1.ResourceCPU: {{Name: "default", Min: 15000}},
+					RequestableResources: map[corev1.ResourceName]*Resource{
+						corev1.ResourceCPU: {Flavors: []FlavorLimits{{Name: "default", Min: 15000}}},
 					},
 					NamespaceSelector: labels.Nothing(),
-					UsedResources:     Resources{corev1.ResourceCPU: {"default": 0}},
+					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
 					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
 					Status:            Active,
 				},
 				"c": {
 					Name:                 "c",
-					RequestableResources: map[corev1.ResourceName][]FlavorLimits{},
+					RequestableResources: map[corev1.ResourceName]*Resource{},
 					NamespaceSelector:    labels.Nothing(),
-					UsedResources:        Resources{},
+					UsedResources:        ResourceQuantities{},
 					Status:               Active,
 				},
 				"d": {
 					Name:                 "d",
-					RequestableResources: map[corev1.ResourceName][]FlavorLimits{},
+					RequestableResources: map[corev1.ResourceName]*Resource{},
 					NamespaceSelector:    labels.Nothing(),
-					UsedResources:        Resources{},
+					UsedResources:        ResourceQuantities{},
 					Status:               Active,
 				},
 				"e": {
 					Name: "e",
-					RequestableResources: map[corev1.ResourceName][]FlavorLimits{
-						corev1.ResourceCPU: {{Name: "nonexistent-flavor", Min: 15000}},
+					RequestableResources: map[corev1.ResourceName]*Resource{
+						corev1.ResourceCPU: {Flavors: []FlavorLimits{{Name: "nonexistent-flavor", Min: 15000}}},
 					},
 					NamespaceSelector: labels.Nothing(),
-					UsedResources:     Resources{corev1.ResourceCPU: {"nonexistent-flavor": 0}},
+					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"nonexistent-flavor": 0}},
 					LabelKeys:         nil,
 					Status:            Active,
 				},
@@ -454,6 +456,87 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			wantCohorts: map[string]sets.String{
 				"one": sets.NewString("a", "b"),
 				"two": sets.NewString("c", "e"),
+			},
+		},
+		{
+			name: "Add ClusterQueue with codependent resources",
+			operation: func(cache *Cache) {
+				err := cache.AddClusterQueue(context.Background(),
+					&kueue.ClusterQueue{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "foo",
+						},
+						Spec: kueue.ClusterQueueSpec{
+							Resources: []kueue.Resource{
+								{
+									Name: "cpu",
+									Flavors: []kueue.Flavor{
+										{Name: "foo"},
+										{Name: "bar"},
+									},
+								},
+								{
+									Name: "memory",
+									Flavors: []kueue.Flavor{
+										{Name: "foo"},
+										{Name: "bar"},
+									},
+								},
+								{
+									Name: "example.com/gpu",
+									Flavors: []kueue.Flavor{
+										{Name: "theta"},
+										{Name: "gamma"},
+									},
+								},
+							},
+						},
+					})
+				if err != nil {
+					t.Fatalf("Adding ClusterQueue: %v", err)
+				}
+			},
+			wantClusterQueues: map[string]*ClusterQueue{
+				"foo": {
+					Name:              "foo",
+					NamespaceSelector: labels.Nothing(),
+					RequestableResources: map[corev1.ResourceName]*Resource{
+						"cpu": {
+							Flavors: []FlavorLimits{
+								{Name: "foo"},
+								{Name: "bar"},
+							},
+							CodependentResources: sets.NewString("cpu", "memory"),
+						},
+						"memory": {
+							Flavors: []FlavorLimits{
+								{Name: "foo"},
+								{Name: "bar"},
+							},
+							CodependentResources: sets.NewString("cpu", "memory"),
+						},
+						"example.com/gpu": {
+							Flavors: []FlavorLimits{
+								{Name: "theta"},
+								{Name: "gamma"},
+							},
+						},
+					},
+					UsedResources: ResourceQuantities{
+						"cpu": map[string]int64{
+							"bar": 0,
+							"foo": 0,
+						},
+						"memory": map[string]int64{
+							"bar": 0,
+							"foo": 0,
+						},
+						"example.com/gpu": map[string]int64{
+							"theta": 0,
+							"gamma": 0,
+						},
+					},
+				},
 			},
 		},
 	}
@@ -474,7 +557,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				}
 				gotCohorts[name] = gotCohort
 			}
-			if diff := cmp.Diff(tc.wantCohorts, gotCohorts); diff != "" {
+			if diff := cmp.Diff(tc.wantCohorts, gotCohorts, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected cohorts (-want,+got):\n%s", diff)
 			}
 		})
@@ -563,7 +646,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 
 	type result struct {
 		Workloads     sets.String
-		UsedResources Resources
+		UsedResources ResourceQuantities
 	}
 
 	steps := []struct {
@@ -594,11 +677,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("a", "b"),
-					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
 					Workloads:     sets.NewString("c", "d"),
-					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
 		},
@@ -617,11 +700,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("a", "b"),
-					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
 					Workloads:     sets.NewString("c"),
-					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
 		},
@@ -639,11 +722,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("a", "b"),
-					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
 					Workloads:     sets.NewString("c"),
-					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
 		},
@@ -662,11 +745,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("b"),
-					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 				"two": {
 					Workloads:     sets.NewString("a", "c"),
-					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 			},
 		},
@@ -685,11 +768,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("a", "b"),
-					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
 					Workloads:     sets.NewString("c"),
-					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
 		},
@@ -708,11 +791,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("a", "b"),
-					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
 					Workloads:     sets.NewString("c"),
-					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
 		},
@@ -730,11 +813,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("a", "b"),
-					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
 					Workloads:     sets.NewString("c", "d"),
-					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
 		},
@@ -749,11 +832,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("b"),
-					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 				"two": {
 					Workloads:     sets.NewString("c"),
-					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
 		},
@@ -769,11 +852,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("a", "b"),
-					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
 					Workloads:     sets.NewString("c"),
-					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
 		},
@@ -788,11 +871,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("a", "b"),
-					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
 					Workloads:     sets.NewString("c"),
-					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
 		},
@@ -819,11 +902,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("a", "b", "d"),
-					UsedResources: Resources{"cpu": {"on-demand": 20, "spot": 30}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 20, "spot": 30}},
 				},
 				"two": {
 					Workloads:     sets.NewString("c", "e"),
-					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 			},
 			wantAssumedWorkloads: map[string]string{
@@ -846,11 +929,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("a", "b"),
-					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
 					Workloads:     sets.NewString("c"),
-					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
 			wantAssumedWorkloads: map[string]string{},
@@ -880,11 +963,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("a", "b"),
-					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
 					Workloads:     sets.NewString("c", "e"),
-					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 			},
 			wantAssumedWorkloads: map[string]string{
@@ -906,11 +989,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("a", "b"),
-					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
 					Workloads:     sets.NewString("c"),
-					UsedResources: Resources{"cpu": {"on-demand": 0, "spot": 0}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
 		},
@@ -942,11 +1025,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantResults: map[string]result{
 				"one": {
 					Workloads:     sets.NewString("a", "b", "d"),
-					UsedResources: Resources{"cpu": {"on-demand": 20, "spot": 30}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 20, "spot": 30}},
 				},
 				"two": {
 					Workloads:     sets.NewString("c", "e"),
-					UsedResources: Resources{"cpu": {"on-demand": 10, "spot": 15}},
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 			},
 			wantAssumedWorkloads: map[string]string{
@@ -1470,7 +1553,7 @@ func TestFlavorInUse(t *testing.T) {
 	}
 }
 
-func TestUpdateWithFlavors(t *testing.T) {
+func TestClusterQueueUpdateWithFlavors(t *testing.T) {
 	rf := utiltesting.MakeResourceFlavor("x86").Obj()
 	flavor := utiltesting.MakeFlavor(rf.Name, "5").Obj()
 
@@ -1540,6 +1623,136 @@ func TestUpdateWithFlavors(t *testing.T) {
 
 			if cq.Status != tc.wantStatus {
 				t.Fatalf("got different status, want: %v, got: %v", tc.wantStatus, cq.Status)
+			}
+		})
+	}
+}
+
+func TestClusterQueueUpdateCodependentResources(t *testing.T) {
+	cases := map[string]struct {
+		cq     ClusterQueue
+		wantCQ ClusterQueue
+	}{
+		"no codependent resources": {
+			cq: ClusterQueue{
+				RequestableResources: map[corev1.ResourceName]*Resource{
+					"cpu": {
+						Flavors: []FlavorLimits{
+							{Name: "alpha"},
+							{Name: "beta"},
+						},
+					},
+					"memory": {
+						Flavors: []FlavorLimits{
+							{Name: "default"},
+						},
+					},
+					"example.com/gpu": {
+						Flavors: []FlavorLimits{
+							{Name: "gamma"},
+							{Name: "theta"},
+						},
+					},
+				},
+			},
+			wantCQ: ClusterQueue{
+				RequestableResources: map[corev1.ResourceName]*Resource{
+					"cpu": {
+						Flavors: []FlavorLimits{
+							{Name: "alpha"},
+							{Name: "beta"},
+						},
+					},
+					"memory": {
+						Flavors: []FlavorLimits{
+							{Name: "default"},
+						},
+					},
+					"example.com/gpu": {
+						Flavors: []FlavorLimits{
+							{Name: "gamma"},
+							{Name: "theta"},
+						},
+					},
+				},
+			},
+		},
+		"some codependent resources": {
+			cq: ClusterQueue{
+				RequestableResources: map[corev1.ResourceName]*Resource{
+					"cpu": {
+						Flavors: []FlavorLimits{
+							{Name: "alpha"},
+							{Name: "beta"},
+						},
+					},
+					"memory": {
+						Flavors: []FlavorLimits{
+							{Name: "alpha"},
+							{Name: "beta"},
+						},
+					},
+					"example.com/gpu": {
+						Flavors: []FlavorLimits{
+							{Name: "gamma"},
+							{Name: "theta"},
+						},
+					},
+					"example.com/foo": {
+						Flavors: []FlavorLimits{
+							{Name: "default"},
+						},
+					},
+					"example.com/bar": {
+						Flavors: []FlavorLimits{
+							{Name: "default"},
+						},
+					},
+				},
+			},
+			wantCQ: ClusterQueue{
+				RequestableResources: map[corev1.ResourceName]*Resource{
+					"cpu": {
+						Flavors: []FlavorLimits{
+							{Name: "alpha"},
+							{Name: "beta"},
+						},
+						CodependentResources: sets.NewString("cpu", "memory"),
+					},
+					"memory": {
+						Flavors: []FlavorLimits{
+							{Name: "alpha"},
+							{Name: "beta"},
+						},
+						CodependentResources: sets.NewString("cpu", "memory"),
+					},
+					"example.com/gpu": {
+						Flavors: []FlavorLimits{
+							{Name: "gamma"},
+							{Name: "theta"},
+						},
+					},
+					"example.com/foo": {
+						Flavors: []FlavorLimits{
+							{Name: "default"},
+						},
+						CodependentResources: sets.NewString("example.com/foo", "example.com/bar"),
+					},
+					"example.com/bar": {
+						Flavors: []FlavorLimits{
+							{Name: "default"},
+						},
+						CodependentResources: sets.NewString("example.com/foo", "example.com/bar"),
+					},
+				},
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			tc.cq.UpdateCodependentResources()
+			if diff := cmp.Diff(tc.wantCQ, tc.cq, cmpopts.IgnoreUnexported(ClusterQueue{})); diff != "" {
+				t.Errorf("Unexpected ClusterQueue after updating codependent resources: (-want,+got):\n%s", diff)
 			}
 		})
 	}
