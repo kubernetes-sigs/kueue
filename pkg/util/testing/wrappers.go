@@ -214,6 +214,11 @@ func (w *WorkloadWrapper) Toleration(t corev1.Toleration) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) NodeSelector(kv map[string]string) *WorkloadWrapper {
+	w.Spec.PodSets[0].Spec.NodeSelector = kv
+	return w
+}
+
 // AdmissionWrapper wraps an Admission
 type AdmissionWrapper struct{ kueue.Admission }
 

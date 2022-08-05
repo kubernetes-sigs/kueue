@@ -256,6 +256,14 @@ func ExpectWorkloadsToBeFrozen(ctx context.Context, k8sClient client.Client, cq 
 	}, Timeout, Interval).Should(gomega.Equal(len(wls)), "Not enough workloads are frozen")
 }
 
+func ExpectWorkloadToBeAdmittedAs(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, admission *kueue.Admission) {
+	var updatedWorkload kueue.Workload
+	gomega.Eventually(func() *kueue.Admission {
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
+		return updatedWorkload.Spec.Admission
+	}, Timeout, Interval).Should(testing.Equal(admission))
+}
+
 func ExpectPendingWorkloadsMetric(cq *kueue.ClusterQueue, v int) {
 	metric := metrics.PendingWorkloads.WithLabelValues(cq.Name)
 	gomega.EventuallyWithOffset(1, func() int {
