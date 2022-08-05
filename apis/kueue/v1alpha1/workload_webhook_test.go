@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	. "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	"sigs.k8s.io/kueue/pkg/util/pointer"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -71,19 +72,31 @@ func TestValidateWorkload(t *testing.T) {
 			},
 		},
 		"should have valid priorityClassName": {
-			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PriorityClass("invalid_class").Obj(),
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PriorityClass("invalid_class").
+				Priority(pointer.Int32(0)).
+				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(specField.Child("priorityClassName"), "invalid_class", ""),
+			},
+		},
+		"should pass validation when priorityClassName is empty": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
+			wantErr:  nil,
+		},
+		"should have priority once priorityClassName is set": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PriorityClass("priority").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(specField.Child("priority"), (*int32)(nil), ""),
 			},
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			errList := ValidateWorkload(tc.workload)
-			if len(errList) != 1 {
-				t.Errorf("Unexpected error: %v, want %v", errList, tc.wantErr)
-			}
-			if diff := cmp.Diff(tc.wantErr[0], errList[0], cmpopts.IgnoreFields(field.Error{}, "Detail")); diff != "" {
+			gotErr := ValidateWorkload(tc.workload)
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail")); diff != "" {
 				t.Errorf("ValidateWorkload() mismatch (-want +got):\n%s", diff)
 			}
 		})
@@ -142,7 +155,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		"queueName can be updated when not set": {
 			before:  testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
 			after:   testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("queue").Obj(),
-			wantErr: field.ErrorList{},
+			wantErr: nil,
 		},
 		"queueName should not be updated once set": {
 			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("queue1").Obj(),
@@ -156,7 +169,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Admit(
 				testingutil.MakeAdmission("cluster-queue").Flavor("on-demand", "5").Obj(),
 			).Obj(),
-			wantErr: field.ErrorList{},
+			wantErr: nil,
 		},
 		"admission should not be updated once set": {
 			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Admit(

@@ -76,16 +76,16 @@ func (r *Workload) ValidateDelete() error {
 
 func ValidateWorkload(obj *Workload) field.ErrorList {
 	var allErrs field.ErrorList
-	specField := field.NewPath("spec")
-	podSetsField := specField.Child("podSets")
+	specPath := field.NewPath("spec")
+	podSetsPath := specPath.Child("podSets")
 	if len(obj.Spec.PodSets) == 0 {
-		allErrs = append(allErrs, field.Required(podSetsField, "at least one podSet is required"))
+		allErrs = append(allErrs, field.Required(podSetsPath, "at least one podSet is required"))
 	}
 
 	for i, podSet := range obj.Spec.PodSets {
 		if podSet.Count <= 0 {
 			allErrs = append(allErrs, field.Invalid(
-				podSetsField.Index(i).Child("count"),
+				podSetsPath.Index(i).Child("count"),
 				podSet.Count,
 				"count must be greater than 0"),
 			)
@@ -95,37 +95,41 @@ func ValidateWorkload(obj *Workload) field.ErrorList {
 	if len(obj.Spec.PriorityClassName) > 0 {
 		msgs := validation.IsDNS1123Subdomain(obj.Spec.PriorityClassName)
 		if len(msgs) > 0 {
-			classNameField := specField.Child("priorityClassName")
 			for _, msg := range msgs {
-				allErrs = append(allErrs, field.Invalid(classNameField, obj.Spec.PriorityClassName, msg))
+				allErrs = append(allErrs, field.Invalid(specPath.Child("priorityClassName"), obj.Spec.PriorityClassName, msg))
 			}
 		}
+		if obj.Spec.Priority == nil {
+			allErrs = append(allErrs, field.Invalid(specPath.Child("priority"), obj.Spec.Priority, "priority should not be nil when priorityClassName is set"))
+		}
 	}
+
 	return allErrs
 }
 
 func ValidateWorkloadUpdate(newObj, oldObj *Workload) field.ErrorList {
-	allErrs := field.ErrorList{}
+	var allErrs field.ErrorList
+	specPath := field.NewPath("spec")
 	allErrs = append(allErrs, ValidateWorkload(newObj)...)
-	allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PodSets, oldObj.Spec.PodSets, field.NewPath("spec", "podSets"))...)
-	allErrs = append(allErrs, validateQueueNameUpdate(newObj.Spec.QueueName, oldObj.Spec.QueueName)...)
-	allErrs = append(allErrs, validateAdmissionUpdate(newObj.Spec.Admission, oldObj.Spec.Admission)...)
+	allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"))...)
+	allErrs = append(allErrs, validateQueueNameUpdate(newObj.Spec.QueueName, oldObj.Spec.QueueName, specPath.Child("queueName"))...)
+	allErrs = append(allErrs, validateAdmissionUpdate(newObj.Spec.Admission, oldObj.Spec.Admission, specPath.Child("admission"))...)
 
 	return allErrs
 }
 
 /// validateQueueNameUpdate validates that queueName is set once
-func validateQueueNameUpdate(new, old string) field.ErrorList {
+func validateQueueNameUpdate(new, old string, path *field.Path) field.ErrorList {
 	if len(old) == 0 {
-		return field.ErrorList{}
+		return nil
 	}
-	return apivalidation.ValidateImmutableField(new, old, field.NewPath("spec", "queueName"))
+	return apivalidation.ValidateImmutableField(new, old, path)
 }
 
 // validateAdmissionUpdate validates that admission is set once
-func validateAdmissionUpdate(new, old *Admission) field.ErrorList {
+func validateAdmissionUpdate(new, old *Admission, path *field.Path) field.ErrorList {
 	if old == nil {
-		return field.ErrorList{}
+		return nil
 	}
-	return apivalidation.ValidateImmutableField(new, old, field.NewPath("spec", "admission"))
+	return apivalidation.ValidateImmutableField(new, old, path)
 }

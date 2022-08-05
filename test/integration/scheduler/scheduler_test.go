@@ -418,7 +418,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		ginkgo.AfterEach(func() {
 			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
-			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, onDemandFlavor)).To(gomega.Succeed())
+			framework.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 		ginkgo.It("Should re-enqueue by the update event of ClusterQueue", func() {
 			job := testing.MakeJob("on-demand-job", ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "6").Obj()
