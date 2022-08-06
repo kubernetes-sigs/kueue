@@ -14,48 +14,58 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package webhooks
 
 import (
+	"context"
+
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 )
 
 // log is for logging in this package.
 var queueLog = ctrl.Log.WithName("queue-webhook")
 
-func (q *Queue) SetupWebhookWithManager(mgr ctrl.Manager) error {
+type QueueWebhook struct{}
+
+func setupWebhookForQueue(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
-		For(q).
+		For(&kueue.Queue{}).
+		WithValidator(&QueueWebhook{}).
 		Complete()
 }
 
 // +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1alpha1-queue,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=queues,verbs=create;update,versions=v1alpha1,name=vqueue.kb.io,admissionReviewVersions=v1
 
-var _ webhook.Validator = &Queue{}
+var _ webhook.CustomValidator = &QueueWebhook{}
 
-// ValidateCreate implements webhook.Validator so a webhook will be registered for the type
-func (q *Queue) ValidateCreate() error {
+// ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
+func (w *QueueWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
+	q := obj.(*kueue.Queue)
 	queueLog.V(5).Info("Validating create", "queue", klog.KObj(q))
 	return ValidateQueueCreate(q).ToAggregate()
 }
 
-// ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
-func (q *Queue) ValidateUpdate(old runtime.Object) error {
-	queueLog.V(5).Info("Validating update", "queue", klog.KObj(q))
-	return ValidateQueueUpdate(q, old.(*Queue)).ToAggregate()
+// ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
+func (w *QueueWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
+	newQ := newObj.(*kueue.Queue)
+	oldQ := oldObj.(*kueue.Queue)
+	queueLog.V(5).Info("Validating update", "queue", klog.KObj(newQ))
+	return ValidateQueueUpdate(newQ, oldQ).ToAggregate()
 }
 
-// ValidateDelete implements webhook.Validator so a webhook will be registered for the type
-func (q *Queue) ValidateDelete() error {
+// ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
+func (w *QueueWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) error {
 	return nil
 }
 
-func ValidateQueueCreate(q *Queue) field.ErrorList {
+func ValidateQueueCreate(q *kueue.Queue) field.ErrorList {
 	var allErrs field.ErrorList
 	clusterQueuePath := field.NewPath("spec", "clusterQueue")
 	for _, msg := range apivalidation.NameIsDNSSubdomain(string(q.Spec.ClusterQueue), false) {
@@ -64,6 +74,6 @@ func ValidateQueueCreate(q *Queue) field.ErrorList {
 	return allErrs
 }
 
-func ValidateQueueUpdate(newObj, oldObj *Queue) field.ErrorList {
+func ValidateQueueUpdate(newObj, oldObj *kueue.Queue) field.ErrorList {
 	return apivalidation.ValidateImmutableField(newObj.Spec.ClusterQueue, oldObj.Spec.ClusterQueue, field.NewPath("spec", "clusterQueue"))
 }

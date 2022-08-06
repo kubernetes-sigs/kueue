@@ -14,9 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package webhooks
 
 import (
+	"context"
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -30,57 +31,70 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 )
 
 var (
 	// log is for logging in this package.
 	clusterQueueLog = ctrl.Log.WithName("cluster-queue-webhook")
 
-	queueingStrategies = sets.NewString(string(StrictFIFO), string(BestEffortFIFO))
+	queueingStrategies = sets.NewString(string(kueue.StrictFIFO), string(kueue.BestEffortFIFO))
 )
 
-const isNegativeErrorMsg string = `must be greater than or equal to 0`
+const (
+	isNegativeErrorMsg string = `must be greater than or equal to 0`
+)
 
-func (cq *ClusterQueue) SetupWebhookWithManager(mgr ctrl.Manager) error {
+type ClusterQueueWebhook struct{}
+
+func setupWebhookForClusterQueue(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
-		For(cq).
+		For(&kueue.ClusterQueue{}).
+		WithDefaulter(&ClusterQueueWebhook{}).
+		WithValidator(&ClusterQueueWebhook{}).
 		Complete()
 }
 
 // +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1alpha1-clusterqueue,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=clusterqueues,verbs=create,versions=v1alpha1,name=mclusterqueue.kb.io,admissionReviewVersions=v1
 
-var _ webhook.Defaulter = &ClusterQueue{}
+var _ webhook.CustomDefaulter = &ClusterQueueWebhook{}
 
-// Default implements webhook.Defaulter so a webhook will be registered for the type
-func (cq *ClusterQueue) Default() {
+// Default implements webhook.CustomDefaulter so a webhook will be registered for the type
+func (w *ClusterQueueWebhook) Default(ctx context.Context, obj runtime.Object) error {
+	cq := obj.(*kueue.ClusterQueue)
+
 	clusterQueueLog.Info("defaulter", "clusterQueue", klog.KObj(cq))
-	if !controllerutil.ContainsFinalizer(cq, ResourceInUseFinalizerName) {
-		controllerutil.AddFinalizer(cq, ResourceInUseFinalizerName)
+	if !controllerutil.ContainsFinalizer(cq, kueue.ResourceInUseFinalizerName) {
+		controllerutil.AddFinalizer(cq, kueue.ResourceInUseFinalizerName)
 	}
+	return nil
 }
 
 // +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1alpha1-clusterqueue,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=clusterqueues,verbs=create;update,versions=v1alpha1,name=vclusterqueue.kb.io,admissionReviewVersions=v1
 
-var _ webhook.Validator = &ClusterQueue{}
+var _ webhook.CustomValidator = &ClusterQueueWebhook{}
 
-// ValidateCreate implements webhook.Validator so a webhook will be registered for the type
-func (cq *ClusterQueue) ValidateCreate() error {
+// ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
+func (w *ClusterQueueWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
+	cq := obj.(*kueue.ClusterQueue)
 	allErrs := ValidateClusterQueue(cq)
 	return allErrs.ToAggregate()
 }
 
-// ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
-func (cq *ClusterQueue) ValidateUpdate(old runtime.Object) error {
-	allErrs := ValidateClusterQueue(cq)
+// ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
+func (w *ClusterQueueWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
+	newCQ := newObj.(*kueue.ClusterQueue)
+	allErrs := ValidateClusterQueue(newCQ)
 	return allErrs.ToAggregate()
 }
 
-// ValidateDelete implements webhook.Validator so a webhook will be registered for the type
-func (cq *ClusterQueue) ValidateDelete() error {
+// ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
+func (w *ClusterQueueWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) error {
 	return nil
 }
 
-func ValidateClusterQueue(cq *ClusterQueue) field.ErrorList {
+func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	path := field.NewPath("spec")
 
 	allErrs := field.ErrorList{}
@@ -91,7 +105,7 @@ func ValidateClusterQueue(cq *ClusterQueue) field.ErrorList {
 	return allErrs
 }
 
-func ValidateResources(cq *ClusterQueue, path *field.Path) field.ErrorList {
+func ValidateResources(cq *kueue.ClusterQueue, path *field.Path) field.ErrorList {
 	allErrs := field.ErrorList{}
 
 	for i, resource := range cq.Spec.Resources {
@@ -124,7 +138,7 @@ func validateFlavorName(name string, path *field.Path) field.ErrorList {
 	return allErrs
 }
 
-func validateFlavorQuota(flavor Flavor, path *field.Path) field.ErrorList {
+func validateFlavorQuota(flavor kueue.Flavor, path *field.Path) field.ErrorList {
 	allErrs := field.ErrorList{}
 	allErrs = append(allErrs, validateResourceQuantity(flavor.Quota.Min, path.Child("min"))...)
 

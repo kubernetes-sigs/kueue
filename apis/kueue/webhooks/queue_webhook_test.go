@@ -14,10 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Rename the package to avoid circular dependencies which is caused by "sigs.k8s.io/kueue/pkg/util/testing".
-// See also: https://github.com/golang/go/wiki/CodeReviewComments#import-dot
-
-package v1alpha1_test
+package webhooks
 
 import (
 	"testing"
