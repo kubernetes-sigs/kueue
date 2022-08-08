@@ -282,6 +282,15 @@ func ExpectAdmittedActiveWorkloadsMetric(cq *kueue.ClusterQueue, v int) {
 	}, Timeout, Interval).Should(gomega.Equal(v))
 }
 
+func ExpectAdmittedWorkloadsTotalMetric(cq *kueue.ClusterQueue, v int) {
+	metric := metrics.AdmittedWorkloadsTotal.WithLabelValues(cq.Name)
+	gomega.EventuallyWithOffset(1, func() int {
+		v, err := testutil.GetCounterMetricValue(metric)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred())
+		return int(v)
+	}, Timeout, Interval).Should(gomega.Equal(v))
+}
+
 func UpdateWorkloadStatus(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, update func(*kueue.Workload)) {
 	gomega.EventuallyWithOffset(1, func() error {
 		var updatedWl kueue.Workload
