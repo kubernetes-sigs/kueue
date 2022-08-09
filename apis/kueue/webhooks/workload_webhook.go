@@ -14,9 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package webhooks
 
 import (
+	"context"
+
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -24,57 +26,66 @@ import (
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
-)
 
-const (
-	DefaultPodSetName = "main"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 )
 
 // log is for logging in this package.
 var workloadlog = ctrl.Log.WithName("workload-webhook")
 
-func (r *Workload) SetupWebhookWithManager(mgr ctrl.Manager) error {
+type WorkloadWebhook struct{}
+
+func setupWebhookForWorkload(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
-		For(r).
+		For(&kueue.Workload{}).
+		WithDefaulter(&WorkloadWebhook{}).
+		WithValidator(&WorkloadWebhook{}).
 		Complete()
 }
 
 // +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1alpha1-workload,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads,verbs=create;update,versions=v1alpha1,name=mworkload.kb.io,admissionReviewVersions=v1
 
-var _ webhook.Defaulter = &Workload{}
+var _ webhook.CustomDefaulter = &WorkloadWebhook{}
 
-// Default implements webhook.Defaulter so a webhook will be registered for the type
-func (r *Workload) Default() {
-	workloadlog.V(5).Info("defaulter", "workload", klog.KObj(r))
+// Default implements webhook.CustomDefaulter so a webhook will be registered for the type
+func (w *WorkloadWebhook) Default(ctx context.Context, obj runtime.Object) error {
+	wl := obj.(*kueue.Workload)
+	workloadlog.V(5).Info("Applying defaults", "workload", klog.KObj(wl))
 
-	for i := range r.Spec.PodSets {
-		podSet := &r.Spec.PodSets[i]
+	for i := range wl.Spec.PodSets {
+		podSet := &wl.Spec.PodSets[i]
 		if len(podSet.Name) == 0 {
-			podSet.Name = DefaultPodSetName
+			podSet.Name = kueue.DefaultPodSetName
 		}
 	}
+	return nil
 }
 
 // +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1alpha1-workload,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads,verbs=create;update,versions=v1alpha1,name=vworkload.kb.io,admissionReviewVersions=v1
 
-var _ webhook.Validator = &Workload{}
+var _ webhook.CustomValidator = &WorkloadWebhook{}
 
-// ValidateCreate implements webhook.Validator so a webhook will be registered for the type
-func (r *Workload) ValidateCreate() error {
-	return ValidateWorkload(r).ToAggregate()
+// ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
+func (w *WorkloadWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
+	wl := obj.(*kueue.Workload)
+	workloadlog.V(5).Info("Validating create", "workload", klog.KObj(wl))
+	return ValidateWorkload(wl).ToAggregate()
 }
 
-// ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
-func (r *Workload) ValidateUpdate(old runtime.Object) error {
-	return ValidateWorkloadUpdate(r, old.(*Workload)).ToAggregate()
+// ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
+func (w *WorkloadWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
+	newWL := newObj.(*kueue.Workload)
+	oldWL := oldObj.(*kueue.Workload)
+	workloadlog.V(5).Info("Validating update", "workload", klog.KObj(newWL))
+	return ValidateWorkloadUpdate(newWL, oldWL).ToAggregate()
 }
 
-// ValidateDelete implements webhook.Validator so a webhook will be registered for the type
-func (r *Workload) ValidateDelete() error {
+// ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
+func (w *WorkloadWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) error {
 	return nil
 }
 
-func ValidateWorkload(obj *Workload) field.ErrorList {
+func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 	var allErrs field.ErrorList
 	specPath := field.NewPath("spec")
 	podSetsPath := specPath.Child("podSets")
@@ -107,7 +118,7 @@ func ValidateWorkload(obj *Workload) field.ErrorList {
 	return allErrs
 }
 
-func ValidateWorkloadUpdate(newObj, oldObj *Workload) field.ErrorList {
+func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 	var allErrs field.ErrorList
 	specPath := field.NewPath("spec")
 	allErrs = append(allErrs, ValidateWorkload(newObj)...)
@@ -127,7 +138,7 @@ func validateQueueNameUpdate(new, old string, path *field.Path) field.ErrorList 
 }
 
 // validateAdmissionUpdate validates that admission is set once
-func validateAdmissionUpdate(new, old *Admission, path *field.Path) field.ErrorList {
+func validateAdmissionUpdate(new, old *kueue.Admission, path *field.Path) field.ErrorList {
 	if old == nil {
 		return nil
 	}

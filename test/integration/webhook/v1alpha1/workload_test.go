@@ -21,7 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 )
@@ -50,13 +50,13 @@ var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 			workload := testing.MakeWorkload(workloadName, ns.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
 
-			created := &v1alpha1.Workload{}
+			created := &kueue.Workload{}
 			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{
 				Name:      workload.Name,
 				Namespace: workload.Namespace,
 			}, created)).Should(gomega.Succeed())
 
-			gomega.Expect(created.Spec.PodSets[0].Name).Should(gomega.Equal(v1alpha1.DefaultPodSetName))
+			gomega.Expect(created.Spec.PodSets[0].Name).Should(gomega.Equal(kueue.DefaultPodSetName))
 		})
 	})
 })
@@ -66,7 +66,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 		ginkgo.It("Should validate Workload", func() {
 			ginkgo.By("Creating a new Workload")
 			workload := testing.MakeWorkload(workloadName, ns.Name).
-				PodSets([]v1alpha1.PodSet{
+				PodSets([]kueue.PodSet{
 					{
 						Name:  "main",
 						Count: -1,

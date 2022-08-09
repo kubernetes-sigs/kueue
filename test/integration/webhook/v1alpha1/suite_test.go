@@ -27,7 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	"sigs.k8s.io/kueue/pkg/controller/core"
+	"sigs.k8s.io/kueue/apis/kueue/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	// +kubebuilder:scaffold:imports
 )
@@ -51,7 +51,7 @@ var _ = ginkgo.BeforeSuite(func() {
 		CRDPath:     filepath.Join("..", "..", "..", "..", "config", "crd", "bases"),
 		WebhookPath: filepath.Join("..", "..", "..", "..", "config", "webhook"),
 		ManagerSetup: func(mgr manager.Manager, ctx context.Context) {
-			failedWebhook, err := core.SetupWebhooks(mgr)
+			failedWebhook, err := webhooks.Setup(mgr)
 			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 		},
 	}

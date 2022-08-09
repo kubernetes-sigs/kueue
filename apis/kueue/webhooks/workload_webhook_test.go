@@ -14,10 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1_test
-
-// Rename the package to avoid circular dependencies which is caused by "sigs.k8s.io/kueue/pkg/util/testing".
-// See also: https://github.com/golang/go/wiki/CodeReviewComments#import-dot
+package webhooks
 
 import (
 	"testing"
@@ -27,7 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
-	. "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
 )
@@ -41,7 +38,7 @@ func TestValidateWorkload(t *testing.T) {
 	specField := field.NewPath("spec")
 	podSetsField := specField.Child("podSets")
 	testCases := map[string]struct {
-		workload *Workload
+		workload *kueue.Workload
 		wantErr  field.ErrorList
 	}{
 		"should have at least one podSet": {
@@ -51,7 +48,7 @@ func TestValidateWorkload(t *testing.T) {
 			},
 		},
 		"count should be greater than 0": {
-			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets([]PodSet{
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets([]kueue.PodSet{
 				{
 					Name:  "main",
 					Count: -1,
@@ -105,12 +102,12 @@ func TestValidateWorkload(t *testing.T) {
 
 func TestValidateWorkloadUpdate(t *testing.T) {
 	testCases := map[string]struct {
-		before, after *Workload
+		before, after *kueue.Workload
 		wantErr       field.ErrorList
 	}{
 		"podSets should not be updated: count": {
 			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
-			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets([]PodSet{
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets([]kueue.PodSet{
 				{
 					Name:  "main",
 					Count: 2,
@@ -132,7 +129,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		},
 		"podSets should not be updated: podSpec": {
 			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
-			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets([]PodSet{
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets([]kueue.PodSet{
 				{
 					Name:  "main",
 					Count: 1,

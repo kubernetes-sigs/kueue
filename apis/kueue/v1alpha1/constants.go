@@ -18,4 +18,6 @@ package v1alpha1
 
 const (
 	ResourceInUseFinalizerName = "kueue.k8s.io/resource-in-use"
+
+	DefaultPodSetName = "main"
 )

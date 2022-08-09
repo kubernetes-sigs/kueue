@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
+	"sigs.k8s.io/kueue/apis/kueue/webhooks"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/queue"
@@ -69,7 +70,7 @@ func managerSetup(mgr manager.Manager, ctx context.Context) {
 	err = cache.SetupIndexes(mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	failedWebhook, err := core.SetupWebhooks(mgr)
+	failedWebhook, err := webhooks.Setup(mgr)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 	cCache := cache.New(mgr.GetClient())
