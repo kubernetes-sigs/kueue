@@ -21,6 +21,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 )
 
 type AdmissionResult string
@@ -33,21 +35,23 @@ const (
 )
 
 var (
-	admissionAttempts = prometheus.NewCounterVec(
+	admissionAttemptsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: subsystemName,
 			Name:      "admission_attempts_total",
-			Help:      "Number of attempts to admit one or more workloads, broken down by result. `success` means that at least one workload was admitted, `inadmissible` means that no workload was admitted.",
+			Help:      "Total number of attempts to admit one or more workloads, broken down by result. `success` means that at least one workload was admitted, `inadmissible` means that no workload was admitted.",
 		}, []string{"result"},
 	)
 
-	admissionAttemptLatency = prometheus.NewHistogramVec(
+	admissionAttemptDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: subsystemName,
 			Name:      "admission_attempt_duration_seconds",
 			Help:      "Latency of an admission attempt, broken down by result.",
 		}, []string{"result"},
 	)
+
+	// Metrics tied to the queue system.
 
 	PendingWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -56,6 +60,24 @@ var (
 			Help:      "Number of pending workloads, per cluster_queue.",
 		}, []string{"cluster_queue"},
 	)
+
+	AdmittedWorkloadsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: subsystemName,
+			Name:      "admitted_workloads_total",
+			Help:      "Total number of admitted workloads per cluster_queue",
+		}, []string{"cluster_queue"},
+	)
+
+	admissionWaitTime = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: subsystemName,
+			Name:      "admission_wait_time_seconds",
+			Help:      "The wait time since a workload was created until it was admitted, per cluster_queue",
+		}, []string{"cluster_queue"},
+	)
+
+	// Metrics tied to the cache.
 
 	AdmittedActiveWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -67,15 +89,28 @@ var (
 )
 
 func AdmissionAttempt(result AdmissionResult, duration time.Duration) {
-	admissionAttempts.WithLabelValues(string(result)).Inc()
-	admissionAttemptLatency.WithLabelValues(string(result)).Observe(duration.Seconds())
+	admissionAttemptsTotal.WithLabelValues(string(result)).Inc()
+	admissionAttemptDuration.WithLabelValues(string(result)).Observe(duration.Seconds())
+}
+
+func AdmittedWorkload(cqName kueue.ClusterQueueReference, waitTime time.Duration) {
+	AdmittedWorkloadsTotal.WithLabelValues(string(cqName)).Inc()
+	admissionWaitTime.WithLabelValues(string(cqName)).Observe(waitTime.Seconds())
+}
+
+func ClearQueueSystemMetrics(cqName string) {
+	PendingWorkloads.DeleteLabelValues(cqName)
+	AdmittedWorkloadsTotal.DeleteLabelValues(cqName)
+	admissionWaitTime.DeleteLabelValues(cqName)
 }
 
 func Register() {
 	metrics.Registry.MustRegister(
-		admissionAttempts,
-		admissionAttemptLatency,
+		admissionAttemptsTotal,
+		admissionAttemptDuration,
 		PendingWorkloads,
 		AdmittedActiveWorkloads,
+		AdmittedWorkloadsTotal,
+		admissionWaitTime,
 	)
 }

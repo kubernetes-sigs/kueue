@@ -326,7 +326,9 @@ func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 	s.admissionRoutineWrapper.Run(func() {
 		err := s.client.Update(ctx, newWorkload.DeepCopy())
 		if err == nil {
-			s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v", admission.ClusterQueue)
+			waitTime := time.Since(e.Obj.CreationTimestamp.Time)
+			s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time was %.3fs", admission.ClusterQueue, waitTime.Seconds())
+			metrics.AdmittedWorkload(admission.ClusterQueue, waitTime)
 			log.V(2).Info("Workload successfully admitted and assigned flavors")
 			return
 		}

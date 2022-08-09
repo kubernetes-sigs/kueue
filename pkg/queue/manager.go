@@ -146,7 +146,7 @@ func (m *Manager) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 		return
 	}
 	delete(m.clusterQueues, cq.Name)
-	metrics.PendingWorkloads.DeleteLabelValues(cq.Name)
+	metrics.ClearQueueSystemMetrics(cq.Name)
 
 	cohort := cq.Spec.Cohort
 	m.deleteCohort(cohort, cq.Name)
