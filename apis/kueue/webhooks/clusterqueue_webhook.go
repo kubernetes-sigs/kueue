@@ -64,7 +64,7 @@ var _ webhook.CustomDefaulter = &ClusterQueueWebhook{}
 func (w *ClusterQueueWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	cq := obj.(*kueue.ClusterQueue)
 
-	clusterQueueLog.Info("defaulter", "clusterQueue", klog.KObj(cq))
+	clusterQueueLog.V(5).Info("Setting defaulter", "clusterQueue", klog.KObj(cq))
 	if !controllerutil.ContainsFinalizer(cq, kueue.ResourceInUseFinalizerName) {
 		controllerutil.AddFinalizer(cq, kueue.ResourceInUseFinalizerName)
 	}
@@ -78,6 +78,7 @@ var _ webhook.CustomValidator = &ClusterQueueWebhook{}
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *ClusterQueueWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
 	cq := obj.(*kueue.ClusterQueue)
+	clusterQueueLog.V(5).Info("Validating create", "clusterQueue", klog.KObj(cq))
 	allErrs := ValidateClusterQueue(cq)
 	return allErrs.ToAggregate()
 }
@@ -85,6 +86,7 @@ func (w *ClusterQueueWebhook) ValidateCreate(ctx context.Context, obj runtime.Ob
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *ClusterQueueWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
 	newCQ := newObj.(*kueue.ClusterQueue)
+	clusterQueueLog.V(5).Info("Validating update", "clusterQueue", klog.KObj(newCQ))
 	allErrs := ValidateClusterQueue(newCQ)
 	return allErrs.ToAggregate()
 }

@@ -35,6 +35,4 @@ const (
 	// that do not specify any priority class and there is no priority class
 	// marked as default.
 	DefaultPriority = 0
-
-	DefaultPodSetName = "main"
 )

@@ -22,7 +22,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 )
@@ -57,7 +56,7 @@ var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 				Namespace: workload.Namespace,
 			}, created)).Should(gomega.Succeed())
 
-			gomega.Expect(created.Spec.PodSets[0].Name).Should(gomega.Equal(constants.DefaultPodSetName))
+			gomega.Expect(created.Spec.PodSets[0].Name).Should(gomega.Equal(kueue.DefaultPodSetName))
 		})
 	})
 })

@@ -28,7 +28,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
-	"sigs.k8s.io/kueue/pkg/constants"
 )
 
 // log is for logging in this package.
@@ -51,12 +50,12 @@ var _ webhook.CustomDefaulter = &WorkloadWebhook{}
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
 func (w *WorkloadWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	wl := obj.(*kueue.Workload)
-	workloadlog.V(5).Info("defaulter", "workload", klog.KObj(wl))
+	workloadlog.V(5).Info("Setting defaulter", "workload", klog.KObj(wl))
 
 	for i := range wl.Spec.PodSets {
 		podSet := &wl.Spec.PodSets[i]
 		if len(podSet.Name) == 0 {
-			podSet.Name = constants.DefaultPodSetName
+			podSet.Name = kueue.DefaultPodSetName
 		}
 	}
 	return nil
@@ -69,12 +68,16 @@ var _ webhook.CustomValidator = &WorkloadWebhook{}
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *WorkloadWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
 	wl := obj.(*kueue.Workload)
+	workloadlog.V(5).Info("Validating create", "workload", klog.KObj(wl))
 	return ValidateWorkload(wl).ToAggregate()
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *WorkloadWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
-	return ValidateWorkloadUpdate(newObj.(*kueue.Workload), oldObj.(*kueue.Workload)).ToAggregate()
+	newWL := newObj.(*kueue.Workload)
+	oldWL := oldObj.(*kueue.Workload)
+	workloadlog.V(5).Info("Validating update", "workload", klog.KObj(newWL))
+	return ValidateWorkloadUpdate(newWL, oldWL).ToAggregate()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
