@@ -50,7 +50,7 @@ var _ webhook.CustomDefaulter = &WorkloadWebhook{}
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
 func (w *WorkloadWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	wl := obj.(*kueue.Workload)
-	workloadlog.V(5).Info("Setting defaulter", "workload", klog.KObj(wl))
+	workloadlog.V(5).Info("Applying defaults", "workload", klog.KObj(wl))
 
 	for i := range wl.Spec.PodSets {
 		podSet := &wl.Spec.PodSets[i]

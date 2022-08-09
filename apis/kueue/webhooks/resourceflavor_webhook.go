@@ -50,7 +50,7 @@ var _ webhook.CustomDefaulter = &ResourceFlavorWebhook{}
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
 func (w *ResourceFlavorWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	rf := obj.(*kueue.ResourceFlavor)
-	resourceFlavorLog.V(5).Info("Setting defaulter", "resourceFlavor", klog.KObj(rf))
+	resourceFlavorLog.V(5).Info("Applying defaults", "resourceFlavor", klog.KObj(rf))
 
 	if !controllerutil.ContainsFinalizer(rf, kueue.ResourceInUseFinalizerName) {
 		controllerutil.AddFinalizer(rf, kueue.ResourceInUseFinalizerName)

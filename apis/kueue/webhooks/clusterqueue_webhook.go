@@ -64,7 +64,7 @@ var _ webhook.CustomDefaulter = &ClusterQueueWebhook{}
 func (w *ClusterQueueWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	cq := obj.(*kueue.ClusterQueue)
 
-	clusterQueueLog.V(5).Info("Setting defaulter", "clusterQueue", klog.KObj(cq))
+	clusterQueueLog.V(5).Info("Applying defaults", "clusterQueue", klog.KObj(cq))
 	if !controllerutil.ContainsFinalizer(cq, kueue.ResourceInUseFinalizerName) {
 		controllerutil.AddFinalizer(cq, kueue.ResourceInUseFinalizerName)
 	}
