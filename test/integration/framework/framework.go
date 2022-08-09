@@ -261,7 +261,7 @@ func ExpectWorkloadToBeAdmittedAs(ctx context.Context, k8sClient client.Client, 
 	gomega.Eventually(func() *kueue.Admission {
 		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
 		return updatedWorkload.Spec.Admission
-	}, Timeout, Interval).Should(testing.Equal(admission))
+	}, Timeout, Interval).Should(gomega.BeComparableTo(admission))
 }
 
 func ExpectPendingWorkloadsMetric(cq *kueue.ClusterQueue, v int) {

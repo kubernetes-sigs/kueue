@@ -78,8 +78,8 @@ var _ = ginkgo.Describe("Workload controller", func() {
 			gomega.Eventually(func() int {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
 				return len(updatedQueueWorkload.Status.Conditions)
-			}, framework.Timeout, framework.Interval).Should(testing.Equal(1))
-			gomega.Expect(updatedQueueWorkload.Status.Conditions[0].Message).To(testing.Equal(message))
+			}, framework.Timeout, framework.Interval).Should(gomega.BeComparableTo(1))
+			gomega.Expect(updatedQueueWorkload.Status.Conditions[0].Message).To(gomega.BeComparableTo(message))
 		})
 	})
 
@@ -94,8 +94,8 @@ var _ = ginkgo.Describe("Workload controller", func() {
 			gomega.Eventually(func() int {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
 				return len(updatedQueueWorkload.Status.Conditions)
-			}, framework.Timeout, framework.Interval).Should(testing.Equal(1))
-			gomega.Expect(updatedQueueWorkload.Status.Conditions[0].Message).To(testing.Equal(message))
+			}, framework.Timeout, framework.Interval).Should(gomega.BeComparableTo(1))
+			gomega.Expect(updatedQueueWorkload.Status.Conditions[0].Message).To(gomega.BeComparableTo(message))
 		})
 	})
 
@@ -115,7 +115,7 @@ var _ = ginkgo.Describe("Workload controller", func() {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
 				return updatedQueueWorkload.Status.Conditions
 			}, framework.Timeout, framework.Interval).ShouldNot(gomega.BeNil())
-			gomega.Expect(updatedQueueWorkload.Status.Conditions[0].Message).To(testing.Equal(message))
+			gomega.Expect(updatedQueueWorkload.Status.Conditions[0].Message).To(gomega.BeComparableTo(message))
 		})
 	})
 
@@ -189,7 +189,7 @@ var _ = ginkgo.Describe("Workload controller", func() {
 			gomega.Eventually(func() kueue.ClusterQueueStatus {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
 				return updatedCQ.Status
-			}, framework.Timeout, framework.Interval).Should(testing.Equal(kueue.ClusterQueueStatus{
+			}, framework.Timeout, framework.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
 				PendingWorkloads:  0,
 				AdmittedWorkloads: 1,
 				UsedResources: kueue.UsedResources{
@@ -234,7 +234,7 @@ var _ = ginkgo.Describe("Workload controller", func() {
 			gomega.Eventually(func() kueue.ClusterQueueStatus {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
 				return updatedCQ.Status
-			}, framework.Timeout, framework.Interval).Should(testing.Equal(kueue.ClusterQueueStatus{
+			}, framework.Timeout, framework.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
 				PendingWorkloads:  0,
 				AdmittedWorkloads: 1,
 				UsedResources: kueue.UsedResources{
