@@ -17,11 +17,13 @@ limitations under the License.
 package webhooks
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -33,6 +35,141 @@ const (
 	testWorkloadName      = "test-workload"
 	testWorkloadNamespace = "test-ns"
 )
+
+func TestWorkloadWebhookDefault(t *testing.T) {
+	cases := map[string]struct {
+		wl     kueue.Workload
+		wantWl kueue.Workload
+	}{
+		"add podSet name": {
+			wl: kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						{},
+					},
+				},
+			},
+			wantWl: kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						{Name: "main"},
+					},
+				},
+			},
+		},
+		"copy limits to requests": {
+			wl: kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						{
+							Name: "foo",
+							Spec: corev1.PodSpec{
+								InitContainers: []corev1.Container{
+									{
+										Resources: corev1.ResourceRequirements{
+											Requests: corev1.ResourceList{
+												"cpu": resource.MustParse("1"),
+											},
+											Limits: corev1.ResourceList{
+												"cpu":    resource.MustParse("2"),
+												"memory": resource.MustParse("1Mi"),
+											},
+										},
+									},
+								},
+							},
+						},
+						{
+							Name: "bar",
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{
+									{
+										Resources: corev1.ResourceRequirements{
+											Limits: corev1.ResourceList{
+												"cpu":    resource.MustParse("1.5"),
+												"memory": resource.MustParse("5Mi"),
+											},
+										},
+									},
+									{
+										Resources: corev1.ResourceRequirements{
+											Requests: corev1.ResourceList{
+												"cpu": resource.MustParse("1"),
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			wantWl: kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						{
+							Name: "foo",
+							Spec: corev1.PodSpec{
+								InitContainers: []corev1.Container{
+									{
+										Resources: corev1.ResourceRequirements{
+											Requests: corev1.ResourceList{
+												"cpu":    resource.MustParse("1"),
+												"memory": resource.MustParse("1Mi"),
+											},
+											Limits: corev1.ResourceList{
+												"cpu":    resource.MustParse("2"),
+												"memory": resource.MustParse("1Mi"),
+											},
+										},
+									},
+								},
+							},
+						},
+						{
+							Name: "bar",
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{
+									{
+										Resources: corev1.ResourceRequirements{
+											Requests: corev1.ResourceList{
+												"cpu":    resource.MustParse("1.5"),
+												"memory": resource.MustParse("5Mi"),
+											},
+											Limits: corev1.ResourceList{
+												"cpu":    resource.MustParse("1.5"),
+												"memory": resource.MustParse("5Mi"),
+											},
+										},
+									},
+									{
+										Resources: corev1.ResourceRequirements{
+											Requests: corev1.ResourceList{
+												"cpu": resource.MustParse("1"),
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			wh := &WorkloadWebhook{}
+			wlCopy := tc.wl.DeepCopy()
+			if err := wh.Default(context.Background(), wlCopy); err != nil {
+				t.Fatalf("Could not apply defaults: %v", err)
+			}
+			if diff := cmp.Diff(tc.wantWl, *wlCopy); diff != "" {
+				t.Errorf("Obtained wrong defaults (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
 
 func TestValidateWorkload(t *testing.T) {
 	specField := field.NewPath("spec")

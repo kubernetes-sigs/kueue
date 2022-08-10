@@ -19,6 +19,7 @@ package webhooks
 import (
 	"context"
 
+	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -57,8 +58,26 @@ func (w *WorkloadWebhook) Default(ctx context.Context, obj runtime.Object) error
 		if len(podSet.Name) == 0 {
 			podSet.Name = kueue.DefaultPodSetName
 		}
+		setContainersDefaults(podSet.Spec.InitContainers)
+		setContainersDefaults(podSet.Spec.Containers)
 	}
 	return nil
+}
+
+func setContainersDefaults(containers []corev1.Container) {
+	for i := range containers {
+		c := &containers[i]
+		if c.Resources.Limits != nil {
+			if c.Resources.Requests == nil {
+				c.Resources.Requests = make(corev1.ResourceList)
+			}
+			for k, v := range c.Resources.Limits {
+				if _, exists := c.Resources.Requests[k]; !exists {
+					c.Resources.Requests[k] = v.DeepCopy()
+				}
+			}
+		}
+	}
 }
 
 // +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1alpha1-workload,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads,verbs=create;update,versions=v1alpha1,name=vworkload.kb.io,admissionReviewVersions=v1
