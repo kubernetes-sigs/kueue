@@ -57,6 +57,24 @@ func TestWorkloadWebhookDefault(t *testing.T) {
 				},
 			},
 		},
+		"don't set podSetName if multiple": {
+			wl: kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						{},
+						{},
+					},
+				},
+			},
+			wantWl: kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						{},
+						{},
+					},
+				},
+			},
+		},
 		"copy limits to requests": {
 			wl: kueue.Workload{
 				Spec: kueue.WorkloadSpec{

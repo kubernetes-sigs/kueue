@@ -53,11 +53,14 @@ func (w *WorkloadWebhook) Default(ctx context.Context, obj runtime.Object) error
 	wl := obj.(*kueue.Workload)
 	workloadlog.V(5).Info("Applying defaults", "workload", klog.KObj(wl))
 
-	for i := range wl.Spec.PodSets {
-		podSet := &wl.Spec.PodSets[i]
+	if len(wl.Spec.PodSets) == 1 {
+		podSet := &wl.Spec.PodSets[0]
 		if len(podSet.Name) == 0 {
 			podSet.Name = kueue.DefaultPodSetName
 		}
+	}
+	for i := range wl.Spec.PodSets {
+		podSet := &wl.Spec.PodSets[i]
 		setContainersDefaults(podSet.Spec.InitContainers)
 		setContainersDefaults(podSet.Spec.Containers)
 	}
