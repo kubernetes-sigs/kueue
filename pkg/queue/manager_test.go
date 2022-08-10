@@ -416,7 +416,7 @@ func TestRequeueWorkloadStrictFIFO(t *testing.T) {
 				_ = manager.AddOrUpdateWorkload(tc.workload)
 			}
 			info := workload.NewInfo(tc.workload)
-			if requeued := manager.RequeueWorkload(ctx, info, true); requeued != tc.wantRequeued {
+			if requeued := manager.RequeueWorkload(ctx, info, RequeueReasonGeneric); requeued != tc.wantRequeued {
 				t.Errorf("RequeueWorkload returned %t, want %t", requeued, tc.wantRequeued)
 			}
 		})
@@ -829,7 +829,7 @@ func TestHeadsAsync(t *testing.T) {
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
 				go func() {
-					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), true)
+					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
 				}()
 			},
 			wantHeads: []workload.Info{
@@ -857,7 +857,7 @@ func TestHeadsAsync(t *testing.T) {
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
 				go func() {
-					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), true)
+					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
 				}()
 			},
 			wantHeads: []workload.Info{
@@ -889,7 +889,7 @@ func TestHeadsAsync(t *testing.T) {
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
 				go func() {
-					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), true)
+					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
 				}()
 			},
 			wantHeads: []workload.Info{

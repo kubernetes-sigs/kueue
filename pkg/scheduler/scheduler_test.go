@@ -259,6 +259,8 @@ func TestSchedule(t *testing.T) {
 		wantScheduled []string
 		// wantLeft is the workload keys that are left in the queues after this cycle.
 		wantLeft map[string]sets.String
+		// wantInadmissibleLeft is the workload keys that are left in the inadmissible state after this cycle.
+		wantInadmissibleLeft map[string]sets.String
 	}{
 		"workload fits in single clusterQueue": {
 			workloads: []kueue.Workload{
@@ -383,7 +385,7 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantLeft: map[string]sets.String{
+			wantInadmissibleLeft: map[string]sets.String{
 				"eng-alpha": sets.NewString("new"),
 			},
 		},
@@ -882,6 +884,10 @@ func TestSchedule(t *testing.T) {
 			qDump := qManager.Dump()
 			if diff := cmp.Diff(tc.wantLeft, qDump); diff != "" {
 				t.Errorf("Unexpected elements left in the queue (-want,+got):\n%s", diff)
+			}
+			qDumpInadmissible := qManager.DumpInadmissible()
+			if diff := cmp.Diff(tc.wantInadmissibleLeft, qDumpInadmissible); diff != "" {
+				t.Errorf("Unexpected elements left in inadmissible workloads (-want,+got):\n%s", diff)
 			}
 		})
 	}
@@ -1731,8 +1737,8 @@ func TestRequeueAndUpdate(t *testing.T) {
 		{
 			name: "workload didn't fit",
 			e: entry{
-				status:             "",
-				inadmissibleReason: "didn't fit",
+				status:          "",
+				inadmissibleMsg: "didn't fit",
 			},
 			wantStatus: kueue.WorkloadStatus{
 				Conditions: []kueue.WorkloadCondition{
@@ -1748,8 +1754,8 @@ func TestRequeueAndUpdate(t *testing.T) {
 		{
 			name: "assumed",
 			e: entry{
-				status:             assumed,
-				inadmissibleReason: "",
+				status:          assumed,
+				inadmissibleMsg: "",
 			},
 			wantWorkloads: map[string]sets.String{
 				"cq": sets.NewString(w1.Name),
@@ -1758,8 +1764,8 @@ func TestRequeueAndUpdate(t *testing.T) {
 		{
 			name: "nominated",
 			e: entry{
-				status:             nominated,
-				inadmissibleReason: "failed to admit workload",
+				status:          nominated,
+				inadmissibleMsg: "failed to admit workload",
 			},
 			wantWorkloads: map[string]sets.String{
 				"cq": sets.NewString(w1.Name),
@@ -1768,8 +1774,8 @@ func TestRequeueAndUpdate(t *testing.T) {
 		{
 			name: "skipped",
 			e: entry{
-				status:             skipped,
-				inadmissibleReason: "cohort used in this cycle",
+				status:          skipped,
+				inadmissibleMsg: "cohort used in this cycle",
 			},
 			wantWorkloads: map[string]sets.String{
 				"cq": sets.NewString(w1.Name),

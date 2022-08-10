@@ -15,8 +15,8 @@ limitations under the License.
 */
 
 // Package v1alpha1 contains API Schema definitions for the config v1alpha1 API group
-//+kubebuilder:object:generate=true
-//+groupName=config.x-k8s.io
+// +kubebuilder:object:generate=true
+// +groupName=config.x-k8s.io
 package v1alpha1
 
 import (

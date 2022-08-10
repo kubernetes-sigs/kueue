@@ -191,7 +191,7 @@ func (r *ClusterQueueReconciler) Update(e event.UpdateEvent) bool {
 	if err := r.cache.UpdateClusterQueue(newCq); err != nil {
 		log.Error(err, "Failed to update clusterQueue in cache")
 	}
-	if err := r.qManager.UpdateClusterQueue(newCq); err != nil {
+	if err := r.qManager.UpdateClusterQueue(context.Background(), newCq); err != nil {
 		log.Error(err, "Failed to update clusterQueue in queue manager")
 	}
 	return true
@@ -265,7 +265,7 @@ func (h *cqNamespaceHandler) Update(e event.UpdateEvent, q workqueue.RateLimitin
 			cqs.Insert(cq)
 		}
 	}
-	h.qManager.QueueInadmissibleWorkloads(cqs)
+	h.qManager.QueueInadmissibleWorkloads(context.Background(), cqs)
 }
 
 func (h *cqNamespaceHandler) Delete(event.DeleteEvent, workqueue.RateLimitingInterface) {

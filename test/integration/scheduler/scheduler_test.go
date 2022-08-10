@@ -755,37 +755,57 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	})
 
 	ginkgo.When("Queueing with StrictFIFO", func() {
-		var strictFIFOClusterQ *kueue.ClusterQueue
+		var (
+			strictFIFOClusterQ *kueue.ClusterQueue
+			matchingNS         *corev1.Namespace
+		)
 
 		ginkgo.BeforeEach(func() {
 			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).Should(gomega.Succeed())
 			strictFIFOClusterQ = testing.MakeClusterQueue("strict-fifo-cq").
 				QueueingStrategy(kueue.StrictFIFO).
+				NamespaceSelector(&metav1.LabelSelector{
+					MatchExpressions: []metav1.LabelSelectorRequirement{
+						{
+							Key:      "dep",
+							Operator: metav1.LabelSelectorOpIn,
+							Values:   []string{"eng"},
+						},
+					},
+				}).
 				Resource(testing.MakeResource(corev1.ResourceCPU).
 					Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Max("5").Obj()).
 					Obj()).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, strictFIFOClusterQ)).Should(gomega.Succeed())
+			matchingNS = &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					GenerateName: "foo-",
+					Labels:       map[string]string{"dep": "eng"},
+				},
+			}
+			gomega.Expect(k8sClient.Create(ctx, matchingNS)).To(gomega.Succeed())
 		})
 
 		ginkgo.AfterEach(func() {
+			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, matchingNS)).To(gomega.Succeed())
 			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, strictFIFOClusterQ, true)
 			framework.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.It("Should schedule workloads by their priority strictly in StrictFIFO", func() {
-			strictFIFOQueue := testing.MakeQueue("strict-fifo-q", ns.Name).ClusterQueue(strictFIFOClusterQ.Name).Obj()
+			strictFIFOQueue := testing.MakeQueue("strict-fifo-q", matchingNS.Name).ClusterQueue(strictFIFOClusterQ.Name).Obj()
 
 			ginkgo.By("Creating workloads")
-			wl1 := testing.MakeWorkload("wl1", ns.Name).Queue(strictFIFOQueue.
+			wl1 := testing.MakeWorkload("wl1", matchingNS.Name).Queue(strictFIFOQueue.
 				Name).Request(corev1.ResourceCPU, "2").Priority(pointer.Int32(100)).Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
-			wl2 := testing.MakeWorkload("wl2", ns.Name).Queue(strictFIFOQueue.
+			wl2 := testing.MakeWorkload("wl2", matchingNS.Name).Queue(strictFIFOQueue.
 				Name).Request(corev1.ResourceCPU, "5").Priority(pointer.Int32(10)).Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
 			// wl3 can't be scheduled before wl2 even though there is enough quota.
-			wl3 := testing.MakeWorkload("wl3", ns.Name).Queue(strictFIFOQueue.
+			wl3 := testing.MakeWorkload("wl3", matchingNS.Name).Queue(strictFIFOQueue.
 				Name).Request(corev1.ResourceCPU, "1").Priority(pointer.Int32(1)).Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl3)).Should(gomega.Succeed())
 
@@ -802,6 +822,30 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			framework.ExpectPendingWorkloadsMetric(strictFIFOClusterQ, 2)
 			framework.ExpectAdmittedActiveWorkloadsMetric(strictFIFOClusterQ, 1)
 			framework.ExpectAdmittedWorkloadsTotalMetric(strictFIFOClusterQ, 1)
+		})
+
+		ginkgo.It("Workloads not matching namespaceSelector should not block others", func() {
+			notMatchingQueue := testing.MakeQueue("not-matching-queue", ns.Name).ClusterQueue(strictFIFOClusterQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, notMatchingQueue)).Should(gomega.Succeed())
+
+			matchingQueue := testing.MakeQueue("matching-queue", matchingNS.Name).ClusterQueue(strictFIFOClusterQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, matchingQueue)).Should(gomega.Succeed())
+
+			ginkgo.By("Creating workloads")
+			wl1 := testing.MakeWorkload("wl1", matchingNS.Name).Queue(matchingQueue.
+				Name).Request(corev1.ResourceCPU, "2").Priority(pointer.Int32(100)).Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
+			wl2 := testing.MakeWorkload("wl2", ns.Name).Queue(notMatchingQueue.
+				Name).Request(corev1.ResourceCPU, "5").Priority(pointer.Int32(10)).Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
+			// wl2 can't block wl3 from getting scheduled.
+			wl3 := testing.MakeWorkload("wl3", matchingNS.Name).Queue(matchingQueue.
+				Name).Request(corev1.ResourceCPU, "1").Priority(pointer.Int32(1)).Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl3)).Should(gomega.Succeed())
+
+			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, strictFIFOClusterQ.Name, wl1, wl3)
+			framework.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
+			framework.ExpectPendingWorkloadsMetric(strictFIFOClusterQ, 1)
 		})
 	})
 

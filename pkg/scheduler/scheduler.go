@@ -115,14 +115,14 @@ func (s *Scheduler) schedule(ctx context.Context) {
 		c := snapshot.ClusterQueues[e.ClusterQueue]
 		if len(e.borrows) > 0 && c.Cohort != nil && usedCohorts.Has(c.Cohort.Name) {
 			e.status = skipped
-			e.inadmissibleReason = "cohort used in this cycle"
+			e.inadmissibleMsg = "cohort used in this cycle"
 			continue
 		}
 		log := log.WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue))
 		if err := s.admit(ctrl.LoggerInto(ctx, log), e); err == nil {
 			e.status = assumed
 		} else {
-			e.inadmissibleReason = fmt.Sprintf("Failed to admit workload: %v", err)
+			e.inadmissibleMsg = fmt.Sprintf("Failed to admit workload: %v", err)
 		}
 		// Even if there was a failure, we shouldn't admit other workloads to this
 		// cohort.
@@ -138,7 +138,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			"workload", klog.KObj(e.Obj),
 			"clusterQueue", klog.KRef("", e.ClusterQueue),
 			"status", e.status,
-			"reason", e.inadmissibleReason)
+			"reason", e.inadmissibleMsg)
 		if e.status != assumed {
 			s.requeueAndUpdate(log, ctx, e)
 		} else {
@@ -157,6 +157,8 @@ const (
 	skipped entryStatus = "skipped"
 	// indicates if the workload was assumed to have been admitted.
 	assumed entryStatus = "assumed"
+	// indicates that the workload was never nominated for admission.
+	notNominated entryStatus = ""
 )
 
 // entry holds requirements for a workload to be admitted by a clusterQueue.
@@ -166,9 +168,10 @@ type entry struct {
 	workload.Info
 	// borrows is the resources that the workload would need to borrow from the
 	// cohort if it was scheduled in the clusterQueue.
-	borrows            cache.ResourceQuantities
-	status             entryStatus
-	inadmissibleReason string
+	borrows         cache.ResourceQuantities
+	status          entryStatus
+	inadmissibleMsg string
+	requeueReason   queue.RequeueReason
 }
 
 // nominate returns the workloads with their requirements (resource flavors, borrowing) if
@@ -182,15 +185,16 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		ns := corev1.Namespace{}
 		e := entry{Info: w}
 		if snap.InactiveClusterQueueSets.Has(w.ClusterQueue) {
-			e.inadmissibleReason = fmt.Sprintf("ClusterQueue %s is inactive", w.ClusterQueue)
+			e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s is inactive", w.ClusterQueue)
 		} else if cq == nil {
-			e.inadmissibleReason = fmt.Sprintf("ClusterQueue %s not found", w.ClusterQueue)
+			e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s not found", w.ClusterQueue)
 		} else if err := s.client.Get(ctx, types.NamespacedName{Name: w.Obj.Namespace}, &ns); err != nil {
-			e.inadmissibleReason = fmt.Sprintf("Could not obtain workload namespace: %v", err)
+			e.inadmissibleMsg = fmt.Sprintf("Could not obtain workload namespace: %v", err)
 		} else if !cq.NamespaceSelector.Matches(labels.Set(ns.Labels)) {
-			e.inadmissibleReason = "Workload namespace doesn't match ClusterQueue selector"
+			e.inadmissibleMsg = "Workload namespace doesn't match ClusterQueue selector"
+			e.requeueReason = queue.RequeueReasonNamespaceMismatch
 		} else if status := e.assignFlavors(log, snap.ResourceFlavors, cq); !status.IsSuccess() {
-			e.inadmissibleReason = truncateMessage(status.Message())
+			e.inadmissibleMsg = truncateMessage(status.Message())
 		} else {
 			e.status = nominated
 		}
@@ -520,15 +524,19 @@ func (e entryOrdering) Less(i, j int) bool {
 }
 
 func (s *Scheduler) requeueAndUpdate(log logr.Logger, ctx context.Context, e entry) {
-	added := s.queues.RequeueWorkload(ctx, &e.Info, e.status != "")
+	if e.status != notNominated && e.requeueReason == queue.RequeueReasonGeneric {
+		// Failed after nomination is the only reason why a workload would be requeued downstream.
+		e.requeueReason = queue.RequeueReasonFailedAfterNomination
+	}
+	added := s.queues.RequeueWorkload(ctx, &e.Info, e.requeueReason)
 	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", e.ClusterQueue, "queue", klog.KRef(e.Obj.Namespace, e.Obj.Spec.QueueName), "added", added, "status", e.status)
 
-	if e.status == "" {
-		err := workload.UpdateStatus(ctx, s.client, e.Obj, kueue.WorkloadAdmitted, corev1.ConditionFalse, "Pending", e.inadmissibleReason)
+	if e.status == notNominated {
+		err := workload.UpdateStatus(ctx, s.client, e.Obj, kueue.WorkloadAdmitted, corev1.ConditionFalse, "Pending", e.inadmissibleMsg)
 		if err != nil {
 			log.Error(err, "Could not update Workload status")
 		}
-		s.recorder.Eventf(e.Obj, corev1.EventTypeNormal, "Pending", e.inadmissibleReason)
+		s.recorder.Eventf(e.Obj, corev1.EventTypeNormal, "Pending", e.inadmissibleMsg)
 	}
 }
 
