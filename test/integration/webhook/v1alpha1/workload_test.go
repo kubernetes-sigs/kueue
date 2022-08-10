@@ -45,10 +45,22 @@ var _ = ginkgo.AfterEach(func() {
 
 var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 	ginkgo.Context("When creating a Workload", func() {
-		ginkgo.It("Should set default values", func() {
+		ginkgo.It("Should set default podSet name", func() {
 			ginkgo.By("Creating a new Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
+			workload := kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{Name: workloadName, Namespace: ns.Name},
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						{
+							Count: 1,
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{},
+							},
+						},
+					},
+				},
+			}
+			gomega.Expect(k8sClient.Create(ctx, &workload)).Should(gomega.Succeed())
 
 			created := &kueue.Workload{}
 			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{
