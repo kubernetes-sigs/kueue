@@ -82,7 +82,7 @@ var _ = ginkgo.Describe("Queue controller", func() {
 			var updatedQueue kueue.Queue
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
 			return updatedQueue.Status
-		}, framework.Timeout, framework.Interval).Should(testing.Equal(kueue.QueueStatus{PendingWorkloads: 3}))
+		}, framework.Timeout, framework.Interval).Should(gomega.BeComparableTo(kueue.QueueStatus{PendingWorkloads: 3}))
 
 		ginkgo.By("Admitting workloads")
 		for _, w := range workloads {
@@ -98,7 +98,7 @@ var _ = ginkgo.Describe("Queue controller", func() {
 			var updatedQueue kueue.Queue
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
 			return updatedQueue.Status
-		}, framework.Timeout, framework.Interval).Should(testing.Equal(kueue.QueueStatus{PendingWorkloads: 0}))
+		}, framework.Timeout, framework.Interval).Should(gomega.BeComparableTo(kueue.QueueStatus{PendingWorkloads: 0}))
 
 		ginkgo.By("Finishing workloads")
 		for _, w := range workloads {
@@ -116,6 +116,6 @@ var _ = ginkgo.Describe("Queue controller", func() {
 			var updatedQueue kueue.Queue
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
 			return updatedQueue.Status
-		}, framework.Timeout, framework.Interval).Should(testing.Equal(kueue.QueueStatus{}))
+		}, framework.Timeout, framework.Interval).Should(gomega.BeComparableTo(kueue.QueueStatus{}))
 	})
 })
