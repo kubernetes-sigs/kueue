@@ -50,7 +50,7 @@ spec:
             properties:
               admission:
                 description: admission holds the parameters of the admission of the
-                  workload by a ClusterQueue.
+                  workload by a ClusterQueue. admission cannot be changed once set.
                 properties:
                   clusterQueue:
                     description: clusterQueue is the name of the ClusterQueue that
@@ -84,8 +84,9 @@ spec:
                 - podSetFlavors
                 type: object
               podSets:
-                description: pods is a list of sets of homogeneous pods, each described
-                  by a Pod spec and a count.
+                description: podSets is a list of sets of homogeneous pods, each described
+                  by a Pod spec and a count. There must be at least one element. podSets
+                  cannot be changed.
                 items:
                   properties:
                     count:
@@ -97,7 +98,9 @@ spec:
                       description: name is the PodSet name.
                       type: string
                     spec:
-                      description: spec is the Pod spec.
+                      description: spec is the Pod spec. If requests are omitted for
+                        a container or initContainer, they default to the limits if
+                        they are explicitly specified for the container or initcontainer.
                       properties:
                         activeDeadlineSeconds:
                           description: Optional duration in seconds the pod may be
@@ -7418,7 +7421,8 @@ spec:
                 description: Priority determines the order of access to the resources
                   managed by the ClusterQueue where the workload is queued. The priority
                   value is populated from PriorityClassName. The higher the value,
-                  the higher the priority.
+                  the higher the priority. If priorityClassName is specified, priority
+                  must not be null.
                 format: int32
                 type: integer
               priorityClassName:
@@ -7431,7 +7435,7 @@ spec:
                 type: string
               queueName:
                 description: queueName is the name of the queue the Workload is associated
-                  with.
+                  with. queueName cannot be changed once set.
                 type: string
             required:
             - queueName

@@ -32,6 +32,7 @@ type ResourceFlavor struct {
 	// labels associated with this flavor. They are matched against or
 	// converted to node affinity constraints on the workload’s pods.
 	// For example, cloud.provider.com/accelerator: nvidia-tesla-k80.
+	// More info: http://kubernetes.io/docs/user-guide/labels
 	Labels map[string]string `json:"labels,omitempty"`
 
 	// taints associated with this flavor that workloads must explicitly
