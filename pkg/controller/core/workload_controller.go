@@ -146,6 +146,8 @@ func (r *WorkloadReconciler) Delete(e event.DeleteEvent) bool {
 	}
 	log := r.log.WithValues("workload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
 	log.V(2).Info("Workload delete event")
+	ctx := ctrl.LoggerInto(context.Background(), log)
+
 	// When assigning a clusterQueue to a workload, we assume it in the cache. If
 	// the state is unknown, the workload could have been assumed and we need
 	// to clear it from the cache.
@@ -157,7 +159,7 @@ func (r *WorkloadReconciler) Delete(e event.DeleteEvent) bool {
 		}
 
 		// trigger the move of associated inadmissibleWorkloads if required.
-		r.queues.QueueAssociatedInadmissibleWorkloads(wl)
+		r.queues.QueueAssociatedInadmissibleWorkloads(ctx, wl)
 	}
 
 	// Even if the state is unknown, the last cached state tells us whether the
@@ -176,6 +178,8 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 
 	status := workloadStatus(wl)
 	log := r.log.WithValues("workload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
+	ctx := ctrl.LoggerInto(context.Background(), log)
+
 	prevQueue := oldWl.Spec.QueueName
 	if prevQueue != wl.Spec.QueueName {
 		log = log.WithValues("prevQueue", prevQueue)
@@ -204,7 +208,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 		r.queues.DeleteWorkload(oldWl)
 
 		// trigger the move of associated inadmissibleWorkloads if required.
-		r.queues.QueueAssociatedInadmissibleWorkloads(wl)
+		r.queues.QueueAssociatedInadmissibleWorkloads(ctx, wl)
 
 	case prevStatus == pending && status == pending:
 		if !r.queues.UpdateWorkload(oldWl, wlCopy) {
@@ -222,7 +226,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 			log.Error(err, "Failed to delete workload from cache")
 		}
 		// trigger the move of associated inadmissibleWorkloads if required.
-		r.queues.QueueAssociatedInadmissibleWorkloads(wl)
+		r.queues.QueueAssociatedInadmissibleWorkloads(ctx, wl)
 
 		if !r.queues.AddOrUpdateWorkload(wlCopy) {
 			log.V(2).Info("Queue for workload didn't exist; ignored for now")

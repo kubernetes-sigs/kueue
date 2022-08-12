@@ -106,7 +106,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 		}
 	}
 
-	queued := m.queueAllInadmissibleWorkloadsInCohort(cqImpl)
+	queued := m.queueAllInadmissibleWorkloadsInCohort(ctx, cqImpl)
 	reportPendingWorkloads(cq.Name, cqImpl.Pending())
 	if queued || addedWorkloads {
 		m.Broadcast()
@@ -114,7 +114,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 	return nil
 }
 
-func (m *Manager) UpdateClusterQueue(cq *kueue.ClusterQueue) error {
+func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) error {
 	m.Lock()
 	defer m.Unlock()
 	cqImpl, ok := m.clusterQueues[cq.Name]
@@ -124,14 +124,16 @@ func (m *Manager) UpdateClusterQueue(cq *kueue.ClusterQueue) error {
 
 	oldCohort := cqImpl.Cohort()
 	// TODO(#8): recreate heap based on a change of queueing policy.
-	cqImpl.Update(cq)
+	if err := cqImpl.Update(cq); err != nil {
+		return err
+	}
 	newCohort := cqImpl.Cohort()
 	if oldCohort != newCohort {
 		m.updateCohort(oldCohort, newCohort, cq.Name)
 	}
 
 	// TODO(#8): Selectively move workloads based on the exact event.
-	if m.queueAllInadmissibleWorkloadsInCohort(cqImpl) {
+	if m.queueAllInadmissibleWorkloadsInCohort(ctx, cqImpl) {
 		m.Broadcast()
 	}
 
@@ -288,7 +290,7 @@ func (m *Manager) addOrUpdateWorkload(w *kueue.Workload) bool {
 // RequeueWorkload requeues the workload ensuring that the queue and the
 // workload still exist in the client cache and it's not admitted. It won't
 // requeue if the workload is already in the queue (possible if the workload was updated).
-func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, immediate bool) bool {
+func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reason RequeueReason) bool {
 	m.Lock()
 	defer m.Unlock()
 
@@ -311,7 +313,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, imme
 		return false
 	}
 
-	added := cq.RequeueIfNotPresent(info, immediate)
+	added := cq.RequeueIfNotPresent(info, reason)
 	reportPendingWorkloads(q.ClusterQueue, cq.Pending())
 	if added {
 		m.Broadcast()
@@ -341,7 +343,7 @@ func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(w *kueue.Workload, qKey
 // QueueAssociatedInadmissibleWorkloads moves all associated workloads from
 // inadmissibleWorkloads to heap. If at least one workload is moved,
 // returns true. Otherwise returns false.
-func (m *Manager) QueueAssociatedInadmissibleWorkloads(w *kueue.Workload) {
+func (m *Manager) QueueAssociatedInadmissibleWorkloads(ctx context.Context, w *kueue.Workload) {
 	m.Lock()
 	defer m.Unlock()
 
@@ -355,7 +357,7 @@ func (m *Manager) QueueAssociatedInadmissibleWorkloads(w *kueue.Workload) {
 		return
 	}
 
-	if m.queueAllInadmissibleWorkloadsInCohort(cq) {
+	if m.queueAllInadmissibleWorkloadsInCohort(ctx, cq) {
 		m.Broadcast()
 	}
 }
@@ -363,7 +365,7 @@ func (m *Manager) QueueAssociatedInadmissibleWorkloads(w *kueue.Workload) {
 // QueueInadmissibleWorkloads moves all inadmissibleWorkloads in
 // corresponding ClusterQueues to heap. If at least one workload queued,
 // we will broadcast the event.
-func (m *Manager) QueueInadmissibleWorkloads(cqNames sets.String) {
+func (m *Manager) QueueInadmissibleWorkloads(ctx context.Context, cqNames sets.String) {
 	m.Lock()
 	defer m.Unlock()
 	if len(cqNames) == 0 {
@@ -376,7 +378,7 @@ func (m *Manager) QueueInadmissibleWorkloads(cqNames sets.String) {
 		if !exists {
 			continue
 		}
-		if m.queueAllInadmissibleWorkloadsInCohort(cq) {
+		if m.queueAllInadmissibleWorkloadsInCohort(ctx, cq) {
 			queued = true
 		}
 	}
@@ -396,16 +398,16 @@ func (m *Manager) QueueInadmissibleWorkloads(cqNames sets.String) {
 // 1. delete events for any admitted workload in the cohort.
 // 2. add events of any cluster queue in the cohort.
 // 3. update events of any cluster queue in the cohort.
-func (m *Manager) queueAllInadmissibleWorkloadsInCohort(cq ClusterQueue) bool {
+func (m *Manager) queueAllInadmissibleWorkloadsInCohort(ctx context.Context, cq ClusterQueue) bool {
 	cohort := cq.Cohort()
 	if cohort == "" {
-		return cq.QueueInadmissibleWorkloads()
+		return cq.QueueInadmissibleWorkloads(ctx, m.client)
 	}
 
 	queued := false
 	for cqName := range m.cohorts[cohort] {
 		if clusterQueue, ok := m.clusterQueues[cqName]; ok {
-			queued = clusterQueue.QueueInadmissibleWorkloads() || queued
+			queued = clusterQueue.QueueInadmissibleWorkloads(ctx, m.client) || queued
 		}
 	}
 	return queued
@@ -462,6 +464,26 @@ func (m *Manager) Dump() map[string]sets.String {
 	dump := make(map[string]sets.String, len(m.queues))
 	for key, cq := range m.clusterQueues {
 		if elements, ok := cq.Dump(); ok {
+			dump[key] = elements
+		}
+	}
+	if len(dump) == 0 {
+		return nil
+	}
+	return dump
+}
+
+// DumpInadmissible is a dump of the inadmissible workloads list.
+// Only use for testing purposes.
+func (m *Manager) DumpInadmissible() map[string]sets.String {
+	m.Lock()
+	defer m.Unlock()
+	if len(m.queues) == 0 {
+		return nil
+	}
+	dump := make(map[string]sets.String, len(m.queues))
+	for key, cq := range m.clusterQueues {
+		if elements, ok := cq.DumpInadmissible(); ok {
 			dump[key] = elements
 		}
 	}

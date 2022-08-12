@@ -17,8 +17,16 @@ limitations under the License.
 package queue
 
 import (
+	"context"
 	"testing"
 	"time"
+
+	"github.com/google/go-cmp/cmp"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -139,31 +147,192 @@ func Test_AddFromQueue(t *testing.T) {
 
 func Test_DeleteFromQueue(t *testing.T) {
 	cq := newClusterQueueImpl(keyFunc, byCreationTime)
-	wl1 := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
-	wl2 := utiltesting.MakeWorkload("workload-2", defaultNamespace).Obj()
-	queue := &Queue{
-		items: map[string]*workload.Info{
-			wl1.Name: workload.NewInfo(wl1),
-			wl2.Name: workload.NewInfo(wl2),
-		},
+	q := utiltesting.MakeQueue("foo", "").ClusterQueue("cq").Obj()
+	qImpl := newQueue(q)
+	wl1 := utiltesting.MakeWorkload("wl1", "").Queue(q.Name).Obj()
+	wl2 := utiltesting.MakeWorkload("wl2", "").Queue(q.Name).Obj()
+	wl3 := utiltesting.MakeWorkload("wl3", "").Queue(q.Name).Obj()
+	wl4 := utiltesting.MakeWorkload("wl4", "").Queue(q.Name).Obj()
+	admissibleworkloads := []*kueue.Workload{wl1, wl2}
+	inadmissibleWorkloads := []*kueue.Workload{wl3, wl4}
+
+	for _, w := range admissibleworkloads {
+		wInfo := workload.NewInfo(w)
+		cq.PushOrUpdate(wInfo)
+		qImpl.AddOrUpdate(wInfo)
 	}
-	cq.AddFromQueue(queue)
-	if cq.Pending() == 0 {
-		t.Error("ClusterQueue should not be empty")
+
+	for _, w := range inadmissibleWorkloads {
+		wInfo := workload.NewInfo(w)
+		cq.RequeueIfNotPresent(wInfo, RequeueReasonNamespaceMismatch)
+		qImpl.AddOrUpdate(wInfo)
 	}
-	cq.DeleteFromQueue(queue)
+
+	wantPending := len(admissibleworkloads) + len(inadmissibleWorkloads)
+	if pending := cq.Pending(); pending != int32(wantPending) {
+		t.Errorf("clusterQueue's workload number not right, want %v, got %v", wantPending, pending)
+	}
+	if len(cq.inadmissibleWorkloads) != len(inadmissibleWorkloads) {
+		t.Errorf("clusterQueue's workload number in inadmissibleWorkloads not right, want %v, got %v", len(inadmissibleWorkloads), len(cq.inadmissibleWorkloads))
+	}
+
+	cq.DeleteFromQueue(qImpl)
 	if cq.Pending() != 0 {
-		t.Error("ClusterQueue should be empty")
+		t.Error("clusterQueue should be empty")
 	}
 }
 
 func Test_RequeueIfNotPresent(t *testing.T) {
 	cq := newClusterQueueImpl(keyFunc, byCreationTime)
 	wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
-	if ok := cq.RequeueIfNotPresent(workload.NewInfo(wl), true); !ok {
+	if ok := cq.RequeueIfNotPresent(workload.NewInfo(wl), RequeueReasonGeneric); !ok {
 		t.Error("failed to requeue nonexistent workload")
 	}
-	if ok := cq.RequeueIfNotPresent(workload.NewInfo(wl), true); ok {
+	if ok := cq.RequeueIfNotPresent(workload.NewInfo(wl), RequeueReasonGeneric); ok {
 		t.Error("existent workload shouldn't be added again")
+	}
+}
+
+func TestClusterQueueImpl(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("Failed adding kueue scheme: %v", err)
+	}
+	clientBuilder := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(
+			&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns1", Labels: map[string]string{"dep": "eng"}}},
+			&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns2", Labels: map[string]string{"dep": "sales"}}},
+			&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns3", Labels: map[string]string{"dep": "marketing"}}},
+		)
+	cl := clientBuilder.Build()
+
+	var workloads = []*kueue.Workload{
+		utiltesting.MakeWorkload("w1", "ns1").Queue("q1").Obj(),
+		utiltesting.MakeWorkload("w2", "ns2").Queue("q2").Obj(),
+		utiltesting.MakeWorkload("w3", "ns3").Queue("q3").Obj(),
+	}
+	var updatedWorkloads = make([]*kueue.Workload, len(workloads))
+
+	updatedWorkloads[0] = workloads[0].DeepCopy()
+	updatedWorkloads[0].Spec.QueueName = "q2"
+	updatedWorkloads[1] = workloads[1].DeepCopy()
+	updatedWorkloads[1].Spec.QueueName = "q1"
+
+	tests := map[string]struct {
+		workloadsToAdd                    []*kueue.Workload
+		inadmissibleWorkloadsToRequeue    []*workload.Info
+		admissibleWorkloadsToRequeue      []*workload.Info
+		workloadsToUpdate                 []*kueue.Workload
+		workloadsToDelete                 []*kueue.Workload
+		queueInadmissibleWorkloads        bool
+		wantActiveWorkloads               sets.String
+		wantPending                       int32
+		wantInadmissibleWorkloadsRequeued bool
+	}{
+		"add, update, delete workload": {
+			workloadsToAdd:                 []*kueue.Workload{workloads[0], workloads[1]},
+			inadmissibleWorkloadsToRequeue: []*workload.Info{},
+			workloadsToUpdate:              []*kueue.Workload{updatedWorkloads[0]},
+			workloadsToDelete:              []*kueue.Workload{workloads[0]},
+			wantActiveWorkloads:            sets.NewString(workloads[1].Name),
+			wantPending:                    1,
+		},
+		"re-queue inadmissible workload": {
+			workloadsToAdd:                 []*kueue.Workload{workloads[0]},
+			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[1])},
+			wantActiveWorkloads:            sets.NewString(workloads[0].Name),
+			wantPending:                    2,
+		},
+		"re-queue admissible workload that was inadmissible": {
+			workloadsToAdd:                 []*kueue.Workload{workloads[0]},
+			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[1])},
+			admissibleWorkloadsToRequeue:   []*workload.Info{workload.NewInfo(workloads[1])},
+			wantActiveWorkloads:            sets.NewString(workloads[0].Name, workloads[1].Name),
+			wantPending:                    2,
+		},
+		"re-queue inadmissible workload and flush": {
+			workloadsToAdd:                    []*kueue.Workload{workloads[0]},
+			inadmissibleWorkloadsToRequeue:    []*workload.Info{workload.NewInfo(workloads[1])},
+			queueInadmissibleWorkloads:        true,
+			wantActiveWorkloads:               sets.NewString(workloads[0].Name, workloads[1].Name),
+			wantPending:                       2,
+			wantInadmissibleWorkloadsRequeued: true,
+		},
+		"avoid re-queueing inadmissible workloads not matching namespace selector": {
+			workloadsToAdd:                 []*kueue.Workload{workloads[0]},
+			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[2])},
+			queueInadmissibleWorkloads:     true,
+			wantActiveWorkloads:            sets.NewString(workloads[0].Name),
+			wantPending:                    2,
+		},
+		"update inadmissible workload": {
+			workloadsToAdd:                 []*kueue.Workload{workloads[0]},
+			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[1])},
+			workloadsToUpdate:              []*kueue.Workload{updatedWorkloads[1]},
+			wantActiveWorkloads:            sets.NewString(workloads[0].Name, workloads[1].Name),
+			wantPending:                    2,
+		},
+		"delete inadmissible workload": {
+			workloadsToAdd:                 []*kueue.Workload{workloads[0]},
+			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[1])},
+			workloadsToDelete:              []*kueue.Workload{workloads[1]},
+			queueInadmissibleWorkloads:     true,
+			wantActiveWorkloads:            sets.NewString(workloads[0].Name),
+			wantPending:                    1,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			cq := newClusterQueueImpl(keyFunc, byCreationTime)
+
+			err := cq.Update(utiltesting.MakeClusterQueue("cq").
+				NamespaceSelector(&metav1.LabelSelector{
+					MatchExpressions: []metav1.LabelSelectorRequirement{
+						{
+							Key:      "dep",
+							Operator: metav1.LabelSelectorOpIn,
+							Values:   []string{"eng", "sales"},
+						},
+					},
+				}).Obj())
+			if err != nil {
+				t.Fatalf("Failed updating clusterQueue: %v", err)
+			}
+
+			for _, w := range test.workloadsToAdd {
+				cq.PushOrUpdate(workload.NewInfo(w))
+			}
+
+			for _, w := range test.inadmissibleWorkloadsToRequeue {
+				cq.RequeueIfNotPresent(w, RequeueReasonNamespaceMismatch)
+			}
+			for _, w := range test.admissibleWorkloadsToRequeue {
+				cq.RequeueIfNotPresent(w, RequeueReasonGeneric)
+			}
+
+			for _, w := range test.workloadsToUpdate {
+				cq.PushOrUpdate(workload.NewInfo(w))
+			}
+
+			for _, w := range test.workloadsToDelete {
+				cq.Delete(w)
+			}
+
+			if test.queueInadmissibleWorkloads {
+				if diff := cmp.Diff(test.wantInadmissibleWorkloadsRequeued,
+					cq.QueueInadmissibleWorkloads(context.Background(), cl)); diff != "" {
+					t.Errorf("Unexpected requeueing of inadmissible workloads (-want,+got):\n%s", diff)
+				}
+			}
+
+			gotWorkloads, _ := cq.Dump()
+			if diff := cmp.Diff(test.wantActiveWorkloads, gotWorkloads); diff != "" {
+				t.Errorf("Unexpected items in cluster foo (-want,+got):\n%s", diff)
+			}
+			if got := cq.Pending(); got != test.wantPending {
+				t.Errorf("Got %d pending workloads, want %d", got, test.wantPending)
+			}
+		})
 	}
 }
