@@ -99,31 +99,42 @@ func (w *ClusterQueueWebhook) ValidateDelete(ctx context.Context, obj runtime.Ob
 func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	path := field.NewPath("spec")
 
-	allErrs := field.ErrorList{}
-	allErrs = append(allErrs, ValidateResources(cq, path.Child("resources"))...)
+	var allErrs field.ErrorList
+	allErrs = append(allErrs, validateResources(cq.Spec.Resources, path.Child("resources"))...)
 	allErrs = append(allErrs, validateQueueingStrategy(string(cq.Spec.QueueingStrategy), path.Child("queueingStrategy"))...)
 	allErrs = append(allErrs, validateNamespaceSelector(cq.Spec.NamespaceSelector, path.Child("namespaceSelector"))...)
 
 	return allErrs
 }
 
-func ValidateResources(cq *kueue.ClusterQueue, path *field.Path) field.ErrorList {
-	allErrs := field.ErrorList{}
+func validateResources(resources []kueue.Resource, path *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	flavorsPerRes := make([]sets.String, len(resources))
 
-	for i, resource := range cq.Spec.Resources {
-		allErrs = append(allErrs, validateResourceName(string(resource.Name), path.Index(i).Child("name"))...)
+	for i, resource := range resources {
+		path := path.Index(i)
+		allErrs = append(allErrs, validateResourceName(string(resource.Name), path.Child("name"))...)
 
-		flavorPath := path.Index(i).Child("flavors")
+		flavorsPerRes[i] = make(sets.String, len(resource.Flavors))
 		for j, flavor := range resource.Flavors {
-			allErrs = append(allErrs, validateFlavorName(string(flavor.Name), flavorPath.Index(j).Child("name"))...)
-			allErrs = append(allErrs, validateFlavorQuota(flavor, flavorPath.Index(j).Child("quota"))...)
+			path := path.Child("flavors").Index(j)
+			allErrs = append(allErrs, validateFlavorName(string(flavor.Name), path.Child("name"))...)
+			allErrs = append(allErrs, validateFlavorQuota(flavor, path.Child("quota"))...)
+			flavorsPerRes[i].Insert(string(flavor.Name))
+		}
+		for j := 0; j < i; j++ {
+			if !flavorsPerRes[i].HasAny(flavorsPerRes[j].UnsortedList()...) || matchesFlavorsInOrder(resource.Flavors, resources[j].Flavors) {
+				continue
+			}
+			err := field.Invalid(path.Child("flavors"), resource.Flavors, fmt.Sprintf("has flavors present in resource %s; all flavors must be different or they all must be present in the same order", resources[j].Name))
+			allErrs = append(allErrs, err)
 		}
 	}
 	return allErrs
 }
 
 func validateResourceName(name string, fldPath *field.Path) field.ErrorList {
-	allErrs := field.ErrorList{}
+	var allErrs field.ErrorList
 	for _, msg := range utilvalidation.IsQualifiedName(name) {
 		allErrs = append(allErrs, field.Invalid(fldPath, name, msg))
 	}
@@ -131,7 +142,7 @@ func validateResourceName(name string, fldPath *field.Path) field.ErrorList {
 }
 
 func validateFlavorName(name string, path *field.Path) field.ErrorList {
-	allErrs := field.ErrorList{}
+	var allErrs field.ErrorList
 	if msgs := utilvalidation.IsDNS1123Subdomain(name); len(msgs) > 0 {
 		for _, msg := range msgs {
 			allErrs = append(allErrs, field.Invalid(path, name, msg))
@@ -141,7 +152,7 @@ func validateFlavorName(name string, path *field.Path) field.ErrorList {
 }
 
 func validateFlavorQuota(flavor kueue.Flavor, path *field.Path) field.ErrorList {
-	allErrs := field.ErrorList{}
+	var allErrs field.ErrorList
 	allErrs = append(allErrs, validateResourceQuantity(flavor.Quota.Min, path.Child("min"))...)
 
 	if flavor.Quota.Max != nil {
@@ -153,9 +164,21 @@ func validateFlavorQuota(flavor kueue.Flavor, path *field.Path) field.ErrorList 
 	return allErrs
 }
 
+func matchesFlavorsInOrder(f1, f2 []kueue.Flavor) bool {
+	if len(f1) != len(f2) {
+		return false
+	}
+	for i := range f1 {
+		if f1[i].Name != f2[i].Name {
+			return false
+		}
+	}
+	return true
+}
+
 // validateResourceQuantity enforces that specified quantity is valid for specified resource
 func validateResourceQuantity(value resource.Quantity, fldPath *field.Path) field.ErrorList {
-	allErrs := field.ErrorList{}
+	var allErrs field.ErrorList
 	if value.Cmp(resource.Quantity{}) < 0 {
 		allErrs = append(allErrs, field.Invalid(fldPath, value.String(), isNegativeErrorMsg))
 	}
@@ -163,12 +186,10 @@ func validateResourceQuantity(value resource.Quantity, fldPath *field.Path) fiel
 }
 
 func validateQueueingStrategy(strategy string, path *field.Path) field.ErrorList {
-	allErrs := field.ErrorList{}
-
+	var allErrs field.ErrorList
 	if len(strategy) > 0 && !queueingStrategies.Has(strategy) {
 		allErrs = append(allErrs, field.Invalid(path, strategy, fmt.Sprintf("queueing strategy %s is not supported, available strategies are %v", strategy, queueingStrategies.List())))
 	}
-
 	return allErrs
 }
 

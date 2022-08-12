@@ -38,6 +38,12 @@ type ClusterQueueSpec struct {
 	//   - quota:
 	//       min: 100Gi
 	//
+	// Two resources must either have all the flavors in the same order or not
+	// have any matching flavors. When two resources match their flavors, they
+	// are said to be codependent. When a workload is admitted by this
+	// ClusterQueue, all the codependent resources that the Workload requests get
+	// assigned the same flavor.
+	//
 	// +listType=map
 	// +listMapKey=name
 	Resources []Resource `json:"resources,omitempty"`
