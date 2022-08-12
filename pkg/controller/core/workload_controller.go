@@ -82,25 +82,27 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	log.V(2).Info("Reconciling Workload")
 
 	status := workloadStatus(&wl)
-	if status == pending && !r.queues.QueueForWorkloadExists(&wl) {
-		err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, corev1.ConditionFalse,
-			"Inadmissible", fmt.Sprintf("Queue %s doesn't exist", wl.Spec.QueueName))
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
-	cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)
-	if status == pending && !cqOk {
-		err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, corev1.ConditionFalse,
-			"Inadmissible", fmt.Sprintf("ClusterQueue %s doesn't exist", cqName))
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
+	switch status {
+	case pending:
+		if !r.queues.QueueForWorkloadExists(&wl) {
+			err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, corev1.ConditionFalse,
+				"Inadmissible", fmt.Sprintf("Queue %s doesn't exist", wl.Spec.QueueName))
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
 
-	if status == pending && !r.cache.ClusterQueueActive(cqName) {
-		err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, corev1.ConditionFalse,
-			"Inadmissible", fmt.Sprintf("ClusterQueue %s is inactive", cqName))
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
+		cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)
+		if !cqOk {
+			err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, corev1.ConditionFalse,
+				"Inadmissible", fmt.Sprintf("ClusterQueue %s doesn't exist", cqName))
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
 
-	if status == admitted {
+		if !r.cache.ClusterQueueActive(cqName) {
+			err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, corev1.ConditionFalse,
+				"Inadmissible", fmt.Sprintf("ClusterQueue %s is inactive", cqName))
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+	case admitted:
 		err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, corev1.ConditionTrue, "", "")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
