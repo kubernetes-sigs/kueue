@@ -18,9 +18,13 @@ package webhooks
 
 import (
 	"context"
+	"strings"
 
-	"k8s.io/apimachinery/pkg/apis/meta/v1/validation"
+	corev1 "k8s.io/api/core/v1"
+	metavalidation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -66,14 +70,14 @@ var _ webhook.CustomValidator = &ResourceFlavorWebhook{}
 func (w *ResourceFlavorWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
 	rf := obj.(*kueue.ResourceFlavor)
 	resourceFlavorLog.V(5).Info("Validating create", "resourceFlavor", klog.KObj(rf))
-	return ValidateResourceFlavorLabels(rf).ToAggregate()
+	return ValidateResourceFlavor(rf).ToAggregate()
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *ResourceFlavorWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
 	newRF := newObj.(*kueue.ResourceFlavor)
 	resourceFlavorLog.V(5).Info("Validating update", "resourceFlavor", klog.KObj(newRF))
-	return ValidateResourceFlavorLabels(newRF).ToAggregate()
+	return ValidateResourceFlavor(newRF).ToAggregate()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
@@ -81,8 +85,77 @@ func (w *ResourceFlavorWebhook) ValidateDelete(ctx context.Context, obj runtime.
 	return nil
 }
 
-func ValidateResourceFlavorLabels(rf *kueue.ResourceFlavor) field.ErrorList {
-	field := field.NewPath("labels")
-	return validation.ValidateLabels(rf.Labels, field)
+func ValidateResourceFlavor(rf *kueue.ResourceFlavor) field.ErrorList {
+	var allErrs field.ErrorList
 
+	labelsPath := field.NewPath("labels")
+	if len(rf.Labels) > 8 {
+		allErrs = append(allErrs, field.Invalid(labelsPath, rf.Labels, "must have at most 8 elements"))
+	}
+	allErrs = append(allErrs, metavalidation.ValidateLabels(rf.Labels, labelsPath)...)
+
+	taintsPath := field.NewPath("taints")
+	if len(rf.Taints) > 8 {
+		allErrs = append(allErrs, field.Invalid(taintsPath, rf.Taints, "must have at most 8 elements"))
+	}
+	allErrs = append(allErrs, validateNodeTaints(rf.Taints, taintsPath)...)
+	return allErrs
+}
+
+// validateNodeTaints is extracted from git.k8s.io/kubernetes/pkg/apis/core/validation/validation.go
+func validateNodeTaints(taints []corev1.Taint, fldPath *field.Path) field.ErrorList {
+	allErrors := field.ErrorList{}
+
+	uniqueTaints := map[corev1.TaintEffect]sets.String{}
+
+	for i, currTaint := range taints {
+		idxPath := fldPath.Index(i)
+		// validate the taint key
+		allErrors = append(allErrors, metavalidation.ValidateLabelName(currTaint.Key, idxPath.Child("key"))...)
+		// validate the taint value
+		if errs := validation.IsValidLabelValue(currTaint.Value); len(errs) != 0 {
+			allErrors = append(allErrors, field.Invalid(idxPath.Child("value"), currTaint.Value, strings.Join(errs, ";")))
+		}
+		// validate the taint effect
+		allErrors = append(allErrors, validateTaintEffect(&currTaint.Effect, false, idxPath.Child("effect"))...)
+
+		// validate if taint is unique by <key, effect>
+		if len(uniqueTaints[currTaint.Effect]) > 0 && uniqueTaints[currTaint.Effect].Has(currTaint.Key) {
+			duplicatedError := field.Duplicate(idxPath, currTaint)
+			duplicatedError.Detail = "taints must be unique by key and effect pair"
+			allErrors = append(allErrors, duplicatedError)
+			continue
+		}
+
+		// add taint to existingTaints for uniqueness check
+		if len(uniqueTaints[currTaint.Effect]) == 0 {
+			uniqueTaints[currTaint.Effect] = sets.String{}
+		}
+		uniqueTaints[currTaint.Effect].Insert(currTaint.Key)
+	}
+	return allErrors
+}
+
+// validateTaintEffect is extracted from git.k8s.io/kubernetes/pkg/apis/core/validation/validation.go
+func validateTaintEffect(effect *corev1.TaintEffect, allowEmpty bool, fldPath *field.Path) field.ErrorList {
+	if !allowEmpty && len(*effect) == 0 {
+		return field.ErrorList{field.Required(fldPath, "")}
+	}
+
+	allErrors := field.ErrorList{}
+	switch *effect {
+	// TODO: Replace next line with subsequent commented-out line when implement TaintEffectNoScheduleNoAdmit.
+	case corev1.TaintEffectNoSchedule, corev1.TaintEffectPreferNoSchedule, corev1.TaintEffectNoExecute:
+		// case core.TaintEffectNoSchedule, core.TaintEffectPreferNoSchedule, core.TaintEffectNoScheduleNoAdmit, core.TaintEffectNoExecute:
+	default:
+		validValues := []string{
+			string(corev1.TaintEffectNoSchedule),
+			string(corev1.TaintEffectPreferNoSchedule),
+			string(corev1.TaintEffectNoExecute),
+			// TODO: Uncomment this block when implement TaintEffectNoScheduleNoAdmit.
+			// string(core.TaintEffectNoScheduleNoAdmit),
+		}
+		allErrors = append(allErrors, field.NotSupported(fldPath, *effect, validValues))
+	}
+	return allErrors
 }

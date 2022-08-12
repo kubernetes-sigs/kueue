@@ -162,7 +162,8 @@ spec:
                   the flavors in the same order or not have any matching flavors.
                   When two resources match their flavors, they are said to be codependent.
                   When a workload is admitted by this ClusterQueue, all the codependent
-                  resources that the Workload requests get assigned the same flavor."
+                  resources that the Workload requests get assigned the same flavor.
+                  \n resources can be up to 16 elements."
                 items:
                   properties:
                     flavors:
@@ -182,7 +183,7 @@ spec:
                         is 20 (10 k80 + 10 p100). A workload is limited to the selected
                         type by converting the labels to a node selector that gets
                         injected into the workload. This list can’t be empty, at least
-                        one flavor must exist."
+                        one flavor must exist. \n flavors can be up to 16 elements."
                       items:
                         properties:
                           name:

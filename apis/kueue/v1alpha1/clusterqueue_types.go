@@ -44,6 +44,8 @@ type ClusterQueueSpec struct {
 	// ClusterQueue, all the codependent resources that the Workload requests get
 	// assigned the same flavor.
 	//
+	// resources can be up to 16 elements.
+	//
 	// +listType=map
 	// +listMapKey=name
 	Resources []Resource `json:"resources,omitempty"`
@@ -187,6 +189,8 @@ type Resource struct {
 	// A workload is limited to the selected type by converting the labels to a node
 	// selector that gets injected into the workload. This list can’t be empty, at
 	// least one flavor must exist.
+	//
+	// flavors can be up to 16 elements.
 	//
 	// +listType=map
 	// +listMapKey=name

@@ -33,11 +33,17 @@ type ResourceFlavor struct {
 	// converted to node affinity constraints on the workload’s pods.
 	// For example, cloud.provider.com/accelerator: nvidia-tesla-k80.
 	// More info: http://kubernetes.io/docs/user-guide/labels
+	//
+	// labels can be up to 8 elements.
 	Labels map[string]string `json:"labels,omitempty"`
 
 	// taints associated with this flavor that workloads must explicitly
 	// “tolerate” to be able to use this flavor.
 	// For example, cloud.provider.com/preemptible="true":NoSchedule
+	//
+	// taints can be up to 8 elements.
+	//
+	// +listType=atomic
 	Taints []corev1.Taint `json:"taints,omitempty"`
 }
 
