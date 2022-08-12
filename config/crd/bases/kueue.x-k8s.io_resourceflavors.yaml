@@ -35,7 +35,8 @@ spec:
               type: string
             description: 'labels associated with this flavor. They are matched against
               or converted to node affinity constraints on the workload’s pods. For
-              example, cloud.provider.com/accelerator: nvidia-tesla-k80.'
+              example, cloud.provider.com/accelerator: nvidia-tesla-k80. More info:
+              http://kubernetes.io/docs/user-guide/labels'
             type: object
           metadata:
             type: object

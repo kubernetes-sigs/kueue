@@ -23,17 +23,21 @@ import (
 
 // WorkloadSpec defines the desired state of Workload
 type WorkloadSpec struct {
-	// pods is a list of sets of homogeneous pods, each described by a Pod spec
+	// podSets is a list of sets of homogeneous pods, each described by a Pod spec
 	// and a count.
+	// There must be at least one element.
+	// podSets cannot be changed.
 	//
 	// +listType=map
 	// +listMapKey=name
 	PodSets []PodSet `json:"podSets,omitempty"`
 
 	// queueName is the name of the queue the Workload is associated with.
+	// queueName cannot be changed once set.
 	QueueName string `json:"queueName"`
 
 	// admission holds the parameters of the admission of the workload by a ClusterQueue.
+	// admission cannot be changed once set.
 	Admission *Admission `json:"admission,omitempty"`
 
 	// If specified, indicates the workload's priority.
@@ -48,6 +52,7 @@ type WorkloadSpec struct {
 	// ClusterQueue where the workload is queued.
 	// The priority value is populated from PriorityClassName.
 	// The higher the value, the higher the priority.
+	// If priorityClassName is specified, priority must not be null.
 	Priority *int32 `json:"priority,omitempty"`
 }
 
@@ -76,6 +81,9 @@ type PodSet struct {
 	Name string `json:"name"`
 
 	// spec is the Pod spec.
+	// If requests are omitted for a container or initContainer,
+	// they default to the limits if they are explicitly specified for the
+	// container or initcontainer.
 	Spec corev1.PodSpec `json:"spec"`
 
 	// count is the number of pods for the spec.

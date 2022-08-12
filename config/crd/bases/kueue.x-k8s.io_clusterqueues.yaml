@@ -194,7 +194,7 @@ spec:
                                 anyOf:
                                 - type: integer
                                 - type: string
-                                description: max is the upper limit on the amount
+                                description: max is the upper limit on the quantity
                                   of resource requests that can be used by workloads
                                   admitted by this ClusterQueue at a point in time.
                                   Resources can be borrowed from unused min quota
@@ -207,12 +207,12 @@ spec:
                                 anyOf:
                                 - type: integer
                                 - type: string
-                                description: min amount of resource requests that
+                                description: min quantity of resource requests that
                                   are available to be used by workloads admitted by
-                                  this ClusterQueue at a point in time. The sum of
-                                  min quotas for a flavor in a cohort defines the
-                                  maximum amount of resources that can be allocated
-                                  by a ClusterQueue in the cohort.
+                                  this ClusterQueue at a point in time. The quantity
+                                  must be positive. The sum of min quotas for a flavor
+                                  in a cohort defines the maximum amount of resources
+                                  that can be allocated by a ClusterQueue in the cohort.
                                 pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                                 x-kubernetes-int-or-string: true
                             type: object

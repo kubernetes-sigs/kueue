@@ -200,13 +200,14 @@ type Flavor struct {
 type ResourceFlavorReference string
 
 type Quota struct {
-	// min amount of resource requests that are available to be used by workloads
+	// min quantity of resource requests that are available to be used by workloads
 	// admitted by this ClusterQueue at a point in time.
+	// The quantity must be positive.
 	// The sum of min quotas for a flavor in a cohort defines the maximum amount
 	// of resources that can be allocated by a ClusterQueue in the cohort.
 	Min resource.Quantity `json:"min,omitempty"`
 
-	// max is the upper limit on the amount of resource requests that
+	// max is the upper limit on the quantity of resource requests that
 	// can be used by workloads admitted by this ClusterQueue at a point in time.
 	// Resources can be borrowed from unused min quota of other
 	// ClusterQueues in the same cohort.
