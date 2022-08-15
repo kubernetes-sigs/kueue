@@ -42,7 +42,6 @@ func TestValidateClusterQueue(t *testing.T) {
 			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").Resource(
 				testingutil.MakeResource("cpu").Obj(),
 			).Obj(),
-			wantErr: field.ErrorList{},
 		},
 		{
 			name: "native resources with unqualified names",
@@ -58,7 +57,6 @@ func TestValidateClusterQueue(t *testing.T) {
 			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").Resource(
 				testingutil.MakeResource("example.com/gpu").Obj(),
 			).Obj(),
-			wantErr: field.ErrorList{},
 		},
 		{
 			name: "extended resources with unqualified names",
@@ -74,7 +72,6 @@ func TestValidateClusterQueue(t *testing.T) {
 			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").Resource(
 				testingutil.MakeResource("cpu").Flavor(testingutil.MakeFlavor("x86", "10").Obj()).Obj(),
 			).Obj(),
-			wantErr: field.ErrorList{},
 		},
 		{
 			name: "flavor with unqualified names",
@@ -99,14 +96,12 @@ func TestValidateClusterQueue(t *testing.T) {
 			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").Resource(
 				testingutil.MakeResource("cpu").Flavor(testingutil.MakeFlavor("x86", "0").Obj()).Obj(),
 			).Obj(),
-			wantErr: field.ErrorList{},
 		},
 		{
 			name: "flavor quota with min is equal to max",
 			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").Resource(
 				testingutil.MakeResource("cpu").Flavor(testingutil.MakeFlavor("x86", "1").Max("1").Obj()).Obj(),
 			).Obj(),
-			wantErr: field.ErrorList{},
 		},
 		{
 			name: "flavor quota with min is greater than max",
@@ -120,7 +115,6 @@ func TestValidateClusterQueue(t *testing.T) {
 		{
 			name:         "empty queueing strategy is supported",
 			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").Obj(),
-			wantErr:      field.ErrorList{},
 		},
 		{
 			name:         "unknown queueing strategy is not supported",
@@ -150,6 +144,49 @@ func TestValidateClusterQueue(t *testing.T) {
 			}).Obj(),
 			wantErr: field.ErrorList{
 				field.Required(specField.Child("namespaceSelector", "matchExpressions").Index(0).Child("values"), ""),
+			},
+		},
+		{
+			name: "multiple independent and codependent resources",
+			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").
+				Resource(testingutil.MakeResource("cpu").
+					Flavor(testingutil.MakeFlavor("alpha", "0").Obj()).
+					Flavor(testingutil.MakeFlavor("beta", "0").Obj()).Obj()).
+				Resource(testingutil.MakeResource("memory").
+					Flavor(testingutil.MakeFlavor("alpha", "0").Obj()).
+					Flavor(testingutil.MakeFlavor("beta", "0").Obj()).Obj()).
+				Resource(testingutil.MakeResource("example.com/gpu").
+					Flavor(testingutil.MakeFlavor("gamma", "0").Obj()).
+					Flavor(testingutil.MakeFlavor("omega", "0").Obj()).Obj()).
+				Obj(),
+		},
+		{
+			name: "multiple resources with matching flavors in different order",
+			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").
+				Resource(testingutil.MakeResource("cpu").
+					Flavor(testingutil.MakeFlavor("alpha", "0").Obj()).
+					Flavor(testingutil.MakeFlavor("beta", "0").Obj()).Obj()).
+				Resource(testingutil.MakeResource("memory").
+					Flavor(testingutil.MakeFlavor("beta", "0").Obj()).
+					Flavor(testingutil.MakeFlavor("alpha", "0").Obj()).Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(specField.Child("resources").Index(1).Child("flavors"), nil, ""),
+			},
+		},
+		{
+			name: "multiple resources with partial flavor match",
+			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").
+				Resource(testingutil.MakeResource("cpu").
+					Flavor(testingutil.MakeFlavor("alpha", "0").Obj()).
+					Flavor(testingutil.MakeFlavor("beta", "0").Obj()).Obj()).
+				Resource(testingutil.MakeResource("example.com/gpu").
+					Flavor(testingutil.MakeFlavor("alpha", "0").Obj()).
+					Flavor(testingutil.MakeFlavor("beta", "0").Obj()).
+					Flavor(testingutil.MakeFlavor("omega", "0").Obj()).Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(specField.Child("resources").Index(1).Child("flavors"), nil, ""),
 			},
 		},
 	}
