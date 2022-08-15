@@ -90,13 +90,13 @@ func ValidateResourceFlavor(rf *kueue.ResourceFlavor) field.ErrorList {
 
 	labelsPath := field.NewPath("labels")
 	if len(rf.Labels) > 8 {
-		allErrs = append(allErrs, field.Invalid(labelsPath, rf.Labels, "must have at most 8 elements"))
+		allErrs = append(allErrs, field.TooMany(labelsPath, len(rf.Labels), 8))
 	}
 	allErrs = append(allErrs, metavalidation.ValidateLabels(rf.Labels, labelsPath)...)
 
 	taintsPath := field.NewPath("taints")
 	if len(rf.Taints) > 8 {
-		allErrs = append(allErrs, field.Invalid(taintsPath, rf.Taints, "must have at most 8 elements"))
+		allErrs = append(allErrs, field.TooMany(taintsPath, len(rf.Taints), 8))
 	}
 	allErrs = append(allErrs, validateNodeTaints(rf.Taints, taintsPath)...)
 	return allErrs
