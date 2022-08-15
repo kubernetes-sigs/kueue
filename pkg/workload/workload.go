@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	"sigs.k8s.io/kueue/pkg/util/api"
 )
 
 // Info holds a Workload object and some pre-processing.
@@ -175,7 +176,7 @@ func max(v1, v2 int64) int64 {
 
 // FindConditionIndex finds the provided condition from the given status and returns the index.
 // Returns -1 if the condition is not present.
-func FindConditionIndex(status *kueue.WorkloadStatus, conditionType kueue.WorkloadConditionType) int {
+func FindConditionIndex(status *kueue.WorkloadStatus, conditionType string) int {
 	if status == nil || status.Conditions == nil {
 		return -1
 	}
@@ -191,19 +192,18 @@ func FindConditionIndex(status *kueue.WorkloadStatus, conditionType kueue.Worklo
 func UpdateStatus(ctx context.Context,
 	c client.Client,
 	wl *kueue.Workload,
-	conditionType kueue.WorkloadConditionType,
-	conditionStatus corev1.ConditionStatus,
+	conditionType string,
+	conditionStatus metav1.ConditionStatus,
 	reason, message string) error {
 	conditionIndex := FindConditionIndex(&wl.Status, conditionType)
 
 	now := metav1.Now()
-	condition := kueue.WorkloadCondition{
+	condition := metav1.Condition{
 		Type:               conditionType,
 		Status:             conditionStatus,
-		LastProbeTime:      now,
 		LastTransitionTime: now,
 		Reason:             reason,
-		Message:            message,
+		Message:            api.TruncateConditionMessage(message),
 	}
 	// Avoid modifying the object in the cache.
 	newWl := *wl
@@ -221,8 +221,8 @@ func UpdateStatus(ctx context.Context,
 func UpdateStatusIfChanged(ctx context.Context,
 	c client.Client,
 	wl *kueue.Workload,
-	conditionType kueue.WorkloadConditionType,
-	conditionStatus corev1.ConditionStatus,
+	conditionType string,
+	conditionStatus metav1.ConditionStatus,
 	reason, message string) error {
 	i := FindConditionIndex(&wl.Status, conditionType)
 	if i == -1 {
@@ -238,7 +238,7 @@ func UpdateStatusIfChanged(ctx context.Context,
 	return UpdateStatus(ctx, c, wl, conditionType, conditionStatus, reason, message)
 }
 
-func InCondition(w *kueue.Workload, condition kueue.WorkloadConditionType) bool {
+func InCondition(w *kueue.Workload, condition string) bool {
 	i := FindConditionIndex(&w.Status, condition)
-	return i != -1 && w.Status.Conditions[i].Status == corev1.ConditionTrue
+	return i != -1 && w.Status.Conditions[i].Status == metav1.ConditionTrue
 }

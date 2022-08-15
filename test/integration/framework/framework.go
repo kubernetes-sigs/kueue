@@ -203,6 +203,23 @@ func DeleteRuntimeClass(ctx context.Context, c client.Client, runtimeClass *node
 	return nil
 }
 
+func FinishWorkloads(ctx context.Context, k8sClient client.Client, workloads ...*kueue.Workload) {
+	for _, w := range workloads {
+		gomega.EventuallyWithOffset(1, func() error {
+			var newWL kueue.Workload
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
+			newWL.Status.Conditions = append(w.Status.Conditions, metav1.Condition{
+				Type:               kueue.WorkloadFinished,
+				Status:             metav1.ConditionTrue,
+				LastTransitionTime: metav1.Now(),
+				Reason:             "ByTest",
+				Message:            "Finished by test",
+			})
+			return k8sClient.Status().Update(ctx, &newWL)
+		}, Timeout, Interval).Should(gomega.Succeed())
+	}
+}
+
 func ExpectWorkloadsToBeAdmitted(ctx context.Context, k8sClient client.Client, cqName string, wls ...*kueue.Workload) {
 	gomega.EventuallyWithOffset(1, func() int {
 		admitted := 0
@@ -228,7 +245,7 @@ func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wl
 				continue
 			}
 			cond := updatedWorkload.Status.Conditions[idx]
-			if cond.Status == corev1.ConditionFalse && cond.Reason == "Pending" && wl.Spec.Admission == nil {
+			if cond.Status == metav1.ConditionFalse && cond.Reason == "Pending" && wl.Spec.Admission == nil {
 				pending++
 			}
 		}
@@ -248,7 +265,7 @@ func ExpectWorkloadsToBeFrozen(ctx context.Context, k8sClient client.Client, cq 
 			}
 			msg := fmt.Sprintf("ClusterQueue %s is inactive", cq)
 			cond := updatedWorkload.Status.Conditions[idx]
-			if cond.Status == corev1.ConditionFalse && cond.Reason == "Inadmissible" && wl.Spec.Admission == nil && cond.Message == msg {
+			if cond.Status == metav1.ConditionFalse && cond.Reason == "Inadmissible" && wl.Spec.Admission == nil && cond.Message == msg {
 				frozen++
 			}
 		}
@@ -289,15 +306,6 @@ func ExpectAdmittedWorkloadsTotalMetric(cq *kueue.ClusterQueue, v int) {
 		gomega.Expect(err).ToNot(gomega.HaveOccurred())
 		return int(v)
 	}, Timeout, Interval).Should(gomega.Equal(v))
-}
-
-func UpdateWorkloadStatus(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, update func(*kueue.Workload)) {
-	gomega.EventuallyWithOffset(1, func() error {
-		var updatedWl kueue.Workload
-		gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
-		update(&updatedWl)
-		return k8sClient.Status().Update(ctx, &updatedWl)
-	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 func ExpectClusterQueueToBeDeleted(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, deleteCq bool) {

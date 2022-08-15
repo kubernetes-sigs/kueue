@@ -94,51 +94,25 @@ type PodSet struct {
 type WorkloadStatus struct {
 	// conditions hold the latest available observations of the Workload
 	// current state.
+	//
+	// The type of the condition could be:
+	//
+	// - Admitted: the Workload was admitted through a ClusterQueue.
+	// - Finished: the associated workload finished running (failed or succeeded).
+	//
 	// +optional
 	// +listType=map
 	// +listMapKey=type
-	Conditions []WorkloadCondition `json:"conditions,omitempty"`
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
-
-type WorkloadCondition struct {
-	// type of condition could be:
-	//
-	// Admitted: the Workload was admitted through a ClusterQueue.
-	//
-	// Finished: the associated workload finished running (failed or succeeded).
-	Type WorkloadConditionType `json:"type"`
-
-	// status could be True, False or Unknown.
-	Status corev1.ConditionStatus `json:"status"`
-
-	// lastProbeTime is the last time the condition was checked.
-	// +optional
-	LastProbeTime metav1.Time `json:"lastProbeTime,omitempty"`
-
-	// lastTransitionTime is the last time the condition transit from one status
-	// to another.
-	// +optional
-	LastTransitionTime metav1.Time `json:"lastTransitionTime,omitempty"`
-
-	// reason is a brief reason for the condition's last transition.
-	// +optional
-	Reason string `json:"reason,omitempty"`
-
-	// message is a human readable message indicating details about last
-	// transition.
-	// +optional
-	Message string `json:"message,omitempty"`
-}
-
-type WorkloadConditionType string
 
 const (
 	// WorkloadAdmitted means that the Workload was admitted by a ClusterQueue.
-	WorkloadAdmitted WorkloadConditionType = "Admitted"
+	WorkloadAdmitted = "Admitted"
 
 	// WorkloadFinished means that the workload associated to the
 	// ResourceClaim finished running (failed or succeeded).
-	WorkloadFinished WorkloadConditionType = "Finished"
+	WorkloadFinished = "Finished"
 )
 
 // +kubebuilder:object:root=true

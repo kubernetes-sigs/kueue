@@ -144,15 +144,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			framework.ExpectAdmittedWorkloadsTotalMetric(devClusterQ, 1)
 
 			ginkgo.By("checking the second workload gets admitted when the first workload finishes")
-			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl1), prodWl1)).Should(gomega.Succeed())
-			prodWl1.Status.Conditions = append(prodWl1.Status.Conditions,
-				kueue.WorkloadCondition{
-					Type:               kueue.WorkloadFinished,
-					Status:             corev1.ConditionTrue,
-					LastProbeTime:      metav1.Now(),
-					LastTransitionTime: metav1.Now(),
-				})
-			gomega.Expect(k8sClient.Status().Update(ctx, prodWl1)).Should(gomega.Succeed())
+			framework.FinishWorkloads(ctx, k8sClient, prodWl1)
 			framework.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, prodWl2, onDemandFlavorAdmission)
 			framework.ExpectPendingWorkloadsMetric(prodClusterQ, 0)
 			framework.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
@@ -740,12 +732,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 1)
 
 			ginkgo.By("Marking the big workload as finished")
-			framework.UpdateWorkloadStatus(ctx, k8sClient, bigWl, func(wl *kueue.Workload) {
-				wl.Status.Conditions = append(wl.Status.Conditions, kueue.WorkloadCondition{
-					Type:   kueue.WorkloadFinished,
-					Status: corev1.ConditionTrue,
-				})
-			})
+			framework.FinishWorkloads(ctx, k8sClient, bigWl)
 
 			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, cq.Name, smallWl1, smallWl2)
 			framework.ExpectPendingWorkloadsMetric(cq, 0)

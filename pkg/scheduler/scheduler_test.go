@@ -1721,7 +1721,7 @@ func TestEntryOrdering(t *testing.T) {
 	}
 }
 
-var ignoreConditionTimestamps = cmpopts.IgnoreFields(kueue.WorkloadCondition{}, "LastProbeTime", "LastTransitionTime")
+var ignoreConditionTimestamps = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
 
 func TestRequeueAndUpdate(t *testing.T) {
 	cq := utiltesting.MakeClusterQueue("cq").Obj()
@@ -1741,10 +1741,10 @@ func TestRequeueAndUpdate(t *testing.T) {
 				inadmissibleMsg: "didn't fit",
 			},
 			wantStatus: kueue.WorkloadStatus{
-				Conditions: []kueue.WorkloadCondition{
+				Conditions: []metav1.Condition{
 					{
 						Type:    kueue.WorkloadAdmitted,
-						Status:  corev1.ConditionFalse,
+						Status:  metav1.ConditionFalse,
 						Reason:  "Pending",
 						Message: "didn't fit",
 					},

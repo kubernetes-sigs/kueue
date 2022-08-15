@@ -432,10 +432,10 @@ func ConstructWorkloadFor(ctx context.Context, client client.Client,
 	return w, nil
 }
 
-func appendFinishedConditionIfNotExists(conds []kueue.WorkloadCondition, jobStatus batchv1.JobConditionType) ([]kueue.WorkloadCondition, bool) {
+func appendFinishedConditionIfNotExists(conds []metav1.Condition, jobStatus batchv1.JobConditionType) ([]metav1.Condition, bool) {
 	for i, c := range conds {
 		if c.Type == kueue.WorkloadFinished {
-			if c.Status == corev1.ConditionTrue {
+			if c.Status == metav1.ConditionTrue {
 				return conds, false
 			}
 			conds = append(conds[:i], conds[i+1:]...)
@@ -447,10 +447,9 @@ func appendFinishedConditionIfNotExists(conds []kueue.WorkloadCondition, jobStat
 		message = "Job failed"
 	}
 	now := metav1.Now()
-	conds = append(conds, kueue.WorkloadCondition{
+	conds = append(conds, metav1.Condition{
 		Type:               kueue.WorkloadFinished,
-		Status:             corev1.ConditionTrue,
-		LastProbeTime:      now,
+		Status:             metav1.ConditionTrue,
 		LastTransitionTime: now,
 		Reason:             "JobFinished",
 		Message:            message,

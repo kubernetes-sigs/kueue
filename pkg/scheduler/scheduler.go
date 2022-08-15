@@ -42,13 +42,13 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
+	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 const (
 	errCouldNotAdmitWL = "Could not admit workload and assigning flavors in apiserver"
-	noteLengthLimit    = 1024
 )
 
 type Scheduler struct {
@@ -194,7 +194,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 			e.inadmissibleMsg = "Workload namespace doesn't match ClusterQueue selector"
 			e.requeueReason = queue.RequeueReasonNamespaceMismatch
 		} else if status := e.assignFlavors(log, snap.ResourceFlavors, cq); !status.IsSuccess() {
-			e.inadmissibleMsg = truncateMessage(status.Message())
+			e.inadmissibleMsg = api.TruncateEventMessage(status.Message())
 		} else {
 			e.status = nominated
 		}
@@ -532,7 +532,7 @@ func (s *Scheduler) requeueAndUpdate(log logr.Logger, ctx context.Context, e ent
 	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", e.ClusterQueue, "queue", klog.KRef(e.Obj.Namespace, e.Obj.Spec.QueueName), "added", added, "status", e.status)
 
 	if e.status == notNominated {
-		err := workload.UpdateStatus(ctx, s.client, e.Obj, kueue.WorkloadAdmitted, corev1.ConditionFalse, "Pending", e.inadmissibleMsg)
+		err := workload.UpdateStatus(ctx, s.client, e.Obj, kueue.WorkloadAdmitted, metav1.ConditionFalse, "Pending", e.inadmissibleMsg)
 		if err != nil {
 			log.Error(err, "Could not update Workload status")
 		}
@@ -548,14 +548,4 @@ func filterRequestedResources(req workload.Requests, allowList sets.String) work
 		}
 	}
 	return filtered
-}
-
-// truncateMessage truncates a message if it hits the NoteLengthLimit.
-func truncateMessage(message string) string {
-	max := noteLengthLimit
-	if len(message) <= max {
-		return message
-	}
-	suffix := " ..."
-	return message[:max-len(suffix)] + suffix
 }
