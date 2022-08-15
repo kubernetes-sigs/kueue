@@ -49,7 +49,7 @@ var _ webhook.CustomValidator = &QueueWebhook{}
 func (w *QueueWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
 	q := obj.(*kueue.Queue)
 	queueLog.V(5).Info("Validating create", "queue", klog.KObj(q))
-	return ValidateQueueCreate(q).ToAggregate()
+	return ValidateQueue(q).ToAggregate()
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
@@ -65,12 +65,10 @@ func (w *QueueWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) e
 	return nil
 }
 
-func ValidateQueueCreate(q *kueue.Queue) field.ErrorList {
+func ValidateQueue(q *kueue.Queue) field.ErrorList {
 	var allErrs field.ErrorList
 	clusterQueuePath := field.NewPath("spec", "clusterQueue")
-	for _, msg := range apivalidation.NameIsDNSSubdomain(string(q.Spec.ClusterQueue), false) {
-		allErrs = append(allErrs, field.Invalid(clusterQueuePath, q.Spec.ClusterQueue, msg))
-	}
+	allErrs = append(allErrs, validateNameReference(string(q.Spec.ClusterQueue), clusterQueuePath)...)
 	return allErrs
 }
 

@@ -25,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
-	utilvalidation "k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -111,14 +110,21 @@ func validateResources(resources []kueue.Resource, path *field.Path) field.Error
 	var allErrs field.ErrorList
 	flavorsPerRes := make([]sets.String, len(resources))
 
+	if len(resources) > 16 {
+		allErrs = append(allErrs, field.Invalid(path, resources, "must have at most 16 elements"))
+	}
+
 	for i, resource := range resources {
 		path := path.Index(i)
-		allErrs = append(allErrs, validateResourceName(string(resource.Name), path.Child("name"))...)
+		allErrs = append(allErrs, validateResourceName(resource.Name, path.Child("name"))...)
+		if len(resource.Flavors) > 16 {
+			allErrs = append(allErrs, field.Invalid(path.Child("flavors"), resource.Flavors, "must have at most 16 elements"))
+		}
 
 		flavorsPerRes[i] = make(sets.String, len(resource.Flavors))
 		for j, flavor := range resource.Flavors {
 			path := path.Child("flavors").Index(j)
-			allErrs = append(allErrs, validateFlavorName(string(flavor.Name), path.Child("name"))...)
+			allErrs = append(allErrs, validateNameReference(string(flavor.Name), path.Child("name"))...)
 			allErrs = append(allErrs, validateFlavorQuota(flavor, path.Child("quota"))...)
 			flavorsPerRes[i].Insert(string(flavor.Name))
 		}
@@ -128,24 +134,6 @@ func validateResources(resources []kueue.Resource, path *field.Path) field.Error
 			}
 			err := field.Invalid(path.Child("flavors"), resource.Flavors, fmt.Sprintf("has flavors present in resource %s; all flavors must be different or they all must be present in the same order", resources[j].Name))
 			allErrs = append(allErrs, err)
-		}
-	}
-	return allErrs
-}
-
-func validateResourceName(name string, fldPath *field.Path) field.ErrorList {
-	var allErrs field.ErrorList
-	for _, msg := range utilvalidation.IsQualifiedName(name) {
-		allErrs = append(allErrs, field.Invalid(fldPath, name, msg))
-	}
-	return allErrs
-}
-
-func validateFlavorName(name string, path *field.Path) field.ErrorList {
-	var allErrs field.ErrorList
-	if msgs := utilvalidation.IsDNS1123Subdomain(name); len(msgs) > 0 {
-		for _, msg := range msgs {
-			allErrs = append(allErrs, field.Invalid(path, name, msg))
 		}
 	}
 	return allErrs

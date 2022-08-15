@@ -46,7 +46,7 @@ func TestValidateQueueCreate(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			errList := ValidateQueueCreate(tc.queue)
+			errList := ValidateQueue(tc.queue)
 			if diff := cmp.Diff(tc.wantErr, errList, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("ValidateQueueCreate() mismatch (-want +got):\n%s", diff)
 			}

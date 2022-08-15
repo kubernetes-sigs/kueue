@@ -18,6 +18,7 @@ package webhooks
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -196,11 +197,46 @@ func TestValidateWorkload(t *testing.T) {
 		workload *kueue.Workload
 		wantErr  field.ErrorList
 	}{
+		"valid": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets([]kueue.PodSet{
+				{
+					Name:  "driver",
+					Count: 1,
+				},
+				{
+					Name:  "workers",
+					Count: 100,
+				},
+			}).Obj(),
+		},
 		"should have at least one podSet": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(nil).Obj(),
 			wantErr: field.ErrorList{
 				field.Required(podSetsField, ""),
 			},
+		},
+		"should have at most 8 podSets": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(func() []kueue.PodSet {
+					ps := make([]kueue.PodSet, 9)
+					for i := range ps {
+						ps[i].Name = fmt.Sprintf("ps%d", i)
+						ps[i].Count = 1
+					}
+					return ps
+				}()).Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsField, nil, ""),
+			},
+		},
+		"should have valid podSet name": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets([]kueue.PodSet{
+				{
+					Name:  "@driver",
+					Count: 1,
+				},
+			}).Obj(),
+			wantErr: field.ErrorList{field.Invalid(podSetsField.Index(0).Child("name"), nil, "")},
 		},
 		"count should be greater than 0": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets([]kueue.PodSet{
@@ -220,7 +256,7 @@ func TestValidateWorkload(t *testing.T) {
 				},
 			}).Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(podSetsField.Index(0).Child("count"), int32(-1), ""),
+				field.Invalid(podSetsField.Index(0).Child("count"), nil, ""),
 			},
 		},
 		"should have valid priorityClassName": {
@@ -229,7 +265,7 @@ func TestValidateWorkload(t *testing.T) {
 				Priority(pointer.Int32(0)).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(specField.Child("priorityClassName"), "invalid_class", ""),
+				field.Invalid(specField.Child("priorityClassName"), nil, ""),
 			},
 		},
 		"should pass validation when priorityClassName is empty": {
@@ -241,14 +277,14 @@ func TestValidateWorkload(t *testing.T) {
 				PriorityClass("priority").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(specField.Child("priority"), (*int32)(nil), ""),
+				field.Invalid(specField.Child("priority"), nil, ""),
 			},
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			gotErr := ValidateWorkload(tc.workload)
-			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail")); diff != "" {
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("ValidateWorkload() mismatch (-want +got):\n%s", diff)
 			}
 		})

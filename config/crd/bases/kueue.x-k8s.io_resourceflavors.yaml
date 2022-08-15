@@ -33,16 +33,18 @@ spec:
           labels:
             additionalProperties:
               type: string
-            description: 'labels associated with this flavor. They are matched against
+            description: "labels associated with this flavor. They are matched against
               or converted to node affinity constraints on the workload’s pods. For
               example, cloud.provider.com/accelerator: nvidia-tesla-k80. More info:
-              http://kubernetes.io/docs/user-guide/labels'
+              http://kubernetes.io/docs/user-guide/labels \n labels can be up to 8
+              elements."
             type: object
           metadata:
             type: object
           taints:
-            description: taints associated with this flavor that workloads must explicitly
-              “tolerate” to be able to use this flavor. For example, cloud.provider.com/preemptible="true":NoSchedule
+            description: "taints associated with this flavor that workloads must explicitly
+              “tolerate” to be able to use this flavor. For example, cloud.provider.com/preemptible=\"true\":NoSchedule
+              \n taints can be up to 8 elements."
             items:
               description: The node this Taint is attached to has the "effect" on
                 any pod that does not tolerate the Taint.
@@ -68,6 +70,7 @@ spec:
               - key
               type: object
             type: array
+            x-kubernetes-list-type: atomic
         type: object
     served: true
     storage: true

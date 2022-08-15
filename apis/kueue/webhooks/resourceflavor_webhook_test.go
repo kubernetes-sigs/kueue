@@ -17,49 +17,101 @@ limitations under the License.
 package webhooks
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
-func TestValidateResourceFlavorLabels(t *testing.T) {
+func TestValidateResourceFlavor(t *testing.T) {
 	testcases := []struct {
 		name    string
+		rf      *kueue.ResourceFlavor
 		labels  map[string]string
 		wantErr field.ErrorList
 	}{
 		{
-			name:    "empty labels",
-			wantErr: field.ErrorList{},
+			name: "empty",
+			rf:   utiltesting.MakeResourceFlavor("resource-flavor").Obj(),
+		},
+		{
+			name: "valid",
+			rf: utiltesting.MakeResourceFlavor("resource-flavor").
+				Label("foo", "bar").
+				Taint(corev1.Taint{
+					Key:    "spot",
+					Value:  "true",
+					Effect: corev1.TaintEffectNoSchedule,
+				}).Obj(),
 		},
 		{
 			name: "invalid label name",
+			rf: utiltesting.MakeResourceFlavor("resource-flavor").MultiLabels(map[string]string{
+				"foo@bar": "",
+			}).Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("labels"), nil, ""),
-			},
-			labels: map[string]string{
-				"foo@bar": "",
 			},
 		},
 		{
 			name: "invalid label value",
+			rf: utiltesting.MakeResourceFlavor("resource-flavor").MultiLabels(map[string]string{
+				"foo": "@abcdefg",
+			}).Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("labels"), nil, ""),
 			},
-			labels: map[string]string{
-				"foo": "@abcdefg",
+		},
+		{
+			// Taint validation is not exhaustively tested, because the code was copied from upstream k8s.
+			name: "invalid taint",
+			rf: utiltesting.MakeResourceFlavor("resource-flavor").Taint(corev1.Taint{
+				Key: "skdajf",
+			}).Obj(),
+			wantErr: field.ErrorList{
+				field.Required(field.NewPath("taints").Index(0).Child("effect"), ""),
+			},
+		},
+		{
+			name: "too many labels",
+			rf: utiltesting.MakeResourceFlavor("resource-flavor").MultiLabels(func() map[string]string {
+				m := make(map[string]string)
+				for i := 0; i < 9; i++ {
+					m[fmt.Sprintf("l%d", i)] = ""
+				}
+				return m
+			}()).Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("labels"), nil, ""),
+			},
+		},
+		{
+			name: "too many taints",
+			rf: func() *kueue.ResourceFlavor {
+				rf := utiltesting.MakeResourceFlavor("resource-flavor")
+				for i := 0; i < 9; i++ {
+					rf.Taint(corev1.Taint{
+						Key:    fmt.Sprintf("t%d", i),
+						Effect: corev1.TaintEffectNoExecute,
+					})
+				}
+				return rf.Obj()
+			}(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("taints"), nil, ""),
 			},
 		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			rf := utiltesting.MakeResourceFlavor("resource-flavor").MultiLabels(tc.labels).Obj()
-			gotErr := ValidateResourceFlavorLabels(rf)
+			gotErr := ValidateResourceFlavor(tc.rf)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("validateResourceFlavorLabels() mismatch (-want +got):\n%s", diff)
 			}

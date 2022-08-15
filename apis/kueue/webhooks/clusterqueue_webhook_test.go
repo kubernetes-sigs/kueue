@@ -17,10 +17,12 @@ limitations under the License.
 package webhooks
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
@@ -145,6 +147,29 @@ func TestValidateClusterQueue(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Required(specField.Child("namespaceSelector", "matchExpressions").Index(0).Child("values"), ""),
 			},
+		},
+		{
+			name: "more than 16 resources",
+			clusterQueue: func() *kueue.ClusterQueue {
+				cq := testingutil.MakeClusterQueue("cluster-queue")
+				for i := 0; i < 17; i++ {
+					cq.Resource(testingutil.MakeResource(corev1.ResourceName(fmt.Sprintf("r%02d", i))).Obj())
+				}
+				return cq.Obj()
+			}(),
+			wantErr: field.ErrorList{field.Invalid(specField.Child("resources"), nil, "")},
+		},
+		{
+			name: "more than 16 flavors",
+			clusterQueue: func() *kueue.ClusterQueue {
+				cq := testingutil.MakeClusterQueue("cluster-queue")
+				res := testingutil.MakeResource("cpu")
+				for i := 0; i < 17; i++ {
+					res.Flavor(testingutil.MakeFlavor(fmt.Sprintf("f%02d", i), "0").Obj())
+				}
+				return cq.Resource(res.Obj()).Obj()
+			}(),
+			wantErr: field.ErrorList{field.Invalid(specField.Child("resources").Index(0).Child("flavors"), nil, "")},
 		},
 		{
 			name: "multiple independent and codependent resources",

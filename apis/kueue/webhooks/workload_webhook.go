@@ -114,11 +114,16 @@ func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 	if len(obj.Spec.PodSets) == 0 {
 		allErrs = append(allErrs, field.Required(podSetsPath, "at least one podSet is required"))
 	}
+	if len(obj.Spec.PodSets) > 8 {
+		allErrs = append(allErrs, field.Invalid(podSetsPath, obj.Spec.PodSets, "must have at most 8 elements"))
+	}
 
 	for i, podSet := range obj.Spec.PodSets {
+		path := podSetsPath.Index(i)
+		allErrs = append(allErrs, validatePodSetName(podSet.Name, path.Child("name"))...)
 		if podSet.Count <= 0 {
 			allErrs = append(allErrs, field.Invalid(
-				podSetsPath.Index(i).Child("count"),
+				path.Child("count"),
 				podSet.Count,
 				"count must be greater than 0"),
 			)
@@ -137,6 +142,15 @@ func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 		}
 	}
 
+	return allErrs
+}
+
+func validatePodSetName(name string, fldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	// Apply the same validation as container names.
+	for _, msg := range validation.IsDNS1123Label(name) {
+		allErrs = append(allErrs, field.Invalid(fldPath, name, msg))
+	}
 	return allErrs
 }
 
