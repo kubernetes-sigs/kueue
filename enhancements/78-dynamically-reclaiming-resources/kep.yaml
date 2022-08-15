@@ -1,0 +1,18 @@
+title: Dynamically Reclaiming Resources
+kep-number: 78
+authors:
+  - "@thisisprasad"
+owning-sig: sig-scheduling
+reviewers:
+  - "@alculquicondor"
+  - "@kerthcet"
+approvers:
+  - "@ahg-g"
+  - "@alculquicondor"
+editor: Prasad Saraf
+creation-date: 2022-08-15
+last-updated: 2022-08-15
+status: implementable
+see-also:
+replaces:
+superseeded-by:
