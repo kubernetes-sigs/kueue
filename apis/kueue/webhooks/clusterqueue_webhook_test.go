@@ -157,7 +157,7 @@ func TestValidateClusterQueue(t *testing.T) {
 				}
 				return cq.Obj()
 			}(),
-			wantErr: field.ErrorList{field.Invalid(specField.Child("resources"), nil, "")},
+			wantErr: field.ErrorList{field.TooMany(specField.Child("resources"), 17, 16)},
 		},
 		{
 			name: "more than 16 flavors",
@@ -169,7 +169,7 @@ func TestValidateClusterQueue(t *testing.T) {
 				}
 				return cq.Resource(res.Obj()).Obj()
 			}(),
-			wantErr: field.ErrorList{field.Invalid(specField.Child("resources").Index(0).Child("flavors"), nil, "")},
+			wantErr: field.ErrorList{field.TooMany(specField.Child("resources").Index(0).Child("flavors"), 17, 16)},
 		},
 		{
 			name: "multiple independent and codependent resources",

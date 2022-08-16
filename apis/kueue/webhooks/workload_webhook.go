@@ -115,7 +115,7 @@ func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 		allErrs = append(allErrs, field.Required(podSetsPath, "at least one podSet is required"))
 	}
 	if len(obj.Spec.PodSets) > 8 {
-		allErrs = append(allErrs, field.Invalid(podSetsPath, obj.Spec.PodSets, "must have at most 8 elements"))
+		allErrs = append(allErrs, field.TooMany(podSetsPath, len(obj.Spec.PodSets), 8))
 	}
 
 	for i, podSet := range obj.Spec.PodSets {

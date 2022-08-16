@@ -88,7 +88,7 @@ func TestValidateResourceFlavor(t *testing.T) {
 				return m
 			}()).Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("labels"), nil, ""),
+				field.TooMany(field.NewPath("labels"), 9, 8),
 			},
 		},
 		{
@@ -104,7 +104,7 @@ func TestValidateResourceFlavor(t *testing.T) {
 				return rf.Obj()
 			}(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("taints"), nil, ""),
+				field.TooMany(field.NewPath("taints"), 9, 8),
 			},
 		},
 	}

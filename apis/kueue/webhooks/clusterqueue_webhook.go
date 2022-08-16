@@ -111,14 +111,14 @@ func validateResources(resources []kueue.Resource, path *field.Path) field.Error
 	flavorsPerRes := make([]sets.String, len(resources))
 
 	if len(resources) > 16 {
-		allErrs = append(allErrs, field.Invalid(path, resources, "must have at most 16 elements"))
+		allErrs = append(allErrs, field.TooMany(path, len(resources), 16))
 	}
 
 	for i, resource := range resources {
 		path := path.Index(i)
 		allErrs = append(allErrs, validateResourceName(resource.Name, path.Child("name"))...)
 		if len(resource.Flavors) > 16 {
-			allErrs = append(allErrs, field.Invalid(path.Child("flavors"), resource.Flavors, "must have at most 16 elements"))
+			allErrs = append(allErrs, field.TooMany(path.Child("flavors"), len(resource.Flavors), 16))
 		}
 
 		flavorsPerRes[i] = make(sets.String, len(resource.Flavors))

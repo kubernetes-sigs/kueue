@@ -226,7 +226,7 @@ func TestValidateWorkload(t *testing.T) {
 					return ps
 				}()).Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(podSetsField, nil, ""),
+				field.TooMany(podSetsField, 9, 8),
 			},
 		},
 		"should have valid podSet name": {
