@@ -34,7 +34,7 @@ type WorkloadSpec struct {
 
 	// queueName is the name of the queue the Workload is associated with.
 	// queueName cannot be changed once set.
-	QueueName string `json:"queueName"`
+	QueueName string `json:"queueName,omitempty"`
 
 	// admission holds the parameters of the admission of the workload by a ClusterQueue.
 	// admission cannot be changed once set.

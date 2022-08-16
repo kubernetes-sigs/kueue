@@ -7437,8 +7437,6 @@ spec:
                 description: queueName is the name of the queue the Workload is associated
                   with. queueName cannot be changed once set.
                 type: string
-            required:
-            - queueName
             type: object
           status:
             description: WorkloadStatus defines the observed state of Workload

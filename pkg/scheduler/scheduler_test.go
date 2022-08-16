@@ -48,7 +48,6 @@ import (
 )
 
 const (
-	watchTimeout    = 2 * time.Second
 	queueingTimeout = time.Second
 )
 
@@ -798,7 +797,7 @@ func TestSchedule(t *testing.T) {
 			cl := clientBuilder.Build()
 			broadcaster := record.NewBroadcaster()
 			recorder := broadcaster.NewRecorder(scheme,
-				corev1.EventSource{Component: constants.ManagerName})
+				corev1.EventSource{Component: constants.AdmissionName})
 			cqCache := cache.New(cl)
 			qManager := queue.NewManager(cl, cqCache)
 			// Workloads are loaded into queues or clusterQueues as we add them.
@@ -818,11 +817,15 @@ func TestSchedule(t *testing.T) {
 					t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
 				}
 			}
-			workloadWatch, err := cl.Watch(ctx, &kueue.WorkloadList{})
-			if err != nil {
-				t.Fatalf("Failed setting up watch: %v", err)
-			}
 			scheduler := New(qManager, cqCache, cl, recorder)
+			gotScheduled := make(map[string]kueue.Admission)
+			var mu sync.Mutex
+			scheduler.applyAdmission = func(ctx context.Context, w *kueue.Workload) error {
+				mu.Lock()
+				gotScheduled[workload.Key(w)] = *w.Spec.Admission
+				mu.Unlock()
+				return nil
+			}
 			wg := sync.WaitGroup{}
 			scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
 				func() { wg.Add(1) },
@@ -832,27 +835,10 @@ func TestSchedule(t *testing.T) {
 			ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
 			go qManager.CleanUpOnContext(ctx)
 			defer cancel()
-			scheduler.schedule(ctx)
 
-			// Verify assignments in API.
-			gotScheduled := make(map[string]kueue.Admission)
-			timedOut := false
-			for !timedOut && len(gotScheduled) < len(tc.wantScheduled) {
-				select {
-				case evt := <-workloadWatch.ResultChan():
-					w, ok := evt.Object.(*kueue.Workload)
-					if !ok {
-						t.Fatalf("Received update for %T, want Workload", evt.Object)
-					}
-					if w.Spec.Admission != nil {
-						gotScheduled[workload.Key(w)] = *w.Spec.Admission
-					}
-				case <-time.After(watchTimeout):
-					t.Errorf("Timed out waiting for Workload updates")
-					timedOut = true
-				}
-			}
+			scheduler.schedule(ctx)
 			wg.Wait()
+
 			wantScheduled := make(map[string]kueue.Admission)
 			for _, key := range tc.wantScheduled {
 				wantScheduled[key] = tc.wantAssignments[key]
@@ -1800,7 +1786,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 			clientBuilder := fake.NewClientBuilder().WithScheme(scheme).WithObjects(w1, q1, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns1"}})
 			cl := clientBuilder.Build()
 			broadcaster := record.NewBroadcaster()
-			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.ManagerName})
+			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
 			cqCache := cache.New(cl)
 			qManager := queue.NewManager(cl, cqCache)
 			scheduler := New(qManager, cqCache, cl, recorder)

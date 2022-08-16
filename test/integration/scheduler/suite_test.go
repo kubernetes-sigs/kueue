@@ -85,7 +85,7 @@ func managerAndSchedulerSetup(mgr manager.Manager, ctx context.Context) {
 	err = workloadjob.SetupIndexes(mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.ManagerName))
+	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))
 	go func() {
 		sched.Start(ctx)
 	}()

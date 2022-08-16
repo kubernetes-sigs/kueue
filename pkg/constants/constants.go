@@ -25,8 +25,8 @@ const (
 	QueueAnnotation = "kueue.x-k8s.io/queue-name"
 
 	KueueName         = "kueue"
-	ManagerName       = KueueName + "-manager"
 	JobControllerName = KueueName + "-job-controller"
+	AdmissionName     = KueueName + "-admission"
 
 	// UpdatesBatchPeriod is the batch period to hold workload updates
 	// before syncing a Queue and ClusterQueue objects.
