@@ -120,7 +120,8 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 				PendingWorkloads: 5,
 				UsedResources:    emptyUsedResources,
 			}))
-			framework.ExpectPendingWorkloadsMetric(clusterQueue, 5)
+			// Workloads are inadmissible because ResourceFlavors don't exist in this test suite.
+			framework.ExpectPendingWorkloadsMetric(clusterQueue, 0, 5)
 			framework.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 0)
 
 			ginkgo.By("Admitting workloads")
@@ -172,7 +173,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 					},
 				},
 			}))
-			framework.ExpectPendingWorkloadsMetric(clusterQueue, 1)
+			framework.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
 			framework.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 4)
 
 			ginkgo.By("Finishing workloads")
@@ -194,7 +195,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			}, framework.Timeout, framework.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
 				UsedResources: emptyUsedResources,
 			}))
-			framework.ExpectPendingWorkloadsMetric(clusterQueue, 0)
+			framework.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 			framework.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 0)
 		})
 	})

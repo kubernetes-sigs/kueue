@@ -173,8 +173,16 @@ func (c *ClusterQueueImpl) QueueInadmissibleWorkloads(ctx context.Context, clien
 	return moved
 }
 
-func (c *ClusterQueueImpl) Pending() int32 {
-	return int32(c.heap.Len()) + int32(len(c.inadmissibleWorkloads))
+func (c *ClusterQueueImpl) Pending() int {
+	return c.PendingActive() + c.PendingInadmissible()
+}
+
+func (c *ClusterQueueImpl) PendingActive() int {
+	return c.heap.Len()
+}
+
+func (c *ClusterQueueImpl) PendingInadmissible() int {
+	return len(c.inadmissibleWorkloads)
 }
 
 func (c *ClusterQueueImpl) Pop() *workload.Info {

@@ -169,7 +169,7 @@ func Test_DeleteFromQueue(t *testing.T) {
 	}
 
 	wantPending := len(admissibleworkloads) + len(inadmissibleWorkloads)
-	if pending := cq.Pending(); pending != int32(wantPending) {
+	if pending := cq.Pending(); pending != wantPending {
 		t.Errorf("clusterQueue's workload number not right, want %v, got %v", wantPending, pending)
 	}
 	if len(cq.inadmissibleWorkloads) != len(inadmissibleWorkloads) {
@@ -226,7 +226,7 @@ func TestClusterQueueImpl(t *testing.T) {
 		workloadsToDelete                 []*kueue.Workload
 		queueInadmissibleWorkloads        bool
 		wantActiveWorkloads               sets.String
-		wantPending                       int32
+		wantPending                       int
 		wantInadmissibleWorkloadsRequeued bool
 	}{
 		"add, update, delete workload": {

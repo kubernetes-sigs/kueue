@@ -264,13 +264,18 @@ func ExpectWorkloadToBeAdmittedAs(ctx context.Context, k8sClient client.Client, 
 	}, Timeout, Interval).Should(gomega.BeComparableTo(admission))
 }
 
-func ExpectPendingWorkloadsMetric(cq *kueue.ClusterQueue, v int) {
-	metric := metrics.PendingWorkloads.WithLabelValues(cq.Name)
-	gomega.EventuallyWithOffset(1, func() int {
-		v, err := testutil.GetGaugeMetricValue(metric)
-		gomega.Expect(err).ToNot(gomega.HaveOccurred())
-		return int(v)
-	}, Timeout, Interval).Should(gomega.Equal(v))
+var pendingStatuses = []string{metrics.PendingStatusActive, metrics.PendingStatusInadmissible}
+
+func ExpectPendingWorkloadsMetric(cq *kueue.ClusterQueue, active, inadmissible int) {
+	vals := []int{active, inadmissible}
+	for i, status := range pendingStatuses {
+		metric := metrics.PendingWorkloads.WithLabelValues(cq.Name, status)
+		gomega.EventuallyWithOffset(1, func() int {
+			v, err := testutil.GetGaugeMetricValue(metric)
+			gomega.Expect(err).ToNot(gomega.HaveOccurred())
+			return int(v)
+		}, Timeout, Interval).Should(gomega.Equal(vals[i]), "pending_workloads with status=%s", status)
+	}
 }
 
 func ExpectAdmittedActiveWorkloadsMetric(cq *kueue.ClusterQueue, v int) {

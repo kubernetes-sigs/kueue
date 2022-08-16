@@ -30,8 +30,11 @@ type AdmissionResult string
 const (
 	subsystemName = "kueue"
 
-	SuccessAdmissionResult      AdmissionResult = "success"
-	InadmissibleAdmissionResult AdmissionResult = "inadmissible"
+	AdmissionResultSuccess      AdmissionResult = "success"
+	AdmissionResultInadmissible AdmissionResult = "inadmissible"
+
+	PendingStatusActive       = "active"
+	PendingStatusInadmissible = "inadmissible"
 )
 
 var (
@@ -57,8 +60,10 @@ var (
 		prometheus.GaugeOpts{
 			Subsystem: subsystemName,
 			Name:      "pending_workloads",
-			Help:      "Number of pending workloads, per cluster_queue.",
-		}, []string{"cluster_queue"},
+			Help: `Number of pending workloads, per cluster_queue and status.
+- "active" means that the workloads are in the admission queue.
+- "inadmissible" means there was a failed admission attempt for these workloads and they won't be retried until cluster conditions, which could make this workload admissible, change`,
+		}, []string{"cluster_queue", "status"},
 	)
 
 	AdmittedWorkloadsTotal = prometheus.NewCounterVec(
@@ -98,8 +103,14 @@ func AdmittedWorkload(cqName kueue.ClusterQueueReference, waitTime time.Duration
 	admissionWaitTime.WithLabelValues(string(cqName)).Observe(waitTime.Seconds())
 }
 
+func ReportPendingWorkloads(cqName string, active, inadmissible int) {
+	PendingWorkloads.WithLabelValues(cqName, PendingStatusActive).Set(float64(active))
+	PendingWorkloads.WithLabelValues(cqName, PendingStatusInadmissible).Set(float64(inadmissible))
+}
+
 func ClearQueueSystemMetrics(cqName string) {
-	PendingWorkloads.DeleteLabelValues(cqName)
+	PendingWorkloads.DeleteLabelValues(cqName, PendingStatusActive)
+	PendingWorkloads.DeleteLabelValues(cqName, PendingStatusInadmissible)
 	AdmittedWorkloadsTotal.DeleteLabelValues(cqName)
 	admissionWaitTime.DeleteLabelValues(cqName)
 }
