@@ -176,17 +176,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			framework.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 4)
 
 			ginkgo.By("Finishing workloads")
-			for _, w := range workloads {
-				gomega.Eventually(func() error {
-					var newWL kueue.Workload
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
-					newWL.Status.Conditions = append(newWL.Status.Conditions, kueue.WorkloadCondition{
-						Type:   kueue.WorkloadFinished,
-						Status: corev1.ConditionTrue,
-					})
-					return k8sClient.Status().Update(ctx, &newWL)
-				}, framework.Timeout, framework.Interval).Should(gomega.Succeed())
-			}
+			framework.FinishWorkloads(ctx, k8sClient, workloads...)
 			gomega.Eventually(func() kueue.ClusterQueueStatus {
 				var updatedCq kueue.ClusterQueue
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
@@ -216,8 +206,8 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
 		})
 
-		ginkgo.It("Should stuck in termination until admitted workloads finished running", func() {
-			ginkgo.By("Admit workloads")
+		ginkgo.It("Should be stuck in termination until admitted workloads finished running", func() {
+			ginkgo.By("Admit workload")
 			admission := testing.MakeAdmission(cq.Name).Obj()
 			wl := testing.MakeWorkload("workload", ns.Name).Queue(queue.Name).Admit(admission).Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
@@ -230,16 +220,8 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 				return newCQ.GetFinalizers()
 			}, framework.Timeout, framework.Interval).Should(gomega.Equal([]string{kueue.ResourceInUseFinalizerName}))
 
-			ginkgo.By("Finish workloads")
-			gomega.Eventually(func() error {
-				var newWL kueue.Workload
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &newWL)).To(gomega.Succeed())
-				newWL.Status.Conditions = append(newWL.Status.Conditions, kueue.WorkloadCondition{
-					Type:   kueue.WorkloadFinished,
-					Status: corev1.ConditionTrue,
-				})
-				return k8sClient.Status().Update(ctx, &newWL)
-			}, framework.Timeout, framework.Interval).Should(gomega.BeNil())
+			ginkgo.By("Finish workload")
+			framework.FinishWorkloads(ctx, k8sClient, wl)
 
 			ginkgo.By("The clusterQueue will be deleted")
 			gomega.Eventually(func() error {

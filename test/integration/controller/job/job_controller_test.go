@@ -238,7 +238,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 			}
 
 			return createdWorkload.Status.Conditions[0].Type == kueue.WorkloadFinished &&
-				createdWorkload.Status.Conditions[0].Status == corev1.ConditionTrue
+				createdWorkload.Status.Conditions[0].Status == metav1.ConditionTrue
 		}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 	})
 })

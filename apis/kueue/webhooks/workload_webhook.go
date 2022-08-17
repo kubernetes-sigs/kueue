@@ -21,6 +21,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -141,6 +142,8 @@ func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 			allErrs = append(allErrs, field.Invalid(specPath.Child("priority"), obj.Spec.Priority, "priority should not be nil when priorityClassName is set"))
 		}
 	}
+
+	allErrs = append(allErrs, metav1validation.ValidateConditions(obj.Status.Conditions, field.NewPath("status", "conditions"))...)
 
 	return allErrs
 }

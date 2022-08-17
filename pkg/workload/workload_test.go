@@ -24,6 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -243,27 +244,27 @@ func TestNewInfo(t *testing.T) {
 	}
 }
 
-var ignoreConditionTimestamps = cmpopts.IgnoreFields(kueue.WorkloadCondition{}, "LastProbeTime", "LastTransitionTime")
+var ignoreConditionTimestamps = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
 
 func TestUpdateWorkloadStatus(t *testing.T) {
 	cases := map[string]struct {
 		oldStatus  kueue.WorkloadStatus
-		condType   kueue.WorkloadConditionType
-		condStatus corev1.ConditionStatus
+		condType   string
+		condStatus metav1.ConditionStatus
 		reason     string
 		message    string
 		wantStatus kueue.WorkloadStatus
 	}{
 		"initial empty": {
 			condType:   kueue.WorkloadAdmitted,
-			condStatus: corev1.ConditionFalse,
+			condStatus: metav1.ConditionFalse,
 			reason:     "Pending",
 			message:    "didn't fit",
 			wantStatus: kueue.WorkloadStatus{
-				Conditions: []kueue.WorkloadCondition{
+				Conditions: []metav1.Condition{
 					{
 						Type:    kueue.WorkloadAdmitted,
-						Status:  corev1.ConditionFalse,
+						Status:  metav1.ConditionFalse,
 						Reason:  "Pending",
 						Message: "didn't fit",
 					},
@@ -272,23 +273,23 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 		},
 		"same condition type": {
 			oldStatus: kueue.WorkloadStatus{
-				Conditions: []kueue.WorkloadCondition{
+				Conditions: []metav1.Condition{
 					{
 						Type:    kueue.WorkloadAdmitted,
-						Status:  corev1.ConditionFalse,
+						Status:  metav1.ConditionFalse,
 						Reason:  "Pending",
 						Message: "didn't fit",
 					},
 				},
 			},
 			condType:   kueue.WorkloadAdmitted,
-			condStatus: corev1.ConditionTrue,
+			condStatus: metav1.ConditionTrue,
 			reason:     "Admitted",
 			wantStatus: kueue.WorkloadStatus{
-				Conditions: []kueue.WorkloadCondition{
+				Conditions: []metav1.Condition{
 					{
 						Type:   kueue.WorkloadAdmitted,
-						Status: corev1.ConditionTrue,
+						Status: metav1.ConditionTrue,
 						Reason: "Admitted",
 					},
 				},
@@ -296,24 +297,24 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 		},
 		"different condition type": {
 			oldStatus: kueue.WorkloadStatus{
-				Conditions: []kueue.WorkloadCondition{
+				Conditions: []metav1.Condition{
 					{
 						Type:   kueue.WorkloadAdmitted,
-						Status: corev1.ConditionTrue,
+						Status: metav1.ConditionTrue,
 					},
 				},
 			},
 			condType:   kueue.WorkloadFinished,
-			condStatus: corev1.ConditionTrue,
+			condStatus: metav1.ConditionTrue,
 			wantStatus: kueue.WorkloadStatus{
-				Conditions: []kueue.WorkloadCondition{
+				Conditions: []metav1.Condition{
 					{
 						Type:   kueue.WorkloadAdmitted,
-						Status: corev1.ConditionTrue,
+						Status: metav1.ConditionTrue,
 					},
 					{
 						Type:   kueue.WorkloadFinished,
-						Status: corev1.ConditionTrue,
+						Status: metav1.ConditionTrue,
 					},
 				},
 			},

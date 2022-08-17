@@ -21,8 +21,8 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -85,25 +85,26 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	switch status {
 	case pending:
 		if !r.queues.QueueForWorkloadExists(&wl) {
-			err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, corev1.ConditionFalse,
+			err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, metav1.ConditionFalse,
 				"Inadmissible", fmt.Sprintf("Queue %s doesn't exist", wl.Spec.QueueName))
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
 		cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)
 		if !cqOk {
-			err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, corev1.ConditionFalse,
+			err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, metav1.ConditionFalse,
 				"Inadmissible", fmt.Sprintf("ClusterQueue %s doesn't exist", cqName))
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
 		if !r.cache.ClusterQueueActive(cqName) {
-			err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, corev1.ConditionFalse,
+			err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, metav1.ConditionFalse,
 				"Inadmissible", fmt.Sprintf("ClusterQueue %s is inactive", cqName))
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 	case admitted:
-		err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, corev1.ConditionTrue, "", "")
+		msg := fmt.Sprintf("Admitted by ClusterQueue %s", wl.Spec.Admission.ClusterQueue)
+		err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, metav1.ConditionTrue, "AdmissionByKueue", msg)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 

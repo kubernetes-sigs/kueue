@@ -111,7 +111,7 @@ var _ = ginkgo.Describe("Workload controller", func() {
 			wl = testing.MakeWorkload("three", ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "1").Obj()
 			message = fmt.Sprintf("ClusterQueue %s doesn't exist", "fooclusterqueue")
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
-			gomega.Eventually(func() []kueue.WorkloadCondition {
+			gomega.Eventually(func() []metav1.Condition {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
 				return updatedQueueWorkload.Status.Conditions
 			}, framework.Timeout, framework.Interval).ShouldNot(gomega.BeNil())

@@ -101,17 +101,7 @@ var _ = ginkgo.Describe("Queue controller", func() {
 		}, framework.Timeout, framework.Interval).Should(gomega.BeComparableTo(kueue.QueueStatus{PendingWorkloads: 0}))
 
 		ginkgo.By("Finishing workloads")
-		for _, w := range workloads {
-			gomega.Eventually(func() error {
-				var newWL kueue.Workload
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
-				newWL.Status.Conditions = append(w.Status.Conditions, kueue.WorkloadCondition{
-					Type:   kueue.WorkloadFinished,
-					Status: corev1.ConditionTrue,
-				})
-				return k8sClient.Status().Update(ctx, &newWL)
-			}, framework.Timeout, framework.Interval).Should(gomega.Succeed())
-		}
+		framework.FinishWorkloads(ctx, k8sClient, workloads...)
 		gomega.Eventually(func() kueue.QueueStatus {
 			var updatedQueue kueue.Queue
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
