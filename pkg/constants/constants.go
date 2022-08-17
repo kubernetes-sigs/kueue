@@ -24,8 +24,9 @@ const (
 	// TODO(#23): Use the kubernetes.io domain when graduating APIs to beta.
 	QueueAnnotation = "kueue.x-k8s.io/queue-name"
 
-	ManagerName       = "kueue-manager"
-	JobControllerName = "kueue-job-controller"
+	KueueName         = "kueue"
+	ManagerName       = KueueName + "-manager"
+	JobControllerName = KueueName + "-job-controller"
 
 	// UpdatesBatchPeriod is the batch period to hold workload updates
 	// before syncing a Queue and ClusterQueue objects.
