@@ -143,6 +143,10 @@ func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 		}
 	}
 
+	if len(obj.Spec.QueueName) > 0 {
+		allErrs = append(allErrs, validateNameReference(string(obj.Spec.QueueName), specPath.Child("queueName"))...)
+	}
+
 	allErrs = append(allErrs, metav1validation.ValidateConditions(obj.Status.Conditions, field.NewPath("status", "conditions"))...)
 
 	return allErrs
@@ -162,23 +166,18 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 	specPath := field.NewPath("spec")
 	allErrs = append(allErrs, ValidateWorkload(newObj)...)
 	allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"))...)
-	allErrs = append(allErrs, validateQueueNameUpdate(newObj.Spec.QueueName, oldObj.Spec.QueueName, specPath.Child("queueName"))...)
+	if newObj.Spec.Admission != nil && oldObj.Spec.Admission != nil {
+		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.QueueName, oldObj.Spec.QueueName, specPath.Child("queueName"))...)
+	}
 	allErrs = append(allErrs, validateAdmissionUpdate(newObj.Spec.Admission, oldObj.Spec.Admission, specPath.Child("admission"))...)
 
 	return allErrs
 }
 
-// validateQueueNameUpdate validates that queueName is set once
-func validateQueueNameUpdate(new, old string, path *field.Path) field.ErrorList {
-	if len(old) == 0 {
-		return nil
-	}
-	return apivalidation.ValidateImmutableField(new, old, path)
-}
-
-// validateAdmissionUpdate validates that admission is set once
+// validateAdmissionUpdate validates that admission can be set or unset, but the
+// fields within can't change.
 func validateAdmissionUpdate(new, old *kueue.Admission, path *field.Path) field.ErrorList {
-	if old == nil {
+	if old == nil || new == nil {
 		return nil
 	}
 	return apivalidation.ValidateImmutableField(new, old, path)
