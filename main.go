@@ -49,6 +49,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	"sigs.k8s.io/kueue/pkg/util/cert"
+	"sigs.k8s.io/kueue/pkg/util/useragent"
+	"sigs.k8s.io/kueue/pkg/version"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -67,6 +69,8 @@ func init() {
 }
 
 func main() {
+	setupLog.Info("Initializing", "gitVersion", version.GitVersion, "gitCommit", version.GitCommit)
+
 	var configFile string
 	flag.StringVar(&configFile, "config", "",
 		"The controller will load its initial configuration from this file. "+
@@ -85,9 +89,14 @@ func main() {
 
 	metrics.Register()
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), options)
+	kubeConfig := ctrl.GetConfigOrDie()
+	if kubeConfig.UserAgent == "" {
+		kubeConfig.UserAgent = useragent.Default()
+	}
+
+	mgr, err := ctrl.NewManager(kubeConfig, options)
 	if err != nil {
-		setupLog.Error(err, "unable to start manager")
+		setupLog.Error(err, "Unable to start manager")
 		os.Exit(1)
 	}
 
@@ -95,7 +104,7 @@ func main() {
 
 	if *config.EnableInternalCertManagement {
 		if err = cert.ManageCerts(mgr, certsReady); err != nil {
-			setupLog.Error(err, "unable to set up cert rotation")
+			setupLog.Error(err, "Unable to set up cert rotation")
 			os.Exit(1)
 		}
 	} else {
@@ -120,9 +129,9 @@ func main() {
 
 	setupScheduler(ctx, mgr, cCache, queues)
 
-	setupLog.Info("starting manager")
+	setupLog.Info("Starting manager")
 	if err := mgr.Start(ctx); err != nil {
-		setupLog.Error(err, "problem running manager")
+		setupLog.Error(err, "Could not run manager")
 		os.Exit(1)
 	}
 }

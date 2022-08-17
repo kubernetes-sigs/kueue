@@ -57,8 +57,12 @@ GO_TEST_FLAGS ?= -race
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
+version_pkg = sigs.k8s.io/kueue/pkg/version
+LD_FLAGS += -X '$(version_pkg).GitVersion=$(GIT_TAG)'
+LD_FLAGS += -X '$(version_pkg).GitCommit=$(shell git rev-parse HEAD)'
+
 .PHONY: all
-all: build
+all: generate fmt vet build
 
 ##@ General
 
@@ -128,8 +132,8 @@ verify: gomod-verify vet ci-lint fmt-verify manifests generate
 ##@ Build
 
 .PHONY: build
-build: generate fmt vet ## Build manager binary.
-	$(GO_CMD) build -o bin/manager main.go
+build:
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o bin/manager main.go
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
