@@ -107,7 +107,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 	}
 
 	queued := m.queueAllInadmissibleWorkloadsInCohort(ctx, cqImpl)
-	reportPendingWorkloads(cq.Name, cqImpl.Pending())
+	m.reportPendingWorkloads(cq.Name, cqImpl)
 	if queued || addedWorkloads {
 		m.Broadcast()
 	}
@@ -134,6 +134,7 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 
 	// TODO(#8): Selectively move workloads based on the exact event.
 	if m.queueAllInadmissibleWorkloadsInCohort(ctx, cqImpl) {
+		m.reportPendingWorkloads(cq.Name, cqImpl)
 		m.Broadcast()
 	}
 
@@ -233,7 +234,7 @@ func (m *Manager) PendingWorkloads(q *kueue.Queue) (int32, error) {
 	return int32(len(qImpl.items)), nil
 }
 
-func (m *Manager) Pending(cq *kueue.ClusterQueue) int32 {
+func (m *Manager) Pending(cq *kueue.ClusterQueue) int {
 	m.RLock()
 	defer m.RUnlock()
 	return m.clusterQueues[cq.Name].Pending()
@@ -282,7 +283,7 @@ func (m *Manager) addOrUpdateWorkload(w *kueue.Workload) bool {
 		return false
 	}
 	cq.PushOrUpdate(wInfo)
-	reportPendingWorkloads(q.ClusterQueue, cq.Pending())
+	m.reportPendingWorkloads(q.ClusterQueue, cq)
 	m.Broadcast()
 	return true
 }
@@ -314,7 +315,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	}
 
 	added := cq.RequeueIfNotPresent(info, reason)
-	reportPendingWorkloads(q.ClusterQueue, cq.Pending())
+	m.reportPendingWorkloads(q.ClusterQueue, cq)
 	if added {
 		m.Broadcast()
 	}
@@ -336,7 +337,7 @@ func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(w *kueue.Workload, qKey
 	cq := m.clusterQueues[q.ClusterQueue]
 	if cq != nil {
 		cq.Delete(w)
-		reportPendingWorkloads(q.ClusterQueue, cq.Pending())
+		m.reportPendingWorkloads(q.ClusterQueue, cq)
 	}
 }
 
@@ -504,7 +505,7 @@ func (m *Manager) heads() []workload.Info {
 		if wl == nil {
 			continue
 		}
-		reportPendingWorkloads(cqName, cq.Pending())
+		m.reportPendingWorkloads(cqName, cq)
 		wlCopy := *wl
 		wlCopy.ClusterQueue = cqName
 		workloads = append(workloads, wlCopy)
@@ -542,6 +543,16 @@ func (m *Manager) Broadcast() {
 	m.cond.Broadcast()
 }
 
+func (m *Manager) reportPendingWorkloads(cqName string, cq ClusterQueue) {
+	active := cq.PendingActive()
+	inadmissible := cq.PendingInadmissible()
+	if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
+		inadmissible += active
+		active = 0
+	}
+	metrics.ReportPendingWorkloads(cqName, active, inadmissible)
+}
+
 func SetupIndexes(indexer client.FieldIndexer) error {
 	err := indexer.IndexField(context.Background(), &kueue.Workload{}, workloadQueueKey, func(o client.Object) []string {
 		wl := o.(*kueue.Workload)
@@ -558,8 +569,4 @@ func SetupIndexes(indexer client.FieldIndexer) error {
 		return fmt.Errorf("setting index on clusterQueue for Queue: %w", err)
 	}
 	return nil
-}
-
-func reportPendingWorkloads(cqName string, val int32) {
-	metrics.PendingWorkloads.WithLabelValues(cqName).Set(float64(val))
 }

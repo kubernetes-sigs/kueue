@@ -75,8 +75,17 @@ type ClusterQueue interface {
 	// returns true. Otherwise returns false.
 	QueueInadmissibleWorkloads(ctx context.Context, client client.Client) bool
 
-	// Pending returns the number of pending workloads.
-	Pending() int32
+	// Pending returns the total number of pending workloads.
+	Pending() int
+
+	// PendingActive returns the number of active pending workloads,
+	// workloads that are in the admission queue.
+	PendingActive() int
+	// PendingInadmissible returns the number of inadmissible pending workloads,
+	// workloads that were already tried and are waiting for cluster conditions
+	// to change to potentially become admissible.
+	PendingInadmissible() int
+
 	// Dump produces a dump of the current workloads in the heap of
 	// this ClusterQueue. It returns false if the queue is empty.
 	// Otherwise returns true.

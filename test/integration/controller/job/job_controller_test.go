@@ -368,7 +368,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", func() {
 			return createdProdJob1.Spec.Suspend
 		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
 		gomega.Expect(createdProdJob1.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
-		framework.ExpectPendingWorkloadsMetric(prodClusterQ, 0)
+		framework.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
 		framework.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
 
 		ginkgo.By("checking a second no-fit prod job does not start")
@@ -380,7 +380,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", func() {
 			gomega.Expect(k8sClient.Get(ctx, lookupKey2, createdProdJob2)).Should(gomega.Succeed())
 			return createdProdJob2.Spec.Suspend
 		}, framework.ConsistentDuration, framework.Interval).Should(gomega.Equal(pointer.Bool(true)))
-		framework.ExpectPendingWorkloadsMetric(prodClusterQ, 1)
+		framework.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 1)
 		framework.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
 
 		ginkgo.By("checking a dev job starts")
@@ -393,7 +393,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", func() {
 			return createdDevJob.Spec.Suspend
 		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
 		gomega.Expect(createdDevJob.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
-		framework.ExpectPendingWorkloadsMetric(devClusterQ, 0)
+		framework.ExpectPendingWorkloadsMetric(devClusterQ, 0, 0)
 		framework.ExpectAdmittedActiveWorkloadsMetric(devClusterQ, 1)
 
 		ginkgo.By("checking the second prod job starts when the first finishes")
@@ -410,7 +410,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", func() {
 			return createdProdJob2.Spec.Suspend
 		}, framework.Timeout, framework.Interval).Should(gomega.Equal(pointer.Bool(false)))
 		gomega.Expect(createdProdJob2.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
-		framework.ExpectPendingWorkloadsMetric(prodClusterQ, 0)
+		framework.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
 		framework.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
 	})
 })

@@ -132,7 +132,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 	}
 
 	// 6. Requeue the heads that were not scheduled.
-	result := metrics.InadmissibleAdmissionResult
+	result := metrics.AdmissionResultInadmissible
 	for _, e := range entries {
 		log.V(3).Info("Workload evaluated for admission",
 			"workload", klog.KObj(e.Obj),
@@ -142,7 +142,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 		if e.status != assumed {
 			s.requeueAndUpdate(log, ctx, e)
 		} else {
-			result = metrics.SuccessAdmissionResult
+			result = metrics.AdmissionResultSuccess
 		}
 	}
 	metrics.AdmissionAttempt(result, time.Since(startTime))
