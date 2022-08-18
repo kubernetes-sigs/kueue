@@ -25,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -208,6 +209,8 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 		})
 
 		ginkgo.It("Should be stuck in termination until admitted workloads finished running", func() {
+			framework.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusActive)
+
 			ginkgo.By("Admit workload")
 			admission := testing.MakeAdmission(cq.Name).Obj()
 			wl := testing.MakeWorkload("workload", ns.Name).Queue(queue.Name).Admit(admission).Obj()
@@ -215,6 +218,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 
 			ginkgo.By("Delete clusterQueue")
 			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, cq)).To(gomega.Succeed())
+			framework.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusTerminating)
 			var newCQ kueue.ClusterQueue
 			gomega.Eventually(func() []string {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &newCQ)).To(gomega.Succeed())

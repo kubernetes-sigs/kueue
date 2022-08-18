@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -137,7 +138,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector: labels.Nothing(),
 					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
-					Status:            Active,
+					Status:            active,
 				},
 				"b": {
 					Name: "b",
@@ -147,21 +148,21 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector: labels.Nothing(),
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
 					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
-					Status:            Active,
+					Status:            active,
 				},
 				"c": {
 					Name:                 "c",
 					RequestableResources: map[corev1.ResourceName]*Resource{},
 					NamespaceSelector:    labels.Nothing(),
 					UsedResources:        ResourceQuantities{},
-					Status:               Active,
+					Status:               active,
 				},
 				"d": {
 					Name:                 "d",
 					RequestableResources: map[corev1.ResourceName]*Resource{},
 					NamespaceSelector:    labels.Nothing(),
 					UsedResources:        ResourceQuantities{},
-					Status:               Active,
+					Status:               active,
 				},
 				"e": {
 					Name: "e",
@@ -171,7 +172,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector: labels.Nothing(),
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"nonexistent-flavor": 0}},
 					LabelKeys:         nil,
-					Status:            Pending,
+					Status:            pending,
 				},
 			},
 			wantCohorts: map[string]sets.String{
@@ -201,7 +202,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector: labels.Nothing(),
 					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
-					Status:            Active,
+					Status:            active,
 				},
 				"b": {
 					Name: "b",
@@ -211,21 +212,21 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector: labels.Nothing(),
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
 					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
-					Status:            Active,
+					Status:            active,
 				},
 				"c": {
 					Name:                 "c",
 					RequestableResources: map[corev1.ResourceName]*Resource{},
 					NamespaceSelector:    labels.Nothing(),
 					UsedResources:        ResourceQuantities{},
-					Status:               Active,
+					Status:               active,
 				},
 				"d": {
 					Name:                 "d",
 					RequestableResources: map[corev1.ResourceName]*Resource{},
 					NamespaceSelector:    labels.Nothing(),
 					UsedResources:        ResourceQuantities{},
-					Status:               Active,
+					Status:               active,
 				},
 				"e": {
 					Name: "e",
@@ -235,7 +236,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector: labels.Nothing(),
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"nonexistent-flavor": 0}},
 					LabelKeys:         nil,
-					Status:            Pending,
+					Status:            pending,
 				},
 			},
 			wantCohorts: map[string]sets.String{
@@ -314,28 +315,28 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector: labels.Nothing(),
 					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType", "region")},
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
-					Status:            Active,
+					Status:            active,
 				},
 				"b": {
 					Name:                 "b",
 					RequestableResources: map[corev1.ResourceName]*Resource{},
 					NamespaceSelector:    labels.Everything(),
 					UsedResources:        ResourceQuantities{},
-					Status:               Active,
+					Status:               active,
 				},
 				"c": {
 					Name:                 "c",
 					RequestableResources: map[corev1.ResourceName]*Resource{},
 					NamespaceSelector:    labels.Nothing(),
 					UsedResources:        ResourceQuantities{},
-					Status:               Active,
+					Status:               active,
 				},
 				"d": {
 					Name:                 "d",
 					RequestableResources: map[corev1.ResourceName]*Resource{},
 					NamespaceSelector:    labels.Nothing(),
 					UsedResources:        ResourceQuantities{},
-					Status:               Active,
+					Status:               active,
 				},
 				"e": {
 					Name: "e",
@@ -345,7 +346,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector: labels.Nothing(),
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
 					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType", "region")},
-					Status:            Active,
+					Status:            active,
 				},
 			},
 			wantCohorts: map[string]sets.String{
@@ -374,14 +375,14 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector: labels.Nothing(),
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
 					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
-					Status:            Active,
+					Status:            active,
 				},
 				"c": {
 					Name:                 "c",
 					RequestableResources: map[corev1.ResourceName]*Resource{},
 					NamespaceSelector:    labels.Nothing(),
 					UsedResources:        ResourceQuantities{},
-					Status:               Active,
+					Status:               active,
 				},
 				"e": {
 					Name: "e",
@@ -391,7 +392,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector: labels.Nothing(),
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"nonexistent-flavor": 0}},
 					LabelKeys:         nil,
-					Status:            Pending,
+					Status:            pending,
 				},
 			},
 			wantCohorts: map[string]sets.String{
@@ -416,7 +417,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector: labels.Nothing(),
 					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
-					Status:            Active,
+					Status:            active,
 				},
 				"b": {
 					Name: "b",
@@ -426,21 +427,21 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector: labels.Nothing(),
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
 					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
-					Status:            Active,
+					Status:            active,
 				},
 				"c": {
 					Name:                 "c",
 					RequestableResources: map[corev1.ResourceName]*Resource{},
 					NamespaceSelector:    labels.Nothing(),
 					UsedResources:        ResourceQuantities{},
-					Status:               Active,
+					Status:               active,
 				},
 				"d": {
 					Name:                 "d",
 					RequestableResources: map[corev1.ResourceName]*Resource{},
 					NamespaceSelector:    labels.Nothing(),
 					UsedResources:        ResourceQuantities{},
-					Status:               Active,
+					Status:               active,
 				},
 				"e": {
 					Name: "e",
@@ -450,7 +451,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector: labels.Nothing(),
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"nonexistent-flavor": 0}},
 					LabelKeys:         nil,
-					Status:            Active,
+					Status:            active,
 				},
 			},
 			wantCohorts: map[string]sets.String{
@@ -536,6 +537,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							"gamma": 0,
 						},
 					},
+					Status: pending,
 				},
 			},
 		},
@@ -1559,50 +1561,50 @@ func TestClusterQueueUpdateWithFlavors(t *testing.T) {
 
 	testcases := []struct {
 		name         string
-		curStatus    ClusterQueueStatus
+		curStatus    metrics.ClusterQueueStatus
 		clusterQueue *kueue.ClusterQueue
 		flavors      map[string]*kueue.ResourceFlavor
-		wantStatus   ClusterQueueStatus
+		wantStatus   metrics.ClusterQueueStatus
 	}{
 		{
 			name:      "Pending clusterQueue updated existent flavors",
-			curStatus: Pending,
+			curStatus: pending,
 			clusterQueue: utiltesting.MakeClusterQueue("cq").
 				Resource(utiltesting.MakeResource("cpu").Flavor(flavor).Obj()).
 				Obj(),
 			flavors: map[string]*kueue.ResourceFlavor{
 				rf.Name: rf,
 			},
-			wantStatus: Active,
+			wantStatus: active,
 		},
 		{
 			name:      "Active clusterQueue updated with not found flavors",
-			curStatus: Active,
+			curStatus: active,
 			clusterQueue: utiltesting.MakeClusterQueue("cq").
 				Resource(utiltesting.MakeResource("cpu").Flavor(flavor).Obj()).
 				Obj(),
 			flavors:    map[string]*kueue.ResourceFlavor{},
-			wantStatus: Pending,
+			wantStatus: pending,
 		},
 		{
 			name:      "Terminating clusterQueue updated with existent flavors",
-			curStatus: Terminating,
+			curStatus: terminating,
 			clusterQueue: utiltesting.MakeClusterQueue("cq").
 				Resource(utiltesting.MakeResource("cpu").Flavor(flavor).Obj()).
 				Obj(),
 			flavors: map[string]*kueue.ResourceFlavor{
 				rf.Name: rf,
 			},
-			wantStatus: Terminating,
+			wantStatus: terminating,
 		},
 		{
 			name:      "Terminating clusterQueue updated with not found flavors",
-			curStatus: Terminating,
+			curStatus: terminating,
 			clusterQueue: utiltesting.MakeClusterQueue("cq").
 				Resource(utiltesting.MakeResource("cpu").Flavor(flavor).Obj()).
 				Obj(),
 			flavors:    map[string]*kueue.ResourceFlavor{},
-			wantStatus: Terminating,
+			wantStatus: terminating,
 		},
 	}
 

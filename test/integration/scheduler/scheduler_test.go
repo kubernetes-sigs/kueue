@@ -25,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -431,6 +432,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		ginkgo.It("Should be inactive until the flavor is created", func() {
 			ginkgo.By("Creating one workload")
+			framework.ExpectClusterQueueStatusMetric(fooCQ, metrics.CQStatusPending)
 			wl := testing.MakeWorkload("workload", ns.Name).Queue(fooQ.Name).Request(corev1.ResourceCPU, "1").Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
 			framework.ExpectWorkloadsToBeFrozen(ctx, k8sClient, fooCQ.Name, wl)
@@ -444,6 +446,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			defer func() {
 				gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, fooFlavor)).To(gomega.Succeed())
 			}()
+			framework.ExpectClusterQueueStatusMetric(fooCQ, metrics.CQStatusActive)
 			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, fooCQ.Name, wl)
 			framework.ExpectPendingWorkloadsMetric(fooCQ, 0, 0)
 			framework.ExpectAdmittedActiveWorkloadsMetric(fooCQ, 1)

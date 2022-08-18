@@ -319,7 +319,7 @@ func TestSnapshot(t *testing.T) {
 				},
 				LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: {"baz": {}, "foo": {}, "instance": {}}},
 				NamespaceSelector: labels.Nothing(),
-				Status:            Active,
+				Status:            active,
 			},
 			"foobar": {
 				Name:   "foobar",
@@ -356,7 +356,7 @@ func TestSnapshot(t *testing.T) {
 				},
 				NamespaceSelector: labels.Nothing(),
 				LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: {"baz": {}, "instance": {}}},
-				Status:            Active,
+				Status:            active,
 			},
 			"bar": {
 				Name: "bar",
@@ -375,7 +375,7 @@ func TestSnapshot(t *testing.T) {
 				},
 				Workloads:         map[string]*workload.Info{},
 				NamespaceSelector: labels.Nothing(),
-				Status:            Active,
+				Status:            active,
 			},
 		},
 		ResourceFlavors: map[string]*kueue.ResourceFlavor{
