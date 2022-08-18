@@ -72,7 +72,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 	ginkgo.When("Reconciling clusterQueue status", func() {
 		var (
 			clusterQueue *kueue.ClusterQueue
-			queue        *kueue.Queue
+			localQueue   *kueue.LocalQueue
 		)
 
 		ginkgo.BeforeEach(func() {
@@ -84,8 +84,8 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 					Flavor(testing.MakeFlavor(flavorModelA, "5").Max("10").Obj()).
 					Flavor(testing.MakeFlavor(flavorModelB, "5").Max("10").Obj()).Obj()).Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
-			queue = testing.MakeQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, queue)).To(gomega.Succeed())
+			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
 		})
 
 		ginkgo.AfterEach(func() {
@@ -94,17 +94,17 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 
 		ginkgo.It("Should update status when workloads are assigned and finish", func() {
 			workloads := []*kueue.Workload{
-				testing.MakeWorkload("one", ns.Name).Queue(queue.Name).
+				testing.MakeWorkload("one", ns.Name).Queue(localQueue.Name).
 					Request(corev1.ResourceCPU, "2").Request(resourceGPU, "2").Obj(),
-				testing.MakeWorkload("two", ns.Name).Queue(queue.Name).
+				testing.MakeWorkload("two", ns.Name).Queue(localQueue.Name).
 					Request(corev1.ResourceCPU, "3").Request(resourceGPU, "3").Obj(),
-				testing.MakeWorkload("three", ns.Name).Queue(queue.Name).
+				testing.MakeWorkload("three", ns.Name).Queue(localQueue.Name).
 					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
-				testing.MakeWorkload("four", ns.Name).Queue(queue.Name).
+				testing.MakeWorkload("four", ns.Name).Queue(localQueue.Name).
 					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
 				testing.MakeWorkload("five", ns.Name).Queue("other").
 					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
-				testing.MakeWorkload("six", ns.Name).Queue(queue.Name).
+				testing.MakeWorkload("six", ns.Name).Queue(localQueue.Name).
 					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
 			}
 
@@ -192,14 +192,14 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 
 	ginkgo.When("Deleting clusterQueues", func() {
 		var (
-			cq    *kueue.ClusterQueue
-			queue *kueue.Queue
+			cq *kueue.ClusterQueue
+			lq *kueue.LocalQueue
 		)
 
 		ginkgo.BeforeEach(func() {
 			cq = testing.MakeClusterQueue("foo-cq").Obj()
-			queue = testing.MakeQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, queue)).To(gomega.Succeed())
+			lq = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
 			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
 		})
 
@@ -210,7 +210,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 		ginkgo.It("Should be stuck in termination until admitted workloads finished running", func() {
 			ginkgo.By("Admit workload")
 			admission := testing.MakeAdmission(cq.Name).Obj()
-			wl := testing.MakeWorkload("workload", ns.Name).Queue(queue.Name).Admit(admission).Obj()
+			wl := testing.MakeWorkload("workload", ns.Name).Queue(lq.Name).Admit(admission).Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
 			ginkgo.By("Delete clusterQueue")

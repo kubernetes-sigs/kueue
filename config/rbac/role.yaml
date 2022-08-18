@@ -93,7 +93,7 @@ rules:
 - apiGroups:
   - kueue.x-k8s.io
   resources:
-  - queues
+  - localqueues
   verbs:
   - create
   - delete
@@ -105,13 +105,13 @@ rules:
 - apiGroups:
   - kueue.x-k8s.io
   resources:
-  - queues/finalizers
+  - localqueues/finalizers
   verbs:
   - update
 - apiGroups:
   - kueue.x-k8s.io
   resources:
-  - queues/status
+  - localqueues/status
   verbs:
   - get
   - patch

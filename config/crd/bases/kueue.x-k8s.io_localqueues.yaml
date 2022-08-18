@@ -5,14 +5,17 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.9.2
   creationTimestamp: null
-  name: queues.kueue.x-k8s.io
+  name: localqueues.kueue.x-k8s.io
 spec:
   group: kueue.x-k8s.io
   names:
-    kind: Queue
-    listKind: QueueList
-    plural: queues
-    singular: queue
+    kind: LocalQueue
+    listKind: LocalQueueList
+    plural: localqueues
+    shortNames:
+    - queue
+    - queues
+    singular: localqueue
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -27,7 +30,7 @@ spec:
     name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Queue is the Schema for the queues API
+        description: LocalQueue is the Schema for the localQueues API
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -42,19 +45,19 @@ spec:
           metadata:
             type: object
           spec:
-            description: QueueSpec defines the desired state of Queue
+            description: LocalQueueSpec defines the desired state of LocalQueue
             properties:
               clusterQueue:
                 description: clusterQueue is a reference to a clusterQueue that backs
-                  this queue.
+                  this localQueue.
                 type: string
             type: object
           status:
-            description: QueueStatus defines the observed state of Queue
+            description: LocalQueueStatus defines the observed state of LocalQueue
             properties:
               pendingWorkloads:
                 description: PendingWorkloads is the number of workloads currently
-                  admitted to this queue not yet admitted to a ClusterQueue.
+                  admitted to this localQueue not yet admitted to a ClusterQueue.
                 format: int32
                 type: integer
             type: object

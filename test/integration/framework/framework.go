@@ -164,7 +164,7 @@ func DeleteResourceFlavor(ctx context.Context, c client.Client, rf *kueue.Resour
 	return nil
 }
 
-func DeleteQueue(ctx context.Context, c client.Client, q *kueue.Queue) error {
+func DeleteQueue(ctx context.Context, c client.Client, q *kueue.LocalQueue) error {
 	if q != nil {
 		if err := c.Delete(ctx, q); err != nil && !apierrors.IsNotFound(err) {
 			return err
@@ -182,7 +182,7 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 	if err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
-	if err := c.DeleteAllOf(ctx, &kueue.Queue{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
+	if err := c.DeleteAllOf(ctx, &kueue.LocalQueue{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
 	if err := c.DeleteAllOf(ctx, &kueue.Workload{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {

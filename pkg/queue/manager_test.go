@@ -37,9 +37,9 @@ import (
 
 const headsTimeout = 3 * time.Second
 
-// TestAddQueueOrphans verifies that pods added before adding the queue are
+// TestAddLocalQueueOrphans verifies that pods added before adding the queue are
 // present when the queue is added.
-func TestAddQueueOrphans(t *testing.T) {
+func TestAddLocalQueueOrphans(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := kueue.AddToScheme(scheme); err != nil {
 		t.Fatalf("Failed adding kueue scheme: %s", err)
@@ -53,12 +53,12 @@ func TestAddQueueOrphans(t *testing.T) {
 		utiltesting.MakeWorkload("a", "moon").Queue("foo").Obj(),
 	).Build()
 	manager := NewManager(kClient, nil)
-	q := utiltesting.MakeQueue("foo", "earth").Obj()
-	if err := manager.AddQueue(context.Background(), q); err != nil {
+	q := utiltesting.MakeLocalQueue("foo", "earth").Obj()
+	if err := manager.AddLocalQueue(context.Background(), q); err != nil {
 		t.Fatalf("Failed adding queue: %v", err)
 	}
-	qImpl := manager.queues[Key(q)]
-	workloadNames := workloadNamesFromQ(qImpl)
+	qImpl := manager.localQueues[Key(q)]
+	workloadNames := workloadNamesFromLQ(qImpl)
 	if diff := cmp.Diff(sets.NewString("earth/a", "earth/c"), workloadNames); diff != "" {
 		t.Errorf("Unexpected items in queue foo (-want,+got):\n%s", diff)
 	}
@@ -72,9 +72,9 @@ func TestAddClusterQueueOrphans(t *testing.T) {
 		t.Fatalf("Failed adding kueue scheme: %v", err)
 	}
 	now := time.Now()
-	queues := []*kueue.Queue{
-		utiltesting.MakeQueue("foo", "").ClusterQueue("cq").Obj(),
-		utiltesting.MakeQueue("bar", "").ClusterQueue("cq").Obj(),
+	queues := []*kueue.LocalQueue{
+		utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
+		utiltesting.MakeLocalQueue("bar", "").ClusterQueue("cq").Obj(),
 	}
 	kClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
 		utiltesting.MakeWorkload("a", "").Queue("foo").Creation(now.Add(time.Second)).Obj(),
@@ -88,7 +88,7 @@ func TestAddClusterQueueOrphans(t *testing.T) {
 	ctx := context.Background()
 	manager := NewManager(kClient, nil)
 	for _, q := range queues {
-		if err := manager.AddQueue(ctx, q); err != nil {
+		if err := manager.AddLocalQueue(ctx, q); err != nil {
 			t.Fatalf("Failed adding queue %s: %v", q.Name, err)
 		}
 	}
@@ -110,9 +110,9 @@ func TestUpdateQueue(t *testing.T) {
 		utiltesting.MakeClusterQueue("cq1").Obj(),
 		utiltesting.MakeClusterQueue("cq2").Obj(),
 	}
-	queues := []*kueue.Queue{
-		utiltesting.MakeQueue("foo", "").ClusterQueue("cq1").Obj(),
-		utiltesting.MakeQueue("bar", "").ClusterQueue("cq2").Obj(),
+	queues := []*kueue.LocalQueue{
+		utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq1").Obj(),
+		utiltesting.MakeLocalQueue("bar", "").ClusterQueue("cq2").Obj(),
 	}
 	now := time.Now()
 	workloads := []*kueue.Workload{
@@ -132,7 +132,7 @@ func TestUpdateQueue(t *testing.T) {
 		}
 	}
 	for _, q := range queues {
-		if err := manager.AddQueue(ctx, q); err != nil {
+		if err := manager.AddLocalQueue(ctx, q); err != nil {
 			t.Fatalf("Failed adding queue %s: %v", q.Name, err)
 		}
 	}
@@ -142,7 +142,7 @@ func TestUpdateQueue(t *testing.T) {
 
 	// Update cluster queue of first queue.
 	queues[0].Spec.ClusterQueue = "cq2"
-	if err := manager.UpdateQueue(queues[0]); err != nil {
+	if err := manager.UpdateLocalQueue(queues[0]); err != nil {
 		t.Fatalf("Failed updating queue: %v", err)
 	}
 
@@ -170,12 +170,12 @@ func TestAddWorkload(t *testing.T) {
 	if err := manager.AddClusterQueue(context.Background(), cq); err != nil {
 		t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
 	}
-	queues := []*kueue.Queue{
-		utiltesting.MakeQueue("foo", "earth").ClusterQueue("cq").Obj(),
-		utiltesting.MakeQueue("bar", "mars").Obj(),
+	queues := []*kueue.LocalQueue{
+		utiltesting.MakeLocalQueue("foo", "earth").ClusterQueue("cq").Obj(),
+		utiltesting.MakeLocalQueue("bar", "mars").Obj(),
 	}
 	for _, q := range queues {
-		if err := manager.AddQueue(context.Background(), q); err != nil {
+		if err := manager.AddLocalQueue(context.Background(), q); err != nil {
 			t.Fatalf("Failed adding queue %s: %v", q.Name, err)
 		}
 	}
@@ -238,16 +238,16 @@ func TestStatus(t *testing.T) {
 	}
 	now := time.Now().Truncate(time.Second)
 
-	queues := []kueue.Queue{
+	queues := []kueue.LocalQueue{
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "foo"},
-			Spec: kueue.QueueSpec{
+			Spec: kueue.LocalQueueSpec{
 				ClusterQueue: "fooCq",
 			},
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "bar"},
-			Spec: kueue.QueueSpec{
+			Spec: kueue.LocalQueueSpec{
 				ClusterQueue: "barCq",
 			},
 		},
@@ -285,7 +285,7 @@ func TestStatus(t *testing.T) {
 
 	manager := NewManager(fake.NewClientBuilder().WithScheme(scheme).Build(), nil)
 	for _, q := range queues {
-		if err := manager.AddQueue(ctx, &q); err != nil {
+		if err := manager.AddLocalQueue(ctx, &q); err != nil {
 			t.Errorf("Failed adding queue: %s", err)
 		}
 	}
@@ -295,7 +295,7 @@ func TestStatus(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		queue      *kueue.Queue
+		queue      *kueue.LocalQueue
 		wantStatus int32
 		wantErr    error
 	}{
@@ -310,7 +310,7 @@ func TestStatus(t *testing.T) {
 			wantErr:    nil,
 		},
 		"fake": {
-			queue:      &kueue.Queue{ObjectMeta: metav1.ObjectMeta{Name: "fake"}},
+			queue:      &kueue.LocalQueue{ObjectMeta: metav1.ObjectMeta{Name: "fake"}},
 			wantStatus: 0,
 			wantErr:    errQueueDoesNotExist,
 		},
@@ -334,9 +334,9 @@ func TestRequeueWorkloadStrictFIFO(t *testing.T) {
 		t.Fatalf("Failed adding kueue scheme: %s", err)
 	}
 	cq := utiltesting.MakeClusterQueue("cq").Obj()
-	queues := []*kueue.Queue{
-		utiltesting.MakeQueue("foo", "").ClusterQueue("cq").Obj(),
-		utiltesting.MakeQueue("bar", "").Obj(),
+	queues := []*kueue.LocalQueue{
+		utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
+		utiltesting.MakeLocalQueue("bar", "").Obj(),
 	}
 	cases := []struct {
 		workload     *kueue.Workload
@@ -401,7 +401,7 @@ func TestRequeueWorkloadStrictFIFO(t *testing.T) {
 				t.Fatalf("Failed adding cluster queue %s: %v", cq.Name, err)
 			}
 			for _, q := range queues {
-				if err := manager.AddQueue(ctx, q); err != nil {
+				if err := manager.AddLocalQueue(ctx, q); err != nil {
 					t.Fatalf("Failed adding queue %s: %v", q.Name, err)
 				}
 			}
@@ -431,7 +431,7 @@ func TestUpdateWorkload(t *testing.T) {
 	now := time.Now()
 	cases := map[string]struct {
 		clusterQueues    []*kueue.ClusterQueue
-		queues           []*kueue.Queue
+		queues           []*kueue.LocalQueue
 		workloads        []*kueue.Workload
 		update           func(*kueue.Workload)
 		wantUpdated      bool
@@ -442,8 +442,8 @@ func TestUpdateWorkload(t *testing.T) {
 			clusterQueues: []*kueue.ClusterQueue{
 				utiltesting.MakeClusterQueue("cq").Obj(),
 			},
-			queues: []*kueue.Queue{
-				utiltesting.MakeQueue("foo", "").ClusterQueue("cq").Obj(),
+			queues: []*kueue.LocalQueue{
+				utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
 			},
 			workloads: []*kueue.Workload{
 				utiltesting.MakeWorkload("a", "").Queue("foo").Creation(now).Obj(),
@@ -464,9 +464,9 @@ func TestUpdateWorkload(t *testing.T) {
 			clusterQueues: []*kueue.ClusterQueue{
 				utiltesting.MakeClusterQueue("cq").Obj(),
 			},
-			queues: []*kueue.Queue{
-				utiltesting.MakeQueue("foo", "").ClusterQueue("cq").Obj(),
-				utiltesting.MakeQueue("bar", "").ClusterQueue("cq").Obj(),
+			queues: []*kueue.LocalQueue{
+				utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
+				utiltesting.MakeLocalQueue("bar", "").ClusterQueue("cq").Obj(),
 			},
 			workloads: []*kueue.Workload{
 				utiltesting.MakeWorkload("a", "").Queue("foo").Obj(),
@@ -488,9 +488,9 @@ func TestUpdateWorkload(t *testing.T) {
 				utiltesting.MakeClusterQueue("cq1").Obj(),
 				utiltesting.MakeClusterQueue("cq2").Obj(),
 			},
-			queues: []*kueue.Queue{
-				utiltesting.MakeQueue("foo", "").ClusterQueue("cq1").Obj(),
-				utiltesting.MakeQueue("bar", "").ClusterQueue("cq2").Obj(),
+			queues: []*kueue.LocalQueue{
+				utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq1").Obj(),
+				utiltesting.MakeLocalQueue("bar", "").ClusterQueue("cq2").Obj(),
 			},
 			workloads: []*kueue.Workload{
 				utiltesting.MakeWorkload("a", "").Queue("foo").Obj(),
@@ -512,8 +512,8 @@ func TestUpdateWorkload(t *testing.T) {
 			clusterQueues: []*kueue.ClusterQueue{
 				utiltesting.MakeClusterQueue("cq").Obj(),
 			},
-			queues: []*kueue.Queue{
-				utiltesting.MakeQueue("foo", "").ClusterQueue("cq").Obj(),
+			queues: []*kueue.LocalQueue{
+				utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
 			},
 			workloads: []*kueue.Workload{
 				utiltesting.MakeWorkload("a", "").Queue("foo").Obj(),
@@ -532,8 +532,8 @@ func TestUpdateWorkload(t *testing.T) {
 			clusterQueues: []*kueue.ClusterQueue{
 				utiltesting.MakeClusterQueue("cq").Obj(),
 			},
-			queues: []*kueue.Queue{
-				utiltesting.MakeQueue("foo", "").ClusterQueue("cq").Obj(),
+			queues: []*kueue.LocalQueue{
+				utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
 			},
 			workloads: []*kueue.Workload{
 				utiltesting.MakeWorkload("a", "").Queue("bar").Obj(),
@@ -560,7 +560,7 @@ func TestUpdateWorkload(t *testing.T) {
 				}
 			}
 			for _, q := range tc.queues {
-				if err := manager.AddQueue(ctx, q); err != nil {
+				if err := manager.AddLocalQueue(ctx, q); err != nil {
 					t.Fatalf("Adding queue %q: %v", q.Name, err)
 				}
 			}
@@ -572,7 +572,7 @@ func TestUpdateWorkload(t *testing.T) {
 			if updated := manager.UpdateWorkload(tc.workloads[0], wl); updated != tc.wantUpdated {
 				t.Errorf("UpdatedWorkload returned %t, want %t", updated, tc.wantUpdated)
 			}
-			q := manager.queues[workload.QueueKey(wl)]
+			q := manager.localQueues[workload.QueueKey(wl)]
 			if q != nil {
 				key := workload.Key(wl)
 				item := q.items[key]
@@ -599,8 +599,8 @@ func TestUpdateWorkload(t *testing.T) {
 				t.Errorf("Elements popped in the wrong order from clusterQueues (-want,+got):\n%s", diff)
 			}
 			queueMembers := make(map[string]sets.String)
-			for name, q := range manager.queues {
-				queueMembers[name] = workloadNamesFromQ(q)
+			for name, q := range manager.localQueues {
+				queueMembers[name] = workloadNamesFromLQ(q)
 			}
 			if diff := cmp.Diff(tc.wantQueueMembers, queueMembers); diff != "" {
 				t.Errorf("Elements present in wrong queues (-want,+got):\n%s", diff)
@@ -621,10 +621,10 @@ func TestHeads(t *testing.T) {
 		utiltesting.MakeClusterQueue("active-barCq").Obj(),
 		utiltesting.MakeClusterQueue("pending-bazCq").Obj(),
 	}
-	queues := []*kueue.Queue{
-		utiltesting.MakeQueue("foo", "").ClusterQueue("active-fooCq").Obj(),
-		utiltesting.MakeQueue("bar", "").ClusterQueue("active-barCq").Obj(),
-		utiltesting.MakeQueue("baz", "").ClusterQueue("pending-bazCq").Obj(),
+	queues := []*kueue.LocalQueue{
+		utiltesting.MakeLocalQueue("foo", "").ClusterQueue("active-fooCq").Obj(),
+		utiltesting.MakeLocalQueue("bar", "").ClusterQueue("active-barCq").Obj(),
+		utiltesting.MakeLocalQueue("baz", "").ClusterQueue("pending-bazCq").Obj(),
 	}
 	tests := []struct {
 		name          string
@@ -675,7 +675,7 @@ func TestHeads(t *testing.T) {
 				}
 			}
 			for _, q := range queues {
-				if err := manager.AddQueue(ctx, q); err != nil {
+				if err := manager.AddLocalQueue(ctx, q); err != nil {
 					t.Fatalf("Failed adding queue %s: %s", q.Name, err)
 				}
 			}
@@ -719,16 +719,16 @@ func TestHeadsAsync(t *testing.T) {
 		Spec: kueue.WorkloadSpec{QueueName: "foo"},
 	}
 	var newWl kueue.Workload
-	queues := []kueue.Queue{
+	queues := []kueue.LocalQueue{
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "foo"},
-			Spec: kueue.QueueSpec{
+			Spec: kueue.LocalQueueSpec{
 				ClusterQueue: "fooCq",
 			},
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "bar"},
-			Spec: kueue.QueueSpec{
+			Spec: kueue.LocalQueueSpec{
 				ClusterQueue: "barCq",
 			},
 		},
@@ -741,7 +741,7 @@ func TestHeadsAsync(t *testing.T) {
 		"AddClusterQueue": {
 			initialObjs: []client.Object{&wl, &queues[0]},
 			op: func(ctx context.Context, mgr *Manager) {
-				if err := mgr.AddQueue(ctx, &queues[0]); err != nil {
+				if err := mgr.AddLocalQueue(ctx, &queues[0]); err != nil {
 					t.Errorf("Failed adding queue: %s", err)
 				}
 				mgr.AddOrUpdateWorkload(&wl)
@@ -758,14 +758,14 @@ func TestHeadsAsync(t *testing.T) {
 				},
 			},
 		},
-		"AddQueue": {
+		"AddLocalQueue": {
 			initialObjs: []client.Object{&wl},
 			op: func(ctx context.Context, mgr *Manager) {
 				if err := mgr.AddClusterQueue(ctx, clusterQueues[0]); err != nil {
 					t.Errorf("Failed adding clusterQueue: %v", err)
 				}
 				go func() {
-					if err := mgr.AddQueue(ctx, &queues[0]); err != nil {
+					if err := mgr.AddLocalQueue(ctx, &queues[0]); err != nil {
 						t.Errorf("Failed adding queue: %s", err)
 					}
 				}()
@@ -782,7 +782,7 @@ func TestHeadsAsync(t *testing.T) {
 				if err := mgr.AddClusterQueue(ctx, clusterQueues[0]); err != nil {
 					t.Errorf("Failed adding clusterQueue: %v", err)
 				}
-				if err := mgr.AddQueue(ctx, &queues[0]); err != nil {
+				if err := mgr.AddLocalQueue(ctx, &queues[0]); err != nil {
 					t.Errorf("Failed adding queue: %s", err)
 				}
 				go func() {
@@ -801,7 +801,7 @@ func TestHeadsAsync(t *testing.T) {
 				if err := mgr.AddClusterQueue(ctx, clusterQueues[0]); err != nil {
 					t.Errorf("Failed adding clusterQueue: %v", err)
 				}
-				if err := mgr.AddQueue(ctx, &queues[0]); err != nil {
+				if err := mgr.AddLocalQueue(ctx, &queues[0]); err != nil {
 					t.Errorf("Failed adding queue: %s", err)
 				}
 				go func() {
@@ -823,7 +823,7 @@ func TestHeadsAsync(t *testing.T) {
 				if err := mgr.AddClusterQueue(ctx, clusterQueues[0]); err != nil {
 					t.Errorf("Failed adding clusterQueue: %v", err)
 				}
-				if err := mgr.AddQueue(ctx, &queues[0]); err != nil {
+				if err := mgr.AddLocalQueue(ctx, &queues[0]); err != nil {
 					t.Errorf("Failed adding queue: %s", err)
 				}
 				// Remove the initial workload from the manager.
@@ -845,7 +845,7 @@ func TestHeadsAsync(t *testing.T) {
 				if err := mgr.AddClusterQueue(ctx, clusterQueues[0]); err != nil {
 					t.Errorf("Failed adding clusterQueue: %v", err)
 				}
-				if err := mgr.AddQueue(ctx, &queues[0]); err != nil {
+				if err := mgr.AddLocalQueue(ctx, &queues[0]); err != nil {
 					t.Errorf("Failed adding queue: %s", err)
 				}
 
@@ -876,7 +876,7 @@ func TestHeadsAsync(t *testing.T) {
 					}
 				}
 				for _, q := range queues {
-					if err := mgr.AddQueue(ctx, &q); err != nil {
+					if err := mgr.AddLocalQueue(ctx, &q); err != nil {
 						t.Errorf("Failed adding queue: %s", err)
 					}
 				}
@@ -940,8 +940,8 @@ func popNamesFromCQ(cq ClusterQueue) []string {
 	return names
 }
 
-// workloadNamesFromQ returns all the names of the workloads in a queue.
-func workloadNamesFromQ(q *Queue) sets.String {
+// workloadNamesFromLQ returns all the names of the workloads in a localQueue.
+func workloadNamesFromLQ(q *LocalQueue) sets.String {
 	names := sets.NewString()
 	for k := range q.items {
 		names.Insert(k)

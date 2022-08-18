@@ -127,28 +127,28 @@ func Test_Info(t *testing.T) {
 	}
 }
 
-func Test_AddFromQueue(t *testing.T) {
+func Test_AddFromLocalQueue(t *testing.T) {
 	cq := newClusterQueueImpl(keyFunc, byCreationTime)
 	wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
-	queue := &Queue{
+	queue := &LocalQueue{
 		items: map[string]*workload.Info{
 			wl.Name: workload.NewInfo(wl),
 		},
 	}
 	cq.PushOrUpdate(workload.NewInfo(wl))
-	if added := cq.AddFromQueue(queue); added {
+	if added := cq.AddFromLocalQueue(queue); added {
 		t.Error("expected workload not to be added")
 	}
 	cq.Delete(wl)
-	if added := cq.AddFromQueue(queue); !added {
+	if added := cq.AddFromLocalQueue(queue); !added {
 		t.Error("workload should be added to the ClusterQueue")
 	}
 }
 
-func Test_DeleteFromQueue(t *testing.T) {
+func Test_DeleteFromLocalQueue(t *testing.T) {
 	cq := newClusterQueueImpl(keyFunc, byCreationTime)
-	q := utiltesting.MakeQueue("foo", "").ClusterQueue("cq").Obj()
-	qImpl := newQueue(q)
+	q := utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj()
+	qImpl := newLocalQueue(q)
 	wl1 := utiltesting.MakeWorkload("wl1", "").Queue(q.Name).Obj()
 	wl2 := utiltesting.MakeWorkload("wl2", "").Queue(q.Name).Obj()
 	wl3 := utiltesting.MakeWorkload("wl3", "").Queue(q.Name).Obj()
@@ -176,7 +176,7 @@ func Test_DeleteFromQueue(t *testing.T) {
 		t.Errorf("clusterQueue's workload number in inadmissibleWorkloads not right, want %v, got %v", len(inadmissibleWorkloads), len(cq.inadmissibleWorkloads))
 	}
 
-	cq.DeleteFromQueue(qImpl)
+	cq.DeleteFromLocalQueue(qImpl)
 	if cq.Pending() != 0 {
 		t.Error("clusterQueue should be empty")
 	}

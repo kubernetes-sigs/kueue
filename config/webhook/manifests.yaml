@@ -96,9 +96,9 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-kueue-x-k8s-io-v1alpha1-queue
+      path: /validate-kueue-x-k8s-io-v1alpha1-localqueue
   failurePolicy: Fail
-  name: vqueue.kb.io
+  name: vlocalqueue.kb.io
   rules:
   - apiGroups:
     - kueue.x-k8s.io
@@ -108,7 +108,7 @@ webhooks:
     - CREATE
     - UPDATE
     resources:
-    - queues
+    - localqueues
   sideEffects: None
 - admissionReviewVersions:
   - v1

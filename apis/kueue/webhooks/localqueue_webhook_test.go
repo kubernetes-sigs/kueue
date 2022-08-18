@@ -28,17 +28,17 @@ import (
 )
 
 const (
-	testQueueName      = "test-queue"
-	testQueueNamespace = "test-queue-ns"
+	testLocalQueueName      = "test-queue"
+	testLocalQueueNamespace = "test-queue-ns"
 )
 
-func TestValidateQueueCreate(t *testing.T) {
+func TestValidateLocalQueueCreate(t *testing.T) {
 	testCases := map[string]struct {
-		queue   *Queue
+		queue   *LocalQueue
 		wantErr field.ErrorList
 	}{
 		"should reject queue creation with an invalid clusterQueue": {
-			queue: testingutil.MakeQueue(testQueueName, testQueueNamespace).ClusterQueue("invalid_cluster_queue").Obj(),
+			queue: testingutil.MakeLocalQueue(testLocalQueueName, testLocalQueueNamespace).ClusterQueue("invalid_cluster_queue").Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec").Child("clusterQueue"), "invalid_name", ""),
 			},
@@ -46,37 +46,37 @@ func TestValidateQueueCreate(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			errList := ValidateQueue(tc.queue)
+			errList := ValidateLocalQueue(tc.queue)
 			if diff := cmp.Diff(tc.wantErr, errList, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
-				t.Errorf("ValidateQueueCreate() mismatch (-want +got):\n%s", diff)
+				t.Errorf("ValidateLocalQueueCreate() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
 }
 
-func TestValidateQueueUpdate(t *testing.T) {
+func TestValidateLocalQueueUpdate(t *testing.T) {
 	testCases := map[string]struct {
-		before, after *Queue
+		before, after *LocalQueue
 		wantErr       field.ErrorList
 	}{
 		"clusterQueue cannot be updated": {
-			before: testingutil.MakeQueue(testQueueName, testQueueNamespace).ClusterQueue("foo").Obj(),
-			after:  testingutil.MakeQueue(testQueueName, testQueueNamespace).ClusterQueue("bar").Obj(),
+			before: testingutil.MakeLocalQueue(testLocalQueueName, testLocalQueueNamespace).ClusterQueue("foo").Obj(),
+			after:  testingutil.MakeLocalQueue(testLocalQueueName, testLocalQueueNamespace).ClusterQueue("bar").Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec").Child("clusterQueue"), nil, ""),
 			},
 		},
 		"status could be updated": {
-			before:  testingutil.MakeQueue(testQueueName, testQueueNamespace).Obj(),
-			after:   testingutil.MakeQueue(testQueueName, testQueueNamespace).PendingWorkloads(10).Obj(),
+			before:  testingutil.MakeLocalQueue(testLocalQueueName, testLocalQueueNamespace).Obj(),
+			after:   testingutil.MakeLocalQueue(testLocalQueueName, testLocalQueueNamespace).PendingWorkloads(10).Obj(),
 			wantErr: field.ErrorList{},
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			errList := ValidateQueueUpdate(tc.before, tc.after)
+			errList := ValidateLocalQueueUpdate(tc.before, tc.after)
 			if diff := cmp.Diff(tc.wantErr, errList, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
-				t.Errorf("ValidateQueueUpdate() mismatch (-want +got):\n%s", diff)
+				t.Errorf("ValidateLocalQueueUpdate() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

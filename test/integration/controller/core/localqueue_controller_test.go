@@ -33,7 +33,7 @@ import (
 var _ = ginkgo.Describe("Queue controller", func() {
 	var (
 		ns           *corev1.Namespace
-		queue        *kueue.Queue
+		queue        *kueue.LocalQueue
 		clusterQueue *kueue.ClusterQueue
 	)
 
@@ -52,7 +52,7 @@ var _ = ginkgo.Describe("Queue controller", func() {
 				Flavor(testing.MakeFlavor(flavorModelA, "5").Max("10").Obj()).
 				Flavor(testing.MakeFlavor(flavorModelB, "5").Max("10").Obj()).Obj()).Obj()
 		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
-		queue = testing.MakeQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		queue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 		gomega.Expect(k8sClient.Create(ctx, queue)).To(gomega.Succeed())
 	})
 
@@ -78,11 +78,11 @@ var _ = ginkgo.Describe("Queue controller", func() {
 		for _, w := range workloads {
 			gomega.Expect(k8sClient.Create(ctx, w)).To(gomega.Succeed())
 		}
-		gomega.Eventually(func() kueue.QueueStatus {
-			var updatedQueue kueue.Queue
+		gomega.Eventually(func() kueue.LocalQueueStatus {
+			var updatedQueue kueue.LocalQueue
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
 			return updatedQueue.Status
-		}, framework.Timeout, framework.Interval).Should(gomega.BeComparableTo(kueue.QueueStatus{PendingWorkloads: 3}))
+		}, framework.Timeout, framework.Interval).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{PendingWorkloads: 3}))
 
 		ginkgo.By("Admitting workloads")
 		for _, w := range workloads {
@@ -94,18 +94,18 @@ var _ = ginkgo.Describe("Queue controller", func() {
 				return k8sClient.Update(ctx, &newWL)
 			}, framework.Timeout, framework.Interval).Should(gomega.Succeed())
 		}
-		gomega.Eventually(func() kueue.QueueStatus {
-			var updatedQueue kueue.Queue
+		gomega.Eventually(func() kueue.LocalQueueStatus {
+			var updatedQueue kueue.LocalQueue
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
 			return updatedQueue.Status
-		}, framework.Timeout, framework.Interval).Should(gomega.BeComparableTo(kueue.QueueStatus{PendingWorkloads: 0}))
+		}, framework.Timeout, framework.Interval).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{PendingWorkloads: 0}))
 
 		ginkgo.By("Finishing workloads")
 		framework.FinishWorkloads(ctx, k8sClient, workloads...)
-		gomega.Eventually(func() kueue.QueueStatus {
-			var updatedQueue kueue.Queue
+		gomega.Eventually(func() kueue.LocalQueueStatus {
+			var updatedQueue kueue.LocalQueue
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
 			return updatedQueue.Status
-		}, framework.Timeout, framework.Interval).Should(gomega.BeComparableTo(kueue.QueueStatus{}))
+		}, framework.Timeout, framework.Interval).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{}))
 	})
 })

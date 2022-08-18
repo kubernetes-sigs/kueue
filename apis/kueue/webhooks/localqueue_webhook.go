@@ -30,48 +30,48 @@ import (
 )
 
 // log is for logging in this package.
-var queueLog = ctrl.Log.WithName("queue-webhook")
+var localQueueLog = ctrl.Log.WithName("localqueue-webhook")
 
-type QueueWebhook struct{}
+type LocalQueueWebhook struct{}
 
-func setupWebhookForQueue(mgr ctrl.Manager) error {
+func setupWebhookForLocalQueue(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
-		For(&kueue.Queue{}).
-		WithValidator(&QueueWebhook{}).
+		For(&kueue.LocalQueue{}).
+		WithValidator(&LocalQueueWebhook{}).
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1alpha1-queue,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=queues,verbs=create;update,versions=v1alpha1,name=vqueue.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1alpha1-localqueue,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=localqueues,verbs=create;update,versions=v1alpha1,name=vlocalqueue.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomValidator = &QueueWebhook{}
+var _ webhook.CustomValidator = &LocalQueueWebhook{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *QueueWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
-	q := obj.(*kueue.Queue)
-	queueLog.V(5).Info("Validating create", "queue", klog.KObj(q))
-	return ValidateQueue(q).ToAggregate()
+func (w *LocalQueueWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
+	q := obj.(*kueue.LocalQueue)
+	localQueueLog.V(5).Info("Validating create", "localQueue", klog.KObj(q))
+	return ValidateLocalQueue(q).ToAggregate()
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *QueueWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
-	newQ := newObj.(*kueue.Queue)
-	oldQ := oldObj.(*kueue.Queue)
-	queueLog.V(5).Info("Validating update", "queue", klog.KObj(newQ))
-	return ValidateQueueUpdate(newQ, oldQ).ToAggregate()
+func (w *LocalQueueWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
+	newQ := newObj.(*kueue.LocalQueue)
+	oldQ := oldObj.(*kueue.LocalQueue)
+	localQueueLog.V(5).Info("Validating update", "localQueue", klog.KObj(newQ))
+	return ValidateLocalQueueUpdate(newQ, oldQ).ToAggregate()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *QueueWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) error {
+func (w *LocalQueueWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) error {
 	return nil
 }
 
-func ValidateQueue(q *kueue.Queue) field.ErrorList {
+func ValidateLocalQueue(q *kueue.LocalQueue) field.ErrorList {
 	var allErrs field.ErrorList
 	clusterQueuePath := field.NewPath("spec", "clusterQueue")
 	allErrs = append(allErrs, validateNameReference(string(q.Spec.ClusterQueue), clusterQueuePath)...)
 	return allErrs
 }
 
-func ValidateQueueUpdate(newObj, oldObj *kueue.Queue) field.ErrorList {
+func ValidateLocalQueueUpdate(newObj, oldObj *kueue.LocalQueue) field.ErrorList {
 	return apivalidation.ValidateImmutableField(newObj.Spec.ClusterQueue, oldObj.Spec.ClusterQueue, field.NewPath("spec", "clusterQueue"))
 }

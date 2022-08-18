@@ -1249,10 +1249,10 @@ func TestCacheQueueOperations(t *testing.T) {
 		utiltesting.MakeClusterQueue("foo").Obj(),
 		utiltesting.MakeClusterQueue("bar").Obj(),
 	}
-	queues := []*kueue.Queue{
-		utiltesting.MakeQueue("alpha", "ns1").ClusterQueue("foo").Obj(),
-		utiltesting.MakeQueue("beta", "ns2").ClusterQueue("foo").Obj(),
-		utiltesting.MakeQueue("gamma", "ns1").ClusterQueue("bar").Obj(),
+	queues := []*kueue.LocalQueue{
+		utiltesting.MakeLocalQueue("alpha", "ns1").ClusterQueue("foo").Obj(),
+		utiltesting.MakeLocalQueue("beta", "ns2").ClusterQueue("foo").Obj(),
+		utiltesting.MakeLocalQueue("gamma", "ns1").ClusterQueue("bar").Obj(),
 	}
 	workloads := []*kueue.Workload{
 		utiltesting.MakeWorkload("job1", "ns1").Queue("alpha").Admit(utiltesting.MakeAdmission("foo").Obj()).Obj(),
@@ -1278,7 +1278,7 @@ func TestCacheQueueOperations(t *testing.T) {
 			if err := cl.Create(ctx, q.DeepCopy()); err != nil {
 				return err
 			}
-			if err := cache.AddQueue(q); err != nil {
+			if err := cache.AddLocalQueue(q); err != nil {
 				return err
 			}
 		}
@@ -1451,7 +1451,7 @@ func TestCacheQueueOperations(t *testing.T) {
 				insertAllQueues,
 				insertAllWorkloads,
 				func(ctx context.Context, cl client.Client, cache *Cache) error {
-					cache.DeleteQueue(queues[0])
+					cache.DeleteLocalQueue(queues[0])
 					return nil
 				},
 			},

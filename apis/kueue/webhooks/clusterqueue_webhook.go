@@ -36,7 +36,7 @@ import (
 
 var (
 	// log is for logging in this package.
-	clusterQueueLog = ctrl.Log.WithName("cluster-queue-webhook")
+	clusterQueueLog = ctrl.Log.WithName("clusterqueue-webhook")
 
 	queueingStrategies = sets.NewString(string(kueue.StrictFIFO), string(kueue.BestEffortFIFO))
 )

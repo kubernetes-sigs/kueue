@@ -11,7 +11,7 @@ resources:
   controller: true
   domain: x-k8s.io
   group: kueue
-  kind: Queue
+  kind: LocalQueue
   path: sigs.k8s.io/kueue/apis/kueue/v1alpha1
   version: v1alpha1
   webhooks:
