@@ -288,6 +288,41 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(specField.Child("queueName"), nil, ""),
 			},
 		},
+		"should have a valid clusterQueue name": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Admit(testingutil.MakeAdmission("@invalid").Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(specField.Child("admission", "clusterQueue"), nil, ""),
+			},
+		},
+		"should have a valid podSet name": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Admit(testingutil.MakeAdmission("cluster-queue", "@invalid").Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(specField.Child("admission", "podSetFlavors").Index(0).Child("name"), nil, ""),
+				field.NotFound(specField.Child("admission", "podSetFlavors").Index(0).Child("name"), nil),
+			},
+		},
+		"should have same podSets in admission": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets([]kueue.PodSet{
+					{
+						Name:  "main2",
+						Count: 1,
+					},
+					{
+						Name:  "main1",
+						Count: 1,
+					},
+				}).
+				Admit(testingutil.MakeAdmission("cluster-queue", "main1", "main3").Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.NotFound(specField.Child("admission", "podSetFlavors").Index(1).Child("name"), nil),
+			},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {

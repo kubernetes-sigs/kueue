@@ -23,6 +23,7 @@ import (
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
@@ -147,6 +148,10 @@ func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 		allErrs = append(allErrs, validateNameReference(string(obj.Spec.QueueName), specPath.Child("queueName"))...)
 	}
 
+	if obj.Spec.Admission != nil {
+		allErrs = append(allErrs, validateAdmission(obj, specPath.Child("admission"))...)
+	}
+
 	allErrs = append(allErrs, metav1validation.ValidateConditions(obj.Status.Conditions, field.NewPath("status", "conditions"))...)
 
 	return allErrs
@@ -158,6 +163,25 @@ func validatePodSetName(name string, fldPath *field.Path) field.ErrorList {
 	for _, msg := range validation.IsDNS1123Label(name) {
 		allErrs = append(allErrs, field.Invalid(fldPath, name, msg))
 	}
+	return allErrs
+}
+
+func validateAdmission(obj *kueue.Workload, path *field.Path) field.ErrorList {
+	admission := obj.Spec.Admission
+	var allErrs field.ErrorList
+	allErrs = append(allErrs, validateNameReference(string(admission.ClusterQueue), path.Child("clusterQueue"))...)
+
+	names := sets.NewString()
+	for _, ps := range obj.Spec.PodSets {
+		names.Insert(ps.Name)
+	}
+
+	for i, ps := range obj.Spec.Admission.PodSetFlavors {
+		if !names.Has(ps.Name) {
+			allErrs = append(allErrs, field.NotFound(path.Child("podSetFlavors").Index(i).Child("name"), ps.Name))
+		}
+	}
+
 	return allErrs
 }
 

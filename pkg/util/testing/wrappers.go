@@ -222,16 +222,30 @@ func (w *WorkloadWrapper) NodeSelector(kv map[string]string) *WorkloadWrapper {
 // AdmissionWrapper wraps an Admission
 type AdmissionWrapper struct{ kueue.Admission }
 
-func MakeAdmission(cq string) *AdmissionWrapper {
-	return &AdmissionWrapper{kueue.Admission{
+func MakeAdmission(cq string, podSetNames ...string) *AdmissionWrapper {
+	wrap := &AdmissionWrapper{kueue.Admission{
 		ClusterQueue: kueue.ClusterQueueReference(cq),
-		PodSetFlavors: []kueue.PodSetFlavors{
+	}}
+
+	if len(podSetNames) == 0 {
+		wrap.PodSetFlavors = []kueue.PodSetFlavors{
 			{
-				Name:    "main",
+				Name:    kueue.DefaultPodSetName,
 				Flavors: make(map[corev1.ResourceName]string),
 			},
-		},
-	}}
+		}
+		return wrap
+	}
+
+	var psFlavors []kueue.PodSetFlavors
+	for _, name := range podSetNames {
+		psFlavors = append(psFlavors, kueue.PodSetFlavors{
+			Name:    name,
+			Flavors: make(map[corev1.ResourceName]string),
+		})
+	}
+	wrap.PodSetFlavors = psFlavors
+	return wrap
 }
 
 func (w *AdmissionWrapper) Obj() *kueue.Admission {
