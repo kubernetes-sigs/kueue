@@ -313,6 +313,21 @@ func ExpectAdmittedWorkloadsTotalMetric(cq *kueue.ClusterQueue, v int) {
 	}, Timeout, Interval).Should(gomega.Equal(v))
 }
 
+func ExpectClusterQueueStatusMetric(cq *kueue.ClusterQueue, status metrics.ClusterQueueStatus) {
+	for i, s := range metrics.CQStatuses {
+		var wantV float64
+		if metrics.CQStatuses[i] == status {
+			wantV = 1
+		}
+		metric := metrics.ClusterQueueByStatus.WithLabelValues(cq.Name, string(s))
+		gomega.EventuallyWithOffset(1, func() float64 {
+			v, err := testutil.GetGaugeMetricValue(metric)
+			gomega.Expect(err).ToNot(gomega.HaveOccurred())
+			return v
+		}, Timeout, Interval).Should(gomega.Equal(wantV), "cluster_queue_status with status=%s", s)
+	}
+}
+
 func ExpectClusterQueueToBeDeleted(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, deleteCq bool) {
 	if deleteCq {
 		gomega.Expect(DeleteClusterQueue(ctx, k8sClient, cq)).ToNot(gomega.HaveOccurred())

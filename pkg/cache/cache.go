@@ -85,19 +85,10 @@ func newCohort(name string, size int) *Cohort {
 	}
 }
 
-type ClusterQueueStatus int
-
 const (
-	// Pending means the ClusterQueue is accepted but not yet active,
-	// this can be because of a missing ResourceFlavor referenced by the ClusterQueue.
-	// In this state, the ClusterQueue can't admit new workloads and its quota can't be borrowed
-	// by other active ClusterQueues in the cohort.
-	Pending ClusterQueueStatus = iota
-	// Active means the ClusterQueue can admit new workloads and its quota
-	// can be borrowed by other ClusterQueues in the cohort.
-	Active
-	// Terminating means the clusterQueue is in pending deletion.
-	Terminating
+	pending     = metrics.CQStatusPending
+	active      = metrics.CQStatusActive
+	terminating = metrics.CQStatusTerminating
 )
 
 // ClusterQueue is the internal implementation of kueue.ClusterQueue that
@@ -113,7 +104,7 @@ type ClusterQueue struct {
 	// Those keys define the affinity terms of a workload
 	// that can be matched against the flavors.
 	LabelKeys map[corev1.ResourceName]sets.String
-	Status    ClusterQueueStatus
+	Status    metrics.ClusterQueueStatus
 
 	// The following fields are not populated in a snapshot.
 
@@ -158,7 +149,7 @@ func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*ClusterQueue, error) {
 }
 
 func (c *ClusterQueue) Active() bool {
-	return c.Status == Active
+	return c.Status == active
 }
 
 func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[string]*kueue.ResourceFlavor) error {
@@ -211,14 +202,15 @@ func (c *ClusterQueue) UpdateCodependentResources() {
 // UpdateWithFlavors updates a ClusterQueue based on the passed ResourceFlavors set.
 // Exported only for testing.
 func (c *ClusterQueue) UpdateWithFlavors(flavors map[string]*kueue.ResourceFlavor) {
-	status := Active
+	status := active
 	if flavorNotFound := c.updateLabelKeys(flavors); flavorNotFound {
-		status = Pending
+		status = pending
 	}
 
-	if c.Status != Terminating {
+	if c.Status != terminating {
 		c.Status = status
 	}
+	metrics.ReportClusterQueueStatus(c.Name, c.Status)
 }
 
 func (c *ClusterQueue) updateLabelKeys(flavors map[string]*kueue.ResourceFlavor) bool {
@@ -336,7 +328,7 @@ func (c *Cache) updateClusterQueues() sets.String {
 		// which flavors.
 		cq.UpdateWithFlavors(c.resourceFlavors)
 		curStatus := cq.Status
-		if prevStatus == Pending && curStatus == Active {
+		if prevStatus == pending && curStatus == active {
 			cqs.Insert(cq.Name)
 		}
 	}
@@ -358,14 +350,14 @@ func (c *Cache) DeleteResourceFlavor(rf *kueue.ResourceFlavor) sets.String {
 }
 
 func (c *Cache) ClusterQueueActive(name string) bool {
-	return c.clusterQueueInStatus(name, Active)
+	return c.clusterQueueInStatus(name, active)
 }
 
 func (c *Cache) ClusterQueueTerminating(name string) bool {
-	return c.clusterQueueInStatus(name, Terminating)
+	return c.clusterQueueInStatus(name, terminating)
 }
 
-func (c *Cache) clusterQueueInStatus(name string, status ClusterQueueStatus) bool {
+func (c *Cache) clusterQueueInStatus(name string, status metrics.ClusterQueueStatus) bool {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -380,7 +372,8 @@ func (c *Cache) TerminateClusterQueue(name string) {
 	c.Lock()
 	defer c.Unlock()
 	if cq, exists := c.clusterQueues[name]; exists {
-		cq.Status = Terminating
+		cq.Status = terminating
+		metrics.ReportClusterQueueStatus(cq.Name, cq.Status)
 	}
 }
 
@@ -474,7 +467,7 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	}
 	c.deleteClusterQueueFromCohort(cqImpl)
 	delete(c.clusterQueues, cq.Name)
-	metrics.AdmittedActiveWorkloads.DeleteLabelValues(cq.Name)
+	metrics.ClearCacheMetrics(cq.Name)
 }
 
 func (c *Cache) AddLocalQueue(q *kueue.LocalQueue) error {

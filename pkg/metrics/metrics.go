@@ -23,24 +23,37 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	"sigs.k8s.io/kueue/pkg/constants"
 )
 
 type AdmissionResult string
+type ClusterQueueStatus string
 
 const (
-	subsystemName = "kueue"
-
 	AdmissionResultSuccess      AdmissionResult = "success"
 	AdmissionResultInadmissible AdmissionResult = "inadmissible"
 
 	PendingStatusActive       = "active"
 	PendingStatusInadmissible = "inadmissible"
+
+	// CQStatusPending means the ClusterQueue is accepted but not yet active,
+	// this can be because of a missing ResourceFlavor referenced by the ClusterQueue.
+	// In this state, the ClusterQueue can't admit new workloads and its quota can't be borrowed
+	// by other active ClusterQueues in the cohort.
+	CQStatusPending ClusterQueueStatus = "pending"
+	// CQStatusActive means the ClusterQueue can admit new workloads and its quota
+	// can be borrowed by other ClusterQueues in the cohort.
+	CQStatusActive ClusterQueueStatus = "active"
+	// CQStatusTerminating means the clusterQueue is in pending deletion.
+	CQStatusTerminating ClusterQueueStatus = "terminating"
 )
 
 var (
+	CQStatuses = []ClusterQueueStatus{CQStatusPending, CQStatusActive, CQStatusTerminating}
+
 	admissionAttemptsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Subsystem: subsystemName,
+			Subsystem: constants.KueueName,
 			Name:      "admission_attempts_total",
 			Help:      "Total number of attempts to admit one or more workloads, broken down by result. `success` means that at least one workload was admitted, `inadmissible` means that no workload was admitted.",
 		}, []string{"result"},
@@ -48,7 +61,7 @@ var (
 
 	admissionAttemptDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Subsystem: subsystemName,
+			Subsystem: constants.KueueName,
 			Name:      "admission_attempt_duration_seconds",
 			Help:      "Latency of an admission attempt, broken down by result.",
 		}, []string{"result"},
@@ -58,7 +71,7 @@ var (
 
 	PendingWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Subsystem: subsystemName,
+			Subsystem: constants.KueueName,
 			Name:      "pending_workloads",
 			Help: `Number of pending workloads, per cluster_queue and status.
 - "active" means that the workloads are in the admission queue.
@@ -68,7 +81,7 @@ var (
 
 	AdmittedWorkloadsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Subsystem: subsystemName,
+			Subsystem: constants.KueueName,
 			Name:      "admitted_workloads_total",
 			Help:      "Total number of admitted workloads per cluster_queue",
 		}, []string{"cluster_queue"},
@@ -76,7 +89,7 @@ var (
 
 	admissionWaitTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Subsystem: subsystemName,
+			Subsystem: constants.KueueName,
 			Name:      "admission_wait_time_seconds",
 			Help:      "The wait time since a workload was created until it was admitted, per cluster_queue",
 		}, []string{"cluster_queue"},
@@ -86,10 +99,18 @@ var (
 
 	AdmittedActiveWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Subsystem: subsystemName,
+			Subsystem: constants.KueueName,
 			Name:      "admitted_active_workloads",
 			Help:      "Number of admitted workloads that are active (unsuspended and not finished), per cluster_queue",
 		}, []string{"cluster_queue"},
+	)
+
+	ClusterQueueByStatus = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "cluster_queue_status",
+			Help:      "Status of a cluster_queue (pending, active or terminated)",
+		}, []string{"cluster_queue", "status"},
 	)
 )
 
@@ -113,6 +134,23 @@ func ClearQueueSystemMetrics(cqName string) {
 	PendingWorkloads.DeleteLabelValues(cqName, PendingStatusInadmissible)
 	AdmittedWorkloadsTotal.DeleteLabelValues(cqName)
 	admissionWaitTime.DeleteLabelValues(cqName)
+}
+
+func ReportClusterQueueStatus(cqName string, cqStatus ClusterQueueStatus) {
+	for _, status := range CQStatuses {
+		var v float64
+		if status == cqStatus {
+			v = 1
+		}
+		ClusterQueueByStatus.WithLabelValues(cqName, string(status)).Set(v)
+	}
+}
+
+func ClearCacheMetrics(cqName string) {
+	AdmittedActiveWorkloads.DeleteLabelValues(cqName)
+	for _, status := range CQStatuses {
+		ClusterQueueByStatus.DeleteLabelValues(cqName, string(status))
+	}
 }
 
 func Register() {
