@@ -32,7 +32,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 	if err := rfRec.SetupWithManager(mgr); err != nil {
 		return "ResourceFlavor", err
 	}
-	qRec := NewQueueReconciler(mgr.GetClient(), qManager, cc)
+	qRec := NewLocalQueueReconciler(mgr.GetClient(), qManager, cc)
 	if err := qRec.SetupWithManager(mgr); err != nil {
 		return "Queue", err
 	}

@@ -29,20 +29,20 @@ func keyFunc(obj interface{}) string {
 }
 
 // Key is the key used to index the queue.
-func Key(q *kueue.Queue) string {
+func Key(q *kueue.LocalQueue) string {
 	return fmt.Sprintf("%s/%s", q.Namespace, q.Name)
 }
 
-// Queue is the internal implementation of kueue.Queue.
-type Queue struct {
+// LocalQueue is the internal implementation of kueue.LocalQueue.
+type LocalQueue struct {
 	Key          string
 	ClusterQueue string
 
 	items map[string]*workload.Info
 }
 
-func newQueue(q *kueue.Queue) *Queue {
-	qImpl := &Queue{
+func newLocalQueue(q *kueue.LocalQueue) *LocalQueue {
+	qImpl := &LocalQueue{
 		Key:   Key(q),
 		items: make(map[string]*workload.Info),
 	}
@@ -50,16 +50,16 @@ func newQueue(q *kueue.Queue) *Queue {
 	return qImpl
 }
 
-func (q *Queue) update(apiQueue *kueue.Queue) {
+func (q *LocalQueue) update(apiQueue *kueue.LocalQueue) {
 	q.ClusterQueue = string(apiQueue.Spec.ClusterQueue)
 }
 
-func (q *Queue) AddOrUpdate(info *workload.Info) {
+func (q *LocalQueue) AddOrUpdate(info *workload.Info) {
 	key := workload.Key(info.Obj)
 	q.items[key] = info
 }
 
-func (q *Queue) AddIfNotPresent(w *workload.Info) bool {
+func (q *LocalQueue) AddIfNotPresent(w *workload.Info) bool {
 	key := workload.Key(w.Obj)
 	_, ok := q.items[key]
 	if !ok {

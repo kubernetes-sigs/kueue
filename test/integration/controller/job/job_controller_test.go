@@ -289,8 +289,8 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", func() {
 		spotUntaintedFlavor *kueue.ResourceFlavor
 		prodClusterQ        *kueue.ClusterQueue
 		devClusterQ         *kueue.ClusterQueue
-		prodQueue           *kueue.Queue
-		devQueue            *kueue.Queue
+		prodLocalQ          *kueue.LocalQueue
+		devLocalQ           *kueue.LocalQueue
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -339,11 +339,11 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", func() {
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, devClusterQ)).Should(gomega.Succeed())
 
-		prodQueue = testing.MakeQueue("prod-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
-		gomega.Expect(k8sClient.Create(ctx, prodQueue)).Should(gomega.Succeed())
+		prodLocalQ = testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
+		gomega.Expect(k8sClient.Create(ctx, prodLocalQ)).Should(gomega.Succeed())
 
-		devQueue = testing.MakeQueue("dev-queue", ns.Name).ClusterQueue(devClusterQ.Name).Obj()
-		gomega.Expect(k8sClient.Create(ctx, devQueue)).Should(gomega.Succeed())
+		devLocalQ = testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devClusterQ.Name).Obj()
+		gomega.Expect(k8sClient.Create(ctx, devLocalQ)).Should(gomega.Succeed())
 	})
 
 	ginkgo.AfterEach(func() {
@@ -359,7 +359,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", func() {
 
 	ginkgo.It("Should schedule jobs as they fit in their ClusterQueue", func() {
 		ginkgo.By("checking the first prod job starts")
-		prodJob1 := testing.MakeJob("prod-job1", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
+		prodJob1 := testing.MakeJob("prod-job1", ns.Name).Queue(prodLocalQ.Name).Request(corev1.ResourceCPU, "2").Obj()
 		gomega.Expect(k8sClient.Create(ctx, prodJob1)).Should(gomega.Succeed())
 		lookupKey1 := types.NamespacedName{Name: prodJob1.Name, Namespace: prodJob1.Namespace}
 		createdProdJob1 := &batchv1.Job{}
@@ -372,7 +372,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", func() {
 		framework.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
 
 		ginkgo.By("checking a second no-fit prod job does not start")
-		prodJob2 := testing.MakeJob("prod-job2", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "5").Obj()
+		prodJob2 := testing.MakeJob("prod-job2", ns.Name).Queue(prodLocalQ.Name).Request(corev1.ResourceCPU, "5").Obj()
 		gomega.Expect(k8sClient.Create(ctx, prodJob2)).Should(gomega.Succeed())
 		lookupKey2 := types.NamespacedName{Name: prodJob2.Name, Namespace: prodJob2.Namespace}
 		createdProdJob2 := &batchv1.Job{}
@@ -384,7 +384,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", func() {
 		framework.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
 
 		ginkgo.By("checking a dev job starts")
-		devJob := testing.MakeJob("dev-job", ns.Name).Queue(devQueue.Name).Request(corev1.ResourceCPU, "5").Obj()
+		devJob := testing.MakeJob("dev-job", ns.Name).Queue(devLocalQ.Name).Request(corev1.ResourceCPU, "5").Obj()
 		gomega.Expect(k8sClient.Create(ctx, devJob)).Should(gomega.Succeed())
 		createdDevJob := &batchv1.Job{}
 		gomega.Eventually(func() *bool {

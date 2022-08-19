@@ -243,12 +243,12 @@ func (w *AdmissionWrapper) Flavor(r corev1.ResourceName, f string) *AdmissionWra
 	return w
 }
 
-// QueueWrapper wraps a Queue.
-type QueueWrapper struct{ kueue.Queue }
+// LocalQueueWrapper wraps a Queue.
+type LocalQueueWrapper struct{ kueue.LocalQueue }
 
-// MakeQueue creates a wrapper for a Queue.
-func MakeQueue(name, ns string) *QueueWrapper {
-	return &QueueWrapper{kueue.Queue{
+// MakeLocalQueue creates a wrapper for a LocalQueue.
+func MakeLocalQueue(name, ns string) *LocalQueueWrapper {
+	return &LocalQueueWrapper{kueue.LocalQueue{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: ns,
@@ -256,19 +256,19 @@ func MakeQueue(name, ns string) *QueueWrapper {
 	}}
 }
 
-// Obj returns the inner Queue.
-func (q *QueueWrapper) Obj() *kueue.Queue {
-	return &q.Queue
+// Obj returns the inner LocalQueue.
+func (q *LocalQueueWrapper) Obj() *kueue.LocalQueue {
+	return &q.LocalQueue
 }
 
 // ClusterQueue updates the clusterQueue the queue points to.
-func (q *QueueWrapper) ClusterQueue(c string) *QueueWrapper {
+func (q *LocalQueueWrapper) ClusterQueue(c string) *LocalQueueWrapper {
 	q.Spec.ClusterQueue = kueue.ClusterQueueReference(c)
 	return q
 }
 
 // PendingWorkloads updates the pendingWorkloads in status.
-func (q *QueueWrapper) PendingWorkloads(n int32) *QueueWrapper {
+func (q *LocalQueueWrapper) PendingWorkloads(n int32) *LocalQueueWrapper {
 	q.Status.PendingWorkloads = n
 	return q
 }

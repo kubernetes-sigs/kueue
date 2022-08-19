@@ -293,7 +293,7 @@ func (c *ClusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 	}
 }
 
-func (c *ClusterQueue) addQueue(q *kueue.Queue) error {
+func (c *ClusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	qKey := queueKey(q)
 	if _, ok := c.admittedWorkloadsPerQueue[qKey]; ok {
 		return errQueueAlreadyExists
@@ -302,7 +302,7 @@ func (c *ClusterQueue) addQueue(q *kueue.Queue) error {
 	// receiving the queue add event.
 	workloads := 0
 	for _, wl := range c.Workloads {
-		if workloadBelongsToQueue(wl.Obj, q) {
+		if workloadBelongsToLocalQueue(wl.Obj, q) {
 			workloads++
 		}
 	}
@@ -310,7 +310,7 @@ func (c *ClusterQueue) addQueue(q *kueue.Queue) error {
 	return nil
 }
 
-func (c *ClusterQueue) deleteQueue(q *kueue.Queue) {
+func (c *ClusterQueue) deleteLocalQueue(q *kueue.LocalQueue) {
 	qKey := queueKey(q)
 	delete(c.admittedWorkloadsPerQueue, qKey)
 }
@@ -414,7 +414,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 	// On controller restart, an add ClusterQueue event may come after
 	// add queue and workload, so here we explicitly list and add existing queues
 	// and workloads.
-	var queues kueue.QueueList
+	var queues kueue.LocalQueueList
 	if err := c.client.List(ctx, &queues, client.MatchingFields{queueClusterQueueKey: cq.Name}); err != nil {
 		return fmt.Errorf("listing queues that match the clusterQueue: %w", err)
 	}
@@ -477,27 +477,27 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	metrics.AdmittedActiveWorkloads.DeleteLabelValues(cq.Name)
 }
 
-func (c *Cache) AddQueue(q *kueue.Queue) error {
+func (c *Cache) AddLocalQueue(q *kueue.LocalQueue) error {
 	c.Lock()
 	defer c.Unlock()
 	cq, ok := c.clusterQueues[string(q.Spec.ClusterQueue)]
 	if !ok {
 		return nil
 	}
-	return cq.addQueue(q)
+	return cq.addLocalQueue(q)
 }
 
-func (c *Cache) DeleteQueue(q *kueue.Queue) {
+func (c *Cache) DeleteLocalQueue(q *kueue.LocalQueue) {
 	c.Lock()
 	defer c.Unlock()
 	cq, ok := c.clusterQueues[string(q.Spec.ClusterQueue)]
 	if !ok {
 		return
 	}
-	cq.deleteQueue(q)
+	cq.deleteLocalQueue(q)
 }
 
-func (c *Cache) UpdateQueue(oldQ, newQ *kueue.Queue) error {
+func (c *Cache) UpdateLocalQueue(oldQ, newQ *kueue.LocalQueue) error {
 	if oldQ.Spec.ClusterQueue == newQ.Spec.ClusterQueue {
 		return nil
 	}
@@ -505,11 +505,11 @@ func (c *Cache) UpdateQueue(oldQ, newQ *kueue.Queue) error {
 	defer c.Unlock()
 	cq, ok := c.clusterQueues[string(oldQ.Spec.ClusterQueue)]
 	if ok {
-		cq.deleteQueue(oldQ)
+		cq.deleteLocalQueue(oldQ)
 	}
 	cq, ok = c.clusterQueues[string(newQ.Spec.ClusterQueue)]
 	if ok {
-		return cq.addQueue(newQ)
+		return cq.addLocalQueue(newQ)
 	}
 	return nil
 }
@@ -754,12 +754,12 @@ func SetupIndexes(indexer client.FieldIndexer) error {
 	})
 }
 
-func workloadBelongsToQueue(wl *kueue.Workload, q *kueue.Queue) bool {
+func workloadBelongsToLocalQueue(wl *kueue.Workload, q *kueue.LocalQueue) bool {
 	return wl.Namespace == q.Namespace && wl.Spec.QueueName == q.Name
 }
 
 // Key is the key used to index the queue.
-func queueKey(q *kueue.Queue) string {
+func queueKey(q *kueue.LocalQueue) string {
 	return fmt.Sprintf("%s/%s", q.Namespace, q.Name)
 }
 

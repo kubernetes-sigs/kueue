@@ -71,7 +71,7 @@ func (c *ClusterQueueImpl) Cohort() string {
 	return c.cohort
 }
 
-func (c *ClusterQueueImpl) AddFromQueue(q *Queue) bool {
+func (c *ClusterQueueImpl) AddFromLocalQueue(q *LocalQueue) bool {
 	added := false
 	for _, info := range q.items {
 		if c.heap.PushIfNotPresent(info) {
@@ -103,7 +103,7 @@ func (c *ClusterQueueImpl) Delete(w *kueue.Workload) {
 	c.heap.Delete(key)
 }
 
-func (c *ClusterQueueImpl) DeleteFromQueue(q *Queue) {
+func (c *ClusterQueueImpl) DeleteFromLocalQueue(q *LocalQueue) {
 	for _, w := range q.items {
 		key := workload.Key(w.Obj)
 		if wl := c.inadmissibleWorkloads[key]; wl != nil {

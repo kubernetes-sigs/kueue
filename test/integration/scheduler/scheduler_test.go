@@ -77,8 +77,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		var (
 			prodClusterQ *kueue.ClusterQueue
 			devClusterQ  *kueue.ClusterQueue
-			prodQueue    *kueue.Queue
-			devQueue     *kueue.Queue
+			prodQueue    *kueue.LocalQueue
+			devQueue     *kueue.LocalQueue
 		)
 
 		ginkgo.BeforeEach(func() {
@@ -103,10 +103,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, devClusterQ)).Should(gomega.Succeed())
 
-			prodQueue = testing.MakeQueue("prod-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
+			prodQueue = testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, prodQueue)).Should(gomega.Succeed())
 
-			devQueue = testing.MakeQueue("dev-queue", ns.Name).ClusterQueue(devClusterQ.Name).Obj()
+			devQueue = testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devClusterQ.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, devQueue)).Should(gomega.Succeed())
 		})
 
@@ -153,7 +153,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.It("Should admit workloads according to their priorities", func() {
-			queue := testing.MakeQueue("queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
+			queue := testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
 
 			lowPriorityVal, highPriorityVal := int32(10), int32(100)
 
@@ -182,7 +182,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	ginkgo.When("Handling workloads events", func() {
 		var (
 			cq    *kueue.ClusterQueue
-			queue *kueue.Queue
+			queue *kueue.LocalQueue
 		)
 
 		ginkgo.BeforeEach(func() {
@@ -197,7 +197,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					Obj()).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, cq)).Should(gomega.Succeed())
-			queue = testing.MakeQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			queue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, queue)).Should(gomega.Succeed())
 		})
 
@@ -254,7 +254,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, fooCQ)).Should(gomega.Succeed())
 			}()
 
-			fooQ := testing.MakeQueue("foo-queue", ns.Name).ClusterQueue(fooCQ.Name).Obj()
+			fooQ := testing.MakeLocalQueue("foo-queue", ns.Name).ClusterQueue(fooCQ.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, fooQ)).Should(gomega.Succeed())
 
 			ginkgo.By("First big workload starts")
@@ -296,7 +296,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	ginkgo.When("Handling clusterQueue events", func() {
 		var (
 			cq    *kueue.ClusterQueue
-			queue *kueue.Queue
+			queue *kueue.LocalQueue
 		)
 
 		ginkgo.BeforeEach(func() {
@@ -308,7 +308,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					Obj()).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, cq)).Should(gomega.Succeed())
-			queue = testing.MakeQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			queue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, queue)).Should(gomega.Succeed())
 		})
 
@@ -344,9 +344,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	ginkgo.When("Using clusterQueue NamespaceSelector", func() {
 		var (
 			cq       *kueue.ClusterQueue
-			queue    *kueue.Queue
+			queue    *kueue.LocalQueue
 			nsFoo    *corev1.Namespace
-			queueFoo *kueue.Queue
+			queueFoo *kueue.LocalQueue
 		)
 
 		ginkgo.BeforeEach(func() {
@@ -366,7 +366,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, cq)).Should(gomega.Succeed())
 
-			queue = testing.MakeQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			queue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, queue)).Should(gomega.Succeed())
 
 			nsFoo = &corev1.Namespace{
@@ -375,7 +375,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				},
 			}
 			gomega.Expect(k8sClient.Create(ctx, nsFoo)).To(gomega.Succeed())
-			queueFoo = testing.MakeQueue("foo", nsFoo.Name).ClusterQueue(cq.Name).Obj()
+			queueFoo = testing.MakeLocalQueue("foo", nsFoo.Name).ClusterQueue(cq.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, queueFoo)).Should(gomega.Succeed())
 		})
 
@@ -409,7 +409,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	ginkgo.When("Referencing resourceFlavors in clusterQueue", func() {
 		var (
 			fooCQ *kueue.ClusterQueue
-			fooQ  *kueue.Queue
+			fooQ  *kueue.LocalQueue
 		)
 
 		ginkgo.BeforeEach(func() {
@@ -420,7 +420,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					Obj()).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, fooCQ)).Should(gomega.Succeed())
-			fooQ = testing.MakeQueue("foo-queue", ns.Name).ClusterQueue(fooCQ.Name).Obj()
+			fooQ = testing.MakeLocalQueue("foo-queue", ns.Name).ClusterQueue(fooCQ.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, fooQ)).Should(gomega.Succeed())
 		})
 
@@ -454,7 +454,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	ginkgo.When("Using taints in resourceFlavors", func() {
 		var (
 			cq    *kueue.ClusterQueue
-			queue *kueue.Queue
+			queue *kueue.LocalQueue
 		)
 
 		ginkgo.BeforeEach(func() {
@@ -470,7 +470,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, cq)).Should(gomega.Succeed())
 
-			queue = testing.MakeQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			queue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, queue)).Should(gomega.Succeed())
 		})
 
@@ -515,7 +515,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	ginkgo.When("Using affinity in resourceFlavors", func() {
 		var (
 			cq    *kueue.ClusterQueue
-			queue *kueue.Queue
+			queue *kueue.LocalQueue
 		)
 
 		ginkgo.BeforeEach(func() {
@@ -530,7 +530,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, cq)).Should(gomega.Succeed())
 
-			queue = testing.MakeQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			queue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, queue)).Should(gomega.Succeed())
 		})
 
@@ -594,7 +594,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, prodBEClusterQ)).Should(gomega.Succeed())
 
-			queue := testing.MakeQueue("queue", ns.Name).ClusterQueue(prodBEClusterQ.Name).Obj()
+			queue := testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(prodBEClusterQ.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, queue)).Should(gomega.Succeed())
 
 			ginkgo.By("checking a no-fit workload does not get admitted")
@@ -643,10 +643,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, devBEClusterQ)).Should(gomega.Succeed())
 
-			prodBEQueue := testing.MakeQueue("prod-be-queue", ns.Name).ClusterQueue(prodBEClusterQ.Name).Obj()
+			prodBEQueue := testing.MakeLocalQueue("prod-be-queue", ns.Name).ClusterQueue(prodBEClusterQ.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, prodBEQueue)).Should(gomega.Succeed())
 
-			devBEQueue := testing.MakeQueue("dev-be-queue", ns.Name).ClusterQueue(devBEClusterQ.Name).Obj()
+			devBEQueue := testing.MakeLocalQueue("dev-be-queue", ns.Name).ClusterQueue(devBEClusterQ.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, devBEQueue)).Should(gomega.Succeed())
 			wl1 := testing.MakeWorkload("wl-1", ns.Name).Queue(prodBEQueue.Name).Request(corev1.ResourceCPU, "11").Obj()
 			wl2 := testing.MakeWorkload("wl-2", ns.Name).Queue(devBEQueue.Name).Request(corev1.ResourceCPU, "11").Obj()
@@ -690,7 +690,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	ginkgo.When("Scheduling with multi workloads", func() {
 		var (
 			cq    *kueue.ClusterQueue
-			queue *kueue.Queue
+			queue *kueue.LocalQueue
 		)
 		ginkgo.BeforeEach(func() {
 			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).Should(gomega.Succeed())
@@ -702,7 +702,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, cq)).Should(gomega.Succeed())
 
-			queue = testing.MakeQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			queue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, queue)).Should(gomega.Succeed())
 		})
 
@@ -783,7 +783,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.It("Should schedule workloads by their priority strictly in StrictFIFO", func() {
-			strictFIFOQueue := testing.MakeQueue("strict-fifo-q", matchingNS.Name).ClusterQueue(strictFIFOClusterQ.Name).Obj()
+			strictFIFOQueue := testing.MakeLocalQueue("strict-fifo-q", matchingNS.Name).ClusterQueue(strictFIFOClusterQ.Name).Obj()
 
 			ginkgo.By("Creating workloads")
 			wl1 := testing.MakeWorkload("wl1", matchingNS.Name).Queue(strictFIFOQueue.
@@ -813,10 +813,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		ginkgo.It("Workloads not matching namespaceSelector should not block others", func() {
-			notMatchingQueue := testing.MakeQueue("not-matching-queue", ns.Name).ClusterQueue(strictFIFOClusterQ.Name).Obj()
+			notMatchingQueue := testing.MakeLocalQueue("not-matching-queue", ns.Name).ClusterQueue(strictFIFOClusterQ.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, notMatchingQueue)).Should(gomega.Succeed())
 
-			matchingQueue := testing.MakeQueue("matching-queue", matchingNS.Name).ClusterQueue(strictFIFOClusterQ.Name).Obj()
+			matchingQueue := testing.MakeLocalQueue("matching-queue", matchingNS.Name).ClusterQueue(strictFIFOClusterQ.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, matchingQueue)).Should(gomega.Succeed())
 
 			ginkgo.By("Creating workloads")
@@ -840,7 +840,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	ginkgo.When("Deleting clusterQueues", func() {
 		var (
 			cq    *kueue.ClusterQueue
-			queue *kueue.Queue
+			queue *kueue.LocalQueue
 		)
 
 		ginkgo.AfterEach(func() {
@@ -852,7 +852,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.By("Create clusterQueue")
 			cq = testing.MakeClusterQueue("cluster-queue").Obj()
 			gomega.Expect(k8sClient.Create(ctx, cq)).Should(gomega.Succeed())
-			queue = testing.MakeQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			queue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, queue)).Should(gomega.Succeed())
 
 			ginkgo.By("New created workloads should be admitted")

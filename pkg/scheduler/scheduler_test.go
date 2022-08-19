@@ -194,13 +194,13 @@ func TestSchedule(t *testing.T) {
 			},
 		},
 	}
-	queues := []kueue.Queue{
+	queues := []kueue.LocalQueue{
 		{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: "sales",
 				Name:      "main",
 			},
-			Spec: kueue.QueueSpec{
+			Spec: kueue.LocalQueueSpec{
 				ClusterQueue: "sales",
 			},
 		},
@@ -209,7 +209,7 @@ func TestSchedule(t *testing.T) {
 				Namespace: "sales",
 				Name:      "blocked",
 			},
-			Spec: kueue.QueueSpec{
+			Spec: kueue.LocalQueueSpec{
 				ClusterQueue: "eng-alpha",
 			},
 		},
@@ -218,7 +218,7 @@ func TestSchedule(t *testing.T) {
 				Namespace: "eng-alpha",
 				Name:      "main",
 			},
-			Spec: kueue.QueueSpec{
+			Spec: kueue.LocalQueueSpec{
 				ClusterQueue: "eng-alpha",
 			},
 		},
@@ -227,7 +227,7 @@ func TestSchedule(t *testing.T) {
 				Namespace: "eng-beta",
 				Name:      "main",
 			},
-			Spec: kueue.QueueSpec{
+			Spec: kueue.LocalQueueSpec{
 				ClusterQueue: "eng-beta",
 			},
 		},
@@ -236,7 +236,7 @@ func TestSchedule(t *testing.T) {
 				Namespace: "sales",
 				Name:      "flavor-nonexistent-queue",
 			},
-			Spec: kueue.QueueSpec{
+			Spec: kueue.LocalQueueSpec{
 				ClusterQueue: "flavor-nonexistent-cq",
 			},
 		},
@@ -245,7 +245,7 @@ func TestSchedule(t *testing.T) {
 				Namespace: "sales",
 				Name:      "cq-nonexistent-queue",
 			},
-			Spec: kueue.QueueSpec{
+			Spec: kueue.LocalQueueSpec{
 				ClusterQueue: "nonexistent-cq",
 			},
 		},
@@ -788,7 +788,7 @@ func TestSchedule(t *testing.T) {
 				t.Fatalf("Failed adding kueue scheme: %v", err)
 			}
 			clientBuilder := fake.NewClientBuilder().WithScheme(scheme).
-				WithLists(&kueue.WorkloadList{Items: tc.workloads}, &kueue.QueueList{Items: queues}).
+				WithLists(&kueue.WorkloadList{Items: tc.workloads}, &kueue.LocalQueueList{Items: queues}).
 				WithObjects(
 					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-alpha", Labels: map[string]string{"dep": "eng"}}},
 					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-beta", Labels: map[string]string{"dep": "eng"}}},
@@ -802,7 +802,7 @@ func TestSchedule(t *testing.T) {
 			qManager := queue.NewManager(cl, cqCache)
 			// Workloads are loaded into queues or clusterQueues as we add them.
 			for _, q := range queues {
-				if err := qManager.AddQueue(ctx, &q); err != nil {
+				if err := qManager.AddLocalQueue(ctx, &q); err != nil {
 					t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
 				}
 			}
@@ -1711,7 +1711,7 @@ var ignoreConditionTimestamps = cmpopts.IgnoreFields(metav1.Condition{}, "LastTr
 
 func TestRequeueAndUpdate(t *testing.T) {
 	cq := utiltesting.MakeClusterQueue("cq").Obj()
-	q1 := utiltesting.MakeQueue("q1", "ns1").ClusterQueue(cq.Name).Obj()
+	q1 := utiltesting.MakeLocalQueue("q1", "ns1").ClusterQueue(cq.Name).Obj()
 	w1 := utiltesting.MakeWorkload("w1", "ns1").Queue(q1.Name).Obj()
 
 	cases := []struct {
@@ -1790,7 +1790,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 			cqCache := cache.New(cl)
 			qManager := queue.NewManager(cl, cqCache)
 			scheduler := New(qManager, cqCache, cl, recorder)
-			if err := qManager.AddQueue(ctx, q1); err != nil {
+			if err := qManager.AddLocalQueue(ctx, q1); err != nil {
 				t.Fatalf("Inserting queue %s/%s in manager: %v", q1.Namespace, q1.Name, err)
 			}
 			if err := qManager.AddClusterQueue(ctx, cq); err != nil {

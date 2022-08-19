@@ -23,8 +23,8 @@ resources:
 - clusterqueue_viewer_role.yaml
 - job_editor_role.yaml
 - job_viewer_role.yaml
-- queue_editor_role.yaml
-- queue_viewer_role.yaml
+- localqueue_editor_role.yaml
+- localqueue_viewer_role.yaml
 - workload_editor_role.yaml
 - workload_viewer_role.yaml
 - resourceflavor_editor_role.yaml

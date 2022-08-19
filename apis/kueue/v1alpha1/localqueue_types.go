@@ -20,19 +20,19 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// QueueSpec defines the desired state of Queue
-type QueueSpec struct {
-	// clusterQueue is a reference to a clusterQueue that backs this queue.
+// LocalQueueSpec defines the desired state of LocalQueue
+type LocalQueueSpec struct {
+	// clusterQueue is a reference to a clusterQueue that backs this localQueue.
 	ClusterQueue ClusterQueueReference `json:"clusterQueue,omitempty"`
 }
 
 // ClusterQueueReference is the name of the ClusterQueue.
 type ClusterQueueReference string
 
-// QueueStatus defines the observed state of Queue
-type QueueStatus struct {
+// LocalQueueStatus defines the observed state of LocalQueue
+type LocalQueueStatus struct {
 	// PendingWorkloads is the number of workloads currently admitted to this
-	// queue not yet admitted to a ClusterQueue.
+	// localQueue not yet admitted to a ClusterQueue.
 	// +optional
 	PendingWorkloads int32 `json:"pendingWorkloads"`
 }
@@ -41,25 +41,26 @@ type QueueStatus struct {
 //+kubebuilder:subresource:status
 //+kubebuilder:printcolumn:name="ClusterQueue",JSONPath=".spec.clusterQueue",type=string,description="Backing ClusterQueue"
 //+kubebuilder:printcolumn:name="Pending Workloads",JSONPath=".status.pendingWorkloads",type=integer,description="Number of pending workloads"
+//+kubebuilder:resource:shortName={queue,queues}
 
-// Queue is the Schema for the queues API
-type Queue struct {
+// LocalQueue is the Schema for the localQueues API
+type LocalQueue struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   QueueSpec   `json:"spec,omitempty"`
-	Status QueueStatus `json:"status,omitempty"`
+	Spec   LocalQueueSpec   `json:"spec,omitempty"`
+	Status LocalQueueStatus `json:"status,omitempty"`
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
-// QueueList contains a list of Queue
-type QueueList struct {
+// LocalQueueList contains a list of LocalQueue
+type LocalQueueList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []Queue `json:"items"`
+	Items           []LocalQueue `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&Queue{}, &QueueList{})
+	SchemeBuilder.Register(&LocalQueue{}, &LocalQueueList{})
 }

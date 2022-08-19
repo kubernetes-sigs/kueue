@@ -46,10 +46,10 @@ type ClusterQueue interface {
 	// AddFromQueue pushes all workloads belonging to this queue to
 	// the ClusterQueue. If at least one workload is added, returns true.
 	// Otherwise returns false.
-	AddFromQueue(*Queue) bool
+	AddFromLocalQueue(*LocalQueue) bool
 	// DeleteFromQueue removes all workloads belonging to this queue from
 	// the ClusterQueue.
-	DeleteFromQueue(*Queue)
+	DeleteFromLocalQueue(*LocalQueue)
 
 	// PushOrUpdate pushes the workload to ClusterQueue.
 	// If the workload is already present, updates with the new one.

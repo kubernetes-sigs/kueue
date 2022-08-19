@@ -33,7 +33,7 @@ func Setup(mgr ctrl.Manager) (string, error) {
 		return "ClusterQueue", err
 	}
 
-	if err := setupWebhookForQueue(mgr); err != nil {
+	if err := setupWebhookForLocalQueue(mgr); err != nil {
 		return "Queue", err
 	}
 	return "", nil

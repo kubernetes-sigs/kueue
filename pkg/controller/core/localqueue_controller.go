@@ -36,8 +36,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/queue"
 )
 
-// QueueReconciler reconciles a Queue object
-type QueueReconciler struct {
+// LocalQueueReconciler reconciles a LocalQueue object
+type LocalQueueReconciler struct {
 	client     client.Client
 	log        logr.Logger
 	queues     *queue.Manager
@@ -45,9 +45,9 @@ type QueueReconciler struct {
 	wlUpdateCh chan event.GenericEvent
 }
 
-func NewQueueReconciler(client client.Client, queues *queue.Manager, cache *cache.Cache) *QueueReconciler {
-	return &QueueReconciler{
-		log:        ctrl.Log.WithName("queue-reconciler"),
+func NewLocalQueueReconciler(client client.Client, queues *queue.Manager, cache *cache.Cache) *LocalQueueReconciler {
+	return &LocalQueueReconciler{
+		log:        ctrl.Log.WithName("localqueue-reconciler"),
 		queues:     queues,
 		cache:      cache,
 		client:     client,
@@ -55,31 +55,31 @@ func NewQueueReconciler(client client.Client, queues *queue.Manager, cache *cach
 	}
 }
 
-func (r *QueueReconciler) NotifyWorkloadUpdate(w *kueue.Workload) {
+func (r *LocalQueueReconciler) NotifyWorkloadUpdate(w *kueue.Workload) {
 	r.wlUpdateCh <- event.GenericEvent{Object: w}
 }
 
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=queues,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=queues/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=queues/finalizers,verbs=update
+//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=localqueues,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=localqueues/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=localqueues/finalizers,verbs=update
 
-func (r *QueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	var queueObj kueue.Queue
+func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	var queueObj kueue.LocalQueue
 	if err := r.client.Get(ctx, req.NamespacedName, &queueObj); err != nil {
 		// we'll ignore not-found errors, since there is nothing to do.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	log := ctrl.LoggerFrom(ctx).WithValues("queue", klog.KObj(&queueObj))
+	log := ctrl.LoggerFrom(ctx).WithValues("localQueue", klog.KObj(&queueObj))
 	ctx = ctrl.LoggerInto(ctx, log)
-	log.V(2).Info("Reconciling Queue")
+	log.V(2).Info("Reconciling LocalQueue")
 
 	// Shallow copy enough for now.
 	oldStatus := queueObj.Status
 
 	pending, err := r.queues.PendingWorkloads(&queueObj)
 	if err != nil {
-		r.log.Error(err, "Failed to retrieve queue status")
+		r.log.Error(err, "Failed to retrieve localQueue status")
 		return ctrl.Result{}, err
 	}
 
@@ -91,55 +91,55 @@ func (r *QueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	return ctrl.Result{}, nil
 }
 
-func (r *QueueReconciler) Create(e event.CreateEvent) bool {
-	q, match := e.Object.(*kueue.Queue)
+func (r *LocalQueueReconciler) Create(e event.CreateEvent) bool {
+	q, match := e.Object.(*kueue.LocalQueue)
 	if !match {
 		// No need to interact with the queue manager for other objects.
 		return true
 	}
-	log := r.log.WithValues("queue", klog.KObj(q))
-	log.V(2).Info("Queue create event")
+	log := r.log.WithValues("localQueue", klog.KObj(q))
+	log.V(2).Info("LocalQueue create event")
 	ctx := logr.NewContext(context.Background(), log)
-	if err := r.queues.AddQueue(ctx, q); err != nil {
-		log.Error(err, "Failed to add queue to the queueing system")
+	if err := r.queues.AddLocalQueue(ctx, q); err != nil {
+		log.Error(err, "Failed to add localQueue to the queueing system")
 	}
-	if err := r.cache.AddQueue(q); err != nil {
-		log.Error(err, "Failed to add queue to the cache")
+	if err := r.cache.AddLocalQueue(q); err != nil {
+		log.Error(err, "Failed to add localQueue to the cache")
 	}
 	return true
 }
 
-func (r *QueueReconciler) Delete(e event.DeleteEvent) bool {
-	q, match := e.Object.(*kueue.Queue)
+func (r *LocalQueueReconciler) Delete(e event.DeleteEvent) bool {
+	q, match := e.Object.(*kueue.LocalQueue)
 	if !match {
 		// No need to interact with the queue manager for other objects.
 		return true
 	}
-	r.log.V(2).Info("Queue delete event", "queue", klog.KObj(q))
-	r.queues.DeleteQueue(q)
-	r.cache.DeleteQueue(q)
+	r.log.V(2).Info("LocalQueue delete event", "localQueue", klog.KObj(q))
+	r.queues.DeleteLocalQueue(q)
+	r.cache.DeleteLocalQueue(q)
 	return true
 }
 
-func (r *QueueReconciler) Update(e event.UpdateEvent) bool {
-	q, match := e.ObjectNew.(*kueue.Queue)
+func (r *LocalQueueReconciler) Update(e event.UpdateEvent) bool {
+	q, match := e.ObjectNew.(*kueue.LocalQueue)
 	if !match {
 		// No need to interact with the queue manager for other objects.
 		return true
 	}
-	log := r.log.WithValues("queue", klog.KObj(q))
+	log := r.log.WithValues("localQueue", klog.KObj(q))
 	log.V(2).Info("Queue update event")
-	if err := r.queues.UpdateQueue(q); err != nil {
+	if err := r.queues.UpdateLocalQueue(q); err != nil {
 		log.Error(err, "Failed to update queue in the queueing system")
 	}
-	oldQ := e.ObjectOld.(*kueue.Queue)
-	if err := r.cache.UpdateQueue(oldQ, q); err != nil {
-		log.Error(err, "Failed to update queue in the cache")
+	oldQ := e.ObjectOld.(*kueue.LocalQueue)
+	if err := r.cache.UpdateLocalQueue(oldQ, q); err != nil {
+		log.Error(err, "Failed to update localQueue in the cache")
 	}
 	return true
 }
 
-func (r *QueueReconciler) Generic(e event.GenericEvent) bool {
+func (r *LocalQueueReconciler) Generic(e event.GenericEvent) bool {
 	r.log.V(3).Info("Got Workload event", "workload", klog.KObj(e.Object))
 	return true
 }
@@ -174,9 +174,9 @@ func (h *qWorkloadHandler) Generic(e event.GenericEvent, q workqueue.RateLimitin
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *QueueReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *LocalQueueReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&kueue.Queue{}).
+		For(&kueue.LocalQueue{}).
 		Watches(&source.Channel{Source: r.wlUpdateCh}, &qWorkloadHandler{}).
 		WithEventFilter(r).
 		Complete(r)
