@@ -1,3 +1,7 @@
+# This overlay builds the prometheus component to be used in combination
+# with other overlays.
+
+namespace: kueue-system
+namePrefix: kueue-
 resources:
-- monitor.yaml
-- role.yaml
+- ../components/prometheus

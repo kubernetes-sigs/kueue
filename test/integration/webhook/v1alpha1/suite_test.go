@@ -48,8 +48,8 @@ func TestAPIs(t *testing.T) {
 
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
-		CRDPath:     filepath.Join("..", "..", "..", "..", "config", "crd", "bases"),
-		WebhookPath: filepath.Join("..", "..", "..", "..", "config", "webhook"),
+		CRDPath:     filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases"),
+		WebhookPath: filepath.Join("..", "..", "..", "..", "config", "components", "webhook"),
 		ManagerSetup: func(mgr manager.Manager, ctx context.Context) {
 			failedWebhook, err := webhooks.Setup(mgr)
 			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)

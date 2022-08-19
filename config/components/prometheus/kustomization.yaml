@@ -1,0 +1,3 @@
+resources:
+- monitor.yaml
+- role.yaml
