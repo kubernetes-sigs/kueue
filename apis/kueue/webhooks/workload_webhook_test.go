@@ -280,6 +280,14 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(specField.Child("priority"), nil, ""),
 			},
 		},
+		"should have a valid queueName": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Queue("@invalid").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(specField.Child("queueName"), nil, ""),
+			},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
@@ -340,23 +348,42 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				field.Invalid(field.NewPath("spec").Child("podSets"), nil, ""),
 			},
 		},
-		"queueName can be updated when not set": {
-			before:  testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
-			after:   testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("queue").Obj(),
+		"queueName can be updated when not admitted": {
+			before:  testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q1").Obj(),
+			after:   testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q2").Obj(),
 			wantErr: nil,
 		},
-		"queueName should not be updated once set": {
-			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("queue1").Obj(),
-			after:  testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("queue2").Obj(),
+		"queueName can be updated when admitting": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q").
+				Admit(testingutil.MakeAdmission("cq").Obj()).Obj(),
+		},
+		"queueName should not be updated once admitted": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q1").
+				Admit(testingutil.MakeAdmission("cq").Obj()).Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q2").
+				Admit(testingutil.MakeAdmission("cq").Obj()).Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec").Child("queueName"), nil, ""),
 			},
 		},
-		"admission can be updated when not set": {
+		"queueName can be updated when admission is reset": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q1").
+				Admit(testingutil.MakeAdmission("cq").Obj()).Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q2").Obj(),
+		},
+		"admission can be set": {
 			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
 			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Admit(
 				testingutil.MakeAdmission("cluster-queue").Flavor("on-demand", "5").Obj(),
 			).Obj(),
+			wantErr: nil,
+		},
+		"admission can be unset": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Admit(
+				testingutil.MakeAdmission("cluster-queue").Flavor("on-demand", "5").Obj(),
+			).Obj(),
+			after:   testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
 			wantErr: nil,
 		},
 		"admission should not be updated once set": {

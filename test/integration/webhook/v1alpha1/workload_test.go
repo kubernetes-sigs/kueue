@@ -126,9 +126,12 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			gomega.Expect(errors.IsForbidden(err)).Should(gomega.BeTrue(), "error: %v", err)
 		})
 
-		ginkgo.It("Should forbid the change of spec.queueName", func() {
+		ginkgo.It("Should forbid the change of spec.queueName of an admitted workload", func() {
 			ginkgo.By("Creating a new Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).Queue("queue1").Obj()
+			workload := testing.MakeWorkload(workloadName, ns.Name).
+				Queue("queue1").
+				Admit(testing.MakeAdmission("cq").Obj()).
+				Obj()
 			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
 
 			ginkgo.By("Updating queueName")
