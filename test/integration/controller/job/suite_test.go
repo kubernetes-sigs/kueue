@@ -76,7 +76,7 @@ func managerAndSchedulerSetup(opts ...job.Option) framework.ManagerSetup {
 			mgr.GetEventRecorderFor(constants.JobControllerName), opts...).SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.ManagerName))
+		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))
 		go func() {
 			sched.Start(ctx)
 		}()

@@ -40,6 +40,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/api"
@@ -57,16 +58,21 @@ type Scheduler struct {
 	client                  client.Client
 	recorder                record.EventRecorder
 	admissionRoutineWrapper routine.Wrapper
+
+	// Stubs.
+	applyAdmission func(context.Context, *kueue.Workload) error
 }
 
 func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder record.EventRecorder) *Scheduler {
-	return &Scheduler{
+	s := &Scheduler{
 		queues:                  queues,
 		cache:                   cache,
 		client:                  cl,
 		recorder:                recorder,
 		admissionRoutineWrapper: routine.DefaultWrapper,
 	}
+	s.applyAdmission = s.applyAdmissionWithSSA
+	return s
 }
 
 func (s *Scheduler) Start(ctx context.Context) {
@@ -328,7 +334,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 	log.V(2).Info("Workload assumed in the cache")
 
 	s.admissionRoutineWrapper.Run(func() {
-		err := s.client.Update(ctx, newWorkload.DeepCopy())
+		err := s.applyAdmission(ctx, workloadAdmissionFrom(newWorkload))
 		if err == nil {
 			waitTime := time.Since(e.Obj.CreationTimestamp.Time)
 			s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time was %.3fs", admission.ClusterQueue, waitTime.Seconds())
@@ -349,6 +355,27 @@ func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 	})
 
 	return nil
+}
+
+func (s *Scheduler) applyAdmissionWithSSA(ctx context.Context, w *kueue.Workload) error {
+	return s.client.Patch(ctx, w, client.Apply, client.FieldOwner(constants.AdmissionName))
+}
+
+// workloadAdmissionFrom returns only the fields necessary for admission using
+// ServerSideApply.
+func workloadAdmissionFrom(w *kueue.Workload) *kueue.Workload {
+	return &kueue.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:        w.UID,
+			Name:       w.Name,
+			Namespace:  w.Namespace,
+			Generation: w.Generation, // Produce a conflict if there was a change in the spec.
+		},
+		TypeMeta: w.TypeMeta,
+		Spec: kueue.WorkloadSpec{
+			Admission: w.Spec.Admission.DeepCopy(),
+		},
+	}
 }
 
 // findFlavorForCodepResources returns a flavor which can satisfy the resource request,

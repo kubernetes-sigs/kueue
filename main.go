@@ -193,7 +193,7 @@ func setupScheduler(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache, 
 		queues,
 		cCache,
 		mgr.GetClient(),
-		mgr.GetEventRecorderFor(constants.ManagerName),
+		mgr.GetEventRecorderFor(constants.AdmissionName),
 	)
 	go sched.Start(ctx)
 }
