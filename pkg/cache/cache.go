@@ -335,14 +335,16 @@ func (c *Cache) updateClusterQueues() sets.String {
 		// because it is not expensive to do so, and is not worth tracking which ClusterQueues use
 		// which flavors.
 		cq.UpdateWithFlavors(c.resourceFlavors)
-		curStatus := cq.Status
-		if prevStatus == Pending && curStatus == Active {
+		if prevStatus == Pending && cq.Status == Active {
 			cqs.Insert(cq.Name)
 		}
 	}
 	return cqs
 }
 
+// AddOrUpdateResourceFlavors adds or updates the flavor and updates the
+// status of the ClusterQueues. It returns the names of the ClusterQueues that
+// became active.
 func (c *Cache) AddOrUpdateResourceFlavor(rf *kueue.ResourceFlavor) sets.String {
 	c.Lock()
 	defer c.Unlock()
@@ -350,6 +352,9 @@ func (c *Cache) AddOrUpdateResourceFlavor(rf *kueue.ResourceFlavor) sets.String 
 	return c.updateClusterQueues()
 }
 
+// DeleteResourceFlavor deletes the resource flavor and updates the status of
+// the ClusterQueues. It returns the names of the ClusterQueues that became
+// active.
 func (c *Cache) DeleteResourceFlavor(rf *kueue.ResourceFlavor) sets.String {
 	c.Lock()
 	defer c.Unlock()

@@ -109,7 +109,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 	queued := m.queueAllInadmissibleWorkloadsInCohort(ctx, cqImpl)
 	m.reportPendingWorkloads(cq.Name, cqImpl)
 	if queued || addedWorkloads {
-		m.Broadcast()
+		m.cond.Broadcast()
 	}
 	return nil
 }
@@ -135,7 +135,7 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 	// TODO(#8): Selectively move workloads based on the exact event.
 	if m.queueAllInadmissibleWorkloadsInCohort(ctx, cqImpl) {
 		m.reportPendingWorkloads(cq.Name, cqImpl)
-		m.Broadcast()
+		m.cond.Broadcast()
 	}
 
 	return nil
@@ -181,7 +181,7 @@ func (m *Manager) AddQueue(ctx context.Context, q *kueue.Queue) error {
 	}
 	cq := m.clusterQueues[qImpl.ClusterQueue]
 	if cq != nil && cq.AddFromQueue(qImpl) {
-		m.Broadcast()
+		m.cond.Broadcast()
 	}
 	return nil
 }
@@ -200,7 +200,7 @@ func (m *Manager) UpdateQueue(q *kueue.Queue) error {
 		}
 		newCQ := m.clusterQueues[string(q.Spec.ClusterQueue)]
 		if newCQ != nil && newCQ.AddFromQueue(qImpl) {
-			m.Broadcast()
+			m.cond.Broadcast()
 		}
 	}
 	qImpl.update(q)
@@ -284,7 +284,7 @@ func (m *Manager) addOrUpdateWorkload(w *kueue.Workload) bool {
 	}
 	cq.PushOrUpdate(wInfo)
 	m.reportPendingWorkloads(q.ClusterQueue, cq)
-	m.Broadcast()
+	m.cond.Broadcast()
 	return true
 }
 
@@ -317,7 +317,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	added := cq.RequeueIfNotPresent(info, reason)
 	m.reportPendingWorkloads(q.ClusterQueue, cq)
 	if added {
-		m.Broadcast()
+		m.cond.Broadcast()
 	}
 	return added
 }
@@ -359,7 +359,7 @@ func (m *Manager) QueueAssociatedInadmissibleWorkloads(ctx context.Context, w *k
 	}
 
 	if m.queueAllInadmissibleWorkloadsInCohort(ctx, cq) {
-		m.Broadcast()
+		m.cond.Broadcast()
 	}
 }
 
@@ -367,11 +367,11 @@ func (m *Manager) QueueAssociatedInadmissibleWorkloads(ctx context.Context, w *k
 // corresponding ClusterQueues to heap. If at least one workload queued,
 // we will broadcast the event.
 func (m *Manager) QueueInadmissibleWorkloads(ctx context.Context, cqNames sets.String) {
-	m.Lock()
-	defer m.Unlock()
 	if len(cqNames) == 0 {
 		return
 	}
+	m.Lock()
+	defer m.Unlock()
 
 	var queued bool
 	for name := range cqNames {
@@ -385,7 +385,7 @@ func (m *Manager) QueueInadmissibleWorkloads(ctx context.Context, cqNames sets.S
 	}
 
 	if queued {
-		m.Broadcast()
+		m.cond.Broadcast()
 	}
 }
 
@@ -430,7 +430,7 @@ func (m *Manager) UpdateWorkload(oldW, w *kueue.Workload) bool {
 // Heads.
 func (m *Manager) CleanUpOnContext(ctx context.Context) {
 	<-ctx.Done()
-	m.Broadcast()
+	m.cond.Broadcast()
 }
 
 // Heads returns the heads of the queues, along with their associated ClusterQueue.
@@ -537,10 +537,6 @@ func (m *Manager) deleteCohort(cohort string, cqName string) {
 func (m *Manager) updateCohort(oldCohort string, newCohort string, cqName string) {
 	m.deleteCohort(oldCohort, cqName)
 	m.addCohort(newCohort, cqName)
-}
-
-func (m *Manager) Broadcast() {
-	m.cond.Broadcast()
 }
 
 func (m *Manager) reportPendingWorkloads(cqName string, cq ClusterQueue) {
