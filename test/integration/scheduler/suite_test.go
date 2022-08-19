@@ -56,8 +56,8 @@ func TestScheduler(t *testing.T) {
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
 		ManagerSetup: managerAndSchedulerSetup,
-		CRDPath:      filepath.Join("..", "..", "..", "config", "crd", "bases"),
-		WebhookPath:  filepath.Join("..", "..", "..", "config", "webhook"),
+		CRDPath:      filepath.Join("..", "..", "..", "config", "components", "crd", "bases"),
+		WebhookPath:  filepath.Join("..", "..", "..", "config", "components", "webhook"),
 	}
 	ctx, cfg, k8sClient = fwk.Setup()
 })

@@ -12,18 +12,18 @@ namePrefix: kueue-
 #commonLabels:
 #  someName: someValue
 
-bases:
-- ../crd
-- ../rbac
-- ../manager
+resources:
+- ../components/crd
+- ../components/rbac
+- ../components/manager
+- ../components/internalcert
 # [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix including the one in
-# crd/kustomization.yaml
-- ../webhook
+# ../components/crd/kustomization.yaml
+- ../components/webhook
 # [CERTMANAGER] To enable cert-manager, uncomment all sections with 'CERTMANAGER'. 'WEBHOOK' components are required.
-# - ../certmanager
-- ../internalcert
+# - ../components/certmanager
 # [PROMETHEUS] To enable prometheus monitor, uncomment all sections with 'PROMETHEUS'.
-#- ../prometheus
+#- ../components/prometheus
 
 patchesStrategicMerge:
 # Protect the /metrics endpoint by putting it behind auth.

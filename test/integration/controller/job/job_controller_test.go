@@ -57,7 +57,7 @@ var (
 	k8sClient client.Client
 	ctx       context.Context
 	fwk       *framework.Framework
-	crdPath   = filepath.Join("..", "..", "..", "..", "config", "crd", "bases")
+	crdPath   = filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases")
 )
 
 // +kubebuilder:docs-gen:collapse=Imports

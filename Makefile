@@ -85,7 +85,11 @@ help: ## Display this help.
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	$(CONTROLLER_GEN) \
+		rbac:roleName=manager-role output:rbac:artifacts:config=config/components/rbac\
+		crd output:crd:artifacts:config=config/components/crd/bases\
+		webhook output:webhook:artifacts:config=config/components/webhook\
+		paths="./..."
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -127,7 +131,7 @@ ci-lint: golangci-lint
 
 .PHONY: verify
 verify: gomod-verify vet ci-lint fmt-verify manifests generate
-	git --no-pager diff --exit-code config/crd/bases apis
+	git --no-pager diff --exit-code config/components apis
 
 ##@ Build
 
@@ -160,7 +164,7 @@ ifndef ignore-not-found
   ignore-not-found = false
 endif
 
-clean-manifests = (cd config/manager && $(KUSTOMIZE) edit set image controller=gcr.io/k8s-staging-kueue/kueue:main)
+clean-manifests = (cd config/components/manager && $(KUSTOMIZE) edit set image controller=gcr.io/k8s-staging-kueue/kueue:main)
 
 .PHONY: install
 install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
@@ -172,9 +176,13 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 
 .PHONY: deploy
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
-	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMAGE_TAG}
-	$(KUSTOMIZE) build config/default | kubectl apply -f -
+	cd config/components/manager && $(KUSTOMIZE) edit set image controller=${IMAGE_TAG}
+	kubectl apply -k config/default
 	@$(call clean-manifests)
+
+.PHONY: prometheus
+prometheus:
+	kubectl apply -k config/prometheus
 
 .PHONY: undeploy
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
@@ -183,10 +191,12 @@ undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/confi
 ##@ Release
 .PHONY: artifacts
 artifacts: kustomize
-	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMAGE_TAG}
+	cd config/components/manager && $(KUSTOMIZE) edit set image controller=${IMAGE_TAG}
 	if [ -d artifacts ]; then rm -rf artifacts; fi
-	@mkdir -p artifacts
+	mkdir -p artifacts
 	$(KUSTOMIZE) build config/default -o artifacts/manifests.yaml
+	$(KUSTOMIZE) build config/prometheus -o artifacts/prometheus.yaml
+	@$(call clean-manifests)
 
 ##@ Tools
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
