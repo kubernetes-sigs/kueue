@@ -1,8 +1,9 @@
 # Cluster Queue
 
-A `ClusterQueue` is a cluster-scoped object that governs a pool of resources
+A ClusterQueue is a cluster-scoped object that governs a pool of resources
 such as CPU, memory and hardware accelerators. A `ClusterQueue` defines:
-- The resource _flavors_ that it manages, with usage limits and order of consumption.
+- The [resource _flavors_](#resourceflavor-object) that it manages, with usage
+  limits and order of consumption.
 - Fair sharing rules across the tenants of the cluster.
 
 Only [cluster administrators](/docs/tasks#batch-administrator) should create `ClusterQueue` objects.
@@ -34,6 +35,74 @@ This ClusterQueue admits [workloads](workload.md) if and only if:
 - The sum of the memory requests is less than or equal to 36Gi.
 
 You can specify the quota as a [quantity](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/quantity/).
+
+## Resources
+
+In a ClusterQueue, you can define quotas for multiple [compute resources](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#resource-types)
+(cpu, memory, GPUs, etc.).
+
+For each resource, you can define quotas for multiple _flavors_. A
+flavor represents different variations of a resource. The variations can be
+defined in a [ResourceFlavor object](#resourceflavor-object).
+
+In a process called [admission](.#admission), Kueue assigns
+[Workload pod sets](workload.md#pod-sets) a flavor for each resource it requests.
+Kueue assigns the first flavor in the ClusterQueue's `.spec.resources[*].flavors`
+list that has enough unused `min` quota in the ClusterQueue or the
+ClusterQueue's [cohort](#cohort).
+
+### Codepedent resources
+
+It is possible that multiple resources are tied to the same flavors. This is
+typical for `cpu` and `memory`, where the flavors are generally tied to a
+machine family or availability guarantees.
+
+If this is the case, the resources in the ClusterQueue must list the same
+flavors in the same order. When two or more resources match their flavors,
+they are said to be codependent. During admission, for each pod set in a
+Workload, Kueue assigns the same flavor to the codependent resources that the
+pod set requests.
+
+An example of a ClusterQueue with codependent resources looks like the following:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1alpha1
+kind: ClusterQueue
+metadata:
+  name: cluster-total
+spec:
+  namespaceSelector: {}
+  resources:
+  - name: "cpu"
+    flavors:
+    - name: spot
+      quota:
+        min: 18
+    - name: on_demand
+      quota:
+        min: 9
+  - name: "memory"
+    flavors:
+    - name: spot
+      quota:
+        min: 72Gi
+    - name: on_demand
+      quota:
+        min: 36Gi
+  - name: "gpu"
+    flavors:
+    - name: vendor1
+      quota:
+        min: 10
+    - name: vendor2
+      quota:
+        min: 10
+```
+
+In the example above, `cpu` and `memory` are codependent resources, while `gpu`
+is independent.
+
+If two resources are not codependent, they must not have any flavors in common.
 
 ## Namespace selector
 
@@ -81,7 +150,7 @@ Resources in a cluster are typically not homogeneous. Resources could differ in:
 - architecture (ex: x86 vs ARM CPUs)
 - brands and models (ex: Radeon 7000 vs Nvidia A100 vs T4 GPUs)
 
-A `ResourceFlavor` is an object that represents these variations and allows you
+A ResourceFlavor is an object that represents these variations and allows you
 to associate them with node labels and taints.
 
 **Note**: If your cluster is homogeneous, you can use an [empty ResourceFlavor](#empty-resourceflavor)
@@ -102,13 +171,8 @@ taints:
   value: "true"
 ```
 
-You can use the `.metadata.name` to reference a flavor from a ClusterQueue in
-the `.spec.resources[*].flavors[*].name` field.
-
-For each resource of each [pod set](workload.md#pod-sets) in a Workload, Kueue
-assigns the first flavor in the `.spec.resources[*].flavors`
-list that has enough unused quota in the ClusterQueue or the ClusterQueue's
-[cohort](#cohort).
+You can use the `.metadata.name` to reference a ResourceFlavor from a
+ClusterQueue in the `.spec.resources[*].flavors[*].name` field.
 
 ### ResourceFlavor labels
 
@@ -132,9 +196,9 @@ steps:
    didn't specify them already.
 
    For example, for a [batch/v1.Job](https://kubernetes.io/docs/concepts/workloads/controllers/job/),
-   Kueue adds the labels to `.spec.template.spec.nodeSelector`. This guarantees
-   that the workload Pods run on the nodes associated to the flavor that Kueue
-   decided that the workload should use.
+   Kueue adds the labels to the `.spec.template.spec.nodeSelector` field. This
+   guarantees that the workload Pods run on the nodes associated to the flavor
+   that Kueue decided that the workload should use.
 
 ### ResourceFlavor taints
 
@@ -143,8 +207,9 @@ with taints.
 
 Taints on the ResourceFlavor work similarly to [node taints](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/).
 For Kueue to admit a workload to use the ResourceFlavor, the PodSpecs in the
-workload should have a toleration for it. As opposed to ResourceFlavor labels,
-Kueue will not add tolerations for the flavor taints.
+workload should have a toleration for it. As opposed to the behavior for
+[ResourceFlavor labels](#resourceflavor-labels), Kueue will not add tolerations
+for the flavor taints.
 
 ### Empty ResourceFlavor
 
@@ -173,18 +238,18 @@ ClusterQueue.
 
 ### Flavors and borrowing semantics
 
-When borrowing, Kueue satisfies the following semantics:
+When borrowing, Kueue satisfies the following admission semantics:
 
-- When assigning flavors, Kueue goes through the list of flavors in
-  `.spec.resources[*].flavors`. For each flavor, Kueue attempts to
-  fit the workload using the min quota of the ClusterQueue or the unused
-  min quota of other ClusterQueues in the cohort, up to the max quota of the
-  ClusterQueue. If the workload doesn't fit, Kueue proceeds evaluating the next
+- When assigning flavors, Kueue goes through the list of flavors in the
+  ClusterQueue's `.spec.resources[*].flavors`. For each flavor, Kueue attempts
+  to fit a Workload's pod set using the `min` quota of the ClusterQueue or the
+  unused `min` quota of other ClusterQueues in the cohort, up to the `max` quota
+  of the ClusterQueue. If the workload doesn't fit, Kueue proceeds evaluating the next
   flavor in the list.
-- Borrowing happens per-flavor. A ClusterQueue can only borrow quota of flavors
-  it defines.
+- A ClusterQueue can only borrow quota of flavors it defines and it can only
+  borrow quota for one flavor.
 
-### Example
+### Borrowing example
 
 Assume you created the following two ClusterQueues:
 

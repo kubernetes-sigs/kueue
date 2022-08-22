@@ -5,20 +5,26 @@ Kueue is a set of APIs and controller for [job](docs/concepts/workload.md)
 a job should be [admitted](docs/concepts#admission) to start (as in pods can be
 created) and when it should stop (as in active pods should be deleted).
 
+## Why use Kueue
+
+Kueue is a lean controller that you can install on top of a vanilla Kubernetes
+cluster without replacing any components. It is compatible with cloud
+environments where:
+- Nodes and other compute resources can be scaled up and down.
+- Compute resources are heterogeneous (in architecture, availability, price, etc.).
+
+Kueue APIs allow you to express:
+- Quotas and policies for fair sharing among tenants.
+- Resource fungibility: if a [resource flavor](docs/concepts/cluster_queue.md#resourceflavor-object)
+  is fully utilized, run the [job](docs/concepts/workload.md) using a different
+  flavor.
+
 The main design principle for Kueue is to avoid duplicating mature functionality
 in [Kubernetes components](https://kubernetes.io/docs/concepts/overview/components/)
 and well-established third-party controllers. Autoscaling, pod-to-node scheduling and
 job lifecycle management are the responsibility of cluster-autoscaler,
 kube-scheduler and kube-controller-manager, respectively. Advanced
 admission control can be delegated to controllers such as [gatekeeper](https://github.com/open-policy-agent/gatekeeper).
-
-<!-- TODO(#64) Remove links to google docs once the contents have been migrated to this repo -->
-Learn more by reading the design docs:
-- [bit.ly/kueue-apis](https://bit.ly/kueue-apis) (please join the [mailing list](https://groups.google.com/a/kubernetes.io/g/wg-batch)
-to get access) discusses the API proposal and a high-level description of how it
-operates.
-- [bit.ly/kueue-controller-design](https://bit.ly/kueue-controller-design)
-presents the detailed design of the controller.
 
 ## Installation
 
@@ -51,6 +57,18 @@ kubectl create -f config/samples/sample-job.yaml
 Learn more about:
 - Kueue [concepts](docs/concepts).
 - Common and advanced [tasks](docs/tasks).
+
+## Architecture
+
+<!-- TODO(#64) Remove links to google docs once the contents have been migrated to this repo -->
+
+Learn more about the architecture of Kueue in the design docs:
+
+- [bit.ly/kueue-apis](https://bit.ly/kueue-apis) (please join the [mailing list](https://groups.google.com/a/kubernetes.io/g/wg-batch)
+to get access) discusses the API proposal and a high-level description of how it
+operates.
+- [bit.ly/kueue-controller-design](https://bit.ly/kueue-controller-design)
+presents the detailed design of the controller.
 
 ## Community, discussion, contribution, and support
 

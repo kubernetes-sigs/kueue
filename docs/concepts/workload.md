@@ -23,6 +23,7 @@ metadata:
   name: sample-job
   namespace: default
 spec:
+  queueName: user-queue
   podSets:
   - count: 3
     name: main
@@ -36,8 +37,12 @@ spec:
             cpu: "1"
             memory: 200Mi
       restartPolicy: Never
-  queueName: user-queue
 ```
+
+## Queue name
+
+To indicate in which [LocalQueue](local_queue.md) you want your Workload to be
+enqueued, set the name of the LocalQueue in the `.spec.queueName` field.
 
 ## Pod sets
 
@@ -64,3 +69,7 @@ of the Job's pod template.
 As described previously, Kueue has built-in support for workloads created with
 the Job API. But any custom workload API can integrate with Kueue by
 creating a corresponding Workload object for it.
+
+## What's next
+
+- Learn how to [run jobs](/docs/tasks/run_jobs.md).
