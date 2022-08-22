@@ -1,9 +1,9 @@
-apiVersion: kueue.x-k8s.io/v1alpha1
+apiVersion: kueue.x-k8s.io/v1alpha2
 kind: ResourceFlavor
 metadata:
   name: default
 ---
-apiVersion: kueue.x-k8s.io/v1alpha1
+apiVersion: kueue.x-k8s.io/v1alpha2
 kind: ClusterQueue
 metadata:
   name: cluster-total
@@ -21,7 +21,7 @@ spec:
       quota:
         min: 36Gi
 ---
-apiVersion: kueue.x-k8s.io/v1alpha1
+apiVersion: kueue.x-k8s.io/v1alpha2
 kind: LocalQueue
 metadata:
   namespace: default

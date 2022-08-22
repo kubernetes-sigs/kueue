@@ -39,7 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	configv1alpha1 "sigs.k8s.io/kueue/apis/config/v1alpha1"
-	kueuev1alpha1 "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueuev1alpha2 "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 	"sigs.k8s.io/kueue/apis/kueue/webhooks"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -63,7 +63,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(schedulingv1.AddToScheme(scheme))
 
-	utilruntime.Must(kueuev1alpha1.AddToScheme(scheme))
+	utilruntime.Must(kueuev1alpha2.AddToScheme(scheme))
 	utilruntime.Must(configv1alpha1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }

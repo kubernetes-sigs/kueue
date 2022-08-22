@@ -30,7 +30,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 )
 
 // log is for logging in this package.
@@ -46,7 +46,7 @@ func setupWebhookForWorkload(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1alpha1-workload,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads,verbs=create;update,versions=v1alpha1,name=mworkload.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1alpha2-workload,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads,verbs=create;update,versions=v1alpha2,name=mworkload.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomDefaulter = &WorkloadWebhook{}
 
@@ -85,7 +85,7 @@ func setContainersDefaults(containers []corev1.Container) {
 	}
 }
 
-// +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1alpha1-workload,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads,verbs=create;update,versions=v1alpha1,name=vworkload.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1alpha2-workload,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads,verbs=create;update,versions=v1alpha2,name=vworkload.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomValidator = &WorkloadWebhook{}
 

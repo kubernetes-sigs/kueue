@@ -34,7 +34,7 @@ spec:
       name: Admitted Workloads
       priority: 1
       type: integer
-    name: v1alpha1
+    name: v1alpha2
     schema:
       openAPIV3Schema:
         description: ClusterQueue is the Schema for the clusterQueue API.

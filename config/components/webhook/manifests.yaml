@@ -11,14 +11,14 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /mutate-kueue-x-k8s-io-v1alpha1-clusterqueue
+      path: /mutate-kueue-x-k8s-io-v1alpha2-clusterqueue
   failurePolicy: Fail
   name: mclusterqueue.kb.io
   rules:
   - apiGroups:
     - kueue.x-k8s.io
     apiVersions:
-    - v1alpha1
+    - v1alpha2
     operations:
     - CREATE
     resources:
@@ -30,14 +30,14 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /mutate-kueue-x-k8s-io-v1alpha1-resourceflavor
+      path: /mutate-kueue-x-k8s-io-v1alpha2-resourceflavor
   failurePolicy: Fail
   name: mresourceflavor.kb.io
   rules:
   - apiGroups:
     - kueue.x-k8s.io
     apiVersions:
-    - v1alpha1
+    - v1alpha2
     operations:
     - CREATE
     resources:
@@ -49,14 +49,14 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /mutate-kueue-x-k8s-io-v1alpha1-workload
+      path: /mutate-kueue-x-k8s-io-v1alpha2-workload
   failurePolicy: Fail
   name: mworkload.kb.io
   rules:
   - apiGroups:
     - kueue.x-k8s.io
     apiVersions:
-    - v1alpha1
+    - v1alpha2
     operations:
     - CREATE
     - UPDATE
@@ -76,14 +76,14 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-kueue-x-k8s-io-v1alpha1-clusterqueue
+      path: /validate-kueue-x-k8s-io-v1alpha2-clusterqueue
   failurePolicy: Fail
   name: vclusterqueue.kb.io
   rules:
   - apiGroups:
     - kueue.x-k8s.io
     apiVersions:
-    - v1alpha1
+    - v1alpha2
     operations:
     - CREATE
     - UPDATE
@@ -96,14 +96,14 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-kueue-x-k8s-io-v1alpha1-localqueue
+      path: /validate-kueue-x-k8s-io-v1alpha2-localqueue
   failurePolicy: Fail
   name: vlocalqueue.kb.io
   rules:
   - apiGroups:
     - kueue.x-k8s.io
     apiVersions:
-    - v1alpha1
+    - v1alpha2
     operations:
     - CREATE
     - UPDATE
@@ -116,14 +116,14 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-kueue-x-k8s-io-v1alpha1-resourceflavor
+      path: /validate-kueue-x-k8s-io-v1alpha2-resourceflavor
   failurePolicy: Fail
   name: vresourceflavor.kb.io
   rules:
   - apiGroups:
     - kueue.x-k8s.io
     apiVersions:
-    - v1alpha1
+    - v1alpha2
     operations:
     - CREATE
     - UPDATE
@@ -136,14 +136,14 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-kueue-x-k8s-io-v1alpha1-workload
+      path: /validate-kueue-x-k8s-io-v1alpha2-workload
   failurePolicy: Fail
   name: vworkload.kb.io
   rules:
   - apiGroups:
     - kueue.x-k8s.io
     apiVersions:
-    - v1alpha1
+    - v1alpha2
     operations:
     - CREATE
     - UPDATE
