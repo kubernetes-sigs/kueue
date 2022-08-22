@@ -55,7 +55,9 @@ var (
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
 			Name:      "admission_attempts_total",
-			Help:      "Total number of attempts to admit one or more workloads, broken down by result. `success` means that at least one workload was admitted, `inadmissible` means that no workload was admitted.",
+			Help: `Total number of attempts to admit one or more workloads, broken down by result.
+- 'success' means that at least one workload was admitted,
+- 'inadmissible' means that no workload was admitted.`,
 		}, []string{"result"},
 	)
 
@@ -83,7 +85,7 @@ var (
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
 			Name:      "admitted_workloads_total",
-			Help:      "Total number of admitted workloads per cluster_queue",
+			Help:      "Total number of admitted workloads per 'cluster_queue'",
 		}, []string{"cluster_queue"},
 	)
 
@@ -91,7 +93,7 @@ var (
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
 			Name:      "admission_wait_time_seconds",
-			Help:      "The wait time since a workload was created until it was admitted, per cluster_queue",
+			Help:      "The wait time since a Workload was created until it was admitted, per 'cluster_queue'",
 		}, []string{"cluster_queue"},
 	)
 
@@ -101,7 +103,7 @@ var (
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "admitted_active_workloads",
-			Help:      "Number of admitted workloads that are active (unsuspended and not finished), per cluster_queue",
+			Help:      "Number of admitted Workloads that are active (unsuspended and not finished), per 'cluster_queue'",
 		}, []string{"cluster_queue"},
 	)
 
@@ -109,7 +111,8 @@ var (
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "cluster_queue_status",
-			Help:      "Status of a cluster_queue (pending, active or terminated)",
+			Help: `Reports 'cluster_queue' with 'status' ('pending', 'active' or 'terminated').
+Only one of the statuses will have a value of 1.`,
 		}, []string{"cluster_queue", "status"},
 	)
 )
