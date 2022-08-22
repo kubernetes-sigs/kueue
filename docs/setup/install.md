@@ -8,8 +8,8 @@ Make sure the following conditions are met:
 - The SuspendJob [feature gate](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/) is enabled. In Kubernetes 1.22 or newer, the feature gate is enabled by default.
 - The kubectl command-line tool has communication with your cluster.
 
-The kueue components publish [metrics](/docs/reference/metrics) to monitor its
-operators. You can choose to scrape these metrics with Prometheus.
+Kueue publishes [metrics](/docs/reference/metrics) to monitor its operators.
+You can scrape these metrics with Prometheus.
 Use [kube-prometheus](https://github.com/prometheus-operator/kube-prometheus)
 if you don't have your own monitoring system.
 
