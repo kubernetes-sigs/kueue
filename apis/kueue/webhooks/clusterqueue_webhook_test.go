@@ -40,18 +40,29 @@ func TestValidateClusterQueue(t *testing.T) {
 		wantErr      field.ErrorList
 	}{
 		{
-			name: "native resources with qualified names",
+			name: "built-in resources with qualified names",
 			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").Resource(
 				testingutil.MakeResource("cpu").Obj(),
 			).Obj(),
 		},
 		{
-			name: "native resources with unqualified names",
+			name: "invalid resource name",
 			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").Resource(
 				testingutil.MakeResource("@cpu").Obj(),
 			).Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(resourceField.Index(0).Child("name"), "@cpu", ""),
+			},
+		},
+		{
+			name:         "in cohort",
+			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").Cohort("prod").Obj(),
+		},
+		{
+			name:         "invalid cohort",
+			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").Cohort("@prod").Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(specField.Child("cohort"), "@prod", ""),
 			},
 		},
 		{
