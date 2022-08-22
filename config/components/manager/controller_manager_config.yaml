@@ -1,4 +1,4 @@
-apiVersion: config.kueue.x-k8s.io/v1alpha1
+apiVersion: config.kueue.x-k8s.io/v1alpha2
 kind: Configuration
 health:
   healthProbeBindAddress: :8081

@@ -26,7 +26,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 )
 
 // log is for logging in this package.
@@ -41,7 +41,7 @@ func setupWebhookForLocalQueue(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1alpha1-localqueue,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=localqueues,verbs=create;update,versions=v1alpha1,name=vlocalqueue.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1alpha2-localqueue,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=localqueues,verbs=create;update,versions=v1alpha2,name=vlocalqueue.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomValidator = &LocalQueueWebhook{}
 

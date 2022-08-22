@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 )
 
 var (
@@ -55,7 +55,7 @@ func setupWebhookForClusterQueue(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1alpha1-clusterqueue,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=clusterqueues,verbs=create,versions=v1alpha1,name=mclusterqueue.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1alpha2-clusterqueue,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=clusterqueues,verbs=create,versions=v1alpha2,name=mclusterqueue.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomDefaulter = &ClusterQueueWebhook{}
 
@@ -70,7 +70,7 @@ func (w *ClusterQueueWebhook) Default(ctx context.Context, obj runtime.Object) e
 	return nil
 }
 
-// +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1alpha1-clusterqueue,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=clusterqueues,verbs=create;update,versions=v1alpha1,name=vclusterqueue.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1alpha2-clusterqueue,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=clusterqueues,verbs=create;update,versions=v1alpha2,name=vclusterqueue.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomValidator = &ClusterQueueWebhook{}
 

@@ -15,7 +15,7 @@ spec:
     singular: resourceflavor
   scope: Cluster
   versions:
-  - name: v1alpha1
+  - name: v1alpha2
     schema:
       openAPIV3Schema:
         description: ResourceFlavor is the Schema for the resourceflavors API

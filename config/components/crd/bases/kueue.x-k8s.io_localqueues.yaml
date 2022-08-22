@@ -27,7 +27,7 @@ spec:
       jsonPath: .status.pendingWorkloads
       name: Pending Workloads
       type: integer
-    name: v1alpha1
+    name: v1alpha2
     schema:
       openAPIV3Schema:
         description: LocalQueue is the Schema for the localQueues API
