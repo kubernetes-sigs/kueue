@@ -1,5 +1,5 @@
 # Reference
 
-This section of the documentation contains references.
+This section contains the Kueue reference information.
 
 * [Metrics](metrics.md)

@@ -30,7 +30,7 @@ kubectl apply -f https://github.com/kubernetes-sigs/kueue/releases/download/$VER
 
 ### Add metrics scraping for prometheus-operator
 
-_Available in kueue v0.2.0 and newer_
+_Available in Kueue v0.2.0 and later_
 
 To allow [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator)
 to scrape metrics from kueue components, run the following command:
@@ -113,7 +113,7 @@ IMAGE_REGISTRY=registry.example.com/my-user make image-build image-push deploy
 
 ### Add metrics scraping for prometheus-operator
 
-_Available in kueue v0.2.0 and newer_
+_Available in Kueue v0.2.0 and later_
 
 To allow [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator)
 to scrape metrics from kueue components, run the following command:
