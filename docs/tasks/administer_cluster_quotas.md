@@ -93,7 +93,7 @@ kubectl apply -f default-flavor.yaml
 The `.metadata.name` matches the `.spec.resources[*].flavors[0].resourceFlavor`
 field in the ClusterQueue.
 
-### 3. Create [Queues](/docs/concepts/queue.md)
+### 3. Create [LocalQueues](/docs/concepts/local_queue.md)
 
 Users cannot directly send [workloads](/docs/concepts/workload.md) to
 ClusterQueues. Instead, users need to send their workloads to a Queue in their
@@ -101,12 +101,12 @@ namespace.
 Thus, for the queuing system to be complete, you need to create a Queue in
 each namespace that needs access to the ClusterQueue.
 
-Write the manifest for the Queue. It should look similar to the following:
+Write the manifest for the LocalQueue. It should look similar to the following:
 
 ```yaml
 # default-user-queue.yaml
 apiVersion: kueue.x-k8s.io/v1alpha1
-kind: Queue
+kind: LocalQueue
 metadata:
   namespace: default
   name: user-queue
@@ -114,7 +114,7 @@ spec:
   clusterQueue: cluster-total
 ```
 
-To create the Queue, run the following command:
+To create the LocalQueue, run the following command:
 
 ```shell
 kubectl apply -f default-user-queue.yaml

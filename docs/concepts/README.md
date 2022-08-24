@@ -10,7 +10,7 @@ abstractions that Kueue uses to represent your cluster and workloads.
 A cluster-scoped resource that governs a pool of resources, defining usage
 limits and fair sharing rules.
 
-### [Queue](queue.md)
+### [Local Queue](local_queue.md)
 
 A namespaced resource that groups closely related workloads belonging to a
 single tenant.
@@ -30,11 +30,12 @@ models, etc.
 
 ### Admission
 
-The process of admitting a workload to start (pods to be created). A workload
+The process of admitting a Workload to start (pods to be created). A Workload
 is admitted by a ClusterQueue according to the available resources and gets
-resource flavors assigned for each requested resource. Sometimes referred to
-as _workload scheduling_ or _job scheduling_ (not to be confused with
-[pod scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/)).
+resource flavors assigned for each requested resource.
+
+Sometimes referred to as _workload scheduling_ or _job scheduling_
+(not to be confused with [pod scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/)).
 
 ### [Cohort](cluster_queue.md#cohort)
 

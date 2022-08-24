@@ -18,6 +18,8 @@ Make sure the following conditions are met:
 Run the following command to list the Queues available in your namespace.
 
 ```shell
+kubectl -n default get localqueues
+# Or use the 'queues' alias.
 kubectl -n default get queues
 ```
 
