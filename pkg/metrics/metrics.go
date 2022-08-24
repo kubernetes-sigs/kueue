@@ -55,7 +55,11 @@ var (
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
 			Name:      "admission_attempts_total",
-			Help:      "Total number of attempts to admit one or more workloads, broken down by result. `success` means that at least one workload was admitted, `inadmissible` means that no workload was admitted.",
+			Help: `The total number of attempts to admit workloads.
+Each admission attempt might try to admit more than one workload.
+The label 'result' can have the following values:
+- 'success' means that at least one workload was admitted.,
+- 'inadmissible' means that no workload was admitted.`,
 		}, []string{"result"},
 	)
 
@@ -63,7 +67,10 @@ var (
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
 			Name:      "admission_attempt_duration_seconds",
-			Help:      "Latency of an admission attempt, broken down by result.",
+			Help: `The latency of an admission attempt.
+The label 'result' can have the following values:
+- 'success' means that at least one workload was admitted.,
+- 'inadmissible' means that no workload was admitted.`,
 		}, []string{"result"},
 	)
 
@@ -73,7 +80,8 @@ var (
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "pending_workloads",
-			Help: `Number of pending workloads, per cluster_queue and status.
+			Help: `The number of pending workloads, per 'cluster_queue' and 'status'.
+'status' can have the following values:
 - "active" means that the workloads are in the admission queue.
 - "inadmissible" means there was a failed admission attempt for these workloads and they won't be retried until cluster conditions, which could make this workload admissible, change`,
 		}, []string{"cluster_queue", "status"},
@@ -83,7 +91,7 @@ var (
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
 			Name:      "admitted_workloads_total",
-			Help:      "Total number of admitted workloads per cluster_queue",
+			Help:      "The total number of admitted workloads per 'cluster_queue'",
 		}, []string{"cluster_queue"},
 	)
 
@@ -91,7 +99,7 @@ var (
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
 			Name:      "admission_wait_time_seconds",
-			Help:      "The wait time since a workload was created until it was admitted, per cluster_queue",
+			Help:      "The time between a Workload was created until it was admitted, per 'cluster_queue'",
 		}, []string{"cluster_queue"},
 	)
 
@@ -101,7 +109,7 @@ var (
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "admitted_active_workloads",
-			Help:      "Number of admitted workloads that are active (unsuspended and not finished), per cluster_queue",
+			Help:      "The number of admitted Workloads that are active (unsuspended and not finished), per 'cluster_queue'",
 		}, []string{"cluster_queue"},
 	)
 
@@ -109,7 +117,8 @@ var (
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
 			Name:      "cluster_queue_status",
-			Help:      "Status of a cluster_queue (pending, active or terminated)",
+			Help: `Reports 'cluster_queue' with its 'status' (with possible values 'pending', 'active' or 'terminated').
+For a ClusterQueue, the metric only reports a value of 1 for one of the statuses.`,
 		}, []string{"cluster_queue", "status"},
 	)
 )

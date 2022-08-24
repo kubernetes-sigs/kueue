@@ -8,6 +8,11 @@ Make sure the following conditions are met:
 - The SuspendJob [feature gate](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/) is enabled. In Kubernetes 1.22 or newer, the feature gate is enabled by default.
 - The kubectl command-line tool has communication with your cluster.
 
+Kueue publishes [metrics](/docs/reference/metrics) to monitor its operators.
+You can scrape these metrics with Prometheus.
+Use [kube-prometheus](https://github.com/prometheus-operator/kube-prometheus)
+if you don't have your own monitoring system.
+
 The webhook server in kueue uses an internal cert management for provisioning certificates. If you want to use
   a third-party one, e.g. [cert-manager](https://github.com/cert-manager/cert-manager), follow these steps:
   1. Set `enableInternalCertManagement` to `false` in [config file](#install-a-custom-configured-released-version).
@@ -21,6 +26,17 @@ To install a released version of Kueue in your cluster, run the following comman
 ```shell
 VERSION=v0.1.1
 kubectl apply -f https://github.com/kubernetes-sigs/kueue/releases/download/$VERSION/manifests.yaml
+```
+
+### Add metrics scraping for prometheus-operator
+
+_Available in Kueue v0.2.0 and later_
+
+To allow [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator)
+to scrape metrics from kueue components, run the following command:
+
+```shell
+kubectl apply -f https://github.com/kubernetes-sigs/kueue/releases/download/$VERSION/prometheus.yaml
 ```
 
 ## Install a custom-configured released version
@@ -93,6 +109,17 @@ commands:
 git clone https://github.com/kubernetes-sigs/kueue.git
 cd kueue
 IMAGE_REGISTRY=registry.example.com/my-user make image-build image-push deploy
+```
+
+### Add metrics scraping for prometheus-operator
+
+_Available in Kueue v0.2.0 and later_
+
+To allow [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator)
+to scrape metrics from kueue components, run the following command:
+
+```shell
+make prometheus
 ```
 
 ### Uninstall

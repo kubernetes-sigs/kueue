@@ -1,5 +1,5 @@
 # Setup
 
-This section provides step-by-step instructions on how to deploy Kueue in your cluster.
+This section shows you how to deploy Kueue in your cluster.
 
 * [Installation](install.md)
