@@ -33,7 +33,7 @@ admission control can be delegated to controllers such as [gatekeeper](https://g
 To install the latest release of Kueue in your cluster, run the following command:
 
 ```shell
-kubectl apply -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.1.1/manifests.yaml
+kubectl apply -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.2.0/manifests.yaml
 ```
 
 The controller runs in the `kueue-system` namespace.
