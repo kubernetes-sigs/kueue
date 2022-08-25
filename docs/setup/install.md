@@ -50,7 +50,8 @@ kubectl delete -f https://github.com/kubernetes-sigs/kueue/releases/download/$VE
 
 ### Upgrading from 0.1 to 0.2
 
-Upgrading from `0.1.x` to `0.2.y` is not supported due to breaking API changes.
+Upgrading from `0.1.x` to `0.2.y` is not supported because of breaking API
+changes.
 To install Kueue `0.2.y`, [uninstall](#uninstall) the older version first.
 
 ## Install a custom-configured released version
