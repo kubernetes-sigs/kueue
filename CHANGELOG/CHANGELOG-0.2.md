@@ -3,8 +3,12 @@
 Changes since `v0.1.0`:
 
 ### Features
+
 - Bumped the API version from v1alpha1 to v1alpha2. v1alpha1 is no longer supported and Queue is now named LocalQueue.
 - Add webhooks to validate and add defaults to all kueue APIs.
+- Add internal cert manager to serve webhooks with TLS.
+- Use finalizers to prevent ClusterQueues and ResourceFlavors in use from being
+  deleted prematurely.
 - Support [codependent resources](/docs/concepts/cluster_queue.md#codepedent-resources)
   by assigning the same flavor to codependent resources in a pod set.
 - Support [pod overhead](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-overhead/)
@@ -13,6 +17,7 @@ Changes since `v0.1.0`:
   match internal defaulting for k8s Pods.
 - Added [prometheus metrics](/docs/reference/metrics.md) to monitor health of
   the system and the status of ClusterQueues.
+- Use Server Side Apply for Workload admission, to reduce API conflicts.
 
 ### Bug fixes
 
