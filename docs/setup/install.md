@@ -101,7 +101,7 @@ To install the latest development version of Kueue in your cluster, run the
 following command:
 
 ```shell
-kubectl apply -k github.com/kubernetes-sigs/kueue/config/default?ref=main
+kubectl apply -k github.com/kubernetes-sigs/kueue/config/default?ref=release-0.2
 ```
 
 The controller runs in the `kueue-system` namespace.
