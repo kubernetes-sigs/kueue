@@ -29,14 +29,6 @@ type ResourceFlavor struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	// labels associated with this flavor. They are matched against or
-	// converted to node affinity constraints on the workload’s pods.
-	// For example, cloud.provider.com/accelerator: nvidia-tesla-k80.
-	// More info: http://kubernetes.io/docs/user-guide/labels
-	//
-	// labels can be up to 8 elements.
-	Labels map[string]string `json:"labels,omitempty"`
-
 	// taints associated with this flavor that workloads must explicitly
 	// “tolerate” to be able to use this flavor.
 	// For example, cloud.provider.com/preemptible="true":NoSchedule

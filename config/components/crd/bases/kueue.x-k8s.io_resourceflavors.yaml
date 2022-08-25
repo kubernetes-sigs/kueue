@@ -30,15 +30,6 @@ spec:
               object represents. Servers may infer this from the endpoint the client
               submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
             type: string
-          labels:
-            additionalProperties:
-              type: string
-            description: "labels associated with this flavor. They are matched against
-              or converted to node affinity constraints on the workload’s pods. For
-              example, cloud.provider.com/accelerator: nvidia-tesla-k80. More info:
-              http://kubernetes.io/docs/user-guide/labels \n labels can be up to 8
-              elements."
-            type: object
           metadata:
             type: object
           taints:

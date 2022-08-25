@@ -14,10 +14,11 @@ limitations under the License.
 package v1alpha2
 
 import (
+	"fmt"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -68,7 +69,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 			resourceFlavor := testing.MakeResourceFlavor("resource-flavor").Label("foo", "@abcd").Obj()
 			err := k8sClient.Create(ctx, resourceFlavor)
 			gomega.Expect(err).Should(gomega.HaveOccurred())
-			gomega.Expect(errors.IsForbidden(err)).Should(gomega.BeTrue(), "error: %v", err)
+			gomega.Expect(err.Error()).To(gomega.ContainSubstring(errorInvalidLabelValue("@abcd")))
 		})
 	})
 
@@ -92,7 +93,11 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 			ginkgo.By("Updating the resourceFlavor with invalid labels")
 			err := k8sClient.Update(ctx, &created)
 			gomega.Expect(err).Should(gomega.HaveOccurred())
-			gomega.Expect(errors.IsForbidden(err)).Should(gomega.BeTrue(), "error: %v", err)
+			gomega.Expect(err.Error()).To(gomega.ContainSubstring(errorInvalidLabelValue("@abcd")))
 		})
 	})
 })
+
+func errorInvalidLabelValue(labelValue string) string {
+	return fmt.Sprintf("ResourceFlavor.kueue.x-k8s.io \"resource-flavor\" is invalid: metadata.labels: Invalid value: \"%s\"", labelValue)
+}
