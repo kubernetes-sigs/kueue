@@ -43,7 +43,7 @@ In a ClusterQueue, you can define quotas for multiple [compute resources](https:
 
 For each resource, you can define quotas for multiple _flavors_.
 Flavors represent different variations of a resource (for example, different GPU
-models). A flavor can be defined using a [ResourceFlavor object](#resourceflavor-object).
+models). A flavor is defined using a [ResourceFlavor object](#resourceflavor-object).
 
 In a process called [admission](.#admission), Kueue assigns to the
 [Workload pod sets](workload.md#pod-sets) a flavor for each resource the pod set
@@ -59,9 +59,9 @@ This is typical for `cpu` and `memory`, where the flavors are generally tied to
 a machine family or VM availability policies. When two or more resources in a
 ClusterQueue match their flavors, they are said to be codependent resources.
 
-To manage codependent resources, list the flavors in the ClusterQueue resources
-in the same order. During admission, for each pod set in a Workload, Kueue
-assigns the same flavor to the codependent resources that the pod set requests.
+To manage codependent resources, you should list the flavors in the ClusterQueue
+resources in the same order. During admission, for each pod set in a Workload,
+Kueue assigns the same flavor to the codependent resources that the pod set requests.
 
 An example of a ClusterQueue with codependent resources looks like the following:
 
@@ -245,8 +245,7 @@ semantics:
   ClusterQueue's `.spec.resources[*].flavors`. For each flavor, Kueue attempts
   to fit a Workload's pod set according to the quota defined in the
   ClusterQueue for the flavor and the unused quota in the cohort.
-  If the workload doesn't fit, Kueue proceeds evaluating the next flavor in the
-  list.
+  If the workload doesn't fit, Kueue evaluates the next flavor in the list.
 - A Workload's pod set resource fits in a flavor defined for a ClusterQueue
   resource if the sum of requests for the resource:
   1. Is less than or equal to the unused `.quota.min` for the flavor in the
