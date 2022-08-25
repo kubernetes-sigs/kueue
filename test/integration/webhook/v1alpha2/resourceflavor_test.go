@@ -62,37 +62,45 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 		})
 	})
 
-	ginkgo.When("Creating a ResourceFlavor with invalid labels", func() {
+	ginkgo.When("Creating a ResourceFlavor with invalid taints", func() {
 		ginkgo.It("Should fail to create", func() {
 			ginkgo.By("Creating a new resourceFlavor")
-			resourceFlavor := testing.MakeResourceFlavor("resource-flavor").Label("foo", "@abcd").Obj()
+			resourceFlavor := testing.MakeResourceFlavor("resource-flavor").Taint(corev1.Taint{
+				Key:    "@foo",
+				Value:  "bar",
+				Effect: corev1.TaintEffectNoSchedule,
+			}).Obj()
 			err := k8sClient.Create(ctx, resourceFlavor)
-			gomega.Expect(err).Should(gomega.HaveOccurred())
-			gomega.Expect(errors.IsForbidden(err)).Should(gomega.BeTrue(), "error: %v", err)
+			gomega.Expect(err).To(gomega.HaveOccurred())
+			gomega.Expect(errors.IsForbidden(err)).To(gomega.BeTrue(), "error: %v", err)
 		})
 	})
 
-	ginkgo.When("Updating a ResourceFlavor with invalid labels", func() {
+	ginkgo.When("Updating a ResourceFlavor with invalid taints", func() {
 		ginkgo.It("Should fail to update", func() {
 			ginkgo.By("Creating a new resourceFlavor")
 			resourceFlavor := testing.MakeResourceFlavor("resource-flavor").Obj()
 			gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).Should(gomega.Succeed())
 			defer func() {
 				var rf kueue.ResourceFlavor
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf)).Should(gomega.Succeed())
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf)).To(gomega.Succeed())
 				controllerutil.RemoveFinalizer(&rf, kueue.ResourceInUseFinalizerName)
 				gomega.Expect(k8sClient.Update(ctx, &rf)).Should(gomega.Succeed())
 				framework.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 			}()
 
 			var created kueue.ResourceFlavor
-			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &created)).Should(gomega.Succeed())
-			created.Labels = map[string]string{"foo": "@abcd"}
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &created)).To(gomega.Succeed())
+			created.Taints = []corev1.Taint{{
+				Key:    "foo",
+				Value:  "bar",
+				Effect: "Invalid",
+			}}
 
 			ginkgo.By("Updating the resourceFlavor with invalid labels")
 			err := k8sClient.Update(ctx, &created)
-			gomega.Expect(err).Should(gomega.HaveOccurred())
-			gomega.Expect(errors.IsForbidden(err)).Should(gomega.BeTrue(), "error: %v", err)
+			gomega.Expect(err).To(gomega.HaveOccurred())
+			gomega.Expect(errors.IsForbidden(err)).To(gomega.BeTrue(), "error: %v", err)
 		})
 	})
 })

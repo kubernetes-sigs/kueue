@@ -51,24 +51,6 @@ func TestValidateResourceFlavor(t *testing.T) {
 				}).Obj(),
 		},
 		{
-			name: "invalid label name",
-			rf: utiltesting.MakeResourceFlavor("resource-flavor").MultiLabels(map[string]string{
-				"foo@bar": "",
-			}).Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("labels"), nil, ""),
-			},
-		},
-		{
-			name: "invalid label value",
-			rf: utiltesting.MakeResourceFlavor("resource-flavor").MultiLabels(map[string]string{
-				"foo": "@abcdefg",
-			}).Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("labels"), nil, ""),
-			},
-		},
-		{
 			// Taint validation is not exhaustively tested, because the code was copied from upstream k8s.
 			name: "invalid taint",
 			rf: utiltesting.MakeResourceFlavor("resource-flavor").Taint(corev1.Taint{
@@ -88,7 +70,7 @@ func TestValidateResourceFlavor(t *testing.T) {
 				return m
 			}()).Obj(),
 			wantErr: field.ErrorList{
-				field.TooMany(field.NewPath("labels"), 9, 8),
+				field.TooMany(field.NewPath("metadata", "labels"), 9, 8),
 			},
 		},
 		{
