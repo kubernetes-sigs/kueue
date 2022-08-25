@@ -103,8 +103,10 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 	}
 	setup := func(cache *Cache) {
 		cache.AddOrUpdateResourceFlavor(&kueue.ResourceFlavor{
-			ObjectMeta: metav1.ObjectMeta{Name: "default"},
-			Labels:     map[string]string{"cpuType": "default"},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:   "default",
+				Labels: map[string]string{"cpuType": "default"},
+			},
 		})
 		for _, c := range initialClusterQueues {
 			if err := cache.AddClusterQueue(context.Background(), &c); err != nil {
@@ -189,8 +191,10 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					}
 				}
 				cache.AddOrUpdateResourceFlavor(&kueue.ResourceFlavor{
-					ObjectMeta: metav1.ObjectMeta{Name: "default"},
-					Labels:     map[string]string{"cpuType": "default"},
+					ObjectMeta: metav1.ObjectMeta{
+						Name:   "default",
+						Labels: map[string]string{"cpuType": "default"},
+					},
 				})
 			},
 			wantClusterQueues: map[string]*ClusterQueue{
@@ -302,8 +306,10 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					}
 				}
 				cache.AddOrUpdateResourceFlavor(&kueue.ResourceFlavor{
-					ObjectMeta: metav1.ObjectMeta{Name: "default"},
-					Labels:     map[string]string{"cpuType": "default", "region": "central"},
+					ObjectMeta: metav1.ObjectMeta{
+						Name:   "default",
+						Labels: map[string]string{"cpuType": "default", "region": "central"},
+					},
 				})
 			},
 			wantClusterQueues: map[string]*ClusterQueue{
