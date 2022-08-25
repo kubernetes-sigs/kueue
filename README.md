@@ -8,16 +8,15 @@ created) and when it should stop (as in active pods should be deleted).
 ## Why use Kueue
 
 Kueue is a lean controller that you can install on top of a vanilla Kubernetes
-cluster without replacing any components. It is compatible with cloud
-environments where:
-- Nodes and other compute resources can be scaled up and down.
+cluster. Kueue does not replace any existing Kubernetes components. Kueue is
+compatible with cloud environments where:
+- Compute resources are elastic and can be scaled up and down.
 - Compute resources are heterogeneous (in architecture, availability, price, etc.).
 
 Kueue APIs allow you to express:
 - Quotas and policies for fair sharing among tenants.
 - Resource fungibility: if a [resource flavor](docs/concepts/cluster_queue.md#resourceflavor-object)
-  is fully utilized, run the [job](docs/concepts/workload.md) using a different
-  flavor.
+  is fully utilized, Kueue can admit the job using a different flavor.
 
 The main design principle for Kueue is to avoid duplicating mature functionality
 in [Kubernetes components](https://kubernetes.io/docs/concepts/overview/components/)
@@ -62,11 +61,11 @@ Learn more about:
 
 <!-- TODO(#64) Remove links to google docs once the contents have been migrated to this repo -->
 
-Learn more about the architecture of Kueue in the design docs:
+Learn more about the architecture of Kueue with the following design docs:
 
-- [bit.ly/kueue-apis](https://bit.ly/kueue-apis) (please join the [mailing list](https://groups.google.com/a/kubernetes.io/g/wg-batch)
-to get access) discusses the API proposal and a high-level description of how it
-operates.
+- [bit.ly/kueue-apis](https://bit.ly/kueue-apis) discusses the API proposal and a high
+  level description of how Kueue operates. Join the [mailing list](https://groups.google.com/a/kubernetes.io/g/wg-batch)
+to get document access.
 - [bit.ly/kueue-controller-design](https://bit.ly/kueue-controller-design)
 presents the detailed design of the controller.
 

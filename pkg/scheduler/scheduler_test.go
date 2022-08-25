@@ -885,20 +885,28 @@ func TestEntryAssignFlavors(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{Name: "default"},
 		},
 		"one": {
-			ObjectMeta: metav1.ObjectMeta{Name: "one"},
-			Labels:     map[string]string{"type": "one"},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:   "one",
+				Labels: map[string]string{"type": "one"},
+			},
 		},
 		"two": {
-			ObjectMeta: metav1.ObjectMeta{Name: "two"},
-			Labels:     map[string]string{"type": "two"},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:   "two",
+				Labels: map[string]string{"type": "two"},
+			},
 		},
 		"b_one": {
-			ObjectMeta: metav1.ObjectMeta{Name: "b_one"},
-			Labels:     map[string]string{"b_type": "one"},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:   "b_one",
+				Labels: map[string]string{"b_type": "one"},
+			},
 		},
 		"b_two": {
-			ObjectMeta: metav1.ObjectMeta{Name: "b_two"},
-			Labels:     map[string]string{"b_type": "two"},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:   "b_two",
+				Labels: map[string]string{"b_type": "two"},
+			},
 		},
 		"tainted": {
 			ObjectMeta: metav1.ObjectMeta{Name: "tainted"},

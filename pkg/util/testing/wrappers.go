@@ -385,9 +385,9 @@ type ResourceFlavorWrapper struct{ kueue.ResourceFlavor }
 func MakeResourceFlavor(name string) *ResourceFlavorWrapper {
 	return &ResourceFlavorWrapper{kueue.ResourceFlavor{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
+			Name:   name,
+			Labels: map[string]string{},
 		},
-		Labels: map[string]string{},
 	}}
 }
 
