@@ -24,13 +24,13 @@ The webhook server in kueue uses an internal cert management for provisioning ce
 To install a released version of Kueue in your cluster, run the following command:
 
 ```shell
-VERSION=v0.1.1
+VERSION=v0.2.1
 kubectl apply -f https://github.com/kubernetes-sigs/kueue/releases/download/$VERSION/manifests.yaml
 ```
 
 ### Add metrics scraping for prometheus-operator
 
-_Available in Kueue v0.2.0 and later_
+_Available in Kueue v0.2.1 and later_
 
 To allow [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator)
 to scrape metrics from kueue components, run the following command:
@@ -44,7 +44,7 @@ kubectl apply -f https://github.com/kubernetes-sigs/kueue/releases/download/$VER
 To uninstall a released version of Kueue from your cluster, run the following command:
 
 ```shell
-VERSION=v0.1.1
+VERSION=v0.2.1
 kubectl delete -f https://github.com/kubernetes-sigs/kueue/releases/download/$VERSION/manifests.yaml
 ```
 
@@ -61,14 +61,14 @@ To install a custom-configured released version of Kueue in your cluster, execut
 1. Download the release's `manifests.yaml` file:
 
 ```shell
-VERSION=v0.1.1
+VERSION=v0.2.1
 wget https://github.com/kubernetes-sigs/kueue/releases/download/$VERSION/manifests.yaml
 ```
 2. With an editor of your preference, open `manifests.yaml`.
 3. In the `kueue-manager-config` ConfigMap manifest, edit the
 `controller_manager_config.yaml` data entry. The entry represents
 the default Kueue Configuration
-struct ([v1alpha1@v0.1.1](https://pkg.go.dev/sigs.k8s.io/kueue@v0.1.1/apis/config/v1alpha1#Configuration)).
+struct ([v1alpha1@v0.2.1](https://pkg.go.dev/sigs.k8s.io/kueue@v0.2.1/apis/config/v1alpha1#Configuration)).
 The contents of the ConfigMap are similar to the following:
 
 ```yaml
