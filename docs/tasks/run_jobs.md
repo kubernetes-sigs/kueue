@@ -110,7 +110,7 @@ Name:         sample-job-jtz5f
 Namespace:    default
 Labels:       <none>
 Annotations:  <none>
-API Version:  kueue.x-k8s.io/v1alpha1
+API Version:  kueue.x-k8s.io/v1alpha2
 Kind:         Workload
 Metadata:
   ...
