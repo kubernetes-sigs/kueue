@@ -11,7 +11,7 @@ Only [cluster administrators](/docs/tasks#batch-administrator) should create `Cl
 A sample ClusterQueue looks like the following:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1alpha1
+apiVersion: kueue.x-k8s.io/v1alpha2
 kind: ClusterQueue
 metadata:
   name: cluster-total
@@ -66,7 +66,7 @@ Kueue assigns the same flavor to the codependent resources that the pod set requ
 An example of a ClusterQueue with codependent resources looks like the following:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1alpha1
+apiVersion: kueue.x-k8s.io/v1alpha2
 kind: ClusterQueue
 metadata:
   name: cluster-total
@@ -159,7 +159,7 @@ instead of adding labels to custom ResourceFlavors.
 A sample ResourceFlavor looks like the following:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1alpha1
+apiVersion: kueue.x-k8s.io/v1alpha2
 kind: ResourceFlavor
 metadata:
   name: spot
@@ -219,7 +219,7 @@ ResourceFlavor without any labels or taints. Such ResourceFlavor is called an
 empty ResourceFlavor and its sample looks like the following:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1alpha1
+apiVersion: kueue.x-k8s.io/v1alpha2
 kind: ResourceFlavor
 metadata:
   name: default
@@ -265,7 +265,7 @@ semantics:
 Assume you created the following two ClusterQueues:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1alpha1
+apiVersion: kueue.x-k8s.io/v1alpha2
 kind: ClusterQueue
 metadata:
   name: team-a-cq
@@ -286,7 +286,7 @@ spec:
 ```
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1alpha1
+apiVersion: kueue.x-k8s.io/v1alpha2
 kind: ClusterQueue
 metadata:
   name: team-b-cq
