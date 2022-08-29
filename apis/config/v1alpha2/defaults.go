@@ -14,12 +14,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1alpha2
 
 import (
-	runtime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/utils/pointer"
+)
 
-	"sigs.k8s.io/kueue/pkg/util/pointer"
+const (
+	DefaultNamespace          = "kueue-system"
+	DefaultWebhookServiceName = "kueue-webhook-service"
+	DefaultWebhookSecretName  = "kueue-webhook-server-cert"
 )
 
 func addDefaultingFuncs(scheme *runtime.Scheme) error {
@@ -31,7 +36,21 @@ func addDefaultingFuncs(scheme *runtime.Scheme) error {
 
 // SetDefaults_Configuration sets default values for ComponentConfig.
 func SetDefaults_Configuration(cfg *Configuration) {
-	if cfg.EnableInternalCertManagement == nil {
-		cfg.EnableInternalCertManagement = pointer.Bool(true)
+	if cfg.Namespace == nil {
+		cfg.Namespace = pointer.String(DefaultNamespace)
+	}
+	if cfg.InternalCertManagement == nil {
+		cfg.InternalCertManagement = &InternalCertManagement{}
+	}
+	if cfg.InternalCertManagement.Enable == nil {
+		cfg.InternalCertManagement.Enable = pointer.Bool(true)
+	}
+	if *cfg.InternalCertManagement.Enable {
+		if cfg.InternalCertManagement.WebhookServiceName == nil {
+			cfg.InternalCertManagement.WebhookServiceName = pointer.String(DefaultWebhookServiceName)
+		}
+		if cfg.InternalCertManagement.WebhookSecretName == nil {
+			cfg.InternalCertManagement.WebhookSecretName = pointer.String(DefaultWebhookSecretName)
+		}
 	}
 }

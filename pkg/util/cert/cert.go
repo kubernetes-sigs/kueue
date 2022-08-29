@@ -22,32 +22,31 @@ import (
 	cert "github.com/open-policy-agent/cert-controller/pkg/rotator"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+
+	configv1alpha2 "sigs.k8s.io/kueue/apis/config/v1alpha2"
 )
 
 const (
-	serviceName     = "kueue-webhook-service"
-	secretName      = "kueue-webhook-server-cert"
-	secretNamespace = "kueue-system"
-	certDir         = "/tmp/k8s-webhook-server/serving-certs"
-	vwcName         = "kueue-validating-webhook-configuration"
-	mwcName         = "kueue-mutating-webhook-configuration"
-	caName          = "kueue-ca"
-	caOrganization  = "kueue"
+	certDir        = "/tmp/k8s-webhook-server/serving-certs"
+	vwcName        = "kueue-validating-webhook-configuration"
+	mwcName        = "kueue-mutating-webhook-configuration"
+	caName         = "kueue-ca"
+	caOrganization = "kueue"
 )
-
-// DNSName is <service name>.<namespace>.svc
-var dnsName = fmt.Sprintf("%s.%s.svc", serviceName, secretNamespace)
 
 //+kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;update
 //+kubebuilder:rbac:groups="admissionregistration.k8s.io",resources=mutatingwebhookconfigurations,verbs=get;list;watch;update
 //+kubebuilder:rbac:groups="admissionregistration.k8s.io",resources=validatingwebhookconfigurations,verbs=get;list;watch;update
 
 // ManageCerts creates all certs for webhooks. This function is called from main.go.
-func ManageCerts(mgr ctrl.Manager, setupFinished chan struct{}) error {
+func ManageCerts(mgr ctrl.Manager, config configv1alpha2.Configuration, setupFinished chan struct{}) error {
+	// DNSName is <service name>.<namespace>.svc
+	var dnsName = fmt.Sprintf("%s.%s.svc", *config.InternalCertManagement.WebhookServiceName, *config.Namespace)
+
 	return cert.AddRotator(mgr, &cert.CertRotator{
 		SecretKey: types.NamespacedName{
-			Namespace: secretNamespace,
-			Name:      secretName,
+			Namespace: *config.Namespace,
+			Name:      *config.InternalCertManagement.WebhookSecretName,
 		},
 		CertDir:        certDir,
 		CAName:         caName,

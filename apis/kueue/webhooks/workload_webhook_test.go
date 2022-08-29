@@ -301,7 +301,6 @@ func TestValidateWorkload(t *testing.T) {
 				Admit(testingutil.MakeAdmission("cluster-queue", "@invalid").Obj()).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(specField.Child("admission", "podSetFlavors").Index(0).Child("name"), nil, ""),
 				field.NotFound(specField.Child("admission", "podSetFlavors").Index(0).Child("name"), nil),
 			},
 		},
