@@ -35,6 +35,11 @@ type LocalQueueStatus struct {
 	// localQueue not yet admitted to a ClusterQueue.
 	// +optional
 	PendingWorkloads int32 `json:"pendingWorkloads"`
+
+	// AdmittedWorkloads is the number of workloads currently admitted to this
+	// localQueue not yet admitted to a ClusterQueue.
+	// +optional
+	AdmittedWorkloads int32 `json:"admittedWorkloads"`
 }
 
 //+kubebuilder:object:root=true
