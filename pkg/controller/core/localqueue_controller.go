@@ -84,6 +84,13 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	queueObj.Status.PendingWorkloads = pending
+	admitted, errAdmitted := r.cache.AdmittedWorkloadsLocalQueue(queueObj.Name)
+	if errAdmitted != nil {
+		r.log.Error(errAdmitted, "Failed to retrieve localQueue admitted workloads")
+		return ctrl.Result{}, err
+	}
+
+	queueObj.Status.AdmittedWorkloads = admitted
 	if !equality.Semantic.DeepEqual(oldStatus, queueObj.Status) {
 		err := r.client.Status().Update(ctx, &queueObj)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
