@@ -1491,7 +1491,7 @@ func TestCacheQueueOperations(t *testing.T) {
 			}
 			qCounts := make(map[string]map[string]int)
 			for _, cq := range cache.clusterQueues {
-				qCounts[cq.Name] = cq.admittedWorkloadsPerQueue
+				qCounts[cq.Name] = cq.admittedWorkloadsPerClusterQueue
 			}
 			if diff := cmp.Diff(tc.wantQueueCounts, qCounts); diff != "" {
 				t.Errorf("Wrong active workloads counters for queues (-want,+got):\n%s", diff)

@@ -27,11 +27,6 @@ spec:
       jsonPath: .status.pendingWorkloads
       name: Pending Workloads
       type: integer
-    - description: Number of admitted workloads that haven't finished yet
-      jsonPath: .status.admittedWorkloads
-      name: Admitted Workloads
-      priority: 1
-      type: integer
     name: v1alpha2
     schema:
       openAPIV3Schema:
@@ -60,14 +55,14 @@ spec:
           status:
             description: LocalQueueStatus defines the observed state of LocalQueue
             properties:
-              pendingWorkloads:
-                description: PendingWorkloads is the number of workloads currently
+              admittedWorkloads:
+                description: AdmittedWorkloads is the number of workloads currently
                   admitted to this localQueue not yet admitted to a ClusterQueue.
                 format: int32
                 type: integer
-              admittedWorkloads:
-                description: AdmittedWorkloads is the number of workloads currently
-                  admitted to this clusterQueue and haven't finished yet.
+              pendingWorkloads:
+                description: PendingWorkloads is the number of workloads currently
+                  admitted to this localQueue not yet admitted to a ClusterQueue.
                 format: int32
                 type: integer
             type: object
