@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"strings"
 
+	"golang.org/x/exp/slices"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -180,12 +182,9 @@ func FindConditionIndex(status *kueue.WorkloadStatus, conditionType string) int 
 	if status == nil || status.Conditions == nil {
 		return -1
 	}
-	for i := range status.Conditions {
-		if status.Conditions[i].Type == conditionType {
-			return i
-		}
-	}
-	return -1
+	return slices.IndexFunc(status.Conditions, func(condition metav1.Condition) bool {
+		return condition.Type == conditionType
+	})
 }
 
 // UpdateStatus updates the condition of a workload.
