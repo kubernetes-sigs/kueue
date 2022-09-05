@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"strings"
 
+	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
 
 	corev1 "k8s.io/api/core/v1"
@@ -93,9 +94,7 @@ func totalRequests(spec *kueue.WorkloadSpec) []PodSetResources {
 		flavors := podSetFlavors[ps.Name]
 		if len(flavors) > 0 {
 			setRes.Flavors = make(map[corev1.ResourceName]string, len(flavors))
-			for r, t := range flavors {
-				setRes.Flavors[r] = t
-			}
+			maps.Copy(setRes.Flavors, flavors)
 		}
 		res = append(res, setRes)
 	}
