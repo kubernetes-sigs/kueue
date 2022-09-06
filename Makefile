@@ -14,8 +14,9 @@
 
 GIT_TAG ?= $(shell git describe --tags --dirty --always)
 # Image URL to use all building/pushing image targets
-IMAGE_BUILD_CMD ?= docker build
-IMAGE_PUSH_CMD ?= docker push
+PLATFORMS ?= linux/amd64,linux/arm64
+DOCKER_BUILDX_CMD ?= docker buildx
+IMAGE_BUILD_CMD ?= $(DOCKER_BUILDX_CMD) build
 IMAGE_BUILD_EXTRA_OPTS ?=
 # TODO(#52): Add kueue to k8s gcr registry
 IMAGE_REGISTRY ?= gcr.io/k8s-staging-kueue
@@ -146,17 +147,19 @@ run: manifests generate fmt vet ## Run a controller from your host.
 # Build the container image
 .PHONY: image-build
 image-build:
+	BUILDER=$(shell $(DOCKER_BUILDX_CMD) create --use)
 	$(IMAGE_BUILD_CMD) -t $(IMAGE_TAG) \
+		--platform=$(PLATFORMS) \
 		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
 		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
+		-t $(IMAGE_TAG) \
+		$(PUSH) \
 		$(IMAGE_BUILD_EXTRA_OPTS) ./
+	$(DOCKER_BUILDX_CMD) rm $$BUILDER
 
 .PHONY: image-push
-image-push:
-	$(IMAGE_PUSH_CMD) $(IMAGE_TAG)
-	if [ -n "$(IMAGE_EXTRA_TAG)" ]; then \
-	  $(IMAGE_PUSH_CMD) $(IMAGE_EXTRA_TAG); \
-	fi
+image-push: PUSH=--push
+image-push: image-build
 
 ##@ Deployment
 
