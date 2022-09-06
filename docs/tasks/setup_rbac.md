@@ -11,7 +11,7 @@ Make sure the following conditions are met:
 
 - A Kubernetes cluster is running.
 - The kubectl command-line tool has communication with your cluster.
-- [Kueue is installed](/docs/setup/install).
+- [Kueue is installed](/docs/setup/install.md).
 
 This page assumes you are already familiar with [RBAC in kubernetes](https://kubernetes.io/docs/reference/access-authn-authz/rbac/).
 

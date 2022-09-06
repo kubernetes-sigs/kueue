@@ -10,7 +10,7 @@ Make sure the following conditions are met:
 
 - A Kubernetes cluster is running.
 - The kubectl command-line tool has communication with your cluster.
-- [Kueue is installed](/docs/setup/install).
+- [Kueue is installed](/docs/setup/install.md).
 - The cluster has [quotas configured](administer_cluster_quotas.md).
 
 ## 0. Identify the queues available in your namespace
