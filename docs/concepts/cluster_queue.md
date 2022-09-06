@@ -45,7 +45,7 @@ For each resource, you can define quotas for multiple _flavors_.
 Flavors represent different variations of a resource (for example, different GPU
 models). A flavor is defined using a [ResourceFlavor object](#resourceflavor-object).
 
-In a process called [admission](.#admission), Kueue assigns to the
+In a process called [admission](README.md#admission), Kueue assigns to the
 [Workload pod sets](workload.md#pod-sets) a flavor for each resource the pod set
 requests.
 Kueue assigns the first flavor in the ClusterQueue's `.spec.resources[*].flavors`
