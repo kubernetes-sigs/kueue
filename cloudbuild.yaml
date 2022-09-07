@@ -7,7 +7,6 @@ steps:
   - name: gcr.io/k8s-testimages/gcb-docker-gcloud:v20220830-45cbff55bc
     entrypoint: make
     args:
-      - image-build
       - image-push
     env:
     - IMAGE_REGISTRY=gcr.io/$PROJECT_ID
