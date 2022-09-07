@@ -123,7 +123,7 @@ commands:
 ```sh
 git clone https://github.com/kubernetes-sigs/kueue.git
 cd kueue
-IMAGE_REGISTRY=registry.example.com/my-user make image-build image-push deploy
+IMAGE_REGISTRY=registry.example.com/my-user make image-local-push deploy
 ```
 
 ### Add metrics scraping for prometheus-operator
