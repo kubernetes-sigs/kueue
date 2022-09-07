@@ -1,7 +1,9 @@
 ARG BUILDER_IMAGE
 ARG BASE_IMAGE
 # Build the manager binary
-FROM ${BUILDER_IMAGE} as builder
+FROM --platform=${BUILDPLATFORM} ${BUILDER_IMAGE} as builder
+
+ARG TARGETARCH
 
 WORKDIR /workspace
 # Copy the Go Modules manifests
@@ -15,9 +17,9 @@ RUN go mod download
 COPY . .
 
 # Build
-RUN make build GO_BUILD_ENV='CGO_ENABLED=0 GOOS=linux GOARCH=amd64'
+RUN make build GO_BUILD_ENV='CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH}'
 
-FROM ${BASE_IMAGE}
+FROM --platform=${BUILDPLATFORM} ${BASE_IMAGE}
 WORKDIR /
 COPY --from=builder /workspace/bin/manager .
 USER 65532:65532
