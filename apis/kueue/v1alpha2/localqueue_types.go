@@ -31,10 +31,14 @@ type ClusterQueueReference string
 
 // LocalQueueStatus defines the observed state of LocalQueue
 type LocalQueueStatus struct {
-	// PendingWorkloads is the number of workloads currently admitted to this
-	// localQueue not yet admitted to a ClusterQueue.
+	// PendingWorkloads is the number of Workloads in the LocalQueue not yet admitted to a ClusterQueue
 	// +optional
 	PendingWorkloads int32 `json:"pendingWorkloads"`
+
+	// AdmittedWorkloads is the number of workloads in this LocalQueue
+	// admitted to a ClusterQueue and that haven't finished yet.
+	// +optional
+	AdmittedWorkloads int32 `json:"admittedWorkloads"`
 }
 
 //+kubebuilder:object:root=true

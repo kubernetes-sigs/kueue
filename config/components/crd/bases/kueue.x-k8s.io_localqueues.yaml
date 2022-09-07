@@ -55,9 +55,15 @@ spec:
           status:
             description: LocalQueueStatus defines the observed state of LocalQueue
             properties:
+              admittedWorkloads:
+                description: AdmittedWorkloads is the number of workloads in this
+                  LocalQueue admitted to a ClusterQueue and that haven't finished
+                  yet.
+                format: int32
+                type: integer
               pendingWorkloads:
-                description: PendingWorkloads is the number of workloads currently
-                  admitted to this localQueue not yet admitted to a ClusterQueue.
+                description: PendingWorkloads is the number of Workloads in the LocalQueue
+                  not yet admitted to a ClusterQueue
                 format: int32
                 type: integer
             type: object
