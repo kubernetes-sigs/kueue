@@ -1,0 +1,22 @@
+title: Add flavorAssignmentStrategy to localQueue
+kep-number: 312
+authors:
+  - "@kerthcet"
+status: implementable
+creation-date: 2022-09-07
+reviewers:
+  - "@ahg-g"
+  - "@alculquicondor"
+approvers:
+  - "@ahg-g"
+  - "@alculquicondor"
+
+##### WARNING !!! ######
+# prr-approvers has been moved to its own location
+# You should create your own in keps/prod-readiness
+# Please make a copy of keps/prod-readiness/template/nnnn.yaml
+# to keps/prod-readiness/sig-xxxxx/00000.yaml (replace with kep number)
+#prr-approvers:
+
+# The target maturity stage in the current dev cycle for this KEP.
+stage: alpha
