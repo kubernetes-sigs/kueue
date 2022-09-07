@@ -108,8 +108,7 @@ type ClusterQueue struct {
 
 	// The following fields are not populated in a snapshot.
 
-	admittedWorkloadsPerClusterQueue map[string]int
-	admittedWorkloadsPerLocalQueue   map[string]int
+	admittedWorkloadsPerQueue map[string]int
 }
 
 type Resource struct {
@@ -138,10 +137,9 @@ type FlavorLimits struct {
 
 func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*ClusterQueue, error) {
 	cqImpl := &ClusterQueue{
-		Name:                             cq.Name,
-		Workloads:                        make(map[string]*workload.Info),
-		admittedWorkloadsPerClusterQueue: make(map[string]int),
-		admittedWorkloadsPerLocalQueue:   make(map[string]int),
+		Name:                      cq.Name,
+		Workloads:                 make(map[string]*workload.Info),
+		admittedWorkloadsPerQueue: make(map[string]int),
 	}
 	if err := cqImpl.update(cq, c.resourceFlavors); err != nil {
 		return nil, err
@@ -150,12 +148,15 @@ func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*ClusterQueue, error) {
 	return cqImpl, nil
 }
 
-func (c *Cache) AdmittedWorkloadsLocalQueue(queueName string) (int32, error) {
-	value, exist := c.clusterQueues[queueName]
-	if !exist {
-		return 0, fmt.Errorf("CluserQueue %s not found", queueName)
+func (c *Cache) AdmittedWorkloadsLocalQueue(localQueue *kueue.LocalQueue) (int32, error) {
+	c.Lock()
+	defer c.Unlock()
+	cq, ok := c.clusterQueues[string(localQueue.Spec.ClusterQueue)]
+	if !ok {
+		return 0, nil
 	}
-	localWorkloadsAdmitted, localExists := value.admittedWorkloadsPerLocalQueue[queueName]
+	localKey := queueKey(localQueue)
+	localWorkloadsAdmitted, localExists := cq.admittedWorkloadsPerQueue[localKey]
 	if !localExists {
 		return 0, nil
 	}
@@ -293,14 +294,14 @@ func (c *ClusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 		}
 	}
 	qKey := workload.QueueKey(wi.Obj)
-	if _, ok := c.admittedWorkloadsPerClusterQueue[qKey]; ok {
-		c.admittedWorkloadsPerClusterQueue[qKey] += int(m)
+	if _, ok := c.admittedWorkloadsPerQueue[qKey]; ok {
+		c.admittedWorkloadsPerQueue[qKey] += int(m)
 	}
 }
 
 func (c *ClusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	qKey := queueKey(q)
-	if _, ok := c.admittedWorkloadsPerClusterQueue[qKey]; ok {
+	if _, ok := c.admittedWorkloadsPerQueue[qKey]; ok {
 		return errQueueAlreadyExists
 	}
 	// We need to count the workloads, because they could have been added before
@@ -311,16 +312,13 @@ func (c *ClusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 			workloads++
 		}
 	}
-	c.admittedWorkloadsPerLocalQueue[qKey] = workloads
-	c.admittedWorkloadsPerClusterQueue[qKey] = workloads
+	c.admittedWorkloadsPerQueue[qKey] = workloads
 	return nil
 }
 
 func (c *ClusterQueue) deleteLocalQueue(q *kueue.LocalQueue) {
 	qKey := queueKey(q)
-	delete(c.admittedWorkloadsPerLocalQueue, qKey)
-	delete(c.admittedWorkloadsPerClusterQueue, qKey)
-
+	delete(c.admittedWorkloadsPerQueue, qKey)
 }
 
 func (c *ClusterQueue) flavorInUse(flavor string) bool {
@@ -430,7 +428,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 	for _, q := range queues.Items {
 		// Checking ClusterQueue name again because the field index is not available in tests.
 		if string(q.Spec.ClusterQueue) == cq.Name {
-			cqImpl.admittedWorkloadsPerClusterQueue[queueKey(&q)] = 0
+			cqImpl.admittedWorkloadsPerQueue[queueKey(&q)] = 0
 		}
 	}
 	var workloads kueue.WorkloadList
@@ -443,8 +441,8 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 			continue
 		}
 		c.addOrUpdateWorkload(&workloads.Items[i])
-		if _, ok := cqImpl.admittedWorkloadsPerClusterQueue[w.Spec.QueueName]; ok {
-			cqImpl.admittedWorkloadsPerClusterQueue[w.Spec.QueueName]++
+		if _, ok := cqImpl.admittedWorkloadsPerQueue[w.Spec.QueueName]; ok {
+			cqImpl.admittedWorkloadsPerQueue[w.Spec.QueueName]++
 		}
 	}
 

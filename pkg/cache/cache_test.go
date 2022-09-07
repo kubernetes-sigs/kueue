@@ -1303,8 +1303,9 @@ func TestCacheQueueOperations(t *testing.T) {
 		return nil
 	}
 	cases := map[string]struct {
-		ops             []func(context.Context, client.Client, *Cache) error
-		wantQueueCounts map[string]map[string]int
+		ops                  []func(context.Context, client.Client, *Cache) error
+		wantQueueCounts      map[string]map[string]int
+		queueCountsFlattened map[string]int
 	}{
 		"insert cqs, queues, workloads": {
 			ops: []func(ctx context.Context, cl client.Client, cache *Cache) error{
@@ -1321,6 +1322,11 @@ func TestCacheQueueOperations(t *testing.T) {
 					"ns1/gamma": 1,
 				},
 			},
+			queueCountsFlattened: map[string]int{
+				"ns1/alpha": 1,
+				"ns2/beta":  2,
+				"ns1/gamma": 1,
+			},
 		},
 		"insert cqs, workloads but no queues": {
 			ops: []func(context.Context, client.Client, *Cache) error{
@@ -1331,13 +1337,15 @@ func TestCacheQueueOperations(t *testing.T) {
 				"foo": {},
 				"bar": {},
 			},
+			queueCountsFlattened: map[string]int{},
 		},
 		"insert queues, workloads but no cqs": {
 			ops: []func(context.Context, client.Client, *Cache) error{
 				insertAllQueues,
 				insertAllWorkloads,
 			},
-			wantQueueCounts: map[string]map[string]int{},
+			wantQueueCounts:      map[string]map[string]int{},
+			queueCountsFlattened: map[string]int{},
 		},
 		"insert queues last": {
 			ops: []func(context.Context, client.Client, *Cache) error{
@@ -1354,6 +1362,11 @@ func TestCacheQueueOperations(t *testing.T) {
 					"ns1/gamma": 1,
 				},
 			},
+			queueCountsFlattened: map[string]int{
+				"ns1/alpha": 1,
+				"ns2/beta":  2,
+				"ns1/gamma": 1,
+			},
 		},
 		"insert cqs last": {
 			ops: []func(context.Context, client.Client, *Cache) error{
@@ -1369,6 +1382,11 @@ func TestCacheQueueOperations(t *testing.T) {
 				"bar": {
 					"ns1/gamma": 1,
 				},
+			},
+			queueCountsFlattened: map[string]int{
+				"ns1/alpha": 1,
+				"ns2/beta":  2,
+				"ns1/gamma": 1,
 			},
 		},
 		"assume": {
@@ -1391,6 +1409,9 @@ func TestCacheQueueOperations(t *testing.T) {
 				"bar": {
 					"ns1/gamma": 0,
 				},
+			},
+			queueCountsFlattened: map[string]int{
+				"ns1/alpha": 1,
 			},
 		},
 		"assume and forget": {
@@ -1417,6 +1438,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					"ns1/gamma": 0,
 				},
 			},
+			queueCountsFlattened: map[string]int{},
 		},
 		"delete workload": {
 			ops: []func(ctx context.Context, cl client.Client, cache *Cache) error{
@@ -1436,6 +1458,10 @@ func TestCacheQueueOperations(t *testing.T) {
 					"ns1/gamma": 1,
 				},
 			},
+			queueCountsFlattened: map[string]int{
+				"ns2/beta":  2,
+				"ns1/gamma": 1,
+			},
 		},
 		"delete cq": {
 			ops: []func(ctx context.Context, cl client.Client, cache *Cache) error{
@@ -1451,6 +1477,9 @@ func TestCacheQueueOperations(t *testing.T) {
 				"bar": {
 					"ns1/gamma": 1,
 				},
+			},
+			queueCountsFlattened: map[string]int{
+				"ns1/gamma": 1,
 			},
 		},
 		"delete queue": {
@@ -1470,6 +1499,10 @@ func TestCacheQueueOperations(t *testing.T) {
 				"bar": {
 					"ns1/gamma": 1,
 				},
+			},
+			queueCountsFlattened: map[string]int{
+				"ns2/beta":  2,
+				"ns1/gamma": 1,
 			},
 		},
 		// Not tested: changing a workload's queue and changing a queue's cluster queue.
@@ -1491,11 +1524,140 @@ func TestCacheQueueOperations(t *testing.T) {
 			}
 			qCounts := make(map[string]map[string]int)
 			for _, cq := range cache.clusterQueues {
-				qCounts[cq.Name] = cq.admittedWorkloadsPerClusterQueue
+				qCounts[cq.Name] = cq.admittedWorkloadsPerQueue
 			}
 			if diff := cmp.Diff(tc.wantQueueCounts, qCounts); diff != "" {
 				t.Errorf("Wrong active workloads counters for queues (-want,+got):\n%s", diff)
 			}
+			admittedCountsCounts := make(map[string]int)
+			for _, cq := range queues {
+				queueAdmitted, err := cache.AdmittedWorkloadsLocalQueue(cq)
+				if err == nil {
+					key := fmt.Sprintf("%s/%s", cq.Namespace, cq.Name)
+					if queueAdmitted != 0 {
+						admittedCountsCounts[key] = int(queueAdmitted)
+					}
+				}
+			}
+			if diff := cmp.Diff(tc.queueCountsFlattened, admittedCountsCounts); diff != "" {
+				t.Errorf("Wrong active workloads counters for queues (-want,+got):\n%s", diff)
+			}
+
+		})
+	}
+}
+func TestAdmittedQueueWorkloads(t *testing.T) {
+	cqs := []*kueue.ClusterQueue{
+		utiltesting.MakeClusterQueue("foo").Obj(),
+		utiltesting.MakeClusterQueue("bar").Obj(),
+	}
+	queues := []*kueue.LocalQueue{
+		utiltesting.MakeLocalQueue("alpha", "ns1").ClusterQueue("foo").Obj(),
+		utiltesting.MakeLocalQueue("beta", "ns2").ClusterQueue("foo").Obj(),
+		utiltesting.MakeLocalQueue("gamma", "ns1").ClusterQueue("bar").Obj(),
+	}
+	workloads := []*kueue.Workload{
+		utiltesting.MakeWorkload("job1", "ns1").Queue("alpha").Admit(utiltesting.MakeAdmission("foo").Obj()).Obj(),
+		utiltesting.MakeWorkload("job2", "ns2").Queue("beta").Admit(utiltesting.MakeAdmission("foo").Obj()).Obj(),
+		utiltesting.MakeWorkload("job3", "ns1").Queue("gamma").Admit(utiltesting.MakeAdmission("bar").Obj()).Obj(),
+		utiltesting.MakeWorkload("job4", "ns2").Queue("beta").Admit(utiltesting.MakeAdmission("foo").Obj()).Obj(),
+	}
+	insertAllClusterQueues := func(ctx context.Context, cl client.Client, cache *Cache) error {
+		for _, cq := range cqs {
+			cq := cq.DeepCopy()
+			if err := cl.Create(ctx, cq); err != nil {
+				return err
+			}
+			if err := cache.AddClusterQueue(ctx, cq); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	insertAllQueues := func(ctx context.Context, cl client.Client, cache *Cache) error {
+		for _, q := range queues {
+			q := q.DeepCopy()
+			if err := cl.Create(ctx, q.DeepCopy()); err != nil {
+				return err
+			}
+			if err := cache.AddLocalQueue(q); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	insertAllWorkloads := func(ctx context.Context, cl client.Client, cache *Cache) error {
+		for _, wl := range workloads {
+			wl := wl.DeepCopy()
+			if err := cl.Create(ctx, wl); err != nil {
+				return err
+			}
+			cache.AddOrUpdateWorkload(wl)
+		}
+		return nil
+	}
+	cases := map[string]struct {
+		ops             []func(context.Context, client.Client, *Cache) error
+		wantQueueCounts map[string]map[string]int
+		flattenedQueue  map[string]int32
+	}{
+		"insert cqs, workloads, queue": {
+			ops: []func(ctx context.Context, cl client.Client, cache *Cache) error{
+				insertAllClusterQueues,
+				insertAllWorkloads,
+				insertAllQueues,
+			},
+			wantQueueCounts: map[string]map[string]int{
+				"foo": {
+					"ns1/alpha": 1,
+					"ns2/beta":  2,
+				},
+				"bar": {
+					"ns1/gamma": 1,
+				},
+			},
+			flattenedQueue: map[string]int32{
+				"ns1/alpha": 1,
+				"ns2/beta":  2,
+				"ns1/gamma": 1,
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			if err := kueue.AddToScheme(scheme); err != nil {
+				t.Fatalf("Failed adding kueue scheme: %v", err)
+			}
+			cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+			cache := New(cl)
+			ctx := context.Background()
+			for i, op := range tc.ops {
+				if err := op(ctx, cl, cache); err != nil {
+					t.Fatalf("Running op %d: %v", i, err)
+				}
+			}
+			qCountsAdmittedCQ := make(map[string]map[string]int)
+
+			for _, cq := range cache.clusterQueues {
+				qCountsAdmittedCQ[cq.Name] = cq.admittedWorkloadsPerQueue
+			}
+			if diff := cmp.Diff(tc.wantQueueCounts, qCountsAdmittedCQ); diff != "" {
+				t.Errorf("Wrong active workloads counters for cluser queues (-want,+got):\n%s", diff)
+			}
+
+			admittedCountsCounts := make(map[string]int32)
+			for _, cq := range queues {
+				queueAdmitted, err := cache.AdmittedWorkloadsLocalQueue(cq)
+				if err == nil {
+					key := fmt.Sprintf("%s/%s", cq.Namespace, cq.Name)
+					admittedCountsCounts[key] = queueAdmitted
+				}
+			}
+			if diff := cmp.Diff(tc.flattenedQueue, admittedCountsCounts); diff != "" {
+				t.Errorf("Wrong active workloads counters for queues (-want,+got):\n%s", diff)
+			}
+
 		})
 	}
 }
