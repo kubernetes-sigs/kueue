@@ -37,7 +37,8 @@ func Key(q *kueue.LocalQueue) string {
 type LocalQueue struct {
 	Key          string
 	ClusterQueue string
-	items        map[string]*workload.Info
+
+	items map[string]*workload.Info
 }
 
 func newLocalQueue(q *kueue.LocalQueue) *LocalQueue {
