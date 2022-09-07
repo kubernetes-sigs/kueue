@@ -151,6 +151,10 @@ image-local-build:
 	$(MAKE) image-build
 	$(DOCKER_BUILDX_CMD) rm $$BUILDER
 
+.PHONY: image-local-push
+image-local-push: PUSH=--push
+image-local-push: image-local-build
+
 .PHONY: image-build
 image-build:
 	$(IMAGE_BUILD_CMD) -t $(IMAGE_TAG) \
