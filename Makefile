@@ -152,7 +152,6 @@ image-build:
 		--platform=$(PLATFORMS) \
 		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
 		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
-		-t $(IMAGE_TAG) \
 		$(PUSH) \
 		$(IMAGE_BUILD_EXTRA_OPTS) ./
 	$(DOCKER_BUILDX_CMD) rm $$BUILDER
