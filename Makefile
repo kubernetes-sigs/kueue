@@ -145,16 +145,24 @@ run: manifests generate fmt vet ## Run a controller from your host.
 	$(GO_CMD) run ./main.go
 
 # Build the container image
+.PHONY: image-local-build
+image-local-build:
+	BUILDER=$(shell $(DOCKER_BUILDX_CMD) create --use)
+	$(MAKE) image-build
+	$(DOCKER_BUILDX_CMD) rm $$BUILDER
+
+.PHONY: image-local-push
+image-local-push: PUSH=--push
+image-local-push: image-local-build
+
 .PHONY: image-build
 image-build:
-	BUILDER=$(shell $(DOCKER_BUILDX_CMD) create --use)
 	$(IMAGE_BUILD_CMD) -t $(IMAGE_TAG) \
 		--platform=$(PLATFORMS) \
 		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
 		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
 		$(PUSH) \
 		$(IMAGE_BUILD_EXTRA_OPTS) ./
-	$(DOCKER_BUILDX_CMD) rm $$BUILDER
 
 .PHONY: image-push
 image-push: PUSH=--push
