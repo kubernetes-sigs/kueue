@@ -221,7 +221,6 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	// 4.4 workload is admitted and job is running, nothing to do.
 	log.V(3).Info("Job running with admitted workload, nothing to do")
 	return ctrl.Result{}, nil
-
 }
 
 // stopJob sends updates to suspend the job, reset the startTime so we can update the scheduling directives
@@ -335,7 +334,7 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job *batchv
 	return nil
 }
 
-// ensureAtmostoneworkload finds a matching workload and deletes redundant ones.
+// ensureAtMostOneWorkload finds a matching workload and deletes redundant ones.
 func (r *JobReconciler) ensureAtMostOneWorkload(ctx context.Context, job *batchv1.Job, workloads kueue.WorkloadList) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 
@@ -469,7 +468,6 @@ func jobFinishedCondition(j *batchv1.Job) (batchv1.JobConditionType, bool) {
 
 func jobSuspended(j *batchv1.Job) bool {
 	return j.Spec.Suspend != nil && *j.Spec.Suspend
-
 }
 
 func jobAndWorkloadEqual(job *batchv1.Job, wl *kueue.Workload) bool {
@@ -480,7 +478,7 @@ func jobAndWorkloadEqual(job *batchv1.Job, wl *kueue.Workload) bool {
 		return false
 	}
 
-	// nodeSelector may change, hence we are not checking checking for
+	// nodeSelector may change, hence we are not checking for
 	// equality of the whole job.Spec.Template.Spec.
 	if !equality.Semantic.DeepEqual(job.Spec.Template.Spec.InitContainers,
 		wl.Spec.PodSets[0].Spec.InitContainers) {
