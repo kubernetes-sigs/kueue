@@ -38,7 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	configv1alpha1 "sigs.k8s.io/kueue/apis/config/v1alpha1"
+	configv1alpha2 "sigs.k8s.io/kueue/apis/config/v1alpha2"
 	kueuev1alpha2 "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 	"sigs.k8s.io/kueue/apis/kueue/webhooks"
 	"sigs.k8s.io/kueue/pkg/cache"
@@ -64,7 +64,7 @@ func init() {
 	utilruntime.Must(schedulingv1.AddToScheme(scheme))
 
 	utilruntime.Must(kueuev1alpha2.AddToScheme(scheme))
-	utilruntime.Must(configv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(configv1alpha2.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -102,8 +102,8 @@ func main() {
 
 	certsReady := make(chan struct{})
 
-	if *config.EnableInternalCertManagement {
-		if err = cert.ManageCerts(mgr, certsReady); err != nil {
+	if config.InternalCertManagement != nil && *config.InternalCertManagement.Enable {
+		if err = cert.ManageCerts(mgr, config, certsReady); err != nil {
 			setupLog.Error(err, "Unable to set up cert rotation")
 			os.Exit(1)
 		}
@@ -198,7 +198,7 @@ func setupScheduler(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache, 
 	go sched.Start(ctx)
 }
 
-func encodeConfig(cfg *configv1alpha1.Configuration) (string, error) {
+func encodeConfig(cfg *configv1alpha2.Configuration) (string, error) {
 	codecs := serializer.NewCodecFactory(scheme)
 	const mediaType = runtime.ContentTypeYAML
 	info, ok := runtime.SerializerInfoForMediaType(codecs.SupportedMediaTypes(), mediaType)
@@ -206,7 +206,7 @@ func encodeConfig(cfg *configv1alpha1.Configuration) (string, error) {
 		return "", fmt.Errorf("unable to locate encoder -- %q is not a supported media type", mediaType)
 	}
 
-	encoder := codecs.EncoderForVersion(info.Serializer, configv1alpha1.GroupVersion)
+	encoder := codecs.EncoderForVersion(info.Serializer, configv1alpha2.GroupVersion)
 	buf := new(bytes.Buffer)
 	if err := encoder.Encode(cfg, buf); err != nil {
 		return "", err
@@ -214,13 +214,13 @@ func encodeConfig(cfg *configv1alpha1.Configuration) (string, error) {
 	return buf.String(), nil
 }
 
-func apply(configFile string) (ctrl.Options, configv1alpha1.Configuration) {
+func apply(configFile string) (ctrl.Options, configv1alpha2.Configuration) {
 	var err error
 	options := ctrl.Options{
 		Scheme: scheme,
 	}
 
-	config := configv1alpha1.Configuration{}
+	config := configv1alpha2.Configuration{}
 
 	if configFile == "" {
 		scheme.Default(&config)

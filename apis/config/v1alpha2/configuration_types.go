@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1alpha2
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,6 +26,10 @@ import (
 // Configuration is the Schema for the kueueconfigurations API
 type Configuration struct {
 	metav1.TypeMeta `json:",inline"`
+
+	// Namespace is the namespace in which kueue is deployed. It is used as part of DNSName of the webhook Service.
+	// Defaults to kueue-system.
+	Namespace *string `json:"namespace,omitempty"`
 
 	// ControllerManagerConfigurationSpec returns the configurations for controllers
 	cfg.ControllerManagerConfigurationSpec `json:",inline"`
@@ -39,8 +43,22 @@ type Configuration struct {
 	// unsuspended, they will start immediately.
 	ManageJobsWithoutQueueName bool `json:"manageJobsWithoutQueueName"`
 
-	// EnableInternalCertManagement controls whether to enable internal cert management or not.
+	// InternalCertManagement is configuration for internalCertManagement
+	InternalCertManagement *InternalCertManagement `json:"internalCertManagement,omitempty"`
+}
+
+type InternalCertManagement struct {
+
+	// Enable controls whether to enable internal cert management or not.
 	// Defaults to true. If you want to use a third-party management, e.g. cert-manager,
 	// set it to false. See the user guide for more information.
-	EnableInternalCertManagement *bool `json:"enableInternalCertManagement,omitempty"`
+	Enable *bool `json:"enable,omitempty"`
+
+	// WebhookServiceName is the name of the Service used as part of the DNSName.
+	// Defaults to kueue-webhook-service.
+	WebhookServiceName *string `json:"webhookServiceName,omitempty"`
+
+	// WebhookSecretName is the name of the Secret used to store CA and server certs.
+	// Defaults to kueue-webhook-server-cert.
+	WebhookSecretName *string `json:"webhookSecretName,omitempty"`
 }

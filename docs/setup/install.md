@@ -15,7 +15,7 @@ if you don't have your own monitoring system.
 
 The webhook server in kueue uses an internal cert management for provisioning certificates. If you want to use
   a third-party one, e.g. [cert-manager](https://github.com/cert-manager/cert-manager), follow these steps:
-  1. Set `enableInternalCertManagement` to `false` in [config file](#install-a-custom-configured-released-version).
+  1. Set `internalCertManagement.enable` to `false` in [config file](#install-a-custom-configured-released-version).
   2. Comment out the `internalcert` folder in `config/default/kustomization.yaml`.
   3. Enable `cert-manager` in `config/default/kustomization.yaml` and uncomment all sections with 'CERTMANAGER'.
 
@@ -71,6 +71,8 @@ the default Kueue Configuration
 struct ([v1alpha1@v0.2.1](https://pkg.go.dev/sigs.k8s.io/kueue@v0.2.1/apis/config/v1alpha1#Configuration)).
 The contents of the ConfigMap are similar to the following:
 
+__The `namespace` and `internalCertManagement` fields are available in Kueue v0.3.0 and later__
+
 ```yaml
 apiVersion: v1
 kind: ConfigMap
@@ -81,6 +83,7 @@ data:
   controller_manager_config.yaml: |
     apiVersion: config.kueue.x-k8s.io/v1alpha1
     kind: Configuration
+    namespace: kueue-system
     health:
       healthProbeBindAddress: :8081
     metrics:
@@ -88,6 +91,10 @@ data:
     webhook:
       port: 9443
     manageJobsWithoutQueueName: true
+    internalCertManagement:
+      enable: true
+      webhookServiceName: kueue-webhook-service
+      webhookSecretName: kueue-webhook-server-cert
 ```
 
 3. Apply the customized manifests to the cluster:

@@ -1,4 +1,4 @@
-apiVersion: config.kueue.x-k8s.io/v1alpha1
+apiVersion: config.kueue.x-k8s.io/v1alpha2
 kind: Configuration
 health:
   healthProbeBindAddress: :8081
@@ -9,5 +9,9 @@ webhook:
 leaderElection:
   leaderElect: true
   resourceName: c1f6bfd2.kueue.x-k8s.io
-# manageJobsWithoutQueueName: true
-# enableInternalCertManagement: false
+#manageJobsWithoutQueueName: true
+#namespace: ""
+#internalCertManagement:
+#  enable: false
+#  webhookServiceName: ""
+#  webhookSecretName: ""
