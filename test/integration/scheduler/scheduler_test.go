@@ -88,7 +88,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Expect(k8sClient.Create(ctx, spotUntaintedFlavor)).Should(gomega.Succeed())
 
 			prodClusterQ = testing.MakeClusterQueue("prod-cq").
-				Cohort("prod").
 				Resource(testing.MakeResource(corev1.ResourceCPU).
 					Flavor(testing.MakeFlavor(spotTaintedFlavor.Name, "5").Max("5").Obj()).
 					Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Obj()).
@@ -177,6 +176,35 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			framework.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 1)
 			framework.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
 			framework.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 1)
+		})
+
+		ginkgo.It("Should admit two small workloads after a big one finishes", func() {
+			bigWl := testing.MakeWorkload("big-wl", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "5").Obj()
+			ginkgo.By("Creating big workload")
+			gomega.Expect(k8sClient.Create(ctx, bigWl)).Should(gomega.Succeed())
+
+			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, bigWl)
+			framework.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
+			framework.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
+			framework.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 1)
+
+			smallWl1 := testing.MakeWorkload("small-wl-1", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "2.5").Obj()
+			smallWl2 := testing.MakeWorkload("small-wl-2", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "2.5").Obj()
+			ginkgo.By("Creating two small workloads")
+			gomega.Expect(k8sClient.Create(ctx, smallWl1)).Should(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, smallWl2)).Should(gomega.Succeed())
+
+			framework.ExpectWorkloadsToBePending(ctx, k8sClient, smallWl1, smallWl2)
+			framework.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 2)
+			framework.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
+
+			ginkgo.By("Marking the big workload as finished")
+			framework.FinishWorkloads(ctx, k8sClient, bigWl)
+
+			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, smallWl1, smallWl2)
+			framework.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
+			framework.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 2)
+			framework.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 3)
 		})
 	})
 
@@ -690,61 +718,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 	})
 
-	ginkgo.When("Scheduling with multi workloads", func() {
-		var (
-			cq    *kueue.ClusterQueue
-			queue *kueue.LocalQueue
-		)
-		ginkgo.BeforeEach(func() {
-			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).Should(gomega.Succeed())
-
-			cq = testing.MakeClusterQueue("cluster-queue").
-				Resource(testing.MakeResource(corev1.ResourceCPU).
-					Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Obj()).
-					Obj()).
-				Obj()
-			gomega.Expect(k8sClient.Create(ctx, cq)).Should(gomega.Succeed())
-
-			queue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, queue)).Should(gomega.Succeed())
-		})
-
-		ginkgo.AfterEach(func() {
-			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
-			framework.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
-		})
-
-		ginkgo.It("Should admit two small workloads after a big one finishes", func() {
-			bigWl := testing.MakeWorkload("big-wl", ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "5").Obj()
-			ginkgo.By("Creating big workload")
-			gomega.Expect(k8sClient.Create(ctx, bigWl)).Should(gomega.Succeed())
-
-			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, cq.Name, bigWl)
-			framework.ExpectPendingWorkloadsMetric(cq, 0, 0)
-			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 1)
-			framework.ExpectAdmittedWorkloadsTotalMetric(cq, 1)
-
-			smallWl1 := testing.MakeWorkload("small-wl-1", ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "2.5").Obj()
-			smallWl2 := testing.MakeWorkload("small-wl-2", ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "2.5").Obj()
-			ginkgo.By("Creating two small workloads")
-			gomega.Expect(k8sClient.Create(ctx, smallWl1)).Should(gomega.Succeed())
-			gomega.Expect(k8sClient.Create(ctx, smallWl2)).Should(gomega.Succeed())
-
-			framework.ExpectWorkloadsToBePending(ctx, k8sClient, smallWl1, smallWl2)
-			framework.ExpectPendingWorkloadsMetric(cq, 0, 2)
-			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 1)
-
-			ginkgo.By("Marking the big workload as finished")
-			framework.FinishWorkloads(ctx, k8sClient, bigWl)
-
-			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, cq.Name, smallWl1, smallWl2)
-			framework.ExpectPendingWorkloadsMetric(cq, 0, 0)
-			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 2)
-			framework.ExpectAdmittedWorkloadsTotalMetric(cq, 3)
-		})
-	})
-
 	ginkgo.When("Queueing with StrictFIFO", func() {
 		var (
 			strictFIFOClusterQ *kueue.ClusterQueue
@@ -785,7 +758,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			framework.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
-		ginkgo.It("Should schedule workloads by their priority strictly in StrictFIFO", func() {
+		ginkgo.It("Should schedule workloads by their priority strictly", func() {
 			strictFIFOQueue := testing.MakeLocalQueue("strict-fifo-q", matchingNS.Name).ClusterQueue(strictFIFOClusterQ.Name).Obj()
 
 			ginkgo.By("Creating workloads")
