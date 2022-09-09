@@ -119,7 +119,7 @@ vet: ## Run go vet against code.
 
 .PHONY: test
 test: generate fmt vet ## Run tests.
-	$(GO_CMD) test $(GO_TEST_FLAGS) $(shell go list ./... | grep -v -e 'test') -coverprofile cover.out
+	$(GO_CMD) test $(GO_TEST_FLAGS) $(shell go list ./... | grep -v '/test/') -coverprofile cover.out
 
 .PHONY: test-integration
 test-integration: manifests generate fmt vet envtest ginkgo ## Run tests.
