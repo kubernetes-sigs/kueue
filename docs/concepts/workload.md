@@ -2,7 +2,7 @@
 
 A _workload_ is an application that will run to completion. It can be composed
 by one or multiple Pods that, loosely or tightly coupled, that, as a whole,
-complete a task. A workload is the unit of [admission](.#admission) in Kueue.
+complete a task. A workload is the unit of [admission](README.md#admission) in Kueue.
 
 The prototypical workload can be represented with a
 [Kubernetes `batch/v1.Job`](https://kubernetes.io/docs/concepts/workloads/controllers/job/).

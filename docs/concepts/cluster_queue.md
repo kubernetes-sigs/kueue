@@ -129,7 +129,7 @@ namespaceSelector:
 You can set different queueing strategies in a ClusterQueue using the
 `.spec.queueingStrategy` field. The queueing strategy determines how workloads
 are ordered in the ClusterQueue and how they are re-queued after an unsuccessful
-[admission](.#admission) attempt.
+[admission](README.md#admission) attempt.
 
 The following are the supported queueing strategies:
 
