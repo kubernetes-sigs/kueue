@@ -148,6 +148,17 @@ func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*ClusterQueue, error) {
 	return cqImpl, nil
 }
 
+func (c *Cache) AdmittedWorkloadsInLocalQueue(localQueue *kueue.LocalQueue) int32 {
+	c.Lock()
+	defer c.Unlock()
+	cq, ok := c.clusterQueues[string(localQueue.Spec.ClusterQueue)]
+	if !ok {
+		return 0
+	}
+	qKey := queueKey(localQueue)
+	return int32(cq.admittedWorkloadsPerQueue[qKey])
+}
+
 func (c *ClusterQueue) Active() bool {
 	return c.Status == active
 }

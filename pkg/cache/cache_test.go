@@ -1304,7 +1304,7 @@ func TestCacheQueueOperations(t *testing.T) {
 	}
 	cases := map[string]struct {
 		ops             []func(context.Context, client.Client, *Cache) error
-		wantQueueCounts map[string]map[string]int
+		wantQueueCounts map[string]int32
 	}{
 		"insert cqs, queues, workloads": {
 			ops: []func(ctx context.Context, cl client.Client, cache *Cache) error{
@@ -1312,14 +1312,10 @@ func TestCacheQueueOperations(t *testing.T) {
 				insertAllQueues,
 				insertAllWorkloads,
 			},
-			wantQueueCounts: map[string]map[string]int{
-				"foo": {
-					"ns1/alpha": 1,
-					"ns2/beta":  2,
-				},
-				"bar": {
-					"ns1/gamma": 1,
-				},
+			wantQueueCounts: map[string]int32{
+				"ns1/alpha": 1,
+				"ns2/beta":  2,
+				"ns1/gamma": 1,
 			},
 		},
 		"insert cqs, workloads but no queues": {
@@ -1327,17 +1323,14 @@ func TestCacheQueueOperations(t *testing.T) {
 				insertAllClusterQueues,
 				insertAllWorkloads,
 			},
-			wantQueueCounts: map[string]map[string]int{
-				"foo": {},
-				"bar": {},
-			},
+			wantQueueCounts: map[string]int32{},
 		},
 		"insert queues, workloads but no cqs": {
 			ops: []func(context.Context, client.Client, *Cache) error{
 				insertAllQueues,
 				insertAllWorkloads,
 			},
-			wantQueueCounts: map[string]map[string]int{},
+			wantQueueCounts: map[string]int32{},
 		},
 		"insert queues last": {
 			ops: []func(context.Context, client.Client, *Cache) error{
@@ -1345,14 +1338,10 @@ func TestCacheQueueOperations(t *testing.T) {
 				insertAllWorkloads,
 				insertAllQueues,
 			},
-			wantQueueCounts: map[string]map[string]int{
-				"foo": {
-					"ns1/alpha": 1,
-					"ns2/beta":  2,
-				},
-				"bar": {
-					"ns1/gamma": 1,
-				},
+			wantQueueCounts: map[string]int32{
+				"ns1/alpha": 1,
+				"ns2/beta":  2,
+				"ns1/gamma": 1,
 			},
 		},
 		"insert cqs last": {
@@ -1361,14 +1350,10 @@ func TestCacheQueueOperations(t *testing.T) {
 				insertAllWorkloads,
 				insertAllClusterQueues,
 			},
-			wantQueueCounts: map[string]map[string]int{
-				"foo": {
-					"ns1/alpha": 1,
-					"ns2/beta":  2,
-				},
-				"bar": {
-					"ns1/gamma": 1,
-				},
+			wantQueueCounts: map[string]int32{
+				"ns1/alpha": 1,
+				"ns2/beta":  2,
+				"ns1/gamma": 1,
 			},
 		},
 		"assume": {
@@ -1383,14 +1368,10 @@ func TestCacheQueueOperations(t *testing.T) {
 					return cache.AssumeWorkload(wl)
 				},
 			},
-			wantQueueCounts: map[string]map[string]int{
-				"foo": {
-					"ns1/alpha": 1,
-					"ns2/beta":  0,
-				},
-				"bar": {
-					"ns1/gamma": 0,
-				},
+			wantQueueCounts: map[string]int32{
+				"ns1/alpha": 1,
+				"ns2/beta":  0,
+				"ns1/gamma": 0,
 			},
 		},
 		"assume and forget": {
@@ -1408,14 +1389,10 @@ func TestCacheQueueOperations(t *testing.T) {
 					return cache.ForgetWorkload(wl)
 				},
 			},
-			wantQueueCounts: map[string]map[string]int{
-				"foo": {
-					"ns1/alpha": 0,
-					"ns2/beta":  0,
-				},
-				"bar": {
-					"ns1/gamma": 0,
-				},
+			wantQueueCounts: map[string]int32{
+				"ns1/alpha": 0,
+				"ns2/beta":  0,
+				"ns1/gamma": 0,
 			},
 		},
 		"delete workload": {
@@ -1427,14 +1404,10 @@ func TestCacheQueueOperations(t *testing.T) {
 					return cache.DeleteWorkload(workloads[0])
 				},
 			},
-			wantQueueCounts: map[string]map[string]int{
-				"foo": {
-					"ns1/alpha": 0,
-					"ns2/beta":  2,
-				},
-				"bar": {
-					"ns1/gamma": 1,
-				},
+			wantQueueCounts: map[string]int32{
+				"ns1/alpha": 0,
+				"ns2/beta":  2,
+				"ns1/gamma": 1,
 			},
 		},
 		"delete cq": {
@@ -1447,10 +1420,8 @@ func TestCacheQueueOperations(t *testing.T) {
 					return nil
 				},
 			},
-			wantQueueCounts: map[string]map[string]int{
-				"bar": {
-					"ns1/gamma": 1,
-				},
+			wantQueueCounts: map[string]int32{
+				"ns1/gamma": 1,
 			},
 		},
 		"delete queue": {
@@ -1463,13 +1434,9 @@ func TestCacheQueueOperations(t *testing.T) {
 					return nil
 				},
 			},
-			wantQueueCounts: map[string]map[string]int{
-				"foo": {
-					"ns2/beta": 2,
-				},
-				"bar": {
-					"ns1/gamma": 1,
-				},
+			wantQueueCounts: map[string]int32{
+				"ns2/beta":  2,
+				"ns1/gamma": 1,
 			},
 		},
 		// Not tested: changing a workload's queue and changing a queue's cluster queue.
@@ -1489,12 +1456,12 @@ func TestCacheQueueOperations(t *testing.T) {
 					t.Fatalf("Running op %d: %v", i, err)
 				}
 			}
-			qCounts := make(map[string]map[string]int)
-			for _, cq := range cache.clusterQueues {
-				qCounts[cq.Name] = cq.admittedWorkloadsPerQueue
-			}
-			if diff := cmp.Diff(tc.wantQueueCounts, qCounts); diff != "" {
-				t.Errorf("Wrong active workloads counters for queues (-want,+got):\n%s", diff)
+			for _, lq := range queues {
+				queueAdmitted := cache.AdmittedWorkloadsInLocalQueue(lq)
+				key := fmt.Sprintf("%s/%s", lq.Namespace, lq.Name)
+				if diff := cmp.Diff(tc.wantQueueCounts[key], queueAdmitted); diff != "" {
+					t.Errorf("Want %d but got %d for %s", tc.wantQueueCounts[key], queueAdmitted, key)
+				}
 			}
 		})
 	}

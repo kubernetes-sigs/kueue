@@ -84,6 +84,7 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	}
 
 	queueObj.Status.PendingWorkloads = pending
+	queueObj.Status.AdmittedWorkloads = r.cache.AdmittedWorkloadsInLocalQueue(&queueObj)
 	if !equality.Semantic.DeepEqual(oldStatus, queueObj.Status) {
 		err := r.client.Status().Update(ctx, &queueObj)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
