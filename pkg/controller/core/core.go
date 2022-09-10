@@ -34,7 +34,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 	}
 	qRec := NewLocalQueueReconciler(mgr.GetClient(), qManager, cc)
 	if err := qRec.SetupWithManager(mgr); err != nil {
-		return "Queue", err
+		return "LocalQueue", err
 	}
 	cqRec := NewClusterQueueReconciler(mgr.GetClient(), qManager, cc, rfRec)
 	if err := cqRec.SetupWithManager(mgr); err != nil {
