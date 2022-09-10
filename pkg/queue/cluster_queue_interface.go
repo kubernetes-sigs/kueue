@@ -43,11 +43,11 @@ type ClusterQueue interface {
 	// Cohort returns the Cohort of this ClusterQueue.
 	Cohort() string
 
-	// AddFromQueue pushes all workloads belonging to this queue to
+	// AddFromLocalQueue pushes all workloads belonging to this queue to
 	// the ClusterQueue. If at least one workload is added, returns true.
 	// Otherwise returns false.
 	AddFromLocalQueue(*LocalQueue) bool
-	// DeleteFromQueue removes all workloads belonging to this queue from
+	// DeleteFromLocalQueue removes all workloads belonging to this queue from
 	// the ClusterQueue.
 	DeleteFromLocalQueue(*LocalQueue)
 
