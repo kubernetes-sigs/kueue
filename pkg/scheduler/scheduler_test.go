@@ -24,7 +24,7 @@ import (
 	"testing"
 	"time"
 
-	logrtesting "github.com/go-logr/logr/testing"
+	"github.com/go-logr/logr/testr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -776,7 +776,7 @@ func TestSchedule(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			log := logrtesting.NewTestLoggerWithOptions(t, logrtesting.Options{
+			log := testr.NewWithOptions(t, testr.Options{
 				Verbosity: 2,
 			})
 			ctx := ctrl.LoggerInto(context.Background(), log)
@@ -1624,7 +1624,7 @@ func TestEntryAssignFlavors(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			log := logrtesting.NewTestLoggerWithOptions(t, logrtesting.Options{
+			log := testr.NewWithOptions(t, testr.Options{
 				Verbosity: 2,
 			})
 			tc.clusterQueue.UpdateCodependentResources()
@@ -1779,7 +1779,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			log := logrtesting.NewTestLoggerWithOptions(t, logrtesting.Options{
+			log := testr.NewWithOptions(t, testr.Options{
 				Verbosity: 2,
 			})
 			ctx := ctrl.LoggerInto(context.Background(), log)
