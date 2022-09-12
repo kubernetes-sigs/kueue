@@ -25,17 +25,19 @@ import (
 // ClusterQueueSpec defines the desired state of ClusterQueue
 type ClusterQueueSpec struct {
 	// resources represent the total pod requests of workloads dispatched
-	// via this clusterQueue. This doesn’t guarantee the actual availability of
+	// via this clusterQueue. This doesn't guarantee the actual availability of
 	// resources, although an integration with a resource provisioner like Cluster
 	// Autoscaler is possible to achieve that. Example:
 	//
 	// - name: cpu
 	//   flavors:
-	//   - quota:
+	//   - name: default
+	//     quota:
 	//       min: 100
 	// - name: memory
 	//   flavors:
-	//   - quota:
+	//   - name: default
+	//     quota:
 	//       min: 100Gi
 	//
 	// Two resources must either have all the flavors in the same order or not
@@ -50,25 +52,25 @@ type ClusterQueueSpec struct {
 	// +listMapKey=name
 	Resources []Resource `json:"resources,omitempty"`
 
-	// cohort that this ClusterQueue belongs to. QCs that belong to the
+	// cohort that this ClusterQueue belongs to. CQs that belong to the
 	// same cohort can borrow unused resources from each other.
 	//
-	// A QC can be a member of a single borrowing cohort. A workload submitted
-	// to a queue referencing this QC can borrow resources from any QC in the
-	// cohort. Only resources listed in the QC can be borrowed (see example).
+	// A CQ can be a member of a single borrowing cohort. A workload submitted
+	// to a queue referencing this CQ can borrow resources from any CQ in the
+	// cohort. Only resources listed in the CQ can be borrowed (see example).
 	//
 	// In the example below, the following applies:
 	// 1. tenantB can run a workload consuming up to 20 k80 GPUs, meaning a resource
 	//    can be allocated from more than one clusterQueue in a cohort.
-	// 2. tenantB can not consume any p100 GPUs or spot because its QC has no quota
+	// 2. tenantB can not consume any p100 GPUs or spot because its CQ has no quota
 	//    defined for them, and so the max is implicitly 0.
 	// 3. If both tenantA and tenantB are running jobs such that current usage for
-	//    tenantA is lower than its min quota (e.g., 5 k80 GPUS) while
+	//    tenantA is lower than its min quota (e.g., 5 k80 GPUs) while
 	//    tenantB’s usage is higher than its min quota (e.g., 12 k80 GPUs),
 	//    and both tenants have pending jobs requesting the remaining clusterQueue of
 	//    the cohort (the 3 k80 GPUs), then tenantA jobs will get this remaining
 	//    clusterQueue since tenantA is below its min limit.
-	// 4. If a tenantA workload doesn’t tolerate spot, then the workload will only
+	// 4. If a tenantA workload doesn't tolerate spot, then the workload will only
 	//    be eligible to consume on-demand cores (the next in the list of cpu flavors).
 	// 5. Before considering on-demand, the workload will get assigned spot if
 	//    the quota can be borrowed from the cohort.
@@ -79,25 +81,23 @@ type ClusterQueueSpec struct {
 	//  cohort: borrowing-cohort
 	//  resources:
 	// - name: cpu
+	//   flavors:
 	//   - name: spot
 	//     quota:
 	//       min: 1000
 	//   - name: on-demand
 	//     quota:
 	//       min: 100
-	// - name: nvidia.com/gpus
+	// - name: nvidia.com/gpu
+	//   flavors:
 	//   - name: k80
 	//     quota:
 	//       min: 10
 	//       max: 20
-	//     labels:
-	//     - cloud.provider.com/accelerator: nvidia-tesla-k80
 	//   - name: p100
 	//     quota:
 	//       min: 10
 	//       max: 20
-	//     labels:
-	//     - cloud.provider.com/accelerator: nvidia-tesla-p100
 	//
 	// metadata:
 	//  name: tenantB
@@ -105,20 +105,20 @@ type ClusterQueueSpec struct {
 	//  cohort: borrowing-cohort
 	//  resources:
 	// - name: cpu
+	//   flavors:
 	//   - name: on-demand
 	//     quota:
 	//       min: 100
-	// - name: nvidia.com/gpus
+	// - name: nvidia.com/gpu
+	//   flavors:
 	//   - name: k80
 	//     quota:
 	//       min: 10
 	//       max: 20
-	//     labels:
-	//     - cloud.provider.com/accelerator: nvidia-tesla-k80
 	//
 	// If empty, this ClusterQueue cannot borrow from any other ClusterQueue and vice versa.
 	//
-	// The name style is similar to label keys. These are just names to link QCs
+	// The name style is similar to label keys. These are just names to link CQs
 	// together, and they are meaningless otherwise.
 	Cohort string `json:"cohort,omitempty"`
 
@@ -175,7 +175,8 @@ type Resource struct {
 	//
 	// spec:
 	//  resources:
-	// - name: nvidia.com/gpus
+	// - name: nvidia.com/gpu
+	//   flavors:
 	//   - name: k80
 	//     quota:
 	//       min: 10
