@@ -425,7 +425,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 0)
 			framework.ExpectAdmittedWorkloadsTotalMetric(cq, 0)
 
-			ginkgo.By("checking the first workload gets admitted after updating the namespace labels to match QC selector")
+			ginkgo.By("checking the first workload gets admitted after updating the namespace labels to match CQ selector")
 			ns.Labels = map[string]string{"dep": "eng"}
 			gomega.Expect(k8sClient.Update(ctx, ns)).Should(gomega.Succeed())
 			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, cq.Name, wl1)
