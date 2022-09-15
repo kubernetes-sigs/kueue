@@ -11,3 +11,5 @@ Changes since `v0.2.1`:
   - Remove EnableInternalCertManagement. Use InternalCertManagement.Enable instead.
 
 ### Bug fixes
+
+- Fix job controller ClusterRole for clusters that enable OwnerReferencesPermissionEnforcement admission control validation
