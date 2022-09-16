@@ -85,7 +85,7 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
-	options, config := apply(configFile)
+	options, cfg := apply(configFile)
 
 	metrics.Register()
 
@@ -102,8 +102,8 @@ func main() {
 
 	certsReady := make(chan struct{})
 
-	if config.InternalCertManagement != nil && *config.InternalCertManagement.Enable {
-		if err = cert.ManageCerts(mgr, config, certsReady); err != nil {
+	if cfg.InternalCertManagement != nil && *cfg.InternalCertManagement.Enable {
+		if err = cert.ManageCerts(mgr, cfg, certsReady); err != nil {
 			setupLog.Error(err, "Unable to set up cert rotation")
 			os.Exit(1)
 		}
@@ -120,7 +120,7 @@ func main() {
 	// Cert won't be ready until manager starts, so start a goroutine here which
 	// will block until the cert is ready before setting up the controllers.
 	// Controllers who register after manager starts will start directly.
-	go setupControllers(mgr, cCache, queues, certsReady, config.ManageJobsWithoutQueueName)
+	go setupControllers(mgr, cCache, queues, certsReady, cfg.ManageJobsWithoutQueueName)
 
 	ctx := ctrl.SetupSignalHandler()
 	go func() {
@@ -219,41 +219,25 @@ func apply(configFile string) (ctrl.Options, config.Configuration) {
 	options := ctrl.Options{
 		Scheme: scheme,
 	}
-
-	config := config.Configuration{}
+	cfg := config.Configuration{}
 
 	if configFile == "" {
-		scheme.Default(&config)
+		scheme.Default(&cfg)
+		options, err = options.AndFrom(&cfg)
 	} else {
-		options, err = options.AndFrom(ctrl.ConfigFile().AtPath(configFile).OfKind(&config))
-		if err != nil {
-			setupLog.Error(err, "unable to load the config file")
-			os.Exit(1)
-		}
-
-		cfgStr, err := encodeConfig(&config)
-		if err != nil {
-			setupLog.Error(err, "unable to encode config file")
-			os.Exit(1)
-		}
-		setupLog.Info("Successfully loaded config file", "config", cfgStr)
+		options, err = options.AndFrom(ctrl.ConfigFile().AtPath(configFile).OfKind(&cfg))
+	}
+	if err != nil {
+		setupLog.Error(err, "unable to load the config")
+		os.Exit(1)
 	}
 
-	setOptionDefaults(&options)
-	return options, config
-}
+	cfgStr, err := encodeConfig(&cfg)
+	if err != nil {
+		setupLog.Error(err, "unable to encode the config")
+		os.Exit(1)
+	}
+	setupLog.Info("Successfully loaded configuration", "config", cfgStr)
 
-func setOptionDefaults(opt *ctrl.Options) {
-	if opt.Port == 0 {
-		opt.Port = 9443
-	}
-	if opt.HealthProbeBindAddress == "" {
-		opt.HealthProbeBindAddress = ":8081"
-	}
-	if opt.MetricsBindAddress == "" {
-		opt.MetricsBindAddress = ":8080"
-	}
-	if opt.LeaderElection && opt.LeaderElectionID == "" {
-		opt.LeaderElectionID = "c1f6bfd2.kueue.x-k8s.io"
-	}
+	return options, cfg
 }

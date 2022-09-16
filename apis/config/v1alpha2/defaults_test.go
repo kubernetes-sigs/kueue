@@ -20,12 +20,32 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	componentconfigv1alpha1 "k8s.io/component-base/config/v1alpha1"
 	"k8s.io/utils/pointer"
+	ctrlconfigv1alpha1 "sigs.k8s.io/controller-runtime/pkg/config/v1alpha1"
 )
 
-const overwriteNamespace = "kueue-tenant-a"
+const (
+	overwriteNamespace              = "kueue-tenant-a"
+	overwriteWebhookPort            = 9444
+	overwriteMetricBindAddress      = ":38081"
+	overwriteHealthProbeBindAddress = ":38080"
+	overwriteLeaderElectionID       = "foo.kueue.x-k8s.io"
+)
 
 func TestSetDefaults_Configuration(t *testing.T) {
+	defaultCtrlManagerConfigurationSpec := ctrlconfigv1alpha1.ControllerManagerConfigurationSpec{
+		Webhook: ctrlconfigv1alpha1.ControllerWebhook{
+			Port: pointer.Int(DefaultWebhookPort),
+		},
+		Metrics: ctrlconfigv1alpha1.ControllerMetrics{
+			BindAddress: DefaultMetricsBindAddress,
+		},
+		Health: ctrlconfigv1alpha1.ControllerHealth{
+			HealthProbeBindAddress: DefaultHealthProbeBindAddress,
+		},
+	}
+
 	testCases := map[string]struct {
 		original *Configuration
 		want     *Configuration
@@ -37,7 +57,116 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
+				Namespace:                          pointer.String(DefaultNamespace),
+				ControllerManagerConfigurationSpec: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: pointer.Bool(false),
+				},
+			},
+		},
+		"defaulting ControllerManagerConfigurationSpec": {
+			original: &Configuration{
+				ControllerManagerConfigurationSpec: ctrlconfigv1alpha1.ControllerManagerConfigurationSpec{
+					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
+						LeaderElect: pointer.Bool(true),
+					},
+				},
+				InternalCertManagement: &InternalCertManagement{
+					Enable: pointer.Bool(false),
+				},
+			},
+			want: &Configuration{
 				Namespace: pointer.String(DefaultNamespace),
+				ControllerManagerConfigurationSpec: ctrlconfigv1alpha1.ControllerManagerConfigurationSpec{
+					Webhook: ctrlconfigv1alpha1.ControllerWebhook{
+						Port: pointer.Int(DefaultWebhookPort),
+					},
+					Metrics: ctrlconfigv1alpha1.ControllerMetrics{
+						BindAddress: DefaultMetricsBindAddress,
+					},
+					Health: ctrlconfigv1alpha1.ControllerHealth{
+						HealthProbeBindAddress: DefaultHealthProbeBindAddress,
+					},
+					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
+						LeaderElect:  pointer.Bool(true),
+						ResourceName: DefaultLeaderElectionID,
+					},
+				},
+				InternalCertManagement: &InternalCertManagement{
+					Enable: pointer.Bool(false),
+				},
+			},
+		},
+		"should not default ControllerManagerConfigurationSpec": {
+			original: &Configuration{
+				ControllerManagerConfigurationSpec: ctrlconfigv1alpha1.ControllerManagerConfigurationSpec{
+					Webhook: ctrlconfigv1alpha1.ControllerWebhook{
+						Port: pointer.Int(overwriteWebhookPort),
+					},
+					Metrics: ctrlconfigv1alpha1.ControllerMetrics{
+						BindAddress: overwriteMetricBindAddress,
+					},
+					Health: ctrlconfigv1alpha1.ControllerHealth{
+						HealthProbeBindAddress: overwriteHealthProbeBindAddress,
+					},
+					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
+						LeaderElect:  pointer.Bool(true),
+						ResourceName: overwriteLeaderElectionID,
+					},
+				},
+				InternalCertManagement: &InternalCertManagement{
+					Enable: pointer.Bool(false),
+				},
+			},
+			want: &Configuration{
+				Namespace: pointer.String(DefaultNamespace),
+				ControllerManagerConfigurationSpec: ctrlconfigv1alpha1.ControllerManagerConfigurationSpec{
+					Webhook: ctrlconfigv1alpha1.ControllerWebhook{
+						Port: pointer.Int(overwriteWebhookPort),
+					},
+					Metrics: ctrlconfigv1alpha1.ControllerMetrics{
+						BindAddress: overwriteMetricBindAddress,
+					},
+					Health: ctrlconfigv1alpha1.ControllerHealth{
+						HealthProbeBindAddress: overwriteHealthProbeBindAddress,
+					},
+					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
+						LeaderElect:  pointer.Bool(true),
+						ResourceName: overwriteLeaderElectionID,
+					},
+				},
+				InternalCertManagement: &InternalCertManagement{
+					Enable: pointer.Bool(false),
+				},
+			},
+		},
+		"should not set LeaderElectionID": {
+			original: &Configuration{
+				ControllerManagerConfigurationSpec: ctrlconfigv1alpha1.ControllerManagerConfigurationSpec{
+					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
+						LeaderElect: pointer.Bool(false),
+					},
+				},
+				InternalCertManagement: &InternalCertManagement{
+					Enable: pointer.Bool(false),
+				},
+			},
+			want: &Configuration{
+				Namespace: pointer.String(DefaultNamespace),
+				ControllerManagerConfigurationSpec: ctrlconfigv1alpha1.ControllerManagerConfigurationSpec{
+					Webhook: ctrlconfigv1alpha1.ControllerWebhook{
+						Port: pointer.Int(DefaultWebhookPort),
+					},
+					Metrics: ctrlconfigv1alpha1.ControllerMetrics{
+						BindAddress: DefaultMetricsBindAddress,
+					},
+					Health: ctrlconfigv1alpha1.ControllerHealth{
+						HealthProbeBindAddress: DefaultHealthProbeBindAddress,
+					},
+					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
+						LeaderElect: pointer.Bool(false),
+					},
+				},
 				InternalCertManagement: &InternalCertManagement{
 					Enable: pointer.Bool(false),
 				},
@@ -48,7 +177,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				Namespace: pointer.String(overwriteNamespace),
 			},
 			want: &Configuration{
-				Namespace: pointer.String(overwriteNamespace),
+				Namespace:                          pointer.String(overwriteNamespace),
+				ControllerManagerConfigurationSpec: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
 					Enable:             pointer.Bool(true),
 					WebhookServiceName: pointer.String(DefaultWebhookServiceName),
@@ -56,7 +186,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 		},
-		"should not defaulting InternalCertManagement": {
+		"should not default InternalCertManagement": {
 			original: &Configuration{
 				Namespace: pointer.String(overwriteNamespace),
 				InternalCertManagement: &InternalCertManagement{
@@ -64,7 +194,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				Namespace: pointer.String(overwriteNamespace),
+				Namespace:                          pointer.String(overwriteNamespace),
+				ControllerManagerConfigurationSpec: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
 					Enable: pointer.Bool(false),
 				},
