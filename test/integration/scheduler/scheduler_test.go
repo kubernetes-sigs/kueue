@@ -83,9 +83,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).Should(gomega.Succeed())
-			gomega.Expect(k8sClient.Create(ctx, spotTaintedFlavor)).Should(gomega.Succeed())
-			gomega.Expect(k8sClient.Create(ctx, spotUntaintedFlavor)).Should(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, spotTaintedFlavor)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, spotUntaintedFlavor)).To(gomega.Succeed())
 
 			prodClusterQ = testing.MakeClusterQueue("prod-cq").
 				Resource(testing.MakeResource(corev1.ResourceCPU).
@@ -115,8 +115,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, prodClusterQ, true)
 			framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, devClusterQ, true)
 			framework.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
-			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, spotTaintedFlavor)).To(gomega.Succeed())
-			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, spotUntaintedFlavor)).To(gomega.Succeed())
+			framework.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, spotTaintedFlavor, true)
+			framework.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, spotUntaintedFlavor, true)
 		})
 
 		ginkgo.It("Should admit workloads as they fit in their ClusterQueue", func() {
@@ -593,6 +593,62 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			framework.ExpectPendingWorkloadsMetric(cq, 0, 0)
 			framework.ExpectAdmittedActiveWorkloadsMetric(cq, 2)
 			framework.ExpectAdmittedWorkloadsTotalMetric(cq, 2)
+		})
+	})
+
+	ginkgo.When("Creating objects out-of-order", func() {
+		var (
+			cq *kueue.ClusterQueue
+			q  *kueue.LocalQueue
+			w  *kueue.Workload
+		)
+
+		ginkgo.BeforeEach(func() {
+			cq = testing.MakeClusterQueue("cq").
+				Resource(testing.MakeResource(corev1.ResourceCPU).
+					Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Obj()).
+					Obj()).
+				Obj()
+			q = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			w = testing.MakeWorkload("workload", ns.Name).Queue(q.Name).Request(corev1.ResourceCPU, "2").Obj()
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
+			framework.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+		})
+
+		ginkgo.It("Should admit workload when creating ResourceFlavor->LocalQueue->Workload->ClusterQueue", func() {
+			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, q)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, w)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, cq.Name, w)
+		})
+
+		ginkgo.It("Should admit workload when creating Workload->ResourceFlavor->LocalQueue->ClusterQueue", func() {
+			gomega.Expect(k8sClient.Create(ctx, w)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, q)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, cq.Name, w)
+		})
+
+		ginkgo.It("Should admit workload when creating Workload->ResourceFlavor->ClusterQueue->LocalQueue", func() {
+			gomega.Expect(k8sClient.Create(ctx, w)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, q)).To(gomega.Succeed())
+			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, cq.Name, w)
+		})
+
+		ginkgo.It("Should admit workload when creating Workload->ClusterQueue->LocalQueue->ResourceFlavor", func() {
+			gomega.Expect(k8sClient.Create(ctx, w)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, q)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).To(gomega.Succeed())
+			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, cq.Name, w)
 		})
 	})
 
