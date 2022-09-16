@@ -25,6 +25,18 @@ job lifecycle management are the responsibility of cluster-autoscaler,
 kube-scheduler and kube-controller-manager, respectively. Advanced
 admission control can be delegated to controllers such as [gatekeeper](https://github.com/open-policy-agent/gatekeeper).
 
+## Production Readiness status
+
+- ✔️ Coverage with unit and integration tests: ~72%
+- ✔️ Up-to-date [documentation](/docs).
+- ✔️ Monitoring via [metrics](/docs/reference/metrics.md)
+- ✔️ API validation and defaulting.
+- ⏳ Scalability tests in progress.
+- ⚠️ Latest API version: v1alpha2.
+
+  _Based on community feedback, we continue to simplify and evolve the API to
+  address new use cases_.
+
 ## Installation
 
 **Requires Kubernetes 1.22 or newer**.
