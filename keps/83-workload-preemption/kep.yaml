@@ -1,0 +1,17 @@
+title: Workload Preemption
+kep-number: 83
+authors:
+  - "@alculquicondor"
+status: provisional
+creation-date: 2022-09-19
+reviewers:
+  - "@kerthcet"
+approvers:
+  - "@ahg-g"
+stage: stable
+latest-milestone: "v0.3"
+milestone:
+  stable: "v0.3"
+disable-supported: false
+metrics:
+  - workload_preemptions_total
