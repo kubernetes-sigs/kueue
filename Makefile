@@ -113,6 +113,14 @@ gomod-verify:
 	$(GO_CMD) mod tidy
 	git --no-pager diff --exit-code go.mod go.sum
 
+.PHONY: toc-update
+toc-update:
+	./hack/update-toc.sh
+
+.PHONY: toc-verify
+toc-verify:
+	./hack/verify-toc.sh
+
 .PHONY: vet
 vet: ## Run go vet against code.
 	$(GO_CMD) vet ./...
@@ -131,7 +139,7 @@ ci-lint: golangci-lint
 	$(GOLANGCI_LINT) run --timeout 7m0s
 
 .PHONY: verify
-verify: gomod-verify vet ci-lint fmt-verify manifests generate
+verify: gomod-verify vet ci-lint fmt-verify toc-verify manifests generate
 	git --no-pager diff --exit-code config/components apis
 
 ##@ Build
