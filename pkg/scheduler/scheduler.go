@@ -107,19 +107,20 @@ func (s *Scheduler) schedule(ctx context.Context) {
 	// 4. Sort entries based on borrowing and timestamps.
 	sort.Sort(entryOrdering(entries))
 
-	// 5. Admit entries, ensuring that no more than one workload gets
-	// admitted by a cohort (if borrowing).
-	// This is because there can be other workloads deeper in a clusterQueue whose
-	// head got admitted that should be scheduled in the cohort before the heads
-	// of other clusterQueues.
-	usedCohorts := sets.NewString()
+	// 5. Admit entries, but disallow borrowing in the cohort there are
+	// workloads that don't require borrowing in a ClusterQueue of if other
+	// ClusterQueues borrow in this cycle.
+	noBorrowingCohorts := sets.NewString()
 	for i := range entries {
 		e := &entries[i]
+		c := snapshot.ClusterQueues[e.ClusterQueue]
+		if len(e.borrows) == 0 && c.Cohort != nil {
+			noBorrowingCohorts.Insert(c.Cohort.Name)
+		}
 		if e.status != nominated {
 			continue
 		}
-		c := snapshot.ClusterQueues[e.ClusterQueue]
-		if len(e.borrows) > 0 && c.Cohort != nil && usedCohorts.Has(c.Cohort.Name) {
+		if len(e.borrows) > 0 && c.Cohort != nil && noBorrowingCohorts.Has(c.Cohort.Name) {
 			e.status = skipped
 			e.inadmissibleMsg = "cohort used in this cycle"
 			continue
@@ -133,7 +134,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 		// Even if there was a failure, we shouldn't admit other workloads to this
 		// cohort.
 		if c.Cohort != nil {
-			usedCohorts.Insert(c.Cohort.Name)
+			noBorrowingCohorts.Insert(c.Cohort.Name)
 		}
 	}
 
