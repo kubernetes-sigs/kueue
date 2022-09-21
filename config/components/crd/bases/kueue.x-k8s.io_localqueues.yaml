@@ -27,6 +27,10 @@ spec:
       jsonPath: .status.pendingWorkloads
       name: Pending Workloads
       type: integer
+    - description: Number of admitted workloads that haven't finished yet.
+      jsonPath: .status.admittedWorkloads
+      name: Admitted Workloads
+      type: integer
     name: v1alpha2
     schema:
       openAPIV3Schema:
