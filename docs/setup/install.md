@@ -5,7 +5,9 @@
 Make sure the following conditions are met:
 
 - A Kubernetes cluster with version 1.21 or newer is running. Learn how to [install the Kubernetes tools](https://kubernetes.io/docs/tasks/tools/).
-- The SuspendJob [feature gate](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/) is enabled. In Kubernetes 1.22 or newer, the feature gate is enabled by default.
+- The `SuspendJob` [feature gate][feature_gate] is enabled. In Kubernetes 1.22 or newer, the feature gate is enabled by default.
+- (Optional) The `JobMutableNodeSchedulingDirectives` [feature gate][feature_gate] (available in Kubernetes 1.22 or newer) is enabled.
+  In Kubernetes 1.23 or newer, the feature gate is enabled by default.
 - The kubectl command-line tool has communication with your cluster.
 
 Kueue publishes [metrics](/docs/reference/metrics) to monitor its operators.
@@ -18,6 +20,8 @@ The webhook server in kueue uses an internal cert management for provisioning ce
   1. Set `enableInternalCertManagement` to `false` in [config file](#install-a-custom-configured-released-version).
   2. Comment out the `internalcert` folder in `config/default/kustomization.yaml`.
   3. Enable `cert-manager` in `config/default/kustomization.yaml` and uncomment all sections with 'CERTMANAGER'.
+
+[feature_gate]: https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/
 
 ## Install a released version
 
