@@ -49,7 +49,7 @@ import (
 )
 
 const (
-	errCouldNotAdmitWL = "Could not admit workload and assigning flavors in apiserver"
+	errCouldNotAdmitWL = "Could not admit Workload and assign flavors in apiserver"
 )
 
 type Scheduler struct {
@@ -364,7 +364,7 @@ func (s *Scheduler) applyAdmissionWithSSA(ctx context.Context, w *kueue.Workload
 // workloadAdmissionFrom returns only the fields necessary for admission using
 // ServerSideApply.
 func workloadAdmissionFrom(w *kueue.Workload) *kueue.Workload {
-	return &kueue.Workload{
+	wlCopy := &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			UID:        w.UID,
 			Name:       w.Name,
@@ -376,6 +376,13 @@ func workloadAdmissionFrom(w *kueue.Workload) *kueue.Workload {
 			Admission: w.Spec.Admission.DeepCopy(),
 		},
 	}
+	if wlCopy.APIVersion == "" {
+		wlCopy.APIVersion = kueue.GroupVersion.String()
+	}
+	if wlCopy.Kind == "" {
+		wlCopy.Kind = "Workload"
+	}
+	return wlCopy
 }
 
 // findFlavorForCodepResources returns a flavor which can satisfy the resource request,
