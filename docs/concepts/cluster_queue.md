@@ -176,6 +176,8 @@ ClusterQueue in the `.spec.resources[*].flavors[*].name` field.
 
 ### ResourceFlavor labels
 
+**Requires Kubernetes 1.23 or newer**
+
 To associate a ResourceFlavor with a subset of nodes of you cluster, you can
 configure the `.metadata.labels` field with matching node labels that uniquely identify
 the nodes. If you are using [cluster autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)
