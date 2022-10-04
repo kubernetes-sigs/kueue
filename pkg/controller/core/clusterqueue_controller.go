@@ -22,6 +22,8 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
@@ -50,16 +52,23 @@ type ClusterQueueReconciler struct {
 	qManager   *queue.Manager
 	cache      *cache.Cache
 	wlUpdateCh chan event.GenericEvent
+	rfUpdateCh chan event.GenericEvent
 	watchers   []ClusterQueueUpdateWatcher
 }
 
-func NewClusterQueueReconciler(client client.Client, qMgr *queue.Manager, cache *cache.Cache, watchers ...ClusterQueueUpdateWatcher) *ClusterQueueReconciler {
+func NewClusterQueueReconciler(
+	client client.Client,
+	qMgr *queue.Manager,
+	cache *cache.Cache,
+	watchers ...ClusterQueueUpdateWatcher,
+) *ClusterQueueReconciler {
 	return &ClusterQueueReconciler{
 		client:     client,
 		log:        ctrl.Log.WithName("cluster-queue-reconciler"),
 		qManager:   qMgr,
 		cache:      cache,
 		wlUpdateCh: make(chan event.GenericEvent, updateChBuffer),
+		rfUpdateCh: make(chan event.GenericEvent, updateChBuffer),
 		watchers:   watchers,
 	}
 }
@@ -107,16 +116,22 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}
 
-	status, err := r.Status(&cqObj)
-	if err != nil {
-		log.Error(err, "Failed getting status from cache")
-		return ctrl.Result{}, err
-	}
-
-	if !equality.Semantic.DeepEqual(status, cqObj.Status) {
-		cqObj.Status = status
-		err := r.client.Status().Update(ctx, &cqObj)
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+	newCQObj := cqObj.DeepCopy()
+	if r.cache.ClusterQueueActive(newCQObj.Name) {
+		msg := "Can admit new workloads"
+		if err := r.updateCqStatusIfChanged(ctx, newCQObj, metav1.ConditionTrue, "Ready", msg); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+	} else if r.cache.ClusterQueueTerminating(newCQObj.Name) {
+		msg := "Can't admit new workloads; clusterQueue is terminating"
+		if err := r.updateCqStatusIfChanged(ctx, newCQObj, metav1.ConditionFalse, "Terminating", msg); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+	} else {
+		msg := "Can't admit new workloads; some flavors are not found"
+		if err := r.updateCqStatusIfChanged(ctx, newCQObj, metav1.ConditionFalse, "FlavorNotFound", msg); err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
 	}
 
 	return ctrl.Result{}, nil
@@ -130,6 +145,10 @@ func (r *ClusterQueueReconciler) notifyWatchers(oldCQ, newCQ *kueue.ClusterQueue
 	for _, w := range r.watchers {
 		w.NotifyClusterQueueUpdate(oldCQ, newCQ)
 	}
+}
+
+func (r *ClusterQueueReconciler) NotifyResourceFlavorUpdate(rf *kueue.ResourceFlavor) {
+	r.rfUpdateCh <- event.GenericEvent{Object: rf}
 }
 
 // Event handlers return true to signal the controller to reconcile the
@@ -198,7 +217,7 @@ func (r *ClusterQueueReconciler) Update(e event.UpdateEvent) bool {
 }
 
 func (r *ClusterQueueReconciler) Generic(e event.GenericEvent) bool {
-	r.log.V(2).Info("Got Workload event", "workload", klog.KObj(e.Object))
+	r.log.V(2).Info("Got generic event", "obj", klog.KObj(e.Object), "kind", e.Object.GetObjectKind().GroupVersionKind())
 	return true
 }
 
@@ -274,6 +293,36 @@ func (h *cqNamespaceHandler) Delete(event.DeleteEvent, workqueue.RateLimitingInt
 func (h *cqNamespaceHandler) Generic(event.GenericEvent, workqueue.RateLimitingInterface) {
 }
 
+type cqResourceFlavorHandler struct {
+	cache *cache.Cache
+}
+
+func (h *cqResourceFlavorHandler) Create(event.CreateEvent, workqueue.RateLimitingInterface) {
+}
+
+func (h *cqResourceFlavorHandler) Update(event.UpdateEvent, workqueue.RateLimitingInterface) {
+}
+
+func (h *cqResourceFlavorHandler) Delete(event.DeleteEvent, workqueue.RateLimitingInterface) {
+}
+
+func (h *cqResourceFlavorHandler) Generic(e event.GenericEvent, q workqueue.RateLimitingInterface) {
+	rf, ok := e.Object.(*kueue.ResourceFlavor)
+	if !ok {
+		return
+	}
+
+	if cqs := h.cache.ClusterQueuesUsingFlavor(rf.Name); len(cqs) != 0 {
+		for _, cq := range cqs {
+			req := &reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name: cq,
+				}}
+			q.Add(req)
+		}
+	}
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	wHandler := cqWorkloadHandler{
@@ -283,26 +332,44 @@ func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		qManager: r.qManager,
 		cache:    r.cache,
 	}
+	rfHandler := cqResourceFlavorHandler{
+		cache: r.cache,
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.ClusterQueue{}).
 		Watches(&source.Kind{Type: &corev1.Namespace{}}, &nsHandler).
 		Watches(&source.Channel{Source: r.wlUpdateCh}, &wHandler).
+		Watches(&source.Channel{Source: r.rfUpdateCh}, &rfHandler).
 		WithEventFilter(r).
 		Complete(r)
 }
 
-func (r *ClusterQueueReconciler) Status(cq *kueue.ClusterQueue) (kueue.ClusterQueueStatus, error) {
+func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
+	ctx context.Context,
+	cq *kueue.ClusterQueue,
+	conditionStatus metav1.ConditionStatus,
+	reason, msg string,
+) error {
+	oldStatus := cq.Status.DeepCopy()
+	pendingWorkloads := r.qManager.Pending(cq)
 	usage, workloads, err := r.cache.Usage(cq)
 	if err != nil {
 		r.log.Error(err, "Failed getting usage from cache")
 		// This is likely because the cluster queue was recently removed,
 		// but we didn't process that event yet.
-		return kueue.ClusterQueueStatus{}, err
+		return err
 	}
-
-	return kueue.ClusterQueueStatus{
-		UsedResources:     usage,
-		AdmittedWorkloads: int32(workloads),
-		PendingWorkloads:  int32(r.qManager.Pending(cq)),
-	}, nil
+	cq.Status.UsedResources = usage
+	cq.Status.AdmittedWorkloads = int32(workloads)
+	cq.Status.PendingWorkloads = int32(pendingWorkloads)
+	meta.SetStatusCondition(&cq.Status.Conditions, metav1.Condition{
+		Type:    kueue.ClusterQueueActive,
+		Status:  conditionStatus,
+		Reason:  reason,
+		Message: msg,
+	})
+	if !equality.Semantic.DeepEqual(cq.Status, oldStatus) {
+		return r.client.Status().Update(ctx, cq)
+	}
+	return nil
 }

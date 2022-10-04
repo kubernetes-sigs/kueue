@@ -64,7 +64,7 @@ func DeleteResourceFlavor(ctx context.Context, c client.Client, rf *kueue.Resour
 	return nil
 }
 
-func DeleteQueue(ctx context.Context, c client.Client, q *kueue.LocalQueue) error {
+func DeleteLocalQueue(ctx context.Context, c client.Client, q *kueue.LocalQueue) error {
 	if q == nil {
 		return nil
 	}

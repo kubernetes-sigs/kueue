@@ -36,6 +36,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/queue"
 )
 
+type ResourceFlavorUpdateWatcher interface {
+	NotifyResourceFlavorUpdate(*kueue.ResourceFlavor)
+}
+
 // ResourceFlavorReconciler reconciles a ResourceFlavor object
 type ResourceFlavorReconciler struct {
 	log        logr.Logger
@@ -43,9 +47,14 @@ type ResourceFlavorReconciler struct {
 	cache      *cache.Cache
 	client     client.Client
 	cqUpdateCh chan event.GenericEvent
+	watchers   []ResourceFlavorUpdateWatcher
 }
 
-func NewResourceFlavorReconciler(client client.Client, qMgr *queue.Manager, cache *cache.Cache) *ResourceFlavorReconciler {
+func NewResourceFlavorReconciler(
+	client client.Client,
+	qMgr *queue.Manager,
+	cache *cache.Cache,
+) *ResourceFlavorReconciler {
 	return &ResourceFlavorReconciler{
 		log:        ctrl.Log.WithName("resourceflavor-reconciler"),
 		cache:      cache,
@@ -97,11 +106,22 @@ func (r *ResourceFlavorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return ctrl.Result{}, nil
 }
 
+func (r *ResourceFlavorReconciler) AddUpdateWatcher(watchers ...ResourceFlavorUpdateWatcher) {
+	r.watchers = watchers
+}
+
+func (r *ResourceFlavorReconciler) notifyWatchers(rf *kueue.ResourceFlavor) {
+	for _, w := range r.watchers {
+		w.NotifyResourceFlavorUpdate(rf)
+	}
+}
+
 func (r *ResourceFlavorReconciler) Create(e event.CreateEvent) bool {
 	flv, match := e.Object.(*kueue.ResourceFlavor)
 	if !match {
 		return false
 	}
+	defer r.notifyWatchers(flv)
 
 	log := r.log.WithValues("resourceFlavor", klog.KObj(flv))
 	log.V(2).Info("ResourceFlavor create event")
@@ -123,6 +143,7 @@ func (r *ResourceFlavorReconciler) Delete(e event.DeleteEvent) bool {
 	if !match {
 		return false
 	}
+	defer r.notifyWatchers(flv)
 
 	log := r.log.WithValues("resourceFlavor", klog.KObj(flv))
 	log.V(2).Info("ResourceFlavor delete event")
@@ -138,6 +159,7 @@ func (r *ResourceFlavorReconciler) Update(e event.UpdateEvent) bool {
 	if !match {
 		return false
 	}
+	defer r.notifyWatchers(flv)
 
 	log := r.log.WithValues("resourceFlavor", klog.KObj(flv))
 	log.V(2).Info("ResourceFlavor update event")
