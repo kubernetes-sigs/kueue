@@ -253,7 +253,7 @@ func setOptionDefaults(opt *ctrl.Options) {
 	if opt.MetricsBindAddress == "" {
 		opt.MetricsBindAddress = ":8080"
 	}
-	if opt.LeaderElectionID == "" {
+	if opt.LeaderElection && opt.LeaderElectionID == "" {
 		opt.LeaderElectionID = "c1f6bfd2.kueue.x-k8s.io"
 	}
 }
