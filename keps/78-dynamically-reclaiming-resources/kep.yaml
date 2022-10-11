@@ -1,0 +1,15 @@
+title: Dynamically Reclaiming Resources
+kep-number: 78
+authors:
+  - "@thisisprasad"
+owning-sig: sig-scheduling
+reviewers:
+  - "@alculquicondor"
+  - "@kerthcet"
+approvers:
+  - "@ahg-g"
+  - "@alculquicondor"
+status: implementable
+see-also:
+replaces:
+superseeded-by:
