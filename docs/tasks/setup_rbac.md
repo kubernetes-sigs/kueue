@@ -89,7 +89,7 @@ To create the RoleBinding, save the preceding manifest and run the
 following command:
 
 ```shell
-kubectl apply -f batch-admin-role-binding.yaml
+kubectl apply -f team-a-batch-user-role-binding.yaml
 ```
 
 ## What's next?

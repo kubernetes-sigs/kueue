@@ -52,7 +52,7 @@ Kueue assigns the first flavor in the ClusterQueue's `.spec.resources[*].flavors
 list that has enough unused `min` quota in the ClusterQueue or the
 ClusterQueue's [cohort](#cohort).
 
-### Codepedent resources
+### Codependent resources
 
 It is possible that multiple resources in a ClusterQueue have the same flavors.
 This is typical for `cpu` and `memory`, where the flavors are generally tied to
@@ -178,7 +178,7 @@ ClusterQueue in the `.spec.resources[*].flavors[*].name` field.
 
 **Requires Kubernetes 1.23 or newer**
 
-To associate a ResourceFlavor with a subset of nodes of you cluster, you can
+To associate a ResourceFlavor with a subset of nodes of your cluster, you can
 configure the `.metadata.labels` field with matching node labels that uniquely identify
 the nodes. If you are using [cluster autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)
 (or equivalent controllers), make sure it is configured to add those labels when
