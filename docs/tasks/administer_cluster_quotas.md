@@ -160,7 +160,7 @@ metadata:
 To create the ResourceFlavors, run the following command:
 
 ```shell
-kubectl apply -f flavor-x86.yaml flavor-arm.yaml
+kubectl apply -f flavor-x86.yaml -f flavor-arm.yaml
 ```
 
 The labels set in the ResourceFlavors should match the labels in your nodes.
