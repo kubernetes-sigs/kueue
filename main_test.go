@@ -123,6 +123,23 @@ internalCertManagement:
 		t.Fatal(err)
 	}
 
+	leaderElectionDisabledConfig := filepath.Join(tmpDir, "leaderElection-disabled.yaml")
+	if err := os.WriteFile(leaderElectionDisabledConfig, []byte(`
+apiVersion: config.kueue.x-k8s.io/v1alpha2
+kind: Configuration
+namespace: kueue-system
+health:
+  healthProbeBindAddress: :8081
+metrics:
+  bindAddress: :8080
+leaderElection:
+  leaderElect: false
+webhook:
+  port: 9443
+`), os.FileMode(0600)); err != nil {
+		t.Fatal(err)
+	}
+
 	defaultControlOptions := ctrl.Options{
 		Port:                   defaultWebhookPort,
 		HealthProbeBindAddress: defaultHealthProbeAddress,
@@ -163,7 +180,7 @@ internalCertManagement:
 				Port:                   defaultWebhookPort,
 				HealthProbeBindAddress: defaultHealthProbeAddress,
 				MetricsBindAddress:     defaultMetricsAddress,
-				LeaderElectionID:       defaultLeaderElectionID,
+				LeaderElectionID:       "",
 				LeaderElection:         false,
 			},
 		},
@@ -234,6 +251,26 @@ internalCertManagement:
 				},
 			},
 			wantOptions: defaultControlOptions,
+		},
+		{
+			name:       "leaderElection disabled config",
+			configFile: leaderElectionDisabledConfig,
+			wantConfiguration: configv1alpha2.Configuration{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: configv1alpha2.GroupVersion.String(),
+					Kind:       "Configuration",
+				},
+				Namespace:                  pointer.String("kueue-system"),
+				ManageJobsWithoutQueueName: false,
+				InternalCertManagement:     enableDefaultInternalCertManagement,
+			},
+			wantOptions: ctrl.Options{
+				Port:                   defaultWebhookPort,
+				HealthProbeBindAddress: defaultHealthProbeAddress,
+				MetricsBindAddress:     defaultMetricsAddress,
+				LeaderElectionID:       "",
+				LeaderElection:         false,
+			},
 		},
 	}
 
