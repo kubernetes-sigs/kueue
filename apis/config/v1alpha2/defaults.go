@@ -22,9 +22,13 @@ import (
 )
 
 const (
-	DefaultNamespace          = "kueue-system"
-	DefaultWebhookServiceName = "kueue-webhook-service"
-	DefaultWebhookSecretName  = "kueue-webhook-server-cert"
+	DefaultNamespace              = "kueue-system"
+	DefaultWebhookServiceName     = "kueue-webhook-service"
+	DefaultWebhookSecretName      = "kueue-webhook-server-cert"
+	DefaultWebhookPort            = 9443
+	DefaultHealthProbeBindAddress = ":8081"
+	DefaultMetricsBindAddress     = ":8080"
+	DefaultLeaderElectionID       = "c1f6bfd2.kueue.x-k8s.io"
 )
 
 func addDefaultingFuncs(scheme *runtime.Scheme) error {
@@ -38,6 +42,19 @@ func addDefaultingFuncs(scheme *runtime.Scheme) error {
 func SetDefaults_Configuration(cfg *Configuration) {
 	if cfg.Namespace == nil {
 		cfg.Namespace = pointer.String(DefaultNamespace)
+	}
+	if cfg.Webhook.Port == nil {
+		cfg.Webhook.Port = pointer.Int(DefaultWebhookPort)
+	}
+	if len(cfg.Metrics.BindAddress) == 0 {
+		cfg.Metrics.BindAddress = DefaultMetricsBindAddress
+	}
+	if len(cfg.Health.HealthProbeBindAddress) == 0 {
+		cfg.Health.HealthProbeBindAddress = DefaultHealthProbeBindAddress
+	}
+	if cfg.LeaderElection != nil && cfg.LeaderElection.LeaderElect != nil &&
+		*cfg.LeaderElection.LeaderElect && len(cfg.LeaderElection.ResourceName) == 0 {
+		cfg.LeaderElection.ResourceName = DefaultLeaderElectionID
 	}
 	if cfg.InternalCertManagement == nil {
 		cfg.InternalCertManagement = &InternalCertManagement{}

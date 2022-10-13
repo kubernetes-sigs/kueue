@@ -27,14 +27,7 @@ import (
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	configv1alpha2 "sigs.k8s.io/kueue/apis/config/v1alpha2"
-)
-
-const (
-	defaultHealthProbeAddress = ":8081"
-	defaultMetricsAddress     = ":8080"
-	defaultWebhookPort        = 9443
-	defaultLeaderElectionID   = "c1f6bfd2.kueue.x-k8s.io"
+	config "sigs.k8s.io/kueue/apis/config/v1alpha2"
 )
 
 func TestApply(t *testing.T) {
@@ -141,17 +134,17 @@ webhook:
 	}
 
 	defaultControlOptions := ctrl.Options{
-		Port:                   defaultWebhookPort,
-		HealthProbeBindAddress: defaultHealthProbeAddress,
-		MetricsBindAddress:     defaultMetricsAddress,
-		LeaderElectionID:       defaultLeaderElectionID,
+		Port:                   config.DefaultWebhookPort,
+		HealthProbeBindAddress: config.DefaultHealthProbeBindAddress,
+		MetricsBindAddress:     config.DefaultMetricsBindAddress,
+		LeaderElectionID:       config.DefaultLeaderElectionID,
 		LeaderElection:         true,
 	}
 
-	enableDefaultInternalCertManagement := &configv1alpha2.InternalCertManagement{
+	enableDefaultInternalCertManagement := &config.InternalCertManagement{
 		Enable:             pointer.Bool(true),
-		WebhookServiceName: pointer.String(configv1alpha2.DefaultWebhookServiceName),
-		WebhookSecretName:  pointer.String(configv1alpha2.DefaultWebhookSecretName),
+		WebhookServiceName: pointer.String(config.DefaultWebhookServiceName),
+		WebhookSecretName:  pointer.String(config.DefaultWebhookSecretName),
 	}
 
 	ctrlOptsCmpOpts := []cmp.Option{
@@ -160,26 +153,26 @@ webhook:
 	}
 
 	configCmpOpts := []cmp.Option{
-		cmpopts.IgnoreFields(configv1alpha2.Configuration{}, "ControllerManagerConfigurationSpec"),
+		cmpopts.IgnoreFields(config.Configuration{}, "ControllerManagerConfigurationSpec"),
 	}
 
 	testcases := []struct {
 		name              string
 		configFile        string
-		wantConfiguration configv1alpha2.Configuration
+		wantConfiguration config.Configuration
 		wantOptions       ctrl.Options
 	}{
 		{
 			name:       "default config",
 			configFile: "",
-			wantConfiguration: configv1alpha2.Configuration{
-				Namespace:              pointer.String(configv1alpha2.DefaultNamespace),
+			wantConfiguration: config.Configuration{
+				Namespace:              pointer.String(config.DefaultNamespace),
 				InternalCertManagement: enableDefaultInternalCertManagement,
 			},
 			wantOptions: ctrl.Options{
-				Port:                   defaultWebhookPort,
-				HealthProbeBindAddress: defaultHealthProbeAddress,
-				MetricsBindAddress:     defaultMetricsAddress,
+				Port:                   config.DefaultWebhookPort,
+				HealthProbeBindAddress: config.DefaultHealthProbeBindAddress,
+				MetricsBindAddress:     config.DefaultMetricsBindAddress,
 				LeaderElectionID:       "",
 				LeaderElection:         false,
 			},
@@ -187,9 +180,9 @@ webhook:
 		{
 			name:       "namespace overwrite config",
 			configFile: namespaceOverWriteConfig,
-			wantConfiguration: configv1alpha2.Configuration{
+			wantConfiguration: config.Configuration{
 				TypeMeta: metav1.TypeMeta{
-					APIVersion: configv1alpha2.GroupVersion.String(),
+					APIVersion: config.GroupVersion.String(),
 					Kind:       "Configuration",
 				},
 				Namespace:                  pointer.String("kueue-tenant-a"),
@@ -201,12 +194,12 @@ webhook:
 		{
 			name:       "ControllerManagerConfigurationSpec overwrite config",
 			configFile: ctrlManagerConfigSpecOverWriteConfig,
-			wantConfiguration: configv1alpha2.Configuration{
+			wantConfiguration: config.Configuration{
 				TypeMeta: metav1.TypeMeta{
-					APIVersion: configv1alpha2.GroupVersion.String(),
+					APIVersion: config.GroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  pointer.String(configv1alpha2.DefaultNamespace),
+				Namespace:                  pointer.String(config.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 			},
@@ -221,14 +214,14 @@ webhook:
 		{
 			name:       "cert options overwrite config",
 			configFile: certOverWriteConfig,
-			wantConfiguration: configv1alpha2.Configuration{
+			wantConfiguration: config.Configuration{
 				TypeMeta: metav1.TypeMeta{
-					APIVersion: configv1alpha2.GroupVersion.String(),
+					APIVersion: config.GroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  pointer.String(configv1alpha2.DefaultNamespace),
+				Namespace:                  pointer.String(config.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
-				InternalCertManagement: &configv1alpha2.InternalCertManagement{
+				InternalCertManagement: &config.InternalCertManagement{
 					Enable:             pointer.Bool(true),
 					WebhookServiceName: pointer.String("kueue-tenant-a-webhook-service"),
 					WebhookSecretName:  pointer.String("kueue-tenant-a-webhook-server-cert"),
@@ -239,14 +232,14 @@ webhook:
 		{
 			name:       "disable cert overwrite config",
 			configFile: disableCertOverWriteConfig,
-			wantConfiguration: configv1alpha2.Configuration{
+			wantConfiguration: config.Configuration{
 				TypeMeta: metav1.TypeMeta{
-					APIVersion: configv1alpha2.GroupVersion.String(),
+					APIVersion: config.GroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  pointer.String(configv1alpha2.DefaultNamespace),
+				Namespace:                  pointer.String(config.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
-				InternalCertManagement: &configv1alpha2.InternalCertManagement{
+				InternalCertManagement: &config.InternalCertManagement{
 					Enable: pointer.Bool(false),
 				},
 			},
@@ -255,9 +248,9 @@ webhook:
 		{
 			name:       "leaderElection disabled config",
 			configFile: leaderElectionDisabledConfig,
-			wantConfiguration: configv1alpha2.Configuration{
+			wantConfiguration: config.Configuration{
 				TypeMeta: metav1.TypeMeta{
-					APIVersion: configv1alpha2.GroupVersion.String(),
+					APIVersion: config.GroupVersion.String(),
 					Kind:       "Configuration",
 				},
 				Namespace:                  pointer.String("kueue-system"),
@@ -265,9 +258,9 @@ webhook:
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 			},
 			wantOptions: ctrl.Options{
-				Port:                   defaultWebhookPort,
-				HealthProbeBindAddress: defaultHealthProbeAddress,
-				MetricsBindAddress:     defaultMetricsAddress,
+				Port:                   config.DefaultWebhookPort,
+				HealthProbeBindAddress: config.DefaultHealthProbeBindAddress,
+				MetricsBindAddress:     config.DefaultMetricsBindAddress,
 				LeaderElectionID:       "",
 				LeaderElection:         false,
 			},
@@ -276,8 +269,8 @@ webhook:
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			options, config := apply(tc.configFile)
-			if diff := cmp.Diff(tc.wantConfiguration, config, configCmpOpts...); diff != "" {
+			options, cfg := apply(tc.configFile)
+			if diff := cmp.Diff(tc.wantConfiguration, cfg, configCmpOpts...); diff != "" {
 				t.Errorf("Unexpected config (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tc.wantOptions, options, ctrlOptsCmpOpts...); diff != "" {
