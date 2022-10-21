@@ -31,6 +31,7 @@ ifdef IMAGE_EXTRA_TAG
 IMAGE_BUILD_EXTRA_OPTS += -t $(IMAGE_EXTRA_TAG)
 endif
 
+ARTIFACTS ?= $(PROJECT_DIR)/bin
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
 BASE_IMAGE ?= gcr.io/distroless/static:nonroot
@@ -126,13 +127,13 @@ vet: ## Run go vet against code.
 	$(GO_CMD) vet ./...
 
 .PHONY: test
-test: generate fmt vet ## Run tests.
-	$(GO_CMD) test $(GO_TEST_FLAGS) $(shell go list ./... | grep -v '/test/') -coverprofile cover.out
+test: generate fmt vet gotestsum ## Run tests.
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) $(shell go list ./... | grep -v '/test/') -coverprofile $(ARTIFACTS)/cover.out
 
 .PHONY: test-integration
 test-integration: manifests generate fmt vet envtest ginkgo ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) --arch=amd64 use $(ENVTEST_K8S_VERSION) -p path)" \
-	$(GINKGO) -v $(INTEGRATION_TARGET)
+	$(GINKGO) --junit-report=junit.xml --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 
 .PHONY: ci-lint
 ci-lint: golangci-lint
@@ -242,3 +243,8 @@ GINKGO = $(shell pwd)/bin/ginkgo
 .PHONY: ginkgo
 ginkgo: ## Download ginkgo locally if necessary.
 	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install github.com/onsi/ginkgo/v2/ginkgo@v2.1.4
+
+GOTESTSUM = $(shell pwd)/bin/gotestsum
+.PHONY: gotestsum
+gotestsum: ## Download gotestsum locally if necessary.
+	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install gotest.tools/gotestsum@v1.8.2
