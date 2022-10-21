@@ -12,6 +12,8 @@ spec:
     kind: ResourceFlavor
     listKind: ResourceFlavorList
     plural: resourceflavors
+    shortNames:
+    - rf
     singular: resourceflavor
   scope: Cluster
   versions:

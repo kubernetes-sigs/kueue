@@ -12,6 +12,8 @@ spec:
     kind: ClusterQueue
     listKind: ClusterQueueList
     plural: clusterqueues
+    shortNames:
+    - cq
     singular: clusterqueue
   scope: Cluster
   versions:

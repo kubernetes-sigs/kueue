@@ -12,6 +12,8 @@ spec:
     kind: Workload
     listKind: WorkloadList
     plural: workloads
+    shortNames:
+    - wl
     singular: workload
   scope: Namespaced
   versions:
