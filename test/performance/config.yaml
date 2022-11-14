@@ -1,0 +1,181 @@
+{{$MODE := DefaultParam .MODE "Indexed"}}
+{{$LOAD_TEST_THROUGHPUT := DefaultParam .CL2_LOAD_TEST_THROUGHPUT 10}}
+
+{{$smallJobs := DefaultParam .CL2_SMALL_JOBS 10}}
+{{$mediumJobs := DefaultParam .CL2_MEDIUM_JOBS 2}}
+{{$largeJobs := DefaultParam .CL2_LARGE_JOBS 0}}
+
+{{$namespaces := DefaultParam .CL2_NAMESPACES 1}}
+
+{{$smallJobsPerNamespace := DivideInt $smallJobs $namespaces}}
+{{$mediumJobsPerNamespace := DivideInt $mediumJobs $namespaces}}
+{{$largeJobsPerNamespace := DivideInt $largeJobs $namespaces}}
+
+{{$smallJobSize := 5}}
+{{$mediumJobSize := 20}}
+{{$largeJobSize := 100}}
+
+{{$jobRunningTime := DefaultParam .CL2_JOB_RUNNING_TIME "30s"}}
+
+{{$clusterQueue := "default-cluster-queue"}}
+{{$localQueue := "local-queue"}}
+
+{{$testTimeout := DefaultParam .CL2_TEST_TIMEOUT "5m"}}
+
+{{$namespacePrefix := "queue-test"}}
+
+{{$useKueue := DefaultParam .CL2_USE_KUEUE false}}
+
+name: batch
+
+namespace:
+  number: {{$namespaces}}
+  prefix: {{$namespacePrefix}}
+
+tuningSets:
+- name: UniformQPS
+  qpsLoad:
+    qps: {{$LOAD_TEST_THROUGHPUT}}
+
+steps:
+- name: Start measurements
+  measurements:
+  - Identifier: Timer
+    Method: Timer
+    Params:
+      action: start
+      label: job_performance  
+  - Identifier: WaitForFinishedJobs
+    Method: WaitForFinishedJobs
+    Params:
+      action: start
+      labelSelector: group = test-job
+  - Identifier: JobLifecycleLatency
+    Method: JobLifecycleLatency
+    Params:
+      action: start
+      labelSelector: group = test-job
+  - Identifier: GenericPrometheusQuery
+    Method: GenericPrometheusQuery
+    Params:
+      action: start
+      metricName: Job (Kueue) API performance
+      metricVersion: v1
+      unit: s
+      queries:
+        - name: total_jobs_scheduled
+          query: count(kube_job_info{namespace=~"{{$namespacePrefix}}.*"})
+        - name: total_pods_scheduled
+          query: count(kube_pod_info{namespace=~"{{$namespacePrefix}}.*"})
+        - name: avg_pod_running_time
+          query: (avg(kube_pod_completion_time{namespace=~"{{$namespacePrefix}}.*"} - kube_pod_start_time{namespace=~"{{$namespacePrefix}}.*"}))
+        - name: perc_90_pod_completion_time
+          query: quantile(0.90, kube_pod_completion_time{namespace=~"{{$namespacePrefix}}.*"} - kube_pod_start_time{namespace=~"{{$namespacePrefix}}.*"})
+        - name: avg_pod_waiting_time
+          query: (avg(kube_pod_start_time{namespace=~"{{$namespacePrefix}}.*"} - kube_pod_created{namespace=~"{{$namespacePrefix}}.*"})) 
+        - name: perc_90_pod_waiting_time
+          query: quantile(0.90, kube_pod_start_time{namespace=~"{{$namespacePrefix}}.*"} - kube_pod_created{namespace=~"{{$namespacePrefix}}.*"})                
+        - name: max_job_throughput
+          query: max_over_time(sum(rate(kueue_admitted_workloads_total{cluster_queue="{{$clusterQueue}}"}[1m]))[{{$testTimeout}}:5s])                               
+- name: Sleep
+  measurements:
+  - Identifier: sleep
+    Method: Sleep
+    Params:
+      duration: 10s  
+{{if $useKueue}}
+- name: Create local queue
+  phases: 
+  - namespaceRange:
+      min: 1
+      max: {{$namespaces}}
+    replicasPerNamespace: 1
+    tuningSet: UniformQPS
+    objectBundle:
+    - basename: {{$localQueue}}
+      objectTemplatePath: "local-queue.yaml"
+      templateFillMap:
+        ClusterQueue: {{$clusterQueue}}     
+{{end}}
+- name: Create {{$MODE}} jobs
+  phases:
+  - namespaceRange:
+      min: 1
+      max: {{$namespaces}}
+    replicasPerNamespace: {{$smallJobsPerNamespace}}
+    tuningSet: UniformQPS
+    objectBundle:
+    - basename: small
+      objectTemplatePath: "job.yaml"
+      templateFillMap:
+        UseKueue: {{$useKueue}}
+        Replicas: {{$smallJobSize}}
+        Mode: {{$MODE}}
+        Sleep: {{$jobRunningTime}}
+        LocalQueue: "{{$localQueue}}-0"        
+  - namespaceRange:
+      min: 1
+      max: {{$namespaces}}
+    replicasPerNamespace: {{$mediumJobsPerNamespace}}
+    tuningSet: UniformQPS
+    objectBundle:
+    - basename: medium
+      objectTemplatePath: "job.yaml"
+      templateFillMap:
+        UseKueue: {{$useKueue}} 
+        Replicas: {{$mediumJobSize}}
+        Mode: {{$MODE}}
+        Sleep: {{$jobRunningTime}}
+        LocalQueue: "{{$localQueue}}-0"
+  - namespaceRange:
+      min: 1
+      max: {{$namespaces}}
+    replicasPerNamespace: {{$largeJobsPerNamespace}}
+    tuningSet: UniformQPS
+    objectBundle:
+    - basename: large
+      objectTemplatePath: "job.yaml"
+      templateFillMap:
+        UseKueue: {{$useKueue}}
+        Replicas: {{$largeJobSize}}
+        Mode: {{$MODE}}
+        Sleep: {{$jobRunningTime}}
+        LocalQueue: "{{$localQueue}}-0"                
+- name: Wait for {{$MODE}} jobs to finish
+  measurements:
+  - Identifier: JobLifecycleLatency
+    Method: JobLifecycleLatency
+    Params:
+      action: gather
+      timeout: {{$testTimeout}}       
+  - Identifier: WaitForFinishedJobs
+    Method: WaitForFinishedJobs
+    Params:
+      action: gather
+      timeout: {{$testTimeout}}
+- name: Stop Timer  
+  measurements: 
+  - Identifier: Timer
+    Method: Timer 
+    Params:
+      action: stop
+      label: job_performance  
+- name: Gather Timer  
+  measurements: 
+  - Identifier: Timer
+    Method: Timer 
+    Params:
+      action: gather            
+- name: Sleep
+  measurements:
+  - Identifier: sleep
+    Method: Sleep
+    Params:
+      duration: 30s            
+- name: Gather Prometheus measurements
+  measurements:
+  - Identifier: GenericPrometheusQuery
+    Method: GenericPrometheusQuery
+    Params:
+      action: gather
+      enableViolations: true      

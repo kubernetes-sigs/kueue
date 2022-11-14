@@ -1,0 +1,30 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{.Name}}
+  labels:
+    group: test-job
+  {{if .UseKueue}}
+  annotations:
+    kueue.x-k8s.io/queue-name: {{.LocalQueue}}
+  {{end}}
+spec:
+  suspend: {{.UseKueue}}
+  parallelism: {{.Replicas}}
+  completions: {{.Replicas}}
+  completionMode: {{.Mode}}
+  template:
+    metadata:
+      labels:
+        group: test-pod
+    spec:
+      containers:
+      - name: {{.Name}}
+        image: gcr.io/k8s-staging-perf-tests/sleep:v0.0.3
+        args:
+          - {{.Sleep}}
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "100Mi"          
+      restartPolicy: Never
