@@ -35,10 +35,6 @@ import (
 // ClusterQueueImpl is the base implementation of ClusterQueue interface.
 // It can be inherited and overwritten by other class.
 type ClusterQueueImpl struct {
-	// QueueingStrategy indicates the queueing strategy of the workloads
-	// across the queues in this ClusterQueue.
-	QueueingStrategy kueue.QueueingStrategy
-
 	heap              heap.Heap
 	cohort            string
 	namespaceSelector labels.Selector
@@ -57,7 +53,6 @@ func newClusterQueueImpl(keyFunc func(obj interface{}) string, lessFunc func(a, 
 var _ ClusterQueue = &ClusterQueueImpl{}
 
 func (c *ClusterQueueImpl) Update(apiCQ *kueue.ClusterQueue) error {
-	c.QueueingStrategy = apiCQ.Spec.QueueingStrategy
 	c.cohort = apiCQ.Spec.Cohort
 	nsSelector, err := metav1.LabelSelectorAsSelector(apiCQ.Spec.NamespaceSelector)
 	if err != nil {

@@ -24,6 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -334,5 +335,38 @@ func TestClusterQueueImpl(t *testing.T) {
 				t.Errorf("Got %d pending workloads, want %d", got, test.wantPending)
 			}
 		})
+	}
+}
+
+func TestQueueInadmissibleWorkloadsDuringScheduling(t *testing.T) {
+	cq := newClusterQueueImpl(keyFunc, byCreationTime)
+	cq.namespaceSelector = labels.Everything()
+	wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
+	scheme := utiltesting.MustGetScheme(t)
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		wl,
+		&corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{Name: defaultNamespace},
+		},
+	).Build()
+	ctx := context.Background()
+	cq.PushOrUpdate(workload.NewInfo(wl))
+
+	wantActiveWorkloads := sets.NewString("workload-1")
+
+	activeWorkloads, _ := cq.Dump()
+	if diff := cmp.Diff(wantActiveWorkloads, activeWorkloads); diff != "" {
+		t.Errorf("Unexpected active workloads before events (-want,+got):\n%s", diff)
+	}
+
+	// Simulate requeueing during scheduling attempt.
+	head := cq.Pop()
+	cq.QueueInadmissibleWorkloads(ctx, cl)
+	cq.requeueIfNotPresent(head, false)
+
+	activeWorkloads, _ = cq.Dump()
+	wantActiveWorkloads = sets.NewString("workload-1")
+	if diff := cmp.Diff(wantActiveWorkloads, activeWorkloads); diff != "" {
+		t.Errorf("Unexpected active workloads after events (-want,+got):\n%s", diff)
 	}
 }
