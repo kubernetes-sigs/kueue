@@ -360,7 +360,7 @@ func TestSchedule(t *testing.T) {
 				},
 			},
 			wantLeft: map[string]sets.String{
-				"sales": sets.NewString("new"),
+				"sales": sets.NewString("sales/new"),
 			},
 		},
 		"failed to match clusterQueue selector": {
@@ -385,7 +385,7 @@ func TestSchedule(t *testing.T) {
 				},
 			},
 			wantInadmissibleLeft: map[string]sets.String{
-				"eng-alpha": sets.NewString("new"),
+				"eng-alpha": sets.NewString("sales/new"),
 			},
 		},
 		"assign to different cohorts": {
@@ -623,7 +623,7 @@ func TestSchedule(t *testing.T) {
 			},
 			wantScheduled: []string{"eng-alpha/new"},
 			wantLeft: map[string]sets.String{
-				"eng-beta": sets.NewString("new"),
+				"eng-beta": sets.NewString("eng-beta/new"),
 			},
 		},
 		"cannot borrow resource not listed in clusterQueue": {
@@ -648,7 +648,7 @@ func TestSchedule(t *testing.T) {
 				},
 			},
 			wantLeft: map[string]sets.String{
-				"eng-alpha": sets.NewString("new"),
+				"eng-alpha": sets.NewString("eng-alpha/new"),
 			},
 		},
 		"not enough resources to borrow, fallback to next flavor": {
@@ -770,7 +770,7 @@ func TestSchedule(t *testing.T) {
 				},
 			},
 			wantLeft: map[string]sets.String{
-				"flavor-nonexistent-cq": sets.NewString("foo"),
+				"flavor-nonexistent-cq": sets.NewString("sales/foo"),
 			},
 		},
 	}
@@ -1752,7 +1752,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 				inadmissibleMsg: "",
 			},
 			wantWorkloads: map[string]sets.String{
-				"cq": sets.NewString(w1.Name),
+				"cq": sets.NewString(workload.Key(w1)),
 			},
 		},
 		{
@@ -1762,7 +1762,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 				inadmissibleMsg: "failed to admit workload",
 			},
 			wantWorkloads: map[string]sets.String{
-				"cq": sets.NewString(w1.Name),
+				"cq": sets.NewString(workload.Key(w1)),
 			},
 		},
 		{
@@ -1772,7 +1772,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 				inadmissibleMsg: "cohort used in this cycle",
 			},
 			wantWorkloads: map[string]sets.String{
-				"cq": sets.NewString(w1.Name),
+				"cq": sets.NewString(workload.Key(w1)),
 			},
 		},
 	}

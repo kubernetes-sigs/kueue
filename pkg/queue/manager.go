@@ -459,10 +459,10 @@ func (m *Manager) Heads(ctx context.Context) []workload.Info {
 func (m *Manager) Dump() map[string]sets.String {
 	m.Lock()
 	defer m.Unlock()
-	if len(m.localQueues) == 0 {
+	if len(m.clusterQueues) == 0 {
 		return nil
 	}
-	dump := make(map[string]sets.String, len(m.localQueues))
+	dump := make(map[string]sets.String, len(m.clusterQueues))
 	for key, cq := range m.clusterQueues {
 		if elements, ok := cq.Dump(); ok {
 			dump[key] = elements
@@ -479,10 +479,10 @@ func (m *Manager) Dump() map[string]sets.String {
 func (m *Manager) DumpInadmissible() map[string]sets.String {
 	m.Lock()
 	defer m.Unlock()
-	if len(m.localQueues) == 0 {
+	if len(m.clusterQueues) == 0 {
 		return nil
 	}
-	dump := make(map[string]sets.String, len(m.localQueues))
+	dump := make(map[string]sets.String, len(m.clusterQueues))
 	for key, cq := range m.clusterQueues {
 		if elements, ok := cq.DumpInadmissible(); ok {
 			dump[key] = elements

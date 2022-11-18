@@ -24,6 +24,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -64,8 +65,8 @@ func TestAddLocalQueueOrphans(t *testing.T) {
 	}
 }
 
-// TestAddClusterQueueOrphans verifies that pods added before adding the
-// clusterQueue are present when the clusterQueue is added.
+// TestAddClusterQueueOrphans verifies that when a ClusterQueue is recreated,
+// it adopts the existing workloads.
 func TestAddClusterQueueOrphans(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := kueue.AddToScheme(scheme); err != nil {
@@ -87,25 +88,107 @@ func TestAddClusterQueueOrphans(t *testing.T) {
 	).Build()
 	ctx := context.Background()
 	manager := NewManager(kClient, nil)
+	cq := utiltesting.MakeClusterQueue("cq").Obj()
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed adding cluster queue %s: %v", cq.Name, err)
+	}
 	for _, q := range queues {
 		if err := manager.AddLocalQueue(ctx, q); err != nil {
 			t.Fatalf("Failed adding queue %s: %v", q.Name, err)
 		}
 	}
-	cq := utiltesting.MakeClusterQueue("cq").Obj()
-	if err := manager.AddClusterQueue(ctx, cq); err != nil {
-		t.Fatalf("Failed adding cluster queue %s: %v", cq.Name, err)
+
+	wantActiveWorkloads := map[string]sets.String{
+		"cq": sets.NewString("/a", "/b"),
 	}
-	workloads := popNamesFromCQ(manager.clusterQueues[cq.Name])
+	if diff := cmp.Diff(wantActiveWorkloads, manager.Dump()); diff != "" {
+		t.Errorf("Unexpected active workloads after creating all objects (-want,+got):\n%s", diff)
+	}
+
+	// Recreating the ClusterQueue.
+	manager.DeleteClusterQueue(cq)
+	wantActiveWorkloads = nil
+	if diff := cmp.Diff(wantActiveWorkloads, manager.Dump()); diff != "" {
+		t.Errorf("Unexpected active workloads after deleting ClusterQueue (-want,+got):\n%s", diff)
+	}
+
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Could not re-add ClusterQueue: %v", err)
+	}
+	workloads := popNamesFromCQ(manager.clusterQueues["cq"])
 	wantWorkloads := []string{"/b", "/a"}
 	if diff := cmp.Diff(wantWorkloads, workloads); diff != "" {
 		t.Errorf("Workloads popped in the wrong order from clusterQueue:\n%s", diff)
 	}
 }
 
-// TestUpdateQueue tests that workloads are transferred between clusterQueues
+// TestUpdateClusterQueue tests that a ClusterQueue transfers cohorts on update.
+func TestUpdateClusterQueue(t *testing.T) {
+	clusterQueues := []*kueue.ClusterQueue{
+		utiltesting.MakeClusterQueue("cq1").Cohort("alpha").Obj(),
+		utiltesting.MakeClusterQueue("cq2").Cohort("beta").Obj(),
+	}
+	queues := []*kueue.LocalQueue{
+		utiltesting.MakeLocalQueue("foo", defaultNamespace).ClusterQueue("cq1").Obj(),
+		utiltesting.MakeLocalQueue("bar", defaultNamespace).ClusterQueue("cq2").Obj(),
+	}
+	now := time.Now()
+	workloads := []*kueue.Workload{
+		utiltesting.MakeWorkload("a", defaultNamespace).Queue("foo").Creation(now.Add(time.Second)).Obj(),
+		utiltesting.MakeWorkload("b", defaultNamespace).Queue("bar").Creation(now).Obj(),
+	}
+	// Setup.
+	scheme := utiltesting.MustGetScheme(t)
+	ctx := context.Background()
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: defaultNamespace}},
+	).Build()
+	manager := NewManager(cl, nil)
+	for _, cq := range clusterQueues {
+		if err := manager.AddClusterQueue(ctx, cq); err != nil {
+			t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
+		}
+	}
+	for _, q := range queues {
+		if err := manager.AddLocalQueue(ctx, q); err != nil {
+			t.Fatalf("Failed adding queue %s: %v", q.Name, err)
+		}
+	}
+	// Add inadmissible workloads.
+	for _, w := range workloads {
+		if err := cl.Create(ctx, w); err != nil {
+			t.Fatalf("Failed adding workload to client: %v", err)
+		}
+		manager.RequeueWorkload(ctx, workload.NewInfo(w), RequeueReasonGeneric)
+	}
+
+	// Put cq2 in the same cohort as cq1.
+	clusterQueues[1].Spec.Cohort = clusterQueues[0].Spec.Cohort
+	if err := manager.UpdateClusterQueue(ctx, clusterQueues[1]); err != nil {
+		t.Fatalf("Failed to update ClusterQueue: %v", err)
+	}
+
+	wantCohorts := map[string]sets.String{
+		"alpha": sets.NewString("cq1", "cq2"),
+	}
+	if diff := cmp.Diff(manager.cohorts, wantCohorts); diff != "" {
+		t.Errorf("Unexpected ClusterQueues in cohorts (-want,+got):\n%s", diff)
+	}
+
+	// Verify all workloads are active after the update.
+	activeWorkloads := manager.Dump()
+	wantActiveWorkloads := map[string]sets.String{
+		"cq1": sets.NewString("default/a"),
+		"cq2": sets.NewString("default/b"),
+	}
+	if diff := cmp.Diff(wantActiveWorkloads, activeWorkloads); diff != "" {
+		t.Errorf("Unexpected active workloads (-want +got):\n%s", diff)
+	}
+}
+
+// TestUpdateLocalQueue tests that workloads are transferred between clusterQueues
 // when the queue points to a different clusterQueue.
-func TestUpdateQueue(t *testing.T) {
+func TestUpdateLocalQueue(t *testing.T) {
 	clusterQueues := []*kueue.ClusterQueue{
 		utiltesting.MakeClusterQueue("cq1").Obj(),
 		utiltesting.MakeClusterQueue("cq2").Obj(),
@@ -157,6 +240,39 @@ func TestUpdateQueue(t *testing.T) {
 	}
 	if diff := cmp.Diff(wantWorkloadOrders, workloadOrders); diff != "" {
 		t.Errorf("workloads popped in the wrong order from clusterQueues:\n%s", diff)
+	}
+}
+
+// TestDeleteLocalQueue tests that when a LocalQueue is deleted, all its
+// workloads are not listed in the ClusterQueue.
+func TestDeleteLocalQueue(t *testing.T) {
+	cq := utiltesting.MakeClusterQueue("cq").Obj()
+	q := utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj()
+	wl := utiltesting.MakeWorkload("a", "").Queue("foo").Obj()
+
+	scheme := utiltesting.MustGetScheme(t)
+	ctx := context.Background()
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(wl).Build()
+	manager := NewManager(cl, nil)
+
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Could not create ClusterQueue: %v", err)
+	}
+	if err := manager.AddLocalQueue(ctx, q); err != nil {
+		t.Fatalf("Could not create LocalQueue: %v", err)
+	}
+
+	wantActiveWorkloads := map[string]sets.String{
+		"cq": sets.NewString("/a"),
+	}
+	if diff := cmp.Diff(wantActiveWorkloads, manager.Dump()); diff != "" {
+		t.Errorf("Unexpected workloads after setup (-want,+got):\n%s", diff)
+	}
+
+	manager.DeleteLocalQueue(q)
+	wantActiveWorkloads = nil
+	if diff := cmp.Diff(wantActiveWorkloads, manager.Dump()); diff != "" {
+		t.Errorf("Unexpected workloads after deleting LocalQueue (-want,+got):\n%s", diff)
 	}
 }
 

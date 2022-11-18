@@ -26,6 +26,7 @@ import (
 )
 
 func MustGetScheme(t *testing.T) *runtime.Scheme {
+	t.Helper()
 	scheme := runtime.NewScheme()
 	if err := corev1.AddToScheme(scheme); err != nil {
 		t.Fatalf("Failed adding core to scheme: %v", err)

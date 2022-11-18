@@ -198,9 +198,6 @@ func (c *ClusterQueueImpl) Pop() *workload.Info {
 	}
 
 	info := c.heap.Pop()
-	if info == nil {
-		return nil
-	}
 	return info.(*workload.Info)
 }
 
@@ -211,7 +208,7 @@ func (c *ClusterQueueImpl) Dump() (sets.String, bool) {
 	elements := make(sets.String, c.heap.Len())
 	for _, e := range c.heap.List() {
 		info := e.(*workload.Info)
-		elements.Insert(info.Obj.Name)
+		elements.Insert(workload.Key(info.Obj))
 	}
 	return elements, true
 }
@@ -222,7 +219,7 @@ func (c *ClusterQueueImpl) DumpInadmissible() (sets.String, bool) {
 	}
 	elements := make(sets.String, len(c.inadmissibleWorkloads))
 	for _, info := range c.inadmissibleWorkloads {
-		elements.Insert(info.Obj.Name)
+		elements.Insert(workload.Key(info.Obj))
 	}
 	return elements, true
 }

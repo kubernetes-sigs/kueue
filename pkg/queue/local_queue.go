@@ -58,13 +58,3 @@ func (q *LocalQueue) AddOrUpdate(info *workload.Info) {
 	key := workload.Key(info.Obj)
 	q.items[key] = info
 }
-
-func (q *LocalQueue) AddIfNotPresent(w *workload.Info) bool {
-	key := workload.Key(w.Obj)
-	_, ok := q.items[key]
-	if !ok {
-		q.items[key] = w
-		return true
-	}
-	return false
-}

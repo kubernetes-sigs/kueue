@@ -102,20 +102,6 @@ func Test_Delete(t *testing.T) {
 	}
 }
 
-func Test_Dump(t *testing.T) {
-	cq := newClusterQueueImpl(keyFunc, byCreationTime)
-	wl1 := workload.NewInfo(utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj())
-	wl2 := workload.NewInfo(utiltesting.MakeWorkload("workload-2", defaultNamespace).Obj())
-	if _, ok := cq.Dump(); ok {
-		t.Error("ClusterQueue should be empty")
-	}
-	cq.PushOrUpdate(wl1)
-	cq.PushOrUpdate(wl2)
-	if data, ok := cq.Dump(); !(ok && data.HasAll("workload-1", "workload-2")) {
-		t.Error("dump data is not right")
-	}
-}
-
 func Test_Info(t *testing.T) {
 	cq := newClusterQueueImpl(keyFunc, byCreationTime)
 	wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
@@ -165,7 +151,7 @@ func Test_DeleteFromLocalQueue(t *testing.T) {
 
 	for _, w := range inadmissibleWorkloads {
 		wInfo := workload.NewInfo(w)
-		cq.RequeueIfNotPresent(wInfo, RequeueReasonNamespaceMismatch)
+		cq.requeueIfNotPresent(wInfo, false)
 		qImpl.AddOrUpdate(wInfo)
 	}
 
@@ -180,17 +166,6 @@ func Test_DeleteFromLocalQueue(t *testing.T) {
 	cq.DeleteFromLocalQueue(qImpl)
 	if cq.Pending() != 0 {
 		t.Error("clusterQueue should be empty")
-	}
-}
-
-func Test_RequeueIfNotPresent(t *testing.T) {
-	cq := newClusterQueueImpl(keyFunc, byCreationTime)
-	wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
-	if ok := cq.RequeueIfNotPresent(workload.NewInfo(wl), RequeueReasonGeneric); !ok {
-		t.Error("failed to requeue nonexistent workload")
-	}
-	if ok := cq.RequeueIfNotPresent(workload.NewInfo(wl), RequeueReasonGeneric); ok {
-		t.Error("existent workload shouldn't be added again")
 	}
 }
 
@@ -235,27 +210,27 @@ func TestClusterQueueImpl(t *testing.T) {
 			inadmissibleWorkloadsToRequeue: []*workload.Info{},
 			workloadsToUpdate:              []*kueue.Workload{updatedWorkloads[0]},
 			workloadsToDelete:              []*kueue.Workload{workloads[0]},
-			wantActiveWorkloads:            sets.NewString(workloads[1].Name),
+			wantActiveWorkloads:            sets.NewString(workload.Key(workloads[1])),
 			wantPending:                    1,
 		},
 		"re-queue inadmissible workload": {
 			workloadsToAdd:                 []*kueue.Workload{workloads[0]},
 			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[1])},
-			wantActiveWorkloads:            sets.NewString(workloads[0].Name),
+			wantActiveWorkloads:            sets.NewString(workload.Key(workloads[0])),
 			wantPending:                    2,
 		},
 		"re-queue admissible workload that was inadmissible": {
 			workloadsToAdd:                 []*kueue.Workload{workloads[0]},
 			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[1])},
 			admissibleWorkloadsToRequeue:   []*workload.Info{workload.NewInfo(workloads[1])},
-			wantActiveWorkloads:            sets.NewString(workloads[0].Name, workloads[1].Name),
+			wantActiveWorkloads:            sets.NewString(workload.Key(workloads[0]), workload.Key(workloads[1])),
 			wantPending:                    2,
 		},
 		"re-queue inadmissible workload and flush": {
 			workloadsToAdd:                    []*kueue.Workload{workloads[0]},
 			inadmissibleWorkloadsToRequeue:    []*workload.Info{workload.NewInfo(workloads[1])},
 			queueInadmissibleWorkloads:        true,
-			wantActiveWorkloads:               sets.NewString(workloads[0].Name, workloads[1].Name),
+			wantActiveWorkloads:               sets.NewString(workload.Key(workloads[0]), workload.Key(workloads[1])),
 			wantPending:                       2,
 			wantInadmissibleWorkloadsRequeued: true,
 		},
@@ -263,14 +238,14 @@ func TestClusterQueueImpl(t *testing.T) {
 			workloadsToAdd:                 []*kueue.Workload{workloads[0]},
 			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[2])},
 			queueInadmissibleWorkloads:     true,
-			wantActiveWorkloads:            sets.NewString(workloads[0].Name),
+			wantActiveWorkloads:            sets.NewString(workload.Key(workloads[0])),
 			wantPending:                    2,
 		},
 		"update inadmissible workload": {
 			workloadsToAdd:                 []*kueue.Workload{workloads[0]},
 			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[1])},
 			workloadsToUpdate:              []*kueue.Workload{updatedWorkloads[1]},
-			wantActiveWorkloads:            sets.NewString(workloads[0].Name, workloads[1].Name),
+			wantActiveWorkloads:            sets.NewString(workload.Key(workloads[0]), workload.Key(workloads[1])),
 			wantPending:                    2,
 		},
 		"delete inadmissible workload": {
@@ -278,7 +253,16 @@ func TestClusterQueueImpl(t *testing.T) {
 			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[1])},
 			workloadsToDelete:              []*kueue.Workload{workloads[1]},
 			queueInadmissibleWorkloads:     true,
-			wantActiveWorkloads:            sets.NewString(workloads[0].Name),
+			wantActiveWorkloads:            sets.NewString(workload.Key(workloads[0])),
+			wantPending:                    1,
+		},
+		"update inadmissible workload without changes": {
+			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[1])},
+			workloadsToUpdate:              []*kueue.Workload{workloads[1]},
+			wantPending:                    1,
+		},
+		"requeue inadmissible workload twice": {
+			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[1]), workload.NewInfo(workloads[1])},
 			wantPending:                    1,
 		},
 	}
@@ -306,10 +290,10 @@ func TestClusterQueueImpl(t *testing.T) {
 			}
 
 			for _, w := range test.inadmissibleWorkloadsToRequeue {
-				cq.RequeueIfNotPresent(w, RequeueReasonNamespaceMismatch)
+				cq.requeueIfNotPresent(w, false)
 			}
 			for _, w := range test.admissibleWorkloadsToRequeue {
-				cq.RequeueIfNotPresent(w, RequeueReasonGeneric)
+				cq.requeueIfNotPresent(w, true)
 			}
 
 			for _, w := range test.workloadsToUpdate {
@@ -329,7 +313,7 @@ func TestClusterQueueImpl(t *testing.T) {
 
 			gotWorkloads, _ := cq.Dump()
 			if diff := cmp.Diff(test.wantActiveWorkloads, gotWorkloads); diff != "" {
-				t.Errorf("Unexpected items in cluster foo (-want,+got):\n%s", diff)
+				t.Errorf("Unexpected active workloads in cluster foo (-want,+got):\n%s", diff)
 			}
 			if got := cq.Pending(); got != test.wantPending {
 				t.Errorf("Got %d pending workloads, want %d", got, test.wantPending)
