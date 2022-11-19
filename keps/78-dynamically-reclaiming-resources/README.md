@@ -1,4 +1,4 @@
-# Dynamically reclaim resources of Pods of a Workload
+# KEP-78:  Dynamically reclaim resources of Pods of a Workload
 
 ## Table of Contents
 
@@ -9,13 +9,12 @@
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
   - [Pod Successful Completion Cases](#pod-successful-completion-cases)
-    - [Job Parallelism Equal To 1](#job-parallelism-equal-to-1)
-    - [Job Parallelism Greater Than 1](#job-parallelism-greater-than-1)
+    - [Case N &gt;= M](#case-n--m)
+    - [Case M &gt; N](#case-m--n)
   - [Pod Failure Cases](#pod-failure-cases)
     - [RestartPolicy of Pods as Never](#restartpolicy-of-pods-as-never)
     - [RestartPolicy of Pods as OnFailure](#restartpolicy-of-pods-as-onfailure)
 - [API](#api)
-    - [ReclaimedPodSetPods](#reclaimedpodsetpods)
 - [Implementation](#implementation)
 - [Testing Plan](#testing-plan)
   - [Unit Tests](#unit-tests)
@@ -47,21 +46,23 @@ Currently, the resources owned by a Job are reclaimed by Kueue only when the who
 
 Reclaiming the resources of the succeeded Pods of a running Job as soon as the Pod completes its execution.
 
-We propose to add a new field `.status.ReclaimedPodSetPods` to the Workload API. Workload controller will be responsible for updating the field `.status.ReclaimedPodSetPods` according to the status of the Workload's Pods.
+We propose to add a new field `.status.ReclaimedPodSets` to the Workload API. `.status.ReclaimedPodSets` is a list that holds the count of successfully completed Pods belonging to a PodSet whose resources have been reclaimed by Kueue.
 
-`.status.ReclaimedPodSetPods` is a list that holds the count of successfully completed Pods belonging to a PodSet whose resources have been reclaimed by Kueue.
-
-Now we will look at the Pod failure cases and how the reclaiming of resources by Kueue will happen.
+Now we will look at the Pod successful completion and failure cases and how Kueue will reclaim the resources in each of the cases.
 
 ### Pod Successful Completion Cases
 
-#### Job Parallelism Equal To 1
+Reclaiming the resources of a successful Pod of a Job depends on two parameters - remaining completions of a Job(M) and Job's parallelism(N). Depending on the values of **M** and **N**, we will look at the different cases how the resources will be reclaimed by Kueue.
 
-By default, the `.spec.parallelism` of Job is equal to `1`.  In this case, if the Pod completes with successful execution, the whole Job execution can be considered as a success. Hence, the resource associated with the Job will be reclaimed by Kueue after the Job completion. This functionality is present today as well and no change will be required.
+Please note here that **M** here refers to the remaining successful completions of a Job and not the Job's `.spec.completions` field. **M** is subject to change during the lifetime of the Job. One way to derive the value of **M** would be to calculate the difference of `.spec.completions` and `.status.succeeded` values of a Job.
 
-#### Job Parallelism Greater Than 1
+#### Case N >= M
+If a Job's parallelism is greater or equal to its remaining completions, then for every successful completion of Pod of a Job, Kueue will reclaim the resources associated with the successful Pod.
 
-Whenever a Pod of a Job successfully completes its execution, Kueue will reclaim the resources that were associated with successful Pod. The Job might be still in `Running` state as there could be other Pods of the Job that are executing. Thus, Kueue will reclaim the resources of the succeeded Pods of the Job in an incremental manner until the Job completes in either `Succeeded` or `Failed` state. Whenever the Job completes, the only remaining owned resources of the Job will be reclaimed by Kueue.
+#### Case M > N
+When the remaining completions of a Job are greater than the Job's parallelism, then for every successfully completed Pod of a Job, the resources associated with the Pod won't be reclaimed by Kueue. This is because, the resource requirement of the Job still remains the same. The Job has to create a new Pod as a replacement against the successfully completed Pod.
+
+The Job will be able to reclaim the resources of Pods when it satisfies the case `N >= M`. A Job which proceeds further in its execution with case `M > N` will get converted to a problem of case `N >= M` because, the value **M** will decrease with successful Pod completions. Hence, the process to reclaim resources of a Pod of a Job will be same as mentioned for the case `N >= M`
 
 ### Pod Failure Cases
 
@@ -77,7 +78,7 @@ Hence, as seen from the above discussed Pod failure cases, we conclude that the 
 
 ## API
 
-A new field `ReclaimedPodSetPods` is added to the `.status` of Workload API.
+A new field `ReclaimedPodSets` is added to the `.status` of Workload API.
 
 ```go
 // WorkloadStatus defines the observed state of Workload
@@ -91,23 +92,20 @@ type WorkloadStatus struct {
 
     // list of count of Pods of a PodSet with resources reclaimed
     // +optional
-    ReclaimedPodSetPods []ReclaimedPodSetPods `json:"reclaimedPodSetPods"`
+    ReclaimedPodSets []ReclaimedPodSetPods `json:"reclaimedPodSets"`
 }
 
-// ReclaimedPodSetPods defines the PodSet name and count of successfully completed Pods 
-// belonging to the PodSet whose resources have been reclaimed by Kueue
-type ReclaimedPodSetPods struct{
+// ReclaimedPodSetPod defines the PodSet name and count of successfully completed Pods 
+// belonging to the PodSet whose resources can be reclaimed.
+type ReclaimedPodSet struct{
     Name string
     Count int
 }
 ```
 
-#### ReclaimedPodSetPods
-`.status.reclaimedPodSetPods` is a list where each element of the list denotes the count of Pods of the Workload w.r.t PodSet whose resources have been reclaimed by Kueue. The structure consists of two fields - `Name` denotes the name of PodSet and `Count` denotes the count of Pods belonging to the `Name` PodSet.
-
 ## Implementation
 
-The workload reconciler will keep a watch(or `Watches()`) on the Job's `.status.succeeded` field. The Workload reconciler will calculate the difference between the Job's `.status.succeeded` field and Workload's `.status.reclaimedPodSetPods[i].count` field for every PodSet of the workload. With the former value being greater than the later, Kueue will reclaim the resources of the excess succeeded Pods.
+Kueue's job reconciler will compare the Job's `.status.Succeeded` field and the Workload's `.status.reclaimedPodSets[i].count` field value. If the former value is greater than the later then, Kueue's Job reconciler will update the Workload object's `.status`. Workload reconciler will catch the update event of Kueue Job reconciler and release the resources of the newly succeeded Pods to the ClusterQueue depending upon the case the Job satisfies discussed in the section of [successful Pod completion](#pod-successful-completion-cases).
 
 ## Testing Plan
 
@@ -123,12 +121,11 @@ All the Kueue's core components must be covered by unit tests.  Here is a list o
 
 ### Integration tests
 * Kueue Job Controller
-  - checking the resources owned by a Job are released to the cache and clusterQueue when a Pod of the Job succeed.
+  - Checking the resources owned by a Job are released to the cache and clusterQueue when a Pod of the Job succeed.
   - Integration tests for Job controller are [found here](https://github.com/kubernetes-sigs/kueue/blob/main/test/integration/controller/job/job_controller_test.go).
 
 * Workload Controller
-  - A pending Workload should be admitted when enough resources are available after release of resources by the succeeded Pods of the parallel Jobs.
-  - Should update the `.spec.reclaimedPodSetPods` of a Workload when a Pod of a Job succeeds.
+  - Should update the `.spec.reclaimedPodSets` of a Workload when a Pod of a Job succeeds.
   - Integration tests for Workload Controller are [found here](https://github.com/kubernetes-sigs/kueue/blob/main/test/integration/controller/core/workload_controller_test.go).
 
 * Scheduler
@@ -138,5 +135,3 @@ All the Kueue's core components must be covered by unit tests.  Here is a list o
 ## Implementation History
 
 Dynamically Reclaiming Resources are tracked as part of [enhancement#78](https://github.com/kubernetes-sigs/kueue/issues/78).
-
-**TODO** - Add proposal link
