@@ -123,6 +123,7 @@ func TestAddClusterQueueOrphans(t *testing.T) {
 }
 
 // TestUpdateClusterQueue tests that a ClusterQueue transfers cohorts on update.
+// Inadmissible workloads should become active.
 func TestUpdateClusterQueue(t *testing.T) {
 	clusterQueues := []*kueue.ClusterQueue{
 		utiltesting.MakeClusterQueue("cq1").Cohort("alpha").Obj(),

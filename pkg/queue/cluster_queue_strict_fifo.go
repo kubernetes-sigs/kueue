@@ -56,3 +56,10 @@ func byCreationTime(a, b interface{}) bool {
 	}
 	return objA.Obj.CreationTimestamp.Before(&objB.Obj.CreationTimestamp)
 }
+
+// RequeueIfNotPresent requeues if the workload is not present.
+// If the reason for requeue is that the workload doesn't match the CQ's
+// namespace selector, then the requeue is not immediate.
+func (cq *ClusterQueueStrictFIFO) RequeueIfNotPresent(wInfo *workload.Info, reason RequeueReason) bool {
+	return cq.ClusterQueueImpl.requeueIfNotPresent(wInfo, reason != RequeueReasonNamespaceMismatch)
+}

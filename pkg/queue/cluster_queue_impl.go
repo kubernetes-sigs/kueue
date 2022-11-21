@@ -60,8 +60,6 @@ func newClusterQueueImpl(keyFunc func(obj interface{}) string, lessFunc func(a, 
 	}
 }
 
-var _ ClusterQueue = &ClusterQueueImpl{}
-
 func (c *ClusterQueueImpl) Update(apiCQ *kueue.ClusterQueue) error {
 	c.cohort = apiCQ.Spec.Cohort
 	nsSelector, err := metav1.LabelSelectorAsSelector(apiCQ.Spec.NamespaceSelector)
@@ -118,12 +116,6 @@ func (c *ClusterQueueImpl) DeleteFromLocalQueue(q *LocalQueue) {
 	for _, w := range q.items {
 		c.Delete(w.Obj)
 	}
-}
-
-func (c *ClusterQueueImpl) RequeueIfNotPresent(wInfo *workload.Info, reason RequeueReason) bool {
-	// By default, the only reason we don't requeue immediately is if the workload doesn't
-	// match the CQ's namespace selector.
-	return c.requeueIfNotPresent(wInfo, reason != RequeueReasonNamespaceMismatch)
 }
 
 // requeueIfNotPresent inserts a workload that cannot be admitted into

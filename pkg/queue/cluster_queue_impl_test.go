@@ -336,7 +336,7 @@ func TestQueueInadmissibleWorkloadsDuringScheduling(t *testing.T) {
 	ctx := context.Background()
 	cq.PushOrUpdate(workload.NewInfo(wl))
 
-	wantActiveWorkloads := sets.NewString("workload-1")
+	wantActiveWorkloads := sets.NewString(workload.Key(wl))
 
 	activeWorkloads, _ := cq.Dump()
 	if diff := cmp.Diff(wantActiveWorkloads, activeWorkloads); diff != "" {
@@ -349,7 +349,7 @@ func TestQueueInadmissibleWorkloadsDuringScheduling(t *testing.T) {
 	cq.requeueIfNotPresent(head, false)
 
 	activeWorkloads, _ = cq.Dump()
-	wantActiveWorkloads = sets.NewString("workload-1")
+	wantActiveWorkloads = sets.NewString(workload.Key(wl))
 	if diff := cmp.Diff(wantActiveWorkloads, activeWorkloads); diff != "" {
 		t.Errorf("Unexpected active workloads after scheduling with requeueing (-want,+got):\n%s", diff)
 	}
