@@ -35,29 +35,34 @@ import (
 // ClusterQueueImpl is the base implementation of ClusterQueue interface.
 // It can be inherited and overwritten by other class.
 type ClusterQueueImpl struct {
-	// QueueingStrategy indicates the queueing strategy of the workloads
-	// across the queues in this ClusterQueue.
-	QueueingStrategy kueue.QueueingStrategy
-
 	heap              heap.Heap
 	cohort            string
 	namespaceSelector labels.Selector
 
 	// inadmissibleWorkloads are workloads that have been tried at least once and couldn't be admitted.
 	inadmissibleWorkloads map[string]*workload.Info
+
+	// popId identifies the last call to Pop. It's incremented when calling Pop.
+	// popId and queueInadmissibleId are used to track when there is a requeueing
+	// of inadmissible workloads while a workload is being scheduled.
+	popId int64
+
+	// queueInadmissibleId stores the popId at the time when
+	// QueueInadmissibleWorkloads is called.
+	queueInadmissibleId int64
 }
 
 func newClusterQueueImpl(keyFunc func(obj interface{}) string, lessFunc func(a, b interface{}) bool) *ClusterQueueImpl {
 	return &ClusterQueueImpl{
 		heap:                  heap.New(keyFunc, lessFunc),
 		inadmissibleWorkloads: make(map[string]*workload.Info),
+		queueInadmissibleId:   -1,
 	}
 }
 
 var _ ClusterQueue = &ClusterQueueImpl{}
 
 func (c *ClusterQueueImpl) Update(apiCQ *kueue.ClusterQueue) error {
-	c.QueueingStrategy = apiCQ.Spec.QueueingStrategy
 	c.cohort = apiCQ.Spec.Cohort
 	nsSelector, err := metav1.LabelSelectorAsSelector(apiCQ.Spec.NamespaceSelector)
 	if err != nil {
@@ -127,7 +132,7 @@ func (c *ClusterQueueImpl) RequeueIfNotPresent(wInfo *workload.Info, reason Requ
 // the workload will be put into the inadmissibleWorkloads.
 func (c *ClusterQueueImpl) requeueIfNotPresent(wInfo *workload.Info, immediate bool) bool {
 	key := workload.Key(wInfo.Obj)
-	if immediate {
+	if immediate || c.queueInadmissibleId >= c.popId {
 		// If the workload was inadmissible, move it back into the queue.
 		inadmissibleWl := c.inadmissibleWorkloads[key]
 		if inadmissibleWl != nil {
@@ -153,6 +158,7 @@ func (c *ClusterQueueImpl) requeueIfNotPresent(wInfo *workload.Info, immediate b
 // QueueInadmissibleWorkloads moves all workloads from inadmissibleWorkloads to heap.
 // If at least one workload is moved, returns true. Otherwise returns false.
 func (c *ClusterQueueImpl) QueueInadmissibleWorkloads(ctx context.Context, client client.Client) bool {
+	c.queueInadmissibleId = c.popId
 	if len(c.inadmissibleWorkloads) == 0 {
 		return false
 	}
@@ -186,6 +192,7 @@ func (c *ClusterQueueImpl) PendingInadmissible() int {
 }
 
 func (c *ClusterQueueImpl) Pop() *workload.Info {
+	c.popId++
 	if c.heap.Len() == 0 {
 		return nil
 	}
@@ -199,7 +206,7 @@ func (c *ClusterQueueImpl) Pop() *workload.Info {
 
 func (c *ClusterQueueImpl) Dump() (sets.String, bool) {
 	if c.heap.Len() == 0 {
-		return sets.NewString(), false
+		return nil, false
 	}
 	elements := make(sets.String, c.heap.Len())
 	for _, e := range c.heap.List() {
