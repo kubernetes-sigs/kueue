@@ -25,7 +25,7 @@ import (
 // ClusterQueueStrictFIFO is the implementation for the ClusterQueue for
 // StrictFIFO.
 type ClusterQueueStrictFIFO struct {
-	*ClusterQueueImpl
+	*clusterQueueBase
 }
 
 var _ ClusterQueue = &ClusterQueueStrictFIFO{}
@@ -35,7 +35,7 @@ const StrictFIFO = kueue.StrictFIFO
 func newClusterQueueStrictFIFO(cq *kueue.ClusterQueue) (ClusterQueue, error) {
 	cqImpl := newClusterQueueImpl(keyFunc, byCreationTime)
 	cqStrict := &ClusterQueueStrictFIFO{
-		ClusterQueueImpl: cqImpl,
+		clusterQueueBase: cqImpl,
 	}
 
 	err := cqStrict.Update(cq)
@@ -61,5 +61,5 @@ func byCreationTime(a, b interface{}) bool {
 // If the reason for requeue is that the workload doesn't match the CQ's
 // namespace selector, then the requeue is not immediate.
 func (cq *ClusterQueueStrictFIFO) RequeueIfNotPresent(wInfo *workload.Info, reason RequeueReason) bool {
-	return cq.ClusterQueueImpl.requeueIfNotPresent(wInfo, reason != RequeueReasonNamespaceMismatch)
+	return cq.requeueIfNotPresent(wInfo, reason != RequeueReasonNamespaceMismatch)
 }

@@ -24,7 +24,7 @@ import (
 // ClusterQueueBestEffortFIFO is the implementation for the ClusterQueue for
 // BestEffortFIFO.
 type ClusterQueueBestEffortFIFO struct {
-	*ClusterQueueImpl
+	*clusterQueueBase
 }
 
 var _ ClusterQueue = &ClusterQueueBestEffortFIFO{}
@@ -34,7 +34,7 @@ const BestEffortFIFO = kueue.BestEffortFIFO
 func newClusterQueueBestEffortFIFO(cq *kueue.ClusterQueue) (ClusterQueue, error) {
 	cqImpl := newClusterQueueImpl(keyFunc, byCreationTime)
 	cqBE := &ClusterQueueBestEffortFIFO{
-		ClusterQueueImpl: cqImpl,
+		clusterQueueBase: cqImpl,
 	}
 
 	err := cqBE.Update(cq)
@@ -42,5 +42,5 @@ func newClusterQueueBestEffortFIFO(cq *kueue.ClusterQueue) (ClusterQueue, error)
 }
 
 func (cq *ClusterQueueBestEffortFIFO) RequeueIfNotPresent(wInfo *workload.Info, reason RequeueReason) bool {
-	return cq.ClusterQueueImpl.requeueIfNotPresent(wInfo, reason == RequeueReasonFailedAfterNomination)
+	return cq.requeueIfNotPresent(wInfo, reason == RequeueReasonFailedAfterNomination)
 }
