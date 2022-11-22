@@ -110,6 +110,16 @@ func (j *JobWrapper) Request(r corev1.ResourceName, v string) *JobWrapper {
 	return j
 }
 
+func (j *JobWrapper) Image(name string, image string, args []string) *JobWrapper {
+	j.Spec.Template.Spec.Containers[0] = corev1.Container{
+		Name:      name,
+		Image:     image,
+		Args:      args,
+		Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+	}
+	return j
+}
+
 // PriorityClassWrapper wraps a PriorityClass.
 type PriorityClassWrapper struct {
 	schedulingv1.PriorityClass

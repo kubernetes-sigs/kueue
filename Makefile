@@ -42,6 +42,14 @@ ENVTEST_K8S_VERSION = 1.24
 
 INTEGRATION_TARGET ?= ./test/integration/...
 
+E2E_TARGET ?= ./test/e2e/...
+
+E2E_KIND_VERSION ?= kindest/node:v1.23.12
+
+# For local testing, we should allow user to use different kind cluster name
+# Default will delete default kind cluster
+KIND_CLUSTER_NAME ?= kind
+
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
 GOBIN=$(shell go env GOPATH)/bin
@@ -135,6 +143,11 @@ test-integration: manifests generate fmt vet envtest ginkgo ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) --arch=amd64 use $(ENVTEST_K8S_VERSION) -p path)" \
 	$(GINKGO) --junit-report=junit.xml --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 
+USE_EXISTING_CLUSTER ?= false
+.PHONY: test-e2e-kind
+test-e2e-kind: manifests generate fmt vet envtest ginkgo kind-image-build
+	E2E_KIND_VERSION=$(E2E_KIND_VERSION) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) USE_EXISTING_CLUSTER=$(USE_EXISTING_CLUSTER) ARTIFACTS=$(ARTIFACTS) IMAGE_TAG=$(IMAGE_TAG) ./hack/e2e-test.sh
+
 .PHONY: ci-lint
 ci-lint: golangci-lint
 	$(GOLANGCI_LINT) run --timeout 7m0s
@@ -176,6 +189,11 @@ image-build:
 .PHONY: image-push
 image-push: PUSH=--push
 image-push: image-build
+
+.PHONY: kind-image-build
+kind-image-build: PLATFORMS=linux/amd64
+kind-image-build: IMAGE_BUILD_EXTRA_OPTS=--load
+kind-image-build: kind image-build
 
 ##@ Deployment
 
@@ -248,3 +266,8 @@ GOTESTSUM = $(shell pwd)/bin/gotestsum
 .PHONY: gotestsum
 gotestsum: ## Download gotestsum locally if necessary.
 	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install gotest.tools/gotestsum@v1.8.2
+KIND = $(shell pwd)/bin/kind
+.PHONY: kind
+kind:
+	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kind@v0.16.0
+
