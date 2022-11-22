@@ -32,9 +32,9 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-// ClusterQueueImpl is the base implementation of ClusterQueue interface.
-// It can be inherited and overwritten by other class.
-type ClusterQueueImpl struct {
+// clusterQueueBase is an incomplete base implementation of ClusterQueue
+// interface. It can be inherited and overwritten by other types.
+type clusterQueueBase struct {
 	heap              heap.Heap
 	cohort            string
 	namespaceSelector labels.Selector
@@ -42,25 +42,25 @@ type ClusterQueueImpl struct {
 	// inadmissibleWorkloads are workloads that have been tried at least once and couldn't be admitted.
 	inadmissibleWorkloads map[string]*workload.Info
 
-	// popId identifies the last call to Pop. It's incremented when calling Pop.
-	// popId and queueInadmissibleId are used to track when there is a requeueing
+	// popCycle identifies the last call to Pop. It's incremented when calling Pop.
+	// popCycle and queueInadmissibleCycle are used to track when there is a requeueing
 	// of inadmissible workloads while a workload is being scheduled.
-	popId int64
+	popCycle int64
 
-	// queueInadmissibleId stores the popId at the time when
+	// queueInadmissibleCycle stores the popId at the time when
 	// QueueInadmissibleWorkloads is called.
-	queueInadmissibleId int64
+	queueInadmissibleCycle int64
 }
 
-func newClusterQueueImpl(keyFunc func(obj interface{}) string, lessFunc func(a, b interface{}) bool) *ClusterQueueImpl {
-	return &ClusterQueueImpl{
-		heap:                  heap.New(keyFunc, lessFunc),
-		inadmissibleWorkloads: make(map[string]*workload.Info),
-		queueInadmissibleId:   -1,
+func newClusterQueueImpl(keyFunc func(obj interface{}) string, lessFunc func(a, b interface{}) bool) *clusterQueueBase {
+	return &clusterQueueBase{
+		heap:                   heap.New(keyFunc, lessFunc),
+		inadmissibleWorkloads:  make(map[string]*workload.Info),
+		queueInadmissibleCycle: -1,
 	}
 }
 
-func (c *ClusterQueueImpl) Update(apiCQ *kueue.ClusterQueue) error {
+func (c *clusterQueueBase) Update(apiCQ *kueue.ClusterQueue) error {
 	c.cohort = apiCQ.Spec.Cohort
 	nsSelector, err := metav1.LabelSelectorAsSelector(apiCQ.Spec.NamespaceSelector)
 	if err != nil {
@@ -70,11 +70,11 @@ func (c *ClusterQueueImpl) Update(apiCQ *kueue.ClusterQueue) error {
 	return nil
 }
 
-func (c *ClusterQueueImpl) Cohort() string {
+func (c *clusterQueueBase) Cohort() string {
 	return c.cohort
 }
 
-func (c *ClusterQueueImpl) AddFromLocalQueue(q *LocalQueue) bool {
+func (c *clusterQueueBase) AddFromLocalQueue(q *LocalQueue) bool {
 	added := false
 	for _, info := range q.items {
 		if c.heap.PushIfNotPresent(info) {
@@ -84,7 +84,7 @@ func (c *ClusterQueueImpl) AddFromLocalQueue(q *LocalQueue) bool {
 	return added
 }
 
-func (c *ClusterQueueImpl) PushOrUpdate(wInfo *workload.Info) {
+func (c *clusterQueueBase) PushOrUpdate(wInfo *workload.Info) {
 	key := workload.Key(wInfo.Obj)
 	oldInfo := c.inadmissibleWorkloads[key]
 	if oldInfo != nil {
@@ -100,13 +100,13 @@ func (c *ClusterQueueImpl) PushOrUpdate(wInfo *workload.Info) {
 	c.heap.PushOrUpdate(wInfo)
 }
 
-func (c *ClusterQueueImpl) Delete(w *kueue.Workload) {
+func (c *clusterQueueBase) Delete(w *kueue.Workload) {
 	key := workload.Key(w)
 	delete(c.inadmissibleWorkloads, key)
 	c.heap.Delete(key)
 }
 
-func (c *ClusterQueueImpl) DeleteFromLocalQueue(q *LocalQueue) {
+func (c *clusterQueueBase) DeleteFromLocalQueue(q *LocalQueue) {
 	for _, w := range q.items {
 		key := workload.Key(w.Obj)
 		if wl := c.inadmissibleWorkloads[key]; wl != nil {
@@ -119,12 +119,13 @@ func (c *ClusterQueueImpl) DeleteFromLocalQueue(q *LocalQueue) {
 }
 
 // requeueIfNotPresent inserts a workload that cannot be admitted into
-// ClusterQueue, unless it is already in the queue. If immediate is true,
-// the workload will be pushed back to heap directly. If not,
-// the workload will be put into the inadmissibleWorkloads.
-func (c *ClusterQueueImpl) requeueIfNotPresent(wInfo *workload.Info, immediate bool) bool {
+// ClusterQueue, unless it is already in the queue. If immediate is true
+// or if there was a call to QueueInadmissibleWorkloads after a call to Pop,
+// the workload will be pushed back to heap directly. Otherwise, the workload
+// will be put into the inadmissibleWorkloads.
+func (c *clusterQueueBase) requeueIfNotPresent(wInfo *workload.Info, immediate bool) bool {
 	key := workload.Key(wInfo.Obj)
-	if immediate || c.queueInadmissibleId >= c.popId {
+	if immediate || c.queueInadmissibleCycle >= c.popCycle {
 		// If the workload was inadmissible, move it back into the queue.
 		inadmissibleWl := c.inadmissibleWorkloads[key]
 		if inadmissibleWl != nil {
@@ -149,8 +150,8 @@ func (c *ClusterQueueImpl) requeueIfNotPresent(wInfo *workload.Info, immediate b
 
 // QueueInadmissibleWorkloads moves all workloads from inadmissibleWorkloads to heap.
 // If at least one workload is moved, returns true. Otherwise returns false.
-func (c *ClusterQueueImpl) QueueInadmissibleWorkloads(ctx context.Context, client client.Client) bool {
-	c.queueInadmissibleId = c.popId
+func (c *clusterQueueBase) QueueInadmissibleWorkloads(ctx context.Context, client client.Client) bool {
+	c.queueInadmissibleCycle = c.popCycle
 	if len(c.inadmissibleWorkloads) == 0 {
 		return false
 	}
@@ -171,20 +172,20 @@ func (c *ClusterQueueImpl) QueueInadmissibleWorkloads(ctx context.Context, clien
 	return moved
 }
 
-func (c *ClusterQueueImpl) Pending() int {
+func (c *clusterQueueBase) Pending() int {
 	return c.PendingActive() + c.PendingInadmissible()
 }
 
-func (c *ClusterQueueImpl) PendingActive() int {
+func (c *clusterQueueBase) PendingActive() int {
 	return c.heap.Len()
 }
 
-func (c *ClusterQueueImpl) PendingInadmissible() int {
+func (c *clusterQueueBase) PendingInadmissible() int {
 	return len(c.inadmissibleWorkloads)
 }
 
-func (c *ClusterQueueImpl) Pop() *workload.Info {
-	c.popId++
+func (c *clusterQueueBase) Pop() *workload.Info {
+	c.popCycle++
 	if c.heap.Len() == 0 {
 		return nil
 	}
@@ -193,7 +194,7 @@ func (c *ClusterQueueImpl) Pop() *workload.Info {
 	return info.(*workload.Info)
 }
 
-func (c *ClusterQueueImpl) Dump() (sets.String, bool) {
+func (c *clusterQueueBase) Dump() (sets.String, bool) {
 	if c.heap.Len() == 0 {
 		return nil, false
 	}
@@ -205,7 +206,7 @@ func (c *ClusterQueueImpl) Dump() (sets.String, bool) {
 	return elements, true
 }
 
-func (c *ClusterQueueImpl) DumpInadmissible() (sets.String, bool) {
+func (c *clusterQueueBase) DumpInadmissible() (sets.String, bool) {
 	if len(c.inadmissibleWorkloads) == 0 {
 		return sets.NewString(), false
 	}
@@ -216,7 +217,7 @@ func (c *ClusterQueueImpl) DumpInadmissible() (sets.String, bool) {
 	return elements, true
 }
 
-func (c *ClusterQueueImpl) Info(key string) *workload.Info {
+func (c *clusterQueueBase) Info(key string) *workload.Info {
 	info := c.heap.GetByKey(key)
 	if info == nil {
 		return nil
