@@ -24,6 +24,7 @@ import (
 	"k8s.io/utils/pointer"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -190,6 +191,46 @@ func TestStrictFIFO(t *testing.T) {
 			if got.Obj.Name != tt.expected {
 				t.Errorf("Popped workload %q want %q", got.Obj.Name, tt.expected)
 			}
+		})
+	}
+}
+
+func TestStrictFIFORequeueIfNotPresent(t *testing.T) {
+	tests := map[RequeueReason]struct {
+		wantInadmissible bool
+	}{
+		RequeueReasonFailedAfterNomination: {
+			wantInadmissible: false,
+		},
+		RequeueReasonNamespaceMismatch: {
+			wantInadmissible: true,
+		},
+		RequeueReasonGeneric: {
+			wantInadmissible: false,
+		},
+	}
+
+	for reason, test := range tests {
+		t.Run(string(reason), func(t *testing.T) {
+			cq, _ := newClusterQueueStrictFIFO(&kueue.ClusterQueue{
+				Spec: kueue.ClusterQueueSpec{
+					QueueingStrategy: kueue.StrictFIFO,
+				},
+			})
+			wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
+			if ok := cq.RequeueIfNotPresent(workload.NewInfo(wl), reason); !ok {
+				t.Error("failed to requeue nonexistent workload")
+			}
+
+			_, gotInadmissible := cq.(*ClusterQueueStrictFIFO).inadmissibleWorkloads[workload.Key(wl)]
+			if test.wantInadmissible != gotInadmissible {
+				t.Errorf("Got inadmissible after requeue %t, want %t", gotInadmissible, test.wantInadmissible)
+			}
+
+			if ok := cq.RequeueIfNotPresent(workload.NewInfo(wl), reason); ok {
+				t.Error("Re-queued a workload that was already present")
+			}
+
 		})
 	}
 }
