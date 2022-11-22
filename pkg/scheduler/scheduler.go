@@ -100,8 +100,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 	// 2. Take a snapshot of the cache.
 	snapshot := s.cache.Snapshot()
 
-	// 3. Calculate requirements for admitting workloads (resource flavors, borrowing).
-	// (resource flavors, borrowing).
+	// 3. Calculate requirements (resource flavors, borrowing) for admitting workloads.
 	entries := s.nominate(ctx, headWorkloads, snapshot)
 
 	// 4. Sort entries based on borrowing and timestamps.
