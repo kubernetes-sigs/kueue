@@ -1,0 +1,31 @@
+title: All-or-nothing semantics for workload resource assignment
+kep-number: 349
+authors:
+  - "@mimowo"
+status: provisional
+creation-date: 2022-11-23
+reviewers:
+  - "@kerthcet"
+  - "@alculquicondor"
+approvers:
+  - "@ahg-g"
+
+# The target maturity stage in the current dev cycle for this KEP.
+stage: stable
+
+# The most recent milestone for which work toward delivery of this KEP has been
+# done. This can be the current (upcoming) milestone, if it is being actively
+# worked on.
+latest-milestone: "v0.3"
+
+# The milestone at which this feature was, or is targeted to be, at each stage.
+milestone:
+  stable: "v0.3"
+
+# The following PRR answers are required at alpha release
+# List the feature gate name and the components for which it must be enabled
+disable-supported: false
+
+# The following PRR answers are required at beta release
+# metrics:
+#   - my_feature_metric
