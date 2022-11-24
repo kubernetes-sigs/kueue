@@ -145,7 +145,7 @@ test-integration: manifests generate fmt vet envtest ginkgo ## Run tests.
 
 USE_EXISTING_CLUSTER ?= false
 .PHONY: test-e2e-kind
-test-e2e-kind: manifests generate fmt vet envtest ginkgo kind-image-build
+test-e2e-kind: kustomize manifests generate fmt vet envtest ginkgo kind-image-build
 	E2E_KIND_VERSION=$(E2E_KIND_VERSION) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) USE_EXISTING_CLUSTER=$(USE_EXISTING_CLUSTER) ARTIFACTS=$(ARTIFACTS) IMAGE_TAG=$(IMAGE_TAG) ./hack/e2e-test.sh
 
 .PHONY: ci-lint
@@ -270,4 +270,3 @@ KIND = $(shell pwd)/bin/kind
 .PHONY: kind
 kind:
 	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kind@v0.16.0
-
