@@ -25,13 +25,16 @@ import (
 //+kubebuilder:resource:scope=Cluster,shortName={rf}
 
 // ResourceFlavor is the Schema for the resourceflavors API.
-//
-// .metadata.labels associated with this flavor are matched against or
-// converted to node affinity constraints on the workload’s pods.
-// .metadata.labels can be up to 8 elements.
 type ResourceFlavor struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	// nodeSelector associated with this flavor. They are matched against or
+	// converted to node affinity constraints on the workload’s pods.
+	//
+	// nodeSelector can be up to 8 elements.
+	// +optional
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 
 	// taints associated with this flavor that workloads must explicitly
 	// “tolerate” to be able to use this flavor.

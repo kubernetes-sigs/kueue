@@ -395,9 +395,9 @@ type ResourceFlavorWrapper struct{ kueue.ResourceFlavor }
 func MakeResourceFlavor(name string) *ResourceFlavorWrapper {
 	return &ResourceFlavorWrapper{kueue.ResourceFlavor{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   name,
-			Labels: map[string]string{},
+			Name: name,
 		},
+		NodeSelector: map[string]string{},
 	}}
 }
 
@@ -409,14 +409,14 @@ func (rf *ResourceFlavorWrapper) Obj() *kueue.ResourceFlavor {
 // MultiLabels adds multi labels to the ResourceFlavor.
 func (rf *ResourceFlavorWrapper) MultiLabels(kv map[string]string) *ResourceFlavorWrapper {
 	for k, v := range kv {
-		rf.Labels[k] = v
+		rf.NodeSelector[k] = v
 	}
 	return rf
 }
 
 // Label adds a label to the ResourceFlavor.
 func (rf *ResourceFlavorWrapper) Label(k, v string) *ResourceFlavorWrapper {
-	rf.Labels[k] = v
+	rf.NodeSelector[k] = v
 	return rf
 }
 

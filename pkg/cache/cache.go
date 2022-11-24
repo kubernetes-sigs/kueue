@@ -234,7 +234,7 @@ func (c *ClusterQueue) updateLabelKeys(flavors map[string]*kueue.ResourceFlavor)
 		resKeys := sets.NewString()
 		for _, rf := range res.Flavors {
 			if flv, exist := flavors[rf.Name]; exist {
-				for k := range flv.Labels {
+				for k := range flv.NodeSelector {
 					resKeys.Insert(k)
 				}
 			} else {

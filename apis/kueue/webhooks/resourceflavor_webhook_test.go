@@ -70,7 +70,7 @@ func TestValidateResourceFlavor(t *testing.T) {
 				return m
 			}()).Obj(),
 			wantErr: field.ErrorList{
-				field.TooMany(field.NewPath("metadata", "labels"), 9, 8),
+				field.TooMany(field.NewPath("nodeSelector"), 9, 8),
 			},
 		},
 		{

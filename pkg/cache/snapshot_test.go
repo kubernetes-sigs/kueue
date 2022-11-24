@@ -153,15 +153,15 @@ func TestSnapshot(t *testing.T) {
 	flavors := []kueue.ResourceFlavor{
 		{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:   "demand",
-				Labels: map[string]string{"foo": "bar", "instance": "demand"},
+				Name: "demand",
 			},
+			NodeSelector: map[string]string{"foo": "bar", "instance": "demand"},
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:   "spot",
-				Labels: map[string]string{"baz": "bar", "instance": "spot"},
+				Name: "spot",
 			},
+			NodeSelector: map[string]string{"baz": "bar", "instance": "spot"},
 		},
 		{
 			ObjectMeta: metav1.ObjectMeta{Name: "default"},
@@ -387,15 +387,15 @@ func TestSnapshot(t *testing.T) {
 			},
 			"demand": {
 				ObjectMeta: metav1.ObjectMeta{
-					Name:   "demand",
-					Labels: map[string]string{"foo": "bar", "instance": "demand"},
+					Name: "demand",
 				},
+				NodeSelector: map[string]string{"foo": "bar", "instance": "demand"},
 			},
 			"spot": {
 				ObjectMeta: metav1.ObjectMeta{
-					Name:   "spot",
-					Labels: map[string]string{"baz": "bar", "instance": "spot"},
+					Name: "spot",
 				},
+				NodeSelector: map[string]string{"baz": "bar", "instance": "spot"},
 			},
 		},
 		InactiveClusterQueueSets: sets.String{"flavor-nonexistent-cq": {}},

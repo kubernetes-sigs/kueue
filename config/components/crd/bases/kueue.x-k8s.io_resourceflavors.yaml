@@ -20,10 +20,7 @@ spec:
   - name: v1alpha2
     schema:
       openAPIV3Schema:
-        description: "ResourceFlavor is the Schema for the resourceflavors API. \n
-          .metadata.labels associated with this flavor are matched against or converted
-          to node affinity constraints on the workload’s pods. .metadata.labels can
-          be up to 8 elements."
+        description: ResourceFlavor is the Schema for the resourceflavors API.
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -36,6 +33,13 @@ spec:
               submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
             type: string
           metadata:
+            type: object
+          nodeSelector:
+            additionalProperties:
+              type: string
+            description: "nodeSelector associated with this flavor. They are matched
+              against or converted to node affinity constraints on the workload’s
+              pods. \n nodeSelector can be up to 8 elements."
             type: object
           taints:
             description: "taints associated with this flavor that workloads must explicitly

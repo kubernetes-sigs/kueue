@@ -88,8 +88,8 @@ func (w *ResourceFlavorWebhook) ValidateDelete(ctx context.Context, obj runtime.
 func ValidateResourceFlavor(rf *kueue.ResourceFlavor) field.ErrorList {
 	var allErrs field.ErrorList
 
-	if len(rf.Labels) > 8 {
-		allErrs = append(allErrs, field.TooMany(field.NewPath("metadata", "labels"), len(rf.Labels), 8))
+	if len(rf.NodeSelector) > 8 {
+		allErrs = append(allErrs, field.TooMany(field.NewPath("nodeSelector"), len(rf.NodeSelector), 8))
 	}
 
 	taintsPath := field.NewPath("taints")

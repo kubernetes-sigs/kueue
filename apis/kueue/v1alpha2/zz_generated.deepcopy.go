@@ -358,6 +358,13 @@ func (in *ResourceFlavor) DeepCopyInto(out *ResourceFlavor) {
 	*out = *in
 	out.TypeMeta = in.TypeMeta
 	in.ObjectMeta.DeepCopyInto(&out.ObjectMeta)
+	if in.NodeSelector != nil {
+		in, out := &in.NodeSelector, &out.NodeSelector
+		*out = make(map[string]string, len(*in))
+		for key, val := range *in {
+			(*out)[key] = val
+		}
+	}
 	if in.Taints != nil {
 		in, out := &in.Taints, &out.Taints
 		*out = make([]corev1.Taint, len(*in))

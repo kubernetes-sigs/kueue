@@ -304,7 +304,7 @@ func (r *JobReconciler) getNodeSelectors(ctx context.Context, w *kueue.Workload)
 		if err := r.client.Get(ctx, types.NamespacedName{Name: flvName}, &flv); err != nil {
 			return nil, err
 		}
-		for k, v := range flv.Labels {
+		for k, v := range flv.NodeSelector {
 			nodeSelector[k] = v
 		}
 		processedFlvs.Insert(flvName)

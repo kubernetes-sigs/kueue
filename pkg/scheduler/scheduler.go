@@ -419,7 +419,7 @@ func findFlavorForCodepResources(
 			status.AppendReason(fmt.Sprintf("untolerated taint %s in flavor %s", taint, flvLimit.Name))
 			continue
 		}
-		if match, err := selector.Match(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Labels: flavor.Labels}}); !match || err != nil {
+		if match, err := selector.Match(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Labels: flavor.NodeSelector}}); !match || err != nil {
 			if err != nil {
 				return "", nil, asStatus(fmt.Errorf("matching affinity flavor %s: %w", flvLimit.Name, err))
 			}

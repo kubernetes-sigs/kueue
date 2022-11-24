@@ -143,8 +143,8 @@ apiVersion: kueue.x-k8s.io/v1alpha2
 kind: ResourceFlavor
 metadata:
   name: x86
-  labels:
-    cpu-arch: x86
+nodeSelector:
+  cpu-arch: x86
 ```
 
 ```yaml
@@ -153,8 +153,8 @@ apiVersion: kueue.x-k8s.io/v1alpha2
 kind: ResourceFlavor
 metadata:
   name: arm
-  labels:
-    cpu-arch: arm
+nodeSelector:
+  cpu-arch: arm
 ```
 
 To create the ResourceFlavors, run the following command:
