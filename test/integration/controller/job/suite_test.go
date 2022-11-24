@@ -18,10 +18,13 @@ package job
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"sigs.k8s.io/kueue/pkg/cache"
@@ -32,6 +35,15 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	//+kubebuilder:scaffold:imports
+)
+
+var (
+	cfg         *rest.Config
+	k8sClient   client.Client
+	ctx         context.Context
+	fwk         *framework.Framework
+	crdPath     = filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases")
+	webhookPath = filepath.Join("..", "..", "..", "..", "config", "components", "webhook")
 )
 
 func TestAPIs(t *testing.T) {
@@ -52,6 +64,8 @@ func managerSetup(opts ...job.Option) framework.ManagerSetup {
 		err := job.SetupIndexes(mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = reconciler.SetupWithManager(mgr)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = job.SetupWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
@@ -74,6 +88,8 @@ func managerAndSchedulerSetup(opts ...job.Option) framework.ManagerSetup {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = job.NewReconciler(mgr.GetScheme(), mgr.GetClient(),
 			mgr.GetEventRecorderFor(constants.JobControllerName), opts...).SetupWithManager(mgr)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = job.SetupWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))

@@ -34,9 +34,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 )
 
-// log is for logging in this package.
-var resourceFlavorLog = ctrl.Log.WithName("resource-flavor-webhook")
-
 type ResourceFlavorWebhook struct{}
 
 func setupWebhookForResourceFlavor(mgr ctrl.Manager) error {
@@ -54,7 +51,8 @@ var _ webhook.CustomDefaulter = &ResourceFlavorWebhook{}
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
 func (w *ResourceFlavorWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	rf := obj.(*kueue.ResourceFlavor)
-	resourceFlavorLog.V(5).Info("Applying defaults", "resourceFlavor", klog.KObj(rf))
+	log := ctrl.LoggerFrom(ctx).WithName("resourceflavor-webhook")
+	log.V(5).Info("Applying defaults", "resourceFlavor", klog.KObj(rf))
 
 	if !controllerutil.ContainsFinalizer(rf, kueue.ResourceInUseFinalizerName) {
 		controllerutil.AddFinalizer(rf, kueue.ResourceInUseFinalizerName)
@@ -69,14 +67,16 @@ var _ webhook.CustomValidator = &ResourceFlavorWebhook{}
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *ResourceFlavorWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
 	rf := obj.(*kueue.ResourceFlavor)
-	resourceFlavorLog.V(5).Info("Validating create", "resourceFlavor", klog.KObj(rf))
+	log := ctrl.LoggerFrom(ctx).WithName("resourceflavor-webhook")
+	log.V(5).Info("Validating create", "resourceFlavor", klog.KObj(rf))
 	return ValidateResourceFlavor(rf).ToAggregate()
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *ResourceFlavorWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
 	newRF := newObj.(*kueue.ResourceFlavor)
-	resourceFlavorLog.V(5).Info("Validating update", "resourceFlavor", klog.KObj(newRF))
+	log := ctrl.LoggerFrom(ctx).WithName("resourceflavor-webhook")
+	log.V(5).Info("Validating update", "resourceFlavor", klog.KObj(newRF))
 	return ValidateResourceFlavor(newRF).ToAggregate()
 }
 

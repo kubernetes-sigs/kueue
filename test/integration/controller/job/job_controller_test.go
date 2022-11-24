@@ -17,9 +17,7 @@ limitations under the License.
 package job
 
 import (
-	"context"
 	"fmt"
-	"path/filepath"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -29,12 +27,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/rest"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/controller/workload/job"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/workload/job"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 	"sigs.k8s.io/kueue/pkg/util/testing"
@@ -52,20 +47,13 @@ const (
 	priorityValue     = 10
 )
 
-var (
-	cfg       *rest.Config
-	k8sClient client.Client
-	ctx       context.Context
-	fwk       *framework.Framework
-	crdPath   = filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases")
-)
-
 // +kubebuilder:docs-gen:collapse=Imports
 
 var _ = ginkgo.Describe("Job controller", func() {
+
 	ginkgo.BeforeEach(func() {
 		fwk = &framework.Framework{
-			ManagerSetup: managerSetup(job.WithManageJobsWithoutQueueName(true)),
+			ManagerSetup: managerSetup(workloadjob.WithManageJobsWithoutQueueName(true)),
 			CRDPath:      crdPath,
 		}
 		ctx, cfg, k8sClient = fwk.Setup()

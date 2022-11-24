@@ -33,9 +33,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 )
 
-// log is for logging in this package.
-var workloadlog = ctrl.Log.WithName("workload-webhook")
-
 type WorkloadWebhook struct{}
 
 func setupWebhookForWorkload(mgr ctrl.Manager) error {
@@ -53,7 +50,8 @@ var _ webhook.CustomDefaulter = &WorkloadWebhook{}
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
 func (w *WorkloadWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	wl := obj.(*kueue.Workload)
-	workloadlog.V(5).Info("Applying defaults", "workload", klog.KObj(wl))
+	log := ctrl.LoggerFrom(ctx).WithName("workload-webhook")
+	log.V(5).Info("Applying defaults", "workload", klog.KObj(wl))
 
 	if len(wl.Spec.PodSets) == 1 {
 		podSet := &wl.Spec.PodSets[0]
@@ -92,7 +90,8 @@ var _ webhook.CustomValidator = &WorkloadWebhook{}
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *WorkloadWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
 	wl := obj.(*kueue.Workload)
-	workloadlog.V(5).Info("Validating create", "workload", klog.KObj(wl))
+	log := ctrl.LoggerFrom(ctx).WithName("workload-webhook")
+	log.V(5).Info("Validating create", "workload", klog.KObj(wl))
 	return ValidateWorkload(wl).ToAggregate()
 }
 
@@ -100,7 +99,8 @@ func (w *WorkloadWebhook) ValidateCreate(ctx context.Context, obj runtime.Object
 func (w *WorkloadWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
 	newWL := newObj.(*kueue.Workload)
 	oldWL := oldObj.(*kueue.Workload)
-	workloadlog.V(5).Info("Validating update", "workload", klog.KObj(newWL))
+	log := ctrl.LoggerFrom(ctx).WithName("workload-webhook")
+	log.V(5).Info("Validating update", "workload", klog.KObj(newWL))
 	return ValidateWorkloadUpdate(newWL, oldWL).ToAggregate()
 }
 
