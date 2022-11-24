@@ -35,9 +35,6 @@ import (
 )
 
 var (
-	// log is for logging in this package.
-	clusterQueueLog = ctrl.Log.WithName("clusterqueue-webhook")
-
 	queueingStrategies = sets.NewString(string(kueue.StrictFIFO), string(kueue.BestEffortFIFO))
 )
 
@@ -62,8 +59,8 @@ var _ webhook.CustomDefaulter = &ClusterQueueWebhook{}
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
 func (w *ClusterQueueWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	cq := obj.(*kueue.ClusterQueue)
-
-	clusterQueueLog.V(5).Info("Applying defaults", "clusterQueue", klog.KObj(cq))
+	log := ctrl.LoggerFrom(ctx).WithName("clusterqueue-webhook")
+	log.V(5).Info("Applying defaults", "clusterQueue", klog.KObj(cq))
 	if !controllerutil.ContainsFinalizer(cq, kueue.ResourceInUseFinalizerName) {
 		controllerutil.AddFinalizer(cq, kueue.ResourceInUseFinalizerName)
 	}
@@ -77,7 +74,8 @@ var _ webhook.CustomValidator = &ClusterQueueWebhook{}
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *ClusterQueueWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
 	cq := obj.(*kueue.ClusterQueue)
-	clusterQueueLog.V(5).Info("Validating create", "clusterQueue", klog.KObj(cq))
+	log := ctrl.LoggerFrom(ctx).WithName("clusterqueue-webhook")
+	log.V(5).Info("Validating create", "clusterQueue", klog.KObj(cq))
 	allErrs := ValidateClusterQueue(cq)
 	return allErrs.ToAggregate()
 }
@@ -85,7 +83,8 @@ func (w *ClusterQueueWebhook) ValidateCreate(ctx context.Context, obj runtime.Ob
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *ClusterQueueWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
 	newCQ := newObj.(*kueue.ClusterQueue)
-	clusterQueueLog.V(5).Info("Validating update", "clusterQueue", klog.KObj(newCQ))
+	log := ctrl.LoggerFrom(ctx).WithName("clusterqueue-webhook")
+	log.V(5).Info("Validating update", "clusterQueue", klog.KObj(newCQ))
 	allErrs := ValidateClusterQueue(newCQ)
 	return allErrs.ToAggregate()
 }

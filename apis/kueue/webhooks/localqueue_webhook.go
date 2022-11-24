@@ -29,9 +29,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 )
 
-// log is for logging in this package.
-var localQueueLog = ctrl.Log.WithName("localqueue-webhook")
-
 type LocalQueueWebhook struct{}
 
 func setupWebhookForLocalQueue(mgr ctrl.Manager) error {
@@ -48,7 +45,8 @@ var _ webhook.CustomValidator = &LocalQueueWebhook{}
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *LocalQueueWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
 	q := obj.(*kueue.LocalQueue)
-	localQueueLog.V(5).Info("Validating create", "localQueue", klog.KObj(q))
+	log := ctrl.LoggerFrom(ctx).WithName("localqueue-webhook")
+	log.V(5).Info("Validating create", "localQueue", klog.KObj(q))
 	return ValidateLocalQueue(q).ToAggregate()
 }
 
@@ -56,7 +54,8 @@ func (w *LocalQueueWebhook) ValidateCreate(ctx context.Context, obj runtime.Obje
 func (w *LocalQueueWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
 	newQ := newObj.(*kueue.LocalQueue)
 	oldQ := oldObj.(*kueue.LocalQueue)
-	localQueueLog.V(5).Info("Validating update", "localQueue", klog.KObj(newQ))
+	log := ctrl.LoggerFrom(ctx).WithName("localqueue-webhook")
+	log.V(5).Info("Validating update", "localQueue", klog.KObj(newQ))
 	return ValidateLocalQueueUpdate(newQ, oldQ).ToAggregate()
 }
 

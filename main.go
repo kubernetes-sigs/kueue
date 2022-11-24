@@ -171,6 +171,10 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 		setupLog.Error(err, "Unable to create webhook", "webhook", failedWebhook)
 		os.Exit(1)
 	}
+	if err := job.SetupWebhook(mgr, job.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName)); err != nil {
+		setupLog.Error(err, "Unable to create webhook", "webhook", "Job")
+		os.Exit(1)
+	}
 	// +kubebuilder:scaffold:builder
 }
 
