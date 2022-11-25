@@ -38,7 +38,10 @@ function startup {
 }
 
 function kind_load {
-    $KIND load docker-image $IMAGE_TAG --name $KIND_CLUSTER_NAME
+    if [ $USE_EXISTING_CLUSTER == 'false' ]
+    then
+        $KIND load docker-image $IMAGE_TAG --name $KIND_CLUSTER_NAME
+    fi
 }
 
 function kueue_deploy {

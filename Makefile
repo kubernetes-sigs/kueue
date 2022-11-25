@@ -144,8 +144,11 @@ test-integration: manifests generate fmt vet envtest ginkgo ## Run tests.
 	$(GINKGO) --junit-report=junit.xml --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 
 USE_EXISTING_CLUSTER ?= false
-.PHONY: test-e2e-kind
-test-e2e-kind: kustomize manifests generate fmt vet envtest ginkgo kind-image-build
+ifeq (false, $(USE_EXISTING_CLUSTER))
+BUILD_WITH_KIND=kind-image-build
+endif
+.PHONY: test-e2e
+test-e2e: kustomize manifests generate fmt vet envtest ginkgo $(BUILD_WITH_KIND)
 	E2E_KIND_VERSION=$(E2E_KIND_VERSION) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) USE_EXISTING_CLUSTER=$(USE_EXISTING_CLUSTER) ARTIFACTS=$(ARTIFACTS) IMAGE_TAG=$(IMAGE_TAG) ./hack/e2e-test.sh
 
 .PHONY: ci-lint
