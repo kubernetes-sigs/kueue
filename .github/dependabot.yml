@@ -1,0 +1,14 @@
+version: 2
+updates:
+
+  # Maintain dependencies for go
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "ok-to-test"
+    ignore:
+      # Ignore major and minor versions for dependencies updates
+      # Allow patches and security updates.
+      - update-types: ["version-update:semver-major", "version-update:semver-minor"]
