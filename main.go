@@ -78,7 +78,7 @@ func main() {
 
 	opts := zap.Options{
 		TimeEncoder: zapcore.RFC3339NanoTimeEncoder,
-		ZapOpts:     []zaplog.Option{zaplog.AddCaller(), zaplog.AddCallerSkip(-1)},
+		ZapOpts:     []zaplog.Option{zaplog.AddCaller()},
 	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
