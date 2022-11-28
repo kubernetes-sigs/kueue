@@ -70,7 +70,7 @@ func TestValidateResourceFlavor(t *testing.T) {
 				return m
 			}()).Obj(),
 			wantErr: field.ErrorList{
-				field.TooMany(field.NewPath("metadata", "labels"), 9, 8),
+				field.TooMany(field.NewPath("nodeSelector"), 9, 8),
 			},
 		},
 		{
@@ -89,12 +89,26 @@ func TestValidateResourceFlavor(t *testing.T) {
 				field.TooMany(field.NewPath("taints"), 9, 8),
 			},
 		},
+		{
+			name: "invalid label name",
+			rf:   utiltesting.MakeResourceFlavor("resource-flavor").MultiLabels(map[string]string{"@abc": "foo"}).Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("nodeSelector"), "@abc", ""),
+			},
+		},
+		{
+			name: "invalid label value",
+			rf:   utiltesting.MakeResourceFlavor("resource-flavor").MultiLabels(map[string]string{"foo": "@abc"}).Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("nodeSelector"), "@abc", ""),
+			},
+		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
 			gotErr := ValidateResourceFlavor(tc.rf)
-			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail")); diff != "" {
 				t.Errorf("validateResourceFlavorLabels() mismatch (-want +got):\n%s", diff)
 			}
 		})

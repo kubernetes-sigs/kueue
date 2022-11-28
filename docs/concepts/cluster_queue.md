@@ -163,8 +163,8 @@ apiVersion: kueue.x-k8s.io/v1alpha2
 kind: ResourceFlavor
 metadata:
   name: spot
-  labels:
-    instance-type: spot
+nodeSelector:
+  instance-type: spot
 taints:
 - effect: NoSchedule
   key: spot
@@ -179,7 +179,7 @@ ClusterQueue in the `.spec.resources[*].flavors[*].name` field.
 **Requires Kubernetes 1.23 or newer**
 
 To associate a ResourceFlavor with a subset of nodes of your cluster, you can
-configure the `.metadata.labels` field with matching node labels that uniquely identify
+configure the `.nodeSelector` field with matching node labels that uniquely identify
 the nodes. If you are using [cluster autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)
 (or equivalent controllers), make sure it is configured to add those labels when
 adding new nodes.
