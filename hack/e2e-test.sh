@@ -23,22 +23,25 @@ export GINKGO=$PWD/bin/ginkgo
 export KIND=$PWD/bin/kind
 
 function cleanup {
-    if [ $USE_EXISTING_CLUSTER == 'false' ]
+    if [ $CREATE_KIND_CLUSTER == 'true' ]
     then
-        $KIND delete cluster --name $KIND_CLUSTER_NAME
+        $KIND delete cluster --name $KIND_CLUSTER_NAME || { echo "You need to run make kind-image-build before this script"; exit -1; }
     fi
     (cd config/components/manager && $KUSTOMIZE edit set image controller=gcr.io/k8s-staging-kueue/kueue:main)
 }
 
 function startup {
-    if [ $USE_EXISTING_CLUSTER == 'false' ]
+    if [ $CREATE_KIND_CLUSTER == 'true' ]
     then
         $KIND create cluster --name $KIND_CLUSTER_NAME --image $E2E_KIND_VERSION
     fi
 }
 
 function kind_load {
-    $KIND load docker-image $IMAGE_TAG --name $KIND_CLUSTER_NAME
+    if [ $CREATE_KIND_CLUSTER == 'true' ]
+    then
+        $KIND load docker-image $IMAGE_TAG --name $KIND_CLUSTER_NAME
+    fi
 }
 
 function kueue_deploy {
