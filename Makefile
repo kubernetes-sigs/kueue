@@ -143,13 +143,10 @@ test-integration: manifests generate fmt vet envtest ginkgo ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) --arch=amd64 use $(ENVTEST_K8S_VERSION) -p path)" \
 	$(GINKGO) --junit-report=junit.xml --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 
-USE_EXISTING_CLUSTER ?= false
-ifeq (false, $(USE_EXISTING_CLUSTER))
-BUILD_WITH_KIND=kind-image-build
-endif
+CREATE_KIND_CLUSTER ?= true
 .PHONY: test-e2e
-test-e2e: kustomize manifests generate fmt vet envtest ginkgo $(BUILD_WITH_KIND)
-	E2E_KIND_VERSION=$(E2E_KIND_VERSION) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) USE_EXISTING_CLUSTER=$(USE_EXISTING_CLUSTER) ARTIFACTS=$(ARTIFACTS) IMAGE_TAG=$(IMAGE_TAG) ./hack/e2e-test.sh
+test-e2e: kustomize manifests generate fmt vet envtest ginkgo
+	E2E_KIND_VERSION=$(E2E_KIND_VERSION) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) ARTIFACTS=$(ARTIFACTS) IMAGE_TAG=$(IMAGE_TAG) ./hack/e2e-test.sh
 
 .PHONY: ci-lint
 ci-lint: golangci-lint
