@@ -7,7 +7,7 @@ require (
 	github.com/google/go-cmp v0.5.9
 	github.com/onsi/ginkgo/v2 v2.5.1
 	github.com/onsi/gomega v1.24.0
-	github.com/open-policy-agent/cert-controller v0.3.0
+	github.com/open-policy-agent/cert-controller v0.5.0
 	github.com/prometheus/client_golang v1.13.0
 	go.uber.org/zap v1.23.0
 	k8s.io/api v0.24.8
