@@ -124,9 +124,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			continue
 		}
 		log := log.WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue))
-		if err := s.admit(ctrl.LoggerInto(ctx, log), e); err == nil {
-			e.status = assumed
-		} else {
+		if err := s.admit(ctrl.LoggerInto(ctx, log), e); err != nil {
 			e.inadmissibleMsg = fmt.Sprintf("Failed to admit workload: %v", err)
 		}
 		// Even if there was a failure, we shouldn't admit other workloads to this
@@ -330,6 +328,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 	if err := s.cache.AssumeWorkload(newWorkload); err != nil {
 		return err
 	}
+	e.status = assumed
 	log.V(2).Info("Workload assumed in the cache")
 
 	s.admissionRoutineWrapper.Run(func() {

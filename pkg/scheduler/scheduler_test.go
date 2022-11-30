@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 	"sync"
@@ -251,7 +252,8 @@ func TestSchedule(t *testing.T) {
 		},
 	}
 	cases := map[string]struct {
-		workloads []kueue.Workload
+		workloads      []kueue.Workload
+		admissionError error
 		// wantAssignments is a summary of all the admissions in the cache after this cycle.
 		wantAssignments map[string]kueue.Admission
 		// wantScheduled is the subset of workloads that got scheduled/admitted in this cycle.
@@ -296,6 +298,32 @@ func TestSchedule(t *testing.T) {
 				},
 			},
 			wantScheduled: []string{"sales/foo"},
+		},
+		"error during admission": {
+			workloads: []kueue.Workload{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "sales",
+						Name:      "foo",
+					},
+					Spec: kueue.WorkloadSpec{
+						QueueName: "main",
+						PodSets: []kueue.PodSet{
+							{
+								Name:  "one",
+								Count: 10,
+								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+									corev1.ResourceCPU: "1",
+								}),
+							},
+						},
+					},
+				},
+			},
+			admissionError: errors.New("admission"),
+			wantLeft: map[string]sets.String{
+				"sales": sets.NewString("sales/foo"),
+			},
 		},
 		"single clusterQueue full": {
 			workloads: []kueue.Workload{
@@ -821,6 +849,9 @@ func TestSchedule(t *testing.T) {
 			gotScheduled := make(map[string]kueue.Admission)
 			var mu sync.Mutex
 			scheduler.applyAdmission = func(ctx context.Context, w *kueue.Workload) error {
+				if tc.admissionError != nil {
+					return tc.admissionError
+				}
 				mu.Lock()
 				gotScheduled[workload.Key(w)] = *w.Spec.Admission
 				mu.Unlock()

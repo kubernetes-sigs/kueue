@@ -60,7 +60,7 @@ type Framework struct {
 func (f *Framework) Setup() (context.Context, *rest.Config, client.Client) {
 	opts := func(o *zap.Options) {
 		o.TimeEncoder = zapcore.RFC3339NanoTimeEncoder
-		o.ZapOpts = []zaplog.Option{zaplog.AddCaller(), zaplog.AddCallerSkip(-1)}
+		o.ZapOpts = []zaplog.Option{zaplog.AddCaller()}
 	}
 	ctrl.SetLogger(zap.New(
 		zap.WriteTo(ginkgo.GinkgoWriter),
