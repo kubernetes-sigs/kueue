@@ -86,16 +86,18 @@ func (s *Status) Message() string {
 
 type PodSetAssignment struct {
 	Name    string
-	Flavors map[corev1.ResourceName]*FlavorAssignment
+	Flavors ResourceAssignment
 }
 
-func (a *PodSetAssignment) toAPI() kueue.PodSetFlavors {
-	flavors := make(map[corev1.ResourceName]string, len(a.Flavors))
-	for res, flvAssignment := range a.Flavors {
+type ResourceAssignment map[corev1.ResourceName]*FlavorAssignment
+
+func (psa *PodSetAssignment) toAPI() kueue.PodSetFlavors {
+	flavors := make(map[corev1.ResourceName]string, len(psa.Flavors))
+	for res, flvAssignment := range psa.Flavors {
 		flavors[res] = flvAssignment.Name
 	}
 	return kueue.PodSetFlavors{
-		Name:    a.Name,
+		Name:    psa.Name,
 		Flavors: flavors,
 	}
 }
@@ -121,9 +123,12 @@ func AssignFlavors(log logr.Logger, wl *workload.Info, resourceFlavors map[strin
 		usage:       make(cache.ResourceQuantities),
 	}
 	for i, podSet := range wl.TotalRequests {
-		assignedFlavors := make(map[corev1.ResourceName]*FlavorAssignment, len(podSet.Requests))
+		psAssignment := PodSetAssignment{
+			Name:    podSet.Name,
+			Flavors: make(ResourceAssignment, len(podSet.Requests)),
+		}
 		for resName := range podSet.Requests {
-			if _, found := assignedFlavors[resName]; found {
+			if _, found := psAssignment.Flavors[resName]; found {
 				// This resource got assigned the same flavor as a codependent resource.
 				// No need to compute again.
 				continue
@@ -144,33 +149,38 @@ func AssignFlavors(log logr.Logger, wl *workload.Info, resourceFlavors map[strin
 				status.podSet = podSet.Name
 				return nil, status
 			}
-			// Accumulate assigments, usage and borrowing.
-			for codepRes, codepVal := range codepReq {
-				flvAssignment := flavors[codepRes]
-				if flvAssignment.borrow > 0 {
-					if assignment.TotalBorrow[codepRes] == nil {
-						assignment.TotalBorrow[codepRes] = make(map[string]int64)
-					}
-					// Don't accumulate borrowing. The returned `borrow` already considers
-					// usage from previous pod sets.
-					assignment.TotalBorrow[codepRes][flvAssignment.Name] = flvAssignment.borrow
-				}
-				if assignment.usage[codepRes] == nil {
-					assignment.usage[codepRes] = make(map[string]int64)
-				}
-				assignment.usage[codepRes][flvAssignment.Name] += codepVal
-				assignedFlavors[codepRes] = flvAssignment
-			}
+			psAssignment.append(flavors)
 		}
-		assignment.PodSets = append(assignment.PodSets, PodSetAssignment{
-			Name:    podSet.Name,
-			Flavors: assignedFlavors,
-		})
+		assignment.append(podSet.Requests, &psAssignment)
 	}
 	if len(assignment.TotalBorrow) == 0 {
 		assignment.TotalBorrow = nil
 	}
 	return &assignment, nil
+}
+
+func (psa *PodSetAssignment) append(flavors ResourceAssignment) {
+	for resource, assignment := range flavors {
+		psa.Flavors[resource] = assignment
+	}
+}
+
+func (a *Assignment) append(requests workload.Requests, psAssignment *PodSetAssignment) {
+	a.PodSets = append(a.PodSets, *psAssignment)
+	for resource, flvAssignment := range psAssignment.Flavors {
+		if flvAssignment.borrow > 0 {
+			if a.TotalBorrow[resource] == nil {
+				a.TotalBorrow[resource] = make(map[string]int64)
+			}
+			// Don't accumulate borrowing. The returned `borrow` already considers
+			// usage from previous pod sets.
+			a.TotalBorrow[resource][flvAssignment.Name] = flvAssignment.borrow
+		}
+		if a.usage[resource] == nil {
+			a.usage[resource] = make(map[string]int64)
+		}
+		a.usage[resource][flvAssignment.Name] += requests[resource]
+	}
 }
 
 // findFlavorForCodepResources finds the flavor which can satisfy the resource
@@ -181,7 +191,7 @@ func (a *Assignment) findFlavorForCodepResources(
 	requests workload.Requests,
 	resourceFlavors map[string]*kueue.ResourceFlavor,
 	cq *cache.ClusterQueue,
-	spec *corev1.PodSpec) (map[corev1.ResourceName]*FlavorAssignment, *Status) {
+	spec *corev1.PodSpec) (ResourceAssignment, *Status) {
 	var status Status
 
 	// Keep any resource name as an anchor to gather flavors for.
@@ -215,7 +225,7 @@ func (a *Assignment) findFlavorForCodepResources(
 			continue
 		}
 
-		assignments := make(map[corev1.ResourceName]*FlavorAssignment, len(requests))
+		assignments := make(ResourceAssignment, len(requests))
 		for name, val := range requests {
 			codepFlvLimit := cq.RequestableResources[name].Flavors[i]
 			// Check considering the flavor usage by previous pod sets.
