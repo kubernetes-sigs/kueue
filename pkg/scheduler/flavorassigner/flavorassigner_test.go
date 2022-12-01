@@ -102,7 +102,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantAssignment: &Assignment{
 				PodSets: []PodSetAssignment{{
 					Name: "main",
-					Flavors: map[corev1.ResourceName]*FlavorAssignment{
+					Flavors: ResourceAssignment{
 						corev1.ResourceCPU:    {Name: "default", Mode: CohortFit},
 						corev1.ResourceMemory: {Name: "default", Mode: CohortFit},
 					},
@@ -142,7 +142,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantAssignment: &Assignment{
 				PodSets: []PodSetAssignment{{
 					Name: "main",
-					Flavors: map[corev1.ResourceName]*FlavorAssignment{
+					Flavors: ResourceAssignment{
 						corev1.ResourceCPU: {Name: "tainted", Mode: CohortFit},
 					},
 				}},
@@ -201,7 +201,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantAssignment: &Assignment{
 				PodSets: []PodSetAssignment{{
 					Name: "main",
-					Flavors: map[corev1.ResourceName]*FlavorAssignment{
+					Flavors: ResourceAssignment{
 						corev1.ResourceCPU:    {Name: "two", Mode: CohortFit},
 						corev1.ResourceMemory: {Name: "b_one", Mode: CohortFit},
 					},
@@ -246,7 +246,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantAssignment: &Assignment{
 				PodSets: []PodSetAssignment{{
 					Name: "main",
-					Flavors: map[corev1.ResourceName]*FlavorAssignment{
+					Flavors: ResourceAssignment{
 						corev1.ResourceCPU:    {Name: "two", Mode: CohortFit},
 						corev1.ResourceMemory: {Name: "two", Mode: CohortFit},
 						"example.com/gpu":     {Name: "b_one", Mode: CohortFit},
@@ -307,7 +307,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantAssignment: &Assignment{
 				PodSets: []PodSetAssignment{{
 					Name: "main",
-					Flavors: map[corev1.ResourceName]*FlavorAssignment{
+					Flavors: ResourceAssignment{
 						corev1.ResourceCPU: {Name: "two", Mode: CohortFit},
 					},
 				}},
@@ -337,7 +337,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantAssignment: &Assignment{
 				PodSets: []PodSetAssignment{{
 					Name: "main",
-					Flavors: map[corev1.ResourceName]*FlavorAssignment{
+					Flavors: ResourceAssignment{
 						corev1.ResourceCPU: {Name: "two", Mode: CohortFit},
 					},
 				}},
@@ -393,7 +393,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantAssignment: &Assignment{
 				PodSets: []PodSetAssignment{{
 					Name: "main",
-					Flavors: map[corev1.ResourceName]*FlavorAssignment{
+					Flavors: ResourceAssignment{
 						corev1.ResourceCPU: {Name: "two", Mode: CohortFit},
 					},
 				}},
@@ -454,7 +454,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantAssignment: &Assignment{
 				PodSets: []PodSetAssignment{{
 					Name: "main",
-					Flavors: map[corev1.ResourceName]*FlavorAssignment{
+					Flavors: ResourceAssignment{
 						corev1.ResourceCPU:    {Name: "two", Mode: CohortFit},
 						corev1.ResourceMemory: {Name: "two", Mode: CohortFit},
 					},
@@ -519,7 +519,7 @@ func TestAssignFlavors(t *testing.T) {
 			wantAssignment: &Assignment{
 				PodSets: []PodSetAssignment{{
 					Name: "main",
-					Flavors: map[corev1.ResourceName]*FlavorAssignment{
+					Flavors: ResourceAssignment{
 						corev1.ResourceCPU: {Name: "one", Mode: CohortFit},
 					},
 				}},
@@ -602,13 +602,13 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{
 					{
 						Name: "driver",
-						Flavors: map[corev1.ResourceName]*FlavorAssignment{
+						Flavors: ResourceAssignment{
 							corev1.ResourceCPU: {Name: "two", Mode: CohortFit},
 						},
 					},
 					{
 						Name: "worker",
-						Flavors: map[corev1.ResourceName]*FlavorAssignment{
+						Flavors: ResourceAssignment{
 							corev1.ResourceCPU: {Name: "one", Mode: CohortFit},
 						},
 					},
@@ -671,14 +671,14 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{
 					{
 						Name: "driver",
-						Flavors: map[corev1.ResourceName]*FlavorAssignment{
+						Flavors: ResourceAssignment{
 							corev1.ResourceCPU:    {Name: "default", Mode: CohortFit},
 							corev1.ResourceMemory: {Name: "default", Mode: CohortFit},
 						},
 					},
 					{
 						Name: "worker",
-						Flavors: map[corev1.ResourceName]*FlavorAssignment{
+						Flavors: ResourceAssignment{
 							corev1.ResourceCPU:    {Name: "default", Mode: CohortFit},
 							corev1.ResourceMemory: {Name: "default", Mode: CohortFit},
 						},
