@@ -25,7 +25,7 @@ tags, and then generate with `hack/update-toc.sh`.
   - [User Stories (Optional)](#user-stories-optional)
     - [Story 1](#story-1)
     - [Story 2](#story-2)
-  - [Notes/Contraints/Caveats (Optional)](#notescontraintscaveats-optional)
+  - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [Test Plan](#test-plan)
@@ -108,7 +108,7 @@ bogged down.
 
 #### Story 2
 
-### Notes/Contraints/Caveats (Optional)
+### Notes/Constraints/Caveats (Optional)
 
 <!--
 What are the caveats to the proposal?

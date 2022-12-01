@@ -24,17 +24,13 @@ tags, and then generate with `hack/update-toc.sh`.
 - [Proposal](#proposal)
   - [User Stories (Optional)](#user-stories-optional)
     - [Story 1](#story-1)
-    - [Story 2](#story-2)
-  - [Notes/Contraints/Caveats (Optional)](#notescontraintscaveats-optional)
-    - [Choosing the API object to opt-in for the mechanism](#choosing-the-api-object-to-opt-in-for-the-mechanism)
+  - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
-  - [API](#api)
-    - [Workload API](#workload-api)
-    - [Job annotation](#job-annotation)
-  - [StartedUp workload condition](#startedup-workload-condition)
-  - [The mechanism](#the-mechanism)
-  - [Timeout on reaching the StartedUp condition](#timeout-on-reaching-the-startedup-condition)
+  - [Kueue Configuration API](#kueue-configuration-api)
+  - [PodsReady workload condition](#podsready-workload-condition)
+  - [Waiting for PodsReady condition](#waiting-for-podsready-condition)
+  - [Timeout on reaching the PodsReady condition](#timeout-on-reaching-the-podsready-condition)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
@@ -44,9 +40,8 @@ tags, and then generate with `hack/update-toc.sh`.
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
     - [Delay job start instead of workload admission](#delay-job-start-instead-of-workload-admission)
-    - [Block job start only if two workloads overlap in flavors](#block-job-start-only-if-two-workloads-overlap-in-flavors)
     - [Pod Resource Reservation](#pod-resource-reservation)
-    - [Use LocalQueue to default the Workload fields](#use-localqueue-to-default-the-workload-fields)
+    - [More granular configuration to enable the mechanism](#more-granular-configuration-to-enable-the-mechanism)
 <!-- /toc -->
 
 ## Summary
@@ -78,7 +73,7 @@ updates.
 Some jobs need all pods to be running at the same time to make progress, for
 example, when they require pod-to-pod communication. In that case a pair of
 large jobs may deadlock if there are issues with resource provisioning to
-match the configured cluster quota. The jobs could successfully run to
+match the configured cluster quota. The same pair of jobs could run to
 completion if their pods were scheduled sequentially.
 
 <!--
@@ -116,12 +111,11 @@ and make progress.
 
 ## Proposal
 
-We introduce a mechanism to ensure workloads get their physical resources
-assigned by avoiding concurrent scheduling of workloads. More precisely, we
-block admission of new workloads until the first batch of the Job is scheduled.
-Additionally, we await with starting the Job until all other admitted workloads
-have their pods scheduled. This behavior can be opted-in by a Job by a new
-annotation.
+We introduce a mechanism to ensure jobs get their physical resources
+assigned by avoiding concurrent scheduling of their pods. More precisely, we
+block admission of new workloads until the first batch of pods for the
+unsuspended job is scheduled. This behavior can be opted-in at the level of
+the Kueue configuration.
 
 <!--
 This is where we get down to the specifics of what the proposal actually is.
@@ -143,25 +137,16 @@ bogged down.
 
 #### Story 1
 
-As a machine learning researcher I want to run Jobs that require all their pods
-to run at the same time. I want to be able to run my Jobs on on-demand resources,
-however, I don't want to risk my Jobs would deadlock in case of issues with
-provisioning nodes to satisfy the configured cluster queue quota. This could
-happen when some Jobs don't specify priorities or specify the same priority.
+As a Kueue administrator I want to ensure that two or more Jobs, which require
+all pods to be running at the same time, would not deadlock when scheduling
+their pods. This could happen in case of node provisioning issues to match
+the configured cluster queue quota and when the Jobs don't specify priorities
+(or specify the same priority).
 
-My use case can be supported by adding
-`kueue.x-k8s.io/startup-requirements: AllPodsReady` annotation to the jobs
-I run.
+My use case can be supported by setting `waitForPodsReady=true` in the Kueue
+configuration.
 
-#### Story 2
-
-As an administrator of a batch processing in my organization I want to ensure
-that two or more Jobs would not deadlock in case of node provisioning issues.
-
-My use case can be supported by adding
-`kueue.x-k8s.io/startup-requirements: AllPodsReady` annotation to all jobs.
-
-### Notes/Contraints/Caveats (Optional)
+### Notes/Constraints/Caveats (Optional)
 
 <!--
 What are the caveats to the proposal?
@@ -170,53 +155,14 @@ Go in to as much detail as necessary here.
 This might be a good place to talk about core concepts and how they relate.
 -->
 
-#### Choosing the API object to opt-in for the mechanism
-
-Here we review the options for the best place for the API to opt-in for the
-mechanism:
-- job (current proposal)
-- local queue
-- cluster queue
-- component
-
-**Job level pros**:
-- throughput - the same cluster queue may run workloads which don't need all-or-nothing guarantees and thus get admitted
-faster,
-- requiring all pods to run at the same time is a property of a Job itself.
-
-**Job level cons**:
-- introducing a new annotation on a Job level extends the surface of the Job API via annotation
-
-**Local Queue level pros**:
-- could be a natual place to also define timeout for reaching `StartedUp`, which is not component-level
-
-**Local Queue level cons**:
-- might be harder to withdraw from API commitments to the LocalQueue than to deprecate a Job annotation
-- slightly higher complexity of implementation comparing to workload level - we need to either default the workload API
-field or lookup the LocalQueue value on every workload use. Still, in order to ensure exclusive start of pods we still
-need to both block admission of new workloads until in `StartedUp` and await for all already workloads to be in the
-`StartedUp` condition, as some workloads might be executed on the cluster bypassing the queues.
-
-**Cluster Queue level cons**:
-- cluster queue is only assigned after admission so it blocks us the ability to block admission for a given workload
-- otherwise, same cons as for Local Queue.
-
-**Component level pros**:
-- lower complexity of implementation comparing to workload level - we could just block admission until the workload is
-in the `AllPodsReady` state. We wouldn't need to check if there are any already admitted workloads - we know they all
-have already awaited to be in the `AllPodsReady` condition.
-
-**Component level cons**:
-- throughput - would degrade substantially by sequencing of all workloads, even those which don't require the semantics
-
 ### Risks and Mitigations
 
 If a workload fails to schedule its pods it could block admission of other
 workloads indefinitely.
 
-To mitigate this issue we introduce a timeout on reaching the `StartedUp`
+To mitigate this issue we introduce a timeout on reaching the `PodsReady`
 condition by a workload since its job start (see:
-[Timeout on reaching the StartedUp condition](#timeout-on-reaching-the-startedup-condition)).
+[Timeout on reaching the PodsReady condition](#timeout-on-reaching-the-podsready-condition)).
 
 <!--
 What are the risks of this proposal, and how do we mitigate? Think broadly.
@@ -239,94 +185,73 @@ required) or even code snippets. If there's any ambiguity about HOW your
 proposal will be implemented, this is the place to discuss them.
 -->
 
+### Kueue Configuration API
 
-### API
-
-#### Workload API
-
-We extend the Workload API with the new `startupRequirements` field to
-enable the new behavior.
+We extend the global Kueue Configuration API to introduce the new fields:
+`waitForPodsReady` to opt-in for the new behavior, and `podsReadyTimeout` to
+timeout if a workload takes too long to reach the `PodsReady` condition.
 
 ```golang
-// StartupRequirements describes workload startup requirements
-type StartupRequirements string
-
-const (
-  // AllPodsReady: means that workload requires all of its pods to be running
-  // at the same time to make progress towards completion.
-  StartupRequirementsAllPodsReady StartupRequirements = "AllPodsReady"
-  // AtLeastOnePodReady means that the workload requires at least one pod
-  // to run to make progress towards completion.
-  StartupRequirementsAtLeastOnePodReady StartupRequirements = "AtLeastOnePodReady"
-)
-
-// WorkloadSpec defines the desired state of Workload
-type WorkloadSpec struct {
+// Configuration is the Schema for the kueueconfigurations API
+type Configuration struct {
   ...
-  // StartupRequirements describes the workload startup requirements to ensure
-  // the workload can make progress towards completion once running.
-  // Possible values are:
-  // - AllPodsReady: means that workload requires all of its pods to be running
-  // at the same time to make progress towards completion,
-  // - AtLeastOnePodReady means that the workload requires at least one pod
-  // to run to make progress towards completion.
-  // Defaults to AtLeastOnePodReady.
-  StartupRequirements *StartupRequirements `json:"startupRequirements,omitempty"`
+  // waitForPodsReady, when true, indicates that each admitted workload
+  // blocks admission of other workloads in the cluster, until it is in the
+  // `PodsReady` condition. If false, all workloads start as soon as they are
+  // admitted and do not block admission of other workloads. The PodsReady
+  // condition is only added if this setting is enabled. If unspecified,
+  // it defaults to false.
+  waitForPodsReady *bool `json:"waitForPodsReady,omitempty"`
+
+  // podsReadyTimeout describes the timeout for an admitted workload to reach
+  // the PodsReady condition since unsuspending of the corresponding Job.
+  // After exceeding this timeout the corresponding job gets suspended again
+  // and moved to the ClusterQueue's inadmissibleWorkloads list. The timeout is
+  // enforced only if waitForPodsReady=true. If unspecified, it defaults to 5min.
+  podsReadyTimeout *metav1.Time `json:"podsReadyTimeout,omitempty"`
 }
 ```
 
-#### Job annotation
+### PodsReady workload condition
 
-We introduce a new Job annotation, called `kueue.x-k8s.io/startup-requirements`,
-as a JobAPI counterpart of the `startupRequirements` Workload API field. When
-the annotation is present, its value is used as the field value during workload
-creation. A Job with unkonwn value of the annotation results in rejecting the
-Job by a new validation webhook.
-
-### StartedUp workload condition
-
-We introduce a new workload condition, called `StartedUp`, to indicate
+We introduce a new workload condition, called `PodsReady`, to indicate
 if the workload's startup requirements are satisfied. More precisely, we add
 the condition when `job.status.ready + job.status.succeeded` is greater or equal
-than `job.spec.parallelism` or `1` in case of workloads with `AllPodsReady`
-or `AtLeastOnePodReady` startup requirements, respectively.
+than `job.spec.parallelism`.
 
-The `StartedUp` condition is addded to the workload by the Kueue's Job
-reconciler in reaction to a status update of the corresponding Job. Note that,
+Note that, we don't take failed pods into account when verifying if the
+`PodsReady` condition should be added. However, a buggy admitted workload is
+eliminated as the corresponding job fails due to exceeding the `.spec.backoffLimit`
+limit.
+
+The `PodsReady` condition is added to the workload by the Kueue's Job
+Controller in reaction to a status update of the corresponding Job. Note that,
 verifying if the condition should be added does not require an extra API call as
-the Kueue's Job reconciller already fetches the latest Job object at the
-beginning of the `Reconcile` function. Also note, there is no new condition
-introduced to the Job API.
+the Kueue's Job Controller already fetches the latest Job object at the
+beginning of the `Reconcile` function.
 
-Note that, we don't take failed pods directly into the computation for verifying
-the `StartedUp` condition. However, a buggy workload is eliminated as the
-correspoding job fails due to exceeding the `.spec.backoffLimit` limit.
+This condition is added only when `waitForPodsReady=true` is set in the
+Kueue configuration.
 
-### The mechanism
+### Waiting for PodsReady condition
 
-When a workload with `startupRequirements=AllPodsReady` is nominated for admission,
-kueue scheduler blocks its admission (and admission of other workloads nominated
-in this cycle) until all already admitted workloads are in the `StartedUp`
-state. Kueue scheduler verifies this condition by a lookup to the cache
-of admitted workloads. When two or more such workloads are nomitated in a given
-cycle only one of them is admitted.
+When the mechanism is enabled, for each admitted workload Kueue's scheduler
+blocks admission of queued workloads until the workload has the `PodsReady`
+condition. Kueue's scheduler verifies the workload state by a lookup to the
+cache of admitted workloads.
 
-Once such a workload is admitted, kueue's scheduler blocks admission of further
-workloads until the workload has the `StartedUp` condition. Similarly
-as in the previous case, Kueue's scheduler verifies the workload state by
-a lookup to the cache of admitted workloads.
+Note that, because the mechanism is enabled for all workloads, when a workload
+gets admitted, all other admitted workloads are already in the `PodsReady`
+condition, so the corresponding job is unsuspended without further waiting.
 
-Note that, there is at most one workload with `startupRequirements=AllPodsReady`
-admitted at any given time.
+### Timeout on reaching the PodsReady condition
 
-### Timeout on reaching the StartedUp condition
-
-We introduce a timeout on reaching the `StartedUp` condition since the job
-is unsuspended. The timeout is specified as the Kueue manager component level
-as the `startedUpTimeout` API field.
-
-When the timeout is exceeded we suspend the Job corresponding to the workload
-and put into the `inadmissibleWorkloads` list.
+We introduce a timeout on reaching the `PodsReady` condition since the job
+is unsuspended (the time of unsuspending a job is marked by the Job's
+`job.status.startTime` field). When the timeout is exceeded, the Kueue's Job
+Controller suspends the Job corresponding to the workload and puts into the
+ClusterQueue's `inadmissibleWorkloads` list. The timeout is enforced only when
+`waitForPodsReady` is enabled.
 
 ### Test Plan
 
@@ -385,13 +310,10 @@ extending the production code to implement this enhancement.
 
 #### Integration tests
 
-The following scenarios will be covered with integration tests:
-- Workload created for a Job with `kueue.x-k8s.io/startup-requirements` has `.spec.startupRequirements=AllPodsReady`
-- No workload is admitted if the `.spec.startupRequirements=AllPodsReady` is not in the `StartedUp`  condition
-- workloads are admitted if the `.spec.startupRequirements=AllPodsReady` is in the `StartedUp`  condition
-- a workload with `.spec.startupRequirements=AllPodsReady` does not get admitted if there is another admitted workload which is not in the `StartedUp`  condition
-- a workload with `.spec.startupRequirements=AllPodsReady` gets admitted if all other admitted workloads are in the `StartedUp`  condition
-- a workload which exceeds the `kueue.x-k8s.io/wait-for-pods-ready-seconds` timeout is suspended and put into the `inadmissibleWorkloads` list
+The following scenarios will be covered with integration tests when `waitForPodsReady` is enabled:
+- no workloads are admitted if there is already an admitted workload which is not in the `PodsReady` condition
+- a workload gets admitted if all other admitted workloads are in the `PodsReady` condition
+- a workload which exceeds the `podsReadyTimeout` timeout is suspended and put into the `inadmissibleWorkloads` list
 
 <!--
 Describe what tests will be added to ensure proper quality of the enhancement.
@@ -435,7 +357,7 @@ Major milestones might include:
 ## Drawbacks
 
 Delaying of workload admission until all pods are scheduled may decrease
-thoughput significantly. Especially, if there is enough resource capacity to
+throughput significantly. Especially, if there is enough resource capacity to
 which could be otherwise used to start multiple jobs at the same time.
 
 ## Alternatives
@@ -448,31 +370,14 @@ information to express the idea and why it was not acceptable.
 
 #### Delay job start instead of workload admission
 
-When a workload with `startupRequirements=AllPodsReady` is nominated its admission is
-blocked (rejected) until all the already admitted workloads are in the `StartedUp`
-condition. Instead, we could admit the workload, but delay its job start
-until the condition is satisfied.
+When a workload is nominated its admission is blocked (rejected) until all the
+already admitted workloads are in the `PodsReady` condition. Instead, we could
+admit the workload, but delay its job start until the condition is satisfied.
 
 **Reasons for discarding/deferring**
 
-There is good candidate event that would re-trigger the job start as a change
-in one workload (that got the `StartedUp` condition) would need to trigger
-the job start in the admitted workload. One relatively easy solution would be
-to create a goroutine which periodically monitors if the condition is satisfied,
-but it seems an unnecessary complication as it would leak the implementation
-details of Kueue scheduling to the Kueue job controller.
-
-#### Block job start only if two workloads overlap in flavors
-
-One possible optimization would be to allow admission of multiple workloads
-with `startupRequirements=AllPodsReady` and allow their concurrent scheduling if they
-use disjoint flavors.
-
-**Reasons for discarding/deferring**
-
-Allowing multiple workloads with `startupRequirements=AllPodsReady` introduces a
-complication as it requires implementation of a queuing mechanism of admitted
-workloads. It might be done in the future.
+It would leak the implementation details of Kueue scheduling to the Kueue job
+controller.
 
 #### Pod Resource Reservation
 
@@ -483,39 +388,38 @@ the resources assigned.
 **Reasons for discarding/deferring**
 
 The mechanism is in early design phase and requires changes to the core Kubernetes,
-meaning that it is at least 6 months to be available by default in Kubernetes
+meaning that it is at least 8 months to be available by default in Kubernetes
 (two release cycles, for Alpha and Beta versions). While this might be a viable
 long-term solution we aim for a solution which can be adopted by users much
 earlier. Additionally, in this work we aim to introduce APIs which will be easy
 to adapt in the future to use a different underlying mechanism.
 
-#### Use LocalQueue to default the Workload fields
+#### More granular configuration to enable the mechanism
 
-We could use LocalQueue to set defaults for the Workload fields, with the
-`spec.startupRequirements` field as first example. The defaults would be set when
-a workload is created. This is the possible extension of the LocalQueueSpec:
+Allowing to opt-in for this feature at more granular levels of the
+Kueue API (Job level, LocalQueue, ClusterQueue, ResourceFlavor) would increase
+admission throughput.
 
-```golang
-// WorkloadDefaults defines the set of workload defaults
-type WorkloadDefaults struct {
-  ...
-  // StartupRequirements describes the default value for the workload
-  // startupRequirements field.
-  StartupRequirements *StartupRequirements
-}
+One considered option is to enable the feature per Job with a Job annotation,
+however, it would increase the surface of the Job API.
 
-// LocalQueueSpec defines the desired state of LocalQueue
-type LocalQueueSpec struct {
-  ...
-  // WorkloadDefaults describes the set of values used as defaults for
-  // workload fields
-  WorkloadDefaults *WorkloadDefaults
-}
-```
+Another possibility is to use LocalQueue for defaulting of the opt-in setting
+for workloads submitted to the local queue. Similarly as in case of Job level
+the mechanism may not be necessary in case the Job is admitted to a resource
+flavor which does not require node provisioning. In that case, one can argue the
+mechanism should neither be opted in at the Job nor LocalQueue level.
+
+Further, another option is to opt-in to wait for pods ready at the ResourceFlavor
+level to allow concurrent pod scheduling if the underlying resources don't require
+provisioning. Here, one concern is that it would make the implementation
+more involving as ResourceFlavors are assigned during workload admission, so
+admission would not be blocked, but unsuspending of a Job itself. This could in
+turn complicate the Kueue's Job Controller, which is responsible for Job
+unsuspending.
 
 **Reasons for discarding/deferring**
 
 The support for the all-or-nothing scheduling is likely to evolve in the future
-with the new API for Pod Resource Reservation. Thus, we want to keep the API
-commitments small. It might be harder to withdraw from commitments to the
-LocalQueue API, than to deprecate a Job annotation.
+allowing to enable it at more granular levels of the API, however it remains
+unclear which level would be best to satisfy user needs long-tern. Thus, we want
+to keep the API commitments small for now.
