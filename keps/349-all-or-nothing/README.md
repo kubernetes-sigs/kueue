@@ -143,7 +143,7 @@ their pods. This could happen in case of node provisioning issues to match
 the configured cluster queue quota and when the Jobs don't specify priorities
 (or specify the same priority).
 
-My use case can be supported by setting `waitForPodsReady=true` in the Kueue
+My use case can be supported by enabling `waitForPodsReady` in the Kueue
 configuration.
 
 ### Notes/Constraints/Caveats (Optional)
@@ -188,28 +188,35 @@ proposal will be implemented, this is the place to discuss them.
 ### Kueue Configuration API
 
 We extend the global Kueue Configuration API to introduce the new fields:
-`waitForPodsReady` to opt-in for the new behavior, and `podsReadyTimeout` to
-timeout if a workload takes too long to reach the `PodsReady` condition.
+`waitForPodsReady` to opt-in and configure the new behavior.
 
 ```golang
 // Configuration is the Schema for the kueueconfigurations API
 type Configuration struct {
   ...
-  // waitForPodsReady, when true, indicates that each admitted workload
-  // blocks admission of other workloads in the cluster, until it is in the
-  // `PodsReady` condition. If false, all workloads start as soon as they are
-  // admitted and do not block admission of other workloads. The PodsReady
-  // condition is only added if this setting is enabled. If unspecified,
-  // it defaults to false.
-  waitForPodsReady *bool `json:"waitForPodsReady,omitempty"`
-
-  // podsReadyTimeout describes the timeout for an admitted workload to reach
-  // the PodsReady condition since unsuspending of the corresponding Job.
-  // After exceeding this timeout the corresponding job gets suspended again
-  // and moved to the ClusterQueue's inadmissibleWorkloads list. The timeout is
-  // enforced only if waitForPodsReady=true. If unspecified, it defaults to 5min.
-  podsReadyTimeout *metav1.Time `json:"podsReadyTimeout,omitempty"`
+	// WaitForPodsReady is configuration for waitForPodsReady
+	WaitForPodsReady *WaitForPodsReady `json:"waitForPodsReady,omitempty"`
 }
+
+type WaitForPodsReady struct {
+	// Enable when true, indicates that each admitted workload
+	// blocks admission of other workloads in the cluster, until it is in the
+	// `PodsReady` condition. If false, all workloads start as soon as they are
+	// admitted and do not block admission of other workloads. The PodsReady
+	// condition is only added if this setting is enabled. If unspecified,
+	// it defaults to false.
+	Enable *bool `json:"enable,omitempty"`
+
+	// timeoutSeconds defines optional time duration in seconds, relative to the
+	// job.status.StartTime, it can take an admitted workload to reach
+	// the PodsReady condition.
+	// After exceeding the timeout the corresponding job gets suspended again
+	// and moved to the ClusterQueue's inadmissibleWorkloads list. The timeout is
+	// enforced only if waitForPodsReady.enable=true. If unspecified, it defaults to 5min.
+	// +optional
+	TimeoutSeconds *int64 `json:"timeoutSeconds,omitempty"`
+}
+
 ```
 
 ### PodsReady workload condition
@@ -230,7 +237,7 @@ verifying if the condition should be added does not require an extra API call as
 the Kueue's Job Controller already fetches the latest Job object at the
 beginning of the `Reconcile` function.
 
-This condition is added only when `waitForPodsReady=true` is set in the
+This condition is added only when `waitForPodsReady` is enabled in the
 Kueue configuration.
 
 ### Waiting for PodsReady condition
@@ -246,7 +253,7 @@ condition, so the corresponding job is unsuspended without further waiting.
 
 ### Timeout on reaching the PodsReady condition
 
-We introduce a timeout on reaching the `PodsReady` condition since the job
+We introduce a timeout, defined in the `waitForPodsReady.timeoutSeconds` field, on reaching the `PodsReady` condition since the job
 is unsuspended (the time of unsuspending a job is marked by the Job's
 `job.status.startTime` field). When the timeout is exceeded, the Kueue's Job
 Controller suspends the Job corresponding to the workload and puts into the
@@ -313,7 +320,7 @@ extending the production code to implement this enhancement.
 The following scenarios will be covered with integration tests when `waitForPodsReady` is enabled:
 - no workloads are admitted if there is already an admitted workload which is not in the `PodsReady` condition
 - a workload gets admitted if all other admitted workloads are in the `PodsReady` condition
-- a workload which exceeds the `podsReadyTimeout` timeout is suspended and put into the `inadmissibleWorkloads` list
+- a workload which exceeds the `waitForPodsReady.timeoutSeconds` timeout is suspended and put into the `inadmissibleWorkloads` list
 
 <!--
 Describe what tests will be added to ensure proper quality of the enhancement.
