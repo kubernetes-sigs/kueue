@@ -17,7 +17,6 @@ limitations under the License.
 package flavorassigner
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/go-logr/logr/testr"
@@ -77,9 +76,8 @@ func TestAssignFlavors(t *testing.T) {
 	cases := map[string]struct {
 		wlPods         []kueue.PodSet
 		clusterQueue   cache.ClusterQueue
-		wantFits       bool
-		wantAssignment *Assignment
-		wantMsg        string
+		wantRepMode    FlavorAssignmentMode
+		wantAssignment Assignment
 	}{
 		"single flavor, fits": {
 			wlPods: []kueue.PodSet{
@@ -98,13 +96,13 @@ func TestAssignFlavors(t *testing.T) {
 					corev1.ResourceMemory: {Flavors: []cache.FlavorLimits{{Name: "default", Min: 2 * utiltesting.Mi}}},
 				},
 			},
-			wantFits: true,
-			wantAssignment: &Assignment{
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU:    {Name: "default", Mode: CohortFit},
-						corev1.ResourceMemory: {Name: "default", Mode: CohortFit},
+						corev1.ResourceCPU:    {Name: "default", Mode: Fit},
+						corev1.ResourceMemory: {Name: "default", Mode: Fit},
 					},
 				}},
 			},
@@ -138,12 +136,12 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 			},
-			wantFits: true,
-			wantAssignment: &Assignment{
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "tainted", Mode: CohortFit},
+						corev1.ResourceCPU: {Name: "tainted", Mode: Fit},
 					},
 				}},
 			},
@@ -168,7 +166,18 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 			},
-			wantMsg: "insufficient quota for cpu flavor default, 1 more needed",
+			wantRepMode: ClusterQueuePreempt,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: "main",
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "default", Mode: ClusterQueuePreempt},
+					},
+					Status: &Status{
+						reasons: []string{"insufficient unused quota for cpu flavor default, 1 more needed"},
+					},
+				}},
+			},
 		},
 		"multiple independent flavors, fits": {
 			wlPods: []kueue.PodSet{
@@ -197,13 +206,54 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 			},
-			wantFits: true,
-			wantAssignment: &Assignment{
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU:    {Name: "two", Mode: CohortFit},
-						corev1.ResourceMemory: {Name: "b_one", Mode: CohortFit},
+						corev1.ResourceCPU:    {Name: "two", Mode: Fit},
+						corev1.ResourceMemory: {Name: "b_one", Mode: Fit},
+					},
+				}},
+			},
+		},
+		"multiple independent flavors, one could fit with preemption, other doesn't fit": {
+			wlPods: []kueue.PodSet{
+				{
+					Count: 1,
+					Name:  "main",
+					Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+						corev1.ResourceCPU:    "3",
+						corev1.ResourceMemory: "10Mi",
+					}),
+				},
+			},
+			clusterQueue: cache.ClusterQueue{
+				RequestableResources: map[corev1.ResourceName]*cache.Resource{
+					corev1.ResourceCPU: {
+						Flavors: []cache.FlavorLimits{
+							{Name: "one", Min: 3000},
+						},
+					},
+					corev1.ResourceMemory: {
+						Flavors: []cache.FlavorLimits{
+							{Name: "b_one", Min: utiltesting.Mi},
+						},
+					},
+				},
+				UsedResources: cache.ResourceQuantities{
+					corev1.ResourceCPU: {
+						"one": 1000,
+					},
+				},
+			},
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: "main",
+					Status: &Status{
+						reasons: []string{
+							"insufficient quota for memory flavor b_one in ClusterQueue",
+						},
 					},
 				}},
 			},
@@ -242,14 +292,94 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 			},
-			wantFits: true,
-			wantAssignment: &Assignment{
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU:    {Name: "two", Mode: CohortFit},
-						corev1.ResourceMemory: {Name: "two", Mode: CohortFit},
-						"example.com/gpu":     {Name: "b_one", Mode: CohortFit},
+						corev1.ResourceCPU:    {Name: "two", Mode: Fit},
+						corev1.ResourceMemory: {Name: "two", Mode: Fit},
+						"example.com/gpu":     {Name: "b_one", Mode: Fit},
+					},
+				}},
+			},
+		},
+		"some codepedent flavors, fits with different modes": {
+			wlPods: []kueue.PodSet{
+				{
+					Count: 1,
+					Name:  "main",
+					Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+						corev1.ResourceCPU:    "3",
+						corev1.ResourceMemory: "10Mi",
+						"example.com/gpu":     "3",
+					}),
+				},
+			},
+			clusterQueue: cache.ClusterQueue{
+				RequestableResources: map[corev1.ResourceName]*cache.Resource{
+					corev1.ResourceCPU: {
+						Flavors: []cache.FlavorLimits{
+							{Name: "one", Min: 2000},
+							{Name: "two", Min: 4000},
+						},
+					},
+					corev1.ResourceMemory: {
+						Flavors: []cache.FlavorLimits{
+							{Name: "one", Min: utiltesting.Gi},
+							{Name: "two", Min: 15 * utiltesting.Mi},
+						},
+					},
+					"example.com/gpu": {
+						Flavors: []cache.FlavorLimits{
+							{Name: "b_one", Min: 4},
+						},
+					},
+				},
+				UsedResources: cache.ResourceQuantities{
+					corev1.ResourceMemory: {
+						"two": 10 * utiltesting.Mi,
+					},
+				},
+				Cohort: &cache.Cohort{
+					RequestableResources: cache.ResourceQuantities{
+						corev1.ResourceCPU: {
+							"one": 2000,
+							"two": 4000,
+						},
+						corev1.ResourceMemory: {
+							"one": utiltesting.Gi,
+							"two": 15 * utiltesting.Mi,
+						},
+						"example.com/gpu": {
+							"b_one": 4,
+						},
+					},
+					UsedResources: cache.ResourceQuantities{
+						corev1.ResourceMemory: {
+							"two": 10 * utiltesting.Mi,
+						},
+						"example.com/gpu": {
+							"b_one": 2,
+						},
+					},
+				},
+			},
+			wantRepMode: ClusterQueuePreempt,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: "main",
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU:    {Name: "two", Mode: Fit},
+						corev1.ResourceMemory: {Name: "two", Mode: ClusterQueuePreempt},
+						"example.com/gpu":     {Name: "b_one", Mode: CohortReclaim},
+					},
+					Status: &Status{
+						reasons: []string{
+							"insufficient unused quota in cohort for cpu flavor one, 1 more needed",
+							"insufficient unused quota in cohort for memory flavor two, 5Mi more needed",
+							"insufficient unused quota in cohort for example.com/gpu flavor b_one, 1 more needed",
+						},
 					},
 				}},
 			},
@@ -281,7 +411,17 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 			},
-			wantMsg: "insufficient quota for cpu flavor one, 1 more needed; insufficient quota for memory flavor two, 5Mi more needed",
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: "main",
+					Status: &Status{
+						reasons: []string{
+							"insufficient quota for cpu flavor one in ClusterQueue",
+							"insufficient quota for memory flavor two in ClusterQueue",
+						},
+					},
+				}},
+			},
 		},
 		"multiple flavors, fits while skipping tainted flavor": {
 			wlPods: []kueue.PodSet{
@@ -303,12 +443,12 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 			},
-			wantFits: true,
-			wantAssignment: &Assignment{
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "two", Mode: CohortFit},
+						corev1.ResourceCPU: {Name: "two", Mode: Fit},
 					},
 				}},
 			},
@@ -333,12 +473,12 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 			},
-			wantFits: true,
-			wantAssignment: &Assignment{
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "two", Mode: CohortFit},
+						corev1.ResourceCPU: {Name: "two", Mode: Fit},
 					},
 				}},
 			},
@@ -389,12 +529,12 @@ func TestAssignFlavors(t *testing.T) {
 				},
 				LabelKeys: map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
 			},
-			wantFits: true,
-			wantAssignment: &Assignment{
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "two", Mode: CohortFit},
+						corev1.ResourceCPU: {Name: "two", Mode: Fit},
 					},
 				}},
 			},
@@ -450,13 +590,13 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 			},
-			wantFits: true,
-			wantAssignment: &Assignment{
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU:    {Name: "two", Mode: CohortFit},
-						corev1.ResourceMemory: {Name: "two", Mode: CohortFit},
+						corev1.ResourceCPU:    {Name: "two", Mode: Fit},
+						corev1.ResourceMemory: {Name: "two", Mode: Fit},
 					},
 				}},
 			},
@@ -515,12 +655,12 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 			},
-			wantFits: true,
-			wantAssignment: &Assignment{
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "one", Mode: CohortFit},
+						corev1.ResourceCPU: {Name: "one", Mode: Fit},
 					},
 				}},
 			},
@@ -567,8 +707,17 @@ func TestAssignFlavors(t *testing.T) {
 				},
 				LabelKeys: map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
 			},
-			wantFits: false,
-			wantMsg:  "flavor one doesn't match with node affinity",
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: "main",
+					Status: &Status{
+						reasons: []string{
+							"flavor one doesn't match with node affinity",
+							"flavor two doesn't match with node affinity",
+						},
+					},
+				}},
+			},
 		},
 		"multiple specs, fit different flavors": {
 			wlPods: []kueue.PodSet{
@@ -597,19 +746,19 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 			},
-			wantFits: true,
-			wantAssignment: &Assignment{
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{
 					{
 						Name: "driver",
 						Flavors: ResourceAssignment{
-							corev1.ResourceCPU: {Name: "two", Mode: CohortFit},
+							corev1.ResourceCPU: {Name: "two", Mode: Fit},
 						},
 					},
 					{
 						Name: "worker",
 						Flavors: ResourceAssignment{
-							corev1.ResourceCPU: {Name: "one", Mode: CohortFit},
+							corev1.ResourceCPU: {Name: "one", Mode: Fit},
 						},
 					},
 				},
@@ -666,21 +815,21 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 			},
-			wantFits: true,
-			wantAssignment: &Assignment{
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{
 					{
 						Name: "driver",
 						Flavors: ResourceAssignment{
-							corev1.ResourceCPU:    {Name: "default", Mode: CohortFit},
-							corev1.ResourceMemory: {Name: "default", Mode: CohortFit},
+							corev1.ResourceCPU:    {Name: "default", Mode: Fit},
+							corev1.ResourceMemory: {Name: "default", Mode: Fit},
 						},
 					},
 					{
 						Name: "worker",
 						Flavors: ResourceAssignment{
-							corev1.ResourceCPU:    {Name: "default", Mode: CohortFit},
-							corev1.ResourceMemory: {Name: "default", Mode: CohortFit},
+							corev1.ResourceCPU:    {Name: "default", Mode: Fit},
+							corev1.ResourceMemory: {Name: "default", Mode: Fit},
 						},
 					},
 				},
@@ -725,9 +874,16 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 			},
-			wantMsg: "insufficient quota for cpu flavor one, 1 more needed after borrowing",
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: "main",
+					Status: &Status{
+						reasons: []string{"insufficient unused quota in cohort for cpu flavor one, 1 more needed"},
+					},
+				}},
+			},
 		},
-		"past max": {
+		"past max, but can preempt in ClusterQueue": {
 			wlPods: []kueue.PodSet{
 				{
 					Count: 1,
@@ -743,7 +899,7 @@ func TestAssignFlavors(t *testing.T) {
 						Flavors: []cache.FlavorLimits{
 							{
 								Name: "one",
-								Min:  1000,
+								Min:  2000,
 								Max:  pointer.Int64(10_000),
 							},
 						},
@@ -761,7 +917,99 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 			},
-			wantMsg: "borrowing limit for cpu flavor one exceeded",
+			wantRepMode: ClusterQueuePreempt,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: "main",
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "one", Mode: ClusterQueuePreempt},
+					},
+					Status: &Status{
+						reasons: []string{"borrowing limit for cpu flavor one exceeded"},
+					},
+				}},
+			},
+		},
+		"past min, but can preempt in ClusterQueue": {
+			wlPods: []kueue.PodSet{
+				{
+					Count: 1,
+					Name:  "main",
+					Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+						corev1.ResourceCPU: "2",
+					}),
+				},
+			},
+			clusterQueue: cache.ClusterQueue{
+				RequestableResources: map[corev1.ResourceName]*cache.Resource{
+					corev1.ResourceCPU: {
+						Flavors: []cache.FlavorLimits{
+							{
+								Name: "one",
+								Min:  2000,
+							},
+						},
+					},
+				},
+				UsedResources: cache.ResourceQuantities{
+					corev1.ResourceCPU: {"one": 1_000},
+				},
+			},
+			wantRepMode: ClusterQueuePreempt,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: "main",
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "one", Mode: ClusterQueuePreempt},
+					},
+					Status: &Status{
+						reasons: []string{"insufficient unused quota for cpu flavor one, 1 more needed"},
+					},
+				}},
+			},
+		},
+		"past min, but can preempt in cohort": {
+			wlPods: []kueue.PodSet{
+				{
+					Count: 1,
+					Name:  "main",
+					Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+						corev1.ResourceCPU: "2",
+					}),
+				},
+			},
+			clusterQueue: cache.ClusterQueue{
+				RequestableResources: map[corev1.ResourceName]*cache.Resource{
+					corev1.ResourceCPU: {
+						Flavors: []cache.FlavorLimits{
+							{
+								Name: "one",
+								Min:  2000,
+							},
+						},
+					},
+				},
+				Cohort: &cache.Cohort{
+					RequestableResources: cache.ResourceQuantities{
+						corev1.ResourceCPU: {"one": 10_000},
+					},
+					UsedResources: cache.ResourceQuantities{
+						corev1.ResourceCPU: {"one": 9_000},
+					},
+				},
+			},
+			wantRepMode: CohortReclaim,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: "main",
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "one", Mode: CohortReclaim},
+					},
+					Status: &Status{
+						reasons: []string{"insufficient unused quota in cohort for cpu flavor one, 1 more needed"},
+					},
+				}},
+			},
 		},
 		"resource not listed in clusterQueue": {
 			wlPods: []kueue.PodSet{
@@ -782,25 +1030,14 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 			},
-			wantFits: false,
-			wantMsg:  "resource example.com/gpu unavailable in ClusterQueue",
-		},
-		"resource not found": {
-			wlPods: []kueue.PodSet{
-				{
-					Count: 1,
-					Name:  "main",
-					Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-						"unknown_resource": "1",
-					}),
-				},
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: "main",
+					Status: &Status{
+						reasons: []string{"resource example.com/gpu unavailable in ClusterQueue"},
+					},
+				}},
 			},
-			clusterQueue: cache.ClusterQueue{
-				RequestableResources: map[corev1.ResourceName]*cache.Resource{
-					corev1.ResourceCPU: {Flavors: []cache.FlavorLimits{{Name: "one", Min: 1000}}},
-				},
-			},
-			wantMsg: "resource unknown_resource unavailable in ClusterQueue",
 		},
 		"flavor not found": {
 			wlPods: []kueue.PodSet{
@@ -817,7 +1054,14 @@ func TestAssignFlavors(t *testing.T) {
 					corev1.ResourceCPU: {Flavors: []cache.FlavorLimits{{Name: "nonexistent-flavor", Min: 1000}}},
 				},
 			},
-			wantMsg: "flavor nonexistent-flavor not found",
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: "main",
+					Status: &Status{
+						reasons: []string{"flavor nonexistent-flavor not found"},
+					},
+				}},
+			},
 		},
 	}
 	for name, tc := range cases {
@@ -832,14 +1076,9 @@ func TestAssignFlavors(t *testing.T) {
 				},
 			})
 			tc.clusterQueue.UpdateWithFlavors(resourceFlavors)
-			assignment, status := AssignFlavors(log, wlInfo, resourceFlavors, &tc.clusterQueue)
-			if status.IsSuccess() != tc.wantFits {
-				t.Errorf("e.assignFlavors(_)=%t, want %t", status.IsSuccess(), tc.wantFits)
-			}
-			if !tc.wantFits {
-				if len(tc.wantMsg) == 0 || !strings.Contains(status.Message(), tc.wantMsg) {
-					t.Errorf("got msg:\n%s\nwant msg containing:\n%s", status.Message(), tc.wantMsg)
-				}
+			assignment := AssignFlavors(log, wlInfo, resourceFlavors, &tc.clusterQueue)
+			if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
+				t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
 			}
 			if diff := cmp.Diff(tc.wantAssignment, assignment, cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{})); diff != "" {
 				t.Errorf("Unexpected assignment (-want,+got):\n%s", diff)

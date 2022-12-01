@@ -112,23 +112,28 @@ func (s *Scheduler) schedule(ctx context.Context) {
 	usedCohorts := sets.NewString()
 	for i := range entries {
 		e := &entries[i]
-		if e.status != nominated {
+		if e.assignment.RepresentativeMode() == flavorassigner.NoFit {
 			continue
 		}
 		c := snapshot.ClusterQueues[e.ClusterQueue]
 		if e.assignment.Borrows() && c.Cohort != nil && usedCohorts.Has(c.Cohort.Name) {
 			e.status = skipped
-			e.inadmissibleMsg = "cohort used in this cycle"
+			e.inadmissibleMsg = "workloads in the cohort that don't require borrowing were prioritized and admitted first"
 			continue
-		}
-		log := log.WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue))
-		if err := s.admit(ctrl.LoggerInto(ctx, log), e); err != nil {
-			e.inadmissibleMsg = fmt.Sprintf("Failed to admit workload: %v", err)
 		}
 		// Even if there was a failure, we shouldn't admit other workloads to this
 		// cohort.
 		if c.Cohort != nil {
 			usedCohorts.Insert(c.Cohort.Name)
+		}
+		if e.assignment.RepresentativeMode() != flavorassigner.Fit {
+			// TODO(#43): Implement preemption.
+			continue
+		}
+		e.status = nominated
+		log := log.WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue))
+		if err := s.admit(ctrl.LoggerInto(ctx, log), e); err != nil {
+			e.inadmissibleMsg = fmt.Sprintf("Failed to admit workload: %v", err)
 		}
 	}
 
@@ -154,7 +159,7 @@ type entryStatus string
 const (
 	// indicates if the workload was nominated for admission.
 	nominated entryStatus = "nominated"
-	// indicates if the workload was nominated but skipped in this cycle.
+	// indicates if the workload was skipped in this cycle.
 	skipped entryStatus = "skipped"
 	// indicates if the workload was assumed to have been admitted.
 	assumed entryStatus = "assumed"
@@ -192,11 +197,9 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		} else if !cq.NamespaceSelector.Matches(labels.Set(ns.Labels)) {
 			e.inadmissibleMsg = "Workload namespace doesn't match ClusterQueue selector"
 			e.requeueReason = queue.RequeueReasonNamespaceMismatch
-		} else if assignment, status := flavorassigner.AssignFlavors(log, &e.Info, snap.ResourceFlavors, cq); !status.IsSuccess() {
-			e.inadmissibleMsg = api.TruncateEventMessage(status.Message())
 		} else {
-			e.assignment = *assignment
-			e.status = nominated
+			e.assignment = flavorassigner.AssignFlavors(log, &e.Info, snap.ResourceFlavors, cq)
+			e.inadmissibleMsg = api.TruncateEventMessage(e.assignment.Message())
 		}
 		entries = append(entries, e)
 	}

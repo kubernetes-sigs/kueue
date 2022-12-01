@@ -654,6 +654,34 @@ func TestSchedule(t *testing.T) {
 				"eng-beta": sets.NewString("eng-beta/new"),
 			},
 		},
+		"cannot borrow if needs reclaim from cohort": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("can-reclaim", "eng-alpha").
+					Queue("main").
+					Request(corev1.ResourceCPU, "100").
+					Obj(),
+				*utiltesting.MakeWorkload("needs-to-borrow", "eng-beta").
+					Queue("main").
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltesting.MakeWorkload("user-on-demand", "eng-beta").
+					Request(corev1.ResourceCPU, "50").
+					Admit(utiltesting.MakeAdmission("eng-beta").Flavor(corev1.ResourceCPU, "on-demand").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("user-spot", "eng-beta").
+					Request(corev1.ResourceCPU, "1").
+					Admit(utiltesting.MakeAdmission("eng-beta").Flavor(corev1.ResourceCPU, "spot").Obj()).
+					Obj(),
+			},
+			wantLeft: map[string]sets.String{
+				"eng-alpha": sets.NewString("eng-alpha/can-reclaim"),
+				"eng-beta":  sets.NewString("eng-beta/needs-to-borrow"),
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"eng-beta/user-spot":      *utiltesting.MakeAdmission("eng-beta").Flavor(corev1.ResourceCPU, "spot").Obj(),
+				"eng-beta/user-on-demand": *utiltesting.MakeAdmission("eng-beta").Flavor(corev1.ResourceCPU, "on-demand").Obj(),
+			},
+		},
 		"cannot borrow resource not listed in clusterQueue": {
 			workloads: []kueue.Workload{
 				{
@@ -975,15 +1003,15 @@ func TestRequeueAndUpdate(t *testing.T) {
 	w1 := utiltesting.MakeWorkload("w1", "ns1").Queue(q1.Name).Obj()
 
 	cases := []struct {
-		name          string
-		e             entry
-		wantWorkloads map[string]sets.String
-		wantStatus    kueue.WorkloadStatus
+		name             string
+		e                entry
+		wantWorkloads    map[string]sets.String
+		wantInadmissible map[string]sets.String
+		wantStatus       kueue.WorkloadStatus
 	}{
 		{
 			name: "workload didn't fit",
 			e: entry{
-				status:          "",
 				inadmissibleMsg: "didn't fit",
 			},
 			wantStatus: kueue.WorkloadStatus{
@@ -995,6 +1023,9 @@ func TestRequeueAndUpdate(t *testing.T) {
 						Message: "didn't fit",
 					},
 				},
+			},
+			wantInadmissible: map[string]sets.String{
+				"cq": sets.NewString(workload.Key(w1)),
 			},
 		},
 		{
@@ -1073,6 +1104,11 @@ func TestRequeueAndUpdate(t *testing.T) {
 			qDump := qManager.Dump()
 			if diff := cmp.Diff(tc.wantWorkloads, qDump); diff != "" {
 				t.Errorf("Unexpected elements in the cluster queue (-want,+got):\n%s", diff)
+			}
+
+			inadmissibleDump := qManager.DumpInadmissible()
+			if diff := cmp.Diff(tc.wantInadmissible, inadmissibleDump); diff != "" {
+				t.Errorf("Unexpected elements in the inadmissible stage of the cluster queue (-want,+got):\n%s", diff)
 			}
 
 			var updatedWl kueue.Workload
