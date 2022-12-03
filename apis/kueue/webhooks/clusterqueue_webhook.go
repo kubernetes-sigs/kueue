@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/api/resource"
+	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -83,9 +84,11 @@ func (w *ClusterQueueWebhook) ValidateCreate(ctx context.Context, obj runtime.Ob
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *ClusterQueueWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
 	newCQ := newObj.(*kueue.ClusterQueue)
+	oldCQ := oldObj.(*kueue.ClusterQueue)
+
 	log := ctrl.LoggerFrom(ctx).WithName("clusterqueue-webhook")
 	log.V(5).Info("Validating update", "clusterQueue", klog.KObj(newCQ))
-	allErrs := ValidateClusterQueue(newCQ)
+	allErrs := ValidateClusterQueueUpdate(newCQ, oldCQ)
 	return allErrs.ToAggregate()
 }
 
@@ -105,6 +108,17 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	allErrs = append(allErrs, validateQueueingStrategy(string(cq.Spec.QueueingStrategy), path.Child("queueingStrategy"))...)
 	allErrs = append(allErrs, validateNamespaceSelector(cq.Spec.NamespaceSelector, path.Child("namespaceSelector"))...)
 
+	return allErrs
+}
+
+// Since Kubernetes 1.25, we can use CEL validation rules to implement
+// a few common immutability patterns directly in the manifest for a CRD.
+// ref: https://kubernetes.io/blog/2022/09/29/enforce-immutability-using-cel/
+// We need to validate the spec.queueingStrategy immutable manually before Kubernetes 1.25.
+func ValidateClusterQueueUpdate(newObj, oldObj *kueue.ClusterQueue) field.ErrorList {
+	var allErrs field.ErrorList
+	allErrs = append(allErrs, ValidateClusterQueue(newObj)...)
+	allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.QueueingStrategy, oldObj.Spec.QueueingStrategy, field.NewPath("spec", "queueingStrategy"))...)
 	return allErrs
 }
 
