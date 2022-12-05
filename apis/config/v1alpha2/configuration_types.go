@@ -45,6 +45,18 @@ type Configuration struct {
 
 	// InternalCertManagement is configuration for internalCertManagement
 	InternalCertManagement *InternalCertManagement `json:"internalCertManagement,omitempty"`
+
+	// WaitForPodsReady is configuration for waitForPodsReady
+	WaitForPodsReady *WaitForPodsReady `json:"waitForPodsReady,omitempty"`
+}
+
+type WaitForPodsReady struct {
+	// Enable when true, indicates that each admitted workload
+	// blocks admission of other workloads in the cluster, until it is in the
+	// `PodsReady` condition. If false, all workloads start as soon as they are
+	// admitted and do not block admission of other workloads. The PodsReady
+	// condition is only added if this setting is enabled. It defaults to false.
+	Enable bool `json:"enable,omitempty"`
 }
 
 type InternalCertManagement struct {

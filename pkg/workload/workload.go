@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -239,6 +240,9 @@ func UpdateStatusIfChanged(ctx context.Context,
 }
 
 func InCondition(w *kueue.Workload, condition string) bool {
-	i := FindConditionIndex(&w.Status, condition)
-	return i != -1 && w.Status.Conditions[i].Status == metav1.ConditionTrue
+	return InConditionWithStatus(w, condition, metav1.ConditionTrue)
+}
+
+func InConditionWithStatus(w *kueue.Workload, condition string, status metav1.ConditionStatus) bool {
+	return apimeta.IsStatusConditionPresentAndEqual(w.Status.Conditions, condition, status)
 }

@@ -9,6 +9,8 @@ webhook:
 leaderElection:
   leaderElect: true
   resourceName: c1f6bfd2.kueue.x-k8s.io
+#waitForPodsReady:
+#  enable: true
 #manageJobsWithoutQueueName: true
 #namespace: ""
 #internalCertManagement:

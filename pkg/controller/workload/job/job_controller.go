@@ -24,6 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -50,10 +51,12 @@ type JobReconciler struct {
 	scheme                     *runtime.Scheme
 	record                     record.EventRecorder
 	manageJobsWithoutQueueName bool
+	waitForPodsReady           bool
 }
 
 type options struct {
 	manageJobsWithoutQueueName bool
+	waitForPodsReady           bool
 }
 
 // Option configures the reconciler.
@@ -64,6 +67,15 @@ type Option func(*options)
 func WithManageJobsWithoutQueueName(f bool) Option {
 	return func(o *options) {
 		o.manageJobsWithoutQueueName = f
+	}
+}
+
+// WithWaitForPodsReady indicates if the controller should add the PodsReady
+// condition to the workload when the corresponding job has all pods ready
+// or succeeded.
+func WithWaitForPodsReady(f bool) Option {
+	return func(o *options) {
+		o.waitForPodsReady = f
 	}
 }
 
@@ -85,6 +97,7 @@ func NewReconciler(
 		client:                     client,
 		record:                     record,
 		manageJobsWithoutQueueName: options.manageJobsWithoutQueueName,
+		waitForPodsReady:           options.waitForPodsReady,
 	}
 }
 
@@ -170,11 +183,11 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 	// 3. handle a finished job
 	if jobFinished {
-		added := false
-		wl.Status.Conditions, added = appendFinishedConditionIfNotExists(wl.Status.Conditions, jobFinishedCond)
-		if !added {
+		if workload.InCondition(wl, kueue.WorkloadFinished) {
 			return ctrl.Result{}, nil
 		}
+		condition := generateFinishedCondition(jobFinishedCond)
+		apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
 		err := r.client.Status().Update(ctx, wl)
 		if err != nil {
 			log.Error(err, "Updating workload status")
@@ -182,9 +195,23 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, err
 	}
 
+	// handle a job when waitForPodsReady is enabled
+	if r.waitForPodsReady {
+		log.V(5).Info("Handling a job when waitForPodsReady is enabled")
+		condition := generatePodsReadyCondition(&job)
+		// optimization to avoid sending the update request if the status didn't change
+		if !workload.InConditionWithStatus(wl, condition.Type, condition.Status) {
+			log.V(3).Info(fmt.Sprintf("Updating the PodsReady condition with status: %v", condition.Status))
+			apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
+			if err := r.client.Status().Update(ctx, wl); err != nil {
+				log.Error(err, "Updating workload status")
+			}
+		}
+	}
+
 	// 4. Handle a not finished job
 	if jobSuspended(&job) {
-		// 4.1 start the job if the workload has been admitted, and the job is still suspended
+		// start the job if the workload has been admitted, and the job is still suspended
 		if wl.Spec.Admission != nil {
 			log.V(2).Info("Job admitted, unsuspending")
 			err := r.startJob(ctx, wl, &job)
@@ -194,7 +221,7 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			return ctrl.Result{}, err
 		}
 
-		// 4.2 update queue name if changed.
+		// update queue name if changed.
 		q := queueName(&job)
 		if wl.Spec.QueueName != q {
 			log.V(2).Info("Job changed queues, updating workload")
@@ -210,7 +237,7 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	}
 
 	if wl.Spec.Admission == nil {
-		// 4.3 the job must be suspended if the workload is not yet admitted.
+		// the job must be suspended if the workload is not yet admitted.
 		log.V(2).Info("Running job is not admitted by a cluster queue, suspending")
 		err := r.stopJob(ctx, wl, &job, "Not admitted by cluster queue")
 		if err != nil {
@@ -219,9 +246,15 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, err
 	}
 
-	// 4.4 workload is admitted and job is running, nothing to do.
+	// workload is admitted and job is running, nothing to do.
 	log.V(3).Info("Job running with admitted workload, nothing to do")
 	return ctrl.Result{}, nil
+}
+
+// podsReady checks if all pods are ready or succeeded
+func podsReady(job *batchv1.Job) bool {
+	ready := pointer.Int32Deref(job.Status.Ready, 0)
+	return job.Status.Succeeded+ready >= podsCount(&job.Spec)
 }
 
 // stopJob sends updates to suspend the job, reset the startTime so we can update the scheduling directives
@@ -409,7 +442,7 @@ func ConstructWorkloadFor(ctx context.Context, client client.Client,
 			PodSets: []kueue.PodSet{
 				{
 					Spec:  *job.Spec.Template.Spec.DeepCopy(),
-					Count: *job.Spec.Parallelism,
+					Count: podsCount(&job.Spec),
 				},
 			},
 			QueueName: queueName(job),
@@ -432,29 +465,41 @@ func ConstructWorkloadFor(ctx context.Context, client client.Client,
 	return w, nil
 }
 
-func appendFinishedConditionIfNotExists(conds []metav1.Condition, jobStatus batchv1.JobConditionType) ([]metav1.Condition, bool) {
-	for i, c := range conds {
-		if c.Type == kueue.WorkloadFinished {
-			if c.Status == metav1.ConditionTrue {
-				return conds, false
-			}
-			conds = append(conds[:i], conds[i+1:]...)
-			break
-		}
+func podsCount(jobSpec *batchv1.JobSpec) int32 {
+	// parallelism is always set as it is otherwise defaulted by k8s to 1
+	podsCount := *(jobSpec.Parallelism)
+	if jobSpec.Completions != nil && *jobSpec.Completions < podsCount {
+		podsCount = *jobSpec.Completions
 	}
+	return podsCount
+}
+
+func generatePodsReadyCondition(job *batchv1.Job) metav1.Condition {
+	conditionStatus := metav1.ConditionFalse
+	message := "Not all pods are ready or succeeded"
+	if podsReady(job) && !jobSuspended(job) {
+		conditionStatus = metav1.ConditionTrue
+		message = "All pods are ready or succeeded"
+	}
+	return metav1.Condition{
+		Type:    kueue.WorkloadPodsReady,
+		Status:  conditionStatus,
+		Reason:  "PodsReady",
+		Message: message,
+	}
+}
+
+func generateFinishedCondition(jobStatus batchv1.JobConditionType) metav1.Condition {
 	message := "Job finished successfully"
 	if jobStatus == batchv1.JobFailed {
 		message = "Job failed"
 	}
-	now := metav1.Now()
-	conds = append(conds, metav1.Condition{
-		Type:               kueue.WorkloadFinished,
-		Status:             metav1.ConditionTrue,
-		LastTransitionTime: now,
-		Reason:             "JobFinished",
-		Message:            message,
-	})
-	return conds, true
+	return metav1.Condition{
+		Type:    kueue.WorkloadFinished,
+		Status:  metav1.ConditionTrue,
+		Reason:  "JobFinished",
+		Message: message,
+	}
 }
 
 // From https://github.com/kubernetes/kubernetes/blob/master/pkg/controller/job/utils.go

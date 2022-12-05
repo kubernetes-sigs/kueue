@@ -120,7 +120,7 @@ func main() {
 	// Cert won't be ready until manager starts, so start a goroutine here which
 	// will block until the cert is ready before setting up the controllers.
 	// Controllers who register after manager starts will start directly.
-	go setupControllers(mgr, cCache, queues, certsReady, cfg.ManageJobsWithoutQueueName)
+	go setupControllers(mgr, cCache, queues, certsReady, &cfg)
 
 	ctx := ctrl.SetupSignalHandler()
 	go func() {
@@ -148,7 +148,7 @@ func setupIndexes(mgr ctrl.Manager) {
 	}
 }
 
-func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, manageJobsWithoutQueueName bool) {
+func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, cfg *config.Configuration) {
 	// The controllers won't work until the webhooks are operating, and the webhook won't work until the
 	// certs are all in place.
 	setupLog.Info("Waiting for certificate generation to complete")
@@ -159,10 +159,13 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 		setupLog.Error(err, "Unable to create controller", "controller", failedCtrl)
 		os.Exit(1)
 	}
+	manageJobsWithoutQueueName := cfg.ManageJobsWithoutQueueName
+	waitForPodsReady := cfg.WaitForPodsReady != nil && cfg.WaitForPodsReady.Enable
 	if err := job.NewReconciler(mgr.GetScheme(),
 		mgr.GetClient(),
 		mgr.GetEventRecorderFor(constants.JobControllerName),
 		job.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName),
+		job.WithWaitForPodsReady(waitForPodsReady),
 	).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Job")
 		os.Exit(1)

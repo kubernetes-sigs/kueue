@@ -112,6 +112,10 @@ const (
 	// WorkloadFinished means that the workload associated to the
 	// ResourceClaim finished running (failed or succeeded).
 	WorkloadFinished = "Finished"
+
+	// WorkloadPodsReady means that at least `.spec.podSets[*].count` Pods are
+	// ready or have succeeded.
+	WorkloadPodsReady = "PodsReady"
 )
 
 // +kubebuilder:object:root=true
