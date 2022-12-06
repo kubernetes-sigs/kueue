@@ -53,6 +53,8 @@ func (w *WorkloadWebhook) Default(ctx context.Context, obj runtime.Object) error
 	log := ctrl.LoggerFrom(ctx).WithName("workload-webhook")
 	log.V(5).Info("Applying defaults", "workload", klog.KObj(wl))
 
+	// Only when we have one podSet and its name is empty,
+	// we'll set it to the default name `main`.
 	if len(wl.Spec.PodSets) == 1 {
 		podSet := &wl.Spec.PodSets[0]
 		if len(podSet.Name) == 0 {

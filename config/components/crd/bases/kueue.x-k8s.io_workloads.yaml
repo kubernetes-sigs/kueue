@@ -96,7 +96,6 @@ spec:
                       format: int32
                       type: integer
                     name:
-                      default: main
                       description: name is the PodSet name.
                       type: string
                     spec:

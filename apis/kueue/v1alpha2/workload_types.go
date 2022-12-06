@@ -77,7 +77,6 @@ type PodSetFlavors struct {
 
 type PodSet struct {
 	// name is the PodSet name.
-	// +kubebuilder:default=main
 	Name string `json:"name"`
 
 	// spec is the Pod spec.
