@@ -236,3 +236,36 @@ func TestValidateClusterQueue(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateClusterQueueUpdate(t *testing.T) {
+	testcases := []struct {
+		name            string
+		newClusterQueue *kueue.ClusterQueue
+		oldClusterQueue *kueue.ClusterQueue
+		wantErr         field.ErrorList
+	}{
+		{
+			name:            "queueingStrategy cannot be updated",
+			newClusterQueue: testingutil.MakeClusterQueue("cluster-queue").QueueingStrategy("BestEffortFIFO").Obj(),
+			oldClusterQueue: testingutil.MakeClusterQueue("cluster-queue").QueueingStrategy("StrictFIFO").Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "queueingStrategy"), nil, ""),
+			},
+		},
+		{
+			name:            "same queueingStrategy",
+			newClusterQueue: testingutil.MakeClusterQueue("cluster-queue").QueueingStrategy("BestEffortFIFO").Obj(),
+			oldClusterQueue: testingutil.MakeClusterQueue("cluster-queue").QueueingStrategy("BestEffortFIFO").Obj(),
+			wantErr:         nil,
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotErr := ValidateClusterQueueUpdate(tc.newClusterQueue, tc.oldClusterQueue)
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
+				t.Errorf("ValidateResources() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
