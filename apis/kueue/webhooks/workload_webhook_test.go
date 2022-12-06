@@ -42,7 +42,7 @@ func TestWorkloadWebhookDefault(t *testing.T) {
 		wl     kueue.Workload
 		wantWl kueue.Workload
 	}{
-		"add podSet name": {
+		"add default podSet name": {
 			wl: kueue.Workload{
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
