@@ -14,6 +14,8 @@ limitations under the License.
 package v1alpha2
 
 import (
+	"fmt"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -25,6 +27,11 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/integration/framework"
+)
+
+const (
+	nodeSelectorMaxProperties = 8
+	taintsMaxItems            = 8
 )
 
 var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
@@ -75,6 +82,41 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 			gomega.Expect(errors.IsForbidden(err)).To(gomega.BeTrue(), "error: %v", err)
 		})
 	})
+
+	ginkgo.DescribeTable("invalid number of properties", func(taintsCount int, nodeSelectorCount int, isInvalid bool) {
+		rf := testing.MakeResourceFlavor("resource-flavor")
+		for i := 0; i < taintsCount; i++ {
+			rf.Taint(corev1.Taint{
+				Key:    fmt.Sprintf("t%d", i),
+				Effect: corev1.TaintEffectNoExecute,
+			})
+		}
+
+		m := make(map[string]string)
+		for i := 0; i < nodeSelectorCount; i++ {
+			m[fmt.Sprintf("l%d", i)] = ""
+		}
+
+		resourceFlavor := rf.MultiLabels(m).Obj()
+		err := k8sClient.Create(ctx, resourceFlavor)
+		if isInvalid {
+			gomega.Expect(err).To(gomega.HaveOccurred())
+			gomega.Expect(errors.IsInvalid(err)).To(gomega.BeTrue(), "error: %v", err)
+		} else {
+			gomega.Expect(err).To(gomega.Succeed())
+			defer func() {
+				var rf kueue.ResourceFlavor
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf)).To(gomega.Succeed())
+				controllerutil.RemoveFinalizer(&rf, kueue.ResourceInUseFinalizerName)
+				gomega.Expect(k8sClient.Update(ctx, &rf)).Should(gomega.Succeed())
+				framework.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+			}()
+		}
+	},
+		ginkgo.Entry("invalid number of taint", taintsMaxItems+1, 0, true),
+		ginkgo.Entry("invalid number of nodeSelector", 0, nodeSelectorMaxProperties+1, true),
+		ginkgo.Entry("valid number of nodeSelector and taint", taintsMaxItems, nodeSelectorMaxProperties, false),
+	)
 
 	ginkgo.When("Updating a ResourceFlavor with invalid taints", func() {
 		ginkgo.It("Should fail to update", func() {

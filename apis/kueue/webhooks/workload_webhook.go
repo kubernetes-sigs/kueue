@@ -115,23 +115,10 @@ func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 	var allErrs field.ErrorList
 	specPath := field.NewPath("spec")
 	podSetsPath := specPath.Child("podSets")
-	if len(obj.Spec.PodSets) == 0 {
-		allErrs = append(allErrs, field.Required(podSetsPath, "at least one podSet is required"))
-	}
-	if len(obj.Spec.PodSets) > 8 {
-		allErrs = append(allErrs, field.TooMany(podSetsPath, len(obj.Spec.PodSets), 8))
-	}
 
 	for i, podSet := range obj.Spec.PodSets {
 		path := podSetsPath.Index(i)
 		allErrs = append(allErrs, validatePodSetName(podSet.Name, path.Child("name"))...)
-		if podSet.Count <= 0 {
-			allErrs = append(allErrs, field.Invalid(
-				path.Child("count"),
-				podSet.Count,
-				"count must be greater than 0"),
-			)
-		}
 	}
 
 	if len(obj.Spec.PriorityClassName) > 0 {

@@ -40,6 +40,7 @@ spec:
             description: "nodeSelector associated with this flavor. They are matched
               against or converted to node affinity constraints on the workload’s
               pods. \n nodeSelector can be up to 8 elements."
+            maxProperties: 8
             type: object
           taints:
             description: "taints associated with this flavor that workloads must explicitly
@@ -69,6 +70,7 @@ spec:
               - effect
               - key
               type: object
+            maxItems: 8
             type: array
             x-kubernetes-list-type: atomic
         type: object

@@ -18,7 +18,6 @@ package webhooks
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -209,26 +208,6 @@ func TestValidateWorkload(t *testing.T) {
 				},
 			}).Obj(),
 		},
-		"should have at least one podSet": {
-			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(nil).Obj(),
-			wantErr: field.ErrorList{
-				field.Required(podSetsField, ""),
-			},
-		},
-		"should have at most 8 podSets": {
-			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(func() []kueue.PodSet {
-					ps := make([]kueue.PodSet, 9)
-					for i := range ps {
-						ps[i].Name = fmt.Sprintf("ps%d", i)
-						ps[i].Count = 1
-					}
-					return ps
-				}()).Obj(),
-			wantErr: field.ErrorList{
-				field.TooMany(podSetsField, 9, 8),
-			},
-		},
 		"should have valid podSet name": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets([]kueue.PodSet{
 				{
@@ -237,27 +216,6 @@ func TestValidateWorkload(t *testing.T) {
 				},
 			}).Obj(),
 			wantErr: field.ErrorList{field.Invalid(podSetsField.Index(0).Child("name"), nil, "")},
-		},
-		"count should be greater than 0": {
-			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets([]kueue.PodSet{
-				{
-					Name:  "main",
-					Count: -1,
-					Spec: corev1.PodSpec{
-						Containers: []corev1.Container{
-							{
-								Name: "c",
-								Resources: corev1.ResourceRequirements{
-									Requests: make(corev1.ResourceList),
-								},
-							},
-						},
-					},
-				},
-			}).Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(podSetsField.Index(0).Child("count"), nil, ""),
-			},
 		},
 		"should have valid priorityClassName": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).

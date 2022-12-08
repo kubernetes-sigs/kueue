@@ -34,6 +34,7 @@ type ResourceFlavor struct {
 	//
 	// nodeSelector can be up to 8 elements.
 	// +optional
+	// +kubebuilder:validation:MaxProperties=8
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 
 	// taints associated with this flavor that workloads must explicitly
@@ -43,6 +44,7 @@ type ResourceFlavor struct {
 	// taints can be up to 8 elements.
 	//
 	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=8
 	Taints []corev1.Taint `json:"taints,omitempty"`
 }
 

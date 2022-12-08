@@ -50,6 +50,7 @@ type ClusterQueueSpec struct {
 	//
 	// +listType=map
 	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=16
 	Resources []Resource `json:"resources,omitempty"`
 
 	// cohort that this ClusterQueue belongs to. CQs that belong to the
@@ -195,7 +196,9 @@ type Resource struct {
 	//
 	// +listType=map
 	// +listMapKey=name
-	Flavors []Flavor `json:"flavors,omitempty"`
+	// +kubebuilder:validation:MaxItems=16
+	// +kubebuilder:validation:MinItems=1
+	Flavors []Flavor `json:"flavors"`
 }
 
 type Flavor struct {

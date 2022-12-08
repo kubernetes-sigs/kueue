@@ -89,15 +89,9 @@ func ValidateResourceFlavor(rf *kueue.ResourceFlavor) field.ErrorList {
 	var allErrs field.ErrorList
 
 	nodeSelectorPath := field.NewPath("nodeSelector")
-	if len(rf.NodeSelector) > 8 {
-		allErrs = append(allErrs, field.TooMany(nodeSelectorPath, len(rf.NodeSelector), 8))
-	}
 	allErrs = append(allErrs, metavalidation.ValidateLabels(rf.NodeSelector, nodeSelectorPath)...)
 
 	taintsPath := field.NewPath("taints")
-	if len(rf.Taints) > 8 {
-		allErrs = append(allErrs, field.TooMany(taintsPath, len(rf.Taints), 8))
-	}
 	allErrs = append(allErrs, validateNodeTaints(rf.Taints, taintsPath)...)
 	return allErrs
 }
