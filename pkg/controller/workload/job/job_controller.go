@@ -200,7 +200,7 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		log.V(5).Info("Handling a job when waitForPodsReady is enabled")
 		condition := generatePodsReadyCondition(&job, wl)
 		// optimization to avoid sending the update request if the status didn't change
-		if !workload.InConditionWithStatus(wl, condition.Type, condition.Status) {
+		if !apimeta.IsStatusConditionPresentAndEqual(wl.Status.Conditions, condition.Type, condition.Status) {
 			log.V(3).Info(fmt.Sprintf("Updating the PodsReady condition with status: %v", condition.Status))
 			apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
 			if err := r.client.Status().Update(ctx, wl); err != nil {
