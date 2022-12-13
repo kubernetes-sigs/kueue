@@ -198,7 +198,7 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	// handle a job when waitForPodsReady is enabled
 	if r.waitForPodsReady {
 		log.V(5).Info("Handling a job when waitForPodsReady is enabled")
-		condition := generatePodsReadyCondition(&job)
+		condition := generatePodsReadyCondition(&job, wl)
 		// optimization to avoid sending the update request if the status didn't change
 		if !workload.InConditionWithStatus(wl, condition.Type, condition.Status) {
 			log.V(3).Info(fmt.Sprintf("Updating the PodsReady condition with status: %v", condition.Status))
@@ -474,10 +474,10 @@ func podsCount(jobSpec *batchv1.JobSpec) int32 {
 	return podsCount
 }
 
-func generatePodsReadyCondition(job *batchv1.Job) metav1.Condition {
+func generatePodsReadyCondition(job *batchv1.Job, wl *kueue.Workload) metav1.Condition {
 	conditionStatus := metav1.ConditionFalse
 	message := "Not all pods are ready or succeeded"
-	if podsReady(job) && !jobSuspended(job) {
+	if podsReady(job) && wl.Spec.Admission != nil {
 		conditionStatus = metav1.ConditionTrue
 		message = "All pods are ready or succeeded"
 	}
