@@ -133,6 +133,26 @@ webhook:
 		t.Fatal(err)
 	}
 
+	waitForPodsReadyEnabledConfig := filepath.Join(tmpDir, "waitForPodsReady-enabled.yaml")
+	if err := os.WriteFile(waitForPodsReadyEnabledConfig, []byte(`
+apiVersion: config.kueue.x-k8s.io/v1alpha2
+kind: Configuration
+namespace: kueue-system
+health:
+  healthProbeBindAddress: :8081
+metrics:
+  bindAddress: :8080
+leaderElection:
+  leaderElect: true
+  resourceName: c1f6bfd2.kueue.x-k8s.io
+waitForPodsReady:
+  enable: true
+webhook:
+  port: 9443
+`), os.FileMode(0600)); err != nil {
+		t.Fatal(err)
+	}
+
 	defaultControlOptions := ctrl.Options{
 		Port:                   config.DefaultWebhookPort,
 		HealthProbeBindAddress: config.DefaultHealthProbeBindAddress,
@@ -264,6 +284,23 @@ webhook:
 				LeaderElectionID:       "",
 				LeaderElection:         false,
 			},
+		},
+		{
+			name:       "enable waitForPodsReady config",
+			configFile: waitForPodsReadyEnabledConfig,
+			wantConfiguration: config.Configuration{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: config.GroupVersion.String(),
+					Kind:       "Configuration",
+				},
+				Namespace:                  pointer.String(config.DefaultNamespace),
+				ManageJobsWithoutQueueName: false,
+				InternalCertManagement:     enableDefaultInternalCertManagement,
+				WaitForPodsReady: &config.WaitForPodsReady{
+					Enable: true,
+				},
+			},
+			wantOptions: defaultControlOptions,
 		},
 	}
 
