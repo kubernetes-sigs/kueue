@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-logr/logr"
 	nodev1 "k8s.io/api/node/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
@@ -264,7 +265,7 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func workloadStatus(w *kueue.Workload) string {
-	if workload.InCondition(w, kueue.WorkloadFinished) {
+	if apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished) {
 		return finished
 	}
 	if w.Spec.Admission != nil {

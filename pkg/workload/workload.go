@@ -237,8 +237,3 @@ func UpdateStatusIfChanged(ctx context.Context,
 	// Updating an existing condition
 	return UpdateStatus(ctx, c, wl, conditionType, conditionStatus, reason, message)
 }
-
-func InCondition(w *kueue.Workload, condition string) bool {
-	i := FindConditionIndex(&w.Status, condition)
-	return i != -1 && w.Status.Conditions[i].Status == metav1.ConditionTrue
-}

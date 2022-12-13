@@ -21,12 +21,12 @@ import (
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 	"sigs.k8s.io/kueue/pkg/util/testing"
-	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/e2e/framework"
 )
 
@@ -69,7 +69,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				if err := k8sClient.Get(ctx, lookupKey, createdWorkload); err != nil {
 					return false
 				}
-				return workload.InCondition(createdWorkload, kueue.WorkloadAdmitted)
+				return apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)
 
 			}, framework.Timeout, framework.Interval).Should(gomega.BeFalse())
 			gomega.Expect(k8sClient.Delete(ctx, sampleJob)).Should(gomega.Succeed())
@@ -114,7 +114,8 @@ var _ = ginkgo.Describe("Kueue", func() {
 				if err := k8sClient.Get(ctx, lookupKey, createdWorkload); err != nil {
 					return false
 				}
-				return workload.InCondition(createdWorkload, kueue.WorkloadAdmitted) && workload.InCondition(createdWorkload, kueue.WorkloadFinished)
+				return apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted) &&
+					apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadFinished)
 
 			}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 		})

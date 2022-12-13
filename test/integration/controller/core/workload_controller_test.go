@@ -23,6 +23,7 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -30,7 +31,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 	"sigs.k8s.io/kueue/pkg/util/testing"
-	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 )
 
@@ -151,7 +151,7 @@ var _ = ginkgo.Describe("Workload controller", func() {
 			gomega.Expect(k8sClient.Update(ctx, &updatedQueueWorkload)).To(gomega.Succeed())
 			gomega.Eventually(func() bool {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
-				return workload.InCondition(&updatedQueueWorkload, kueue.WorkloadAdmitted)
+				return apimeta.IsStatusConditionTrue(updatedQueueWorkload.Status.Conditions, kueue.WorkloadAdmitted)
 			}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
 		})
 	})
