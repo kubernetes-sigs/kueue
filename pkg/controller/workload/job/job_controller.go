@@ -183,7 +183,7 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 	// 3. handle a finished job
 	if jobFinished {
-		if workload.InCondition(wl, kueue.WorkloadFinished) {
+		if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
 			return ctrl.Result{}, nil
 		}
 		condition := generateFinishedCondition(jobFinishedCond)
