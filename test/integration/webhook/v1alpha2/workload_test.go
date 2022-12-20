@@ -14,6 +14,8 @@ limitations under the License.
 package v1alpha2
 
 import (
+	"fmt"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -28,7 +30,10 @@ import (
 
 var ns *corev1.Namespace
 
-const workloadName = "workload-test"
+const (
+	workloadName    = "workload-test"
+	podSetsMaxItems = 8
+)
 
 var _ = ginkgo.BeforeEach(func() {
 	ns = &corev1.Namespace{
@@ -75,31 +80,40 @@ var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 
 var _ = ginkgo.Describe("Workload validating webhook", func() {
 	ginkgo.Context("When creating a Workload", func() {
-		ginkgo.It("Should validate Workload", func() {
+
+		ginkgo.It("Should have valid PriorityClassName when creating", func() {
 			ginkgo.By("Creating a new Workload")
 			workload := testing.MakeWorkload(workloadName, ns.Name).
-				PodSets([]kueue.PodSet{
-					{
-						Name:  "main",
-						Count: -1,
-						Spec: corev1.PodSpec{
-							Containers: []corev1.Container{
-								{
-									Name: "c",
-									Resources: corev1.ResourceRequirements{
-										Requests: make(corev1.ResourceList),
-									},
-								},
-							},
-						},
-					},
-				}).
 				PriorityClass("invalid_class").
 				Obj()
 			err := k8sClient.Create(ctx, workload)
 			gomega.Expect(err).Should(gomega.HaveOccurred())
 			gomega.Expect(errors.IsForbidden(err)).Should(gomega.BeTrue(), "error: %v", err)
 		})
+
+		ginkgo.DescribeTable("Should have valid PodSet when creating", func(podSetsCapacity int, podSetCount int, isInvalid bool) {
+			podSets := make([]kueue.PodSet, podSetsCapacity)
+			for i := range podSets {
+				podSets[i].Name = fmt.Sprintf("ps%d", i)
+				podSets[i].Count = int32(podSetCount)
+				podSets[i].Spec = corev1.PodSpec{
+					Containers: []corev1.Container{},
+				}
+			}
+			workload := testing.MakeWorkload(workloadName, ns.Name).PodSets(podSets).Obj()
+			err := k8sClient.Create(ctx, workload)
+			if isInvalid {
+				gomega.Expect(err).Should(gomega.HaveOccurred())
+				gomega.Expect(errors.IsInvalid(err)).Should(gomega.BeTrue(), "error: %v", err)
+			} else {
+				gomega.Expect(err).Should(gomega.Succeed())
+			}
+		},
+			ginkgo.Entry("podSets count less than 1", 0, 1, true),
+			ginkgo.Entry("podSets count more than 8", podSetsMaxItems+1, 1, true),
+			ginkgo.Entry("invalid podSet.Count", 3, 0, true),
+			ginkgo.Entry("valid podSet", 3, 3, false),
+		)
 	})
 
 	ginkgo.Context("When updating a Workload", func() {

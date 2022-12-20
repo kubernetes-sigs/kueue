@@ -17,7 +17,6 @@ limitations under the License.
 package webhooks
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -58,35 +57,6 @@ func TestValidateResourceFlavor(t *testing.T) {
 			}).Obj(),
 			wantErr: field.ErrorList{
 				field.Required(field.NewPath("taints").Index(0).Child("effect"), ""),
-			},
-		},
-		{
-			name: "too many labels",
-			rf: utiltesting.MakeResourceFlavor("resource-flavor").MultiLabels(func() map[string]string {
-				m := make(map[string]string)
-				for i := 0; i < 9; i++ {
-					m[fmt.Sprintf("l%d", i)] = ""
-				}
-				return m
-			}()).Obj(),
-			wantErr: field.ErrorList{
-				field.TooMany(field.NewPath("nodeSelector"), 9, 8),
-			},
-		},
-		{
-			name: "too many taints",
-			rf: func() *kueue.ResourceFlavor {
-				rf := utiltesting.MakeResourceFlavor("resource-flavor")
-				for i := 0; i < 9; i++ {
-					rf.Taint(corev1.Taint{
-						Key:    fmt.Sprintf("t%d", i),
-						Effect: corev1.TaintEffectNoExecute,
-					})
-				}
-				return rf.Obj()
-			}(),
-			wantErr: field.ErrorList{
-				field.TooMany(field.NewPath("taints"), 9, 8),
 			},
 		},
 		{

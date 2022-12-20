@@ -30,7 +30,9 @@ type WorkloadSpec struct {
 	//
 	// +listType=map
 	// +listMapKey=name
-	PodSets []PodSet `json:"podSets,omitempty"`
+	// +kubebuilder:validation:MaxItems=8
+	// +kubebuilder:validation:MinItems=1
+	PodSets []PodSet `json:"podSets"`
 
 	// queueName is the name of the queue the Workload is associated with.
 	// queueName cannot be changed once set.
@@ -86,6 +88,7 @@ type PodSet struct {
 	Spec corev1.PodSpec `json:"spec"`
 
 	// count is the number of pods for the spec.
+	// +kubebuilder:validation:Minimum=1
 	Count int32 `json:"count"`
 }
 

@@ -94,6 +94,7 @@ spec:
                     count:
                       description: count is the number of pods for the spec.
                       format: int32
+                      minimum: 1
                       type: integer
                     name:
                       description: name is the PodSet name.
@@ -7461,6 +7462,8 @@ spec:
                   - name
                   - spec
                   type: object
+                maxItems: 8
+                minItems: 1
                 type: array
                 x-kubernetes-list-map-keys:
                 - name
@@ -7485,6 +7488,8 @@ spec:
                 description: queueName is the name of the queue the Workload is associated
                   with. queueName cannot be changed once set.
                 type: string
+            required:
+            - podSets
             type: object
           status:
             description: WorkloadStatus defines the observed state of Workload

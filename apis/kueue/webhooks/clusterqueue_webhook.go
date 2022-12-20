@@ -35,10 +35,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 )
 
-var (
-	queueingStrategies = sets.NewString(string(kueue.StrictFIFO), string(kueue.BestEffortFIFO))
-)
-
 const (
 	isNegativeErrorMsg string = `must be greater than or equal to 0`
 )
@@ -105,7 +101,6 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 		allErrs = append(allErrs, validateNameReference(cq.Spec.Cohort, path.Child("cohort"))...)
 	}
 	allErrs = append(allErrs, validateResources(cq.Spec.Resources, path.Child("resources"))...)
-	allErrs = append(allErrs, validateQueueingStrategy(string(cq.Spec.QueueingStrategy), path.Child("queueingStrategy"))...)
 	allErrs = append(allErrs, validateNamespaceSelector(cq.Spec.NamespaceSelector, path.Child("namespaceSelector"))...)
 
 	return allErrs
@@ -126,16 +121,9 @@ func validateResources(resources []kueue.Resource, path *field.Path) field.Error
 	var allErrs field.ErrorList
 	flavorsPerRes := make([]sets.String, len(resources))
 
-	if len(resources) > 16 {
-		allErrs = append(allErrs, field.TooMany(path, len(resources), 16))
-	}
-
 	for i, resource := range resources {
 		path := path.Index(i)
 		allErrs = append(allErrs, validateResourceName(resource.Name, path.Child("name"))...)
-		if len(resource.Flavors) > 16 {
-			allErrs = append(allErrs, field.TooMany(path.Child("flavors"), len(resource.Flavors), 16))
-		}
 
 		flavorsPerRes[i] = make(sets.String, len(resource.Flavors))
 		for j, flavor := range resource.Flavors {
@@ -189,15 +177,6 @@ func validateResourceQuantity(value resource.Quantity, fldPath *field.Path) fiel
 	return allErrs
 }
 
-func validateQueueingStrategy(strategy string, path *field.Path) field.ErrorList {
-	var allErrs field.ErrorList
-	if len(strategy) > 0 && !queueingStrategies.Has(strategy) {
-		allErrs = append(allErrs, field.Invalid(path, strategy, fmt.Sprintf("queueing strategy %s is not supported, available strategies are %v", strategy, queueingStrategies.List())))
-	}
-	return allErrs
-}
-
 func validateNamespaceSelector(selector *metav1.LabelSelector, path *field.Path) field.ErrorList {
-	allErrs := validation.ValidateLabelSelector(selector, path)
-	return allErrs
+	return validation.ValidateLabelSelector(selector, path)
 }
