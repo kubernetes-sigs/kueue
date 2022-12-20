@@ -14,14 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package framework
+package util
 
 import (
 	"time"
 )
 
 const (
-	Timeout            = time.Second * 10
+	Timeout            = time.Second * 30
 	ConsistentDuration = time.Second * 3
 	Interval           = time.Millisecond * 250
 )

@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 	"sigs.k8s.io/kueue/pkg/util/testing"
-	"sigs.k8s.io/kueue/test/integration/framework"
+	"sigs.k8s.io/kueue/test/util"
 )
 
 // +kubebuilder:docs-gen:collapse=Imports
@@ -67,7 +67,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
 	ginkgo.When("Reconciling clusterQueue status", func() {
@@ -90,7 +90,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, clusterQueue)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, clusterQueue)).To(gomega.Succeed())
 		})
 
 		ginkgo.It("Should update status when workloads are assigned and finish", func() {
@@ -117,13 +117,13 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 				var updatedCq kueue.ClusterQueue
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
 				return updatedCq.Status
-			}, framework.Timeout, framework.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
+			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
 				PendingWorkloads: 5,
 				UsedResources:    emptyUsedResources,
 			}))
 			// Workloads are inadmissible because ResourceFlavors don't exist in this test suite.
-			framework.ExpectPendingWorkloadsMetric(clusterQueue, 0, 5)
-			framework.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 0)
+			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 5)
+			util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 0)
 
 			ginkgo.By("Admitting workloads")
 			admissions := []*kueue.Admission{
@@ -145,13 +145,13 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
 					newWL.Spec.Admission = admissions[i]
 					return k8sClient.Update(ctx, &newWL)
-				}, framework.Timeout, framework.Interval).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			}
 			gomega.Eventually(func() kueue.ClusterQueueStatus {
 				var updatedCQ kueue.ClusterQueue
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
 				return updatedCQ.Status
-			}, framework.Timeout, framework.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
+			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
 				PendingWorkloads:  1,
 				AdmittedWorkloads: 4,
 				UsedResources: kueue.UsedResources{
@@ -174,20 +174,20 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 					},
 				},
 			}))
-			framework.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
-			framework.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 4)
+			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
+			util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 4)
 
 			ginkgo.By("Finishing workloads")
-			framework.FinishWorkloads(ctx, k8sClient, workloads...)
+			util.FinishWorkloads(ctx, k8sClient, workloads...)
 			gomega.Eventually(func() kueue.ClusterQueueStatus {
 				var updatedCq kueue.ClusterQueue
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
 				return updatedCq.Status
-			}, framework.Timeout, framework.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
+			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
 				UsedResources: emptyUsedResources,
 			}))
-			framework.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
-			framework.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 0)
+			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
+			util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 0)
 		})
 	})
 
@@ -205,11 +205,11 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 		})
 
 		ginkgo.It("Should delete clusterQueues successfully when no admitted workloads are running", func() {
-			framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
 		})
 
 		ginkgo.It("Should be stuck in termination until admitted workloads finished running", func() {
-			framework.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusActive)
+			util.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusActive)
 
 			ginkgo.By("Admit workload")
 			admission := testing.MakeAdmission(cq.Name).Obj()
@@ -217,22 +217,22 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
 			ginkgo.By("Delete clusterQueue")
-			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, cq)).To(gomega.Succeed())
-			framework.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusTerminating)
+			gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, cq)).To(gomega.Succeed())
+			util.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusTerminating)
 			var newCQ kueue.ClusterQueue
 			gomega.Eventually(func() []string {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &newCQ)).To(gomega.Succeed())
 				return newCQ.GetFinalizers()
-			}, framework.Timeout, framework.Interval).Should(gomega.Equal([]string{kueue.ResourceInUseFinalizerName}))
+			}, util.Timeout, util.Interval).Should(gomega.Equal([]string{kueue.ResourceInUseFinalizerName}))
 
 			ginkgo.By("Finish workload")
-			framework.FinishWorkloads(ctx, k8sClient, wl)
+			util.FinishWorkloads(ctx, k8sClient, wl)
 
 			ginkgo.By("The clusterQueue will be deleted")
 			gomega.Eventually(func() error {
 				var newCQ kueue.ClusterQueue
 				return k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &newCQ)
-			}, framework.Timeout, framework.Interval).Should(testing.BeNotFoundError())
+			}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
 		})
 	})
 })

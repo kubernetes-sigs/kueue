@@ -26,7 +26,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 	"sigs.k8s.io/kueue/pkg/util/testing"
-	"sigs.k8s.io/kueue/test/integration/framework"
+	"sigs.k8s.io/kueue/test/util"
 )
 
 const (
@@ -47,7 +47,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
 	ginkgo.When("Creating a ResourceFlavor", func() {
@@ -60,7 +60,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf)).Should(gomega.Succeed())
 				controllerutil.RemoveFinalizer(&rf, kueue.ResourceInUseFinalizerName)
 				gomega.Expect(k8sClient.Update(ctx, &rf)).Should(gomega.Succeed())
-				framework.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+				util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 			}()
 
 			var created kueue.ResourceFlavor
@@ -109,7 +109,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf)).To(gomega.Succeed())
 				controllerutil.RemoveFinalizer(&rf, kueue.ResourceInUseFinalizerName)
 				gomega.Expect(k8sClient.Update(ctx, &rf)).Should(gomega.Succeed())
-				framework.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+				util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 			}()
 		}
 	},
@@ -128,7 +128,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf)).To(gomega.Succeed())
 				controllerutil.RemoveFinalizer(&rf, kueue.ResourceInUseFinalizerName)
 				gomega.Expect(k8sClient.Update(ctx, &rf)).Should(gomega.Succeed())
-				framework.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+				util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 			}()
 
 			var created kueue.ResourceFlavor

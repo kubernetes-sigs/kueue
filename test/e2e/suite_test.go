@@ -19,18 +19,28 @@ package e2e
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
-	"sigs.k8s.io/kueue/test/e2e/framework"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueuetest "sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/test/util"
 	//+kubebuilder:scaffold:imports
 )
 
 var (
 	k8sClient client.Client
 	ctx       context.Context
+)
+
+const (
+	Timeout  = time.Second * 30
+	Interval = time.Millisecond * 250
 )
 
 func TestAPIs(t *testing.T) {
@@ -40,8 +50,30 @@ func TestAPIs(t *testing.T) {
 	)
 }
 
+func CreateClientUsingCluster() client.Client {
+	cfg := config.GetConfigOrDie()
+	gomega.ExpectWithOffset(1, cfg).NotTo(gomega.BeNil())
+
+	err := kueue.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	// +kubebuilder:scaffold:scheme
+	client, err := client.New(cfg, client.Options{Scheme: scheme.Scheme})
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	return client
+}
+
+func KueueReadyForTesting(client client.Client) {
+	// To verify that webhooks are ready, let's create a simple resourceflavor
+	resourceKueue := kueuetest.MakeResourceFlavor("default").Obj()
+	gomega.Eventually(func() error {
+		return client.Create(context.Background(), resourceKueue)
+	}, Timeout, Interval).Should(gomega.Succeed())
+	util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, resourceKueue, true)
+}
+
 var _ = ginkgo.BeforeSuite(func() {
-	k8sClient = framework.CreateClientUsingCluster()
+	k8sClient = CreateClientUsingCluster()
 	ctx = context.Background()
-	framework.KueueReadyForTesting(k8sClient)
+	KueueReadyForTesting(k8sClient)
 })

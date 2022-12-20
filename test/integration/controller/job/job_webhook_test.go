@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/integration/framework"
+	"sigs.k8s.io/kueue/test/util"
 )
 
 var _ = ginkgo.Describe("Job Webhook", func() {
@@ -52,7 +53,7 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 		})
 		ginkgo.AfterEach(func() {
-			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			fwk.Teardown()
 		})
 
@@ -67,7 +68,7 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 					return false
 				}
 				return createdJob.Spec.Suspend != nil && *createdJob.Spec.Suspend
-			}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 		})
 
 		ginkgo.It("Should not update unsuspend Job successfully when adding queue name", func() {
@@ -102,7 +103,7 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 		})
 		ginkgo.AfterEach(func() {
-			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			fwk.Teardown()
 		})
 
@@ -117,7 +118,7 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 					return false
 				}
 				return createdJob.Spec.Suspend != nil && *createdJob.Spec.Suspend
-			}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 		})
 
 		ginkgo.It("should not suspend a Job when no queue name specified", func() {
@@ -131,7 +132,7 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 					return false
 				}
 				return createdJob.Spec.Suspend != nil && !(*createdJob.Spec.Suspend)
-			}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 		})
 
 		ginkgo.It("should not update unsuspend Job successfully when changing queue name", func() {

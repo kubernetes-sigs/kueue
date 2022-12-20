@@ -25,7 +25,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 	"sigs.k8s.io/kueue/pkg/util/testing"
-	"sigs.k8s.io/kueue/test/integration/framework"
+	"sigs.k8s.io/kueue/test/util"
 )
 
 var ns *corev1.Namespace
@@ -45,7 +45,7 @@ var _ = ginkgo.BeforeEach(func() {
 })
 
 var _ = ginkgo.AfterEach(func() {
-	gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+	gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 })
 
 var _ = ginkgo.Describe("Workload defaulting webhook", func() {
