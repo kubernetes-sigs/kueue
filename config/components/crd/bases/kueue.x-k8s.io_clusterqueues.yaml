@@ -138,6 +138,49 @@ spec:
                     type: object
                 type: object
                 x-kubernetes-map-type: atomic
+              preemption:
+                description: "preemption describes policies to preempt Workloads from
+                  this ClusterQueue or the ClusterQueue's cohort. \n Preemption can
+                  happen in two scenarios: \n - When a Workload fits within the min
+                  quota of the ClusterQueue, but the quota is currently borrowed by
+                  other ClusterQueues in the cohort. Preempting Workloads in other
+                  ClusterQueues allows this ClusterQueue to reclaim its min quota.
+                  - When a Workload doesn't fit within the min quota of the ClusterQueue
+                  and there are active Workloads with lower priority. \n The preemption
+                  algorithm tries to find a minimal set of Workloads to preempt to
+                  accomodate the pending Workload, preempting Workloads with lower
+                  priority first."
+                properties:
+                  withinClusterQueue:
+                    default: Never
+                    description: "withinClusterQueue determines whether a pending
+                      workload that doesn't fit within the min quota for its ClusterQueue,
+                      can preempt active Workloads in the ClusterQueue. Possible values
+                      are: \n - `Never` (default): do not preempt workloads in the
+                      ClusterQueue. - `LowerPriority`: only preempt workloads in the
+                      ClusterQueue that have lower priority than the pending Workload."
+                    enum:
+                    - Never
+                    - LowerPriority
+                    type: string
+                  withinCohort:
+                    default: Never
+                    description: "reclaimWithinCohort determines whether a pending
+                      Workload can preempt Workloads from other ClusterQueues in the
+                      cohort that are using more than their min quota. Possible values
+                      are: \n - `Never` (default): do not preempt workloads in the
+                      cohort. - `LowerPriority`: if the pending workload fits within
+                      the min quota of its ClusterQueue, only preempt workloads in
+                      the cohort that have lower priority than the pending Workload.
+                      - `Any`: if the pending workload fits within the min quota of
+                      its ClusterQueue, preempt any workload in the cohort, irrespective
+                      of priority."
+                    enum:
+                    - Never
+                    - LowerPriority
+                    - Any
+                    type: string
+                type: object
               queueingStrategy:
                 default: BestEffortFIFO
                 description: "QueueingStrategy indicates the queueing strategy of

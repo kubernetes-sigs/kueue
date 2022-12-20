@@ -144,6 +144,23 @@ type ClusterQueueSpec struct {
 	// Defaults to null which is a nothing selector (no namespaces eligible).
 	// If set to an empty selector `{}`, then all namespaces are eligible.
 	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
+
+	// preemption describes policies to preempt Workloads from this ClusterQueue
+	// or the ClusterQueue's cohort.
+	//
+	// Preemption can happen in two scenarios:
+	//
+	// - When a Workload fits within the min quota of the ClusterQueue, but the
+	//   quota is currently borrowed by other ClusterQueues in the cohort.
+	//   Preempting Workloads in other ClusterQueues allows this ClusterQueue to
+	//   reclaim its min quota.
+	// - When a Workload doesn't fit within the min quota of the ClusterQueue
+	//   and there are active Workloads with lower priority.
+	//
+	// The preemption algorithm tries to find a minimal set of Workloads to
+	// preempt to accomodate the pending Workload, preempting Workloads with
+	// lower priority first.
+	Preemption *ClusterQueuePreemption `json:"preemption,omitempty"`
 }
 
 type QueueingStrategy string
@@ -270,6 +287,46 @@ type Usage struct {
 
 	// Borrowed is the used quantity past the min quota, borrowed from the cohort.
 	Borrowed *resource.Quantity `json:"borrowing,omitempty"`
+}
+
+type PreemptionPolicy string
+
+const (
+	PreemptionPolicyNever         PreemptionPolicy = "Never"
+	PreemptionPolicyAny           PreemptionPolicy = "Any"
+	PreemptionPolicyLowerPriority PreemptionPolicy = "LowerPriority"
+)
+
+// ClusterQueuePreemption contains policies to preempt Workloads from this
+// ClusterQueue or the ClusterQueue's cohort.
+type ClusterQueuePreemption struct {
+	// reclaimWithinCohort determines whether a pending Workload can preempt
+	// Workloads from other ClusterQueues in the cohort that are using more than
+	// their min quota. Possible values are:
+	//
+	// - `Never` (default): do not preempt workloads in the cohort.
+	// - `LowerPriority`: if the pending workload fits within the min
+	//   quota of its ClusterQueue, only preempt workloads in the cohort that have
+	//   lower priority than the pending Workload.
+	// - `Any`: if the pending workload fits within the min quota of its
+	//   ClusterQueue, preempt any workload in the cohort, irrespective of
+	//   priority.
+	//
+	// +kubebuilder:default=Never
+	// +kubebuilder:validation:Enum=Never;LowerPriority;Any
+	ReclaimWithinCohort PreemptionPolicy `json:"withinCohort,omitempty"`
+
+	// withinClusterQueue determines whether a pending workload that doesn't fit
+	// within the min quota for its ClusterQueue, can preempt active Workloads in
+	// the ClusterQueue. Possible values are:
+	//
+	// - `Never` (default): do not preempt workloads in the ClusterQueue.
+	// - `LowerPriority`: only preempt workloads in the ClusterQueue that have
+	//   lower priority than the pending Workload.
+	//
+	// +kubebuilder:default=Never
+	// +kubebuilder:validation:Enum=Never;LowerPriority
+	WithinClusterQueue PreemptionPolicy `json:"withinClusterQueue,omitempty"`
 }
 
 //+kubebuilder:object:root=true

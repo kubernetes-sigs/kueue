@@ -55,6 +55,12 @@ var _ = ginkgo.BeforeSuite(func() {
 		CRDPath:     filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases"),
 		WebhookPath: filepath.Join("..", "..", "..", "..", "config", "components", "webhook"),
 		ManagerSetup: func(mgr manager.Manager, ctx context.Context) {
+			err := queue.SetupIndexes(mgr.GetFieldIndexer())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			err = cache.SetupIndexes(mgr.GetFieldIndexer())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 			failedWebhook, err := webhooks.Setup(mgr)
 			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 

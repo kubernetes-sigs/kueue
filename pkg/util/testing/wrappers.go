@@ -349,6 +349,12 @@ func (c *ClusterQueueWrapper) NamespaceSelector(s *metav1.LabelSelector) *Cluste
 	return c
 }
 
+// Preemption sets the preeemption policies.
+func (c *ClusterQueueWrapper) Preemption(p kueue.ClusterQueuePreemption) *ClusterQueueWrapper {
+	c.Spec.Preemption = &p
+	return c
+}
+
 // ResourceWrapper wraps a resource.
 type ResourceWrapper struct{ kueue.Resource }
 

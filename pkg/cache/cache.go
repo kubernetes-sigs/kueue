@@ -131,6 +131,7 @@ type ClusterQueue struct {
 	Workloads            map[string]*workload.Info
 	WorkloadsNotReady    sets.Set[string]
 	NamespaceSelector    labels.Selector
+	Preemption           kueue.ClusterQueuePreemption
 	// The set of key labels from all flavors of a resource.
 	// Those keys define the affinity terms of a workload
 	// that can be matched against the flavors.
@@ -250,6 +251,11 @@ func (c *ClusterQueue) Active() bool {
 	return c.Status == active
 }
 
+var defaultPreemption = kueue.ClusterQueuePreemption{
+	ReclaimWithinCohort: kueue.PreemptionPolicyNever,
+	WithinClusterQueue:  kueue.PreemptionPolicyNever,
+}
+
 func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[string]*kueue.ResourceFlavor) error {
 	c.RequestableResources = resourcesByName(in.Spec.Resources)
 	c.UpdateCodependentResources()
@@ -274,6 +280,13 @@ func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[string
 	}
 	c.UsedResources = usedResources
 	c.UpdateWithFlavors(resourceFlavors)
+
+	if in.Spec.Preemption != nil {
+		c.Preemption = *in.Spec.Preemption
+	} else {
+		c.Preemption = defaultPreemption
+	}
+
 	return nil
 }
 
