@@ -96,14 +96,14 @@ for item in "${EXPERIMENTS[@]}"; do
         echo -ne "$(jq '.dataItems[] | select(.labels.Metric=="create_to_start").data.Perc90' "$experiment_dir"/JobLifecycleLatency*.json),"
         echo -ne "$(jq '.dataItems[] | select(.labels.Metric=="start_to_complete").data.Perc50' "$experiment_dir"/JobLifecycleLatency*.json),"
         echo -ne "$(jq '.dataItems[] | select(.labels.Metric=="start_to_complete").data.Perc90' "$experiment_dir"/JobLifecycleLatency*.json),"
-        echo -ne "$(jq '.dataItems[0].data.max_job_throughput' "$experiment_dir"/GenericPrometheusQuery*.json),"
-        echo -ne "$(jq '.dataItems[0].data.total_jobs_scheduled' "$experiment_dir"/GenericPrometheusQuery*.json),"
-        echo -ne "$(jq '.dataItems[0].data.total_pods_scheduled' "$experiment_dir"/GenericPrometheusQuery*.json),"
+        echo -ne "$(jq '.dataItems[0].data.max_job_throughput' "$experiment_dir"/*job_api_performance*.json),"
+        echo -ne "$(jq '.dataItems[0].data.total_jobs_scheduled' "$experiment_dir"/*job_api_performance*.json),"
+        echo -ne "$(jq '.dataItems[0].data.total_pods_scheduled' "$experiment_dir"/*job_api_performance*.json),"
         echo -ne "$(jq '.dataItems[0].data.job_performance' "$experiment_dir"/Timer*.json)",
-        echo -ne "$(jq '.dataItems[0].data.avg_pod_waiting_time' "$experiment_dir"/GenericPrometheusQuery*.json),"
-        echo -ne "$(jq '.dataItems[0].data.perc_90_pod_waiting_time' "$experiment_dir"/GenericPrometheusQuery*.json),"
-        echo -ne "$(jq '.dataItems[0].data.avg_pod_running_time' "$experiment_dir"/GenericPrometheusQuery*.json),"
-        jq '.dataItems[0].data.perc_90_pod_completion_time' "$experiment_dir"/GenericPrometheusQuery*.json
+        echo -ne "$(jq '.dataItems[0].data.avg_pod_waiting_time' "$experiment_dir"/*job_api_performance*.json),"
+        echo -ne "$(jq '.dataItems[0].data.perc_90_pod_waiting_time' "$experiment_dir"/*job_api_performance*.json),"
+        echo -ne "$(jq '.dataItems[0].data.avg_pod_running_time' "$experiment_dir"/*job_api_performance*.json),"
+        jq '.dataItems[0].data.perc_90_pod_completion_time' "$experiment_dir"/*job_api_performance*.json
     } >>"$report_dir_name/summary.csv"
     if [[ "$USE_KUEUE" == true ]]; then
         kubectl delete -f prerequisites/cluster-queue.yaml
