@@ -27,7 +27,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 	"sigs.k8s.io/kueue/pkg/util/testing"
-	"sigs.k8s.io/kueue/test/e2e/framework"
+	"sigs.k8s.io/kueue/test/util"
 )
 
 // +kubebuilder:docs-gen:collapse=Imports
@@ -42,17 +42,13 @@ var _ = ginkgo.Describe("Kueue", func() {
 			},
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-		sampleJob = testing.MakeJob("test-job", ns.Name).Request("cpu", "1").Request("memory", "20Mi").
+		sampleJob = testing.MakeJob("test-job", ns.Name).Queue("main").Request("cpu", "1").Request("memory", "20Mi").
 			Image("sleep", "gcr.io/k8s-staging-perf-tests/sleep:v0.0.3", []string{"5s"}).Obj()
-		annotations := map[string]string{
-			"kueue.x-k8s.io/queue-name": "main",
-		}
-		sampleJob.ObjectMeta.Annotations = annotations
 
 		gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(k8sClient.Delete(ctx, ns)).To(gomega.Succeed())
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 	ginkgo.When("Creating a Job without a matching LocalQueue", func() {
 		ginkgo.It("Should stay in suspended", func() {
@@ -63,7 +59,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 					return false
 				}
 				return *createdJob.Spec.Suspend
-			}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			createdWorkload := &kueue.Workload{}
 			gomega.Eventually(func() bool {
 				if err := k8sClient.Get(ctx, lookupKey, createdWorkload); err != nil {
@@ -71,7 +67,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				}
 				return apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)
 
-			}, framework.Timeout, framework.Interval).Should(gomega.BeFalse())
+			}, util.Timeout, util.Interval).Should(gomega.BeFalse())
 			gomega.Expect(k8sClient.Delete(ctx, sampleJob)).Should(gomega.Succeed())
 		})
 	})
@@ -95,9 +91,9 @@ var _ = ginkgo.Describe("Kueue", func() {
 			gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
 		})
 		ginkgo.AfterEach(func() {
-			gomega.Expect(k8sClient.Delete(ctx, localQueue)).Should(gomega.Succeed())
-			gomega.Expect(k8sClient.Delete(ctx, clusterQueue)).Should(gomega.Succeed())
-			gomega.Expect(k8sClient.Delete(ctx, resourceKueue)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteQueue(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, resourceKueue, true)
 		})
 		ginkgo.It("Should unsuspend a job", func() {
 			lookupKey := types.NamespacedName{Name: "test-job", Namespace: ns.Name}
@@ -109,7 +105,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 					return false
 				}
 				return !*createdJob.Spec.Suspend && createdJob.Status.Succeeded > 0
-			}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			gomega.Eventually(func() bool {
 				if err := k8sClient.Get(ctx, lookupKey, createdWorkload); err != nil {
 					return false
@@ -117,7 +113,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				return apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted) &&
 					apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadFinished)
 
-			}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 		})
 	})
 })

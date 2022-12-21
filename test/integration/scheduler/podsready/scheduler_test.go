@@ -26,7 +26,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 	"sigs.k8s.io/kueue/pkg/util/testing"
-	"sigs.k8s.io/kueue/test/integration/framework"
+	"sigs.k8s.io/kueue/test/util"
 )
 
 // +kubebuilder:docs-gen:collapse=Imports
@@ -80,9 +80,9 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, prodClusterQ, true)
-			framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, devClusterQ, true)
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, prodClusterQ, true)
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, devClusterQ, true)
 		})
 
 		ginkgo.It("Should unblock admission of new workloads once the admitted workload is in PodsReady condition", func() {
@@ -91,8 +91,8 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			gomega.Expect(k8sClient.Create(ctx, prodWl)).Should(gomega.Succeed())
 			devWl := testing.MakeWorkload("dev-wl", ns.Name).Queue(devQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
 			gomega.Expect(k8sClient.Create(ctx, devWl)).Should(gomega.Succeed())
-			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, prodWl)
-			framework.ExpectWorkloadsToBeWaiting(ctx, k8sClient, devWl)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, prodWl)
+			util.ExpectWorkloadsToBeWaiting(ctx, k8sClient, devWl)
 
 			ginkgo.By("update the first workload to be in the PodsReady condition and verify the second workload is admitted")
 			prodKey := types.NamespacedName{Name: prodWl.Name, Namespace: prodWl.Namespace}
@@ -103,7 +103,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 				Reason: "PodsReady",
 			})
 			gomega.Expect(k8sClient.Status().Update(ctx, prodWl)).Should(gomega.Succeed())
-			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, devClusterQ.Name, devWl)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, devClusterQ.Name, devWl)
 		})
 
 		ginkgo.It("Should unblock admission of new workloads once the admitted workload is deleted", func() {
@@ -112,12 +112,12 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			gomega.Expect(k8sClient.Create(ctx, prodWl)).Should(gomega.Succeed())
 			devWl := testing.MakeWorkload("dev-wl", ns.Name).Queue(devQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
 			gomega.Expect(k8sClient.Create(ctx, devWl)).Should(gomega.Succeed())
-			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, prodWl)
-			framework.ExpectWorkloadsToBeWaiting(ctx, k8sClient, devWl)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, prodWl)
+			util.ExpectWorkloadsToBeWaiting(ctx, k8sClient, devWl)
 
 			ginkgo.By("delete the first workload and verify the second workload is admitted")
 			gomega.Expect(k8sClient.Delete(ctx, prodWl)).Should(gomega.Succeed())
-			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, devClusterQ.Name, devWl)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, devClusterQ.Name, devWl)
 		})
 
 		ginkgo.It("Should block admission of one new workload if two are considered in the same scheduling cycle", func() {
@@ -126,7 +126,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			gomega.Expect(k8sClient.Create(ctx, prodWl)).Should(gomega.Succeed())
 			devWl := testing.MakeWorkload("dev-wl", ns.Name).Queue(devQueue.Name).Request(corev1.ResourceCPU, "11").Obj()
 			gomega.Expect(k8sClient.Create(ctx, devWl)).Should(gomega.Succeed())
-			framework.ExpectWorkloadsToBePending(ctx, k8sClient, prodWl, devWl)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, prodWl, devWl)
 
 			ginkgo.By("creating the cluster queue")
 			// Delay cluster queue creation to make sure workloads are in the same
@@ -140,12 +140,12 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, testCQ)).Should(gomega.Succeed())
 			defer func() {
-				gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, testCQ)).Should(gomega.Succeed())
+				gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, testCQ)).Should(gomega.Succeed())
 			}()
 
 			ginkgo.By("verifying that the first created workload is admitted and the second workload is waiting as the first one has PodsReady=False")
-			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, prodWl)
-			framework.ExpectWorkloadsToBeWaiting(ctx, k8sClient, devWl)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, prodWl)
+			util.ExpectWorkloadsToBeWaiting(ctx, k8sClient, devWl)
 		})
 	})
 

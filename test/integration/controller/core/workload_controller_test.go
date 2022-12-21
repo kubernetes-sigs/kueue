@@ -31,7 +31,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 	"sigs.k8s.io/kueue/pkg/util/testing"
-	"sigs.k8s.io/kueue/test/integration/framework"
+	"sigs.k8s.io/kueue/test/util"
 )
 
 // +kubebuilder:docs-gen:collapse=Imports
@@ -69,7 +69,7 @@ var _ = ginkgo.Describe("Workload controller", func() {
 
 	ginkgo.When("the queue is not defined in the workload", func() {
 		ginkgo.AfterEach(func() {
-			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		})
 		ginkgo.It("Should update status when workloads are created", func() {
 			wl = testing.MakeWorkload("one", ns.Name).Request(corev1.ResourceCPU, "1").Obj()
@@ -78,14 +78,14 @@ var _ = ginkgo.Describe("Workload controller", func() {
 			gomega.Eventually(func() int {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
 				return len(updatedQueueWorkload.Status.Conditions)
-			}, framework.Timeout, framework.Interval).Should(gomega.BeComparableTo(1))
+			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(1))
 			gomega.Expect(updatedQueueWorkload.Status.Conditions[0].Message).To(gomega.BeComparableTo(message))
 		})
 	})
 
 	ginkgo.When("the queue doesn't exist", func() {
 		ginkgo.AfterEach(func() {
-			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		})
 		ginkgo.It("Should update status when workloads are created", func() {
 			wl = testing.MakeWorkload("two", ns.Name).Queue("non-created-queue").Request(corev1.ResourceCPU, "1").Obj()
@@ -94,7 +94,7 @@ var _ = ginkgo.Describe("Workload controller", func() {
 			gomega.Eventually(func() int {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
 				return len(updatedQueueWorkload.Status.Conditions)
-			}, framework.Timeout, framework.Interval).Should(gomega.BeComparableTo(1))
+			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(1))
 			gomega.Expect(updatedQueueWorkload.Status.Conditions[0].Message).To(gomega.BeComparableTo(message))
 		})
 	})
@@ -105,7 +105,7 @@ var _ = ginkgo.Describe("Workload controller", func() {
 			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
 		})
 		ginkgo.AfterEach(func() {
-			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		})
 		ginkgo.It("Should update status when workloads are created", func() {
 			wl = testing.MakeWorkload("three", ns.Name).Queue(localQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
@@ -114,7 +114,7 @@ var _ = ginkgo.Describe("Workload controller", func() {
 			gomega.Eventually(func() []metav1.Condition {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
 				return updatedQueueWorkload.Status.Conditions
-			}, framework.Timeout, framework.Interval).ShouldNot(gomega.BeNil())
+			}, util.Timeout, util.Interval).ShouldNot(gomega.BeNil())
 			gomega.Expect(updatedQueueWorkload.Status.Conditions[0].Message).To(gomega.BeComparableTo(message))
 		})
 	})
@@ -134,9 +134,9 @@ var _ = ginkgo.Describe("Workload controller", func() {
 			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
 		})
 		ginkgo.AfterEach(func() {
-			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			gomega.Expect(framework.DeleteResourceFlavor(ctx, k8sClient, flavor)).To(gomega.Succeed())
-			gomega.Expect(framework.DeleteClusterQueue(ctx, k8sClient, clusterQueue)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteResourceFlavor(ctx, k8sClient, flavor)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, clusterQueue)).To(gomega.Succeed())
 		})
 
 		ginkgo.It("Should update the workload's condition", func() {
@@ -152,7 +152,7 @@ var _ = ginkgo.Describe("Workload controller", func() {
 			gomega.Eventually(func() bool {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
 				return apimeta.IsStatusConditionTrue(updatedQueueWorkload.Status.Conditions, kueue.WorkloadAdmitted)
-			}, framework.Timeout, framework.Interval).Should(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 		})
 	})
 
@@ -169,9 +169,9 @@ var _ = ginkgo.Describe("Workload controller", func() {
 			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
 		})
 		ginkgo.AfterEach(func() {
-			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			gomega.Expect(framework.DeleteRuntimeClass(ctx, k8sClient, runtimeClass)).To(gomega.Succeed())
-			framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteRuntimeClass(ctx, k8sClient, runtimeClass)).To(gomega.Succeed())
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		})
 
 		ginkgo.It("Should accumulate RuntimeClass's overhead", func() {
@@ -189,7 +189,7 @@ var _ = ginkgo.Describe("Workload controller", func() {
 			gomega.Eventually(func() kueue.ClusterQueueStatus {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
 				return updatedCQ.Status
-			}, framework.Timeout, framework.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
+			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
 				PendingWorkloads:  0,
 				AdmittedWorkloads: 1,
 				UsedResources: kueue.UsedResources{
@@ -215,8 +215,8 @@ var _ = ginkgo.Describe("Workload controller", func() {
 			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
 		})
 		ginkgo.AfterEach(func() {
-			gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		})
 
 		ginkgo.It("Should not accumulate RuntimeClass's overhead", func() {
@@ -234,7 +234,7 @@ var _ = ginkgo.Describe("Workload controller", func() {
 			gomega.Eventually(func() kueue.ClusterQueueStatus {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
 				return updatedCQ.Status
-			}, framework.Timeout, framework.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
+			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
 				PendingWorkloads:  0,
 				AdmittedWorkloads: 1,
 				UsedResources: kueue.UsedResources{

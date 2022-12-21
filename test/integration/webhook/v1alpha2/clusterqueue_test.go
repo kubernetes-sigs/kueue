@@ -26,7 +26,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 	"sigs.k8s.io/kueue/pkg/util/testing"
-	"sigs.k8s.io/kueue/test/integration/framework"
+	"sigs.k8s.io/kueue/test/util"
 )
 
 const (
@@ -53,7 +53,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(framework.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
 	ginkgo.When("Creating a ClusterQueue", func() {
@@ -66,7 +66,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &deleteCQ)).Should(gomega.Succeed())
 				controllerutil.RemoveFinalizer(&deleteCQ, kueue.ResourceInUseFinalizerName)
 				gomega.Expect(k8sClient.Update(ctx, &deleteCQ)).Should(gomega.Succeed())
-				framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, &deleteCQ, true)
+				util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, &deleteCQ, true)
 			}()
 
 			var created kueue.ClusterQueue
@@ -84,7 +84,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &deleteCQ)).Should(gomega.Succeed())
 				controllerutil.RemoveFinalizer(&deleteCQ, kueue.ResourceInUseFinalizerName)
 				gomega.Expect(k8sClient.Update(ctx, &deleteCQ)).Should(gomega.Succeed())
-				framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, &deleteCQ, true)
+				util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, &deleteCQ, true)
 			}()
 
 			var updateCQ kueue.ClusterQueue
@@ -109,7 +109,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &deleteCQ)).Should(gomega.Succeed())
 				controllerutil.RemoveFinalizer(&deleteCQ, kueue.ResourceInUseFinalizerName)
 				gomega.Expect(k8sClient.Update(ctx, &deleteCQ)).Should(gomega.Succeed())
-				framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, &deleteCQ, true)
+				util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, &deleteCQ, true)
 			}()
 
 			var updateCQ kueue.ClusterQueue
@@ -137,7 +137,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &deleteCQ)).Should(gomega.Succeed())
 					controllerutil.RemoveFinalizer(&deleteCQ, kueue.ResourceInUseFinalizerName)
 					gomega.Expect(k8sClient.Update(ctx, &deleteCQ)).Should(gomega.Succeed())
-					framework.ExpectClusterQueueToBeDeleted(ctx, k8sClient, &deleteCQ, true)
+					util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, &deleteCQ, true)
 				}()
 			}
 		},
