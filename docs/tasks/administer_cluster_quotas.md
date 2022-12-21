@@ -200,7 +200,7 @@ spec:
 The flavor names in the fields `.spec.resources[*].flavors[*].resourceFlavor`
 should match the names of the ResourceFlavors created earlier.
 
-Note that `memory` is referencing the `default` flavor created in the [single flavor setup](#single-clusterqueue-and-single-resourceflavor-setup)
+Note that `memory` is referencing the `default` flavor created in the [single flavor setup.](#single-clusterqueue-and-single-resourceflavor-setup)
 This means that you don't want to distinguish if the memory is given from `x86`
 or `arm` nodes.
 
