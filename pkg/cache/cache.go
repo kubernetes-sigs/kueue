@@ -23,9 +23,11 @@ import (
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
@@ -45,25 +47,52 @@ var (
 	errWorkloadNotAdmitted = errors.New("workload not admitted by a ClusterQueue")
 )
 
+type options struct {
+	podsReadyTracking bool
+}
+
+// Option configures the reconciler.
+type Option func(*options)
+
+// WithPodsReadyTracking indicates the cache controller tracks the PodsReady
+// condition for admitted workloads, and allows to block admission of new
+// workloads until all admitted workloads are in the PodsReady condition.
+func WithPodsReadyTracking(f bool) Option {
+	return func(o *options) {
+		o.podsReadyTracking = f
+	}
+}
+
+var defaultOptions = options{}
+
 // Cache keeps track of the Workloads that got admitted through ClusterQueues.
 type Cache struct {
 	sync.RWMutex
+	podsReadyCond sync.Cond
 
-	client           client.Client
-	clusterQueues    map[string]*ClusterQueue
-	cohorts          map[string]*Cohort
-	assumedWorkloads map[string]string
-	resourceFlavors  map[string]*kueue.ResourceFlavor
+	client            client.Client
+	clusterQueues     map[string]*ClusterQueue
+	cohorts           map[string]*Cohort
+	assumedWorkloads  map[string]string
+	resourceFlavors   map[string]*kueue.ResourceFlavor
+	podsReadyTracking bool
 }
 
-func New(client client.Client) *Cache {
-	return &Cache{
-		client:           client,
-		clusterQueues:    make(map[string]*ClusterQueue),
-		cohorts:          make(map[string]*Cohort),
-		assumedWorkloads: make(map[string]string),
-		resourceFlavors:  make(map[string]*kueue.ResourceFlavor),
+func New(client client.Client, opts ...Option) *Cache {
+	options := defaultOptions
+	for _, opt := range opts {
+		opt(&options)
 	}
+	c := &Cache{
+		client:            client,
+		clusterQueues:     make(map[string]*ClusterQueue),
+		cohorts:           make(map[string]*Cohort),
+		assumedWorkloads:  make(map[string]string),
+		resourceFlavors:   make(map[string]*kueue.ResourceFlavor),
+		podsReadyTracking: options.podsReadyTracking,
+	}
+	c.podsReadyCond.L = &c.RWMutex
+	return c
 }
 
 type ResourceQuantities map[corev1.ResourceName]map[string]int64
@@ -99,6 +128,7 @@ type ClusterQueue struct {
 	RequestableResources map[corev1.ResourceName]*Resource
 	UsedResources        ResourceQuantities
 	Workloads            map[string]*workload.Info
+	WorkloadsNotReady    sets.String
 	NamespaceSelector    labels.Selector
 	// The set of key labels from all flavors of a resource.
 	// Those keys define the affinity terms of a workload
@@ -109,6 +139,7 @@ type ClusterQueue struct {
 	// The following fields are not populated in a snapshot.
 
 	admittedWorkloadsPerQueue map[string]int
+	podsReadyTracking         bool
 }
 
 type Resource struct {
@@ -139,13 +170,68 @@ func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*ClusterQueue, error) {
 	cqImpl := &ClusterQueue{
 		Name:                      cq.Name,
 		Workloads:                 make(map[string]*workload.Info),
+		WorkloadsNotReady:         sets.NewString(),
 		admittedWorkloadsPerQueue: make(map[string]int),
+		podsReadyTracking:         c.podsReadyTracking,
 	}
 	if err := cqImpl.update(cq, c.resourceFlavors); err != nil {
 		return nil, err
 	}
 
 	return cqImpl, nil
+}
+
+// WaitForPodsReady waits for all admitted workloads to be in the PodsReady condition
+// if podsReadyTracking is enabled. Otherwise returns immediately.
+func (c *Cache) WaitForPodsReady(ctx context.Context) {
+	if !c.podsReadyTracking {
+		return
+	}
+
+	c.Lock()
+	defer c.Unlock()
+
+	log := ctrl.LoggerFrom(ctx)
+	for {
+		if c.podsReadyForAllAdmittedWorkloads(ctx) {
+			return
+		}
+		log.V(3).Info("Blocking admission as not all workloads are in the PodsReady condition")
+		select {
+		case <-ctx.Done():
+			log.V(5).Info("Context cancelled when waiting for pods to be ready; returning")
+			return
+		default:
+			// wait releases the lock and acquires again when awaken
+			c.podsReadyCond.Wait()
+		}
+	}
+}
+
+func (c *Cache) PodsReadyForAllAdmittedWorkloads(ctx context.Context) bool {
+	c.Lock()
+	defer c.Unlock()
+	return c.podsReadyForAllAdmittedWorkloads(ctx)
+}
+
+func (c *Cache) podsReadyForAllAdmittedWorkloads(ctx context.Context) bool {
+	log := ctrl.LoggerFrom(ctx)
+	for _, cq := range c.clusterQueues {
+		if len(cq.WorkloadsNotReady) > 0 {
+			log.V(3).Info("There is a ClusterQueue with not ready workloads", "clusterQueue", cq.Name)
+			return false
+		}
+	}
+	log.V(5).Info("All workloads are in the PodsReady condition")
+	return true
+}
+
+// CleanUpOnContext tracks the context. When closed, it wakes routines waiting
+// on the podsReady condition. It should be called before doing any calls to
+// cache.WaitForPodsReady.
+func (c *Cache) CleanUpOnContext(ctx context.Context) {
+	<-ctx.Done()
+	c.podsReadyCond.Broadcast()
 }
 
 func (c *Cache) AdmittedWorkloadsInLocalQueue(localQueue *kueue.LocalQueue) int32 {
@@ -263,6 +349,9 @@ func (c *ClusterQueue) addWorkload(w *kueue.Workload) error {
 	wi := workload.NewInfo(w)
 	c.Workloads[k] = wi
 	c.updateWorkloadUsage(wi, 1)
+	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
+		c.WorkloadsNotReady.Insert(k)
+	}
 	reportAdmittedActiveWorkloads(wi.ClusterQueue, len(c.Workloads))
 	return nil
 }
@@ -274,6 +363,9 @@ func (c *ClusterQueue) deleteWorkload(w *kueue.Workload) {
 		return
 	}
 	c.updateWorkloadUsage(wi, -1)
+	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
+		c.WorkloadsNotReady.Delete(k)
+	}
 	delete(c.Workloads, k)
 	reportAdmittedActiveWorkloads(wi.ClusterQueue, len(c.Workloads))
 }
@@ -540,6 +632,9 @@ func (c *Cache) addOrUpdateWorkload(w *kueue.Workload) bool {
 		clusterQueue.deleteWorkload(w)
 	}
 
+	if c.podsReadyTracking {
+		c.podsReadyCond.Broadcast()
+	}
 	return clusterQueue.addWorkload(w) == nil
 }
 
@@ -562,6 +657,9 @@ func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.Workload) error {
 	if !ok {
 		return fmt.Errorf("new ClusterQueue doesn't exist")
 	}
+	if c.podsReadyTracking {
+		c.podsReadyCond.Broadcast()
+	}
 	return cq.addWorkload(newWl)
 }
 
@@ -580,6 +678,9 @@ func (c *Cache) DeleteWorkload(w *kueue.Workload) error {
 	c.cleanupAssumedState(w)
 
 	cq.deleteWorkload(w)
+	if c.podsReadyTracking {
+		c.podsReadyCond.Broadcast()
+	}
 	return nil
 }
 
@@ -627,6 +728,9 @@ func (c *Cache) ForgetWorkload(w *kueue.Workload) error {
 		return errCqNotFound
 	}
 	cq.deleteWorkload(w)
+	if c.podsReadyTracking {
+		c.podsReadyCond.Broadcast()
+	}
 	return nil
 }
 
