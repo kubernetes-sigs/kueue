@@ -776,16 +776,18 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		ginkgo.It("Should start workloads that are under min quota before borrowing", func() {
 			prodCQ = testing.MakeClusterQueue("prod-cq").
 				Cohort("all").
+				QueueingStrategy(kueue.StrictFIFO).
 				Resource(testing.MakeResource(corev1.ResourceCPU).
-					Flavor(testing.MakeFlavor(onDemandFlavor.Name, "1").Max("2").Obj()).
+					Flavor(testing.MakeFlavor(onDemandFlavor.Name, "2").Obj()).
 					Obj()).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, prodCQ)).To(gomega.Succeed())
 
 			devCQ = testing.MakeClusterQueue("dev-cq").
 				Cohort("all").
+				QueueingStrategy(kueue.StrictFIFO).
 				Resource(testing.MakeResource(corev1.ResourceCPU).
-					Flavor(testing.MakeFlavor(onDemandFlavor.Name, "1").Max("2").Obj()).
+					Flavor(testing.MakeFlavor(onDemandFlavor.Name, "0").Obj()).
 					Obj()).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, devCQ)).To(gomega.Succeed())
@@ -796,28 +798,33 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			devQueue := testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devCQ.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, devQueue)).To(gomega.Succeed())
 
+			ginkgo.By("Creating two workloads for prod ClusterQueue")
 			pWl1 := testing.MakeWorkload("p-wl-1", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
 			pWl2 := testing.MakeWorkload("p-wl-2", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
-
-			ginkgo.By("Creating two workloads for first ClusterQueue")
 			gomega.Expect(k8sClient.Create(ctx, pWl1)).To(gomega.Succeed())
 			gomega.Expect(k8sClient.Create(ctx, pWl2)).To(gomega.Succeed())
 			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodCQ.Name, pWl1, pWl2)
 
 			ginkgo.By("Creating a workload for each ClusterQueue")
-			pWl3 := testing.MakeWorkload("p-wl-3", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
 			dWl1 := testing.MakeWorkload("d-wl-1", ns.Name).Queue(devQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
-			gomega.Expect(k8sClient.Create(ctx, pWl3)).To(gomega.Succeed())
+			pWl3 := testing.MakeWorkload("p-wl-3", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
 			gomega.Expect(k8sClient.Create(ctx, dWl1)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, pWl3)).To(gomega.Succeed())
+			framework.ExpectWorkloadsToBePending(ctx, k8sClient, dWl1, pWl3)
 
-			framework.ExpectWorkloadsToBePending(ctx, k8sClient, pWl3, dWl1)
-
-			ginkgo.By("Finishing a workload for the first ClusterQueue")
+			ginkgo.By("Finishing one workload for prod ClusterQueue")
 			framework.FinishWorkloads(ctx, k8sClient, pWl1)
+			framework.ExpectWorkloadsToBePending(ctx, k8sClient, dWl1, pWl3)
 
-			// The dWl1 workload gets accepted, even though it was created after pWl3.
+			ginkgo.By("Finishing second workload for prod ClusterQueue")
+			framework.FinishWorkloads(ctx, k8sClient, pWl2)
+			// The pWl3 workload gets accepted, even though it was created after dWl1.
+			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodCQ.Name, pWl3)
+			framework.ExpectWorkloadsToBePending(ctx, k8sClient, dWl1)
+
+			ginkgo.By("Finishing third workload for prod ClusterQueue")
+			framework.FinishWorkloads(ctx, k8sClient, pWl3)
 			framework.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, devCQ.Name, dWl1)
-			framework.ExpectPendingWorkloadsMetric(prodCQ, 0, 1)
 		})
 	})
 
