@@ -23,6 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -226,6 +227,11 @@ func (w *WorkloadWrapper) Toleration(t corev1.Toleration) *WorkloadWrapper {
 
 func (w *WorkloadWrapper) NodeSelector(kv map[string]string) *WorkloadWrapper {
 	w.Spec.PodSets[0].Spec.NodeSelector = kv
+	return w
+}
+
+func (w *WorkloadWrapper) Condition(condition metav1.Condition) *WorkloadWrapper {
+	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 	return w
 }
 

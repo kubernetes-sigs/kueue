@@ -56,18 +56,41 @@ type Scheduler struct {
 	client                  client.Client
 	recorder                record.EventRecorder
 	admissionRoutineWrapper routine.Wrapper
+	waitForPodsReady        bool
 
 	// Stubs.
 	applyAdmission func(context.Context, *kueue.Workload) error
 }
 
-func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder record.EventRecorder) *Scheduler {
+type options struct {
+	waitForPodsReady bool
+}
+
+// Option configures the reconciler.
+type Option func(*options)
+
+// WithWaitForPodsReady indicates if the controller should wait for the
+// PodsReady condition for all admitted workloads before admitting a new one.
+func WithWaitForPodsReady(f bool) Option {
+	return func(o *options) {
+		o.waitForPodsReady = f
+	}
+}
+
+var defaultOptions = options{}
+
+func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder record.EventRecorder, opts ...Option) *Scheduler {
+	options := defaultOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
 	s := &Scheduler{
 		queues:                  queues,
 		cache:                   cache,
 		client:                  cl,
 		recorder:                recorder,
 		admissionRoutineWrapper: routine.DefaultWrapper,
+		waitForPodsReady:        options.waitForPodsReady,
 	}
 	s.applyAdmission = s.applyAdmissionWithSSA
 	return s
@@ -129,6 +152,18 @@ func (s *Scheduler) schedule(ctx context.Context) {
 		if e.assignment.RepresentativeMode() != flavorassigner.Fit {
 			// TODO(#43): Implement preemption.
 			continue
+		}
+		if s.waitForPodsReady {
+			if !s.cache.PodsReadyForAllAdmittedWorkloads(ctx) {
+				log.V(5).Info("Waiting for all admitted workloads to be in the PodsReady condition")
+				// Block admission until all currently admitted workloads are in
+				// PodsReady condition if the waitForPodsReady is enabled
+				if err := workload.UpdateStatus(ctx, s.client, e.Obj, kueue.WorkloadAdmitted, metav1.ConditionFalse, "Waiting", "waiting for all admitted workloads to be in PodsReady condition"); err != nil {
+					log.Error(err, "Could not update Workload status")
+				}
+				s.cache.WaitForPodsReady(ctx)
+				log.V(5).Info("Finished waiting for all admitted workloads to be in the PodsReady condition")
+			}
 		}
 		e.status = nominated
 		log := log.WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue))

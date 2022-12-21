@@ -24,6 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -1767,6 +1768,302 @@ func TestMatchingClusterQueues(t *testing.T) {
 	gotCQs := cache.MatchingClusterQueues(map[string]string{"dep": "eng"})
 	if diff := cmp.Diff(wantCQs, gotCQs); diff != "" {
 		t.Errorf("Wrong ClusterQueues (-want,+got):\n%s", diff)
+	}
+}
+
+// TestWaitForPodsReadyCancelled ensures that the WaitForPodsReady call does not block when the context is closed.
+func TestWaitForPodsReadyCancelled(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := kueue.AddToScheme(scheme); err != nil {
+		t.Fatalf("Failed adding kueue scheme: %v", err)
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	cache := New(cl, WithPodsReadyTracking(true))
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go cache.CleanUpOnContext(ctx)
+
+	cq := kueue.ClusterQueue{
+		ObjectMeta: metav1.ObjectMeta{Name: "one"},
+	}
+	if err := cache.AddClusterQueue(ctx, &cq); err != nil {
+		t.Fatalf("Failed adding clusterQueue: %v", err)
+	}
+
+	wl := utiltesting.MakeWorkload("a", "").Admit(&kueue.Admission{
+		ClusterQueue: "one",
+	}).Obj()
+	if err := cache.AssumeWorkload(wl); err != nil {
+		t.Fatalf("Failed assuming the workload to block the further admission: %v", err)
+	}
+
+	if cache.PodsReadyForAllAdmittedWorkloads(ctx) {
+		t.Fatalf("Unexpected that all admitted workloads are in PodsReady condition")
+	}
+
+	// cancel the context so that the WaitForPodsReady is returns
+	go cancel()
+
+	cache.WaitForPodsReady(ctx)
+}
+
+// TestCachePodsReadyForAllAdmittedWorkloads verifies the condition used to determine whether to wait
+func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
+	clusterQueues := []kueue.ClusterQueue{
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "one"},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{Name: "two"},
+		},
+	}
+
+	scheme := runtime.NewScheme()
+	if err := kueue.AddToScheme(scheme); err != nil {
+		t.Fatalf("Failed adding kueue scheme: %v", err)
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	tests := []struct {
+		name      string
+		setup     func(cache *Cache) error
+		operation func(cache *Cache) error
+		wantReady bool
+	}{
+		{
+			name:      "empty cache",
+			operation: func(cache *Cache) error { return nil },
+			wantReady: true,
+		},
+		{
+			name: "add Workload without PodsReady condition",
+			operation: func(cache *Cache) error {
+				wl := utiltesting.MakeWorkload("a", "").Admit(&kueue.Admission{
+					ClusterQueue: "one",
+				}).Obj()
+				cache.AddOrUpdateWorkload(wl)
+				return nil
+			},
+			wantReady: false,
+		},
+		{
+			name: "add Workload with PodsReady=False",
+			operation: func(cache *Cache) error {
+				wl := utiltesting.MakeWorkload("a", "").Admit(&kueue.Admission{
+					ClusterQueue: "one",
+				}).Condition(metav1.Condition{
+					Type:   kueue.WorkloadPodsReady,
+					Status: metav1.ConditionFalse,
+				}).Obj()
+				cache.AddOrUpdateWorkload(wl)
+				return nil
+			},
+			wantReady: false,
+		},
+		{
+			name: "add Workload with PodsReady=True",
+			operation: func(cache *Cache) error {
+				wl := utiltesting.MakeWorkload("a", "").Admit(&kueue.Admission{
+					ClusterQueue: "one",
+				}).Condition(metav1.Condition{
+					Type:   kueue.WorkloadPodsReady,
+					Status: metav1.ConditionTrue,
+				}).Obj()
+				cache.AddOrUpdateWorkload(wl)
+				return nil
+			},
+			wantReady: true,
+		},
+		{
+			name: "assume Workload without PodsReady condition",
+			operation: func(cache *Cache) error {
+				wl := utiltesting.MakeWorkload("a", "").Admit(&kueue.Admission{
+					ClusterQueue: "one",
+				}).Obj()
+				return cache.AssumeWorkload(wl)
+			},
+			wantReady: false,
+		},
+		{
+			name: "assume Workload with PodsReady=False",
+			operation: func(cache *Cache) error {
+				wl := utiltesting.MakeWorkload("a", "").Admit(&kueue.Admission{
+					ClusterQueue: "one",
+				}).Condition(metav1.Condition{
+					Type:   kueue.WorkloadPodsReady,
+					Status: metav1.ConditionFalse,
+				}).Obj()
+				return cache.AssumeWorkload(wl)
+			},
+			wantReady: false,
+		},
+		{
+			name: "assume Workload with PodsReady=True",
+			operation: func(cache *Cache) error {
+				wl := utiltesting.MakeWorkload("a", "").Admit(&kueue.Admission{
+					ClusterQueue: "one",
+				}).Condition(metav1.Condition{
+					Type:   kueue.WorkloadPodsReady,
+					Status: metav1.ConditionTrue,
+				}).Obj()
+				return cache.AssumeWorkload(wl)
+			},
+			wantReady: true,
+		},
+		{
+			name: "update workload to have PodsReady=True",
+			setup: func(cache *Cache) error {
+				wl := utiltesting.MakeWorkload("a", "").Admit(&kueue.Admission{
+					ClusterQueue: "one",
+				}).Obj()
+				cache.AddOrUpdateWorkload(wl)
+				return nil
+			},
+			operation: func(cache *Cache) error {
+				wl := cache.clusterQueues["one"].Workloads["/a"].Obj
+				newWl := wl.DeepCopy()
+				apimeta.SetStatusCondition(&newWl.Status.Conditions, metav1.Condition{
+					Type:   kueue.WorkloadPodsReady,
+					Status: metav1.ConditionTrue,
+				})
+				return cache.UpdateWorkload(wl, newWl)
+			},
+			wantReady: true,
+		},
+		{
+			name: "update workload to have PodsReady=False",
+			setup: func(cache *Cache) error {
+				wl := utiltesting.MakeWorkload("a", "").Admit(&kueue.Admission{
+					ClusterQueue: "one",
+				}).Condition(metav1.Condition{
+					Type:   kueue.WorkloadPodsReady,
+					Status: metav1.ConditionTrue,
+				}).Obj()
+				cache.AddOrUpdateWorkload(wl)
+				return nil
+			},
+			operation: func(cache *Cache) error {
+				wl := cache.clusterQueues["one"].Workloads["/a"].Obj
+				newWl := wl.DeepCopy()
+				apimeta.SetStatusCondition(&newWl.Status.Conditions, metav1.Condition{
+					Type:   kueue.WorkloadPodsReady,
+					Status: metav1.ConditionFalse,
+				})
+				return cache.UpdateWorkload(wl, newWl)
+			},
+			wantReady: false,
+		},
+		{
+			name: "assume second workload without PodsReady",
+			setup: func(cache *Cache) error {
+				wl1 := utiltesting.MakeWorkload("a", "").Admit(&kueue.Admission{
+					ClusterQueue: "one",
+				}).Condition(metav1.Condition{
+					Type:   kueue.WorkloadPodsReady,
+					Status: metav1.ConditionTrue,
+				}).Obj()
+				cache.AddOrUpdateWorkload(wl1)
+				return nil
+			},
+			operation: func(cache *Cache) error {
+				wl2 := utiltesting.MakeWorkload("b", "").Admit(&kueue.Admission{
+					ClusterQueue: "two",
+				}).Obj()
+				return cache.AssumeWorkload(wl2)
+			},
+			wantReady: false,
+		},
+		{
+			name: "update second workload to have PodsReady=True",
+			setup: func(cache *Cache) error {
+				wl1 := utiltesting.MakeWorkload("a", "").Admit(&kueue.Admission{
+					ClusterQueue: "one",
+				}).Condition(metav1.Condition{
+					Type:   kueue.WorkloadPodsReady,
+					Status: metav1.ConditionTrue,
+				}).Obj()
+				cache.AddOrUpdateWorkload(wl1)
+				wl2 := utiltesting.MakeWorkload("b", "").Admit(&kueue.Admission{
+					ClusterQueue: "two",
+				}).Obj()
+				cache.AddOrUpdateWorkload(wl2)
+				return nil
+			},
+			operation: func(cache *Cache) error {
+				wl2 := cache.clusterQueues["two"].Workloads["/b"].Obj
+				newWl2 := wl2.DeepCopy()
+				apimeta.SetStatusCondition(&newWl2.Status.Conditions, metav1.Condition{
+					Type:   kueue.WorkloadPodsReady,
+					Status: metav1.ConditionTrue,
+				})
+				return cache.UpdateWorkload(wl2, newWl2)
+			},
+			wantReady: true,
+		},
+		{
+			name: "delete workload with PodsReady=False",
+			setup: func(cache *Cache) error {
+				wl := utiltesting.MakeWorkload("a", "").Admit(&kueue.Admission{
+					ClusterQueue: "one",
+				}).Condition(metav1.Condition{
+					Type:   kueue.WorkloadPodsReady,
+					Status: metav1.ConditionFalse,
+				}).Obj()
+				cache.AddOrUpdateWorkload(wl)
+				return nil
+			},
+			operation: func(cache *Cache) error {
+				wl := cache.clusterQueues["one"].Workloads["/a"].Obj
+				return cache.DeleteWorkload(wl)
+			},
+			wantReady: true,
+		},
+		{
+			name: "forget workload with PodsReady=False",
+			setup: func(cache *Cache) error {
+				wl := utiltesting.MakeWorkload("a", "").Admit(&kueue.Admission{
+					ClusterQueue: "one",
+				}).Condition(metav1.Condition{
+					Type:   kueue.WorkloadPodsReady,
+					Status: metav1.ConditionFalse,
+				}).Obj()
+				return cache.AssumeWorkload(wl)
+			},
+			operation: func(cache *Cache) error {
+				wl := cache.clusterQueues["one"].Workloads["/a"].Obj
+				return cache.ForgetWorkload(wl)
+			},
+			wantReady: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cache := New(cl, WithPodsReadyTracking(true))
+			ctx := context.Background()
+
+			for _, c := range clusterQueues {
+				if err := cache.AddClusterQueue(ctx, &c); err != nil {
+					t.Fatalf("Failed adding clusterQueue: %v", err)
+				}
+			}
+			if tc.setup != nil {
+				if err := tc.setup(cache); err != nil {
+					t.Errorf("Unexpected error during setup: %q", err)
+				}
+			}
+			if err := tc.operation(cache); err != nil {
+				t.Errorf("Unexpected error during operation: %q", err)
+			}
+			gotReady := cache.PodsReadyForAllAdmittedWorkloads(ctx)
+			if diff := cmp.Diff(tc.wantReady, gotReady); diff != "" {
+				t.Errorf("Unexpected response about workloads without pods ready (-want,+got):\n%s", diff)
+			}
+			// verify that the WaitForPodsReady is non-blocking when podsReadyForAllAdmittedWorkloads returns true
+			if gotReady {
+				cache.WaitForPodsReady(ctx)
+			}
+		})
 	}
 }
 

@@ -111,7 +111,7 @@ func main() {
 		close(certsReady)
 	}
 
-	cCache := cache.New(mgr.GetClient())
+	cCache := cache.New(mgr.GetClient(), cache.WithPodsReadyTracking(waitForPodsReady(&cfg)))
 	queues := queue.NewManager(mgr.GetClient(), cCache)
 
 	setupIndexes(mgr)
@@ -126,8 +126,11 @@ func main() {
 	go func() {
 		queues.CleanUpOnContext(ctx)
 	}()
+	go func() {
+		cCache.CleanUpOnContext(ctx)
+	}()
 
-	setupScheduler(ctx, mgr, cCache, queues)
+	setupScheduler(ctx, mgr, cCache, queues, &cfg)
 
 	setupLog.Info("Starting manager")
 	if err := mgr.Start(ctx); err != nil {
@@ -160,12 +163,11 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 		os.Exit(1)
 	}
 	manageJobsWithoutQueueName := cfg.ManageJobsWithoutQueueName
-	waitForPodsReady := cfg.WaitForPodsReady != nil && cfg.WaitForPodsReady.Enable
 	if err := job.NewReconciler(mgr.GetScheme(),
 		mgr.GetClient(),
 		mgr.GetEventRecorderFor(constants.JobControllerName),
 		job.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName),
-		job.WithWaitForPodsReady(waitForPodsReady),
+		job.WithWaitForPodsReady(waitForPodsReady(cfg)),
 	).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Job")
 		os.Exit(1)
@@ -195,14 +197,19 @@ func setupProbeEndpoints(mgr ctrl.Manager) {
 	}
 }
 
-func setupScheduler(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager) {
+func setupScheduler(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, cfg *config.Configuration) {
 	sched := scheduler.New(
 		queues,
 		cCache,
 		mgr.GetClient(),
 		mgr.GetEventRecorderFor(constants.AdmissionName),
+		scheduler.WithWaitForPodsReady(waitForPodsReady(cfg)),
 	)
 	go sched.Start(ctx)
+}
+
+func waitForPodsReady(cfg *config.Configuration) bool {
+	return cfg.WaitForPodsReady != nil && cfg.WaitForPodsReady.Enable
 }
 
 func encodeConfig(cfg *config.Configuration) (string, error) {
