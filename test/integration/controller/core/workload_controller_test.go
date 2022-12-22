@@ -19,6 +19,7 @@ package core
 import (
 	"fmt"
 
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -35,6 +36,8 @@ import (
 )
 
 // +kubebuilder:docs-gen:collapse=Imports
+
+var ignoreCqCondition = cmpopts.IgnoreFields(kueue.ClusterQueueStatus{}, "Conditions")
 
 var _ = ginkgo.Describe("Workload controller", func() {
 	var (
@@ -200,7 +203,7 @@ var _ = ginkgo.Describe("Workload controller", func() {
 						},
 					},
 				},
-			}))
+			}, ignoreCqCondition))
 		})
 	})
 
@@ -245,7 +248,7 @@ var _ = ginkgo.Describe("Workload controller", func() {
 						},
 					},
 				},
-			}))
+			}, ignoreCqCondition))
 		})
 	})
 })

@@ -77,45 +77,45 @@ type ClusterQueueSpec struct {
 	//    the quota can be borrowed from the cohort.
 	//
 	// metadata:
-	//  name: tenantA
+	//   name: tenantA
 	// spec:
-	//  cohort: borrowing-cohort
-	//  resources:
-	// - name: cpu
-	//   flavors:
-	//   - name: spot
-	//     quota:
-	//       min: 1000
-	//   - name: on-demand
-	//     quota:
-	//       min: 100
-	// - name: nvidia.com/gpu
-	//   flavors:
-	//   - name: k80
-	//     quota:
-	//       min: 10
-	//       max: 20
-	//   - name: p100
-	//     quota:
-	//       min: 10
-	//       max: 20
+	//   cohort: borrowing-cohort
+	//   resources:
+	//   - name: cpu
+	//     flavors:
+	//     - name: spot
+	//       quota:
+	//         min: 1000
+	//     - name: on-demand
+	//       quota:
+	//         min: 100
+	//   - name: nvidia.com/gpu
+	//     flavors:
+	//     - name: k80
+	//       quota:
+	//         min: 10
+	//         max: 20
+	//     - name: p100
+	//       quota:
+	//         min: 10
+	//         max: 20
 	//
 	// metadata:
 	//  name: tenantB
 	// spec:
 	//  cohort: borrowing-cohort
 	//  resources:
-	// - name: cpu
-	//   flavors:
-	//   - name: on-demand
-	//     quota:
-	//       min: 100
-	// - name: nvidia.com/gpu
-	//   flavors:
-	//   - name: k80
-	//     quota:
-	//       min: 10
-	//       max: 20
+	//  - name: cpu
+	//    flavors:
+	//    - name: on-demand
+	//      quota:
+	//        min: 100
+	//  - name: nvidia.com/gpu
+	//    flavors:
+	//    - name: k80
+	//      quota:
+	//        min: 10
+	//        max: 20
 	//
 	// If empty, this ClusterQueue cannot borrow from any other ClusterQueue and vice versa.
 	//
@@ -176,14 +176,14 @@ type Resource struct {
 	//
 	// spec:
 	//  resources:
-	// - name: nvidia.com/gpu
-	//   flavors:
-	//   - name: k80
-	//     quota:
-	//       min: 10
-	//   - name: p100
-	//     quota:
-	//       min: 10
+	//  - name: nvidia.com/gpu
+	//    flavors:
+	//    - name: k80
+	//      quota:
+	//        min: 10
+	//    - name: p100
+	//      quota:
+	//        min: 10
 	//
 	// The flavors are evaluated in order, selecting the first to satisfy a
 	// workload’s requirements. Also the quantities are additive, in the example
@@ -246,9 +246,22 @@ type ClusterQueueStatus struct {
 	// clusterQueue and haven't finished yet.
 	// +optional
 	AdmittedWorkloads int32 `json:"admittedWorkloads"`
+
+	// conditions hold the latest available observations of the ClusterQueue
+	// current state.
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 type UsedResources map[corev1.ResourceName]map[string]Usage
+
+const (
+	// ClusterQueueActive indicates that the ClusterQueue can admit new workloads and its quota
+	// can be borrowed by other ClusterQueues in the same cohort.
+	ClusterQueueActive string = "Active"
+)
 
 type Usage struct {
 	// Total is the total quantity of the resource used, including resources

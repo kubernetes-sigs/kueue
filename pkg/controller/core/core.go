@@ -37,6 +37,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 		return "LocalQueue", err
 	}
 	cqRec := NewClusterQueueReconciler(mgr.GetClient(), qManager, cc, rfRec)
+	rfRec.AddUpdateWatcher(cqRec)
 	if err := cqRec.SetupWithManager(mgr); err != nil {
 		return "ClusterQueue", err
 	}

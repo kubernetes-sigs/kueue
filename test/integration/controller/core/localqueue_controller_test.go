@@ -57,7 +57,7 @@ var _ = ginkgo.Describe("Queue controller", func() {
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteQueue(ctx, k8sClient, queue)).To(gomega.Succeed())
+		gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, queue)).To(gomega.Succeed())
 		gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, clusterQueue)).To(gomega.Succeed())
 	})
 
