@@ -17,12 +17,14 @@ limitations under the License.
 package podsready
 
 import (
+	"time"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 	"sigs.k8s.io/kueue/pkg/util/testing"
@@ -95,14 +97,15 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			util.ExpectWorkloadsToBeWaiting(ctx, k8sClient, devWl)
 
 			ginkgo.By("update the first workload to be in the PodsReady condition and verify the second workload is admitted")
-			prodKey := types.NamespacedName{Name: prodWl.Name, Namespace: prodWl.Namespace}
-			gomega.Expect(k8sClient.Get(ctx, prodKey, prodWl)).Should(gomega.Succeed())
-			apimeta.SetStatusCondition(&prodWl.Status.Conditions, metav1.Condition{
-				Type:   kueue.WorkloadPodsReady,
-				Status: metav1.ConditionTrue,
-				Reason: "PodsReady",
-			})
-			gomega.Expect(k8sClient.Status().Update(ctx, prodWl)).Should(gomega.Succeed())
+			gomega.Eventually(func() error {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl)).Should(gomega.Succeed())
+				apimeta.SetStatusCondition(&prodWl.Status.Conditions, metav1.Condition{
+					Type:   kueue.WorkloadPodsReady,
+					Status: metav1.ConditionTrue,
+					Reason: "PodsReady",
+				})
+				return k8sClient.Status().Update(ctx, prodWl)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, devClusterQ.Name, devWl)
 		})
 
@@ -124,6 +127,8 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			ginkgo.By("creating two workloads but delaying cluster queue creation which has enough capacity")
 			prodWl := testing.MakeWorkload("prod-wl", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "11").Obj()
 			gomega.Expect(k8sClient.Create(ctx, prodWl)).Should(gomega.Succeed())
+			// wait a second to ensure the CreationTimestamps differ and scheduler picks the first created to be admitted
+			time.Sleep(time.Second)
 			devWl := testing.MakeWorkload("dev-wl", ns.Name).Queue(devQueue.Name).Request(corev1.ResourceCPU, "11").Obj()
 			gomega.Expect(k8sClient.Create(ctx, devWl)).Should(gomega.Succeed())
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, prodWl, devWl)
