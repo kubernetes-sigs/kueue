@@ -39,7 +39,7 @@ var (
 )
 
 const (
-	Timeout  = time.Second * 30
+	Timeout  = time.Minute
 	Interval = time.Millisecond * 250
 )
 
