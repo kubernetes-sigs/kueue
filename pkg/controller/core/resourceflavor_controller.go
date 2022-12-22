@@ -79,11 +79,11 @@ func (r *ResourceFlavorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 	} else {
 		if controllerutil.ContainsFinalizer(&flavor, kueue.ResourceInUseFinalizerName) {
-			if cqName, ok := r.cache.FlavorInUse(flavor.Name); ok {
-				log.V(3).Info("resourceFlavor is still in use", "ClusterQueue", cqName)
+			if cqs := r.cache.ClusterQueuesUsingFlavor(flavor.Name); len(cqs) != 0 {
+				log.V(3).Info("resourceFlavor is still in use", "ClusterQueues", cqs)
 				// We avoid to return error here to prevent backoff requeue, which is passive and wasteful.
 				// Instead, we drive the removal of finalizer by ClusterQueue Update/Delete events
-				// when resourceFlavor is not longer in use.
+				// when resourceFlavor is no longer in use.
 				return ctrl.Result{}, nil
 			}
 
@@ -209,7 +209,7 @@ func (h *cqHandler) Generic(e event.GenericEvent, q workqueue.RateLimitingInterf
 
 	for _, resource := range cq.Spec.Resources {
 		for _, flavor := range resource.Flavors {
-			if _, ok := h.cache.FlavorInUse(string(flavor.Name)); !ok {
+			if cqs := h.cache.ClusterQueuesUsingFlavor(string(flavor.Name)); len(cqs) == 0 {
 				req := reconcile.Request{
 					NamespacedName: types.NamespacedName{
 						Name: string(flavor.Name),

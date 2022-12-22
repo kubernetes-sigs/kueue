@@ -803,16 +803,17 @@ func (c *Cache) deleteClusterQueueFromCohort(cq *ClusterQueue) {
 	cq.Cohort = nil
 }
 
-func (c *Cache) FlavorInUse(flavor string) (string, bool) {
+func (c *Cache) ClusterQueuesUsingFlavor(flavor string) []string {
 	c.RLock()
 	defer c.RUnlock()
+	var cqs []string
 
 	for _, cq := range c.clusterQueues {
 		if cq.flavorInUse(flavor) {
-			return cq.Name, true
+			cqs = append(cqs, cq.Name)
 		}
 	}
-	return "", false
+	return cqs
 }
 
 func (c *Cache) MatchingClusterQueues(nsLabels map[string]string) sets.String {

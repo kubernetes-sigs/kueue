@@ -1468,27 +1468,32 @@ func TestCacheQueueOperations(t *testing.T) {
 	}
 }
 
-func TestFlavorInUse(t *testing.T) {
-	rf := utiltesting.MakeResourceFlavor("x86").Obj()
-	flavor := utiltesting.MakeFlavor(rf.Name, "5").Obj()
+func TestClusterQueuesUsingFlavor(t *testing.T) {
+	x86Rf := utiltesting.MakeResourceFlavor("x86").Obj()
+	aarch64Rf := utiltesting.MakeResourceFlavor("aarch64").Obj()
+	x86Flavor := utiltesting.MakeFlavor(x86Rf.Name, "5").Obj()
+	aarch64Flavor := utiltesting.MakeFlavor(aarch64Rf.Name, "3").Obj()
 	fooCq := utiltesting.MakeClusterQueue("fooCq").
-		Resource(utiltesting.MakeResource("cpu").Flavor(flavor).Obj()).
+		Resource(utiltesting.MakeResource("cpu").Flavor(x86Flavor).Obj()).
 		Obj()
 	barCq := utiltesting.MakeClusterQueue("barCq").Obj()
+	fizzCq := utiltesting.MakeClusterQueue("fizzCq").
+		Resource(utiltesting.MakeResource("cpu").
+			Flavor(x86Flavor).
+			Flavor(aarch64Flavor).Obj()).
+		Obj()
 
 	tests := []struct {
-		name                      string
-		clusterQueues             []*kueue.ClusterQueue
-		wantInUse                 bool
-		wantInUseClusterQueueName string
+		name                       string
+		clusterQueues              []*kueue.ClusterQueue
+		wantInUseClusterQueueNames []string
 	}{
 		{
 			name: "single clusterQueue with flavor in use",
 			clusterQueues: []*kueue.ClusterQueue{
 				fooCq,
 			},
-			wantInUse:                 true,
-			wantInUseClusterQueueName: fooCq.Name,
+			wantInUseClusterQueueNames: []string{fooCq.Name},
 		},
 		{
 			name: "single clusterQueue with no flavor",
@@ -1501,9 +1506,9 @@ func TestFlavorInUse(t *testing.T) {
 			clusterQueues: []*kueue.ClusterQueue{
 				fooCq,
 				barCq,
+				fizzCq,
 			},
-			wantInUse:                 true,
-			wantInUseClusterQueueName: fooCq.Name,
+			wantInUseClusterQueueNames: []string{fooCq.Name, fizzCq.Name},
 		},
 	}
 	for _, tc := range tests {
@@ -1514,16 +1519,19 @@ func TestFlavorInUse(t *testing.T) {
 				t.Fatalf("Failed adding kueue scheme: %v", err)
 			}
 			cache := New(fake.NewClientBuilder().WithScheme(scheme).Build())
-			cache.AddOrUpdateResourceFlavor(rf)
+			cache.AddOrUpdateResourceFlavor(x86Rf)
+			cache.AddOrUpdateResourceFlavor(aarch64Rf)
 			for _, cq := range tc.clusterQueues {
 				if err := cache.AddClusterQueue(ctx, cq); err != nil {
 					t.Errorf("failed to add clusterQueue %s", cq.Name)
 				}
 			}
 
-			name, ok := cache.FlavorInUse(string(flavor.Name))
-			if (tc.wantInUse != ok) || (name != tc.wantInUseClusterQueueName) {
-				t.Errorf("flavor is in use by clusterQueue %s, but got %s", tc.wantInUseClusterQueueName, name)
+			cqs := cache.ClusterQueuesUsingFlavor(string(x86Flavor.Name))
+			if diff := cmp.Diff(tc.wantInUseClusterQueueNames, cqs, cmpopts.SortSlices(func(a, b string) bool {
+				return a < b
+			})); len(diff) != 0 {
+				t.Errorf("Unexpected flavor is in use by clusterQueues (-want,+got):\n%s", diff)
 			}
 		})
 	}
