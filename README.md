@@ -9,12 +9,16 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) to learn more.
 
 ## Production Readiness status
 
-- ✔️ Coverage with unit and integration tests: ~72%
+- ✔️ API version: v1beta1, respecting [Kubernetes Deprecation Policy](https://kubernetes.io/docs/reference/using-api/deprecation-policy/)
 - ✔️ Up-to-date [documentation](https://kueue.sigs.k8s.io/docs).
-- ✔️ Monitoring via [metrics](https://kueue.sigs.k8s.io/docs/reference/metrics)
-- ✔️ API validation and defaulting.
-- ⏳ Scalability tests in progress.
-- ✔️ API version: v1beta1, with backwards-compatibility guarantees.
+- ✔️ Good Test Coverage:
+  - ✔️ Unit Test: ~77.2% (controllers are excluded for they're covered by integration tests)
+  - ✔️ Integration Test: 124 testcases.
+  - ✔️ E2E Test: available for kubernetes 1.24, 1.25, 1.26 on Kind.
+- ✔️ Scalability verification via [performance tests](https://github.com/kubernetes-sigs/kueue/tree/main/test/performance).
+- ✔️ Monitoring via [metrics](https://kueue.sigs.k8s.io/docs/reference/metrics).
+- ✔️ Security: RBAC based accessibility.
+- ✔️ Stable release cycle(2-3 months) for new features, bugfixes, cleanups.
 
   _Based on community feedback, we continue to simplify and evolve the API to
   address new use cases_.
@@ -37,17 +41,18 @@ Read the [installation guide](https://kueue.sigs.k8s.io/docs/installation/) to l
 
 A minimal configuration can be set by running the [samples](config/samples):
 
-```
+```shell
 kubectl apply -f config/samples/single-clusterqueue-setup.yaml
 ```
 
 Then you can run a job with:
 
-```
+```shell
 kubectl create -f config/samples/sample-job.yaml
 ```
 
 Learn more about:
+
 - Kueue [concepts](https://kueue.sigs.k8s.io/docs/concepts).
 - Common and advanced [tasks](https://kueue.sigs.k8s.io/docs/tasks).
 

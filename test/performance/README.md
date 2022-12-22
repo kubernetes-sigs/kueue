@@ -11,29 +11,30 @@ High Job startup latency in Kueue is expected when the total quota is not enough
 
 ### Job startup throughput
 
-The best workload admission rate per second within 1 minute intervals. 
+The best workload admission rate per second within 1 minute intervals.
 The rate is measured every 5 seconds (see more details in [PromQL examples](https://prometheus.io/docs/prometheus/latest/querying/examples/#subquery)):
 
 `max_over_time(sum(rate(kueue_admitted_workloads_total{cluster_queue="{{$clusterQueue}}"}[1m]))[{{$testTimeout}}:5s])`
 
 This measurement is not accurate if the cluster quota is big enough to schedule all workloads of the test immediately, because Kueue immediately admits all the workloads and the `kueue_admitted_workloads_total` never increases. In this case, the PromQL query returns 0.
+
 ## How to run the test?
 
 ### Prerequisites
 
 1. Deploy [Kueue](https://github.com/kubernetes-sigs/kueue/blob/main/docs/setup/install.md)
-2. Make sure you have `kubectl`, [jq](https://stedolan.github.io/jq/download/), [golang version](https://github.com/mikefarah/yq) of `yq` and `go` 
+2. Make sure you have `kubectl`, [jq](https://stedolan.github.io/jq/download/), [golang version](https://github.com/mikefarah/yq) of `yq` and `go`
 3. Checkout `Clusterloader2` framework: https://github.com/kubernetes/perf-tests and build `clusterloader` binary:
 
     * change to `clusterloader2` directory
-    * run `go build -o clusterloader './cmd/'` 
+    * run `go build -o clusterloader './cmd/'`
 
 ### Run the test
 
-1. Copy an environment file example to `.env` file: 
+1. Copy an environment file example to `.env` file:
 
     * `cp .env.example .env`
-    
+
 2. Edit the environment variables
 
 | Variable          | Description |
@@ -44,7 +45,7 @@ This measurement is not accurate if the cluster quota is big enough to schedule 
 | KUBECONFIG        | Kubeconfig file location |
 | PROVIDER          | Kubernetes kind (tested on `gke` only)
 
-3. Run the `run-test.sh` file 
+3. Run the `run-test.sh` file
 
 ### Test results
 
