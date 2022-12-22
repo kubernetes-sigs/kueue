@@ -47,3 +47,27 @@ func (matcher *notFoundErrorMatch) FailureMessage(actual interface{}) (message s
 func (matcher *notFoundErrorMatch) NegatedFailureMessage(actual interface{}) (message string) {
 	return format.Message(actual, "not to be NotFound error")
 }
+
+func BeForbiddenError() types.GomegaMatcher {
+	return &isForbiddenErrorMatch{}
+}
+
+type isForbiddenErrorMatch struct {
+}
+
+func (matcher *isForbiddenErrorMatch) Match(actual interface{}) (success bool, err error) {
+	err, ok := actual.(error)
+	if !ok {
+		return false, fmt.Errorf("ForbiddenError expects an error")
+	}
+
+	return err != nil && apierrors.IsForbidden(err), nil
+}
+
+func (matcher *isForbiddenErrorMatch) FailureMessage(actual interface{}) (message string) {
+	return format.Message(actual, "to be a Forbidden error")
+}
+
+func (matcher *isForbiddenErrorMatch) NegatedFailureMessage(actual interface{}) (message string) {
+	return format.Message(actual, "not to be Forbidden error")
+}
