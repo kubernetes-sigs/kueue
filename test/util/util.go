@@ -86,10 +86,17 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 	if err := c.DeleteAllOf(ctx, &kueue.LocalQueue{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
-	if err := c.DeleteAllOf(ctx, &kueue.Workload{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
+	if err := DeleteWorkloadsInNamespace(ctx, c, ns); err != nil {
 		return err
 	}
 	if err := c.Delete(ctx, ns); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	return nil
+}
+
+func DeleteWorkloadsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	if err := c.DeleteAllOf(ctx, &kueue.Workload{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
 	return nil
@@ -253,7 +260,7 @@ func ExpectClusterQueueToBeDeleted(ctx context.Context, k8sClient client.Client,
 	if deleteCq {
 		gomega.Expect(DeleteClusterQueue(ctx, k8sClient, cq)).ToNot(gomega.HaveOccurred())
 	}
-	gomega.Eventually(func() error {
+	gomega.EventuallyWithOffset(1, func() error {
 		var newCQ kueue.ClusterQueue
 		return k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &newCQ)
 	}, Timeout, Interval).Should(testing.BeNotFoundError())
@@ -263,7 +270,7 @@ func ExpectResourceFlavorToBeDeleted(ctx context.Context, k8sClient client.Clien
 	if deleteRf {
 		gomega.Expect(DeleteResourceFlavor(ctx, k8sClient, rf)).To(gomega.Succeed())
 	}
-	gomega.Eventually(func() error {
+	gomega.EventuallyWithOffset(1, func() error {
 		var newRF kueue.ResourceFlavor
 		return k8sClient.Get(ctx, client.ObjectKeyFromObject(rf), &newRF)
 	}, Timeout, Interval).Should(testing.BeNotFoundError())

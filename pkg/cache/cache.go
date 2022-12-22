@@ -385,20 +385,24 @@ func (c *ClusterQueue) deleteWorkload(w *kueue.Workload) {
 }
 
 func (c *ClusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
+	updateUsage(wi, c.UsedResources, m)
+	qKey := workload.QueueKey(wi.Obj)
+	if _, ok := c.admittedWorkloadsPerQueue[qKey]; ok {
+		c.admittedWorkloadsPerQueue[qKey] += int(m)
+	}
+}
+
+func updateUsage(wi *workload.Info, usedResources ResourceQuantities, m int64) {
 	for _, ps := range wi.TotalRequests {
 		for wlRes, wlResFlv := range ps.Flavors {
 			v, wlResExist := ps.Requests[wlRes]
-			cqResFlv, cqResExist := c.UsedResources[wlRes]
+			cqResFlv, cqResExist := usedResources[wlRes]
 			if cqResExist && wlResExist {
 				if _, cqFlvExist := cqResFlv[wlResFlv]; cqFlvExist {
 					cqResFlv[wlResFlv] += v * m
 				}
 			}
 		}
-	}
-	qKey := workload.QueueKey(wi.Obj)
-	if _, ok := c.admittedWorkloadsPerQueue[qKey]; ok {
-		c.admittedWorkloadsPerQueue[qKey] += int(m)
 	}
 }
 

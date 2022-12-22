@@ -139,6 +139,10 @@ func TestSchedule(t *testing.T) {
 						},
 					},
 				},
+				Preemption: &kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				},
 				QueueingStrategy: kueue.StrictFIFO,
 				Resources: []kueue.Resource{
 					{
@@ -262,6 +266,8 @@ func TestSchedule(t *testing.T) {
 		wantLeft map[string]sets.Set[string]
 		// wantInadmissibleLeft is the workload keys that are left in the inadmissible state after this cycle.
 		wantInadmissibleLeft map[string]sets.Set[string]
+		// wantPreempted is the keys of the workloads that get preempted in the scheduling cycle.
+		wantPreempted sets.Set[string]
 	}{
 		"workload fits in single clusterQueue": {
 			workloads: []kueue.Workload{
@@ -682,6 +688,44 @@ func TestSchedule(t *testing.T) {
 				"eng-beta/user-on-demand": *utiltesting.MakeAdmission("eng-beta").Flavor(corev1.ResourceCPU, "on-demand").Obj(),
 			},
 		},
+		"preempt workloads in ClusterQueue and cohort": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("preemptor", "eng-beta").
+					Queue("main").
+					Request(corev1.ResourceCPU, "20").
+					Obj(),
+				*utiltesting.MakeWorkload("use-all-spot", "eng-alpha").
+					Request(corev1.ResourceCPU, "100").
+					Admit(utiltesting.MakeAdmission("eng-alpha").Flavor(corev1.ResourceCPU, "spot").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("low-1", "eng-beta").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "30").
+					Admit(utiltesting.MakeAdmission("eng-beta").Flavor(corev1.ResourceCPU, "on-demand").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("low-2", "eng-beta").
+					Priority(-2).
+					Request(corev1.ResourceCPU, "10").
+					Admit(utiltesting.MakeAdmission("eng-beta").Flavor(corev1.ResourceCPU, "on-demand").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("borrower", "eng-alpha").
+					Request(corev1.ResourceCPU, "60").
+					Admit(utiltesting.MakeAdmission("eng-alpha").Flavor(corev1.ResourceCPU, "on-demand").Obj()).
+					Obj(),
+			},
+			wantLeft: map[string]sets.Set[string]{
+				// Preemptor is not admitted in this cycle.
+				"eng-beta": sets.New("eng-beta/preemptor"),
+			},
+			wantPreempted: sets.New("eng-alpha/borrower", "eng-beta/low-2"),
+			wantAssignments: map[string]kueue.Admission{
+				"eng-alpha/use-all-spot": *utiltesting.MakeAdmission("eng-alpha").Flavor(corev1.ResourceCPU, "spot").Obj(),
+				"eng-beta/low-1":         *utiltesting.MakeAdmission("eng-beta").Flavor(corev1.ResourceCPU, "on-demand").Obj(),
+				// Removal from cache for the preempted workloads is deferred until we receive Workload updates
+				"eng-beta/low-2":     *utiltesting.MakeAdmission("eng-beta").Flavor(corev1.ResourceCPU, "on-demand").Obj(),
+				"eng-alpha/borrower": *utiltesting.MakeAdmission("eng-alpha").Flavor(corev1.ResourceCPU, "on-demand").Obj(),
+			},
+		},
 		"cannot borrow resource not listed in clusterQueue": {
 			workloads: []kueue.Workload{
 				{
@@ -890,6 +934,13 @@ func TestSchedule(t *testing.T) {
 				func() { wg.Add(1) },
 				func() { wg.Done() },
 			))
+			gotPreempted := sets.New[string]()
+			scheduler.preemptor.OverrideApply(func(_ context.Context, w *kueue.Workload) error {
+				mu.Lock()
+				gotPreempted.Insert(workload.Key(w))
+				mu.Unlock()
+				return nil
+			})
 
 			ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
 			go qManager.CleanUpOnContext(ctx)
@@ -904,6 +955,10 @@ func TestSchedule(t *testing.T) {
 			}
 			if diff := cmp.Diff(wantScheduled, gotScheduled); diff != "" {
 				t.Errorf("Unexpected scheduled workloads (-want,+got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tc.wantPreempted, gotPreempted); diff != "" {
+				t.Errorf("Unexpected preemptions (-want,+got):\n%s", diff)
 			}
 
 			// Verify assignments in cache.

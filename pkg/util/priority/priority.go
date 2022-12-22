@@ -21,6 +21,7 @@ import (
 
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
@@ -29,13 +30,10 @@ import (
 
 // Priority returns priority of the given workload.
 func Priority(w *kueue.Workload) int32 {
-	if w.Spec.Priority != nil {
-		return *w.Spec.Priority
-	}
 	// When priority of a running workload is nil, it means it was created at a time
 	// that there was no global default priority class and the priority class
 	// name of the pod was empty. So, we resolve to the static default priority.
-	return constants.DefaultPriority
+	return pointer.Int32Deref(w.Spec.Priority, constants.DefaultPriority)
 }
 
 // GetPriorityFromPriorityClass returns the priority populated from

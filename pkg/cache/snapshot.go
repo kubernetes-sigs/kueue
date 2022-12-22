@@ -29,6 +29,28 @@ type Snapshot struct {
 	InactiveClusterQueueSets sets.Set[string]
 }
 
+// RemoveWorkload removes a workload from its corresponding ClusterQueue and
+// updates resources usage.
+func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
+	cq := s.ClusterQueues[wl.ClusterQueue]
+	delete(cq.Workloads, workload.Key(wl.Obj))
+	updateUsage(wl, cq.UsedResources, -1)
+	if cq.Cohort != nil {
+		updateUsage(wl, cq.Cohort.UsedResources, -1)
+	}
+}
+
+// AddWorkload removes a workload from its corresponding ClusterQueue and
+// updates resources usage.
+func (s *Snapshot) AddWorkload(wl *workload.Info) {
+	cq := s.ClusterQueues[wl.ClusterQueue]
+	cq.Workloads[workload.Key(wl.Obj)] = wl
+	updateUsage(wl, cq.UsedResources, 1)
+	if cq.Cohort != nil {
+		updateUsage(wl, cq.Cohort.UsedResources, 1)
+	}
+}
+
 func (c *Cache) Snapshot() Snapshot {
 	c.RLock()
 	defer c.RUnlock()
@@ -71,6 +93,7 @@ func (c *ClusterQueue) snapshot() *ClusterQueue {
 		RequestableResources: c.RequestableResources, // Shallow copy is enough.
 		UsedResources:        make(ResourceQuantities, len(c.UsedResources)),
 		Workloads:            make(map[string]*workload.Info, len(c.Workloads)),
+		Preemption:           c.Preemption,
 		LabelKeys:            c.LabelKeys, // Shallow copy is enough.
 		NamespaceSelector:    c.NamespaceSelector,
 		Status:               c.Status,
