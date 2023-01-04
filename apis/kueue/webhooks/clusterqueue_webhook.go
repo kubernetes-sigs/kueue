@@ -22,7 +22,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -101,7 +100,8 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 		allErrs = append(allErrs, validateNameReference(cq.Spec.Cohort, path.Child("cohort"))...)
 	}
 	allErrs = append(allErrs, validateResources(cq.Spec.Resources, path.Child("resources"))...)
-	allErrs = append(allErrs, validateNamespaceSelector(cq.Spec.NamespaceSelector, path.Child("namespaceSelector"))...)
+	allErrs = append(allErrs,
+		validation.ValidateLabelSelector(cq.Spec.NamespaceSelector, validation.LabelSelectorValidationOptions{}, path.Child("namespaceSelector"))...)
 
 	return allErrs
 }
@@ -119,13 +119,13 @@ func ValidateClusterQueueUpdate(newObj, oldObj *kueue.ClusterQueue) field.ErrorL
 
 func validateResources(resources []kueue.Resource, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
-	flavorsPerRes := make([]sets.String, len(resources))
+	flavorsPerRes := make([]sets.Set[string], len(resources))
 
 	for i, resource := range resources {
 		path := path.Index(i)
 		allErrs = append(allErrs, validateResourceName(resource.Name, path.Child("name"))...)
 
-		flavorsPerRes[i] = make(sets.String, len(resource.Flavors))
+		flavorsPerRes[i] = make(sets.Set[string], len(resource.Flavors))
 		for j, flavor := range resource.Flavors {
 			path := path.Child("flavors").Index(j)
 			allErrs = append(allErrs, validateNameReference(string(flavor.Name), path.Child("name"))...)
@@ -175,8 +175,4 @@ func validateResourceQuantity(value resource.Quantity, fldPath *field.Path) fiel
 		allErrs = append(allErrs, field.Invalid(fldPath, value.String(), isNegativeErrorMsg))
 	}
 	return allErrs
-}
-
-func validateNamespaceSelector(selector *metav1.LabelSelector, path *field.Path) field.ErrorList {
-	return validation.ValidateLabelSelector(selector, path)
 }
