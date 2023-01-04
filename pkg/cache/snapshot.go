@@ -50,13 +50,13 @@ func (c *Cache) Snapshot() Snapshot {
 		snap.ResourceFlavors[rf.Name] = rf
 	}
 	for _, cohort := range c.cohorts {
-		cohortCopy := newCohort(cohort.Name, len(cohort.members))
-		for cq := range cohort.members {
+		cohortCopy := newCohort(cohort.Name, cohort.Members.Len())
+		for cq := range cohort.Members {
 			if cq.Active() {
 				cqCopy := snap.ClusterQueues[cq.Name]
 				cqCopy.accumulateResources(cohortCopy)
 				cqCopy.Cohort = cohortCopy
-				cohortCopy.members[cqCopy] = struct{}{}
+				cohortCopy.Members.Insert(cqCopy)
 			}
 		}
 	}

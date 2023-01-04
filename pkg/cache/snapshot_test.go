@@ -400,7 +400,7 @@ func TestSnapshot(t *testing.T) {
 		},
 		InactiveClusterQueueSets: sets.New("flavor-nonexistent-cq"),
 	}
-	if diff := cmp.Diff(wantSnapshot, snapshot, cmpopts.IgnoreUnexported(Cohort{}, ClusterQueue{})); diff != "" {
+	if diff := cmp.Diff(wantSnapshot, snapshot, cmpopts.IgnoreUnexported(ClusterQueue{}), cmpopts.IgnoreFields(Cohort{}, "Members")); diff != "" {
 		t.Errorf("Unexpected Snapshot (-want,+got):\n%s", diff)
 	}
 }
