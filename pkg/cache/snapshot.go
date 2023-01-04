@@ -26,7 +26,7 @@ import (
 type Snapshot struct {
 	ClusterQueues            map[string]*ClusterQueue
 	ResourceFlavors          map[string]*kueue.ResourceFlavor
-	InactiveClusterQueueSets sets.String
+	InactiveClusterQueueSets sets.Set[string]
 }
 
 func (c *Cache) Snapshot() Snapshot {
@@ -36,7 +36,7 @@ func (c *Cache) Snapshot() Snapshot {
 	snap := Snapshot{
 		ClusterQueues:            make(map[string]*ClusterQueue, len(c.clusterQueues)),
 		ResourceFlavors:          make(map[string]*kueue.ResourceFlavor, len(c.resourceFlavors)),
-		InactiveClusterQueueSets: sets.NewString(),
+		InactiveClusterQueueSets: sets.New[string](),
 	}
 	for _, cq := range c.clusterQueues {
 		if !cq.Active() {

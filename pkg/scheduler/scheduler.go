@@ -132,7 +132,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 	// This is because there can be other workloads deeper in a clusterQueue whose
 	// head got admitted that should be scheduled in the cohort before the heads
 	// of other clusterQueues.
-	usedCohorts := sets.NewString()
+	usedCohorts := sets.New[string]()
 	for i := range entries {
 		e := &entries[i]
 		if e.assignment.RepresentativeMode() == flavorassigner.NoFit {

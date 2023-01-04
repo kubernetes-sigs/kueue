@@ -255,11 +255,11 @@ func (r *ResourceFlavorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func resourceFlavors(cq *kueue.ClusterQueue) sets.String {
-	flavors := sets.NewString()
+func resourceFlavors(cq *kueue.ClusterQueue) sets.Set[kueue.ResourceFlavorReference] {
+	flavors := sets.New[kueue.ResourceFlavorReference]()
 	for _, resource := range cq.Spec.Resources {
 		for _, flavor := range resource.Flavors {
-			flavors.Insert(string(flavor.Name))
+			flavors.Insert(flavor.Name)
 		}
 	}
 	return flavors

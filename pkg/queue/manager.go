@@ -53,7 +53,7 @@ type Manager struct {
 	localQueues   map[string]*LocalQueue
 
 	// Key is cohort's name. Value is a set of associated ClusterQueue names.
-	cohorts map[string]sets.String
+	cohorts map[string]sets.Set[string]
 }
 
 func NewManager(client client.Client, checker StatusChecker) *Manager {
@@ -62,7 +62,7 @@ func NewManager(client client.Client, checker StatusChecker) *Manager {
 		statusChecker: checker,
 		localQueues:   make(map[string]*LocalQueue),
 		clusterQueues: make(map[string]ClusterQueue),
-		cohorts:       make(map[string]sets.String),
+		cohorts:       make(map[string]sets.Set[string]),
 	}
 	m.cond.L = &m.RWMutex
 	return m
@@ -366,7 +366,7 @@ func (m *Manager) QueueAssociatedInadmissibleWorkloads(ctx context.Context, w *k
 // QueueInadmissibleWorkloads moves all inadmissibleWorkloads in
 // corresponding ClusterQueues to heap. If at least one workload queued,
 // we will broadcast the event.
-func (m *Manager) QueueInadmissibleWorkloads(ctx context.Context, cqNames sets.String) {
+func (m *Manager) QueueInadmissibleWorkloads(ctx context.Context, cqNames sets.Set[string]) {
 	m.Lock()
 	defer m.Unlock()
 	if len(cqNames) == 0 {
@@ -456,13 +456,13 @@ func (m *Manager) Heads(ctx context.Context) []workload.Info {
 
 // Dump is a dump of the queues and it's elements (unordered).
 // Only use for testing purposes.
-func (m *Manager) Dump() map[string]sets.String {
+func (m *Manager) Dump() map[string]sets.Set[string] {
 	m.Lock()
 	defer m.Unlock()
 	if len(m.clusterQueues) == 0 {
 		return nil
 	}
-	dump := make(map[string]sets.String, len(m.clusterQueues))
+	dump := make(map[string]sets.Set[string], len(m.clusterQueues))
 	for key, cq := range m.clusterQueues {
 		if elements, ok := cq.Dump(); ok {
 			dump[key] = elements
@@ -476,13 +476,13 @@ func (m *Manager) Dump() map[string]sets.String {
 
 // DumpInadmissible is a dump of the inadmissible workloads list.
 // Only use for testing purposes.
-func (m *Manager) DumpInadmissible() map[string]sets.String {
+func (m *Manager) DumpInadmissible() map[string]sets.Set[string] {
 	m.Lock()
 	defer m.Unlock()
 	if len(m.clusterQueues) == 0 {
 		return nil
 	}
-	dump := make(map[string]sets.String, len(m.clusterQueues))
+	dump := make(map[string]sets.Set[string], len(m.clusterQueues))
 	for key, cq := range m.clusterQueues {
 		if elements, ok := cq.DumpInadmissible(); ok {
 			dump[key] = elements
@@ -517,7 +517,7 @@ func (m *Manager) heads() []workload.Info {
 
 func (m *Manager) addCohort(cohort string, cqName string) {
 	if m.cohorts[cohort] == nil {
-		m.cohorts[cohort] = make(sets.String)
+		m.cohorts[cohort] = make(sets.Set[string])
 	}
 	m.cohorts[cohort].Insert(cqName)
 }

@@ -527,7 +527,7 @@ func TestAssignFlavors(t *testing.T) {
 						},
 					},
 				},
-				LabelKeys: map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
+				LabelKeys: map[corev1.ResourceName]sets.Set[string]{corev1.ResourceCPU: sets.New("cpuType")},
 			},
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
@@ -705,7 +705,7 @@ func TestAssignFlavors(t *testing.T) {
 						},
 					},
 				},
-				LabelKeys: map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
+				LabelKeys: map[corev1.ResourceName]sets.Set[string]{corev1.ResourceCPU: sets.New("cpuType")},
 			},
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{

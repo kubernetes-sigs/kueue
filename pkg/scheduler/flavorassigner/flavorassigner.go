@@ -254,7 +254,7 @@ func AssignFlavors(log logr.Logger, wl *workload.Info, resourceFlavors map[strin
 			}
 			codepResources := cq.RequestableResources[resName].CodependentResources
 			if codepResources.Len() == 0 {
-				codepResources = sets.NewString(string(resName))
+				codepResources = sets.New(resName)
 			}
 			codepReq := filterRequestedResources(podSet.Requests, codepResources)
 			flavors, status := assignment.findFlavorForCodepResources(log, codepReq, resourceFlavors, cq, &wl.Obj.Spec.PodSets[i].Spec)
@@ -391,7 +391,7 @@ func (a *Assignment) findFlavorForCodepResources(
 	return bestAssignment, status
 }
 
-func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.String) nodeaffinity.RequiredNodeAffinity {
+func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.Set[string]) nodeaffinity.RequiredNodeAffinity {
 	// This function generally replicates the implementation of kube-scheduler's NodeAffintiy
 	// Filter plugin as of v1.24.
 	var specCopy corev1.PodSpec
@@ -490,10 +490,10 @@ func fitsFlavorLimits(rName corev1.ResourceName, val int64, cq *cache.ClusterQue
 	return mode, 0, &status
 }
 
-func filterRequestedResources(req workload.Requests, allowList sets.String) workload.Requests {
+func filterRequestedResources(req workload.Requests, allowList sets.Set[corev1.ResourceName]) workload.Requests {
 	filtered := make(workload.Requests)
 	for n, v := range req {
-		if allowList.Has(string(n)) {
+		if allowList.Has(n) {
 			filtered[n] = v
 		}
 	}

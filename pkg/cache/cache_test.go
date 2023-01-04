@@ -123,7 +123,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		name              string
 		operation         func(*Cache)
 		wantClusterQueues map[string]*ClusterQueue
-		wantCohorts       map[string]sets.String
+		wantCohorts       map[string]sets.Set[string]
 	}{
 		{
 			name: "add",
@@ -139,7 +139,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						},
 					},
 					NamespaceSelector: labels.Nothing(),
-					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
+					LabelKeys:         map[corev1.ResourceName]sets.Set[string]{corev1.ResourceCPU: sets.New("cpuType")},
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
 					Status:            active,
 				},
@@ -150,7 +150,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					},
 					NamespaceSelector: labels.Nothing(),
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
-					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
+					LabelKeys:         map[corev1.ResourceName]sets.Set[string]{corev1.ResourceCPU: sets.New("cpuType")},
 					Status:            active,
 				},
 				"c": {
@@ -178,9 +178,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Status:            pending,
 				},
 			},
-			wantCohorts: map[string]sets.String{
-				"one": sets.NewString("a", "b"),
-				"two": sets.NewString("c", "e"),
+			wantCohorts: map[string]sets.Set[string]{
+				"one": sets.New("a", "b"),
+				"two": sets.New("c", "e"),
 			},
 		},
 		{
@@ -205,7 +205,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						corev1.ResourceCPU: {Flavors: []FlavorLimits{{Name: "default", Min: 10000, Max: pointer.Int64(20000)}}},
 					},
 					NamespaceSelector: labels.Nothing(),
-					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
+					LabelKeys:         map[corev1.ResourceName]sets.Set[string]{corev1.ResourceCPU: sets.New("cpuType")},
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
 					Status:            active,
 				},
@@ -216,7 +216,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					},
 					NamespaceSelector: labels.Nothing(),
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
-					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
+					LabelKeys:         map[corev1.ResourceName]sets.Set[string]{corev1.ResourceCPU: sets.New("cpuType")},
 					Status:            active,
 				},
 				"c": {
@@ -244,9 +244,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Status:            pending,
 				},
 			},
-			wantCohorts: map[string]sets.String{
-				"one": sets.NewString("a", "b"),
-				"two": sets.NewString("c", "e"),
+			wantCohorts: map[string]sets.Set[string]{
+				"one": sets.New("a", "b"),
+				"two": sets.New("c", "e"),
 			},
 		},
 		{
@@ -320,7 +320,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						corev1.ResourceCPU: {Flavors: []FlavorLimits{{Name: "default", Min: 5000, Max: pointer.Int64(10000)}}},
 					},
 					NamespaceSelector: labels.Nothing(),
-					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType", "region")},
+					LabelKeys:         map[corev1.ResourceName]sets.Set[string]{corev1.ResourceCPU: sets.New("cpuType", "region")},
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
 					Status:            active,
 				},
@@ -352,13 +352,13 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					},
 					NamespaceSelector: labels.Nothing(),
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
-					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType", "region")},
+					LabelKeys:         map[corev1.ResourceName]sets.Set[string]{corev1.ResourceCPU: sets.New("cpuType", "region")},
 					Status:            active,
 				},
 			},
-			wantCohorts: map[string]sets.String{
-				"one": sets.NewString("b"),
-				"two": sets.NewString("a", "c", "e"),
+			wantCohorts: map[string]sets.Set[string]{
+				"one": sets.New("b"),
+				"two": sets.New("a", "c", "e"),
 			},
 		},
 		{
@@ -381,7 +381,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					},
 					NamespaceSelector: labels.Nothing(),
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
-					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
+					LabelKeys:         map[corev1.ResourceName]sets.Set[string]{corev1.ResourceCPU: sets.New("cpuType")},
 					Status:            active,
 				},
 				"c": {
@@ -402,9 +402,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Status:            pending,
 				},
 			},
-			wantCohorts: map[string]sets.String{
-				"one": sets.NewString("b"),
-				"two": sets.NewString("c", "e"),
+			wantCohorts: map[string]sets.Set[string]{
+				"one": sets.New("b"),
+				"two": sets.New("c", "e"),
 			},
 		},
 		{
@@ -422,7 +422,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						corev1.ResourceCPU: {Flavors: []FlavorLimits{{Name: "default", Min: 10000, Max: pointer.Int64(20000)}}},
 					},
 					NamespaceSelector: labels.Nothing(),
-					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
+					LabelKeys:         map[corev1.ResourceName]sets.Set[string]{corev1.ResourceCPU: sets.New("cpuType")},
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
 					Status:            active,
 				},
@@ -433,7 +433,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					},
 					NamespaceSelector: labels.Nothing(),
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
-					LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: sets.NewString("cpuType")},
+					LabelKeys:         map[corev1.ResourceName]sets.Set[string]{corev1.ResourceCPU: sets.New("cpuType")},
 					Status:            active,
 				},
 				"c": {
@@ -461,9 +461,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Status:            active,
 				},
 			},
-			wantCohorts: map[string]sets.String{
-				"one": sets.NewString("a", "b"),
-				"two": sets.NewString("c", "e"),
+			wantCohorts: map[string]sets.Set[string]{
+				"one": sets.New("a", "b"),
+				"two": sets.New("c", "e"),
 			},
 		},
 		{
@@ -514,14 +514,14 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 								{Name: "foo"},
 								{Name: "bar"},
 							},
-							CodependentResources: sets.NewString("cpu", "memory"),
+							CodependentResources: sets.New[corev1.ResourceName]("cpu", "memory"),
 						},
 						"memory": {
 							Flavors: []FlavorLimits{
 								{Name: "foo"},
 								{Name: "bar"},
 							},
-							CodependentResources: sets.NewString("cpu", "memory"),
+							CodependentResources: sets.New[corev1.ResourceName]("cpu", "memory"),
 						},
 						"example.com/gpu": {
 							Flavors: []FlavorLimits{
@@ -558,9 +558,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				t.Errorf("Unexpected clusterQueues (-want,+got):\n%s", diff)
 			}
 
-			gotCohorts := map[string]sets.String{}
+			gotCohorts := make(map[string]sets.Set[string], len(cache.cohorts))
 			for name, cohort := range cache.cohorts {
-				gotCohort := sets.NewString()
+				gotCohort := sets.New[string]()
 				for cq := range cohort.members {
 					gotCohort.Insert(cq.Name)
 				}
@@ -654,7 +654,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 	).Build()
 
 	type result struct {
-		Workloads     sets.String
+		Workloads     sets.Set[string]
 		UsedResources ResourceQuantities
 	}
 
@@ -685,11 +685,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.NewString("a", "b"),
+					Workloads:     sets.New("a", "b"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:     sets.NewString("c", "d"),
+					Workloads:     sets.New("c", "d"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
@@ -708,11 +708,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantError: "failed to add workload",
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.NewString("a", "b"),
+					Workloads:     sets.New("a", "b"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:     sets.NewString("c"),
+					Workloads:     sets.New("c"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
@@ -730,11 +730,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.NewString("a", "b"),
+					Workloads:     sets.New("a", "b"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:     sets.NewString("c"),
+					Workloads:     sets.New("c"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
@@ -753,11 +753,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.NewString("b"),
+					Workloads:     sets.New("b"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 				"two": {
-					Workloads:     sets.NewString("a", "c"),
+					Workloads:     sets.New("a", "c"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 			},
@@ -776,11 +776,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantError: "old ClusterQueue doesn't exist",
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.NewString("a", "b"),
+					Workloads:     sets.New("a", "b"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:     sets.NewString("c"),
+					Workloads:     sets.New("c"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
@@ -799,11 +799,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantError: "new ClusterQueue doesn't exist",
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.NewString("a", "b"),
+					Workloads:     sets.New("a", "b"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:     sets.NewString("c"),
+					Workloads:     sets.New("c"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
@@ -821,11 +821,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.NewString("a", "b"),
+					Workloads:     sets.New("a", "b"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:     sets.NewString("c", "d"),
+					Workloads:     sets.New("c", "d"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
@@ -840,11 +840,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.NewString("b"),
+					Workloads:     sets.New("b"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 				"two": {
-					Workloads:     sets.NewString("c"),
+					Workloads:     sets.New("c"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
@@ -860,11 +860,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantError: "cluster queue not found",
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.NewString("a", "b"),
+					Workloads:     sets.New("a", "b"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:     sets.NewString("c"),
+					Workloads:     sets.New("c"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
@@ -879,11 +879,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.NewString("a", "b"),
+					Workloads:     sets.New("a", "b"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:     sets.NewString("c"),
+					Workloads:     sets.New("c"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
@@ -910,11 +910,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.NewString("a", "b", "d"),
+					Workloads:     sets.New("a", "b", "d"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 20, "spot": 30}},
 				},
 				"two": {
-					Workloads:     sets.NewString("c", "e"),
+					Workloads:     sets.New("c", "e"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 			},
@@ -937,11 +937,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantError: "cluster queue not found",
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.NewString("a", "b"),
+					Workloads:     sets.New("a", "b"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:     sets.NewString("c"),
+					Workloads:     sets.New("c"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
@@ -971,11 +971,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.NewString("a", "b"),
+					Workloads:     sets.New("a", "b"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:     sets.NewString("c", "e"),
+					Workloads:     sets.New("c", "e"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 			},
@@ -997,11 +997,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantError: "the workload is not assumed",
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.NewString("a", "b"),
+					Workloads:     sets.New("a", "b"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:     sets.NewString("c"),
+					Workloads:     sets.New("c"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
@@ -1033,11 +1033,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.NewString("a", "b", "d"),
+					Workloads:     sets.New("a", "b", "d"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 20, "spot": 30}},
 				},
 				"two": {
-					Workloads:     sets.NewString("c", "e"),
+					Workloads:     sets.New("c", "e"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 			},
@@ -1062,7 +1062,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			}
 			gotWorkloads := make(map[string]result)
 			for name, cq := range cache.clusterQueues {
-				c := sets.NewString()
+				c := sets.New[string]()
 				for k := range cq.Workloads {
 					c.Insert(cq.Workloads[k].Obj.Name)
 				}
@@ -1701,14 +1701,14 @@ func TestClusterQueueUpdateCodependentResources(t *testing.T) {
 							{Name: "alpha"},
 							{Name: "beta"},
 						},
-						CodependentResources: sets.NewString("cpu", "memory"),
+						CodependentResources: sets.New[corev1.ResourceName]("cpu", "memory"),
 					},
 					"memory": {
 						Flavors: []FlavorLimits{
 							{Name: "alpha"},
 							{Name: "beta"},
 						},
-						CodependentResources: sets.NewString("cpu", "memory"),
+						CodependentResources: sets.New[corev1.ResourceName]("cpu", "memory"),
 					},
 					"example.com/gpu": {
 						Flavors: []FlavorLimits{
@@ -1720,13 +1720,13 @@ func TestClusterQueueUpdateCodependentResources(t *testing.T) {
 						Flavors: []FlavorLimits{
 							{Name: "default"},
 						},
-						CodependentResources: sets.NewString("example.com/foo", "example.com/bar"),
+						CodependentResources: sets.New[corev1.ResourceName]("example.com/foo", "example.com/bar"),
 					},
 					"example.com/bar": {
 						Flavors: []FlavorLimits{
 							{Name: "default"},
 						},
-						CodependentResources: sets.NewString("example.com/foo", "example.com/bar"),
+						CodependentResources: sets.New[corev1.ResourceName]("example.com/foo", "example.com/bar"),
 					},
 				},
 			},
@@ -1759,7 +1759,7 @@ func TestMatchingClusterQueues(t *testing.T) {
 				},
 			}).Obj(),
 	}
-	wantCQs := sets.NewString("matching1", "matching2")
+	wantCQs := sets.New("matching1", "matching2")
 
 	ctx := context.Background()
 	scheme := runtime.NewScheme()

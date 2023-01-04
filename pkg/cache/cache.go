@@ -128,12 +128,12 @@ type ClusterQueue struct {
 	RequestableResources map[corev1.ResourceName]*Resource
 	UsedResources        ResourceQuantities
 	Workloads            map[string]*workload.Info
-	WorkloadsNotReady    sets.String
+	WorkloadsNotReady    sets.Set[string]
 	NamespaceSelector    labels.Selector
 	// The set of key labels from all flavors of a resource.
 	// Those keys define the affinity terms of a workload
 	// that can be matched against the flavors.
-	LabelKeys map[corev1.ResourceName]sets.String
+	LabelKeys map[corev1.ResourceName]sets.Set[string]
 	Status    metrics.ClusterQueueStatus
 
 	// The following fields are not populated in a snapshot.
@@ -143,7 +143,7 @@ type ClusterQueue struct {
 }
 
 type Resource struct {
-	CodependentResources sets.String
+	CodependentResources sets.Set[corev1.ResourceName]
 	Flavors              []FlavorLimits
 }
 
@@ -170,7 +170,7 @@ func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*ClusterQueue, error) {
 	cqImpl := &ClusterQueue{
 		Name:                      cq.Name,
 		Workloads:                 make(map[string]*workload.Info),
-		WorkloadsNotReady:         sets.NewString(),
+		WorkloadsNotReady:         sets.New[string](),
 		admittedWorkloadsPerQueue: make(map[string]int),
 		podsReadyTracking:         c.podsReadyTracking,
 	}
@@ -282,10 +282,10 @@ func (c *ClusterQueue) UpdateCodependentResources() {
 			// Already matched with other resources.
 			continue
 		}
-		codep := sets.NewString()
+		codep := sets.New[corev1.ResourceName]()
 		for jName, jRes := range c.RequestableResources {
 			if iName == jName || iRes.matchesFlavors(jRes) {
-				codep.Insert(string(jName))
+				codep.Insert(jName)
 			}
 		}
 		if len(codep) > 1 {
@@ -312,12 +312,12 @@ func (c *ClusterQueue) UpdateWithFlavors(flavors map[string]*kueue.ResourceFlavo
 
 func (c *ClusterQueue) updateLabelKeys(flavors map[string]*kueue.ResourceFlavor) bool {
 	var flavorNotFound bool
-	labelKeys := map[corev1.ResourceName]sets.String{}
+	labelKeys := make(map[corev1.ResourceName]sets.Set[string])
 	for rName, res := range c.RequestableResources {
 		if len(res.Flavors) == 0 {
 			continue
 		}
-		resKeys := sets.NewString()
+		resKeys := sets.New[string]()
 		for _, rf := range res.Flavors {
 			if flv, exist := flavors[rf.Name]; exist {
 				for k := range flv.NodeSelector {
@@ -421,8 +421,8 @@ func (c *ClusterQueue) flavorInUse(flavor string) bool {
 	return false
 }
 
-func (c *Cache) updateClusterQueues() sets.String {
-	cqs := sets.NewString()
+func (c *Cache) updateClusterQueues() sets.Set[string] {
+	cqs := sets.New[string]()
 
 	for _, cq := range c.clusterQueues {
 		prevStatus := cq.Status
@@ -438,14 +438,14 @@ func (c *Cache) updateClusterQueues() sets.String {
 	return cqs
 }
 
-func (c *Cache) AddOrUpdateResourceFlavor(rf *kueue.ResourceFlavor) sets.String {
+func (c *Cache) AddOrUpdateResourceFlavor(rf *kueue.ResourceFlavor) sets.Set[string] {
 	c.Lock()
 	defer c.Unlock()
 	c.resourceFlavors[rf.Name] = rf
 	return c.updateClusterQueues()
 }
 
-func (c *Cache) DeleteResourceFlavor(rf *kueue.ResourceFlavor) sets.String {
+func (c *Cache) DeleteResourceFlavor(rf *kueue.ResourceFlavor) sets.Set[string] {
 	c.Lock()
 	defer c.Unlock()
 	delete(c.resourceFlavors, rf.Name)
@@ -816,11 +816,11 @@ func (c *Cache) ClusterQueuesUsingFlavor(flavor string) []string {
 	return cqs
 }
 
-func (c *Cache) MatchingClusterQueues(nsLabels map[string]string) sets.String {
+func (c *Cache) MatchingClusterQueues(nsLabels map[string]string) sets.Set[string] {
 	c.RLock()
 	defer c.RUnlock()
 
-	cqs := sets.NewString()
+	cqs := sets.New[string]()
 	for _, cq := range c.clusterQueues {
 		if cq.NamespaceSelector.Matches(labels.Set(nsLabels)) {
 			cqs.Insert(cq.Name)

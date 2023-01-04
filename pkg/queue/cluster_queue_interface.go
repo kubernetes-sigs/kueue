@@ -89,8 +89,8 @@ type ClusterQueue interface {
 	// Dump produces a dump of the current workloads in the heap of
 	// this ClusterQueue. It returns false if the queue is empty.
 	// Otherwise returns true.
-	Dump() (sets.String, bool)
-	DumpInadmissible() (sets.String, bool)
+	Dump() (sets.Set[string], bool)
+	DumpInadmissible() (sets.Set[string], bool)
 	// Info returns workload.Info for the workload key.
 	// Users of this method should not modify the returned object.
 	Info(string) *workload.Info

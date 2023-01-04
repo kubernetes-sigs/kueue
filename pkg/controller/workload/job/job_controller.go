@@ -262,7 +262,7 @@ func podsReady(job *batchv1.Job) bool {
 // the workload (which should include the original affinities that the job had).
 func (r *JobReconciler) stopJob(ctx context.Context, w *kueue.Workload,
 	job *batchv1.Job, eventMsg string) error {
-	job.Spec.Suspend = pointer.BoolPtr(true)
+	job.Spec.Suspend = pointer.Bool(true)
 	if err := r.client.Update(ctx, job); err != nil {
 		return err
 	}
@@ -311,7 +311,7 @@ func (r *JobReconciler) startJob(ctx context.Context, w *kueue.Workload, job *ba
 		log.V(3).Info("no nodeSelectors to inject")
 	}
 
-	job.Spec.Suspend = pointer.BoolPtr(false)
+	job.Spec.Suspend = pointer.Bool(false)
 	if err := r.client.Update(ctx, job); err != nil {
 		return err
 	}

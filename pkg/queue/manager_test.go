@@ -60,7 +60,7 @@ func TestAddLocalQueueOrphans(t *testing.T) {
 	}
 	qImpl := manager.localQueues[Key(q)]
 	workloadNames := workloadNamesFromLQ(qImpl)
-	if diff := cmp.Diff(sets.NewString("earth/a", "earth/c"), workloadNames); diff != "" {
+	if diff := cmp.Diff(sets.New("earth/a", "earth/c"), workloadNames); diff != "" {
 		t.Errorf("Unexpected items in queue foo (-want,+got):\n%s", diff)
 	}
 }
@@ -98,8 +98,8 @@ func TestAddClusterQueueOrphans(t *testing.T) {
 		}
 	}
 
-	wantActiveWorkloads := map[string]sets.String{
-		"cq": sets.NewString("/a", "/b"),
+	wantActiveWorkloads := map[string]sets.Set[string]{
+		"cq": sets.New("/a", "/b"),
 	}
 	if diff := cmp.Diff(wantActiveWorkloads, manager.Dump()); diff != "" {
 		t.Errorf("Unexpected active workloads after creating all objects (-want,+got):\n%s", diff)
@@ -169,8 +169,8 @@ func TestUpdateClusterQueue(t *testing.T) {
 		t.Fatalf("Failed to update ClusterQueue: %v", err)
 	}
 
-	wantCohorts := map[string]sets.String{
-		"alpha": sets.NewString("cq1", "cq2"),
+	wantCohorts := map[string]sets.Set[string]{
+		"alpha": sets.New("cq1", "cq2"),
 	}
 	if diff := cmp.Diff(manager.cohorts, wantCohorts); diff != "" {
 		t.Errorf("Unexpected ClusterQueues in cohorts (-want,+got):\n%s", diff)
@@ -178,9 +178,9 @@ func TestUpdateClusterQueue(t *testing.T) {
 
 	// Verify all workloads are active after the update.
 	activeWorkloads := manager.Dump()
-	wantActiveWorkloads := map[string]sets.String{
-		"cq1": sets.NewString("default/a"),
-		"cq2": sets.NewString("default/b"),
+	wantActiveWorkloads := map[string]sets.Set[string]{
+		"cq1": sets.New("default/a"),
+		"cq2": sets.New("default/b"),
 	}
 	if diff := cmp.Diff(wantActiveWorkloads, activeWorkloads); diff != "" {
 		t.Errorf("Unexpected active workloads (-want +got):\n%s", diff)
@@ -263,8 +263,8 @@ func TestDeleteLocalQueue(t *testing.T) {
 		t.Fatalf("Could not create LocalQueue: %v", err)
 	}
 
-	wantActiveWorkloads := map[string]sets.String{
-		"cq": sets.NewString("/a"),
+	wantActiveWorkloads := map[string]sets.Set[string]{
+		"cq": sets.New("/a"),
 	}
 	if diff := cmp.Diff(wantActiveWorkloads, manager.Dump()); diff != "" {
 		t.Errorf("Unexpected workloads after setup (-want,+got):\n%s", diff)
@@ -553,7 +553,7 @@ func TestUpdateWorkload(t *testing.T) {
 		update           func(*kueue.Workload)
 		wantUpdated      bool
 		wantQueueOrder   map[string][]string
-		wantQueueMembers map[string]sets.String
+		wantQueueMembers map[string]sets.Set[string]
 	}{
 		"in queue": {
 			clusterQueues: []*kueue.ClusterQueue{
@@ -573,8 +573,8 @@ func TestUpdateWorkload(t *testing.T) {
 			wantQueueOrder: map[string][]string{
 				"cq": {"/b", "/a"},
 			},
-			wantQueueMembers: map[string]sets.String{
-				"/foo": sets.NewString("/a", "/b"),
+			wantQueueMembers: map[string]sets.Set[string]{
+				"/foo": sets.New("/a", "/b"),
 			},
 		},
 		"between queues": {
@@ -595,9 +595,9 @@ func TestUpdateWorkload(t *testing.T) {
 			wantQueueOrder: map[string][]string{
 				"cq": {"/a"},
 			},
-			wantQueueMembers: map[string]sets.String{
-				"/foo": sets.NewString(),
-				"/bar": sets.NewString("/a"),
+			wantQueueMembers: map[string]sets.Set[string]{
+				"/foo": nil,
+				"/bar": sets.New("/a"),
 			},
 		},
 		"between cluster queues": {
@@ -620,9 +620,9 @@ func TestUpdateWorkload(t *testing.T) {
 				"cq1": nil,
 				"cq2": {"/a"},
 			},
-			wantQueueMembers: map[string]sets.String{
-				"/foo": sets.NewString(),
-				"/bar": sets.NewString("/a"),
+			wantQueueMembers: map[string]sets.Set[string]{
+				"/foo": nil,
+				"/bar": sets.New("/a"),
 			},
 		},
 		"to non existent queue": {
@@ -641,8 +641,8 @@ func TestUpdateWorkload(t *testing.T) {
 			wantQueueOrder: map[string][]string{
 				"cq": nil,
 			},
-			wantQueueMembers: map[string]sets.String{
-				"/foo": sets.NewString(),
+			wantQueueMembers: map[string]sets.Set[string]{
+				"/foo": nil,
 			},
 		},
 		"from non existing queue": {
@@ -662,8 +662,8 @@ func TestUpdateWorkload(t *testing.T) {
 			wantQueueOrder: map[string][]string{
 				"cq": {"/a"},
 			},
-			wantQueueMembers: map[string]sets.String{
-				"/foo": sets.NewString("/a"),
+			wantQueueMembers: map[string]sets.Set[string]{
+				"/foo": sets.New("/a"),
 			},
 		},
 	}
@@ -715,7 +715,7 @@ func TestUpdateWorkload(t *testing.T) {
 			if diff := cmp.Diff(tc.wantQueueOrder, queueOrder); diff != "" {
 				t.Errorf("Elements popped in the wrong order from clusterQueues (-want,+got):\n%s", diff)
 			}
-			queueMembers := make(map[string]sets.String)
+			queueMembers := make(map[string]sets.Set[string])
 			for name, q := range manager.localQueues {
 				queueMembers[name] = workloadNamesFromLQ(q)
 			}
@@ -746,12 +746,12 @@ func TestHeads(t *testing.T) {
 	tests := []struct {
 		name          string
 		workloads     []*kueue.Workload
-		wantWorkloads sets.String
+		wantWorkloads sets.Set[string]
 	}{
 		{
 			name:          "empty clusterQueues",
 			workloads:     []*kueue.Workload{},
-			wantWorkloads: sets.String{},
+			wantWorkloads: sets.Set[string]{},
 		},
 		{
 			name: "active clusterQueues",
@@ -759,7 +759,7 @@ func TestHeads(t *testing.T) {
 				utiltesting.MakeWorkload("a", "").Creation(now).Queue("foo").Obj(),
 				utiltesting.MakeWorkload("b", "").Creation(now).Queue("bar").Obj(),
 			},
-			wantWorkloads: sets.NewString("a", "b"),
+			wantWorkloads: sets.New("a", "b"),
 		},
 		{
 			name: "active clusterQueues with multiple workloads",
@@ -768,7 +768,7 @@ func TestHeads(t *testing.T) {
 				utiltesting.MakeWorkload("a2", "").Creation(now.Add(time.Hour)).Queue("foo").Obj(),
 				utiltesting.MakeWorkload("b", "").Creation(now).Queue("bar").Obj(),
 			},
-			wantWorkloads: sets.NewString("a1", "b"),
+			wantWorkloads: sets.New("a1", "b"),
 		},
 		{
 			name: "inactive clusterQueues",
@@ -777,7 +777,7 @@ func TestHeads(t *testing.T) {
 				utiltesting.MakeWorkload("b", "").Creation(now).Queue("bar").Obj(),
 				utiltesting.MakeWorkload("c", "").Creation(now.Add(time.Hour)).Queue("baz").Obj(),
 			},
-			wantWorkloads: sets.NewString("a", "b"),
+			wantWorkloads: sets.New("a", "b"),
 		},
 	}
 	for _, tc := range tests {
@@ -802,7 +802,7 @@ func TestHeads(t *testing.T) {
 				manager.AddOrUpdateWorkload(wl)
 			}
 
-			wlNames := sets.NewString()
+			wlNames := sets.New[string]()
 			heads := manager.Heads(ctx)
 			for _, h := range heads {
 				wlNames.Insert(h.Obj.Name)
@@ -1058,8 +1058,8 @@ func popNamesFromCQ(cq ClusterQueue) []string {
 }
 
 // workloadNamesFromLQ returns all the names of the workloads in a localQueue.
-func workloadNamesFromLQ(q *LocalQueue) sets.String {
-	names := sets.NewString()
+func workloadNamesFromLQ(q *LocalQueue) sets.Set[string] {
+	names := sets.New[string]()
 	for k := range q.items {
 		names.Insert(k)
 	}
