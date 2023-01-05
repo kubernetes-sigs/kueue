@@ -278,7 +278,7 @@ func (h *cqNamespaceHandler) Update(e event.UpdateEvent, q workqueue.RateLimitin
 	oldMatchingCqs := h.cache.MatchingClusterQueues(oldNs.Labels)
 	newNs := e.ObjectNew.(*corev1.Namespace)
 	newMatchingCqs := h.cache.MatchingClusterQueues(newNs.Labels)
-	cqs := sets.NewString()
+	cqs := sets.New[string]()
 	for cq := range newMatchingCqs {
 		if !oldMatchingCqs.Has(cq) {
 			cqs.Insert(cq)

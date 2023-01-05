@@ -194,11 +194,11 @@ func (c *clusterQueueBase) Pop() *workload.Info {
 	return info.(*workload.Info)
 }
 
-func (c *clusterQueueBase) Dump() (sets.String, bool) {
+func (c *clusterQueueBase) Dump() (sets.Set[string], bool) {
 	if c.heap.Len() == 0 {
 		return nil, false
 	}
-	elements := make(sets.String, c.heap.Len())
+	elements := make(sets.Set[string], c.heap.Len())
 	for _, e := range c.heap.List() {
 		info := e.(*workload.Info)
 		elements.Insert(workload.Key(info.Obj))
@@ -206,11 +206,11 @@ func (c *clusterQueueBase) Dump() (sets.String, bool) {
 	return elements, true
 }
 
-func (c *clusterQueueBase) DumpInadmissible() (sets.String, bool) {
+func (c *clusterQueueBase) DumpInadmissible() (sets.Set[string], bool) {
 	if len(c.inadmissibleWorkloads) == 0 {
-		return sets.NewString(), false
+		return nil, false
 	}
-	elements := make(sets.String, len(c.inadmissibleWorkloads))
+	elements := make(sets.Set[string], len(c.inadmissibleWorkloads))
 	for _, info := range c.inadmissibleWorkloads {
 		elements.Insert(workload.Key(info.Obj))
 	}

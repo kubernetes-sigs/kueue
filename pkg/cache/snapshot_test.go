@@ -320,7 +320,7 @@ func TestSnapshot(t *testing.T) {
 				Workloads: map[string]*workload.Info{
 					"/alpha": workload.NewInfo(&workloads[0]),
 				},
-				LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: {"baz": {}, "foo": {}, "instance": {}}},
+				LabelKeys:         map[corev1.ResourceName]sets.Set[string]{corev1.ResourceCPU: sets.New("baz", "foo", "instance")},
 				NamespaceSelector: labels.Nothing(),
 				Status:            active,
 			},
@@ -358,7 +358,7 @@ func TestSnapshot(t *testing.T) {
 					"/gamma": workload.NewInfo(&workloads[2]),
 				},
 				NamespaceSelector: labels.Nothing(),
-				LabelKeys:         map[corev1.ResourceName]sets.String{corev1.ResourceCPU: {"baz": {}, "instance": {}}},
+				LabelKeys:         map[corev1.ResourceName]sets.Set[string]{corev1.ResourceCPU: sets.New("baz", "instance")},
 				Status:            active,
 			},
 			"bar": {
@@ -398,7 +398,7 @@ func TestSnapshot(t *testing.T) {
 				NodeSelector: map[string]string{"baz": "bar", "instance": "spot"},
 			},
 		},
-		InactiveClusterQueueSets: sets.String{"flavor-nonexistent-cq": {}},
+		InactiveClusterQueueSets: sets.New("flavor-nonexistent-cq"),
 	}
 	if diff := cmp.Diff(wantSnapshot, snapshot, cmpopts.IgnoreUnexported(Cohort{}, ClusterQueue{})); diff != "" {
 		t.Errorf("Unexpected Snapshot (-want,+got):\n%s", diff)

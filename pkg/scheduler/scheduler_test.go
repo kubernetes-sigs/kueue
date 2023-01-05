@@ -259,9 +259,9 @@ func TestSchedule(t *testing.T) {
 		// wantScheduled is the subset of workloads that got scheduled/admitted in this cycle.
 		wantScheduled []string
 		// wantLeft is the workload keys that are left in the queues after this cycle.
-		wantLeft map[string]sets.String
+		wantLeft map[string]sets.Set[string]
 		// wantInadmissibleLeft is the workload keys that are left in the inadmissible state after this cycle.
-		wantInadmissibleLeft map[string]sets.String
+		wantInadmissibleLeft map[string]sets.Set[string]
 	}{
 		"workload fits in single clusterQueue": {
 			workloads: []kueue.Workload{
@@ -321,8 +321,8 @@ func TestSchedule(t *testing.T) {
 				},
 			},
 			admissionError: errors.New("admission"),
-			wantLeft: map[string]sets.String{
-				"sales": sets.NewString("sales/foo"),
+			wantLeft: map[string]sets.Set[string]{
+				"sales": sets.New("sales/foo"),
 			},
 		},
 		"single clusterQueue full": {
@@ -387,8 +387,8 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantLeft: map[string]sets.String{
-				"sales": sets.NewString("sales/new"),
+			wantLeft: map[string]sets.Set[string]{
+				"sales": sets.New("sales/new"),
 			},
 		},
 		"failed to match clusterQueue selector": {
@@ -412,8 +412,8 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantInadmissibleLeft: map[string]sets.String{
-				"eng-alpha": sets.NewString("sales/new"),
+			wantInadmissibleLeft: map[string]sets.Set[string]{
+				"eng-alpha": sets.New("sales/new"),
 			},
 		},
 		"assign to different cohorts": {
@@ -650,8 +650,8 @@ func TestSchedule(t *testing.T) {
 				},
 			},
 			wantScheduled: []string{"eng-alpha/new"},
-			wantLeft: map[string]sets.String{
-				"eng-beta": sets.NewString("eng-beta/new"),
+			wantLeft: map[string]sets.Set[string]{
+				"eng-beta": sets.New("eng-beta/new"),
 			},
 		},
 		"cannot borrow if needs reclaim from cohort": {
@@ -673,9 +673,9 @@ func TestSchedule(t *testing.T) {
 					Admit(utiltesting.MakeAdmission("eng-beta").Flavor(corev1.ResourceCPU, "spot").Obj()).
 					Obj(),
 			},
-			wantLeft: map[string]sets.String{
-				"eng-alpha": sets.NewString("eng-alpha/can-reclaim"),
-				"eng-beta":  sets.NewString("eng-beta/needs-to-borrow"),
+			wantLeft: map[string]sets.Set[string]{
+				"eng-alpha": sets.New("eng-alpha/can-reclaim"),
+				"eng-beta":  sets.New("eng-beta/needs-to-borrow"),
 			},
 			wantAssignments: map[string]kueue.Admission{
 				"eng-beta/user-spot":      *utiltesting.MakeAdmission("eng-beta").Flavor(corev1.ResourceCPU, "spot").Obj(),
@@ -703,8 +703,8 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantLeft: map[string]sets.String{
-				"eng-alpha": sets.NewString("eng-alpha/new"),
+			wantLeft: map[string]sets.Set[string]{
+				"eng-alpha": sets.New("eng-alpha/new"),
 			},
 		},
 		"not enough resources to borrow, fallback to next flavor": {
@@ -825,8 +825,8 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantLeft: map[string]sets.String{
-				"flavor-nonexistent-cq": sets.NewString("sales/foo"),
+			wantLeft: map[string]sets.Set[string]{
+				"flavor-nonexistent-cq": sets.New("sales/foo"),
 			},
 		},
 	}
@@ -1005,8 +1005,8 @@ func TestRequeueAndUpdate(t *testing.T) {
 	cases := []struct {
 		name             string
 		e                entry
-		wantWorkloads    map[string]sets.String
-		wantInadmissible map[string]sets.String
+		wantWorkloads    map[string]sets.Set[string]
+		wantInadmissible map[string]sets.Set[string]
 		wantStatus       kueue.WorkloadStatus
 	}{
 		{
@@ -1024,8 +1024,8 @@ func TestRequeueAndUpdate(t *testing.T) {
 					},
 				},
 			},
-			wantInadmissible: map[string]sets.String{
-				"cq": sets.NewString(workload.Key(w1)),
+			wantInadmissible: map[string]sets.Set[string]{
+				"cq": sets.New(workload.Key(w1)),
 			},
 		},
 		{
@@ -1034,8 +1034,8 @@ func TestRequeueAndUpdate(t *testing.T) {
 				status:          assumed,
 				inadmissibleMsg: "",
 			},
-			wantWorkloads: map[string]sets.String{
-				"cq": sets.NewString(workload.Key(w1)),
+			wantWorkloads: map[string]sets.Set[string]{
+				"cq": sets.New(workload.Key(w1)),
 			},
 		},
 		{
@@ -1044,8 +1044,8 @@ func TestRequeueAndUpdate(t *testing.T) {
 				status:          nominated,
 				inadmissibleMsg: "failed to admit workload",
 			},
-			wantWorkloads: map[string]sets.String{
-				"cq": sets.NewString(workload.Key(w1)),
+			wantWorkloads: map[string]sets.Set[string]{
+				"cq": sets.New(workload.Key(w1)),
 			},
 		},
 		{
@@ -1054,8 +1054,8 @@ func TestRequeueAndUpdate(t *testing.T) {
 				status:          skipped,
 				inadmissibleMsg: "cohort used in this cycle",
 			},
-			wantWorkloads: map[string]sets.String{
-				"cq": sets.NewString(workload.Key(w1)),
+			wantWorkloads: map[string]sets.Set[string]{
+				"cq": sets.New(workload.Key(w1)),
 			},
 		},
 	}

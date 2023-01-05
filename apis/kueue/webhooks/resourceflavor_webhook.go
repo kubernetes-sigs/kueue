@@ -100,7 +100,7 @@ func ValidateResourceFlavor(rf *kueue.ResourceFlavor) field.ErrorList {
 func validateNodeTaints(taints []corev1.Taint, fldPath *field.Path) field.ErrorList {
 	allErrors := field.ErrorList{}
 
-	uniqueTaints := map[corev1.TaintEffect]sets.String{}
+	uniqueTaints := make(map[corev1.TaintEffect]sets.Set[string])
 
 	for i, currTaint := range taints {
 		idxPath := fldPath.Index(i)
@@ -123,7 +123,7 @@ func validateNodeTaints(taints []corev1.Taint, fldPath *field.Path) field.ErrorL
 
 		// add taint to existingTaints for uniqueness check
 		if len(uniqueTaints[currTaint.Effect]) == 0 {
-			uniqueTaints[currTaint.Effect] = sets.String{}
+			uniqueTaints[currTaint.Effect] = sets.New[string]()
 		}
 		uniqueTaints[currTaint.Effect].Insert(currTaint.Key)
 	}
