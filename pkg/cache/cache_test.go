@@ -685,11 +685,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.New("a", "b"),
+					Workloads:     sets.New("/a", "/b"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:     sets.New("c", "d"),
+					Workloads:     sets.New("/c", "/d"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
@@ -708,11 +708,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantError: "failed to add workload",
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.New("a", "b"),
+					Workloads:     sets.New("/a", "/b"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:     sets.New("c"),
+					Workloads:     sets.New("/c"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
@@ -730,11 +730,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.New("a", "b"),
+					Workloads:     sets.New("/a", "/b"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:     sets.New("c"),
+					Workloads:     sets.New("/c"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
@@ -753,11 +753,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.New("b"),
+					Workloads:     sets.New("/b"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 				"two": {
-					Workloads:     sets.New("a", "c"),
+					Workloads:     sets.New("/a", "/c"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 			},
@@ -776,11 +776,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantError: "old ClusterQueue doesn't exist",
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.New("a", "b"),
+					Workloads:     sets.New("/a", "/b"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:     sets.New("c"),
+					Workloads:     sets.New("/c"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
@@ -799,11 +799,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantError: "new ClusterQueue doesn't exist",
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.New("a", "b"),
+					Workloads:     sets.New("/a", "/b"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:     sets.New("c"),
+					Workloads:     sets.New("/c"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
@@ -821,11 +821,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.New("a", "b"),
+					Workloads:     sets.New("/a", "/b"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:     sets.New("c", "d"),
+					Workloads:     sets.New("/c", "/d"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
@@ -840,11 +840,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.New("b"),
+					Workloads:     sets.New("/b"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 				"two": {
-					Workloads:     sets.New("c"),
+					Workloads:     sets.New("/c"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
@@ -860,11 +860,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantError: "cluster queue not found",
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.New("a", "b"),
+					Workloads:     sets.New("/a", "/b"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:     sets.New("c"),
+					Workloads:     sets.New("/c"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
@@ -879,11 +879,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.New("a", "b"),
+					Workloads:     sets.New("/a", "/b"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:     sets.New("c"),
+					Workloads:     sets.New("/c"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
@@ -910,11 +910,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.New("a", "b", "d"),
+					Workloads:     sets.New("/a", "/b", "/d"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 20, "spot": 30}},
 				},
 				"two": {
-					Workloads:     sets.New("c", "e"),
+					Workloads:     sets.New("/c", "/e"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 			},
@@ -937,11 +937,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantError: "cluster queue not found",
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.New("a", "b"),
+					Workloads:     sets.New("/a", "/b"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:     sets.New("c"),
+					Workloads:     sets.New("/c"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
@@ -971,11 +971,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.New("a", "b"),
+					Workloads:     sets.New("/a", "/b"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:     sets.New("c", "e"),
+					Workloads:     sets.New("/c", "/e"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 			},
@@ -997,11 +997,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			wantError: "the workload is not assumed",
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.New("a", "b"),
+					Workloads:     sets.New("/a", "/b"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 				"two": {
-					Workloads:     sets.New("c"),
+					Workloads:     sets.New("/c"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
 				},
 			},
@@ -1033,11 +1033,11 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 			wantResults: map[string]result{
 				"one": {
-					Workloads:     sets.New("a", "b", "d"),
+					Workloads:     sets.New("/a", "/b", "/d"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 20, "spot": 30}},
 				},
 				"two": {
-					Workloads:     sets.New("c", "e"),
+					Workloads:     sets.New("/c", "/e"),
 					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
 				},
 			},
@@ -1062,11 +1062,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			}
 			gotWorkloads := make(map[string]result)
 			for name, cq := range cache.clusterQueues {
-				c := sets.New[string]()
-				for k := range cq.Workloads {
-					c.Insert(cq.Workloads[k].Obj.Name)
-				}
-				gotWorkloads[name] = result{Workloads: c, UsedResources: cq.UsedResources}
+				gotWorkloads[name] = result{Workloads: sets.KeySet(cq.Workloads), UsedResources: cq.UsedResources}
 			}
 			if diff := cmp.Diff(step.wantResults, gotWorkloads); diff != "" {
 				t.Errorf("Unexpected clusterQueues (-want,+got):\n%s", diff)
