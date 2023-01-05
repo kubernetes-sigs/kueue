@@ -561,7 +561,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			gotCohorts := make(map[string]sets.Set[string], len(cache.cohorts))
 			for name, cohort := range cache.cohorts {
 				gotCohort := sets.New[string]()
-				for cq := range cohort.members {
+				for cq := range cohort.Members {
 					gotCohort.Insert(cq.Name)
 				}
 				gotCohorts[name] = gotCohort

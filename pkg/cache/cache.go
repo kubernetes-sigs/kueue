@@ -100,7 +100,7 @@ type ResourceQuantities map[corev1.ResourceName]map[string]int64
 // Cohort is a set of ClusterQueues that can borrow resources from each other.
 type Cohort struct {
 	Name    string
-	members map[*ClusterQueue]struct{}
+	Members sets.Set[*ClusterQueue]
 
 	// These fields are only populated for a snapshot.
 	RequestableResources ResourceQuantities
@@ -110,7 +110,7 @@ type Cohort struct {
 func newCohort(name string, size int) *Cohort {
 	return &Cohort{
 		Name:    name,
-		members: make(map[*ClusterQueue]struct{}, size),
+		Members: make(sets.Set[*ClusterQueue], size),
 	}
 }
 
@@ -788,7 +788,7 @@ func (c *Cache) addClusterQueueToCohort(cq *ClusterQueue, cohortName string) {
 		cohort = newCohort(cohortName, 1)
 		c.cohorts[cohortName] = cohort
 	}
-	cohort.members[cq] = struct{}{}
+	cohort.Members.Insert(cq)
 	cq.Cohort = cohort
 }
 
@@ -796,8 +796,8 @@ func (c *Cache) deleteClusterQueueFromCohort(cq *ClusterQueue) {
 	if cq.Cohort == nil {
 		return
 	}
-	delete(cq.Cohort.members, cq)
-	if len(cq.Cohort.members) == 0 {
+	cq.Cohort.Members.Delete(cq)
+	if cq.Cohort.Members.Len() == 0 {
 		delete(c.cohorts, cq.Cohort.Name)
 	}
 	cq.Cohort = nil
