@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -218,7 +219,7 @@ func (c *Cache) podsReadyForAllAdmittedWorkloads(ctx context.Context) bool {
 	log := ctrl.LoggerFrom(ctx)
 	for _, cq := range c.clusterQueues {
 		if len(cq.WorkloadsNotReady) > 0 {
-			log.V(3).Info("There is a ClusterQueue with not ready workloads", "clusterQueue", cq.Name)
+			log.V(3).Info("There is a ClusterQueue with not ready workloads", "clusterQueue", klog.KRef("", cq.Name))
 			return false
 		}
 	}
