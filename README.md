@@ -10,10 +10,12 @@ created) and when it should stop (as in active pods should be deleted).
 Kueue is a lean controller that you can install on top of a vanilla Kubernetes
 cluster. Kueue does not replace any existing Kubernetes components. Kueue is
 compatible with cloud environments where:
+
 - Compute resources are elastic and can be scaled up and down.
 - Compute resources are heterogeneous (in architecture, availability, price, etc.).
 
 Kueue APIs allow you to express:
+
 - Quotas and policies for fair sharing among tenants.
 - Resource fungibility: if a [resource flavor](docs/concepts/cluster_queue.md#resourceflavor-object)
   is fully utilized, Kueue can admit the job using a different flavor.
@@ -66,6 +68,7 @@ kubectl create -f config/samples/sample-job.yaml
 ```
 
 Learn more about:
+
 - Kueue [concepts](docs/concepts).
 - Common and advanced [tasks](docs/tasks).
 
@@ -80,6 +83,26 @@ Learn more about the architecture of Kueue with the following design docs:
 to get document access.
 - [bit.ly/kueue-controller-design](https://bit.ly/kueue-controller-design)
 presents the detailed design of the controller.
+
+## Roadmap
+
+This is a high-level overview of the main priorities for 2023, in expected order of release:
+
+- Job preemption to reclaim borrowed quota and to accommodate high priority jobs [#83](https://github.com/kubernetes-sigs/kueue/issues/83), this is planned for v0.3
+- Cooperative preemption support for workloads that implement checkpointing [#477](https://github.com/kubernetes-sigs/kueue/issues/477)
+- More advanced allocation strategies for better resource sharing [#312](https://github.com/kubernetes-sigs/kueue/issues/312)
+- Integration with cluster-autoscaler for guaranteed resource provisioning
+- Integration with common custom workloads [#74](https://github.com/kubernetes-sigs/kueue/issues/74):
+  - Kubeflow (TFJob, MPIJob, etc.)
+  - Spark
+  - Ray
+  - Workflows (Tekton, Argo, etc.)
+
+These are features that we aim to have in the long-term, in no particular order:
+
+- Budget support [#28](https://github.com/kubernetes-sigs/kueue/issues/28)
+- Dashboard for management and monitoring for administrators
+- Multi-cluster support
 
 ## Community, discussion, contribution, and support
 
