@@ -10,7 +10,7 @@ Make sure the following conditions are met:
   In Kubernetes 1.23 or newer, the feature gate is enabled by default.
 - The kubectl command-line tool has communication with your cluster.
 
-Kueue publishes [metrics](/docs/reference/metrics) to monitor its operators.
+Kueue publishes [metrics](/docs/reference/metrics.md) to monitor its operators.
 You can scrape these metrics with Prometheus.
 Use [kube-prometheus](https://github.com/prometheus-operator/kube-prometheus)
 if you don't have your own monitoring system.
