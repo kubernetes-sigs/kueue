@@ -146,9 +146,6 @@ func setupIndexes(mgr ctrl.Manager) {
 	if err := cache.SetupIndexes(mgr.GetFieldIndexer()); err != nil {
 		setupLog.Error(err, "Unable to setup cache indexes")
 	}
-	if err := job.SetupIndexes(mgr.GetFieldIndexer()); err != nil {
-		setupLog.Error(err, "Unable to setup job indexes")
-	}
 }
 
 func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, cfg *config.Configuration) {

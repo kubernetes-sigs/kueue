@@ -41,10 +41,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-var (
-	ownerKey = ".metadata.controller"
-)
-
 // JobReconciler reconciles a Job object
 type JobReconciler struct {
 	client                     client.Client
@@ -110,23 +106,6 @@ func (r *JobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func SetupIndexes(indexer client.FieldIndexer) error {
-	return indexer.IndexField(context.Background(), &kueue.Workload{}, ownerKey, func(o client.Object) []string {
-		// grab the Workload object, extract the owner...
-		wl := o.(*kueue.Workload)
-		owner := metav1.GetControllerOf(wl)
-		if owner == nil {
-			return nil
-		}
-		// ...make sure it's a Job...
-		if owner.APIVersion != "batch/v1" || owner.Kind != "Job" {
-			return nil
-		}
-		// ...and if so, return it
-		return []string{owner.Name}
-	})
-}
-
 //+kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
 //+kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;update;patch
@@ -153,17 +132,10 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 	log.V(2).Info("Reconciling Job")
 
-	var childWorkloads kueue.WorkloadList
-	if err := r.client.List(ctx, &childWorkloads, client.InNamespace(req.Namespace),
-		client.MatchingFields{ownerKey: req.Name}); err != nil {
-		log.Error(err, "Unable to list child workloads")
-		return ctrl.Result{}, err
-	}
-
-	// 1. make sure there is only a single existing instance of the workload
-	wl, err := r.ensureAtMostOneWorkload(ctx, &job, childWorkloads)
-	if err != nil {
-		log.Error(err, "Getting existing workloads")
+	// 1. find the corresponding workload
+	wl, err := r.findWorkload(ctx, req)
+	if err != nil && !apierrors.IsNotFound(err) {
+		log.Error(err, "Getting existing workload")
 		return ctrl.Result{}, err
 	}
 
@@ -174,6 +146,16 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		if jobFinished {
 			return ctrl.Result{}, nil
 		}
+
+		// If there is no matching workload and the job is running, suspend it.
+		if !jobSuspended(&job) {
+			log.V(2).Info("job with no matching workload, suspending")
+			if err := r.stopJob(ctx, wl, &job, "No matching Workload"); err != nil {
+				log.Error(err, "stopping job")
+				return ctrl.Result{}, err
+			}
+		}
+
 		err := r.handleJobWithNoWorkload(ctx, &job)
 		if err != nil {
 			log.Error(err, "Handling job with no workload")
@@ -195,6 +177,27 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, err
 	}
 
+	// 4. Handle a not finished job
+
+	if !jobAndWorkloadEqual(&job, wl) {
+		if !jobSuspended(&job) {
+			log.V(2).Info("Running job is changed, suspending")
+			if err := r.stopJob(ctx, wl, &job, "Running job is changed, suspending"); err != nil {
+				log.Error(err, "Suspending job")
+				return ctrl.Result{}, err
+			}
+		}
+
+		err := r.client.Delete(ctx, wl)
+		if err == nil {
+			r.record.Eventf(&job, corev1.EventTypeNormal, "DeletedWorkload",
+				"Deleted not matching Workload: %v", workload.Key(wl))
+		} else if !apierrors.IsNotFound(err) {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
 	// handle a job when waitForPodsReady is enabled
 	if r.waitForPodsReady {
 		log.V(5).Info("Handling a job when waitForPodsReady is enabled")
@@ -209,7 +212,6 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		}
 	}
 
-	// 4. Handle a not finished job
 	if jobSuspended(&job) {
 		// start the job if the workload has been admitted, and the job is still suspended
 		if wl.Spec.Admission != nil {
@@ -368,67 +370,12 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job *batchv
 	return nil
 }
 
-// ensureAtMostOneWorkload finds a matching workload and deletes redundant ones.
-func (r *JobReconciler) ensureAtMostOneWorkload(ctx context.Context, job *batchv1.Job, workloads kueue.WorkloadList) (*kueue.Workload, error) {
-	log := ctrl.LoggerFrom(ctx)
-
-	// Find a matching workload first if there is one.
-	var toDelete []*kueue.Workload
-	var match *kueue.Workload
-	for i := range workloads.Items {
-		w := &workloads.Items[i]
-		owner := metav1.GetControllerOf(w)
-		// Indexes don't work in unit tests, so we explicitly check for the
-		// owner here.
-		if owner.Name != job.Name {
-			continue
-		}
-		if match == nil && jobAndWorkloadEqual(job, w) {
-			match = w
-		} else {
-			toDelete = append(toDelete, w)
-		}
+func (r *JobReconciler) findWorkload(ctx context.Context, req ctrl.Request) (*kueue.Workload, error) {
+	var wl kueue.Workload
+	if err := r.client.Get(ctx, req.NamespacedName, &wl); err != nil {
+		return nil, err
 	}
-
-	// If there is no matching workload and the job is running, suspend it.
-	if match == nil && !jobSuspended(job) {
-		log.V(2).Info("job with no matching workload, suspending")
-		var w *kueue.Workload
-		if len(workloads.Items) == 1 {
-			// The job may have been modified and hence the existing workload
-			// doesn't match the job anymore. All bets are off if there are more
-			// than one workload...
-			w = &workloads.Items[0]
-		}
-		if err := r.stopJob(ctx, w, job, "No matching Workload"); err != nil {
-			log.Error(err, "stopping job")
-		}
-	}
-
-	// Delete duplicate workload instances.
-	existedWls := 0
-	for i := range toDelete {
-		err := r.client.Delete(ctx, toDelete[i])
-		if err == nil || !apierrors.IsNotFound(err) {
-			existedWls++
-		}
-		if err != nil && !apierrors.IsNotFound(err) {
-			log.Error(err, "Failed to delete workload")
-		}
-		if err == nil {
-			r.record.Eventf(job, corev1.EventTypeNormal, "DeletedWorkload",
-				"Deleted not matching Workload: %v", workload.Key(toDelete[i]))
-		}
-	}
-
-	if existedWls != 0 {
-		if match == nil {
-			return nil, fmt.Errorf("no matching workload was found, tried deleting %d existing workload(s)", existedWls)
-		}
-		return nil, fmt.Errorf("only one workload should exist, found %d", len(workloads.Items))
-	}
-
-	return match, nil
+	return &wl, nil
 }
 
 func ConstructWorkloadFor(ctx context.Context, client client.Client,

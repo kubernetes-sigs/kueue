@@ -28,14 +28,12 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes/scheme"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/workload/job"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 	"sigs.k8s.io/kueue/pkg/util/testing"
-	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -106,25 +104,29 @@ var _ = ginkgo.Describe("Job controller", func() {
 			return createdWorkload.Spec.QueueName == jobQueueName
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 
-		ginkgo.By("checking a second non-matching workload is deleted")
-		secondWl, _ := workloadjob.ConstructWorkloadFor(ctx, k8sClient, createdJob, scheme.Scheme)
-		secondWl.Name = "second-workload"
-		secondWl.Spec.PodSets[0].Count = parallelism + 1
-		gomega.Expect(k8sClient.Create(ctx, secondWl)).Should(gomega.Succeed())
-		gomega.Eventually(func() error {
-			wl := &kueue.Workload{}
-			key := types.NamespacedName{Name: secondWl.Name, Namespace: secondWl.Namespace}
-			return k8sClient.Get(ctx, key, wl)
-		}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
-		// check the original wl is still there
-		gomega.Consistently(func() bool {
-			err := k8sClient.Get(ctx, lookupKey, createdWorkload)
-			return err == nil
-		}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
+		ginkgo.By("checking the workload recreated when suspend job changed parallelism")
+		newParallelism := int32(parallelism - 1)
+		createdJob.Spec.Parallelism = &newParallelism
+		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
 		gomega.Eventually(func() bool {
-			ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "DeletedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching Workload: %v", workload.Key(secondWl)))
+			if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {
+				return false
+			}
+			return createdJob.Spec.Suspend != nil && *createdJob.Spec.Suspend
+		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+		gomega.Eventually(func() bool {
+			ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "DeletedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching Workload: %v", jobKey))
 			return ok
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+
+		ginkgo.By("checking the workload is updated with new count")
+		gomega.Eventually(func() bool {
+			if err := k8sClient.Get(ctx, lookupKey, createdWorkload); err != nil {
+				return false
+			}
+			return createdWorkload.Spec.PodSets[0].Count == newParallelism
+		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+		gomega.Expect(createdWorkload.Spec.Admission).Should(gomega.BeNil())
 
 		ginkgo.By("checking the job is unsuspended when workload is assigned")
 		onDemandFlavor := testing.MakeResourceFlavor("on-demand").Label(labelKey, "on-demand").Obj()
@@ -165,7 +167,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 		}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking the job gets suspended when parallelism changes and the added node selectors are removed")
-		newParallelism := int32(parallelism + 1)
+		newParallelism = int32(parallelism + 1)
 		createdJob.Spec.Parallelism = &newParallelism
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
 		gomega.Eventually(func() bool {
@@ -176,7 +178,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 				len(createdJob.Spec.Template.Spec.NodeSelector) == 0
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 		gomega.Eventually(func() bool {
-			ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "DeletedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching Workload: %v", jobKey))
+			ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "Stopped", corev1.EventTypeNormal, "Running job is changed, suspending")
 			return ok
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 
