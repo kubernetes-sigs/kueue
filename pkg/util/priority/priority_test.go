@@ -28,7 +28,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/util/pointer"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -38,7 +37,7 @@ func TestPriority(t *testing.T) {
 		want     int32
 	}{
 		"priority is specified": {
-			workload: utiltesting.MakeWorkload("name", "ns").Priority(pointer.Int32(100)).Obj(),
+			workload: utiltesting.MakeWorkload("name", "ns").Priority(100).Obj(),
 			want:     100,
 		},
 		"priority is empty": {

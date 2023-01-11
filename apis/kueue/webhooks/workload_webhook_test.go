@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
-	"sigs.k8s.io/kueue/pkg/util/pointer"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -220,7 +219,7 @@ func TestValidateWorkload(t *testing.T) {
 		"should have valid priorityClassName": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PriorityClass("invalid_class").
-				Priority(pointer.Int32(0)).
+				Priority(0).
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(specField.Child("priorityClassName"), nil, ""),
