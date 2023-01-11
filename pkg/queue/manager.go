@@ -341,19 +341,23 @@ func (m *Manager) deleteWorkloadFromQueueAndClusterQueue(w *kueue.Workload, qKey
 	}
 }
 
-// QueueAssociatedInadmissibleWorkloads moves all associated workloads from
-// inadmissibleWorkloads to heap. If at least one workload is moved,
-// returns true. Otherwise returns false.
-func (m *Manager) QueueAssociatedInadmissibleWorkloads(ctx context.Context, w *kueue.Workload) {
+// QueueAssociatedInadmissibleWorkloadsAfter requeues into the heaps all
+// previously inadmissible workloads in the same ClusterQueue and cohort (if
+// they exist) as the provided admitted workload to the heaps.
+// An optional action can be executed at the beginning of the function,
+// while holding the lock, to provide atomicity with the operations in the
+// queues.
+func (m *Manager) QueueAssociatedInadmissibleWorkloadsAfter(ctx context.Context, w *kueue.Workload, action func()) {
 	m.Lock()
 	defer m.Unlock()
-
-	q := m.localQueues[workload.QueueKey(w)]
-	if q == nil {
-		return
+	if action != nil {
+		action()
 	}
 
-	cq := m.clusterQueues[q.ClusterQueue]
+	if w.Spec.Admission == nil {
+		return
+	}
+	cq := m.clusterQueues[string(w.Spec.Admission.ClusterQueue)]
 	if cq == nil {
 		return
 	}
