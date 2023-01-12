@@ -51,6 +51,10 @@ type Configuration struct {
 	// This is achieved by blocking the start of new jobs until the previously
 	// started job has all pods running (ready).
 	WaitForPodsReady *WaitForPodsReady `json:"waitForPodsReady,omitempty"`
+
+	// ClientConnection provides additional configuration options for Kubernetes
+	// API server client.
+	ClientConnection *ClientConnection `json:"clientConnection,omitempty"`
 }
 
 type WaitForPodsReady struct {
@@ -76,4 +80,13 @@ type InternalCertManagement struct {
 	// WebhookSecretName is the name of the Secret used to store CA and server certs.
 	// Defaults to kueue-webhook-server-cert.
 	WebhookSecretName *string `json:"webhookSecretName,omitempty"`
+}
+
+type ClientConnection struct {
+	// QPS controls the number of queries per second allowed for K8S api server
+	// connection.
+	QPS *float32 `json:"qps,omitempty"`
+
+	// Burst allows extra queries to accumulate when a client is exceeding its rate.
+	Burst *int32 `json:"burst,omitempty"`
 }

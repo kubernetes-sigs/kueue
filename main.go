@@ -92,7 +92,9 @@ func main() {
 	if kubeConfig.UserAgent == "" {
 		kubeConfig.UserAgent = useragent.Default()
 	}
-
+	kubeConfig.QPS = *cfg.ClientConnection.QPS
+	kubeConfig.Burst = int(*cfg.ClientConnection.Burst)
+	setupLog.V(2).Info("K8S Client", "qps", kubeConfig.QPS, "burst", kubeConfig.Burst)
 	mgr, err := ctrl.NewManager(kubeConfig, options)
 	if err != nil {
 		setupLog.Error(err, "Unable to start manager")

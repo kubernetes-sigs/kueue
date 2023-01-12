@@ -16,6 +16,9 @@ controller:
     ClusterQueue.kueue.x-k8s.io: 3
     ResourceFlavor.kueue.x-k8s.io: 3
     Workload.kueue.x-k8s.io: 3
+clientConnection:
+  qps: 50
+  burst: 100
 #waitForPodsReady:
 #  enable: true
 #manageJobsWithoutQueueName: true

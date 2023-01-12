@@ -153,6 +153,27 @@ webhook:
 		t.Fatal(err)
 	}
 
+	clientConnectionConfig := filepath.Join(tmpDir, "clientConnection.yaml")
+	if err := os.WriteFile(clientConnectionConfig, []byte(`
+apiVersion: config.kueue.x-k8s.io/v1alpha2
+kind: Configuration
+namespace: kueue-system
+health:
+  healthProbeBindAddress: :8081
+metrics:
+  bindAddress: :8080
+leaderElection:
+  leaderElect: true
+  resourceName: c1f6bfd2.kueue.x-k8s.io
+webhook:
+  port: 9443
+clientConnection:
+  qps: 50
+  burst: 100
+`), os.FileMode(0600)); err != nil {
+		t.Fatal(err)
+	}
+
 	defaultControlOptions := ctrl.Options{
 		Port:                   config.DefaultWebhookPort,
 		HealthProbeBindAddress: config.DefaultHealthProbeBindAddress,
@@ -176,6 +197,11 @@ webhook:
 		cmpopts.IgnoreFields(config.Configuration{}, "ControllerManagerConfigurationSpec"),
 	}
 
+	defaultClientConnection := &config.ClientConnection{
+		QPS:   pointer.Float32(config.DefaultClientConnectionQPS),
+		Burst: pointer.Int32(config.DefaultClientConnectionBurst),
+	}
+
 	testcases := []struct {
 		name              string
 		configFile        string
@@ -188,6 +214,7 @@ webhook:
 			wantConfiguration: config.Configuration{
 				Namespace:              pointer.String(config.DefaultNamespace),
 				InternalCertManagement: enableDefaultInternalCertManagement,
+				ClientConnection:       defaultClientConnection,
 			},
 			wantOptions: ctrl.Options{
 				Port:                   config.DefaultWebhookPort,
@@ -208,6 +235,7 @@ webhook:
 				Namespace:                  pointer.String("kueue-tenant-a"),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
+				ClientConnection:           defaultClientConnection,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -222,6 +250,7 @@ webhook:
 				Namespace:                  pointer.String(config.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
+				ClientConnection:           defaultClientConnection,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: ":38081",
@@ -246,6 +275,7 @@ webhook:
 					WebhookServiceName: pointer.String("kueue-tenant-a-webhook-service"),
 					WebhookSecretName:  pointer.String("kueue-tenant-a-webhook-server-cert"),
 				},
+				ClientConnection: defaultClientConnection,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -262,6 +292,7 @@ webhook:
 				InternalCertManagement: &config.InternalCertManagement{
 					Enable: pointer.Bool(false),
 				},
+				ClientConnection: defaultClientConnection,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -276,6 +307,7 @@ webhook:
 				Namespace:                  pointer.String("kueue-system"),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
+				ClientConnection:           defaultClientConnection,
 			},
 			wantOptions: ctrl.Options{
 				Port:                   config.DefaultWebhookPort,
@@ -298,6 +330,25 @@ webhook:
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				WaitForPodsReady: &config.WaitForPodsReady{
 					Enable: true,
+				},
+				ClientConnection: defaultClientConnection,
+			},
+			wantOptions: defaultControlOptions,
+		},
+		{
+			name:       "clientConnection config",
+			configFile: clientConnectionConfig,
+			wantConfiguration: config.Configuration{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: config.GroupVersion.String(),
+					Kind:       "Configuration",
+				},
+				Namespace:                  pointer.String(config.DefaultNamespace),
+				ManageJobsWithoutQueueName: false,
+				InternalCertManagement:     enableDefaultInternalCertManagement,
+				ClientConnection: &config.ClientConnection{
+					QPS:   pointer.Float32(50),
+					Burst: pointer.Int32(100),
 				},
 			},
 			wantOptions: defaultControlOptions,
