@@ -64,6 +64,12 @@ type WaitForPodsReady struct {
 	// admitted and do not block admission of other workloads. The PodsReady
 	// condition is only added if this setting is enabled. It defaults to false.
 	Enable bool `json:"enable,omitempty"`
+
+	// Timeout defines the time for an admitted workload to reach the
+	// PodsReady=true condition. When the timeout is reached, the workload admission
+	// is cancelled and requeued in the same cluster queue. Defaults to 5min.
+	// +optional
+	Timeout *metav1.Duration `json:"timeout,omitempty"`
 }
 
 type InternalCertManagement struct {

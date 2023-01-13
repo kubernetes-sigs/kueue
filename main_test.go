@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -137,18 +138,8 @@ webhook:
 	if err := os.WriteFile(waitForPodsReadyEnabledConfig, []byte(`
 apiVersion: config.kueue.x-k8s.io/v1alpha2
 kind: Configuration
-namespace: kueue-system
-health:
-  healthProbeBindAddress: :8081
-metrics:
-  bindAddress: :8080
-leaderElection:
-  leaderElect: true
-  resourceName: c1f6bfd2.kueue.x-k8s.io
 waitForPodsReady:
   enable: true
-webhook:
-  port: 9443
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
@@ -329,11 +320,16 @@ clientConnection:
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				WaitForPodsReady: &config.WaitForPodsReady{
-					Enable: true,
+					Enable:  true,
+					Timeout: &metav1.Duration{Duration: 5 * time.Minute},
 				},
 				ClientConnection: defaultClientConnection,
 			},
-			wantOptions: defaultControlOptions,
+			wantOptions: ctrl.Options{
+				Port:                   config.DefaultWebhookPort,
+				HealthProbeBindAddress: config.DefaultHealthProbeBindAddress,
+				MetricsBindAddress:     config.DefaultMetricsBindAddress,
+			},
 		},
 		{
 			name:       "clientConnection config",

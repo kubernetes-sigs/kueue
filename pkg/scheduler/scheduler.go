@@ -259,7 +259,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 	log.V(2).Info("Workload assumed in the cache")
 
 	s.admissionRoutineWrapper.Run(func() {
-		err := s.applyAdmission(ctx, workloadAdmissionFrom(newWorkload))
+		err := s.applyAdmission(ctx, workload.AdmissionPatch(newWorkload))
 		if err == nil {
 			waitTime := time.Since(e.Obj.CreationTimestamp.Time)
 			s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time was %.3fs", admission.ClusterQueue, waitTime.Seconds())
@@ -284,30 +284,6 @@ func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 
 func (s *Scheduler) applyAdmissionWithSSA(ctx context.Context, w *kueue.Workload) error {
 	return s.client.Patch(ctx, w, client.Apply, client.FieldOwner(constants.AdmissionName))
-}
-
-// workloadAdmissionFrom returns only the fields necessary for admission using
-// ServerSideApply.
-func workloadAdmissionFrom(w *kueue.Workload) *kueue.Workload {
-	wlCopy := &kueue.Workload{
-		ObjectMeta: metav1.ObjectMeta{
-			UID:        w.UID,
-			Name:       w.Name,
-			Namespace:  w.Namespace,
-			Generation: w.Generation, // Produce a conflict if there was a change in the spec.
-		},
-		TypeMeta: w.TypeMeta,
-		Spec: kueue.WorkloadSpec{
-			Admission: w.Spec.Admission.DeepCopy(),
-		},
-	}
-	if wlCopy.APIVersion == "" {
-		wlCopy.APIVersion = kueue.GroupVersion.String()
-	}
-	if wlCopy.Kind == "" {
-		wlCopy.Kind = "Workload"
-	}
-	return wlCopy
 }
 
 type entryOrdering []entry

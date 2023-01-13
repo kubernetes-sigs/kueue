@@ -237,3 +237,32 @@ func UpdateStatusIfChanged(ctx context.Context,
 	// Updating an existing condition
 	return UpdateStatus(ctx, c, wl, conditionType, conditionStatus, reason, message)
 }
+
+// ClearAdmissionPatch creates a new object based on the input workload that
+// doesn't contain admission. The object can be used in Server-Side-Apply.
+func ClearAdmissionPatch(w *kueue.Workload) *kueue.Workload {
+	wlCopy := &kueue.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			UID:        w.UID,
+			Name:       w.Name,
+			Namespace:  w.Namespace,
+			Generation: w.Generation, // Produce a conflict if there was a change in the spec.
+		},
+		TypeMeta: w.TypeMeta,
+	}
+	if wlCopy.APIVersion == "" {
+		wlCopy.APIVersion = kueue.GroupVersion.String()
+	}
+	if wlCopy.Kind == "" {
+		wlCopy.Kind = "Workload"
+	}
+	return wlCopy
+}
+
+// AdmissionPatch creates a new object based on the input workload that
+// contains the admission. The object can be used in Server-Side-Apply.
+func AdmissionPatch(w *kueue.Workload) *kueue.Workload {
+	wlCopy := ClearAdmissionPatch(w)
+	wlCopy.Spec.Admission = w.Spec.Admission.DeepCopy()
+	return wlCopy
+}

@@ -17,8 +17,11 @@ limitations under the License.
 package core
 
 import (
+	"time"
+
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	config "sigs.k8s.io/kueue/apis/config/v1alpha2"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/queue"
 )
@@ -27,7 +30,7 @@ const updateChBuffer = 10
 
 // SetupControllers sets up the core controllers. It returns the name of the
 // controller that failed to create and an error, if any.
-func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache) (string, error) {
+func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache, cfg *config.Configuration) (string, error) {
 	rfRec := NewResourceFlavorReconciler(mgr.GetClient(), qManager, cc)
 	if err := rfRec.SetupWithManager(mgr); err != nil {
 		return "ResourceFlavor", err
@@ -41,8 +44,15 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 	if err := cqRec.SetupWithManager(mgr); err != nil {
 		return "ClusterQueue", err
 	}
-	if err := NewWorkloadReconciler(mgr.GetClient(), qManager, cc, qRec, cqRec).SetupWithManager(mgr); err != nil {
+	if err := NewWorkloadReconciler(mgr.GetClient(), qManager, cc, WithWorkloadUpdateWatchers(qRec, cqRec), WithPodsReadyTimeout(podsReadyTimeout(cfg))).SetupWithManager(mgr); err != nil {
 		return "Workload", err
 	}
 	return "", nil
+}
+
+func podsReadyTimeout(cfg *config.Configuration) *time.Duration {
+	if cfg.WaitForPodsReady != nil && cfg.WaitForPodsReady.Enable && cfg.WaitForPodsReady.Timeout != nil {
+		return &cfg.WaitForPodsReady.Timeout.Duration
+	}
+	return nil
 }
