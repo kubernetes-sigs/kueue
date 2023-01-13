@@ -45,6 +45,10 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			HealthProbeBindAddress: DefaultHealthProbeBindAddress,
 		},
 	}
+	defaultClientConnection := &ClientConnection{
+		QPS:   pointer.Float32(DefaultClientConnectionQPS),
+		Burst: pointer.Int32(DefaultClientConnectionBurst),
+	}
 
 	testCases := map[string]struct {
 		original *Configuration
@@ -62,6 +66,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				InternalCertManagement: &InternalCertManagement{
 					Enable: pointer.Bool(false),
 				},
+				ClientConnection: defaultClientConnection,
 			},
 		},
 		"defaulting ControllerManagerConfigurationSpec": {
@@ -95,6 +100,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				InternalCertManagement: &InternalCertManagement{
 					Enable: pointer.Bool(false),
 				},
+				ClientConnection: defaultClientConnection,
 			},
 		},
 		"should not default ControllerManagerConfigurationSpec": {
@@ -138,6 +144,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				InternalCertManagement: &InternalCertManagement{
 					Enable: pointer.Bool(false),
 				},
+				ClientConnection: defaultClientConnection,
 			},
 		},
 		"should not set LeaderElectionID": {
@@ -170,6 +177,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				InternalCertManagement: &InternalCertManagement{
 					Enable: pointer.Bool(false),
 				},
+				ClientConnection: defaultClientConnection,
 			},
 		},
 		"defaulting InternalCertManagement": {
@@ -184,6 +192,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					WebhookServiceName: pointer.String(DefaultWebhookServiceName),
 					WebhookSecretName:  pointer.String(DefaultWebhookSecretName),
 				},
+				ClientConnection: defaultClientConnection,
 			},
 		},
 		"should not default InternalCertManagement": {
@@ -199,6 +208,47 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				InternalCertManagement: &InternalCertManagement{
 					Enable: pointer.Bool(false),
 				},
+				ClientConnection: defaultClientConnection,
+			},
+		},
+		"should not default values in custom ClientConnection": {
+			original: &Configuration{
+				Namespace: pointer.String(overwriteNamespace),
+				InternalCertManagement: &InternalCertManagement{
+					Enable: pointer.Bool(false),
+				},
+				ClientConnection: &ClientConnection{
+					QPS:   pointer.Float32(123.0),
+					Burst: pointer.Int32(456),
+				},
+			},
+			want: &Configuration{
+				Namespace:                          pointer.String(overwriteNamespace),
+				ControllerManagerConfigurationSpec: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: pointer.Bool(false),
+				},
+				ClientConnection: &ClientConnection{
+					QPS:   pointer.Float32(123.0),
+					Burst: pointer.Int32(456),
+				},
+			},
+		},
+		"should default empty custom ClientConnection": {
+			original: &Configuration{
+				Namespace: pointer.String(overwriteNamespace),
+				InternalCertManagement: &InternalCertManagement{
+					Enable: pointer.Bool(false),
+				},
+				ClientConnection: &ClientConnection{},
+			},
+			want: &Configuration{
+				Namespace:                          pointer.String(overwriteNamespace),
+				ControllerManagerConfigurationSpec: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: pointer.Bool(false),
+				},
+				ClientConnection: defaultClientConnection,
 			},
 		},
 	}

@@ -29,6 +29,8 @@ const (
 	DefaultHealthProbeBindAddress = ":8081"
 	DefaultMetricsBindAddress     = ":8080"
 	DefaultLeaderElectionID       = "c1f6bfd2.kueue.x-k8s.io"
+	DefaultClientConnectionQPS    = 20.0
+	DefaultClientConnectionBurst  = 30
 )
 
 func addDefaultingFuncs(scheme *runtime.Scheme) error {
@@ -69,5 +71,14 @@ func SetDefaults_Configuration(cfg *Configuration) {
 		if cfg.InternalCertManagement.WebhookSecretName == nil {
 			cfg.InternalCertManagement.WebhookSecretName = pointer.String(DefaultWebhookSecretName)
 		}
+	}
+	if cfg.ClientConnection == nil {
+		cfg.ClientConnection = &ClientConnection{}
+	}
+	if cfg.ClientConnection.QPS == nil {
+		cfg.ClientConnection.QPS = pointer.Float32(DefaultClientConnectionQPS)
+	}
+	if cfg.ClientConnection.Burst == nil {
+		cfg.ClientConnection.Burst = pointer.Int32(DefaultClientConnectionBurst)
 	}
 }
