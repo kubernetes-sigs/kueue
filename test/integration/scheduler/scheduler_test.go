@@ -154,27 +154,41 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		ginkgo.It("Should admit workloads according to their priorities", func() {
 			queue := testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
 
-			lowPriorityVal, highPriorityVal := int32(10), int32(100)
+			const lowPrio, midPrio, highPrio = 0, 10, 100
 
-			wlLowPriority := testing.MakeWorkload("wl-low-priority", ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "5").Priority(lowPriorityVal).Obj()
-			gomega.Expect(k8sClient.Create(ctx, wlLowPriority)).Should(gomega.Succeed())
-			wlHighPriority := testing.MakeWorkload("wl-high-priority", ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "5").Priority(highPriorityVal).Obj()
-			gomega.Expect(k8sClient.Create(ctx, wlHighPriority)).Should(gomega.Succeed())
+			wlLow := testing.MakeWorkload("wl-low-priority", ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "2").Priority(lowPrio).Obj()
+			gomega.Expect(k8sClient.Create(ctx, wlLow)).Should(gomega.Succeed())
+			wlMid1 := testing.MakeWorkload("wl-mid-priority-1", ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "2").Priority(midPrio).Obj()
+			gomega.Expect(k8sClient.Create(ctx, wlMid1)).Should(gomega.Succeed())
+			wlMid2 := testing.MakeWorkload("wl-mid-priority-2", ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "2").Priority(midPrio).Obj()
+			gomega.Expect(k8sClient.Create(ctx, wlMid2)).Should(gomega.Succeed())
+			wlHigh1 := testing.MakeWorkload("wl-high-priority-1", ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "2").Priority(highPrio).Obj()
+			gomega.Expect(k8sClient.Create(ctx, wlHigh1)).Should(gomega.Succeed())
+			wlHigh2 := testing.MakeWorkload("wl-high-priority-2", ns.Name).Queue(queue.Name).Request(corev1.ResourceCPU, "2").Priority(highPrio).Obj()
+			gomega.Expect(k8sClient.Create(ctx, wlHigh2)).Should(gomega.Succeed())
 
 			util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
 			util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 0)
 			// delay creating the queue until after workloads are created.
 			gomega.Expect(k8sClient.Create(ctx, queue)).Should(gomega.Succeed())
 
-			ginkgo.By("checking the workload with low priority does not get admitted")
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlLowPriority)
+			ginkgo.By("checking the workloads with lower priority do not get admitted")
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlLow, wlMid1, wlMid2)
 
-			ginkgo.By("checking the workload with high priority gets admitted")
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, wlHighPriority)
+			ginkgo.By("checking the workloads with high priority get admitted")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, wlHigh1, wlHigh2)
 
+			util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 3)
+			util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 2)
+			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 2)
+
+			ginkgo.By("after the high priority workloads finish, only the mid priority workloads should be admitted")
+			util.FinishWorkloads(ctx, k8sClient, wlHigh1, wlHigh2)
+
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, wlMid1, wlMid2)
 			util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 1)
-			util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
-			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 1)
+			util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 2)
+			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 4)
 		})
 
 		ginkgo.It("Should admit two small workloads after a big one finishes", func() {
