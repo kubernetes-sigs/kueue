@@ -13,6 +13,8 @@ quotas and queues.
 - As a batch administrator, you can learn how to
   [administer cluster quotas](administer_cluster_quotas.md) with Queues and
   ClusterQueues.
+- As a batch administrator, you can learn how to setup
+  [Sequential Admission with Ready Pods](setup_sequential_admission.md).
 
 ## Batch user
 
