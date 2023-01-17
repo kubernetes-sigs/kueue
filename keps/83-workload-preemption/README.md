@@ -260,10 +260,9 @@ The algorithm is like follows:
     0. Find a flavor that still has quota in the cohort (borrowing allowed),
        but doesn't surpass the max quota for the CQ. Keep track of whether
        borrowing was needed.
-    1. [New step] if no flavor was found, find a flavor that is under min quota
-       only considering Workloads admitted in this ClusterQueue.
-    2. [New step] if no flavor was found, use the first flavor in the list that
-       has more min quota than the Workload request.
+    1. [New step] if no flavor was found, find a flavor that is able to contain
+       the request within the min quota of the ClusterQueue. This flavor
+       assignment could be satisfied with preemption.
 
 Some highlights:
 - A Workload could get flavor assignments at different steps for different
@@ -271,12 +270,8 @@ Some highlights:
 - Assigments that require preemption implicitly do not borrow quota.
 
 A flavor assignment from step 1 means that we need to preempt or wait for other
-workloads in the cohort to finish to accommodate this workload, because the
-ClusterQueue is lending its resources. We call this _preemption within cohort_.
-
-A flavor assigment from step 2 means that we need to preempt or wait for other
-workloads in the ClusterQueue to finish to accomodate this workload. We
-call this _preemption within ClusterQueue_.
+workloads in the cohort and/or ClusterQueue to finish to accommodate this
+workload.
 
 [#312](https://github.com/kubernetes-sigs/kueue/issues/312) discusses different
 strategies to select a flavor.
@@ -319,41 +314,35 @@ optimization to improve throughput.
 
 #### Preemption
 
-For each Workload that got flavor assignments of type 1 or 2, we might need to
-preempt some admitted Workloads.
-
-The algorithm goes like follows:
+For each Workload that got flavor assignments where preemption could help,
+we run the following algorithm:
 
 1. Check whether preemption is allowed and could help.
 
-   For preemption within the cohort, we skip preemption if
-   `.preemption.withinCohort=Never`.
-   For preepmtion within the ClusterQueue, we skip preemption if
-   `.preemption.withinClusterQueue=Never`.
+  We skip preemption if `.preemption.withinCohort=Never` and
+  `.preemption.withinClusterQueue=Never`.
 
-   Preemption within a ClusterQueue is limited to Workloads with a priority
-   lower than the incoming Workload. To avoid unnecessary preemption
-   calculations, we can keep a priority queue with the priorities of active
-   Workloads in the ClusterQueue. If the lowest priority is higher than or equal
-   to the priority of the incoming Workload, we can skip the preemption
-   algorithm.
+2. Obtain a list of candidate Workloads to be preempted.
 
-2. Obtain a list of victim Workloads to be preempted.
-
-  1. For preemption within cohort, we restrict the list to Workloads with lower
-     priority than the pending Workload if
-     `.preemption.withinCohort=ReclaimFromLowerPriority`
-  2. For preemption within ClusterQueue, we only select Workloads with lower
+  1. In the cohort, we only consider ClusterQueues that are currently borrowing
+     quota. We restrict the list to Workloads with lower priority than the
+     pending Workload if `.preemption.withinCohort=ReclaimFromLowerPriority`
+  2. In the ClusterQueue, we only select Workloads with lower
      priority than the pending Workload.
+     
+  To quickly list workloads with priority lower than the incoming workload,
+  we can keep a priority queue with the priorities of active
+  Workloads in the ClusterQueue.
 
   When going over these sets, we filter out the Workloads that are not using the
   flavors that were selected for the incoming Workload.
   
-  If the list is empty, abort preemption.
+  If the list of candidates is empty, skip the rest of the preemption algorithm.
 
 3. Sort the Workloads using the following criteria:
-   1. Lower priority first.
-   2. Shortest running time first.
+   1. Workloads from other ClusterQueues in the cohort first.
+   2. Lower priority first.
+   3. Shortest running time first.
 
 4. Remove Workloads from the snapshot in the order of the list. Stop removing
    Workloads if the incoming Workload fits within the quota. Skip removing more
