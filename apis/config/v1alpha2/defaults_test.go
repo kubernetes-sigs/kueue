@@ -18,8 +18,10 @@ package v1alpha2
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	componentconfigv1alpha1 "k8s.io/component-base/config/v1alpha1"
 	"k8s.io/utils/pointer"
 	ctrlconfigv1alpha1 "sigs.k8s.io/controller-runtime/pkg/config/v1alpha1"
@@ -49,6 +51,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		QPS:   pointer.Float32(DefaultClientConnectionQPS),
 		Burst: pointer.Int32(DefaultClientConnectionBurst),
 	}
+	podsReadyTimeoutTimeout := metav1.Duration{Duration: defaultPodsReadyTimeout}
+	podsReadyTimeoutOverwrite := metav1.Duration{Duration: time.Minute}
 
 	testCases := map[string]struct {
 		original *Configuration
@@ -244,6 +248,51 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			want: &Configuration{
 				Namespace:                          pointer.String(overwriteNamespace),
+				ControllerManagerConfigurationSpec: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: pointer.Bool(false),
+				},
+				ClientConnection: defaultClientConnection,
+			},
+		},
+		"defaulting waitForPodsReady.timeout": {
+			original: &Configuration{
+				WaitForPodsReady: &WaitForPodsReady{
+					Enable: true,
+				},
+				InternalCertManagement: &InternalCertManagement{
+					Enable: pointer.Bool(false),
+				},
+			},
+			want: &Configuration{
+				WaitForPodsReady: &WaitForPodsReady{
+					Enable:  true,
+					Timeout: &podsReadyTimeoutTimeout,
+				},
+				Namespace:                          pointer.String(DefaultNamespace),
+				ControllerManagerConfigurationSpec: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: pointer.Bool(false),
+				},
+				ClientConnection: defaultClientConnection,
+			},
+		},
+		"respecting provided waitForPodsReady.timeout": {
+			original: &Configuration{
+				WaitForPodsReady: &WaitForPodsReady{
+					Enable:  true,
+					Timeout: &podsReadyTimeoutOverwrite,
+				},
+				InternalCertManagement: &InternalCertManagement{
+					Enable: pointer.Bool(false),
+				},
+			},
+			want: &Configuration{
+				WaitForPodsReady: &WaitForPodsReady{
+					Enable:  true,
+					Timeout: &podsReadyTimeoutOverwrite,
+				},
+				Namespace:                          pointer.String(DefaultNamespace),
 				ControllerManagerConfigurationSpec: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
 					Enable: pointer.Bool(false),

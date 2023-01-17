@@ -850,6 +850,41 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 		},
 		{
+			name: "delete workload with cancelled admission",
+			operation: func(cache *Cache) error {
+				w := utiltesting.MakeWorkload("a", "").Obj()
+				return cache.DeleteWorkload(w)
+			},
+			wantResults: map[string]result{
+				"one": {
+					Workloads:     sets.New("/b"),
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
+				},
+				"two": {
+					Workloads:     sets.New("/c"),
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
+				},
+			},
+		},
+		{
+			name: "attempt deleting non-existing workload with cancelled admission",
+			operation: func(cache *Cache) error {
+				w := utiltesting.MakeWorkload("d", "").Obj()
+				return cache.DeleteWorkload(w)
+			},
+			wantError: "cluster queue not found",
+			wantResults: map[string]result{
+				"one": {
+					Workloads:     sets.New("/a", "/b"),
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 10, "spot": 15}},
+				},
+				"two": {
+					Workloads:     sets.New("/c"),
+					UsedResources: ResourceQuantities{"cpu": {"on-demand": 0, "spot": 0}},
+				},
+			},
+		},
+		{
 			name: "delete error clusterQueue doesn't exist",
 			operation: func(cache *Cache) error {
 				w := utiltesting.MakeWorkload("a", "").Admit(&kueue.Admission{

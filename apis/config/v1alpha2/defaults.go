@@ -17,8 +17,12 @@ limitations under the License.
 package v1alpha2
 
 import (
+	"time"
+
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/pointer"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
@@ -31,6 +35,7 @@ const (
 	DefaultLeaderElectionID       = "c1f6bfd2.kueue.x-k8s.io"
 	DefaultClientConnectionQPS    = 20.0
 	DefaultClientConnectionBurst  = 30
+	defaultPodsReadyTimeout       = 5 * time.Minute
 )
 
 func addDefaultingFuncs(scheme *runtime.Scheme) error {
@@ -80,5 +85,8 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	}
 	if cfg.ClientConnection.Burst == nil {
 		cfg.ClientConnection.Burst = pointer.Int32(DefaultClientConnectionBurst)
+	}
+	if cfg.WaitForPodsReady != nil && cfg.WaitForPodsReady.Timeout == nil {
+		cfg.WaitForPodsReady.Timeout = &metav1.Duration{Duration: defaultPodsReadyTimeout}
 	}
 }

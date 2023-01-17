@@ -354,10 +354,11 @@ func (m *Manager) QueueAssociatedInadmissibleWorkloadsAfter(ctx context.Context,
 		action()
 	}
 
-	if w.Spec.Admission == nil {
+	q := m.localQueues[workload.QueueKey(w)]
+	if q == nil {
 		return
 	}
-	cq := m.clusterQueues[string(w.Spec.Admission.ClusterQueue)]
+	cq := m.clusterQueues[q.ClusterQueue]
 	if cq == nil {
 		return
 	}

@@ -667,12 +667,9 @@ func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.Workload) error {
 func (c *Cache) DeleteWorkload(w *kueue.Workload) error {
 	c.Lock()
 	defer c.Unlock()
-	if w.Spec.Admission == nil {
-		return errWorkloadNotAdmitted
-	}
 
-	cq, ok := c.clusterQueues[string(w.Spec.Admission.ClusterQueue)]
-	if !ok {
+	cq := c.clusterQueueForWorkload(w)
+	if cq == nil {
 		return errCqNotFound
 	}
 
@@ -778,6 +775,19 @@ func (c *Cache) cleanupAssumedState(w *kueue.Workload) {
 		}
 		delete(c.assumedWorkloads, k)
 	}
+}
+
+func (c *Cache) clusterQueueForWorkload(w *kueue.Workload) *ClusterQueue {
+	if w.Spec.Admission != nil {
+		return c.clusterQueues[string(w.Spec.Admission.ClusterQueue)]
+	}
+	wKey := workload.Key(w)
+	for _, cq := range c.clusterQueues {
+		if cq.Workloads[wKey] != nil {
+			return cq
+		}
+	}
+	return nil
 }
 
 func (c *Cache) addClusterQueueToCohort(cq *ClusterQueue, cohortName string) {

@@ -18,16 +18,17 @@ package podsready
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	config "sigs.k8s.io/kueue/apis/config/v1alpha2"
 	"sigs.k8s.io/kueue/apis/kueue/webhooks"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -35,7 +36,6 @@ import (
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/workload/job"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	//+kubebuilder:scaffold:imports
 )
@@ -47,10 +47,6 @@ var (
 	fwk       *framework.Framework
 )
 
-var (
-	defaultFlavor *kueue.ResourceFlavor
-)
-
 func TestSchedulerWithWaitForPodsReady(t *testing.T) {
 	gomega.RegisterFailHandler(ginkgo.Fail)
 
@@ -59,34 +55,24 @@ func TestSchedulerWithWaitForPodsReady(t *testing.T) {
 	)
 }
 
-var _ = ginkgo.BeforeSuite(func() {
-	fwk = &framework.Framework{
-		ManagerSetup: managerAndSchedulerSetup,
-		CRDPath:      filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases"),
-		WebhookPath:  filepath.Join("..", "..", "..", "..", "config", "components", "webhook"),
+func managerAndSchedulerSetupWithTimeout(mgr manager.Manager, ctx context.Context, value time.Duration) {
+	cfg := config.Configuration{
+		WaitForPodsReady: &config.WaitForPodsReady{
+			Enable:  true,
+			Timeout: &metav1.Duration{Duration: value},
+		},
 	}
-	ctx, cfg, k8sClient = fwk.Setup()
 
-	defaultFlavor = utiltesting.MakeResourceFlavor("default").Obj()
-	gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).To(gomega.Succeed())
-})
-
-var _ = ginkgo.AfterSuite(func() {
-	fwk.Teardown()
-})
-
-func managerAndSchedulerSetup(mgr manager.Manager, ctx context.Context) {
-	waitForPodsReady := true
 	err := queue.SetupIndexes(mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = cache.SetupIndexes(mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	cCache := cache.New(mgr.GetClient(), cache.WithPodsReadyTracking(waitForPodsReady))
+	cCache := cache.New(mgr.GetClient(), cache.WithPodsReadyTracking(cfg.WaitForPodsReady.Enable))
 	queues := queue.NewManager(mgr.GetClient(), cCache)
 
-	failedCtrl, err := core.SetupControllers(mgr, queues, cCache)
+	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &cfg)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 	failedWebhook, err := webhooks.Setup(mgr)
@@ -95,7 +81,7 @@ func managerAndSchedulerSetup(mgr manager.Manager, ctx context.Context) {
 	err = workloadjob.SetupIndexes(mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithWaitForPodsReady(waitForPodsReady))
+	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithWaitForPodsReady(cfg.WaitForPodsReady.Enable))
 	go func() {
 		sched.Start(ctx)
 	}()
