@@ -133,7 +133,7 @@ func ExpectWorkloadsToBeAdmitted(ctx context.Context, k8sClient client.Client, c
 			}
 		}
 		return admitted
-	}).Should(gomega.Equal(len(wls)), "Not enough workloads were admitted")
+	}, Timeout, Interval).Should(gomega.Equal(len(wls)), "Not enough workloads were admitted")
 }
 
 func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
