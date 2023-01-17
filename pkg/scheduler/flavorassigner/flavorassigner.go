@@ -191,14 +191,10 @@ type FlavorAssignmentMode int
 const (
 	// NoFit means that there is not enough quota to assign this flavor.
 	NoFit FlavorAssignmentMode = iota
-	// ClusterQueuePreempt means that there is not enough unused min quota in the
-	// ClusterQueue. Preempting other workloads in the ClusterQueue or waiting for
-	// them to finish make make it possible to assign this flavor.
-	ClusterQueuePreempt
-	// CohortReclaim means that there is enough unused min quota in the
-	// ClusterQueue, but some of it is borrowed. The quota can be reclaimed from
-	// the cohort through waiting or preempting other workloads.
-	CohortReclaim
+	// Preempt means that there is not enough unused min quota in the ClusterQueue
+	// or cohort. Preempting other workloads in the CluserQueue or cohort, or
+	// waiting for them to finish might make it possible to assign this flavor.
+	Preempt
 	// Fit means that there is enough unused quota in the cohort to assign this
 	// flavor.
 	Fit
@@ -208,10 +204,8 @@ func (m FlavorAssignmentMode) String() string {
 	switch m {
 	case NoFit:
 		return "NoFit"
-	case ClusterQueuePreempt:
-		return "ClusterQueuePreempt"
-	case CohortReclaim:
-		return "CohortReclaim"
+	case Preempt:
+		return "Preempt"
 	case Fit:
 		return "Fit"
 	}
@@ -447,20 +441,16 @@ func fitsFlavorLimits(rName corev1.ResourceName, val int64, cq *cache.ClusterQue
 	used := cq.UsedResources[rName][flavor.Name]
 	mode := NoFit
 	if val <= flavor.Min {
-		// The request can be satisfied by the min quota, assuming all active
-		// workloads in the ClusterQueue are preempted.
-		mode = ClusterQueuePreempt
+		// The request can be satisfied by the min quota, assuming quota is
+		// reclaimed from the cohort or assuming all active workloads in the
+		// ClusterQueue are preempted.
+		mode = Preempt
 	}
 	if flavor.Max != nil && used+val > *flavor.Max {
 		status.append(fmt.Sprintf("borrowing limit for %s flavor %s exceeded", rName, flavor.Name))
 		return mode, 0, &status
 	}
 
-	if used+val <= flavor.Min {
-		// The request can be satisfied by the min quota, assuming all active
-		// workloads from other ClusterQueues in the cohort are preempted.
-		mode = CohortReclaim
-	}
 	cohortUsed := used
 	cohortAvailable := flavor.Min
 	if cq.Cohort != nil {
