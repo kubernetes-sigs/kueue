@@ -75,8 +75,6 @@ the default Kueue Configuration
 struct ([v1alpha1@v0.2.1](https://pkg.go.dev/sigs.k8s.io/kueue@v0.2.1/apis/config/v1alpha1#Configuration)).
 The contents of the ConfigMap are similar to the following:
 
-__The `namespace` and `internalCertManagement` fields are available in Kueue v0.3.0 and later__
-
 ```yaml
 apiVersion: v1
 kind: ConfigMap
@@ -99,9 +97,18 @@ data:
       enable: true
       webhookServiceName: kueue-webhook-service
       webhookSecretName: kueue-webhook-server-cert
+    waitForPodsReady:
+      enable: true
+      timeout: 10m
 ```
 
-3. Apply the customized manifests to the cluster:
+__The `namespace`, `waitForPodsReady`, and `internalCertManagement` fields are available in Kueue v0.3.0 and later__
+
+> **Note**
+> See [Sequential Admission with Ready Pods](/docs/tasks/setup_sequential_admission.md) to learn
+more about using `waitForPodsReady` for Kueue.
+
+1. Apply the customized manifests to the cluster:
 
 ```shell
 kubectl apply -f manifests.yaml
