@@ -477,9 +477,14 @@ func podsCount(jobSpec *batchv1.JobSpec) int32 {
 func generatePodsReadyCondition(job *batchv1.Job, wl *kueue.Workload) metav1.Condition {
 	conditionStatus := metav1.ConditionFalse
 	message := "Not all pods are ready or succeeded"
-	if podsReady(job) && wl.Spec.Admission != nil {
+	// Once PodsReady=True it stays as long as the workload remains admitted to
+	// avoid unnecessary flickering the the condition when the pods transition
+	// Ready to Completed. As pods finish, they transition first into the
+	// uncountedTerminatedPods staging area, before passing to the
+	// succeeded/failed counters.
+	if wl.Spec.Admission != nil && (podsReady(job) || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPodsReady)) {
 		conditionStatus = metav1.ConditionTrue
-		message = "All pods are ready or succeeded"
+		message = "All pods were ready or succeeded since the workload admission"
 	}
 	return metav1.Condition{
 		Type:    kueue.WorkloadPodsReady,
