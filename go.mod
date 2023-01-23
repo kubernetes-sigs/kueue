@@ -10,11 +10,11 @@ require (
 	github.com/open-policy-agent/cert-controller v0.6.0
 	github.com/prometheus/client_golang v1.14.0
 	go.uber.org/zap v1.24.0
-	k8s.io/api v0.25.5
+	k8s.io/api v0.25.6
 	k8s.io/apimachinery v0.26.0
-	k8s.io/client-go v0.25.5
+	k8s.io/client-go v0.25.6
 	k8s.io/component-base v0.25.5
-	k8s.io/component-helpers v0.25.5
+	k8s.io/component-helpers v0.25.6
 	k8s.io/klog/v2 v2.80.1
 	k8s.io/utils v0.0.0-20221107191617-1a15be271d1d
 	sigs.k8s.io/controller-runtime v0.13.1
