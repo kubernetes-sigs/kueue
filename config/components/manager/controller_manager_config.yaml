@@ -11,11 +11,11 @@ leaderElection:
   resourceName: c1f6bfd2.kueue.x-k8s.io
 controller:
   groupKindConcurrency:
-    Job.batch: 3
-    LocalQueue.kueue.x-k8s.io: 3
-    ClusterQueue.kueue.x-k8s.io: 3
-    ResourceFlavor.kueue.x-k8s.io: 3
-    Workload.kueue.x-k8s.io: 3
+    Job.batch: 5
+    LocalQueue.kueue.x-k8s.io: 1
+    ClusterQueue.kueue.x-k8s.io: 1
+    ResourceFlavor.kueue.x-k8s.io: 1
+    Workload.kueue.x-k8s.io: 1
 clientConnection:
   qps: 50
   burst: 100
