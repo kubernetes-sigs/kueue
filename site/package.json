@@ -1,0 +1,8 @@
+{
+  "name": "kueue-site",
+  "devDependencies": {
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.1",
+    "postcss-cli": "^9.1.0"
+  }
+}

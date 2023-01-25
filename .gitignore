@@ -25,3 +25,6 @@ testbin/*
 
 # vendor files
 vendor
+
+# Local Netlify folder
+.netlify
