@@ -1,0 +1,151 @@
+/*
+Add styles or override the theme's variables here.
+*/
+
+html.smooth-scroll {
+  scroll-behavior: smooth;
+}
+
+// Theme colors
+$primary: #4279f4;
+$secondary: #fff;
+$dark: #213d7a;
+$info: #adb5bd;
+$light: #dee2e6;
+
+// Nav bar colors
+$white: #fff;
+$navbar-dark-color: rgba($white, 1);
+$navbar-dark-hover-color: rgba($white, 0.75);
+$navbar-dark-active-color: $navbar-dark-color;
+
+// Fonts
+$google_font_family: "Open+Sans:300,300i,400,400i,600,600i,700,700i&display=swap" !default;
+
+// Front page styling
+.card-img-top {
+  object-fit: scale-down;
+}
+
+.text-white {
+  font-weight: 400;
+}
+
+.bg-primary-dark {
+  background-color: $dark;
+
+  a {
+    border-bottom: 1px dotted paleturquoise;
+    
+    color: paleturquoise !important;
+    font-weight: 600;
+    padding: 0 2px 1px 2px;
+    text-decoration: none;
+    
+    &:hover {
+      border-bottom: 1px dotted #fff;
+
+      color: #fff !important;
+    }
+  }
+}
+
+.border-primary-dark {
+  border-color: $info !important;
+}
+
+.section-head {
+  font-size: 1.25em;
+  color: $primary;
+  font-weight: bold;
+  padding: 0 0 1em 0;
+}
+
+.contain {
+  margin: 0 auto;
+  max-width: 1200px; }
+
+.image {
+  display: block; }
+  .image img {
+    display: block;
+    width: 100%;
+    height: auto; }
+  .image.left, .image.right {
+    max-width: 45%; }
+    .image.left::after, .image.right::after {
+      clear: both;
+      content: "";
+      display: block; }
+  .image.left {
+    float: left;
+    margin: 0 1.5em 1.5em 0; }
+  .image.right {
+    float: right;
+    margin: 0 0 1.5em 1.5em; }
+
+#overview, #community {
+  padding: 6em 1.5em 3em 1.5em;
+  text-align: center;
+  margin: 0; }
+  #overview p, #community p {
+    font-size: 1.125em;}
+
+#overview {
+  border-bottom: 2px solid #b6d0ff;
+}
+
+#community {
+  border-top: 2px solid #b6d0ff;
+}
+
+#pageContent .lead {
+  margin: 0 1.5em 3em 1.5em;}
+  #pageContent .lead > .image {
+    padding: 0 1.5em;
+    max-width: 60%;
+    margin-bottom: 1.5em; }
+  #pageContent .lead > .text p {
+    font-size: 1em; }
+
+@media screen and (min-width: 480px) {
+  #overview, #community {
+    font-size: 1.125em; }
+  #pageContent .lead > .image {
+    max-width: 35%;
+    margin-bottom: 3em; }
+  #pageContent .lead > .text p {
+    font-size: 1em; } }
+
+@media screen and (min-width: 769px) {
+  #pageContent .lead {
+    margin-top: 1em;
+    display: -ms-flexbox;
+    display: flex;
+    -ms-flex-direction: row;
+        flex-direction: row;
+    -ms-flex-wrap: nowrap;
+        flex-wrap: nowrap;
+    -ms-flex-pack: justify;
+        justify-content: space-between;
+    -ms-flex-align: stretch;
+        align-items: stretch; }
+    #pageContent .lead > * {
+      -ms-flex: 0 1 auto;
+          flex: 0 1 auto; }
+    #pageContent .lead > .image {
+      display: block;
+      margin: 0 auto;
+      max-width: 100%; }
+      #pageContent .lead > .image > img {
+        max-width: 80%;
+        margin: 0 auto; }
+    #pageContent .lead > .text {
+      -ms-flex-preferred-size: 70%;
+          flex-basis: 70%; }
+    #pageContent .lead:nth-child(2n+0) > .image {
+      -ms-flex-order: 2;
+          order: 2; }
+    #pageContent .lead:nth-child(2n+0) > .text {
+      -ms-flex-order: 1;
+          order: 1; } }

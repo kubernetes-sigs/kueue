@@ -22,6 +22,7 @@ testbin/*
 *.swp
 *.swo
 *~
+**/*.swp
 
 # vendor files
 vendor
