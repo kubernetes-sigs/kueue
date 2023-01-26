@@ -17,7 +17,7 @@ limitations under the License.
 package v1beta1
 
 const (
-	ResourceInUseFinalizerName = "kueue.k8s.io/resource-in-use"
+	ResourceInUseFinalizerName = "kueue.x-k8s.io/resource-in-use"
 
 	DefaultPodSetName = "main"
 )

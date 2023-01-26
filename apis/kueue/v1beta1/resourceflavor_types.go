@@ -22,31 +22,47 @@ import (
 )
 
 //+kubebuilder:object:root=true
-//+kubebuilder:resource:scope=Cluster,shortName={rf}
-//+kubebuilder:storageversion
+//+kubebuilder:resource:scope=Cluster,shortName={flavor,flavors}
 
 // ResourceFlavor is the Schema for the resourceflavors API.
 type ResourceFlavor struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	// nodeSelector associated with this flavor. They are matched against or
-	// converted to node affinity constraints on the workload’s pods.
-	//
-	// nodeSelector can be up to 8 elements.
-	// +optional
-	// +kubebuilder:validation:MaxProperties=8
-	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+	Spec ResourceFlavorSpec `json:"spec,omitempty"`
+}
 
-	// taints associated with this flavor that workloads must explicitly
-	// “tolerate” to be able to use this flavor.
-	// For example, cloud.provider.com/preemptible="true":NoSchedule
+// ResourceFlavorSpec defines the desired state of the ResourceFlavor
+type ResourceFlavorSpec struct {
+	// nodeLabels are labels that associate the ResourceFlavor with Nodes that
+	// have the same labels.
+	// When a Workload is admitted, its podsets can only get assigned
+	// ResourceFlavors whose nodeLabels match the nodeSelector and nodeAffinity
+	// fields.
+	// Once a ResourceFlavor is assigned to a podSet, the ResourceFlavor's
+	// nodeLabels should be injected into the pods of the Workload by the
+	// controller that integrates with the Workload object.
 	//
-	// taints can be up to 8 elements.
+	// nodeLabels can be up to 8 elements.
+	// +optional
+	// +mapType=atomic
+	// +kubebuilder:validation:MaxProperties=8
+	NodeLabels map[string]string `json:"nodeLabels,omitempty"`
+
+	// nodeTaints are taints that the nodes associated with this ResourceFlavor
+	// have.
+	// Workloads' podsets must have tolerations for these nodeTaints in order to
+	// get assigned this ResourceFlavor during admission.
 	//
+	// An example of a nodeTaint is
+	// cloud.provider.com/preemptible="true":NoSchedule
+	//
+	// nodeTaints can be up to 8 elements.
+	//
+	// +optional
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=8
-	Taints []corev1.Taint `json:"taints,omitempty"`
+	NodeTaints []corev1.Taint `json:"nodeTaints,omitempty"`
 }
 
 //+kubebuilder:object:root=true

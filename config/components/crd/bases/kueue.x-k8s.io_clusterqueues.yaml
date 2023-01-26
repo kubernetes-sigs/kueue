@@ -12,8 +12,6 @@ spec:
     kind: ClusterQueue
     listKind: ClusterQueueList
     plural: clusterqueues
-    shortNames:
-    - cq
     singular: clusterqueue
   scope: Cluster
   versions:
@@ -404,7 +402,7 @@ spec:
             type: object
         type: object
     served: true
-    storage: false
+    storage: true
     subresources:
       status: {}
   - additionalPrinterColumns:
@@ -450,33 +448,13 @@ spec:
                 description: "cohort that this ClusterQueue belongs to. CQs that belong
                   to the same cohort can borrow unused resources from each other.
                   \n A CQ can be a member of a single borrowing cohort. A workload
-                  submitted to a queue referencing this CQ can borrow resources from
-                  any CQ in the cohort. Only resources listed in the CQ can be borrowed
-                  (see example). \n In the example below, the following applies: 1.
-                  tenantB can run a workload consuming up to 20 k80 GPUs, meaning
-                  a resource can be allocated from more than one clusterQueue in a
-                  cohort. 2. tenantB can not consume any p100 GPUs or spot because
-                  its CQ has no quota defined for them, and so the max is implicitly
-                  0. 3. If both tenantA and tenantB are running jobs such that current
-                  usage for tenantA is lower than its min quota (e.g., 5 k80 GPUs)
-                  while tenantB’s usage is higher than its min quota (e.g., 12 k80
-                  GPUs), and both tenants have pending jobs requesting the remaining
-                  clusterQueue of the cohort (the 3 k80 GPUs), then tenantA jobs will
-                  get this remaining clusterQueue since tenantA is below its min limit.
-                  4. If a tenantA workload doesn't tolerate spot, then the workload
-                  will only be eligible to consume on-demand cores (the next in the
-                  list of cpu flavors). 5. Before considering on-demand, the workload
-                  will get assigned spot if the quota can be borrowed from the cohort.
-                  \n metadata: name: tenantA spec: cohort: borrowing-cohort resources:
-                  - name: cpu flavors: - name: spot quota: min: 1000 - name: on-demand
-                  quota: min: 100 - name: nvidia.com/gpu flavors: - name: k80 quota:
-                  min: 10 max: 20 - name: p100 quota: min: 10 max: 20 \n metadata:
-                  name: tenantB spec: cohort: borrowing-cohort resources: - name:
-                  cpu flavors: - name: on-demand quota: min: 100 - name: nvidia.com/gpu
-                  flavors: - name: k80 quota: min: 10 max: 20 \n If empty, this ClusterQueue
-                  cannot borrow from any other ClusterQueue and vice versa. \n The
-                  name style is similar to label keys. These are just names to link
-                  CQs together, and they are meaningless otherwise."
+                  submitted to a queue referencing this CQ can borrow quota from any
+                  CQ in the cohort. Only quota for the [resource, flavor] pairs listed
+                  in the CQ can be borrowed. If empty, this ClusterQueue cannot borrow
+                  from any other ClusterQueue and vice versa. \n A cohort is a name
+                  that links CQs together, but it doesn't reference any object. \n
+                  Validation of a cohort name is equivalent to that of object names:
+                  subdomain in DNS (RFC 1123)."
                 type: string
               namespaceSelector:
                 description: namespaceSelector defines which namespaces are allowed
@@ -528,6 +506,49 @@ spec:
                     type: object
                 type: object
                 x-kubernetes-map-type: atomic
+              preemption:
+                description: "preemption describes policies to preempt Workloads from
+                  this ClusterQueue or the ClusterQueue's cohort. \n Preemption can
+                  happen in two scenarios: \n - When a Workload fits within the min
+                  quota of the ClusterQueue, but the quota is currently borrowed by
+                  other ClusterQueues in the cohort. Preempting Workloads in other
+                  ClusterQueues allows this ClusterQueue to reclaim its min quota.
+                  - When a Workload doesn't fit within the min quota of the ClusterQueue
+                  and there are active Workloads with lower priority. \n The preemption
+                  algorithm tries to find a minimal set of Workloads to preempt to
+                  accomomdate the pending Workload, preempting Workloads with lower
+                  priority first."
+                properties:
+                  reclaimWithinCohort:
+                    default: Never
+                    description: "reclaimWithinCohort determines whether a pending
+                      Workload can preempt Workloads from other ClusterQueues in the
+                      cohort that are using more than their min quota. Possible values
+                      are: \n - `Never` (default): do not preempt workloads in the
+                      cohort. - `LowerPriority`: if the pending workload fits within
+                      the min quota of its ClusterQueue, only preempt workloads in
+                      the cohort that have lower priority than the pending Workload.
+                      - `Any`: if the pending workload fits within the min quota of
+                      its ClusterQueue, preempt any workload in the cohort, irrespective
+                      of priority."
+                    enum:
+                    - Never
+                    - LowerPriority
+                    - Any
+                    type: string
+                  withinClusterQueue:
+                    default: Never
+                    description: "withinClusterQueue determines whether a pending
+                      workload that doesn't fit within the min quota for its ClusterQueue,
+                      can preempt active Workloads in the ClusterQueue. Possible values
+                      are: \n - `Never` (default): do not preempt workloads in the
+                      ClusterQueue. - `LowerPriority`: only preempt workloads in the
+                      ClusterQueue that have lower priority than the pending Workload."
+                    enum:
+                    - Never
+                    - LowerPriority
+                    type: string
+                type: object
               queueingStrategy:
                 default: BestEffortFIFO
                 description: "QueueingStrategy indicates the queueing strategy of
@@ -535,87 +556,106 @@ spec:
                   is immutable. Current Supported Strategies: \n - StrictFIFO: workloads
                   are ordered strictly by creation time. Older workloads that can't
                   be admitted will block admitting newer workloads even if they fit
-                  available quota. - BestEffortFIFO：workloads are ordered by creation
+                  available quota. - BestEffortFIFO: workloads are ordered by creation
                   time, however older workloads that can't be admitted will not block
                   admitting newer workloads that fit existing quota."
                 enum:
                 - StrictFIFO
                 - BestEffortFIFO
                 type: string
-              resources:
-                description: "resources represent the total pod requests of workloads
-                  dispatched via this clusterQueue. This doesn't guarantee the actual
-                  availability of resources, although an integration with a resource
-                  provisioner like Cluster Autoscaler is possible to achieve that.
-                  Example: \n - name: cpu flavors: - name: default quota: min: 100
-                  - name: memory flavors: - name: default quota: min: 100Gi \n Two
-                  resources must either have all the flavors in the same order or
-                  not have any matching flavors. When two resources match their flavors,
-                  they are said to be codependent. When a workload is admitted by
-                  this ClusterQueue, all the codependent resources that the Workload
-                  requests get assigned the same flavor. \n resources can be up to
-                  16 elements."
+              resourceGroups:
+                description: resourceGroups describes groups of resources. Each resource
+                  group defines the list of resources and a list of flavors that provide
+                  quotas for these resources. Each resource and each flavor can only
+                  form part of one resource group. resourceGroups can be up to 16.
                 items:
                   properties:
+                    coveredResources:
+                      description: 'coveredResources is the list of resources covered
+                        by the flavors in this group. Examples: cpu, memory, vendor.com/gpu.
+                        The list cannot be empty and it can contain up to 16 resources.'
+                      items:
+                        description: ResourceName is the name identifying various
+                          resources in a ResourceList.
+                        type: string
+                      maxItems: 16
+                      minItems: 1
+                      type: array
                     flavors:
-                      description: "flavors is the list of different flavors of this
-                        resource and their limits. Typically two different “flavors”
-                        of the same resource represent different hardware models (e.g.,
-                        gpu models, cpu architectures) or pricing (on-demand vs spot
-                        cpus). The flavors are distinguished via labels and taints.
-                        \n For example, if the resource is nvidia.com/gpu, and we
-                        want to define different limits for different gpu models,
-                        then each model is mapped to a flavor and must set different
-                        values of a shared key. For example: \n spec: resources: -
-                        name: nvidia.com/gpu flavors: - name: k80 quota: min: 10 -
-                        name: p100 quota: min: 10 \n The flavors are evaluated in
-                        order, selecting the first to satisfy a workload’s requirements.
-                        Also the quantities are additive, in the example above the
-                        GPU quota in total is 20 (10 k80 + 10 p100). A workload is
-                        limited to the selected type by converting the labels to a
-                        node selector that gets injected into the workload. This list
-                        can’t be empty, at least one flavor must exist. \n flavors
-                        can be up to 16 elements."
+                      description: flavors is the list of flavors that provide the
+                        resources of this group. Typically, different flavors represent
+                        different hardware models (e.g., gpu models, cpu architectures)
+                        or pricing models (on-demand vs spot cpus). Each flavor MUST
+                        list all the resources listed for this group in the same order
+                        as the .resources field. The list cannot be empty and it can
+                        contain up to 16 flavors.
                       items:
                         properties:
                           name:
-                            default: default
-                            description: name is a reference to the resourceFlavor
-                              that defines this flavor.
+                            description: name of this flavor. The name should match
+                              the .metadata.name of a ResourceFlavor. If a matching
+                              ResourceFlavor does not exist, the ClusterQueue will
+                              have an Active condition set to False.
                             type: string
-                          quota:
-                            description: quota is the limit of resource usage at a
-                              point in time.
-                            properties:
-                              max:
-                                anyOf:
-                                - type: integer
-                                - type: string
-                                description: max is the upper limit on the quantity
-                                  of resource requests that can be used by workloads
-                                  admitted by this ClusterQueue at a point in time.
-                                  Resources can be borrowed from unused min quota
-                                  of other ClusterQueues in the same cohort. If not
-                                  null, it must be greater than or equal to min. If
-                                  null, there is no upper limit for borrowing.
-                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                                x-kubernetes-int-or-string: true
-                              min:
-                                anyOf:
-                                - type: integer
-                                - type: string
-                                description: min quantity of resource requests that
-                                  are available to be used by workloads admitted by
-                                  this ClusterQueue at a point in time. The quantity
-                                  must be positive. The sum of min quotas for a flavor
-                                  in a cohort defines the maximum amount of resources
-                                  that can be allocated by a ClusterQueue in the cohort.
-                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                                x-kubernetes-int-or-string: true
-                            type: object
+                          resources:
+                            description: resources is the list of quotas for this
+                              flavor per resource. There could be up to 16 resources.
+                            items:
+                              properties:
+                                borrowingLimit:
+                                  anyOf:
+                                  - type: integer
+                                  - type: string
+                                  description: borrowingLimit is the maximum amount
+                                    of quota for the [flavor, resource] combination
+                                    that this ClusterQueue is allowed to borrow from
+                                    the unused quota of other ClusterQueues in the
+                                    same cohort. In total, at a given time, Workloads
+                                    in a ClusterQueue can consume a quantity of quota
+                                    equal to nominalQuota+borrowingLimit, assuming
+                                    the other ClusterQueues in the cohort have enough
+                                    unused quota. If null, it means that there is
+                                    no borrowing limit. If not null, it must be non-negative.
+                                    borrowingLimit must be null if spec.cohort is
+                                    empty.
+                                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                  x-kubernetes-int-or-string: true
+                                name:
+                                  description: name of this resource.
+                                  type: string
+                                nominalQuota:
+                                  anyOf:
+                                  - type: integer
+                                  - type: string
+                                  description: "nominalQuota is the quantity of this
+                                    resource that is available for Workloads admitted
+                                    by this ClusterQueue at a point in time. The nominalQuota
+                                    must be non-negative. nominalQuota should represent
+                                    the resources in the cluster available for running
+                                    jobs (after discounting resources consumed by
+                                    system components and pods not managed by kueue).
+                                    In an autoscaled cluster, nominalQuota should
+                                    account for resources that can be provided by
+                                    a component such as Kubernetes cluster-autoscaler.
+                                    \n If the ClusterQueue belongs to a cohort, the
+                                    sum of the quotas for each (flavor, resource)
+                                    combination defines the maximum quantity that
+                                    can be allocated by a ClusterQueue in the cohort."
+                                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                  x-kubernetes-int-or-string: true
+                              required:
+                              - name
+                              - nominalQuota
+                              type: object
+                            maxItems: 16
+                            minItems: 1
+                            type: array
+                            x-kubernetes-list-map-keys:
+                            - name
+                            x-kubernetes-list-type: map
                         required:
                         - name
-                        - quota
+                        - resources
                         type: object
                       maxItems: 16
                       minItems: 1
@@ -623,25 +663,19 @@ spec:
                       x-kubernetes-list-map-keys:
                       - name
                       x-kubernetes-list-type: map
-                    name:
-                      description: name of the resource. For example, cpu, memory
-                        or nvidia.com/gpu.
-                      type: string
                   required:
+                  - coveredResources
                   - flavors
-                  - name
                   type: object
                 maxItems: 16
                 type: array
-                x-kubernetes-list-map-keys:
-                - name
-                x-kubernetes-list-type: map
+                x-kubernetes-list-type: atomic
             type: object
           status:
             description: ClusterQueueStatus defines the observed state of ClusterQueue
             properties:
               admittedWorkloads:
-                description: AdmittedWorkloads is the number of workloads currently
+                description: admittedWorkloads is the number of workloads currently
                   admitted to this clusterQueue and haven't finished yet.
                 format: int32
                 type: integer
@@ -718,39 +752,64 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              flavorsUsage:
+                description: flavorsUsage are the used quotas, by flavor, currently
+                  in use by the workloads assigned to this ClusterQueue.
+                items:
+                  properties:
+                    name:
+                      description: name of the flavor.
+                      type: string
+                    resources:
+                      description: resources lists the quota usage for the resources
+                        in this flavor.
+                      items:
+                        properties:
+                          borrowed:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            description: Borrowed is quantity of quota that is borrowed
+                              from the cohort. In other words, it's the used quota
+                              that is over the nominalQuota.
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                          name:
+                            description: name of the resource
+                            type: string
+                          total:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            description: total is the total quantity of used quota,
+                              including the amount borrowed from the cohort.
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                        required:
+                        - name
+                        type: object
+                      maxItems: 16
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - name
+                      x-kubernetes-list-type: map
+                  required:
+                  - name
+                  - resources
+                  type: object
+                maxItems: 16
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               pendingWorkloads:
-                description: PendingWorkloads is the number of workloads currently
+                description: pendingWorkloads is the number of workloads currently
                   waiting to be admitted to this clusterQueue.
                 format: int32
                 type: integer
-              usedResources:
-                additionalProperties:
-                  additionalProperties:
-                    properties:
-                      borrowing:
-                        anyOf:
-                        - type: integer
-                        - type: string
-                        description: Borrowed is the used quantity past the min quota,
-                          borrowed from the cohort.
-                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                        x-kubernetes-int-or-string: true
-                      total:
-                        anyOf:
-                        - type: integer
-                        - type: string
-                        description: Total is the total quantity of the resource used,
-                          including resources borrowed from the cohort.
-                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                        x-kubernetes-int-or-string: true
-                    type: object
-                  type: object
-                description: usedResources are the resources (by flavor) currently
-                  in use by the workloads assigned to this clusterQueue.
-                type: object
             type: object
         type: object
     served: true
-    storage: true
+    storage: false
     subresources:
       status: {}

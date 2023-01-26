@@ -34,13 +34,9 @@ type WorkloadSpec struct {
 	// +kubebuilder:validation:MinItems=1
 	PodSets []PodSet `json:"podSets"`
 
-	// queueName is the name of the queue the Workload is associated with.
-	// queueName cannot be changed once set.
+	// queueName is the name of the LocalQueue the Workload is associated with.
+	// queueName cannot be changed while .status.admission is not null.
 	QueueName string `json:"queueName,omitempty"`
-
-	// admission holds the parameters of the admission of the workload by a ClusterQueue.
-	// admission cannot be changed once set.
-	Admission *Admission `json:"admission,omitempty"`
 
 	// If specified, indicates the workload's priority.
 	// "system-node-critical" and "system-cluster-critical" are two special
@@ -74,18 +70,27 @@ type PodSetFlavors struct {
 	Name string `json:"name"`
 
 	// Flavors are the flavors assigned to the workload for each resource.
-	Flavors map[corev1.ResourceName]string `json:"flavors,omitempty"`
+	Flavors map[corev1.ResourceName]ResourceFlavorReference `json:"flavors,omitempty"`
 }
 
 type PodSet struct {
 	// name is the PodSet name.
 	Name string `json:"name"`
 
-	// spec is the Pod spec.
+	// template is the Pod template.
+	//
+	// The only allowed fields in template.metadata are labels and annotations.
+	//
 	// If requests are omitted for a container or initContainer,
 	// they default to the limits if they are explicitly specified for the
-	// container or initcontainer.
-	Spec corev1.PodSpec `json:"spec"`
+	// container or initContainer.
+	//
+	// During admission, the rules in nodeSelector and
+	// nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution that match
+	// the keys in the nodeLabels from the ResourceFlavors considered for this
+	// Workload are used to filter the ResourceFlavors that can be assigned to
+	// this podSet.
+	Template corev1.PodTemplateSpec `json:"template"`
 
 	// count is the number of pods for the spec.
 	// +kubebuilder:validation:Minimum=1
@@ -94,6 +99,11 @@ type PodSet struct {
 
 // WorkloadStatus defines the observed state of Workload
 type WorkloadStatus struct {
+	// admission holds the parameters of the admission of the workload by a
+	// ClusterQueue. admission can be set back to null, but its fields cannot be
+	// changed once set.
+	Admission *Admission `json:"admission,omitempty"`
+
 	// conditions hold the latest available observations of the Workload
 	// current state.
 	//
@@ -101,6 +111,8 @@ type WorkloadStatus struct {
 	//
 	// - Admitted: the Workload was admitted through a ClusterQueue.
 	// - Finished: the associated workload finished running (failed or succeeded).
+	// - PodsReady: at least `.spec.podSets[*].count` Pods are ready or have
+	// succeeded.
 	//
 	// +optional
 	// +listType=map
@@ -127,7 +139,6 @@ const (
 // +kubebuilder:printcolumn:name="Admitted by",JSONPath=".spec.admission.clusterQueue",type=string,description="Name of the ClusterQueue that admitted this workload"
 // +kubebuilder:printcolumn:name="Age",JSONPath=".metadata.creationTimestamp",type=date,description="Time this workload was created"
 // +kubebuilder:resource:shortName={wl}
-// +kubebuilder:storageversion
 
 // Workload is the Schema for the workloads API
 type Workload struct {

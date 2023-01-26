@@ -13,7 +13,8 @@ spec:
     listKind: ResourceFlavorList
     plural: resourceflavors
     shortNames:
-    - rf
+    - flavor
+    - flavors
     singular: resourceflavor
   scope: Cluster
   versions:
@@ -75,7 +76,7 @@ spec:
             x-kubernetes-list-type: atomic
         type: object
     served: true
-    storage: false
+    storage: true
   - name: v1beta1
     schema:
       openAPIV3Schema:
@@ -93,45 +94,57 @@ spec:
             type: string
           metadata:
             type: object
-          nodeSelector:
-            additionalProperties:
-              type: string
-            description: "nodeSelector associated with this flavor. They are matched
-              against or converted to node affinity constraints on the workload’s
-              pods. \n nodeSelector can be up to 8 elements."
-            maxProperties: 8
+          spec:
+            description: ResourceFlavorSpec defines the desired state of the ResourceFlavor
+            properties:
+              nodeLabels:
+                additionalProperties:
+                  type: string
+                description: "nodeLabels are labels that associate the ResourceFlavor
+                  with Nodes that have the same labels. When a Workload is admitted,
+                  its podsets can only get assigned ResourceFlavors whose nodeLabels
+                  match the nodeSelector and nodeAffinity fields. Once a ResourceFlavor
+                  is assigned to a podSet, the ResourceFlavor's nodeLabels should
+                  be injected into the pods of the Workload by the controller that
+                  integrates with the Workload object. \n nodeLabels can be up to
+                  8 elements."
+                maxProperties: 8
+                type: object
+                x-kubernetes-map-type: atomic
+              nodeTaints:
+                description: "nodeTaints are taints that the nodes associated with
+                  this ResourceFlavor have. Workloads' podsets must have tolerations
+                  for these nodeTaints in order to get assigned this ResourceFlavor
+                  during admission. \n An example of a nodeTaint is cloud.provider.com/preemptible=\"true\":NoSchedule
+                  \n nodeTaints can be up to 8 elements."
+                items:
+                  description: The node this Taint is attached to has the "effect"
+                    on any pod that does not tolerate the Taint.
+                  properties:
+                    effect:
+                      description: Required. The effect of the taint on pods that
+                        do not tolerate the taint. Valid effects are NoSchedule, PreferNoSchedule
+                        and NoExecute.
+                      type: string
+                    key:
+                      description: Required. The taint key to be applied to a node.
+                      type: string
+                    timeAdded:
+                      description: TimeAdded represents the time at which the taint
+                        was added. It is only written for NoExecute taints.
+                      format: date-time
+                      type: string
+                    value:
+                      description: The taint value corresponding to the taint key.
+                      type: string
+                  required:
+                  - effect
+                  - key
+                  type: object
+                maxItems: 8
+                type: array
+                x-kubernetes-list-type: atomic
             type: object
-          taints:
-            description: "taints associated with this flavor that workloads must explicitly
-              “tolerate” to be able to use this flavor. For example, cloud.provider.com/preemptible=\"true\":NoSchedule
-              \n taints can be up to 8 elements."
-            items:
-              description: The node this Taint is attached to has the "effect" on
-                any pod that does not tolerate the Taint.
-              properties:
-                effect:
-                  description: Required. The effect of the taint on pods that do not
-                    tolerate the taint. Valid effects are NoSchedule, PreferNoSchedule
-                    and NoExecute.
-                  type: string
-                key:
-                  description: Required. The taint key to be applied to a node.
-                  type: string
-                timeAdded:
-                  description: TimeAdded represents the time at which the taint was
-                    added. It is only written for NoExecute taints.
-                  format: date-time
-                  type: string
-                value:
-                  description: The taint value corresponding to the taint key.
-                  type: string
-              required:
-              - effect
-              - key
-              type: object
-            maxItems: 8
-            type: array
-            x-kubernetes-list-type: atomic
         type: object
     served: true
-    storage: true
+    storage: false
