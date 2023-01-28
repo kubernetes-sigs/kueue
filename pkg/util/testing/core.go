@@ -27,16 +27,20 @@ import (
 )
 
 func PodSpecForRequest(request map[corev1.ResourceName]string) corev1.PodSpec {
+	return corev1.PodSpec{
+		Containers: SingleContainerForRequest(request),
+	}
+}
+
+func SingleContainerForRequest(request map[corev1.ResourceName]string) []corev1.Container {
 	rl := make(corev1.ResourceList, len(request))
 	for name, val := range request {
 		rl[name] = resource.MustParse(val)
 	}
-	return corev1.PodSpec{
-		Containers: []corev1.Container{
-			{
-				Resources: corev1.ResourceRequirements{
-					Requests: rl,
-				},
+	return []corev1.Container{
+		{
+			Resources: corev1.ResourceRequirements{
+				Requests: rl,
 			},
 		},
 	}

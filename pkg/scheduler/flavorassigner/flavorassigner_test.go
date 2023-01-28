@@ -1014,6 +1014,122 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 			},
 		},
+		"can only preempt flavors that match affinity": {
+			wlPods: []kueue.PodSet{
+				{
+					Count: 1,
+					Name:  "main",
+					Spec: corev1.PodSpec{
+						Containers: utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
+							corev1.ResourceCPU: "2",
+						}),
+						NodeSelector: map[string]string{"type": "two"},
+					},
+				},
+			},
+			clusterQueue: cache.ClusterQueue{
+				RequestableResources: map[corev1.ResourceName]*cache.Resource{
+					corev1.ResourceCPU: {
+						Flavors: []cache.FlavorLimits{
+							{Name: "one", Min: 4000},
+							{Name: "two", Min: 4000},
+						},
+					},
+				},
+				UsedResources: cache.ResourceQuantities{
+					corev1.ResourceCPU: {
+						"one": 3000,
+						"two": 3000,
+					},
+				},
+			},
+			wantRepMode: Preempt,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: "main",
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "two", Mode: Preempt},
+					},
+					Status: &Status{
+						reasons: []string{
+							"flavor one doesn't match with node affinity",
+							"insufficient unused quota for cpu flavor two, 1 more needed",
+						},
+					},
+				}},
+			},
+		},
+		"each podset requires preemption on a different flavor": {
+			wlPods: []kueue.PodSet{
+				{
+					Count: 1,
+					Name:  "launcher",
+					Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
+						corev1.ResourceCPU: "2",
+					}),
+				},
+				{
+					Count: 10,
+					Name:  "workers",
+					Spec: corev1.PodSpec{
+						Containers: utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
+							corev1.ResourceCPU: "1",
+						}),
+						Tolerations: []corev1.Toleration{{
+							Key:      "instance",
+							Operator: corev1.TolerationOpEqual,
+							Value:    "spot",
+							Effect:   corev1.TaintEffectNoSchedule,
+						}},
+					},
+				},
+			},
+			clusterQueue: cache.ClusterQueue{
+				RequestableResources: map[corev1.ResourceName]*cache.Resource{
+					corev1.ResourceCPU: {
+						Flavors: []cache.FlavorLimits{
+							{Name: "one", Min: 4000},
+							{Name: "tainted", Min: 10_000},
+						},
+					},
+				},
+				UsedResources: cache.ResourceQuantities{
+					corev1.ResourceCPU: {
+						"one":     3000,
+						"tainted": 3000,
+					},
+				},
+			},
+			wantRepMode: Preempt,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{
+					{
+						Name: "launcher",
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU: {Name: "one", Mode: Preempt},
+						},
+						Status: &Status{
+							reasons: []string{
+								"insufficient unused quota for cpu flavor one, 1 more needed",
+								"untolerated taint {instance spot NoSchedule <nil>} in flavor tainted",
+							},
+						},
+					},
+					{
+						Name: "workers",
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU: {Name: "tainted", Mode: Preempt},
+						},
+						Status: &Status{
+							reasons: []string{
+								"insufficient quota for cpu flavor one in ClusterQueue",
+								"insufficient unused quota for cpu flavor tainted, 3 more needed",
+							},
+						},
+					},
+				},
+			},
+		},
 		"resource not listed in clusterQueue": {
 			wlPods: []kueue.PodSet{
 				{
