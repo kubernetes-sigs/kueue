@@ -142,6 +142,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					LabelKeys:         map[corev1.ResourceName]sets.Set[string]{corev1.ResourceCPU: sets.New("cpuType")},
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
 					Status:            active,
+					Preemption:        defaultPreemption,
 				},
 				"b": {
 					Name: "b",
@@ -152,6 +153,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
 					LabelKeys:         map[corev1.ResourceName]sets.Set[string]{corev1.ResourceCPU: sets.New("cpuType")},
 					Status:            active,
+					Preemption:        defaultPreemption,
 				},
 				"c": {
 					Name:                 "c",
@@ -159,6 +161,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector:    labels.Nothing(),
 					UsedResources:        ResourceQuantities{},
 					Status:               active,
+					Preemption:           defaultPreemption,
 				},
 				"d": {
 					Name:                 "d",
@@ -166,6 +169,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector:    labels.Nothing(),
 					UsedResources:        ResourceQuantities{},
 					Status:               active,
+					Preemption:           defaultPreemption,
 				},
 				"e": {
 					Name: "e",
@@ -176,11 +180,35 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"nonexistent-flavor": 0}},
 					LabelKeys:         nil,
 					Status:            pending,
+					Preemption:        defaultPreemption,
 				},
 			},
 			wantCohorts: map[string]sets.Set[string]{
 				"one": sets.New("a", "b"),
 				"two": sets.New("c", "e"),
+			},
+		},
+		{
+			name: "add ClusterQueue with preemption policies",
+			operation: func(cache *Cache) {
+				cq := utiltesting.MakeClusterQueue("foo").Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				}).Obj()
+				if err := cache.AddClusterQueue(context.Background(), cq); err != nil {
+					t.Fatalf("Failed to add ClusterQueue: %v", err)
+				}
+			},
+			wantClusterQueues: map[string]*ClusterQueue{
+				"foo": {
+					Name:              "foo",
+					NamespaceSelector: labels.Everything(),
+					Status:            active,
+					Preemption: kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					},
+				},
 			},
 		},
 		{
@@ -208,6 +236,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					LabelKeys:         map[corev1.ResourceName]sets.Set[string]{corev1.ResourceCPU: sets.New("cpuType")},
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
 					Status:            active,
+					Preemption:        defaultPreemption,
 				},
 				"b": {
 					Name: "b",
@@ -218,6 +247,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
 					LabelKeys:         map[corev1.ResourceName]sets.Set[string]{corev1.ResourceCPU: sets.New("cpuType")},
 					Status:            active,
+					Preemption:        defaultPreemption,
 				},
 				"c": {
 					Name:                 "c",
@@ -225,6 +255,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector:    labels.Nothing(),
 					UsedResources:        ResourceQuantities{},
 					Status:               active,
+					Preemption:           defaultPreemption,
 				},
 				"d": {
 					Name:                 "d",
@@ -232,6 +263,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector:    labels.Nothing(),
 					UsedResources:        ResourceQuantities{},
 					Status:               active,
+					Preemption:           defaultPreemption,
 				},
 				"e": {
 					Name: "e",
@@ -242,6 +274,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"nonexistent-flavor": 0}},
 					LabelKeys:         nil,
 					Status:            pending,
+					Preemption:        defaultPreemption,
 				},
 			},
 			wantCohorts: map[string]sets.Set[string]{
@@ -323,6 +356,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					LabelKeys:         map[corev1.ResourceName]sets.Set[string]{corev1.ResourceCPU: sets.New("cpuType", "region")},
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
 					Status:            active,
+					Preemption:        defaultPreemption,
 				},
 				"b": {
 					Name:                 "b",
@@ -330,6 +364,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector:    labels.Everything(),
 					UsedResources:        ResourceQuantities{},
 					Status:               active,
+					Preemption:           defaultPreemption,
 				},
 				"c": {
 					Name:                 "c",
@@ -337,6 +372,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector:    labels.Nothing(),
 					UsedResources:        ResourceQuantities{},
 					Status:               active,
+					Preemption:           defaultPreemption,
 				},
 				"d": {
 					Name:                 "d",
@@ -344,6 +380,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector:    labels.Nothing(),
 					UsedResources:        ResourceQuantities{},
 					Status:               active,
+					Preemption:           defaultPreemption,
 				},
 				"e": {
 					Name: "e",
@@ -354,6 +391,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
 					LabelKeys:         map[corev1.ResourceName]sets.Set[string]{corev1.ResourceCPU: sets.New("cpuType", "region")},
 					Status:            active,
+					Preemption:        defaultPreemption,
 				},
 			},
 			wantCohorts: map[string]sets.Set[string]{
@@ -383,6 +421,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
 					LabelKeys:         map[corev1.ResourceName]sets.Set[string]{corev1.ResourceCPU: sets.New("cpuType")},
 					Status:            active,
+					Preemption:        defaultPreemption,
 				},
 				"c": {
 					Name:                 "c",
@@ -390,6 +429,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector:    labels.Nothing(),
 					UsedResources:        ResourceQuantities{},
 					Status:               active,
+					Preemption:           defaultPreemption,
 				},
 				"e": {
 					Name: "e",
@@ -400,6 +440,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"nonexistent-flavor": 0}},
 					LabelKeys:         nil,
 					Status:            pending,
+					Preemption:        defaultPreemption,
 				},
 			},
 			wantCohorts: map[string]sets.Set[string]{
@@ -425,6 +466,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					LabelKeys:         map[corev1.ResourceName]sets.Set[string]{corev1.ResourceCPU: sets.New("cpuType")},
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
 					Status:            active,
+					Preemption:        defaultPreemption,
 				},
 				"b": {
 					Name: "b",
@@ -435,6 +477,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"default": 0}},
 					LabelKeys:         map[corev1.ResourceName]sets.Set[string]{corev1.ResourceCPU: sets.New("cpuType")},
 					Status:            active,
+					Preemption:        defaultPreemption,
 				},
 				"c": {
 					Name:                 "c",
@@ -442,6 +485,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector:    labels.Nothing(),
 					UsedResources:        ResourceQuantities{},
 					Status:               active,
+					Preemption:           defaultPreemption,
 				},
 				"d": {
 					Name:                 "d",
@@ -449,6 +493,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector:    labels.Nothing(),
 					UsedResources:        ResourceQuantities{},
 					Status:               active,
+					Preemption:           defaultPreemption,
 				},
 				"e": {
 					Name: "e",
@@ -459,6 +504,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					UsedResources:     ResourceQuantities{corev1.ResourceCPU: {"nonexistent-flavor": 0}},
 					LabelKeys:         nil,
 					Status:            active,
+					Preemption:        defaultPreemption,
 				},
 			},
 			wantCohorts: map[string]sets.Set[string]{
@@ -544,7 +590,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							"gamma": 0,
 						},
 					},
-					Status: pending,
+					Status:     pending,
+					Preemption: defaultPreemption,
 				},
 			},
 		},
@@ -554,7 +601,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			cache := New(fake.NewClientBuilder().WithScheme(scheme).Build())
 			tc.operation(cache)
 			if diff := cmp.Diff(tc.wantClusterQueues, cache.clusterQueues,
-				cmpopts.IgnoreFields(ClusterQueue{}, "Cohort", "Workloads"), cmpopts.IgnoreUnexported(ClusterQueue{})); diff != "" {
+				cmpopts.IgnoreFields(ClusterQueue{}, "Cohort", "Workloads"),
+				cmpopts.IgnoreUnexported(ClusterQueue{}),
+				cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected clusterQueues (-want,+got):\n%s", diff)
 			}
 

@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -56,6 +57,7 @@ type Scheduler struct {
 	client                  client.Client
 	recorder                record.EventRecorder
 	admissionRoutineWrapper routine.Wrapper
+	preemptor               *preemption.Preemptor
 	waitForPodsReady        bool
 
 	// Stubs.
@@ -89,6 +91,7 @@ func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder r
 		cache:                   cache,
 		client:                  cl,
 		recorder:                recorder,
+		preemptor:               preemption.New(cl, recorder),
 		admissionRoutineWrapper: routine.DefaultWrapper,
 		waitForPodsReady:        options.waitForPodsReady,
 	}
@@ -138,19 +141,27 @@ func (s *Scheduler) schedule(ctx context.Context) {
 		if e.assignment.RepresentativeMode() == flavorassigner.NoFit {
 			continue
 		}
-		c := snapshot.ClusterQueues[e.ClusterQueue]
-		if e.assignment.Borrows() && c.Cohort != nil && usedCohorts.Has(c.Cohort.Name) {
+		cq := snapshot.ClusterQueues[e.ClusterQueue]
+		if e.assignment.Borrows() && cq.Cohort != nil && usedCohorts.Has(cq.Cohort.Name) {
 			e.status = skipped
 			e.inadmissibleMsg = "workloads in the cohort that don't require borrowing were prioritized and admitted first"
 			continue
 		}
 		// Even if there was a failure, we shouldn't admit other workloads to this
 		// cohort.
-		if c.Cohort != nil {
-			usedCohorts.Insert(c.Cohort.Name)
+		if cq.Cohort != nil {
+			usedCohorts.Insert(cq.Cohort.Name)
 		}
+		log := log.WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue))
+		ctx := ctrl.LoggerInto(ctx, log)
 		if e.assignment.RepresentativeMode() != flavorassigner.Fit {
-			// TODO(#43): Implement preemption.
+			preempted, err := s.preemptor.Do(ctx, e.Info, e.assignment, &snapshot)
+			if err != nil {
+				log.Error(err, "Failed to preempt workloads")
+			}
+			if preempted != 0 {
+				e.inadmissibleMsg += fmt.Sprintf(". Preempted %d workload(s)", preempted)
+			}
 			continue
 		}
 		if s.waitForPodsReady {
@@ -166,8 +177,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			}
 		}
 		e.status = nominated
-		log := log.WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue))
-		if err := s.admit(ctrl.LoggerInto(ctx, log), e); err != nil {
+		if err := s.admit(ctx, e); err != nil {
 			e.inadmissibleMsg = fmt.Sprintf("Failed to admit workload: %v", err)
 		}
 	}
@@ -234,7 +244,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 			e.requeueReason = queue.RequeueReasonNamespaceMismatch
 		} else {
 			e.assignment = flavorassigner.AssignFlavors(log, &e.Info, snap.ResourceFlavors, cq)
-			e.inadmissibleMsg = api.TruncateEventMessage(e.assignment.Message())
+			e.inadmissibleMsg = e.assignment.Message()
 		}
 		entries = append(entries, e)
 	}
@@ -325,6 +335,6 @@ func (s *Scheduler) requeueAndUpdate(log logr.Logger, ctx context.Context, e ent
 		if err != nil {
 			log.Error(err, "Could not update Workload status")
 		}
-		s.recorder.Eventf(e.Obj, corev1.EventTypeNormal, "Pending", e.inadmissibleMsg)
+		s.recorder.Eventf(e.Obj, corev1.EventTypeNormal, "Pending", api.TruncateEventMessage(e.inadmissibleMsg))
 	}
 }

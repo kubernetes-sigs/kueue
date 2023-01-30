@@ -60,6 +60,12 @@ func (w *ClusterQueueWebhook) Default(ctx context.Context, obj runtime.Object) e
 	if !controllerutil.ContainsFinalizer(cq, kueue.ResourceInUseFinalizerName) {
 		controllerutil.AddFinalizer(cq, kueue.ResourceInUseFinalizerName)
 	}
+	if cq.Spec.Preemption == nil {
+		cq.Spec.Preemption = &kueue.ClusterQueuePreemption{
+			WithinClusterQueue:  kueue.PreemptionPolicyNever,
+			ReclaimWithinCohort: kueue.PreemptionPolicyNever,
+		}
+	}
 	return nil
 }
 

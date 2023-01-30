@@ -35,6 +35,11 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
+var snapCmpOpts = []cmp.Option{
+	cmpopts.IgnoreUnexported(ClusterQueue{}),
+	cmpopts.IgnoreFields(Cohort{}, "Members"), // avoid recursion.
+}
+
 func TestSnapshot(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := kueue.AddToScheme(scheme); err != nil {
@@ -139,6 +144,17 @@ func TestSnapshot(t *testing.T) {
 							},
 						},
 					},
+				},
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "with-preemption",
+			},
+			Spec: kueue.ClusterQueueSpec{
+				Preemption: &kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 				},
 			},
 		},
@@ -320,6 +336,7 @@ func TestSnapshot(t *testing.T) {
 				Workloads: map[string]*workload.Info{
 					"/alpha": workload.NewInfo(&workloads[0]),
 				},
+				Preemption:        defaultPreemption,
 				LabelKeys:         map[corev1.ResourceName]sets.Set[string]{corev1.ResourceCPU: sets.New("baz", "foo", "instance")},
 				NamespaceSelector: labels.Nothing(),
 				Status:            active,
@@ -357,6 +374,7 @@ func TestSnapshot(t *testing.T) {
 					"/beta":  workload.NewInfo(&workloads[1]),
 					"/gamma": workload.NewInfo(&workloads[2]),
 				},
+				Preemption:        defaultPreemption,
 				NamespaceSelector: labels.Nothing(),
 				LabelKeys:         map[corev1.ResourceName]sets.Set[string]{corev1.ResourceCPU: sets.New("baz", "instance")},
 				Status:            active,
@@ -377,6 +395,19 @@ func TestSnapshot(t *testing.T) {
 					corev1.ResourceCPU: map[string]int64{"default": 0},
 				},
 				Workloads:         map[string]*workload.Info{},
+				Preemption:        defaultPreemption,
+				NamespaceSelector: labels.Nothing(),
+				Status:            active,
+			},
+			"with-preemption": {
+				Name:                 "with-preemption",
+				RequestableResources: map[corev1.ResourceName]*Resource{},
+				UsedResources:        ResourceQuantities{},
+				Workloads:            map[string]*workload.Info{},
+				Preemption: kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				},
 				NamespaceSelector: labels.Nothing(),
 				Status:            active,
 			},
@@ -400,7 +431,240 @@ func TestSnapshot(t *testing.T) {
 		},
 		InactiveClusterQueueSets: sets.New("flavor-nonexistent-cq"),
 	}
-	if diff := cmp.Diff(wantSnapshot, snapshot, cmpopts.IgnoreUnexported(ClusterQueue{}), cmpopts.IgnoreFields(Cohort{}, "Members")); diff != "" {
+	if diff := cmp.Diff(wantSnapshot, snapshot, snapCmpOpts...); diff != "" {
 		t.Errorf("Unexpected Snapshot (-want,+got):\n%s", diff)
+	}
+}
+
+func TestSnapshotAddRemoveWorkload(t *testing.T) {
+	flavors := []*kueue.ResourceFlavor{
+		utiltesting.MakeResourceFlavor("default").Obj(),
+		utiltesting.MakeResourceFlavor("alpha").Obj(),
+		utiltesting.MakeResourceFlavor("beta").Obj(),
+	}
+	clusterQueues := []*kueue.ClusterQueue{
+		utiltesting.MakeClusterQueue("c1").
+			Cohort("cohort").
+			Resource(utiltesting.MakeResource(corev1.ResourceCPU).
+				Flavor(utiltesting.MakeFlavor("default", "6").Obj()).
+				Obj()).
+			Resource(utiltesting.MakeResource(corev1.ResourceMemory).
+				Flavor(utiltesting.MakeFlavor("alpha", "6Gi").Obj()).
+				Flavor(utiltesting.MakeFlavor("beta", "6Gi").Obj()).
+				Obj()).
+			Obj(),
+		utiltesting.MakeClusterQueue("c2").
+			Cohort("cohort").
+			Resource(utiltesting.MakeResource(corev1.ResourceCPU).
+				Flavor(utiltesting.MakeFlavor("default", "6").Obj()).
+				Obj()).
+			Obj(),
+	}
+	workloads := []kueue.Workload{
+		*utiltesting.MakeWorkload("c1-cpu", "").
+			Request(corev1.ResourceCPU, "1").
+			Admit(utiltesting.MakeAdmission("c1").Flavor(corev1.ResourceCPU, "default").Obj()).
+			Obj(),
+		*utiltesting.MakeWorkload("c1-memory-alpha", "").
+			Request(corev1.ResourceMemory, "1Gi").
+			Admit(utiltesting.MakeAdmission("c1").Flavor(corev1.ResourceMemory, "alpha").Obj()).
+			Obj(),
+		*utiltesting.MakeWorkload("c1-memory-beta", "").
+			Request(corev1.ResourceMemory, "1Gi").
+			Admit(utiltesting.MakeAdmission("c1").Flavor(corev1.ResourceMemory, "beta").Obj()).
+			Obj(),
+		*utiltesting.MakeWorkload("c2-cpu-1", "").
+			Request(corev1.ResourceCPU, "1").
+			Admit(utiltesting.MakeAdmission("c2").Flavor(corev1.ResourceCPU, "default").Obj()).
+			Obj(),
+		*utiltesting.MakeWorkload("c2-cpu-2", "").
+			Request(corev1.ResourceCPU, "1").
+			Admit(utiltesting.MakeAdmission("c2").Flavor(corev1.ResourceCPU, "default").Obj()).
+			Obj(),
+	}
+	ctx := context.Background()
+	scheme := utiltesting.MustGetScheme(t)
+	cl := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithLists(&kueue.WorkloadList{Items: workloads}).
+		Build()
+
+	cqCache := New(cl)
+	for _, flv := range flavors {
+		cqCache.AddOrUpdateResourceFlavor(flv)
+	}
+	for _, cq := range clusterQueues {
+		if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+			t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
+		}
+	}
+	wlInfos := make(map[string]*workload.Info, len(workloads))
+	for _, cq := range cqCache.clusterQueues {
+		for _, wl := range cq.Workloads {
+			wlInfos[workload.Key(wl.Obj)] = wl
+		}
+	}
+	initialSnapshot := cqCache.Snapshot()
+	initialCohortResources := initialSnapshot.ClusterQueues["c1"].Cohort.RequestableResources
+	cases := map[string]struct {
+		remove []string
+		add    []string
+		want   Snapshot
+	}{
+		"no-op remove add": {
+			remove: []string{"/c1-cpu", "/c2-cpu-1"},
+			add:    []string{"/c1-cpu", "/c2-cpu-1"},
+			want:   initialSnapshot,
+		},
+		"remove all": {
+			remove: []string{"/c1-cpu", "/c1-memory-alpha", "/c1-memory-beta", "/c2-cpu-1", "/c2-cpu-2"},
+			want: func() Snapshot {
+				cohort := &Cohort{
+					Name:                 "cohort",
+					RequestableResources: initialCohortResources,
+					UsedResources: ResourceQuantities{
+						corev1.ResourceCPU:    {"default": 0},
+						corev1.ResourceMemory: {"alpha": 0, "beta": 0},
+					},
+				}
+				return Snapshot{
+					ClusterQueues: map[string]*ClusterQueue{
+						"c1": {
+							Name:                 "c1",
+							Cohort:               cohort,
+							Workloads:            make(map[string]*workload.Info),
+							RequestableResources: cqCache.clusterQueues["c1"].RequestableResources,
+							UsedResources: ResourceQuantities{
+								corev1.ResourceCPU:    {"default": 0},
+								corev1.ResourceMemory: {"alpha": 0, "beta": 0},
+							},
+						},
+						"c2": {
+							Name:                 "c2",
+							Cohort:               cohort,
+							Workloads:            make(map[string]*workload.Info),
+							RequestableResources: cqCache.clusterQueues["c2"].RequestableResources,
+							UsedResources: ResourceQuantities{
+								corev1.ResourceCPU: {"default": 0},
+							},
+						},
+					},
+				}
+			}(),
+		},
+		"remove c1-cpu": {
+			remove: []string{"/c1-cpu"},
+			want: func() Snapshot {
+				cohort := &Cohort{
+					Name:                 "cohort",
+					RequestableResources: initialCohortResources,
+					UsedResources: ResourceQuantities{
+						corev1.ResourceCPU: {"default": 2_000},
+						corev1.ResourceMemory: {
+							"alpha": 1 * utiltesting.Gi,
+							"beta":  1 * utiltesting.Gi,
+						},
+					},
+				}
+				return Snapshot{
+					ClusterQueues: map[string]*ClusterQueue{
+						"c1": {
+							Name:   "c1",
+							Cohort: cohort,
+							Workloads: map[string]*workload.Info{
+								"/c1-memory-alpha": nil,
+								"/c1-memory-beta":  nil,
+							},
+							RequestableResources: cqCache.clusterQueues["c1"].RequestableResources,
+							UsedResources: ResourceQuantities{
+								corev1.ResourceCPU: {"default": 0},
+								corev1.ResourceMemory: {
+									"alpha": 1 * utiltesting.Gi,
+									"beta":  1 * utiltesting.Gi,
+								},
+							},
+						},
+						"c2": {
+							Name:   "c2",
+							Cohort: cohort,
+							Workloads: map[string]*workload.Info{
+								"/c2-cpu-1": nil,
+								"/c2-cpu-2": nil,
+							},
+							RequestableResources: cqCache.clusterQueues["c2"].RequestableResources,
+							UsedResources: ResourceQuantities{
+								corev1.ResourceCPU: {"default": 2_000},
+							},
+						},
+					},
+				}
+			}(),
+		},
+		"remove c1-memory-alpha": {
+			remove: []string{"/c1-memory-alpha"},
+			want: func() Snapshot {
+				cohort := &Cohort{
+					Name:                 "cohort",
+					RequestableResources: initialCohortResources,
+					UsedResources: ResourceQuantities{
+						corev1.ResourceCPU: {"default": 3_000},
+						corev1.ResourceMemory: {
+							"alpha": 0,
+							"beta":  1 * utiltesting.Gi,
+						},
+					},
+				}
+				return Snapshot{
+					ClusterQueues: map[string]*ClusterQueue{
+						"c1": {
+							Name:   "c1",
+							Cohort: cohort,
+							Workloads: map[string]*workload.Info{
+								"/c1-memory-alpha": nil,
+								"/c1-memory-beta":  nil,
+							},
+							RequestableResources: cqCache.clusterQueues["c1"].RequestableResources,
+							UsedResources: ResourceQuantities{
+								corev1.ResourceCPU: {"default": 1_000},
+								corev1.ResourceMemory: {
+									"alpha": 0,
+									"beta":  1 * utiltesting.Gi,
+								},
+							},
+						},
+						"c2": {
+							Name:   "c2",
+							Cohort: cohort,
+							Workloads: map[string]*workload.Info{
+								"/c2-cpu-1": nil,
+								"/c2-cpu-2": nil,
+							},
+							RequestableResources: cqCache.clusterQueues["c2"].RequestableResources,
+							UsedResources: ResourceQuantities{
+								corev1.ResourceCPU: {"default": 2_000},
+							},
+						},
+					},
+				}
+			}(),
+		},
+	}
+	cmpOpts := append(snapCmpOpts,
+		cmpopts.IgnoreFields(ClusterQueue{}, "NamespaceSelector", "Preemption", "Status"),
+		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors"),
+		cmpopts.IgnoreTypes(&workload.Info{}))
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			snap := cqCache.Snapshot()
+			for _, name := range tc.remove {
+				snap.RemoveWorkload(wlInfos[name])
+			}
+			for _, name := range tc.add {
+				snap.AddWorkload(wlInfos[name])
+			}
+			if diff := cmp.Diff(tc.want, snap, cmpOpts...); diff != "" {
+				t.Errorf("Unexpected snapshot state after operations (-want,+got):\n%s", diff)
+			}
+		})
 	}
 }
