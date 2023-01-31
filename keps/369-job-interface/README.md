@@ -136,8 +136,8 @@ Go in to as much detail as necessary here.
 This might be a good place to talk about core concepts and how they relate.
 -->
 
-- Job interface here is more like a template and tell developers what to do, but even without
-implementing the interface people can also build their controllers.
+- Job interface defined here is a hint for developers to build their own controllers,
+it's not a hard constraint(to implement the interface) but a good reference.
 - This will increase the code complexity by wrapping the original Jobs.
 
 ### Risks and Mitigations
@@ -165,30 +165,26 @@ proposal will be implemented, this is the place to discuss them.
 
 Part I: Job Interface
 
-We will define a new interface named Job, this should be implemented by custom job-like applications:
+We will define a new interface named GenericJob, this should be implemented by custom job-like applications:
 
 ```golang
-type Job interface {
+type GenericJob interface {
   // Suspend instructs whether the job is suspended or not.
   Suspend() bool
-  // Start means starting the job, like unsuspending the job.
-  Start(ctx context.Context, client client.Client, wl *kueue.Workload) error
-  // Stop means stopping the job, like suspending the job.
-  Stop(ctx context.Context, client client.Client, wl *kueue.Workload) error
+  // Start will arm the job ready to start, like unsuspending the job and injecting nodeAffinity.
+  Start(ctx context.Context, wl *kueue.Workload) error
+  // Stop will disarm the job ready to stop, like suspending the job and restoring nodeAffinity.
+  Stop(ctx context.Context, wl *kueue.Workload) error
   // InjectNodeAffinity will inject the node affinity extracting from workload to job.
-  InjectNodeAffinity(ctx context.Context, client client.Client, wl *kueue.Workload) error
+  InjectNodeAffinity(ctx context.Context, nodeSelectors []map[string]string) error
   // RestoreNodeAffinity will restore the original node affinity of job.
-  RestoreNodeAffinity(ctx context.Context, client client.Client, wl *kueue.Workload) error
-  // Finished instructs whether the job is completed/failed or not.
+  RestoreNodeAffinity(ctx context.Context, nodeSelectors []map[string]string) error
+  // Finished means whether the job is completed/failed or not.
   Finished() bool
-  // Finish will update the workload to finished.
-  Finish(ctx context.Context, client client.Client, wl *kueue.Workload) error
-  // EquivalentToWorkload validates whether the workload is semantically equal to the job.
-  EquivalentToWorkload(wl kueue.Workload) bool
-  // CreateWorkload will create a workload constructing by the job.
-  CreateWorkload(ctx context.Context, client client.Client, scheme *runtime.Scheme) (*kueue.Workload, error)
-  // Priority returns the job's priority
-  Priority(ctx context.Context, client client.Client) (string, int32, error)
+  // ConstructWorkload will build a workload corresponding to the job.
+  ConstructWorkload() (*kueue.Workload, error)
+  // PriorityClass returns the job's priority class name.
+  PriorityClass() string
   // QueueName returns the queue name the job enqueued.
   QueueName() string
   // Ignored instructs whether this job should be ignored in reconciling, e.g. lacking the queueName.
@@ -216,8 +212,62 @@ type BatchJob struct {
   batchv1.Job
 }
 
-var _ Job = &BatchJob{}
+var _ GenericJobJob = &BatchJob{}
 var _ GangSchedulingJob = &BatchJob{}
+```
+
+Part III: Working Flow in pseudo-code
+
+```golang
+Reconcile:
+    // Ignore unmanaged jobs, like lacking queueName.
+    if job.Ignored():
+        return
+
+    // Ensure there's only one corresponding workload and
+    // return the matched workload, it could be nil.
+    workload = EnsureOneWorkload()
+
+    if job.Finished():
+        // Processing marking workload finished if not.
+        return
+
+    if workload == nil:
+        // If workload is nil, the job should be unsuspend.
+        if !job.Suspend():
+            // When stopping the job, we'll call RestoreNodeAffinity() etc..
+            job.Stop()
+            // Processing job update with client.
+            // ...
+            return
+
+        // When calling ConstructWorkload, we'll call QueueName(), PodsCount() etc.
+        // to fill up the workload.
+        workload = job.ConstructWorkload()
+        // creating the constructed workload with client
+        // ...
+
+    if job.Suspend():
+        // If job is suspend but workload is admitted,
+        // we should start the job.
+        if workload.Spec.Admission != nil:
+            // When starting the job, we'll call InjectNodeAffinity() etc..
+            job.Start()
+            return
+
+        // If job is suspend but we changed its queueName,
+        // we should update the workload's queueName.
+        // ...
+
+    if !job.Suspend():
+        // If job is unsuspend but workload is unadmitted,
+        // we should suspend the job.
+        if workload.Spec.Admission == nil:
+            job.Stop()
+            return
+
+    // Processing other logics like all-or-nothing scheduling
+    // ...
 ```
 
 ### Test Plan
@@ -233,7 +283,7 @@ when drafting this test plan.
 [testing-guidelines]: https://git.k8s.io/community/contributors/devel/sig-testing/testing.md
 -->
 
-[ ] I/we understand the owners of the involved components may require updates to
+[x] I/we understand the owners of the involved components may require updates to
 existing tests to make this code solid enough prior to committing the changes necessary
 to implement this enhancement.
 
@@ -243,6 +293,8 @@ to implement this enhancement.
 Based on reviewers feedback describe what additional tests need to be added prior
 implementing this enhancement to ensure the enhancements have also solid foundations.
 -->
+
+No.
 
 #### Unit Tests
 
