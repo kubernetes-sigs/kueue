@@ -9,6 +9,29 @@ description: >
 This section of the documentation helps you learn about the components, APIs and
 abstractions that Kueue uses to represent your cluster and workloads.
 
+## APIs
+
+### [Cluster Queue](/docs/concepts/cluster_queue)
+
+A cluster-scoped resource that governs a pool of resources, defining usage
+limits and fair sharing rules.
+
+### [Local Queue](/docs/concepts/local_queue)
+
+A namespaced resource that groups closely related workloads belonging to a
+single tenant.
+
+### [Workload](/docs/concepts/workload)
+
+An application that will run to completion. It is the unit of _admission_ in
+Kueue. Sometimes referred to as _job_.
+
+### [Resource Flavor](/docs/concepts/cluster_queue#resourceflavor-object)
+
+A kind or type of resource in a cluster. It could distinguish among different
+characteristics of resources such as availability, pricing, architecture,
+models, etc.
+
 ## Glossary
 
 ### Admission
@@ -29,7 +52,3 @@ A group of ClusterQueues that can borrow unused quota from each other.
 The time between a workload is created until it is admitted by a ClusterQueue.
 Typically, the workload will compete with other workloads for available
 quota based on the fair sharing rules of the ClusterQueue.
-
-### [Resource Flavor](/docs/concepts/cluster_queue#resourceflavor-object)
-
-A kind or type of resource in a cluster. It could distinguish among different characteristics of resources such as availability, pricing, architecture, models, etc.

@@ -9,3 +9,4 @@ resources/
 # Notebooks
 .ipynb_checkpoints
 #
+.hugo_build.lock

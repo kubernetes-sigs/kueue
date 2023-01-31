@@ -81,11 +81,11 @@ ignoreFiles = []
   github_project_repo = "https://github.com/kubernetes-sigs/kueue"
   github_subdir = "site"
   RSSLink = "/index.xml"
-  author = "kueue" # add your company name
-  github = "kueue" # add your github profile name
-  twitter = "kueue" # add your twitter profile
+  author = "kubernetes" # add your company name
+  github = "kubernetes" # add your github profile name
+  twitter = "kubernetesio" # add your twitter profile
 
-  copyright = "The Kueue Authors."
+  copyright = "The Kubernetes Authors"
   privacy_policy = "https://policies.google.com/privacy"
 
   # Google Custom Search Engine ID.
@@ -105,17 +105,17 @@ ignoreFiles = []
 
   # A link to latest version of the docs. Used in the "version-banner" partial to
   # point people to the main doc site.
-  url_latest_version = "https://kueue.sigs.k8s.io/docs"
+  url_latest_version = "https://sigs.k8s.io/kueue/docs"
 
   # A variable used in various docs to determine URLs for config files etc.
   # To find occurrences, search the repo for 'params "githubbranch"'.
   githubbranch = "main"
 
   # These entries appear in the drop-down menu at the top of the website.
-  [[params.versions]]
-    version = "main"
-    githubbranch = "main"
-    url = "https://kueue.sigs.k8s.io"
+  # [[params.versions]]
+  #   version = "main"
+  #   githubbranch = "main"
+  #   url = "https://kueue.sigs.k8s.io"
 
   # User interface configuration
   [params.ui]
