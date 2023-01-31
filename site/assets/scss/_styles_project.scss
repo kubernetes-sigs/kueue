@@ -12,6 +12,15 @@ footer {
   overflow-wrap: break-word;
 }
 
+#main_navbar {
+  justify-content: end;
+  padding-right: 16px;
+}
+
+.row > * {
+  flex-shrink: 1;
+}
+
 // --------------------------------------------------
 // custom navbar with larger logo, dropdown on mobile
 // --------------------------------------------------

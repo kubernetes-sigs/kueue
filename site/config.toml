@@ -3,7 +3,8 @@ title = "Kueue"
 
 enableRobotsTXT = true
 
-theme = ["docsy"]
+theme = "docsy"
+themesDir = "node_modules"
 
 ###############################################################################
 # Docsy
@@ -25,14 +26,10 @@ ignoreFiles = []
 # Hugo - Top-level navigation (horizontal)
 ###############################################################################
 [menu]
-  [[menu.main]]
-    name = "Documentation"
-    weight = -101
-    pre = "<i class='fas fa-book pr-2'></i>"
-    url = "/docs/"
+
   [[menu.main]]
     name = "GitHub"
-    weight = -99
+    weight = 99
     pre = "<i class='fab fa-github pr-2'></i>"
     url = "https://github.com/kubernetes-sigs/kueue"
 

@@ -1,8 +1,8 @@
 {
-  "name": "kueue-site",
   "devDependencies": {
-    "autoprefixer": "^10.4.0",
-    "postcss": "^8.4.1",
-    "postcss-cli": "^9.1.0"
+    "autoprefixer": "^10.4.13",
+    "docsy": "github:google/docsy",
+    "postcss": "^8.4.21",
+    "postcss-cli": "^10.1.0"
   }
 }
