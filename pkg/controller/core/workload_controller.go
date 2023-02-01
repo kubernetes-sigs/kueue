@@ -139,7 +139,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	case pending:
 		if !r.queues.QueueForWorkloadExists(&wl) {
 			err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, metav1.ConditionFalse,
-				"Inadmissible", fmt.Sprintf("Queue %s doesn't exist", wl.Spec.QueueName))
+				"Inadmissible", fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName))
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
