@@ -26,11 +26,11 @@ import (
 
 func TestPodsReady(t *testing.T) {
 	testcases := map[string]struct {
-		job  *batchv1.Job
+		job  batchv1.Job
 		want bool
 	}{
 		"parallelism = completions; no progress": {
-			job: &batchv1.Job{
+			job: batchv1.Job{
 				Spec: batchv1.JobSpec{
 					Parallelism: pointer.Int32(3),
 					Completions: pointer.Int32(3),
@@ -40,7 +40,7 @@ func TestPodsReady(t *testing.T) {
 			want: false,
 		},
 		"parallelism = completions; not enough progress": {
-			job: &batchv1.Job{
+			job: batchv1.Job{
 				Spec: batchv1.JobSpec{
 					Parallelism: pointer.Int32(3),
 					Completions: pointer.Int32(3),
@@ -53,7 +53,7 @@ func TestPodsReady(t *testing.T) {
 			want: false,
 		},
 		"parallelism = completions; all ready": {
-			job: &batchv1.Job{
+			job: batchv1.Job{
 				Spec: batchv1.JobSpec{
 					Parallelism: pointer.Int32(3),
 					Completions: pointer.Int32(3),
@@ -66,7 +66,7 @@ func TestPodsReady(t *testing.T) {
 			want: true,
 		},
 		"parallelism = completions; some ready, some succeeded": {
-			job: &batchv1.Job{
+			job: batchv1.Job{
 				Spec: batchv1.JobSpec{
 					Parallelism: pointer.Int32(3),
 					Completions: pointer.Int32(3),
@@ -79,7 +79,7 @@ func TestPodsReady(t *testing.T) {
 			want: true,
 		},
 		"parallelism = completions; all succeeded": {
-			job: &batchv1.Job{
+			job: batchv1.Job{
 				Spec: batchv1.JobSpec{
 					Parallelism: pointer.Int32(3),
 					Completions: pointer.Int32(3),
@@ -91,7 +91,7 @@ func TestPodsReady(t *testing.T) {
 			want: true,
 		},
 		"parallelism < completions; reaching parallelism is enough": {
-			job: &batchv1.Job{
+			job: batchv1.Job{
 				Spec: batchv1.JobSpec{
 					Parallelism: pointer.Int32(2),
 					Completions: pointer.Int32(3),
@@ -103,7 +103,7 @@ func TestPodsReady(t *testing.T) {
 			want: true,
 		},
 		"parallelism > completions; reaching completions is enough": {
-			job: &batchv1.Job{
+			job: batchv1.Job{
 				Spec: batchv1.JobSpec{
 					Parallelism: pointer.Int32(3),
 					Completions: pointer.Int32(2),
@@ -115,7 +115,7 @@ func TestPodsReady(t *testing.T) {
 			want: true,
 		},
 		"parallelism specified only; not enough progress": {
-			job: &batchv1.Job{
+			job: batchv1.Job{
 				Spec: batchv1.JobSpec{
 					Parallelism: pointer.Int32(3),
 				},
@@ -126,7 +126,7 @@ func TestPodsReady(t *testing.T) {
 			want: false,
 		},
 		"parallelism specified only; all ready": {
-			job: &batchv1.Job{
+			job: batchv1.Job{
 				Spec: batchv1.JobSpec{
 					Parallelism: pointer.Int32(3),
 				},
@@ -140,7 +140,8 @@ func TestPodsReady(t *testing.T) {
 
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
-			got := podsReady(tc.job)
+			batchJob := &BatchJob{tc.job}
+			got := batchJob.PodsReady()
 			if tc.want != got {
 				t.Errorf("Unexpected response (want: %v, got: %v)", tc.want, got)
 			}
