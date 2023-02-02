@@ -58,7 +58,10 @@ updates.
 [documentation style guide]: https://github.com/kubernetes/community/blob/master/contributors/guide/style-guide.md
 -->
 
-Define a set of methods(known as golang interface) to help other job-like applications to smoothly integrate with Kueue.
+Define a set of methods(known as golang interface) to shape the default behaviors of job.
+In addition, offer a library and controller implementation example(based on Kubernetes Job) for developers
+to follow when building their own controllers.
+This will help the community to integrate with Kueue more easily.
 
 ## Motivation
 
@@ -78,7 +81,7 @@ like MPIJob, who lacks the capacity of queueing.
 The good news is Kueue is extensible and simple to integrate with through the intermediate medium, we named _Workload_ in Kueue,
 what we need to do is to build a controller to reconcile the workload and the job itself.
 
-But the complexity lies in developers who are familiar with job-like applications may have little knowledge of the
+But the complexity lays in developers who are familiar with job-like applications may have little knowledge of the
 implementation details of Kueue and they have no idea where to start to build the controller. In this case, if we can provide an
 interface which defines the default behaviors of the Job, and serve the Kubernetes Job as a standard template, it will do them
 a great favor.
@@ -92,6 +95,7 @@ know that this has succeeded?
 
 - Define an interface which shapes the default behaviors of Job
 - Make Kubernetes Job an implementation template of the interface
+- Provide a library to organize helper functions which is used in constructing controllers
 
 ### Non-Goals
 
@@ -169,54 +173,89 @@ We will define a new interface named GenericJob, this should be implemented by c
 
 ```golang
 type GenericJob interface {
-  // Suspend instructs whether the job is suspended or not.
-  Suspend() bool
-  // Start will arm the job ready to start, like unsuspending the job and injecting nodeAffinity.
-  Start(ctx context.Context, wl *kueue.Workload) error
-  // Stop will disarm the job ready to stop, like suspending the job and restoring nodeAffinity.
-  Stop(ctx context.Context, wl *kueue.Workload) error
+  // Object returns the job instance.
+  Object() client.Object
+  // IsSuspend returns whether the job is suspend or not.
+  IsSuspend() bool
+  // Suspend will suspend the job.
+  Suspend() error
+  // UnSuspend will unsuspend the job.
+  UnSuspend() error
+  // ResetStatus will reset the job status to the original state.
+  // If true, status is modified, if not, status is as it was.
+  ResetStatus() bool
   // InjectNodeAffinity will inject the node affinity extracting from workload to job.
-  InjectNodeAffinity(ctx context.Context, nodeSelectors []map[string]string) error
+  InjectNodeAffinity(nodeSelectors []map[string]string) error
   // RestoreNodeAffinity will restore the original node affinity of job.
-  RestoreNodeAffinity(ctx context.Context, nodeSelectors []map[string]string) error
-  // Finished means whether the job is completed/failed or not.
-  Finished() bool
-  // ConstructWorkload will build a workload corresponding to the job.
-  ConstructWorkload() (*kueue.Workload, error)
+  RestoreNodeAffinity(nodeSelectors []map[string]string) error
+  // Finished means whether the job is completed/failed or not,
+  // condition represents the workload finished condition.
+  Finished() (condition metav1.Condition, finished bool)
+  // PodSets will build workload podSets corresponding to the job.
+  PodSets() []kueue.PodSet
+  // EquivalentToWorkload validates whether the workload is semantically equal to the job.
+  EquivalentToWorkload(wl kueue.Workload) bool
   // PriorityClass returns the job's priority class name.
   PriorityClass() string
   // QueueName returns the queue name the job enqueued.
   QueueName() string
   // Ignored instructs whether this job should be ignored in reconciling, e.g. lacking the queueName.
   Ignored() bool
-  // PodsCount returns the pods number job requires.
-  PodsCount() int32
 }
 ```
 
-Also defined another interface for all-or-nothing scheduling required job-like applications:
+Also defined another interface `SequenceJob` for scheduling in sequence requirements, see design details here [All-or-nothing semantics for job resource assignment](https://github.com/kubernetes-sigs/kueue/tree/main/keps/349-all-or-nothing#kep-349-all-or-nothing-semantics-for-job-resource-assignment).
 
 ```golang
-type GangSchedulingJob interface {
-  // GangSchedulingSucceeded instructs whether job is scheduled successfully in gang-scheduling.
-  GangSchedulingSucceeded() bool
+type SequenceJob interface {
+    // PodsReady instructs whether job derived pods are all ready now.
+    PodsReady() bool
 }
 ```
 
 Part II: Kubernetes Job implementation details
 
-We'll wrap the batchv1.Job to `BatchJob` who implements the Job interface, as well as the GangSchedulingJob interface.
+We'll wrap the batchv1.Job to `BatchJob` who implements the GenericJob interface, as well as SequenceJob interface.
 
 ```golang
 type BatchJob struct {
   batchv1.Job
 }
 
-var _ GenericJobJob = &BatchJob{}
-var _ GangSchedulingJob = &BatchJob{}
+var _ GenericJob = &BatchJob{}
+var _ SequenceJob = &BatchJob{}
 ```
 
-Part III: Working Flow in pseudo-code
+Part III: Library
+
+We'll have several helper functions in constructing controllers, they can be imported directly in the future:
+
+```golang
+// EnsureOneWorkload will query for the single matched workload corresponding to job and return it.
+// If there're more than one workload, we should delete the excess ones.
+// The returned workload could be nil.
+EnsureOneWorkload(ctx context.Context, cli client.Client, req ctrl.Request, record record.EventRecorder, job GenericJob) (*kueue.Workload, error)
+
+// StartJob will unsuspend the job, and also inject the node affinity.
+StartJob(ctx context.Context, client client.Client, wl *kueue.Workload, condition metav1.Condition) error
+
+// StopJob will suspend the job, and also restore node affinity, reset job status if needed.
+ StopJob(ctx context.Context, client client.Client, job GenericJob, wl *kueue.Workload) error
+
+ // CreateWorkload will derive and create a workload from the corresponding job.
+ CreateWorkload(ctx context.Context, client client.Client, scheme *runtime.Scheme, job GenericJob) (*kueue.Workload, error)
+
+ // GetNodeSelectors will extract node selectors from admitted workloads.
+ GetNodeSelectors(ctx context.Context, client client.Client, w *kueue.Workload) ([]map[string]string, error)
+
+ // UpdateQueueNameIfChanged will update workload queue name if changed.
+ UpdateQueueNameIfChanged(ctx context.Context, client client.Client, job GenericJob, wl *kueue.Workload) error
+
+ // SetWorkloadCondition will update the workload condition by the provide one.
+ SetWorkloadCondition(ctx context.Context, client client.Client, wl *kueue.Workload, condition metav1.Condition) error
+```
+
+Part IV: Working Flow in pseudo-code
 
 ```golang
 Reconcile:
@@ -228,43 +267,46 @@ Reconcile:
     // return the matched workload, it could be nil.
     workload = EnsureOneWorkload()
 
+    // Handing job is finished.
     if job.Finished():
         // Processing marking workload finished if not.
+        SetWorkloadCondition()
         return
 
+    // Handing workload is nil.
     if workload == nil:
         // If workload is nil, the job should be unsuspend.
-        if !job.Suspend():
-            // When stopping the job, we'll call RestoreNodeAffinity() etc..
-            job.Stop()
-            // Processing job update with client.
-            // ...
-            return
+        if !job.IsSuspend():
+            // When stopping the job, we'll call Suspend(), RestoreNodeAffinity() etc.,
+            // and update the job with client.
+            StopJob()
 
-        // When calling ConstructWorkload, we'll call QueueName(), PodsCount() etc.
+        // When creating workload, we'll call PodSets(), QueueName(), PodsCount() etc.
         // to fill up the workload.
-        workload = job.ConstructWorkload()
+        workload = CreateWorkload()
         // creating the constructed workload with client
         // ...
 
-    if job.Suspend():
+    // Handing job is suspend.
+    if job.IsSuspend():
         // If job is suspend but workload is admitted,
         // we should start the job.
         if workload.Spec.Admission != nil:
-            // When starting the job, we'll call InjectNodeAffinity() etc..
-            job.Start()
+            // When starting the job, we'll call Unsuspend(), InjectNodeAffinity() etc..
+            StartJob()
             return
 
         // If job is suspend but we changed its queueName,
         // we should update the workload's queueName.
         // ...
 
-    if !job.Suspend():
-        // If job is unsuspend but workload is unadmitted,
-        // we should suspend the job.
-        if workload.Spec.Admission == nil:
-            job.Stop()
-            return
+    // Handing job is unsuspend.
+
+    // If job is unsuspend but workload is unadmitted,
+    // we should suspend the job.
+    if workload.Spec.Admission == nil:
+        StopJob()
+        return
 
     // Processing other logics like all-or-nothing scheduling
     // ...
