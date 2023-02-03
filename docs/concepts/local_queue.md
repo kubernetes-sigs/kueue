@@ -19,7 +19,7 @@ Tenants can discover which queues they can submit jobs to by listing the
 local queues in their namespace. The command is similar to the following:
 
 ```sh
-kubectl get -n my-namespace localqueues
+kubectl get -n team-a localqueues
 ```
 
 ## What's next?
