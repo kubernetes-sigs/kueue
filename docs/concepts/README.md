@@ -5,6 +5,12 @@ abstractions that Kueue uses to represent your cluster and workloads.
 
 ## APIs
 
+### [Resource Flavor](resource_flavor.md)
+
+A kind or type of resource in a cluster. It could distinguish among different
+characteristics of resources such as availability, pricing, architecture,
+models, etc.
+
 ### [Cluster Queue](cluster_queue.md)
 
 A cluster-scoped resource that governs a pool of resources, defining usage
@@ -19,12 +25,6 @@ single tenant.
 
 An application that will run to completion. It is the unit of _admission_ in
 Kueue. Sometimes referred to as _job_.
-
-### [Resource Flavor](cluster_queue.md#resourceflavor-object)
-
-A kind or type of resource in a cluster. It could distinguish among different
-characteristics of resources such as availability, pricing, architecture,
-models, etc.
 
 ## Glossary
 

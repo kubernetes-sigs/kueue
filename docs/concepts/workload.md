@@ -21,9 +21,9 @@ apiVersion: kueue.x-k8s.io/v1alpha2
 kind: Workload
 metadata:
   name: sample-job
-  namespace: default
+  namespace: team-a
 spec:
-  queueName: user-queue
+  queueName: team-a-lq
   podSets:
   - count: 3
     name: main

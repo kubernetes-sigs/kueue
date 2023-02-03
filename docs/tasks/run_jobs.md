@@ -19,15 +19,13 @@ Run the following command to list the Queues available in your namespace.
 
 ```shell
 kubectl -n default get localqueues
-# Or use the 'queues' alias.
-kubectl -n default get queues
 ```
 
 The output is similar to the following:
 
 ```
 NAME   CLUSTERQUEUE    PENDING WORKLOADS
-main   cluster-total   3
+main   cluster-queue   3
 ```
 
 The [ClusterQueue](/docs/concepts/cluster_queue.md) defines the quotas for the
@@ -54,7 +52,7 @@ kind: Job
 metadata:
   generateName: sample-job-
   annotations:
-    kueue.x-k8s.io/queue-name: main
+    kueue.x-k8s.io/queue-name: user-queue
 spec:
   parallelism: 3
   completions: 3
@@ -90,8 +88,8 @@ kubectl -n default get workloads
 The output will be similar to the following:
 
 ```
-NAME               QUEUE   ADMITTED BY     AGE
-sample-job-sl4bm   main                    1s
+NAME               QUEUE         ADMITTED BY     AGE
+sample-job-sl4bm   user-queue                    1s
 ```
 
 ## 3. (Optional) Monitor the status of the workload
@@ -137,8 +135,8 @@ kubectl -n default get workloads
 The output is similar to the following:
 
 ```
-NAME               QUEUE   ADMITTED BY     AGE
-sample-job-sl4bm   main    cluster-total   45s
+NAME               QUEUE         ADMITTED BY     AGE
+sample-job-sl4bm   user-queue    cluster-queue   45s
 ```
 
 To view the event for the workload admission, run the following command:
@@ -154,7 +152,7 @@ The output is similar to the following:
 Events:
   Type    Reason    Age   From           Message
   ----    ------    ----  ----           -------
-  Normal  Admitted  50s   kueue-manager  Admitted by ClusterQueue cluster-total
+  Normal  Admitted  50s   kueue-manager  Admitted by ClusterQueue cluster-queue
 ```
 
 To continue monitoring the workload progress, you can run the following command:
@@ -203,7 +201,7 @@ Events:
   Normal  Suspended         22m   job-controller        Job suspended
   Normal  CreatedWorkload   22m   kueue-job-controller  Created Workload: default/sample-job-rxb6q
   Normal  SuccessfulCreate  19m   job-controller        Created pod: sample-job-rxb6q-7bqld
-  Normal  Started           19m   kueue-job-controller  Admitted by clusterQueue cluster-total
+  Normal  Started           19m   kueue-job-controller  Admitted by clusterQueue cluster-queue
   Normal  SuccessfulCreate  19m   job-controller        Created pod: sample-job-rxb6q-7jw4z
   Normal  SuccessfulCreate  19m   job-controller        Created pod: sample-job-rxb6q-m7wgm
   Normal  Resumed           19m   job-controller        Job resumed

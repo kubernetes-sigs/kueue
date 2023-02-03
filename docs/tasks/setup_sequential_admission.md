@@ -44,7 +44,7 @@ Note that, if you update an exiting Kueue installation you may need to restart t
 `kueue-controller-manager` pod in order for Kueue to pick up the updated
 configuration. In that case run:
 ```shell
-kubectl delete pods --all -nkueue-system
+kubectl delete pods --all -n kueue-system
 ```
 
 The timeout (`waitForPodsReady.timeout`) is an optional parameter, defaulting to
@@ -88,18 +88,18 @@ Save the following cluster queues configuration as `cluster-queues.yaml`:
 apiVersion: kueue.x-k8s.io/v1alpha2
 kind: ResourceFlavor
 metadata:
-  name: default
+  name: default-flavor
 ---
 apiVersion: kueue.x-k8s.io/v1alpha2
 kind: ClusterQueue
 metadata:
-  name: cluster-total
+  name: cluster-queue
 spec:
   namespaceSelector: {}
   resources:
   - name: "memory"
     flavors:
-    - name: default
+    - name: default-flavor
       quota:
         min: 16858Mi # double the value of allocatable memory in the cluster
 ---
@@ -107,9 +107,9 @@ apiVersion: kueue.x-k8s.io/v1alpha2
 kind: LocalQueue
 metadata:
   namespace: default
-  name: main
+  name: user-queue
 spec:
-  clusterQueue: cluster-total
+  clusterQueue: cluster-queue
 ```
 Then, apply the configuration by:
 ```shell
@@ -200,7 +200,7 @@ kind: Job
 metadata:
   name: job_ID_
   annotations:
-    kueue.x-k8s.io/queue-name: main
+    kueue.x-k8s.io/queue-name: user-queue
 spec:
   parallelism: 20
   completions: 20
@@ -244,7 +244,7 @@ kind: Job
 metadata:
   name: quick-job
   annotations:
-    kueue.x-k8s.io/queue-name: main
+    kueue.x-k8s.io/queue-name: user-queue
 spec:
   parallelism: 50
   completions: 50
