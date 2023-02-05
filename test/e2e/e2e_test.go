@@ -21,6 +21,7 @@ import (
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -68,7 +69,12 @@ var _ = ginkgo.Describe("Kueue", func() {
 				return apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)
 
 			}, util.Timeout, util.Interval).Should(gomega.BeFalse())
+
 			gomega.Expect(k8sClient.Delete(ctx, sampleJob)).Should(gomega.Succeed())
+			gomega.Eventually(func() bool {
+				err := k8sClient.Get(ctx, lookupKey, createdWorkload)
+				return err != nil && apierrors.IsNotFound(err)
+			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 		})
 	})
 	ginkgo.When("Creating a Job With Queueing", func() {

@@ -146,6 +146,12 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 	log := ctrl.LoggerFrom(ctx).WithValues("job", klog.KObj(&job))
 	ctx = ctrl.LoggerInto(ctx, log)
+
+	if !job.ObjectMeta.DeletionTimestamp.IsZero() {
+		log.V(5).Info(fmt.Sprintf("Job %s is in terminating", klog.KObj(&job)))
+		return ctrl.Result{}, nil
+	}
+
 	if queueName(&job) == "" && !r.manageJobsWithoutQueueName {
 		log.V(3).Info(fmt.Sprintf("%s annotation is not set, ignoring the job", constants.QueueAnnotation))
 		return ctrl.Result{}, nil
