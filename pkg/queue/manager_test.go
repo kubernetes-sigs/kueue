@@ -18,6 +18,7 @@ package queue
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -435,7 +436,7 @@ func TestStatus(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			status, err := manager.PendingWorkloads(tc.queue)
-			if err != tc.wantErr {
+			if !errors.Is(err, tc.wantErr) {
 				t.Errorf("Should have failed with: %s", err)
 			}
 			if diff := cmp.Diff(tc.wantStatus, status); diff != "" {

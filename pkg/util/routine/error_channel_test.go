@@ -28,17 +28,17 @@ func TestErrorChannel(t *testing.T) {
 
 	err := errors.New("unknown error")
 	errCh.SendError(err)
-	if actualErr := errCh.ReceiveError(); actualErr != err {
+	if actualErr := errCh.ReceiveError(); !errors.Is(actualErr, err) {
 		t.Errorf("expect %v from err channel, but got %v", err, actualErr)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh.SendErrorWithCancel(err, cancel)
-	if actualErr := errCh.ReceiveError(); actualErr != err {
+	if actualErr := errCh.ReceiveError(); !errors.Is(actualErr, err) {
 		t.Errorf("expect %v from err channel, but got %v", err, actualErr)
 	}
 
-	if ctxErr := ctx.Err(); ctxErr != context.Canceled {
+	if ctxErr := ctx.Err(); !errors.Is(ctxErr, context.Canceled) {
 		t.Errorf("expect context canceled, but got %v", ctxErr)
 	}
 }
