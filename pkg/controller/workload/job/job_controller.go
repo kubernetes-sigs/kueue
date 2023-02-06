@@ -86,7 +86,6 @@ func NewReconciler(
 	client client.Client,
 	record record.EventRecorder,
 	opts ...Option) *JobReconciler {
-
 	options := defaultOptions
 	for _, opt := range opts {
 		opt(&options)
@@ -306,7 +305,6 @@ func (r *JobReconciler) startJob(ctx context.Context, w *kueue.Workload, job *ba
 				job.Spec.Template.Spec.NodeSelector[k] = v
 			}
 		}
-
 	} else {
 		log.V(3).Info("no nodeSelectors to inject")
 	}

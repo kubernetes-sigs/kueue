@@ -229,7 +229,6 @@ func (r *WorkloadReconciler) Delete(e event.DeleteEvent) bool {
 	// the state is unknown, the workload could have been assumed and we need
 	// to clear it from the cache.
 	if wl.Spec.Admission != nil || e.DeleteStateUnknown {
-
 		// trigger the move of associated inadmissibleWorkloads if required.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wl, func() {
 			// Delete the workload from cache while holding the queues lock

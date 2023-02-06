@@ -245,7 +245,6 @@ func (m *Manager) QueueForWorkloadExists(wl *kueue.Workload) bool {
 	defer m.RUnlock()
 	_, ok := m.localQueues[workload.QueueKey(wl)]
 	return ok
-
 }
 
 // ClusterQueueForWorkload returns the name of the ClusterQueue where the

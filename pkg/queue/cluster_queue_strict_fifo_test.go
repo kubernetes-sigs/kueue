@@ -230,7 +230,6 @@ func TestStrictFIFORequeueIfNotPresent(t *testing.T) {
 			if ok := cq.RequeueIfNotPresent(workload.NewInfo(wl), reason); ok {
 				t.Error("Re-queued a workload that was already present")
 			}
-
 		})
 	}
 }

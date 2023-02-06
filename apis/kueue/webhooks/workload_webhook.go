@@ -134,7 +134,7 @@ func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 	}
 
 	if len(obj.Spec.QueueName) > 0 {
-		allErrs = append(allErrs, validateNameReference(string(obj.Spec.QueueName), specPath.Child("queueName"))...)
+		allErrs = append(allErrs, validateNameReference(obj.Spec.QueueName, specPath.Child("queueName"))...)
 	}
 
 	if obj.Spec.Admission != nil {

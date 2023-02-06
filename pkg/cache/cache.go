@@ -304,7 +304,7 @@ func (c *ClusterQueue) UpdateCodependentResources() {
 		}
 		if len(codep) > 1 {
 			for name := range codep {
-				c.RequestableResources[corev1.ResourceName(name)].CodependentResources = codep
+				c.RequestableResources[name].CodependentResources = codep
 			}
 		}
 	}
@@ -872,7 +872,6 @@ func resourcesByName(in []kueue.Resource) map[corev1.ResourceName]*Resource {
 				fLimits.Max = pointer.Int64(workload.ResourceValue(r.Name, *f.Quota.Max))
 			}
 			flavors[i] = fLimits
-
 		}
 		out[r.Name] = &Resource{
 			Flavors: flavors,
