@@ -7,9 +7,10 @@ abstractions that Kueue uses to represent your cluster and workloads.
 
 ### [Resource Flavor](resource_flavor.md)
 
-A kind or type of resource in a cluster. It could distinguish among different
-characteristics of resources such as availability, pricing, architecture,
-models, etc.
+A kind or type of resource that you can define in a cluster. Typically,
+this resource is associated with the characteristics of a group of Nodes. 
+It could distinguish among different characteristics of resources such as 
+availability, pricing, architecture, models, etc.
 
 ### [Cluster Queue](cluster_queue.md)
 

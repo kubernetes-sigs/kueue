@@ -24,8 +24,8 @@ kubectl -n default get localqueues
 The output is similar to the following:
 
 ```
-NAME   CLUSTERQUEUE    PENDING WORKLOADS
-main   cluster-queue   3
+NAME         CLUSTERQUEUE    PENDING WORKLOADS
+user-queue   cluster-queue   3
 ```
 
 The [ClusterQueue](/docs/concepts/cluster_queue.md) defines the quotas for the

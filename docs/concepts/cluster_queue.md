@@ -2,9 +2,9 @@
 
 A ClusterQueue is a cluster-scoped object that governs a pool of resources
 such as CPU, memory, and hardware accelerators. A ClusterQueue defines:
-- The [resource _flavors_](/docs/concepts/resource_flavor.md) that the ClusterQueue manages,
+- The quotas for the [resource _flavors_](/docs/concepts/resource_flavor.md) that the ClusterQueue manages,
   with usage limits and order of consumption.
-- Fair sharing rules across the tenants of the cluster.
+- Fair sharing rules across the multiple ClusterQueues in the cluster.
 
 Only [cluster administrators](/docs/tasks#batch-administrator) should create `ClusterQueue` objects.
 
@@ -14,7 +14,7 @@ A sample ClusterQueue looks like the following:
 apiVersion: kueue.x-k8s.io/v1alpha2
 kind: ClusterQueue
 metadata:
-  name: cluster-total
+  name: cluster-queue
 spec:
   namespaceSelector: {}
   resources:
@@ -43,7 +43,7 @@ In a ClusterQueue, you can define quotas for multiple [compute resources](https:
 
 For each resource, you can define quotas for multiple _flavors_.
 Flavors represent different variations of a resource (for example, different GPU
-models). A flavor is defined using a [ResourceFlavor object](/docs/concepts/resource_flavor.md).
+models). You can define a flavor using a [ResourceFlavor object](/docs/concepts/resource_flavor.md).
 
 In a process called [admission](README.md#admission), Kueue assigns to the
 [Workload pod sets](workload.md#pod-sets) a flavor for each resource the pod set
@@ -251,4 +251,5 @@ borrow up to the sum of min quotas from all the ClusterQueues in the cohort.
 ## What's next?
 
 - Create [local queues](/docs/concepts/local_queue.md)
+- Create [resource flavors](/docs/concepts/resource_flavor.md) if you haven't already done so.
 - Learn how to [administer cluster quotas](/docs/tasks/administer_cluster_quotas.md).

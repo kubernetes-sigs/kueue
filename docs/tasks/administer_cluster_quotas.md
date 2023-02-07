@@ -142,7 +142,7 @@ following:
 apiVersion: kueue.x-k8s.io/v1alpha2
 kind: ResourceFlavor
 metadata:
-  name: x86-flavor
+  name: x86
 nodeSelector:
   cpu-arch: x86
 ```
@@ -152,7 +152,7 @@ nodeSelector:
 apiVersion: kueue.x-k8s.io/v1alpha2
 kind: ResourceFlavor
 metadata:
-  name: arm-flavor
+  name: arm
 nodeSelector:
   cpu-arch: arm
 ```
@@ -184,10 +184,10 @@ spec:
   resources:
   - name: "cpu"
     flavors:
-    - name: x86-flavor
+    - name: x86
       quota:
         min: 9
-    - name: arm-flavor
+    - name: arm
       quota:
         min: 12
   - name: "memory"
@@ -201,8 +201,8 @@ The flavor names in the fields `.spec.resources[*].flavors[*].resourceFlavor`
 should match the names of the ResourceFlavors created earlier.
 
 Note that `memory` is referencing the `default-flavor` flavor created in the [single flavor setup.](#single-clusterqueue-and-single-resourceflavor-setup)
-This means that you don't want to distinguish if the memory is given from `x86-flavor`
-or `arm-flavor` nodes.
+This means that you don't want to distinguish if the memory is given from `x86`
+or `arm` nodes.
 
 To create the ClusterQueue, run the following command:
 
@@ -298,11 +298,11 @@ spec:
   resources:
   - name: "cpu"
     flavors:
-    - name: arm-flavor
+    - name: arm
       quota:
         min: 9
         max: 9
-    - name: x86-flavor
+    - name: x86
       quota:
         min: 0
   - name: "memory"
@@ -324,11 +324,11 @@ spec:
   resources:
   - name: "cpu"
     flavors:
-    - name: arm-flavor
+    - name: arm
       quota:
         min: 12
         max: 12
-    - name: x86-flavor
+    - name: x86
       quota:
         min: 0
   - name: "memory"
@@ -350,7 +350,7 @@ spec:
   resources:
   - name: "cpu"
     flavors:
-    - name: x86-flavor
+    - name: x86
       quota:
         min: 6
   - name: "memory"
@@ -363,9 +363,9 @@ spec:
 Note the following setup:
 
 - `team-a-cq` and `team-b-cq` define a `max` equal to their `min`
-  quota for the `arm-flavor` flavor. Therefore, they can't borrow this flavor from each
+  quota for the `arm` flavor. Therefore, they can't borrow this flavor from each
   other.
-- `team-a-cq` and `team-b-cq` define `min: 0` for the `x86-flavor` flavor.
+- `team-a-cq` and `team-b-cq` define `min: 0` for the `x86` flavor.
   Therefore, they don't have any dedicated quota for the flavor and they can
   only borrow it from `shared-cq`.
 

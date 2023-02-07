@@ -23,7 +23,7 @@ metadata:
   name: sample-job
   namespace: team-a
 spec:
-  queueName: team-a-lq
+  queueName: team-a-queue
   podSets:
   - count: 3
     name: main
