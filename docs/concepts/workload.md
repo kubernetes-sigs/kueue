@@ -4,7 +4,7 @@ A _workload_ is an application that will run to completion. It can be composed
 by one or multiple Pods that, loosely or tightly coupled, that, as a whole,
 complete a task. A workload is the unit of [admission](README.md#admission) in Kueue.
 
-The prototypical workload can be represented with a
+The prototypical Workload can be represented with a
 [Kubernetes `batch/v1.Job`](https://kubernetes.io/docs/concepts/workloads/controllers/job/).
 For this reason, we sometimes use the word _job_ to refer to any workload, and
 Job when we refer specifically to the Kubernetes API.
@@ -53,7 +53,7 @@ the following fields:
 - `spec` describes the pods using a [`v1/core.PodSpec`](https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/pod-v1/#PodSpec).
 - `count` is the number of pods that use the same `spec`.
 - `name` is a human-readable identifier for the pod set. You can use the role of
-  the Pods in the workload, like `driver`, `worker`, `parameter-server`, etc.
+  the Pods in the Workload, like `driver`, `worker`, `parameter-server`, etc.
 
 ## Priority
 
@@ -64,10 +64,10 @@ For a `batch/v1.Job`, Kueue sets the priority of the Workload based on the
 [pod priority](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/)
 of the Job's pod template.
 
-## Custom workloads
+## Custom Workloads
 
-As described previously, Kueue has built-in support for workloads created with
-the Job API. But any custom workload API can integrate with Kueue by
+As described previously, Kueue has built-in support for Workloads created with
+the Job API. But any custom Workload API can integrate with Kueue by
 creating a corresponding Workload object for it.
 
 ## What's next

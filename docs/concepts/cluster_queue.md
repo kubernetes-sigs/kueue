@@ -30,7 +30,7 @@ spec:
         min: 36Gi
 ```
 
-This ClusterQueue admits [workloads](workload.md) if and only if:
+This ClusterQueue admits [Workloads](workload.md) if and only if:
 - The sum of the CPU requests is less than or equal to 9.
 - The sum of the memory requests is less than or equal to 36Gi.
 
@@ -106,11 +106,11 @@ If two resources are not codependent, they must not have any flavors in common.
 
 ## Namespace selector
 
-You can limit which namespaces can have workloads admitted in the ClusterQueue
+You can limit which namespaces can have Workloads admitted in the ClusterQueue
 by setting a [label selector](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/label-selector/#LabelSelector).
 in the `.spec.namespaceSelector` field.
 
-To allow workloads from all namespaces, set the empty selector `{}` to the
+To allow Workloads from all namespaces, set the empty selector `{}` to the
 `spec.namespaceSelector` field.
 
 A sample `namespaceSelector` looks like the following:
@@ -127,18 +127,18 @@ namespaceSelector:
 ## Queueing strategy
 
 You can set different queueing strategies in a ClusterQueue using the
-`.spec.queueingStrategy` field. The queueing strategy determines how workloads
+`.spec.queueingStrategy` field. The queueing strategy determines how Workloads
 are ordered in the ClusterQueue and how they are re-queued after an unsuccessful
 [admission](README.md#admission) attempt.
 
 The following are the supported queueing strategies:
 
-- `StrictFIFO`: Workloads are ordered first by [priority](workload.md#priority)
-  and then by `.metadata.creationTimestamp`. Older workloads that can't be
-  admitted will block newer workloads, even if the newer workloads fit in the
+- `StrictFIFO`: Workloads are ordered first by [priority](Workload.md#priority)
+  and then by `.metadata.creationTimestamp`. Older Workloads that can't be
+  admitted will block newer Workloads, even if the newer Workloads fit in the
   available quota.
 - `BestEffortFIFO`: Workloads are ordered the same way as `StrictFIFO`. However,
-  older workloads that can't be admitted will not block newer workloads that
+  older Workloads that can't be admitted will not block newer Workloads that
   fit in the available quota.
 
 The default queueing strategy is `BestEffortFIFO`.
@@ -163,7 +163,7 @@ semantics:
   ClusterQueue's `.spec.resources[*].flavors`. For each flavor, Kueue attempts
   to fit a Workload's pod set according to the quota defined in the
   ClusterQueue for the flavor and the unused quota in the cohort.
-  If the workload doesn't fit, Kueue evaluates the next flavor in the list.
+  If the Workload doesn't fit, Kueue evaluates the next flavor in the list.
 - A Workload's pod set resource fits in a flavor defined for a ClusterQueue
   resource if the sum of requests for the resource:
   1. Is less than or equal to the unused `.quota.min` for the flavor in the
@@ -224,19 +224,19 @@ spec:
         min: 48Gi
 ```
 
-ClusterQueue `team-a-cq` can admit workloads depending on the following
+ClusterQueue `team-a-cq` can admit Workloads depending on the following
 scenarios:
 
-- If ClusterQueue `team-b-cq` has no admitted workloads, then ClusterQueue
-  `team-a-cq` can admit workloads with resources adding up to `12+9=21` CPUs and
+- If ClusterQueue `team-b-cq` has no admitted Workloads, then ClusterQueue
+  `team-a-cq` can admit Workloads with resources adding up to `12+9=21` CPUs and
   `48+36=84Gi` of memory.
-- If ClusterQueue `team-b-cq` has pending workloads and the ClusterQueue
-  `team-a-cq` has all its `min` quota used, Kueue will admit workloads in
-  ClusterQueue `team-b-cq` before admitting any new workloads in `team-a-cq`.
+- If ClusterQueue `team-b-cq` has pending Workloads and the ClusterQueue
+  `team-a-cq` has all its `min` quota used, Kueue will admit Workloads in
+  ClusterQueue `team-b-cq` before admitting any new Workloads in `team-a-cq`.
   Therefore, Kueue ensures the `min` quota for `team-b-cq` is met.
 
 **Note**: Kueue [does not support preemption](https://github.com/kubernetes-sigs/kueue/issues/83).
-No admitted workloads will be stopped to make space for new workloads.
+No admitted Workloads will be stopped to make space for new Workloads.
 
 ### Max quotas
 

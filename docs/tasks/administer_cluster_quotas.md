@@ -95,8 +95,8 @@ field in the ClusterQueue.
 
 ### 3. Create [LocalQueues](/docs/concepts/local_queue.md)
 
-Users cannot directly send [workloads](/docs/concepts/workload.md) to
-ClusterQueues. Instead, users need to send their workloads to a Queue in their
+Users cannot directly send [Workloads](/docs/concepts/workload.md) to
+ClusterQueues. Instead, users need to send their Workloads to a Queue in their
 namespace.
 Thus, for the queuing system to be complete, you need to create a Queue in
 each namespace that needs access to the ClusterQueue.

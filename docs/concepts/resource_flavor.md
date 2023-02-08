@@ -39,28 +39,28 @@ the nodes. If you are using [cluster autoscaler](https://github.com/kubernetes/a
 (or equivalent controllers), make sure that the controller is configured to add those labels when
 adding new nodes.
 
-To guarantee that the workload Pods run on the nodes associated to the flavor
+To guarantee that the Workload Pods run on the nodes associated to the flavor
 that Kueue selected, Kueue performs the following
 steps:
 
-1. When admitting a workload, Kueue evaluates the
+1. When admitting a Workload, Kueue evaluates the
    [`.nodeSelector`](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector)
    and [`.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution`](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#node-affinity)
    fields in the PodSpecs of your [Workload](workload.md) against the
    ResourceFlavor labels.
 
-   `ResourceFlavors` that don't match the node affinity of the workload
-   cannot be assigned to a workload's podSet.
+   `ResourceFlavors` that don't match the node affinity of the Workload
+   cannot be assigned to a Workload's podSet.
 
 
-2. Once the workload is admitted, Kueue adds the ResourceFlavor labels to the
-  `.nodeSelector` of the underlying workload Pod templates. This occurs if the workload
+2. Once the Workload is admitted, Kueue adds the ResourceFlavor labels to the
+  `.nodeSelector` of the underlying Workload Pod templates. This occurs if the Workload
    didn't specify the `ResourceFlavor` labels already.
 
    For example, for a [batch/v1.Job](https://kubernetes.io/docs/concepts/workloads/controllers/job/),
    Kueue adds the labels to the `.spec.template.spec.nodeSelector` field. This
-   guarantees that the workload's Pods can only be scheduled on the nodes
-   targeted by the flavor that Kueue assigned to the workload.
+   guarantees that the Workload's Pods can only be scheduled on the nodes
+   targeted by the flavor that Kueue assigned to the Workload.
 
 ## ResourceFlavor taints
 
@@ -68,8 +68,8 @@ To restrict the usage of a ResourceFlavor, you can configure the `.taints` field
 with taints. These taints should typically match the taints of the Nodes associated with ResourceFlavor.
 
 Taints on the ResourceFlavor work similarly to [node taints](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/).
-For Kueue to admit a workload to use the ResourceFlavor, the PodSpecs in the
-workload should have a toleration for it. As opposed to the behavior for
+For Kueue to admit a Workload to use the ResourceFlavor, the PodSpecs in the
+Workload should have a toleration for it. As opposed to the behavior for
 [ResourceFlavor labels](#resourceflavor-labels), Kueue does not add tolerations
 for the flavor taints.
 

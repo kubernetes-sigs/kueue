@@ -15,10 +15,12 @@ Make sure the following conditions are met:
 
 ## 0. Identify the queues available in your namespace
 
-Run the following command to list the Queues available in your namespace.
+Run the following command to list the `LocalQueues` available in your namespace.
 
 ```shell
 kubectl -n default get localqueues
+# Or use the 'queues' alias.
+kubectl -n default get queues
 ```
 
 The output is similar to the following:
@@ -92,15 +94,15 @@ NAME               QUEUE         ADMITTED BY     AGE
 sample-job-sl4bm   user-queue                    1s
 ```
 
-## 3. (Optional) Monitor the status of the workload
+## 3. (Optional) Monitor the status of the Workload
 
-You can see the workload status with the following command:
+You can see the Workload status with the following command:
 
 ```shell
 kubectl -n default describe workload sample-job-sl4bm
 ```
 
-If the ClusterQueue doesn't have enough quota to run the workload, the output
+If the ClusterQueue doesn't have enough quota to run the Workload, the output
 will be similar to the following:
 
 ```
@@ -125,8 +127,8 @@ Status:
 Events:               <none>
 ```
 
-When the ClusterQueue has enough quota to run the workload, it will admit
-the workload. To see if the workload was admitted, run the following command:
+When the ClusterQueue has enough quota to run the Workload, it will admit
+the Workload. To see if the Workload was admitted, run the following command:
 
 ```shell
 kubectl -n default get workloads
@@ -139,7 +141,7 @@ NAME               QUEUE         ADMITTED BY     AGE
 sample-job-sl4bm   user-queue    cluster-queue   45s
 ```
 
-To view the event for the workload admission, run the following command:
+To view the event for the Workload admission, run the following command:
 
 ```shell
 kubectl -n default describe workload sample-job-sl4bm
@@ -155,13 +157,13 @@ Events:
   Normal  Admitted  50s   kueue-manager  Admitted by ClusterQueue cluster-queue
 ```
 
-To continue monitoring the workload progress, you can run the following command:
+To continue monitoring the Workload progress, you can run the following command:
 
 ```shell
 kubectl -n default describe workload sample-job-sl4bm
 ```
 
-Once the workload has finished running, the output is similar to the following:
+Once the Workload has finished running, the output is similar to the following:
 
 ```
 ...

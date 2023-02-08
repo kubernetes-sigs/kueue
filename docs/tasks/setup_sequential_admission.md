@@ -9,7 +9,7 @@ sequentially.
 
 To address this requirement, in version 0.3.0 we introduced an opt-in mechanism
 configured via the flag `waitForPodsReady` that provides a simple implementation
-of the all-or-nothing scheduling. When enabled, admission of workloads is blocked
+of the all-or-nothing scheduling. When enabled, admission of Workloads is blocked
 not only on the availability of quota, but also until all previously admitted
 jobs have their pods scheduled (all pods are running or completed, up the the
 level of the job parallelism).
@@ -50,10 +50,10 @@ kubectl delete pods --all -n kueue-system
 The timeout (`waitForPodsReady.timeout`) is an optional parameter, defaulting to
 5 minutes.
 
-When the timeout expires for an admitted workload, and the workload's
-pods are not all scheduled yet (i.e., the workload condition remains
-`PodsReady=False`), then the workload's admission is
-cancelled, the corresponding job is suspended and the workload is requeued.
+When the timeout expires for an admitted Workload, and the Workload's
+pods are not all scheduled yet (i.e., the Workload condition remains
+`PodsReady=False`), then the Workload's admission is
+cancelled, the corresponding job is suspended and the Workload is requeued.
 
 ## Example
 
@@ -450,6 +450,6 @@ kubectl delete -f /tmp/job2.yaml
 
 ## Drawbacks
 
-When enabling `waitForPodsReady`, the admission of workloads may
+When enabling `waitForPodsReady`, the admission of Workloads may
 be unnecessarily slowed down by sequencing in case the cluster has enough
-resources to support concurrent workload startup.
+resources to support concurrent Workload startup.

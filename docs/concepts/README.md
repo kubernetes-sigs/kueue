@@ -19,7 +19,7 @@ limits and fair sharing rules.
 
 ### [Local Queue](local_queue.md)
 
-A namespaced resource that groups closely related workloads belonging to a
+A namespaced resource that groups closely related Workloads belonging to a
 single tenant.
 
 ### [Workload](workload.md)
@@ -44,6 +44,6 @@ A group of ClusterQueues that can borrow unused quota from each other.
 
 ### Queueing
 
-The time between a workload is created until it is admitted by a ClusterQueue.
-Typically, the workload will compete with other workloads for available
+The time between a Workload is created until it is admitted by a ClusterQueue.
+Typically, the Workload will compete with other Workloads for available
 quota based on the fair sharing rules of the ClusterQueue.
