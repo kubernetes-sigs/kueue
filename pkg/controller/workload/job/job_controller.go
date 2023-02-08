@@ -30,10 +30,14 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -42,7 +46,8 @@ import (
 )
 
 var (
-	ownerKey = ".metadata.controller"
+	ownerKey          = ".metadata.controller"
+	parentWorkloadKey = ".metadata.parentWorkload"
 )
 
 // JobReconciler reconciles a Job object
@@ -100,16 +105,75 @@ func NewReconciler(
 	}
 }
 
+type parentWorkloadHandler struct {
+	client client.Client
+}
+
+func (h *parentWorkloadHandler) Create(e event.CreateEvent, q workqueue.RateLimitingInterface) {
+	h.queueReconcileForChildJob(e.Object, q)
+}
+
+func (h *parentWorkloadHandler) Update(e event.UpdateEvent, q workqueue.RateLimitingInterface) {
+	h.queueReconcileForChildJob(e.ObjectNew, q)
+}
+
+func (h *parentWorkloadHandler) Delete(event.DeleteEvent, workqueue.RateLimitingInterface) {
+}
+
+func (h *parentWorkloadHandler) Generic(e event.GenericEvent, q workqueue.RateLimitingInterface) {
+}
+
+// queueReconcileForChildJob queues reconciliation of the child jobs (jobs with the
+// parent-workload annotation) in reaction to the parent-workload events.
+// TODO: replace the TODO context with the one passed to the event handler's functions
+// when a new version of controller-runtime is used. See in master:
+// https://github.com/kubernetes-sigs/controller-runtime/blob/master/pkg/handler/eventhandler.go
+func (h *parentWorkloadHandler) queueReconcileForChildJob(object client.Object, q workqueue.RateLimitingInterface) {
+	w, ok := object.(*kueue.Workload)
+	if !ok {
+		return
+	}
+	ctx := context.TODO()
+	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(w))
+	ctx = ctrl.LoggerInto(ctx, log)
+	log.V(5).Info("Queueing reconcile for child jobs")
+	var childJobs batchv1.JobList
+	if err := h.client.List(ctx, &childJobs, client.InNamespace(w.Namespace), client.MatchingFields{parentWorkloadKey: w.Name}); err != nil {
+		klog.Error(err, "Unable to list child jobs")
+		return
+	}
+	for _, childJob := range childJobs.Items {
+		log.V(5).Info("Queueing reconcile for child job", "job", klog.KObj(&childJob))
+		q.Add(reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      childJob.Name,
+				Namespace: w.Namespace,
+			},
+		})
+	}
+}
+
 // SetupWithManager sets up the controller with the Manager. It indexes workloads
 // based on the owning jobs.
 func (r *JobReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	wlHandler := parentWorkloadHandler{client: r.client}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&batchv1.Job{}).
+		Watches(&source.Kind{Type: &kueue.Workload{}}, &wlHandler).
 		Owns(&kueue.Workload{}).
 		Complete(r)
 }
 
 func SetupIndexes(indexer client.FieldIndexer) error {
+	if err := indexer.IndexField(context.Background(), &batchv1.Job{}, parentWorkloadKey, func(o client.Object) []string {
+		job := o.(*batchv1.Job)
+		if pwName := parentWorkload(job); pwName != "" {
+			return []string{pwName}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
 	return indexer.IndexField(context.Background(), &kueue.Workload{}, ownerKey, func(o client.Object) []string {
 		// grab the Workload object, extract the owner...
 		wl := o.(*kueue.Workload)
@@ -145,8 +209,13 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 	log := ctrl.LoggerFrom(ctx).WithValues("job", klog.KObj(&job))
 	ctx = ctrl.LoggerInto(ctx, log)
-	if queueName(&job) == "" && !r.manageJobsWithoutQueueName {
-		log.V(3).Info(fmt.Sprintf("%s annotation is not set, ignoring the job", constants.QueueAnnotation))
+
+	pwName := parentWorkload(&job)
+
+	// when manageJobsWithoutQueueName is disabled we only reconcile jobs that have either
+	// queue-name or the parent-workload annotation set.
+	if queueName(&job) == "" && pwName == "" && !r.manageJobsWithoutQueueName {
+		log.V(3).Info(fmt.Sprintf("Neither %s, nor %s annotation is set, ignoring the job", constants.QueueAnnotation, constants.ParentWorkloadAnnotation))
 		return ctrl.Result{}, nil
 	}
 
@@ -173,6 +242,9 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		if jobFinished {
 			return ctrl.Result{}, nil
 		}
+		if pwName != "" {
+			return ctrl.Result{}, nil
+		}
 		err := r.handleJobWithNoWorkload(ctx, &job)
 		if err != nil {
 			log.Error(err, "Handling job with no workload")
@@ -180,30 +252,32 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, err
 	}
 
-	// 3. handle a finished job
-	if jobFinished {
-		if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
-			return ctrl.Result{}, nil
-		}
-		condition := generateFinishedCondition(jobFinishedCond)
-		apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
-		err := r.client.Status().Update(ctx, wl)
-		if err != nil {
-			log.Error(err, "Updating workload status")
-		}
-		return ctrl.Result{}, err
-	}
-
-	// handle a job when waitForPodsReady is enabled
-	if r.waitForPodsReady {
-		log.V(5).Info("Handling a job when waitForPodsReady is enabled")
-		condition := generatePodsReadyCondition(&job, wl)
-		// optimization to avoid sending the update request if the status didn't change
-		if !apimeta.IsStatusConditionPresentAndEqual(wl.Status.Conditions, condition.Type, condition.Status) {
-			log.V(3).Info(fmt.Sprintf("Updating the PodsReady condition with status: %v", condition.Status))
+	if pwName == "" {
+		// 3. handle a finished job, if it's the main job.
+		if jobFinished {
+			if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
+				return ctrl.Result{}, nil
+			}
+			condition := generateFinishedCondition(jobFinishedCond)
 			apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
-			if err := r.client.Status().Update(ctx, wl); err != nil {
+			err := r.client.Status().Update(ctx, wl)
+			if err != nil {
 				log.Error(err, "Updating workload status")
+			}
+			return ctrl.Result{}, err
+		}
+
+		// handle a job when waitForPodsReady is enabled, and it is the main job
+		if r.waitForPodsReady {
+			log.V(5).Info("Handling a job when waitForPodsReady is enabled")
+			condition := generatePodsReadyCondition(&job, wl)
+			// optimization to avoid sending the update request if the status didn't change
+			if !apimeta.IsStatusConditionPresentAndEqual(wl.Status.Conditions, condition.Type, condition.Status) {
+				log.V(3).Info(fmt.Sprintf("Updating the PodsReady condition with status: %v", condition.Status))
+				apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
+				if err := r.client.Status().Update(ctx, wl); err != nil {
+					log.Error(err, "Updating workload status")
+				}
 			}
 		}
 	}
@@ -373,6 +447,24 @@ func (r *JobReconciler) ensureAtMostOneWorkload(ctx context.Context, job *batchv
 	// Find a matching workload first if there is one.
 	var toDelete []*kueue.Workload
 	var match *kueue.Workload
+
+	pwName := parentWorkload(job)
+	if pwName != "" {
+		pw := kueue.Workload{}
+		NamespacedName := types.NamespacedName{
+			Name:      pwName,
+			Namespace: job.Namespace,
+		}
+		if err := r.client.Get(ctx, NamespacedName, &pw); err != nil {
+			if !apierrors.IsNotFound(err) {
+				return nil, err
+			}
+			log.V(2).Info("job with no matching parent workload", "parent-workload", pwName)
+		} else {
+			match = &pw
+		}
+	}
+
 	for i := range workloads.Items {
 		w := &workloads.Items[i]
 		owner := metav1.GetControllerOf(w)
@@ -539,4 +631,8 @@ func jobAndWorkloadEqual(job *batchv1.Job, wl *kueue.Workload) bool {
 
 func queueName(job *batchv1.Job) string {
 	return job.Annotations[constants.QueueAnnotation]
+}
+
+func parentWorkload(job *batchv1.Job) string {
+	return job.Annotations[constants.ParentWorkloadAnnotation]
 }
