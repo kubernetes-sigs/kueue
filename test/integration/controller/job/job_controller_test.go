@@ -577,12 +577,6 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", func() {
 				Obj()).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, devClusterQ)).Should(gomega.Succeed())
-
-		prodLocalQ = testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
-		gomega.Expect(k8sClient.Create(ctx, prodLocalQ)).Should(gomega.Succeed())
-
-		devLocalQ = testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devClusterQ.Name).Obj()
-		gomega.Expect(k8sClient.Create(ctx, devLocalQ)).Should(gomega.Succeed())
 	})
 
 	ginkgo.AfterEach(func() {
@@ -597,6 +591,12 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", func() {
 	})
 
 	ginkgo.It("Should schedule jobs as they fit in their ClusterQueue", func() {
+		ginkgo.By("creating localQueues")
+		prodLocalQ = testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
+		gomega.Expect(k8sClient.Create(ctx, prodLocalQ)).Should(gomega.Succeed())
+		devLocalQ = testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devClusterQ.Name).Obj()
+		gomega.Expect(k8sClient.Create(ctx, devLocalQ)).Should(gomega.Succeed())
+
 		ginkgo.By("checking the first prod job starts")
 		prodJob1 := testing.MakeJob("prod-job1", ns.Name).Queue(prodLocalQ.Name).Request(corev1.ResourceCPU, "2").Obj()
 		gomega.Expect(k8sClient.Create(ctx, prodJob1)).Should(gomega.Succeed())
@@ -651,5 +651,44 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", func() {
 		gomega.Expect(createdProdJob2.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 		util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
 		util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
+	})
+
+	ginkgo.It("Should unsuspend job iff localQueue is in the same namespace", func() {
+		ginkgo.By("create another namespace")
+		ns2 := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "e2e-",
+			},
+		}
+		gomega.Expect(k8sClient.Create(ctx, ns2)).To(gomega.Succeed())
+		defer func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns2)).To(gomega.Succeed())
+		}()
+
+		ginkgo.By("create a localQueue located in a different namespace as the job")
+		localQueue := testing.MakeLocalQueue("local-queue", ns2.Name).Obj()
+		localQueue.Spec.ClusterQueue = kueue.ClusterQueueReference(prodClusterQ.Name)
+
+		ginkgo.By("create a job")
+		prodJob := testing.MakeJob("prod-job", ns.Name).Queue(localQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
+		gomega.Expect(k8sClient.Create(ctx, prodJob)).Should(gomega.Succeed())
+
+		ginkgo.By("job should be suspend")
+		lookupKey := types.NamespacedName{Name: prodJob.Name, Namespace: prodJob.Namespace}
+		createdProdJob := &batchv1.Job{}
+		gomega.Eventually(func() *bool {
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdProdJob)).Should(gomega.Succeed())
+			return createdProdJob.Spec.Suspend
+		}, util.Timeout, util.Interval).Should(gomega.Equal(pointer.Bool(true)))
+
+		ginkgo.By("creating another localQueue of the same name and in the same namespace as the job")
+		prodLocalQ = testing.MakeLocalQueue(localQueue.Name, ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
+		gomega.Expect(k8sClient.Create(ctx, prodLocalQ)).Should(gomega.Succeed())
+
+		ginkgo.By("job should be unsuspended")
+		gomega.Eventually(func() *bool {
+			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdProdJob)).Should(gomega.Succeed())
+			return createdProdJob.Spec.Suspend
+		}, util.Timeout, util.Interval).Should(gomega.Equal(pointer.Bool(false)))
 	})
 })
