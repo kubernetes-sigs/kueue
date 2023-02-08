@@ -233,6 +233,25 @@ var _ = ginkgo.Describe("Job controller", func() {
 				createdWorkload.Status.Conditions[0].Status == metav1.ConditionTrue
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 	})
+	ginkgo.It("Should not create workload for a job with ignore annotation", func() {
+		ginkgo.By("checking the workload is not created when the ignore annotaiton is present")
+		job := testing.MakeJob(jobName, jobNamespace).Ignore().Obj()
+		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+		lookupKey := types.NamespacedName{Name: jobName, Namespace: jobNamespace}
+		createdJob := &batchv1.Job{}
+		gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+		createdWorkload := &kueue.Workload{}
+		gomega.Consistently(func() bool {
+			return apierrors.IsNotFound(k8sClient.Get(ctx, lookupKey, createdWorkload))
+		}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
+
+		ginkgo.By("checking the workload is created when the ignore annotation is removed")
+		delete(createdJob.Annotations, constants.IgnoreAnnotation)
+		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
+		gomega.Eventually(func() error {
+			return k8sClient.Get(ctx, lookupKey, createdWorkload)
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
 })
 
 var _ = ginkgo.Describe("Job controller for workloads with no queue set", func() {

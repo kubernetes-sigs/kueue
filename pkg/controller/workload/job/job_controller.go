@@ -145,6 +145,10 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 	log := ctrl.LoggerFrom(ctx).WithValues("job", klog.KObj(&job))
 	ctx = ctrl.LoggerInto(ctx, log)
+	if ignored(&job) {
+		log.V(3).Info(fmt.Sprintf("%s annotation is set, ignoring the job", constants.IgnoreAnnotation))
+		return ctrl.Result{}, nil
+	}
 	if queueName(&job) == "" && !r.manageJobsWithoutQueueName {
 		log.V(3).Info(fmt.Sprintf("%s annotation is not set, ignoring the job", constants.QueueAnnotation))
 		return ctrl.Result{}, nil
@@ -539,4 +543,8 @@ func jobAndWorkloadEqual(job *batchv1.Job, wl *kueue.Workload) bool {
 
 func queueName(job *batchv1.Job) string {
 	return job.Annotations[constants.QueueAnnotation]
+}
+
+func ignored(job *batchv1.Job) bool {
+	return job.Annotations[constants.IgnoreAnnotation] == "true"
 }

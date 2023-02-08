@@ -24,6 +24,12 @@ const (
 	// TODO(#23): Use the kubernetes.io domain when graduating APIs to beta.
 	QueueAnnotation = "kueue.x-k8s.io/queue-name"
 
+	// IgnoreAnnotation is the annotation used to mark workloads to be ignored
+	// by Kueue for scheduling, when the value of the annotation is `true`.
+	//
+	// TODO(#23): Use the kubernetes.io domain when graduating APIs to beta.
+	IgnoreAnnotation = "kueue.x-k8s.io/ignore"
+
 	KueueName         = "kueue"
 	JobControllerName = KueueName + "-job-controller"
 	AdmissionName     = KueueName + "-admission"

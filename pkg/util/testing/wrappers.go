@@ -93,6 +93,12 @@ func (j *JobWrapper) Queue(queue string) *JobWrapper {
 	return j
 }
 
+// Ignore adds the ignore annotation
+func (j *JobWrapper) Ignore() *JobWrapper {
+	j.Annotations[constants.IgnoreAnnotation] = "true"
+	return j
+}
+
 // Toleration adds a toleration to the job.
 func (j *JobWrapper) Toleration(t corev1.Toleration) *JobWrapper {
 	j.Spec.Template.Spec.Tolerations = append(j.Spec.Template.Spec.Tolerations, t)

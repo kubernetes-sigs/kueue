@@ -20,7 +20,9 @@ import (
 	"testing"
 
 	batchv1 "k8s.io/api/batch/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 )
 
@@ -141,6 +143,61 @@ func TestPodsReady(t *testing.T) {
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			got := podsReady(tc.job)
+			if tc.want != got {
+				t.Errorf("Unexpected response (want: %v, got: %v)", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestIgnored(t *testing.T) {
+	testcases := map[string]struct {
+		job  *batchv1.Job
+		want bool
+	}{
+		"no ignore annotation": {
+			job: &batchv1.Job{
+				ObjectMeta: v1.ObjectMeta{
+					Annotations: map[string]string{},
+				},
+			},
+			want: false,
+		},
+		"ignore=true annotation": {
+			job: &batchv1.Job{
+				ObjectMeta: v1.ObjectMeta{
+					Annotations: map[string]string{
+						constants.IgnoreAnnotation: "true",
+					},
+				},
+			},
+			want: true,
+		},
+		"ignore= annotation": {
+			job: &batchv1.Job{
+				ObjectMeta: v1.ObjectMeta{
+					Annotations: map[string]string{
+						constants.IgnoreAnnotation: "",
+					},
+				},
+			},
+			want: false,
+		},
+		"ignore=false annotation": {
+			job: &batchv1.Job{
+				ObjectMeta: v1.ObjectMeta{
+					Annotations: map[string]string{
+						constants.IgnoreAnnotation: "false",
+					},
+				},
+			},
+			want: false,
+		},
+	}
+
+	for name, tc := range testcases {
+		t.Run(name, func(t *testing.T) {
+			got := ignored(tc.job)
 			if tc.want != got {
 				t.Errorf("Unexpected response (want: %v, got: %v)", tc.want, got)
 			}
