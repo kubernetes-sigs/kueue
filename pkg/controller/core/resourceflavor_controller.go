@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/queue"
 )
@@ -229,8 +229,8 @@ func (h *cqHandler) Generic(e event.GenericEvent, q workqueue.RateLimitingInterf
 		return
 	}
 
-	for _, resource := range cq.Spec.Resources {
-		for _, flavor := range resource.Flavors {
+	for _, rg := range cq.Spec.ResourceGroups {
+		for _, flavor := range rg.Flavors {
 			if cqs := h.cache.ClusterQueuesUsingFlavor(string(flavor.Name)); len(cqs) == 0 {
 				req := reconcile.Request{
 					NamespacedName: types.NamespacedName{
@@ -257,8 +257,8 @@ func (r *ResourceFlavorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 func resourceFlavors(cq *kueue.ClusterQueue) sets.Set[kueue.ResourceFlavorReference] {
 	flavors := sets.New[kueue.ResourceFlavorReference]()
-	for _, resource := range cq.Spec.Resources {
-		for _, flavor := range resource.Flavors {
+	for _, rg := range cq.Spec.ResourceGroups {
+		for _, flavor := range rg.Flavors {
 			flavors.Insert(flavor.Name)
 		}
 	}

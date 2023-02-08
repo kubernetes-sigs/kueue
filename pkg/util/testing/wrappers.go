@@ -27,7 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 )
@@ -161,20 +161,7 @@ func MakeWorkload(name, ns string) *WorkloadWrapper {
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
 		Spec: kueue.WorkloadSpec{
 			PodSets: []kueue.PodSet{
-				{
-					Name:  "main",
-					Count: 1,
-					Spec: corev1.PodSpec{
-						Containers: []corev1.Container{
-							{
-								Name: "c",
-								Resources: corev1.ResourceRequirements{
-									Requests: make(corev1.ResourceList),
-								},
-							},
-						},
-					},
-				},
+				*MakePodSet("main", 1).Obj(),
 			},
 		},
 	}}
@@ -185,7 +172,7 @@ func (w *WorkloadWrapper) Obj() *kueue.Workload {
 }
 
 func (w *WorkloadWrapper) Request(r corev1.ResourceName, q string) *WorkloadWrapper {
-	w.Spec.PodSets[0].Spec.Containers[0].Resources.Requests[r] = resource.MustParse(q)
+	w.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(q)
 	return w
 }
 
@@ -195,7 +182,7 @@ func (w *WorkloadWrapper) Queue(q string) *WorkloadWrapper {
 }
 
 func (w *WorkloadWrapper) Admit(a *kueue.Admission) *WorkloadWrapper {
-	w.Spec.Admission = a
+	w.Status.Admission = a
 	return w
 }
 
@@ -211,7 +198,7 @@ func (w *WorkloadWrapper) PriorityClass(priorityClassName string) *WorkloadWrapp
 
 func (w *WorkloadWrapper) RuntimeClass(name string) *WorkloadWrapper {
 	for i := range w.Spec.PodSets {
-		w.Spec.PodSets[i].Spec.RuntimeClassName = &name
+		w.Spec.PodSets[i].Template.Spec.RuntimeClassName = &name
 	}
 	return w
 }
@@ -221,24 +208,61 @@ func (w *WorkloadWrapper) Priority(priority int32) *WorkloadWrapper {
 	return w
 }
 
-func (w *WorkloadWrapper) PodSets(podSets []kueue.PodSet) *WorkloadWrapper {
+func (w *WorkloadWrapper) PodSets(podSets ...kueue.PodSet) *WorkloadWrapper {
 	w.Spec.PodSets = podSets
 	return w
 }
 
 func (w *WorkloadWrapper) Toleration(t corev1.Toleration) *WorkloadWrapper {
-	w.Spec.PodSets[0].Spec.Tolerations = append(w.Spec.PodSets[0].Spec.Tolerations, t)
+	w.Spec.PodSets[0].Template.Spec.Tolerations = append(w.Spec.PodSets[0].Template.Spec.Tolerations, t)
 	return w
 }
 
 func (w *WorkloadWrapper) NodeSelector(kv map[string]string) *WorkloadWrapper {
-	w.Spec.PodSets[0].Spec.NodeSelector = kv
+	w.Spec.PodSets[0].Template.Spec.NodeSelector = kv
 	return w
 }
 
 func (w *WorkloadWrapper) Condition(condition metav1.Condition) *WorkloadWrapper {
 	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 	return w
+}
+
+type PodSetWrapper struct{ kueue.PodSet }
+
+func MakePodSet(name string, count int) *PodSetWrapper {
+	return &PodSetWrapper{
+		kueue.PodSet{
+			Name:  name,
+			Count: int32(count),
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: "c",
+							Resources: corev1.ResourceRequirements{
+								Requests: make(corev1.ResourceList),
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func (p *PodSetWrapper) Obj() *kueue.PodSet {
+	return &p.PodSet
+}
+
+func (p *PodSetWrapper) Request(r corev1.ResourceName, q string) *PodSetWrapper {
+	p.Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(q)
+	return p
+}
+
+func (p *PodSetWrapper) Toleration(t corev1.Toleration) *PodSetWrapper {
+	p.Template.Spec.Tolerations = append(p.Template.Spec.Tolerations, t)
+	return p
 }
 
 // AdmissionWrapper wraps an Admission
@@ -253,7 +277,7 @@ func MakeAdmission(cq string, podSetNames ...string) *AdmissionWrapper {
 		wrap.PodSetFlavors = []kueue.PodSetFlavors{
 			{
 				Name:    kueue.DefaultPodSetName,
-				Flavors: make(map[corev1.ResourceName]string),
+				Flavors: make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
 			},
 		}
 		return wrap
@@ -263,7 +287,7 @@ func MakeAdmission(cq string, podSetNames ...string) *AdmissionWrapper {
 	for _, name := range podSetNames {
 		psFlavors = append(psFlavors, kueue.PodSetFlavors{
 			Name:    name,
-			Flavors: make(map[corev1.ResourceName]string),
+			Flavors: make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
 		})
 	}
 	wrap.PodSetFlavors = psFlavors
@@ -274,8 +298,13 @@ func (w *AdmissionWrapper) Obj() *kueue.Admission {
 	return &w.Admission
 }
 
-func (w *AdmissionWrapper) Flavor(r corev1.ResourceName, f string) *AdmissionWrapper {
+func (w *AdmissionWrapper) Flavor(r corev1.ResourceName, f kueue.ResourceFlavorReference) *AdmissionWrapper {
 	w.PodSetFlavors[0].Flavors[r] = f
+	return w
+}
+
+func (w *AdmissionWrapper) PodSets(podSets ...kueue.PodSetFlavors) *AdmissionWrapper {
+	w.PodSetFlavors = podSets
 	return w
 }
 
@@ -337,9 +366,29 @@ func (c *ClusterQueueWrapper) Cohort(cohort string) *ClusterQueueWrapper {
 	return c
 }
 
-// Resource adds a resource with flavors.
-func (c *ClusterQueueWrapper) Resource(r *kueue.Resource) *ClusterQueueWrapper {
-	c.Spec.Resources = append(c.Spec.Resources, *r)
+// ResourceGroup adds a ResourceGroup with flavors.
+func (c *ClusterQueueWrapper) ResourceGroup(flavors ...kueue.FlavorQuotas) *ClusterQueueWrapper {
+	rg := kueue.ResourceGroup{
+		Flavors: flavors,
+	}
+	if len(flavors) > 0 {
+		var resources []corev1.ResourceName
+		for _, r := range flavors[0].Resources {
+			resources = append(resources, r.Name)
+		}
+		for i := 1; i < len(flavors); i++ {
+			if len(flavors[i].Resources) != len(resources) {
+				panic("Must list the same resources in all flavors in a ResourceGroup")
+			}
+			for j, r := range flavors[i].Resources {
+				if r.Name != resources[j] {
+					panic("Must list the same resources in all flavors in a ResourceGroup")
+				}
+			}
+		}
+		rg.CoveredResources = resources
+	}
+	c.Spec.ResourceGroups = append(c.Spec.ResourceGroups, rg)
 	return c
 }
 
@@ -361,48 +410,35 @@ func (c *ClusterQueueWrapper) Preemption(p kueue.ClusterQueuePreemption) *Cluste
 	return c
 }
 
-// ResourceWrapper wraps a resource.
-type ResourceWrapper struct{ kueue.Resource }
+// FlavorQuotasWrapper wraps a FlavorQuotas object.
+type FlavorQuotasWrapper struct{ kueue.FlavorQuotas }
 
-// MakeResource creates a wrapper for a resource.
-func MakeResource(name corev1.ResourceName) *ResourceWrapper {
-	return &ResourceWrapper{kueue.Resource{
-		Name: name,
-	}}
-}
-
-// Obj returns the inner resource.
-func (r *ResourceWrapper) Obj() *kueue.Resource {
-	return &r.Resource
-}
-
-// Flavor appends a flavor.
-func (r *ResourceWrapper) Flavor(f *kueue.Flavor) *ResourceWrapper {
-	r.Flavors = append(r.Flavors, *f)
-	return r
-}
-
-// FlavorWrapper wraps a resource flavor.
-type FlavorWrapper struct{ kueue.Flavor }
-
-// MakeFlavor creates a wrapper for a resource flavor.
-func MakeFlavor(rf, min string) *FlavorWrapper {
-	return &FlavorWrapper{kueue.Flavor{
-		Name: kueue.ResourceFlavorReference(rf),
-		Quota: kueue.Quota{
-			Min: resource.MustParse(min),
-		},
+// MakeFlavorQuotas creates a wrapper for a resource flavor.
+func MakeFlavorQuotas(name string) *FlavorQuotasWrapper {
+	return &FlavorQuotasWrapper{kueue.FlavorQuotas{
+		Name: kueue.ResourceFlavorReference(name),
 	}}
 }
 
 // Obj returns the inner flavor.
-func (f *FlavorWrapper) Obj() *kueue.Flavor {
-	return &f.Flavor
+func (f *FlavorQuotasWrapper) Obj() *kueue.FlavorQuotas {
+	return &f.FlavorQuotas
 }
 
-// Max updates the flavor max.
-func (f *FlavorWrapper) Max(c string) *FlavorWrapper {
-	f.Quota.Max = pointer.Quantity(resource.MustParse(c))
+func (f *FlavorQuotasWrapper) Resource(name corev1.ResourceName, qs ...string) *FlavorQuotasWrapper {
+	rq := kueue.ResourceQuota{
+		Name: name,
+	}
+	if len(qs) > 0 {
+		rq.NominalQuota = resource.MustParse(qs[0])
+	}
+	if len(qs) > 1 {
+		rq.BorrowingLimit = pointer.Quantity(resource.MustParse(qs[1]))
+	}
+	if len(qs) > 2 {
+		panic("Must have at most 2 quantities for nominalquota and borrowingLimit")
+	}
+	f.Resources = append(f.Resources, rq)
 	return f
 }
 
@@ -415,7 +451,9 @@ func MakeResourceFlavor(name string) *ResourceFlavorWrapper {
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 		},
-		NodeSelector: map[string]string{},
+		Spec: kueue.ResourceFlavorSpec{
+			NodeLabels: make(map[string]string),
+		},
 	}}
 }
 
@@ -424,23 +462,15 @@ func (rf *ResourceFlavorWrapper) Obj() *kueue.ResourceFlavor {
 	return &rf.ResourceFlavor
 }
 
-// MultiLabels adds multi labels to the ResourceFlavor.
-func (rf *ResourceFlavorWrapper) MultiLabels(kv map[string]string) *ResourceFlavorWrapper {
-	for k, v := range kv {
-		rf.NodeSelector[k] = v
-	}
-	return rf
-}
-
-// Label adds a label to the ResourceFlavor.
+// Label add a label kueue and value pair to the ResourceFlavor.
 func (rf *ResourceFlavorWrapper) Label(k, v string) *ResourceFlavorWrapper {
-	rf.NodeSelector[k] = v
+	rf.Spec.NodeLabels[k] = v
 	return rf
 }
 
 // Taint adds a taint to the ResourceFlavor.
 func (rf *ResourceFlavorWrapper) Taint(t corev1.Taint) *ResourceFlavorWrapper {
-	rf.Taints = append(rf.Taints, t)
+	rf.Spec.NodeTaints = append(rf.Spec.NodeTaints, t)
 	return rf
 }
 

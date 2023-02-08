@@ -36,7 +36,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/workload/jobframework"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
@@ -203,7 +203,7 @@ func (r *MPIJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// 5. handle mpijob is suspended.
 	if jobSuspended(&job) {
 		// start the job if the workload has been admitted, and the job is still suspended
-		if wl.Spec.Admission != nil {
+		if wl.Status.Admission != nil {
 			log.V(2).Info("Job admitted, unsuspending")
 			err := r.startJob(ctx, wl, &job)
 			if err != nil {
@@ -228,7 +228,7 @@ func (r *MPIJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	// 6. handle job is unsuspended.
-	if wl.Spec.Admission == nil {
+	if wl.Status.Admission == nil {
 		// the job must be suspended if the workload is not yet admitted.
 		log.V(2).Info("Running job is not admitted by a cluster queue, suspending")
 		err := r.stopJob(ctx, wl, &job, "Not admitted by cluster queue")
@@ -277,9 +277,9 @@ func (r *MPIJobReconciler) stopJob(ctx context.Context, w *kueue.Workload,
 		for index := range w.Spec.PodSets {
 			replicaType := orderedReplicaTypes[index]
 			if !equality.Semantic.DeepEqual(job.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector,
-				w.Spec.PodSets[index].Spec.NodeSelector) {
+				w.Spec.PodSets[index].Template.Spec.NodeSelector) {
 				job.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector = map[string]string{}
-				for k, v := range w.Spec.PodSets[index].Spec.NodeSelector {
+				for k, v := range w.Spec.PodSets[index].Template.Spec.NodeSelector {
 					job.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector[k] = v
 				}
 			}
@@ -319,27 +319,27 @@ func (r *MPIJobReconciler) startJob(ctx context.Context, w *kueue.Workload, job 
 	}
 
 	r.record.Eventf(job, corev1.EventTypeNormal, "Started",
-		"Admitted by clusterQueue %v", w.Spec.Admission.ClusterQueue)
+		"Admitted by clusterQueue %v", w.Status.Admission.ClusterQueue)
 	return nil
 }
 
 func (r *MPIJobReconciler) getNodeSelectors(ctx context.Context, w *kueue.Workload, index int) (map[string]string, error) {
-	if len(w.Spec.Admission.PodSetFlavors[index].Flavors) == 0 {
+	if len(w.Status.Admission.PodSetFlavors[index].Flavors) == 0 {
 		return nil, nil
 	}
 
-	processedFlvs := sets.NewString()
+	processedFlvs := sets.New[kueue.ResourceFlavorReference]()
 	nodeSelector := map[string]string{}
-	for _, flvName := range w.Spec.Admission.PodSetFlavors[index].Flavors {
+	for _, flvName := range w.Status.Admission.PodSetFlavors[index].Flavors {
 		if processedFlvs.Has(flvName) {
 			continue
 		}
 		// Lookup the ResourceFlavors to fetch the node affinity labels to apply on the job.
 		flv := kueue.ResourceFlavor{}
-		if err := r.client.Get(ctx, types.NamespacedName{Name: flvName}, &flv); err != nil {
+		if err := r.client.Get(ctx, types.NamespacedName{Name: string(flvName)}, &flv); err != nil {
 			return nil, err
 		}
-		for k, v := range flv.NodeSelector {
+		for k, v := range flv.Spec.NodeLabels {
 			nodeSelector[k] = v
 		}
 		processedFlvs.Insert(flvName)
@@ -457,9 +457,9 @@ func ConstructWorkloadFor(ctx context.Context, client client.Client,
 
 	for _, mpiReplicaType := range orderedReplicaTypes(&job.Spec) {
 		podSet := kueue.PodSet{
-			Name:  strings.ToLower(string(mpiReplicaType)),
-			Spec:  *job.Spec.MPIReplicaSpecs[mpiReplicaType].Template.Spec.DeepCopy(),
-			Count: podsCount(&job.Spec, mpiReplicaType),
+			Name:     strings.ToLower(string(mpiReplicaType)),
+			Template: *job.Spec.MPIReplicaSpecs[mpiReplicaType].Template.DeepCopy(),
+			Count:    podsCount(&job.Spec, mpiReplicaType),
 		}
 		w.Spec.PodSets = append(w.Spec.PodSets, podSet)
 	}
@@ -518,7 +518,7 @@ func generatePodsReadyCondition(job *kubeflow.MPIJob, wl *kueue.Workload) metav1
 	message := "Not all pods are ready or succeeded"
 	// Once PodsReady=True it stays as long as the workload remains admitted to
 	// avoid unnecessary flickering the the condition.
-	if wl.Spec.Admission != nil && (podsReady(job) || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPodsReady)) {
+	if wl.Status.Admission != nil && (podsReady(job) || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPodsReady)) {
 		conditionStatus = metav1.ConditionTrue
 		message = "All pods were ready or succeeded since the workload admission"
 	}
@@ -569,11 +569,11 @@ func jobAndWorkloadEqual(job *kubeflow.MPIJob, wl *kueue.Workload) bool {
 		// nodeSelector may change, hence we are not checking for
 		// equality of the whole job.Spec.Template.Spec.
 		if !equality.Semantic.DeepEqual(mpiReplicaSpec.Template.Spec.InitContainers,
-			wl.Spec.PodSets[index].Spec.InitContainers) {
+			wl.Spec.PodSets[index].Template.Spec.InitContainers) {
 			return false
 		}
 		if !equality.Semantic.DeepEqual(mpiReplicaSpec.Template.Spec.Containers,
-			wl.Spec.PodSets[index].Spec.Containers) {
+			wl.Spec.PodSets[index].Template.Spec.Containers) {
 			return false
 		}
 	}

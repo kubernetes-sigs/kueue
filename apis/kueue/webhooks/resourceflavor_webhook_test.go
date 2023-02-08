@@ -24,7 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -56,21 +56,21 @@ func TestValidateResourceFlavor(t *testing.T) {
 				Key: "skdajf",
 			}).Obj(),
 			wantErr: field.ErrorList{
-				field.Required(field.NewPath("taints").Index(0).Child("effect"), ""),
+				field.Required(field.NewPath("spec", "nodeTaints").Index(0).Child("effect"), ""),
 			},
 		},
 		{
 			name: "invalid label name",
-			rf:   utiltesting.MakeResourceFlavor("resource-flavor").MultiLabels(map[string]string{"@abc": "foo"}).Obj(),
+			rf:   utiltesting.MakeResourceFlavor("resource-flavor").Label("@abc", "foo").Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("nodeSelector"), "@abc", ""),
+				field.Invalid(field.NewPath("spec", "nodeLabels"), "@abc", ""),
 			},
 		},
 		{
 			name: "invalid label value",
-			rf:   utiltesting.MakeResourceFlavor("resource-flavor").MultiLabels(map[string]string{"foo": "@abc"}).Obj(),
+			rf:   utiltesting.MakeResourceFlavor("resource-flavor").Label("foo", "@abc").Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("nodeSelector"), "@abc", ""),
+				field.Invalid(field.NewPath("spec", "nodeLabels"), "@abc", ""),
 			},
 		},
 	}

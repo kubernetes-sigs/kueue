@@ -17,7 +17,7 @@ limitations under the License.
 package queue
 
 import (
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -28,8 +28,6 @@ type ClusterQueueBestEffortFIFO struct {
 }
 
 var _ ClusterQueue = &ClusterQueueBestEffortFIFO{}
-
-const BestEffortFIFO = kueue.BestEffortFIFO
 
 func newClusterQueueBestEffortFIFO(cq *kueue.ClusterQueue) (ClusterQueue, error) {
 	cqImpl := newClusterQueueImpl(keyFunc, byCreationTime)

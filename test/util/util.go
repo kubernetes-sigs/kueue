@@ -29,7 +29,7 @@ import (
 	"k8s.io/component-base/metrics/testutil"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -129,13 +129,22 @@ func FinishWorkloads(ctx context.Context, k8sClient client.Client, workloads ...
 	}
 }
 
+func SetAdmission(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, admission *kueue.Admission) {
+	gomega.EventuallyWithOffset(1, func() error {
+		var newWL kueue.Workload
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &newWL)).To(gomega.Succeed())
+		newWL.Status.Admission = admission
+		return k8sClient.Status().Update(ctx, &newWL)
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
 func ExpectWorkloadsToBeAdmitted(ctx context.Context, k8sClient client.Client, cqName string, wls ...*kueue.Workload) {
 	gomega.EventuallyWithOffset(1, func() int {
 		admitted := 0
 		var updatedWorkload kueue.Workload
 		for _, wl := range wls {
 			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-			if updatedWorkload.Spec.Admission != nil && string(updatedWorkload.Spec.Admission.ClusterQueue) == cqName {
+			if updatedWorkload.Status.Admission != nil && string(updatedWorkload.Status.Admission.ClusterQueue) == cqName {
 				admitted++
 			}
 		}
@@ -154,7 +163,7 @@ func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wl
 				continue
 			}
 			cond := updatedWorkload.Status.Conditions[idx]
-			if cond.Status == metav1.ConditionFalse && cond.Reason == "Pending" && wl.Spec.Admission == nil {
+			if cond.Status == metav1.ConditionFalse && cond.Reason == "Pending" && wl.Status.Admission == nil {
 				pending++
 			}
 		}
@@ -173,7 +182,7 @@ func ExpectWorkloadsToBeWaiting(ctx context.Context, k8sClient client.Client, wl
 				continue
 			}
 			cond := updatedWorkload.Status.Conditions[idx]
-			if cond.Status == metav1.ConditionFalse && cond.Reason == "Waiting" && wl.Spec.Admission == nil {
+			if cond.Status == metav1.ConditionFalse && cond.Reason == "Waiting" && wl.Status.Admission == nil {
 				pending++
 			}
 		}
@@ -193,7 +202,7 @@ func ExpectWorkloadsToBeFrozen(ctx context.Context, k8sClient client.Client, cq 
 			}
 			msg := fmt.Sprintf("ClusterQueue %s is inactive", cq)
 			cond := updatedWorkload.Status.Conditions[idx]
-			if cond.Status == metav1.ConditionFalse && cond.Reason == "Inadmissible" && wl.Spec.Admission == nil && cond.Message == msg {
+			if cond.Status == metav1.ConditionFalse && cond.Reason == "Inadmissible" && wl.Status.Admission == nil && cond.Message == msg {
 				frozen++
 			}
 		}
@@ -205,7 +214,7 @@ func ExpectWorkloadToBeAdmittedAs(ctx context.Context, k8sClient client.Client, 
 	var updatedWorkload kueue.Workload
 	gomega.Eventually(func() *kueue.Admission {
 		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-		return updatedWorkload.Spec.Admission
+		return updatedWorkload.Status.Admission
 	}, Timeout, Interval).Should(gomega.BeComparableTo(admission))
 }
 

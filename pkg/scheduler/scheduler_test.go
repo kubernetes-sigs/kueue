@@ -28,7 +28,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -36,12 +35,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
-	"sigs.k8s.io/kueue/pkg/util/pointer"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -59,144 +57,65 @@ func TestSchedule(t *testing.T) {
 		{ObjectMeta: metav1.ObjectMeta{Name: "model-a"}},
 	}
 	clusterQueues := []kueue.ClusterQueue{
-		{
-			ObjectMeta: metav1.ObjectMeta{Name: "sales"},
-			Spec: kueue.ClusterQueueSpec{
-				NamespaceSelector: &metav1.LabelSelector{
-					MatchExpressions: []metav1.LabelSelectorRequirement{
-						{
-							Key:      "dep",
-							Operator: metav1.LabelSelectorOpIn,
-							Values:   []string{"sales"},
-						},
-					},
-				},
-				QueueingStrategy: kueue.StrictFIFO,
-				Resources: []kueue.Resource{
-					{
-						Name: corev1.ResourceCPU,
-						Flavors: []kueue.Flavor{
-							{
-								Name: "default",
-								Quota: kueue.Quota{
-									Min: resource.MustParse("50"),
-									Max: pointer.Quantity(resource.MustParse("50")),
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{Name: "eng-alpha"},
-			Spec: kueue.ClusterQueueSpec{
-				Cohort: "eng",
-				NamespaceSelector: &metav1.LabelSelector{
-					MatchExpressions: []metav1.LabelSelectorRequirement{
-						{
-							Key:      "dep",
-							Operator: metav1.LabelSelectorOpIn,
-							Values:   []string{"eng"},
-						},
-					},
-				},
-				QueueingStrategy: kueue.StrictFIFO,
-				Resources: []kueue.Resource{
-					{
-						Name: corev1.ResourceCPU,
-						Flavors: []kueue.Flavor{
-							{
-								Name: "on-demand",
-								Quota: kueue.Quota{
-									Min: resource.MustParse("50"),
-									Max: pointer.Quantity(resource.MustParse("100")),
-								},
-							},
-							{
-								Name: "spot",
-								Quota: kueue.Quota{
-									Min: resource.MustParse("100"),
-									Max: pointer.Quantity(resource.MustParse("100")),
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{Name: "eng-beta"},
-			Spec: kueue.ClusterQueueSpec{
-				Cohort: "eng",
-				NamespaceSelector: &metav1.LabelSelector{
-					MatchExpressions: []metav1.LabelSelectorRequirement{
-						{
-							Key:      "dep",
-							Operator: metav1.LabelSelectorOpIn,
-							Values:   []string{"eng"},
-						},
-					},
-				},
-				Preemption: &kueue.ClusterQueuePreemption{
-					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
-				},
-				QueueingStrategy: kueue.StrictFIFO,
-				Resources: []kueue.Resource{
-					{
-						Name: corev1.ResourceCPU,
-						Flavors: []kueue.Flavor{
-							{
-								Name: "on-demand",
-								Quota: kueue.Quota{
-									Min: resource.MustParse("50"),
-									Max: pointer.Quantity(resource.MustParse("60")),
-								},
-							},
-							{
-								Name: "spot",
-								Quota: kueue.Quota{
-									Min: resource.MustParse("0"),
-									Max: pointer.Quantity(resource.MustParse("100")),
-								},
-							},
-						},
-					},
-					{
-						Name: "example.com/gpu",
-						Flavors: []kueue.Flavor{
-							{
-								Name: "model-a",
-								Quota: kueue.Quota{
-									Min: resource.MustParse("20"),
-									Max: pointer.Quantity(resource.MustParse("20")),
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-		{
-			ObjectMeta: metav1.ObjectMeta{Name: "flavor-nonexistent-cq"},
-			Spec: kueue.ClusterQueueSpec{
-				QueueingStrategy: kueue.StrictFIFO,
-				Resources: []kueue.Resource{
-					{
-						Name: corev1.ResourceCPU,
-						Flavors: []kueue.Flavor{
-							{
-								Name: "nonexistent-flavor",
-								Quota: kueue.Quota{
-									Min: resource.MustParse("50"),
-								},
-							},
-						},
-					},
-				},
-			},
-		},
+		*utiltesting.MakeClusterQueue("sales").
+			NamespaceSelector(&metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{{
+					Key:      "dep",
+					Operator: metav1.LabelSelectorOpIn,
+					Values:   []string{"sales"},
+				}},
+			}).
+			QueueingStrategy(kueue.StrictFIFO).
+			ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "50", "0").Obj()).
+			Obj(),
+		*utiltesting.MakeClusterQueue("eng-alpha").
+			Cohort("eng").
+			NamespaceSelector(&metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{{
+					Key:      "dep",
+					Operator: metav1.LabelSelectorOpIn,
+					Values:   []string{"eng"},
+				}},
+			}).
+			QueueingStrategy(kueue.StrictFIFO).
+			ResourceGroup(
+				*utiltesting.MakeFlavorQuotas("on-demand").
+					Resource(corev1.ResourceCPU, "50", "50").Obj(),
+				*utiltesting.MakeFlavorQuotas("spot").
+					Resource(corev1.ResourceCPU, "100", "0").Obj(),
+			).
+			Obj(),
+		*utiltesting.MakeClusterQueue("eng-beta").
+			Cohort("eng").
+			NamespaceSelector(&metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{{
+					Key:      "dep",
+					Operator: metav1.LabelSelectorOpIn,
+					Values:   []string{"eng"},
+				}},
+			}).
+			QueueingStrategy(kueue.StrictFIFO).
+			Preemption(kueue.ClusterQueuePreemption{
+				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+			}).
+			ResourceGroup(
+				*utiltesting.MakeFlavorQuotas("on-demand").
+					Resource(corev1.ResourceCPU, "50", "10").Obj(),
+				*utiltesting.MakeFlavorQuotas("spot").
+					Resource(corev1.ResourceCPU, "0", "100").Obj(),
+			).
+			ResourceGroup(
+				*utiltesting.MakeFlavorQuotas("model-a").
+					Resource("example.com/gpu", "20", "0").Obj(),
+			).
+			Obj(),
+		*utiltesting.MakeClusterQueue("flavor-nonexistent-cq").
+			QueueingStrategy(kueue.StrictFIFO).
+			ResourceGroup(*utiltesting.MakeFlavorQuotas("nonexistent-flavor").
+				Resource(corev1.ResourceCPU, "50").Obj()).
+			Obj(),
 	}
 	queues := []kueue.LocalQueue{
 		{
@@ -270,24 +189,12 @@ func TestSchedule(t *testing.T) {
 	}{
 		"workload fits in single clusterQueue": {
 			workloads: []kueue.Workload{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "sales",
-						Name:      "foo",
-					},
-					Spec: kueue.WorkloadSpec{
-						QueueName: "main",
-						PodSets: []kueue.PodSet{
-							{
-								Name:  "one",
-								Count: 10,
-								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-									corev1.ResourceCPU: "1",
-								}),
-							},
-						},
-					},
-				},
+				*utiltesting.MakeWorkload("foo", "sales").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 10).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
 			},
 			wantAssignments: map[string]kueue.Admission{
 				"sales/foo": {
@@ -295,7 +202,7 @@ func TestSchedule(t *testing.T) {
 					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							Flavors: map[corev1.ResourceName]string{
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "default",
 							},
 						},
@@ -306,24 +213,12 @@ func TestSchedule(t *testing.T) {
 		},
 		"error during admission": {
 			workloads: []kueue.Workload{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "sales",
-						Name:      "foo",
-					},
-					Spec: kueue.WorkloadSpec{
-						QueueName: "main",
-						PodSets: []kueue.PodSet{
-							{
-								Name:  "one",
-								Count: 10,
-								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-									corev1.ResourceCPU: "1",
-								}),
-							},
-						},
-					},
-				},
+				*utiltesting.MakeWorkload("foo", "sales").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 10).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
 			},
 			admissionError: errors.New("admission"),
 			wantLeft: map[string]sets.Set[string]{
@@ -332,52 +227,20 @@ func TestSchedule(t *testing.T) {
 		},
 		"single clusterQueue full": {
 			workloads: []kueue.Workload{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "sales",
-						Name:      "new",
-					},
-					Spec: kueue.WorkloadSpec{
-						QueueName: "main",
-						PodSets: []kueue.PodSet{
-							{
-								Name:  "one",
-								Count: 11,
-								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-									corev1.ResourceCPU: "1",
-								}),
-							},
-						},
-					},
-				},
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "sales",
-						Name:      "assigned",
-					},
-					Spec: kueue.WorkloadSpec{
-						PodSets: []kueue.PodSet{
-							{
-								Name:  "one",
-								Count: 40,
-								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-									corev1.ResourceCPU: "1",
-								}),
-							},
-						},
-						Admission: &kueue.Admission{
-							ClusterQueue: "sales",
-							PodSetFlavors: []kueue.PodSetFlavors{
-								{
-									Name: "one",
-									Flavors: map[corev1.ResourceName]string{
-										corev1.ResourceCPU: "default",
-									},
-								},
-							},
-						},
-					},
-				},
+				*utiltesting.MakeWorkload("new", "sales").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 11).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("assigned", "sales").
+					PodSets(*utiltesting.MakePodSet("one", 40).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Admit(utiltesting.MakeAdmission("sales", "one").
+						Flavor(corev1.ResourceCPU, "default").
+						Obj()).
+					Obj(),
 			},
 			wantAssignments: map[string]kueue.Admission{
 				"sales/assigned": {
@@ -385,7 +248,7 @@ func TestSchedule(t *testing.T) {
 					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							Flavors: map[corev1.ResourceName]string{
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "default",
 							},
 						},
@@ -398,67 +261,31 @@ func TestSchedule(t *testing.T) {
 		},
 		"failed to match clusterQueue selector": {
 			workloads: []kueue.Workload{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "sales",
-						Name:      "new",
-					},
-					Spec: kueue.WorkloadSpec{
-						QueueName: "blocked",
-						PodSets: []kueue.PodSet{
-							{
-								Name:  "one",
-								Count: 1,
-								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-									corev1.ResourceCPU: "1",
-								}),
-							},
-						},
-					},
-				},
+				*utiltesting.MakeWorkload("new", "sales").
+					Queue("blocked").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
 			},
 			wantInadmissibleLeft: map[string]sets.Set[string]{
 				"eng-alpha": sets.New("sales/new"),
 			},
 		},
-		"assign to different cohorts": {
+		"admit in different cohorts": {
 			workloads: []kueue.Workload{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "sales",
-						Name:      "new",
-					},
-					Spec: kueue.WorkloadSpec{
-						QueueName: "main",
-						PodSets: []kueue.PodSet{
-							{
-								Name:  "one",
-								Count: 1,
-								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-									corev1.ResourceCPU: "1",
-								}),
-							},
-						},
-					},
-				},
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "eng-alpha",
-						Name:      "new",
-					},
-					Spec: kueue.WorkloadSpec{
-						QueueName: "main",
-						PodSets: []kueue.PodSet{
-							{
-								Name:  "one",
-								Count: 51, // will borrow.
-								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-									corev1.ResourceCPU: "1",
-								}),
-							},
-						},
-					},
-				},
+				*utiltesting.MakeWorkload("new", "sales").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("new", "eng-alpha").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 51 /* Will borrow */).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
 			},
 			wantAssignments: map[string]kueue.Admission{
 				"sales/new": {
@@ -466,7 +293,7 @@ func TestSchedule(t *testing.T) {
 					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							Flavors: map[corev1.ResourceName]string{
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "default",
 							},
 						},
@@ -477,7 +304,7 @@ func TestSchedule(t *testing.T) {
 					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							Flavors: map[corev1.ResourceName]string{
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "on-demand",
 							},
 						},
@@ -486,44 +313,20 @@ func TestSchedule(t *testing.T) {
 			},
 			wantScheduled: []string{"sales/new", "eng-alpha/new"},
 		},
-		"assign to same cohort no borrowing": {
+		"admit in same cohort with no borrowing": {
 			workloads: []kueue.Workload{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "eng-alpha",
-						Name:      "new",
-					},
-					Spec: kueue.WorkloadSpec{
-						QueueName: "main",
-						PodSets: []kueue.PodSet{
-							{
-								Name:  "one",
-								Count: 40,
-								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-									corev1.ResourceCPU: "1",
-								}),
-							},
-						},
-					},
-				},
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "eng-beta",
-						Name:      "new",
-					},
-					Spec: kueue.WorkloadSpec{
-						QueueName: "main",
-						PodSets: []kueue.PodSet{
-							{
-								Name:  "one",
-								Count: 40,
-								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-									corev1.ResourceCPU: "1",
-								}),
-							},
-						},
-					},
-				},
+				*utiltesting.MakeWorkload("new", "eng-alpha").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 40).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("new", "eng-beta").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 40).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
 			},
 			wantAssignments: map[string]kueue.Admission{
 				"eng-alpha/new": {
@@ -531,7 +334,7 @@ func TestSchedule(t *testing.T) {
 					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							Flavors: map[corev1.ResourceName]string{
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "on-demand",
 							},
 						},
@@ -542,7 +345,7 @@ func TestSchedule(t *testing.T) {
 					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							Flavors: map[corev1.ResourceName]string{
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "on-demand",
 							},
 						},
@@ -553,32 +356,18 @@ func TestSchedule(t *testing.T) {
 		},
 		"assign multiple resources and flavors": {
 			workloads: []kueue.Workload{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "eng-beta",
-						Name:      "new",
-					},
-					Spec: kueue.WorkloadSpec{
-						QueueName: "main",
-						PodSets: []kueue.PodSet{
-							{
-								Name:  "one",
-								Count: 10,
-								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-									corev1.ResourceCPU: "6", // Needs to borrow.
-									"example.com/gpu":  "1",
-								}),
-							},
-							{
-								Name:  "two",
-								Count: 40,
-								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-									corev1.ResourceCPU: "1",
-								}),
-							},
-						},
-					},
-				},
+				*utiltesting.MakeWorkload("new", "eng-beta").
+					Queue("main").
+					PodSets(
+						*utiltesting.MakePodSet("one", 10).
+							Request(corev1.ResourceCPU, "6").
+							Request("example.com/gpu", "1").
+							Obj(),
+						*utiltesting.MakePodSet("two", 40).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Obj(),
 			},
 			wantAssignments: map[string]kueue.Admission{
 				"eng-beta/new": {
@@ -586,14 +375,14 @@ func TestSchedule(t *testing.T) {
 					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							Flavors: map[corev1.ResourceName]string{
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "on-demand",
 								"example.com/gpu":  "model-a",
 							},
 						},
 						{
 							Name: "two",
-							Flavors: map[corev1.ResourceName]string{
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "spot",
 							},
 						},
@@ -604,42 +393,18 @@ func TestSchedule(t *testing.T) {
 		},
 		"cannot borrow if cohort was assigned": {
 			workloads: []kueue.Workload{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "eng-alpha",
-						Name:      "new",
-					},
-					Spec: kueue.WorkloadSpec{
-						QueueName: "main",
-						PodSets: []kueue.PodSet{
-							{
-								Name:  "one",
-								Count: 40,
-								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-									corev1.ResourceCPU: "1",
-								}),
-							},
-						},
-					},
-				},
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "eng-beta",
-						Name:      "new",
-					},
-					Spec: kueue.WorkloadSpec{
-						QueueName: "main",
-						PodSets: []kueue.PodSet{
-							{
-								Name:  "one",
-								Count: 51,
-								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-									corev1.ResourceCPU: "1",
-								}),
-							},
-						},
-					},
-				},
+				*utiltesting.MakeWorkload("new", "eng-alpha").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 40).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("new", "eng-beta").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 51).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
 			},
 			wantAssignments: map[string]kueue.Admission{
 				"eng-alpha/new": {
@@ -647,7 +412,7 @@ func TestSchedule(t *testing.T) {
 					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							Flavors: map[corev1.ResourceName]string{
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "on-demand",
 							},
 						},
@@ -727,24 +492,10 @@ func TestSchedule(t *testing.T) {
 		},
 		"cannot borrow resource not listed in clusterQueue": {
 			workloads: []kueue.Workload{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "eng-alpha",
-						Name:      "new",
-					},
-					Spec: kueue.WorkloadSpec{
-						QueueName: "main",
-						PodSets: []kueue.PodSet{
-							{
-								Name:  "one",
-								Count: 1,
-								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-									"example.com/gpu": "1",
-								}),
-							},
-						},
-					},
-				},
+				*utiltesting.MakeWorkload("new", "eng-alpha").
+					Queue("main").
+					Request("example.com/gpu", "1").
+					Obj(),
 			},
 			wantLeft: map[string]sets.Set[string]{
 				"eng-alpha": sets.New("eng-alpha/new"),
@@ -752,52 +503,20 @@ func TestSchedule(t *testing.T) {
 		},
 		"not enough resources to borrow, fallback to next flavor": {
 			workloads: []kueue.Workload{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "eng-alpha",
-						Name:      "new",
-					},
-					Spec: kueue.WorkloadSpec{
-						QueueName: "main",
-						PodSets: []kueue.PodSet{
-							{
-								Name:  "one",
-								Count: 60,
-								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-									corev1.ResourceCPU: "1",
-								}),
-							},
-						},
-					},
-				},
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "eng-beta",
-						Name:      "existing",
-					},
-					Spec: kueue.WorkloadSpec{
-						PodSets: []kueue.PodSet{
-							{
-								Name:  "one",
-								Count: 45,
-								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-									corev1.ResourceCPU: "1",
-								}),
-							},
-						},
-						Admission: &kueue.Admission{
-							ClusterQueue: "eng-beta",
-							PodSetFlavors: []kueue.PodSetFlavors{
-								{
-									Name: "one",
-									Flavors: map[corev1.ResourceName]string{
-										corev1.ResourceCPU: "on-demand",
-									},
-								},
-							},
-						},
-					},
-				},
+				*utiltesting.MakeWorkload("new", "eng-alpha").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 60).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("existing", "eng-beta").
+					PodSets(*utiltesting.MakePodSet("one", 45).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Admit(utiltesting.MakeAdmission("eng-beta", "one").
+						Flavor(corev1.ResourceCPU, "on-demand").
+						Obj()).
+					Obj(),
 			},
 			wantAssignments: map[string]kueue.Admission{
 				"eng-alpha/new": {
@@ -805,7 +524,7 @@ func TestSchedule(t *testing.T) {
 					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							Flavors: map[corev1.ResourceName]string{
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "spot",
 							},
 						},
@@ -816,7 +535,7 @@ func TestSchedule(t *testing.T) {
 					PodSetFlavors: []kueue.PodSetFlavors{
 						{
 							Name: "one",
-							Flavors: map[corev1.ResourceName]string{
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "on-demand",
 							},
 						},
@@ -827,46 +546,18 @@ func TestSchedule(t *testing.T) {
 		},
 		"workload should not fit in nonexistent clusterQueue": {
 			workloads: []kueue.Workload{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "sales",
-						Name:      "foo",
-					},
-					Spec: kueue.WorkloadSpec{
-						QueueName: "cq-nonexistent-queue",
-						PodSets: []kueue.PodSet{
-							{
-								Name:  "one",
-								Count: 10,
-								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-									corev1.ResourceCPU: "1",
-								}),
-							},
-						},
-					},
-				},
+				*utiltesting.MakeWorkload("foo", "sales").
+					Queue("cq-nonexistent-queue").
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
 			},
 		},
-		"workload should not fit in flavor nonexistent clusterQueue": {
+		"workload should not fit in clusterQueue with nonexistent flavor": {
 			workloads: []kueue.Workload{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "sales",
-						Name:      "foo",
-					},
-					Spec: kueue.WorkloadSpec{
-						QueueName: "flavor-nonexistent-queue",
-						PodSets: []kueue.PodSet{
-							{
-								Name:  "one",
-								Count: 10,
-								Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-									corev1.ResourceCPU: "1",
-								}),
-							},
-						},
-					},
-				},
+				*utiltesting.MakeWorkload("foo", "sales").
+					Queue("flavor-nonexistent-queue").
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
 			},
 			wantLeft: map[string]sets.Set[string]{
 				"flavor-nonexistent-cq": sets.New("sales/foo"),
@@ -918,7 +609,7 @@ func TestSchedule(t *testing.T) {
 					return tc.admissionError
 				}
 				mu.Lock()
-				gotScheduled[workload.Key(w)] = *w.Spec.Admission
+				gotScheduled[workload.Key(w)] = *w.Status.Admission
 				mu.Unlock()
 				return nil
 			}
@@ -959,12 +650,13 @@ func TestSchedule(t *testing.T) {
 			snapshot := cqCache.Snapshot()
 			for cqName, c := range snapshot.ClusterQueues {
 				for name, w := range c.Workloads {
-					if w.Obj.Spec.Admission == nil {
+					if w.Obj.Status.Admission == nil {
 						t.Errorf("Workload %s is not admitted by a clusterQueue, but it is found as member of clusterQueue %s in the cache", name, cqName)
-					} else if string(w.Obj.Spec.Admission.ClusterQueue) != cqName {
-						t.Errorf("Workload %s is admitted by clusterQueue %s, but it is found as member of clusterQueue %s in the cache", name, w.Obj.Spec.Admission.ClusterQueue, cqName)
+					} else if string(w.Obj.Status.Admission.ClusterQueue) != cqName {
+						t.Errorf("Workload %s is admitted by clusterQueue %s, but it is found as member of clusterQueue %s in the cache", name, w.Obj.Status.Admission.ClusterQueue, cqName)
+					} else {
+						gotAssignments[name] = *w.Obj.Status.Admission
 					}
-					gotAssignments[name] = *w.Obj.Spec.Admission
 				}
 			}
 			if len(gotAssignments) == 0 {
@@ -997,8 +689,8 @@ func TestEntryOrdering(t *testing.T) {
 				}},
 			},
 			assignment: flavorassigner.Assignment{
-				TotalBorrow: cache.ResourceQuantities{
-					corev1.ResourceCPU: {},
+				TotalBorrow: cache.FlavorResourceQuantities{
+					"flavor": {},
 				},
 			},
 		},
@@ -1026,8 +718,8 @@ func TestEntryOrdering(t *testing.T) {
 				}},
 			},
 			assignment: flavorassigner.Assignment{
-				TotalBorrow: cache.ResourceQuantities{
-					corev1.ResourceCPU: {},
+				TotalBorrow: cache.FlavorResourceQuantities{
+					"flavor": {},
 				},
 			},
 		},

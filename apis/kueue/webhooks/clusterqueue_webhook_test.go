@@ -21,16 +21,17 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func TestValidateClusterQueue(t *testing.T) {
-	specField := field.NewPath("spec")
-	resourceField := specField.Child("resources")
+	specPath := field.NewPath("spec")
+	resourceGroupsPath := specPath.Child("resourceGroups")
 
 	testcases := []struct {
 		name         string
@@ -39,17 +40,17 @@ func TestValidateClusterQueue(t *testing.T) {
 	}{
 		{
 			name: "built-in resources with qualified names",
-			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").Resource(
-				testingutil.MakeResource("cpu").Obj(),
-			).Obj(),
+			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*testingutil.MakeFlavorQuotas("default").Resource("cpu").Obj()).
+				Obj(),
 		},
 		{
 			name: "invalid resource name",
-			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").Resource(
-				testingutil.MakeResource("@cpu").Obj(),
-			).Obj(),
+			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*testingutil.MakeFlavorQuotas("default").Resource("@cpu").Obj()).
+				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(resourceField.Index(0).Child("name"), "@cpu", ""),
+				field.Invalid(resourceGroupsPath.Index(0).Child("coveredResources").Index(0), "@cpu", ""),
 			},
 		},
 		{
@@ -60,72 +61,69 @@ func TestValidateClusterQueue(t *testing.T) {
 			name:         "invalid cohort",
 			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").Cohort("@prod").Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(specField.Child("cohort"), "@prod", ""),
+				field.Invalid(specPath.Child("cohort"), "@prod", ""),
 			},
 		},
 		{
 			name: "extended resources with qualified names",
-			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").Resource(
-				testingutil.MakeResource("example.com/gpu").Obj(),
-			).Obj(),
-		},
-		{
-			name: "extended resources with unqualified names",
-			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").Resource(
-				testingutil.MakeResource("example.com/@gpu").Obj(),
-			).Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(resourceField.Index(0).Child("name"), "example.com/@gpu", ""),
-			},
+			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*testingutil.MakeFlavorQuotas("default").Resource("example.com/gpu").Obj()).
+				Obj(),
 		},
 		{
 			name: "flavor with qualified names",
-			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").Resource(
-				testingutil.MakeResource("cpu").Flavor(testingutil.MakeFlavor("x86", "10").Obj()).Obj(),
-			).Obj(),
+			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*testingutil.MakeFlavorQuotas("x86").Obj()).
+				Obj(),
 		},
 		{
 			name: "flavor with unqualified names",
-			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").Resource(
-				testingutil.MakeResource("cpu").Flavor(testingutil.MakeFlavor("invalid_name", "10").Obj()).Obj(),
-			).Obj(),
+			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*testingutil.MakeFlavorQuotas("invalid_name").Obj()).
+				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(resourceField.Index(0).Child("flavors").Index(0).Child("name"), "invalid_name", ""),
+				field.Invalid(resourceGroupsPath.Index(0).Child("flavors").Index(0).Child("name"), "invalid_name", ""),
 			},
 		},
 		{
 			name: "flavor quota with negative value",
-			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").Resource(
-				testingutil.MakeResource("cpu").Flavor(testingutil.MakeFlavor("x86", "-1").Obj()).Obj(),
-			).Obj(),
+			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").
+				ResourceGroup(
+					*testingutil.MakeFlavorQuotas("x86").Resource("cpu", "-1").Obj()).
+				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(resourceField.Index(0).Child("flavors").Index(0).Child("quota", "min"), "-1", ""),
+				field.Invalid(resourceGroupsPath.Index(0).Child("flavors").Index(0).Child("resources").Index(0).Child("nominalQuota"), "-1", ""),
 			},
 		},
 		{
 			name: "flavor quota with zero value",
-			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").Resource(
-				testingutil.MakeResource("cpu").Flavor(testingutil.MakeFlavor("x86", "0").Obj()).Obj(),
-			).Obj(),
+			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").
+				ResourceGroup(
+					*testingutil.MakeFlavorQuotas("x86").Resource("cpu", "0").Obj()).
+				Obj(),
 		},
 		{
-			name: "flavor quota with min is equal to max",
-			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").Resource(
-				testingutil.MakeResource("cpu").Flavor(testingutil.MakeFlavor("x86", "1").Max("1").Obj()).Obj(),
-			).Obj(),
+			name: "flavor quota with borrowingLimit 0",
+			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").
+				ResourceGroup(
+					*testingutil.MakeFlavorQuotas("x86").Resource("cpu", "1", "0").Obj()).
+				Obj(),
 		},
 		{
-			name: "flavor quota with min is greater than max",
-			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").Resource(
-				testingutil.MakeResource("cpu").Flavor(testingutil.MakeFlavor("x86", "2").Max("1").Obj()).Obj(),
-			).Obj(),
+			name: "flavor quota with negative borrowingLimit",
+			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").
+				ResourceGroup(
+					*testingutil.MakeFlavorQuotas("x86").Resource("cpu", "1", "-1").Obj()).
+				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(resourceField.Index(0).Child("flavors").Index(0).Child("quota", "min"), "2", ""),
+				field.Invalid(resourceGroupsPath.Index(0).Child("flavors").Index(0).Child("resources").Index(0).Child("borrowingLimit"), "-1", ""),
 			},
 		},
 		{
-			name:         "empty queueing strategy is supported",
-			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").Obj(),
+			name: "empty queueing strategy is supported",
+			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").
+				QueueingStrategy("").
+				Obj(),
 		},
 		{
 			name: "namespaceSelector with invalid labels",
@@ -133,7 +131,7 @@ func TestValidateClusterQueue(t *testing.T) {
 				MatchLabels: map[string]string{"nospecialchars^=@": "bar"},
 			}).Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(specField.Child("namespaceSelector", "matchLabels"), "nospecialchars^=@", ""),
+				field.Invalid(specPath.Child("namespaceSelector", "matchLabels"), "nospecialchars^=@", ""),
 			},
 		},
 		{
@@ -147,50 +145,116 @@ func TestValidateClusterQueue(t *testing.T) {
 				},
 			}).Obj(),
 			wantErr: field.ErrorList{
-				field.Required(specField.Child("namespaceSelector", "matchExpressions").Index(0).Child("values"), ""),
+				field.Required(specPath.Child("namespaceSelector", "matchExpressions").Index(0).Child("values"), ""),
 			},
 		},
 		{
-			name: "multiple independent and codependent resources",
+			name: "multiple resource groups",
 			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").
-				Resource(testingutil.MakeResource("cpu").
-					Flavor(testingutil.MakeFlavor("alpha", "0").Obj()).
-					Flavor(testingutil.MakeFlavor("beta", "0").Obj()).Obj()).
-				Resource(testingutil.MakeResource("memory").
-					Flavor(testingutil.MakeFlavor("alpha", "0").Obj()).
-					Flavor(testingutil.MakeFlavor("beta", "0").Obj()).Obj()).
-				Resource(testingutil.MakeResource("example.com/gpu").
-					Flavor(testingutil.MakeFlavor("gamma", "0").Obj()).
-					Flavor(testingutil.MakeFlavor("omega", "0").Obj()).Obj()).
+				ResourceGroup(
+					*testingutil.MakeFlavorQuotas("alpha").
+						Resource("cpu", "0").
+						Resource("memory", "0").
+						Obj(),
+					*testingutil.MakeFlavorQuotas("beta").
+						Resource("cpu", "0").
+						Resource("memory", "0").
+						Obj(),
+				).
+				ResourceGroup(
+					*testingutil.MakeFlavorQuotas("gamma").
+						Resource("example.com/gpu", "0").
+						Obj(),
+					*testingutil.MakeFlavorQuotas("omega").
+						Resource("example.com/gpu", "0").
+						Obj(),
+				).
 				Obj(),
 		},
 		{
-			name: "multiple resources with matching flavors in different order",
-			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").
-				Resource(testingutil.MakeResource("cpu").
-					Flavor(testingutil.MakeFlavor("alpha", "0").Obj()).
-					Flavor(testingutil.MakeFlavor("beta", "0").Obj()).Obj()).
-				Resource(testingutil.MakeResource("memory").
-					Flavor(testingutil.MakeFlavor("beta", "0").Obj()).
-					Flavor(testingutil.MakeFlavor("alpha", "0").Obj()).Obj()).
-				Obj(),
+			name: "resources in a flavor in different order",
+			clusterQueue: &kueue.ClusterQueue{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "cluster-queue",
+				},
+				Spec: kueue.ClusterQueueSpec{
+					ResourceGroups: []kueue.ResourceGroup{
+						{
+							CoveredResources: []corev1.ResourceName{"cpu", "memory"},
+							Flavors: []kueue.FlavorQuotas{
+								*testingutil.MakeFlavorQuotas("alpha").
+									Resource("cpu", "0").
+									Resource("memory", "0").
+									Obj(),
+								*testingutil.MakeFlavorQuotas("beta").
+									Resource("memory", "0").
+									Resource("cpu", "0").
+									Obj(),
+							},
+						},
+					},
+				},
+			},
 			wantErr: field.ErrorList{
-				field.Invalid(specField.Child("resources").Index(1).Child("flavors"), nil, ""),
+				field.Invalid(resourceGroupsPath.Index(0).Child("flavors").Index(1).Child("resources").Index(0).Child("name"), nil, ""),
+				field.Invalid(resourceGroupsPath.Index(0).Child("flavors").Index(1).Child("resources").Index(1).Child("name"), nil, ""),
 			},
 		},
 		{
-			name: "multiple resources with partial flavor match",
+			name: "missing resources in a flavor",
+			clusterQueue: &kueue.ClusterQueue{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "cluster-queue",
+				},
+				Spec: kueue.ClusterQueueSpec{
+					ResourceGroups: []kueue.ResourceGroup{
+						{
+							CoveredResources: []corev1.ResourceName{"cpu", "memory"},
+							Flavors: []kueue.FlavorQuotas{
+								*testingutil.MakeFlavorQuotas("alpha").
+									Resource("cpu", "0").
+									Obj(),
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				field.Invalid(resourceGroupsPath.Index(0).Child("flavors").Index(0).Child("resources"), nil, ""),
+			},
+		},
+		{
+			name: "resource in more than one resource group",
 			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").
-				Resource(testingutil.MakeResource("cpu").
-					Flavor(testingutil.MakeFlavor("alpha", "0").Obj()).
-					Flavor(testingutil.MakeFlavor("beta", "0").Obj()).Obj()).
-				Resource(testingutil.MakeResource("example.com/gpu").
-					Flavor(testingutil.MakeFlavor("alpha", "0").Obj()).
-					Flavor(testingutil.MakeFlavor("beta", "0").Obj()).
-					Flavor(testingutil.MakeFlavor("omega", "0").Obj()).Obj()).
+				ResourceGroup(
+					*testingutil.MakeFlavorQuotas("alpha").
+						Resource("cpu", "0").
+						Resource("memory", "0").
+						Obj(),
+				).
+				ResourceGroup(
+					*testingutil.MakeFlavorQuotas("beta").
+						Resource("memory", "0").
+						Obj(),
+				).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(specField.Child("resources").Index(1).Child("flavors"), nil, ""),
+				field.Duplicate(resourceGroupsPath.Index(1).Child("coveredResources").Index(0), nil),
+			},
+		},
+		{
+			name: "flavor in more than one resource group",
+			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").
+				ResourceGroup(
+					*testingutil.MakeFlavorQuotas("alpha").Resource("cpu").Obj(),
+					*testingutil.MakeFlavorQuotas("beta").Resource("cpu").Obj(),
+				).
+				ResourceGroup(
+					*testingutil.MakeFlavorQuotas("beta").Resource("memory").Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Duplicate(resourceGroupsPath.Index(1).Child("flavors").Index(0).Child("name"), nil),
 			},
 		},
 	}

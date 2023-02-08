@@ -27,7 +27,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -169,7 +169,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 	}
 	for _, w := range workloads.Items {
 		w := w
-		if w.Spec.Admission != nil {
+		if w.Status.Admission != nil {
 			continue
 		}
 		qImpl.AddOrUpdate(workload.NewInfo(&w))
@@ -293,7 +293,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	// Always get the newest workload to avoid requeuing the out-of-date obj.
 	err := m.client.Get(ctx, client.ObjectKeyFromObject(info.Obj), &w)
 	// Since the client is cached, the only possible error is NotFound
-	if apierrors.IsNotFound(err) || w.Spec.Admission != nil {
+	if apierrors.IsNotFound(err) || w.Status.Admission != nil {
 		return false
 	}
 

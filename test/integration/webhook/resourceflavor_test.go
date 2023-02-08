@@ -11,7 +11,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha2
+package webhook
 
 import (
 	"fmt"
@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -86,18 +86,15 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 	ginkgo.DescribeTable("invalid number of properties", func(taintsCount int, nodeSelectorCount int, isInvalid bool) {
 		rf := testing.MakeResourceFlavor("resource-flavor")
 		for i := 0; i < taintsCount; i++ {
-			rf.Taint(corev1.Taint{
+			rf = rf.Taint(corev1.Taint{
 				Key:    fmt.Sprintf("t%d", i),
 				Effect: corev1.TaintEffectNoExecute,
 			})
 		}
-
-		m := make(map[string]string)
 		for i := 0; i < nodeSelectorCount; i++ {
-			m[fmt.Sprintf("l%d", i)] = ""
+			rf = rf.Label(fmt.Sprintf("l%d", i), "")
 		}
-
-		resourceFlavor := rf.MultiLabels(m).Obj()
+		resourceFlavor := rf.Obj()
 		err := k8sClient.Create(ctx, resourceFlavor)
 		if isInvalid {
 			gomega.Expect(err).To(gomega.HaveOccurred())
@@ -133,7 +130,7 @@ var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 
 			var created kueue.ResourceFlavor
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &created)).To(gomega.Succeed())
-			created.Taints = []corev1.Taint{{
+			created.Spec.NodeTaints = []corev1.Taint{{
 				Key:    "foo",
 				Value:  "bar",
 				Effect: "Invalid",

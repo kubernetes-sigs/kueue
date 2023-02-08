@@ -18,8 +18,8 @@ package webhooks
 
 import (
 	"context"
-	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/validation"
@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 const (
@@ -48,7 +48,7 @@ func setupWebhookForClusterQueue(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1alpha2-clusterqueue,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=clusterqueues,verbs=create,versions=v1alpha2,name=mclusterqueue.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1beta1-clusterqueue,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=clusterqueues,verbs=create,versions=v1beta1,name=mclusterqueue.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomDefaulter = &ClusterQueueWebhook{}
 
@@ -69,7 +69,7 @@ func (w *ClusterQueueWebhook) Default(ctx context.Context, obj runtime.Object) e
 	return nil
 }
 
-// +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1alpha2-clusterqueue,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=clusterqueues,verbs=create;update,versions=v1alpha2,name=vclusterqueue.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1beta1-clusterqueue,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=clusterqueues,verbs=create;update,versions=v1beta1,name=vclusterqueue.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomValidator = &ClusterQueueWebhook{}
 
@@ -105,7 +105,7 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	if len(cq.Spec.Cohort) != 0 {
 		allErrs = append(allErrs, validateNameReference(cq.Spec.Cohort, path.Child("cohort"))...)
 	}
-	allErrs = append(allErrs, validateResources(cq.Spec.Resources, path.Child("resources"))...)
+	allErrs = append(allErrs, validateResourceGroups(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
 	allErrs = append(allErrs,
 		validation.ValidateLabelSelector(cq.Spec.NamespaceSelector, validation.LabelSelectorValidationOptions{}, path.Child("namespaceSelector"))...)
 
@@ -123,55 +123,52 @@ func ValidateClusterQueueUpdate(newObj, oldObj *kueue.ClusterQueue) field.ErrorL
 	return allErrs
 }
 
-func validateResources(resources []kueue.Resource, path *field.Path) field.ErrorList {
+func validateResourceGroups(resourceGroups []kueue.ResourceGroup, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
-	flavorsPerRes := make([]sets.Set[string], len(resources))
+	seenResources := sets.New[corev1.ResourceName]()
+	seenFlavors := sets.New[kueue.ResourceFlavorReference]()
 
-	for i, resource := range resources {
+	for i, rg := range resourceGroups {
 		path := path.Index(i)
-		allErrs = append(allErrs, validateResourceName(resource.Name, path.Child("name"))...)
-
-		flavorsPerRes[i] = make(sets.Set[string], len(resource.Flavors))
-		for j, flavor := range resource.Flavors {
-			path := path.Child("flavors").Index(j)
-			allErrs = append(allErrs, validateNameReference(string(flavor.Name), path.Child("name"))...)
-			allErrs = append(allErrs, validateFlavorQuota(flavor, path.Child("quota"))...)
-			flavorsPerRes[i].Insert(string(flavor.Name))
-		}
-		for j := 0; j < i; j++ {
-			if !flavorsPerRes[i].HasAny(flavorsPerRes[j].UnsortedList()...) || matchesFlavorsInOrder(resource.Flavors, resources[j].Flavors) {
-				continue
+		for j, name := range rg.CoveredResources {
+			path := path.Child("coveredResources").Index(j)
+			allErrs = append(allErrs, validateResourceName(name, path)...)
+			if seenResources.Has(name) {
+				allErrs = append(allErrs, field.Duplicate(path, name))
+			} else {
+				seenResources.Insert(name)
 			}
-			err := field.Invalid(path.Child("flavors"), resource.Flavors, fmt.Sprintf("has flavors present in resource %s; all flavors must be different or they all must be present in the same order", resources[j].Name))
-			allErrs = append(allErrs, err)
+		}
+		for j, fqs := range rg.Flavors {
+			path := path.Child("flavors").Index(j)
+			allErrs = append(allErrs, validateFlavorQuotas(fqs, rg.CoveredResources, path)...)
+			if seenFlavors.Has(fqs.Name) {
+				allErrs = append(allErrs, field.Duplicate(path.Child("name"), fqs.Name))
+			} else {
+				seenFlavors.Insert(fqs.Name)
+			}
 		}
 	}
 	return allErrs
 }
 
-func validateFlavorQuota(flavor kueue.Flavor, path *field.Path) field.ErrorList {
-	var allErrs field.ErrorList
-	allErrs = append(allErrs, validateResourceQuantity(flavor.Quota.Min, path.Child("min"))...)
+func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []corev1.ResourceName, path *field.Path) field.ErrorList {
+	allErrs := validateNameReference(string(flavorQuotas.Name), path.Child("name"))
+	if len(flavorQuotas.Resources) != len(coveredResources) {
+		allErrs = append(allErrs, field.Invalid(path.Child("resources"), field.OmitValueType{}, "must have the same number of resources as the coveredResources"))
+	}
 
-	if flavor.Quota.Max != nil {
-		allErrs = append(allErrs, validateResourceQuantity(*flavor.Quota.Max, path.Child("max"))...)
-		if flavor.Quota.Min.Cmp(*flavor.Quota.Max) > 0 {
-			allErrs = append(allErrs, field.Invalid(path.Child("min"), flavor.Quota.Min.String(), fmt.Sprintf("must be less than or equal to %s max", flavor.Name)))
+	for i, rq := range flavorQuotas.Resources {
+		path := path.Child("resources").Index(i)
+		if rq.Name != coveredResources[i] {
+			allErrs = append(allErrs, field.Invalid(path.Child("name"), rq.Name, "must match the name in coveredResources"))
+		}
+		allErrs = append(allErrs, validateResourceQuantity(rq.NominalQuota, path.Child("nominalQuota"))...)
+		if rq.BorrowingLimit != nil {
+			allErrs = append(allErrs, validateResourceQuantity(*rq.BorrowingLimit, path.Child("borrowingLimit"))...)
 		}
 	}
 	return allErrs
-}
-
-func matchesFlavorsInOrder(f1, f2 []kueue.Flavor) bool {
-	if len(f1) != len(f2) {
-		return false
-	}
-	for i := range f1 {
-		if f1[i].Name != f2[i].Name {
-			return false
-		}
-	}
-	return true
 }
 
 // validateResourceQuantity enforces that specified quantity is valid for specified resource

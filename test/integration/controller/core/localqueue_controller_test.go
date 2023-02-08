@@ -23,7 +23,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -48,9 +48,10 @@ var _ = ginkgo.Describe("Queue controller", func() {
 
 	ginkgo.BeforeEach(func() {
 		clusterQueue = testing.MakeClusterQueue("cluster-queue.queue-controller").
-			Resource(testing.MakeResource(resourceGPU).
-				Flavor(testing.MakeFlavor(flavorModelA, "5").Max("10").Obj()).
-				Flavor(testing.MakeFlavor(flavorModelB, "5").Max("10").Obj()).Obj()).Obj()
+			ResourceGroup(
+				*testing.MakeFlavorQuotas(flavorModelA).Resource(resourceGPU, "5", "5").Obj(),
+				*testing.MakeFlavorQuotas(flavorModelB).Resource(resourceGPU, "5", "5").Obj(),
+			).Obj()
 		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 		queue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 		gomega.Expect(k8sClient.Create(ctx, queue)).To(gomega.Succeed())
@@ -89,9 +90,9 @@ var _ = ginkgo.Describe("Queue controller", func() {
 			gomega.Eventually(func() error {
 				var newWL kueue.Workload
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
-				newWL.Spec.Admission = testing.MakeAdmission(clusterQueue.Name).
+				newWL.Status.Admission = testing.MakeAdmission(clusterQueue.Name).
 					Flavor(corev1.ResourceCPU, flavorOnDemand).Obj()
-				return k8sClient.Update(ctx, &newWL)
+				return k8sClient.Status().Update(ctx, &newWL)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		}
 		gomega.Eventually(func() kueue.LocalQueueStatus {

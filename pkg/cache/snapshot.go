@@ -17,15 +17,16 @@ limitations under the License.
 package cache
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type Snapshot struct {
 	ClusterQueues            map[string]*ClusterQueue
-	ResourceFlavors          map[string]*kueue.ResourceFlavor
+	ResourceFlavors          map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	InactiveClusterQueueSets sets.Set[string]
 }
 
@@ -34,9 +35,9 @@ type Snapshot struct {
 func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 	cq := s.ClusterQueues[wl.ClusterQueue]
 	delete(cq.Workloads, workload.Key(wl.Obj))
-	updateUsage(wl, cq.UsedResources, -1)
+	updateUsage(wl, cq.Usage, -1)
 	if cq.Cohort != nil {
-		updateUsage(wl, cq.Cohort.UsedResources, -1)
+		updateUsage(wl, cq.Cohort.Usage, -1)
 	}
 }
 
@@ -45,9 +46,9 @@ func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	cq := s.ClusterQueues[wl.ClusterQueue]
 	cq.Workloads[workload.Key(wl.Obj)] = wl
-	updateUsage(wl, cq.UsedResources, 1)
+	updateUsage(wl, cq.Usage, 1)
 	if cq.Cohort != nil {
-		updateUsage(wl, cq.Cohort.UsedResources, 1)
+		updateUsage(wl, cq.Cohort.Usage, 1)
 	}
 }
 
@@ -57,7 +58,7 @@ func (c *Cache) Snapshot() Snapshot {
 
 	snap := Snapshot{
 		ClusterQueues:            make(map[string]*ClusterQueue, len(c.clusterQueues)),
-		ResourceFlavors:          make(map[string]*kueue.ResourceFlavor, len(c.resourceFlavors)),
+		ResourceFlavors:          make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, len(c.resourceFlavors)),
 		InactiveClusterQueueSets: sets.New[string](),
 	}
 	for _, cq := range c.clusterQueues {
@@ -67,9 +68,9 @@ func (c *Cache) Snapshot() Snapshot {
 		}
 		snap.ClusterQueues[cq.Name] = cq.snapshot()
 	}
-	for _, rf := range c.resourceFlavors {
+	for name, rf := range c.resourceFlavors {
 		// Shallow copy is enough
-		snap.ResourceFlavors[rf.Name] = rf
+		snap.ResourceFlavors[name] = rf
 	}
 	for _, cohort := range c.cohorts {
 		cohortCopy := newCohort(cohort.Name, cohort.Members.Len())
@@ -89,21 +90,21 @@ func (c *Cache) Snapshot() Snapshot {
 // objects and deep copies of changing ones. A reference to the cohort is not included.
 func (c *ClusterQueue) snapshot() *ClusterQueue {
 	cc := &ClusterQueue{
-		Name:                 c.Name,
-		RequestableResources: c.RequestableResources, // Shallow copy is enough.
-		UsedResources:        make(ResourceQuantities, len(c.UsedResources)),
-		Workloads:            make(map[string]*workload.Info, len(c.Workloads)),
-		Preemption:           c.Preemption,
-		LabelKeys:            c.LabelKeys, // Shallow copy is enough.
-		NamespaceSelector:    c.NamespaceSelector,
-		Status:               c.Status,
+		Name:              c.Name,
+		ResourceGroups:    c.ResourceGroups, // Shallow copy is enough.
+		RGByResource:      c.RGByResource,   // Shallow copy is enough.
+		Usage:             make(FlavorResourceQuantities, len(c.Usage)),
+		Workloads:         make(map[string]*workload.Info, len(c.Workloads)),
+		Preemption:        c.Preemption,
+		NamespaceSelector: c.NamespaceSelector,
+		Status:            c.Status,
 	}
-	for res, flavors := range c.UsedResources {
-		flavorsCopy := make(map[string]int64, len(flavors))
-		for k, v := range flavors {
-			flavorsCopy[k] = v
+	for fName, rUsage := range c.Usage {
+		rUsageCopy := make(map[corev1.ResourceName]int64, len(rUsage))
+		for k, v := range rUsage {
+			rUsageCopy[k] = v
 		}
-		cc.UsedResources[res] = flavorsCopy
+		cc.Usage[fName] = rUsageCopy
 	}
 	for k, v := range c.Workloads {
 		// Shallow copy is enough.
@@ -114,29 +115,31 @@ func (c *ClusterQueue) snapshot() *ClusterQueue {
 
 func (c *ClusterQueue) accumulateResources(cohort *Cohort) {
 	if cohort.RequestableResources == nil {
-		cohort.RequestableResources = make(ResourceQuantities, len(c.RequestableResources))
+		cohort.RequestableResources = make(FlavorResourceQuantities, len(c.ResourceGroups))
 	}
-	for name, res := range c.RequestableResources {
-		req := cohort.RequestableResources[name]
-		if req == nil {
-			req = make(map[string]int64, len(res.Flavors))
-			cohort.RequestableResources[name] = req
+	for _, rg := range c.ResourceGroups {
+		for _, flvQuotas := range rg.Flavors {
+			res := cohort.RequestableResources[flvQuotas.Name]
+			if res == nil {
+				res = make(map[corev1.ResourceName]int64, len(flvQuotas.Resources))
+				cohort.RequestableResources[flvQuotas.Name] = res
+			}
+			for rName, rQuota := range flvQuotas.Resources {
+				res[rName] += rQuota.Nominal
+			}
 		}
-		for _, flavor := range res.Flavors {
-			req[flavor.Name] += flavor.Min
-		}
 	}
-	if cohort.UsedResources == nil {
-		cohort.UsedResources = make(ResourceQuantities, len(c.UsedResources))
+	if cohort.Usage == nil {
+		cohort.Usage = make(FlavorResourceQuantities, len(c.Usage))
 	}
-	for res, flavors := range c.UsedResources {
-		used := cohort.UsedResources[res]
+	for fName, resUsages := range c.Usage {
+		used := cohort.Usage[fName]
 		if used == nil {
-			used = make(map[string]int64, len(flavors))
-			cohort.UsedResources[res] = used
+			used = make(map[corev1.ResourceName]int64, len(resUsages))
+			cohort.Usage[fName] = used
 		}
-		for flavor, val := range flavors {
-			used[flavor] += val
+		for res, val := range resUsages {
+			used[res] += val
 		}
 	}
 }

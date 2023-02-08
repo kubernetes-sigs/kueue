@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha2
+package webhook
 
 import (
 	"context"
@@ -53,8 +53,8 @@ func TestAPIs(t *testing.T) {
 
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
-		CRDPath:     filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases"),
-		WebhookPath: filepath.Join("..", "..", "..", "..", "config", "components", "webhook"),
+		CRDPath:     filepath.Join("..", "..", "..", "config", "components", "crd", "bases"),
+		WebhookPath: filepath.Join("..", "..", "..", "config", "components", "webhook"),
 		ManagerSetup: func(mgr manager.Manager, ctx context.Context) {
 			err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())

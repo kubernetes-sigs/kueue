@@ -30,7 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/workload/job"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
@@ -134,19 +134,19 @@ var _ = ginkgo.Describe("Job controller", func() {
 		spotFlavor := testing.MakeResourceFlavor("spot").Label(labelKey, "spot").Obj()
 		gomega.Expect(k8sClient.Create(ctx, spotFlavor)).Should(gomega.Succeed())
 		clusterQueue := testing.MakeClusterQueue("cluster-queue").
-			Resource(testing.MakeResource(corev1.ResourceCPU).
-				Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Obj()).
-				Flavor(testing.MakeFlavor(spotFlavor.Name, "5").Obj()).
-				Obj()).Obj()
-		createdWorkload.Spec.Admission = &kueue.Admission{
+			ResourceGroup(
+				*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
+				*testing.MakeFlavorQuotas("spot").Resource(corev1.ResourceCPU, "5").Obj(),
+			).Obj()
+		createdWorkload.Status.Admission = &kueue.Admission{
 			ClusterQueue: kueue.ClusterQueueReference(clusterQueue.Name),
 			PodSetFlavors: []kueue.PodSetFlavors{{
-				Flavors: map[corev1.ResourceName]string{
-					corev1.ResourceCPU: onDemandFlavor.Name,
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+					corev1.ResourceCPU: "on-demand",
 				},
 			}},
 		}
-		gomega.Expect(k8sClient.Update(ctx, createdWorkload)).Should(gomega.Succeed())
+		gomega.Expect(k8sClient.Status().Update(ctx, createdWorkload)).Should(gomega.Succeed())
 		gomega.Eventually(func() bool {
 			if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {
 				return false
@@ -189,18 +189,18 @@ var _ = ginkgo.Describe("Job controller", func() {
 			}
 			return createdWorkload.Spec.PodSets[0].Count == newParallelism
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
-		gomega.Expect(createdWorkload.Spec.Admission).Should(gomega.BeNil())
+		gomega.Expect(createdWorkload.Status.Admission).Should(gomega.BeNil())
 
 		ginkgo.By("checking the job is unsuspended and selectors added when workload is assigned again")
-		createdWorkload.Spec.Admission = &kueue.Admission{
+		createdWorkload.Status.Admission = &kueue.Admission{
 			ClusterQueue: kueue.ClusterQueueReference(clusterQueue.Name),
 			PodSetFlavors: []kueue.PodSetFlavors{{
-				Flavors: map[corev1.ResourceName]string{
-					corev1.ResourceCPU: spotFlavor.Name,
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+					corev1.ResourceCPU: "spot",
 				},
 			}},
 		}
-		gomega.Expect(k8sClient.Update(ctx, createdWorkload)).Should(gomega.Succeed())
+		gomega.Expect(k8sClient.Status().Update(ctx, createdWorkload)).Should(gomega.Succeed())
 		gomega.Eventually(func() bool {
 			if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {
 				return false
@@ -299,16 +299,16 @@ var _ = ginkgo.Describe("Job controller", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("admit the parent workload")
-			parentWorkload.Spec.Admission = &kueue.Admission{
+			parentWorkload.Status.Admission = &kueue.Admission{
 				ClusterQueue: kueue.ClusterQueueReference("foo"),
 				PodSetFlavors: []kueue.PodSetFlavors{{
-					Flavors: map[corev1.ResourceName]string{
-						corev1.ResourceCPU: defaultFlavor.Name,
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: "default",
 					},
 				}},
 			}
 			gomega.Eventually(func() error {
-				return k8sClient.Update(ctx, parentWorkload)
+				return k8sClient.Status().Update(ctx, parentWorkload)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("checking that the child job is unsuspended")
@@ -322,8 +322,8 @@ var _ = ginkgo.Describe("Job controller", func() {
 				if err := k8sClient.Get(ctx, parentWlLookupKey, parentWorkload); err != nil {
 					return err
 				}
-				parentWorkload.Spec.Admission = nil
-				return k8sClient.Update(ctx, parentWorkload)
+				parentWorkload.Status.Admission = nil
+				return k8sClient.Status().Update(ctx, parentWorkload)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("checking that the child job is suspended")
@@ -431,15 +431,15 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Admit the workload created for the job")
-			createdWorkload.Spec.Admission = &kueue.Admission{
+			createdWorkload.Status.Admission = &kueue.Admission{
 				ClusterQueue: kueue.ClusterQueueReference("foo"),
 				PodSetFlavors: []kueue.PodSetFlavors{{
-					Flavors: map[corev1.ResourceName]string{
-						corev1.ResourceCPU: defaultFlavor.Name,
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: "default",
 					},
 				}},
 			}
-			gomega.Expect(k8sClient.Update(ctx, createdWorkload)).Should(gomega.Succeed())
+			gomega.Expect(k8sClient.Status().Update(ctx, createdWorkload)).Should(gomega.Succeed())
 			gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 
 			ginkgo.By("Await for the job to be unsuspended")
@@ -476,8 +476,8 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", func() {
 					if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 						return err
 					}
-					createdWorkload.Spec.Admission = nil
-					return k8sClient.Update(ctx, createdWorkload)
+					createdWorkload.Status.Admission = nil
+					return k8sClient.Status().Update(ctx, createdWorkload)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			}
 
@@ -683,18 +683,17 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", func() {
 
 		prodClusterQ = testing.MakeClusterQueue("prod-cq").
 			Cohort("prod").
-			Resource(testing.MakeResource(corev1.ResourceCPU).
-				Flavor(testing.MakeFlavor(spotTaintedFlavor.Name, "5").Max("5").Obj()).
-				Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Obj()).
-				Obj()).
-			Obj()
+			ResourceGroup(
+				*testing.MakeFlavorQuotas("spot-tainted").Resource(corev1.ResourceCPU, "5", "0").Obj(),
+				*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
+			).Obj()
 		gomega.Expect(k8sClient.Create(ctx, prodClusterQ)).Should(gomega.Succeed())
 
 		devClusterQ = testing.MakeClusterQueue("dev-clusterqueue").
-			Resource(testing.MakeResource(corev1.ResourceCPU).
-				Flavor(testing.MakeFlavor(spotUntaintedFlavor.Name, "5").Obj()).
-				Flavor(testing.MakeFlavor(onDemandFlavor.Name, "5").Obj()).
-				Obj()).
+			ResourceGroup(
+				*testing.MakeFlavorQuotas("spot-untainted").Resource(corev1.ResourceCPU, "5").Obj(),
+				*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
+			).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, devClusterQ)).Should(gomega.Succeed())
 	})

@@ -22,10 +22,6 @@ spec:
       jsonPath: .spec.queueName
       name: Queue
       type: string
-    - description: Name of the ClusterQueue that admitted this workload
-      jsonPath: .spec.admission.clusterQueue
-      name: Admitted by
-      type: string
     - description: Time this workload was created
       jsonPath: .metadata.creationTimestamp
       name: Age
@@ -7771,7 +7767,7 @@ spec:
             type: object
         type: object
     served: true
-    storage: true
+    storage: false
     subresources:
       status: {}
   - additionalPrinterColumns:
@@ -7780,7 +7776,7 @@ spec:
       name: Queue
       type: string
     - description: Name of the ClusterQueue that admitted this workload
-      jsonPath: .spec.admission.clusterQueue
+      jsonPath: .status.admission.clusterQueue
       name: Admitted by
       type: string
     - description: Time this workload was created
@@ -15924,6 +15920,6 @@ spec:
             type: object
         type: object
     served: true
-    storage: false
+    storage: true
     subresources:
       status: {}

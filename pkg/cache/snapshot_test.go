@@ -26,13 +26,15 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var snapCmpOpts = []cmp.Option{
+	cmpopts.EquateEmpty(),
 	cmpopts.IgnoreUnexported(ClusterQueue{}),
+	cmpopts.IgnoreFields(ClusterQueue{}, "RGByResource"),
 	cmpopts.IgnoreFields(Cohort{}, "Members"), // avoid recursion.
 }
 
@@ -43,12 +45,7 @@ func TestSnapshot(t *testing.T) {
 		wls          []*kueue.Workload
 		wantSnapshot Snapshot
 	}{
-		"empty": {
-			wantSnapshot: Snapshot{
-				ClusterQueues:   map[string]*ClusterQueue{},
-				ResourceFlavors: map[string]*kueue.ResourceFlavor{},
-			},
-		},
+		"empty": {},
 		"independent clusterQueues": {
 			cqs: []*kueue.ClusterQueue{
 				utiltesting.MakeClusterQueue("a").Obj(),
@@ -63,11 +60,9 @@ func TestSnapshot(t *testing.T) {
 			wantSnapshot: Snapshot{
 				ClusterQueues: map[string]*ClusterQueue{
 					"a": {
-						Name:                 "a",
-						NamespaceSelector:    labels.Everything(),
-						Status:               active,
-						RequestableResources: map[corev1.ResourceName]*Resource{},
-						UsedResources:        ResourceQuantities{},
+						Name:              "a",
+						NamespaceSelector: labels.Everything(),
+						Status:            active,
 						Workloads: map[string]*workload.Info{
 							"/alpha": workload.NewInfo(
 								utiltesting.MakeWorkload("alpha", "").
@@ -76,11 +71,9 @@ func TestSnapshot(t *testing.T) {
 						Preemption: defaultPreemption,
 					},
 					"b": {
-						Name:                 "b",
-						NamespaceSelector:    labels.Everything(),
-						Status:               active,
-						RequestableResources: map[corev1.ResourceName]*Resource{},
-						UsedResources:        ResourceQuantities{},
+						Name:              "b",
+						NamespaceSelector: labels.Everything(),
+						Status:            active,
 						Workloads: map[string]*workload.Info{
 							"/beta": workload.NewInfo(
 								utiltesting.MakeWorkload("beta", "").
@@ -89,40 +82,42 @@ func TestSnapshot(t *testing.T) {
 						Preemption: defaultPreemption,
 					},
 				},
-				ResourceFlavors: map[string]*kueue.ResourceFlavor{},
 			},
 		},
 		"inactive clusterQueues": {
 			cqs: []*kueue.ClusterQueue{
 				utiltesting.MakeClusterQueue("flavor-nonexistent-cq").
-					Resource(&kueue.Resource{
-						Name: corev1.ResourceCPU,
-						Flavors: []kueue.Flavor{
-							*utiltesting.MakeFlavor("nonexistent-flavor", "100").Obj(),
-						},
-					}).Obj(),
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("nonexistent-flavor").
+						Resource(corev1.ResourceCPU, "100").Obj()).
+					Obj(),
 			},
 			wantSnapshot: Snapshot{
-				ClusterQueues:            map[string]*ClusterQueue{},
-				ResourceFlavors:          map[string]*kueue.ResourceFlavor{},
 				InactiveClusterQueueSets: sets.New("flavor-nonexistent-cq"),
 			},
 		},
 		"resourceFlavors": {
 			rfs: []*kueue.ResourceFlavor{
 				utiltesting.MakeResourceFlavor("demand").
-					MultiLabels(map[string]string{"a": "b", "instance": "demand"}).Obj(),
+					Label("a", "b").
+					Label("instance", "demand").
+					Obj(),
 				utiltesting.MakeResourceFlavor("spot").
-					MultiLabels(map[string]string{"c": "d", "instance": "spot"}).Obj(),
+					Label("c", "d").
+					Label("instance", "spot").
+					Obj(),
 				utiltesting.MakeResourceFlavor("default").Obj(),
 			},
 			wantSnapshot: Snapshot{
 				ClusterQueues: map[string]*ClusterQueue{},
-				ResourceFlavors: map[string]*kueue.ResourceFlavor{
+				ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
 					"demand": utiltesting.MakeResourceFlavor("demand").
-						MultiLabels(map[string]string{"a": "b", "instance": "demand"}).Obj(),
+						Label("a", "b").
+						Label("instance", "demand").
+						Obj(),
 					"spot": utiltesting.MakeResourceFlavor("spot").
-						MultiLabels(map[string]string{"c": "d", "instance": "spot"}).Obj(),
+						Label("c", "d").
+						Label("instance", "spot").
+						Obj(),
 					"default": utiltesting.MakeResourceFlavor("default").Obj(),
 				},
 			},
@@ -131,122 +126,88 @@ func TestSnapshot(t *testing.T) {
 			cqs: []*kueue.ClusterQueue{
 				utiltesting.MakeClusterQueue("a").
 					Cohort("borrowing").
-					Resource(&kueue.Resource{
-						Name: corev1.ResourceCPU,
-						Flavors: []kueue.Flavor{
-							*utiltesting.MakeFlavor("demand", "100").Obj(),
-							*utiltesting.MakeFlavor("spot", "200").Obj(),
-						},
-					}).Obj(),
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("demand").Resource(corev1.ResourceCPU, "100").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").Resource(corev1.ResourceCPU, "200").Obj(),
+					).
+					Obj(),
 				utiltesting.MakeClusterQueue("b").
 					Cohort("borrowing").
-					Resource(&kueue.Resource{
-						Name: corev1.ResourceCPU,
-						Flavors: []kueue.Flavor{
-							*utiltesting.MakeFlavor("spot", "100").Obj(),
-						},
-					}).Resource(&kueue.Resource{
-					Name: "example.com/gpu",
-					Flavors: []kueue.Flavor{
-						*utiltesting.MakeFlavor("default", "50").Obj(),
-					},
-				}).Obj(),
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("spot").Resource(corev1.ResourceCPU, "100").Obj(),
+					).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").Resource("example.com/gpu", "50").Obj(),
+					).
+					Obj(),
 				utiltesting.MakeClusterQueue("c").
-					Resource(&kueue.Resource{
-						Name: corev1.ResourceCPU,
-						Flavors: []kueue.Flavor{
-							*utiltesting.MakeFlavor("default", "100").Obj(),
-						},
-					}).Obj(),
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "100").Obj(),
+					).
+					Obj(),
 			},
 			rfs: []*kueue.ResourceFlavor{
-				utiltesting.MakeResourceFlavor("demand").
-					MultiLabels(map[string]string{"one": "two", "instance": "demand"}).Obj(),
-				utiltesting.MakeResourceFlavor("spot").
-					MultiLabels(map[string]string{"two": "three", "instance": "spot"}).Obj(),
+				utiltesting.MakeResourceFlavor("demand").Label("instance", "demand").Obj(),
+				utiltesting.MakeResourceFlavor("spot").Label("instance", "spot").Obj(),
 				utiltesting.MakeResourceFlavor("default").Obj(),
 			},
 			wls: []*kueue.Workload{
 				utiltesting.MakeWorkload("alpha", "").
-					PodSets([]kueue.PodSet{{
-						Name:  "main",
-						Count: 5,
-						Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-							corev1.ResourceCPU: "2",
-						}),
-					}}).Admit(&kueue.Admission{
-					ClusterQueue: "a",
-					PodSetFlavors: []kueue.PodSetFlavors{{
-						Name: "main",
-						Flavors: map[corev1.ResourceName]string{
-							corev1.ResourceCPU: "demand",
-						},
-					}},
-				}).Obj(),
+					PodSets(*utiltesting.MakePodSet("main", 5).
+						Request(corev1.ResourceCPU, "2").Obj()).
+					Admit(utiltesting.MakeAdmission("a", "main").
+						Flavor(corev1.ResourceCPU, "demand").Obj()).
+					Obj(),
 				utiltesting.MakeWorkload("beta", "").
-					PodSets([]kueue.PodSet{{
-						Name:  "main",
-						Count: 5,
-						Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-							corev1.ResourceCPU: "1",
-							"example.com/gpu":  "2",
-						}),
-					}}).Admit(&kueue.Admission{
-					ClusterQueue: "b",
-					PodSetFlavors: []kueue.PodSetFlavors{{
-						Name: "main",
-						Flavors: map[corev1.ResourceName]string{
-							corev1.ResourceCPU: "spot",
-							"example.com/gpu":  "default",
-						},
-					}},
-				}).Obj(),
+					PodSets(*utiltesting.MakePodSet("main", 5).
+						Request(corev1.ResourceCPU, "1").
+						Request("example.com/gpu", "2").
+						Obj(),
+					).
+					Admit(utiltesting.MakeAdmission("b", "main").
+						Flavor(corev1.ResourceCPU, "spot").
+						Flavor("example.com/gpu", "default").Obj()).
+					Obj(),
 				utiltesting.MakeWorkload("gamma", "").
-					PodSets([]kueue.PodSet{{
-						Name:  "main",
-						Count: 5,
-						Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-							corev1.ResourceCPU: "1",
-							"example.com/gpu":  "1",
-						}),
-					}}).Admit(&kueue.Admission{
-					ClusterQueue: "b",
-					PodSetFlavors: []kueue.PodSetFlavors{{
-						Name: "main",
-						Flavors: map[corev1.ResourceName]string{
-							corev1.ResourceCPU: "spot",
-							"example.com/gpu":  "default",
-						},
-					}},
-				}).Obj(),
+					PodSets(*utiltesting.MakePodSet("main", 5).
+						Request(corev1.ResourceCPU, "1").
+						Request("example.com/gpu", "1").
+						Obj(),
+					).
+					Admit(utiltesting.MakeAdmission("b", "main").
+						Flavor(corev1.ResourceCPU, "spot").
+						Flavor("example.com/gpu", "default").Obj()).
+					Obj(),
 				utiltesting.MakeWorkload("sigma", "").
-					PodSets([]kueue.PodSet{{
-						Name:  "main",
-						Count: 5,
-						Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-							corev1.ResourceCPU: "1",
-						}),
-					}}).Obj(),
+					PodSets(*utiltesting.MakePodSet("main", 5).
+						Request(corev1.ResourceCPU, "1").
+						Obj(),
+					).
+					Obj(),
 			},
 			wantSnapshot: func() Snapshot {
 				cohort := &Cohort{
 					Name: "borrowing",
-					RequestableResources: ResourceQuantities{
-						corev1.ResourceCPU: map[string]int64{
-							"demand": 100_000,
-							"spot":   300_000,
+					RequestableResources: FlavorResourceQuantities{
+						"demand": {
+							corev1.ResourceCPU: 100_000,
 						},
-						"example.com/gpu": map[string]int64{
-							"default": 50,
+						"spot": {
+							corev1.ResourceCPU: 300_000,
+						},
+						"default": {
+							"example.com/gpu": 50,
 						},
 					},
-					UsedResources: ResourceQuantities{
-						corev1.ResourceCPU: map[string]int64{
-							"demand": 10_000,
-							"spot":   10_000,
+					Usage: FlavorResourceQuantities{
+						"demand": {
+							corev1.ResourceCPU: 10_000,
 						},
-						"example.com/gpu": map[string]int64{
-							"default": 15,
+						"spot": {
+							corev1.ResourceCPU: 10_000,
+						},
+						"default": {
+							"example.com/gpu": 15,
 						},
 					},
 				}
@@ -255,150 +216,126 @@ func TestSnapshot(t *testing.T) {
 						"a": {
 							Name:   "a",
 							Cohort: cohort,
-							RequestableResources: map[corev1.ResourceName]*Resource{
-								corev1.ResourceCPU: {
-									Flavors: []FlavorLimits{
+							ResourceGroups: []ResourceGroup{
+								{
+									CoveredResources: sets.New(corev1.ResourceCPU),
+									Flavors: []FlavorQuotas{
 										{
 											Name: "demand",
-											Min:  100_000,
+											Resources: map[corev1.ResourceName]*ResourceQuota{
+												corev1.ResourceCPU: {Nominal: 100_000},
+											},
 										},
 										{
 											Name: "spot",
-											Min:  200_000,
+											Resources: map[corev1.ResourceName]*ResourceQuota{
+												corev1.ResourceCPU: {Nominal: 200_000},
+											},
 										},
 									},
+									LabelKeys: sets.New("instance"),
 								},
 							},
-							UsedResources: ResourceQuantities{
-								corev1.ResourceCPU: map[string]int64{
-									"demand": 10_000,
-									"spot":   0,
-								},
+							Usage: FlavorResourceQuantities{
+								"demand": {corev1.ResourceCPU: 10_000},
+								"spot":   {corev1.ResourceCPU: 0},
 							},
 							Workloads: map[string]*workload.Info{
-								"/alpha": workload.NewInfo(
-									utiltesting.MakeWorkload("alpha", "").
-										PodSets([]kueue.PodSet{{
-											Name:  "main",
-											Count: 5,
-											Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-												corev1.ResourceCPU: "2",
-											}),
-										}}).Admit(&kueue.Admission{
-										ClusterQueue: "a",
-										PodSetFlavors: []kueue.PodSetFlavors{{
-											Name: "main",
-											Flavors: map[corev1.ResourceName]string{
-												corev1.ResourceCPU: "demand",
-											},
-										}},
-									}).Obj()),
+								"/alpha": workload.NewInfo(utiltesting.MakeWorkload("alpha", "").
+									PodSets(*utiltesting.MakePodSet("main", 5).
+										Request(corev1.ResourceCPU, "2").Obj()).
+									Admit(utiltesting.MakeAdmission("a", "main").
+										Flavor(corev1.ResourceCPU, "demand").Obj()).
+									Obj()),
 							},
-							Preemption: defaultPreemption,
-							LabelKeys: map[corev1.ResourceName]sets.Set[string]{
-								corev1.ResourceCPU: sets.New("one", "two", "instance"),
-							},
+							Preemption:        defaultPreemption,
 							NamespaceSelector: labels.Everything(),
 							Status:            active,
 						},
 						"b": {
 							Name:   "b",
 							Cohort: cohort,
-							RequestableResources: map[corev1.ResourceName]*Resource{
-								corev1.ResourceCPU: {
-									Flavors: []FlavorLimits{{
+							ResourceGroups: []ResourceGroup{
+								{
+									CoveredResources: sets.New(corev1.ResourceCPU),
+									Flavors: []FlavorQuotas{{
 										Name: "spot",
-										Min:  100_000,
+										Resources: map[corev1.ResourceName]*ResourceQuota{
+											corev1.ResourceCPU: {Nominal: 100_000},
+										},
 									}},
+									LabelKeys: sets.New("instance"),
 								},
-								"example.com/gpu": {
-									Flavors: []FlavorLimits{{
+								{
+									CoveredResources: sets.New[corev1.ResourceName]("example.com/gpu"),
+									Flavors: []FlavorQuotas{{
 										Name: "default",
-										Min:  50,
+										Resources: map[corev1.ResourceName]*ResourceQuota{
+											"example.com/gpu": {Nominal: 50},
+										},
 									}},
 								},
 							},
-							UsedResources: ResourceQuantities{
-								corev1.ResourceCPU: map[string]int64{
-									"spot": 10_000,
+							Usage: FlavorResourceQuantities{
+								"spot": {
+									corev1.ResourceCPU: 10_000,
 								},
-								"example.com/gpu": map[string]int64{
-									"default": 15,
+								"default": {
+									"example.com/gpu": 15,
 								},
 							},
 							Workloads: map[string]*workload.Info{
-								"/beta": workload.NewInfo(
-									utiltesting.MakeWorkload("beta", "").
-										PodSets([]kueue.PodSet{{
-											Name:  "main",
-											Count: 5,
-											Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-												corev1.ResourceCPU: "1",
-												"example.com/gpu":  "2",
-											}),
-										}}).Admit(&kueue.Admission{
-										ClusterQueue: "b",
-										PodSetFlavors: []kueue.PodSetFlavors{{
-											Name: "main",
-											Flavors: map[corev1.ResourceName]string{
-												corev1.ResourceCPU: "spot",
-												"example.com/gpu":  "default",
-											},
-										}},
-									}).Obj()),
-								"/gamma": workload.NewInfo(
-									utiltesting.MakeWorkload("gamma", "").
-										PodSets([]kueue.PodSet{{
-											Name:  "main",
-											Count: 5,
-											Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-												corev1.ResourceCPU: "1",
-												"example.com/gpu":  "1",
-											}),
-										}}).Admit(&kueue.Admission{
-										ClusterQueue: "b",
-										PodSetFlavors: []kueue.PodSetFlavors{{
-											Name: "main",
-											Flavors: map[corev1.ResourceName]string{
-												corev1.ResourceCPU: "spot",
-												"example.com/gpu":  "default",
-											},
-										}},
-									}).Obj()),
+								"/beta": workload.NewInfo(utiltesting.MakeWorkload("beta", "").
+									PodSets(*utiltesting.MakePodSet("main", 5).
+										Request(corev1.ResourceCPU, "1").
+										Request("example.com/gpu", "2").
+										Obj()).
+									Admit(utiltesting.MakeAdmission("b", "main").
+										Flavor(corev1.ResourceCPU, "spot").
+										Flavor("example.com/gpu", "default").
+										Obj()).
+									Obj()),
+								"/gamma": workload.NewInfo(utiltesting.MakeWorkload("gamma", "").
+									PodSets(*utiltesting.MakePodSet("main", 5).
+										Request(corev1.ResourceCPU, "1").
+										Request("example.com/gpu", "1").
+										Obj(),
+									).
+									Admit(utiltesting.MakeAdmission("b", "main").
+										Flavor(corev1.ResourceCPU, "spot").
+										Flavor("example.com/gpu", "default").Obj()).
+									Obj()),
 							},
-							Preemption: defaultPreemption,
-							LabelKeys: map[corev1.ResourceName]sets.Set[string]{
-								corev1.ResourceCPU: sets.New("two", "instance"),
-							},
+							Preemption:        defaultPreemption,
 							NamespaceSelector: labels.Everything(),
 							Status:            active,
 						},
 						"c": {
 							Name: "c",
-							RequestableResources: map[corev1.ResourceName]*Resource{
-								corev1.ResourceCPU: {
-									Flavors: []FlavorLimits{{
+							ResourceGroups: []ResourceGroup{
+								{
+									CoveredResources: sets.New(corev1.ResourceCPU),
+									Flavors: []FlavorQuotas{{
 										Name: "default",
-										Min:  100_000,
+										Resources: map[corev1.ResourceName]*ResourceQuota{
+											corev1.ResourceCPU: {Nominal: 100_000},
+										},
 									}},
 								},
 							},
-							UsedResources: ResourceQuantities{
-								corev1.ResourceCPU: map[string]int64{
-									"default": 0,
+							Usage: FlavorResourceQuantities{
+								"default": {
+									corev1.ResourceCPU: 0,
 								},
 							},
-							Workloads:         map[string]*workload.Info{},
 							Preemption:        defaultPreemption,
 							NamespaceSelector: labels.Everything(),
 							Status:            active,
 						},
 					},
-					ResourceFlavors: map[string]*kueue.ResourceFlavor{
-						"demand": utiltesting.MakeResourceFlavor("demand").
-							MultiLabels(map[string]string{"one": "two", "instance": "demand"}).Obj(),
-						"spot": utiltesting.MakeResourceFlavor("spot").
-							MultiLabels(map[string]string{"two": "three", "instance": "spot"}).Obj(),
+					ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+						"demand":  utiltesting.MakeResourceFlavor("demand").Label("instance", "demand").Obj(),
+						"spot":    utiltesting.MakeResourceFlavor("spot").Label("instance", "spot").Obj(),
 						"default": utiltesting.MakeResourceFlavor("default").Obj(),
 					},
 				}
@@ -415,19 +352,16 @@ func TestSnapshot(t *testing.T) {
 			wantSnapshot: Snapshot{
 				ClusterQueues: map[string]*ClusterQueue{
 					"with-preemption": {
-						Name:                 "with-preemption",
-						NamespaceSelector:    labels.Everything(),
-						Status:               active,
-						RequestableResources: map[corev1.ResourceName]*Resource{},
-						UsedResources:        ResourceQuantities{},
-						Workloads:            map[string]*workload.Info{},
+						Name:              "with-preemption",
+						NamespaceSelector: labels.Everything(),
+						Status:            active,
+						Workloads:         map[string]*workload.Info{},
 						Preemption: kueue.ClusterQueuePreemption{
 							ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 							WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 						},
 					},
 				},
-				ResourceFlavors: map[string]*kueue.ResourceFlavor{},
 			},
 		},
 	}
@@ -452,6 +386,16 @@ func TestSnapshot(t *testing.T) {
 			if diff := cmp.Diff(tc.wantSnapshot, snapshot, snapCmpOpts...); len(diff) != 0 {
 				t.Errorf("Unexpected Snapshot (-want,+got):\n%s", diff)
 			}
+			for _, cq := range snapshot.ClusterQueues {
+				for i := range cq.ResourceGroups {
+					rg := &cq.ResourceGroups[i]
+					for rName := range rg.CoveredResources {
+						if cq.RGByResource[rName] != rg {
+							t.Errorf("RGByResource[%s] does not point to its resource group", rName)
+						}
+					}
+				}
+			}
 		})
 	}
 }
@@ -465,19 +409,19 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 	clusterQueues := []*kueue.ClusterQueue{
 		utiltesting.MakeClusterQueue("c1").
 			Cohort("cohort").
-			Resource(utiltesting.MakeResource(corev1.ResourceCPU).
-				Flavor(utiltesting.MakeFlavor("default", "6").Obj()).
-				Obj()).
-			Resource(utiltesting.MakeResource(corev1.ResourceMemory).
-				Flavor(utiltesting.MakeFlavor("alpha", "6Gi").Obj()).
-				Flavor(utiltesting.MakeFlavor("beta", "6Gi").Obj()).
-				Obj()).
+			ResourceGroup(
+				*utiltesting.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "6").Obj(),
+			).
+			ResourceGroup(
+				*utiltesting.MakeFlavorQuotas("alpha").Resource(corev1.ResourceMemory, "6Gi").Obj(),
+				*utiltesting.MakeFlavorQuotas("beta").Resource(corev1.ResourceMemory, "6Gi").Obj(),
+			).
 			Obj(),
 		utiltesting.MakeClusterQueue("c2").
 			Cohort("cohort").
-			Resource(utiltesting.MakeResource(corev1.ResourceCPU).
-				Flavor(utiltesting.MakeFlavor("default", "6").Obj()).
-				Obj()).
+			ResourceGroup(
+				*utiltesting.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "6").Obj(),
+			).
 			Obj(),
 	}
 	workloads := []kueue.Workload{
@@ -539,30 +483,32 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 				cohort := &Cohort{
 					Name:                 "cohort",
 					RequestableResources: initialCohortResources,
-					UsedResources: ResourceQuantities{
-						corev1.ResourceCPU:    {"default": 0},
-						corev1.ResourceMemory: {"alpha": 0, "beta": 0},
+					Usage: FlavorResourceQuantities{
+						"default": {corev1.ResourceCPU: 0},
+						"alpha":   {corev1.ResourceMemory: 0},
+						"beta":    {corev1.ResourceMemory: 0},
 					},
 				}
 				return Snapshot{
 					ClusterQueues: map[string]*ClusterQueue{
 						"c1": {
-							Name:                 "c1",
-							Cohort:               cohort,
-							Workloads:            make(map[string]*workload.Info),
-							RequestableResources: cqCache.clusterQueues["c1"].RequestableResources,
-							UsedResources: ResourceQuantities{
-								corev1.ResourceCPU:    {"default": 0},
-								corev1.ResourceMemory: {"alpha": 0, "beta": 0},
+							Name:           "c1",
+							Cohort:         cohort,
+							Workloads:      make(map[string]*workload.Info),
+							ResourceGroups: cqCache.clusterQueues["c1"].ResourceGroups,
+							Usage: FlavorResourceQuantities{
+								"default": {corev1.ResourceCPU: 0},
+								"alpha":   {corev1.ResourceMemory: 0},
+								"beta":    {corev1.ResourceMemory: 0},
 							},
 						},
 						"c2": {
-							Name:                 "c2",
-							Cohort:               cohort,
-							Workloads:            make(map[string]*workload.Info),
-							RequestableResources: cqCache.clusterQueues["c2"].RequestableResources,
-							UsedResources: ResourceQuantities{
-								corev1.ResourceCPU: {"default": 0},
+							Name:           "c2",
+							Cohort:         cohort,
+							Workloads:      make(map[string]*workload.Info),
+							ResourceGroups: cqCache.clusterQueues["c2"].ResourceGroups,
+							Usage: FlavorResourceQuantities{
+								"default": {corev1.ResourceCPU: 0},
 							},
 						},
 					},
@@ -575,12 +521,10 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 				cohort := &Cohort{
 					Name:                 "cohort",
 					RequestableResources: initialCohortResources,
-					UsedResources: ResourceQuantities{
-						corev1.ResourceCPU: {"default": 2_000},
-						corev1.ResourceMemory: {
-							"alpha": 1 * utiltesting.Gi,
-							"beta":  1 * utiltesting.Gi,
-						},
+					Usage: FlavorResourceQuantities{
+						"default": {corev1.ResourceCPU: 2_000},
+						"alpha":   {corev1.ResourceMemory: utiltesting.Gi},
+						"beta":    {corev1.ResourceMemory: utiltesting.Gi},
 					},
 				}
 				return Snapshot{
@@ -592,13 +536,11 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								"/c1-memory-alpha": nil,
 								"/c1-memory-beta":  nil,
 							},
-							RequestableResources: cqCache.clusterQueues["c1"].RequestableResources,
-							UsedResources: ResourceQuantities{
-								corev1.ResourceCPU: {"default": 0},
-								corev1.ResourceMemory: {
-									"alpha": 1 * utiltesting.Gi,
-									"beta":  1 * utiltesting.Gi,
-								},
+							ResourceGroups: cqCache.clusterQueues["c1"].ResourceGroups,
+							Usage: FlavorResourceQuantities{
+								"default": {corev1.ResourceCPU: 0},
+								"alpha":   {corev1.ResourceMemory: utiltesting.Gi},
+								"beta":    {corev1.ResourceMemory: utiltesting.Gi},
 							},
 						},
 						"c2": {
@@ -608,9 +550,9 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								"/c2-cpu-1": nil,
 								"/c2-cpu-2": nil,
 							},
-							RequestableResources: cqCache.clusterQueues["c2"].RequestableResources,
-							UsedResources: ResourceQuantities{
-								corev1.ResourceCPU: {"default": 2_000},
+							ResourceGroups: cqCache.clusterQueues["c2"].ResourceGroups,
+							Usage: FlavorResourceQuantities{
+								"default": {corev1.ResourceCPU: 2_000},
 							},
 						},
 					},
@@ -623,12 +565,10 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 				cohort := &Cohort{
 					Name:                 "cohort",
 					RequestableResources: initialCohortResources,
-					UsedResources: ResourceQuantities{
-						corev1.ResourceCPU: {"default": 3_000},
-						corev1.ResourceMemory: {
-							"alpha": 0,
-							"beta":  1 * utiltesting.Gi,
-						},
+					Usage: FlavorResourceQuantities{
+						"default": {corev1.ResourceCPU: 3_000},
+						"alpha":   {corev1.ResourceMemory: 0},
+						"beta":    {corev1.ResourceMemory: utiltesting.Gi},
 					},
 				}
 				return Snapshot{
@@ -640,13 +580,11 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								"/c1-memory-alpha": nil,
 								"/c1-memory-beta":  nil,
 							},
-							RequestableResources: cqCache.clusterQueues["c1"].RequestableResources,
-							UsedResources: ResourceQuantities{
-								corev1.ResourceCPU: {"default": 1_000},
-								corev1.ResourceMemory: {
-									"alpha": 0,
-									"beta":  1 * utiltesting.Gi,
-								},
+							ResourceGroups: cqCache.clusterQueues["c1"].ResourceGroups,
+							Usage: FlavorResourceQuantities{
+								"default": {corev1.ResourceCPU: 1_000},
+								"alpha":   {corev1.ResourceMemory: 0},
+								"beta":    {corev1.ResourceMemory: utiltesting.Gi},
 							},
 						},
 						"c2": {
@@ -656,9 +594,9 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								"/c2-cpu-1": nil,
 								"/c2-cpu-2": nil,
 							},
-							RequestableResources: cqCache.clusterQueues["c2"].RequestableResources,
-							UsedResources: ResourceQuantities{
-								corev1.ResourceCPU: {"default": 2_000},
+							ResourceGroups: cqCache.clusterQueues["c2"].ResourceGroups,
+							Usage: FlavorResourceQuantities{
+								"default": {corev1.ResourceCPU: 2_000},
 							},
 						},
 					},

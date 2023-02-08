@@ -24,7 +24,7 @@ import (
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/pointer"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 func TestAdmittedNotReadyWorkload(t *testing.T) {
@@ -43,10 +43,8 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 		},
 		"workload with Admitted=True, no PodsReady; counting": {
 			workload: kueue.Workload{
-				Spec: kueue.WorkloadSpec{
-					Admission: &kueue.Admission{},
-				},
 				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
 					Conditions: []metav1.Condition{
 						{
 							Type:               kueue.WorkloadAdmitted,
@@ -62,10 +60,8 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 		},
 		"workload with Admitted=True, no PodsReady, but no timeout configured; not counting": {
 			workload: kueue.Workload{
-				Spec: kueue.WorkloadSpec{
-					Admission: &kueue.Admission{},
-				},
 				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
 					Conditions: []metav1.Condition{
 						{
 							Type:               kueue.WorkloadAdmitted,
@@ -78,10 +74,8 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 		},
 		"workload with Admitted=True, no PodsReady; timeout exceeded": {
 			workload: kueue.Workload{
-				Spec: kueue.WorkloadSpec{
-					Admission: &kueue.Admission{},
-				},
 				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
 					Conditions: []metav1.Condition{
 						{
 							Type:               kueue.WorkloadAdmitted,
@@ -111,10 +105,8 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 		},
 		"workload with Admitted=True, PodsReady=False; counting since PodsReady.LastTransitionTime": {
 			workload: kueue.Workload{
-				Spec: kueue.WorkloadSpec{
-					Admission: &kueue.Admission{},
-				},
 				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
 					Conditions: []metav1.Condition{
 						{
 							Type:               kueue.WorkloadAdmitted,
@@ -135,10 +127,8 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 		},
 		"workload with Admitted=Unknown; not counting": {
 			workload: kueue.Workload{
-				Spec: kueue.WorkloadSpec{
-					Admission: &kueue.Admission{},
-				},
 				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
 					Conditions: []metav1.Condition{
 						{
 							Type:               kueue.WorkloadAdmitted,
@@ -152,10 +142,8 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 		},
 		"workload with Admitted=False, not counting": {
 			workload: kueue.Workload{
-				Spec: kueue.WorkloadSpec{
-					Admission: &kueue.Admission{},
-				},
 				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
 					Conditions: []metav1.Condition{
 						{
 							Type:               kueue.WorkloadAdmitted,
@@ -169,10 +157,8 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 		},
 		"workload with Admitted=True, PodsReady=True; not counting": {
 			workload: kueue.Workload{
-				Spec: kueue.WorkloadSpec{
-					Admission: &kueue.Admission{},
-				},
 				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
 					Conditions: []metav1.Condition{
 						{
 							Type:               kueue.WorkloadAdmitted,

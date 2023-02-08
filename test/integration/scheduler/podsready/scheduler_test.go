@@ -31,8 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
-	"sigs.k8s.io/kueue/pkg/util/pointer"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -77,17 +76,13 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 
 		prodClusterQ = testing.MakeClusterQueue("prod-cq").
 			Cohort("all").
-			Resource(testing.MakeResource(corev1.ResourceCPU).
-				Flavor(testing.MakeFlavor(defaultFlavor.Name, "5").Obj()).
-				Obj()).
+			ResourceGroup(*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, prodClusterQ)).Should(gomega.Succeed())
 
 		devClusterQ = testing.MakeClusterQueue("dev-cq").
 			Cohort("all").
-			Resource(testing.MakeResource(corev1.ResourceCPU).
-				Flavor(testing.MakeFlavor(defaultFlavor.Name, "5").Obj()).
-				Obj()).
+			ResourceGroup(*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, devClusterQ)).Should(gomega.Succeed())
 
@@ -162,10 +157,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			// scheduling cycle.
 			testCQ := testing.MakeClusterQueue("test-cq").
 				Cohort("all").
-				Resource(testing.MakeResource(corev1.ResourceCPU).
-					Flavor(testing.MakeFlavor(defaultFlavor.Name,
-						"25").Max("25").Obj()).
-					Obj()).
+				ResourceGroup(*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "25", "0").Obj()).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, testCQ)).Should(gomega.Succeed())
 			defer func() {
@@ -215,9 +207,9 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			gomega.Eventually(func() *kueue.Admission {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl1), prodWl1)).Should(gomega.Succeed())
 				if time.Since(admittedAt) < podsReadyTimeout {
-					gomega.Expect(prodWl1.Spec.Admission).ShouldNot(gomega.BeNil())
+					gomega.Expect(prodWl1.Status.Admission).ShouldNot(gomega.BeNil())
 				}
-				return prodWl1.Spec.Admission
+				return prodWl1.Status.Admission
 			}, util.Timeout, util.Interval).Should(gomega.BeNil())
 
 			ginkgo.By("verify the 'prod2' workload gets admitted and the 'prod1' is waiting")
@@ -261,13 +253,13 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
 				PendingWorkloads:  0,
 				AdmittedWorkloads: 1,
-				UsedResources: kueue.UsedResources{
-					corev1.ResourceCPU: {
-						"default": {
-							Total: pointer.Quantity(resource.MustParse("2")),
-						},
-					},
-				},
+				FlavorsUsage: []kueue.FlavorUsage{{
+					Name: "default",
+					Resources: []kueue.ResourceUsage{{
+						Name:  corev1.ResourceCPU,
+						Total: resource.MustParse("2"),
+					}},
+				}},
 			}, ignoreCQConditions))
 
 			ginkgo.By("wait for the timeout to be exceeded")
@@ -276,7 +268,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			ginkgo.By("wait for the first workload to be unadmitted")
 			gomega.Eventually(func() *kueue.Admission {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl)).Should(gomega.Succeed())
-				return prodWl.Spec.Admission
+				return prodWl.Status.Admission
 			}, util.Timeout, util.Interval).Should(gomega.BeNil())
 
 			ginkgo.By("verify the queue resources are freed")
@@ -287,13 +279,13 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
 				PendingWorkloads:  1,
 				AdmittedWorkloads: 0,
-				UsedResources: kueue.UsedResources{
-					corev1.ResourceCPU: {
-						"default": {
-							Total: pointer.Quantity(resource.MustParse("0")),
-						},
-					},
-				},
+				FlavorsUsage: []kueue.FlavorUsage{{
+					Name: "default",
+					Resources: []kueue.ResourceUsage{{
+						Name:  corev1.ResourceCPU,
+						Total: resource.MustParse("0"),
+					}},
+				}},
 			}, ignoreCQConditions))
 
 			ginkgo.By("verify the active workload metric is decreased for the cluster queue")

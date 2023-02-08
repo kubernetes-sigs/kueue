@@ -17,7 +17,7 @@ limitations under the License.
 package queue
 
 import (
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -29,8 +29,6 @@ type ClusterQueueStrictFIFO struct {
 }
 
 var _ ClusterQueue = &ClusterQueueStrictFIFO{}
-
-const StrictFIFO = kueue.StrictFIFO
 
 func newClusterQueueStrictFIFO(cq *kueue.ClusterQueue) (ClusterQueue, error) {
 	cqImpl := newClusterQueueImpl(keyFunc, byCreationTime)

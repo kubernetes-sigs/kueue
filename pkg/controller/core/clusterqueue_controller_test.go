@@ -26,7 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -56,7 +56,6 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			newReason:          "FlavorNotFound",
 			newMessage:         "Can't admit new workloads; some flavors are not found",
 			wantCqStatus: kueue.ClusterQueueStatus{
-				UsedResources:    kueue.UsedResources{},
 				PendingWorkloads: int32(len(defaultWls.Items)),
 				Conditions: []metav1.Condition{{
 					Type:    kueue.ClusterQueueActive,
@@ -68,7 +67,6 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 		},
 		"same condition status": {
 			cqStatus: kueue.ClusterQueueStatus{
-				UsedResources:    kueue.UsedResources{},
 				PendingWorkloads: int32(len(defaultWls.Items)),
 				Conditions: []metav1.Condition{{
 					Type:    kueue.ClusterQueueActive,
@@ -81,7 +79,6 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			newReason:          "Ready",
 			newMessage:         "Can admit new workloads",
 			wantCqStatus: kueue.ClusterQueueStatus{
-				UsedResources:    kueue.UsedResources{},
 				PendingWorkloads: int32(len(defaultWls.Items)),
 				Conditions: []metav1.Condition{{
 					Type:    kueue.ClusterQueueActive,
@@ -93,7 +90,6 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 		},
 		"same condition status with different reason and message": {
 			cqStatus: kueue.ClusterQueueStatus{
-				UsedResources:    kueue.UsedResources{},
 				PendingWorkloads: int32(len(defaultWls.Items)),
 				Conditions: []metav1.Condition{{
 					Type:    kueue.ClusterQueueActive,
@@ -106,7 +102,6 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			newReason:          "Terminating",
 			newMessage:         "Can't admit new workloads; clusterQueue is terminating",
 			wantCqStatus: kueue.ClusterQueueStatus{
-				UsedResources:    kueue.UsedResources{},
 				PendingWorkloads: int32(len(defaultWls.Items)),
 				Conditions: []metav1.Condition{{
 					Type:    kueue.ClusterQueueActive,
@@ -118,7 +113,6 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 		},
 		"different condition status": {
 			cqStatus: kueue.ClusterQueueStatus{
-				UsedResources:    kueue.UsedResources{},
 				PendingWorkloads: int32(len(defaultWls.Items)),
 				Conditions: []metav1.Condition{{
 					Type:    kueue.ClusterQueueActive,
@@ -131,7 +125,6 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			newReason:          "Ready",
 			newMessage:         "Can admit new workloads",
 			wantCqStatus: kueue.ClusterQueueStatus{
-				UsedResources:    kueue.UsedResources{},
 				PendingWorkloads: int32(len(defaultWls.Items)),
 				Conditions: []metav1.Condition{{
 					Type:    kueue.ClusterQueueActive,
@@ -143,7 +136,6 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 		},
 		"different pendingWorkloads with same condition status": {
 			cqStatus: kueue.ClusterQueueStatus{
-				UsedResources:    kueue.UsedResources{},
 				PendingWorkloads: int32(len(defaultWls.Items)),
 				Conditions: []metav1.Condition{{
 					Type:    kueue.ClusterQueueActive,
@@ -157,7 +149,6 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			newReason:          "Ready",
 			newMessage:         "Can admit new workloads",
 			wantCqStatus: kueue.ClusterQueueStatus{
-				UsedResources:    kueue.UsedResources{},
 				PendingWorkloads: int32(len(defaultWls.Items) + 1),
 				Conditions: []metav1.Condition{{
 					Type:    kueue.ClusterQueueActive,
@@ -211,7 +202,8 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 				t.Errorf("Updating ClusterQueueStatus: %v", err)
 			}
 			if diff := cmp.Diff(tc.wantCqStatus, cq.Status,
-				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); len(diff) != 0 {
+				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
+				cmpopts.EquateEmpty()); len(diff) != 0 {
 				t.Errorf("unexpected ClusterQueueStatus (-want,+got):\n%s", diff)
 			}
 		})

@@ -25,7 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/workload/job"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
@@ -85,10 +85,12 @@ var _ = ginkgo.Describe("Kueue", func() {
 			gomega.Expect(k8sClient.Create(ctx, resourceKueue)).Should(gomega.Succeed())
 			localQueue = testing.MakeLocalQueue("main", ns.Name).Obj()
 			clusterQueue = testing.MakeClusterQueue("cluster-queue").
-				Resource(testing.MakeResource(corev1.ResourceCPU).
-					Flavor(testing.MakeFlavor("default", "1").Obj()).Obj()).
-				Resource(testing.MakeResource(corev1.ResourceMemory).
-					Flavor(testing.MakeFlavor("default", "36Gi").Obj()).Obj()).Obj()
+				ResourceGroup(*testing.MakeFlavorQuotas("default").
+					Resource(corev1.ResourceCPU, "1").
+					Resource(corev1.ResourceMemory, "36Gi").
+					Obj(),
+				).
+				Obj()
 			localQueue.Spec.ClusterQueue = "cluster-queue"
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
 			gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())

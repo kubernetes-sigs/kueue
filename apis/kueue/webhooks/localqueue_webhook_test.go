@@ -23,7 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
-	. "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -34,7 +34,7 @@ const (
 
 func TestValidateLocalQueueCreate(t *testing.T) {
 	testCases := map[string]struct {
-		queue   *LocalQueue
+		queue   *kueue.LocalQueue
 		wantErr field.ErrorList
 	}{
 		"should reject queue creation with an invalid clusterQueue": {
@@ -56,7 +56,7 @@ func TestValidateLocalQueueCreate(t *testing.T) {
 
 func TestValidateLocalQueueUpdate(t *testing.T) {
 	testCases := map[string]struct {
-		before, after *LocalQueue
+		before, after *kueue.LocalQueue
 		wantErr       field.ErrorList
 	}{
 		"clusterQueue cannot be updated": {

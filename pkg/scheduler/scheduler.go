@@ -35,7 +35,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -268,7 +268,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 		ClusterQueue:  kueue.ClusterQueueReference(e.ClusterQueue),
 		PodSetFlavors: e.assignment.ToAPI(),
 	}
-	newWorkload.Spec.Admission = admission
+	newWorkload.Status.Admission = admission
 	if err := s.cache.AssumeWorkload(newWorkload); err != nil {
 		return err
 	}
@@ -300,7 +300,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 }
 
 func (s *Scheduler) applyAdmissionWithSSA(ctx context.Context, w *kueue.Workload) error {
-	return s.client.Patch(ctx, w, client.Apply, client.FieldOwner(constants.AdmissionName))
+	return s.client.Status().Patch(ctx, w, client.Apply, client.FieldOwner(constants.AdmissionName))
 }
 
 type entryOrdering []entry

@@ -26,7 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -80,16 +80,18 @@ func TestWorkloadWebhookDefault(t *testing.T) {
 					PodSets: []kueue.PodSet{
 						{
 							Name: "foo",
-							Spec: corev1.PodSpec{
-								InitContainers: []corev1.Container{
-									{
-										Resources: corev1.ResourceRequirements{
-											Requests: corev1.ResourceList{
-												"cpu": resource.MustParse("1"),
-											},
-											Limits: corev1.ResourceList{
-												"cpu":    resource.MustParse("2"),
-												"memory": resource.MustParse("1Mi"),
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									InitContainers: []corev1.Container{
+										{
+											Resources: corev1.ResourceRequirements{
+												Requests: corev1.ResourceList{
+													"cpu": resource.MustParse("1"),
+												},
+												Limits: corev1.ResourceList{
+													"cpu":    resource.MustParse("2"),
+													"memory": resource.MustParse("1Mi"),
+												},
 											},
 										},
 									},
@@ -98,20 +100,22 @@ func TestWorkloadWebhookDefault(t *testing.T) {
 						},
 						{
 							Name: "bar",
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{
-									{
-										Resources: corev1.ResourceRequirements{
-											Limits: corev1.ResourceList{
-												"cpu":    resource.MustParse("1.5"),
-												"memory": resource.MustParse("5Mi"),
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									Containers: []corev1.Container{
+										{
+											Resources: corev1.ResourceRequirements{
+												Limits: corev1.ResourceList{
+													"cpu":    resource.MustParse("1.5"),
+													"memory": resource.MustParse("5Mi"),
+												},
 											},
 										},
-									},
-									{
-										Resources: corev1.ResourceRequirements{
-											Requests: corev1.ResourceList{
-												"cpu": resource.MustParse("1"),
+										{
+											Resources: corev1.ResourceRequirements{
+												Requests: corev1.ResourceList{
+													"cpu": resource.MustParse("1"),
+												},
 											},
 										},
 									},
@@ -126,17 +130,19 @@ func TestWorkloadWebhookDefault(t *testing.T) {
 					PodSets: []kueue.PodSet{
 						{
 							Name: "foo",
-							Spec: corev1.PodSpec{
-								InitContainers: []corev1.Container{
-									{
-										Resources: corev1.ResourceRequirements{
-											Requests: corev1.ResourceList{
-												"cpu":    resource.MustParse("1"),
-												"memory": resource.MustParse("1Mi"),
-											},
-											Limits: corev1.ResourceList{
-												"cpu":    resource.MustParse("2"),
-												"memory": resource.MustParse("1Mi"),
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									InitContainers: []corev1.Container{
+										{
+											Resources: corev1.ResourceRequirements{
+												Requests: corev1.ResourceList{
+													"cpu":    resource.MustParse("1"),
+													"memory": resource.MustParse("1Mi"),
+												},
+												Limits: corev1.ResourceList{
+													"cpu":    resource.MustParse("2"),
+													"memory": resource.MustParse("1Mi"),
+												},
 											},
 										},
 									},
@@ -145,24 +151,26 @@ func TestWorkloadWebhookDefault(t *testing.T) {
 						},
 						{
 							Name: "bar",
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{
-									{
-										Resources: corev1.ResourceRequirements{
-											Requests: corev1.ResourceList{
-												"cpu":    resource.MustParse("1.5"),
-												"memory": resource.MustParse("5Mi"),
-											},
-											Limits: corev1.ResourceList{
-												"cpu":    resource.MustParse("1.5"),
-												"memory": resource.MustParse("5Mi"),
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									Containers: []corev1.Container{
+										{
+											Resources: corev1.ResourceRequirements{
+												Requests: corev1.ResourceList{
+													"cpu":    resource.MustParse("1.5"),
+													"memory": resource.MustParse("5Mi"),
+												},
+												Limits: corev1.ResourceList{
+													"cpu":    resource.MustParse("1.5"),
+													"memory": resource.MustParse("5Mi"),
+												},
 											},
 										},
-									},
-									{
-										Resources: corev1.ResourceRequirements{
-											Requests: corev1.ResourceList{
-												"cpu": resource.MustParse("1"),
+										{
+											Resources: corev1.ResourceRequirements{
+												Requests: corev1.ResourceList{
+													"cpu": resource.MustParse("1"),
+												},
 											},
 										},
 									},
@@ -189,32 +197,33 @@ func TestWorkloadWebhookDefault(t *testing.T) {
 }
 
 func TestValidateWorkload(t *testing.T) {
-	specField := field.NewPath("spec")
-	podSetsField := specField.Child("podSets")
+	specPath := field.NewPath("spec")
+	podSetsPath := specPath.Child("podSets")
+	statusPath := field.NewPath("status")
 	testCases := map[string]struct {
 		workload *kueue.Workload
 		wantErr  field.ErrorList
 	}{
 		"valid": {
-			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets([]kueue.PodSet{
-				{
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
+				kueue.PodSet{
 					Name:  "driver",
 					Count: 1,
 				},
-				{
+				kueue.PodSet{
 					Name:  "workers",
 					Count: 100,
 				},
-			}).Obj(),
+			).Obj(),
 		},
-		"should have valid podSet name": {
-			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets([]kueue.PodSet{
-				{
+		"should have a valid podSet name": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
+				kueue.PodSet{
 					Name:  "@driver",
 					Count: 1,
 				},
-			}).Obj(),
-			wantErr: field.ErrorList{field.Invalid(podSetsField.Index(0).Child("name"), nil, "")},
+			).Obj(),
+			wantErr: field.ErrorList{field.Invalid(podSetsPath.Index(0).Child("name"), nil, "")},
 		},
 		"should have valid priorityClassName": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -222,7 +231,7 @@ func TestValidateWorkload(t *testing.T) {
 				Priority(0).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(specField.Child("priorityClassName"), nil, ""),
+				field.Invalid(specPath.Child("priorityClassName"), nil, ""),
 			},
 		},
 		"should pass validation when priorityClassName is empty": {
@@ -234,7 +243,7 @@ func TestValidateWorkload(t *testing.T) {
 				PriorityClass("priority").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(specField.Child("priority"), nil, ""),
+				field.Invalid(specPath.Child("priority"), nil, ""),
 			},
 		},
 		"should have a valid queueName": {
@@ -242,7 +251,7 @@ func TestValidateWorkload(t *testing.T) {
 				Queue("@invalid").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(specField.Child("queueName"), nil, ""),
+				field.Invalid(specPath.Child("queueName"), nil, ""),
 			},
 		},
 		"should have a valid clusterQueue name": {
@@ -250,33 +259,34 @@ func TestValidateWorkload(t *testing.T) {
 				Admit(testingutil.MakeAdmission("@invalid").Obj()).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(specField.Child("admission", "clusterQueue"), nil, ""),
+				field.Invalid(statusPath.Child("admission", "clusterQueue"), nil, ""),
 			},
 		},
-		"should have a valid podSet name": {
+		"should have a valid podSet name in status": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Admit(testingutil.MakeAdmission("cluster-queue", "@invalid").Obj()).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.NotFound(specField.Child("admission", "podSetFlavors").Index(0).Child("name"), nil),
+				field.NotFound(statusPath.Child("admission", "podSetFlavors").Index(0).Child("name"), nil),
 			},
 		},
 		"should have same podSets in admission": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets([]kueue.PodSet{
-					{
+				PodSets(
+					kueue.PodSet{
 						Name:  "main2",
 						Count: 1,
 					},
-					{
+					kueue.PodSet{
 						Name:  "main1",
 						Count: 1,
 					},
-				}).
-				Admit(testingutil.MakeAdmission("cluster-queue", "main1", "main3").Obj()).
+				).
+				Admit(testingutil.MakeAdmission("cluster-queue", "main1", "main2", "main3").Obj()).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.NotFound(specField.Child("admission", "podSetFlavors").Index(1).Child("name"), nil),
+				field.Invalid(statusPath.Child("admission", "podSetFlavors"), nil, ""),
+				field.NotFound(statusPath.Child("admission", "podSetFlavors").Index(2).Child("name"), nil),
 			},
 		},
 	}
@@ -297,44 +307,33 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 	}{
 		"podSets should not be updated: count": {
 			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
-			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets([]kueue.PodSet{
-				{
-					Name:  "main",
-					Count: 2,
-					Spec: corev1.PodSpec{
-						Containers: []corev1.Container{
-							{
-								Name: "c",
-								Resources: corev1.ResourceRequirements{
-									Requests: make(corev1.ResourceList),
-								},
-							},
-						},
-					},
-				},
-			}).Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
+				*testingutil.MakePodSet("main", 2).Obj(),
+			).Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec").Child("podSets"), nil, ""),
 			},
 		},
 		"podSets should not be updated: podSpec": {
 			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
-			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets([]kueue.PodSet{
-				{
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
+				kueue.PodSet{
 					Name:  "main",
 					Count: 1,
-					Spec: corev1.PodSpec{
-						Containers: []corev1.Container{
-							{
-								Name: "c-after",
-								Resources: corev1.ResourceRequirements{
-									Requests: make(corev1.ResourceList),
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name: "c-after",
+									Resources: corev1.ResourceRequirements{
+										Requests: make(corev1.ResourceList),
+									},
 								},
 							},
 						},
 					},
 				},
-			}).Obj(),
+			).Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec").Child("podSets"), nil, ""),
 			},
@@ -385,7 +384,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				testingutil.MakeAdmission("cluster-queue").Flavor("on-demand", "5").Obj(),
 			).Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec").Child("admission"), nil, ""),
+				field.Invalid(field.NewPath("status", "admission"), nil, ""),
 			},
 		},
 	}

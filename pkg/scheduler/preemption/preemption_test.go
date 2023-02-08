@@ -33,7 +33,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
@@ -49,22 +49,28 @@ func TestPreemption(t *testing.T) {
 	}
 	clusterQueues := []*kueue.ClusterQueue{
 		utiltesting.MakeClusterQueue("standalone").
-			Resource(utiltesting.MakeResource(corev1.ResourceCPU).
-				Flavor(utiltesting.MakeFlavor("default", "6").Obj()).
-				Obj()).
-			Resource(utiltesting.MakeResource(corev1.ResourceMemory).
-				Flavor(utiltesting.MakeFlavor("alpha", "3Gi").Obj()).
-				Flavor(utiltesting.MakeFlavor("beta", "3Gi").Obj()).
-				Obj()).
+			ResourceGroup(
+				*utiltesting.MakeFlavorQuotas("default").
+					Resource(corev1.ResourceCPU, "6").
+					Obj(),
+			).ResourceGroup(
+			*utiltesting.MakeFlavorQuotas("alpha").
+				Resource(corev1.ResourceMemory, "3Gi").
+				Obj(),
+			*utiltesting.MakeFlavorQuotas("beta").
+				Resource(corev1.ResourceMemory, "3Gi").
+				Obj(),
+		).
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).
 			Obj(),
 		utiltesting.MakeClusterQueue("c1").
 			Cohort("cohort").
-			Resource(utiltesting.MakeResource(corev1.ResourceCPU).
-				Flavor(utiltesting.MakeFlavor("default", "6").Obj()).
-				Obj()).
+			ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "6").
+				Obj(),
+			).
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 				ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
@@ -72,9 +78,10 @@ func TestPreemption(t *testing.T) {
 			Obj(),
 		utiltesting.MakeClusterQueue("c2").
 			Cohort("cohort").
-			Resource(utiltesting.MakeResource(corev1.ResourceCPU).
-				Flavor(utiltesting.MakeFlavor("default", "6").Obj()).
-				Obj()).
+			ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "6").
+				Obj(),
+			).
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue:  kueue.PreemptionPolicyNever,
 				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
@@ -503,22 +510,12 @@ func TestPreemption(t *testing.T) {
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
-				PodSets([]kueue.PodSet{
-					{
-						Name:  "launcher",
-						Count: 1,
-						Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-							corev1.ResourceMemory: "2Gi",
-						}),
-					},
-					{
-						Name:  "workers",
-						Count: 2,
-						Spec: utiltesting.PodSpecForRequest(map[corev1.ResourceName]string{
-							corev1.ResourceMemory: "1Gi",
-						}),
-					},
-				}).
+				PodSets(
+					*utiltesting.MakePodSet("launcher", 1).
+						Request(corev1.ResourceMemory, "2Gi").Obj(),
+					*utiltesting.MakePodSet("workers", 2).
+						Request(corev1.ResourceMemory, "1Gi").Obj(),
+				).
 				Obj(),
 			targetCQ: "standalone",
 			assignment: flavorassigner.Assignment{

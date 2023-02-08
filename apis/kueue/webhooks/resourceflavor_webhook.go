@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 type ResourceFlavorWebhook struct{}
@@ -44,7 +44,7 @@ func setupWebhookForResourceFlavor(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1alpha2-resourceflavor,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=resourceflavors,verbs=create,versions=v1alpha2,name=mresourceflavor.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1beta1-resourceflavor,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=resourceflavors,verbs=create,versions=v1beta1,name=mresourceflavor.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomDefaulter = &ResourceFlavorWebhook{}
 
@@ -60,7 +60,7 @@ func (w *ResourceFlavorWebhook) Default(ctx context.Context, obj runtime.Object)
 	return nil
 }
 
-// +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1alpha2-resourceflavor,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=resourceflavors,verbs=create;update,versions=v1alpha2,name=vresourceflavor.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1beta1-resourceflavor,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=resourceflavors,verbs=create;update,versions=v1beta1,name=vresourceflavor.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomValidator = &ResourceFlavorWebhook{}
 
@@ -88,11 +88,10 @@ func (w *ResourceFlavorWebhook) ValidateDelete(ctx context.Context, obj runtime.
 func ValidateResourceFlavor(rf *kueue.ResourceFlavor) field.ErrorList {
 	var allErrs field.ErrorList
 
-	nodeSelectorPath := field.NewPath("nodeSelector")
-	allErrs = append(allErrs, metavalidation.ValidateLabels(rf.NodeSelector, nodeSelectorPath)...)
+	specPath := field.NewPath("spec")
+	allErrs = append(allErrs, metavalidation.ValidateLabels(rf.Spec.NodeLabels, specPath.Child("nodeLabels"))...)
 
-	taintsPath := field.NewPath("taints")
-	allErrs = append(allErrs, validateNodeTaints(rf.Taints, taintsPath)...)
+	allErrs = append(allErrs, validateNodeTaints(rf.Spec.NodeTaints, specPath.Child("nodeTaints"))...)
 	return allErrs
 }
 
