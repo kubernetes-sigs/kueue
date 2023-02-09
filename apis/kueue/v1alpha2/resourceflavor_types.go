@@ -23,7 +23,6 @@ import (
 
 //+kubebuilder:object:root=true
 //+kubebuilder:resource:scope=Cluster,shortName={rf}
-//+kubebuilder:storageversion
 
 // ResourceFlavor is the Schema for the resourceflavors API.
 type ResourceFlavor struct {

@@ -127,7 +127,6 @@ const (
 // +kubebuilder:printcolumn:name="Admitted by",JSONPath=".spec.admission.clusterQueue",type=string,description="Name of the ClusterQueue that admitted this workload"
 // +kubebuilder:printcolumn:name="Age",JSONPath=".metadata.creationTimestamp",type=date,description="Time this workload was created"
 // +kubebuilder:resource:shortName={wl}
-// +kubebuilder:storageversion
 
 // Workload is the Schema for the workloads API
 type Workload struct {
