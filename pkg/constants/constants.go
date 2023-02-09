@@ -19,10 +19,13 @@ package constants
 import "time"
 
 const (
-	// QueueAnnotation is the annotation in the workload that holds the queue name.
+	// QueueLabel is the label key in the workload that holds the queue name.
+	QueueLabel = "kueue.x-k8s.io/queue-name"
+
+	// QueueAnnotation is the annotation key in the workload that holds the queue name.
 	//
-	// TODO(#23): Use the kubernetes.io domain when graduating APIs to beta.
-	QueueAnnotation = "kueue.x-k8s.io/queue-name"
+	// DEPRECATED: Use QueueLabel as a label key.
+	QueueAnnotation = QueueLabel
 
 	KueueName         = "kueue"
 	JobControllerName = KueueName + "-job-controller"

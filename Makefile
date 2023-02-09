@@ -205,7 +205,7 @@ clean-manifests = (cd config/components/manager && $(KUSTOMIZE) edit set image c
 
 .PHONY: install
 install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
-	$(KUSTOMIZE) build config/components/crd | kubectl apply -f -
+	$(KUSTOMIZE) build config/components/crd | kubectl apply --server-side -f -
 
 .PHONY: uninstall
 uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
@@ -214,12 +214,12 @@ uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified 
 .PHONY: deploy
 deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/components/manager && $(KUSTOMIZE) edit set image controller=${IMAGE_TAG}
-	kubectl apply -k config/default
+	kubectl apply --server-side -k config/default
 	@$(call clean-manifests)
 
 .PHONY: prometheus
 prometheus:
-	kubectl apply -k config/prometheus
+	kubectl apply --server-side -k config/prometheus
 
 .PHONY: undeploy
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.

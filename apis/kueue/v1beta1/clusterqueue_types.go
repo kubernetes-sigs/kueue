@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The Kubernetes Authors.
+Copyright 2023 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha2
+package v1beta1
 
 import (
 	corev1 "k8s.io/api/core/v1"
@@ -24,103 +24,30 @@ import (
 
 // ClusterQueueSpec defines the desired state of ClusterQueue
 type ClusterQueueSpec struct {
-	// resources represent the total pod requests of workloads dispatched
-	// via this clusterQueue. This doesn't guarantee the actual availability of
-	// resources, although an integration with a resource provisioner like Cluster
-	// Autoscaler is possible to achieve that. Example:
-	//
-	// - name: cpu
-	//   flavors:
-	//   - name: default
-	//     quota:
-	//       min: 100
-	// - name: memory
-	//   flavors:
-	//   - name: default
-	//     quota:
-	//       min: 100Gi
-	//
-	// Two resources must either have all the flavors in the same order or not
-	// have any matching flavors. When two resources match their flavors, they
-	// are said to be codependent. When a workload is admitted by this
-	// ClusterQueue, all the codependent resources that the Workload requests get
-	// assigned the same flavor.
-	//
-	// resources can be up to 16 elements.
-	//
-	// +listType=map
-	// +listMapKey=name
+	// resourceGroups describes groups of resources.
+	// Each resource group defines the list of resources and a list of flavors
+	// that provide quotas for these resources.
+	// Each resource and each flavor can only form part of one resource group.
+	// resourceGroups can be up to 16.
+	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=16
-	Resources []Resource `json:"resources,omitempty"`
+	ResourceGroups []ResourceGroup `json:"resourceGroups,omitempty"`
 
 	// cohort that this ClusterQueue belongs to. CQs that belong to the
 	// same cohort can borrow unused resources from each other.
 	//
 	// A CQ can be a member of a single borrowing cohort. A workload submitted
-	// to a queue referencing this CQ can borrow resources from any CQ in the
-	// cohort. Only resources listed in the CQ can be borrowed (see example).
+	// to a queue referencing this CQ can borrow quota from any CQ in the cohort.
+	// Only quota for the [resource, flavor] pairs listed in the CQ can be
+	// borrowed.
+	// If empty, this ClusterQueue cannot borrow from any other ClusterQueue and
+	// vice versa.
 	//
-	// In the example below, the following applies:
-	// 1. tenantB can run a workload consuming up to 20 k80 GPUs, meaning a resource
-	//    can be allocated from more than one clusterQueue in a cohort.
-	// 2. tenantB can not consume any p100 GPUs or spot because its CQ has no quota
-	//    defined for them, and so the max is implicitly 0.
-	// 3. If both tenantA and tenantB are running jobs such that current usage for
-	//    tenantA is lower than its min quota (e.g., 5 k80 GPUs) while
-	//    tenantB’s usage is higher than its min quota (e.g., 12 k80 GPUs),
-	//    and both tenants have pending jobs requesting the remaining clusterQueue of
-	//    the cohort (the 3 k80 GPUs), then tenantA jobs will get this remaining
-	//    clusterQueue since tenantA is below its min limit.
-	// 4. If a tenantA workload doesn't tolerate spot, then the workload will only
-	//    be eligible to consume on-demand cores (the next in the list of cpu flavors).
-	// 5. Before considering on-demand, the workload will get assigned spot if
-	//    the quota can be borrowed from the cohort.
+	// A cohort is a name that links CQs together, but it doesn't reference any
+	// object.
 	//
-	// metadata:
-	//   name: tenantA
-	// spec:
-	//   cohort: borrowing-cohort
-	//   resources:
-	//   - name: cpu
-	//     flavors:
-	//     - name: spot
-	//       quota:
-	//         min: 1000
-	//     - name: on-demand
-	//       quota:
-	//         min: 100
-	//   - name: nvidia.com/gpu
-	//     flavors:
-	//     - name: k80
-	//       quota:
-	//         min: 10
-	//         max: 20
-	//     - name: p100
-	//       quota:
-	//         min: 10
-	//         max: 20
-	//
-	// metadata:
-	//  name: tenantB
-	// spec:
-	//  cohort: borrowing-cohort
-	//  resources:
-	//  - name: cpu
-	//    flavors:
-	//    - name: on-demand
-	//      quota:
-	//        min: 100
-	//  - name: nvidia.com/gpu
-	//    flavors:
-	//    - name: k80
-	//      quota:
-	//        min: 10
-	//        max: 20
-	//
-	// If empty, this ClusterQueue cannot borrow from any other ClusterQueue and vice versa.
-	//
-	// The name style is similar to label keys. These are just names to link CQs
-	// together, and they are meaningless otherwise.
+	// Validation of a cohort name is equivalent to that of object names:
+	// subdomain in DNS (RFC 1123).
 	Cohort string `json:"cohort,omitempty"`
 
 	// QueueingStrategy indicates the queueing strategy of the workloads
@@ -130,7 +57,7 @@ type ClusterQueueSpec struct {
 	// - StrictFIFO: workloads are ordered strictly by creation time.
 	// Older workloads that can't be admitted will block admitting newer
 	// workloads even if they fit available quota.
-	// - BestEffortFIFO：workloads are ordered by creation time,
+	// - BestEffortFIFO: workloads are ordered by creation time,
 	// however older workloads that can't be admitted will not block
 	// admitting newer workloads that fit existing quota.
 	//
@@ -158,7 +85,7 @@ type ClusterQueueSpec struct {
 	//   and there are active Workloads with lower priority.
 	//
 	// The preemption algorithm tries to find a minimal set of Workloads to
-	// preempt to accomodate the pending Workload, preempting Workloads with
+	// preempt to accomomdate the pending Workload, preempting Workloads with
 	// lower priority first.
 	Preemption *ClusterQueuePreemption `json:"preemption,omitempty"`
 }
@@ -177,89 +104,94 @@ const (
 	BestEffortFIFO QueueingStrategy = "BestEffortFIFO"
 )
 
-type Resource struct {
-	// name of the resource. For example, cpu, memory or nvidia.com/gpu.
-	Name corev1.ResourceName `json:"name"`
+type ResourceGroup struct {
+	// coveredResources is the list of resources covered by the flavors in this
+	// group.
+	// Examples: cpu, memory, vendor.com/gpu.
+	// The list cannot be empty and it can contain up to 16 resources.
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=16
+	CoveredResources []corev1.ResourceName `json:"coveredResources"`
 
-	// flavors is the list of different flavors of this resource and their limits.
-	// Typically two different “flavors” of the same resource represent
-	// different hardware models (e.g., gpu models, cpu architectures) or
-	// pricing (on-demand vs spot cpus). The flavors are distinguished via labels and
-	// taints.
-	//
-	// For example, if the resource is nvidia.com/gpu, and we want to define
-	// different limits for different gpu models, then each model is mapped to a
-	// flavor and must set different values of a shared key. For example:
-	//
-	// spec:
-	//  resources:
-	//  - name: nvidia.com/gpu
-	//    flavors:
-	//    - name: k80
-	//      quota:
-	//        min: 10
-	//    - name: p100
-	//      quota:
-	//        min: 10
-	//
-	// The flavors are evaluated in order, selecting the first to satisfy a
-	// workload’s requirements. Also the quantities are additive, in the example
-	// above the GPU quota in total is 20 (10 k80 + 10 p100).
-	// A workload is limited to the selected type by converting the labels to a node
-	// selector that gets injected into the workload. This list can’t be empty, at
-	// least one flavor must exist.
-	//
-	// flavors can be up to 16 elements.
-	//
+	// flavors is the list of flavors that provide the resources of this group.
+	// Typically, different flavors represent different hardware models
+	// (e.g., gpu models, cpu architectures) or pricing models (on-demand vs spot
+	// cpus).
+	// Each flavor MUST list all the resources listed for this group in the same
+	// order as the .resources field.
+	// The list cannot be empty and it can contain up to 16 flavors.
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:MaxItems=16
 	// +kubebuilder:validation:MinItems=1
-	Flavors []Flavor `json:"flavors"`
+	// +kubebuilder:validation:MaxItems=16
+	Flavors []FlavorQuotas `json:"flavors"`
 }
 
-type Flavor struct {
-	// name is a reference to the resourceFlavor that defines this flavor.
-	// +kubebuilder:default=default
+type FlavorQuotas struct {
+	// name of this flavor. The name should match the .metadata.name of a
+	// ResourceFlavor. If a matching ResourceFlavor does not exist, the
+	// ClusterQueue will have an Active condition set to False.
 	Name ResourceFlavorReference `json:"name"`
 
-	// quota is the limit of resource usage at a point in time.
-	Quota Quota `json:"quota"`
+	// resources is the list of quotas for this flavor per resource.
+	// There could be up to 16 resources.
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=16
+	Resources []ResourceQuota `json:"resources"`
+}
+
+type ResourceQuota struct {
+	// name of this resource.
+	Name corev1.ResourceName `json:"name"`
+
+	// nominalQuota is the quantity of this resource that is available for
+	// Workloads admitted by this ClusterQueue at a point in time.
+	// The nominalQuota must be non-negative.
+	// nominalQuota should represent the resources in the cluster available for
+	// running jobs (after discounting resources consumed by system components
+	// and pods not managed by kueue). In an autoscaled cluster, nominalQuota
+	// should account for resources that can be provided by a component such as
+	// Kubernetes cluster-autoscaler.
+	//
+	// If the ClusterQueue belongs to a cohort, the sum of the quotas for each
+	// (flavor, resource) combination defines the maximum quantity that can be
+	// allocated by a ClusterQueue in the cohort.
+	NominalQuota resource.Quantity `json:"nominalQuota"`
+
+	// borrowingLimit is the maximum amount of quota for the [flavor, resource]
+	// combination that this ClusterQueue is allowed to borrow from the unused
+	// quota of other ClusterQueues in the same cohort.
+	// In total, at a given time, Workloads in a ClusterQueue can consume a
+	// quantity of quota equal to nominalQuota+borrowingLimit, assuming the other
+	// ClusterQueues in the cohort have enough unused quota.
+	// If null, it means that there is no borrowing limit.
+	// If not null, it must be non-negative.
+	// borrowingLimit must be null if spec.cohort is empty.
+	// +optional
+	BorrowingLimit *resource.Quantity `json:"borrowingLimit,omitempty"`
 }
 
 // ResourceFlavorReference is the name of the ResourceFlavor.
 type ResourceFlavorReference string
 
-type Quota struct {
-	// min quantity of resource requests that are available to be used by workloads
-	// admitted by this ClusterQueue at a point in time.
-	// The quantity must be positive.
-	// The sum of min quotas for a flavor in a cohort defines the maximum amount
-	// of resources that can be allocated by a ClusterQueue in the cohort.
-	Min resource.Quantity `json:"min,omitempty"`
-
-	// max is the upper limit on the quantity of resource requests that
-	// can be used by workloads admitted by this ClusterQueue at a point in time.
-	// Resources can be borrowed from unused min quota of other
-	// ClusterQueues in the same cohort.
-	// If not null, it must be greater than or equal to min.
-	// If null, there is no upper limit for borrowing.
-	Max *resource.Quantity `json:"max,omitempty"`
-}
-
 // ClusterQueueStatus defines the observed state of ClusterQueue
 type ClusterQueueStatus struct {
-	// usedResources are the resources (by flavor) currently in use by the
-	// workloads assigned to this clusterQueue.
+	// flavorsUsage are the used quotas, by flavor, currently in use by the
+	// workloads assigned to this ClusterQueue.
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=16
 	// +optional
-	UsedResources UsedResources `json:"usedResources"`
+	FlavorsUsage []FlavorUsage `json:"flavorsUsage"`
 
-	// PendingWorkloads is the number of workloads currently waiting to be
+	// pendingWorkloads is the number of workloads currently waiting to be
 	// admitted to this clusterQueue.
 	// +optional
 	PendingWorkloads int32 `json:"pendingWorkloads"`
 
-	// AdmittedWorkloads is the number of workloads currently admitted to this
+	// admittedWorkloads is the number of workloads currently admitted to this
 	// clusterQueue and haven't finished yet.
 	// +optional
 	AdmittedWorkloads int32 `json:"admittedWorkloads"`
@@ -272,22 +204,35 @@ type ClusterQueueStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
-type UsedResources map[corev1.ResourceName]map[string]Usage
+type FlavorUsage struct {
+	// name of the flavor.
+	Name string `json:"name"`
+
+	// resources lists the quota usage for the resources in this flavor.
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=16
+	Resources []ResourceUsage `json:"resources"`
+}
+
+type ResourceUsage struct {
+	// name of the resource
+	Name corev1.ResourceName `json:"name"`
+
+	// total is the total quantity of used quota, including the amount borrowed
+	// from the cohort.
+	Total resource.Quantity `json:"total,omitempty"`
+
+	// Borrowed is quantity of quota that is borrowed from the cohort. In other
+	// words, it's the used quota that is over the nominalQuota.
+	Borrowed resource.Quantity `json:"borrowed,omitempty"`
+}
 
 const (
 	// ClusterQueueActive indicates that the ClusterQueue can admit new workloads and its quota
 	// can be borrowed by other ClusterQueues in the same cohort.
 	ClusterQueueActive string = "Active"
 )
-
-type Usage struct {
-	// Total is the total quantity of the resource used, including resources
-	// borrowed from the cohort.
-	Total *resource.Quantity `json:"total,omitempty"`
-
-	// Borrowed is the used quantity past the min quota, borrowed from the cohort.
-	Borrowed *resource.Quantity `json:"borrowing,omitempty"`
-}
 
 type PreemptionPolicy string
 
@@ -330,13 +275,12 @@ type ClusterQueuePreemption struct {
 }
 
 //+kubebuilder:object:root=true
-//+kubebuilder:resource:scope=Cluster,shortName={cq}
+//+kubebuilder:resource:scope=Cluster
 //+kubebuilder:subresource:status
 //+kubebuilder:printcolumn:name="Cohort",JSONPath=".spec.cohort",type=string,description="Cohort that this ClusterQueue belongs to"
 //+kubebuilder:printcolumn:name="Strategy",JSONPath=".spec.queueingStrategy",type=string,description="The queueing strategy used to prioritize workloads",priority=1
 //+kubebuilder:printcolumn:name="Pending Workloads",JSONPath=".status.pendingWorkloads",type=integer,description="Number of pending workloads"
 //+kubebuilder:printcolumn:name="Admitted Workloads",JSONPath=".status.admittedWorkloads",type=integer,description="Number of admitted workloads that haven't finished yet",priority=1
-//+kubebuilder:storageversion
 
 // ClusterQueue is the Schema for the clusterQueue API.
 type ClusterQueue struct {
