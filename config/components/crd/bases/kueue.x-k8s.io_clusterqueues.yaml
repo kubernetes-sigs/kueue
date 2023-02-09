@@ -151,19 +151,7 @@ spec:
                   accomodate the pending Workload, preempting Workloads with lower
                   priority first."
                 properties:
-                  withinClusterQueue:
-                    default: Never
-                    description: "withinClusterQueue determines whether a pending
-                      workload that doesn't fit within the min quota for its ClusterQueue,
-                      can preempt active Workloads in the ClusterQueue. Possible values
-                      are: \n - `Never` (default): do not preempt workloads in the
-                      ClusterQueue. - `LowerPriority`: only preempt workloads in the
-                      ClusterQueue that have lower priority than the pending Workload."
-                    enum:
-                    - Never
-                    - LowerPriority
-                    type: string
-                  withinCohort:
+                  reclaimWithinCohort:
                     default: Never
                     description: "reclaimWithinCohort determines whether a pending
                       Workload can preempt Workloads from other ClusterQueues in the
@@ -179,6 +167,18 @@ spec:
                     - Never
                     - LowerPriority
                     - Any
+                    type: string
+                  withinClusterQueue:
+                    default: Never
+                    description: "withinClusterQueue determines whether a pending
+                      workload that doesn't fit within the min quota for its ClusterQueue,
+                      can preempt active Workloads in the ClusterQueue. Possible values
+                      are: \n - `Never` (default): do not preempt workloads in the
+                      ClusterQueue. - `LowerPriority`: only preempt workloads in the
+                      ClusterQueue that have lower priority than the pending Workload."
+                    enum:
+                    - Never
+                    - LowerPriority
                     type: string
                 type: object
               queueingStrategy:

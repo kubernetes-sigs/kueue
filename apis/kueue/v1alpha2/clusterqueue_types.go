@@ -314,7 +314,7 @@ type ClusterQueuePreemption struct {
 	//
 	// +kubebuilder:default=Never
 	// +kubebuilder:validation:Enum=Never;LowerPriority;Any
-	ReclaimWithinCohort PreemptionPolicy `json:"withinCohort,omitempty"`
+	ReclaimWithinCohort PreemptionPolicy `json:"reclaimWithinCohort,omitempty"`
 
 	// withinClusterQueue determines whether a pending workload that doesn't fit
 	// within the min quota for its ClusterQueue, can preempt active Workloads in
