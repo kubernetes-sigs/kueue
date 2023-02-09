@@ -31,7 +31,7 @@ Kueue. Sometimes referred to as _job_.
 
 ### Admission
 
-The process of admitting a Workload to start (pods to be created). A Workload
+The process of admitting a Workload to start (Pods to be created). A Workload
 is admitted by a ClusterQueue according to the available resources and gets
 resource flavors assigned for each requested resource.
 

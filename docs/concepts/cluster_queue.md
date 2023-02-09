@@ -46,7 +46,7 @@ Flavors represent different variations of a resource (for example, different GPU
 models). You can define a flavor using a [ResourceFlavor object](/docs/concepts/resource_flavor.md).
 
 In a process called [admission](README.md#admission), Kueue assigns to the
-[Workload pod sets](workload.md#pod-sets) a flavor for each resource the pod set
+[Workload Pod Sets](workload.md#pod-sets) a flavor for each resource the pod set
 requests.
 Kueue assigns the first flavor in the ClusterQueue's `.spec.resources[*].flavors`
 list that has enough unused `min` quota in the ClusterQueue or the
@@ -161,10 +161,10 @@ semantics:
 
 - When assigning flavors, Kueue goes through the list of flavors in the
   ClusterQueue's `.spec.resources[*].flavors`. For each flavor, Kueue attempts
-  to fit a Workload's pod set according to the quota defined in the
+  to fit a Workload's Pod Set according to the quota defined in the
   ClusterQueue for the flavor and the unused quota in the cohort.
   If the Workload doesn't fit, Kueue evaluates the next flavor in the list.
-- A Workload's pod set resource fits in a flavor defined for a ClusterQueue
+- A Workload's Pod Set resource fits in a flavor defined for a ClusterQueue
   resource if the sum of requests for the resource:
   1. Is less than or equal to the unused `.quota.min` for the flavor in the
      ClusterQueue; or
@@ -175,7 +175,7 @@ semantics:
   In Kueue, when (2) and (3) are satisfied, but not (1), this is called
   _borrowing quota_.
 - A ClusterQueue can only borrow quota for flavors that the ClusterQueue defines.
-- For each pod set resource in a Workload, a ClusterQueue can only borrow quota
+- For each Pod Set resource in a Workload, a ClusterQueue can only borrow quota
   for one flavor.
 
 ### Borrowing example
@@ -236,7 +236,7 @@ scenarios:
   Therefore, Kueue ensures the `min` quota for `team-b-cq` is met.
 
 **Note**: Kueue [does not support preemption](https://github.com/kubernetes-sigs/kueue/issues/83).
-No admitted Workloads will be stopped to make space for new Workloads.
+Workloads already admitted by Kueue will _not_ be stopped to make space for new Workloads.
 
 ### Max quotas
 

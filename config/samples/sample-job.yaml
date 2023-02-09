@@ -4,7 +4,7 @@ metadata:
   generateName: sample-job-
   namespace: default
   annotations:
-    kueue.x-k8s.io/queue-name: main
+    kueue.x-k8s.io/queue-name: user-queue
 spec:
   parallelism: 3
   completions: 3

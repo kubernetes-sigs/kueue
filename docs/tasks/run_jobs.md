@@ -106,7 +106,7 @@ If the ClusterQueue doesn't have enough quota to run the Workload, the output
 will be similar to the following:
 
 ```
-Name:         sample-job-jtz5f
+Name:         sample-job-sl4bm
 Namespace:    default
 Labels:       <none>
 Annotations:  <none>
@@ -201,11 +201,11 @@ Events:
   Type    Reason            Age   From                  Message
   ----    ------            ----  ----                  -------
   Normal  Suspended         22m   job-controller        Job suspended
-  Normal  CreatedWorkload   22m   kueue-job-controller  Created Workload: default/sample-job-rxb6q
-  Normal  SuccessfulCreate  19m   job-controller        Created pod: sample-job-rxb6q-7bqld
+  Normal  CreatedWorkload   22m   kueue-job-controller  Created Workload: default/sample-job-sl4bm
+  Normal  SuccessfulCreate  19m   job-controller        Created pod: sample-job-sl4bm-7bqld
   Normal  Started           19m   kueue-job-controller  Admitted by clusterQueue cluster-queue
-  Normal  SuccessfulCreate  19m   job-controller        Created pod: sample-job-rxb6q-7jw4z
-  Normal  SuccessfulCreate  19m   job-controller        Created pod: sample-job-rxb6q-m7wgm
+  Normal  SuccessfulCreate  19m   job-controller        Created pod: sample-job-sl4bm-7jw4z
+  Normal  SuccessfulCreate  19m   job-controller        Created pod: sample-job-sl4bm-m7wgm
   Normal  Resumed           19m   job-controller        Job resumed
   Normal  Completed         18m   job-controller        Job completed
 ```

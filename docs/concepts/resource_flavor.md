@@ -8,7 +8,7 @@ Resources in a cluster are typically not homogeneous. Resources could differ in:
 A ResourceFlavor is an object that represents these resource variations and
 allows you to associate them with cluster nodes through labels and taints.
 
-**Note**: If your the resources in your cluster are homogeneous, you can use 
+**Note**: If the resources in your cluster are homogeneous, you can use 
 an [empty ResourceFlavor](#empty-resourceflavor) instead of adding labels to custom ResourceFlavors.
 
 A sample ResourceFlavor looks like the following:
@@ -39,7 +39,7 @@ the nodes. If you are using [cluster autoscaler](https://github.com/kubernetes/a
 (or equivalent controllers), make sure that the controller is configured to add those labels when
 adding new nodes.
 
-To guarantee that the Workload Pods run on the nodes associated to the flavor
+To guarantee that the Workload's Pods run on the nodes associated to the flavor
 that Kueue selected, Kueue performs the following
 steps:
 
@@ -64,10 +64,10 @@ steps:
 
 ## ResourceFlavor taints
 
-To restrict the usage of a ResourceFlavor, you can configure the `.taints` field
-with taints. These taints should typically match the taints of the Nodes associated with ResourceFlavor.
+To restrict the usage of a ResourceFlavor, you can configure the `.taints` field.
+These taints should typically match the taints of the Nodes associated with ResourceFlavor.
 
-Taints on the ResourceFlavor work similarly to [node taints](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/).
+Taints on the ResourceFlavor work similarly to [Node taints](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/).
 For Kueue to admit a Workload to use the ResourceFlavor, the PodSpecs in the
 Workload should have a toleration for it. As opposed to the behavior for
 [ResourceFlavor labels](#resourceflavor-labels), Kueue does not add tolerations

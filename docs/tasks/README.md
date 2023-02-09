@@ -11,8 +11,7 @@ quotas and queues.
 - As a batch administrator, you can learn how to [setup role-based access control](setup_rbac.md)
   to Kueue objects.
 - As a batch administrator, you can learn how to
-  [administer cluster quotas](administer_cluster_quotas.md) with Queues and
-  ClusterQueues.
+  [administer cluster quotas](administer_cluster_quotas.md) with ClusterQueues and LocalQueues.
 - As a batch administrator, you can learn how to setup
   [Sequential Admission with Ready Pods](setup_sequential_admission.md).
 
