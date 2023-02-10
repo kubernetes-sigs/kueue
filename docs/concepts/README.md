@@ -7,10 +7,10 @@ abstractions that Kueue uses to represent your cluster and workloads.
 
 ### [Resource Flavor](resource_flavor.md)
 
-A kind or type of resource that you can define in a cluster. Typically,
-this resource is associated with the characteristics of a group of Nodes. 
-It could distinguish among different characteristics of resources such as 
-availability, pricing, architecture, models, etc.
+An object that you can define to describe what resources are available
+in a cluster. Typically, a `ResourceFlavor` is associated with the characteristics 
+of a group of Nodes. It could distinguish among different characteristics of 
+resources such as availability, pricing, architecture, models, etc.
 
 ### [Cluster Queue](cluster_queue.md)
 
@@ -19,7 +19,7 @@ limits and fair sharing rules.
 
 ### [Local Queue](local_queue.md)
 
-A namespaced resource that groups closely related Workloads belonging to a
+A namespaced resource that groups closely related workloads belonging to a
 single tenant.
 
 ### [Workload](workload.md)

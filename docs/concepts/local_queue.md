@@ -23,7 +23,7 @@ local queues in their namespace. The command is similar to the following:
 
 ```sh
 kubectl get -n team-a localqueues
-# Alternatively, use the alias 'queue' or 'queues'
+# Alternatively, use the alias `queue` or `queues`
 kubectl get -n team-a queues
 ```
 

@@ -46,7 +46,7 @@ Flavors represent different variations of a resource (for example, different GPU
 models). You can define a flavor using a [ResourceFlavor object](/docs/concepts/resource_flavor.md).
 
 In a process called [admission](README.md#admission), Kueue assigns to the
-[Workload Pod Sets](workload.md#pod-sets) a flavor for each resource the pod set
+[Workload pod sets](workload.md#pod-sets) a flavor for each resource the pod set
 requests.
 Kueue assigns the first flavor in the ClusterQueue's `.spec.resources[*].flavors`
 list that has enough unused `min` quota in the ClusterQueue or the
@@ -106,11 +106,11 @@ If two resources are not codependent, they must not have any flavors in common.
 
 ## Namespace selector
 
-You can limit which namespaces can have Workloads admitted in the ClusterQueue
+You can limit which namespaces can have workloads admitted in the ClusterQueue
 by setting a [label selector](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/label-selector/#LabelSelector).
 in the `.spec.namespaceSelector` field.
 
-To allow Workloads from all namespaces, set the empty selector `{}` to the
+To allow workloads from all namespaces, set the empty selector `{}` to the
 `spec.namespaceSelector` field.
 
 A sample `namespaceSelector` looks like the following:
@@ -127,15 +127,15 @@ namespaceSelector:
 ## Queueing strategy
 
 You can set different queueing strategies in a ClusterQueue using the
-`.spec.queueingStrategy` field. The queueing strategy determines how Workloads
+`.spec.queueingStrategy` field. The queueing strategy determines how workloads
 are ordered in the ClusterQueue and how they are re-queued after an unsuccessful
 [admission](README.md#admission) attempt.
 
 The following are the supported queueing strategies:
 
-- `StrictFIFO`: Workloads are ordered first by [priority](Workload.md#priority)
-  and then by `.metadata.creationTimestamp`. Older Workloads that can't be
-  admitted will block newer Workloads, even if the newer Workloads fit in the
+- `StrictFIFO`: Workloads are ordered first by [priority](workload.md#priority)
+  and then by `.metadata.creationTimestamp`. Older workloads that can't be
+  admitted will block newer workloads, even if the newer workloads fit in the
   available quota.
 - `BestEffortFIFO`: Workloads are ordered the same way as `StrictFIFO`. However,
   older Workloads that can't be admitted will not block newer Workloads that
@@ -161,10 +161,10 @@ semantics:
 
 - When assigning flavors, Kueue goes through the list of flavors in the
   ClusterQueue's `.spec.resources[*].flavors`. For each flavor, Kueue attempts
-  to fit a Workload's Pod Set according to the quota defined in the
+  to fit a Workload's pod set according to the quota defined in the
   ClusterQueue for the flavor and the unused quota in the cohort.
   If the Workload doesn't fit, Kueue evaluates the next flavor in the list.
-- A Workload's Pod Set resource fits in a flavor defined for a ClusterQueue
+- A Workload's pod set resource fits in a flavor defined for a ClusterQueue
   resource if the sum of requests for the resource:
   1. Is less than or equal to the unused `.quota.min` for the flavor in the
      ClusterQueue; or
@@ -175,7 +175,7 @@ semantics:
   In Kueue, when (2) and (3) are satisfied, but not (1), this is called
   _borrowing quota_.
 - A ClusterQueue can only borrow quota for flavors that the ClusterQueue defines.
-- For each Pod Set resource in a Workload, a ClusterQueue can only borrow quota
+- For each pod set resource in a Workload, a ClusterQueue can only borrow quota
   for one flavor.
 
 ### Borrowing example

@@ -47,19 +47,18 @@ steps:
    [`.nodeSelector`](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector)
    and [`.affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution`](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#node-affinity)
    fields in the PodSpecs of your [Workload](workload.md) against the
-   ResourceFlavor labels.
-
+   ResourceFlavor labels. 
    `ResourceFlavors` that don't match the node affinity of the Workload
    cannot be assigned to a Workload's podSet.
 
 
 2. Once the Workload is admitted, Kueue adds the ResourceFlavor labels to the
   `.nodeSelector` of the underlying Workload Pod templates. This occurs if the Workload
-   didn't specify the `ResourceFlavor` labels already.
+   didn't specify the `ResourceFlavor` labels already as part of its nodeSelector.
 
    For example, for a [batch/v1.Job](https://kubernetes.io/docs/concepts/workloads/controllers/job/),
    Kueue adds the labels to the `.spec.template.spec.nodeSelector` field. This
-   guarantees that the Workload's Pods can only be scheduled on the nodes
+   guarantees that the workload's Pods can only be scheduled on the nodes
    targeted by the flavor that Kueue assigned to the Workload.
 
 ## ResourceFlavor taints
