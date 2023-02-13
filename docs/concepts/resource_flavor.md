@@ -67,7 +67,7 @@ To restrict the usage of a ResourceFlavor, you can configure the `.taints` field
 These taints should typically match the taints of the Nodes associated with the ResourceFlavor.
 
 Taints on the ResourceFlavor work similarly to [Node taints](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/).
-For Kueue to admit a Workload to use the ResourceFlavor, the PodSpecs in the
+For Kueue to [admit](/docs/concepts/README.md#admission) a Workload to use the ResourceFlavor, the PodSpecs in the
 Workload should have a toleration for it. As opposed to the behavior for
 [ResourceFlavor labels](#resourceflavor-labels), Kueue does not add tolerations
 for the flavor taints.
