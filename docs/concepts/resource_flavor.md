@@ -39,9 +39,8 @@ the nodes. If you are using [cluster autoscaler](https://github.com/kubernetes/a
 (or equivalent controllers), make sure that the controller is configured to add those labels when
 adding new nodes.
 
-To guarantee that the Workload's Pods run on the nodes associated to the flavor
-that Kueue selected, Kueue performs the following
-steps:
+To guarantee that the Pods in the [Workload](/docs/concepts/workload.md) run on the nodes associated to the flavor
+that Kueue selected, Kueue performs the following steps:
 
 1. When admitting a Workload, Kueue evaluates the
    [`.nodeSelector`](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector)
