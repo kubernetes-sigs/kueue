@@ -44,16 +44,16 @@ Note that, if you update an exiting Kueue installation you may need to restart t
 `kueue-controller-manager` pod in order for Kueue to pick up the updated
 configuration. In that case run:
 ```shell
-kubectl delete pods --all -nkueue-system
+kubectl delete pods --all -n kueue-system
 ```
 
 The timeout (`waitForPodsReady.timeout`) is an optional parameter, defaulting to
 5 minutes.
 
-When the timeout expires for an admitted workload, and the workload's
-pods are not all scheduled yet (i.e., the workload condition remains
-`PodsReady=False`), then the workload's admission is
-cancelled, the corresponding job is suspended and the workload is requeued.
+When the timeout expires for an admitted Workload, and the workload's
+pods are not all scheduled yet (i.e., the Workload condition remains
+`PodsReady=False`), then the Workload's admission is
+cancelled, the corresponding job is suspended and the Workload is requeued.
 
 ## Example
 
@@ -88,18 +88,18 @@ Save the following cluster queues configuration as `cluster-queues.yaml`:
 apiVersion: kueue.x-k8s.io/v1alpha2
 kind: ResourceFlavor
 metadata:
-  name: default
+  name: default-flavor
 ---
 apiVersion: kueue.x-k8s.io/v1alpha2
 kind: ClusterQueue
 metadata:
-  name: cluster-total
+  name: cluster-queue
 spec:
   namespaceSelector: {}
   resources:
   - name: "memory"
     flavors:
-    - name: default
+    - name: default-flavor
       quota:
         min: 16858Mi # double the value of allocatable memory in the cluster
 ---
@@ -107,9 +107,9 @@ apiVersion: kueue.x-k8s.io/v1alpha2
 kind: LocalQueue
 metadata:
   namespace: default
-  name: main
+  name: user-queue
 spec:
-  clusterQueue: cluster-total
+  clusterQueue: cluster-queue
 ```
 Then, apply the configuration by:
 ```shell
@@ -200,7 +200,7 @@ kind: Job
 metadata:
   name: job_ID_
   annotations:
-    kueue.x-k8s.io/queue-name: main
+    kueue.x-k8s.io/queue-name: user-queue
 spec:
   parallelism: 20
   completions: 20
@@ -244,7 +244,7 @@ kind: Job
 metadata:
   name: quick-job
   annotations:
-    kueue.x-k8s.io/queue-name: main
+    kueue.x-k8s.io/queue-name: user-queue
 spec:
   parallelism: 50
   completions: 50
@@ -450,6 +450,6 @@ kubectl delete -f /tmp/job2.yaml
 
 ## Drawbacks
 
-When enabling `waitForPodsReady`, the admission of workloads may
+When enabling `waitForPodsReady`, the admission of Workloads may
 be unnecessarily slowed down by sequencing in case the cluster has enough
-resources to support concurrent workload startup.
+resources to support concurrent Workload startup.

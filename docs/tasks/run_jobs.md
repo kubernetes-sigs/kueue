@@ -15,7 +15,7 @@ Make sure the following conditions are met:
 
 ## 0. Identify the queues available in your namespace
 
-Run the following command to list the Queues available in your namespace.
+Run the following command to list the `LocalQueues` available in your namespace.
 
 ```shell
 kubectl -n default get localqueues
@@ -26,8 +26,8 @@ kubectl -n default get queues
 The output is similar to the following:
 
 ```
-NAME   CLUSTERQUEUE    PENDING WORKLOADS
-main   cluster-total   3
+NAME         CLUSTERQUEUE    PENDING WORKLOADS
+user-queue   cluster-queue   3
 ```
 
 The [ClusterQueue](/docs/concepts/cluster_queue.md) defines the quotas for the
@@ -54,7 +54,7 @@ kind: Job
 metadata:
   generateName: sample-job-
   annotations:
-    kueue.x-k8s.io/queue-name: main
+    kueue.x-k8s.io/queue-name: user-queue
 spec:
   parallelism: 3
   completions: 3
@@ -90,23 +90,23 @@ kubectl -n default get workloads
 The output will be similar to the following:
 
 ```
-NAME               QUEUE   ADMITTED BY     AGE
-sample-job-sl4bm   main                    1s
+NAME               QUEUE         ADMITTED BY     AGE
+sample-job-sl4bm   user-queue                    1s
 ```
 
-## 3. (Optional) Monitor the status of the workload
+## 3. (Optional) Monitor the status of the Workload
 
-You can see the workload status with the following command:
+You can see the Workload status with the following command:
 
 ```shell
 kubectl -n default describe workload sample-job-sl4bm
 ```
 
-If the ClusterQueue doesn't have enough quota to run the workload, the output
+If the ClusterQueue doesn't have enough quota to run the Workload, the output
 will be similar to the following:
 
 ```
-Name:         sample-job-jtz5f
+Name:         sample-job-sl4bm
 Namespace:    default
 Labels:       <none>
 Annotations:  <none>
@@ -127,8 +127,8 @@ Status:
 Events:               <none>
 ```
 
-When the ClusterQueue has enough quota to run the workload, it will admit
-the workload. To see if the workload was admitted, run the following command:
+When the ClusterQueue has enough quota to run the Workload, it will admit
+the Workload. To see if the Workload was admitted, run the following command:
 
 ```shell
 kubectl -n default get workloads
@@ -137,11 +137,11 @@ kubectl -n default get workloads
 The output is similar to the following:
 
 ```
-NAME               QUEUE   ADMITTED BY     AGE
-sample-job-sl4bm   main    cluster-total   45s
+NAME               QUEUE         ADMITTED BY     AGE
+sample-job-sl4bm   user-queue    cluster-queue   45s
 ```
 
-To view the event for the workload admission, run the following command:
+To view the event for the Workload admission, run the following command:
 
 ```shell
 kubectl -n default describe workload sample-job-sl4bm
@@ -154,16 +154,16 @@ The output is similar to the following:
 Events:
   Type    Reason    Age   From           Message
   ----    ------    ----  ----           -------
-  Normal  Admitted  50s   kueue-manager  Admitted by ClusterQueue cluster-total
+  Normal  Admitted  50s   kueue-manager  Admitted by ClusterQueue cluster-queue
 ```
 
-To continue monitoring the workload progress, you can run the following command:
+To continue monitoring the Workload progress, you can run the following command:
 
 ```shell
 kubectl -n default describe workload sample-job-sl4bm
 ```
 
-Once the workload has finished running, the output is similar to the following:
+Once the Workload has finished running, the output is similar to the following:
 
 ```
 ...
@@ -201,11 +201,11 @@ Events:
   Type    Reason            Age   From                  Message
   ----    ------            ----  ----                  -------
   Normal  Suspended         22m   job-controller        Job suspended
-  Normal  CreatedWorkload   22m   kueue-job-controller  Created Workload: default/sample-job-rxb6q
-  Normal  SuccessfulCreate  19m   job-controller        Created pod: sample-job-rxb6q-7bqld
-  Normal  Started           19m   kueue-job-controller  Admitted by clusterQueue cluster-total
-  Normal  SuccessfulCreate  19m   job-controller        Created pod: sample-job-rxb6q-7jw4z
-  Normal  SuccessfulCreate  19m   job-controller        Created pod: sample-job-rxb6q-m7wgm
+  Normal  CreatedWorkload   22m   kueue-job-controller  Created Workload: default/sample-job-sl4bm
+  Normal  SuccessfulCreate  19m   job-controller        Created pod: sample-job-sl4bm-7bqld
+  Normal  Started           19m   kueue-job-controller  Admitted by clusterQueue cluster-queue
+  Normal  SuccessfulCreate  19m   job-controller        Created pod: sample-job-sl4bm-7jw4z
+  Normal  SuccessfulCreate  19m   job-controller        Created pod: sample-job-sl4bm-m7wgm
   Normal  Resumed           19m   job-controller        Job resumed
   Normal  Completed         18m   job-controller        Job completed
 ```

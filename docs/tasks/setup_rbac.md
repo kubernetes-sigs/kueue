@@ -62,7 +62,7 @@ kubectl apply -f batch-admin-role-binding.yaml
 A batch user typically requires permissions to:
 - Create and view Jobs in their namespace.
 - View the queues available in their namespace.
-- View the status of their [workloads](/docs/concepts/workload.md) in their namespace.
+- View the status of their [Workloads](/docs/concepts/workload.md) in their namespace.
 
 To give these permissions to a group of users `team-a@example.com` for the
 namespace `team-a`, create a RoleBinding with a manifest similar to the

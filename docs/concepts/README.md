@@ -5,6 +5,13 @@ abstractions that Kueue uses to represent your cluster and workloads.
 
 ## APIs
 
+### [Resource Flavor](resource_flavor.md)
+
+An object that you can define to describe what resources are available
+in a cluster. Typically, a `ResourceFlavor` is associated with the characteristics 
+of a group of Nodes. It could distinguish among different characteristics of 
+resources such as availability, pricing, architecture, models, etc.
+
 ### [Cluster Queue](cluster_queue.md)
 
 A cluster-scoped resource that governs a pool of resources, defining usage
@@ -20,17 +27,11 @@ single tenant.
 An application that will run to completion. It is the unit of _admission_ in
 Kueue. Sometimes referred to as _job_.
 
-### [Resource Flavor](cluster_queue.md#resourceflavor-object)
-
-A kind or type of resource in a cluster. It could distinguish among different
-characteristics of resources such as availability, pricing, architecture,
-models, etc.
-
 ## Glossary
 
 ### Admission
 
-The process of admitting a Workload to start (pods to be created). A Workload
+The process of admitting a Workload to start (Pods to be created). A Workload
 is admitted by a ClusterQueue according to the available resources and gets
 resource flavors assigned for each requested resource.
 
@@ -43,6 +44,6 @@ A group of ClusterQueues that can borrow unused quota from each other.
 
 ### Queueing
 
-The time between a workload is created until it is admitted by a ClusterQueue.
-Typically, the workload will compete with other workloads for available
+The time between a Workload is created until it is admitted by a ClusterQueue.
+Typically, the Workload will compete with other Workloads for available
 quota based on the fair sharing rules of the ClusterQueue.

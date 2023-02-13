@@ -21,9 +21,9 @@ apiVersion: kueue.x-k8s.io/v1alpha2
 kind: Workload
 metadata:
   name: sample-job
-  namespace: default
+  namespace: team-a
 spec:
-  queueName: user-queue
+  queueName: team-a-queue
   podSets:
   - count: 3
     name: main
@@ -53,7 +53,7 @@ the following fields:
 - `spec` describes the pods using a [`v1/core.PodSpec`](https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/pod-v1/#PodSpec).
 - `count` is the number of pods that use the same `spec`.
 - `name` is a human-readable identifier for the pod set. You can use the role of
-  the Pods in the workload, like `driver`, `worker`, `parameter-server`, etc.
+  the Pods in the Workload, like `driver`, `worker`, `parameter-server`, etc.
 
 ## Priority
 
@@ -64,10 +64,10 @@ For a `batch/v1.Job`, Kueue sets the priority of the Workload based on the
 [pod priority](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/)
 of the Job's pod template.
 
-## Custom workloads
+## Custom Workloads
 
 As described previously, Kueue has built-in support for workloads created with
-the Job API. But any custom workload API can integrate with Kueue by
+the Job API. But any custom Workload API can integrate with Kueue by
 creating a corresponding Workload object for it.
 
 ## What's next
