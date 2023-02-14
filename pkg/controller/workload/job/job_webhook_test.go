@@ -27,6 +27,40 @@ import (
 	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
+func TestValidateCreate(t *testing.T) {
+	testcases := []struct {
+		name    string
+		job     *batchv1.Job
+		wantErr error
+	}{
+		{
+			name:    "simple",
+			job:     testingutil.MakeJob("job", "default").Queue("queue").Obj(),
+			wantErr: nil,
+		},
+		{
+			name:    "valid parent-workload annotation",
+			job:     testingutil.MakeJob("job", "default").ParentWorkload("parent-workload-name").Queue("queue").Obj(),
+			wantErr: nil,
+		},
+		{
+			name:    "invalid parent-workload annotation",
+			job:     testingutil.MakeJob("job", "default").ParentWorkload("parent workload name").Queue("queue").Obj(),
+			wantErr: field.Invalid(parentWorkloadKeyPath, "parent workload name", `a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character (e.g. 'example.com', regex used for validation is '[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*')`),
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotErr := validateCreate(tc.job)
+
+			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
+				t.Errorf("validateCreate() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestValidateUpdate(t *testing.T) {
 	suspendPath := field.NewPath("job", "spec", "suspend")
 
@@ -65,6 +99,18 @@ func TestValidateUpdate(t *testing.T) {
 			oldJob:  testingutil.MakeJob("job", "default").Obj(),
 			newJob:  testingutil.MakeJob("job", "default").Queue("queue").Suspend(true).Obj(),
 			wantErr: nil,
+		},
+		{
+			name:    "update the nil parent workload to non-empty",
+			oldJob:  testingutil.MakeJob("job", "default").Obj(),
+			newJob:  testingutil.MakeJob("job", "default").ParentWorkload("parent").Obj(),
+			wantErr: field.Forbidden(parentWorkloadKeyPath, "this annotation is immutable"),
+		},
+		{
+			name:    "update the non-empty parent workload to nil",
+			oldJob:  testingutil.MakeJob("job", "default").ParentWorkload("parent").Obj(),
+			newJob:  testingutil.MakeJob("job", "default").Obj(),
+			wantErr: field.Forbidden(parentWorkloadKeyPath, "this annotation is immutable"),
 		},
 	}
 

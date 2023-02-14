@@ -18,14 +18,18 @@ package job
 
 import (
 	"context"
+	"strings"
 
 	batchv1 "k8s.io/api/batch/v1"
+	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 )
 
@@ -53,6 +57,10 @@ func SetupWebhook(mgr ctrl.Manager, opts ...Option) error {
 
 var _ webhook.CustomDefaulter = &JobWebhook{}
 
+var (
+	parentWorkloadKeyPath = field.NewPath("metadata", "annotations").Key(constants.ParentWorkloadAnnotation)
+)
+
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
 func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	job := obj.(*batchv1.Job)
@@ -76,6 +84,16 @@ var _ webhook.CustomValidator = &JobWebhook{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *JobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
+	job := obj.(*batchv1.Job)
+	return validateCreate(job)
+}
+
+func validateCreate(job *batchv1.Job) error {
+	if value, exists := job.Annotations[constants.ParentWorkloadAnnotation]; exists {
+		if errs := validation.IsDNS1123Subdomain(value); len(errs) > 0 {
+			return field.Invalid(parentWorkloadKeyPath, value, strings.Join(errs, ","))
+		}
+	}
 	return nil
 }
 
@@ -99,7 +117,10 @@ func validateUpdate(oldJob, newJob *batchv1.Job) error {
 	if !*newJob.Spec.Suspend && (queueName(oldJob) != queueName(newJob)) {
 		return field.Forbidden(suspendPath, "should not update queue name when job is unsuspend")
 	}
-
+	if errList := apivalidation.ValidateImmutableField(newJob.Annotations[constants.ParentWorkloadAnnotation],
+		oldJob.Annotations[constants.ParentWorkloadAnnotation], parentWorkloadKeyPath); len(errList) > 0 {
+		return field.Forbidden(parentWorkloadKeyPath, "this annotation is immutable")
+	}
 	return nil
 }
 
