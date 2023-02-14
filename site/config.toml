@@ -65,7 +65,7 @@ ignoreFiles = []
 ###############################################################################
 [languages]
   [languages.en]
-    title = "Kueue"
+    title = "Kueue | Kubernetes-native Job Queueing"
     languageName ="English"
     # weight used for sorting in the language menu
     weight = 1
