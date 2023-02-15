@@ -68,10 +68,10 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 func managerAndSchedulerSetup(mgr manager.Manager, ctx context.Context) {
-	err := queue.SetupIndexes(mgr.GetFieldIndexer())
+	err := queue.SetupIndexes(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = cache.SetupIndexes(mgr.GetFieldIndexer())
+	err = cache.SetupIndexes(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	cCache := cache.New(mgr.GetClient())
@@ -83,7 +83,7 @@ func managerAndSchedulerSetup(mgr manager.Manager, ctx context.Context) {
 	failedWebhook, err := webhooks.Setup(mgr)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
-	err = workloadjob.SetupIndexes(mgr.GetFieldIndexer())
+	err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))

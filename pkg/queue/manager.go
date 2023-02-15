@@ -557,15 +557,15 @@ func (m *Manager) reportPendingWorkloads(cqName string, cq ClusterQueue) {
 	metrics.ReportPendingWorkloads(cqName, active, inadmissible)
 }
 
-func SetupIndexes(indexer client.FieldIndexer) error {
-	err := indexer.IndexField(context.Background(), &kueue.Workload{}, workloadQueueKey, func(o client.Object) []string {
+func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
+	err := indexer.IndexField(ctx, &kueue.Workload{}, workloadQueueKey, func(o client.Object) []string {
 		wl := o.(*kueue.Workload)
 		return []string{wl.Spec.QueueName}
 	})
 	if err != nil {
 		return fmt.Errorf("setting index on queue for Workload: %w", err)
 	}
-	err = indexer.IndexField(context.Background(), &kueue.LocalQueue{}, queueClusterQueueKey, func(o client.Object) []string {
+	err = indexer.IndexField(ctx, &kueue.LocalQueue{}, queueClusterQueueKey, func(o client.Object) []string {
 		q := o.(*kueue.LocalQueue)
 		return []string{string(q.Spec.ClusterQueue)}
 	})

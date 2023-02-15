@@ -115,7 +115,8 @@ func main() {
 	cCache := cache.New(mgr.GetClient(), cache.WithPodsReadyTracking(waitForPodsReady(&cfg)))
 	queues := queue.NewManager(mgr.GetClient(), cCache)
 
-	setupIndexes(mgr)
+	ctx := ctrl.SetupSignalHandler()
+	setupIndexes(ctx, mgr)
 
 	setupProbeEndpoints(mgr)
 	// Cert won't be ready until manager starts, so start a goroutine here which
@@ -123,7 +124,6 @@ func main() {
 	// Controllers who register after manager starts will start directly.
 	go setupControllers(mgr, cCache, queues, certsReady, &cfg)
 
-	ctx := ctrl.SetupSignalHandler()
 	go func() {
 		queues.CleanUpOnContext(ctx)
 	}()
@@ -140,14 +140,14 @@ func main() {
 	}
 }
 
-func setupIndexes(mgr ctrl.Manager) {
-	if err := queue.SetupIndexes(mgr.GetFieldIndexer()); err != nil {
+func setupIndexes(ctx context.Context, mgr ctrl.Manager) {
+	if err := queue.SetupIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
 		setupLog.Error(err, "Unable to setup queue indexes")
 	}
-	if err := cache.SetupIndexes(mgr.GetFieldIndexer()); err != nil {
+	if err := cache.SetupIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
 		setupLog.Error(err, "Unable to setup cache indexes")
 	}
-	if err := job.SetupIndexes(mgr.GetFieldIndexer()); err != nil {
+	if err := job.SetupIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
 		setupLog.Error(err, "Unable to setup job indexes")
 	}
 }

@@ -880,8 +880,8 @@ func resourcesByName(in []kueue.Resource) map[corev1.ResourceName]*Resource {
 	return out
 }
 
-func SetupIndexes(indexer client.FieldIndexer) error {
-	return indexer.IndexField(context.Background(), &kueue.Workload{}, workloadClusterQueueKey, func(o client.Object) []string {
+func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
+	return indexer.IndexField(ctx, &kueue.Workload{}, workloadClusterQueueKey, func(o client.Object) []string {
 		wl := o.(*kueue.Workload)
 		if wl.Spec.Admission == nil {
 			return nil

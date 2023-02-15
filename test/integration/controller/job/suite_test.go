@@ -62,7 +62,7 @@ func managerSetup(opts ...job.Option) framework.ManagerSetup {
 			mgr.GetClient(),
 			mgr.GetEventRecorderFor(constants.JobControllerName),
 			opts...)
-		err := job.SetupIndexes(mgr.GetFieldIndexer())
+		err := job.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = reconciler.SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -73,10 +73,10 @@ func managerSetup(opts ...job.Option) framework.ManagerSetup {
 
 func managerAndSchedulerSetup(opts ...job.Option) framework.ManagerSetup {
 	return func(mgr manager.Manager, ctx context.Context) {
-		err := queue.SetupIndexes(mgr.GetFieldIndexer())
+		err := queue.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		err = cache.SetupIndexes(mgr.GetFieldIndexer())
+		err = cache.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		cCache := cache.New(mgr.GetClient())
@@ -85,7 +85,7 @@ func managerAndSchedulerSetup(opts ...job.Option) framework.ManagerSetup {
 		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &config.Configuration{})
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
-		err = job.SetupIndexes(mgr.GetFieldIndexer())
+		err = job.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = job.NewReconciler(mgr.GetScheme(), mgr.GetClient(),
 			mgr.GetEventRecorderFor(constants.JobControllerName), opts...).SetupWithManager(mgr)
