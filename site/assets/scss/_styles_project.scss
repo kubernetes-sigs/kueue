@@ -78,6 +78,15 @@ footer {
   }
 }
 
+.td-sidebar-toc {
+  @supports (position: sticky) {
+      position: sticky;
+      top: 60px;
+      height: calc(100vh - 120px);
+      overflow-y: auto;
+  }
+}
+
 
 // --------------------------------------------------
 // 404 page
