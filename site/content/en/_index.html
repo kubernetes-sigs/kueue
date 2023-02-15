@@ -1,7 +1,7 @@
 +++
 title = "Kueue"
 linkTitle = "Kueue"
-
+description = "Kueue is a cloud-native job queueing system for batch, HPC, AI/ML, and similar applications in a Kubernetes cluster"
 +++
 
 {{< blocks/cover title="Welcome to Kueue" image_anchor="top" height="full" color="orange" >}}
@@ -13,31 +13,33 @@ linkTitle = "Kueue"
 		Github <i class="fab fa-github ml-2 "></i>
 	</a>
 	<p class="lead mt-5">Kubernetes-native Job Queueing</p>
-	{{< blocks/link-down color="info" >}}
+	{{< blocks/link-down color="info" id="description" >}}
 </div>
 {{< /blocks/cover >}}
 
+<div id="description" ></div>
 
-{{% blocks/lead color="primary" %}}
-<h1 class="text-center">Kueue is a set of APIs for job queueing.</h1>
+{{% blocks/lead color="primary"%}}
+<h1  class="text-center">Kueue is a cloud-native job queueing system for batch, HPC, AI/ML, and similar applications in a Kubernetes cluster.</h1>
 {{% /blocks/lead %}}
 
 {{% blocks/lead color="secondary" %}}
-<h1 class="text-center">Kueue is a job-level manager that decides when a job should be admitted to start (as in pods can be created) and when it should stop (as in active pods should be deleted).</h1>
+<h1 class="text-center">Use Kueue to build a multi-tenant batch service with quotas and a hierarchy for sharing resources among teams in your organization. Based on the available quotas, Kueue decides when jobs should wait and when and where they should run.
+</h1>
 {{% /blocks/lead %}}
 
 {{% blocks/lead color="dark" %}}
-<h1 class="text-center">Kueue is a multi-tenant batch system that you can install on top of a vanilla Kubernetes cluster. Kueue does not replace any existing Kubernetes components. </h1>
+<h1 class="text-center">Kueue works in combination with standard kube-scheduler, cluster-autoscaler, and the rest of the kubernetes ecosystem. This combination  allows Kueue to run both on-prem and in the cloud, where resources can be heterogeneous, fungible, and dynamically provisioned. </h1>
 {{% /blocks/lead %}}
 
 {{< blocks/section color="light" >}}
 
-{{% blocks/feature icon="fab fa-github" title="Contributions welcome!" url="https://github.com/kubernetes-sigs/kueue " %}}
+{{% blocks/feature icon="fab fa-github" title="Contributions welcome!" url="https://github.com/kubernetes-sigs/kueue" %}}
 We do a [Pull Request](https://github.com/kubernetes-sigs/kueue/pulls) contributions workflow on **GitHub**. New users are always welcome!
 {{% /blocks/feature %}}
 
 {{% blocks/feature icon="fab fa-slack" title="Connect with us" url="https://kubernetes.slack.com" %}}
-Talk to contributors on [#sig-scheduling](https://kubernetes.slack.com/archives/C09TP78DV) channel
+Talk to contributors on [#wg-batch](https://kubernetes.slack.com/messages/wg-batch) channel
 {{% /blocks/feature %}}
 
 {{% blocks/feature icon="fa fa-envelope" title="Join the mailing group" url="https://groups.google.com/a/kubernetes.io/g/wg-batch" %}}
