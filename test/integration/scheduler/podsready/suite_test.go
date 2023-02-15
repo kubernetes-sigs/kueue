@@ -63,10 +63,10 @@ func managerAndSchedulerSetupWithTimeout(mgr manager.Manager, ctx context.Contex
 		},
 	}
 
-	err := queue.SetupIndexes(mgr.GetFieldIndexer())
+	err := queue.SetupIndexes(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = cache.SetupIndexes(mgr.GetFieldIndexer())
+	err = cache.SetupIndexes(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	cCache := cache.New(mgr.GetClient(), cache.WithPodsReadyTracking(cfg.WaitForPodsReady.Enable))
@@ -78,7 +78,7 @@ func managerAndSchedulerSetupWithTimeout(mgr manager.Manager, ctx context.Contex
 	failedWebhook, err := webhooks.Setup(mgr)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
-	err = workloadjob.SetupIndexes(mgr.GetFieldIndexer())
+	err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithWaitForPodsReady(cfg.WaitForPodsReady.Enable))

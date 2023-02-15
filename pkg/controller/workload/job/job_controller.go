@@ -164,8 +164,8 @@ func (r *JobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func SetupIndexes(indexer client.FieldIndexer) error {
-	if err := indexer.IndexField(context.Background(), &batchv1.Job{}, parentWorkloadKey, func(o client.Object) []string {
+func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
+	if err := indexer.IndexField(ctx, &batchv1.Job{}, parentWorkloadKey, func(o client.Object) []string {
 		job := o.(*batchv1.Job)
 		if pwName := parentWorkload(job); pwName != "" {
 			return []string{pwName}
@@ -174,7 +174,7 @@ func SetupIndexes(indexer client.FieldIndexer) error {
 	}); err != nil {
 		return err
 	}
-	return indexer.IndexField(context.Background(), &kueue.Workload{}, ownerKey, func(o client.Object) []string {
+	return indexer.IndexField(ctx, &kueue.Workload{}, ownerKey, func(o client.Object) []string {
 		// grab the Workload object, extract the owner...
 		wl := o.(*kueue.Workload)
 		owner := metav1.GetControllerOf(wl)
