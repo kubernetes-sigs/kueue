@@ -107,7 +107,16 @@ data:
       enable: true
       webhookServiceName: kueue-webhook-service
       webhookSecretName: kueue-webhook-server-cert
+    waitForPodsReady:
+      enable: true
+      timeout: 10m
 ```
+
+__The `namespace`, `waitForPodsReady`, and `internalCertManagement` fields are available in Kueue v0.3.0 and later__
+
+> **Note**
+> See [Sequential Admission with Ready Pods](/docs/tasks/setup_sequential_admission) to learn
+more about using `waitForPodsReady` for Kueue.
 
 4. Apply the customized manifests to the cluster:
 
