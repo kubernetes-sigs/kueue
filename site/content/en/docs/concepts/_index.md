@@ -4,6 +4,7 @@ linkTitle: "Concepts"
 weight: 4
 description: >
   Core Kueue Concepts
+no_list: true
 ---
 
 This section of the documentation helps you learn about the components, APIs and

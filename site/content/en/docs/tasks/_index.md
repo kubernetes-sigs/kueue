@@ -6,6 +6,7 @@ weight: 6
 date: 2022-02-14
 description: >
   Doing common Kueue tasks
+no_list: true
 ---
 
 The following tasks show you how to perform operations based on the Kueue user
@@ -27,3 +28,6 @@ quotas and queues.
 
 A _batch user_ runs [workloads](/docs/concepts/workload). A typical
 batch user is a researcher, AI/ML engineer, data scientist, among others.
+
+- As a batch user, you can learn how to [run a job](/docs/tasks/task) to
+  run a Workload.
