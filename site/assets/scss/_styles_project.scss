@@ -19,6 +19,9 @@ footer {
 
 .row > * {
   flex-shrink: 1;
+}
+
+.row > .container {
   max-width: 1200px;
 }
 
