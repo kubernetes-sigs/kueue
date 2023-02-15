@@ -1,4 +1,10 @@
-# Administer Cluster resources
+---
+title: "Administer Cluster Quotas"
+date: 2022-02-14
+weight: 3
+description: >
+  Manage your cluster resource quotas and to establish fair sharing rules among the tenants.
+---
 
 This page shows you how to manage your cluster resource quotas and to establish
 fair sharing rules among the tenants.
@@ -11,21 +17,21 @@ Make sure the following conditions are met:
 
 - A Kubernetes cluster is running.
 - The kubectl command-line tool has communication with your cluster.
-- [Kueue is installed](/docs/setup/install.md).
+- [Kueue is installed](/docs/installation).
 
 ## Single ClusterQueue and single ResourceFlavor setup
 
 In the following steps, you will create a queuing system with a single
-ClusterQueue and a single [ResourceFlavor](/docs/concepts/cluster_queue.md#resourceflavor-object)
+ClusterQueue and a single [ResourceFlavor](/docs/concepts/cluster_queue#resourceflavor-object)
 to govern the quota of your cluster.
 
-You can perform all these steps at once by applying [config/samples/single-clusterqueue-setup.yaml](/config/samples/single-clusterqueue-setup.yaml):
+You can perform all these steps at once by applying [github.com/kubernetes-sigs/kueue/blob/main/config/samples/single-clusterqueue-setup.yaml](https://github.com/kubernetes-sigs/kueue/blob/main/config/samples/single-clusterqueue-setup.yaml):
 
 ```shell
 kubectl apply -f config/samples/single-clusterqueue-setup.yaml
 ```
 
-### 1. Create a [ClusterQueue](/docs/concepts/cluster_queue.md)
+### 1. Create a [ClusterQueue](/docs/concepts/cluster_queue)
 
 Create a single ClusterQueue to represent the resource quotas for your entire
 cluster.
@@ -60,12 +66,12 @@ kubectl apply -f cluster-queue.yaml
 ```
 
 This ClusterQueue governs the usage of [resource types](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#resource-types)
-`cpu` and `memory`. Each resource type has a single [resource flavor](/docs/concepts/cluster_queue.md#resourceflavor-object),
+`cpu` and `memory`. Each resource type has a single [resource flavor](/docs/concepts/cluster_queue#resourceflavor-object),
 named `default` with a min quota.
 
 The empty `namespaceSelector` allows any namespace to use these resources.
 
-### 2. Create a [ResourceFlavor](/docs/concepts/cluster_queue.md#resourceflavor-object)
+### 2. Create a [ResourceFlavor](/docs/concepts/cluster_queue#resourceflavor-object)
 
 The ClusterQueue is not ready to be used yet, as the `default` flavor is not
 defined.
@@ -81,7 +87,7 @@ Write the manifest for the ResourceFlavor. It should look similar to the followi
 apiVersion: kueue.x-k8s.io/v1alpha2
 kind: ResourceFlavor
 metadata:
-  name: default-flavor
+  name: default
 ```
 
 To create the ResourceFlavor, run the following command:
@@ -93,9 +99,9 @@ kubectl apply -f default-flavor.yaml
 The `.metadata.name` matches the `.spec.resources[*].flavors[0].resourceFlavor`
 field in the ClusterQueue.
 
-### 3. Create [LocalQueues](/docs/concepts/local_queue.md)
+### 3. Create [LocalQueues](/docs/concepts/local_queue)
 
-Users cannot directly send [workloads](/docs/concepts/workload.md) to
+Users cannot directly send [workloads](/docs/concepts/workload) to
 ClusterQueues. Instead, users need to send their workloads to a Queue in their
 namespace.
 Thus, for the queuing system to be complete, you need to create a Queue in
@@ -111,7 +117,7 @@ metadata:
   namespace: default
   name: user-queue
 spec:
-  clusterQueue: cluster-queue
+  clusterQueue: cluster-total
 ```
 
 To create the LocalQueue, run the following command:
@@ -122,12 +128,12 @@ kubectl apply -f default-user-queue.yaml
 
 ## Multiple ResourceFlavors setup
 
-You can define quotas for different [resource flavors](/docs/concepts/cluster_queue.md#resourceflavor-object).
+You can define quotas for different [resource flavors](/docs/concepts/cluster_queue#resourceflavor-object).
 
 For the rest of this section, assume that your cluster has nodes with two CPU
 architectures, namely `x86` and `arm`, specified in the node label `cpu-arch`.
 
-**Limitations**
+### Limitations
 
 - Using the same flavors in multiple `.resources` of a ClusterQueue
   is [not supported](https://github.com/kubernetes-sigs/kueue/issues/167).
@@ -213,7 +219,7 @@ kubectl apply -f cluster-queue.yaml
 ## Multiple ClusterQueues and borrowing cohorts
 
 Two or more ClusterQueues can borrow unused quota from other ClusterQueues in
-the same [cohort](/docs/concepts/cluster_queue.md#cohort).
+the same [cohort](/docs/concepts/cluster_queue#cohort).
 
 Using the following example, you can establish a cohort `team-ab` that includes
 ClusterQueues `team-a-cq` and `team-b-cq`.
@@ -264,7 +270,7 @@ spec:
         min: 48Gi
 ```
 
-Note that the ClusterQueue `team-a-cq` also defines [max quotas](/docs/concepts/cluster_queue.md#max-quotas).
+Note that the ClusterQueue `team-a-cq` also defines [max quotas](/docs/concepts/cluster_queue#max-quotas).
 This restricts the ability of the ClusterQueue to borrow the unused quota from
 the cohort up to the configured `max`, even if the quota is completely unused.
 
@@ -277,7 +283,7 @@ kubectl apply -f team-a-cq.yaml -f team-b-cq.yaml
 
 ## Multiple ClusterQueue with dedicated and fallback flavors
 
-A ClusterQueue can borrow resources from the [cohort](/docs/concepts/cluster_queue.md#cohort)
+A ClusterQueue can borrow resources from the [cohort](/docs/concepts/cluster_queue#cohort)
 even if the ClusterQueue has zero min quota for a flavor. This allows you to
 give dedicated quota for a flavor and fallback to quota for a different flavor,
 shared with other tenants.
@@ -375,7 +381,3 @@ following command:
 ```shell
 kubectl apply -f team-a-cq.yaml -f team-b-cq.yaml -f shared-cq.yaml
 ```
-
-## What's next?
-
-- Learn how to [run jobs](run_jobs.md).

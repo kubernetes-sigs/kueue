@@ -1,28 +1,34 @@
-# Concepts
+---
+title: "Concepts"
+linkTitle: "Concepts"
+weight: 4
+description: >
+  Core Kueue Concepts
+---
 
 This section of the documentation helps you learn about the components, APIs and
 abstractions that Kueue uses to represent your cluster and workloads.
 
 ## APIs
 
-### [Resource Flavor](resource_flavor.md)
+### [Resource Flavor](/docs/concepts/resource_flavor)
 
 An object that you can define to describe what resources are available
-in a cluster. Typically, a `ResourceFlavor` is associated with the characteristics 
-of a group of Nodes. It could distinguish among different characteristics of 
+in a cluster. Typically, a `ResourceFlavor` is associated with the characteristics
+of a group of Nodes. It could distinguish among different characteristics of
 resources such as availability, pricing, architecture, models, etc.
 
-### [Cluster Queue](cluster_queue.md)
+### [Cluster Queue](/docs/concepts/cluster_queue)
 
 A cluster-scoped resource that governs a pool of resources, defining usage
 limits and fair sharing rules.
 
-### [Local Queue](local_queue.md)
+### [Local Queue](/docs/concepts/local_queue)
 
 A namespaced resource that groups closely related workloads belonging to a
 single tenant.
 
-### [Workload](workload.md)
+### [Workload](/docs/concepts/workload)
 
 An application that will run to completion. It is the unit of _admission_ in
 Kueue. Sometimes referred to as _job_.
@@ -38,7 +44,7 @@ resource flavors assigned for each requested resource.
 Sometimes referred to as _workload scheduling_ or _job scheduling_
 (not to be confused with [pod scheduling](https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/)).
 
-### [Cohort](cluster_queue.md#cohort)
+### [Cohort](/docs/concepts/cluster_queue#cohort)
 
 A group of ClusterQueues that can borrow unused quota from each other.
 

@@ -1,7 +1,13 @@
-# Metrics
+---
+title: "Prometheus Metrics"
+linkTitle: "Prometheus Metrics"
+date: 2022-02-14
+description: >
+  Prometheus metrics exported by Kueue
+---
 
 Kueue exposes [prometheus](https://prometheus.io) metrics to monitor the health
-of the system and the status of [ClusterQueues](/docs/concepts/cluster_queue.md).
+of the system and the status of [ClusterQueues](/docs/concepts/cluster_queue).
 
 ## Kueue health
 
@@ -9,7 +15,7 @@ Use the following metrics to monitor the health of the kueue controllers:
 
 | Metric name | Type | Description | Labels |
 | ----------- | ---- | ----------- | ------ |
-| `kueue_admission_attempts_total` | Counter | The total number of attempts to [admit](/docs/concepts/README.md#admission) workloads. Each admission attempt might try to admit more than one workload. | `result`: possible values are `success` or `inadmissible` |
+| `kueue_admission_attempts_total` | Counter | The total number of attempts to [admit](/docs/concepts#admission) workloads. Each admission attempt might try to admit more than one workload. | `result`: possible values are `success` or `inadmissible` |
 | `kueue_admission_attempt_duration_seconds` | Histogram | The latency of an admission attempt. | `result`: possible values are `success` or `inadmissible` |
 
 ## ClusterQueue status

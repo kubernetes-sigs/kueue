@@ -1,4 +1,10 @@
-# Installation
+---
+title: "Installation"
+linkTitle: "Installation"
+weight: 2
+description: >
+  Installing Queue to a Kubernetes Cluster
+---
 
 ## Before you begin
 
@@ -10,13 +16,14 @@ Make sure the following conditions are met:
   In Kubernetes 1.23 or newer, the feature gate is enabled by default.
 - The kubectl command-line tool has communication with your cluster.
 
-Kueue publishes [metrics](/docs/reference/metrics.md) to monitor its operators.
+Kueue publishes [metrics](/docs/reference/metrics) to monitor its operators.
 You can scrape these metrics with Prometheus.
 Use [kube-prometheus](https://github.com/prometheus-operator/kube-prometheus)
 if you don't have your own monitoring system.
 
 The webhook server in kueue uses an internal cert management for provisioning certificates. If you want to use
   a third-party one, e.g. [cert-manager](https://github.com/cert-manager/cert-manager), follow these steps:
+
   1. Set `internalCertManagement.enable` to `false` in [config file](#install-a-custom-configured-released-version).
   2. Comment out the `internalcert` folder in `config/default/kustomization.yaml`.
   3. Enable `cert-manager` in `config/default/kustomization.yaml` and uncomment all sections with 'CERTMANAGER'.
@@ -34,7 +41,7 @@ kubectl apply -f https://github.com/kubernetes-sigs/kueue/releases/download/$VER
 
 ### Add metrics scraping for prometheus-operator
 
-_Available in Kueue v0.2.1 and later_
+> _Available in Kueue v0.2.1 and later_
 
 To allow [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator)
 to scrape metrics from kueue components, run the following command:
@@ -64,16 +71,19 @@ To install a custom-configured released version of Kueue in your cluster, execut
 
 1. Download the release's `manifests.yaml` file:
 
-```shell
-VERSION=v0.2.1
-wget https://github.com/kubernetes-sigs/kueue/releases/download/$VERSION/manifests.yaml
-```
+    ```shell
+    VERSION=v0.2.1
+    wget https://github.com/kubernetes-sigs/kueue/releases/download/$VERSION/manifests.yaml
+    ```
+
 2. With an editor of your preference, open `manifests.yaml`.
 3. In the `kueue-manager-config` ConfigMap manifest, edit the
 `controller_manager_config.yaml` data entry. The entry represents
 the default Kueue Configuration
 struct ([v1alpha1@v0.2.1](https://pkg.go.dev/sigs.k8s.io/kueue@v0.2.1/apis/config/v1alpha1#Configuration)).
 The contents of the ConfigMap are similar to the following:
+
+> __The `namespace` and `internalCertManagement` fields are available in Kueue v0.3.0 and later__
 
 ```yaml
 apiVersion: v1
@@ -105,10 +115,10 @@ data:
 __The `namespace`, `waitForPodsReady`, and `internalCertManagement` fields are available in Kueue v0.3.0 and later__
 
 > **Note**
-> See [Sequential Admission with Ready Pods](/docs/tasks/setup_sequential_admission.md) to learn
+> See [Sequential Admission with Ready Pods](/docs/tasks/setup_sequential_admission) to learn
 more about using `waitForPodsReady` for Kueue.
 
-1. Apply the customized manifests to the cluster:
+4. Apply the customized manifests to the cluster:
 
 ```shell
 kubectl apply -f manifests.yaml
@@ -146,7 +156,7 @@ IMAGE_REGISTRY=registry.example.com/my-user make image-local-push deploy
 
 ### Add metrics scraping for prometheus-operator
 
-_Available in Kueue v0.2.0 and later_
+> _Available in Kueue v0.2.0 and later_
 
 To allow [prometheus-operator](https://github.com/prometheus-operator/prometheus-operator)
 to scrape metrics from kueue components, run the following command:

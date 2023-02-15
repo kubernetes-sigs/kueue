@@ -1,4 +1,10 @@
-# Manage role-based access control
+---
+title: "Setup RBAC"
+date: 2022-02-14
+weight: 2
+description: >
+  Setup role-based access control (RBAC) in your cluster to control the types of users that can view and create Kueue objects.
+---
 
 This page shows you how to setup role-based access control (RBAC) in your cluster
 to control the types of users that can view and create Kueue objects.
@@ -11,7 +17,7 @@ Make sure the following conditions are met:
 
 - A Kubernetes cluster is running.
 - The kubectl command-line tool has communication with your cluster.
-- [Kueue is installed](/docs/setup/install.md).
+- [Kueue is installed](/docs/installation).
 
 This page assumes you are already familiar with [RBAC in kubernetes](https://kubernetes.io/docs/reference/access-authn-authz/rbac/).
 
@@ -60,9 +66,10 @@ kubectl apply -f batch-admin-role-binding.yaml
 ## Giving permissions to a batch user
 
 A batch user typically requires permissions to:
+
 - Create and view Jobs in their namespace.
 - View the queues available in their namespace.
-- View the status of their [Workloads](/docs/concepts/workload.md) in their namespace.
+- View the status of their [Workloads](/docs/concepts/workload) in their namespace.
 
 To give these permissions to a group of users `team-a@example.com` for the
 namespace `team-a`, create a RoleBinding with a manifest similar to the
@@ -91,7 +98,3 @@ following command:
 ```shell
 kubectl apply -f team-a-batch-user-role-binding.yaml
 ```
-
-## What's next?
-
-- Learn how to [administer cluster quotas](administer_cluster_quotas.md).

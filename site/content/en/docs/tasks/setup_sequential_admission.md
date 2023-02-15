@@ -1,4 +1,10 @@
-# Sequential Admission with Ready Pods
+---
+title: "Sequential Admission with Ready Pods"
+date: 2022-02-14
+weight: 4
+description: >
+  Simple implementation of the all-or-nothing scheduling
+---
 
 Some jobs need all pods to be running at the same time to operate; for example,
 synchronized distributed training or MPI-based jobs which require pod-to-pod
@@ -24,12 +30,12 @@ Make sure the following conditions are met:
 
 - A Kubernetes cluster is running.
 - The kubectl command-line tool has communication with your cluster.
-- [Kueue is installed](/docs/setup/install.md) in version 0.3.0 or later.
+- [Kueue is installed](/docs/installation) in version 0.3.0 or later.
 
 ## Enabling waitForPodsReady
 
 Follow the instructions described
-[here](/docs/setup/install.md#install-a-custom-configured-released-version) to
+[here](/docs/installation#install-a-custom-configured-released-version) to
 install a release version by extending the configuration with the following
 fields:
 
@@ -43,6 +49,7 @@ fields:
 Note that, if you update an exiting Kueue installation you may need to restart the
 `kueue-controller-manager` pod in order for Kueue to pick up the updated
 configuration. In that case run:
+
 ```shell
 kubectl delete pods --all -n kueue-system
 ```
@@ -75,6 +82,7 @@ can be done with this command:
 TOTAL_ALLOCATABLE=$(kubectl get node --selector='!node-role.kubernetes.io/master,!node-role.kubernetes.io/control-plane' -o jsonpath='{range .items[*]}{.status.allocatable.memory}{"\n"}{end}' | numfmt --from=auto | awk '{s+=$1} END {print s}')
 echo $TOTAL_ALLOCATABLE
 ```
+
 In our case this outputs `8838569984` which, for the purpose of the example, can
 be approximated as `8429Mi`.
 
@@ -84,6 +92,7 @@ We configure the memory flavor by doubling the total memory allocatable in
 our cluster, in order to simulate issues with provisioning.
 
 Save the following cluster queues configuration as `cluster-queues.yaml`:
+
 ``` yaml
 apiVersion: kueue.x-k8s.io/v1alpha2
 kind: ResourceFlavor
@@ -111,7 +120,9 @@ metadata:
 spec:
   clusterQueue: cluster-queue
 ```
+
 Then, apply the configuration by:
+
 ```shell
 kubectl apply -f cluster-queues.yaml
 ```
@@ -276,12 +287,14 @@ kubectl create -f /tmp/job2.yaml
 ```
 
 After a while check the status of the pods by
+
 ```shell
 kubectl get pods
 ```
 
 The output is like this (omitting the pods of the `quick-job` for brevity):
-```
+
+```shell
 NAME            READY   STATUS      RESTARTS   AGE
 job1-0-9pvs8    1/1     Running     0          28m
 job1-1-w9zht    1/1     Running     0          28m
@@ -330,6 +343,7 @@ These jobs are now deadlock'ed and are not going to be able to make progress.
 #### Cleanup
 
 Clean up the jobs by:
+
 ```shell
 kubectl delete -f quick-job.yaml
 kubectl delete -f /tmp/job1.yaml
@@ -358,6 +372,7 @@ kubectl create -f /tmp/job2.yaml
 
 Execute the following command in a couple of seconds internals to monitor
 the progress:
+
 ```shell
 kubectl get pods
 ```
@@ -365,7 +380,8 @@ kubectl get pods
 We omit the pods of the completed `quick` job for brevity.
 
 Output when `job1` is starting up, note that `job2` remains suspended:
-```
+
+```shell
 NAME            READY   STATUS              RESTARTS   AGE
 job1-0-gc284    0/1     ContainerCreating   0          1s
 job1-1-xz555    0/1     ContainerCreating   0          1s
@@ -392,7 +408,7 @@ job1-9-nwqmj    0/1     ContainerCreating   0          1s
 Output when `job1` is running and `job2` is now unsuspended as `job` has all
 the required resources assigned:
 
-```
+```shell
 NAME            READY   STATUS      RESTARTS   AGE
 job1-0-gc284    1/1     Running     0          9s
 job1-1-xz555    1/1     Running     0          9s
@@ -442,6 +458,7 @@ to make progress. Finally, all jobs complete.
 #### Cleanup
 
 Clean up the jobs by:
+
 ```shell
 kubectl delete -f quick-job.yaml
 kubectl delete -f /tmp/job1.yaml

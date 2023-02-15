@@ -1,4 +1,10 @@
-# Run Jobs
+---
+title: "Run A Job"
+date: 2022-02-14
+weight: 5
+description: >
+  Run a Job in a Kubernetes cluster with Kueue enabled.
+---
 
 This page shows you how to run a Job in a Kubernetes cluster with Kueue enabled.
 
@@ -10,8 +16,8 @@ Make sure the following conditions are met:
 
 - A Kubernetes cluster is running.
 - The kubectl command-line tool has communication with your cluster.
-- [Kueue is installed](/docs/setup/install.md).
-- The cluster has [quotas configured](administer_cluster_quotas.md).
+- [Kueue is installed](/docs/installation).
+- The cluster has [quotas configured](/docs/tasks/administer_cluster_resources).
 
 ## 0. Identify the queues available in your namespace
 
@@ -25,12 +31,12 @@ kubectl -n default get queues
 
 The output is similar to the following:
 
-```
+```bash
 NAME         CLUSTERQUEUE    PENDING WORKLOADS
 user-queue   cluster-queue   3
 ```
 
-The [ClusterQueue](/docs/concepts/cluster_queue.md) defines the quotas for the
+The [ClusterQueue](/docs/concepts/cluster_queue) defines the quotas for the
 Queue.
 
 ## 1. Define the Job
@@ -45,7 +51,7 @@ without Kueue. However, you must consider the following differences:
 - You should include the resource requests for each Job Pod.
 
 Here is a sample Job with three Pods that just sleep for a few seconds.
-This sample is also available in [config/samples/sample-job.yaml](/config/samples/sample-job.yaml).
+This sample is also available in [github.com/kubernetes-sigs/kueue/blob/main/config/samples/sample-job.yaml](https://github.com/kubernetes-sigs/kueue/blob/main/config/samples/sample-job.yaml).
 
 ```yaml
 # sample-job.yaml
@@ -80,7 +86,7 @@ You can run the Job with the following command:
 kubectl create -f sample-job.yaml
 ```
 
-Internally, Kueue will create a corresponding [Workload](/docs/concepts/workload.md)
+Internally, Kueue will create a corresponding [Workload](/docs/concepts/workload)
 for this Job with a matching name.
 
 ```shell
@@ -89,12 +95,12 @@ kubectl -n default get workloads
 
 The output will be similar to the following:
 
-```
+```shell
 NAME               QUEUE         ADMITTED BY     AGE
 sample-job-sl4bm   user-queue                    1s
 ```
 
-## 3. (Optional) Monitor the status of the Workload
+## 3. (Optional) Monitor the status of the workload
 
 You can see the Workload status with the following command:
 
@@ -105,7 +111,7 @@ kubectl -n default describe workload sample-job-sl4bm
 If the ClusterQueue doesn't have enough quota to run the Workload, the output
 will be similar to the following:
 
-```
+```shell
 Name:         sample-job-sl4bm
 Namespace:    default
 Labels:       <none>
@@ -136,7 +142,7 @@ kubectl -n default get workloads
 
 The output is similar to the following:
 
-```
+```shell
 NAME               QUEUE         ADMITTED BY     AGE
 sample-job-sl4bm   user-queue    cluster-queue   45s
 ```
@@ -149,7 +155,7 @@ kubectl -n default describe workload sample-job-sl4bm
 
 The output is similar to the following:
 
-```
+```shell
 ...
 Events:
   Type    Reason    Age   From           Message
@@ -165,7 +171,7 @@ kubectl -n default describe workload sample-job-sl4bm
 
 Once the Workload has finished running, the output is similar to the following:
 
-```
+```shell
 ...
 Status:
   Conditions:
@@ -187,7 +193,7 @@ kubectl -n default describe job sample-job-sl4bm
 
 The output is similar to the following:
 
-```
+```shell
 Name:             sample-job-sl4bm
 Namespace:        default
 ...

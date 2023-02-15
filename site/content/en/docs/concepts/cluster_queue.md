@@ -1,8 +1,15 @@
-# Cluster Queue
+---
+title: "Cluster Queue"
+date: 2023-02-14
+weight: 3
+description: >
+  A cluster-scoped resource that governs a pool of resources, defining usage limits and fair sharing rules.
+---
 
 A ClusterQueue is a cluster-scoped object that governs a pool of resources
 such as CPU, memory, and hardware accelerators. A ClusterQueue defines:
-- The quotas for the [resource _flavors_](/docs/concepts/resource_flavor.md) that the ClusterQueue manages,
+
+- The quotas for the [resource _flavors_](/docs/concepts/resource_flavor) that the ClusterQueue manages,
   with usage limits and order of consumption.
 - Fair sharing rules across the multiple ClusterQueues in the cluster.
 
@@ -30,7 +37,8 @@ spec:
         min: 36Gi
 ```
 
-This ClusterQueue admits [Workloads](workload.md) if and only if:
+This ClusterQueue admits [Workloads](/docs/concepts/workload) if and only if:
+
 - The sum of the CPU requests is less than or equal to 9.
 - The sum of the memory requests is less than or equal to 36Gi.
 
@@ -43,10 +51,10 @@ In a ClusterQueue, you can define quotas for multiple [compute resources](https:
 
 For each resource, you can define quotas for multiple _flavors_.
 Flavors represent different variations of a resource (for example, different GPU
-models). You can define a flavor using a [ResourceFlavor object](/docs/concepts/resource_flavor.md).
+models). You can define a flavor using a [ResourceFlavor object](/docs/concepts/resource_flavor).
 
-In a process called [admission](README.md#admission), Kueue assigns to the
-[Workload pod sets](workload.md#pod-sets) a flavor for each resource the pod set
+In a process called [admission](/docs/concepts#admission), Kueue assigns to the
+[Workload pod sets](/docs/concepts/workload#pod-sets) a flavor for each resource the pod set
 requests.
 Kueue assigns the first flavor in the ClusterQueue's `.spec.resources[*].flavors`
 list that has enough unused `min` quota in the ClusterQueue or the
@@ -129,11 +137,11 @@ namespaceSelector:
 You can set different queueing strategies in a ClusterQueue using the
 `.spec.queueingStrategy` field. The queueing strategy determines how workloads
 are ordered in the ClusterQueue and how they are re-queued after an unsuccessful
-[admission](README.md#admission) attempt.
+[admission](/docs/concepts#admission) attempt.
 
 The following are the supported queueing strategies:
 
-- `StrictFIFO`: Workloads are ordered first by [priority](workload.md#priority)
+- `StrictFIFO`: Workloads are ordered first by [priority](/docs/concepts/workload#priority)
   and then by `.metadata.creationTimestamp`. Older workloads that can't be
   admitted will block newer workloads, even if the newer workloads fit in the
   available quota.
@@ -250,6 +258,6 @@ borrow up to the sum of min quotas from all the ClusterQueues in the cohort.
 
 ## What's next?
 
-- Create [local queues](/docs/concepts/local_queue.md)
-- Create [resource flavors](/docs/concepts/resource_flavor.md) if you haven't already done so.
-- Learn how to [administer cluster quotas](/docs/tasks/administer_cluster_quotas.md).
+- Create [local queues](/docs/concepts/local_queue)
+- Create [resource flavors](/docs/concepts/resource_flavor) if you haven't already done so.
+- Learn how to [administer cluster quotas](/docs/tasks/administer_cluster_quotas).

@@ -1,8 +1,14 @@
-# Workload
+---
+title: "Workload"
+date: 2022-02-14
+weight: 5
+description: >
+  An application that will run to completion. It is the unit of admission in Kueue. Sometimes referred to as job.
+---
 
 A _workload_ is an application that will run to completion. It can be composed
 by one or multiple Pods that, loosely or tightly coupled, that, as a whole,
-complete a task. A workload is the unit of [admission](README.md#admission) in Kueue.
+complete a task. A workload is the unit of [admission](/docs/concepts#admission) in Kueue.
 
 The prototypical workload can be represented with a
 [Kubernetes `batch/v1.Job`](https://kubernetes.io/docs/concepts/workloads/controllers/job/).
@@ -41,7 +47,7 @@ spec:
 
 ## Queue name
 
-To indicate in which [LocalQueue](local_queue.md) you want your Workload to be
+To indicate in which [LocalQueue](/docs/concepts/local_queue) you want your Workload to be
 enqueued, set the name of the LocalQueue in the `.spec.queueName` field.
 
 ## Pod sets
@@ -50,6 +56,7 @@ A Workload might be composed of multiple Pods with different pod specs.
 
 Each item of the `.spec.pods` list represents a set of homogeneous Pods and has
 the following fields:
+
 - `spec` describes the pods using a [`v1/core.PodSpec`](https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/pod-v1/#PodSpec).
 - `count` is the number of pods that use the same `spec`.
 - `name` is a human-readable identifier for the pod set. You can use the role of
@@ -57,7 +64,7 @@ the following fields:
 
 ## Priority
 
-Workloads have a priority that influences the [order in which they are admitted by a ClusterQueue](cluster_queue.md#queueing-strategy).
+Workloads have a priority that influences the [order in which they are admitted by a ClusterQueue](/docs/concepts/cluster_queue#queueing-strategy).
 You can see the priority of the Workload in the field `.spec.priority`.
 
 For a `batch/v1.Job`, Kueue sets the priority of the Workload based on the
@@ -67,9 +74,9 @@ of the Job's pod template.
 ## Custom Workloads
 
 As described previously, Kueue has built-in support for workloads created with
-the Job API. But any custom Workload API can integrate with Kueue by
+the Job API. But any custom workload API can integrate with Kueue by
 creating a corresponding Workload object for it.
 
 ## What's next
 
-- Learn how to [run jobs](/docs/tasks/run_jobs.md).
+- Learn how to [run jobs](/docs/tasks/run_jobs)
