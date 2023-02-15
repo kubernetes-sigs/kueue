@@ -24,14 +24,19 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
+	"sigs.k8s.io/kueue/pkg/constants"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
+)
+
+const (
+	invalidRFC1123Message = `a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character (e.g. 'example.com', regex used for validation is '[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*')`
 )
 
 func TestValidateCreate(t *testing.T) {
 	testcases := []struct {
 		name    string
 		job     *batchv1.Job
-		wantErr error
+		wantErr field.ErrorList
 	}{
 		{
 			name:    "simple",
@@ -46,7 +51,20 @@ func TestValidateCreate(t *testing.T) {
 		{
 			name:    "invalid parent-workload annotation",
 			job:     testingutil.MakeJob("job", "default").ParentWorkload("parent workload name").Queue("queue").Obj(),
-			wantErr: field.Invalid(parentWorkloadKeyPath, "parent workload name", `a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character (e.g. 'example.com', regex used for validation is '[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*')`),
+			wantErr: field.ErrorList{field.Invalid(parentWorkloadKeyPath, "parent workload name", invalidRFC1123Message)},
+		},
+		{
+			name:    "invalid queue-name annotation",
+			job:     testingutil.MakeJob("job", "default").Queue("queue name").Obj(),
+			wantErr: field.ErrorList{field.Invalid(annotationsPath.Key(constants.QueueAnnotation), "queue name", invalidRFC1123Message)},
+		},
+		{
+			name: "invalid queue-name and parent-workload annotation",
+			job:  testingutil.MakeJob("job", "default").Queue("queue name").ParentWorkload("parent workload name").Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(parentWorkloadKeyPath, "parent workload name", invalidRFC1123Message),
+				field.Invalid(annotationsPath.Key(constants.QueueAnnotation), "queue name", invalidRFC1123Message),
+			},
 		},
 	}
 
@@ -68,7 +86,7 @@ func TestValidateUpdate(t *testing.T) {
 		name    string
 		oldJob  *batchv1.Job
 		newJob  *batchv1.Job
-		wantErr error
+		wantErr field.ErrorList
 	}{
 		{
 			name:    "normal update",
@@ -80,7 +98,7 @@ func TestValidateUpdate(t *testing.T) {
 			name:    "add queue name with suspend is false",
 			oldJob:  testingutil.MakeJob("job", "default").Obj(),
 			newJob:  testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
-			wantErr: field.Forbidden(suspendPath, "suspend should be true when adding the queue name"),
+			wantErr: field.ErrorList{field.Forbidden(suspendPath, "must not update queue name when job is unsuspend")},
 		},
 		{
 			name:    "add queue name with suspend is true",
@@ -92,7 +110,7 @@ func TestValidateUpdate(t *testing.T) {
 			name:    "change queue name with suspend is false",
 			oldJob:  testingutil.MakeJob("job", "default").Queue("queue").Obj(),
 			newJob:  testingutil.MakeJob("job", "default").Queue("queue2").Suspend(false).Obj(),
-			wantErr: field.Forbidden(suspendPath, "should not update queue name when job is unsuspend"),
+			wantErr: field.ErrorList{field.Forbidden(suspendPath, "must not update queue name when job is unsuspend")},
 		},
 		{
 			name:    "change queue name with suspend is true",
@@ -101,16 +119,31 @@ func TestValidateUpdate(t *testing.T) {
 			wantErr: nil,
 		},
 		{
+			name:    "change queue name with suspend is true, but invalid value",
+			oldJob:  testingutil.MakeJob("job", "default").Obj(),
+			newJob:  testingutil.MakeJob("job", "default").Queue("queue name").Suspend(true).Obj(),
+			wantErr: field.ErrorList{field.Invalid(annotationsPath.Key(constants.QueueAnnotation), "queue name", invalidRFC1123Message)},
+		},
+		{
 			name:    "update the nil parent workload to non-empty",
 			oldJob:  testingutil.MakeJob("job", "default").Obj(),
 			newJob:  testingutil.MakeJob("job", "default").ParentWorkload("parent").Obj(),
-			wantErr: field.Forbidden(parentWorkloadKeyPath, "this annotation is immutable"),
+			wantErr: field.ErrorList{field.Forbidden(parentWorkloadKeyPath, "this annotation is immutable")},
 		},
 		{
 			name:    "update the non-empty parent workload to nil",
 			oldJob:  testingutil.MakeJob("job", "default").ParentWorkload("parent").Obj(),
 			newJob:  testingutil.MakeJob("job", "default").Obj(),
-			wantErr: field.Forbidden(parentWorkloadKeyPath, "this annotation is immutable"),
+			wantErr: field.ErrorList{field.Forbidden(parentWorkloadKeyPath, "this annotation is immutable")},
+		},
+		{
+			name:   "invalid queue name and immutable parent",
+			oldJob: testingutil.MakeJob("job", "default").Obj(),
+			newJob: testingutil.MakeJob("job", "default").Queue("queue name").ParentWorkload("parent").Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(annotationsPath.Key(constants.QueueAnnotation), "queue name", invalidRFC1123Message),
+				field.Forbidden(parentWorkloadKeyPath, "this annotation is immutable"),
+			},
 		},
 	}
 
@@ -118,7 +151,7 @@ func TestValidateUpdate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			gotErr := validateUpdate(tc.oldJob, tc.newJob)
 
-			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{})); diff != "" {
 				t.Errorf("validateUpdate() mismatch (-want +got):\n%s", diff)
 			}
 		})

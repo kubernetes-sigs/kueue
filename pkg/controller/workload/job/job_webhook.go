@@ -58,7 +58,9 @@ func SetupWebhook(mgr ctrl.Manager, opts ...Option) error {
 var _ webhook.CustomDefaulter = &JobWebhook{}
 
 var (
-	parentWorkloadKeyPath = field.NewPath("metadata", "annotations").Key(constants.ParentWorkloadAnnotation)
+	annotationsPath       = field.NewPath("metadata", "annotations")
+	suspendPath           = field.NewPath("job", "spec", "suspend")
+	parentWorkloadKeyPath = annotationsPath.Key(constants.ParentWorkloadAnnotation)
 )
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
@@ -85,16 +87,19 @@ var _ webhook.CustomValidator = &JobWebhook{}
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *JobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
 	job := obj.(*batchv1.Job)
-	return validateCreate(job)
+	return validateCreate(job).ToAggregate()
 }
 
-func validateCreate(job *batchv1.Job) error {
-	if value, exists := job.Annotations[constants.ParentWorkloadAnnotation]; exists {
-		if errs := validation.IsDNS1123Subdomain(value); len(errs) > 0 {
-			return field.Invalid(parentWorkloadKeyPath, value, strings.Join(errs, ","))
+func validateCreate(job *batchv1.Job) field.ErrorList {
+	var allErrs field.ErrorList
+	for _, crdNameAnnotation := range []string{constants.ParentWorkloadAnnotation, constants.QueueAnnotation} {
+		if value, exists := job.Annotations[crdNameAnnotation]; exists {
+			if errs := validation.IsDNS1123Subdomain(value); len(errs) > 0 {
+				allErrs = append(allErrs, field.Invalid(annotationsPath.Key(crdNameAnnotation), value, strings.Join(errs, ",")))
+			}
 		}
 	}
-	return nil
+	return allErrs
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
@@ -103,25 +108,21 @@ func (w *JobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.
 	newJob := newObj.(*batchv1.Job)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Validating update", "job", klog.KObj(newJob))
-
-	return validateUpdate(oldJob, newJob)
+	return validateUpdate(oldJob, newJob).ToAggregate()
 }
 
-func validateUpdate(oldJob, newJob *batchv1.Job) error {
-	suspendPath := field.NewPath("job", "spec", "suspend")
-
-	if queueName(oldJob) == "" && queueName(newJob) != "" && !*newJob.Spec.Suspend {
-		return field.Forbidden(suspendPath, "suspend should be true when adding the queue name")
-	}
+func validateUpdate(oldJob, newJob *batchv1.Job) field.ErrorList {
+	allErrs := validateCreate(newJob)
 
 	if !*newJob.Spec.Suspend && (queueName(oldJob) != queueName(newJob)) {
-		return field.Forbidden(suspendPath, "should not update queue name when job is unsuspend")
+		allErrs = append(allErrs, field.Forbidden(suspendPath, "must not update queue name when job is unsuspend"))
 	}
+
 	if errList := apivalidation.ValidateImmutableField(newJob.Annotations[constants.ParentWorkloadAnnotation],
 		oldJob.Annotations[constants.ParentWorkloadAnnotation], parentWorkloadKeyPath); len(errList) > 0 {
-		return field.Forbidden(parentWorkloadKeyPath, "this annotation is immutable")
+		allErrs = append(allErrs, field.Forbidden(parentWorkloadKeyPath, "this annotation is immutable"))
 	}
-	return nil
+	return allErrs
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
