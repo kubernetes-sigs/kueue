@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	"sigs.k8s.io/kueue/pkg/controller/workload/common"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -60,9 +61,10 @@ var _ = ginkgo.Describe("Kueue", func() {
 				}
 				return *createdJob.Spec.Suspend
 			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+			wlLookupKey := types.NamespacedName{Name: common.GetNameForJob(lookupKey.Name), Namespace: ns.Name}
 			createdWorkload := &kueue.Workload{}
 			gomega.Eventually(func() bool {
-				if err := k8sClient.Get(ctx, lookupKey, createdWorkload); err != nil {
+				if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 					return false
 				}
 				return apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)
@@ -106,8 +108,9 @@ var _ = ginkgo.Describe("Kueue", func() {
 				}
 				return !*createdJob.Spec.Suspend && createdJob.Status.Succeeded > 0
 			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+			wlLookupKey := types.NamespacedName{Name: common.GetNameForJob(lookupKey.Name), Namespace: ns.Name}
 			gomega.Eventually(func() bool {
-				if err := k8sClient.Get(ctx, lookupKey, createdWorkload); err != nil {
+				if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 					return false
 				}
 				return apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted) &&

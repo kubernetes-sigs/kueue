@@ -41,6 +41,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/workload/common"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -525,7 +526,7 @@ func ConstructWorkloadFor(ctx context.Context, client client.Client,
 	job *batchv1.Job, scheme *runtime.Scheme) (*kueue.Workload, error) {
 	w := &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      job.Name,
+			Name:      common.GetNameForJob(job.Name),
 			Namespace: job.Namespace,
 		},
 		Spec: kueue.WorkloadSpec{
