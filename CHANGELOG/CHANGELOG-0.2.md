@@ -12,13 +12,13 @@ Changes since `v0.1.0`:
 - Add internal cert manager to serve webhooks with TLS.
 - Use finalizers to prevent ClusterQueues and ResourceFlavors in use from being
   deleted prematurely.
-- Support [codependent resources](/docs/concepts/cluster_queue.md#codepedent-resources)
+- Support [codependent resources](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#codependent-resources)
   by assigning the same flavor to codependent resources in a pod set.
 - Support [pod overhead](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-overhead/)
   in Workload pod sets.
 - Set requests to limits if requests are not set in a Workload pod set,
   matching [internal defaulting for k8s Pods](https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/pod-v1/#resources).
-- Add [prometheus metrics](/docs/reference/metrics.md) to monitor health of
+- Add [prometheus metrics](https://kueue.sigs.k8s.io/docs/reference/metrics) to monitor health of
   the system and the status of ClusterQueues.
 - Use Server Side Apply for Workload admission to reduce API conflicts.
 
