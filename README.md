@@ -90,7 +90,7 @@ This is a high-level overview of the main priorities for 2023, in expected order
 
 - Job preemption to reclaim borrowed quota and to accommodate high priority jobs [#83](https://github.com/kubernetes-sigs/kueue/issues/83), this is planned for v0.3
 - Cooperative preemption support for workloads that implement checkpointing [#477](https://github.com/kubernetes-sigs/kueue/issues/477)
-- More advanced allocation strategies for better resource sharing [#312](https://github.com/kubernetes-sigs/kueue/issues/312)
+- More flavor assignment strategies support, e.g. _minimizing cost_ vs _minimizing borrowing_ [#312](https://github.com/kubernetes-sigs/kueue/issues/312)
 - Integration with cluster-autoscaler for guaranteed resource provisioning
 - Integration with common custom workloads [#74](https://github.com/kubernetes-sigs/kueue/issues/74):
   - Kubeflow (TFJob, MPIJob, etc.)
