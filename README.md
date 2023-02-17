@@ -1,37 +1,17 @@
 # Kueue
 
-Kueue is a set of APIs and controller for [job](docs/concepts/workload.md)
-[queueing](docs/concepts#queueing). It is a job-level manager that decides when
-a job should be [admitted](docs/concepts#admission) to start (as in pods can be
+Kueue is a set of APIs and controller for [job](https://kueue.sigs.k8s.io/docs/concepts/workload)
+[queueing](https://kueue.sigs.k8s.io/docs/concepts#queueing). It is a job-level manager that decides when
+a job should be [admitted](https://kueue.sigs.k8s.io/docs/concepts#admission) to start (as in pods can be
 created) and when it should stop (as in active pods should be deleted).
 
-## Why use Kueue
-
-Kueue is a lean controller that you can install on top of a vanilla Kubernetes
-cluster. Kueue does not replace any existing Kubernetes components. Kueue is
-compatible with cloud environments where:
-
-- Compute resources are elastic and can be scaled up and down.
-- Compute resources are heterogeneous (in architecture, availability, price, etc.).
-
-Kueue APIs allow you to express:
-
-- Quotas and policies for fair sharing among tenants.
-- Resource fungibility: if a [resource flavor](docs/concepts/cluster_queue.md#resourceflavor-object)
-  is fully utilized, Kueue can admit the job using a different flavor.
-
-The main design principle for Kueue is to avoid duplicating mature functionality
-in [Kubernetes components](https://kubernetes.io/docs/concepts/overview/components/)
-and well-established third-party controllers. Autoscaling, pod-to-node scheduling and
-job lifecycle management are the responsibility of cluster-autoscaler,
-kube-scheduler and kube-controller-manager, respectively. Advanced
-admission control can be delegated to controllers such as [gatekeeper](https://github.com/open-policy-agent/gatekeeper).
+Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) to learn more.
 
 ## Production Readiness status
 
 - ✔️ Coverage with unit and integration tests: ~72%
-- ✔️ Up-to-date [documentation](/docs).
-- ✔️ Monitoring via [metrics](/docs/reference/metrics.md)
+- ✔️ Up-to-date [documentation](https://kueue.sigs.k8s.io/docs).
+- ✔️ Monitoring via [metrics](https://kueue.sigs.k8s.io/docs/reference/metrics)
 - ✔️ API validation and defaulting.
 - ⏳ Scalability tests in progress.
 - ⚠️ Latest API version: v1alpha2.
@@ -51,7 +31,7 @@ kubectl apply -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.2
 
 The controller runs in the `kueue-system` namespace.
 
-Read the [installation guide](/docs/setup/install.md) to learn more.
+Read the [installation guide](https://kueue.sigs.k8s.io/docs/installation/) to learn more.
 
 ## Usage
 
@@ -68,9 +48,8 @@ kubectl create -f config/samples/sample-job.yaml
 ```
 
 Learn more about:
-
-- Kueue [concepts](docs/concepts).
-- Common and advanced [tasks](docs/tasks).
+- Kueue [concepts](https://kueue.sigs.k8s.io/docs/concepts).
+- Common and advanced [tasks](https://kueue.sigs.k8s.io/docs/tasks).
 
 ## Architecture
 
