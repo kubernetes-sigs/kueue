@@ -3,7 +3,7 @@ title: "Installation"
 linkTitle: "Installation"
 weight: 2
 description: >
-  Installing Queue to a Kubernetes Cluster
+  Installing Kueue to a Kubernetes Cluster
 ---
 
 ## Before you begin
