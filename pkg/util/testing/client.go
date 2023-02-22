@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright 2023 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,22 +17,30 @@ limitations under the License.
 package testing
 
 import (
-	"testing"
-
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	"sigs.k8s.io/kueue/pkg/util/indexer"
 )
 
-func MustGetScheme(t *testing.T) *runtime.Scheme {
-	t.Helper()
+func NewFakeClient(objs ...client.Object) client.Client {
+	return NewClientBuilder().WithObjects(objs...).Build()
+}
+
+func NewClientBuilder() *fake.ClientBuilder {
 	scheme := runtime.NewScheme()
 	if err := corev1.AddToScheme(scheme); err != nil {
-		t.Fatalf("Failed adding core to scheme: %v", err)
+		panic(err)
 	}
 	if err := kueue.AddToScheme(scheme); err != nil {
-		t.Fatalf("Failed adding kueue to scheme: %v", err)
+		panic(err)
 	}
-	return scheme
+
+	return fake.NewClientBuilder().WithScheme(scheme).
+		WithIndex(&kueue.LocalQueue{}, indexer.QueueClusterQueueKey, indexer.IndexQueueClusterQueue).
+		WithIndex(&kueue.Workload{}, indexer.WorkloadQueueKey, indexer.IndexWorkloadQueue).
+		WithIndex(&kueue.Workload{}, indexer.WorkloadClusterQueueKey, indexer.IndexWorkloadClusterQueue)
 }

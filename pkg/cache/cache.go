@@ -33,13 +33,9 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	utilindexer "sigs.k8s.io/kueue/pkg/util/indexer"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 	"sigs.k8s.io/kueue/pkg/workload"
-)
-
-const (
-	workloadClusterQueueKey = "spec.admission.clusterQueue"
-	queueClusterQueueKey    = "spec.clusterQueue"
 )
 
 var (
@@ -529,7 +525,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 	// add queue and workload, so here we explicitly list and add existing queues
 	// and workloads.
 	var queues kueue.LocalQueueList
-	if err := c.client.List(ctx, &queues, client.MatchingFields{queueClusterQueueKey: cq.Name}); err != nil {
+	if err := c.client.List(ctx, &queues, client.MatchingFields{utilindexer.QueueClusterQueueKey: cq.Name}); err != nil {
 		return fmt.Errorf("listing queues that match the clusterQueue: %w", err)
 	}
 	for _, q := range queues.Items {
@@ -539,7 +535,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 		}
 	}
 	var workloads kueue.WorkloadList
-	if err := c.client.List(ctx, &workloads, client.MatchingFields{workloadClusterQueueKey: cq.Name}); err != nil {
+	if err := c.client.List(ctx, &workloads, client.MatchingFields{utilindexer.WorkloadClusterQueueKey: cq.Name}); err != nil {
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
 	for i, w := range workloads.Items {
@@ -881,13 +877,7 @@ func resourcesByName(in []kueue.Resource) map[corev1.ResourceName]*Resource {
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
-	return indexer.IndexField(ctx, &kueue.Workload{}, workloadClusterQueueKey, func(o client.Object) []string {
-		wl := o.(*kueue.Workload)
-		if wl.Spec.Admission == nil {
-			return nil
-		}
-		return []string{string(wl.Spec.Admission.ClusterQueue)}
-	})
+	return indexer.IndexField(ctx, &kueue.Workload{}, utilindexer.WorkloadClusterQueueKey, utilindexer.IndexWorkloadClusterQueue)
 }
 
 func workloadBelongsToLocalQueue(wl *kueue.Workload, q *kueue.LocalQueue) bool {

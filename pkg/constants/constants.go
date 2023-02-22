@@ -16,7 +16,9 @@ limitations under the License.
 
 package constants
 
-import "time"
+import (
+	"time"
+)
 
 const (
 	// QueueAnnotation is the annotation in the workload that holds the queue name.

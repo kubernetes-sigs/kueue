@@ -24,14 +24,12 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/queue"
-	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func TestUpdateCqStatusIfChanged(t *testing.T) {
@@ -39,8 +37,8 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 	lqName := "test-lq"
 	defaultWls := &kueue.WorkloadList{
 		Items: []kueue.Workload{
-			*testingutil.MakeWorkload("alpha", "").Queue(lqName).Obj(),
-			*testingutil.MakeWorkload("beta", "").Queue(lqName).Obj(),
+			*utiltesting.MakeWorkload("alpha", "").Queue(lqName).Obj(),
+			*utiltesting.MakeWorkload("beta", "").Queue(lqName).Obj(),
 		},
 	}
 
@@ -154,7 +152,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					Message: "Can admit new workloads",
 				}},
 			},
-			newWl:              testingutil.MakeWorkload("gamma", "").Queue(lqName).Obj(),
+			newWl:              utiltesting.MakeWorkload("gamma", "").Queue(lqName).Obj(),
 			newConditionStatus: metav1.ConditionTrue,
 			newReason:          "Ready",
 			newMessage:         "Can admit new workloads",
@@ -173,23 +171,18 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			cq := testingutil.MakeClusterQueue(cqName).
+			cq := utiltesting.MakeClusterQueue(cqName).
 				QueueingStrategy(kueue.StrictFIFO).Obj()
 			cq.Status = tc.cqStatus
-			lq := testingutil.MakeLocalQueue(lqName, "").
+			lq := utiltesting.MakeLocalQueue(lqName, "").
 				ClusterQueue(cqName).Obj()
 			log := testr.NewWithOptions(t, testr.Options{
 				Verbosity: 2,
 			})
 			ctx := ctrl.LoggerInto(context.Background(), log)
-			scheme := runtime.NewScheme()
-			if err := kueue.AddToScheme(scheme); err != nil {
-				t.Fatalf("Failed adding kueue scheme: %v", err)
-			}
-			clientBuilder := fake.NewClientBuilder().WithScheme(scheme).
-				WithLists(defaultWls).
-				WithObjects(lq, cq)
-			cl := clientBuilder.Build()
+
+			cl := utiltesting.NewClientBuilder().WithLists(defaultWls).WithObjects(lq, cq).
+				Build()
 			cqCache := cache.New(cl)
 			qManager := queue.NewManager(cl, cqCache)
 			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {

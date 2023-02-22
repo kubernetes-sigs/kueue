@@ -30,7 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -42,18 +41,14 @@ const headsTimeout = 3 * time.Second
 // TestAddLocalQueueOrphans verifies that pods added before adding the queue are
 // present when the queue is added.
 func TestAddLocalQueueOrphans(t *testing.T) {
-	scheme := runtime.NewScheme()
-	if err := kueue.AddToScheme(scheme); err != nil {
-		t.Fatalf("Failed adding kueue scheme: %s", err)
-	}
-	kClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+	kClient := utiltesting.NewFakeClient(
 		utiltesting.MakeWorkload("a", "earth").Queue("foo").Obj(),
 		utiltesting.MakeWorkload("b", "earth").Queue("bar").Obj(),
 		utiltesting.MakeWorkload("c", "earth").Queue("foo").Obj(),
 		utiltesting.MakeWorkload("d", "earth").Queue("foo").
 			Admit(utiltesting.MakeAdmission("cq").Obj()).Obj(),
 		utiltesting.MakeWorkload("a", "moon").Queue("foo").Obj(),
-	).Build()
+	)
 	manager := NewManager(kClient, nil)
 	q := utiltesting.MakeLocalQueue("foo", "earth").Obj()
 	if err := manager.AddLocalQueue(context.Background(), q); err != nil {
@@ -78,7 +73,7 @@ func TestAddClusterQueueOrphans(t *testing.T) {
 		utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
 		utiltesting.MakeLocalQueue("bar", "").ClusterQueue("cq").Obj(),
 	}
-	kClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+	kClient := utiltesting.NewFakeClient(
 		utiltesting.MakeWorkload("a", "").Queue("foo").Creation(now.Add(time.Second)).Obj(),
 		utiltesting.MakeWorkload("b", "").Queue("bar").Creation(now).Obj(),
 		utiltesting.MakeWorkload("c", "").Queue("foo").
@@ -86,7 +81,7 @@ func TestAddClusterQueueOrphans(t *testing.T) {
 		utiltesting.MakeWorkload("d", "").Queue("baz").Obj(),
 		queues[0],
 		queues[1],
-	).Build()
+	)
 	ctx := context.Background()
 	manager := NewManager(kClient, nil)
 	cq := utiltesting.MakeClusterQueue("cq").Obj()
@@ -140,11 +135,10 @@ func TestUpdateClusterQueue(t *testing.T) {
 		utiltesting.MakeWorkload("b", defaultNamespace).Queue("bar").Creation(now).Obj(),
 	}
 	// Setup.
-	scheme := utiltesting.MustGetScheme(t)
 	ctx := context.Background()
-	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+	cl := utiltesting.NewFakeClient(
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: defaultNamespace}},
-	).Build()
+	)
 	manager := NewManager(cl, nil)
 	for _, cq := range clusterQueues {
 		if err := manager.AddClusterQueue(ctx, cq); err != nil {
@@ -210,7 +204,7 @@ func TestUpdateLocalQueue(t *testing.T) {
 		t.Fatalf("Failed adding kueue scheme: %s", err)
 	}
 	ctx := context.Background()
-	manager := NewManager(fake.NewClientBuilder().WithScheme(scheme).Build(), nil)
+	manager := NewManager(utiltesting.NewFakeClient(), nil)
 	for _, cq := range clusterQueues {
 		if err := manager.AddClusterQueue(ctx, cq); err != nil {
 			t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
@@ -252,9 +246,8 @@ func TestDeleteLocalQueue(t *testing.T) {
 	q := utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj()
 	wl := utiltesting.MakeWorkload("a", "").Queue("foo").Obj()
 
-	scheme := utiltesting.MustGetScheme(t)
 	ctx := context.Background()
-	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(wl).Build()
+	cl := utiltesting.NewFakeClient(wl)
 	manager := NewManager(cl, nil)
 
 	if err := manager.AddClusterQueue(ctx, cq); err != nil {
@@ -279,11 +272,7 @@ func TestDeleteLocalQueue(t *testing.T) {
 }
 
 func TestAddWorkload(t *testing.T) {
-	scheme := runtime.NewScheme()
-	if err := kueue.AddToScheme(scheme); err != nil {
-		t.Fatalf("Failed adding kueue scheme: %s", err)
-	}
-	manager := NewManager(fake.NewClientBuilder().WithScheme(scheme).Build(), nil)
+	manager := NewManager(utiltesting.NewFakeClient(), nil)
 	cq := utiltesting.MakeClusterQueue("cq").Obj()
 	if err := manager.AddClusterQueue(context.Background(), cq); err != nil {
 		t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
@@ -401,7 +390,7 @@ func TestStatus(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(fake.NewClientBuilder().WithScheme(scheme).Build(), nil)
+	manager := NewManager(utiltesting.NewFakeClient(), nil)
 	for _, q := range queues {
 		if err := manager.AddLocalQueue(ctx, &q); err != nil {
 			t.Errorf("Failed adding queue: %s", err)
@@ -447,10 +436,6 @@ func TestStatus(t *testing.T) {
 }
 
 func TestRequeueWorkloadStrictFIFO(t *testing.T) {
-	scheme := runtime.NewScheme()
-	if err := kueue.AddToScheme(scheme); err != nil {
-		t.Fatalf("Failed adding kueue scheme: %s", err)
-	}
 	cq := utiltesting.MakeClusterQueue("cq").Obj()
 	queues := []*kueue.LocalQueue{
 		utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
@@ -512,7 +497,7 @@ func TestRequeueWorkloadStrictFIFO(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.workload.Name, func(t *testing.T) {
-			cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+			cl := utiltesting.NewFakeClient()
 			manager := NewManager(cl, nil)
 			ctx := context.Background()
 			if err := manager.AddClusterQueue(ctx, cq); err != nil {
@@ -670,7 +655,7 @@ func TestUpdateWorkload(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			manager := NewManager(fake.NewClientBuilder().WithScheme(scheme).Build(), nil)
+			manager := NewManager(utiltesting.NewFakeClient(), nil)
 			ctx := context.Background()
 			for _, cq := range tc.clusterQueues {
 				if err := manager.AddClusterQueue(ctx, cq); err != nil {
@@ -786,7 +771,7 @@ func TestHeads(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), headsTimeout)
 			defer cancel()
 			fakeC := &fakeStatusChecker{}
-			manager := NewManager(fake.NewClientBuilder().WithScheme(scheme).Build(), fakeC)
+			manager := NewManager(utiltesting.NewFakeClient(), fakeC)
 			for _, cq := range clusterQueues {
 				if err := manager.AddClusterQueue(ctx, cq); err != nil {
 					t.Fatalf("Failed adding clusterQueue %s to manager: %v", cq.Name, err)
@@ -820,10 +805,6 @@ var ignoreTypeMeta = cmpopts.IgnoreTypes(metav1.TypeMeta{})
 // TestHeadAsync ensures that Heads call is blocked until the queues are filled
 // asynchronously.
 func TestHeadsAsync(t *testing.T) {
-	scheme := runtime.NewScheme()
-	if err := kueue.AddToScheme(scheme); err != nil {
-		t.Fatalf("Failed adding kueue scheme: %s", err)
-	}
 	now := time.Now().Truncate(time.Second)
 	clusterQueues := []*kueue.ClusterQueue{
 		utiltesting.MakeClusterQueue("fooCq").Obj(),
@@ -1022,7 +1003,7 @@ func TestHeadsAsync(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), headsTimeout)
 			defer cancel()
-			client := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tc.initialObjs...).Build()
+			client := utiltesting.NewFakeClient(tc.initialObjs...)
 			manager := NewManager(client, nil)
 			go manager.CleanUpOnContext(ctx)
 			tc.op(ctx, manager)
@@ -1036,7 +1017,7 @@ func TestHeadsAsync(t *testing.T) {
 
 // TestHeadsCancelled ensures that the Heads call returns when the context is closed.
 func TestHeadsCancelled(t *testing.T) {
-	manager := NewManager(fake.NewClientBuilder().Build(), nil)
+	manager := NewManager(utiltesting.NewFakeClient(), nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		cancel()
