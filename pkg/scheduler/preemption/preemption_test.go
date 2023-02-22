@@ -28,10 +28,10 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 	"sigs.k8s.io/kueue/pkg/cache"
@@ -552,9 +552,7 @@ func TestPreemption(t *testing.T) {
 				Verbosity: 2,
 			})
 			ctx := ctrl.LoggerInto(context.Background(), log)
-			scheme := utiltesting.MustGetScheme(t)
-			cl := fake.NewClientBuilder().
-				WithScheme(scheme).
+			cl := utiltesting.NewClientBuilder().
 				WithLists(&kueue.WorkloadList{Items: tc.admitted}).
 				Build()
 
@@ -571,6 +569,7 @@ func TestPreemption(t *testing.T) {
 			var lock sync.Mutex
 			gotPreempted := sets.New[string]()
 			broadcaster := record.NewBroadcaster()
+			scheme := runtime.NewScheme()
 			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
 			preemptor := New(cl, recorder)
 			preemptor.applyPreemption = func(ctx context.Context, w *kueue.Workload) error {

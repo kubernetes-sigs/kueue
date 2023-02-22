@@ -24,9 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -39,11 +37,6 @@ var snapCmpOpts = []cmp.Option{
 }
 
 func TestSnapshot(t *testing.T) {
-	scheme := runtime.NewScheme()
-	if err := kueue.AddToScheme(scheme); err != nil {
-		t.Fatalf("Failed adding kueue scheme: %s", err)
-	}
-
 	testCases := map[string]struct {
 		cqs          []*kueue.ClusterQueue
 		rfs          []*kueue.ResourceFlavor
@@ -441,7 +434,7 @@ func TestSnapshot(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			cache := New(fake.NewClientBuilder().WithScheme(scheme).Build())
+			cache := New(utiltesting.NewFakeClient())
 			for _, cq := range tc.cqs {
 				// Purposely do not make a copy of clusterQueues. Clones of necessary fields are
 				// done in AddClusterQueue.
@@ -509,12 +502,9 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 			Admit(utiltesting.MakeAdmission("c2").Flavor(corev1.ResourceCPU, "default").Obj()).
 			Obj(),
 	}
+
 	ctx := context.Background()
-	scheme := utiltesting.MustGetScheme(t)
-	cl := fake.NewClientBuilder().
-		WithScheme(scheme).
-		WithLists(&kueue.WorkloadList{Items: workloads}).
-		Build()
+	cl := utiltesting.NewClientBuilder().WithLists(&kueue.WorkloadList{Items: workloads}).Build()
 
 	cqCache := New(cl)
 	for _, flv := range flavors {

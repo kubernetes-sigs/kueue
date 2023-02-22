@@ -28,10 +28,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -114,10 +112,6 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				t.Fatalf("Failed adding ClusterQueue: %v", err)
 			}
 		}
-	}
-	scheme := runtime.NewScheme()
-	if err := kueue.AddToScheme(scheme); err != nil {
-		t.Fatalf("Failed adding kueue scheme: %v", err)
 	}
 	cases := []struct {
 		name              string
@@ -596,9 +590,10 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			},
 		},
 	}
+
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cache := New(fake.NewClientBuilder().WithScheme(scheme).Build())
+			cache := New(utiltesting.NewFakeClient())
 			tc.operation(cache)
 			if diff := cmp.Diff(tc.wantClusterQueues, cache.clusterQueues,
 				cmpopts.IgnoreFields(ClusterQueue{}, "Cohort", "Workloads"),
@@ -685,11 +680,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 		},
 	}
-	scheme := runtime.NewScheme()
-	if err := kueue.AddToScheme(scheme); err != nil {
-		t.Fatalf("Failed adding kueue scheme: %v", err)
-	}
-	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+	cl := utiltesting.NewFakeClient(
 		utiltesting.MakeWorkload("a", "").PodSets(podSets).Admit(&kueue.Admission{
 			ClusterQueue:  "one",
 			PodSetFlavors: podSetFlavors,
@@ -699,8 +690,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 		}).Obj(),
 		utiltesting.MakeWorkload("c", "").PodSets(podSets).Admit(&kueue.Admission{
 			ClusterQueue: "two",
-		}).Obj(),
-	).Build()
+		}).Obj())
 
 	type result struct {
 		Workloads     sets.Set[string]
@@ -1304,11 +1294,7 @@ func TestClusterQueueUsage(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			scheme := runtime.NewScheme()
-			if err := kueue.AddToScheme(scheme); err != nil {
-				t.Fatalf("Failed adding kueue scheme: %v", err)
-			}
-			cache := New(fake.NewClientBuilder().WithScheme(scheme).Build())
+			cache := New(utiltesting.NewFakeClient())
 			ctx := context.Background()
 			err := cache.AddClusterQueue(ctx, &cq)
 			if err != nil {
@@ -1525,11 +1511,7 @@ func TestCacheQueueOperations(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			scheme := runtime.NewScheme()
-			if err := kueue.AddToScheme(scheme); err != nil {
-				t.Fatalf("Failed adding kueue scheme: %v", err)
-			}
-			cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+			cl := utiltesting.NewFakeClient()
 			cache := New(cl)
 			ctx := context.Background()
 			for i, op := range tc.ops {
@@ -1593,16 +1575,12 @@ func TestClusterQueuesUsingFlavor(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := context.Background()
-			scheme := runtime.NewScheme()
-			if err := kueue.AddToScheme(scheme); err != nil {
-				t.Fatalf("Failed adding kueue scheme: %v", err)
-			}
-			cache := New(fake.NewClientBuilder().WithScheme(scheme).Build())
+			cache := New(utiltesting.NewFakeClient())
 			cache.AddOrUpdateResourceFlavor(x86Rf)
 			cache.AddOrUpdateResourceFlavor(aarch64Rf)
+
 			for _, cq := range tc.clusterQueues {
-				if err := cache.AddClusterQueue(ctx, cq); err != nil {
+				if err := cache.AddClusterQueue(context.Background(), cq); err != nil {
 					t.Errorf("failed to add clusterQueue %s", cq.Name)
 				}
 			}
@@ -1672,11 +1650,7 @@ func TestClusterQueueUpdateWithFlavors(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			scheme := runtime.NewScheme()
-			if err := kueue.AddToScheme(scheme); err != nil {
-				t.Fatalf("Failed adding kueue scheme: %v", err)
-			}
-			cache := New(fake.NewClientBuilder().WithScheme(scheme).Build())
+			cache := New(utiltesting.NewFakeClient())
 			cq, err := cache.newClusterQueue(tc.clusterQueue)
 			if err != nil {
 				t.Fatalf("failed to new clusterQueue %v", err)
@@ -1841,14 +1815,9 @@ func TestMatchingClusterQueues(t *testing.T) {
 	}
 	wantCQs := sets.New("matching1", "matching2")
 
-	ctx := context.Background()
-	scheme := runtime.NewScheme()
-	if err := kueue.AddToScheme(scheme); err != nil {
-		t.Fatalf("Failed adding kueue scheme: %v", err)
-	}
-	cache := New(fake.NewClientBuilder().WithScheme(scheme).Build())
+	cache := New(utiltesting.NewFakeClient())
 	for _, cq := range clusterQueues {
-		if err := cache.AddClusterQueue(ctx, cq); err != nil {
+		if err := cache.AddClusterQueue(context.Background(), cq); err != nil {
 			t.Errorf("failed to add clusterQueue %s", cq.Name)
 		}
 	}
@@ -1861,13 +1830,7 @@ func TestMatchingClusterQueues(t *testing.T) {
 
 // TestWaitForPodsReadyCancelled ensures that the WaitForPodsReady call does not block when the context is closed.
 func TestWaitForPodsReadyCancelled(t *testing.T) {
-	scheme := runtime.NewScheme()
-	if err := kueue.AddToScheme(scheme); err != nil {
-		t.Fatalf("Failed adding kueue scheme: %v", err)
-	}
-	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
-
-	cache := New(cl, WithPodsReadyTracking(true))
+	cache := New(utiltesting.NewFakeClient(), WithPodsReadyTracking(true))
 	ctx, cancel := context.WithCancel(context.Background())
 
 	go cache.CleanUpOnContext(ctx)
@@ -1907,11 +1870,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 		},
 	}
 
-	scheme := runtime.NewScheme()
-	if err := kueue.AddToScheme(scheme); err != nil {
-		t.Fatalf("Failed adding kueue scheme: %v", err)
-	}
-	cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+	cl := utiltesting.NewFakeClient()
 
 	tests := []struct {
 		name      string

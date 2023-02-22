@@ -25,9 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -170,17 +168,11 @@ func Test_DeleteFromLocalQueue(t *testing.T) {
 }
 
 func TestClusterQueueImpl(t *testing.T) {
-	scheme := runtime.NewScheme()
-	if err := corev1.AddToScheme(scheme); err != nil {
-		t.Fatalf("Failed adding kueue scheme: %v", err)
-	}
-	clientBuilder := fake.NewClientBuilder().WithScheme(scheme).
-		WithObjects(
-			&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns1", Labels: map[string]string{"dep": "eng"}}},
-			&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns2", Labels: map[string]string{"dep": "sales"}}},
-			&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns3", Labels: map[string]string{"dep": "marketing"}}},
-		)
-	cl := clientBuilder.Build()
+	cl := utiltesting.NewFakeClient(
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns1", Labels: map[string]string{"dep": "eng"}}},
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns2", Labels: map[string]string{"dep": "sales"}}},
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns3", Labels: map[string]string{"dep": "marketing"}}},
+	)
 
 	var workloads = []*kueue.Workload{
 		utiltesting.MakeWorkload("w1", "ns1").Queue("q1").Obj(),
@@ -326,13 +318,12 @@ func TestQueueInadmissibleWorkloadsDuringScheduling(t *testing.T) {
 	cq := newClusterQueueImpl(keyFunc, byCreationTime)
 	cq.namespaceSelector = labels.Everything()
 	wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
-	scheme := utiltesting.MustGetScheme(t)
-	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+	cl := utiltesting.NewFakeClient(
 		wl,
 		&corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{Name: defaultNamespace},
 		},
-	).Build()
+	)
 	ctx := context.Background()
 	cq.PushOrUpdate(workload.NewInfo(wl))
 

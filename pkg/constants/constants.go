@@ -16,7 +16,9 @@ limitations under the License.
 
 package constants
 
-import "time"
+import (
+	"time"
+)
 
 const (
 	// QueueAnnotation is the annotation in the workload that holds the queue name.
@@ -44,4 +46,10 @@ const (
 	// that do not specify any priority class and there is no priority class
 	// marked as default.
 	DefaultPriority = 0
+)
+
+const (
+	MatchingFieldWorkloadQueueKey        = "spec.queueName"
+	MatchingFieldQueueClusterQueueKey    = "spec.clusterQueue"
+	MatchingFieldWorkloadClusterQueueKey = "spec.admission.clusterQueue"
 )
