@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright 2023 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -23,25 +23,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
-	"sigs.k8s.io/kueue/pkg/constants"
-	utilindexer "sigs.k8s.io/kueue/pkg/util/indexer"
+	"sigs.k8s.io/kueue/pkg/util/indexer"
 )
 
 func NewFakeClient(objs ...client.Object) client.Client {
-	scheme := runtime.NewScheme()
-	if err := corev1.AddToScheme(scheme); err != nil {
-		panic(err)
-	}
-	if err := kueue.AddToScheme(scheme); err != nil {
-		panic(err)
-	}
-
-	return fake.NewClientBuilder().WithScheme(scheme).
-		WithIndex(&kueue.LocalQueue{}, constants.MatchingFieldQueueClusterQueueKey, utilindexer.IndexQueueClusterQueue).
-		WithIndex(&kueue.Workload{}, constants.MatchingFieldWorkloadQueueKey, utilindexer.IndexWorkloadQueue).
-		WithIndex(&kueue.Workload{}, constants.MatchingFieldWorkloadClusterQueueKey, utilindexer.IndexWorkloadClusterQueue).
-		WithObjects(objs...).
-		Build()
+	return NewClientBuilder().WithObjects(objs...).Build()
 }
 
 func NewClientBuilder() *fake.ClientBuilder {
@@ -54,7 +40,7 @@ func NewClientBuilder() *fake.ClientBuilder {
 	}
 
 	return fake.NewClientBuilder().WithScheme(scheme).
-		WithIndex(&kueue.LocalQueue{}, constants.MatchingFieldQueueClusterQueueKey, utilindexer.IndexQueueClusterQueue).
-		WithIndex(&kueue.Workload{}, constants.MatchingFieldWorkloadQueueKey, utilindexer.IndexWorkloadQueue).
-		WithIndex(&kueue.Workload{}, constants.MatchingFieldWorkloadClusterQueueKey, utilindexer.IndexWorkloadClusterQueue)
+		WithIndex(&kueue.LocalQueue{}, indexer.QueueClusterQueueKey, indexer.IndexQueueClusterQueue).
+		WithIndex(&kueue.Workload{}, indexer.WorkloadQueueKey, indexer.IndexWorkloadQueue).
+		WithIndex(&kueue.Workload{}, indexer.WorkloadClusterQueueKey, indexer.IndexWorkloadClusterQueue)
 }

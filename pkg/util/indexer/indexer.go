@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright 2023 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,19 +22,34 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 )
 
+const (
+	WorkloadQueueKey        = "spec.queueName"
+	WorkloadClusterQueueKey = "spec.admission.clusterQueue"
+	QueueClusterQueueKey    = "spec.clusterQueue"
+)
+
 var (
 	IndexQueueClusterQueue = func(obj client.Object) []string {
-		q := obj.(*kueue.LocalQueue)
+		q, ok := obj.(*kueue.LocalQueue)
+		if !ok {
+			return nil
+		}
 		return []string{string(q.Spec.ClusterQueue)}
 	}
 
 	IndexWorkloadQueue = func(obj client.Object) []string {
-		wl := obj.(*kueue.Workload)
+		wl, ok := obj.(*kueue.Workload)
+		if !ok {
+			return nil
+		}
 		return []string{wl.Spec.QueueName}
 	}
 
 	IndexWorkloadClusterQueue = func(obj client.Object) []string {
-		wl := obj.(*kueue.Workload)
+		wl, ok := obj.(*kueue.Workload)
+		if !ok {
+			return nil
+		}
 		if wl.Spec.Admission == nil {
 			return nil
 		}

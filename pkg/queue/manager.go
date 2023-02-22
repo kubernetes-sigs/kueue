@@ -28,7 +28,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utilindexer "sigs.k8s.io/kueue/pkg/util/indexer"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -87,7 +86,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 	// Iterate through existing queues, as queues corresponding to this cluster
 	// queue might have been added earlier.
 	var queues kueue.LocalQueueList
-	if err := m.client.List(ctx, &queues, client.MatchingFields{constants.MatchingFieldQueueClusterQueueKey: cq.Name}); err != nil {
+	if err := m.client.List(ctx, &queues, client.MatchingFields{utilindexer.QueueClusterQueueKey: cq.Name}); err != nil {
 		return fmt.Errorf("listing queues pointing to the cluster queue: %w", err)
 	}
 	addedWorkloads := false
@@ -165,7 +164,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 	// Iterate through existing workloads, as workloads corresponding to this
 	// queue might have been added earlier.
 	var workloads kueue.WorkloadList
-	if err := m.client.List(ctx, &workloads, client.MatchingFields{constants.MatchingFieldWorkloadQueueKey: q.Name}, client.InNamespace(q.Namespace)); err != nil {
+	if err := m.client.List(ctx, &workloads, client.MatchingFields{utilindexer.WorkloadQueueKey: q.Name}, client.InNamespace(q.Namespace)); err != nil {
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
 	for _, w := range workloads.Items {
@@ -555,11 +554,11 @@ func (m *Manager) reportPendingWorkloads(cqName string, cq ClusterQueue) {
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
-	err := indexer.IndexField(ctx, &kueue.Workload{}, constants.MatchingFieldWorkloadQueueKey, utilindexer.IndexWorkloadQueue)
+	err := indexer.IndexField(ctx, &kueue.Workload{}, utilindexer.WorkloadQueueKey, utilindexer.IndexWorkloadQueue)
 	if err != nil {
 		return fmt.Errorf("setting index on queue for Workload: %w", err)
 	}
-	err = indexer.IndexField(ctx, &kueue.LocalQueue{}, constants.MatchingFieldQueueClusterQueueKey, utilindexer.IndexQueueClusterQueue)
+	err = indexer.IndexField(ctx, &kueue.LocalQueue{}, utilindexer.QueueClusterQueueKey, utilindexer.IndexQueueClusterQueue)
 	if err != nil {
 		return fmt.Errorf("setting index on clusterQueue for Queue: %w", err)
 	}

@@ -47,9 +47,3 @@ const (
 	// marked as default.
 	DefaultPriority = 0
 )
-
-const (
-	MatchingFieldWorkloadQueueKey        = "spec.queueName"
-	MatchingFieldQueueClusterQueueKey    = "spec.clusterQueue"
-	MatchingFieldWorkloadClusterQueueKey = "spec.admission.clusterQueue"
-)
