@@ -30,7 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -205,7 +204,7 @@ func TestUpdateLocalQueue(t *testing.T) {
 		t.Fatalf("Failed adding kueue scheme: %s", err)
 	}
 	ctx := context.Background()
-	manager := NewManager(fake.NewClientBuilder().WithScheme(scheme).Build(), nil)
+	manager := NewManager(utiltesting.NewFakeClient(), nil)
 	for _, cq := range clusterQueues {
 		if err := manager.AddClusterQueue(ctx, cq); err != nil {
 			t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
@@ -437,10 +436,6 @@ func TestStatus(t *testing.T) {
 }
 
 func TestRequeueWorkloadStrictFIFO(t *testing.T) {
-	scheme := runtime.NewScheme()
-	if err := kueue.AddToScheme(scheme); err != nil {
-		t.Fatalf("Failed adding kueue scheme: %s", err)
-	}
 	cq := utiltesting.MakeClusterQueue("cq").Obj()
 	queues := []*kueue.LocalQueue{
 		utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
@@ -502,7 +497,7 @@ func TestRequeueWorkloadStrictFIFO(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.workload.Name, func(t *testing.T) {
-			cl := fake.NewClientBuilder().WithScheme(scheme).Build()
+			cl := utiltesting.NewFakeClient()
 			manager := NewManager(cl, nil)
 			ctx := context.Background()
 			if err := manager.AddClusterQueue(ctx, cq); err != nil {
