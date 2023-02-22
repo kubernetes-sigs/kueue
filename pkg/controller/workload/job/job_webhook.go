@@ -22,6 +22,7 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -30,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/workload/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 )
 
@@ -68,6 +70,17 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	job := obj.(*batchv1.Job)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Applying defaults", "job", klog.KObj(job))
+
+	if owner := metav1.GetControllerOf(job); owner != nil && jobframework.KnownWorkloadOwner(owner) {
+		if job.Annotations == nil {
+			job.Annotations = make(map[string]string)
+		}
+		if pwName, err := jobframework.GetWorkloadNameForOwnerRef(owner); err != nil {
+			return err
+		} else {
+			job.Annotations[constants.ParentWorkloadAnnotation] = pwName
+		}
+	}
 
 	if queueName(job) == "" && !w.manageJobsWithoutQueueName {
 		return nil

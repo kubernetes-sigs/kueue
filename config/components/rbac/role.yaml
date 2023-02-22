@@ -73,6 +73,22 @@ rules:
   verbs:
   - get
 - apiGroups:
+  - kubeflow.org
+  resources:
+  - mpijobs
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kubeflow.org
+  resources:
+  - mpijobs/status
+  verbs:
+  - get
+- apiGroups:
   - kueue.x-k8s.io
   resources:
   - clusterqueues

@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	workloadjob "sigs.k8s.io/kueue/pkg/controller/workload/job"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -35,6 +36,7 @@ import (
 var _ = ginkgo.Describe("Kueue", func() {
 	var ns *corev1.Namespace
 	var sampleJob *batchv1.Job
+
 	ginkgo.BeforeEach(func() {
 		ns = &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
@@ -60,9 +62,10 @@ var _ = ginkgo.Describe("Kueue", func() {
 				}
 				return *createdJob.Spec.Suspend
 			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(lookupKey.Name), Namespace: ns.Name}
 			createdWorkload := &kueue.Workload{}
 			gomega.Eventually(func() bool {
-				if err := k8sClient.Get(ctx, lookupKey, createdWorkload); err != nil {
+				if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 					return false
 				}
 				return apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)
@@ -96,9 +99,9 @@ var _ = ginkgo.Describe("Kueue", func() {
 			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, resourceKueue, true)
 		})
 		ginkgo.It("Should unsuspend a job", func() {
-			lookupKey := types.NamespacedName{Name: "test-job", Namespace: ns.Name}
 			createdJob := &batchv1.Job{}
 			createdWorkload := &kueue.Workload{}
+			lookupKey := types.NamespacedName{Name: "test-job", Namespace: ns.Name}
 
 			gomega.Eventually(func() bool {
 				if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {
@@ -106,8 +109,9 @@ var _ = ginkgo.Describe("Kueue", func() {
 				}
 				return !*createdJob.Spec.Suspend && createdJob.Status.Succeeded > 0
 			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(lookupKey.Name), Namespace: ns.Name}
 			gomega.Eventually(func() bool {
-				if err := k8sClient.Get(ctx, lookupKey, createdWorkload); err != nil {
+				if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 					return false
 				}
 				return apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted) &&
