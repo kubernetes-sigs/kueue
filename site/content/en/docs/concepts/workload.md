@@ -79,4 +79,4 @@ creating a corresponding Workload object for it.
 
 ## What's next
 
-- Learn how to [run jobs](/docs/tasks/run_jobs)
+- Learn how to [run jobs](/docs/tasks/task)
