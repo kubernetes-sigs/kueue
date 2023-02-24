@@ -169,8 +169,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 	}
 	for _, w := range workloads.Items {
 		w := w
-		// Checking queue name again because the field index is not available in tests.
-		if w.Spec.QueueName != q.Name || w.Spec.Admission != nil {
+		if w.Spec.Admission != nil {
 			continue
 		}
 		qImpl.AddOrUpdate(workload.NewInfo(&w))
