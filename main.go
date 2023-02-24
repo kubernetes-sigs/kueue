@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/workload/job"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
@@ -141,11 +142,8 @@ func main() {
 }
 
 func setupIndexes(ctx context.Context, mgr ctrl.Manager) {
-	if err := queue.SetupIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
-		setupLog.Error(err, "Unable to setup queue indexes")
-	}
-	if err := cache.SetupIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
-		setupLog.Error(err, "Unable to setup cache indexes")
+	if err := indexer.Setup(ctx, mgr.GetFieldIndexer()); err != nil {
+		setupLog.Error(err, "Unable to setup core api indexes")
 	}
 	if err := job.SetupIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
 		setupLog.Error(err, "Unable to setup job indexes")

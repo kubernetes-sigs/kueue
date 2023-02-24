@@ -28,8 +28,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	utilindexer "sigs.k8s.io/kueue/pkg/util/indexer"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -169,8 +169,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 	}
 	for _, w := range workloads.Items {
 		w := w
-		// Checking queue name again because the field index is not available in tests.
-		if w.Spec.QueueName != q.Name || w.Spec.Admission != nil {
+		if w.Spec.Admission != nil {
 			continue
 		}
 		qImpl.AddOrUpdate(workload.NewInfo(&w))
@@ -551,16 +550,4 @@ func (m *Manager) reportPendingWorkloads(cqName string, cq ClusterQueue) {
 		active = 0
 	}
 	metrics.ReportPendingWorkloads(cqName, active, inadmissible)
-}
-
-func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
-	err := indexer.IndexField(ctx, &kueue.Workload{}, utilindexer.WorkloadQueueKey, utilindexer.IndexWorkloadQueue)
-	if err != nil {
-		return fmt.Errorf("setting index on queue for Workload: %w", err)
-	}
-	err = indexer.IndexField(ctx, &kueue.LocalQueue{}, utilindexer.QueueClusterQueueKey, utilindexer.IndexQueueClusterQueue)
-	if err != nil {
-		return fmt.Errorf("setting index on clusterQueue for Queue: %w", err)
-	}
-	return nil
 }
