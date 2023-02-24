@@ -32,8 +32,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	utilindexer "sigs.k8s.io/kueue/pkg/util/indexer"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -874,10 +874,6 @@ func resourcesByName(in []kueue.Resource) map[corev1.ResourceName]*Resource {
 		}
 	}
 	return out
-}
-
-func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
-	return indexer.IndexField(ctx, &kueue.Workload{}, utilindexer.WorkloadClusterQueueKey, utilindexer.IndexWorkloadClusterQueue)
 }
 
 func workloadBelongsToLocalQueue(wl *kueue.Workload, q *kueue.LocalQueue) bool {

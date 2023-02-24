@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/kueue/apis/kueue/webhooks"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/core"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	// +kubebuilder:scaffold:imports
@@ -55,10 +56,7 @@ var _ = ginkgo.BeforeSuite(func() {
 		CRDPath:     filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases"),
 		WebhookPath: filepath.Join("..", "..", "..", "..", "config", "components", "webhook"),
 		ManagerSetup: func(mgr manager.Manager, ctx context.Context) {
-			err := queue.SetupIndexes(ctx, mgr.GetFieldIndexer())
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-			err = cache.SetupIndexes(ctx, mgr.GetFieldIndexer())
+			err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			failedWebhook, err := webhooks.Setup(mgr)

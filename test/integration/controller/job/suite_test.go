@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/workload/job"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
@@ -73,10 +74,7 @@ func managerSetup(opts ...job.Option) framework.ManagerSetup {
 
 func managerAndSchedulerSetup(opts ...job.Option) framework.ManagerSetup {
 	return func(mgr manager.Manager, ctx context.Context) {
-		err := queue.SetupIndexes(ctx, mgr.GetFieldIndexer())
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		err = cache.SetupIndexes(ctx, mgr.GetFieldIndexer())
+		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		cCache := cache.New(mgr.GetClient())

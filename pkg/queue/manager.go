@@ -28,8 +28,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	utilindexer "sigs.k8s.io/kueue/pkg/util/indexer"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -551,16 +551,4 @@ func (m *Manager) reportPendingWorkloads(cqName string, cq ClusterQueue) {
 		active = 0
 	}
 	metrics.ReportPendingWorkloads(cqName, active, inadmissible)
-}
-
-func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
-	err := indexer.IndexField(ctx, &kueue.Workload{}, utilindexer.WorkloadQueueKey, utilindexer.IndexWorkloadQueue)
-	if err != nil {
-		return fmt.Errorf("setting index on queue for Workload: %w", err)
-	}
-	err = indexer.IndexField(ctx, &kueue.LocalQueue{}, utilindexer.QueueClusterQueueKey, utilindexer.IndexQueueClusterQueue)
-	if err != nil {
-		return fmt.Errorf("setting index on clusterQueue for Queue: %w", err)
-	}
-	return nil
 }
