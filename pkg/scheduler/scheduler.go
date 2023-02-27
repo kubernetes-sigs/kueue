@@ -59,7 +59,6 @@ type Scheduler struct {
 	admissionRoutineWrapper routine.Wrapper
 	preemptor               *preemption.Preemptor
 	waitForPodsReady        bool
-
 	// Stubs.
 	applyAdmission func(context.Context, *kueue.Workload) error
 }
@@ -99,10 +98,18 @@ func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder r
 	return s
 }
 
-func (s *Scheduler) Start(ctx context.Context) {
+// Start implements the Runnable interface to run scheduler as a controller.
+func (s *Scheduler) Start(ctx context.Context) error {
 	log := ctrl.LoggerFrom(ctx).WithName("scheduler")
 	ctx = ctrl.LoggerInto(ctx, log)
-	wait.UntilWithContext(ctx, s.schedule, 0)
+	go wait.UntilWithContext(ctx, s.schedule, 0)
+	return nil
+}
+
+// NeedLeaderElection Implements LeaderElectionRunnable interface to make scheduler
+// run in leader election mode
+func (s *Scheduler) NeedLeaderElection() bool {
+	return true
 }
 
 func (s *Scheduler) setAdmissionRoutineWrapper(wrapper routine.Wrapper) {

@@ -132,7 +132,7 @@ func main() {
 		cCache.CleanUpOnContext(ctx)
 	}()
 
-	setupScheduler(ctx, mgr, cCache, queues, &cfg)
+	setupScheduler(mgr, cCache, queues, &cfg)
 
 	setupLog.Info("Starting manager")
 	if err := mgr.Start(ctx); err != nil {
@@ -196,7 +196,7 @@ func setupProbeEndpoints(mgr ctrl.Manager) {
 	}
 }
 
-func setupScheduler(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, cfg *config.Configuration) {
+func setupScheduler(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, cfg *config.Configuration) {
 	sched := scheduler.New(
 		queues,
 		cCache,
@@ -204,7 +204,10 @@ func setupScheduler(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache, 
 		mgr.GetEventRecorderFor(constants.AdmissionName),
 		scheduler.WithWaitForPodsReady(waitForPodsReady(cfg)),
 	)
-	go sched.Start(ctx)
+	if err := mgr.Add(sched); err != nil {
+		setupLog.Error(err, "Unable to add scheduler to manager")
+		os.Exit(1)
+	}
 }
 
 func waitForPodsReady(cfg *config.Configuration) bool {
