@@ -2120,3 +2120,235 @@ func messageOrEmpty(err error) string {
 	}
 	return err.Error()
 }
+
+func TestCache_AdmittedWorkloadsInLocalQueue(t *testing.T) {
+	type args struct {
+		localQueue *kueue.LocalQueue
+	}
+	tests := []struct {
+		name       string
+		args       args
+		want       int32
+		createFunc func() *Cache
+	}{
+		{
+			name: "test cluster queue ref not found",
+			args: args{
+				localQueue: &kueue.LocalQueue{
+					Spec: kueue.LocalQueueSpec{
+						ClusterQueue: "q1",
+					},
+				},
+			},
+			createFunc: func() *Cache {
+				return &Cache{
+					clusterQueues: map[string]*ClusterQueue{},
+				}
+			},
+			want: 0,
+		},
+		{
+			name: "test get admitted workloads in local queue",
+			args: args{
+				localQueue: &kueue.LocalQueue{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "q1",
+						Namespace: "ns1",
+					},
+					Spec: kueue.LocalQueueSpec{
+						ClusterQueue: "q1",
+					},
+				},
+			},
+			createFunc: func() *Cache {
+				return &Cache{
+					clusterQueues: map[string]*ClusterQueue{
+						"q1": {
+							Workloads: map[string]*workload.Info{
+								"app1": {
+									ClusterQueue: "q1",
+								},
+								"app2": {
+									ClusterQueue: "q2",
+								},
+							},
+							admittedWorkloadsPerQueue: map[string]int{
+								"ns1/q1": 1,
+							},
+						},
+					},
+				}
+			},
+			want: 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := tt.createFunc()
+			if got := c.AdmittedWorkloadsInLocalQueue(tt.args.localQueue); got != tt.want {
+				t.Errorf("AdmittedWorkloadsInLocalQueue() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCache_ClusterQueueEmpty(t *testing.T) {
+	type args struct {
+		name string
+	}
+	tests := []struct {
+		name       string
+		args       args
+		want       bool
+		createFunc func() *Cache
+	}{
+		{
+			name: "cluster queue not exists should return true",
+			args: args{
+				name: "q1",
+			},
+			createFunc: func() *Cache {
+				return &Cache{}
+			},
+			want: true,
+		},
+		{
+			name: "cluster queue exists but not empty should return false",
+			args: args{
+				name: "q1",
+			},
+			createFunc: func() *Cache {
+				return &Cache{
+					clusterQueues: map[string]*ClusterQueue{
+						"q1": {
+							Workloads: map[string]*workload.Info{
+								"app1": {},
+								"app2": {},
+							},
+						},
+					},
+				}
+			},
+			want: false,
+		},
+		{
+			name: "cluster queue exists and empty should return true",
+			args: args{
+				name: "q1",
+			},
+			createFunc: func() *Cache {
+				return &Cache{
+					clusterQueues: map[string]*ClusterQueue{
+						"q1": {
+							Workloads: map[string]*workload.Info{},
+						},
+					},
+				}
+			},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := tt.createFunc()
+			if got := c.ClusterQueueEmpty(tt.args.name); got != tt.want {
+				t.Errorf("ClusterQueueEmpty() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCache_UpdateLocalQueue(t *testing.T) {
+	type args struct {
+		oldQ *kueue.LocalQueue
+		newQ *kueue.LocalQueue
+	}
+	tests := []struct {
+		name       string
+		args       args
+		wantErr    bool
+		createFunc func() *Cache
+	}{
+		{
+			name: "test cluster queue is equal should return nil",
+			args: args{
+				oldQ: &kueue.LocalQueue{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "q1",
+					},
+				},
+				newQ: &kueue.LocalQueue{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "q1",
+					},
+				},
+			},
+			createFunc: func() *Cache {
+				return &Cache{}
+			},
+			wantErr: false,
+		},
+		{
+			name: "test should delete old queue",
+			args: args{
+				oldQ: &kueue.LocalQueue{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "q1",
+						Namespace: "ns1",
+					},
+				},
+				newQ: &kueue.LocalQueue{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "q2",
+						Namespace: "ns1",
+					},
+				},
+			},
+			createFunc: func() *Cache {
+				return &Cache{
+					clusterQueues: map[string]*ClusterQueue{
+						"q1": {
+							Workloads: map[string]*workload.Info{},
+						},
+					},
+				}
+			},
+			wantErr: false,
+		},
+		{
+			name: "test should add new queue",
+			args: args{
+				oldQ: &kueue.LocalQueue{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "q1",
+						Namespace: "ns1",
+					},
+				},
+				newQ: &kueue.LocalQueue{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "q2",
+						Namespace: "ns1",
+					},
+				},
+			},
+			createFunc: func() *Cache {
+				return &Cache{
+					clusterQueues: map[string]*ClusterQueue{
+						"q2": {
+							Workloads: map[string]*workload.Info{},
+						},
+					},
+				}
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := tt.createFunc()
+			if err := c.UpdateLocalQueue(tt.args.oldQ, tt.args.newQ); (err != nil) != tt.wantErr {
+				t.Errorf("UpdateLocalQueue() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}

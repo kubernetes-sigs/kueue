@@ -135,7 +135,6 @@ type ClusterQueue struct {
 	Status    metrics.ClusterQueueStatus
 
 	// The following fields are not populated in a snapshot.
-
 	admittedWorkloadsPerQueue map[string]int
 	podsReadyTracking         bool
 }
