@@ -167,7 +167,7 @@ func (r *JobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &batchv1.Job{}, parentWorkloadKey, func(o client.Object) []string {
 		job := o.(*batchv1.Job)
-		if pwName := parentWorkload(job); pwName != "" {
+		if pwName := parentWorkloadName(job); pwName != "" {
 			return []string{pwName}
 		}
 		return nil
@@ -178,11 +178,8 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 		// grab the Workload object, extract the owner...
 		wl := o.(*kueue.Workload)
 		owner := metav1.GetControllerOf(wl)
-		if owner == nil {
-			return nil
-		}
 		// ...make sure it's a Job...
-		if owner.APIVersion != "batch/v1" || owner.Kind != "Job" {
+		if owner == nil || owner.APIVersion != batchv1.SchemeGroupVersion.String() || owner.Kind != "Job" {
 			return nil
 		}
 		// ...and if so, return it
@@ -210,39 +207,42 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	log := ctrl.LoggerFrom(ctx).WithValues("job", klog.KObj(&job))
 	ctx = ctrl.LoggerInto(ctx, log)
 
-	pwName := parentWorkload(&job)
+	isStandaloneJob := parentWorkloadName(&job) == ""
 
 	// when manageJobsWithoutQueueName is disabled we only reconcile jobs that have either
 	// queue-name or the parent-workload annotation set.
-	if queueName(&job) == "" && pwName == "" && !r.manageJobsWithoutQueueName {
+	if !r.manageJobsWithoutQueueName && queueName(&job) == "" && isStandaloneJob {
 		log.V(3).Info(fmt.Sprintf("Neither %s, nor %s annotation is set, ignoring the job", constants.QueueAnnotation, constants.ParentWorkloadAnnotation))
 		return ctrl.Result{}, nil
 	}
 
 	log.V(2).Info("Reconciling Job")
 
-	var childWorkloads kueue.WorkloadList
-	if err := r.client.List(ctx, &childWorkloads, client.InNamespace(req.Namespace),
-		client.MatchingFields{ownerKey: req.Name}); err != nil {
-		log.Error(err, "Unable to list child workloads")
-		return ctrl.Result{}, err
-	}
-
-	// 1. make sure there is only a single existing instance of the workload
-	wl, err := r.ensureAtMostOneWorkload(ctx, &job, childWorkloads)
+	// 1. make sure there is only a single existing instance of the workload.
+	// If there's no workload exists and job is unsuspended, we'll stop it immediately.
+	wl, err := r.ensureAtMostOneWorkload(ctx, &job)
 	if err != nil {
 		log.Error(err, "Getting existing workloads")
 		return ctrl.Result{}, err
 	}
 
-	jobFinishedCond, jobFinished := jobFinishedCondition(&job)
-	// 2. create new workload if none exists
-	if wl == nil {
-		// Nothing to do if the job is finished
-		if jobFinished {
+	// 2. handle job is finished.
+	if jobFinishedCond, jobFinished := jobFinishedCondition(&job); jobFinished {
+		if !isStandaloneJob || wl == nil || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
 			return ctrl.Result{}, nil
 		}
-		if pwName != "" {
+		condition := generateFinishedCondition(jobFinishedCond)
+		apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
+		err := r.client.Status().Update(ctx, wl)
+		if err != nil {
+			log.Error(err, "Updating workload status")
+		}
+		return ctrl.Result{}, err
+	}
+
+	// 3. handle workload is nil.
+	if wl == nil {
+		if !isStandaloneJob {
 			return ctrl.Result{}, nil
 		}
 		err := r.handleJobWithNoWorkload(ctx, &job)
@@ -252,21 +252,8 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, err
 	}
 
-	if pwName == "" {
-		// 3. handle a finished job, if it's the main job.
-		if jobFinished {
-			if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
-				return ctrl.Result{}, nil
-			}
-			condition := generateFinishedCondition(jobFinishedCond)
-			apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
-			err := r.client.Status().Update(ctx, wl)
-			if err != nil {
-				log.Error(err, "Updating workload status")
-			}
-			return ctrl.Result{}, err
-		}
-
+	// 4. handle WaitForPodsReady only for a standalone job.
+	if isStandaloneJob {
 		// handle a job when waitForPodsReady is enabled, and it is the main job
 		if r.waitForPodsReady {
 			log.V(5).Info("Handling a job when waitForPodsReady is enabled")
@@ -282,7 +269,7 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		}
 	}
 
-	// 4. Handle a not finished job
+	// 5. handle job is suspended.
 	if jobSuspended(&job) {
 		// start the job if the workload has been admitted, and the job is still suspended
 		if wl.Spec.Admission != nil {
@@ -309,6 +296,7 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		return ctrl.Result{}, nil
 	}
 
+	// 6. handle job is unsuspended.
 	if wl.Spec.Admission == nil {
 		// the job must be suspended if the workload is not yet admitted.
 		log.V(2).Info("Running job is not admitted by a cluster queue, suspending")
@@ -441,15 +429,14 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job *batchv
 }
 
 // ensureAtMostOneWorkload finds a matching workload and deletes redundant ones.
-func (r *JobReconciler) ensureAtMostOneWorkload(ctx context.Context, job *batchv1.Job, workloads kueue.WorkloadList) (*kueue.Workload, error) {
+func (r *JobReconciler) ensureAtMostOneWorkload(ctx context.Context, job *batchv1.Job) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Find a matching workload first if there is one.
 	var toDelete []*kueue.Workload
 	var match *kueue.Workload
 
-	pwName := parentWorkload(job)
-	if pwName != "" {
+	if pwName := parentWorkloadName(job); pwName != "" {
 		pw := kueue.Workload{}
 		NamespacedName := types.NamespacedName{
 			Name:      pwName,
@@ -463,6 +450,13 @@ func (r *JobReconciler) ensureAtMostOneWorkload(ctx context.Context, job *batchv
 		} else {
 			match = &pw
 		}
+	}
+
+	var workloads kueue.WorkloadList
+	if err := r.client.List(ctx, &workloads, client.InNamespace(job.Namespace),
+		client.MatchingFields{ownerKey: job.Name}); err != nil {
+		log.Error(err, "Unable to list child workloads")
+		return nil, err
 	}
 
 	for i := range workloads.Items {
@@ -633,6 +627,6 @@ func queueName(job *batchv1.Job) string {
 	return job.Annotations[constants.QueueAnnotation]
 }
 
-func parentWorkload(job *batchv1.Job) string {
+func parentWorkloadName(job *batchv1.Job) string {
 	return job.Annotations[constants.ParentWorkloadAnnotation]
 }
