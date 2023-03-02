@@ -182,7 +182,7 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 		return ctrl.Result{RequeueAfter: recheckAfter}, nil
 	} else {
 		klog.V(2).InfoS("Cancelling admission of the workload due to exceeding the PodsReady timeout", "workload", req.NamespacedName.String())
-		err := r.client.Status().Patch(ctx, workload.ClearAdmissionPatch(wl), client.Apply, client.FieldOwner(constants.AdmissionName))
+		err := r.client.Status().Patch(ctx, workload.BaseSSAWorkload(wl), client.Apply, client.FieldOwner(constants.AdmissionName))
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 }

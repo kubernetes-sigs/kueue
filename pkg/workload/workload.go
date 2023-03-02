@@ -188,15 +188,14 @@ func FindConditionIndex(status *kueue.WorkloadStatus, conditionType string) int 
 	return -1
 }
 
-// UpdateStatus updates the condition of a workload.
+// UpdateStatus updates the condition of a workload with ssa,
+// Each condition has it's own field manager with the same name
 func UpdateStatus(ctx context.Context,
 	c client.Client,
 	wl *kueue.Workload,
 	conditionType string,
 	conditionStatus metav1.ConditionStatus,
 	reason, message string) error {
-	conditionIndex := FindConditionIndex(&wl.Status, conditionType)
-
 	now := metav1.Now()
 	condition := metav1.Condition{
 		Type:               conditionType,
@@ -205,17 +204,10 @@ func UpdateStatus(ctx context.Context,
 		Reason:             reason,
 		Message:            api.TruncateConditionMessage(message),
 	}
-	// Avoid modifying the object in the cache.
-	newWl := *wl
-	newWl.Status = *newWl.Status.DeepCopy()
 
-	if conditionIndex == -1 {
-		newWl.Status.Conditions = append(newWl.Status.Conditions, condition)
-	} else {
-		newWl.Status.Conditions[conditionIndex] = condition
-	}
-
-	return c.Status().Update(ctx, &newWl)
+	newWl := BaseSSAWorkload(wl)
+	newWl.Status.Conditions = []metav1.Condition{condition}
+	return c.Status().Patch(ctx, newWl, client.Apply, client.FieldOwner(condition.Type))
 }
 
 func UpdateStatusIfChanged(ctx context.Context,
@@ -238,9 +230,10 @@ func UpdateStatusIfChanged(ctx context.Context,
 	return UpdateStatus(ctx, c, wl, conditionType, conditionStatus, reason, message)
 }
 
-// ClearAdmissionPatch creates a new object based on the input workload that
-// doesn't contain admission. The object can be used in Server-Side-Apply.
-func ClearAdmissionPatch(w *kueue.Workload) *kueue.Workload {
+// BaseSSAWorkload creates a new object based on the input workload that
+// only contains the fields necessary to identify the original object.
+// The object can be used in as a base for Server-Side-Apply.
+func BaseSSAWorkload(w *kueue.Workload) *kueue.Workload {
 	wlCopy := &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			UID:        w.UID,
@@ -262,7 +255,7 @@ func ClearAdmissionPatch(w *kueue.Workload) *kueue.Workload {
 // AdmissionPatch creates a new object based on the input workload that
 // contains the admission. The object can be used in Server-Side-Apply.
 func AdmissionPatch(w *kueue.Workload) *kueue.Workload {
-	wlCopy := ClearAdmissionPatch(w)
+	wlCopy := BaseSSAWorkload(w)
 	wlCopy.Status.Admission = w.Status.Admission.DeepCopy()
 	return wlCopy
 }

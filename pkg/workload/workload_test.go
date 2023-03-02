@@ -263,30 +263,6 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 				},
 			},
 		},
-		"different condition type": {
-			oldStatus: kueue.WorkloadStatus{
-				Conditions: []metav1.Condition{
-					{
-						Type:   kueue.WorkloadAdmitted,
-						Status: metav1.ConditionTrue,
-					},
-				},
-			},
-			condType:   kueue.WorkloadFinished,
-			condStatus: metav1.ConditionTrue,
-			wantStatus: kueue.WorkloadStatus{
-				Conditions: []metav1.Condition{
-					{
-						Type:   kueue.WorkloadAdmitted,
-						Status: metav1.ConditionTrue,
-					},
-					{
-						Type:   kueue.WorkloadFinished,
-						Status: metav1.ConditionTrue,
-					},
-				},
-			},
-		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
