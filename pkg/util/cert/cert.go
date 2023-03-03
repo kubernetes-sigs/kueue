@@ -60,5 +60,8 @@ func ManageCerts(mgr ctrl.Manager, config configv1alpha2.Configuration, setupFin
 			Type: cert.Mutating,
 			Name: mwcName,
 		}},
+		// When kueue is running in the leader election mode,
+		// we expect webhook server will run in primary and secondary instance
+		RequireLeaderElection: false,
 	})
 }

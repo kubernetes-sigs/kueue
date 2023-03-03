@@ -80,7 +80,6 @@ func managerAndSchedulerSetupWithTimeout(mgr manager.Manager, ctx context.Contex
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithWaitForPodsReady(cfg.WaitForPodsReady.Enable))
-	go func() {
-		sched.Start(ctx)
-	}()
+	err = sched.Start(ctx)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
