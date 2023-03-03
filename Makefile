@@ -25,6 +25,9 @@ GO_TEST_FLAGS ?= -race
 # Use go.mod go version as a single source of truth of GO version.
 GO_VERSION := $(shell awk '/^go /{print $$2}' go.mod|head -n1)
 
+# Use go.mod go version as a single source of truth of MPI version.
+MPI_VERSION := $(shell awk '/mpi-operator/{print $$2}' go.mod|head -n1)
+
 GIT_TAG ?= $(shell git describe --tags --dirty --always)
 # Image URL to use all building/pushing image targets
 PLATFORMS ?= linux/amd64,linux/arm64
@@ -141,7 +144,7 @@ test: generate fmt vet gotestsum ## Run tests.
 	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) $(shell go list ./... | grep -v '/test/') -coverprofile $(ARTIFACTS)/cover.out
 
 .PHONY: test-integration
-test-integration: manifests generate fmt vet envtest ginkgo ## Run tests.
+test-integration: manifests generate fmt vet envtest ginkgo mpi-operator-crd ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) --arch=amd64 use $(ENVTEST_K8S_VERSION) -p path)" \
 	$(GINKGO) --junit-report=junit.xml --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 
@@ -273,3 +276,8 @@ KIND = $(shell pwd)/bin/kind
 .PHONY: kind
 kind:
 	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kind@v0.16.0
+.PHONY: mpi-operator-crd
+mpi-operator-crd:
+	GOPATH=/tmp GO111MODULE=on $(GO_CMD) install github.com/kubeflow/mpi-operator/cmd/mpi-operator@$(MPI_VERSION)
+	mkdir -p $(shell pwd)/dep-crds/mpi-operator/
+	cp -f /tmp/pkg/mod/github.com/kubeflow/mpi-operator@$(MPI_VERSION)/manifests/base/* $(shell pwd)/dep-crds/mpi-operator/

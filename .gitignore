@@ -28,3 +28,6 @@ vendor
 
 # Local Netlify folder
 .netlify
+
+# Directory with CRDs for dependencies
+dep-crds

@@ -29,3 +29,5 @@ resources:
 - workload_viewer_role.yaml
 - resourceflavor_editor_role.yaml
 - resourceflavor_viewer_role.yaml
+- mpijob_editor_role.yaml
+- mpijob_viewer_role.yaml

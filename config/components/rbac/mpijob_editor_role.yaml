@@ -1,0 +1,27 @@
+# permissions for end users to edit jobs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: mpijob-editor-role
+  labels:
+    rbac.kueue.x-k8s.io/batch-admin: "true"
+    rbac.kueue.x-k8s.io/batch-user: "true"
+rules:
+- apiGroups:
+  - kubeflow.org
+  resources:
+  - mpijobs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kubeflow.org
+  resources:
+  - mpijobs/status
+  verbs:
+  - get

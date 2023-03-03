@@ -82,6 +82,25 @@ webhooks:
     resources:
     - jobs
   sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /mutate-kubeflow-org-v2beta1-mpijob
+  failurePolicy: Fail
+  name: mmpijob.kb.io
+  rules:
+  - apiGroups:
+    - kubeflow.org
+    apiVersions:
+    - v2beta1
+    operations:
+    - CREATE
+    resources:
+    - mpijobs
+  sideEffects: None
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
@@ -187,4 +206,23 @@ webhooks:
     - UPDATE
     resources:
     - jobs
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-kubeflow-org-v2beta1-mpijob
+  failurePolicy: Fail
+  name: vmpijob.kb.io
+  rules:
+  - apiGroups:
+    - kubeflow.org
+    apiVersions:
+    - v2beta1
+    operations:
+    - UPDATE
+    resources:
+    - mpijobs
   sideEffects: None

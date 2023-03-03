@@ -23,6 +23,7 @@ import (
 	"net"
 	"time"
 
+	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	zaplog "go.uber.org/zap"
@@ -42,6 +43,7 @@ type ManagerSetup func(manager.Manager, context.Context)
 
 type Framework struct {
 	CRDPath      string
+	DepCRDPaths  []string
 	WebhookPath  string
 	ManagerSetup ManagerSetup
 	testEnv      *envtest.Environment
@@ -62,7 +64,7 @@ func (f *Framework) Setup() (context.Context, *rest.Config, client.Client) {
 
 	ginkgo.By("bootstrapping test environment")
 	f.testEnv = &envtest.Environment{
-		CRDDirectoryPaths:     []string{f.CRDPath},
+		CRDDirectoryPaths:     append(f.DepCRDPaths, f.CRDPath),
 		ErrorIfCRDPathMissing: true,
 	}
 	webhookEnabled := len(f.WebhookPath) > 0
@@ -75,6 +77,9 @@ func (f *Framework) Setup() (context.Context, *rest.Config, client.Client) {
 	gomega.ExpectWithOffset(1, cfg).NotTo(gomega.BeNil())
 
 	err = kueue.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = kubeflow.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme

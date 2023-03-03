@@ -27,6 +27,7 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	schedulingv1 "k8s.io/api/scheduling/v1"
@@ -46,6 +47,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/workload/job"
+	"sigs.k8s.io/kueue/pkg/controller/workload/mpijob"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
@@ -66,6 +68,7 @@ func init() {
 
 	utilruntime.Must(kueue.AddToScheme(scheme))
 	utilruntime.Must(config.AddToScheme(scheme))
+	utilruntime.Must(kubeflow.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -148,6 +151,9 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager) {
 	if err := job.SetupIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
 		setupLog.Error(err, "Unable to setup job indexes")
 	}
+	if err := mpijob.SetupIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
+		setupLog.Error(err, "Unable to setup mpijob indexes")
+	}
 }
 
 func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, cfg *config.Configuration) {
@@ -171,12 +177,25 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 		setupLog.Error(err, "unable to create controller", "controller", "Job")
 		os.Exit(1)
 	}
+	if err := mpijob.NewReconciler(mgr.GetScheme(),
+		mgr.GetClient(),
+		mgr.GetEventRecorderFor(constants.KueueName+"-mpijob-controller"),
+		mpijob.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName),
+		mpijob.WithWaitForPodsReady(waitForPodsReady(cfg)),
+	).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "MPIJob")
+		os.Exit(1)
+	}
 	if failedWebhook, err := webhooks.Setup(mgr); err != nil {
 		setupLog.Error(err, "Unable to create webhook", "webhook", failedWebhook)
 		os.Exit(1)
 	}
 	if err := job.SetupWebhook(mgr, job.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName)); err != nil {
 		setupLog.Error(err, "Unable to create webhook", "webhook", "Job")
+		os.Exit(1)
+	}
+	if err := mpijob.SetupMPIJobWebhook(mgr, mpijob.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName)); err != nil {
+		setupLog.Error(err, "Unable to create webhook", "webhook", "MPIJob")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
