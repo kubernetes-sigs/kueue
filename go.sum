@@ -218,10 +218,10 @@ github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 h1:C3w9PqII01/Oq
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822/go.mod h1:+n7T8mK8HuQTcFwEeznm/DIxMOiR9yIdICNftLE1DvQ=
 github.com/mwitkow/go-conntrack v0.0.0-20161129095857-cc309e4a2223/go.mod h1:qRWi+5nqEBWmkhHvq77mSJWrCKwh8bxhgT7d/eI7P4U=
 github.com/mwitkow/go-conntrack v0.0.0-20190716064945-2f068394615f/go.mod h1:qRWi+5nqEBWmkhHvq77mSJWrCKwh8bxhgT7d/eI7P4U=
-github.com/onsi/ginkgo/v2 v2.8.3 h1:RpbK1G8nWPNaCVFBWsOGnEQQGgASi6b8fxcWBvDYjxQ=
-github.com/onsi/ginkgo/v2 v2.8.3/go.mod h1:6OaUA8BCi0aZfmzYT/q9AacwTzDpNbxILUT+TlBq6MY=
-github.com/onsi/gomega v1.27.1 h1:rfztXRbg6nv/5f+Raen9RcGoSecHIFgBBLQK3Wdj754=
-github.com/onsi/gomega v1.27.1/go.mod h1:aHX5xOykVYzWOV4WqQy0sy8BQptgukenXpCXfadcIAw=
+github.com/onsi/ginkgo/v2 v2.8.4 h1:gf5mIQ8cLFieruNLAdgijHF1PYfLphKm2dxxcUtcqK0=
+github.com/onsi/ginkgo/v2 v2.8.4/go.mod h1:427dEDQZkDKsBvCjc2A/ZPefhKxsTTrsQegMlayL730=
+github.com/onsi/gomega v1.27.2 h1:SKU0CXeKE/WVgIV1T61kSa3+IRE8Ekrv9rdXDwwTqnY=
+github.com/onsi/gomega v1.27.2/go.mod h1:5mR3phAHpkAVIDkHEUBY6HGVsU+cpcEscrGPB4oPlZI=
 github.com/open-policy-agent/cert-controller v0.7.0 h1:5ggZjSQJ1YgkT+ngNAGBGHaOYfGuYq97IrNldchCoHI=
 github.com/open-policy-agent/cert-controller v0.7.0/go.mod h1:Dkkdcr1BeSUig/62dYLqgvx3lIN0XtEikKTGW1lKSQo=
 github.com/open-policy-agent/frameworks/constraint v0.0.0-20230201235642-777dc99a6669 h1:vKt4PhZXBxYHeLujYraNVpkoILQ/NISiifzaq1DkMXk=
