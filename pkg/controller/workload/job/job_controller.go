@@ -383,8 +383,9 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		if wl == nil || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
 			return ctrl.Result{}, nil
 		}
-		apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
-		if err := r.client.Status().Update(ctx, wl); err != nil {
+
+		err := workload.UpdateStatus(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message)
+		if err != nil {
 			log.Error(err, "Updating workload status")
 		}
 		return ctrl.Result{}, nil
@@ -412,7 +413,8 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			if !apimeta.IsStatusConditionPresentAndEqual(wl.Status.Conditions, condition.Type, condition.Status) {
 				log.V(3).Info(fmt.Sprintf("Updating the PodsReady condition with status: %v", condition.Status))
 				apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
-				if err := r.client.Status().Update(ctx, wl); err != nil {
+				err := workload.UpdateStatus(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message)
+				if err != nil {
 					log.Error(err, "Updating workload status")
 				}
 			}
