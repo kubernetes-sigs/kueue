@@ -30,7 +30,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 type WorkloadWebhook struct{}
@@ -43,7 +43,7 @@ func setupWebhookForWorkload(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1alpha2-workload,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads,verbs=create;update,versions=v1alpha2,name=mworkload.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1beta1-workload,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads,verbs=create;update,versions=v1beta1,name=mworkload.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomDefaulter = &WorkloadWebhook{}
 
@@ -63,8 +63,8 @@ func (w *WorkloadWebhook) Default(ctx context.Context, obj runtime.Object) error
 	}
 	for i := range wl.Spec.PodSets {
 		podSet := &wl.Spec.PodSets[i]
-		setContainersDefaults(podSet.Spec.InitContainers)
-		setContainersDefaults(podSet.Spec.Containers)
+		setContainersDefaults(podSet.Template.Spec.InitContainers)
+		setContainersDefaults(podSet.Template.Spec.Containers)
 	}
 	return nil
 }
@@ -85,7 +85,7 @@ func setContainersDefaults(containers []corev1.Container) {
 	}
 }
 
-// +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1alpha2-workload,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads,verbs=create;update,versions=v1alpha2,name=vworkload.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1beta1-workload,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads;workloads/status,verbs=create;update,versions=v1beta1,name=vworkload.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomValidator = &WorkloadWebhook{}
 
@@ -114,11 +114,9 @@ func (w *WorkloadWebhook) ValidateDelete(ctx context.Context, obj runtime.Object
 func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 	var allErrs field.ErrorList
 	specPath := field.NewPath("spec")
-	podSetsPath := specPath.Child("podSets")
 
-	for i, podSet := range obj.Spec.PodSets {
-		path := podSetsPath.Index(i)
-		allErrs = append(allErrs, validatePodSetName(podSet.Name, path.Child("name"))...)
+	for i := range obj.Spec.PodSets {
+		allErrs = append(allErrs, validatePodSet(&obj.Spec.PodSets[i], specPath.Child("podSets").Index(i))...)
 	}
 
 	if len(obj.Spec.PriorityClassName) > 0 {
@@ -137,26 +135,27 @@ func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 		allErrs = append(allErrs, validateNameReference(obj.Spec.QueueName, specPath.Child("queueName"))...)
 	}
 
-	if obj.Spec.Admission != nil {
-		allErrs = append(allErrs, validateAdmission(obj, specPath.Child("admission"))...)
+	statusPath := field.NewPath("status")
+	if obj.Status.Admission != nil {
+		allErrs = append(allErrs, validateAdmission(obj, statusPath.Child("admission"))...)
 	}
 
-	allErrs = append(allErrs, metav1validation.ValidateConditions(obj.Status.Conditions, field.NewPath("status", "conditions"))...)
+	allErrs = append(allErrs, metav1validation.ValidateConditions(obj.Status.Conditions, statusPath.Child("conditions"))...)
 
 	return allErrs
 }
 
-func validatePodSetName(name string, fldPath *field.Path) field.ErrorList {
+func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 	// Apply the same validation as container names.
-	for _, msg := range validation.IsDNS1123Label(name) {
-		allErrs = append(allErrs, field.Invalid(fldPath, name, msg))
+	for _, msg := range validation.IsDNS1123Label(ps.Name) {
+		allErrs = append(allErrs, field.Invalid(path.Child("name"), ps.Name, msg))
 	}
 	return allErrs
 }
 
 func validateAdmission(obj *kueue.Workload, path *field.Path) field.ErrorList {
-	admission := obj.Spec.Admission
+	admission := obj.Status.Admission
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, validateNameReference(string(admission.ClusterQueue), path.Child("clusterQueue"))...)
 
@@ -164,10 +163,14 @@ func validateAdmission(obj *kueue.Workload, path *field.Path) field.ErrorList {
 	for _, ps := range obj.Spec.PodSets {
 		names.Insert(ps.Name)
 	}
+	psFlavorsPath := path.Child("podSetFlavors")
+	if names.Len() != len(admission.PodSetFlavors) {
+		allErrs = append(allErrs, field.Invalid(psFlavorsPath, field.OmitValueType{}, "must have the same number of podSets as the spec"))
+	}
 
-	for i, ps := range obj.Spec.Admission.PodSetFlavors {
+	for i, ps := range admission.PodSetFlavors {
 		if !names.Has(ps.Name) {
-			allErrs = append(allErrs, field.NotFound(path.Child("podSetFlavors").Index(i).Child("name"), ps.Name))
+			allErrs = append(allErrs, field.NotFound(psFlavorsPath.Index(i).Child("name"), ps.Name))
 		}
 	}
 
@@ -179,10 +182,10 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 	specPath := field.NewPath("spec")
 	allErrs = append(allErrs, ValidateWorkload(newObj)...)
 	allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"))...)
-	if newObj.Spec.Admission != nil && oldObj.Spec.Admission != nil {
+	if newObj.Status.Admission != nil && oldObj.Status.Admission != nil {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.QueueName, oldObj.Spec.QueueName, specPath.Child("queueName"))...)
 	}
-	allErrs = append(allErrs, validateAdmissionUpdate(newObj.Spec.Admission, oldObj.Spec.Admission, specPath.Child("admission"))...)
+	allErrs = append(allErrs, validateAdmissionUpdate(newObj.Status.Admission, oldObj.Status.Admission, field.NewPath("status", "admission"))...)
 
 	return allErrs
 }

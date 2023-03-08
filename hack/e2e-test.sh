@@ -46,7 +46,7 @@ function kind_load {
 
 function kueue_deploy {
     (cd config/components/manager && $KUSTOMIZE edit set image controller=$IMAGE_TAG)
-    kubectl apply -k test/e2e/config
+    kubectl apply --server-side -k test/e2e/config
 }
 
 trap cleanup EXIT

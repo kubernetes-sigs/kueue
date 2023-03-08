@@ -23,7 +23,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -49,13 +49,11 @@ var _ = ginkgo.Describe("ResourceFlavor controller", func() {
 	ginkgo.When("one clusterQueue references resourceFlavors", func() {
 		var resourceFlavor *kueue.ResourceFlavor
 		var clusterQueue *kueue.ClusterQueue
-		var flavor *kueue.Flavor
 
 		ginkgo.BeforeEach(func() {
-			resourceFlavor = utiltesting.MakeResourceFlavor("cq-refer-resourceflavor").Obj()
-			flavor = utiltesting.MakeFlavor(resourceFlavor.Name, "5").Obj()
+			resourceFlavor = utiltesting.MakeResourceFlavor("flavor").Obj()
 			clusterQueue = utiltesting.MakeClusterQueue("foo").
-				Resource(utiltesting.MakeResource("cpu").Flavor(flavor).Obj()).
+				ResourceGroup(*utiltesting.MakeFlavorQuotas("flavor").Resource(corev1.ResourceCPU, "5").Obj()).
 				Obj()
 
 			gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).To(gomega.Succeed())
@@ -86,9 +84,9 @@ var _ = ginkgo.Describe("ResourceFlavor controller", func() {
 				return k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("Update clusterQueue's flavor")
+			ginkgo.By("Change clusterQueue's flavor")
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &cq)).To(gomega.Succeed())
-			cq.Spec.Resources[0].Flavors[0].Name = "foo-resourceflavor"
+			cq.Spec.ResourceGroups[0].Flavors[0].Name = "alternate-flavor"
 			gomega.Expect(k8sClient.Update(ctx, &cq)).To(gomega.Succeed())
 
 			gomega.Eventually(func() error {

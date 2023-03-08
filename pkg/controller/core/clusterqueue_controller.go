@@ -35,7 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
@@ -248,8 +248,8 @@ func (h *cqWorkloadHandler) Generic(e event.GenericEvent, q workqueue.RateLimiti
 
 func (h *cqWorkloadHandler) requestForWorkloadClusterQueue(w *kueue.Workload) *reconcile.Request {
 	var name string
-	if w.Spec.Admission != nil {
-		name = string(w.Spec.Admission.ClusterQueue)
+	if w.Status.Admission != nil {
+		name = string(w.Status.Admission.ClusterQueue)
 	} else {
 		var ok bool
 		name, ok = h.qManager.ClusterQueueForWorkload(w)
@@ -359,7 +359,7 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 		// but we didn't process that event yet.
 		return err
 	}
-	cq.Status.UsedResources = usage
+	cq.Status.FlavorsUsage = usage
 	cq.Status.AdmittedWorkloads = int32(workloads)
 	cq.Status.PendingWorkloads = int32(pendingWorkloads)
 	meta.SetStatusCondition(&cq.Status.Conditions, metav1.Condition{

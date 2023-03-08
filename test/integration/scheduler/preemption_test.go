@@ -22,7 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -63,9 +63,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 		ginkgo.BeforeEach(func() {
 			cq = testing.MakeClusterQueue("cq").
-				Resource(testing.MakeResource(corev1.ResourceCPU).
-					Flavor(testing.MakeFlavor(alphaFlavor.Name, "4").Obj()).
-					Obj()).
+				ResourceGroup(*testing.MakeFlavorQuotas("alpha").Resource(corev1.ResourceCPU, "4").Obj()).
 				Preemption(kueue.ClusterQueuePreemption{
 					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 				}).
@@ -142,9 +140,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 		ginkgo.BeforeEach(func() {
 			alphaCQ = testing.MakeClusterQueue("alpha-cq").
 				Cohort("all").
-				Resource(testing.MakeResource(corev1.ResourceCPU).
-					Flavor(testing.MakeFlavor(alphaFlavor.Name, "2").Obj()).
-					Obj()).
+				ResourceGroup(*testing.MakeFlavorQuotas("alpha").Resource(corev1.ResourceCPU, "2").Obj()).
 				Preemption(kueue.ClusterQueuePreemption{
 					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
@@ -156,9 +152,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			betaCQ = testing.MakeClusterQueue("beta-cq").
 				Cohort("all").
-				Resource(testing.MakeResource(corev1.ResourceCPU).
-					Flavor(testing.MakeFlavor(alphaFlavor.Name, "2").Obj()).
-					Obj()).
+				ResourceGroup(*testing.MakeFlavorQuotas("alpha").Resource(corev1.ResourceCPU, "2").Obj()).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, betaCQ)).To(gomega.Succeed())
 			betaQ = testing.MakeLocalQueue("beta-q", ns.Name).ClusterQueue(betaCQ.Name).Obj()
@@ -171,7 +165,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, betaCQ, true)
 		})
 
-		ginkgo.It("Should preempt Workloads in the cohort borrowing quota, when the ClusterQueue is using less than min quota", func() {
+		ginkgo.It("Should preempt Workloads in the cohort borrowing quota, when the ClusterQueue is using less than nominal quota", func() {
 			ginkgo.By("Creating workloads in beta-cq that borrow quota")
 
 			alphaLowWl := testing.MakeWorkload("alpha-low", ns.Name).

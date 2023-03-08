@@ -29,8 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
-	"sigs.k8s.io/kueue/pkg/util/pointer"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -129,8 +128,8 @@ var _ = ginkgo.Describe("Workload controller", func() {
 			flavor = testing.MakeResourceFlavor(flavorOnDemand).Obj()
 			gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())
 			clusterQueue = testing.MakeClusterQueue("cluster-queue").
-				Resource(testing.MakeResource(resourceGPU).
-					Flavor(testing.MakeFlavor(flavorOnDemand, "5").Max("10").Obj()).Obj()).
+				ResourceGroup(*testing.MakeFlavorQuotas(flavorOnDemand).
+					Resource(resourceGPU, "5", "5").Obj()).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
@@ -149,9 +148,9 @@ var _ = ginkgo.Describe("Workload controller", func() {
 
 			ginkgo.By("Admit workload")
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
-			updatedQueueWorkload.Spec.Admission = testing.MakeAdmission(clusterQueue.Name).
+			updatedQueueWorkload.Status.Admission = testing.MakeAdmission(clusterQueue.Name).
 				Flavor(corev1.ResourceCPU, flavorOnDemand).Obj()
-			gomega.Expect(k8sClient.Update(ctx, &updatedQueueWorkload)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Status().Update(ctx, &updatedQueueWorkload)).To(gomega.Succeed())
 			gomega.Eventually(func() bool {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
 				return apimeta.IsStatusConditionTrue(updatedQueueWorkload.Status.Conditions, kueue.WorkloadAdmitted)
@@ -164,8 +163,8 @@ var _ = ginkgo.Describe("Workload controller", func() {
 			runtimeClass = testing.MakeRuntimeClass("kata", "bar-handler").PodOverhead(resources).Obj()
 			gomega.Expect(k8sClient.Create(ctx, runtimeClass)).To(gomega.Succeed())
 			clusterQueue = testing.MakeClusterQueue("clusterqueue").
-				Resource(testing.MakeResource(corev1.ResourceCPU).
-					Flavor(testing.MakeFlavor(flavorOnDemand, "5").Max("10").Obj()).Obj()).
+				ResourceGroup(*testing.MakeFlavorQuotas(flavorOnDemand).
+					Resource(corev1.ResourceCPU, "5", "5").Obj()).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
@@ -178,15 +177,16 @@ var _ = ginkgo.Describe("Workload controller", func() {
 		})
 
 		ginkgo.It("Should accumulate RuntimeClass's overhead", func() {
-			ginkgo.By("Create workload")
+			ginkgo.By("Create and admit workload")
 			wl = testing.MakeWorkload("one", ns.Name).
 				Queue(localQueue.Name).
 				Request(corev1.ResourceCPU, "1").
-				Admit(testing.MakeAdmission(clusterQueue.Name).
-					Flavor(corev1.ResourceCPU, flavorOnDemand).Obj()).
 				RuntimeClass("kata").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+			wl.Status.Admission = testing.MakeAdmission(clusterQueue.Name).
+				Flavor(corev1.ResourceCPU, flavorOnDemand).Obj()
+			gomega.Expect(k8sClient.Status().Update(ctx, wl)).To(gomega.Succeed())
 
 			ginkgo.By("Got ClusterQueueStatus")
 			gomega.Eventually(func() kueue.ClusterQueueStatus {
@@ -195,14 +195,13 @@ var _ = ginkgo.Describe("Workload controller", func() {
 			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
 				PendingWorkloads:  0,
 				AdmittedWorkloads: 1,
-				UsedResources: kueue.UsedResources{
-					corev1.ResourceCPU: {
-						flavorOnDemand: {
-							Total:    pointer.Quantity(resource.MustParse("2")),
-							Borrowed: nil,
-						},
-					},
-				},
+				FlavorsUsage: []kueue.FlavorUsage{{
+					Name: flavorOnDemand,
+					Resources: []kueue.ResourceUsage{{
+						Name:  corev1.ResourceCPU,
+						Total: resource.MustParse("2"),
+					}},
+				}},
 			}, ignoreCqCondition))
 		})
 	})
@@ -210,8 +209,8 @@ var _ = ginkgo.Describe("Workload controller", func() {
 	ginkgo.When("Workload with non-existent RuntimeClass defined", func() {
 		ginkgo.BeforeEach(func() {
 			clusterQueue = testing.MakeClusterQueue("clusterqueue").
-				Resource(testing.MakeResource(corev1.ResourceCPU).
-					Flavor(testing.MakeFlavor(flavorOnDemand, "5").Max("10").Obj()).Obj()).
+				ResourceGroup(*testing.MakeFlavorQuotas(flavorOnDemand).
+					Resource(corev1.ResourceCPU, "5", "5").Obj()).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
@@ -223,15 +222,15 @@ var _ = ginkgo.Describe("Workload controller", func() {
 		})
 
 		ginkgo.It("Should not accumulate RuntimeClass's overhead", func() {
-			ginkgo.By("Create workload")
+			ginkgo.By("Create and admit workload")
 			wl = testing.MakeWorkload("one", ns.Name).
 				Queue(localQueue.Name).
 				Request(corev1.ResourceCPU, "1").
-				Admit(testing.MakeAdmission(clusterQueue.Name).
-					Flavor(corev1.ResourceCPU, flavorOnDemand).Obj()).
 				RuntimeClass("kata").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+			util.SetAdmission(ctx, k8sClient, wl, testing.MakeAdmission("clusterqueue").
+				Flavor(corev1.ResourceCPU, flavorOnDemand).Obj())
 
 			ginkgo.By("Got ClusterQueueStatus")
 			gomega.Eventually(func() kueue.ClusterQueueStatus {
@@ -240,14 +239,13 @@ var _ = ginkgo.Describe("Workload controller", func() {
 			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
 				PendingWorkloads:  0,
 				AdmittedWorkloads: 1,
-				UsedResources: kueue.UsedResources{
-					corev1.ResourceCPU: {
-						flavorOnDemand: {
-							Total:    pointer.Quantity(resource.MustParse("1")),
-							Borrowed: nil,
-						},
-					},
-				},
+				FlavorsUsage: []kueue.FlavorUsage{{
+					Name: flavorOnDemand,
+					Resources: []kueue.ResourceUsage{{
+						Name:  corev1.ResourceCPU,
+						Total: resource.MustParse("1"),
+					}},
+				}},
 			}, ignoreCqCondition))
 		})
 	})

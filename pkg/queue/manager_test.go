@@ -31,7 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -488,6 +488,8 @@ func TestRequeueWorkloadStrictFIFO(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: "already_admitted"},
 				Spec: kueue.WorkloadSpec{
 					QueueName: "foo",
+				},
+				Status: kueue.WorkloadStatus{
 					Admission: &kueue.Admission{},
 				},
 			},

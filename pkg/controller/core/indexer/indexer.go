@@ -22,12 +22,12 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 const (
 	WorkloadQueueKey        = "spec.queueName"
-	WorkloadClusterQueueKey = "spec.admission.clusterQueue"
+	WorkloadClusterQueueKey = "status.admission.clusterQueue"
 	QueueClusterQueueKey    = "spec.clusterQueue"
 )
 
@@ -52,10 +52,10 @@ func IndexWorkloadClusterQueue(obj client.Object) []string {
 	if !ok {
 		return nil
 	}
-	if wl.Spec.Admission == nil {
+	if wl.Status.Admission == nil {
 		return nil
 	}
-	return []string{string(wl.Spec.Admission.ClusterQueue)}
+	return []string{string(wl.Status.Admission.ClusterQueue)}
 }
 
 // Setup sets the index with the given fields for core apis.

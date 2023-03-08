@@ -23,7 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -97,8 +97,8 @@ type ClusterQueue interface {
 }
 
 var registry = map[kueue.QueueingStrategy]func(cq *kueue.ClusterQueue) (ClusterQueue, error){
-	StrictFIFO:     newClusterQueueStrictFIFO,
-	BestEffortFIFO: newClusterQueueBestEffortFIFO,
+	kueue.StrictFIFO:     newClusterQueueStrictFIFO,
+	kueue.BestEffortFIFO: newClusterQueueBestEffortFIFO,
 }
 
 func newClusterQueue(cq *kueue.ClusterQueue) (ClusterQueue, error) {

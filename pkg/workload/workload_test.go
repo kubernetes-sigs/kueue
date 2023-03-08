@@ -27,7 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -137,27 +137,14 @@ func TestNewInfo(t *testing.T) {
 		wantInfo Info
 	}{
 		"pending": {
-			workload: kueue.Workload{
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{
-						{
-							Name: "driver",
-							Spec: corev1.PodSpec{
-								Containers: containersForRequests(
-									map[corev1.ResourceName]string{
-										corev1.ResourceCPU:    "10m",
-										corev1.ResourceMemory: "512Ki",
-									}),
-							},
-							Count: 1,
-						},
-					},
-				},
-			},
+			workload: *utiltesting.MakeWorkload("", "").
+				Request(corev1.ResourceCPU, "10m").
+				Request(corev1.ResourceMemory, "512Ki").
+				Obj(),
 			wantInfo: Info{
 				TotalRequests: []PodSetResources{
 					{
-						Name: "driver",
+						Name: "main",
 						Requests: Requests{
 							corev1.ResourceCPU:    10,
 							corev1.ResourceMemory: 512 * 1024,
@@ -167,46 +154,29 @@ func TestNewInfo(t *testing.T) {
 			},
 		},
 		"admitted": {
-			workload: kueue.Workload{
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{
-						{
+			workload: *utiltesting.MakeWorkload("", "").
+				PodSets(
+					*utiltesting.MakePodSet("driver", 1).
+						Request(corev1.ResourceCPU, "10m").
+						Request(corev1.ResourceMemory, "512Ki").
+						Obj(),
+					*utiltesting.MakePodSet("workers", 3).
+						Request(corev1.ResourceCPU, "5m").
+						Request(corev1.ResourceMemory, "1Mi").
+						Request("ex.com/gpu", "1").
+						Obj(),
+				).
+				Admit(utiltesting.MakeAdmission("foo").
+					PodSets(
+						kueue.PodSetFlavors{
 							Name: "driver",
-							Spec: corev1.PodSpec{
-								Containers: containersForRequests(
-									map[corev1.ResourceName]string{
-										corev1.ResourceCPU:    "10m",
-										corev1.ResourceMemory: "512Ki",
-									}),
-							},
-							Count: 1,
-						},
-						{
-							Name: "workers",
-							Spec: corev1.PodSpec{
-								Containers: containersForRequests(
-									map[corev1.ResourceName]string{
-										corev1.ResourceCPU:    "5m",
-										corev1.ResourceMemory: "1Mi",
-										"ex.com/gpu":          "1",
-									}),
-							},
-							Count: 3,
-						},
-					},
-					Admission: &kueue.Admission{
-						ClusterQueue: "foo",
-						PodSetFlavors: []kueue.PodSetFlavors{
-							{
-								Name: "driver",
-								Flavors: map[corev1.ResourceName]string{
-									corev1.ResourceCPU: "on-demand",
-								},
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "on-demand",
 							},
 						},
-					},
-				},
-			},
+					).
+					Obj()).
+				Obj(),
 			wantInfo: Info{
 				ClusterQueue: "foo",
 				TotalRequests: []PodSetResources{
@@ -216,7 +186,7 @@ func TestNewInfo(t *testing.T) {
 							corev1.ResourceCPU:    10,
 							corev1.ResourceMemory: 512 * 1024,
 						},
-						Flavors: map[corev1.ResourceName]string{
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "on-demand",
 						},
 					},

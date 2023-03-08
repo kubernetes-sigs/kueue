@@ -26,7 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/api"
 )
 
@@ -43,16 +43,16 @@ type Info struct {
 type PodSetResources struct {
 	Name     string
 	Requests Requests
-	Flavors  map[corev1.ResourceName]string
+	Flavors  map[corev1.ResourceName]kueue.ResourceFlavorReference
 }
 
 func NewInfo(w *kueue.Workload) *Info {
 	info := &Info{
 		Obj:           w,
-		TotalRequests: totalRequests(&w.Spec),
+		TotalRequests: totalRequests(w),
 	}
-	if w.Spec.Admission != nil {
-		info.ClusterQueue = string(w.Spec.Admission.ClusterQueue)
+	if w.Status.Admission != nil {
+		info.ClusterQueue = string(w.Status.Admission.ClusterQueue)
 	}
 	return info
 }
@@ -69,28 +69,28 @@ func QueueKey(w *kueue.Workload) string {
 	return fmt.Sprintf("%s/%s", w.Namespace, w.Spec.QueueName)
 }
 
-func totalRequests(spec *kueue.WorkloadSpec) []PodSetResources {
-	if len(spec.PodSets) == 0 {
+func totalRequests(wl *kueue.Workload) []PodSetResources {
+	if len(wl.Spec.PodSets) == 0 {
 		return nil
 	}
-	res := make([]PodSetResources, 0, len(spec.PodSets))
-	var podSetFlavors map[string]map[corev1.ResourceName]string
-	if spec.Admission != nil {
-		podSetFlavors = make(map[string]map[corev1.ResourceName]string, len(spec.Admission.PodSetFlavors))
-		for _, ps := range spec.Admission.PodSetFlavors {
+	res := make([]PodSetResources, 0, len(wl.Spec.PodSets))
+	var podSetFlavors map[string]map[corev1.ResourceName]kueue.ResourceFlavorReference
+	if wl.Status.Admission != nil {
+		podSetFlavors = make(map[string]map[corev1.ResourceName]kueue.ResourceFlavorReference, len(wl.Status.Admission.PodSetFlavors))
+		for _, ps := range wl.Status.Admission.PodSetFlavors {
 			podSetFlavors[ps.Name] = ps.Flavors
 		}
 	}
 
-	for _, ps := range spec.PodSets {
+	for _, ps := range wl.Spec.PodSets {
 		setRes := PodSetResources{
 			Name: ps.Name,
 		}
-		setRes.Requests = podRequests(&ps.Spec)
+		setRes.Requests = podRequests(&ps.Template.Spec)
 		setRes.Requests.scale(int64(ps.Count))
 		flavors := podSetFlavors[ps.Name]
 		if len(flavors) > 0 {
-			setRes.Flavors = make(map[corev1.ResourceName]string, len(flavors))
+			setRes.Flavors = make(map[corev1.ResourceName]kueue.ResourceFlavorReference, len(flavors))
 			for r, t := range flavors {
 				setRes.Flavors[r] = t
 			}
@@ -263,6 +263,6 @@ func ClearAdmissionPatch(w *kueue.Workload) *kueue.Workload {
 // contains the admission. The object can be used in Server-Side-Apply.
 func AdmissionPatch(w *kueue.Workload) *kueue.Workload {
 	wlCopy := ClearAdmissionPatch(w)
-	wlCopy.Spec.Admission = w.Spec.Admission.DeepCopy()
+	wlCopy.Status.Admission = w.Status.Admission.DeepCopy()
 	return wlCopy
 }

@@ -31,18 +31,18 @@ import (
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type Assignment struct {
 	PodSets     []PodSetAssignment
-	TotalBorrow cache.ResourceQuantities
+	TotalBorrow cache.FlavorResourceQuantities
 
 	// usedResources is the accumulated usage of resources as pod sets get
 	// flavors assigned.
-	usage cache.ResourceQuantities
+	usage cache.FlavorResourceQuantities
 
 	// representativeMode is the cached representative mode for this assignment.
 	representativeMode *FlavorAssignmentMode
@@ -172,7 +172,7 @@ func (psa *PodSetAssignment) RepresentativeMode() FlavorAssignmentMode {
 type ResourceAssignment map[corev1.ResourceName]*FlavorAssignment
 
 func (psa *PodSetAssignment) toAPI() kueue.PodSetFlavors {
-	flavors := make(map[corev1.ResourceName]string, len(psa.Flavors))
+	flavors := make(map[corev1.ResourceName]kueue.ResourceFlavorReference, len(psa.Flavors))
 	for res, flvAssignment := range psa.Flavors {
 		flavors[res] = flvAssignment.Name
 	}
@@ -213,7 +213,7 @@ func (m FlavorAssignmentMode) String() string {
 }
 
 type FlavorAssignment struct {
-	Name   string
+	Name   kueue.ResourceFlavorReference
 	Mode   FlavorAssignmentMode
 	borrow int64
 }
@@ -222,11 +222,11 @@ type FlavorAssignment struct {
 // The result for each pod set is accompanied with reasons why the flavor can't
 // be assigned immediately. Each assigned flavor is accompanied with a
 // FlavorAssignmentMode.
-func AssignFlavors(log logr.Logger, wl *workload.Info, resourceFlavors map[string]*kueue.ResourceFlavor, cq *cache.ClusterQueue) Assignment {
+func AssignFlavors(log logr.Logger, wl *workload.Info, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, cq *cache.ClusterQueue) Assignment {
 	assignment := Assignment{
-		TotalBorrow: make(cache.ResourceQuantities),
+		TotalBorrow: make(cache.FlavorResourceQuantities),
 		PodSets:     make([]PodSetAssignment, 0, len(wl.TotalRequests)),
-		usage:       make(cache.ResourceQuantities),
+		usage:       make(cache.FlavorResourceQuantities),
 	}
 	for i, podSet := range wl.TotalRequests {
 		psAssignment := PodSetAssignment{
@@ -235,23 +235,19 @@ func AssignFlavors(log logr.Logger, wl *workload.Info, resourceFlavors map[strin
 		}
 		for resName := range podSet.Requests {
 			if _, found := psAssignment.Flavors[resName]; found {
-				// This resource got assigned the same flavor as a codependent resource.
+				// This resource got assigned the same flavor as its resource group.
 				// No need to compute again.
 				continue
 			}
-			if _, ok := cq.RequestableResources[resName]; !ok {
+			rg, found := cq.RGByResource[resName]
+			if !found {
 				psAssignment.Flavors = nil
 				psAssignment.Status = &Status{
 					reasons: []string{fmt.Sprintf("resource %s unavailable in ClusterQueue", resName)},
 				}
 				break
 			}
-			codepResources := cq.RequestableResources[resName].CodependentResources
-			if codepResources.Len() == 0 {
-				codepResources = sets.New(resName)
-			}
-			codepReq := filterRequestedResources(podSet.Requests, codepResources)
-			flavors, status := assignment.findFlavorForCodepResources(log, codepReq, resourceFlavors, cq, &wl.Obj.Spec.PodSets[i].Spec)
+			flavors, status := assignment.findFlavorForResourceGroup(log, rg, podSet.Requests, resourceFlavors, cq, &wl.Obj.Spec.PodSets[i].Template.Spec)
 			if status.IsError() || len(flavors) == 0 {
 				psAssignment.Flavors = nil
 				psAssignment.Status = status
@@ -288,73 +284,69 @@ func (a *Assignment) append(requests workload.Requests, psAssignment *PodSetAssi
 	a.PodSets = append(a.PodSets, *psAssignment)
 	for resource, flvAssignment := range psAssignment.Flavors {
 		if flvAssignment.borrow > 0 {
-			if a.TotalBorrow[resource] == nil {
-				a.TotalBorrow[resource] = make(map[string]int64)
+			if a.TotalBorrow[flvAssignment.Name] == nil {
+				a.TotalBorrow[flvAssignment.Name] = make(map[corev1.ResourceName]int64)
 			}
 			// Don't accumulate borrowing. The returned `borrow` already considers
 			// usage from previous pod sets.
-			a.TotalBorrow[resource][flvAssignment.Name] = flvAssignment.borrow
+			a.TotalBorrow[flvAssignment.Name][resource] = flvAssignment.borrow
 		}
-		if a.usage[resource] == nil {
-			a.usage[resource] = make(map[string]int64)
+		if a.usage[flvAssignment.Name] == nil {
+			a.usage[flvAssignment.Name] = make(map[corev1.ResourceName]int64)
 		}
-		a.usage[resource][flvAssignment.Name] += requests[resource]
+		a.usage[flvAssignment.Name][resource] += requests[resource]
 	}
 }
 
-// findFlavorForCodepResources finds the flavor which can satisfy the resource
+// findFlavorForResourceGroup finds the flavor which can satisfy the resource
 // request, along with the information about resources that need to be borrowed.
 // If the flavor cannot be immediately assigned, it returns a status with
 // reasons or failure.
-func (a *Assignment) findFlavorForCodepResources(
+func (a *Assignment) findFlavorForResourceGroup(
 	log logr.Logger,
+	rg *cache.ResourceGroup,
 	requests workload.Requests,
-	resourceFlavors map[string]*kueue.ResourceFlavor,
+	resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor,
 	cq *cache.ClusterQueue,
 	spec *corev1.PodSpec) (ResourceAssignment, *Status) {
 	status := &Status{}
+	requests = filterRequestedResources(requests, rg.CoveredResources)
 
-	// Keep any resource name as an anchor to gather flavors for.
-	var rName corev1.ResourceName
-	for rName = range requests {
-		break
-	}
 	var bestAssignment ResourceAssignment
 	bestAssignmentMode := NoFit
 
 	// We will only check against the flavors' labels for the resource.
-	// Since all the resources share the same flavors, they use the same selector.
-	selector := flavorSelector(spec, cq.LabelKeys[rName])
-	for i, flvLimit := range cq.RequestableResources[rName].Flavors {
-		flavor, exist := resourceFlavors[flvLimit.Name]
+	selector := flavorSelector(spec, rg.LabelKeys)
+	for _, flvQuotas := range rg.Flavors {
+		flavor, exist := resourceFlavors[flvQuotas.Name]
 		if !exist {
-			log.Error(nil, "Flavor not found", "Flavor", flvLimit.Name)
-			status.append(fmt.Sprintf("flavor %s not found", flvLimit.Name))
+			log.Error(nil, "Flavor not found", "Flavor", flvQuotas.Name)
+			status.append(fmt.Sprintf("flavor %s not found", flvQuotas.Name))
 			continue
 		}
-		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(flavor.Taints, spec.Tolerations, func(t *corev1.Taint) bool {
+		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(flavor.Spec.NodeTaints, spec.Tolerations, func(t *corev1.Taint) bool {
 			return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
 		})
 		if untolerated {
-			status.append(fmt.Sprintf("untolerated taint %s in flavor %s", taint, flvLimit.Name))
+			status.append(fmt.Sprintf("untolerated taint %s in flavor %s", taint, flvQuotas.Name))
 			continue
 		}
-		if match, err := selector.Match(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Labels: flavor.NodeSelector}}); !match || err != nil {
+		if match, err := selector.Match(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Labels: flavor.Spec.NodeLabels}}); !match || err != nil {
 			if err != nil {
 				status.err = err
 				return nil, status
 			}
-			status.append(fmt.Sprintf("flavor %s doesn't match with node affinity", flvLimit.Name))
+			status.append(fmt.Sprintf("flavor %s doesn't match node affinity", flvQuotas.Name))
 			continue
 		}
 
 		assignments := make(ResourceAssignment, len(requests))
 		// Calculate representativeMode for this assignment as the worst mode among all requests.
 		representativeMode := Fit
-		for name, val := range requests {
-			codepFlvLimit := cq.RequestableResources[name].Flavors[i]
+		for rName, val := range requests {
+			resQuota := flvQuotas.Resources[rName]
 			// Check considering the flavor usage by previous pod sets.
-			mode, borrow, s := fitsFlavorLimits(name, val+a.usage[name][flavor.Name], cq, &codepFlvLimit)
+			mode, borrow, s := fitsResourceQuota(flvQuotas.Name, rName, val+a.usage[flvQuotas.Name][rName], cq, resQuota)
 			if s != nil {
 				status.reasons = append(status.reasons, s.reasons...)
 			}
@@ -366,8 +358,8 @@ func (a *Assignment) findFlavorForCodepResources(
 				break
 			}
 
-			assignments[name] = &FlavorAssignment{
-				Name:   flavor.Name,
+			assignments[rName] = &FlavorAssignment{
+				Name:   flvQuotas.Name,
 				Mode:   mode,
 				borrow: borrow,
 			}
@@ -431,36 +423,36 @@ func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.Set[string]) nodeaffi
 	return nodeaffinity.GetRequiredNodeAffinity(&corev1.Pod{Spec: specCopy})
 }
 
-// fitsFlavorLimits returns how this flavor could be assigned to the resource,
+// fitsResourceQuota returns how this flavor could be assigned to the resource,
 // according to the remaining quota in the ClusterQueue and cohort.
 // If it fits, also returns any borrowing required.
 // If the flavor doesn't satisfy limits immediately (when waiting or preemption
 // could help), it returns a Status with reasons.
-func fitsFlavorLimits(rName corev1.ResourceName, val int64, cq *cache.ClusterQueue, flavor *cache.FlavorLimits) (FlavorAssignmentMode, int64, *Status) {
+func fitsResourceQuota(fName kueue.ResourceFlavorReference, rName corev1.ResourceName, val int64, cq *cache.ClusterQueue, rQuota *cache.ResourceQuota) (FlavorAssignmentMode, int64, *Status) {
 	var status Status
-	used := cq.UsedResources[rName][flavor.Name]
+	used := cq.Usage[fName][rName]
 	mode := NoFit
-	if val <= flavor.Min {
+	if val <= rQuota.Nominal {
 		// The request can be satisfied by the min quota, assuming quota is
 		// reclaimed from the cohort or assuming all active workloads in the
 		// ClusterQueue are preempted.
 		mode = Preempt
 	}
-	if flavor.Max != nil && used+val > *flavor.Max {
-		status.append(fmt.Sprintf("borrowing limit for %s flavor %s exceeded", rName, flavor.Name))
+	if rQuota.BorrowingLimit != nil && used+val > rQuota.Nominal+*rQuota.BorrowingLimit {
+		status.append(fmt.Sprintf("borrowing limit for %s in flavor %s exceeded", rName, fName))
 		return mode, 0, &status
 	}
 
 	cohortUsed := used
-	cohortAvailable := flavor.Min
+	cohortAvailable := rQuota.Nominal
 	if cq.Cohort != nil {
-		cohortUsed = cq.Cohort.UsedResources[rName][flavor.Name]
-		cohortAvailable = cq.Cohort.RequestableResources[rName][flavor.Name]
+		cohortUsed = cq.Cohort.Usage[fName][rName]
+		cohortAvailable = cq.Cohort.RequestableResources[fName][rName]
 	}
 
 	lack := cohortUsed + val - cohortAvailable
 	if lack <= 0 {
-		borrow := used + val - flavor.Min
+		borrow := used + val - rQuota.Nominal
 		if borrow < 0 {
 			borrow = 0
 		}
@@ -468,12 +460,12 @@ func fitsFlavorLimits(rName corev1.ResourceName, val int64, cq *cache.ClusterQue
 	}
 
 	lackQuantity := workload.ResourceQuantity(rName, lack)
-	msg := fmt.Sprintf("insufficient unused quota in cohort for %s flavor %s, %s more needed", rName, flavor.Name, &lackQuantity)
+	msg := fmt.Sprintf("insufficient unused quota in cohort for %s in flavor %s, %s more needed", rName, fName, &lackQuantity)
 	if cq.Cohort == nil {
 		if mode == NoFit {
-			msg = fmt.Sprintf("insufficient quota for %s flavor %s in ClusterQueue", rName, flavor.Name)
+			msg = fmt.Sprintf("insufficient quota for %s in flavor %s in ClusterQueue", rName, fName)
 		} else {
-			msg = fmt.Sprintf("insufficient unused quota for %s flavor %s, %s more needed", rName, flavor.Name, &lackQuantity)
+			msg = fmt.Sprintf("insufficient unused quota for %s in flavor %s, %s more needed", rName, fName, &lackQuantity)
 		}
 	}
 	status.append(msg)

@@ -11,7 +11,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha2
+package webhook
 
 import (
 	"fmt"
@@ -25,7 +25,7 @@ import (
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -54,14 +54,17 @@ var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 	ginkgo.Context("When creating a Workload", func() {
 		ginkgo.It("Should set default podSet name", func() {
 			ginkgo.By("Creating a new Workload")
+			// Not using the wrappers to avoid hiding any defaulting.
 			workload := kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{Name: workloadName, Namespace: ns.Name},
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
 						{
 							Count: 1,
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{},
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									Containers: []corev1.Container{},
+								},
 							},
 						},
 					},
@@ -96,13 +99,9 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 		ginkgo.DescribeTable("Should have valid PodSet when creating", func(podSetsCapacity int, podSetCount int, isInvalid bool) {
 			podSets := make([]kueue.PodSet, podSetsCapacity)
 			for i := range podSets {
-				podSets[i].Name = fmt.Sprintf("ps%d", i)
-				podSets[i].Count = int32(podSetCount)
-				podSets[i].Spec = corev1.PodSpec{
-					Containers: []corev1.Container{},
-				}
+				podSets[i] = *testing.MakePodSet(fmt.Sprintf("ps%d", i), podSetCount).Obj()
 			}
-			workload := testing.MakeWorkload(workloadName, ns.Name).PodSets(podSets).Obj()
+			workload := testing.MakeWorkload(workloadName, ns.Name).PodSets(podSets...).Obj()
 			err := k8sClient.Create(ctx, workload)
 			if isInvalid {
 				gomega.Expect(err).Should(gomega.HaveOccurred())
@@ -148,12 +147,10 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 		})
 
 		ginkgo.It("Should forbid the change of spec.queueName of an admitted workload", func() {
-			ginkgo.By("Creating a new Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).
-				Queue("queue1").
-				Admit(testing.MakeAdmission("cq").Obj()).
-				Obj()
+			ginkgo.By("Creating and admitting a new Workload")
+			workload := testing.MakeWorkload(workloadName, ns.Name).Queue("queue1").Obj()
 			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
+			util.SetAdmission(ctx, k8sClient, workload, testing.MakeAdmission("cq").Obj())
 
 			ginkgo.By("Updating queueName")
 			gomega.Eventually(func() error {
@@ -166,17 +163,23 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 
 		ginkgo.It("Should forbid the change of spec.admission", func() {
 			ginkgo.By("Creating a new Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).Admit(
-				testing.MakeAdmission("cluster-queue").Obj(),
-			).Obj()
+			workload := testing.MakeWorkload(workloadName, ns.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
+
+			ginkgo.By("Admitting the Workload")
+			gomega.Eventually(func() error {
+				var newWL kueue.Workload
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
+				newWL.Status.Admission = testing.MakeAdmission("cluster-queue").Obj()
+				return k8sClient.Status().Update(ctx, &newWL)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Updating queueName")
 			gomega.Eventually(func() error {
 				var newWL kueue.Workload
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
-				newWL.Spec.Admission.ClusterQueue = "foo-clusterQueue"
-				return k8sClient.Update(ctx, &newWL)
+				newWL.Status.Admission.ClusterQueue = "foo-cluster-queue"
+				return k8sClient.Status().Update(ctx, &newWL)
 			}, util.Timeout, util.Interval).Should(testing.BeForbiddenError())
 
 		})

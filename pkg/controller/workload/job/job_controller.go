@@ -39,7 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/workload/jobframework"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
@@ -273,7 +273,7 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	// 5. handle job is suspended.
 	if jobSuspended(&job) {
 		// start the job if the workload has been admitted, and the job is still suspended
-		if wl.Spec.Admission != nil {
+		if wl.Status.Admission != nil {
 			log.V(2).Info("Job admitted, unsuspending")
 			err := r.startJob(ctx, wl, &job)
 			if err != nil {
@@ -298,7 +298,7 @@ func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	}
 
 	// 6. handle job is unsuspended.
-	if wl.Spec.Admission == nil {
+	if wl.Status.Admission == nil {
 		// the job must be suspended if the workload is not yet admitted.
 		log.V(2).Info("Running job is not admitted by a cluster queue, suspending")
 		err := r.stopJob(ctx, wl, &job, "Not admitted by cluster queue")
@@ -339,9 +339,9 @@ func (r *JobReconciler) stopJob(ctx context.Context, w *kueue.Workload,
 	}
 
 	if w != nil && !equality.Semantic.DeepEqual(job.Spec.Template.Spec.NodeSelector,
-		w.Spec.PodSets[0].Spec.NodeSelector) {
+		w.Spec.PodSets[0].Template.Spec.NodeSelector) {
 		job.Spec.Template.Spec.NodeSelector = map[string]string{}
-		for k, v := range w.Spec.PodSets[0].Spec.NodeSelector {
+		for k, v := range w.Spec.PodSets[0].Template.Spec.NodeSelector {
 			job.Spec.Template.Spec.NodeSelector[k] = v
 		}
 		return r.client.Update(ctx, job)
@@ -378,27 +378,27 @@ func (r *JobReconciler) startJob(ctx context.Context, w *kueue.Workload, job *ba
 	}
 
 	r.record.Eventf(job, corev1.EventTypeNormal, "Started",
-		"Admitted by clusterQueue %v", w.Spec.Admission.ClusterQueue)
+		"Admitted by clusterQueue %v", w.Status.Admission.ClusterQueue)
 	return nil
 }
 
 func (r *JobReconciler) getNodeSelectors(ctx context.Context, w *kueue.Workload) (map[string]string, error) {
-	if len(w.Spec.Admission.PodSetFlavors[0].Flavors) == 0 {
+	if len(w.Status.Admission.PodSetFlavors[0].Flavors) == 0 {
 		return nil, nil
 	}
 
-	processedFlvs := sets.NewString()
+	processedFlvs := sets.New[kueue.ResourceFlavorReference]()
 	nodeSelector := map[string]string{}
-	for _, flvName := range w.Spec.Admission.PodSetFlavors[0].Flavors {
+	for _, flvName := range w.Status.Admission.PodSetFlavors[0].Flavors {
 		if processedFlvs.Has(flvName) {
 			continue
 		}
 		// Lookup the ResourceFlavors to fetch the node affinity labels to apply on the job.
 		flv := kueue.ResourceFlavor{}
-		if err := r.client.Get(ctx, types.NamespacedName{Name: flvName}, &flv); err != nil {
+		if err := r.client.Get(ctx, types.NamespacedName{Name: string(flvName)}, &flv); err != nil {
 			return nil, err
 		}
-		for k, v := range flv.NodeSelector {
+		for k, v := range flv.Spec.NodeLabels {
 			nodeSelector[k] = v
 		}
 		processedFlvs.Insert(flvName)
@@ -526,8 +526,8 @@ func ConstructWorkloadFor(ctx context.Context, client client.Client,
 		Spec: kueue.WorkloadSpec{
 			PodSets: []kueue.PodSet{
 				{
-					Spec:  *job.Spec.Template.Spec.DeepCopy(),
-					Count: podsCount(&job.Spec),
+					Template: *job.Spec.Template.DeepCopy(),
+					Count:    podsCount(&job.Spec),
 				},
 			},
 			QueueName: queueName(job),
@@ -567,7 +567,7 @@ func generatePodsReadyCondition(job *batchv1.Job, wl *kueue.Workload) metav1.Con
 	// Ready to Completed. As pods finish, they transition first into the
 	// uncountedTerminatedPods staging area, before passing to the
 	// succeeded/failed counters.
-	if wl.Spec.Admission != nil && (podsReady(job) || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPodsReady)) {
+	if wl.Status.Admission != nil && (podsReady(job) || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPodsReady)) {
 		conditionStatus = metav1.ConditionTrue
 		message = "All pods were ready or succeeded since the workload admission"
 	}
@@ -617,14 +617,17 @@ func jobAndWorkloadEqual(job *batchv1.Job, wl *kueue.Workload) bool {
 	// nodeSelector may change, hence we are not checking for
 	// equality of the whole job.Spec.Template.Spec.
 	if !equality.Semantic.DeepEqual(job.Spec.Template.Spec.InitContainers,
-		wl.Spec.PodSets[0].Spec.InitContainers) {
+		wl.Spec.PodSets[0].Template.Spec.InitContainers) {
 		return false
 	}
 	return equality.Semantic.DeepEqual(job.Spec.Template.Spec.Containers,
-		wl.Spec.PodSets[0].Spec.Containers)
+		wl.Spec.PodSets[0].Template.Spec.Containers)
 }
 
 func queueName(job *batchv1.Job) string {
+	if v, ok := job.Labels[constants.QueueLabel]; ok {
+		return v
+	}
 	return job.Annotations[constants.QueueAnnotation]
 }
 

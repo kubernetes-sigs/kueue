@@ -25,9 +25,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1alpha2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/util/pointer"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -49,15 +48,31 @@ var ignoreCQConditionTimestamps = cmpopts.IgnoreFields(metav1.Condition{}, "Last
 
 var _ = ginkgo.Describe("ClusterQueue controller", func() {
 	var (
-		ns                 *corev1.Namespace
-		emptyUsedResources = kueue.UsedResources{
-			corev1.ResourceCPU: {
-				flavorOnDemand: {Total: pointer.Quantity(resource.MustParse("0"))},
-				flavorSpot:     {Total: pointer.Quantity(resource.MustParse("0"))},
+		ns               *corev1.Namespace
+		emptyUsedFlavors = []kueue.FlavorUsage{
+			{
+				Name: flavorOnDemand,
+				Resources: []kueue.ResourceUsage{
+					{Name: corev1.ResourceCPU},
+				},
 			},
-			resourceGPU: {
-				flavorModelA: {Total: pointer.Quantity(resource.MustParse("0"))},
-				flavorModelB: {Total: pointer.Quantity(resource.MustParse("0"))},
+			{
+				Name: flavorSpot,
+				Resources: []kueue.ResourceUsage{
+					{Name: corev1.ResourceCPU},
+				},
+			},
+			{
+				Name: flavorModelA,
+				Resources: []kueue.ResourceUsage{
+					{Name: resourceGPU},
+				},
+			},
+			{
+				Name: flavorModelB,
+				Resources: []kueue.ResourceUsage{
+					{Name: resourceGPU},
+				},
 			},
 		}
 	)
@@ -87,12 +102,19 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 
 		ginkgo.BeforeEach(func() {
 			clusterQueue = testing.MakeClusterQueue("cluster-queue").
-				Resource(testing.MakeResource(corev1.ResourceCPU).
-					Flavor(testing.MakeFlavor(flavorOnDemand, "5").Max("10").Obj()).
-					Flavor(testing.MakeFlavor(flavorSpot, "5").Max("10").Obj()).Obj()).
-				Resource(testing.MakeResource(resourceGPU).
-					Flavor(testing.MakeFlavor(flavorModelA, "5").Max("10").Obj()).
-					Flavor(testing.MakeFlavor(flavorModelB, "5").Max("10").Obj()).Obj()).Obj()
+				ResourceGroup(
+					*testing.MakeFlavorQuotas(flavorOnDemand).
+						Resource(corev1.ResourceCPU, "5", "5").Obj(),
+					*testing.MakeFlavorQuotas(flavorSpot).
+						Resource(corev1.ResourceCPU, "5", "5").Obj(),
+				).
+				ResourceGroup(
+					*testing.MakeFlavorQuotas(flavorModelA).
+						Resource(resourceGPU, "5", "5").Obj(),
+					*testing.MakeFlavorQuotas(flavorModelB).
+						Resource(resourceGPU, "5", "5").Obj(),
+				).
+				Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
@@ -132,7 +154,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 				return updatedCq.Status
 			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
 				PendingWorkloads: 5,
-				UsedResources:    emptyUsedResources,
+				FlavorsUsage:     emptyUsedFlavors,
 				Conditions: []metav1.Condition{
 					{
 						Type:    kueue.ClusterQueueActive,
@@ -174,8 +196,8 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 				gomega.Eventually(func() error {
 					var newWL kueue.Workload
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
-					newWL.Spec.Admission = admissions[i]
-					return k8sClient.Update(ctx, &newWL)
+					newWL.Status.Admission = admissions[i]
+					return k8sClient.Status().Update(ctx, &newWL)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			}
 
@@ -186,23 +208,35 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
 				PendingWorkloads:  1,
 				AdmittedWorkloads: 4,
-				UsedResources: kueue.UsedResources{
-					corev1.ResourceCPU: {
-						flavorOnDemand: {
-							Total:    pointer.Quantity(resource.MustParse("6")),
-							Borrowed: pointer.Quantity(resource.MustParse("1")),
-						},
-						flavorSpot: {
-							Total: pointer.Quantity(resource.MustParse("1")),
-						},
+				FlavorsUsage: []kueue.FlavorUsage{
+					{
+						Name: flavorOnDemand,
+						Resources: []kueue.ResourceUsage{{
+							Name:     corev1.ResourceCPU,
+							Total:    resource.MustParse("6"),
+							Borrowed: resource.MustParse("1"),
+						}},
 					},
-					resourceGPU: {
-						flavorModelA: {
-							Total: pointer.Quantity(resource.MustParse("5")),
-						},
-						flavorModelB: {
-							Total: pointer.Quantity(resource.MustParse("2")),
-						},
+					{
+						Name: flavorSpot,
+						Resources: []kueue.ResourceUsage{{
+							Name:  corev1.ResourceCPU,
+							Total: resource.MustParse("1"),
+						}},
+					},
+					{
+						Name: flavorModelA,
+						Resources: []kueue.ResourceUsage{{
+							Name:  resourceGPU,
+							Total: resource.MustParse("5"),
+						}},
+					},
+					{
+						Name: flavorModelB,
+						Resources: []kueue.ResourceUsage{{
+							Name:  resourceGPU,
+							Total: resource.MustParse("2"),
+						}},
 					},
 				},
 				Conditions: []metav1.Condition{
@@ -224,7 +258,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
 				return updatedCq.Status
 			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
-				UsedResources: emptyUsedResources,
+				FlavorsUsage: emptyUsedFlavors,
 				Conditions: []metav1.Condition{
 					{
 						Type:    kueue.ClusterQueueActive,
@@ -250,9 +284,10 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 
 		ginkgo.BeforeEach(func() {
 			cq = testing.MakeClusterQueue("bar-cq").
-				Resource(testing.MakeResource(corev1.ResourceCPU).
-					Flavor(testing.MakeFlavor(flavorCPUArchA, "5").Max("10").Obj()).
-					Flavor(testing.MakeFlavor(flavorCPUArchB, "5").Max("10").Obj()).Obj()).Obj()
+				ResourceGroup(
+					*testing.MakeFlavorQuotas(flavorCPUArchA).Resource(corev1.ResourceCPU, "5", "5").Obj(),
+					*testing.MakeFlavorQuotas(flavorCPUArchB).Resource(corev1.ResourceCPU, "5", "5").Obj(),
+				).Obj()
 			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
 			lq = testing.MakeLocalQueue("bar-lq", ns.Name).ClusterQueue(cq.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
@@ -339,9 +374,10 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			util.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusActive)
 
 			ginkgo.By("Admit workload")
-			admission := testing.MakeAdmission(cq.Name).Obj()
-			wl := testing.MakeWorkload("workload", ns.Name).Queue(lq.Name).Admit(admission).Obj()
+			wl := testing.MakeWorkload("workload", ns.Name).Queue(lq.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+			wl.Status.Admission = testing.MakeAdmission(cq.Name).Obj()
+			gomega.Expect(k8sClient.Status().Update(ctx, wl)).To(gomega.Succeed())
 
 			ginkgo.By("Delete clusterQueue")
 			gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, cq)).To(gomega.Succeed())
