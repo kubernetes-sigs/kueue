@@ -11,13 +11,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package job
+package jobframework
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+)
+
+const (
+	OwnerKey = ".metadata.controller"
 )
 
 type GenericJob interface {
@@ -53,4 +57,6 @@ type GenericJob interface {
 	IsActive() bool
 	// PodsReady instructs whether job derived pods are all ready now.
 	PodsReady() bool
+	// GetWorkloadName returns the name of the workload for the job.
+	GetWorkloadName() string
 }

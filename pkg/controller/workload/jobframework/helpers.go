@@ -11,7 +11,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package job
+package jobframework
 
 import (
 	"context"
@@ -19,7 +19,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -61,7 +60,7 @@ func EnsureOneWorkload(ctx context.Context, cli client.Client, req ctrl.Request,
 
 	var workloads kueue.WorkloadList
 	if err := cli.List(ctx, &workloads, client.InNamespace(job.Object().GetNamespace()),
-		client.MatchingFields{ownerKey: job.Object().GetName()}); err != nil {
+		client.MatchingFields{OwnerKey: job.Object().GetName()}); err != nil {
 		log.Error(err, "Unable to list child workloads")
 		return nil, err
 	}
@@ -176,25 +175,11 @@ func StopJob(ctx context.Context, client client.Client, record record.EventRecor
 	return nil
 }
 
-// CreateWorkload will create a workload from the corresponding job.
-func CreateWorkload(ctx context.Context, client client.Client, scheme *runtime.Scheme, job GenericJob) (*kueue.Workload, error) {
-	wl, err := ConstructWorkload(ctx, client, scheme, job)
-	if err != nil {
-		return nil, err
-	}
-
-	if err = client.Create(ctx, wl); err != nil {
-		return nil, err
-	}
-
-	return wl, nil
-}
-
 // ConstructWorkload will derive a workload from the corresponding job.
 func ConstructWorkload(ctx context.Context, client client.Client, scheme *runtime.Scheme, job GenericJob) (*kueue.Workload, error) {
 	wl := &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      GetWorkloadNameForJob(job.Object().GetName()),
+			Name:      job.GetWorkloadName(),
 			Namespace: job.Object().GetNamespace(),
 		},
 		Spec: kueue.WorkloadSpec{
@@ -248,20 +233,4 @@ func GetNodeSelectors(ctx context.Context, client client.Client, w *kueue.Worklo
 		nodeSelectors[i] = nodeSelector
 	}
 	return nodeSelectors, nil
-}
-
-// UpdateQueueNameIfChanged will update workload queue name if changed.
-func UpdateQueueNameIfChanged(ctx context.Context, client client.Client, job GenericJob, wl *kueue.Workload) error {
-	queueName := job.QueueName()
-	if wl.Spec.QueueName != queueName {
-		wl.Spec.QueueName = queueName
-		return client.Update(ctx, wl)
-	}
-	return nil
-}
-
-// SetWorkloadCondition will update the workload condition by the provide one.
-func SetWorkloadCondition(ctx context.Context, client client.Client, wl *kueue.Workload, condition metav1.Condition) error {
-	apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
-	return client.Status().Update(ctx, wl)
 }
