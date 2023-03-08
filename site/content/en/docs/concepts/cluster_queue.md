@@ -280,27 +280,25 @@ The fields above have the following semantics:
 
 - `reclaimWithinCohort` determines whether a pending Workload can preempt
   Workloads from other ClusterQueues in the cohort that are using more than
-  their nominal quota. Possible values are:
-
-	  - `Never` (default): do not preempt workloads in the cohort.
-	  - `LowerPriority`: if the pending workload fits within the nominal
-	    quota of its ClusterQueue, only preempt workloads in the cohort that have
+  their nominal quota. The possible values are:
+	  - `Never` (default): do not preempt Workloads in the cohort.
+	  - `LowerPriority`: if the pending Workload fits within the nominal
+	    quota of its ClusterQueue, only preempt Workloads in the cohort that have
 	    lower priority than the pending Workload.
-	  - `Any`: if the pending workload fits within the nominal quota of its
+	  - `Any`: if the pending Workload fits within the nominal quota of its
 	    ClusterQueue, preempt any Workload in the cohort, irrespective of
 	    priority.
 
 - `withinClusterQueue` determines whether a pending Workload that doesn't fit
   within the nominal quota for its ClusterQueue, can preempt active Workloads in
-  the ClusterQueue. Possible values are:
- 
-  - `Never` (default): do not preempt workloads in the ClusterQueue.
-  - `LowerPriority`: only preempt workloads in the ClusterQueue that have
+  the ClusterQueue. The possible values are:
+  - `Never` (default): do not preempt Workloads in the ClusterQueue.
+  - `LowerPriority`: only preempt Workloads in the ClusterQueue that have
     lower priority than the pending Workload.
 
 Note that an incoming Workload can preempt Workloads both within the
 ClusterQueue and the cohort. Kueue implements heuristics to preempt as few
-Workloads as possible, prefering Workloads with these characteristics:
+Workloads as possible, preferring Workloads with these characteristics:
 - Workloads belonging to ClusterQueues that are borrowing quota.
 - Workloads with the lowest priority.
 - Workloads that have been admitted more recently.

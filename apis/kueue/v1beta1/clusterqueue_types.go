@@ -247,14 +247,14 @@ const (
 type ClusterQueuePreemption struct {
 	// reclaimWithinCohort determines whether a pending Workload can preempt
 	// Workloads from other ClusterQueues in the cohort that are using more than
-	// their nominal quota. Possible values are:
+	// their nominal quota. The possible values are:
 	//
-	// - `Never` (default): do not preempt workloads in the cohort.
-	// - `LowerPriority`: if the pending workload fits within the nominal
-	//   quota of its ClusterQueue, only preempt workloads in the cohort that have
+	// - `Never` (default): do not preempt Workloads in the cohort.
+	// - `LowerPriority`: if the pending Workload fits within the nominal
+	//   quota of its ClusterQueue, only preempt Workloads in the cohort that have
 	//   lower priority than the pending Workload.
 	// - `Any`: if the pending Workload fits within the nominal quota of its
-	//   ClusterQueue, preempt any workload in the cohort, irrespective of
+	//   ClusterQueue, preempt any Workload in the cohort, irrespective of
 	//   priority.
 	//
 	// +kubebuilder:default=Never
@@ -263,10 +263,10 @@ type ClusterQueuePreemption struct {
 
 	// withinClusterQueue determines whether a pending Workload that doesn't fit
 	// within the nominal quota for its ClusterQueue, can preempt active Workloads in
-	// the ClusterQueue. Possible values are:
+	// the ClusterQueue. The possible values are:
 	//
-	// - `Never` (default): do not preempt workloads in the ClusterQueue.
-	// - `LowerPriority`: only preempt workloads in the ClusterQueue that have
+	// - `Never` (default): do not preempt Workloads in the ClusterQueue.
+	// - `LowerPriority`: only preempt Workloads in the ClusterQueue that have
 	//   lower priority than the pending Workload.
 	//
 	// +kubebuilder:default=Never

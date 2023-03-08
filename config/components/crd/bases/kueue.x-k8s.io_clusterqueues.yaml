@@ -523,13 +523,13 @@ spec:
                     default: Never
                     description: "reclaimWithinCohort determines whether a pending
                       Workload can preempt Workloads from other ClusterQueues in the
-                      cohort that are using more than their nominal quota. Possible
-                      values are: \n - `Never` (default): do not preempt workloads
-                      in the cohort. - `LowerPriority`: if the pending workload fits
-                      within the nominal quota of its ClusterQueue, only preempt workloads
+                      cohort that are using more than their nominal quota. The possible
+                      values are: \n - `Never` (default): do not preempt Workloads
+                      in the cohort. - `LowerPriority`: if the pending Workload fits
+                      within the nominal quota of its ClusterQueue, only preempt Workloads
                       in the cohort that have lower priority than the pending Workload.
                       - `Any`: if the pending Workload fits within the nominal quota
-                      of its ClusterQueue, preempt any workload in the cohort, irrespective
+                      of its ClusterQueue, preempt any Workload in the cohort, irrespective
                       of priority."
                     enum:
                     - Never
@@ -540,10 +540,11 @@ spec:
                     default: Never
                     description: "withinClusterQueue determines whether a pending
                       Workload that doesn't fit within the nominal quota for its ClusterQueue,
-                      can preempt active Workloads in the ClusterQueue. Possible values
-                      are: \n - `Never` (default): do not preempt workloads in the
-                      ClusterQueue. - `LowerPriority`: only preempt workloads in the
-                      ClusterQueue that have lower priority than the pending Workload."
+                      can preempt active Workloads in the ClusterQueue. The possible
+                      values are: \n - `Never` (default): do not preempt Workloads
+                      in the ClusterQueue. - `LowerPriority`: only preempt Workloads
+                      in the ClusterQueue that have lower priority than the pending
+                      Workload."
                     enum:
                     - Never
                     - LowerPriority
