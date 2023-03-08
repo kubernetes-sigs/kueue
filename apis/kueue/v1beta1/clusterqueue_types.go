@@ -77,12 +77,12 @@ type ClusterQueueSpec struct {
 	//
 	// Preemption can happen in two scenarios:
 	//
-	// - When a Workload fits within the min quota of the ClusterQueue, but the
-	//   quota is currently borrowed by other ClusterQueues in the cohort.
+	// - When a Workload fits within the nominal quota of the ClusterQueue, but
+	//   the quota is currently borrowed by other ClusterQueues in the cohort.
 	//   Preempting Workloads in other ClusterQueues allows this ClusterQueue to
-	//   reclaim its min quota.
-	// - When a Workload doesn't fit within the min quota of the ClusterQueue
-	//   and there are active Workloads with lower priority.
+	//   reclaim its nominal quota.
+	// - When a Workload doesn't fit within the nominal quota of the ClusterQueue
+	//   and there are admitted Workloads in the ClusterQueue with lower priority.
 	//
 	// The preemption algorithm tries to find a minimal set of Workloads to
 	// preempt to accomomdate the pending Workload, preempting Workloads with
@@ -247,13 +247,13 @@ const (
 type ClusterQueuePreemption struct {
 	// reclaimWithinCohort determines whether a pending Workload can preempt
 	// Workloads from other ClusterQueues in the cohort that are using more than
-	// their min quota. Possible values are:
+	// their nominal quota. Possible values are:
 	//
 	// - `Never` (default): do not preempt workloads in the cohort.
-	// - `LowerPriority`: if the pending workload fits within the min
+	// - `LowerPriority`: if the pending workload fits within the nominal
 	//   quota of its ClusterQueue, only preempt workloads in the cohort that have
 	//   lower priority than the pending Workload.
-	// - `Any`: if the pending workload fits within the min quota of its
+	// - `Any`: if the pending Workload fits within the nominal quota of its
 	//   ClusterQueue, preempt any workload in the cohort, irrespective of
 	//   priority.
 	//
@@ -261,8 +261,8 @@ type ClusterQueuePreemption struct {
 	// +kubebuilder:validation:Enum=Never;LowerPriority;Any
 	ReclaimWithinCohort PreemptionPolicy `json:"reclaimWithinCohort,omitempty"`
 
-	// withinClusterQueue determines whether a pending workload that doesn't fit
-	// within the min quota for its ClusterQueue, can preempt active Workloads in
+	// withinClusterQueue determines whether a pending Workload that doesn't fit
+	// within the nominal quota for its ClusterQueue, can preempt active Workloads in
 	// the ClusterQueue. Possible values are:
 	//
 	// - `Never` (default): do not preempt workloads in the ClusterQueue.
