@@ -20,10 +20,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
-const (
-	OwnerKey = ".metadata.controller"
-)
-
 type GenericJob interface {
 	// Object returns the job instance.
 	Object() client.Object
@@ -39,7 +35,7 @@ type GenericJob interface {
 	// InjectNodeAffinity will inject the node affinity extracting from workload to job.
 	InjectNodeAffinity(nodeSelectors []map[string]string) error
 	// RestoreNodeAffinity will restore the original node affinity of job.
-	RestoreNodeAffinity(nodeSelectors []map[string]string) error
+	RestoreNodeAffinity(podSets []kueue.PodSet) error
 	// Finished means whether the job is completed/failed or not,
 	// condition represents the workload finished condition.
 	Finished() (condition metav1.Condition, finished bool)
@@ -59,4 +55,6 @@ type GenericJob interface {
 	PodsReady() bool
 	// GetWorkloadName returns the name of the workload for the job.
 	GetWorkloadName() string
+	// GetOwnerKey returns a unique key that identifies Workloads owned by the job implementation.
+	GetOwnerKey() string
 }

@@ -33,6 +33,8 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/workload/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/workload/mpijob"
 	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/workload/mpijob"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -111,7 +113,8 @@ var _ = ginkgo.Describe("Job controller", func() {
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking a second non-matching workload is deleted")
-		secondWl, _ := workloadmpijob.ConstructWorkloadFor(ctx, k8sClient, createdJob, scheme.Scheme)
+		mpiJob := mpijob.MPIJob{MPIJob: *createdJob}
+		secondWl, _ := jobframework.ConstructWorkload(ctx, k8sClient, scheme.Scheme, &mpiJob)
 		secondWl.Name = workloadmpijob.GetWorkloadNameForMPIJob("second-workload")
 		secondWl.Spec.PodSets[0].Count += 1
 		gomega.Expect(k8sClient.Create(ctx, secondWl)).Should(gomega.Succeed())

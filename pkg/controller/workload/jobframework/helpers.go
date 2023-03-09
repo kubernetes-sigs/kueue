@@ -60,7 +60,7 @@ func EnsureOneWorkload(ctx context.Context, cli client.Client, req ctrl.Request,
 
 	var workloads kueue.WorkloadList
 	if err := cli.List(ctx, &workloads, client.InNamespace(job.Object().GetNamespace()),
-		client.MatchingFields{OwnerKey: job.Object().GetName()}); err != nil {
+		client.MatchingFields{job.GetOwnerKey(): job.Object().GetName()}); err != nil {
 		log.Error(err, "Unable to list child workloads")
 		return nil, err
 	}
@@ -166,7 +166,7 @@ func StopJob(ctx context.Context, client client.Client, record record.EventRecor
 	}
 
 	if wl != nil {
-		if err := job.RestoreNodeAffinity([]map[string]string{wl.Spec.PodSets[0].Template.Spec.NodeSelector}); err != nil {
+		if err := job.RestoreNodeAffinity(wl.Spec.PodSets); err != nil {
 			return err
 		}
 		return client.Update(ctx, job.Object())

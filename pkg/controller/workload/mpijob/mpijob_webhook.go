@@ -67,7 +67,8 @@ func (w *MPIJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Applying defaults", "job", klog.KObj(job))
 
-	if queueName(job) == "" && !w.manageJobsWithoutQueueName {
+	mpiJob := MPIJob{*job}
+	if mpiJob.QueueName() == "" && !w.manageJobsWithoutQueueName {
 		return nil
 	}
 
@@ -112,7 +113,9 @@ func (w *MPIJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runti
 func validateUpdate(oldJob, newJob *kubeflow.MPIJob) field.ErrorList {
 	allErrs := validateCreate(newJob)
 
-	if !*newJob.Spec.RunPolicy.Suspend && (queueName(oldJob) != queueName(newJob)) {
+	oldMPIJob := MPIJob{*oldJob}
+	newMPIJob := MPIJob{*newJob}
+	if !*newJob.Spec.RunPolicy.Suspend && (oldMPIJob.QueueName() != newMPIJob.QueueName()) {
 		allErrs = append(allErrs, field.Forbidden(suspendPath, "must not update queue name when job is unsuspend"))
 	}
 

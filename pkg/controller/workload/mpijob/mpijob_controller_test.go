@@ -160,7 +160,8 @@ func TestCalcPriorityClassName(t *testing.T) {
 
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
-			gotPriorityClassName := calcPriorityClassName(&tc.job)
+			mpiJob := MPIJob{tc.job}
+			gotPriorityClassName := mpiJob.PriorityClass()
 			if tc.wantPriorityClassName != gotPriorityClassName {
 				t.Errorf("Unexpected response (want: %v, got: %v)", tc.wantPriorityClassName, gotPriorityClassName)
 			}

@@ -24,12 +24,9 @@ import (
 	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
@@ -39,12 +36,11 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/workload/jobframework"
-	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var (
-	ownerKey = ".metadata.mpijob_controller"
+	ownerKey = ".metadata.ownerReferences[kubeflow.MPIJob]"
 )
 
 // MPIJobReconciler reconciles a Job object
@@ -102,6 +98,191 @@ func NewReconciler(
 	}
 }
 
+type MPIJob struct {
+	kubeflow.MPIJob
+}
+
+func (job *MPIJob) Object() client.Object {
+	return &job.MPIJob
+}
+
+func (job *MPIJob) ParentWorkloadName() string {
+	return job.MPIJob.Annotations[constants.ParentWorkloadAnnotation]
+}
+
+func (job *MPIJob) QueueName() string {
+	return job.Annotations[constants.QueueAnnotation]
+}
+
+func (job *MPIJob) IsSuspend() bool {
+	return job.Spec.RunPolicy.Suspend != nil && *job.Spec.RunPolicy.Suspend
+}
+
+func (job *MPIJob) IsActive() bool {
+	for _, replicaStatus := range job.Status.ReplicaStatuses {
+		if replicaStatus.Active != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (job *MPIJob) Suspend() error {
+	job.Spec.RunPolicy.Suspend = pointer.Bool(true)
+	return nil
+}
+
+func (job *MPIJob) UnSuspend() error {
+	job.Spec.RunPolicy.Suspend = pointer.Bool(false)
+	return nil
+}
+
+func (job *MPIJob) GetWorkloadName() string {
+	return GetWorkloadNameForMPIJob(job.Name)
+}
+
+func (job *MPIJob) ResetStatus() bool {
+	if job.Status.StartTime == nil {
+		return false
+	}
+	job.Status.StartTime = nil
+	return true
+}
+
+func (job *MPIJob) GetOwnerKey() string {
+	return ownerKey
+}
+
+func (job *MPIJob) PodSets() []kueue.PodSet {
+	replicaTypes := orderedReplicaTypes(&job.Spec)
+	podSets := make([]kueue.PodSet, len(replicaTypes))
+	for index, mpiReplicaType := range replicaTypes {
+		podSets[index] = kueue.PodSet{
+			Name:     strings.ToLower(string(mpiReplicaType)),
+			Template: *job.Spec.MPIReplicaSpecs[mpiReplicaType].Template.DeepCopy(),
+			Count:    podsCount(&job.Spec, mpiReplicaType),
+		}
+	}
+	return podSets
+}
+
+func (job *MPIJob) InjectNodeAffinity(nodeSelectors []map[string]string) error {
+	if len(nodeSelectors) == 0 {
+		return nil
+	}
+	orderedReplicaTypes := orderedReplicaTypes(&job.Spec)
+	for index := range nodeSelectors {
+		replicaType := orderedReplicaTypes[index]
+		nodeSelector := nodeSelectors[index]
+		if len(nodeSelector) != 0 {
+			if job.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector == nil {
+				job.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector = nodeSelector
+			} else {
+				for k, v := range nodeSelector {
+					job.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector[k] = v
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (job *MPIJob) RestoreNodeAffinity(podSets []kueue.PodSet) error {
+	orderedReplicaTypes := orderedReplicaTypes(&job.Spec)
+	for index := range podSets {
+		replicaType := orderedReplicaTypes[index]
+		nodeSelector := podSets[index].Template.Spec.NodeSelector
+		if !equality.Semantic.DeepEqual(job.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector, nodeSelector) {
+			job.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector = map[string]string{}
+			for k, v := range nodeSelector {
+				job.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector[k] = v
+			}
+		}
+	}
+	return nil
+}
+
+func (job *MPIJob) Finished() (metav1.Condition, bool) {
+	var conditionType kubeflow.JobConditionType
+	var finished bool
+	for _, c := range job.Status.Conditions {
+		if (c.Type == kubeflow.JobSucceeded || c.Type == kubeflow.JobFailed) && c.Status == corev1.ConditionTrue {
+			conditionType = c.Type
+			finished = true
+			break
+		}
+	}
+
+	message := "Job finished successfully"
+	if conditionType == kubeflow.JobFailed {
+		message = "Job failed"
+	}
+	condition := metav1.Condition{
+		Type:    kueue.WorkloadFinished,
+		Status:  metav1.ConditionTrue,
+		Reason:  "JobFinished",
+		Message: message,
+	}
+	return condition, finished
+}
+
+func (job *MPIJob) EquivalentToWorkload(wl kueue.Workload) bool {
+	owner := metav1.GetControllerOf(&wl)
+	// Indexes don't work in unit tests, so we explicitly check for the
+	// owner here.
+	if owner.Name != job.Name {
+		return false
+	}
+
+	if len(wl.Spec.PodSets) != len(job.Spec.MPIReplicaSpecs) {
+		return false
+	}
+	for index, mpiReplicaType := range orderedReplicaTypes(&job.Spec) {
+		mpiReplicaSpec := job.Spec.MPIReplicaSpecs[mpiReplicaType]
+		if pointer.Int32Deref(mpiReplicaSpec.Replicas, 1) != wl.Spec.PodSets[index].Count {
+			return false
+		}
+		// nodeSelector may change, hence we are not checking for
+		// equality of the whole job.Spec.Template.Spec.
+		if !equality.Semantic.DeepEqual(mpiReplicaSpec.Template.Spec.InitContainers,
+			wl.Spec.PodSets[index].Template.Spec.InitContainers) {
+			return false
+		}
+		if !equality.Semantic.DeepEqual(mpiReplicaSpec.Template.Spec.Containers,
+			wl.Spec.PodSets[index].Template.Spec.Containers) {
+			return false
+		}
+	}
+	return true
+}
+
+// calcPriorityClassName calculates the priorityClass name needed for workload according to the following priorities:
+//  1. .spec.runPolicy.schedulingPolicy.priorityClass
+//  2. .spec.mpiReplicaSecs[Launcher].template.spec.priorityClassName
+//  3. .spec.mpiReplicaSecs[Worker].template.spec.priorityClassName
+//
+// This function is inspired by an analogous one in mpi-controller:
+// https://github.com/kubeflow/mpi-operator/blob/5946ef4157599a474ab82ff80e780d5c2546c9ee/pkg/controller/podgroup.go#L69-L72
+func (job *MPIJob) PriorityClass() string {
+	if job.Spec.RunPolicy.SchedulingPolicy != nil && len(job.Spec.RunPolicy.SchedulingPolicy.PriorityClass) != 0 {
+		return job.Spec.RunPolicy.SchedulingPolicy.PriorityClass
+	} else if l := job.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeLauncher]; l != nil && len(l.Template.Spec.PriorityClassName) != 0 {
+		return l.Template.Spec.PriorityClassName
+	} else if w := job.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeWorker]; w != nil && len(w.Template.Spec.PriorityClassName) != 0 {
+		return w.Template.Spec.PriorityClassName
+	}
+	return ""
+}
+
+func (job *MPIJob) PodsReady() bool {
+	for _, c := range job.Status.Conditions {
+		if c.Type == kubeflow.JobRunning && c.Status == corev1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
 // SetupWithManager sets up the controller with the Manager. It indexes workloads
 // based on the owning jobs.
 func (r *MPIJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -143,13 +324,14 @@ func (r *MPIJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		// we'll ignore not-found errors, since there is nothing to do.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	mpiJob := MPIJob{job}
 
 	log := ctrl.LoggerFrom(ctx).WithValues("mpijob", klog.KObj(&job))
 	ctx = ctrl.LoggerInto(ctx, log)
 
 	// when manageJobsWithoutQueueName is disabled we only reconcile jobs that have
 	// queue-name annotation set.
-	if !r.manageJobsWithoutQueueName && queueName(&job) == "" {
+	if !r.manageJobsWithoutQueueName && mpiJob.QueueName() == "" {
 		log.V(3).Info(fmt.Sprintf("%s annotation is not set, ignoring the mpijob", constants.QueueAnnotation))
 		return ctrl.Result{}, nil
 	}
@@ -157,29 +339,27 @@ func (r *MPIJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	log.V(2).Info("Reconciling MPIJob")
 
 	// 1. make sure there is only a single existing instance of the workload
-	wl, err := r.ensureAtMostOneWorkload(ctx, &job)
+	wl, err := jobframework.EnsureOneWorkload(ctx, r.client, req, r.record, &mpiJob)
 	if err != nil {
 		log.Error(err, "Getting existing workloads")
 		return ctrl.Result{}, err
 	}
 
-	// 2. handle mpijob is finished.
-	if jobFinishedCond, jobFinished := jobFinishedCondition(&job); jobFinished {
+	// 2. handle job is finished.
+	if condition, finished := mpiJob.Finished(); finished {
 		if wl == nil || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
 			return ctrl.Result{}, nil
 		}
-		condition := generateFinishedCondition(jobFinishedCond)
 		apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
-		err := r.client.Status().Update(ctx, wl)
-		if err != nil {
+		if err := r.client.Status().Update(ctx, wl); err != nil {
 			log.Error(err, "Updating workload status")
 		}
-		return ctrl.Result{}, err
+		return ctrl.Result{}, nil
 	}
 
 	// 3. handle workload is nil.
 	if wl == nil {
-		err := r.handleJobWithNoWorkload(ctx, &job)
+		err := r.handleJobWithNoWorkload(ctx, &mpiJob)
 		if err != nil {
 			log.Error(err, "Handling mpijob with no workload")
 		}
@@ -189,7 +369,7 @@ func (r *MPIJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	// 4. handle WaitForPodsReady
 	if r.waitForPodsReady {
 		log.V(5).Info("Handling a mpijob when waitForPodsReady is enabled")
-		condition := generatePodsReadyCondition(&job, wl)
+		condition := generatePodsReadyCondition(&mpiJob, wl)
 		// optimization to avoid sending the update request if the status didn't change
 		if !apimeta.IsStatusConditionPresentAndEqual(wl.Status.Conditions, condition.Type, condition.Status) {
 			log.V(3).Info(fmt.Sprintf("Updating the PodsReady condition with status: %v", condition.Status))
@@ -201,11 +381,11 @@ func (r *MPIJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	// 5. handle mpijob is suspended.
-	if jobSuspended(&job) {
+	if mpiJob.IsSuspend() {
 		// start the job if the workload has been admitted, and the job is still suspended
 		if wl.Status.Admission != nil {
 			log.V(2).Info("Job admitted, unsuspending")
-			err := r.startJob(ctx, wl, &job)
+			err := jobframework.StartJob(ctx, r.client, r.record, &mpiJob, wl)
 			if err != nil {
 				log.Error(err, "Unsuspending job")
 			}
@@ -213,7 +393,7 @@ func (r *MPIJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		}
 
 		// update queue name if changed.
-		q := queueName(&job)
+		q := mpiJob.QueueName()
 		if wl.Spec.QueueName != q {
 			log.V(2).Info("Job changed queues, updating workload")
 			wl.Spec.QueueName = q
@@ -231,7 +411,7 @@ func (r *MPIJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	if wl.Status.Admission == nil {
 		// the job must be suspended if the workload is not yet admitted.
 		log.V(2).Info("Running job is not admitted by a cluster queue, suspending")
-		err := r.stopJob(ctx, wl, &job, "Not admitted by cluster queue")
+		err := jobframework.StopJob(ctx, r.client, r.record, &mpiJob, wl, "Not admitted by cluster queue")
 		if err != nil {
 			log.Error(err, "Suspending job with non admitted workload")
 		}
@@ -243,259 +423,26 @@ func (r *MPIJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	return ctrl.Result{}, nil
 }
 
-// podsReady checks if all pods are ready or succeeded
-func podsReady(job *kubeflow.MPIJob) bool {
-	for _, c := range job.Status.Conditions {
-		if c.Type == kubeflow.JobRunning && c.Status == corev1.ConditionTrue {
-			return true
-		}
-	}
-	return false
-}
-
-// stopJob sends updates to suspend the job, reset the startTime so we can update the scheduling directives
-// later when unsuspending and resets the nodeSelector to its previous state based on what is available in
-// the workload (which should include the original affinities that the job had).
-func (r *MPIJobReconciler) stopJob(ctx context.Context, w *kueue.Workload,
-	job *kubeflow.MPIJob, eventMsg string) error {
-	job.Spec.RunPolicy.Suspend = pointer.Bool(true)
-	if err := r.client.Update(ctx, job); err != nil {
-		return err
-	}
-	r.record.Eventf(job, corev1.EventTypeNormal, "Stopped", eventMsg)
-
-	// Reset start time so we can update the scheduling directives later when unsuspending.
-	if job.Status.StartTime != nil {
-		job.Status.StartTime = nil
-		if err := r.client.Status().Update(ctx, job); err != nil {
-			return err
-		}
-	}
-
-	if w != nil {
-		orderedReplicaTypes := orderedReplicaTypes(&job.Spec)
-		for index := range w.Spec.PodSets {
-			replicaType := orderedReplicaTypes[index]
-			if !equality.Semantic.DeepEqual(job.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector,
-				w.Spec.PodSets[index].Template.Spec.NodeSelector) {
-				job.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector = map[string]string{}
-				for k, v := range w.Spec.PodSets[index].Template.Spec.NodeSelector {
-					job.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector[k] = v
-				}
-			}
-		}
-		return r.client.Update(ctx, job)
-	}
-
-	return nil
-}
-
-func (r *MPIJobReconciler) startJob(ctx context.Context, w *kueue.Workload, job *kubeflow.MPIJob) error {
-	log := ctrl.LoggerFrom(ctx)
-
-	orderedReplicaTypes := orderedReplicaTypes(&job.Spec)
-	for index := range w.Spec.PodSets {
-		replicaType := orderedReplicaTypes[index]
-		nodeSelector, err := r.getNodeSelectors(ctx, w, index)
-		if err != nil {
-			return err
-		}
-		if len(nodeSelector) != 0 {
-			if job.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector == nil {
-				job.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector = nodeSelector
-			} else {
-				for k, v := range nodeSelector {
-					job.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector[k] = v
-				}
-			}
-		} else {
-			log.V(3).Info("no nodeSelectors to inject")
-		}
-	}
-
-	job.Spec.RunPolicy.Suspend = pointer.Bool(false)
-	if err := r.client.Update(ctx, job); err != nil {
-		return err
-	}
-
-	r.record.Eventf(job, corev1.EventTypeNormal, "Started",
-		"Admitted by clusterQueue %v", w.Status.Admission.ClusterQueue)
-	return nil
-}
-
-func (r *MPIJobReconciler) getNodeSelectors(ctx context.Context, w *kueue.Workload, index int) (map[string]string, error) {
-	if len(w.Status.Admission.PodSetFlavors[index].Flavors) == 0 {
-		return nil, nil
-	}
-
-	processedFlvs := sets.New[kueue.ResourceFlavorReference]()
-	nodeSelector := map[string]string{}
-	for _, flvName := range w.Status.Admission.PodSetFlavors[index].Flavors {
-		if processedFlvs.Has(flvName) {
-			continue
-		}
-		// Lookup the ResourceFlavors to fetch the node affinity labels to apply on the job.
-		flv := kueue.ResourceFlavor{}
-		if err := r.client.Get(ctx, types.NamespacedName{Name: string(flvName)}, &flv); err != nil {
-			return nil, err
-		}
-		for k, v := range flv.Spec.NodeLabels {
-			nodeSelector[k] = v
-		}
-		processedFlvs.Insert(flvName)
-	}
-	return nodeSelector, nil
-}
-
-func (r *MPIJobReconciler) handleJobWithNoWorkload(ctx context.Context, job *kubeflow.MPIJob) error {
+func (r *MPIJobReconciler) handleJobWithNoWorkload(ctx context.Context, mpiJob *MPIJob) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Wait until there are no active pods.
-	for _, replicaStatus := range job.Status.ReplicaStatuses {
-		if replicaStatus.Active != 0 {
-			log.V(2).Info("Job is suspended but still has active pods, waiting")
-			return nil
-		}
+	if mpiJob.IsActive() {
+		log.V(2).Info("Job is suspended but still has active pods, waiting")
+		return nil
 	}
 
 	// Create the corresponding workload.
-	wl, err := ConstructWorkloadFor(ctx, r.client, job, r.scheme)
+	wl, err := jobframework.ConstructWorkload(ctx, r.client, r.scheme, mpiJob)
 	if err != nil {
 		return err
 	}
 	if err = r.client.Create(ctx, wl); err != nil {
 		return err
 	}
-
-	r.record.Eventf(job, corev1.EventTypeNormal, "CreatedWorkload",
+	r.record.Eventf(mpiJob.Object(), corev1.EventTypeNormal, "CreatedWorkload",
 		"Created Workload: %v", workload.Key(wl))
 	return nil
-}
-
-// ensureAtMostOneWorkload finds a matching workload and deletes redundant ones.
-func (r *MPIJobReconciler) ensureAtMostOneWorkload(ctx context.Context, job *kubeflow.MPIJob) (*kueue.Workload, error) {
-	log := ctrl.LoggerFrom(ctx)
-
-	// Find a matching workload first if there is one.
-	var toDelete []*kueue.Workload
-	var match *kueue.Workload
-
-	var workloads kueue.WorkloadList
-	if err := r.client.List(ctx, &workloads, client.InNamespace(job.Namespace),
-		client.MatchingFields{ownerKey: job.Name}); err != nil {
-		log.Error(err, "Unable to list child workloads")
-		return nil, err
-	}
-
-	for i := range workloads.Items {
-		w := &workloads.Items[i]
-		owner := metav1.GetControllerOf(w)
-		// Indexes don't work in unit tests, so we explicitly check for the
-		// owner here.
-		if owner.Name != job.Name {
-			continue
-		}
-		if match == nil && jobAndWorkloadEqual(job, w) {
-			match = w
-		} else {
-			toDelete = append(toDelete, w)
-		}
-	}
-
-	// If there is no matching workload and the job is running, suspend it.
-	if match == nil && !jobSuspended(job) {
-		log.V(2).Info("job with no matching workload, suspending")
-		var w *kueue.Workload
-		if len(workloads.Items) == 1 {
-			// The job may have been modified and hence the existing workload
-			// doesn't match the job anymore. All bets are off if there are more
-			// than one workload...
-			w = &workloads.Items[0]
-		}
-		if err := r.stopJob(ctx, w, job, "No matching Workload"); err != nil {
-			log.Error(err, "stopping job")
-		}
-	}
-
-	// Delete duplicate workload instances.
-	existedWls := 0
-	for i := range toDelete {
-		err := r.client.Delete(ctx, toDelete[i])
-		if err == nil || !apierrors.IsNotFound(err) {
-			existedWls++
-		}
-		if err != nil && !apierrors.IsNotFound(err) {
-			log.Error(err, "Failed to delete workload")
-		}
-		if err == nil {
-			r.record.Eventf(job, corev1.EventTypeNormal, "DeletedWorkload",
-				"Deleted not matching Workload: %v", workload.Key(toDelete[i]))
-		}
-	}
-
-	if existedWls != 0 {
-		if match == nil {
-			return nil, fmt.Errorf("no matching workload was found, tried deleting %d existing workload(s)", existedWls)
-		}
-		return nil, fmt.Errorf("only one workload should exist, found %d", len(workloads.Items))
-	}
-
-	return match, nil
-}
-
-func ConstructWorkloadFor(ctx context.Context, client client.Client,
-	job *kubeflow.MPIJob, scheme *runtime.Scheme) (*kueue.Workload, error) {
-	w := &kueue.Workload{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      GetWorkloadNameForMPIJob(job.Name),
-			Namespace: job.Namespace,
-		},
-		Spec: kueue.WorkloadSpec{
-			QueueName: queueName(job),
-		},
-	}
-
-	for _, mpiReplicaType := range orderedReplicaTypes(&job.Spec) {
-		podSet := kueue.PodSet{
-			Name:     strings.ToLower(string(mpiReplicaType)),
-			Template: *job.Spec.MPIReplicaSpecs[mpiReplicaType].Template.DeepCopy(),
-			Count:    podsCount(&job.Spec, mpiReplicaType),
-		}
-		w.Spec.PodSets = append(w.Spec.PodSets, podSet)
-	}
-
-	// Populate priority from priority class.
-	priorityClassName, p, err := utilpriority.GetPriorityFromPriorityClass(
-		ctx, client, calcPriorityClassName(job))
-	if err != nil {
-		return nil, err
-	}
-	w.Spec.Priority = &p
-	w.Spec.PriorityClassName = priorityClassName
-
-	if err := ctrl.SetControllerReference(job, w, scheme); err != nil {
-		return nil, err
-	}
-
-	return w, nil
-}
-
-// calcPriorityClassName calculates the priorityClass name needed for workload according to the following priorities:
-//  1. .spec.runPolicy.schedulingPolicy.priorityClass
-//  2. .spec.mpiReplicaSecs[Launcher].template.spec.priorityClassName
-//  3. .spec.mpiReplicaSecs[Worker].template.spec.priorityClassName
-//
-// This function is inspired by an analogous one in mpi-controller:
-// https://github.com/kubeflow/mpi-operator/blob/5946ef4157599a474ab82ff80e780d5c2546c9ee/pkg/controller/podgroup.go#L69-L72
-func calcPriorityClassName(job *kubeflow.MPIJob) string {
-	if job.Spec.RunPolicy.SchedulingPolicy != nil && len(job.Spec.RunPolicy.SchedulingPolicy.PriorityClass) != 0 {
-		return job.Spec.RunPolicy.SchedulingPolicy.PriorityClass
-	} else if l := job.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeLauncher]; l != nil && len(l.Template.Spec.PriorityClassName) != 0 {
-		return l.Template.Spec.PriorityClassName
-	} else if w := job.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeWorker]; w != nil && len(w.Template.Spec.PriorityClassName) != 0 {
-		return w.Template.Spec.PriorityClassName
-	}
-	return ""
 }
 
 func orderedReplicaTypes(jobSpec *kubeflow.MPIJobSpec) []kubeflow.MPIReplicaType {
@@ -513,12 +460,12 @@ func podsCount(jobSpec *kubeflow.MPIJobSpec, mpiReplicaType kubeflow.MPIReplicaT
 	return pointer.Int32Deref(jobSpec.MPIReplicaSpecs[mpiReplicaType].Replicas, 1)
 }
 
-func generatePodsReadyCondition(job *kubeflow.MPIJob, wl *kueue.Workload) metav1.Condition {
+func generatePodsReadyCondition(mpiJob *MPIJob, wl *kueue.Workload) metav1.Condition {
 	conditionStatus := metav1.ConditionFalse
 	message := "Not all pods are ready or succeeded"
 	// Once PodsReady=True it stays as long as the workload remains admitted to
 	// avoid unnecessary flickering the the condition.
-	if wl.Status.Admission != nil && (podsReady(job) || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPodsReady)) {
+	if wl.Status.Admission != nil && (mpiJob.PodsReady() || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPodsReady)) {
 		conditionStatus = metav1.ConditionTrue
 		message = "All pods were ready or succeeded since the workload admission"
 	}
@@ -528,60 +475,6 @@ func generatePodsReadyCondition(job *kubeflow.MPIJob, wl *kueue.Workload) metav1
 		Reason:  "PodsReady",
 		Message: message,
 	}
-}
-
-func generateFinishedCondition(jobStatus kubeflow.JobConditionType) metav1.Condition {
-	message := "Job finished successfully"
-	if jobStatus == kubeflow.JobFailed {
-		message = "Job failed"
-	}
-	return metav1.Condition{
-		Type:    kueue.WorkloadFinished,
-		Status:  metav1.ConditionTrue,
-		Reason:  "JobFinished",
-		Message: message,
-	}
-}
-
-// From https://github.com/kubernetes/kubernetes/blob/master/pkg/controller/job/utils.go
-func jobFinishedCondition(j *kubeflow.MPIJob) (kubeflow.JobConditionType, bool) {
-	for _, c := range j.Status.Conditions {
-		if (c.Type == kubeflow.JobSucceeded || c.Type == kubeflow.JobFailed) && c.Status == corev1.ConditionTrue {
-			return c.Type, true
-		}
-	}
-	return "", false
-}
-
-func jobSuspended(j *kubeflow.MPIJob) bool {
-	return j.Spec.RunPolicy.Suspend != nil && *j.Spec.RunPolicy.Suspend
-}
-
-func jobAndWorkloadEqual(job *kubeflow.MPIJob, wl *kueue.Workload) bool {
-	if len(wl.Spec.PodSets) != len(job.Spec.MPIReplicaSpecs) {
-		return false
-	}
-	for index, mpiReplicaType := range orderedReplicaTypes(&job.Spec) {
-		mpiReplicaSpec := job.Spec.MPIReplicaSpecs[mpiReplicaType]
-		if pointer.Int32Deref(mpiReplicaSpec.Replicas, 1) != wl.Spec.PodSets[index].Count {
-			return false
-		}
-		// nodeSelector may change, hence we are not checking for
-		// equality of the whole job.Spec.Template.Spec.
-		if !equality.Semantic.DeepEqual(mpiReplicaSpec.Template.Spec.InitContainers,
-			wl.Spec.PodSets[index].Template.Spec.InitContainers) {
-			return false
-		}
-		if !equality.Semantic.DeepEqual(mpiReplicaSpec.Template.Spec.Containers,
-			wl.Spec.PodSets[index].Template.Spec.Containers) {
-			return false
-		}
-	}
-	return true
-}
-
-func queueName(job *kubeflow.MPIJob) string {
-	return job.Annotations[constants.QueueAnnotation]
 }
 
 func GetWorkloadNameForMPIJob(jobName string) string {
