@@ -33,6 +33,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/workload/job"
+	"sigs.k8s.io/kueue/pkg/controller/workload/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -76,7 +77,8 @@ var _ = ginkgo.Describe("Job controller", func() {
 		job := testing.MakeJob(jobName, jobNamespace).PriorityClass(priorityClassName).Obj()
 		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 		lookupKey := types.NamespacedName{Name: jobName, Namespace: jobNamespace}
-		createdJob := &batchv1.Job{}
+		batchJob := workloadjob.BatchJob{}
+		createdJob := &batchJob.Job
 		gomega.Eventually(func() bool {
 			if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {
 				return false
@@ -109,7 +111,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking a second non-matching workload is deleted")
-		secondWl, _ := workloadjob.ConstructWorkloadFor(ctx, k8sClient, createdJob, scheme.Scheme)
+		secondWl, _ := jobframework.ConstructWorkload(ctx, k8sClient, scheme.Scheme, &batchJob)
 		secondWl.Name = workloadjob.GetWorkloadNameForJob("second-workload")
 		secondWl.Spec.PodSets[0].Count = parallelism + 1
 		gomega.Expect(k8sClient.Create(ctx, secondWl)).Should(gomega.Succeed())

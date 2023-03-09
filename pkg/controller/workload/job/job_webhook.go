@@ -82,7 +82,8 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		}
 	}
 
-	if queueName(job) == "" && !w.manageJobsWithoutQueueName {
+	batchJob := BatchJob{*job}
+	if batchJob.QueueName() == "" && !w.manageJobsWithoutQueueName {
 		return nil
 	}
 
@@ -127,7 +128,9 @@ func (w *JobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.
 func validateUpdate(oldJob, newJob *batchv1.Job) field.ErrorList {
 	allErrs := validateCreate(newJob)
 
-	if !*newJob.Spec.Suspend && (queueName(oldJob) != queueName(newJob)) {
+	oldBatchJob := BatchJob{*oldJob}
+	newBatchJob := BatchJob{*newJob}
+	if !*newJob.Spec.Suspend && (oldBatchJob.QueueName() != newBatchJob.QueueName()) {
 		allErrs = append(allErrs, field.Forbidden(suspendPath, "must not update queue name when job is unsuspend"))
 	}
 
