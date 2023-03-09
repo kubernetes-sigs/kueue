@@ -189,13 +189,14 @@ func FindConditionIndex(status *kueue.WorkloadStatus, conditionType string) int 
 }
 
 // UpdateStatus updates the condition of a workload with ssa,
-// Each condition has it's own field manager with the same name
+// filelManager being set to managerPrefix + "-" + conditionType
 func UpdateStatus(ctx context.Context,
 	c client.Client,
 	wl *kueue.Workload,
 	conditionType string,
 	conditionStatus metav1.ConditionStatus,
-	reason, message string) error {
+	reason, message string,
+	managerPrefix string) error {
 	now := metav1.Now()
 	condition := metav1.Condition{
 		Type:               conditionType,
@@ -207,7 +208,7 @@ func UpdateStatus(ctx context.Context,
 
 	newWl := BaseSSAWorkload(wl)
 	newWl.Status.Conditions = []metav1.Condition{condition}
-	return c.Status().Patch(ctx, newWl, client.Apply, client.FieldOwner(condition.Type))
+	return c.Status().Patch(ctx, newWl, client.Apply, client.FieldOwner(managerPrefix+"-"+condition.Type))
 }
 
 func UpdateStatusIfChanged(ctx context.Context,
@@ -215,11 +216,12 @@ func UpdateStatusIfChanged(ctx context.Context,
 	wl *kueue.Workload,
 	conditionType string,
 	conditionStatus metav1.ConditionStatus,
-	reason, message string) error {
+	reason, message string,
+	managerPrefix string) error {
 	i := FindConditionIndex(&wl.Status, conditionType)
 	if i == -1 {
 		// We are adding new pod condition.
-		return UpdateStatus(ctx, c, wl, conditionType, conditionStatus, reason, message)
+		return UpdateStatus(ctx, c, wl, conditionType, conditionStatus, reason, message, managerPrefix)
 	}
 	if wl.Status.Conditions[i].Status == conditionStatus && wl.Status.Conditions[i].Type == conditionType &&
 		wl.Status.Conditions[i].Reason == reason && wl.Status.Conditions[i].Message == message {
@@ -227,7 +229,7 @@ func UpdateStatusIfChanged(ctx context.Context,
 		return nil
 	}
 	// Updating an existing condition
-	return UpdateStatus(ctx, c, wl, conditionType, conditionStatus, reason, message)
+	return UpdateStatus(ctx, c, wl, conditionType, conditionStatus, reason, message, managerPrefix)
 }
 
 // BaseSSAWorkload creates a new object based on the input workload that
