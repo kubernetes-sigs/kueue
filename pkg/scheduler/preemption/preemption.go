@@ -95,7 +95,7 @@ func (p *Preemptor) issuePreemptions(ctx context.Context, targets []*workload.In
 	defer cancel()
 	workqueue.ParallelizeUntil(ctx, parallelPreemptions, len(targets), func(i int) {
 		target := targets[i]
-		err := p.applyPreemption(ctx, workload.ClearAdmissionPatch(target.Obj))
+		err := p.applyPreemption(ctx, workload.BaseSSAWorkload(target.Obj))
 		if err != nil {
 			errCh.SendErrorWithCancel(err, cancel)
 			return

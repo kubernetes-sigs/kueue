@@ -139,32 +139,32 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	case pending:
 		if !r.queues.QueueForWorkloadExists(&wl) {
 			err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, metav1.ConditionFalse,
-				"Inadmissible", fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName))
+				"Inadmissible", fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName), constants.AdmissionName)
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
 		cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)
 		if !cqOk {
 			err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, metav1.ConditionFalse,
-				"Inadmissible", fmt.Sprintf("ClusterQueue %s doesn't exist", cqName))
+				"Inadmissible", fmt.Sprintf("ClusterQueue %s doesn't exist", cqName), constants.AdmissionName)
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
 		if !r.cache.ClusterQueueActive(cqName) {
 			err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, metav1.ConditionFalse,
-				"Inadmissible", fmt.Sprintf("ClusterQueue %s is inactive", cqName))
+				"Inadmissible", fmt.Sprintf("ClusterQueue %s is inactive", cqName), constants.AdmissionName)
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 	case cancellingAdmission:
 		err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, metav1.ConditionFalse,
-			"AdmissionCancelled", "Admission cancelled")
+			"AdmissionCancelled", "Admission cancelled", constants.AdmissionName)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	case admitted:
 		if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadAdmitted) {
 			return r.reconcileNotReadyTimeout(ctx, req, &wl)
 		} else {
 			msg := fmt.Sprintf("Admitted by ClusterQueue %s", wl.Status.Admission.ClusterQueue)
-			err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, metav1.ConditionTrue, "AdmissionByKueue", msg)
+			err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, metav1.ConditionTrue, "AdmissionByKueue", msg, constants.AdmissionName)
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 	}
@@ -182,7 +182,7 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 		return ctrl.Result{RequeueAfter: recheckAfter}, nil
 	} else {
 		klog.V(2).InfoS("Cancelling admission of the workload due to exceeding the PodsReady timeout", "workload", req.NamespacedName.String())
-		err := r.client.Status().Patch(ctx, workload.ClearAdmissionPatch(wl), client.Apply, client.FieldOwner(constants.AdmissionName))
+		err := r.client.Status().Patch(ctx, workload.BaseSSAWorkload(wl), client.Apply, client.FieldOwner(constants.AdmissionName))
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 }

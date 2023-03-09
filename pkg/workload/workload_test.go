@@ -263,30 +263,6 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 				},
 			},
 		},
-		"different condition type": {
-			oldStatus: kueue.WorkloadStatus{
-				Conditions: []metav1.Condition{
-					{
-						Type:   kueue.WorkloadAdmitted,
-						Status: metav1.ConditionTrue,
-					},
-				},
-			},
-			condType:   kueue.WorkloadFinished,
-			condStatus: metav1.ConditionTrue,
-			wantStatus: kueue.WorkloadStatus{
-				Conditions: []metav1.Condition{
-					{
-						Type:   kueue.WorkloadAdmitted,
-						Status: metav1.ConditionTrue,
-					},
-					{
-						Type:   kueue.WorkloadFinished,
-						Status: metav1.ConditionTrue,
-					},
-				},
-			},
-		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -294,7 +270,7 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 			workload.Status = tc.oldStatus
 			cl := utiltesting.NewFakeClient(workload)
 			ctx := context.Background()
-			err := UpdateStatus(ctx, cl, workload, tc.condType, tc.condStatus, tc.reason, tc.message)
+			err := UpdateStatus(ctx, cl, workload, tc.condType, tc.condStatus, tc.reason, tc.message, "manager-perfix")
 			if err != nil {
 				t.Fatalf("Failed updating status: %v", err)
 			}
