@@ -40,6 +40,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/workload/jobframework"
+	utilapi "sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -278,12 +279,12 @@ func (b *BatchJob) EquivalentToWorkload(wl kueue.Workload) bool {
 
 	// nodeSelector may change, hence we are not checking for
 	// equality of the whole job.Spec.Template.Spec.
-	if !equality.Semantic.DeepEqual(b.Spec.Template.Spec.InitContainers,
-		wl.Spec.PodSets[0].Template.Spec.InitContainers) {
+	initContainersDefaulted := utilapi.SetContainersDefaults(b.Spec.Template.Spec.InitContainers)
+	if !equality.Semantic.DeepEqual(initContainersDefaulted, wl.Spec.PodSets[0].Template.Spec.InitContainers) {
 		return false
 	}
-	return equality.Semantic.DeepEqual(b.Spec.Template.Spec.Containers,
-		wl.Spec.PodSets[0].Template.Spec.Containers)
+	containersDefaulted := utilapi.SetContainersDefaults(b.Spec.Template.Spec.Containers)
+	return equality.Semantic.DeepEqual(containersDefaulted, wl.Spec.PodSets[0].Template.Spec.Containers)
 }
 
 func (b *BatchJob) PriorityClass() string {

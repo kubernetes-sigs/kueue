@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	config "sigs.k8s.io/kueue/apis/config/v1alpha2"
+	"sigs.k8s.io/kueue/apis/kueue/webhooks"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
@@ -76,6 +77,8 @@ func managerAndSchedulerSetup(opts ...job.Option) framework.ManagerSetup {
 	return func(mgr manager.Manager, ctx context.Context) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		failedWebhook, err := webhooks.Setup(mgr)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 		cCache := cache.New(mgr.GetClient())
 		queues := queue.NewManager(mgr.GetClient(), cCache)

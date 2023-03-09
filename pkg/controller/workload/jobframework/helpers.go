@@ -76,6 +76,7 @@ func EnsureOneWorkload(ctx context.Context, cli client.Client, req ctrl.Request,
 		if match == nil && job.EquivalentToWorkload(*w) {
 			match = w
 		} else {
+			log.V(2).Info("job not equal with the workload, will delete the workload")
 			toDelete = append(toDelete, w)
 		}
 	}

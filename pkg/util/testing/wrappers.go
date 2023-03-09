@@ -51,10 +51,13 @@ func MakeJob(name, ns string) *JobWrapper {
 					RestartPolicy: "Never",
 					Containers: []corev1.Container{
 						{
-							Name:      "c",
-							Image:     "pause",
-							Command:   []string{},
-							Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+							Name:    "c",
+							Image:   "pause",
+							Command: []string{},
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{},
+								Limits:   corev1.ResourceList{},
+							},
 						},
 					},
 					NodeSelector: map[string]string{},
@@ -111,9 +114,15 @@ func (j *JobWrapper) NodeSelector(k, v string) *JobWrapper {
 	return j
 }
 
-// Request adds a resource request to the default container.
+// Request adds a resource requests to the default container.
 func (j *JobWrapper) Request(r corev1.ResourceName, v string) *JobWrapper {
 	j.Spec.Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
+	return j
+}
+
+// Limit adds a resource limits to the default container.
+func (j *JobWrapper) Limit(r corev1.ResourceName, v string) *JobWrapper {
+	j.Spec.Template.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(v)
 	return j
 }
 
@@ -498,4 +507,39 @@ func (rc *RuntimeClassWrapper) PodOverhead(resources corev1.ResourceList) *Runti
 // Obj returns the inner flavor.
 func (rc *RuntimeClassWrapper) Obj() *nodev1.RuntimeClass {
 	return &rc.RuntimeClass
+}
+
+// ContainerWrapper wraps a container.
+type ContainerWrapper struct{ corev1.Container }
+
+// Obj returns the inner Container.
+func (c *ContainerWrapper) Obj() *corev1.Container {
+	return &c.Container
+}
+
+// Requests sets the container resources requests to the given resource map of requests.
+func (c *ContainerWrapper) Requests(reqMap map[corev1.ResourceName]string) *ContainerWrapper {
+	res := corev1.ResourceList{}
+	for k, v := range reqMap {
+		res[k] = resource.MustParse(v)
+	}
+	c.Container.Resources.Requests = res
+	return c
+}
+
+// Limit sets the container resource limits to the given resource map.
+func (c *ContainerWrapper) Limit(limMap map[corev1.ResourceName]string) *ContainerWrapper {
+	res := corev1.ResourceList{}
+	for k, v := range limMap {
+		res[k] = resource.MustParse(v)
+	}
+	c.Container.Resources.Limits = res
+	return c
+}
+
+// MakeContainer creates a wrapper for a Container.
+func MakeContainer(name string) *ContainerWrapper {
+	return &ContainerWrapper{corev1.Container{
+		Name: name,
+	}}
 }

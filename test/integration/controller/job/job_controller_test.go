@@ -657,6 +657,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", func() {
 	ginkgo.BeforeEach(func() {
 		fwk = &framework.Framework{
 			ManagerSetup: managerAndSchedulerSetup(),
+			WebhookPath:  webhookPath,
 			CRDPath:      crdPath,
 		}
 		ctx, cfg, k8sClient = fwk.Setup()
@@ -811,5 +812,36 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", func() {
 			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdProdJob)).Should(gomega.Succeed())
 			return createdProdJob.Spec.Suspend
 		}, util.Timeout, util.Interval).Should(gomega.Equal(pointer.Bool(false)))
+	})
+
+	ginkgo.It("Should not re-create workloads even job has no resources requests", func() {
+		ginkgo.By("creating a job")
+		job := testing.MakeJob(jobName, jobNamespace).Limit(corev1.ResourceCPU, "2").Queue("queue").Obj()
+		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+
+		lookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name), Namespace: jobNamespace}
+		workload := &kueue.Workload{}
+		gomega.Eventually(func() error {
+			return k8sClient.Get(ctx, lookupKey, workload)
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("triggering job reconciling")
+		job.Annotations = map[string]string{"foo": "bar"}
+		gomega.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
+
+		jobLookupKey := types.NamespacedName{Name: job.Name, Namespace: jobNamespace}
+		gomega.Eventually(func() string {
+			if err := k8sClient.Get(ctx, jobLookupKey, job); err != nil {
+				return ""
+			}
+			return job.Annotations["foo"]
+		}, util.Timeout, util.Interval).Should(gomega.Equal("bar"))
+
+		ginkgo.By("checking the workload not recreated")
+		newWorkload := &kueue.Workload{}
+		gomega.Eventually(func() error {
+			return k8sClient.Get(ctx, lookupKey, newWorkload)
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		gomega.Expect(workload.ObjectMeta.UID).Should(gomega.Equal(newWorkload.ObjectMeta.UID))
 	})
 })

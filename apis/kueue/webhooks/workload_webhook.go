@@ -19,7 +19,6 @@ package webhooks
 import (
 	"context"
 
-	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -31,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	utilapi "sigs.k8s.io/kueue/pkg/util/api"
 )
 
 type WorkloadWebhook struct{}
@@ -62,27 +62,10 @@ func (w *WorkloadWebhook) Default(ctx context.Context, obj runtime.Object) error
 		}
 	}
 	for i := range wl.Spec.PodSets {
-		podSet := &wl.Spec.PodSets[i]
-		setContainersDefaults(podSet.Template.Spec.InitContainers)
-		setContainersDefaults(podSet.Template.Spec.Containers)
+		wl.Spec.PodSets[i].Template.Spec.Containers = utilapi.SetContainersDefaults(wl.Spec.PodSets[i].Template.Spec.Containers)
+		wl.Spec.PodSets[i].Template.Spec.InitContainers = utilapi.SetContainersDefaults(wl.Spec.PodSets[i].Template.Spec.InitContainers)
 	}
 	return nil
-}
-
-func setContainersDefaults(containers []corev1.Container) {
-	for i := range containers {
-		c := &containers[i]
-		if c.Resources.Limits != nil {
-			if c.Resources.Requests == nil {
-				c.Resources.Requests = make(corev1.ResourceList)
-			}
-			for k, v := range c.Resources.Limits {
-				if _, exists := c.Resources.Requests[k]; !exists {
-					c.Resources.Requests[k] = v.DeepCopy()
-				}
-			}
-		}
-	}
 }
 
 // +kubebuilder:webhook:path=/validate-kueue-x-k8s-io-v1beta1-workload,mutating=false,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads;workloads/status,verbs=create;update,versions=v1beta1,name=vworkload.kb.io,admissionReviewVersions=v1
