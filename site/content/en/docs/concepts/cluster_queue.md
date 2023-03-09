@@ -256,6 +256,53 @@ you can set the `.spec.resources[*].flavors[*].quota.max`
 If, for a given flavor, the `max` field is empty or null, a ClusterQueue can
 borrow up to the sum of min quotas from all the ClusterQueues in the cohort.
 
+## Preemption
+
+When there is not enough quota left in a ClusterQueue or its cohort, an incoming
+Workload can trigger preemption of previously admitted Workloads, based on
+policies for the ClusterQueue.
+
+A configuration for a ClusterQueue that enables preemption looks like the
+following:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: team-a-cq
+spec:
+  preemption:
+    reclaimWithinCohort: Any
+    withinClusterQueue: LowerPriority
+```
+
+The fields above have the following semantics:
+
+- `reclaimWithinCohort` determines whether a pending Workload can preempt
+  Workloads from other ClusterQueues in the cohort that are using more than
+  their nominal quota. The possible values are:
+	  - `Never` (default): do not preempt Workloads in the cohort.
+	  - `LowerPriority`: if the pending Workload fits within the nominal
+	    quota of its ClusterQueue, only preempt Workloads in the cohort that have
+	    lower priority than the pending Workload.
+	  - `Any`: if the pending Workload fits within the nominal quota of its
+	    ClusterQueue, preempt any Workload in the cohort, irrespective of
+	    priority.
+
+- `withinClusterQueue` determines whether a pending Workload that doesn't fit
+  within the nominal quota for its ClusterQueue, can preempt active Workloads in
+  the ClusterQueue. The possible values are:
+  - `Never` (default): do not preempt Workloads in the ClusterQueue.
+  - `LowerPriority`: only preempt Workloads in the ClusterQueue that have
+    lower priority than the pending Workload.
+
+Note that an incoming Workload can preempt Workloads both within the
+ClusterQueue and the cohort. Kueue implements heuristics to preempt as few
+Workloads as possible, preferring Workloads with these characteristics:
+- Workloads belonging to ClusterQueues that are borrowing quota.
+- Workloads with the lowest priority.
+- Workloads that have been admitted more recently.
+
 ## What's next?
 
 - Create [local queues](/docs/concepts/local_queue)
