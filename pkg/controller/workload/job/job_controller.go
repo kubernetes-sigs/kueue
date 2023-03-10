@@ -44,6 +44,7 @@ import (
 )
 
 var (
+	ownerKey          = ".metadata.ownerReferences[batch.Job]"
 	parentWorkloadKey = ".metadata.parentWorkload"
 )
 
@@ -159,11 +160,11 @@ func (b *BatchJob) Object() client.Object {
 }
 
 func (b *BatchJob) ParentWorkloadName() string {
-	return b.Job.Annotations[constants.ParentWorkloadAnnotation]
+	return b.Annotations[constants.ParentWorkloadAnnotation]
 }
 
 func (b *BatchJob) QueueName() string {
-	return b.Job.Annotations[constants.QueueAnnotation]
+	return b.Annotations[constants.QueueAnnotation]
 }
 
 func (b *BatchJob) IsSuspend() bool {
@@ -197,6 +198,10 @@ func (b *BatchJob) ResetStatus() bool {
 	return true
 }
 
+func (b *BatchJob) GetOwnerKey() string {
+	return ownerKey
+}
+
 func (b *BatchJob) PodSets() []kueue.PodSet {
 	return []kueue.PodSet{
 		{
@@ -222,14 +227,14 @@ func (b *BatchJob) InjectNodeAffinity(nodeSelectors []map[string]string) error {
 	return nil
 }
 
-func (b *BatchJob) RestoreNodeAffinity(nodeSelectors []map[string]string) error {
-	if len(nodeSelectors) == 0 || equality.Semantic.DeepEqual(b.Spec.Template.Spec.NodeSelector, nodeSelectors) {
+func (b *BatchJob) RestoreNodeAffinity(podSets []kueue.PodSet) error {
+	if len(podSets) == 0 || equality.Semantic.DeepEqual(b.Spec.Template.Spec.NodeSelector, podSets[0].Template.Spec.NodeSelector) {
 		return nil
 	}
 
 	b.Spec.Template.Spec.NodeSelector = map[string]string{}
 
-	for k, v := range nodeSelectors[0] {
+	for k, v := range podSets[0].Template.Spec.NodeSelector {
 		b.Spec.Template.Spec.NodeSelector[k] = v
 	}
 	return nil
@@ -326,7 +331,7 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	}); err != nil {
 		return err
 	}
-	return indexer.IndexField(ctx, &kueue.Workload{}, jobframework.OwnerKey, func(o client.Object) []string {
+	return indexer.IndexField(ctx, &kueue.Workload{}, ownerKey, func(o client.Object) []string {
 		// grab the Workload object, extract the owner...
 		wl := o.(*kueue.Workload)
 		owner := metav1.GetControllerOf(wl)
