@@ -21,6 +21,9 @@ import (
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -33,7 +36,12 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/queue"
+)
+
+const (
+	queueIsInactiveMsg = "Can't submit new workloads to clusterQueue"
 )
 
 // LocalQueueReconciler reconciles a LocalQueue object
@@ -74,22 +82,20 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(2).Info("Reconciling LocalQueue")
 
-	// Shallow copy enough for now.
-	oldStatus := queueObj.Status
-
-	pending, err := r.queues.PendingWorkloads(&queueObj)
+	var cq kueue.ClusterQueue
+	err := r.client.Get(ctx, client.ObjectKey{Name: string(queueObj.Spec.ClusterQueue)}, &cq)
 	if err != nil {
-		r.log.Error(err, "Failed to retrieve localQueue status")
-		return ctrl.Result{}, err
-	}
-
-	queueObj.Status.PendingWorkloads = pending
-	queueObj.Status.AdmittedWorkloads = r.cache.AdmittedWorkloadsInLocalQueue(&queueObj)
-	if !equality.Semantic.DeepEqual(oldStatus, queueObj.Status) {
-		err := r.client.Status().Update(ctx, &queueObj)
+		if apierrors.IsNotFound(err) {
+			err = r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionFalse, "ClusterQueueDoesNotExist", queueIsInactiveMsg)
+		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	return ctrl.Result{}, nil
+	if meta.IsStatusConditionTrue(cq.Status.Conditions, kueue.ClusterQueueActive) {
+		err = r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionTrue, "Ready", "Can submit new workloads to clusterQueue")
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	err = r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionFalse, "ClusterQueueIsInactive", queueIsInactiveMsg)
+	return ctrl.Result{}, client.IgnoreNotFound(err)
 }
 
 func (r *LocalQueueReconciler) Create(e event.CreateEvent) bool {
@@ -174,11 +180,101 @@ func (h *qWorkloadHandler) Generic(e event.GenericEvent, q workqueue.RateLimitin
 	q.AddAfter(req, constants.UpdatesBatchPeriod)
 }
 
+// qCQHandler signals the controller to reconcile the Queue associated
+// to the workload in the event.
+type qCQHandler struct {
+	client client.Client
+}
+
+func (h *qCQHandler) Create(e event.CreateEvent, wq workqueue.RateLimitingInterface) {
+	cq, ok := e.Object.(*kueue.ClusterQueue)
+	if !ok {
+		return
+	}
+	h.addLocalQueueToWorkQueue(cq, wq)
+}
+
+func (h *qCQHandler) Update(e event.UpdateEvent, wq workqueue.RateLimitingInterface) {
+	newCq, ok := e.ObjectNew.(*kueue.ClusterQueue)
+	if !ok {
+		return
+	}
+	oldCq, ok := e.ObjectOld.(*kueue.ClusterQueue)
+	if !ok {
+		return
+	}
+	// Iff .status.conditions of the clusterQueue is updated,
+	// this handler sends all queues related to the clusterQueue to workqueue.
+	if equality.Semantic.DeepEqual(oldCq.Status.Conditions, newCq.Status.Conditions) {
+		return
+	}
+	h.addLocalQueueToWorkQueue(newCq, wq)
+}
+
+func (h *qCQHandler) Delete(e event.DeleteEvent, wq workqueue.RateLimitingInterface) {
+	cq, ok := e.Object.(*kueue.ClusterQueue)
+	if !ok {
+		return
+	}
+	h.addLocalQueueToWorkQueue(cq, wq)
+}
+
+func (h *qCQHandler) Generic(event.GenericEvent, workqueue.RateLimitingInterface) {
+}
+
+func (h *qCQHandler) addLocalQueueToWorkQueue(cq *kueue.ClusterQueue, wq workqueue.RateLimitingInterface) {
+	ctx := context.TODO()
+	log := ctrl.LoggerFrom(ctx).WithValues("clusterQueue", klog.KObj(cq))
+	ctx = ctrl.LoggerInto(ctx, log)
+
+	var queues kueue.LocalQueueList
+	err := h.client.List(ctx, &queues, client.MatchingFields{indexer.QueueClusterQueueKey: cq.Name})
+	if err != nil {
+		log.Error(err, "Could not list queues that match the clusterQueue")
+		return
+	}
+	for _, q := range queues.Items {
+		wq.Add(reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&q)})
+	}
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *LocalQueueReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	queueCQHandler := qCQHandler{
+		client: r.client,
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.LocalQueue{}).
 		Watches(&source.Channel{Source: r.wlUpdateCh}, &qWorkloadHandler{}).
+		Watches(&source.Kind{Type: &kueue.ClusterQueue{}}, &queueCQHandler).
 		WithEventFilter(r).
 		Complete(r)
+}
+
+func (r *LocalQueueReconciler) UpdateStatusIfChanged(
+	ctx context.Context,
+	queue *kueue.LocalQueue,
+	conditionStatus metav1.ConditionStatus,
+	reason, msg string,
+) error {
+	oldStatus := queue.Status.DeepCopy()
+	pendingWls, err := r.queues.PendingWorkloads(queue)
+	if err != nil {
+		r.log.Error(err, "Failed to retrieve localQueue status")
+		return err
+	}
+	queue.Status.PendingWorkloads = pendingWls
+	queue.Status.AdmittedWorkloads = r.cache.AdmittedWorkloadsInLocalQueue(queue)
+	if len(conditionStatus) != 0 && len(reason) != 0 && len(msg) != 0 {
+		meta.SetStatusCondition(&queue.Status.Conditions, metav1.Condition{
+			Type:    kueue.LocalQueueActive,
+			Status:  conditionStatus,
+			Reason:  reason,
+			Message: msg,
+		})
+	}
+	if !equality.Semantic.DeepEqual(oldStatus, queue.Status) {
+		return r.client.Status().Update(ctx, queue)
+	}
+	return nil
 }

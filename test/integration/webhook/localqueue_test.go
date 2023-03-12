@@ -16,11 +16,11 @@ package webhook
 import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	"k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/test/util"
 )
 
 const queueName = "queue-test"
@@ -33,8 +33,12 @@ var _ = ginkgo.Describe("Queue validating webhook", func() {
 			gomega.Expect(k8sClient.Create(ctx, obj)).Should(gomega.Succeed())
 
 			ginkgo.By("Updating the Queue status")
-			obj.Status.PendingWorkloads = 3
-			gomega.Expect(k8sClient.Status().Update(ctx, obj)).Should(gomega.Succeed())
+			gomega.Eventually(func() error {
+				var updatedQ kueue.LocalQueue
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), &updatedQ)).Should(gomega.Succeed())
+				updatedQ.Status.PendingWorkloads = 3
+				return k8sClient.Status().Update(ctx, &updatedQ)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			var after kueue.LocalQueue
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: obj.Name, Namespace: obj.Namespace}, &after)).Should(gomega.Succeed())
 			gomega.Expect(after.Status.PendingWorkloads).Should(gomega.Equal(int32(3)))
@@ -46,10 +50,12 @@ var _ = ginkgo.Describe("Queue validating webhook", func() {
 			gomega.Expect(k8sClient.Create(ctx, obj)).Should(gomega.Succeed())
 
 			ginkgo.By("Updating the Queue")
-			obj.Spec.ClusterQueue = "bar"
-			err := k8sClient.Update(ctx, obj)
-			gomega.Expect(err).Should(gomega.HaveOccurred())
-			gomega.Expect(errors.IsForbidden(err)).Should(gomega.BeTrue(), "error: %v", err)
+			gomega.Eventually(func() error {
+				var updatedQ kueue.LocalQueue
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), &updatedQ)).Should(gomega.Succeed())
+				updatedQ.Spec.ClusterQueue = "bar"
+				return k8sClient.Update(ctx, &updatedQ)
+			}, util.Timeout, util.Interval).Should(testing.BeForbiddenError())
 		})
 	})
 })

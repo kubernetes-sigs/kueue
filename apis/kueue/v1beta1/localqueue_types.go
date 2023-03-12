@@ -39,7 +39,20 @@ type LocalQueueStatus struct {
 	// admitted to a ClusterQueue and that haven't finished yet.
 	// +optional
 	AdmittedWorkloads int32 `json:"admittedWorkloads"`
+
+	// Conditions hold the latest available observations of the LocalQueue
+	// current state.
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	Conditions []metav1.Condition `json:"conditions:omitempty"`
 }
+
+const (
+	// LocalQueueActive indicates that the ClusterQueue that backs the LocalQueue is active and
+	// the LocalQueue can submit new workloads to its ClusterQueue.
+	LocalQueueActive string = "Active"
+)
 
 //+kubebuilder:object:root=true
 //+kubebuilder:storageversion
