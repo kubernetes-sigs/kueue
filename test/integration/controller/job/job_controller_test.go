@@ -29,11 +29,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/workload/job"
-	"sigs.k8s.io/kueue/pkg/controller/workload/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -77,8 +77,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 		job := testing.MakeJob(jobName, jobNamespace).PriorityClass(priorityClassName).Obj()
 		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 		lookupKey := types.NamespacedName{Name: jobName, Namespace: jobNamespace}
-		batchJob := workloadjob.BatchJob{}
-		createdJob := &batchJob.Job
+		createdJob := &batchv1.Job{}
 		gomega.Eventually(func() bool {
 			if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {
 				return false
@@ -111,9 +110,15 @@ var _ = ginkgo.Describe("Job controller", func() {
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking a second non-matching workload is deleted")
-		secondWl, _ := jobframework.ConstructWorkload(ctx, k8sClient, scheme.Scheme, &batchJob)
-		secondWl.Name = workloadjob.GetWorkloadNameForJob("second-workload")
-		secondWl.Spec.PodSets[0].Count = parallelism + 1
+		secondWl := &kueue.Workload{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      workloadjob.GetWorkloadNameForJob("second-workload"),
+				Namespace: createdWorkload.Namespace,
+			},
+			Spec: *createdWorkload.Spec.DeepCopy(),
+		}
+		gomega.Expect(ctrl.SetControllerReference(createdJob, secondWl, scheme.Scheme)).Should(gomega.Succeed())
+		secondWl.Spec.PodSets[0].Count += 1
 		gomega.Expect(k8sClient.Create(ctx, secondWl)).Should(gomega.Succeed())
 		gomega.Eventually(func() error {
 			wl := &kueue.Workload{}

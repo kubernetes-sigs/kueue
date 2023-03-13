@@ -53,8 +53,6 @@ type GenericJob interface {
 	IsActive() bool
 	// PodsReady instructs whether job derived pods are all ready now.
 	PodsReady() bool
-	// GetWorkloadName returns the name of the workload for the job.
-	GetWorkloadName() string
-	// GetOwnerKey returns a unique key that identifies Workloads owned by the job implementation.
-	GetOwnerKey() string
+	// GetGVK returns GVK (Group Version Kind) for the job.
+	GetGVK() *metav1.GroupVersionKind
 }

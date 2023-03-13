@@ -18,12 +18,10 @@ package job
 
 import (
 	"context"
-	"fmt"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -40,21 +38,17 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/workload/jobframework"
-	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var (
-	ownerKey          = ".metadata.ownerReferences[batch.Job]"
 	parentWorkloadKey = ".metadata.parentWorkload"
+	gvk               = metav1.GroupVersionKind{Group: batchv1.SchemeGroupVersion.Group, Version: batchv1.SchemeGroupVersion.Version, Kind: "Job"}
 )
 
 // JobReconciler reconciles a Job object
 type JobReconciler struct {
-	client                     client.Client
-	scheme                     *runtime.Scheme
-	record                     record.EventRecorder
-	manageJobsWithoutQueueName bool
-	waitForPodsReady           bool
+	client               client.Client
+	genericJobReconciler *jobframework.GenericJobReconciler
 }
 
 type options struct {
@@ -93,13 +87,16 @@ func NewReconciler(
 	for _, opt := range opts {
 		opt(&options)
 	}
+	genericJobReconciler := jobframework.NewReconciler(scheme,
+		client,
+		record,
+		jobframework.WithWaitForPodsReady(options.waitForPodsReady),
+		jobframework.WithManageJobsWithoutQueueName(options.manageJobsWithoutQueueName),
+	)
 
 	return &JobReconciler{
-		scheme:                     scheme,
-		client:                     client,
-		record:                     record,
-		manageJobsWithoutQueueName: options.manageJobsWithoutQueueName,
-		waitForPodsReady:           options.waitForPodsReady,
+		client:               client,
+		genericJobReconciler: genericJobReconciler,
 	}
 }
 
@@ -151,45 +148,41 @@ func (h *parentWorkloadHandler) queueReconcileForChildJob(object client.Object, 
 	}
 }
 
-type BatchJob struct {
+type Job struct {
 	batchv1.Job
 }
 
-func (b *BatchJob) Object() client.Object {
+func (b *Job) Object() client.Object {
 	return &b.Job
 }
 
-func (b *BatchJob) ParentWorkloadName() string {
+func (b *Job) ParentWorkloadName() string {
 	return b.Annotations[constants.ParentWorkloadAnnotation]
 }
 
-func (b *BatchJob) QueueName() string {
+func (b *Job) QueueName() string {
 	return b.Annotations[constants.QueueAnnotation]
 }
 
-func (b *BatchJob) IsSuspend() bool {
+func (b *Job) IsSuspend() bool {
 	return b.Spec.Suspend != nil && *b.Spec.Suspend
 }
 
-func (b *BatchJob) IsActive() bool {
+func (b *Job) IsActive() bool {
 	return b.Status.Active != 0
 }
 
-func (b *BatchJob) Suspend() error {
+func (b *Job) Suspend() error {
 	b.Spec.Suspend = pointer.Bool(true)
 	return nil
 }
 
-func (b *BatchJob) UnSuspend() error {
+func (b *Job) UnSuspend() error {
 	b.Spec.Suspend = pointer.Bool(false)
 	return nil
 }
 
-func (b *BatchJob) GetWorkloadName() string {
-	return GetWorkloadNameForJob(b.Name)
-}
-
-func (b *BatchJob) ResetStatus() bool {
+func (b *Job) ResetStatus() bool {
 	// Reset start time so we can update the scheduling directives later when unsuspending.
 	if b.Status.StartTime == nil {
 		return false
@@ -198,11 +191,11 @@ func (b *BatchJob) ResetStatus() bool {
 	return true
 }
 
-func (b *BatchJob) GetOwnerKey() string {
-	return ownerKey
+func (b *Job) GetGVK() *metav1.GroupVersionKind {
+	return &gvk
 }
 
-func (b *BatchJob) PodSets() []kueue.PodSet {
+func (b *Job) PodSets() []kueue.PodSet {
 	return []kueue.PodSet{
 		{
 			Template: *b.Spec.Template.DeepCopy(),
@@ -211,7 +204,7 @@ func (b *BatchJob) PodSets() []kueue.PodSet {
 	}
 }
 
-func (b *BatchJob) InjectNodeAffinity(nodeSelectors []map[string]string) error {
+func (b *Job) InjectNodeAffinity(nodeSelectors []map[string]string) error {
 	if len(nodeSelectors) == 0 {
 		return nil
 	}
@@ -227,7 +220,7 @@ func (b *BatchJob) InjectNodeAffinity(nodeSelectors []map[string]string) error {
 	return nil
 }
 
-func (b *BatchJob) RestoreNodeAffinity(podSets []kueue.PodSet) error {
+func (b *Job) RestoreNodeAffinity(podSets []kueue.PodSet) error {
 	if len(podSets) == 0 || equality.Semantic.DeepEqual(b.Spec.Template.Spec.NodeSelector, podSets[0].Template.Spec.NodeSelector) {
 		return nil
 	}
@@ -240,7 +233,7 @@ func (b *BatchJob) RestoreNodeAffinity(podSets []kueue.PodSet) error {
 	return nil
 }
 
-func (b *BatchJob) Finished() (metav1.Condition, bool) {
+func (b *Job) Finished() (metav1.Condition, bool) {
 	var conditionType batchv1.JobConditionType
 	var finished bool
 
@@ -265,14 +258,7 @@ func (b *BatchJob) Finished() (metav1.Condition, bool) {
 	return condition, finished
 }
 
-func (b *BatchJob) EquivalentToWorkload(wl kueue.Workload) bool {
-	owner := metav1.GetControllerOf(&wl)
-	// Indexes don't work in unit tests, so we explicitly check for the
-	// owner here.
-	if owner.Name != b.Name {
-		return false
-	}
-
+func (b *Job) EquivalentToWorkload(wl kueue.Workload) bool {
 	if len(wl.Spec.PodSets) != 1 {
 		return false
 	}
@@ -291,16 +277,16 @@ func (b *BatchJob) EquivalentToWorkload(wl kueue.Workload) bool {
 		wl.Spec.PodSets[0].Template.Spec.Containers)
 }
 
-func (b *BatchJob) PriorityClass() string {
+func (b *Job) PriorityClass() string {
 	return b.Spec.Template.Spec.PriorityClassName
 }
 
-func (b *BatchJob) PodsReady() bool {
-	ready := pointer.Int32Deref(b.Job.Status.Ready, 0)
-	return b.Job.Status.Succeeded+ready >= b.podsCount()
+func (b *Job) PodsReady() bool {
+	ready := pointer.Int32Deref(b.Status.Ready, 0)
+	return b.Status.Succeeded+ready >= b.podsCount()
 }
 
-func (b *BatchJob) podsCount() int32 {
+func (b *Job) podsCount() int32 {
 	// parallelism is always set as it is otherwise defaulted by k8s to 1
 	podsCount := *(b.Spec.Parallelism)
 	if b.Spec.Completions != nil && *b.Spec.Completions < podsCount {
@@ -323,7 +309,7 @@ func (r *JobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &batchv1.Job{}, parentWorkloadKey, func(o client.Object) []string {
 		job := o.(*batchv1.Job)
-		batchJob := BatchJob{*job}
+		batchJob := Job{*job}
 		if pwName := batchJob.ParentWorkloadName(); pwName != "" {
 			return []string{pwName}
 		}
@@ -331,7 +317,7 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	}); err != nil {
 		return err
 	}
-	return indexer.IndexField(ctx, &kueue.Workload{}, ownerKey, func(o client.Object) []string {
+	return indexer.IndexField(ctx, &kueue.Workload{}, jobframework.GetOwnerKey(&gvk), func(o client.Object) []string {
 		// grab the Workload object, extract the owner...
 		wl := o.(*kueue.Workload)
 		owner := metav1.GetControllerOf(wl)
@@ -355,162 +341,14 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 
 func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	var batchJob BatchJob
-	if err := r.client.Get(ctx, req.NamespacedName, &batchJob.Job); err != nil {
+	var job batchv1.Job
+	if err := r.client.Get(ctx, req.NamespacedName, &job); err != nil {
 		// we'll ignore not-found errors, since there is nothing to do.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-
-	log := ctrl.LoggerFrom(ctx).WithValues("job", klog.KObj(&batchJob.Job))
-	ctx = ctrl.LoggerInto(ctx, log)
-
-	isStandaloneJob := batchJob.ParentWorkloadName() == ""
-
-	// when manageJobsWithoutQueueName is disabled we only reconcile jobs that have either
-	// queue-name or the parent-workload annotation set.
-	if !r.manageJobsWithoutQueueName && batchJob.QueueName() == "" && isStandaloneJob {
-		log.V(3).Info(fmt.Sprintf("Neither %s, nor %s annotation is set, ignoring the job", constants.QueueAnnotation, constants.ParentWorkloadAnnotation))
-		return ctrl.Result{}, nil
-	}
-
-	log.V(2).Info("Reconciling Job")
-
-	// 1. make sure there is only a single existing instance of the workload.
-	// If there's no workload exists and job is unsuspended, we'll stop it immediately.
-	wl, err := jobframework.EnsureOneWorkload(ctx, r.client, req, r.record, &batchJob)
-	if err != nil {
-		log.Error(err, "Getting existing workloads")
-		return ctrl.Result{}, err
-	}
-
-	// 2. handle job is finished.
-	if condition, finished := batchJob.Finished(); finished {
-		if wl == nil || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
-			return ctrl.Result{}, nil
-		}
-		err := workload.UpdateStatus(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName)
-		if err != nil {
-			log.Error(err, "Updating workload status")
-		}
-		return ctrl.Result{}, nil
-	}
-
-	// 3. handle workload is nil.
-	if wl == nil {
-		if !isStandaloneJob {
-			return ctrl.Result{}, nil
-		}
-		err := r.handleJobWithNoWorkload(ctx, &batchJob)
-		if err != nil {
-			log.Error(err, "Handling job with no workload")
-		}
-		return ctrl.Result{}, err
-	}
-
-	// 4. handle WaitForPodsReady only for a standalone job.
-	if isStandaloneJob {
-		// handle a job when waitForPodsReady is enabled, and it is the main job
-		if r.waitForPodsReady {
-			log.V(5).Info("Handling a job when waitForPodsReady is enabled")
-			condition := generatePodsReadyCondition(&batchJob, wl)
-			// optimization to avoid sending the update request if the status didn't change
-			if !apimeta.IsStatusConditionPresentAndEqual(wl.Status.Conditions, condition.Type, condition.Status) {
-				log.V(3).Info(fmt.Sprintf("Updating the PodsReady condition with status: %v", condition.Status))
-				apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
-				err := workload.UpdateStatus(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName)
-				if err != nil {
-					log.Error(err, "Updating workload status")
-				}
-			}
-		}
-	}
-
-	// 5. handle job is suspended.
-	if batchJob.IsSuspend() {
-		// start the job if the workload has been admitted, and the job is still suspended
-		if wl.Status.Admission != nil {
-			log.V(2).Info("Job admitted, unsuspending")
-			err := jobframework.StartJob(ctx, r.client, r.record, &batchJob, wl)
-			if err != nil {
-				log.Error(err, "Unsuspending job")
-			}
-			return ctrl.Result{}, err
-		}
-
-		// update queue name if changed.
-		q := batchJob.QueueName()
-		if wl.Spec.QueueName != q {
-			log.V(2).Info("Job changed queues, updating workload")
-			wl.Spec.QueueName = q
-			err := r.client.Update(ctx, wl)
-			if err != nil {
-				log.Error(err, "Updating workload queue")
-			}
-			return ctrl.Result{}, err
-		}
-		log.V(3).Info("Job is suspended and workload not yet admitted by a clusterQueue, nothing to do")
-		return ctrl.Result{}, nil
-	}
-
-	// 6. handle job is unsuspended.
-	if wl.Status.Admission == nil {
-		// the job must be suspended if the workload is not yet admitted.
-		log.V(2).Info("Running job is not admitted by a cluster queue, suspending")
-		err := jobframework.StopJob(ctx, r.client, r.record, &batchJob, wl, "Not admitted by cluster queue")
-		if err != nil {
-			log.Error(err, "Suspending job with non admitted workload")
-		}
-		return ctrl.Result{}, err
-	}
-
-	// workload is admitted and job is running, nothing to do.
-	log.V(3).Info("Job running with admitted workload, nothing to do")
-	return ctrl.Result{}, nil
-}
-
-func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, batchJob *BatchJob) error {
-	log := ctrl.LoggerFrom(ctx)
-
-	// Wait until there are no active pods.
-	if batchJob.IsActive() {
-		log.V(2).Info("Job is suspended but still has active pods, waiting")
-		return nil
-	}
-
-	// Create the corresponding workload.
-	wl, err := jobframework.ConstructWorkload(ctx, r.client, r.scheme, batchJob)
-	if err != nil {
-		return err
-	}
-	if err = r.client.Create(ctx, wl); err != nil {
-		return err
-	}
-	r.record.Eventf(batchJob.Object(), corev1.EventTypeNormal, "CreatedWorkload",
-		"Created Workload: %v", workload.Key(wl))
-	return nil
-}
-
-func generatePodsReadyCondition(batchJob *BatchJob, wl *kueue.Workload) metav1.Condition {
-	conditionStatus := metav1.ConditionFalse
-	message := "Not all pods are ready or succeeded"
-	// Once PodsReady=True it stays as long as the workload remains admitted to
-	// avoid unnecessary flickering the the condition when the pods transition
-	// Ready to Completed. As pods finish, they transition first into the
-	// uncountedTerminatedPods staging area, before passing to the
-	// succeeded/failed counters.
-	if wl.Status.Admission != nil && (batchJob.PodsReady() || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPodsReady)) {
-		conditionStatus = metav1.ConditionTrue
-		message = "All pods were ready or succeeded since the workload admission"
-	}
-	return metav1.Condition{
-		Type:    kueue.WorkloadPodsReady,
-		Status:  conditionStatus,
-		Reason:  "PodsReady",
-		Message: message,
-	}
+	return r.genericJobReconciler.Reconcile(ctx, req, &Job{job})
 }
 
 func GetWorkloadNameForJob(jobName string) string {
-	gvk := metav1.GroupVersionKind{Group: batchv1.SchemeGroupVersion.Group, Version: batchv1.SchemeGroupVersion.Version, Kind: "Job"}
 	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, &gvk)
 }

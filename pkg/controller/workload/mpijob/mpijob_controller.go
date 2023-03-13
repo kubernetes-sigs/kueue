@@ -18,17 +18,14 @@ package mpijob
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -36,20 +33,16 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/workload/jobframework"
-	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var (
-	ownerKey = ".metadata.ownerReferences[kubeflow.MPIJob]"
+	gvk = metav1.GroupVersionKind{Group: kubeflow.SchemeGroupVersion.Group, Version: kubeflow.SchemeGroupVersion.Version, Kind: kubeflow.SchemeGroupVersionKind.Kind}
 )
 
 // MPIJobReconciler reconciles a Job object
 type MPIJobReconciler struct {
-	client                     client.Client
-	scheme                     *runtime.Scheme
-	record                     record.EventRecorder
-	manageJobsWithoutQueueName bool
-	waitForPodsReady           bool
+	client               client.Client
+	genericJobReconciler *jobframework.GenericJobReconciler
 }
 
 type options struct {
@@ -89,12 +82,16 @@ func NewReconciler(
 		opt(&options)
 	}
 
+	genericJobReconciler := jobframework.NewReconciler(scheme,
+		client,
+		record,
+		jobframework.WithWaitForPodsReady(options.waitForPodsReady),
+		jobframework.WithManageJobsWithoutQueueName(options.manageJobsWithoutQueueName),
+	)
+
 	return &MPIJobReconciler{
-		scheme:                     scheme,
-		client:                     client,
-		record:                     record,
-		manageJobsWithoutQueueName: options.manageJobsWithoutQueueName,
-		waitForPodsReady:           options.waitForPodsReady,
+		client:               client,
+		genericJobReconciler: genericJobReconciler,
 	}
 }
 
@@ -107,7 +104,7 @@ func (job *MPIJob) Object() client.Object {
 }
 
 func (job *MPIJob) ParentWorkloadName() string {
-	return job.MPIJob.Annotations[constants.ParentWorkloadAnnotation]
+	return job.Annotations[constants.ParentWorkloadAnnotation]
 }
 
 func (job *MPIJob) QueueName() string {
@@ -137,10 +134,6 @@ func (job *MPIJob) UnSuspend() error {
 	return nil
 }
 
-func (job *MPIJob) GetWorkloadName() string {
-	return GetWorkloadNameForMPIJob(job.Name)
-}
-
 func (job *MPIJob) ResetStatus() bool {
 	if job.Status.StartTime == nil {
 		return false
@@ -149,8 +142,8 @@ func (job *MPIJob) ResetStatus() bool {
 	return true
 }
 
-func (job *MPIJob) GetOwnerKey() string {
-	return ownerKey
+func (job *MPIJob) GetGVK() *metav1.GroupVersionKind {
+	return &gvk
 }
 
 func (job *MPIJob) PodSets() []kueue.PodSet {
@@ -227,13 +220,6 @@ func (job *MPIJob) Finished() (metav1.Condition, bool) {
 }
 
 func (job *MPIJob) EquivalentToWorkload(wl kueue.Workload) bool {
-	owner := metav1.GetControllerOf(&wl)
-	// Indexes don't work in unit tests, so we explicitly check for the
-	// owner here.
-	if owner.Name != job.Name {
-		return false
-	}
-
 	if len(wl.Spec.PodSets) != len(job.Spec.MPIReplicaSpecs) {
 		return false
 	}
@@ -293,7 +279,7 @@ func (r *MPIJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
-	return indexer.IndexField(ctx, &kueue.Workload{}, ownerKey, func(o client.Object) []string {
+	return indexer.IndexField(ctx, &kueue.Workload{}, jobframework.GetOwnerKey(&gvk), func(o client.Object) []string {
 		// grab the Workload object, extract the owner...
 		wl := o.(*kueue.Workload)
 		owner := metav1.GetControllerOf(wl)
@@ -324,125 +310,7 @@ func (r *MPIJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		// we'll ignore not-found errors, since there is nothing to do.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	mpiJob := MPIJob{job}
-
-	log := ctrl.LoggerFrom(ctx).WithValues("mpijob", klog.KObj(&job))
-	ctx = ctrl.LoggerInto(ctx, log)
-
-	// when manageJobsWithoutQueueName is disabled we only reconcile jobs that have
-	// queue-name annotation set.
-	if !r.manageJobsWithoutQueueName && mpiJob.QueueName() == "" {
-		log.V(3).Info(fmt.Sprintf("%s annotation is not set, ignoring the mpijob", constants.QueueAnnotation))
-		return ctrl.Result{}, nil
-	}
-
-	log.V(2).Info("Reconciling MPIJob")
-
-	// 1. make sure there is only a single existing instance of the workload
-	wl, err := jobframework.EnsureOneWorkload(ctx, r.client, req, r.record, &mpiJob)
-	if err != nil {
-		log.Error(err, "Getting existing workloads")
-		return ctrl.Result{}, err
-	}
-
-	// 2. handle job is finished.
-	if condition, finished := mpiJob.Finished(); finished {
-		if wl == nil || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
-			return ctrl.Result{}, nil
-		}
-		apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
-		if err := r.client.Status().Update(ctx, wl); err != nil {
-			log.Error(err, "Updating workload status")
-		}
-		return ctrl.Result{}, nil
-	}
-
-	// 3. handle workload is nil.
-	if wl == nil {
-		err := r.handleJobWithNoWorkload(ctx, &mpiJob)
-		if err != nil {
-			log.Error(err, "Handling mpijob with no workload")
-		}
-		return ctrl.Result{}, err
-	}
-
-	// 4. handle WaitForPodsReady
-	if r.waitForPodsReady {
-		log.V(5).Info("Handling a mpijob when waitForPodsReady is enabled")
-		condition := generatePodsReadyCondition(&mpiJob, wl)
-		// optimization to avoid sending the update request if the status didn't change
-		if !apimeta.IsStatusConditionPresentAndEqual(wl.Status.Conditions, condition.Type, condition.Status) {
-			log.V(3).Info(fmt.Sprintf("Updating the PodsReady condition with status: %v", condition.Status))
-			apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
-			if err := r.client.Status().Update(ctx, wl); err != nil {
-				log.Error(err, "Updating workload status")
-			}
-		}
-	}
-
-	// 5. handle mpijob is suspended.
-	if mpiJob.IsSuspend() {
-		// start the job if the workload has been admitted, and the job is still suspended
-		if wl.Status.Admission != nil {
-			log.V(2).Info("Job admitted, unsuspending")
-			err := jobframework.StartJob(ctx, r.client, r.record, &mpiJob, wl)
-			if err != nil {
-				log.Error(err, "Unsuspending job")
-			}
-			return ctrl.Result{}, err
-		}
-
-		// update queue name if changed.
-		q := mpiJob.QueueName()
-		if wl.Spec.QueueName != q {
-			log.V(2).Info("Job changed queues, updating workload")
-			wl.Spec.QueueName = q
-			err := r.client.Update(ctx, wl)
-			if err != nil {
-				log.Error(err, "Updating workload queue")
-			}
-			return ctrl.Result{}, err
-		}
-		log.V(3).Info("Job is suspended and workload not yet admitted by a clusterQueue, nothing to do")
-		return ctrl.Result{}, nil
-	}
-
-	// 6. handle job is unsuspended.
-	if wl.Status.Admission == nil {
-		// the job must be suspended if the workload is not yet admitted.
-		log.V(2).Info("Running job is not admitted by a cluster queue, suspending")
-		err := jobframework.StopJob(ctx, r.client, r.record, &mpiJob, wl, "Not admitted by cluster queue")
-		if err != nil {
-			log.Error(err, "Suspending job with non admitted workload")
-		}
-		return ctrl.Result{}, err
-	}
-
-	// workload is admitted and job is running, nothing to do.
-	log.V(3).Info("Job running with admitted workload, nothing to do")
-	return ctrl.Result{}, nil
-}
-
-func (r *MPIJobReconciler) handleJobWithNoWorkload(ctx context.Context, mpiJob *MPIJob) error {
-	log := ctrl.LoggerFrom(ctx)
-
-	// Wait until there are no active pods.
-	if mpiJob.IsActive() {
-		log.V(2).Info("Job is suspended but still has active pods, waiting")
-		return nil
-	}
-
-	// Create the corresponding workload.
-	wl, err := jobframework.ConstructWorkload(ctx, r.client, r.scheme, mpiJob)
-	if err != nil {
-		return err
-	}
-	if err = r.client.Create(ctx, wl); err != nil {
-		return err
-	}
-	r.record.Eventf(mpiJob.Object(), corev1.EventTypeNormal, "CreatedWorkload",
-		"Created Workload: %v", workload.Key(wl))
-	return nil
+	return r.genericJobReconciler.Reconcile(ctx, req, &MPIJob{job})
 }
 
 func orderedReplicaTypes(jobSpec *kubeflow.MPIJobSpec) []kubeflow.MPIReplicaType {
@@ -460,24 +328,6 @@ func podsCount(jobSpec *kubeflow.MPIJobSpec, mpiReplicaType kubeflow.MPIReplicaT
 	return pointer.Int32Deref(jobSpec.MPIReplicaSpecs[mpiReplicaType].Replicas, 1)
 }
 
-func generatePodsReadyCondition(mpiJob *MPIJob, wl *kueue.Workload) metav1.Condition {
-	conditionStatus := metav1.ConditionFalse
-	message := "Not all pods are ready or succeeded"
-	// Once PodsReady=True it stays as long as the workload remains admitted to
-	// avoid unnecessary flickering the the condition.
-	if wl.Status.Admission != nil && (mpiJob.PodsReady() || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPodsReady)) {
-		conditionStatus = metav1.ConditionTrue
-		message = "All pods were ready or succeeded since the workload admission"
-	}
-	return metav1.Condition{
-		Type:    kueue.WorkloadPodsReady,
-		Status:  conditionStatus,
-		Reason:  "PodsReady",
-		Message: message,
-	}
-}
-
 func GetWorkloadNameForMPIJob(jobName string) string {
-	gvk := metav1.GroupVersionKind{Group: kubeflow.SchemeGroupVersion.Group, Version: kubeflow.SchemeGroupVersion.Version, Kind: kubeflow.SchemeGroupVersionKind.Kind}
 	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, &gvk)
 }

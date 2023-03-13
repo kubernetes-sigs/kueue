@@ -19,6 +19,7 @@ package jobframework
 import (
 	"crypto/sha1"
 	"encoding/hex"
+	"fmt"
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -56,4 +57,8 @@ func getHash(ownerName string, gvk *metav1.GroupVersionKind) string {
 	h.Write([]byte("\n"))
 	h.Write([]byte(ownerName))
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+func GetOwnerKey(ownerGVK *metav1.GroupVersionKind) string {
+	return fmt.Sprintf(".metadata.ownerReferences[%s.%s]", ownerGVK.Group, ownerGVK.Kind)
 }
