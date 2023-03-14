@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
@@ -42,13 +43,13 @@ import (
 
 var (
 	parentWorkloadKey = ".metadata.parentWorkload"
-	gvk               = metav1.GroupVersionKind{Group: batchv1.SchemeGroupVersion.Group, Version: batchv1.SchemeGroupVersion.Version, Kind: "Job"}
+	gvk               = batchv1.SchemeGroupVersion.WithKind("Job")
 )
 
 // JobReconciler reconciles a Job object
 type JobReconciler struct {
-	client               client.Client
-	genericJobReconciler *jobframework.GenericJobReconciler
+	client        client.Client
+	jobReconciler *jobframework.JobReconciler
 }
 
 type options struct {
@@ -87,7 +88,7 @@ func NewReconciler(
 	for _, opt := range opts {
 		opt(&options)
 	}
-	genericJobReconciler := jobframework.NewReconciler(scheme,
+	jobReconciler := jobframework.NewReconciler(scheme,
 		client,
 		record,
 		jobframework.WithWaitForPodsReady(options.waitForPodsReady),
@@ -95,8 +96,8 @@ func NewReconciler(
 	)
 
 	return &JobReconciler{
-		client:               client,
-		genericJobReconciler: genericJobReconciler,
+		client:        client,
+		jobReconciler: jobReconciler,
 	}
 }
 
@@ -152,92 +153,92 @@ type Job struct {
 	batchv1.Job
 }
 
-func (b *Job) Object() client.Object {
-	return &b.Job
+func (job *Job) Object() client.Object {
+	return &job.Job
 }
 
-func (b *Job) ParentWorkloadName() string {
-	return b.Annotations[constants.ParentWorkloadAnnotation]
+func (job *Job) ParentWorkloadName() string {
+	return job.Annotations[constants.ParentWorkloadAnnotation]
 }
 
-func (b *Job) QueueName() string {
-	return b.Annotations[constants.QueueAnnotation]
+func (job *Job) QueueName() string {
+	return job.Annotations[constants.QueueAnnotation]
 }
 
-func (b *Job) IsSuspend() bool {
-	return b.Spec.Suspend != nil && *b.Spec.Suspend
+func (job *Job) IsSuspend() bool {
+	return job.Spec.Suspend != nil && *job.Spec.Suspend
 }
 
-func (b *Job) IsActive() bool {
-	return b.Status.Active != 0
+func (job *Job) IsActive() bool {
+	return job.Status.Active != 0
 }
 
-func (b *Job) Suspend() error {
-	b.Spec.Suspend = pointer.Bool(true)
+func (job *Job) Suspend() error {
+	job.Spec.Suspend = pointer.Bool(true)
 	return nil
 }
 
-func (b *Job) UnSuspend() error {
-	b.Spec.Suspend = pointer.Bool(false)
+func (job *Job) UnSuspend() error {
+	job.Spec.Suspend = pointer.Bool(false)
 	return nil
 }
 
-func (b *Job) ResetStatus() bool {
+func (job *Job) ResetStatus() bool {
 	// Reset start time so we can update the scheduling directives later when unsuspending.
-	if b.Status.StartTime == nil {
+	if job.Status.StartTime == nil {
 		return false
 	}
-	b.Status.StartTime = nil
+	job.Status.StartTime = nil
 	return true
 }
 
-func (b *Job) GetGVK() *metav1.GroupVersionKind {
-	return &gvk
+func (job *Job) GetGVK() schema.GroupVersionKind {
+	return gvk
 }
 
-func (b *Job) PodSets() []kueue.PodSet {
+func (job *Job) PodSets() []kueue.PodSet {
 	return []kueue.PodSet{
 		{
-			Template: *b.Spec.Template.DeepCopy(),
-			Count:    b.podsCount(),
+			Template: *job.Spec.Template.DeepCopy(),
+			Count:    job.podsCount(),
 		},
 	}
 }
 
-func (b *Job) InjectNodeAffinity(nodeSelectors []map[string]string) error {
+func (job *Job) InjectNodeAffinity(nodeSelectors []map[string]string) error {
 	if len(nodeSelectors) == 0 {
 		return nil
 	}
 
-	if b.Spec.Template.Spec.NodeSelector == nil {
-		b.Spec.Template.Spec.NodeSelector = nodeSelectors[0]
+	if job.Spec.Template.Spec.NodeSelector == nil {
+		job.Spec.Template.Spec.NodeSelector = nodeSelectors[0]
 	} else {
 		for k, v := range nodeSelectors[0] {
-			b.Spec.Template.Spec.NodeSelector[k] = v
+			job.Spec.Template.Spec.NodeSelector[k] = v
 		}
 	}
 
 	return nil
 }
 
-func (b *Job) RestoreNodeAffinity(podSets []kueue.PodSet) error {
-	if len(podSets) == 0 || equality.Semantic.DeepEqual(b.Spec.Template.Spec.NodeSelector, podSets[0].Template.Spec.NodeSelector) {
+func (job *Job) RestoreNodeAffinity(podSets []kueue.PodSet) error {
+	if len(podSets) == 0 || equality.Semantic.DeepEqual(job.Spec.Template.Spec.NodeSelector, podSets[0].Template.Spec.NodeSelector) {
 		return nil
 	}
 
-	b.Spec.Template.Spec.NodeSelector = map[string]string{}
+	job.Spec.Template.Spec.NodeSelector = map[string]string{}
 
 	for k, v := range podSets[0].Template.Spec.NodeSelector {
-		b.Spec.Template.Spec.NodeSelector[k] = v
+		job.Spec.Template.Spec.NodeSelector[k] = v
 	}
 	return nil
 }
 
-func (b *Job) Finished() (metav1.Condition, bool) {
+func (job *Job) Finished() (metav1.Condition, bool) {
 	var conditionType batchv1.JobConditionType
 	var finished bool
 
-	for _, c := range b.Status.Conditions {
+	for _, c := range job.Status.Conditions {
 		if (c.Type == batchv1.JobComplete || c.Type == batchv1.JobFailed) && c.Status == corev1.ConditionTrue {
 			conditionType = c.Type
 			finished = true
@@ -258,39 +259,39 @@ func (b *Job) Finished() (metav1.Condition, bool) {
 	return condition, finished
 }
 
-func (b *Job) EquivalentToWorkload(wl kueue.Workload) bool {
+func (job *Job) EquivalentToWorkload(wl kueue.Workload) bool {
 	if len(wl.Spec.PodSets) != 1 {
 		return false
 	}
 
-	if *b.Spec.Parallelism != wl.Spec.PodSets[0].Count {
+	if *job.Spec.Parallelism != wl.Spec.PodSets[0].Count {
 		return false
 	}
 
 	// nodeSelector may change, hence we are not checking for
 	// equality of the whole job.Spec.Template.Spec.
-	if !equality.Semantic.DeepEqual(b.Spec.Template.Spec.InitContainers,
+	if !equality.Semantic.DeepEqual(job.Spec.Template.Spec.InitContainers,
 		wl.Spec.PodSets[0].Template.Spec.InitContainers) {
 		return false
 	}
-	return equality.Semantic.DeepEqual(b.Spec.Template.Spec.Containers,
+	return equality.Semantic.DeepEqual(job.Spec.Template.Spec.Containers,
 		wl.Spec.PodSets[0].Template.Spec.Containers)
 }
 
-func (b *Job) PriorityClass() string {
-	return b.Spec.Template.Spec.PriorityClassName
+func (job *Job) PriorityClass() string {
+	return job.Spec.Template.Spec.PriorityClassName
 }
 
-func (b *Job) PodsReady() bool {
-	ready := pointer.Int32Deref(b.Status.Ready, 0)
-	return b.Status.Succeeded+ready >= b.podsCount()
+func (job *Job) PodsReady() bool {
+	ready := pointer.Int32Deref(job.Status.Ready, 0)
+	return job.Status.Succeeded+ready >= job.podsCount()
 }
 
-func (b *Job) podsCount() int32 {
+func (job *Job) podsCount() int32 {
 	// parallelism is always set as it is otherwise defaulted by k8s to 1
-	podsCount := *(b.Spec.Parallelism)
-	if b.Spec.Completions != nil && *b.Spec.Completions < podsCount {
-		podsCount = *b.Spec.Completions
+	podsCount := *(job.Spec.Parallelism)
+	if job.Spec.Completions != nil && *job.Spec.Completions < podsCount {
+		podsCount = *job.Spec.Completions
 	}
 	return podsCount
 }
@@ -317,7 +318,7 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	}); err != nil {
 		return err
 	}
-	return indexer.IndexField(ctx, &kueue.Workload{}, jobframework.GetOwnerKey(&gvk), func(o client.Object) []string {
+	return indexer.IndexField(ctx, &kueue.Workload{}, jobframework.GetOwnerKey(gvk), func(o client.Object) []string {
 		// grab the Workload object, extract the owner...
 		wl := o.(*kueue.Workload)
 		owner := metav1.GetControllerOf(wl)
@@ -341,14 +342,9 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 
 func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	var job batchv1.Job
-	if err := r.client.Get(ctx, req.NamespacedName, &job); err != nil {
-		// we'll ignore not-found errors, since there is nothing to do.
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
-	return r.genericJobReconciler.Reconcile(ctx, req, &Job{job})
+	return r.jobReconciler.ReconcileForJobObject(ctx, req, &Job{})
 }
 
 func GetWorkloadNameForJob(jobName string) string {
-	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, &gvk)
+	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, gvk)
 }

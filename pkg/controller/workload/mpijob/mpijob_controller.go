@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -36,13 +37,12 @@ import (
 )
 
 var (
-	gvk = metav1.GroupVersionKind{Group: kubeflow.SchemeGroupVersion.Group, Version: kubeflow.SchemeGroupVersion.Version, Kind: kubeflow.SchemeGroupVersionKind.Kind}
+	gvk = kubeflow.SchemeGroupVersionKind
 )
 
 // MPIJobReconciler reconciles a Job object
 type MPIJobReconciler struct {
-	client               client.Client
-	genericJobReconciler *jobframework.GenericJobReconciler
+	jobReconciler *jobframework.JobReconciler
 }
 
 type options struct {
@@ -82,16 +82,14 @@ func NewReconciler(
 		opt(&options)
 	}
 
-	genericJobReconciler := jobframework.NewReconciler(scheme,
+	jobReconciler := jobframework.NewReconciler(scheme,
 		client,
 		record,
 		jobframework.WithWaitForPodsReady(options.waitForPodsReady),
 		jobframework.WithManageJobsWithoutQueueName(options.manageJobsWithoutQueueName),
 	)
-
 	return &MPIJobReconciler{
-		client:               client,
-		genericJobReconciler: genericJobReconciler,
+		jobReconciler: jobReconciler,
 	}
 }
 
@@ -142,8 +140,8 @@ func (job *MPIJob) ResetStatus() bool {
 	return true
 }
 
-func (job *MPIJob) GetGVK() *metav1.GroupVersionKind {
-	return &gvk
+func (job *MPIJob) GetGVK() schema.GroupVersionKind {
+	return gvk
 }
 
 func (job *MPIJob) PodSets() []kueue.PodSet {
@@ -279,7 +277,7 @@ func (r *MPIJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
-	return indexer.IndexField(ctx, &kueue.Workload{}, jobframework.GetOwnerKey(&gvk), func(o client.Object) []string {
+	return indexer.IndexField(ctx, &kueue.Workload{}, jobframework.GetOwnerKey(gvk), func(o client.Object) []string {
 		// grab the Workload object, extract the owner...
 		wl := o.(*kueue.Workload)
 		owner := metav1.GetControllerOf(wl)
@@ -305,12 +303,7 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 
 func (r *MPIJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	var job kubeflow.MPIJob
-	if err := r.client.Get(ctx, req.NamespacedName, &job); err != nil {
-		// we'll ignore not-found errors, since there is nothing to do.
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
-	return r.genericJobReconciler.Reconcile(ctx, req, &MPIJob{job})
+	return r.jobReconciler.ReconcileForJobObject(ctx, req, &MPIJob{})
 }
 
 func orderedReplicaTypes(jobSpec *kubeflow.MPIJobSpec) []kubeflow.MPIReplicaType {
@@ -329,5 +322,5 @@ func podsCount(jobSpec *kubeflow.MPIJobSpec, mpiReplicaType kubeflow.MPIReplicaT
 }
 
 func GetWorkloadNameForMPIJob(jobName string) string {
-	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, &gvk)
+	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, gvk)
 }

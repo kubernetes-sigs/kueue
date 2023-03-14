@@ -34,8 +34,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-// GenericJobReconciler reconciles a GenericJob object
-type GenericJobReconciler struct {
+// JobReconciler reconciles a GenericJob object
+type JobReconciler struct {
 	client                     client.Client
 	scheme                     *runtime.Scheme
 	record                     record.EventRecorder
@@ -74,13 +74,13 @@ func NewReconciler(
 	scheme *runtime.Scheme,
 	client client.Client,
 	record record.EventRecorder,
-	opts ...Option) *GenericJobReconciler {
+	opts ...Option) *JobReconciler {
 	options := defaultOptions
 	for _, opt := range opts {
 		opt(&options)
 	}
 
-	return &GenericJobReconciler{
+	return &JobReconciler{
 		scheme:                     scheme,
 		client:                     client,
 		record:                     record,
@@ -89,8 +89,13 @@ func NewReconciler(
 	}
 }
 
-func (r *GenericJobReconciler) Reconcile(ctx context.Context, req ctrl.Request, job GenericJob) (ctrl.Result, error) {
-	namespacedName := types.NamespacedName{Name: job.Object().GetName(), Namespace: job.Object().GetNamespace()}
+func (r *JobReconciler) ReconcileForJobObject(ctx context.Context, req ctrl.Request, job GenericJob) (ctrl.Result, error) {
+	object := job.Object()
+	if err := r.client.Get(ctx, req.NamespacedName, object); err != nil {
+		// we'll ignore not-found errors, since there is nothing to do.
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	namespacedName := types.NamespacedName{Name: object.GetName(), Namespace: object.GetNamespace()}
 
 	log := ctrl.LoggerFrom(ctx).WithValues("job", namespacedName.String())
 	ctx = ctrl.LoggerInto(ctx, log)
@@ -108,7 +113,7 @@ func (r *GenericJobReconciler) Reconcile(ctx context.Context, req ctrl.Request, 
 
 	// 1. make sure there is only a single existing instance of the workload.
 	// If there's no workload exists and job is unsuspended, we'll stop it immediately.
-	wl, err := r.ensureOneWorkload(ctx, job)
+	wl, err := r.ensureOneWorkload(ctx, job, object)
 	if err != nil {
 		log.Error(err, "Getting existing workloads")
 		return ctrl.Result{}, err
@@ -131,7 +136,7 @@ func (r *GenericJobReconciler) Reconcile(ctx context.Context, req ctrl.Request, 
 		if !isStandaloneJob {
 			return ctrl.Result{}, nil
 		}
-		err := r.handleJobWithNoWorkload(ctx, job)
+		err := r.handleJobWithNoWorkload(ctx, job, object)
 		if err != nil {
 			log.Error(err, "Handling job with no workload")
 		}
@@ -161,7 +166,7 @@ func (r *GenericJobReconciler) Reconcile(ctx context.Context, req ctrl.Request, 
 		// start the job if the workload has been admitted, and the job is still suspended
 		if wl.Status.Admission != nil {
 			log.V(2).Info("Job admitted, unsuspending")
-			err := r.startJob(ctx, job, wl)
+			err := r.startJob(ctx, job, object, wl)
 			if err != nil {
 				log.Error(err, "Unsuspending job")
 			}
@@ -187,7 +192,7 @@ func (r *GenericJobReconciler) Reconcile(ctx context.Context, req ctrl.Request, 
 	if wl.Status.Admission == nil {
 		// the job must be suspended if the workload is not yet admitted.
 		log.V(2).Info("Running job is not admitted by a cluster queue, suspending")
-		err := r.stopJob(ctx, job, wl, "Not admitted by cluster queue")
+		err := r.stopJob(ctx, job, object, wl, "Not admitted by cluster queue")
 		if err != nil {
 			log.Error(err, "Suspending job with non admitted workload")
 		}
@@ -202,7 +207,7 @@ func (r *GenericJobReconciler) Reconcile(ctx context.Context, req ctrl.Request, 
 // ensureOneWorkload will query for the single matched workload corresponding to job and return it.
 // If there're more than one workload, we should delete the excess ones.
 // The returned workload could be nil.
-func (r *GenericJobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob) (*kueue.Workload, error) {
+func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Find a matching workload first if there is one.
@@ -213,7 +218,7 @@ func (r *GenericJobReconciler) ensureOneWorkload(ctx context.Context, job Generi
 		pw := kueue.Workload{}
 		namespacedName := types.NamespacedName{
 			Name:      pwName,
-			Namespace: job.Object().GetNamespace(),
+			Namespace: object.GetNamespace(),
 		}
 		if err := r.client.Get(ctx, namespacedName, &pw); err != nil {
 			if !apierrors.IsNotFound(err) {
@@ -226,8 +231,8 @@ func (r *GenericJobReconciler) ensureOneWorkload(ctx context.Context, job Generi
 	}
 
 	var workloads kueue.WorkloadList
-	if err := r.client.List(ctx, &workloads, client.InNamespace(job.Object().GetNamespace()),
-		client.MatchingFields{GetOwnerKey(job.GetGVK()): job.Object().GetName()}); err != nil {
+	if err := r.client.List(ctx, &workloads, client.InNamespace(object.GetNamespace()),
+		client.MatchingFields{GetOwnerKey(job.GetGVK()): object.GetName()}); err != nil {
 		log.Error(err, "Unable to list child workloads")
 		return nil, err
 	}
@@ -237,10 +242,10 @@ func (r *GenericJobReconciler) ensureOneWorkload(ctx context.Context, job Generi
 		owner := metav1.GetControllerOf(w)
 		// Indexes don't work in unit tests, so we explicitly check for the
 		// owner here.
-		if owner.Name != job.Object().GetName() {
+		if owner.Name != object.GetName() {
 			continue
 		}
-		if match == nil && r.equivalentToWorkload(job, w) {
+		if match == nil && r.equivalentToWorkload(job, object, w) {
 			match = w
 		} else {
 			toDelete = append(toDelete, w)
@@ -257,7 +262,7 @@ func (r *GenericJobReconciler) ensureOneWorkload(ctx context.Context, job Generi
 			// than one workload...
 			w = &workloads.Items[0]
 		}
-		if err := r.stopJob(ctx, job, w, "No matching Workload"); err != nil {
+		if err := r.stopJob(ctx, job, object, w, "No matching Workload"); err != nil {
 			log.Error(err, "stopping job")
 		}
 	}
@@ -273,7 +278,7 @@ func (r *GenericJobReconciler) ensureOneWorkload(ctx context.Context, job Generi
 			log.Error(err, "Failed to delete workload")
 		}
 		if err == nil {
-			r.record.Eventf(job.Object(), corev1.EventTypeNormal, "DeletedWorkload",
+			r.record.Eventf(object, corev1.EventTypeNormal, "DeletedWorkload",
 				"Deleted not matching Workload: %v", workload.Key(toDelete[i]))
 		}
 	}
@@ -289,18 +294,18 @@ func (r *GenericJobReconciler) ensureOneWorkload(ctx context.Context, job Generi
 }
 
 // equivalentToWorkload checks if the job corresponds to the workload
-func (r *GenericJobReconciler) equivalentToWorkload(job GenericJob, wl *kueue.Workload) bool {
+func (r *JobReconciler) equivalentToWorkload(job GenericJob, object client.Object, wl *kueue.Workload) bool {
 	owner := metav1.GetControllerOf(wl)
 	// Indexes don't work in unit tests, so we explicitly check for the
 	// owner here.
-	if owner.Name != job.Object().GetName() {
+	if owner.Name != object.GetName() {
 		return false
 	}
 	return job.EquivalentToWorkload(*wl)
 }
 
 // startJob will unsuspend the job, and also inject the node affinity.
-func (r *GenericJobReconciler) startJob(ctx context.Context, job GenericJob, wl *kueue.Workload) error {
+func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
 	nodeSelectors, err := r.getNodeSelectors(ctx, wl)
 	if err != nil {
 		return err
@@ -314,31 +319,31 @@ func (r *GenericJobReconciler) startJob(ctx context.Context, job GenericJob, wl 
 		return err
 	}
 
-	if err := r.client.Update(ctx, job.Object()); err != nil {
+	if err := r.client.Update(ctx, object); err != nil {
 		return err
 	}
 
-	r.record.Eventf(job.Object(), corev1.EventTypeNormal, "Started",
+	r.record.Eventf(object, corev1.EventTypeNormal, "Started",
 		"Admitted by clusterQueue %v", wl.Status.Admission.ClusterQueue)
 
 	return nil
 }
 
 // stopJob will suspend the job, and also restore node affinity, reset job status if needed.
-func (r *GenericJobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.Workload, eventMsg string) error {
+func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload, eventMsg string) error {
 	// Suspend the job at first then we're able to update the scheduling directives.
 	if err := job.Suspend(); err != nil {
 		return err
 	}
 
-	if err := r.client.Update(ctx, job.Object()); err != nil {
+	if err := r.client.Update(ctx, object); err != nil {
 		return err
 	}
 
-	r.record.Eventf(job.Object(), corev1.EventTypeNormal, "Stopped", eventMsg)
+	r.record.Eventf(object, corev1.EventTypeNormal, "Stopped", eventMsg)
 
 	if job.ResetStatus() {
-		if err := r.client.Status().Update(ctx, job.Object()); err != nil {
+		if err := r.client.Status().Update(ctx, object); err != nil {
 			return err
 		}
 	}
@@ -347,18 +352,18 @@ func (r *GenericJobReconciler) stopJob(ctx context.Context, job GenericJob, wl *
 		if err := job.RestoreNodeAffinity(wl.Spec.PodSets); err != nil {
 			return err
 		}
-		return r.client.Update(ctx, job.Object())
+		return r.client.Update(ctx, object)
 	}
 
 	return nil
 }
 
 // constructWorkload will derive a workload from the corresponding job.
-func (r *GenericJobReconciler) constructWorkload(ctx context.Context, job GenericJob) (*kueue.Workload, error) {
+func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
 	wl := &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      GetWorkloadNameForOwnerWithGVK(job.Object().GetName(), job.GetGVK()),
-			Namespace: job.Object().GetNamespace(),
+			Name:      GetWorkloadNameForOwnerWithGVK(object.GetName(), job.GetGVK()),
+			Namespace: object.GetNamespace(),
 		},
 		Spec: kueue.WorkloadSpec{
 			PodSets:   job.PodSets(),
@@ -375,14 +380,14 @@ func (r *GenericJobReconciler) constructWorkload(ctx context.Context, job Generi
 	wl.Spec.PriorityClassName = priorityClassName
 	wl.Spec.Priority = &p
 
-	if err := ctrl.SetControllerReference(job.Object(), wl, r.scheme); err != nil {
+	if err := ctrl.SetControllerReference(object, wl, r.scheme); err != nil {
 		return nil, err
 	}
 	return wl, nil
 }
 
 // getNodeSelectors will extract node selectors from admitted workloads.
-func (r *GenericJobReconciler) getNodeSelectors(ctx context.Context, w *kueue.Workload) ([]map[string]string, error) {
+func (r *JobReconciler) getNodeSelectors(ctx context.Context, w *kueue.Workload) ([]map[string]string, error) {
 	if len(w.Status.Admission.PodSetFlavors) == 0 {
 		return nil, nil
 	}
@@ -413,7 +418,7 @@ func (r *GenericJobReconciler) getNodeSelectors(ctx context.Context, w *kueue.Wo
 	return nodeSelectors, nil
 }
 
-func (r *GenericJobReconciler) handleJobWithNoWorkload(ctx context.Context, job GenericJob) error {
+func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job GenericJob, object client.Object) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Wait until there are no active pods.
@@ -423,14 +428,14 @@ func (r *GenericJobReconciler) handleJobWithNoWorkload(ctx context.Context, job 
 	}
 
 	// Create the corresponding workload.
-	wl, err := r.constructWorkload(ctx, job)
+	wl, err := r.constructWorkload(ctx, job, object)
 	if err != nil {
 		return err
 	}
 	if err = r.client.Create(ctx, wl); err != nil {
 		return err
 	}
-	r.record.Eventf(job.Object(), corev1.EventTypeNormal, "CreatedWorkload",
+	r.record.Eventf(object, corev1.EventTypeNormal, "CreatedWorkload",
 		"Created Workload: %v", workload.Key(wl))
 	return nil
 }

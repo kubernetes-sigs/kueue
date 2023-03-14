@@ -15,8 +15,9 @@ package jobframework
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
@@ -54,5 +55,5 @@ type GenericJob interface {
 	// PodsReady instructs whether job derived pods are all ready now.
 	PodsReady() bool
 	// GetGVK returns GVK (Group Version Kind) for the job.
-	GetGVK() *metav1.GroupVersionKind
+	GetGVK() schema.GroupVersionKind
 }
