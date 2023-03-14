@@ -37,7 +37,7 @@ func GetWorkloadNameForOwnerRef(owner *metav1.OwnerReference) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	gvk := schema.GroupVersionKind{Group: gv.Group, Version: gv.Version, Kind: owner.Kind}
+	gvk := gv.WithKind(owner.Kind)
 	return GetWorkloadNameForOwnerWithGVK(owner.Name, gvk), nil
 }
 
