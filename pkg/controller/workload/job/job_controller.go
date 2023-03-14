@@ -47,58 +47,18 @@ var (
 )
 
 // JobReconciler reconciles a Job object
-type JobReconciler struct {
-	client        client.Client
-	jobReconciler *jobframework.JobReconciler
-}
-
-type options struct {
-	manageJobsWithoutQueueName bool
-	waitForPodsReady           bool
-}
-
-// Option configures the reconciler.
-type Option func(*options)
-
-// WithManageJobsWithoutQueueName indicates if the controller should reconcile
-// jobs that don't set the queue name annotation.
-func WithManageJobsWithoutQueueName(f bool) Option {
-	return func(o *options) {
-		o.manageJobsWithoutQueueName = f
-	}
-}
-
-// WithWaitForPodsReady indicates if the controller should add the PodsReady
-// condition to the workload when the corresponding job has all pods ready
-// or succeeded.
-func WithWaitForPodsReady(f bool) Option {
-	return func(o *options) {
-		o.waitForPodsReady = f
-	}
-}
-
-var defaultOptions = options{}
+type JobReconciler jobframework.JobReconciler[Job]
 
 func NewReconciler(
 	scheme *runtime.Scheme,
 	client client.Client,
 	record record.EventRecorder,
-	opts ...Option) *JobReconciler {
-	options := defaultOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
-	jobReconciler := jobframework.NewReconciler(scheme,
+	opts ...jobframework.Option) *JobReconciler {
+	return (*JobReconciler)(jobframework.NewReconciler[Job](scheme,
 		client,
 		record,
-		jobframework.WithWaitForPodsReady(options.waitForPodsReady),
-		jobframework.WithManageJobsWithoutQueueName(options.manageJobsWithoutQueueName),
-	)
-
-	return &JobReconciler{
-		client:        client,
-		jobReconciler: jobReconciler,
-	}
+		opts...,
+	))
 }
 
 type parentWorkloadHandler struct {
@@ -299,7 +259,7 @@ func (job *Job) podsCount() int32 {
 // SetupWithManager sets up the controller with the Manager. It indexes workloads
 // based on the owning jobs.
 func (r *JobReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	wlHandler := parentWorkloadHandler{client: r.client}
+	wlHandler := parentWorkloadHandler{client: mgr.GetClient()}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&batchv1.Job{}).
 		Watches(&source.Kind{Type: &kueue.Workload{}}, &wlHandler).
@@ -342,7 +302,8 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 
 func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	return r.jobReconciler.ReconcileForJobObject(ctx, req, &Job{})
+	fjr := (*jobframework.JobReconciler[Job])(r)
+	return fjr.ReconcileGenericJob(ctx, req, &Job{})
 }
 
 func GetWorkloadNameForJob(jobName string) string {

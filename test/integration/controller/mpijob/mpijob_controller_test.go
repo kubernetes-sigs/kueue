@@ -34,6 +34,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/workload/jobframework"
 	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/workload/mpijob"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -59,7 +60,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 
 	ginkgo.BeforeEach(func() {
 		fwk = &framework.Framework{
-			ManagerSetup: managerSetup(workloadmpijob.WithManageJobsWithoutQueueName(true)),
+			ManagerSetup: managerSetup(jobframework.WithManageJobsWithoutQueueName(true)),
 			CRDPath:      crdPath,
 			DepCRDPaths:  []string{mpiCrdPath},
 		}
@@ -307,7 +308,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", func() {
 
 	ginkgo.BeforeEach(func() {
 		fwk = &framework.Framework{
-			ManagerSetup: managerSetup(workloadmpijob.WithWaitForPodsReady(true)),
+			ManagerSetup: managerSetup(jobframework.WithWaitForPodsReady(true)),
 			CRDPath:      crdPath,
 			DepCRDPaths:  []string{mpiCrdPath},
 		}

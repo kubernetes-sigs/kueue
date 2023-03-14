@@ -47,6 +47,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/workload/job"
+	"sigs.k8s.io/kueue/pkg/controller/workload/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/workload/mpijob"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
@@ -171,8 +172,8 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 	if err := job.NewReconciler(mgr.GetScheme(),
 		mgr.GetClient(),
 		mgr.GetEventRecorderFor(constants.JobControllerName),
-		job.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName),
-		job.WithWaitForPodsReady(waitForPodsReady(cfg)),
+		jobframework.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName),
+		jobframework.WithWaitForPodsReady(waitForPodsReady(cfg)),
 	).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Job")
 		os.Exit(1)
@@ -180,8 +181,8 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 	if err := mpijob.NewReconciler(mgr.GetScheme(),
 		mgr.GetClient(),
 		mgr.GetEventRecorderFor(constants.KueueName+"-mpijob-controller"),
-		mpijob.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName),
-		mpijob.WithWaitForPodsReady(waitForPodsReady(cfg)),
+		jobframework.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName),
+		jobframework.WithWaitForPodsReady(waitForPodsReady(cfg)),
 	).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "MPIJob")
 		os.Exit(1)
@@ -190,11 +191,11 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 		setupLog.Error(err, "Unable to create webhook", "webhook", failedWebhook)
 		os.Exit(1)
 	}
-	if err := job.SetupWebhook(mgr, job.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName)); err != nil {
+	if err := job.SetupWebhook(mgr, jobframework.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName)); err != nil {
 		setupLog.Error(err, "Unable to create webhook", "webhook", "Job")
 		os.Exit(1)
 	}
-	if err := mpijob.SetupMPIJobWebhook(mgr, mpijob.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName)); err != nil {
+	if err := mpijob.SetupMPIJobWebhook(mgr, jobframework.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName)); err != nil {
 		setupLog.Error(err, "Unable to create webhook", "webhook", "MPIJob")
 		os.Exit(1)
 	}

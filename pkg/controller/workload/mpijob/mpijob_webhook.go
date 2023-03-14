@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/workload/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 )
 
@@ -37,13 +38,13 @@ type MPIJobWebhook struct {
 }
 
 // SetupWebhook configures the webhook for kubeflow MPIJob.
-func SetupMPIJobWebhook(mgr ctrl.Manager, opts ...Option) error {
-	options := defaultOptions
+func SetupMPIJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
+	options := jobframework.DefaultOptions
 	for _, opt := range opts {
 		opt(&options)
 	}
 	wh := &MPIJobWebhook{
-		manageJobsWithoutQueueName: options.manageJobsWithoutQueueName,
+		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 	}
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&kubeflow.MPIJob{}).

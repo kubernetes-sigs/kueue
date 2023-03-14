@@ -40,13 +40,13 @@ type JobWebhook struct {
 }
 
 // SetupWebhook configures the webhook for batchJob.
-func SetupWebhook(mgr ctrl.Manager, opts ...Option) error {
-	options := defaultOptions
+func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
+	options := jobframework.DefaultOptions
 	for _, opt := range opts {
 		opt(&options)
 	}
 	wh := &JobWebhook{
-		manageJobsWithoutQueueName: options.manageJobsWithoutQueueName,
+		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 	}
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&batchv1.Job{}).

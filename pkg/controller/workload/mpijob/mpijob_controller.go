@@ -41,56 +41,18 @@ var (
 )
 
 // MPIJobReconciler reconciles a Job object
-type MPIJobReconciler struct {
-	jobReconciler *jobframework.JobReconciler
-}
-
-type options struct {
-	manageJobsWithoutQueueName bool
-	waitForPodsReady           bool
-}
-
-// Option configures the reconciler.
-type Option func(*options)
-
-// WithManageJobsWithoutQueueName indicates if the controller should reconcile
-// jobs that don't set the queue name annotation.
-func WithManageJobsWithoutQueueName(f bool) Option {
-	return func(o *options) {
-		o.manageJobsWithoutQueueName = f
-	}
-}
-
-// WithWaitForPodsReady indicates if the controller should add the PodsReady
-// condition to the workload when the corresponding job has all pods ready
-// or succeeded.
-func WithWaitForPodsReady(f bool) Option {
-	return func(o *options) {
-		o.waitForPodsReady = f
-	}
-}
-
-var defaultOptions = options{}
+type MPIJobReconciler jobframework.JobReconciler[MPIJob]
 
 func NewReconciler(
 	scheme *runtime.Scheme,
 	client client.Client,
 	record record.EventRecorder,
-	opts ...Option) *MPIJobReconciler {
-	options := defaultOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
-
-	jobReconciler := jobframework.NewReconciler(scheme,
+	opts ...jobframework.Option) *MPIJobReconciler {
+	return (*MPIJobReconciler)(jobframework.NewReconciler[MPIJob](scheme,
 		client,
 		record,
-		jobframework.WithWaitForPodsReady(options.waitForPodsReady),
-		jobframework.WithManageJobsWithoutQueueName(options.manageJobsWithoutQueueName),
-	)
-	return &MPIJobReconciler{
-		jobReconciler: jobReconciler,
-	}
+		opts...,
+	))
 }
 
 type MPIJob struct {
@@ -303,7 +265,8 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 
 func (r *MPIJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	return r.jobReconciler.ReconcileForJobObject(ctx, req, &MPIJob{})
+	fjr := (*jobframework.JobReconciler[MPIJob])(r)
+	return fjr.ReconcileGenericJob(ctx, req, &MPIJob{})
 }
 
 func orderedReplicaTypes(jobSpec *kubeflow.MPIJobSpec) []kubeflow.MPIReplicaType {

@@ -25,7 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/controller/workload/job"
+	"sigs.k8s.io/kueue/pkg/controller/workload/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -39,7 +39,7 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 
 		ginkgo.BeforeEach(func() {
 			fwk = &framework.Framework{
-				ManagerSetup: managerSetup(job.WithManageJobsWithoutQueueName(true)),
+				ManagerSetup: managerSetup(jobframework.WithManageJobsWithoutQueueName(true)),
 				CRDPath:      crdPath,
 				WebhookPath:  webhookPath,
 			}
@@ -89,7 +89,7 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 
 		ginkgo.BeforeEach(func() {
 			fwk = &framework.Framework{
-				ManagerSetup: managerSetup(job.WithManageJobsWithoutQueueName(false)),
+				ManagerSetup: managerSetup(jobframework.WithManageJobsWithoutQueueName(false)),
 				CRDPath:      crdPath,
 				WebhookPath:  webhookPath,
 			}
