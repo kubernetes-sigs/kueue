@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/controller/workload/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 )
 

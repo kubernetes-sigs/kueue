@@ -26,7 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	workloadjob "sigs.k8s.io/kueue/pkg/controller/workload/job"
+	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
 )

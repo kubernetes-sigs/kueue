@@ -25,7 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/controller/workload/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/integration/framework"

@@ -38,7 +38,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/controller/workload/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
 var (
