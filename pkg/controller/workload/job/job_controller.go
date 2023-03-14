@@ -113,92 +113,92 @@ type Job struct {
 	batchv1.Job
 }
 
-func (job *Job) Object() client.Object {
-	return &job.Job
+func (j *Job) Object() client.Object {
+	return &j.Job
 }
 
-func (job *Job) ParentWorkloadName() string {
-	return job.Annotations[constants.ParentWorkloadAnnotation]
+func (j *Job) ParentWorkloadName() string {
+	return j.Annotations[constants.ParentWorkloadAnnotation]
 }
 
-func (job *Job) QueueName() string {
-	return job.Annotations[constants.QueueAnnotation]
+func (j *Job) QueueName() string {
+	return j.Annotations[constants.QueueAnnotation]
 }
 
-func (job *Job) IsSuspend() bool {
-	return job.Spec.Suspend != nil && *job.Spec.Suspend
+func (j *Job) IsSuspend() bool {
+	return j.Spec.Suspend != nil && *j.Spec.Suspend
 }
 
-func (job *Job) IsActive() bool {
-	return job.Status.Active != 0
+func (j *Job) IsActive() bool {
+	return j.Status.Active != 0
 }
 
-func (job *Job) Suspend() error {
-	job.Spec.Suspend = pointer.Bool(true)
+func (j *Job) Suspend() error {
+	j.Spec.Suspend = pointer.Bool(true)
 	return nil
 }
 
-func (job *Job) UnSuspend() error {
-	job.Spec.Suspend = pointer.Bool(false)
+func (j *Job) UnSuspend() error {
+	j.Spec.Suspend = pointer.Bool(false)
 	return nil
 }
 
-func (job *Job) ResetStatus() bool {
+func (j *Job) ResetStatus() bool {
 	// Reset start time so we can update the scheduling directives later when unsuspending.
-	if job.Status.StartTime == nil {
+	if j.Status.StartTime == nil {
 		return false
 	}
-	job.Status.StartTime = nil
+	j.Status.StartTime = nil
 	return true
 }
 
-func (job *Job) GetGVK() schema.GroupVersionKind {
+func (j *Job) GetGVK() schema.GroupVersionKind {
 	return gvk
 }
 
-func (job *Job) PodSets() []kueue.PodSet {
+func (j *Job) PodSets() []kueue.PodSet {
 	return []kueue.PodSet{
 		{
-			Template: *job.Spec.Template.DeepCopy(),
-			Count:    job.podsCount(),
+			Template: *j.Spec.Template.DeepCopy(),
+			Count:    j.podsCount(),
 		},
 	}
 }
 
-func (job *Job) InjectNodeAffinity(nodeSelectors []map[string]string) error {
+func (j *Job) InjectNodeAffinity(nodeSelectors []map[string]string) error {
 	if len(nodeSelectors) == 0 {
 		return nil
 	}
 
-	if job.Spec.Template.Spec.NodeSelector == nil {
-		job.Spec.Template.Spec.NodeSelector = nodeSelectors[0]
+	if j.Spec.Template.Spec.NodeSelector == nil {
+		j.Spec.Template.Spec.NodeSelector = nodeSelectors[0]
 	} else {
 		for k, v := range nodeSelectors[0] {
-			job.Spec.Template.Spec.NodeSelector[k] = v
+			j.Spec.Template.Spec.NodeSelector[k] = v
 		}
 	}
 
 	return nil
 }
 
-func (job *Job) RestoreNodeAffinity(podSets []kueue.PodSet) error {
-	if len(podSets) == 0 || equality.Semantic.DeepEqual(job.Spec.Template.Spec.NodeSelector, podSets[0].Template.Spec.NodeSelector) {
+func (j *Job) RestoreNodeAffinity(podSets []kueue.PodSet) error {
+	if len(podSets) == 0 || equality.Semantic.DeepEqual(j.Spec.Template.Spec.NodeSelector, podSets[0].Template.Spec.NodeSelector) {
 		return nil
 	}
 
-	job.Spec.Template.Spec.NodeSelector = map[string]string{}
+	j.Spec.Template.Spec.NodeSelector = map[string]string{}
 
 	for k, v := range podSets[0].Template.Spec.NodeSelector {
-		job.Spec.Template.Spec.NodeSelector[k] = v
+		j.Spec.Template.Spec.NodeSelector[k] = v
 	}
 	return nil
 }
 
-func (job *Job) Finished() (metav1.Condition, bool) {
+func (j *Job) Finished() (metav1.Condition, bool) {
 	var conditionType batchv1.JobConditionType
 	var finished bool
 
-	for _, c := range job.Status.Conditions {
+	for _, c := range j.Status.Conditions {
 		if (c.Type == batchv1.JobComplete || c.Type == batchv1.JobFailed) && c.Status == corev1.ConditionTrue {
 			conditionType = c.Type
 			finished = true
@@ -219,39 +219,39 @@ func (job *Job) Finished() (metav1.Condition, bool) {
 	return condition, finished
 }
 
-func (job *Job) EquivalentToWorkload(wl kueue.Workload) bool {
+func (j *Job) EquivalentToWorkload(wl kueue.Workload) bool {
 	if len(wl.Spec.PodSets) != 1 {
 		return false
 	}
 
-	if *job.Spec.Parallelism != wl.Spec.PodSets[0].Count {
+	if *j.Spec.Parallelism != wl.Spec.PodSets[0].Count {
 		return false
 	}
 
 	// nodeSelector may change, hence we are not checking for
-	// equality of the whole job.Spec.Template.Spec.
-	if !equality.Semantic.DeepEqual(job.Spec.Template.Spec.InitContainers,
+	// equality of the whole j.Spec.Template.Spec.
+	if !equality.Semantic.DeepEqual(j.Spec.Template.Spec.InitContainers,
 		wl.Spec.PodSets[0].Template.Spec.InitContainers) {
 		return false
 	}
-	return equality.Semantic.DeepEqual(job.Spec.Template.Spec.Containers,
+	return equality.Semantic.DeepEqual(j.Spec.Template.Spec.Containers,
 		wl.Spec.PodSets[0].Template.Spec.Containers)
 }
 
-func (job *Job) PriorityClass() string {
-	return job.Spec.Template.Spec.PriorityClassName
+func (j *Job) PriorityClass() string {
+	return j.Spec.Template.Spec.PriorityClassName
 }
 
-func (job *Job) PodsReady() bool {
-	ready := pointer.Int32Deref(job.Status.Ready, 0)
-	return job.Status.Succeeded+ready >= job.podsCount()
+func (j *Job) PodsReady() bool {
+	ready := pointer.Int32Deref(j.Status.Ready, 0)
+	return j.Status.Succeeded+ready >= j.podsCount()
 }
 
-func (job *Job) podsCount() int32 {
+func (j *Job) podsCount() int32 {
 	// parallelism is always set as it is otherwise defaulted by k8s to 1
-	podsCount := *(job.Spec.Parallelism)
-	if job.Spec.Completions != nil && *job.Spec.Completions < podsCount {
-		podsCount = *job.Spec.Completions
+	podsCount := *(j.Spec.Parallelism)
+	if j.Spec.Completions != nil && *j.Spec.Completions < podsCount {
+		podsCount = *j.Spec.Completions
 	}
 	return podsCount
 }

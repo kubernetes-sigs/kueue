@@ -59,24 +59,24 @@ type MPIJob struct {
 	kubeflow.MPIJob
 }
 
-func (job *MPIJob) Object() client.Object {
-	return &job.MPIJob
+func (j *MPIJob) Object() client.Object {
+	return &j.MPIJob
 }
 
-func (job *MPIJob) ParentWorkloadName() string {
-	return job.Annotations[constants.ParentWorkloadAnnotation]
+func (j *MPIJob) ParentWorkloadName() string {
+	return j.Annotations[constants.ParentWorkloadAnnotation]
 }
 
-func (job *MPIJob) QueueName() string {
-	return job.Annotations[constants.QueueAnnotation]
+func (j *MPIJob) QueueName() string {
+	return j.Annotations[constants.QueueAnnotation]
 }
 
-func (job *MPIJob) IsSuspend() bool {
-	return job.Spec.RunPolicy.Suspend != nil && *job.Spec.RunPolicy.Suspend
+func (j *MPIJob) IsSuspend() bool {
+	return j.Spec.RunPolicy.Suspend != nil && *j.Spec.RunPolicy.Suspend
 }
 
-func (job *MPIJob) IsActive() bool {
-	for _, replicaStatus := range job.Status.ReplicaStatuses {
+func (j *MPIJob) IsActive() bool {
+	for _, replicaStatus := range j.Status.ReplicaStatuses {
 		if replicaStatus.Active != 0 {
 			return true
 		}
@@ -84,55 +84,55 @@ func (job *MPIJob) IsActive() bool {
 	return false
 }
 
-func (job *MPIJob) Suspend() error {
-	job.Spec.RunPolicy.Suspend = pointer.Bool(true)
+func (j *MPIJob) Suspend() error {
+	j.Spec.RunPolicy.Suspend = pointer.Bool(true)
 	return nil
 }
 
-func (job *MPIJob) UnSuspend() error {
-	job.Spec.RunPolicy.Suspend = pointer.Bool(false)
+func (j *MPIJob) UnSuspend() error {
+	j.Spec.RunPolicy.Suspend = pointer.Bool(false)
 	return nil
 }
 
-func (job *MPIJob) ResetStatus() bool {
-	if job.Status.StartTime == nil {
+func (j *MPIJob) ResetStatus() bool {
+	if j.Status.StartTime == nil {
 		return false
 	}
-	job.Status.StartTime = nil
+	j.Status.StartTime = nil
 	return true
 }
 
-func (job *MPIJob) GetGVK() schema.GroupVersionKind {
+func (j *MPIJob) GetGVK() schema.GroupVersionKind {
 	return gvk
 }
 
-func (job *MPIJob) PodSets() []kueue.PodSet {
-	replicaTypes := orderedReplicaTypes(&job.Spec)
+func (j *MPIJob) PodSets() []kueue.PodSet {
+	replicaTypes := orderedReplicaTypes(&j.Spec)
 	podSets := make([]kueue.PodSet, len(replicaTypes))
 	for index, mpiReplicaType := range replicaTypes {
 		podSets[index] = kueue.PodSet{
 			Name:     strings.ToLower(string(mpiReplicaType)),
-			Template: *job.Spec.MPIReplicaSpecs[mpiReplicaType].Template.DeepCopy(),
-			Count:    podsCount(&job.Spec, mpiReplicaType),
+			Template: *j.Spec.MPIReplicaSpecs[mpiReplicaType].Template.DeepCopy(),
+			Count:    podsCount(&j.Spec, mpiReplicaType),
 		}
 	}
 	return podSets
 }
 
-func (job *MPIJob) InjectNodeAffinity(nodeSelectors []map[string]string) error {
+func (j *MPIJob) InjectNodeAffinity(nodeSelectors []map[string]string) error {
 	if len(nodeSelectors) == 0 {
 		return nil
 	}
-	orderedReplicaTypes := orderedReplicaTypes(&job.Spec)
+	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
 	for index := range nodeSelectors {
 		replicaType := orderedReplicaTypes[index]
 		nodeSelector := nodeSelectors[index]
 		if len(nodeSelector) != 0 {
-			if job.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector == nil {
-				job.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector = nodeSelector
+			if j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector == nil {
+				j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector = nodeSelector
 			} else {
 				for k, v := range nodeSelector {
-					job.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector[k] = v
+					j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector[k] = v
 				}
 			}
 		}
@@ -140,25 +140,25 @@ func (job *MPIJob) InjectNodeAffinity(nodeSelectors []map[string]string) error {
 	return nil
 }
 
-func (job *MPIJob) RestoreNodeAffinity(podSets []kueue.PodSet) error {
-	orderedReplicaTypes := orderedReplicaTypes(&job.Spec)
+func (j *MPIJob) RestoreNodeAffinity(podSets []kueue.PodSet) error {
+	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
 	for index := range podSets {
 		replicaType := orderedReplicaTypes[index]
 		nodeSelector := podSets[index].Template.Spec.NodeSelector
-		if !equality.Semantic.DeepEqual(job.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector, nodeSelector) {
-			job.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector = map[string]string{}
+		if !equality.Semantic.DeepEqual(j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector, nodeSelector) {
+			j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector = map[string]string{}
 			for k, v := range nodeSelector {
-				job.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector[k] = v
+				j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector[k] = v
 			}
 		}
 	}
 	return nil
 }
 
-func (job *MPIJob) Finished() (metav1.Condition, bool) {
+func (j *MPIJob) Finished() (metav1.Condition, bool) {
 	var conditionType kubeflow.JobConditionType
 	var finished bool
-	for _, c := range job.Status.Conditions {
+	for _, c := range j.Status.Conditions {
 		if (c.Type == kubeflow.JobSucceeded || c.Type == kubeflow.JobFailed) && c.Status == corev1.ConditionTrue {
 			conditionType = c.Type
 			finished = true
@@ -179,17 +179,17 @@ func (job *MPIJob) Finished() (metav1.Condition, bool) {
 	return condition, finished
 }
 
-func (job *MPIJob) EquivalentToWorkload(wl kueue.Workload) bool {
-	if len(wl.Spec.PodSets) != len(job.Spec.MPIReplicaSpecs) {
+func (j *MPIJob) EquivalentToWorkload(wl kueue.Workload) bool {
+	if len(wl.Spec.PodSets) != len(j.Spec.MPIReplicaSpecs) {
 		return false
 	}
-	for index, mpiReplicaType := range orderedReplicaTypes(&job.Spec) {
-		mpiReplicaSpec := job.Spec.MPIReplicaSpecs[mpiReplicaType]
+	for index, mpiReplicaType := range orderedReplicaTypes(&j.Spec) {
+		mpiReplicaSpec := j.Spec.MPIReplicaSpecs[mpiReplicaType]
 		if pointer.Int32Deref(mpiReplicaSpec.Replicas, 1) != wl.Spec.PodSets[index].Count {
 			return false
 		}
 		// nodeSelector may change, hence we are not checking for
-		// equality of the whole job.Spec.Template.Spec.
+		// equality of the whole j.Spec.Template.Spec.
 		if !equality.Semantic.DeepEqual(mpiReplicaSpec.Template.Spec.InitContainers,
 			wl.Spec.PodSets[index].Template.Spec.InitContainers) {
 			return false
@@ -209,19 +209,19 @@ func (job *MPIJob) EquivalentToWorkload(wl kueue.Workload) bool {
 //
 // This function is inspired by an analogous one in mpi-controller:
 // https://github.com/kubeflow/mpi-operator/blob/5946ef4157599a474ab82ff80e780d5c2546c9ee/pkg/controller/podgroup.go#L69-L72
-func (job *MPIJob) PriorityClass() string {
-	if job.Spec.RunPolicy.SchedulingPolicy != nil && len(job.Spec.RunPolicy.SchedulingPolicy.PriorityClass) != 0 {
-		return job.Spec.RunPolicy.SchedulingPolicy.PriorityClass
-	} else if l := job.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeLauncher]; l != nil && len(l.Template.Spec.PriorityClassName) != 0 {
+func (j *MPIJob) PriorityClass() string {
+	if j.Spec.RunPolicy.SchedulingPolicy != nil && len(j.Spec.RunPolicy.SchedulingPolicy.PriorityClass) != 0 {
+		return j.Spec.RunPolicy.SchedulingPolicy.PriorityClass
+	} else if l := j.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeLauncher]; l != nil && len(l.Template.Spec.PriorityClassName) != 0 {
 		return l.Template.Spec.PriorityClassName
-	} else if w := job.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeWorker]; w != nil && len(w.Template.Spec.PriorityClassName) != 0 {
+	} else if w := j.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeWorker]; w != nil && len(w.Template.Spec.PriorityClassName) != 0 {
 		return w.Template.Spec.PriorityClassName
 	}
 	return ""
 }
 
-func (job *MPIJob) PodsReady() bool {
-	for _, c := range job.Status.Conditions {
+func (j *MPIJob) PodsReady() bool {
+	for _, c := range j.Status.Conditions {
 		if c.Type == kubeflow.JobRunning && c.Status == corev1.ConditionTrue {
 			return true
 		}
