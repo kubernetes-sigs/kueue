@@ -8,7 +8,7 @@ require (
 	github.com/kubeflow/common v0.4.6
 	github.com/kubeflow/mpi-operator v0.3.1-0.20230210191002-c21942d1e27d
 	github.com/onsi/ginkgo/v2 v2.9.1
-	github.com/onsi/gomega v1.27.3
+	github.com/onsi/gomega v1.27.4
 	github.com/open-policy-agent/cert-controller v0.7.0
 	github.com/prometheus/client_golang v1.14.0
 	go.uber.org/zap v1.24.0
