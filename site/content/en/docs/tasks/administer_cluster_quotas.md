@@ -1,6 +1,6 @@
 ---
 title: "Administer Cluster Quotas"
-date: 2022-02-14
+date: 2022-03-14
 weight: 3
 description: >
   Manage your cluster resource quotas and to establish fair sharing rules among the tenants.
@@ -40,23 +40,21 @@ Write the manifest for the ClusterQueue. It should look similar to the following
 
 ```yaml
 # cluster-queue.yaml
-apiVersion: kueue.x-k8s.io/v1alpha2
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
 metadata:
-  name: cluster-queue
+  name: "cluster-queue"
 spec:
   namespaceSelector: {} # match all.
-  resources:
-  - name: "cpu"
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
     flavors:
-    - name: default-flavor
-      quota:
-        min: 9
-  - name: "memory"
-    flavors:
-    - name: default-flavor
-      quota:
-        min: 36Gi
+    - name: "default-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 9
+      - name: "memory"
+        nominalQuota: 36Gi
 ```
 
 To create the ClusterQueue, run the following command:
@@ -67,7 +65,7 @@ kubectl apply -f cluster-queue.yaml
 
 This ClusterQueue governs the usage of [resource types](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#resource-types)
 `cpu` and `memory`. Each resource type has a single [resource flavor](/docs/concepts/cluster_queue#resourceflavor-object),
-named `default` with a min quota.
+named `default` with a nominal quota.
 
 The empty `namespaceSelector` allows any namespace to use these resources.
 
@@ -84,10 +82,10 @@ Write the manifest for the ResourceFlavor. It should look similar to the followi
 
 ```yaml
 # default-flavor.yaml
-apiVersion: kueue.x-k8s.io/v1alpha2
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: ResourceFlavor
 metadata:
-  name: default
+  name: "default-flavor"
 ```
 
 To create the ResourceFlavor, run the following command:
@@ -96,7 +94,7 @@ To create the ResourceFlavor, run the following command:
 kubectl apply -f default-flavor.yaml
 ```
 
-The `.metadata.name` matches the `.spec.resources[*].flavors[0].resourceFlavor`
+The `.metadata.name` matches the `.spec.resourceGroups[0].flavors[0].name`
 field in the ClusterQueue.
 
 ### 3. Create [LocalQueues](/docs/concepts/local_queue)
@@ -111,13 +109,13 @@ Write the manifest for the LocalQueue. It should look similar to the following:
 
 ```yaml
 # default-user-queue.yaml
-apiVersion: kueue.x-k8s.io/v1alpha2
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: LocalQueue
 metadata:
-  namespace: default
-  name: user-queue
+  namespace: "default"
+  name: "user-queue"
 spec:
-  clusterQueue: cluster-total
+  clusterQueue: "cluster-total"
 ```
 
 To create the LocalQueue, run the following command:
@@ -133,10 +131,6 @@ You can define quotas for different [resource flavors](/docs/concepts/cluster_qu
 For the rest of this section, assume that your cluster has nodes with two CPU
 architectures, namely `x86` and `arm`, specified in the node label `cpu-arch`.
 
-### Limitations
-
-- Using the same flavors in multiple `.resources` of a ClusterQueue
-  is [not supported](https://github.com/kubernetes-sigs/kueue/issues/167).
 
 ### 1. Create ResourceFlavors
 
@@ -145,22 +139,24 @@ following:
 
 ```yaml
 # flavor-x86.yaml
-apiVersion: kueue.x-k8s.io/v1alpha2
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: ResourceFlavor
 metadata:
-  name: x86
-nodeSelector:
-  cpu-arch: x86
+  name: "x86"
+spec:
+  nodeLabels:
+    cpu-arch: x86
 ```
 
 ```yaml
 # flavor-arm.yaml
-apiVersion: kueue.x-k8s.io/v1alpha2
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: ResourceFlavor
 metadata:
-  name: arm
-nodeSelector:
-  cpu-arch: arm
+  name: "arm"
+spec:
+  nodeLabels:
+    cpu-arch: arm
 ```
 
 To create the ResourceFlavors, run the following command:
@@ -181,29 +177,32 @@ look similar to the following:
 
 ```yaml
 # cluster-queue.yaml
-apiVersion: kueue.x-k8s.io/v1alpha2
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
 metadata:
-  name: cluster-queue
+  name: "cluster-queue"
 spec:
-  namespaceSelector: {}
-  resources:
-  - name: "cpu"
+  namespaceSelector: {} # match all.
+  resourceGroups:
+  - coveredResources: ["cpu"]
     flavors:
-    - name: x86
-      quota:
-        min: 9
-    - name: arm
-      quota:
-        min: 12
-  - name: "memory"
+    - name: "x86"
+      resources:
+      - name: "cpu"
+        nominalQuota: 9
+    - name: "arm"
+      resources:
+      - name: "cpu"
+        nominalQuota: 12
+  - coveredResources: ["memory"]
     flavors:
-    - name: default-flavor
-      quota:
-        min: 84Gi
+    - name: "default-flavor"
+      resources:
+      - name: "memory"
+        nominalQuota: 84Gi
 ```
 
-The flavor names in the fields `.spec.resources[*].flavors[*].resourceFlavor`
+The flavor names in the fields `.spec.resourceGroups[*].flavors[*].name`
 should match the names of the ResourceFlavors created earlier.
 
 Note that `memory` is referencing the `default-flavor` flavor created in the [single flavor setup.](#single-clusterqueue-and-single-resourceflavor-setup)
@@ -226,53 +225,48 @@ ClusterQueues `team-a-cq` and `team-b-cq`.
 
 ```yaml
 # team-a-cq.yaml
-apiVersion: kueue.x-k8s.io/v1alpha2
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
 metadata:
-  name: team-a-cq
+  name: "team-a-cq"
 spec:
-  namespaceSelector: {}
-  cohort: team-ab
-  resources:
-  - name: "cpu"
+  namespaceSelector: {} # match all.
+  cohort: "team-ab"
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
     flavors:
-    - name: default-flavor
-      quota:
-        min: 9
-        max: 15
-  - name: "memory"
-    flavors:
-    - name: default-flavor
-      quota:
-        min: 36Gi
-        max: 60Gi
+    - name: "default-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 9
+        borrowingLimit: 6
+      - name: "memory"
+        nominalQuota: 36Gi
+        borrowingLimit: 24Gi
 ```
 
 ```yaml
-# team-b-cq.yaml
-apiVersion: kueue.x-k8s.io/v1alpha2
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
 metadata:
-  name: team-b-cq
+  name: "team-b-cq"
 spec:
   namespaceSelector: {}
-  cohort: team-ab
-  resources:
-  - name: "cpu"
+  cohort: "team-ab"
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
     flavors:
-    - name: default-flavor
-      quota:
-        min: 12
-  - name: "memory"
-    flavors:
-    - name: default-flavor
-      quota:
-        min: 48Gi
+    - name: "default-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 12
+      - name: "memory"
+        nominalQuota: 48Gi
 ```
 
-Note that the ClusterQueue `team-a-cq` also defines [max quotas](/docs/concepts/cluster_queue#max-quotas).
+Note that the ClusterQueue `team-a-cq` also defines [borrowingLimit](/docs/concepts/cluster_queue#borrowingLimit).
 This restricts the ability of the ClusterQueue to borrow the unused quota from
-the cohort up to the configured `max`, even if the quota is completely unused.
+the cohort up to the configured `borrowingLimit`, even if the quota is completely unused.
 
 To create these ClusterQueues, save the preceding manifests and run the
 following command:
@@ -284,7 +278,7 @@ kubectl apply -f team-a-cq.yaml -f team-b-cq.yaml
 ## Multiple ClusterQueue with dedicated and fallback flavors
 
 A ClusterQueue can borrow resources from the [cohort](/docs/concepts/cluster_queue#cohort)
-even if the ClusterQueue has zero min quota for a flavor. This allows you to
+even if the ClusterQueue has zero nominalQuota for a flavor. This allows you to
 give dedicated quota for a flavor and fallback to quota for a different flavor,
 shared with other tenants.
 
@@ -294,84 +288,92 @@ tenants look like the following:
 
 ```yaml
 # team-a-cq.yaml
-apiVersion: kueue.x-k8s.io/v1alpha2
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
 metadata:
-  name: team-a-cq
+  name: "team-a-cq"
 spec:
-  namespaceSelector: {}
-  cohort: team-ab
-  resources:
-  - name: "cpu"
+  namespaceSelector: {} # match all.
+  cohort: "team-ab"
+  resourceGroups:
+  - coveredResources: ["cpu"]
     flavors:
-    - name: arm
-      quota:
-        min: 9
-        max: 9
-    - name: x86
-      quota:
-        min: 0
-  - name: "memory"
+    - name: "arm"
+      resources:
+      - name: "cpu"
+        nominalQuota: 9
+        borrowingLimit: 0
+    - name: "x86"
+      resources:
+      - name: "cpu"
+        nominalQuota: 0
+  - coveredResources: ["memory"]
     flavors:
-    - name: default-flavor
-      quota:
-        min: 36Gi
+    - name: "default-flavor"
+      resources:
+      - name: "memory"
+        nominalQuota: 36Gi
 ```
 
 ```yaml
 # team-b-cq.yaml
-apiVersion: kueue.x-k8s.io/v1alpha2
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
 metadata:
-  name: team-b-cq
+  name: "team-b-cq"
 spec:
-  namespaceSelector: {}
-  cohort: team-ab
-  resources:
-  - name: "cpu"
+  namespaceSelector: {} # match all.
+  cohort: "team-ab"
+  resourceGroups:
+  - coveredResources: ["cpu"]
     flavors:
-    - name: arm
-      quota:
-        min: 12
-        max: 12
-    - name: x86
-      quota:
-        min: 0
-  - name: "memory"
+    - name: "arm"
+      resources:
+      - name: "cpu"
+        nominalQuota: 12
+        borrowingLimit: 0
+    - name: "x86"
+      resources:
+      - name: "cpu"
+        nominalQuota: 0
+  - coveredResources: ["memory"]
     flavors:
-    - name: default-flavor
-      quota:
-        min: 48Gi
+    - name: "default-flavor"
+      resources:
+      - name: "memory"
+        nominalQuota: 48Gi
 ```
 
 ```yaml
 # shared-cq.yaml
-apiVersion: kueue.x-k8s.io/v1alpha2
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
 metadata:
-  name: shared-cq
+  name: "shared-cq"
 spec:
-  namespaceSelector: {}
-  cohort: team-ab
-  resources:
-  - name: "cpu"
+  namespaceSelector: {} # match all.
+  cohort: "team-ab"
+  resourceGroups:
+  - coveredResources: ["cpu"]
     flavors:
-    - name: x86
-      quota:
-        min: 6
-  - name: "memory"
+    - name: "x86"
+      resources:
+      - name: "cpu"
+        nominalQuota: 6
+  - coveredResources: ["memory"]
     flavors:
-    - name: default-flavor
-      quota:
-        min: 24Gi
+    - name: "default-flavor"
+      resources:
+      - name: "memory"
+        nominalQuota: 24Gi
 ```
 
 Note the following setup:
 
-- `team-a-cq` and `team-b-cq` define a `max` equal to their `min`
-  quota for the `arm` flavor. Therefore, they can't borrow this flavor from each
+- `team-a-cq` and `team-b-cq` define a `borrowingLimit: 0` 
+  for the `arm` flavor. Therefore, they can't borrow this flavor from each
   other.
-- `team-a-cq` and `team-b-cq` define `min: 0` for the `x86` flavor.
+- `team-a-cq` and `team-b-cq` define `nominalQuota: 0` for the `x86` flavor.
   Therefore, they don't have any dedicated quota for the flavor and they can
   only borrow it from `shared-cq`.
 

@@ -1,6 +1,6 @@
 ---
 title: "Local Queue"
-date: 2022-02-14
+date: 2022-03-14
 weight: 4
 description: >
   A namespaced resource that groups closely related workloads belonging to a single tenant.
@@ -14,7 +14,7 @@ from which resources are allocated to run its Workloads.
 A `LocalQueue` definition looks like the following:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1alpha2
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: LocalQueue
 metadata:
   namespace: team-a 

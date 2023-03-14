@@ -1,6 +1,6 @@
 ---
 title: "Resource Flavor"
-date: 2022-02-14
+date: 2022-03-14
 weight: 2
 description: >
   An object that you can define to describe what resources are available
@@ -22,27 +22,28 @@ an [empty ResourceFlavor](#empty-resourceflavor) instead of adding labels to cus
 A sample ResourceFlavor looks like the following:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1alpha2
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: ResourceFlavor
 metadata:
-  name: spot
-nodeSelector:
-  instance-type: spot
-taints:
-- effect: NoSchedule
-  key: spot
-  value: "true"
+  name: "spot"
+spec:
+  nodeLabels:
+    instance-type: spot
+  nodeTaints:
+  - effect: NoSchedule
+    key: spot
+    value: "true"
 ```
 
 You can use the `.metadata.name` field to reference a ResourceFlavor from a
-[ClusterQueue](/docs/concepts/cluster_queue) in the `.spec.resources[*].flavors[*].name` field.
+[ClusterQueue](/docs/concepts/cluster_queue) in the `.spec.resourceGroups[*].flavors[*].name` field.
 
 ## ResourceFlavor labels
 
 **Requires Kubernetes 1.23 or newer**
 
 To associate a ResourceFlavor with a subset of nodes of your cluster, you can
-configure the `.nodeSelector` field with matching node labels that uniquely identify
+configure the `.spec.nodeLabels` field with matching node labels that uniquely identify
 the nodes. If you are using [cluster autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)
 (or equivalent controllers), make sure that the controller is configured to add those labels when
 adding new nodes.
@@ -70,7 +71,7 @@ that Kueue selected, Kueue performs the following steps:
 
 ## ResourceFlavor taints
 
-To restrict the usage of a ResourceFlavor, you can configure the `.taints` field.
+To restrict the usage of a ResourceFlavor, you can configure the `.spec.nodeTaints` field.
 These taints should typically match the taints of the Nodes associated with the ResourceFlavor.
 
 Taints on the ResourceFlavor work similarly to [Node taints](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/).
