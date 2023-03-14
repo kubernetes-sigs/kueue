@@ -15,6 +15,7 @@ package jobframework
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -53,8 +54,6 @@ type GenericJob interface {
 	IsActive() bool
 	// PodsReady instructs whether job derived pods are all ready now.
 	PodsReady() bool
-	// GetWorkloadName returns the name of the workload for the job.
-	GetWorkloadName() string
-	// GetOwnerKey returns a unique key that identifies Workloads owned by the job implementation.
-	GetOwnerKey() string
+	// GetGVK returns GVK (Group Version Kind) for the job.
+	GetGVK() schema.GroupVersionKind
 }

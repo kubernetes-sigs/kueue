@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/workload/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/workload/mpijob"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
@@ -56,7 +57,7 @@ func TestAPIs(t *testing.T) {
 	)
 }
 
-func managerSetup(opts ...mpijob.Option) framework.ManagerSetup {
+func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	return func(mgr manager.Manager, ctx context.Context) {
 		reconciler := mpijob.NewReconciler(
 			mgr.GetScheme(),
@@ -72,7 +73,7 @@ func managerSetup(opts ...mpijob.Option) framework.ManagerSetup {
 	}
 }
 
-func managerAndSchedulerSetup(opts ...mpijob.Option) framework.ManagerSetup {
+func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	return func(mgr manager.Manager, ctx context.Context) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

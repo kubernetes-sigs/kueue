@@ -40,13 +40,13 @@ type JobWebhook struct {
 }
 
 // SetupWebhook configures the webhook for batchJob.
-func SetupWebhook(mgr ctrl.Manager, opts ...Option) error {
-	options := defaultOptions
+func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
+	options := jobframework.DefaultOptions
 	for _, opt := range opts {
 		opt(&options)
 	}
 	wh := &JobWebhook{
-		manageJobsWithoutQueueName: options.manageJobsWithoutQueueName,
+		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 	}
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&batchv1.Job{}).
@@ -82,7 +82,7 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		}
 	}
 
-	batchJob := BatchJob{*job}
+	batchJob := Job{*job}
 	if batchJob.QueueName() == "" && !w.manageJobsWithoutQueueName {
 		return nil
 	}
@@ -128,8 +128,8 @@ func (w *JobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.
 func validateUpdate(oldJob, newJob *batchv1.Job) field.ErrorList {
 	allErrs := validateCreate(newJob)
 
-	oldBatchJob := BatchJob{*oldJob}
-	newBatchJob := BatchJob{*newJob}
+	oldBatchJob := Job{*oldJob}
+	newBatchJob := Job{*newJob}
 	if !*newJob.Spec.Suspend && (oldBatchJob.QueueName() != newBatchJob.QueueName()) {
 		allErrs = append(allErrs, field.Forbidden(suspendPath, "must not update queue name when job is unsuspend"))
 	}

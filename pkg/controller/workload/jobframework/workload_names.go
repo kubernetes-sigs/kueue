@@ -19,6 +19,7 @@ package jobframework
 import (
 	"crypto/sha1"
 	"encoding/hex"
+	"fmt"
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,11 +37,11 @@ func GetWorkloadNameForOwnerRef(owner *metav1.OwnerReference) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	gvk := metav1.GroupVersionKind{Group: gv.Group, Version: gv.Version, Kind: owner.Kind}
-	return GetWorkloadNameForOwnerWithGVK(owner.Name, &gvk), nil
+	gvk := gv.WithKind(owner.Kind)
+	return GetWorkloadNameForOwnerWithGVK(owner.Name, gvk), nil
 }
 
-func GetWorkloadNameForOwnerWithGVK(ownerName string, ownerGVK *metav1.GroupVersionKind) string {
+func GetWorkloadNameForOwnerWithGVK(ownerName string, ownerGVK schema.GroupVersionKind) string {
 	prefixedName := strings.ToLower(ownerGVK.Kind) + "-" + ownerName
 	if len(prefixedName) > maxPrefixLength {
 		prefixedName = prefixedName[:maxPrefixLength]
@@ -48,7 +49,7 @@ func GetWorkloadNameForOwnerWithGVK(ownerName string, ownerGVK *metav1.GroupVers
 	return prefixedName + "-" + getHash(ownerName, ownerGVK)[:hashLength]
 }
 
-func getHash(ownerName string, gvk *metav1.GroupVersionKind) string {
+func getHash(ownerName string, gvk schema.GroupVersionKind) string {
 	h := sha1.New()
 	h.Write([]byte(gvk.Kind))
 	h.Write([]byte("\n"))
@@ -56,4 +57,8 @@ func getHash(ownerName string, gvk *metav1.GroupVersionKind) string {
 	h.Write([]byte("\n"))
 	h.Write([]byte(ownerName))
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+func GetOwnerKey(ownerGVK schema.GroupVersionKind) string {
+	return fmt.Sprintf(".metadata.ownerReferences[%s.%s]", ownerGVK.Group, ownerGVK.Kind)
 }
