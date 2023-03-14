@@ -34,8 +34,8 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/controller/workload/jobframework"
-	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/workload/mpijob"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
