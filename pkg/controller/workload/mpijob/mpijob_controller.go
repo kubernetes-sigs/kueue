@@ -41,14 +41,14 @@ var (
 )
 
 // MPIJobReconciler reconciles a Job object
-type MPIJobReconciler jobframework.JobReconciler[MPIJob]
+type MPIJobReconciler jobframework.JobReconciler
 
 func NewReconciler(
 	scheme *runtime.Scheme,
 	client client.Client,
 	record record.EventRecorder,
 	opts ...jobframework.Option) *MPIJobReconciler {
-	return (*MPIJobReconciler)(jobframework.NewReconciler[MPIJob](scheme,
+	return (*MPIJobReconciler)(jobframework.NewReconciler(scheme,
 		client,
 		record,
 		opts...,
@@ -265,7 +265,7 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 
 func (r *MPIJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	fjr := (*jobframework.JobReconciler[MPIJob])(r)
+	fjr := (*jobframework.JobReconciler)(r)
 	return fjr.ReconcileGenericJob(ctx, req, &MPIJob{})
 }
 

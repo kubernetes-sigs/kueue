@@ -35,7 +35,7 @@ import (
 )
 
 // JobReconciler reconciles a GenericJob object
-type JobReconciler[JobT interface{}] struct {
+type JobReconciler struct {
 	client                     client.Client
 	scheme                     *runtime.Scheme
 	record                     record.EventRecorder
@@ -70,17 +70,17 @@ func WithWaitForPodsReady(f bool) Option {
 
 var DefaultOptions = Options{}
 
-func NewReconciler[JobT interface{}](
+func NewReconciler(
 	scheme *runtime.Scheme,
 	client client.Client,
 	record record.EventRecorder,
-	opts ...Option) *JobReconciler[JobT] {
+	opts ...Option) *JobReconciler {
 	options := DefaultOptions
 	for _, opt := range opts {
 		opt(&options)
 	}
 
-	return &JobReconciler[JobT]{
+	return &JobReconciler{
 		scheme:                     scheme,
 		client:                     client,
 		record:                     record,
@@ -89,7 +89,7 @@ func NewReconciler[JobT interface{}](
 	}
 }
 
-func (r *JobReconciler[JobT]) ReconcileGenericJob(ctx context.Context, req ctrl.Request, job GenericJob) (ctrl.Result, error) {
+func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Request, job GenericJob) (ctrl.Result, error) {
 	object := job.Object()
 	if err := r.client.Get(ctx, req.NamespacedName, object); err != nil {
 		// we'll ignore not-found errors, since there is nothing to do.
@@ -207,7 +207,7 @@ func (r *JobReconciler[JobT]) ReconcileGenericJob(ctx context.Context, req ctrl.
 // ensureOneWorkload will query for the single matched workload corresponding to job and return it.
 // If there're more than one workload, we should delete the excess ones.
 // The returned workload could be nil.
-func (r *JobReconciler[JobT]) ensureOneWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
+func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Find a matching workload first if there is one.
@@ -294,7 +294,7 @@ func (r *JobReconciler[JobT]) ensureOneWorkload(ctx context.Context, job Generic
 }
 
 // equivalentToWorkload checks if the job corresponds to the workload
-func (r *JobReconciler[JobT]) equivalentToWorkload(job GenericJob, object client.Object, wl *kueue.Workload) bool {
+func (r *JobReconciler) equivalentToWorkload(job GenericJob, object client.Object, wl *kueue.Workload) bool {
 	owner := metav1.GetControllerOf(wl)
 	// Indexes don't work in unit tests, so we explicitly check for the
 	// owner here.
@@ -305,7 +305,7 @@ func (r *JobReconciler[JobT]) equivalentToWorkload(job GenericJob, object client
 }
 
 // startJob will unsuspend the job, and also inject the node affinity.
-func (r *JobReconciler[JobT]) startJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
+func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
 	nodeSelectors, err := r.getNodeSelectors(ctx, wl)
 	if err != nil {
 		return err
@@ -330,7 +330,7 @@ func (r *JobReconciler[JobT]) startJob(ctx context.Context, job GenericJob, obje
 }
 
 // stopJob will suspend the job, and also restore node affinity, reset job status if needed.
-func (r *JobReconciler[JobT]) stopJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload, eventMsg string) error {
+func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload, eventMsg string) error {
 	// Suspend the job at first then we're able to update the scheduling directives.
 	if err := job.Suspend(); err != nil {
 		return err
@@ -359,7 +359,7 @@ func (r *JobReconciler[JobT]) stopJob(ctx context.Context, job GenericJob, objec
 }
 
 // constructWorkload will derive a workload from the corresponding job.
-func (r *JobReconciler[JobT]) constructWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
+func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
 	wl := &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      GetWorkloadNameForOwnerWithGVK(object.GetName(), job.GetGVK()),
@@ -387,7 +387,7 @@ func (r *JobReconciler[JobT]) constructWorkload(ctx context.Context, job Generic
 }
 
 // getNodeSelectors will extract node selectors from admitted workloads.
-func (r *JobReconciler[JobT]) getNodeSelectors(ctx context.Context, w *kueue.Workload) ([]map[string]string, error) {
+func (r *JobReconciler) getNodeSelectors(ctx context.Context, w *kueue.Workload) ([]map[string]string, error) {
 	if len(w.Status.Admission.PodSetFlavors) == 0 {
 		return nil, nil
 	}
@@ -418,7 +418,7 @@ func (r *JobReconciler[JobT]) getNodeSelectors(ctx context.Context, w *kueue.Wor
 	return nodeSelectors, nil
 }
 
-func (r *JobReconciler[JobT]) handleJobWithNoWorkload(ctx context.Context, job GenericJob, object client.Object) error {
+func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job GenericJob, object client.Object) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Wait until there are no active pods.

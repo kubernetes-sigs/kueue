@@ -47,14 +47,14 @@ var (
 )
 
 // JobReconciler reconciles a Job object
-type JobReconciler jobframework.JobReconciler[Job]
+type JobReconciler jobframework.JobReconciler
 
 func NewReconciler(
 	scheme *runtime.Scheme,
 	client client.Client,
 	record record.EventRecorder,
 	opts ...jobframework.Option) *JobReconciler {
-	return (*JobReconciler)(jobframework.NewReconciler[Job](scheme,
+	return (*JobReconciler)(jobframework.NewReconciler(scheme,
 		client,
 		record,
 		opts...,
@@ -302,7 +302,7 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 
 func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	fjr := (*jobframework.JobReconciler[Job])(r)
+	fjr := (*jobframework.JobReconciler)(r)
 	return fjr.ReconcileGenericJob(ctx, req, &Job{})
 }
 
