@@ -176,6 +176,18 @@ func (w *WorkloadWrapper) Request(r corev1.ResourceName, q string) *WorkloadWrap
 	return w
 }
 
+func (w *WorkloadWrapper) Limit(r corev1.ResourceName, q string) *WorkloadWrapper {
+	res := &w.Spec.PodSets[0].Template.Spec.Containers[0].Resources
+	if res.Limits == nil {
+		res.Limits = corev1.ResourceList{
+			r: resource.MustParse(q),
+		}
+	} else {
+		res.Limits[r] = resource.MustParse(q)
+	}
+	return w
+}
+
 func (w *WorkloadWrapper) Queue(q string) *WorkloadWrapper {
 	w.Spec.QueueName = q
 	return w
@@ -498,4 +510,56 @@ func (rc *RuntimeClassWrapper) PodOverhead(resources corev1.ResourceList) *Runti
 // Obj returns the inner flavor.
 func (rc *RuntimeClassWrapper) Obj() *nodev1.RuntimeClass {
 	return &rc.RuntimeClass
+}
+
+type LimitRangeWrapper struct{ corev1.LimitRange }
+
+func MakeLimitRange(name, namespace string) *LimitRangeWrapper {
+	return &LimitRangeWrapper{
+		LimitRange: corev1.LimitRange{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: namespace,
+			},
+			Spec: corev1.LimitRangeSpec{
+				Limits: []corev1.LimitRangeItem{
+					{
+						Type:                 corev1.LimitTypeContainer,
+						Max:                  corev1.ResourceList{},
+						Min:                  corev1.ResourceList{},
+						Default:              corev1.ResourceList{},
+						DefaultRequest:       corev1.ResourceList{},
+						MaxLimitRequestRatio: corev1.ResourceList{},
+					},
+				},
+			},
+		},
+	}
+}
+
+func (lr *LimitRangeWrapper) WithType(t corev1.LimitType) *LimitRangeWrapper {
+	lr.Spec.Limits[0].Type = t
+	return lr
+}
+
+func (lr *LimitRangeWrapper) WithValue(member string, t corev1.ResourceName, q string) *LimitRangeWrapper {
+	target := lr.Spec.Limits[0].Max
+	switch member {
+	case "Min":
+		target = lr.Spec.Limits[0].Min
+	case "DefaultRequest":
+		target = lr.Spec.Limits[0].DefaultRequest
+	case "Default":
+		target = lr.Spec.Limits[0].Default
+	case "Max":
+	//nothing
+	default:
+		panic("Unexpected member " + member)
+	}
+	target[t] = resource.MustParse(q)
+	return lr
+}
+
+func (lr *LimitRangeWrapper) Obj() *corev1.LimitRange {
+	return &lr.LimitRange
 }
