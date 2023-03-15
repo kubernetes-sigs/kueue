@@ -24,19 +24,19 @@ import (
 type GenericJob interface {
 	// Object returns the job instance.
 	Object() client.Object
-	// IsSuspend returns whether the job is suspended or not.
-	IsSuspend() bool
+	// IsSuspended returns whether the job is suspended or not.
+	IsSuspended() bool
 	// Suspend will suspend the job.
-	Suspend() error
+	Suspend()
 	// UnSuspend will unsuspend the job.
-	UnSuspend() error
+	UnSuspend()
 	// ResetStatus will reset the job status to the original state.
 	// If true, status is modified, if not, status is as it was.
 	ResetStatus() bool
 	// InjectNodeAffinity will inject the node affinity extracting from workload to job.
-	InjectNodeAffinity(nodeSelectors []map[string]string) error
+	InjectNodeAffinity(nodeSelectors []map[string]string)
 	// RestoreNodeAffinity will restore the original node affinity of job.
-	RestoreNodeAffinity(podSets []kueue.PodSet) error
+	RestoreNodeAffinity(podSets []kueue.PodSet)
 	// Finished means whether the job is completed/failed or not,
 	// condition represents the workload finished condition.
 	Finished() (condition metav1.Condition, finished bool)
