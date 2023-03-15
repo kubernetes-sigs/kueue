@@ -18,13 +18,10 @@ package job
 
 import (
 	"context"
-	"strings"
 
 	batchv1 "k8s.io/api/batch/v1"
-	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -32,7 +29,6 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/util/pointer"
 )
 
 type JobWebhook struct {
@@ -59,12 +55,6 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 
 var _ webhook.CustomDefaulter = &JobWebhook{}
 
-var (
-	annotationsPath       = field.NewPath("metadata", "annotations")
-	suspendPath           = field.NewPath("job", "spec", "suspend")
-	parentWorkloadKeyPath = annotationsPath.Key(constants.ParentWorkloadAnnotation)
-)
-
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
 func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	job := obj.(*batchv1.Job)
@@ -82,15 +72,7 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		}
 	}
 
-	batchJob := Job{*job}
-	if batchJob.QueueName() == "" && !w.manageJobsWithoutQueueName {
-		return nil
-	}
-
-	if !(*job.Spec.Suspend) {
-		job.Spec.Suspend = pointer.Bool(true)
-	}
-
+	jobframework.ApplyDefaultForSuspend(&Job{*job}, w.manageJobsWithoutQueueName)
 	return nil
 }
 
@@ -101,18 +83,15 @@ var _ webhook.CustomValidator = &JobWebhook{}
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *JobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
 	job := obj.(*batchv1.Job)
-	return validateCreate(job).ToAggregate()
+	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
+	log.V(5).Info("Validating create", "job", klog.KObj(job))
+	return validateCreate(&Job{*job}).ToAggregate()
 }
 
-func validateCreate(job *batchv1.Job) field.ErrorList {
+func validateCreate(job jobframework.GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
-	for _, crdNameAnnotation := range []string{constants.ParentWorkloadAnnotation, constants.QueueAnnotation} {
-		if value, exists := job.Annotations[crdNameAnnotation]; exists {
-			if errs := validation.IsDNS1123Subdomain(value); len(errs) > 0 {
-				allErrs = append(allErrs, field.Invalid(annotationsPath.Key(crdNameAnnotation), value, strings.Join(errs, ",")))
-			}
-		}
-	}
+	allErrs = append(allErrs, jobframework.ValidateAnnotationAsCRDName(job, constants.ParentWorkloadAnnotation)...)
+	allErrs = append(allErrs, jobframework.ValidateAnnotationAsCRDName(job, constants.QueueAnnotation)...)
 	return allErrs
 }
 
@@ -122,22 +101,13 @@ func (w *JobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.
 	newJob := newObj.(*batchv1.Job)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Validating update", "job", klog.KObj(newJob))
-	return validateUpdate(oldJob, newJob).ToAggregate()
+	return validateUpdate(&Job{*oldJob}, &Job{*newJob}).ToAggregate()
 }
 
-func validateUpdate(oldJob, newJob *batchv1.Job) field.ErrorList {
+func validateUpdate(oldJob, newJob jobframework.GenericJob) field.ErrorList {
 	allErrs := validateCreate(newJob)
-
-	oldBatchJob := Job{*oldJob}
-	newBatchJob := Job{*newJob}
-	if !*newJob.Spec.Suspend && (oldBatchJob.QueueName() != newBatchJob.QueueName()) {
-		allErrs = append(allErrs, field.Forbidden(suspendPath, "must not update queue name when job is unsuspend"))
-	}
-
-	if errList := apivalidation.ValidateImmutableField(newJob.Annotations[constants.ParentWorkloadAnnotation],
-		oldJob.Annotations[constants.ParentWorkloadAnnotation], parentWorkloadKeyPath); len(errList) > 0 {
-		allErrs = append(allErrs, field.Forbidden(parentWorkloadKeyPath, "this annotation is immutable"))
-	}
+	allErrs = append(allErrs, jobframework.ValidateUpdateForParentWorkload(oldJob, newJob)...)
+	allErrs = append(allErrs, jobframework.ValidateUpdateForQueueName(oldJob, newJob)...)
 	return allErrs
 }
 

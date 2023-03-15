@@ -59,6 +59,6 @@ func getHash(ownerName string, gvk schema.GroupVersionKind) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-func GetOwnerKey(ownerGVK schema.GroupVersionKind) string {
+func getOwnerKey(ownerGVK schema.GroupVersionKind) string {
 	return fmt.Sprintf(".metadata.ownerReferences[%s.%s]", ownerGVK.Group, ownerGVK.Kind)
 }

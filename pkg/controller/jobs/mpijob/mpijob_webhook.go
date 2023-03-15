@@ -18,11 +18,9 @@ package mpijob
 
 import (
 	"context"
-	"strings"
 
 	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -30,7 +28,6 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/util/pointer"
 )
 
 type MPIJobWebhook struct {
@@ -57,25 +54,13 @@ func SetupMPIJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 
 var _ webhook.CustomDefaulter = &MPIJobWebhook{}
 
-var (
-	annotationsPath = field.NewPath("metadata", "annotations")
-	suspendPath     = field.NewPath("spec", "runPolicy", "suspend")
-)
-
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
 func (w *MPIJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	job := obj.(*kubeflow.MPIJob)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Applying defaults", "job", klog.KObj(job))
 
-	mpiJob := MPIJob{*job}
-	if mpiJob.QueueName() == "" && !w.manageJobsWithoutQueueName {
-		return nil
-	}
-
-	if !(*job.Spec.RunPolicy.Suspend) {
-		job.Spec.RunPolicy.Suspend = pointer.Bool(true)
-	}
+	jobframework.ApplyDefaultForSuspend(&MPIJob{*job}, w.manageJobsWithoutQueueName)
 	return nil
 }
 
@@ -86,20 +71,13 @@ var _ webhook.CustomValidator = &MPIJobWebhook{}
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *MPIJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
 	job := obj.(*kubeflow.MPIJob)
-	return validateCreate(job).ToAggregate()
+	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
+	log.Info("Validating create", "job", klog.KObj(job))
+	return validateCreate(&MPIJob{*job}).ToAggregate()
 }
 
-func validateCreate(job *kubeflow.MPIJob) field.ErrorList {
-	klog.InfoS("validateCreate invoked", "mpijob", job.Name)
-	var allErrs field.ErrorList
-	for _, crdNameAnnotation := range []string{constants.QueueAnnotation} {
-		if value, exists := job.Annotations[crdNameAnnotation]; exists {
-			if errs := validation.IsDNS1123Subdomain(value); len(errs) > 0 {
-				allErrs = append(allErrs, field.Invalid(annotationsPath.Key(crdNameAnnotation), value, strings.Join(errs, ",")))
-			}
-		}
-	}
-	return allErrs
+func validateCreate(job jobframework.GenericJob) field.ErrorList {
+	return jobframework.ValidateAnnotationAsCRDName(job, constants.QueueAnnotation)
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
@@ -107,20 +85,8 @@ func (w *MPIJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runti
 	oldJob := oldObj.(*kubeflow.MPIJob)
 	newJob := newObj.(*kubeflow.MPIJob)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
-	log.Info("Validating update", "mpijob", klog.KObj(newJob))
-	return validateUpdate(oldJob, newJob).ToAggregate()
-}
-
-func validateUpdate(oldJob, newJob *kubeflow.MPIJob) field.ErrorList {
-	allErrs := validateCreate(newJob)
-
-	oldMPIJob := MPIJob{*oldJob}
-	newMPIJob := MPIJob{*newJob}
-	if !*newJob.Spec.RunPolicy.Suspend && (oldMPIJob.QueueName() != newMPIJob.QueueName()) {
-		allErrs = append(allErrs, field.Forbidden(suspendPath, "must not update queue name when job is unsuspend"))
-	}
-
-	return allErrs
+	log.Info("Validating update", "job", klog.KObj(newJob))
+	return jobframework.ValidateUpdateForQueueName(&MPIJob{*oldJob}, &MPIJob{*newJob}).ToAggregate()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type

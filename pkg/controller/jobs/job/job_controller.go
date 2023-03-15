@@ -125,7 +125,7 @@ func (j *Job) QueueName() string {
 	return j.Annotations[constants.QueueAnnotation]
 }
 
-func (j *Job) IsSuspend() bool {
+func (j *Job) IsSuspended() bool {
 	return j.Spec.Suspend != nil && *j.Spec.Suspend
 }
 
@@ -133,14 +133,8 @@ func (j *Job) IsActive() bool {
 	return j.Status.Active != 0
 }
 
-func (j *Job) Suspend() error {
+func (j *Job) Suspend() {
 	j.Spec.Suspend = pointer.Bool(true)
-	return nil
-}
-
-func (j *Job) UnSuspend() error {
-	j.Spec.Suspend = pointer.Bool(false)
-	return nil
 }
 
 func (j *Job) ResetStatus() bool {
@@ -165,9 +159,10 @@ func (j *Job) PodSets() []kueue.PodSet {
 	}
 }
 
-func (j *Job) InjectNodeAffinity(nodeSelectors []map[string]string) error {
+func (j *Job) RunWithNodeAffinity(nodeSelectors []map[string]string) {
+	j.Spec.Suspend = pointer.Bool(false)
 	if len(nodeSelectors) == 0 {
-		return nil
+		return
 	}
 
 	if j.Spec.Template.Spec.NodeSelector == nil {
@@ -177,13 +172,11 @@ func (j *Job) InjectNodeAffinity(nodeSelectors []map[string]string) error {
 			j.Spec.Template.Spec.NodeSelector[k] = v
 		}
 	}
-
-	return nil
 }
 
-func (j *Job) RestoreNodeAffinity(podSets []kueue.PodSet) error {
+func (j *Job) RestoreNodeAffinity(podSets []kueue.PodSet) {
 	if len(podSets) == 0 || equality.Semantic.DeepEqual(j.Spec.Template.Spec.NodeSelector, podSets[0].Template.Spec.NodeSelector) {
-		return nil
+		return
 	}
 
 	j.Spec.Template.Spec.NodeSelector = map[string]string{}
@@ -191,7 +184,6 @@ func (j *Job) RestoreNodeAffinity(podSets []kueue.PodSet) error {
 	for k, v := range podSets[0].Template.Spec.NodeSelector {
 		j.Spec.Template.Spec.NodeSelector[k] = v
 	}
-	return nil
 }
 
 func (j *Job) Finished() (metav1.Condition, bool) {
@@ -278,17 +270,7 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	}); err != nil {
 		return err
 	}
-	return indexer.IndexField(ctx, &kueue.Workload{}, jobframework.GetOwnerKey(gvk), func(o client.Object) []string {
-		// grab the Workload object, extract the owner...
-		wl := o.(*kueue.Workload)
-		owner := metav1.GetControllerOf(wl)
-		// ...make sure it's a Job...
-		if owner == nil || owner.APIVersion != batchv1.SchemeGroupVersion.String() || owner.Kind != "Job" {
-			return nil
-		}
-		// ...and if so, return it
-		return []string{owner.Name}
-	})
+	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
 }
 
 //+kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch

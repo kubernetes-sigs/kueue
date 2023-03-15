@@ -71,7 +71,7 @@ func (j *MPIJob) QueueName() string {
 	return j.Annotations[constants.QueueAnnotation]
 }
 
-func (j *MPIJob) IsSuspend() bool {
+func (j *MPIJob) IsSuspended() bool {
 	return j.Spec.RunPolicy.Suspend != nil && *j.Spec.RunPolicy.Suspend
 }
 
@@ -84,14 +84,8 @@ func (j *MPIJob) IsActive() bool {
 	return false
 }
 
-func (j *MPIJob) Suspend() error {
+func (j *MPIJob) Suspend() {
 	j.Spec.RunPolicy.Suspend = pointer.Bool(true)
-	return nil
-}
-
-func (j *MPIJob) UnSuspend() error {
-	j.Spec.RunPolicy.Suspend = pointer.Bool(false)
-	return nil
 }
 
 func (j *MPIJob) ResetStatus() bool {
@@ -119,9 +113,10 @@ func (j *MPIJob) PodSets() []kueue.PodSet {
 	return podSets
 }
 
-func (j *MPIJob) InjectNodeAffinity(nodeSelectors []map[string]string) error {
+func (j *MPIJob) RunWithNodeAffinity(nodeSelectors []map[string]string) {
+	j.Spec.RunPolicy.Suspend = pointer.Bool(false)
 	if len(nodeSelectors) == 0 {
-		return nil
+		return
 	}
 	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
 	for index := range nodeSelectors {
@@ -137,10 +132,9 @@ func (j *MPIJob) InjectNodeAffinity(nodeSelectors []map[string]string) error {
 			}
 		}
 	}
-	return nil
 }
 
-func (j *MPIJob) RestoreNodeAffinity(podSets []kueue.PodSet) error {
+func (j *MPIJob) RestoreNodeAffinity(podSets []kueue.PodSet) {
 	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
 	for index := range podSets {
 		replicaType := orderedReplicaTypes[index]
@@ -152,7 +146,6 @@ func (j *MPIJob) RestoreNodeAffinity(podSets []kueue.PodSet) error {
 			}
 		}
 	}
-	return nil
 }
 
 func (j *MPIJob) Finished() (metav1.Condition, bool) {
@@ -239,20 +232,7 @@ func (r *MPIJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
-	return indexer.IndexField(ctx, &kueue.Workload{}, jobframework.GetOwnerKey(gvk), func(o client.Object) []string {
-		// grab the Workload object, extract the owner...
-		wl := o.(*kueue.Workload)
-		owner := metav1.GetControllerOf(wl)
-		if owner == nil {
-			return nil
-		}
-		// ...make sure it's an MPIJob...
-		if !jobframework.IsMPIJob(owner) {
-			return nil
-		}
-		// ...and if so, return it
-		return []string{owner.Name}
-	})
+	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
 }
 
 //+kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch

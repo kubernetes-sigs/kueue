@@ -162,7 +162,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	// 5. handle job is suspended.
-	if job.IsSuspend() {
+	if job.IsSuspended() {
 		// start the job if the workload has been admitted, and the job is still suspended
 		if wl.Status.Admission != nil {
 			log.V(2).Info("Job admitted, unsuspending")
@@ -232,7 +232,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 
 	var workloads kueue.WorkloadList
 	if err := r.client.List(ctx, &workloads, client.InNamespace(object.GetNamespace()),
-		client.MatchingFields{GetOwnerKey(job.GetGVK()): object.GetName()}); err != nil {
+		client.MatchingFields{getOwnerKey(job.GetGVK()): object.GetName()}); err != nil {
 		log.Error(err, "Unable to list child workloads")
 		return nil, err
 	}
@@ -247,7 +247,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 	}
 
 	// If there is no matching workload and the job is running, suspend it.
-	if match == nil && !job.IsSuspend() {
+	if match == nil && !job.IsSuspended() {
 		log.V(2).Info("job with no matching workload, suspending")
 		var w *kueue.Workload
 		if len(workloads.Items) == 1 {
@@ -304,14 +304,7 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 	if err != nil {
 		return err
 	}
-
-	if err := job.InjectNodeAffinity(nodeSelectors); err != nil {
-		return err
-	}
-
-	if err := job.UnSuspend(); err != nil {
-		return err
-	}
+	job.RunWithNodeAffinity(nodeSelectors)
 
 	if err := r.client.Update(ctx, object); err != nil {
 		return err
@@ -326,9 +319,7 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 // stopJob will suspend the job, and also restore node affinity, reset job status if needed.
 func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload, eventMsg string) error {
 	// Suspend the job at first then we're able to update the scheduling directives.
-	if err := job.Suspend(); err != nil {
-		return err
-	}
+	job.Suspend()
 
 	if err := r.client.Update(ctx, object); err != nil {
 		return err
@@ -343,9 +334,7 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, object clie
 	}
 
 	if wl != nil {
-		if err := job.RestoreNodeAffinity(wl.Spec.PodSets); err != nil {
-			return err
-		}
+		job.RestoreNodeAffinity(wl.Spec.PodSets)
 		return r.client.Update(ctx, object)
 	}
 
