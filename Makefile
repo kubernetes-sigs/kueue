@@ -54,13 +54,13 @@ BASE_IMAGE ?= gcr.io/distroless/static:nonroot
 BUILDER_IMAGE ?= golang:$(GO_VERSION)
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.24
+ENVTEST_K8S_VERSION = 1.26
 
 INTEGRATION_TARGET ?= ./test/integration/...
 
 E2E_TARGET ?= ./test/e2e/...
 
-E2E_KIND_VERSION ?= kindest/node:v1.23.12
+E2E_KIND_VERSION ?= kindest/node:v1.24.7
 
 # For local testing, we should allow user to use different kind cluster name
 # Default will delete default kind cluster
