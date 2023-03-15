@@ -28,13 +28,11 @@ type GenericJob interface {
 	IsSuspended() bool
 	// Suspend will suspend the job.
 	Suspend()
-	// UnSuspend will unsuspend the job.
-	UnSuspend()
 	// ResetStatus will reset the job status to the original state.
 	// If true, status is modified, if not, status is as it was.
 	ResetStatus() bool
-	// InjectNodeAffinity will inject the node affinity extracting from workload to job.
-	InjectNodeAffinity(nodeSelectors []map[string]string)
+	// RunWithNodeAffinity will inject the node affinity extracting from workload to job and unsuspend the job.
+	RunWithNodeAffinity(nodeSelectors []map[string]string)
 	// RestoreNodeAffinity will restore the original node affinity of job.
 	RestoreNodeAffinity(podSets []kueue.PodSet)
 	// Finished means whether the job is completed/failed or not,

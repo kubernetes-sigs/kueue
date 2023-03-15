@@ -29,14 +29,7 @@ var (
 	QueueNamePath         = annotationsPath.Key(constants.QueueAnnotation)
 )
 
-func ApplyDefaultForSuspend(job GenericJob, manageJobsWithoutQueueName bool) {
-	if job.QueueName() != "" || manageJobsWithoutQueueName {
-		if !job.IsSuspended() {
-			job.Suspend()
-		}
-	}
-}
-func ValidateCreateForCRDNameAnnotation(job GenericJob, crdNameAnnotation string) field.ErrorList {
+func ValidateAnnotationAsCRDName(job GenericJob, crdNameAnnotation string) field.ErrorList {
 	var allErrs field.ErrorList
 	if value, exists := job.Object().GetAnnotations()[crdNameAnnotation]; exists {
 		if errs := validation.IsDNS1123Subdomain(value); len(errs) > 0 {

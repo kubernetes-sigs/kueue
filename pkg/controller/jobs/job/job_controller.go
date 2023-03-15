@@ -124,6 +124,7 @@ func (j *Job) ParentWorkloadName() string {
 func (j *Job) QueueName() string {
 	return j.Annotations[constants.QueueAnnotation]
 }
+
 func (j *Job) IsSuspended() bool {
 	return j.Spec.Suspend != nil && *j.Spec.Suspend
 }
@@ -134,10 +135,6 @@ func (j *Job) IsActive() bool {
 
 func (j *Job) Suspend() {
 	j.Spec.Suspend = pointer.Bool(true)
-}
-
-func (j *Job) UnSuspend() {
-	j.Spec.Suspend = pointer.Bool(false)
 }
 
 func (j *Job) ResetStatus() bool {
@@ -162,7 +159,8 @@ func (j *Job) PodSets() []kueue.PodSet {
 	}
 }
 
-func (j *Job) InjectNodeAffinity(nodeSelectors []map[string]string) {
+func (j *Job) RunWithNodeAffinity(nodeSelectors []map[string]string) {
+	j.Spec.Suspend = pointer.Bool(false)
 	if len(nodeSelectors) == 0 {
 		return
 	}
@@ -272,7 +270,7 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	}); err != nil {
 		return err
 	}
-	return jobframework.SetupOwnerIndex(ctx, indexer, gvk)
+	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
 }
 
 //+kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch

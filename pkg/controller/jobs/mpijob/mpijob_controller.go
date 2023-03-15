@@ -88,10 +88,6 @@ func (j *MPIJob) Suspend() {
 	j.Spec.RunPolicy.Suspend = pointer.Bool(true)
 }
 
-func (j *MPIJob) UnSuspend() {
-	j.Spec.RunPolicy.Suspend = pointer.Bool(false)
-}
-
 func (j *MPIJob) ResetStatus() bool {
 	if j.Status.StartTime == nil {
 		return false
@@ -117,7 +113,8 @@ func (j *MPIJob) PodSets() []kueue.PodSet {
 	return podSets
 }
 
-func (j *MPIJob) InjectNodeAffinity(nodeSelectors []map[string]string) {
+func (j *MPIJob) RunWithNodeAffinity(nodeSelectors []map[string]string) {
+	j.Spec.RunPolicy.Suspend = pointer.Bool(false)
 	if len(nodeSelectors) == 0 {
 		return
 	}
@@ -235,7 +232,7 @@ func (r *MPIJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
-	return jobframework.SetupOwnerIndex(ctx, indexer, gvk)
+	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
 }
 
 //+kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch

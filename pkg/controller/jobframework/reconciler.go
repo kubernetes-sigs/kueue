@@ -232,7 +232,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 
 	var workloads kueue.WorkloadList
 	if err := r.client.List(ctx, &workloads, client.InNamespace(object.GetNamespace()),
-		client.MatchingFields{GetOwnerKey(job.GetGVK()): object.GetName()}); err != nil {
+		client.MatchingFields{getOwnerKey(job.GetGVK()): object.GetName()}); err != nil {
 		log.Error(err, "Unable to list child workloads")
 		return nil, err
 	}
@@ -304,8 +304,7 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 	if err != nil {
 		return err
 	}
-	job.InjectNodeAffinity(nodeSelectors)
-	job.UnSuspend()
+	job.RunWithNodeAffinity(nodeSelectors)
 
 	if err := r.client.Update(ctx, object); err != nil {
 		return err

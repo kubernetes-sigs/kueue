@@ -23,8 +23,8 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
-func SetupOwnerIndex(ctx context.Context, indexer client.FieldIndexer, gvk schema.GroupVersionKind) error {
-	return indexer.IndexField(ctx, &kueue.Workload{}, GetOwnerKey(gvk), func(o client.Object) []string {
+func SetupWorkloadOwnerIndex(ctx context.Context, indexer client.FieldIndexer, gvk schema.GroupVersionKind) error {
+	return indexer.IndexField(ctx, &kueue.Workload{}, getOwnerKey(gvk), func(o client.Object) []string {
 		// grab the Workload object, extract the owner...
 		wl := o.(*kueue.Workload)
 		owner := metav1.GetControllerOf(wl)
