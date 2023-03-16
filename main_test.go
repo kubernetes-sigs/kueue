@@ -28,7 +28,7 @@ import (
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	config "sigs.k8s.io/kueue/apis/config/v1alpha2"
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 )
 
 func TestApply(t *testing.T) {
@@ -41,7 +41,7 @@ func TestApply(t *testing.T) {
 
 	namespaceOverWriteConfig := filepath.Join(tmpDir, "namespace-overwrite.yaml")
 	if err := os.WriteFile(namespaceOverWriteConfig, []byte(`
-apiVersion: config.kueue.x-k8s.io/v1alpha2
+apiVersion: config.kueue.x-k8s.io/v1beta1
 kind: Configuration
 namespace: kueue-tenant-a
 health:
@@ -59,7 +59,7 @@ webhook:
 
 	ctrlManagerConfigSpecOverWriteConfig := filepath.Join(tmpDir, "ctrl-manager-config-spec-overwrite.yaml")
 	if err := os.WriteFile(ctrlManagerConfigSpecOverWriteConfig, []byte(`
-apiVersion: config.kueue.x-k8s.io/v1alpha2
+apiVersion: config.kueue.x-k8s.io/v1beta1
 kind: Configuration
 namespace: kueue-system
 health:
@@ -77,7 +77,7 @@ webhook:
 
 	certOverWriteConfig := filepath.Join(tmpDir, "cert-overwrite.yaml")
 	if err := os.WriteFile(certOverWriteConfig, []byte(`
-apiVersion: config.kueue.x-k8s.io/v1alpha2
+apiVersion: config.kueue.x-k8s.io/v1beta1
 kind: Configuration
 namespace: kueue-system
 health:
@@ -99,7 +99,7 @@ internalCertManagement:
 
 	disableCertOverWriteConfig := filepath.Join(tmpDir, "disable-cert-overwrite.yaml")
 	if err := os.WriteFile(disableCertOverWriteConfig, []byte(`
-apiVersion: config.kueue.x-k8s.io/v1alpha2
+apiVersion: config.kueue.x-k8s.io/v1beta1
 kind: Configuration
 namespace: kueue-system
 health:
@@ -119,7 +119,7 @@ internalCertManagement:
 
 	leaderElectionDisabledConfig := filepath.Join(tmpDir, "leaderElection-disabled.yaml")
 	if err := os.WriteFile(leaderElectionDisabledConfig, []byte(`
-apiVersion: config.kueue.x-k8s.io/v1alpha2
+apiVersion: config.kueue.x-k8s.io/v1beta1
 kind: Configuration
 namespace: kueue-system
 health:
@@ -136,7 +136,7 @@ webhook:
 
 	waitForPodsReadyEnabledConfig := filepath.Join(tmpDir, "waitForPodsReady-enabled.yaml")
 	if err := os.WriteFile(waitForPodsReadyEnabledConfig, []byte(`
-apiVersion: config.kueue.x-k8s.io/v1alpha2
+apiVersion: config.kueue.x-k8s.io/v1beta1
 kind: Configuration
 waitForPodsReady:
   enable: true
@@ -146,7 +146,7 @@ waitForPodsReady:
 
 	clientConnectionConfig := filepath.Join(tmpDir, "clientConnection.yaml")
 	if err := os.WriteFile(clientConnectionConfig, []byte(`
-apiVersion: config.kueue.x-k8s.io/v1alpha2
+apiVersion: config.kueue.x-k8s.io/v1beta1
 kind: Configuration
 namespace: kueue-system
 health:
