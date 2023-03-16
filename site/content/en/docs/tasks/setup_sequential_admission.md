@@ -1,6 +1,6 @@
 ---
 title: "Sequential Admission with Ready Pods"
-date: 2022-02-14
+date: 2022-03-14
 weight: 4
 description: >
   Simple implementation of the all-or-nothing scheduling
@@ -94,31 +94,32 @@ our cluster, in order to simulate issues with provisioning.
 Save the following cluster queues configuration as `cluster-queues.yaml`:
 
 ``` yaml
-apiVersion: kueue.x-k8s.io/v1alpha2
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: ResourceFlavor
 metadata:
-  name: default-flavor
+  name: "default-flavor"
 ---
-apiVersion: kueue.x-k8s.io/v1alpha2
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
 metadata:
-  name: cluster-queue
+  name: "cluster-queue"
 spec:
   namespaceSelector: {}
-  resources:
-  - name: "memory"
+  resourceGroups:
+  - coveredResources: ["memory"]
     flavors:
-    - name: default-flavor
-      quota:
-        min: 16858Mi # double the value of allocatable memory in the cluster
+    - name: "default-flavor"
+      resources:
+      - name: "memory"
+        nominalQuota: 16858Mi # double the value of allocatable memory in the cluster         
 ---
-apiVersion: kueue.x-k8s.io/v1alpha2
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: LocalQueue
 metadata:
-  namespace: default
-  name: user-queue
+  namespace: "default"
+  name: "user-queue"
 spec:
-  clusterQueue: cluster-queue
+  clusterQueue: "cluster-queue"
 ```
 
 Then, apply the configuration by:

@@ -1,6 +1,6 @@
 ---
 title: "Cluster Queue"
-date: 2023-02-14
+date: 2023-03-14
 weight: 3
 description: >
   A cluster-scoped resource that governs a pool of resources, defining usage limits and fair sharing rules.
@@ -18,23 +18,21 @@ Only [cluster administrators](/docs/tasks#batch-administrator) should create `Cl
 A sample ClusterQueue looks like the following:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1alpha2
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
 metadata:
-  name: cluster-queue
+  name: "cluster-queue"
 spec:
-  namespaceSelector: {}
-  resources:
-  - name: "cpu"
+  namespaceSelector: {} # match all.
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
     flavors:
-    - name: default-flavor
-      quota:
-        min: 9
-  - name: "memory"
-    flavors:
-    - name: default-flavor
-      quota:
-        min: 36Gi
+    - name: "default-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 9  
+      - name: "memory"
+        nominalQuota: 36Gi
 ```
 
 This ClusterQueue admits [Workloads](/docs/concepts/workload) if and only if:
@@ -56,61 +54,57 @@ models). You can define a flavor using a [ResourceFlavor object](/docs/concepts/
 In a process called [admission](/docs/concepts#admission), Kueue assigns to the
 [Workload pod sets](/docs/concepts/workload#pod-sets) a flavor for each resource the pod set
 requests.
-Kueue assigns the first flavor in the ClusterQueue's `.spec.resources[*].flavors`
-list that has enough unused `min` quota in the ClusterQueue or the
+Kueue assigns the first flavor in the ClusterQueue's `.spec.resourceGroups[*].flavors`
+list that has enough unused `nominalQuota` quota in the ClusterQueue or the
 ClusterQueue's [cohort](#cohort).
 
-### Codependent resources
+### Resource Groups
 
 It is possible that multiple resources in a ClusterQueue have the same flavors.
 This is typical for `cpu` and `memory`, where the flavors are generally tied to
-a machine family or VM availability policies. When two or more resources in a
-ClusterQueue match their flavors, they are said to be codependent resources.
+a machine family or VM availability policies. To tie two or more resources to 
+the same set of flavors, you can list them in the same resource group.
 
-To manage codependent resources, you should list the flavors in the ClusterQueue
-resources in the same order. During admission, for each pod set in a Workload,
-Kueue assigns the same flavor to the codependent resources that the pod set requests.
-
-An example of a ClusterQueue with codependent resources looks like the following:
+An example of a ClusterQueue with multiple resource groups looks like the following:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1alpha2
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
 metadata:
-  name: cluster-queue
+  name: "cluster-queue"
 spec:
-  namespaceSelector: {}
-  resources:
-  - name: "cpu"
+  namespaceSelector: {} # match all.
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
     flavors:
-    - name: spot
-      quota:
-        min: 18
-    - name: on_demand
-      quota:
-        min: 9
-  - name: "memory"
+    - name: "spot"
+      resources:
+      - name: "cpu"
+        nominalQuota: 9
+      - name: "memory"
+        nominalQuota: 36Gi
+    - name: "on-demand"
+      resources:
+      - name: "cpu"
+        nominalQuota: 18
+      - name: "memory"
+        nominalQuota: 72Gi
+  - coveredResources: ["gpu"]
     flavors:
-    - name: spot
-      quota:
-        min: 72Gi
-    - name: on_demand
-      quota:
-        min: 36Gi
-  - name: "gpu"
-    flavors:
-    - name: vendor1
-      quota:
-        min: 10
-    - name: vendor2
-      quota:
-        min: 10
+    - name: "vendor1"
+      resources:
+      - name: "gpu"
+        nominalQuota: 10
+    - name: "vendor2"
+      resources:
+      - name: "gpu"
+        nominalQuota: 10
 ```
 
-In the example above, `cpu` and `memory` are codependent resources, while `gpu`
-is independent.
+In the example above, `cpu` and `memory` belong to one resourceGroup, while `gpu`
+belongs to another.
 
-If two resources are not codependent, they must not have any flavors in common.
+A resource flavor must belong to at most one resource group.
 
 ## Namespace selector
 
@@ -168,18 +162,19 @@ When a ClusterQueue is part of a cohort, Kueue satisfies the following admission
 semantics:
 
 - When assigning flavors, Kueue goes through the list of flavors in the
-  ClusterQueue's `.spec.resources[*].flavors`. For each flavor, Kueue attempts
+  relevant ResourceGroup inside ClusterQueue's 
+  (`.spec.resourceGroups[*].flavors`). For each flavor, Kueue attempts
   to fit a Workload's pod set according to the quota defined in the
   ClusterQueue for the flavor and the unused quota in the cohort.
   If the Workload doesn't fit, Kueue evaluates the next flavor in the list.
 - A Workload's pod set resource fits in a flavor defined for a ClusterQueue
   resource if the sum of requests for the resource:
-  1. Is less than or equal to the unused `.quota.min` for the flavor in the
+  1. Is less than or equal to the unused `nominalQuota` for the flavor in the
      ClusterQueue; or
-  2. Is less than or equal to the sum of unused `.quota.min` for the flavor in
+  2. Is less than or equal to the sum of unused `nominalQuota` for the flavor in
      the ClusterQueues in the cohort, and
-  3. Is less than or equal to the unused `.quota.max` for the flavor in the
-     ClusterQueue.
+  3. Is less than or equal to the unused `nominalQuota + borrowingLimit` for 
+     the flavor in the ClusterQueue.
   In Kueue, when (2) and (3) are satisfied, but not (1), this is called
   _borrowing quota_.
 - A ClusterQueue can only borrow quota for flavors that the ClusterQueue defines.
@@ -190,46 +185,43 @@ semantics:
 
 Assume you created the following two ClusterQueues:
 
+
 ```yaml
-apiVersion: kueue.x-k8s.io/v1alpha2
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
 metadata:
-  name: team-a-cq
+  name: "team-a-cq"
 spec:
-  namespaceSelector: {}
-  cohort: team-ab
-  resources:
-  - name: "cpu"
+  namespaceSelector: {} # match all.
+  cohort: "team-ab"
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
     flavors:
-    - name: default-flavor
-      quota:
-        min: 9
-  - name: "memory"
-    flavors:
-    - name: default-flavor
-      quota:
-        min: 36Gi
+    - name: "default-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 9  
+      - name: "memory"
+        nominalQuota: 36Gi
 ```
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1alpha2
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
 metadata:
-  name: team-b-cq
+  name: "team-b-cq"
 spec:
-  namespaceSelector: {}
-  cohort: team-ab
-  resources:
-  - name: "cpu"
+  namespaceSelector: {} # match all.
+  cohort: "team-ab"
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
     flavors:
-    - name: default-flavor
-      quota:
-        min: 12
-  - name: "memory"
-    flavors:
-    - name: default-flavor
-      quota:
-        min: 48Gi
+    - name: "default-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 12  
+      - name: "memory"
+        nominalQuota: 48Gi
 ```
 
 ClusterQueue `team-a-cq` can admit Workloads depending on the following
@@ -239,22 +231,19 @@ scenarios:
   `team-a-cq` can admit Workloads with resources adding up to `12+9=21` CPUs and
   `48+36=84Gi` of memory.
 - If ClusterQueue `team-b-cq` has pending Workloads and the ClusterQueue
-  `team-a-cq` has all its `min` quota used, Kueue will admit Workloads in
+  `team-a-cq` has all its `nominalQuota` quota used, Kueue will admit Workloads in
   ClusterQueue `team-b-cq` before admitting any new Workloads in `team-a-cq`.
-  Therefore, Kueue ensures the `min` quota for `team-b-cq` is met.
+  Therefore, Kueue ensures the `nominalQuota` quota for `team-b-cq` is met.
 
-**Note**: Kueue [does not support preemption](https://github.com/kubernetes-sigs/kueue/issues/83).
-Workloads already admitted by Kueue will _not_ be stopped to make space for new Workloads.
-
-### Max quotas
+### BorrowingLimit
 
 To limit the amount of resources that a ClusterQueue can borrow from others,
-you can set the `.spec.resources[*].flavors[*].quota.max`
+you can set the `.spec.resourcesGroup[*].flavors[*].resource[*].borrowingLimit`
 [quantity](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/quantity/) field.
-`max` must be greater than or equal to `min`.
 
-If, for a given flavor, the `max` field is empty or null, a ClusterQueue can
-borrow up to the sum of min quotas from all the ClusterQueues in the cohort.
+If, for a given flavor/resource, the `borrowingLimit` field is empty or null, 
+a ClusterQueue can borrow up to the sum of nominal quotas from all the 
+ClusterQueues in the cohort.
 
 ## Preemption
 
@@ -269,7 +258,7 @@ following:
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
 metadata:
-  name: team-a-cq
+  name: "team-a-cq"
 spec:
   preemption:
     reclaimWithinCohort: Any

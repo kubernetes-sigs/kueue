@@ -3,7 +3,7 @@ kind: Job
 metadata:
   generateName: sample-job-
   namespace: default
-  annotations:
+  labels:
     kueue.x-k8s.io/queue-name: user-queue
 spec:
   parallelism: 3
