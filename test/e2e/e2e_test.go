@@ -28,6 +28,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -44,7 +45,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			},
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-		sampleJob = testing.MakeJob("test-job", ns.Name).Queue("main").Request("cpu", "1").Request("memory", "20Mi").
+		sampleJob = testingjob.MakeJob("test-job", ns.Name).Queue("main").Request("cpu", "1").Request("memory", "20Mi").
 			Image("sleep", "gcr.io/k8s-staging-perf-tests/sleep:v0.0.3", []string{"5s"}).Obj()
 
 		gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())

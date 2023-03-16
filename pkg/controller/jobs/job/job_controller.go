@@ -37,7 +37,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
@@ -118,11 +117,11 @@ func (j *Job) Object() client.Object {
 }
 
 func (j *Job) ParentWorkloadName() string {
-	return j.Annotations[constants.ParentWorkloadAnnotation]
+	return j.Annotations[jobframework.ParentWorkloadAnnotation]
 }
 
 func (j *Job) QueueName() string {
-	return j.Annotations[constants.QueueAnnotation]
+	return j.Annotations[jobframework.QueueAnnotation]
 }
 
 func (j *Job) IsSuspended() bool {

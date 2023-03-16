@@ -27,7 +27,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
@@ -68,7 +67,7 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		if pwName, err := jobframework.GetWorkloadNameForOwnerRef(owner); err != nil {
 			return err
 		} else {
-			job.Annotations[constants.ParentWorkloadAnnotation] = pwName
+			job.Annotations[jobframework.ParentWorkloadAnnotation] = pwName
 		}
 	}
 
@@ -90,8 +89,8 @@ func (w *JobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) err
 
 func validateCreate(job jobframework.GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
-	allErrs = append(allErrs, jobframework.ValidateAnnotationAsCRDName(job, constants.ParentWorkloadAnnotation)...)
-	allErrs = append(allErrs, jobframework.ValidateAnnotationAsCRDName(job, constants.QueueAnnotation)...)
+	allErrs = append(allErrs, jobframework.ValidateAnnotationAsCRDName(job, jobframework.ParentWorkloadAnnotation)...)
+	allErrs = append(allErrs, jobframework.ValidateAnnotationAsCRDName(job, jobframework.QueueAnnotation)...)
 	return allErrs
 }
 

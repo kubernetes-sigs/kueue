@@ -32,7 +32,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
@@ -64,11 +63,11 @@ func (j *MPIJob) Object() client.Object {
 }
 
 func (j *MPIJob) ParentWorkloadName() string {
-	return j.Annotations[constants.ParentWorkloadAnnotation]
+	return j.Annotations[jobframework.ParentWorkloadAnnotation]
 }
 
 func (j *MPIJob) QueueName() string {
-	return j.Annotations[constants.QueueAnnotation]
+	return j.Annotations[jobframework.QueueAnnotation]
 }
 
 func (j *MPIJob) IsSuspended() bool {

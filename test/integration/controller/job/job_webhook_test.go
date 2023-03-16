@@ -24,10 +24,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
-	"sigs.k8s.io/kueue/pkg/util/testing"
+	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -58,7 +57,7 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 		})
 
 		ginkgo.It("Should suspend a Job even no queue name specified", func() {
-			job := testing.MakeJob("job-without-queue-name", ns.Name).Suspend(false).Obj()
+			job := testingjob.MakeJob("job-without-queue-name", ns.Name).Suspend(false).Obj()
 			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 
 			lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
@@ -72,14 +71,14 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 		})
 
 		ginkgo.It("Should not update unsuspend Job successfully when adding queue name", func() {
-			job := testing.MakeJob("job-without-queue-name", ns.Name).Suspend(false).Obj()
+			job := testingjob.MakeJob("job-without-queue-name", ns.Name).Suspend(false).Obj()
 			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 
 			lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
 			createdJob := &batchv1.Job{}
 			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
-			createdJob.Annotations = map[string]string{constants.QueueAnnotation: "queue"}
+			createdJob.Annotations = map[string]string{jobframework.QueueAnnotation: "queue"}
 			createdJob.Spec.Suspend = pointer.Bool(false)
 			gomega.Expect(k8sClient.Update(ctx, createdJob)).ShouldNot(gomega.Succeed())
 		})
@@ -108,7 +107,7 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 		})
 
 		ginkgo.It("should suspend a Job when created in unsuspend state", func() {
-			job := testing.MakeJob("job-with-queue-name", ns.Name).Suspend(false).Queue("default").Obj()
+			job := testingjob.MakeJob("job-with-queue-name", ns.Name).Suspend(false).Queue("default").Obj()
 			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 
 			lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
@@ -122,7 +121,7 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 		})
 
 		ginkgo.It("should not suspend a Job when no queue name specified", func() {
-			job := testing.MakeJob("job-without-queue-name", ns.Name).Suspend(false).Obj()
+			job := testingjob.MakeJob("job-without-queue-name", ns.Name).Suspend(false).Obj()
 			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 
 			lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
@@ -136,14 +135,14 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 		})
 
 		ginkgo.It("should not update unsuspend Job successfully when changing queue name", func() {
-			job := testing.MakeJob("job-with-queue-name", ns.Name).Queue("queue").Obj()
+			job := testingjob.MakeJob("job-with-queue-name", ns.Name).Queue("queue").Obj()
 			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 
 			lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
 			createdJob := &batchv1.Job{}
 			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
-			createdJob.Annotations[constants.QueueAnnotation] = "queue2"
+			createdJob.Annotations[jobframework.QueueAnnotation] = "queue2"
 			createdJob.Spec.Suspend = pointer.Bool(false)
 			gomega.Expect(k8sClient.Update(ctx, createdJob)).ShouldNot(gomega.Succeed())
 		})

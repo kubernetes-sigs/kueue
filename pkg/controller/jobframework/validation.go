@@ -19,14 +19,12 @@ import (
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-
-	"sigs.k8s.io/kueue/pkg/constants"
 )
 
 var (
 	annotationsPath       = field.NewPath("metadata", "annotations")
-	ParentWorkloadKeyPath = annotationsPath.Key(constants.ParentWorkloadAnnotation)
-	QueueNamePath         = annotationsPath.Key(constants.QueueAnnotation)
+	ParentWorkloadKeyPath = annotationsPath.Key(ParentWorkloadAnnotation)
+	QueueNamePath         = annotationsPath.Key(QueueAnnotation)
 )
 
 func ValidateAnnotationAsCRDName(job GenericJob, crdNameAnnotation string) field.ErrorList {

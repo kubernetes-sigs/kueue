@@ -25,7 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
+	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 )
 
 const (

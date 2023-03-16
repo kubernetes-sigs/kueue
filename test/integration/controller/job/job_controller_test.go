@@ -32,11 +32,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -75,7 +75,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 		priorityClass := testing.MakePriorityClass(priorityClassName).
 			PriorityValue(int32(priorityValue)).Obj()
 		gomega.Expect(k8sClient.Create(ctx, priorityClass)).Should(gomega.Succeed())
-		job := testing.MakeJob(jobName, jobNamespace).PriorityClass(priorityClassName).Obj()
+		job := testingjob.MakeJob(jobName, jobNamespace).PriorityClass(priorityClassName).Obj()
 		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 		lookupKey := types.NamespacedName{Name: jobName, Namespace: jobNamespace}
 		createdJob := &batchv1.Job{}
@@ -101,7 +101,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 
 		ginkgo.By("checking the workload is updated with queue name when the job does")
 		jobQueueName := "test-queue"
-		createdJob.Annotations = map[string]string{constants.QueueAnnotation: jobQueueName}
+		createdJob.Annotations = map[string]string{jobframework.QueueAnnotation: jobQueueName}
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
 		gomega.Eventually(func() bool {
 			if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
@@ -255,7 +255,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 
 		ginkgo.It("Should suspend a job if the parent workload does not exist", func() {
 			ginkgo.By("Creating the child job which uses the parent workload annotation")
-			childJob := testing.MakeJob(childJobName, jobNamespace).Suspend(false).ParentWorkload("non-existing-parent-workload").Obj()
+			childJob := testingjob.MakeJob(childJobName, jobNamespace).Suspend(false).ParentWorkload("non-existing-parent-workload").Obj()
 			gomega.Expect(k8sClient.Create(ctx, childJob)).Should(gomega.Succeed())
 
 			ginkgo.By("checking that the child job is suspended")
@@ -267,7 +267,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 
 		ginkgo.It("Should not create child workload for a job with parent-workload annotation", func() {
 			ginkgo.By("creating the parent job")
-			parentJob := testing.MakeJob(parentJobName, jobNamespace).Obj()
+			parentJob := testingjob.MakeJob(parentJobName, jobNamespace).Obj()
 			gomega.Expect(k8sClient.Create(ctx, parentJob)).Should(gomega.Succeed())
 
 			ginkgo.By("waiting for the parent workload to be created")
@@ -277,7 +277,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Creating the child job which uses the parent workload annotation")
-			childJob := testing.MakeJob(childJobName, jobNamespace).ParentWorkload(parentWorkload.Name).Obj()
+			childJob := testingjob.MakeJob(childJobName, jobNamespace).ParentWorkload(parentWorkload.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, childJob)).Should(gomega.Succeed())
 
 			ginkgo.By("Checking that the child workload is not created")
@@ -293,11 +293,11 @@ var _ = ginkgo.Describe("Job controller", func() {
 			gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).Should(gomega.Succeed())
 
 			ginkgo.By("creating the parent job")
-			parentJob := testing.MakeJob(parentJobName, jobNamespace).Obj()
+			parentJob := testingjob.MakeJob(parentJobName, jobNamespace).Obj()
 			gomega.Expect(k8sClient.Create(ctx, parentJob)).Should(gomega.Succeed())
 
 			ginkgo.By("Creating the child job with the parent-workload annotation")
-			childJob := testing.MakeJob(childJobName, jobNamespace).ParentWorkload(parentWlLookupKey.Name).Obj()
+			childJob := testingjob.MakeJob(childJobName, jobNamespace).ParentWorkload(parentWlLookupKey.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, childJob)).Should(gomega.Succeed())
 
 			ginkgo.By("waiting for the parent workload to be created")
@@ -356,7 +356,7 @@ var _ = ginkgo.Describe("Job controller for workloads with no queue set", func()
 	})
 	ginkgo.It("Should reconcile jobs only when queue is set", func() {
 		ginkgo.By("checking the workload is not created when queue name is not set")
-		job := testing.MakeJob(jobName, jobNamespace).Obj()
+		job := testingjob.MakeJob(jobName, jobNamespace).Obj()
 		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 		lookupKey := types.NamespacedName{Name: jobName, Namespace: jobNamespace}
 		createdJob := &batchv1.Job{}
@@ -369,7 +369,7 @@ var _ = ginkgo.Describe("Job controller for workloads with no queue set", func()
 
 		ginkgo.By("checking the workload is created when queue name is set")
 		jobQueueName := "test-queue"
-		createdJob.Annotations = map[string]string{constants.QueueAnnotation: jobQueueName}
+		createdJob.Annotations = map[string]string{jobframework.QueueAnnotation: jobQueueName}
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
 		gomega.Eventually(func() error {
 			return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
@@ -384,7 +384,7 @@ var _ = ginkgo.Describe("Job controller for workloads with no queue set", func()
 
 		ginkgo.It("Should suspend a job if the parent workload does not exist", func() {
 			ginkgo.By("Creating the child job which uses the parent workload annotation")
-			childJob := testing.MakeJob(childJobName, jobNamespace).Suspend(false).ParentWorkload("non-existing-parent-workload").Obj()
+			childJob := testingjob.MakeJob(childJobName, jobNamespace).Suspend(false).ParentWorkload("non-existing-parent-workload").Obj()
 			gomega.Expect(k8sClient.Create(ctx, childJob)).Should(gomega.Succeed())
 
 			ginkgo.By("checking that the child job is suspended")
@@ -424,9 +424,9 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", func() {
 			gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).Should(gomega.Succeed())
 
 			ginkgo.By("Create a job")
-			job := testing.MakeJob(jobName, jobNamespace).Parallelism(2).Obj()
+			job := testingjob.MakeJob(jobName, jobNamespace).Parallelism(2).Obj()
 			jobQueueName := "test-queue"
-			job.Annotations = map[string]string{constants.QueueAnnotation: jobQueueName}
+			job.Annotations = map[string]string{jobframework.QueueAnnotation: jobQueueName}
 			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 			lookupKey := types.NamespacedName{Name: jobName, Namespace: jobNamespace}
 			createdJob := &batchv1.Job{}
@@ -725,7 +725,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", func() {
 		gomega.Expect(k8sClient.Create(ctx, devLocalQ)).Should(gomega.Succeed())
 
 		ginkgo.By("checking the first prod job starts")
-		prodJob1 := testing.MakeJob("prod-job1", ns.Name).Queue(prodLocalQ.Name).Request(corev1.ResourceCPU, "2").Obj()
+		prodJob1 := testingjob.MakeJob("prod-job1", ns.Name).Queue(prodLocalQ.Name).Request(corev1.ResourceCPU, "2").Obj()
 		gomega.Expect(k8sClient.Create(ctx, prodJob1)).Should(gomega.Succeed())
 		lookupKey1 := types.NamespacedName{Name: prodJob1.Name, Namespace: prodJob1.Namespace}
 		createdProdJob1 := &batchv1.Job{}
@@ -738,7 +738,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", func() {
 		util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
 
 		ginkgo.By("checking a second no-fit prod job does not start")
-		prodJob2 := testing.MakeJob("prod-job2", ns.Name).Queue(prodLocalQ.Name).Request(corev1.ResourceCPU, "5").Obj()
+		prodJob2 := testingjob.MakeJob("prod-job2", ns.Name).Queue(prodLocalQ.Name).Request(corev1.ResourceCPU, "5").Obj()
 		gomega.Expect(k8sClient.Create(ctx, prodJob2)).Should(gomega.Succeed())
 		lookupKey2 := types.NamespacedName{Name: prodJob2.Name, Namespace: prodJob2.Namespace}
 		createdProdJob2 := &batchv1.Job{}
@@ -750,7 +750,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", func() {
 		util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
 
 		ginkgo.By("checking a dev job starts")
-		devJob := testing.MakeJob("dev-job", ns.Name).Queue(devLocalQ.Name).Request(corev1.ResourceCPU, "5").Obj()
+		devJob := testingjob.MakeJob("dev-job", ns.Name).Queue(devLocalQ.Name).Request(corev1.ResourceCPU, "5").Obj()
 		gomega.Expect(k8sClient.Create(ctx, devJob)).Should(gomega.Succeed())
 		createdDevJob := &batchv1.Job{}
 		gomega.Eventually(func() *bool {
@@ -797,7 +797,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", func() {
 		localQueue.Spec.ClusterQueue = kueue.ClusterQueueReference(prodClusterQ.Name)
 
 		ginkgo.By("create a job")
-		prodJob := testing.MakeJob("prod-job", ns.Name).Queue(localQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
+		prodJob := testingjob.MakeJob("prod-job", ns.Name).Queue(localQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
 		gomega.Expect(k8sClient.Create(ctx, prodJob)).Should(gomega.Succeed())
 
 		ginkgo.By("job should be suspend")
