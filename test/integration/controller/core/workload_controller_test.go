@@ -339,4 +339,57 @@ var _ = ginkgo.Describe("Workload controller", func() {
 			})
 		})
 	})
+
+	ginkgo.When("When the workload defines only resource limits", func() {
+		ginkgo.BeforeEach(func() {
+			clusterQueue = testing.MakeClusterQueue("clusterqueue").
+				ResourceGroup(*testing.MakeFlavorQuotas(flavorOnDemand).
+					Resource(corev1.ResourceCPU, "5", "5").Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteRuntimeClass(ctx, k8sClient, runtimeClass)).To(gomega.Succeed())
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		})
+
+		ginkgo.It("The limits should be used as request values", func() {
+			ginkgo.By("Create and admit workload")
+			wl = testing.MakeWorkload("one", ns.Name).
+				Queue(localQueue.Name).
+				Limit(corev1.ResourceCPU, "1").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+			admitPatch := workload.BaseSSAWorkload(wl)
+			admitPatch.Status.Admission = testing.MakeAdmission(clusterQueue.Name).
+				Flavor(corev1.ResourceCPU, flavorOnDemand).Obj()
+			gomega.Expect(k8sClient.Status().Patch(ctx, admitPatch, client.Apply, client.FieldOwner(constants.AdmissionName))).To(gomega.Succeed())
+
+			ginkgo.By("Got ClusterQueueStatus")
+			gomega.Eventually(func() kueue.ClusterQueueStatus {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
+				return updatedCQ.Status
+			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
+				PendingWorkloads:  0,
+				AdmittedWorkloads: 1,
+				FlavorsUsage: []kueue.FlavorUsage{{
+					Name: flavorOnDemand,
+					Resources: []kueue.ResourceUsage{{
+						Name:  corev1.ResourceCPU,
+						Total: resource.MustParse("1"),
+					}},
+				}},
+			}, ignoreCqCondition))
+
+			ginkgo.By("PodSets do not change", func() {
+				wlRead := kueue.Workload{}
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &wlRead)).To(gomega.Succeed())
+				gomega.Expect(equality.Semantic.DeepEqual(wl.Spec.PodSets, wlRead.Spec.PodSets)).To(gomega.BeTrue())
+			})
+		})
+	})
+
 })

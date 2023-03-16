@@ -23,7 +23,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -70,113 +69,6 @@ func TestWorkloadWebhookDefault(t *testing.T) {
 					PodSets: []kueue.PodSet{
 						{},
 						{},
-					},
-				},
-			},
-		},
-		"copy limits to requests": {
-			wl: kueue.Workload{
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{
-						{
-							Name: "foo",
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									InitContainers: []corev1.Container{
-										{
-											Resources: corev1.ResourceRequirements{
-												Requests: corev1.ResourceList{
-													"cpu": resource.MustParse("1"),
-												},
-												Limits: corev1.ResourceList{
-													"cpu":    resource.MustParse("2"),
-													"memory": resource.MustParse("1Mi"),
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-						{
-							Name: "bar",
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									Containers: []corev1.Container{
-										{
-											Resources: corev1.ResourceRequirements{
-												Limits: corev1.ResourceList{
-													"cpu":    resource.MustParse("1.5"),
-													"memory": resource.MustParse("5Mi"),
-												},
-											},
-										},
-										{
-											Resources: corev1.ResourceRequirements{
-												Requests: corev1.ResourceList{
-													"cpu": resource.MustParse("1"),
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			wantWl: kueue.Workload{
-				Spec: kueue.WorkloadSpec{
-					PodSets: []kueue.PodSet{
-						{
-							Name: "foo",
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									InitContainers: []corev1.Container{
-										{
-											Resources: corev1.ResourceRequirements{
-												Requests: corev1.ResourceList{
-													"cpu":    resource.MustParse("1"),
-													"memory": resource.MustParse("1Mi"),
-												},
-												Limits: corev1.ResourceList{
-													"cpu":    resource.MustParse("2"),
-													"memory": resource.MustParse("1Mi"),
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-						{
-							Name: "bar",
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{
-									Containers: []corev1.Container{
-										{
-											Resources: corev1.ResourceRequirements{
-												Requests: corev1.ResourceList{
-													"cpu":    resource.MustParse("1.5"),
-													"memory": resource.MustParse("5Mi"),
-												},
-												Limits: corev1.ResourceList{
-													"cpu":    resource.MustParse("1.5"),
-													"memory": resource.MustParse("5Mi"),
-												},
-											},
-										},
-										{
-											Resources: corev1.ResourceRequirements{
-												Requests: corev1.ResourceList{
-													"cpu": resource.MustParse("1"),
-												},
-											},
-										},
-									},
-								},
-							},
-						},
 					},
 				},
 			},

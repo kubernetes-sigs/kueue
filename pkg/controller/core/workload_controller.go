@@ -205,6 +205,7 @@ func (r *WorkloadReconciler) Create(e event.CreateEvent) bool {
 	wlCopy := wl.DeepCopy()
 	handlePodOverhead(r.log, wlCopy, r.client)
 	r.handlePodLimitRange(log, wlCopy)
+	r.handleLimitsToRequests(wlCopy)
 
 	if wl.Status.Admission == nil {
 		if !r.queues.AddOrUpdateWorkload(wlCopy) {
@@ -285,6 +286,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 	// We do not handle old workload here as it will be deleted or replaced by new one anyway.
 	handlePodOverhead(r.log, wlCopy, r.client)
 	r.handlePodLimitRange(log, wlCopy)
+	r.handleLimitsToRequests(wlCopy)
 
 	switch {
 	case status == finished:
@@ -461,6 +463,20 @@ func (r *WorkloadReconciler) handlePodLimitRange(log logr.Logger, wl *kueue.Work
 			res := &pod.Containers[ci].Resources
 			res.Limits = resource.MergeResourceListKeepFirst(res.Limits, containerLimits.Default)
 			res.Requests = resource.MergeResourceListKeepFirst(res.Requests, containerLimits.DefaultRequest)
+		}
+	}
+}
+
+func (r *WorkloadReconciler) handleLimitsToRequests(wl *kueue.Workload) {
+	for pi := range wl.Spec.PodSets {
+		pod := &wl.Spec.PodSets[pi].Template.Spec
+		for ci := range pod.InitContainers {
+			res := &pod.InitContainers[ci].Resources
+			res.Requests = resource.MergeResourceListKeepFirst(res.Requests, res.Limits)
+		}
+		for ci := range pod.Containers {
+			res := &pod.Containers[ci].Resources
+			res.Requests = resource.MergeResourceListKeepFirst(res.Requests, res.Limits)
 		}
 	}
 }
