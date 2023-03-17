@@ -20,15 +20,17 @@ import (
 	"context"
 	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 const (
-	WorkloadQueueKey        = "spec.queueName"
-	WorkloadClusterQueueKey = "status.admission.clusterQueue"
-	QueueClusterQueueKey    = "spec.clusterQueue"
+	WorkloadQueueKey           = "spec.queueName"
+	WorkloadClusterQueueKey    = "status.admission.clusterQueue"
+	QueueClusterQueueKey       = "spec.clusterQueue"
+	LimitRangeHasContainerType = "spec.hasContainerType"
 )
 
 func IndexQueueClusterQueue(obj client.Object) []string {
@@ -58,6 +60,20 @@ func IndexWorkloadClusterQueue(obj client.Object) []string {
 	return []string{string(wl.Status.Admission.ClusterQueue)}
 }
 
+func IndexLimitRangeHasContainerType(obj client.Object) []string {
+	lr, ok := obj.(*corev1.LimitRange)
+	if !ok {
+		return nil
+	}
+
+	for i := range lr.Spec.Limits {
+		if lr.Spec.Limits[i].Type == corev1.LimitTypeContainer {
+			return []string{"true"}
+		}
+	}
+	return nil
+}
+
 // Setup sets the index with the given fields for core apis.
 func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadQueueKey, IndexWorkloadQueue); err != nil {
@@ -68,6 +84,9 @@ func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 	}
 	if err := indexer.IndexField(ctx, &kueue.LocalQueue{}, QueueClusterQueueKey, IndexQueueClusterQueue); err != nil {
 		return fmt.Errorf("setting index on clusterQueue for localQueue: %w", err)
+	}
+	if err := indexer.IndexField(ctx, &corev1.LimitRange{}, LimitRangeHasContainerType, IndexLimitRangeHasContainerType); err != nil {
+		return fmt.Errorf("setting index on hasContainerType for limitRange: %w", err)
 	}
 	return nil
 }

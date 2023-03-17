@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,7 +36,10 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/queue"
+	"sigs.k8s.io/kueue/pkg/util/limitrange"
+	"sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -119,6 +123,7 @@ func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *c
 }
 
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
+//+kubebuilder:rbac:groups="",resources=limitranges,verbs=get;list;watch
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
@@ -200,6 +205,8 @@ func (r *WorkloadReconciler) Create(e event.CreateEvent) bool {
 
 	wlCopy := wl.DeepCopy()
 	handlePodOverhead(r.log, wlCopy, r.client)
+	r.handlePodLimitRange(log, wlCopy)
+	r.handleLimitsToRequests(wlCopy)
 
 	if wl.Status.Admission == nil {
 		if !r.queues.AddOrUpdateWorkload(wlCopy) {
@@ -279,6 +286,8 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 	wlCopy := wl.DeepCopy()
 	// We do not handle old workload here as it will be deleted or replaced by new one anyway.
 	handlePodOverhead(r.log, wlCopy, r.client)
+	r.handlePodLimitRange(log, wlCopy)
+	r.handleLimitsToRequests(wlCopy)
 
 	switch {
 	case status == finished:
@@ -422,6 +431,53 @@ func handlePodOverhead(log logr.Logger, wl *kueue.Workload, c client.Client) {
 			if runtimeClass.Overhead != nil {
 				podSpec.Overhead = runtimeClass.Overhead.PodFixed
 			}
+		}
+	}
+}
+
+func (r *WorkloadReconciler) handlePodLimitRange(log logr.Logger, wl *kueue.Workload) {
+	ctx := context.TODO()
+	// get the list of limit ranges
+	var list corev1.LimitRangeList
+	if err := r.client.List(ctx, &list, &client.ListOptions{Namespace: wl.Namespace}, client.MatchingFields{indexer.LimitRangeHasContainerType: "true"}); err != nil {
+		log.Error(err, "Could not list LimitRanges")
+		return
+	}
+
+	if len(list.Items) == 0 {
+		return
+	}
+	summary := limitrange.Summarize(list.Items...)
+	containerLimits, found := summary[corev1.LimitTypeContainer]
+	if !found {
+		return
+	}
+
+	for pi := range wl.Spec.PodSets {
+		pod := &wl.Spec.PodSets[pi].Template.Spec
+		for ci := range pod.InitContainers {
+			res := &pod.InitContainers[ci].Resources
+			res.Limits = resource.MergeResourceListKeepFirst(res.Limits, containerLimits.Default)
+			res.Requests = resource.MergeResourceListKeepFirst(res.Requests, containerLimits.DefaultRequest)
+		}
+		for ci := range pod.Containers {
+			res := &pod.Containers[ci].Resources
+			res.Limits = resource.MergeResourceListKeepFirst(res.Limits, containerLimits.Default)
+			res.Requests = resource.MergeResourceListKeepFirst(res.Requests, containerLimits.DefaultRequest)
+		}
+	}
+}
+
+func (r *WorkloadReconciler) handleLimitsToRequests(wl *kueue.Workload) {
+	for pi := range wl.Spec.PodSets {
+		pod := &wl.Spec.PodSets[pi].Template.Spec
+		for ci := range pod.InitContainers {
+			res := &pod.InitContainers[ci].Resources
+			res.Requests = resource.MergeResourceListKeepFirst(res.Requests, res.Limits)
+		}
+		for ci := range pod.Containers {
+			res := &pod.Containers[ci].Resources
+			res.Requests = resource.MergeResourceListKeepFirst(res.Requests, res.Limits)
 		}
 	}
 }
