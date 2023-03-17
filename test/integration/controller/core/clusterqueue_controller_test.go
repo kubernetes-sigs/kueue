@@ -44,7 +44,7 @@ const (
 	flavorCPUArchB = "arch-b"
 )
 
-var ignoreCQConditionTimestamps = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
+var ignoreConditionTimestamps = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
 
 var _ = ginkgo.Describe("ClusterQueue controller", func() {
 	var (
@@ -163,7 +163,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 						Message: "Can't admit new workloads; some flavors are not found",
 					},
 				},
-			}, ignoreCQConditionTimestamps))
+			}, ignoreConditionTimestamps))
 			// Workloads are inadmissible because ResourceFlavors don't exist here yet.
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 5)
 			util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 0)
@@ -247,7 +247,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 						Message: "Can admit new workloads",
 					},
 				},
-			}, ignoreCQConditionTimestamps))
+			}, ignoreConditionTimestamps))
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 1, 0)
 			util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 4)
 
@@ -267,7 +267,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 						Message: "Can admit new workloads",
 					},
 				},
-			}, ignoreCQConditionTimestamps))
+			}, ignoreConditionTimestamps))
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 			util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 0)
 		})
@@ -317,7 +317,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 					Reason:  "FlavorNotFound",
 					Message: "Can't admit new workloads; some flavors are not found",
 				},
-			}, ignoreCQConditionTimestamps))
+			}, ignoreConditionTimestamps))
 
 			ginkgo.By("One of flavors is not found")
 			cpuArchAFlavor = testing.MakeResourceFlavor(flavorCPUArchA).Obj()
@@ -333,7 +333,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 					Reason:  "FlavorNotFound",
 					Message: "Can't admit new workloads; some flavors are not found",
 				},
-			}, ignoreCQConditionTimestamps))
+			}, ignoreConditionTimestamps))
 
 			ginkgo.By("All flavors are created")
 			cpuArchBFlavor = testing.MakeResourceFlavor(flavorCPUArchB).Obj()
@@ -349,7 +349,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 					Reason:  "Ready",
 					Message: "Can admit new workloads",
 				},
-			}, ignoreCQConditionTimestamps))
+			}, ignoreConditionTimestamps))
 		})
 	})
 

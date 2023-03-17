@@ -31,10 +31,18 @@ import (
 // +kubebuilder:docs-gen:collapse=Imports
 
 var _ = ginkgo.Describe("Queue controller", func() {
+	const (
+		flavorModelC = "model-c"
+		flavorModelD = "model-d"
+	)
 	var (
-		ns           *corev1.Namespace
-		queue        *kueue.LocalQueue
-		clusterQueue *kueue.ClusterQueue
+		ns              *corev1.Namespace
+		queue           *kueue.LocalQueue
+		clusterQueue    *kueue.ClusterQueue
+		resourceFlavors = []kueue.ResourceFlavor{
+			*testing.MakeResourceFlavor(flavorModelC).Label(resourceGPU.String(), flavorModelC).Obj(),
+			*testing.MakeResourceFlavor(flavorModelD).Label(resourceGPU.String(), flavorModelD).Obj(),
+		}
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -49,20 +57,103 @@ var _ = ginkgo.Describe("Queue controller", func() {
 	ginkgo.BeforeEach(func() {
 		clusterQueue = testing.MakeClusterQueue("cluster-queue.queue-controller").
 			ResourceGroup(
-				*testing.MakeFlavorQuotas(flavorModelA).Resource(resourceGPU, "5", "5").Obj(),
-				*testing.MakeFlavorQuotas(flavorModelB).Resource(resourceGPU, "5", "5").Obj(),
+				*testing.MakeFlavorQuotas(flavorModelC).Resource(resourceGPU, "5", "5").Obj(),
+				*testing.MakeFlavorQuotas(flavorModelD).Resource(resourceGPU, "5", "5").Obj(),
 			).Obj()
-		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 		queue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 		gomega.Expect(k8sClient.Create(ctx, queue)).To(gomega.Succeed())
 	})
 
 	ginkgo.AfterEach(func() {
+		for _, rf := range resourceFlavors {
+			gomega.Expect(util.DeleteResourceFlavor(ctx, k8sClient, &rf)).To(gomega.Succeed())
+		}
 		gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, queue)).To(gomega.Succeed())
 		gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, clusterQueue)).To(gomega.Succeed())
 	})
 
+	ginkgo.It("Should update conditions when clusterQueues that its localQueue references are updated", func() {
+		gomega.Eventually(func() []metav1.Condition {
+			var updatedQueue kueue.LocalQueue
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
+			return updatedQueue.Status.Conditions
+		}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]metav1.Condition{
+			{
+				Type:    kueue.LocalQueueActive,
+				Status:  metav1.ConditionFalse,
+				Reason:  "ClusterQueueDoesNotExist",
+				Message: "Can't submit new workloads to clusterQueue",
+			},
+		}, ignoreConditionTimestamps))
+
+		ginkgo.By("Creating a clusterQueue")
+		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+		gomega.Eventually(func() []metav1.Condition {
+			var updatedQueue kueue.LocalQueue
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
+			return updatedQueue.Status.Conditions
+		}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]metav1.Condition{
+			{
+				Type:    kueue.LocalQueueActive,
+				Status:  metav1.ConditionFalse,
+				Reason:  "ClusterQueueIsInactive",
+				Message: "Can't submit new workloads to clusterQueue",
+			},
+		}, ignoreConditionTimestamps))
+
+		ginkgo.By("Creating resourceFlavors")
+		for _, rf := range resourceFlavors {
+			gomega.Expect(k8sClient.Create(ctx, &rf)).To(gomega.Succeed())
+		}
+		gomega.Eventually(func() []metav1.Condition {
+			var updatedCQ kueue.ClusterQueue
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
+			return updatedCQ.Status.Conditions
+		}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]metav1.Condition{
+			{
+				Type:    kueue.ClusterQueueActive,
+				Status:  metav1.ConditionTrue,
+				Reason:  "Ready",
+				Message: "Can admit new workloads",
+			},
+		}, ignoreConditionTimestamps))
+		gomega.Eventually(func() []metav1.Condition {
+			var updatedQueue kueue.LocalQueue
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
+			return updatedQueue.Status.Conditions
+		}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]metav1.Condition{
+			{
+				Type:    kueue.LocalQueueActive,
+				Status:  metav1.ConditionTrue,
+				Reason:  "Ready",
+				Message: "Can submit new workloads to clusterQueue",
+			},
+		}, ignoreConditionTimestamps))
+
+		ginkgo.By("Deleting a clusterQueue")
+		gomega.Expect(k8sClient.Delete(ctx, clusterQueue)).To(gomega.Succeed())
+		gomega.Eventually(func() []metav1.Condition {
+			var updatedQueue kueue.LocalQueue
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
+			return updatedQueue.Status.Conditions
+		}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]metav1.Condition{
+			{
+				Type:    kueue.LocalQueueActive,
+				Status:  metav1.ConditionFalse,
+				Reason:  "ClusterQueueDoesNotExist",
+				Message: "Can't submit new workloads to clusterQueue",
+			},
+		}, ignoreConditionTimestamps))
+	})
+
 	ginkgo.It("Should update status when workloads are created", func() {
+		ginkgo.By("Creating resourceFlavors")
+		for _, rf := range resourceFlavors {
+			gomega.Expect(k8sClient.Create(ctx, &rf)).To(gomega.Succeed())
+		}
+		ginkgo.By("Creating a clusterQueue")
+		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+
 		workloads := []*kueue.Workload{
 			testing.MakeWorkload("one", ns.Name).
 				Queue(queue.Name).
@@ -83,7 +174,18 @@ var _ = ginkgo.Describe("Queue controller", func() {
 			var updatedQueue kueue.LocalQueue
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
 			return updatedQueue.Status
-		}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{AdmittedWorkloads: 0, PendingWorkloads: 3}))
+		}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{
+			AdmittedWorkloads: 0,
+			PendingWorkloads:  3,
+			Conditions: []metav1.Condition{
+				{
+					Type:    kueue.LocalQueueActive,
+					Status:  metav1.ConditionTrue,
+					Reason:  "Ready",
+					Message: "Can submit new workloads to clusterQueue",
+				},
+			},
+		}, ignoreConditionTimestamps))
 
 		ginkgo.By("Admitting workloads")
 		for _, w := range workloads {
@@ -99,7 +201,18 @@ var _ = ginkgo.Describe("Queue controller", func() {
 			var updatedQueue kueue.LocalQueue
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
 			return updatedQueue.Status
-		}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{AdmittedWorkloads: 3, PendingWorkloads: 0}))
+		}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{
+			AdmittedWorkloads: 3,
+			PendingWorkloads:  0,
+			Conditions: []metav1.Condition{
+				{
+					Type:    kueue.LocalQueueActive,
+					Status:  metav1.ConditionTrue,
+					Reason:  "Ready",
+					Message: "Can submit new workloads to clusterQueue",
+				},
+			},
+		}, ignoreConditionTimestamps))
 
 		ginkgo.By("Finishing workloads")
 		util.FinishWorkloads(ctx, k8sClient, workloads...)
@@ -107,6 +220,15 @@ var _ = ginkgo.Describe("Queue controller", func() {
 			var updatedQueue kueue.LocalQueue
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), &updatedQueue)).To(gomega.Succeed())
 			return updatedQueue.Status
-		}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{}))
+		}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.LocalQueueStatus{
+			Conditions: []metav1.Condition{
+				{
+					Type:    kueue.LocalQueueActive,
+					Status:  metav1.ConditionTrue,
+					Reason:  "Ready",
+					Message: "Can submit new workloads to clusterQueue",
+				},
+			},
+		}, ignoreConditionTimestamps))
 	})
 })

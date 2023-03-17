@@ -160,6 +160,8 @@ func (r *ClusterQueueReconciler) Create(e event.CreateEvent) bool {
 		// No need to interact with the cache for other objects.
 		return true
 	}
+	defer r.notifyWatchers(nil, cq)
+
 	log := r.log.WithValues("clusterQueue", klog.KObj(cq))
 	log.V(2).Info("ClusterQueue create event")
 	ctx := ctrl.LoggerInto(context.Background(), log)
