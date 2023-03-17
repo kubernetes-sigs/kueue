@@ -48,11 +48,13 @@ type PodSetResources struct {
 
 func NewInfo(w *kueue.Workload) *Info {
 	info := &Info{
-		Obj:           w,
-		TotalRequests: totalRequests(w),
+		Obj: w,
 	}
 	if w.Status.Admission != nil {
 		info.ClusterQueue = string(w.Status.Admission.ClusterQueue)
+		info.TotalRequests = totalRequestsFromAdmission(w)
+	} else {
+		info.TotalRequests = totalRequests(w)
 	}
 	return info
 }
@@ -74,13 +76,6 @@ func totalRequests(wl *kueue.Workload) []PodSetResources {
 		return nil
 	}
 	res := make([]PodSetResources, 0, len(wl.Spec.PodSets))
-	var podSetFlavors map[string]map[corev1.ResourceName]kueue.ResourceFlavorReference
-	if wl.Status.Admission != nil {
-		podSetFlavors = make(map[string]map[corev1.ResourceName]kueue.ResourceFlavorReference, len(wl.Status.Admission.PodSetFlavors))
-		for _, ps := range wl.Status.Admission.PodSetFlavors {
-			podSetFlavors[ps.Name] = ps.Flavors
-		}
-	}
 
 	for _, ps := range wl.Spec.PodSets {
 		setRes := PodSetResources{
@@ -88,13 +83,22 @@ func totalRequests(wl *kueue.Workload) []PodSetResources {
 		}
 		setRes.Requests = podRequests(&ps.Template.Spec)
 		setRes.Requests.scale(int64(ps.Count))
-		flavors := podSetFlavors[ps.Name]
-		if len(flavors) > 0 {
-			setRes.Flavors = make(map[corev1.ResourceName]kueue.ResourceFlavorReference, len(flavors))
-			for r, t := range flavors {
-				setRes.Flavors[r] = t
-			}
+		res = append(res, setRes)
+	}
+	return res
+}
+
+func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
+	if wl.Status.Admission == nil {
+		return nil
+	}
+	res := make([]PodSetResources, 0, len(wl.Spec.PodSets))
+	for _, ps := range wl.Status.Admission.PodSetFlavors {
+		setRes := PodSetResources{
+			Name: ps.Name,
 		}
+		setRes.Flavors = ps.Flavors
+		setRes.Requests = newRequests(ps.Resources)
 		res = append(res, setRes)
 	}
 	return res
