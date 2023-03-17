@@ -15,7 +15,12 @@ You can install Kueue on top of a vanilla Kubernetes cluster. Kueue does not rep
 * Compute resources are elastic and can be scaled up and down.
 * Compute resources are heterogeneous (in architecture, availability, price, etc.).
 
-![Theory of Operation](/images/theory-of-operation.svg)
+<figure>
+  <img src="/images/theory-of-operation.svg" alt="theory-of-operation" style="width:100%">
+  <figcaption>Theory Of Operations</figcaption>
+</figure>
+
+Batch Admin creates resources needed to use Kueue. Batch User runs jobs. [Learn more about the different personas](/docs/tasks).
 
 Kueue APIs allow you to express:
 

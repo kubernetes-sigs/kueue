@@ -34,7 +34,8 @@ single tenant.
 An application that will run to completion. It is the unit of _admission_ in
 Kueue. Sometimes referred to as _job_.
 
-![Components](/images/components-diagram.svg)
+![Components](/images/queueing-components.svg)
+
 ## Glossary
 
 ### Admission
@@ -50,7 +51,7 @@ Sometimes referred to as _workload scheduling_ or _job scheduling_
 
 A group of ClusterQueues that can borrow unused quota from each other.
 
-![Cohort](/images/cohorts-v2.svg)
+![Cohort](/images/cluster-queue.svg)
 
 ### Queueing
 

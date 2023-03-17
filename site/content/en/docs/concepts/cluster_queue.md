@@ -150,6 +150,8 @@ The default queueing strategy is `BestEffortFIFO`.
 ClusterQueues can be grouped in _cohorts_. ClusterQueues that belong to the
 same cohort can borrow unused quota from each other.
 
+![Cohort](/images/cluster-queue.svg)
+
 To add a ClusterQueue to a cohort, specify the name of the cohort in the
 `.spec.cohort` field. All ClusterQueues that have a matching `spec.cohort` are
 part of the same cohort. If the `spec.cohort` field is empty, the ClusterQueue
