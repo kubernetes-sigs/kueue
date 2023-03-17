@@ -181,14 +181,19 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			ginkgo.By("Admitting workloads")
 			admissions := []*kueue.Admission{
 				testing.MakeAdmission(clusterQueue.Name).
+					Resource(corev1.ResourceCPU, "2").Resource(resourceGPU, "2").
 					Flavor(corev1.ResourceCPU, flavorOnDemand).Flavor(resourceGPU, flavorModelA).Obj(),
 				testing.MakeAdmission(clusterQueue.Name).
+					Resource(corev1.ResourceCPU, "3").Resource(resourceGPU, "3").
 					Flavor(corev1.ResourceCPU, flavorOnDemand).Flavor(resourceGPU, flavorModelA).Obj(),
 				testing.MakeAdmission(clusterQueue.Name).
+					Resource(corev1.ResourceCPU, "1").Resource(resourceGPU, "1").
 					Flavor(corev1.ResourceCPU, flavorOnDemand).Flavor(resourceGPU, flavorModelB).Obj(),
 				testing.MakeAdmission(clusterQueue.Name).
+					Resource(corev1.ResourceCPU, "1").Resource(resourceGPU, "1").
 					Flavor(corev1.ResourceCPU, flavorSpot).Flavor(resourceGPU, flavorModelB).Obj(),
 				testing.MakeAdmission("other").
+					Resource(corev1.ResourceCPU, "1").Resource(resourceGPU, "1").
 					Flavor(corev1.ResourceCPU, flavorSpot).Flavor(resourceGPU, flavorModelB).Obj(),
 				nil,
 			}
