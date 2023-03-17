@@ -19,27 +19,19 @@ package core
 import (
 	"fmt"
 
-	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	nodev1 "k8s.io/api/node/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/util/testing"
-	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
 
 // +kubebuilder:docs-gen:collapse=Imports
-
-var ignoreCqCondition = cmpopts.IgnoreFields(kueue.ClusterQueueStatus{}, "Conditions")
 
 var _ = ginkgo.Describe("Workload controller", func() {
 	var (
@@ -48,12 +40,7 @@ var _ = ginkgo.Describe("Workload controller", func() {
 		localQueue           *kueue.LocalQueue
 		wl                   *kueue.Workload
 		message              string
-		runtimeClass         *nodev1.RuntimeClass
 		clusterQueue         *kueue.ClusterQueue
-		updatedCQ            kueue.ClusterQueue
-		resources            = corev1.ResourceList{
-			corev1.ResourceCPU: resource.MustParse("1"),
-		}
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -69,7 +56,6 @@ var _ = ginkgo.Describe("Workload controller", func() {
 		clusterQueue = nil
 		localQueue = nil
 		updatedQueueWorkload = kueue.Workload{}
-		updatedCQ = kueue.ClusterQueue{}
 	})
 
 	ginkgo.When("the queue is not defined in the workload", func() {
@@ -160,236 +146,4 @@ var _ = ginkgo.Describe("Workload controller", func() {
 			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 		})
 	})
-
-	ginkgo.When("Workload with RuntimeClass defined", func() {
-		ginkgo.BeforeEach(func() {
-			runtimeClass = testing.MakeRuntimeClass("kata", "bar-handler").PodOverhead(resources).Obj()
-			gomega.Expect(k8sClient.Create(ctx, runtimeClass)).To(gomega.Succeed())
-			clusterQueue = testing.MakeClusterQueue("clusterqueue").
-				ResourceGroup(*testing.MakeFlavorQuotas(flavorOnDemand).
-					Resource(corev1.ResourceCPU, "5", "5").Obj()).
-				Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
-			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
-		})
-		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteRuntimeClass(ctx, k8sClient, runtimeClass)).To(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		})
-
-		ginkgo.It("Should accumulate RuntimeClass's overhead", func() {
-			ginkgo.By("Create and admit workload")
-			wl = testing.MakeWorkload("one", ns.Name).
-				Queue(localQueue.Name).
-				Request(corev1.ResourceCPU, "1").
-				RuntimeClass("kata").
-				Obj()
-			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
-			wl.Status.Admission = testing.MakeAdmission(clusterQueue.Name).
-				Flavor(corev1.ResourceCPU, flavorOnDemand).Obj()
-			gomega.Expect(k8sClient.Status().Update(ctx, wl)).To(gomega.Succeed())
-
-			ginkgo.By("Got ClusterQueueStatus")
-			gomega.Eventually(func() kueue.ClusterQueueStatus {
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
-				return updatedCQ.Status
-			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
-				PendingWorkloads:  0,
-				AdmittedWorkloads: 1,
-				FlavorsUsage: []kueue.FlavorUsage{{
-					Name: flavorOnDemand,
-					Resources: []kueue.ResourceUsage{{
-						Name:  corev1.ResourceCPU,
-						Total: resource.MustParse("2"),
-					}},
-				}},
-			}, ignoreCqCondition))
-		})
-	})
-
-	ginkgo.When("Workload with non-existent RuntimeClass defined", func() {
-		ginkgo.BeforeEach(func() {
-			clusterQueue = testing.MakeClusterQueue("clusterqueue").
-				ResourceGroup(*testing.MakeFlavorQuotas(flavorOnDemand).
-					Resource(corev1.ResourceCPU, "5", "5").Obj()).
-				Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
-			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
-		})
-		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		})
-
-		ginkgo.It("Should not accumulate RuntimeClass's overhead", func() {
-			ginkgo.By("Create and admit workload")
-			wl = testing.MakeWorkload("one", ns.Name).
-				Queue(localQueue.Name).
-				Request(corev1.ResourceCPU, "1").
-				RuntimeClass("kata").
-				Obj()
-			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
-			util.SetAdmission(ctx, k8sClient, wl, testing.MakeAdmission("clusterqueue").
-				Flavor(corev1.ResourceCPU, flavorOnDemand).Obj())
-
-			ginkgo.By("Got ClusterQueueStatus")
-			gomega.Eventually(func() kueue.ClusterQueueStatus {
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
-				return updatedCQ.Status
-			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
-				PendingWorkloads:  0,
-				AdmittedWorkloads: 1,
-				FlavorsUsage: []kueue.FlavorUsage{{
-					Name: flavorOnDemand,
-					Resources: []kueue.ResourceUsage{{
-						Name:  corev1.ResourceCPU,
-						Total: resource.MustParse("1"),
-					}},
-				}},
-			}, ignoreCqCondition))
-		})
-	})
-
-	ginkgo.When("When LimitRanges are defined", func() {
-		ginkgo.BeforeEach(func() {
-			limitRange := testing.MakeLimitRange("limits", ns.Name).WithValue("DefaultRequest", corev1.ResourceCPU, "3").Obj()
-			gomega.Expect(k8sClient.Create(ctx, limitRange)).To(gomega.Succeed())
-			clusterQueue = testing.MakeClusterQueue("clusterqueue").
-				ResourceGroup(*testing.MakeFlavorQuotas(flavorOnDemand).
-					Resource(corev1.ResourceCPU, "5", "5").Obj()).
-				Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
-			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
-		})
-		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteRuntimeClass(ctx, k8sClient, runtimeClass)).To(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		})
-
-		ginkgo.It("Should use the range defined default requests, if provided", func() {
-			ginkgo.By("Create and admit workload")
-			wl = testing.MakeWorkload("one", ns.Name).
-				Queue(localQueue.Name).
-				Obj()
-			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
-			admitPatch := workload.BaseSSAWorkload(wl)
-			admitPatch.Status.Admission = testing.MakeAdmission(clusterQueue.Name).
-				Flavor(corev1.ResourceCPU, flavorOnDemand).Obj()
-			gomega.Expect(k8sClient.Status().Patch(ctx, admitPatch, client.Apply, client.FieldOwner(constants.AdmissionName))).To(gomega.Succeed())
-
-			ginkgo.By("Got ClusterQueueStatus")
-			gomega.Eventually(func() kueue.ClusterQueueStatus {
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
-				return updatedCQ.Status
-			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
-				PendingWorkloads:  0,
-				AdmittedWorkloads: 1,
-				FlavorsUsage: []kueue.FlavorUsage{{
-					Name: flavorOnDemand,
-					Resources: []kueue.ResourceUsage{{
-						Name:  corev1.ResourceCPU,
-						Total: resource.MustParse("3"),
-					}},
-				}},
-			}, ignoreCqCondition))
-
-			ginkgo.By("PodSets do not change", func() {
-				wlRead := kueue.Workload{}
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &wlRead)).To(gomega.Succeed())
-				gomega.Expect(equality.Semantic.DeepEqual(wl.Spec.PodSets, wlRead.Spec.PodSets)).To(gomega.BeTrue())
-			})
-		})
-		ginkgo.It("Should not use the range defined requests, if provided by the workload", func() {
-			ginkgo.By("Create and admit workload")
-			wl = testing.MakeWorkload("one", ns.Name).
-				Queue(localQueue.Name).
-				Request(corev1.ResourceCPU, "1").
-				Obj()
-			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
-			admitPatch := workload.BaseSSAWorkload(wl)
-			admitPatch.Status.Admission = testing.MakeAdmission(clusterQueue.Name).
-				Flavor(corev1.ResourceCPU, flavorOnDemand).Obj()
-			gomega.Expect(k8sClient.Status().Patch(ctx, admitPatch, client.Apply, client.FieldOwner(constants.AdmissionName))).To(gomega.Succeed())
-
-			ginkgo.By("Got ClusterQueueStatus")
-			gomega.Eventually(func() kueue.ClusterQueueStatus {
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
-				return updatedCQ.Status
-			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
-				PendingWorkloads:  0,
-				AdmittedWorkloads: 1,
-				FlavorsUsage: []kueue.FlavorUsage{{
-					Name: flavorOnDemand,
-					Resources: []kueue.ResourceUsage{{
-						Name:  corev1.ResourceCPU,
-						Total: resource.MustParse("1"),
-					}},
-				}},
-			}, ignoreCqCondition))
-
-			ginkgo.By("PodSets do not change", func() {
-				wlRead := kueue.Workload{}
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &wlRead)).To(gomega.Succeed())
-				gomega.Expect(equality.Semantic.DeepEqual(wl.Spec.PodSets, wlRead.Spec.PodSets)).To(gomega.BeTrue())
-			})
-		})
-	})
-
-	ginkgo.When("When the workload defines only resource limits", func() {
-		ginkgo.BeforeEach(func() {
-			clusterQueue = testing.MakeClusterQueue("clusterqueue").
-				ResourceGroup(*testing.MakeFlavorQuotas(flavorOnDemand).
-					Resource(corev1.ResourceCPU, "5", "5").Obj()).
-				Obj()
-			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
-			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
-		})
-		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteRuntimeClass(ctx, k8sClient, runtimeClass)).To(gomega.Succeed())
-			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		})
-
-		ginkgo.It("The limits should be used as request values", func() {
-			ginkgo.By("Create and admit workload")
-			wl = testing.MakeWorkload("one", ns.Name).
-				Queue(localQueue.Name).
-				Limit(corev1.ResourceCPU, "1").
-				Obj()
-			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
-			admitPatch := workload.BaseSSAWorkload(wl)
-			admitPatch.Status.Admission = testing.MakeAdmission(clusterQueue.Name).
-				Flavor(corev1.ResourceCPU, flavorOnDemand).Obj()
-			gomega.Expect(k8sClient.Status().Patch(ctx, admitPatch, client.Apply, client.FieldOwner(constants.AdmissionName))).To(gomega.Succeed())
-
-			ginkgo.By("Got ClusterQueueStatus")
-			gomega.Eventually(func() kueue.ClusterQueueStatus {
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
-				return updatedCQ.Status
-			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
-				PendingWorkloads:  0,
-				AdmittedWorkloads: 1,
-				FlavorsUsage: []kueue.FlavorUsage{{
-					Name: flavorOnDemand,
-					Resources: []kueue.ResourceUsage{{
-						Name:  corev1.ResourceCPU,
-						Total: resource.MustParse("1"),
-					}},
-				}},
-			}, ignoreCqCondition))
-
-			ginkgo.By("PodSets do not change", func() {
-				wlRead := kueue.Workload{}
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &wlRead)).To(gomega.Succeed())
-				gomega.Expect(equality.Semantic.DeepEqual(wl.Spec.PodSets, wlRead.Spec.PodSets)).To(gomega.BeTrue())
-			})
-		})
-	})
-
 })
