@@ -80,7 +80,7 @@ To install a custom-configured released version of Kueue in your cluster, execut
 3. In the `kueue-manager-config` ConfigMap manifest, edit the
 `controller_manager_config.yaml` data entry. The entry represents
 the default Kueue Configuration
-struct ([v1alpha1@v0.2.1](https://pkg.go.dev/sigs.k8s.io/kueue@v0.2.1/apis/config/v1alpha1#Configuration)).
+struct ([v1beta1@main](https://pkg.go.dev/sigs.k8s.io/kueue@main/apis/config/v1beta1#Configuration)).
 The contents of the ConfigMap are similar to the following:
 
 > __The `namespace` and `internalCertManagement` fields are available in Kueue v0.3.0 and later__
@@ -93,7 +93,7 @@ metadata:
   namespace: kueue-system
 data:
   controller_manager_config.yaml: |
-    apiVersion: config.kueue.x-k8s.io/v1alpha1
+    apiVersion: config.kueue.x-k8s.io/v1beta1
     kind: Configuration
     namespace: kueue-system
     health:

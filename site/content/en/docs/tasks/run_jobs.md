@@ -116,7 +116,7 @@ Name:         sample-job-sl4bm
 Namespace:    default
 Labels:       <none>
 Annotations:  <none>
-API Version:  kueue.x-k8s.io/v1alpha2
+API Version:  kueue.x-k8s.io/v1beta1
 Kind:         Workload
 Metadata:
   ...
