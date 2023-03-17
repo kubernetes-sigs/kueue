@@ -105,7 +105,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// when manageJobsWithoutQueueName is disabled we only reconcile jobs that have either
 	// queue-name or the parent-workload annotation set.
 	if !r.manageJobsWithoutQueueName && job.QueueName() == "" && isStandaloneJob {
-		log.V(3).Info(fmt.Sprintf("Neither %s, nor %s annotation is set, ignoring the job", QueueAnnotation, ParentWorkloadAnnotation))
+		log.V(3).Info(fmt.Sprintf("Neither %s label, nor %s annotation is set, ignoring the job", QueueLabel, ParentWorkloadAnnotation))
 		return ctrl.Result{}, nil
 	}
 
