@@ -243,6 +243,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 				createdWorkload.Status.Conditions[0].Status == metav1.ConditionTrue
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 	})
+
 	ginkgo.It("Should reconcile job when queueName set by annotation (deprecated)", func() {
 		ginkgo.By("checking the workload is created with correct queue name assigned")
 		jobQueueName := "test-queue"
@@ -254,6 +255,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		gomega.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(jobQueueName))
 	})
+
 	ginkgo.When("The parent-workload annotation is used", func() {
 
 		var (
