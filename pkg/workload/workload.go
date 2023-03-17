@@ -54,7 +54,7 @@ func NewInfo(w *kueue.Workload) *Info {
 		info.ClusterQueue = string(w.Status.Admission.ClusterQueue)
 		info.TotalRequests = totalRequestsFromAdmission(w)
 	} else {
-		info.TotalRequests = totalRequests(w)
+		info.TotalRequests = totalRequestsFromPodSets(w)
 	}
 	return info
 }
@@ -71,7 +71,7 @@ func QueueKey(w *kueue.Workload) string {
 	return fmt.Sprintf("%s/%s", w.Namespace, w.Spec.QueueName)
 }
 
-func totalRequests(wl *kueue.Workload) []PodSetResources {
+func totalRequestsFromPodSets(wl *kueue.Workload) []PodSetResources {
 	if len(wl.Spec.PodSets) == 0 {
 		return nil
 	}
@@ -128,6 +128,14 @@ func newRequests(rl corev1.ResourceList) Requests {
 		r[name] = ResourceValue(name, quant)
 	}
 	return r
+}
+
+func (r Requests) ToResourceList() corev1.ResourceList {
+	ret := make(corev1.ResourceList, len(r))
+	for k, v := range r {
+		ret[k] = ResourceQuantity(k, v)
+	}
+	return ret
 }
 
 // ResourceValue returns the integer value for the resource name.
