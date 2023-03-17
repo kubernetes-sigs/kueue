@@ -100,11 +100,11 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	log := ctrl.LoggerFrom(ctx).WithValues("job", namespacedName.String())
 	ctx = ctrl.LoggerInto(ctx, log)
 
-	isStandaloneJob := job.ParentWorkloadName() == ""
+	isStandaloneJob := ParentWorkloadName(job) == ""
 
 	// when manageJobsWithoutQueueName is disabled we only reconcile jobs that have either
 	// queue-name or the parent-workload annotation set.
-	if !r.manageJobsWithoutQueueName && job.QueueName() == "" && isStandaloneJob {
+	if !r.manageJobsWithoutQueueName && QueueName(job) == "" && isStandaloneJob {
 		log.V(3).Info(fmt.Sprintf("Neither %s label, nor %s annotation is set, ignoring the job", QueueLabel, ParentWorkloadAnnotation))
 		return ctrl.Result{}, nil
 	}
@@ -174,7 +174,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 
 		// update queue name if changed.
-		q := job.QueueName()
+		q := QueueName(job)
 		if wl.Spec.QueueName != q {
 			log.V(2).Info("Job changed queues, updating workload")
 			wl.Spec.QueueName = q
@@ -214,7 +214,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 	var toDelete []*kueue.Workload
 	var match *kueue.Workload
 
-	if pwName := job.ParentWorkloadName(); pwName != "" {
+	if pwName := ParentWorkloadName(job); pwName != "" {
 		pw := kueue.Workload{}
 		namespacedName := types.NamespacedName{
 			Name:      pwName,
@@ -350,7 +350,7 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 		},
 		Spec: kueue.WorkloadSpec{
 			PodSets:   job.PodSets(),
-			QueueName: job.QueueName(),
+			QueueName: QueueName(job),
 		},
 	}
 

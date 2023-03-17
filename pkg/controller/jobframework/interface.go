@@ -44,14 +44,22 @@ type GenericJob interface {
 	EquivalentToWorkload(wl kueue.Workload) bool
 	// PriorityClass returns the job's priority class name.
 	PriorityClass() string
-	// QueueName returns the queue name the job enqueued.
-	QueueName() string
-	// ParentWorkloadName returns the parent workload name.
-	ParentWorkloadName() string
 	// IsActive returns true if there are any running pods.
 	IsActive() bool
 	// PodsReady instructs whether job derived pods are all ready now.
 	PodsReady() bool
 	// GetGVK returns GVK (Group Version Kind) for the job.
 	GetGVK() schema.GroupVersionKind
+}
+
+func ParentWorkloadName(job GenericJob) string {
+	return job.Object().GetAnnotations()[ParentWorkloadAnnotation]
+}
+
+func QueueName(job GenericJob) string {
+	if queueLabel := job.Object().GetLabels()[QueueLabel]; queueLabel != "" {
+		return queueLabel
+	}
+	// fallback to the annotation (deprecated)
+	return job.Object().GetAnnotations()[QueueAnnotation]
 }

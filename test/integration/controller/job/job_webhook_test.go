@@ -142,7 +142,7 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 			createdJob := &batchv1.Job{}
 			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
-			createdJob.Annotations[jobframework.QueueAnnotation] = "queue2"
+			createdJob.Labels[jobframework.QueueLabel] = "queue2"
 			createdJob.Spec.Suspend = pointer.Bool(false)
 			gomega.Expect(k8sClient.Update(ctx, createdJob)).ShouldNot(gomega.Succeed())
 		})

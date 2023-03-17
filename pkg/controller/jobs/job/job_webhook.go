@@ -90,7 +90,7 @@ func (w *JobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) err
 func validateCreate(job jobframework.GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, jobframework.ValidateAnnotationAsCRDName(job, jobframework.ParentWorkloadAnnotation)...)
-	allErrs = append(allErrs, jobframework.ValidateAnnotationAsCRDName(job, jobframework.QueueAnnotation)...)
+	allErrs = append(allErrs, jobframework.ValidateCreateForQueueName(job)...)
 	return allErrs
 }
 

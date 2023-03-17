@@ -83,6 +83,15 @@ func (j *JobWrapper) PriorityClass(pc string) *JobWrapper {
 
 // Queue updates the queue name of the job
 func (j *JobWrapper) Queue(queue string) *JobWrapper {
+	if j.Labels == nil {
+		j.Labels = make(map[string]string)
+	}
+	j.Labels[jobframework.QueueLabel] = queue
+	return j
+}
+
+// Queue updates the queue name of the job by annotation (deprecated)
+func (j *JobWrapper) QueueNameAnnotation(queue string) *JobWrapper {
 	j.Annotations[jobframework.QueueAnnotation] = queue
 	return j
 }

@@ -62,14 +62,6 @@ func (j *MPIJob) Object() client.Object {
 	return &j.MPIJob
 }
 
-func (j *MPIJob) ParentWorkloadName() string {
-	return j.Annotations[jobframework.ParentWorkloadAnnotation]
-}
-
-func (j *MPIJob) QueueName() string {
-	return j.Annotations[jobframework.QueueAnnotation]
-}
-
 func (j *MPIJob) IsSuspended() bool {
 	return j.Spec.RunPolicy.Suspend != nil && *j.Spec.RunPolicy.Suspend
 }

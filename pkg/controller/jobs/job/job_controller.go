@@ -116,14 +116,6 @@ func (j *Job) Object() client.Object {
 	return &j.Job
 }
 
-func (j *Job) ParentWorkloadName() string {
-	return j.Annotations[jobframework.ParentWorkloadAnnotation]
-}
-
-func (j *Job) QueueName() string {
-	return j.Annotations[jobframework.QueueAnnotation]
-}
-
 func (j *Job) IsSuspended() bool {
 	return j.Spec.Suspend != nil && *j.Spec.Suspend
 }
@@ -261,8 +253,7 @@ func (r *JobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &batchv1.Job{}, parentWorkloadKey, func(o client.Object) []string {
 		job := o.(*batchv1.Job)
-		batchJob := Job{*job}
-		if pwName := batchJob.ParentWorkloadName(); pwName != "" {
+		if pwName := jobframework.ParentWorkloadName(&Job{*job}); pwName != "" {
 			return []string{pwName}
 		}
 		return nil

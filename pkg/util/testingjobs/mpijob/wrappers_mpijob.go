@@ -98,7 +98,10 @@ func (j *MPIJobWrapper) Obj() *kubeflow.MPIJob {
 
 // Queue updates the queue name of the job
 func (j *MPIJobWrapper) Queue(queue string) *MPIJobWrapper {
-	j.Annotations[jobframework.QueueAnnotation] = queue
+	if j.Labels == nil {
+		j.Labels = make(map[string]string)
+	}
+	j.Labels[jobframework.QueueLabel] = queue
 	return j
 }
 
