@@ -71,6 +71,12 @@ type PodSetFlavors struct {
 
 	// Flavors are the flavors assigned to the workload for each resource.
 	Flavors map[corev1.ResourceName]ResourceFlavorReference `json:"flavors,omitempty"`
+
+	// Resources keeps track of the total resources all the pods in the podset need to run.
+	//
+	// Beside what is provided in podSet's specs, this calculation takes into account
+	// the LimitRange defaults and RuntimeClass overheads at the moment of admission.
+	Resources corev1.ResourceList `json:"resources,omitempty"`
 }
 
 type PodSet struct {

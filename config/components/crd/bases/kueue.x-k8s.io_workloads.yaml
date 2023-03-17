@@ -8080,6 +8080,19 @@ spec:
                           description: Name is the name of the podSet. It should match
                             one of the names in .spec.podSets.
                           type: string
+                        resources:
+                          additionalProperties:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                          description: "Resources keeps track of the total resources
+                            all the pods in the podset need to run. \n Beside what
+                            is provided in podSet's specs, this calculation takes
+                            into account the LimitRange defaults and RuntimeClass
+                            overheads at the moment of admission."
+                          type: object
                       required:
                       - name
                       type: object
