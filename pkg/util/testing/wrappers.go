@@ -19,7 +19,6 @@ package testing
 import (
 	"time"
 
-	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
@@ -28,104 +27,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 )
-
-// JobWrapper wraps a Job.
-type JobWrapper struct{ batchv1.Job }
-
-// MakeJob creates a wrapper for a suspended job with a single container and parallelism=1.
-func MakeJob(name, ns string) *JobWrapper {
-	return &JobWrapper{batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   ns,
-			Annotations: make(map[string]string, 1),
-		},
-		Spec: batchv1.JobSpec{
-			Parallelism: pointer.Int32(1),
-			Suspend:     pointer.Bool(true),
-			Template: corev1.PodTemplateSpec{
-				Spec: corev1.PodSpec{
-					RestartPolicy: "Never",
-					Containers: []corev1.Container{
-						{
-							Name:      "c",
-							Image:     "pause",
-							Command:   []string{},
-							Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
-						},
-					},
-					NodeSelector: map[string]string{},
-				},
-			},
-		},
-	}}
-}
-
-// Obj returns the inner Job.
-func (j *JobWrapper) Obj() *batchv1.Job {
-	return &j.Job
-}
-
-// Suspend updates the suspend status of the job
-func (j *JobWrapper) Suspend(s bool) *JobWrapper {
-	j.Spec.Suspend = pointer.Bool(s)
-	return j
-}
-
-// Parallelism updates job parallelism.
-func (j *JobWrapper) Parallelism(p int32) *JobWrapper {
-	j.Spec.Parallelism = pointer.Int32(p)
-	return j
-}
-
-// PriorityClass updates job priorityclass.
-func (j *JobWrapper) PriorityClass(pc string) *JobWrapper {
-	j.Spec.Template.Spec.PriorityClassName = pc
-	return j
-}
-
-// Queue updates the queue name of the job
-func (j *JobWrapper) Queue(queue string) *JobWrapper {
-	j.Annotations[constants.QueueAnnotation] = queue
-	return j
-}
-
-// ParentWorkload sets the parent-workload annotation
-func (j *JobWrapper) ParentWorkload(parentWorkload string) *JobWrapper {
-	j.Annotations[constants.ParentWorkloadAnnotation] = parentWorkload
-	return j
-}
-
-// Toleration adds a toleration to the job.
-func (j *JobWrapper) Toleration(t corev1.Toleration) *JobWrapper {
-	j.Spec.Template.Spec.Tolerations = append(j.Spec.Template.Spec.Tolerations, t)
-	return j
-}
-
-// NodeSelector adds a node selector to the job.
-func (j *JobWrapper) NodeSelector(k, v string) *JobWrapper {
-	j.Spec.Template.Spec.NodeSelector[k] = v
-	return j
-}
-
-// Request adds a resource request to the default container.
-func (j *JobWrapper) Request(r corev1.ResourceName, v string) *JobWrapper {
-	j.Spec.Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
-	return j
-}
-
-func (j *JobWrapper) Image(name string, image string, args []string) *JobWrapper {
-	j.Spec.Template.Spec.Containers[0] = corev1.Container{
-		Name:      name,
-		Image:     image,
-		Args:      args,
-		Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
-	}
-	return j
-}
 
 // PriorityClassWrapper wraps a PriorityClass.
 type PriorityClassWrapper struct {

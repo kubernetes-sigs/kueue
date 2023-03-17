@@ -19,15 +19,21 @@ import (
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-
-	"sigs.k8s.io/kueue/pkg/constants"
 )
 
 var (
 	annotationsPath       = field.NewPath("metadata", "annotations")
-	ParentWorkloadKeyPath = annotationsPath.Key(constants.ParentWorkloadAnnotation)
-	QueueNamePath         = annotationsPath.Key(constants.QueueAnnotation)
+	labelsPath            = field.NewPath("metadata", "labels")
+	parentWorkloadKeyPath = annotationsPath.Key(ParentWorkloadAnnotation)
+	queueNameLabelPath    = labelsPath.Key(QueueLabel)
 )
+
+func ValidateCreateForQueueName(job GenericJob) field.ErrorList {
+	var allErrs field.ErrorList
+	allErrs = append(allErrs, validateLabelAsCRDName(job, QueueLabel)...)
+	allErrs = append(allErrs, ValidateAnnotationAsCRDName(job, QueueAnnotation)...)
+	return allErrs
+}
 
 func ValidateAnnotationAsCRDName(job GenericJob, crdNameAnnotation string) field.ErrorList {
 	var allErrs field.ErrorList
@@ -39,19 +45,29 @@ func ValidateAnnotationAsCRDName(job GenericJob, crdNameAnnotation string) field
 	return allErrs
 }
 
+func validateLabelAsCRDName(job GenericJob, crdNameLabel string) field.ErrorList {
+	var allErrs field.ErrorList
+	if value, exists := job.Object().GetLabels()[crdNameLabel]; exists {
+		if errs := validation.IsDNS1123Subdomain(value); len(errs) > 0 {
+			allErrs = append(allErrs, field.Invalid(labelsPath.Key(crdNameLabel), value, strings.Join(errs, ",")))
+		}
+	}
+	return allErrs
+}
+
 func ValidateUpdateForQueueName(oldJob, newJob GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
-	if !newJob.IsSuspended() && (oldJob.QueueName() != newJob.QueueName()) {
-		allErrs = append(allErrs, field.Forbidden(QueueNamePath, "must not update queue name when job is unsuspend"))
+	if !newJob.IsSuspended() && (QueueName(oldJob) != QueueName(newJob)) {
+		allErrs = append(allErrs, field.Forbidden(queueNameLabelPath, "must not update queue name when job is unsuspend"))
 	}
 	return allErrs
 }
 
 func ValidateUpdateForParentWorkload(oldJob, newJob GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
-	if errList := apivalidation.ValidateImmutableField(newJob.ParentWorkloadName(),
-		oldJob.ParentWorkloadName(), ParentWorkloadKeyPath); len(errList) > 0 {
-		allErrs = append(allErrs, field.Forbidden(ParentWorkloadKeyPath, "this annotation is immutable"))
+	if errList := apivalidation.ValidateImmutableField(ParentWorkloadName(newJob),
+		ParentWorkloadName(oldJob), parentWorkloadKeyPath); len(errList) > 0 {
+		allErrs = append(allErrs, field.Forbidden(parentWorkloadKeyPath, "this annotation is immutable"))
 	}
 	return allErrs
 }

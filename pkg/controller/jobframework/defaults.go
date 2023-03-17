@@ -14,7 +14,7 @@ limitations under the License.
 package jobframework
 
 func ApplyDefaultForSuspend(job GenericJob, manageJobsWithoutQueueName bool) {
-	if job.QueueName() != "" || manageJobsWithoutQueueName {
+	if QueueName(job) != "" || manageJobsWithoutQueueName {
 		if !job.IsSuspended() {
 			job.Suspend()
 		}

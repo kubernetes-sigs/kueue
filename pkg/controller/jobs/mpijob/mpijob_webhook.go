@@ -26,7 +26,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
@@ -77,7 +76,7 @@ func (w *MPIJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) 
 }
 
 func validateCreate(job jobframework.GenericJob) field.ErrorList {
-	return jobframework.ValidateAnnotationAsCRDName(job, constants.QueueAnnotation)
+	return jobframework.ValidateAnnotationAsCRDName(job, jobframework.QueueAnnotation)
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type

@@ -23,7 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 )
 
@@ -98,7 +98,10 @@ func (j *MPIJobWrapper) Obj() *kubeflow.MPIJob {
 
 // Queue updates the queue name of the job
 func (j *MPIJobWrapper) Queue(queue string) *MPIJobWrapper {
-	j.Annotations[constants.QueueAnnotation] = queue
+	if j.Labels == nil {
+		j.Labels = make(map[string]string)
+	}
+	j.Labels[jobframework.QueueLabel] = queue
 	return j
 }
 
