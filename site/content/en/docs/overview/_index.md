@@ -17,10 +17,12 @@ You can install Kueue on top of a vanilla Kubernetes cluster. Kueue does not rep
 
 <figure>
   <img src="/images/theory-of-operation.svg" alt="theory-of-operation" style="width:100%">
-  <figcaption>Theory Of Operations</figcaption>
+  <figcaption>High-level Kueue operation</figcaption>
 </figure>
 
-Batch Admin creates resources needed to use Kueue. Batch User runs jobs. [Learn more about the different personas](/docs/tasks).
+To learn more about Kueue concepts, see the [concepts](/docs/concepts) section.
+
+To learn about different Kueue personas and what you can do with Kueue, see the [tasks](/docs/tasks) section.
 
 Kueue APIs allow you to express:
 
