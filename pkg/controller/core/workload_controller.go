@@ -36,6 +36,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	"sigs.k8s.io/kueue/pkg/util/resource"
@@ -438,7 +439,7 @@ func (r *WorkloadReconciler) handlePodLimitRange(log logr.Logger, wl *kueue.Work
 	ctx := context.TODO()
 	// get the list of limit ranges
 	var list corev1.LimitRangeList
-	if err := r.client.List(ctx, &list, &client.ListOptions{Namespace: wl.Namespace}); err != nil {
+	if err := r.client.List(ctx, &list, &client.ListOptions{Namespace: wl.Namespace}, client.MatchingFields{indexer.LimitRangeHasContainerType: "true"}); err != nil {
 		log.Error(err, "Could not list LimitRanges")
 		return
 	}
