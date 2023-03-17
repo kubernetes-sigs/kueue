@@ -15,6 +15,8 @@ You can install Kueue on top of a vanilla Kubernetes cluster. Kueue does not rep
 * Compute resources are elastic and can be scaled up and down.
 * Compute resources are heterogeneous (in architecture, availability, price, etc.).
 
+![Theory of Operation](/images/theory-of-operation.svg)
+
 Kueue APIs allow you to express:
 
 * Quotas and policies for fair sharing among tenants.

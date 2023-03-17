@@ -220,6 +220,8 @@ kubectl apply -f cluster-queue.yaml
 Two or more ClusterQueues can borrow unused quota from other ClusterQueues in
 the same [cohort](/docs/concepts/cluster_queue#cohort).
 
+![Cohort](/images/cohorts-v2.svg)
+
 Using the following example, you can establish a cohort `team-ab` that includes
 ClusterQueues `team-a-cq` and `team-b-cq`.
 
