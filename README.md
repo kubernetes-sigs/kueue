@@ -14,7 +14,7 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) to learn more.
 - ✔️ Monitoring via [metrics](https://kueue.sigs.k8s.io/docs/reference/metrics)
 - ✔️ API validation and defaulting.
 - ⏳ Scalability tests in progress.
-- ⚠️ Latest API version: v1alpha2.
+- ✔️ API version: v1beta1, with backwards-compatibility guarantees.
 
   _Based on community feedback, we continue to simplify and evolve the API to
   address new use cases_.

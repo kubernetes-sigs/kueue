@@ -88,7 +88,7 @@ ResourceFlavor without any labels or taints. Such ResourceFlavor is called an
 empty ResourceFlavor and its definition looks like the following:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1alpha2
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: ResourceFlavor
 metadata:
   name: default-flavor
