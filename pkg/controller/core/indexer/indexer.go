@@ -21,6 +21,9 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -31,6 +34,8 @@ const (
 	WorkloadClusterQueueKey    = "status.admission.clusterQueue"
 	QueueClusterQueueKey       = "spec.clusterQueue"
 	LimitRangeHasContainerType = "spec.hasContainerType"
+	WorkloadAdmittedKey        = "status.admitted"
+	WorkloadRuntimeClassKey    = "spec.runtimeClass"
 )
 
 func IndexQueueClusterQueue(obj client.Object) []string {
@@ -74,6 +79,37 @@ func IndexLimitRangeHasContainerType(obj client.Object) []string {
 	return nil
 }
 
+func IndexWorkloadAdmitted(obj client.Object) []string {
+	wl, ok := obj.(*kueue.Workload)
+	if !ok {
+		return nil
+	}
+
+	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+	if cond == nil {
+		return []string{string(metav1.ConditionFalse)}
+	}
+
+	return []string{string(cond.Status)}
+}
+
+func IndexWorkloadRuntimeClass(obj client.Object) []string {
+	wl, ok := obj.(*kueue.Workload)
+	if !ok {
+		return nil
+	}
+	set := sets.New[string]()
+	for _, ps := range wl.Spec.PodSets {
+		if ps.Template.Spec.RuntimeClassName != nil {
+			set.Insert(*ps.Template.Spec.RuntimeClassName)
+		}
+	}
+	if set.Len() > 0 {
+		return set.UnsortedList()
+	}
+	return nil
+}
+
 // Setup sets the index with the given fields for core apis.
 func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadQueueKey, IndexWorkloadQueue); err != nil {
@@ -81,6 +117,12 @@ func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 	}
 	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadClusterQueueKey, IndexWorkloadClusterQueue); err != nil {
 		return fmt.Errorf("setting index on clusterQueue for Workload: %w", err)
+	}
+	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadAdmittedKey, IndexWorkloadAdmitted); err != nil {
+		return fmt.Errorf("setting index on admitted for Workload: %w", err)
+	}
+	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadRuntimeClassKey, IndexWorkloadRuntimeClass); err != nil {
+		return fmt.Errorf("setting index on runtimeClass for Workload: %w", err)
 	}
 	if err := indexer.IndexField(ctx, &kueue.LocalQueue{}, QueueClusterQueueKey, IndexQueueClusterQueue); err != nil {
 		return fmt.Errorf("setting index on clusterQueue for localQueue: %w", err)
