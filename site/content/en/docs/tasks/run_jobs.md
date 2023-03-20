@@ -47,7 +47,7 @@ without Kueue. However, you must consider the following differences:
 - You should create the Job in a [suspended state](https://kubernetes.io/docs/concepts/workloads/controllers/job/#suspending-a-job),
   as Kueue will decide when it's the best time to start the Job.
 - You have to set the Queue you want to submit the Job to. Use the
- `kueue.x-k8s.io/queue-name` annotation.
+ `kueue.x-k8s.io/queue-name` label.
 - You should include the resource requests for each Job Pod.
 
 Here is a sample Job with three Pods that just sleep for a few seconds.
@@ -59,7 +59,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   generateName: sample-job-
-  annotations:
+  labels:
     kueue.x-k8s.io/queue-name: user-queue
 spec:
   parallelism: 3
