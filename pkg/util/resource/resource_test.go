@@ -21,20 +21,20 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
-	apiresource "k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 func TestMerge(t *testing.T) {
 	rl_500mcpu_2GiMem := corev1.ResourceList{
-		corev1.ResourceCPU:    apiresource.MustParse("500m"),
-		corev1.ResourceMemory: apiresource.MustParse("2Gi"),
+		corev1.ResourceCPU:    resource.MustParse("500m"),
+		corev1.ResourceMemory: resource.MustParse("2Gi"),
 	}
 	rl_1cpu := corev1.ResourceList{
-		corev1.ResourceCPU: apiresource.MustParse("1"),
+		corev1.ResourceCPU: resource.MustParse("1"),
 	}
 	rl_1cpu_1GiMem := corev1.ResourceList{
-		corev1.ResourceCPU:    apiresource.MustParse("1"),
-		corev1.ResourceMemory: apiresource.MustParse("1Gi"),
+		corev1.ResourceCPU:    resource.MustParse("1"),
+		corev1.ResourceMemory: resource.MustParse("1Gi"),
 	}
 
 	type oper_result struct {
@@ -53,29 +53,29 @@ func TestMerge(t *testing.T) {
 				"merge": {
 					oper: MergeResourceListKeepFirst,
 					result: corev1.ResourceList{
-						corev1.ResourceCPU:    apiresource.MustParse("1"),
-						corev1.ResourceMemory: apiresource.MustParse("2Gi"),
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("2Gi"),
 					},
 				},
 				"min": {
 					oper: MergeResourceListKeepMin,
 					result: corev1.ResourceList{
-						corev1.ResourceCPU:    apiresource.MustParse("500m"),
-						corev1.ResourceMemory: apiresource.MustParse("2Gi"),
+						corev1.ResourceCPU:    resource.MustParse("500m"),
+						corev1.ResourceMemory: resource.MustParse("2Gi"),
 					},
 				},
 				"max": {
 					oper: MergeResourceListKeepMax,
 					result: corev1.ResourceList{
-						corev1.ResourceCPU:    apiresource.MustParse("1"),
-						corev1.ResourceMemory: apiresource.MustParse("2Gi"),
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("2Gi"),
 					},
 				},
 				"sum": {
 					oper: MergeResourceListKeepSum,
 					result: corev1.ResourceList{
-						corev1.ResourceCPU:    apiresource.MustParse("1500m"),
-						corev1.ResourceMemory: apiresource.MustParse("2Gi"),
+						corev1.ResourceCPU:    resource.MustParse("1500m"),
+						corev1.ResourceMemory: resource.MustParse("2Gi"),
 					},
 				},
 			},
@@ -87,29 +87,29 @@ func TestMerge(t *testing.T) {
 				"merge": {
 					oper: MergeResourceListKeepFirst,
 					result: corev1.ResourceList{
-						corev1.ResourceCPU:    apiresource.MustParse("1"),
-						corev1.ResourceMemory: apiresource.MustParse("1Gi"),
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
 					},
 				},
 				"min": {
 					oper: MergeResourceListKeepMin,
 					result: corev1.ResourceList{
-						corev1.ResourceCPU:    apiresource.MustParse("500m"),
-						corev1.ResourceMemory: apiresource.MustParse("1Gi"),
+						corev1.ResourceCPU:    resource.MustParse("500m"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
 					},
 				},
 				"max": {
 					oper: MergeResourceListKeepMax,
 					result: corev1.ResourceList{
-						corev1.ResourceCPU:    apiresource.MustParse("1"),
-						corev1.ResourceMemory: apiresource.MustParse("2Gi"),
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("2Gi"),
 					},
 				},
 				"sum": {
 					oper: MergeResourceListKeepSum,
 					result: corev1.ResourceList{
-						corev1.ResourceCPU:    apiresource.MustParse("1500m"),
-						corev1.ResourceMemory: apiresource.MustParse("3Gi"),
+						corev1.ResourceCPU:    resource.MustParse("1500m"),
+						corev1.ResourceMemory: resource.MustParse("3Gi"),
 					},
 				},
 			},
@@ -192,6 +192,70 @@ func TestMerge(t *testing.T) {
 					}
 				})
 			}
+		})
+	}
+
+}
+
+func TestLessOrEqual(t *testing.T) {
+	cpuOnly1 := corev1.ResourceList{
+		corev1.ResourceCPU: resource.MustParse("1"),
+	}
+	cpuOnly500m := corev1.ResourceList{
+		corev1.ResourceCPU: resource.MustParse("500m"),
+	}
+	cases := map[string]struct {
+		a, b corev1.ResourceList
+		want bool
+	}{
+		"empty_a": {
+			b:    cpuOnly1,
+			want: true,
+		},
+		"empty_b": {
+			a:    cpuOnly1,
+			want: true,
+		},
+		"less one resourece": {
+			a:    cpuOnly500m,
+			b:    cpuOnly1,
+			want: true,
+		},
+		"not less one resourece": {
+			a:    cpuOnly1,
+			b:    cpuOnly500m,
+			want: false,
+		},
+		"multiple unrelated": {
+			a: corev1.ResourceList{
+				"r1": resource.MustParse("2"),
+				"r2": resource.MustParse("2"),
+			},
+			b: corev1.ResourceList{
+				"r3": resource.MustParse("1"),
+				"r4": resource.MustParse("1"),
+			},
+			want: true,
+		},
+		"multiple": {
+			a: corev1.ResourceList{
+				"r1": resource.MustParse("2"),
+				"r2": resource.MustParse("1"),
+			},
+			b: corev1.ResourceList{
+				"r1": resource.MustParse("1"),
+				"r2": resource.MustParse("2"),
+			},
+			want: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if tc.want != IsLessOrEqual(tc.a, tc.b) {
+				t.Errorf("Unexpected result, expecting %v", tc.want)
+			}
+
 		})
 	}
 

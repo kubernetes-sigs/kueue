@@ -18,10 +18,10 @@ package resource
 
 import (
 	corev1 "k8s.io/api/core/v1"
-	apiresource "k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
-type resolveConflict func(a, b apiresource.Quantity) apiresource.Quantity
+type resolveConflict func(a, b resource.Quantity) resource.Quantity
 
 func mergeResourceList(a, b corev1.ResourceList, f resolveConflict) corev1.ResourceList {
 	if a == nil {
@@ -50,7 +50,7 @@ func MergeResourceListKeepFirst(dst, src corev1.ResourceList) corev1.ResourceLis
 // MergeResourceListKeepMax creates a new ResourceList holding all the values from a and b
 // and resolve potential conflicts by keeping the highest value.
 func MergeResourceListKeepMax(a, b corev1.ResourceList) corev1.ResourceList {
-	return mergeResourceList(a, b, func(a, b apiresource.Quantity) apiresource.Quantity {
+	return mergeResourceList(a, b, func(a, b resource.Quantity) resource.Quantity {
 		if a.Cmp(b) < 0 {
 			return b
 		}
@@ -61,7 +61,7 @@ func MergeResourceListKeepMax(a, b corev1.ResourceList) corev1.ResourceList {
 // MergeResourceListKeepMin creates a new ResourceList holding all the values from a and b
 // and resolve potential conflicts by keeping the lowest value.
 func MergeResourceListKeepMin(a, b corev1.ResourceList) corev1.ResourceList {
-	return mergeResourceList(a, b, func(a, b apiresource.Quantity) apiresource.Quantity {
+	return mergeResourceList(a, b, func(a, b resource.Quantity) resource.Quantity {
 		if a.Cmp(b) > 0 {
 			return b
 		}
@@ -72,8 +72,19 @@ func MergeResourceListKeepMin(a, b corev1.ResourceList) corev1.ResourceList {
 // MergeResourceListKeepSum creates a new ResourceList holding all the values from a and b
 // and resolve potential conflicts by adding up the tow values.
 func MergeResourceListKeepSum(a, b corev1.ResourceList) corev1.ResourceList {
-	return mergeResourceList(a, b, func(a, b apiresource.Quantity) apiresource.Quantity {
+	return mergeResourceList(a, b, func(a, b resource.Quantity) resource.Quantity {
 		a.Add(b)
 		return a
 	})
+}
+
+// IsLessOrEqual returns true if for all the common keys the value in a is less than the
+// values in b
+func IsLessOrEqual(a, b corev1.ResourceList) bool {
+	for k, va := range a {
+		if vb, found := b[k]; found && va.Cmp(vb) > 0 {
+			return false
+		}
+	}
+	return true
 }
