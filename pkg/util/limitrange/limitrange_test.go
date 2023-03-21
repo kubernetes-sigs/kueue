@@ -22,6 +22,9 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	apiresource "k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/utils/field"
+
+	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 var (
@@ -33,7 +36,6 @@ var (
 )
 
 func TestSummarize(t *testing.T) {
-
 	cases := map[string]struct {
 		ranges   []corev1.LimitRange
 		expected Summary
@@ -151,6 +153,233 @@ func TestSummarize(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			result := Summarize(tc.ranges...)
 			if diff := cmp.Diff(tc.expected, result); diff != "" {
+				t.Errorf("Unexpected result (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestTotalRequest(t *testing.T) {
+	containers := []corev1.Container{
+		{
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    apiresource.MustParse("1"),
+					corev1.ResourceMemory: apiresource.MustParse("2Gi"),
+				},
+			},
+		},
+		{
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU: apiresource.MustParse("1500m"),
+					"example.com/gpu":  apiresource.MustParse("2"),
+				},
+			},
+		},
+		{
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    apiresource.MustParse("4"),
+					corev1.ResourceMemory: apiresource.MustParse("2Gi"),
+				},
+			},
+		},
+		{
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU: apiresource.MustParse("1500m"),
+					"example.com/gpu":  apiresource.MustParse("2"),
+				},
+			},
+		},
+	}
+	cases := map[string]struct {
+		podSpec *corev1.PodSpec
+		want    corev1.ResourceList
+	}{
+		"sum up main containers": {
+			podSpec: &corev1.PodSpec{
+				Containers: containers[:2],
+			},
+			want: corev1.ResourceList{
+				corev1.ResourceCPU:    apiresource.MustParse("2500m"),
+				corev1.ResourceMemory: apiresource.MustParse("2Gi"),
+				"example.com/gpu":     apiresource.MustParse("2"),
+			},
+		},
+		"one init wants more": {
+			podSpec: &corev1.PodSpec{
+				InitContainers: containers[2:],
+				Containers:     containers[:2],
+			},
+			want: corev1.ResourceList{
+				corev1.ResourceCPU:    apiresource.MustParse("4000m"),
+				corev1.ResourceMemory: apiresource.MustParse("2Gi"),
+				"example.com/gpu":     apiresource.MustParse("2"),
+			},
+		},
+		"adds overhead": {
+			podSpec: &corev1.PodSpec{
+				InitContainers: containers[2:],
+				Containers:     containers[:2],
+				Overhead: corev1.ResourceList{
+					corev1.ResourceCPU:    apiresource.MustParse("1"),
+					corev1.ResourceMemory: apiresource.MustParse("1Gi"),
+					"example.com/gpu":     apiresource.MustParse("1"),
+				},
+			},
+			want: corev1.ResourceList{
+				corev1.ResourceCPU:    apiresource.MustParse("5000m"),
+				corev1.ResourceMemory: apiresource.MustParse("3Gi"),
+				"example.com/gpu":     apiresource.MustParse("3"),
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			result := TotalRequests(tc.podSpec)
+			if diff := cmp.Diff(tc.want, result); diff != "" {
+				t.Errorf("Unexpected result (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+func TestValidate(t *testing.T) {
+	podSpec := &corev1.PodSpec{
+		Containers: []corev1.Container{
+			{
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:             apiresource.MustParse("1"),
+						corev1.ResourceMemory:          apiresource.MustParse("2Gi"),
+						"example.com/mainContainerGpu": apiresource.MustParse("2"),
+					},
+				},
+			},
+			{
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: apiresource.MustParse("1500m"),
+						"example.com/gpu":  apiresource.MustParse("2"),
+					},
+				},
+			},
+		},
+		InitContainers: []corev1.Container{
+			{
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    apiresource.MustParse("4"),
+						corev1.ResourceMemory: apiresource.MustParse("2Gi"),
+					},
+				},
+			},
+			{
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:             apiresource.MustParse("1500m"),
+						"example.com/gpu":              apiresource.MustParse("2"),
+						"example.com/initContainerGpu": apiresource.MustParse("2"),
+					},
+				},
+			},
+		},
+		Overhead: corev1.ResourceList{
+			corev1.ResourceCPU:    apiresource.MustParse("1"),
+			corev1.ResourceMemory: apiresource.MustParse("1Gi"),
+			"example.com/gpu":     apiresource.MustParse("1"),
+		},
+	}
+	cases := map[string]struct {
+		summary Summary
+		want    []string
+	}{
+		"empty": {
+			summary: Summary{},
+			want:    []string{},
+		},
+		"init container over": {
+			summary: Summarize(*testingutil.MakeLimitRange("", "").
+				WithType(corev1.LimitTypeContainer).
+				WithValue("Max", "example.com/initContainerGpu", "1").
+				Obj()),
+			want: []string{
+				violateMessage(field.NewPath("testPodSet", "initContainers").Index(1), true),
+			},
+		},
+		"init container under": {
+			summary: Summarize(*testingutil.MakeLimitRange("", "").
+				WithType(corev1.LimitTypeContainer).
+				WithValue("Min", "example.com/initContainerGpu", "3").
+				Obj()),
+			want: []string{
+				violateMessage(field.NewPath("testPodSet", "initContainers").Index(1), false),
+			},
+		},
+		"container over": {
+			summary: Summarize(*testingutil.MakeLimitRange("", "").
+				WithType(corev1.LimitTypeContainer).
+				WithValue("Max", "example.com/mainContainerGpu", "1").
+				Obj()),
+			want: []string{
+				violateMessage(field.NewPath("testPodSet", "containers").Index(0), true),
+			},
+		},
+		"container under": {
+			summary: Summarize(*testingutil.MakeLimitRange("", "").
+				WithType(corev1.LimitTypeContainer).
+				WithValue("Min", "example.com/mainContainerGpu", "3").
+				Obj()),
+			want: []string{
+				violateMessage(field.NewPath("testPodSet", "containers").Index(0), false),
+			},
+		},
+		"pod over": {
+			summary: Summarize(*testingutil.MakeLimitRange("", "").
+				WithType(corev1.LimitTypePod).
+				WithValue("Max", corev1.ResourceCPU, "4").
+				Obj()),
+			want: []string{
+				violateMessage(field.NewPath("testPodSet"), true),
+			},
+		},
+		"pod under": {
+			summary: Summarize(*testingutil.MakeLimitRange("", "").
+				WithType(corev1.LimitTypePod).
+				WithValue("Min", corev1.ResourceCPU, "6").
+				Obj()),
+			want: []string{
+				violateMessage(field.NewPath("testPodSet"), false),
+			},
+		},
+		"multiple": {
+			summary: Summarize(
+				*testingutil.MakeLimitRange("", "").
+					WithType(corev1.LimitTypePod).
+					WithValue("Max", corev1.ResourceCPU, "4").
+					Obj(),
+				*testingutil.MakeLimitRange("", "").
+					WithType(corev1.LimitTypeContainer).
+					WithValue("Min", "example.com/mainContainerGpu", "3").
+					Obj(),
+				*testingutil.MakeLimitRange("", "").
+					WithType(corev1.LimitTypeContainer).
+					WithValue("Max", "example.com/initContainerGpu", "1").
+					Obj(),
+			),
+			want: []string{
+				violateMessage(field.NewPath("testPodSet", "initContainers").Index(1), true),
+				violateMessage(field.NewPath("testPodSet", "containers").Index(0), false),
+				violateMessage(field.NewPath("testPodSet"), true),
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			result := tc.summary.ValidatePodSpec(podSpec, field.NewPath("testPodSet"))
+			if diff := cmp.Diff(tc.want, result); diff != "" {
 				t.Errorf("Unexpected result (-want,+got):\n%s", diff)
 			}
 		})
