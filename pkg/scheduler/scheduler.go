@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -32,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -43,6 +45,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	"sigs.k8s.io/kueue/pkg/util/limitrange"
+	"sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -252,6 +256,10 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		} else if !cq.NamespaceSelector.Matches(labels.Set(ns.Labels)) {
 			e.inadmissibleMsg = "Workload namespace doesn't match ClusterQueue selector"
 			e.requeueReason = queue.RequeueReasonNamespaceMismatch
+		} else if err := s.validateRresources(&w); err != nil {
+			e.inadmissibleMsg = err.Error()
+		} else if err := s.validateLimitRange(ctx, &w); err != nil {
+			e.inadmissibleMsg = err.Error()
 		} else {
 			e.assignment = flavorassigner.AssignFlavors(log, &e.Info, snap.ResourceFlavors, cq)
 			e.inadmissibleMsg = e.assignment.Message()
@@ -259,6 +267,61 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		entries = append(entries, e)
 	}
 	return entries
+}
+
+// validateResources validates that requested resources are less or equal
+// to limits
+func (s *Scheduler) validateRresources(wi *workload.Info) error {
+	podsetsPath := field.NewPath("podSets")
+	// requests should be less then limits
+	allReasons := []string{}
+	for i := range wi.Obj.Spec.PodSets {
+		ps := &wi.Obj.Spec.PodSets[i]
+		psPath := podsetsPath.Child(ps.Name)
+		for i := range ps.Template.Spec.InitContainers {
+			c := ps.Template.Spec.InitContainers[i]
+			if !resource.IsLessOrEqual(c.Resources.Requests, c.Resources.Limits) {
+				allReasons = append(allReasons, fmt.Sprintf("%s requests exceed it's limits", psPath.Child("initContainers").Index(i).String()))
+			}
+		}
+
+		for i := range ps.Template.Spec.Containers {
+			c := ps.Template.Spec.Containers[i]
+			if !resource.IsLessOrEqual(c.Resources.Requests, c.Resources.Limits) {
+				allReasons = append(allReasons, fmt.Sprintf("%s requests exceed it's limits", psPath.Child("containers").Index(i).String()))
+			}
+		}
+	}
+	if len(allReasons) > 0 {
+		return fmt.Errorf("resource validation failed: %s", strings.Join(allReasons, "; "))
+	}
+	return nil
+}
+
+// validateLimitRange validates that the requested resources fit into the namespace defined
+// limitRanges
+func (s *Scheduler) validateLimitRange(ctx context.Context, wi *workload.Info) error {
+	podsetsPath := field.NewPath("podSets")
+	// get the range summary from the namespace
+	list := corev1.LimitRangeList{}
+	if err := s.client.List(ctx, &list, &client.ListOptions{Namespace: wi.Obj.Namespace}); err != nil {
+		return err
+	}
+	if len(list.Items) == 0 {
+		return nil
+	}
+	summary := limitrange.Summarize(list.Items...)
+
+	// verify
+	allReasons := []string{}
+	for i := range wi.Obj.Spec.PodSets {
+		ps := &wi.Obj.Spec.PodSets[i]
+		allReasons = append(allReasons, summary.ValidatePodSpec(&ps.Template.Spec, podsetsPath.Child(ps.Name))...)
+	}
+	if len(allReasons) > 0 {
+		return fmt.Errorf("limits validation failed: %s", strings.Join(allReasons, "; "))
+	}
+	return nil
 }
 
 // admit sets the admitting clusterQueue and flavors into the workload of

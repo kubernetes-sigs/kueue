@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -971,5 +972,72 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, 1)
 			util.ExpectPendingWorkloadsMetric(cq, 0, 1)
 		})
+	})
+
+	ginkgo.When("The workload's podSet resource requests are not valid", func() {
+		var (
+			cq    *kueue.ClusterQueue
+			queue *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).To(gomega.Succeed())
+			cq = testing.MakeClusterQueue("cluster-queue").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
+				).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, cq)).Should(gomega.Succeed())
+			queue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, queue)).Should(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+		})
+
+		ginkgo.DescribeTable("", func(reqCPU, limCPU, minCPU, maxCPU string, limitType corev1.LimitType, status string, shouldBeAdmited bool) {
+			lr := testing.MakeLimitRange("limit", ns.Name).
+				WithType(limitType).
+				WithValue("Min", corev1.ResourceCPU, minCPU).
+				WithValue("Max", corev1.ResourceCPU, maxCPU).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, lr)).To(gomega.Succeed())
+
+			wl := testing.MakeWorkload("workload", ns.Name).
+				Queue(queue.Name).
+				Request(corev1.ResourceCPU, reqCPU).
+				Limit(corev1.ResourceCPU, limCPU).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			if shouldBeAdmited {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, cq.Name, wl)
+			} else {
+				gomega.Eventually(func() string {
+					rwl := kueue.Workload{}
+					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &rwl); err != nil {
+						return ""
+					}
+
+					ci := workload.FindConditionIndex(&rwl.Status, kueue.WorkloadAdmitted)
+					if ci < 0 {
+						return ""
+					}
+					return rwl.Status.Conditions[ci].Message
+				}, util.Timeout, util.Interval).Should(gomega.ContainSubstring(status))
+			}
+			gomega.Expect(util.DeleteWorkload(ctx, k8sClient, wl)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Delete(ctx, lr)).To(gomega.Succeed())
+		},
+			ginkgo.Entry("request more that limits", "3", "2", "1", "4", corev1.LimitTypeContainer, "resource validation failed:", false),
+			ginkgo.Entry("request over container limits", "2", "3", "1", "1", corev1.LimitTypeContainer, "limits validation failed:", false),
+			ginkgo.Entry("request under container limits", "2", "3", "3", "4", corev1.LimitTypeContainer, "limits validation failed:", false),
+			ginkgo.Entry("request over pod limits", "2", "3", "1", "1", corev1.LimitTypePod, "limits validation failed:", false),
+			ginkgo.Entry("request under pod limits", "2", "3", "3", "4", corev1.LimitTypePod, "limits validation failed:", false),
+			ginkgo.Entry("valid", "2", "3", "1", "4", corev1.LimitTypeContainer, "", true),
+		)
 	})
 })
