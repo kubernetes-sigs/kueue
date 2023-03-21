@@ -93,12 +93,12 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 		return nil
 	}
 	res := make([]PodSetResources, 0, len(wl.Spec.PodSets))
-	for _, ps := range wl.Status.Admission.PodSetFlavors {
+	for _, ps := range wl.Status.Admission.PodSetAssignments {
 		setRes := PodSetResources{
 			Name: ps.Name,
 		}
 		setRes.Flavors = ps.Flavors
-		setRes.Requests = newRequests(ps.Resources)
+		setRes.Requests = newRequests(ps.ResourceUsage)
 		res = append(res, setRes)
 	}
 	return res

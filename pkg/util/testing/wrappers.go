@@ -189,25 +189,25 @@ func MakeAdmission(cq string, podSetNames ...string) *AdmissionWrapper {
 	}}
 
 	if len(podSetNames) == 0 {
-		wrap.PodSetFlavors = []kueue.PodSetFlavors{
+		wrap.PodSetAssignments = []kueue.PodSetAssignment{
 			{
-				Name:      kueue.DefaultPodSetName,
-				Flavors:   make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
-				Resources: make(corev1.ResourceList),
+				Name:          kueue.DefaultPodSetName,
+				Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
+				ResourceUsage: make(corev1.ResourceList),
 			},
 		}
 		return wrap
 	}
 
-	var psFlavors []kueue.PodSetFlavors
+	var psFlavors []kueue.PodSetAssignment
 	for _, name := range podSetNames {
-		psFlavors = append(psFlavors, kueue.PodSetFlavors{
-			Name:      name,
-			Flavors:   make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
-			Resources: make(corev1.ResourceList),
+		psFlavors = append(psFlavors, kueue.PodSetAssignment{
+			Name:          name,
+			Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
+			ResourceUsage: make(corev1.ResourceList),
 		})
 	}
-	wrap.PodSetFlavors = psFlavors
+	wrap.PodSetAssignments = psFlavors
 	return wrap
 }
 
@@ -216,17 +216,17 @@ func (w *AdmissionWrapper) Obj() *kueue.Admission {
 }
 
 func (w *AdmissionWrapper) Flavor(r corev1.ResourceName, f kueue.ResourceFlavorReference) *AdmissionWrapper {
-	w.PodSetFlavors[0].Flavors[r] = f
+	w.PodSetAssignments[0].Flavors[r] = f
 	return w
 }
 
 func (w *AdmissionWrapper) Resource(r corev1.ResourceName, val string) *AdmissionWrapper {
-	w.PodSetFlavors[0].Resources[r] = resource.MustParse(val)
+	w.PodSetAssignments[0].ResourceUsage[r] = resource.MustParse(val)
 	return w
 }
 
-func (w *AdmissionWrapper) PodSets(podSets ...kueue.PodSetFlavors) *AdmissionWrapper {
-	w.PodSetFlavors = podSets
+func (w *AdmissionWrapper) PodSets(podSets ...kueue.PodSetAssignment) *AdmissionWrapper {
+	w.PodSetAssignments = podSets
 	return w
 }
 

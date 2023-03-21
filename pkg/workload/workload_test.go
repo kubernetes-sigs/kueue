@@ -168,19 +168,19 @@ func TestNewInfo(t *testing.T) {
 				).
 				Admit(utiltesting.MakeAdmission("foo").
 					PodSets(
-						kueue.PodSetFlavors{
+						kueue.PodSetAssignment{
 							Name: "driver",
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "on-demand",
 							},
-							Resources: corev1.ResourceList{
+							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU:    resource.MustParse("10m"),
 								corev1.ResourceMemory: resource.MustParse("512Ki"),
 							},
 						},
-						kueue.PodSetFlavors{
+						kueue.PodSetAssignment{
 							Name: "workers",
-							Resources: corev1.ResourceList{
+							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU:    resource.MustParse("15m"),
 								corev1.ResourceMemory: resource.MustParse("3Mi"),
 								"ex.com/gpu":          resource.MustParse("3"),

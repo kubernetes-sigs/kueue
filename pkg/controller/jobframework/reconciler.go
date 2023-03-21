@@ -371,13 +371,13 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 
 // getNodeSelectors will extract node selectors from admitted workloads.
 func (r *JobReconciler) getNodeSelectors(ctx context.Context, w *kueue.Workload) ([]map[string]string, error) {
-	if len(w.Status.Admission.PodSetFlavors) == 0 {
+	if len(w.Status.Admission.PodSetAssignments) == 0 {
 		return nil, nil
 	}
 
-	nodeSelectors := make([]map[string]string, len(w.Status.Admission.PodSetFlavors))
+	nodeSelectors := make([]map[string]string, len(w.Status.Admission.PodSetAssignments))
 
-	for i, podSetFlavor := range w.Status.Admission.PodSetFlavors {
+	for i, podSetFlavor := range w.Status.Admission.PodSetAssignments {
 		processedFlvs := sets.NewString()
 		nodeSelector := map[string]string{}
 		for _, flvRef := range podSetFlavor.Flavors {

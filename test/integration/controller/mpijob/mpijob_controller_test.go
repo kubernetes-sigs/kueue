@@ -147,7 +147,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 			).Obj()
 		createdWorkload.Status.Admission = &kueue.Admission{
 			ClusterQueue: kueue.ClusterQueueReference(clusterQueue.Name),
-			PodSetFlavors: []kueue.PodSetFlavors{{
+			PodSetAssignments: []kueue.PodSetAssignment{{
 				Name: "Launcher",
 				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 					corev1.ResourceCPU: "on-demand",
@@ -211,7 +211,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 		ginkgo.By("checking the job is unsuspended and selectors added when workload is assigned again")
 		createdWorkload.Status.Admission = &kueue.Admission{
 			ClusterQueue: kueue.ClusterQueueReference(clusterQueue.Name),
-			PodSetFlavors: []kueue.PodSetFlavors{{
+			PodSetAssignments: []kueue.PodSetAssignment{{
 				Name: "Launcher",
 				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 					corev1.ResourceCPU: "on-demand",
@@ -342,7 +342,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", func() {
 			ginkgo.By("Admit the workload created for the job")
 			createdWorkload.Status.Admission = &kueue.Admission{
 				ClusterQueue: kueue.ClusterQueueReference("foo"),
-				PodSetFlavors: []kueue.PodSetFlavors{{
+				PodSetAssignments: []kueue.PodSetAssignment{{
 					Name: "Launcher",
 					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 						corev1.ResourceCPU: "default",

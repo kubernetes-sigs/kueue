@@ -200,13 +200,13 @@ func TestSchedule(t *testing.T) {
 			wantAssignments: map[string]kueue.Admission{
 				"sales/foo": {
 					ClusterQueue: "sales",
-					PodSetFlavors: []kueue.PodSetFlavors{
+					PodSetAssignments: []kueue.PodSetAssignment{
 						{
 							Name: "one",
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "default",
 							},
-							Resources: corev1.ResourceList{
+							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("10000m"),
 							},
 						},
@@ -250,13 +250,13 @@ func TestSchedule(t *testing.T) {
 			wantAssignments: map[string]kueue.Admission{
 				"sales/assigned": {
 					ClusterQueue: "sales",
-					PodSetFlavors: []kueue.PodSetFlavors{
+					PodSetAssignments: []kueue.PodSetAssignment{
 						{
 							Name: "one",
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "default",
 							},
-							Resources: corev1.ResourceList{
+							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
 						},
@@ -298,13 +298,13 @@ func TestSchedule(t *testing.T) {
 			wantAssignments: map[string]kueue.Admission{
 				"sales/new": {
 					ClusterQueue: "sales",
-					PodSetFlavors: []kueue.PodSetFlavors{
+					PodSetAssignments: []kueue.PodSetAssignment{
 						{
 							Name: "one",
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "default",
 							},
-							Resources: corev1.ResourceList{
+							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("1000m"),
 							},
 						},
@@ -312,13 +312,13 @@ func TestSchedule(t *testing.T) {
 				},
 				"eng-alpha/new": {
 					ClusterQueue: "eng-alpha",
-					PodSetFlavors: []kueue.PodSetFlavors{
+					PodSetAssignments: []kueue.PodSetAssignment{
 						{
 							Name: "one",
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "on-demand",
 							},
-							Resources: corev1.ResourceList{
+							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("51000m"),
 							},
 						},
@@ -345,13 +345,13 @@ func TestSchedule(t *testing.T) {
 			wantAssignments: map[string]kueue.Admission{
 				"eng-alpha/new": {
 					ClusterQueue: "eng-alpha",
-					PodSetFlavors: []kueue.PodSetFlavors{
+					PodSetAssignments: []kueue.PodSetAssignment{
 						{
 							Name: "one",
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "on-demand",
 							},
-							Resources: corev1.ResourceList{
+							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
 						},
@@ -359,13 +359,13 @@ func TestSchedule(t *testing.T) {
 				},
 				"eng-beta/new": {
 					ClusterQueue: "eng-beta",
-					PodSetFlavors: []kueue.PodSetFlavors{
+					PodSetAssignments: []kueue.PodSetAssignment{
 						{
 							Name: "one",
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "on-demand",
 							},
-							Resources: corev1.ResourceList{
+							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
 						},
@@ -392,14 +392,14 @@ func TestSchedule(t *testing.T) {
 			wantAssignments: map[string]kueue.Admission{
 				"eng-beta/new": {
 					ClusterQueue: "eng-beta",
-					PodSetFlavors: []kueue.PodSetFlavors{
+					PodSetAssignments: []kueue.PodSetAssignment{
 						{
 							Name: "one",
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "on-demand",
 								"example.com/gpu":  "model-a",
 							},
-							Resources: corev1.ResourceList{
+							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("60000m"),
 								"example.com/gpu":  resource.MustParse("10"),
 							},
@@ -409,7 +409,7 @@ func TestSchedule(t *testing.T) {
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "spot",
 							},
-							Resources: corev1.ResourceList{
+							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
 						},
@@ -436,13 +436,13 @@ func TestSchedule(t *testing.T) {
 			wantAssignments: map[string]kueue.Admission{
 				"eng-alpha/new": {
 					ClusterQueue: "eng-alpha",
-					PodSetFlavors: []kueue.PodSetFlavors{
+					PodSetAssignments: []kueue.PodSetAssignment{
 						{
 							Name: "one",
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "on-demand",
 							},
-							Resources: corev1.ResourceList{
+							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
 						},
@@ -588,13 +588,13 @@ func TestSchedule(t *testing.T) {
 			wantAssignments: map[string]kueue.Admission{
 				"eng-alpha/new": {
 					ClusterQueue: "eng-alpha",
-					PodSetFlavors: []kueue.PodSetFlavors{
+					PodSetAssignments: []kueue.PodSetAssignment{
 						{
 							Name: "one",
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "spot",
 							},
-							Resources: corev1.ResourceList{
+							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("60000m"),
 							},
 						},
@@ -602,13 +602,13 @@ func TestSchedule(t *testing.T) {
 				},
 				"eng-beta/existing": {
 					ClusterQueue: "eng-beta",
-					PodSetFlavors: []kueue.PodSetFlavors{
+					PodSetAssignments: []kueue.PodSetAssignment{
 						{
 							Name: "one",
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "on-demand",
 							},
-							Resources: corev1.ResourceList{
+							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("45000m"),
 							},
 						},

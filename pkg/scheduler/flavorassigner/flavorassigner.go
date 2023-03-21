@@ -93,8 +93,8 @@ func (a *Assignment) Message() string {
 	return builder.String()
 }
 
-func (a *Assignment) ToAPI() []kueue.PodSetFlavors {
-	psFlavors := make([]kueue.PodSetFlavors, len(a.PodSets))
+func (a *Assignment) ToAPI() []kueue.PodSetAssignment {
+	psFlavors := make([]kueue.PodSetAssignment, len(a.PodSets))
 	for i := range psFlavors {
 		psFlavors[i] = a.PodSets[i].toAPI()
 	}
@@ -172,15 +172,15 @@ func (psa *PodSetAssignment) RepresentativeMode() FlavorAssignmentMode {
 
 type ResourceAssignment map[corev1.ResourceName]*FlavorAssignment
 
-func (psa *PodSetAssignment) toAPI() kueue.PodSetFlavors {
+func (psa *PodSetAssignment) toAPI() kueue.PodSetAssignment {
 	flavors := make(map[corev1.ResourceName]kueue.ResourceFlavorReference, len(psa.Flavors))
 	for res, flvAssignment := range psa.Flavors {
 		flavors[res] = flvAssignment.Name
 	}
-	return kueue.PodSetFlavors{
-		Name:      psa.Name,
-		Flavors:   flavors,
-		Resources: psa.Requests,
+	return kueue.PodSetAssignment{
+		Name:          psa.Name,
+		Flavors:       flavors,
+		ResourceUsage: psa.Requests,
 	}
 }
 
