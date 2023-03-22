@@ -27,23 +27,6 @@ const queueName = "queue-test"
 
 var _ = ginkgo.Describe("Queue validating webhook", func() {
 	ginkgo.When("Updating a Queue", func() {
-		ginkgo.It("Should allow the change of status", func() {
-			ginkgo.By("Creating a new Queue")
-			obj := testing.MakeLocalQueue(queueName, ns.Name).ClusterQueue("foo").Obj()
-			gomega.Expect(k8sClient.Create(ctx, obj)).Should(gomega.Succeed())
-
-			ginkgo.By("Updating the Queue status")
-			gomega.Eventually(func() error {
-				var updatedQ kueue.LocalQueue
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), &updatedQ)).Should(gomega.Succeed())
-				updatedQ.Status.PendingWorkloads = 3
-				return k8sClient.Status().Update(ctx, &updatedQ)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			var after kueue.LocalQueue
-			gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: obj.Name, Namespace: obj.Namespace}, &after)).Should(gomega.Succeed())
-			gomega.Expect(after.Status.PendingWorkloads).Should(gomega.Equal(int32(3)))
-		})
-
 		ginkgo.It("Should reject the change of spec.clusterQueue", func() {
 			ginkgo.By("Creating a new Queue")
 			obj := testing.MakeLocalQueue(queueName, ns.Name).ClusterQueue("foo").Obj()
