@@ -215,13 +215,9 @@ func (w *AdmissionWrapper) Obj() *kueue.Admission {
 	return &w.Admission
 }
 
-func (w *AdmissionWrapper) Flavor(r corev1.ResourceName, f kueue.ResourceFlavorReference) *AdmissionWrapper {
+func (w *AdmissionWrapper) Assignment(r corev1.ResourceName, f kueue.ResourceFlavorReference, value string) *AdmissionWrapper {
 	w.PodSetAssignments[0].Flavors[r] = f
-	return w
-}
-
-func (w *AdmissionWrapper) Resource(r corev1.ResourceName, val string) *AdmissionWrapper {
-	w.PodSetAssignments[0].ResourceUsage[r] = resource.MustParse(val)
+	w.PodSetAssignments[0].ResourceUsage[r] = resource.MustParse(value)
 	return w
 }
 

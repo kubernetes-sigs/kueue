@@ -241,10 +241,7 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("one", 40).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					Admit(utiltesting.MakeAdmission("sales", "one").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "40000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("sales", "one").Assignment(corev1.ResourceCPU, "default", "40000m").Obj()).
 					Obj(),
 			},
 			wantAssignments: map[string]kueue.Admission{
@@ -466,17 +463,11 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 				*utiltesting.MakeWorkload("user-on-demand", "eng-beta").
 					Request(corev1.ResourceCPU, "50").
-					Admit(utiltesting.MakeAdmission("eng-beta").
-						Flavor(corev1.ResourceCPU, "on-demand").
-						Resource(corev1.ResourceCPU, "50000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "on-demand", "50000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("user-spot", "eng-beta").
 					Request(corev1.ResourceCPU, "1").
-					Admit(utiltesting.MakeAdmission("eng-beta").
-						Flavor(corev1.ResourceCPU, "spot").
-						Resource(corev1.ResourceCPU, "1000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "spot", "1000m").Obj()).
 					Obj(),
 			},
 			wantLeft: map[string]sets.Set[string]{
@@ -484,14 +475,8 @@ func TestSchedule(t *testing.T) {
 				"eng-beta":  sets.New("eng-beta/needs-to-borrow"),
 			},
 			wantAssignments: map[string]kueue.Admission{
-				"eng-beta/user-spot": *utiltesting.MakeAdmission("eng-beta").
-					Flavor(corev1.ResourceCPU, "spot").
-					Resource(corev1.ResourceCPU, "1000m").
-					Obj(),
-				"eng-beta/user-on-demand": *utiltesting.MakeAdmission("eng-beta").
-					Flavor(corev1.ResourceCPU, "on-demand").
-					Resource(corev1.ResourceCPU, "50000m").
-					Obj(),
+				"eng-beta/user-spot":      *utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "spot", "1000m").Obj(),
+				"eng-beta/user-on-demand": *utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "on-demand", "50000m").Obj(),
 			},
 		},
 		"preempt workloads in ClusterQueue and cohort": {
@@ -502,33 +487,21 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 				*utiltesting.MakeWorkload("use-all-spot", "eng-alpha").
 					Request(corev1.ResourceCPU, "100").
-					Admit(utiltesting.MakeAdmission("eng-alpha").
-						Flavor(corev1.ResourceCPU, "spot").
-						Resource(corev1.ResourceCPU, "100000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "spot", "100000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("low-1", "eng-beta").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "30").
-					Admit(utiltesting.MakeAdmission("eng-beta").
-						Flavor(corev1.ResourceCPU, "on-demand").
-						Resource(corev1.ResourceCPU, "30000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "on-demand", "30000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("low-2", "eng-beta").
 					Priority(-2).
 					Request(corev1.ResourceCPU, "10").
-					Admit(utiltesting.MakeAdmission("eng-beta").
-						Flavor(corev1.ResourceCPU, "on-demand").
-						Resource(corev1.ResourceCPU, "10000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "on-demand", "10000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("borrower", "eng-alpha").
 					Request(corev1.ResourceCPU, "60").
-					Admit(utiltesting.MakeAdmission("eng-alpha").
-						Flavor(corev1.ResourceCPU, "on-demand").
-						Resource(corev1.ResourceCPU, "60000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "60000m").Obj()).
 					Obj(),
 			},
 			wantLeft: map[string]sets.Set[string]{
@@ -537,23 +510,11 @@ func TestSchedule(t *testing.T) {
 			},
 			wantPreempted: sets.New("eng-alpha/borrower", "eng-beta/low-2"),
 			wantAssignments: map[string]kueue.Admission{
-				"eng-alpha/use-all-spot": *utiltesting.MakeAdmission("eng-alpha").
-					Flavor(corev1.ResourceCPU, "spot").
-					Resource(corev1.ResourceCPU, "100").
-					Obj(),
-				"eng-beta/low-1": *utiltesting.MakeAdmission("eng-beta").
-					Flavor(corev1.ResourceCPU, "on-demand").
-					Resource(corev1.ResourceCPU, "30").
-					Obj(),
+				"eng-alpha/use-all-spot": *utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "spot", "100").Obj(),
+				"eng-beta/low-1":         *utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "on-demand", "30").Obj(),
 				// Removal from cache for the preempted workloads is deferred until we receive Workload updates
-				"eng-beta/low-2": *utiltesting.MakeAdmission("eng-beta").
-					Flavor(corev1.ResourceCPU, "on-demand").
-					Resource(corev1.ResourceCPU, "10").
-					Obj(),
-				"eng-alpha/borrower": *utiltesting.MakeAdmission("eng-alpha").
-					Flavor(corev1.ResourceCPU, "on-demand").
-					Resource(corev1.ResourceCPU, "60").
-					Obj(),
+				"eng-beta/low-2":     *utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "on-demand", "10").Obj(),
+				"eng-alpha/borrower": *utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "60").Obj(),
 			},
 		},
 		"cannot borrow resource not listed in clusterQueue": {
@@ -579,10 +540,7 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("one", 45).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					Admit(utiltesting.MakeAdmission("eng-beta", "one").
-						Flavor(corev1.ResourceCPU, "on-demand").
-						Resource(corev1.ResourceCPU, "45000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("eng-beta", "one").Assignment(corev1.ResourceCPU, "on-demand", "45000m").Obj()).
 					Obj(),
 			},
 			wantAssignments: map[string]kueue.Admission{

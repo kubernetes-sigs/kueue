@@ -1333,22 +1333,12 @@ func TestClusterQueueUsage(t *testing.T) {
 		*utiltesting.MakeWorkload("one", "").
 			Request(corev1.ResourceCPU, "8").
 			Request("example.com/gpu", "5").
-			Admit(utiltesting.MakeAdmission("foo").
-				Flavor(corev1.ResourceCPU, "default").
-				Flavor("example.com/gpu", "model_a").
-				Resource(corev1.ResourceCPU, "8000m").
-				Resource("example.com/gpu", "5").
-				Obj()).
+			Admit(utiltesting.MakeAdmission("foo").Assignment(corev1.ResourceCPU, "default", "8000m").Assignment("example.com/gpu", "model_a", "5").Obj()).
 			Obj(),
 		*utiltesting.MakeWorkload("two", "").
 			Request(corev1.ResourceCPU, "5").
 			Request("example.com/gpu", "6").
-			Admit(utiltesting.MakeAdmission("foo").
-				Flavor(corev1.ResourceCPU, "default").
-				Flavor("example.com/gpu", "model_b").
-				Resource(corev1.ResourceCPU, "5000m").
-				Resource("example.com/gpu", "6").
-				Obj()).
+			Admit(utiltesting.MakeAdmission("foo").Assignment(corev1.ResourceCPU, "default", "5000m").Assignment("example.com/gpu", "model_b", "6").Obj()).
 			Obj(),
 	}
 	cases := map[string]struct {

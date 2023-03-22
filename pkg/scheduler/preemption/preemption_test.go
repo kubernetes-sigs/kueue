@@ -114,25 +114,16 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "2").
-					Admit(utiltesting.MakeAdmission("standalone").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "2000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("mid", "").
 					Request(corev1.ResourceCPU, "2").
-					Admit(utiltesting.MakeAdmission("standalone").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "2000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("high", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "2").
-					Admit(utiltesting.MakeAdmission("standalone").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "2000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -153,25 +144,16 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "2").
-					Admit(utiltesting.MakeAdmission("standalone").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "2000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("mid", "").
 					Request(corev1.ResourceCPU, "2").
-					Admit(utiltesting.MakeAdmission("standalone").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "2000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("high", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "2").
-					Admit(utiltesting.MakeAdmission("standalone").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "2000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -193,17 +175,11 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "3").
-					Admit(utiltesting.MakeAdmission("standalone").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "3000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "3000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("mid", "").
 					Request(corev1.ResourceCPU, "3").
-					Admit(utiltesting.MakeAdmission("standalone").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "3000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "3000m").Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -223,17 +199,11 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "3").
-					Admit(utiltesting.MakeAdmission("standalone").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "3000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "3000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("mid", "").
 					Request(corev1.ResourceCPU, "3").
-					Admit(utiltesting.MakeAdmission("standalone").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "3000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "3000m").Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -252,25 +222,16 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
-					Admit(utiltesting.MakeAdmission("standalone").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "1000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "1000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("mid", "").
 					Request(corev1.ResourceCPU, "1").
-					Admit(utiltesting.MakeAdmission("standalone").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "1000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "1000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("high", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "3").
-					Admit(utiltesting.MakeAdmission("standalone").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "3000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "3000m").Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -291,25 +252,16 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
-					Admit(utiltesting.MakeAdmission("standalone").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "1000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "1000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("mid", "").
 					Request(corev1.ResourceCPU, "2").
-					Admit(utiltesting.MakeAdmission("standalone").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "2000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("high", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "3").
-					Admit(utiltesting.MakeAdmission("standalone").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "3000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceCPU, "default", "3000m").Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -330,25 +282,16 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("low", "").
 					Priority(-1).
 					Request(corev1.ResourceMemory, "2Gi").
-					Admit(utiltesting.MakeAdmission("standalone").
-						Flavor(corev1.ResourceMemory, "alpha").
-						Resource(corev1.ResourceMemory, "2Gi").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceMemory, "alpha", "2Gi").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("mid", "").
 					Request(corev1.ResourceMemory, "1Gi").
-					Admit(utiltesting.MakeAdmission("standalone").
-						Flavor(corev1.ResourceMemory, "beta").
-						Resource(corev1.ResourceMemory, "1Gi").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceMemory, "beta", "1Gi").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("high", "").
 					Priority(1).
 					Request(corev1.ResourceMemory, "1Gi").
-					Admit(utiltesting.MakeAdmission("standalone").
-						Flavor(corev1.ResourceMemory, "beta").
-						Resource(corev1.ResourceMemory, "1Gi").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceMemory, "beta", "1Gi").Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -374,25 +317,16 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("c1-low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "3").
-					Admit(utiltesting.MakeAdmission("c1").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "3000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "3000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-mid", "").
 					Request(corev1.ResourceCPU, "3").
-					Admit(utiltesting.MakeAdmission("c2").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "3000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "3000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-high", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "6").
-					Admit(utiltesting.MakeAdmission("c2").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "6000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "6000m").Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -413,18 +347,12 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("c1-high", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "4").
-					Admit(utiltesting.MakeAdmission("c1").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "4000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-low-1", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "4").
-					Admit(utiltesting.MakeAdmission("c2").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "4000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -444,26 +372,17 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("c1-high", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "4").
-					Admit(utiltesting.MakeAdmission("c1").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "4000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-low-1", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "4").
-					Admit(utiltesting.MakeAdmission("c2").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "4000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-low-2", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "4").
-					Admit(utiltesting.MakeAdmission("c2").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "4000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -483,26 +402,17 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("c1-low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "4").
-					Admit(utiltesting.MakeAdmission("c1").
-						Resource(corev1.ResourceCPU, "4000m").
-						Flavor(corev1.ResourceCPU, "default").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-low-1", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "4").
-					Admit(utiltesting.MakeAdmission("c2").
-						Resource(corev1.ResourceCPU, "4000m").
-						Flavor(corev1.ResourceCPU, "default").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-high-2", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "4").
-					Admit(utiltesting.MakeAdmission("c2").
-						Resource(corev1.ResourceCPU, "4000m").
-						Flavor(corev1.ResourceCPU, "default").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -528,26 +438,17 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("c1-med", "").
 					Priority(0).
 					Request(corev1.ResourceCPU, "4").
-					Admit(utiltesting.MakeAdmission("c1").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "4000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("c1-low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "4").
-					Admit(utiltesting.MakeAdmission("c1").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "4000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-low-1", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "4").
-					Admit(utiltesting.MakeAdmission("c2").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "4000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -568,34 +469,22 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("c1-med", "").
 					Priority(0).
 					Request(corev1.ResourceCPU, "4").
-					Admit(utiltesting.MakeAdmission("c1").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "4000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-low-1", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "5").
-					Admit(utiltesting.MakeAdmission("c2").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "5000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "5000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-low-2", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
-					Admit(utiltesting.MakeAdmission("c2").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "1000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "1000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-low-3", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "1").
-					Admit(utiltesting.MakeAdmission("c2").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "1000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "1000m").Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -621,18 +510,12 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("l1-med", "").
 					Priority(0).
 					Request(corev1.ResourceCPU, "4").
-					Admit(utiltesting.MakeAdmission("l1").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "4000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("l1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("l1-low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "2").
-					Admit(utiltesting.MakeAdmission("l1").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "2000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("l1").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -652,24 +535,15 @@ func TestPreemption(t *testing.T) {
 			admitted: []kueue.Workload{
 				*utiltesting.MakeWorkload("c1", "").
 					Request(corev1.ResourceCPU, "2").
-					Admit(utiltesting.MakeAdmission("c1").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "2000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-1", "").
 					Request(corev1.ResourceCPU, "4").
-					Admit(utiltesting.MakeAdmission("c2").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "4000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-2", "").
 					Request(corev1.ResourceCPU, "4").
-					Admit(utiltesting.MakeAdmission("c2").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "4000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -687,25 +561,16 @@ func TestPreemption(t *testing.T) {
 			admitted: []kueue.Workload{
 				*utiltesting.MakeWorkload("c1-1", "").
 					Request(corev1.ResourceCPU, "4").
-					Admit(utiltesting.MakeAdmission("c1").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "4000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("c1-2", "").
 					Priority(1).
 					Request(corev1.ResourceCPU, "4").
-					Admit(utiltesting.MakeAdmission("c1").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "4000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("c2", "").
 					Request(corev1.ResourceCPU, "2").
-					Admit(utiltesting.MakeAdmission("c2").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "2000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -725,32 +590,20 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("c1-low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "3").
-					Admit(utiltesting.MakeAdmission("c1").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "3000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "3000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("c1-mid", "").
 					Request(corev1.ResourceCPU, "2").
-					Admit(utiltesting.MakeAdmission("c1").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "2000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c1").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "3").
-					Admit(utiltesting.MakeAdmission("c2").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "3000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "3000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("c2-mid", "").
 					Request(corev1.ResourceCPU, "4").
-					Admit(utiltesting.MakeAdmission("c2").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "4000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "4000m").Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -770,10 +623,7 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("c2-low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "3").
-					Admit(utiltesting.MakeAdmission("c2").
-						Flavor(corev1.ResourceCPU, "default").
-						Resource(corev1.ResourceCPU, "3000m").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("c2").Assignment(corev1.ResourceCPU, "default", "3000m").Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -793,18 +643,12 @@ func TestPreemption(t *testing.T) {
 				*utiltesting.MakeWorkload("low-alpha", "").
 					Priority(-1).
 					Request(corev1.ResourceMemory, "2Gi").
-					Admit(utiltesting.MakeAdmission("standalone").
-						Flavor(corev1.ResourceMemory, "alpha").
-						Resource(corev1.ResourceMemory, "2Gi").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceMemory, "alpha", "2Gi").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("low-beta", "").
 					Priority(-1).
 					Request(corev1.ResourceMemory, "2Gi").
-					Admit(utiltesting.MakeAdmission("standalone").
-						Flavor(corev1.ResourceMemory, "beta").
-						Resource(corev1.ResourceMemory, "2Gi").
-						Obj()).
+					Admit(utiltesting.MakeAdmission("standalone").Assignment(corev1.ResourceMemory, "beta", "2Gi").Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").

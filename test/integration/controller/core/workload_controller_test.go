@@ -138,7 +138,7 @@ var _ = ginkgo.Describe("Workload controller", func() {
 			ginkgo.By("Admit workload")
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
 			updatedQueueWorkload.Status.Admission = testing.MakeAdmission(clusterQueue.Name).
-				Flavor(corev1.ResourceCPU, flavorOnDemand).Obj()
+				Assignment(corev1.ResourceCPU, flavorOnDemand, "1").Obj()
 			gomega.Expect(k8sClient.Status().Update(ctx, &updatedQueueWorkload)).To(gomega.Succeed())
 			gomega.Eventually(func() bool {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
