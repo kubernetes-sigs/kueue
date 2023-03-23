@@ -211,7 +211,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: job_ID_
-  annotations:
+  labels:
     kueue.x-k8s.io/queue-name: user-queue
 spec:
   parallelism: 20
