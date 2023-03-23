@@ -530,4 +530,86 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			})
 		})
 	})
+
+	ginkgo.When("When a LimitRange event occurs near workload deletion time", func() {
+		var limitRange *corev1.LimitRange
+		ginkgo.BeforeEach(func() {
+			limitRange = testing.MakeLimitRange("limits", ns.Name).WithValue("DefaultRequest", corev1.ResourceCPU, "3").Obj()
+			gomega.Expect(k8sClient.Create(ctx, limitRange)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).To(gomega.Succeed())
+			clusterQueue = testing.MakeClusterQueue("clusterqueue").
+				ResourceGroup(*testing.MakeFlavorQuotas(onDemandFlavor.Name).
+					Resource(corev1.ResourceCPU, "5", "5").Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+		})
+		ginkgo.AfterEach(func() {
+			ginkgo.By("Resource consumption should be 0", func() {
+				gomega.Eventually(func() kueue.ClusterQueueStatus {
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
+					return updatedCQ.Status
+				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
+					PendingWorkloads:  0,
+					AdmittedWorkloads: 0,
+					FlavorsUsage: []kueue.FlavorUsage{{
+						Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
+						Resources: []kueue.ResourceUsage{{
+							Name:  corev1.ResourceCPU,
+							Total: resource.MustParse("0"),
+						}},
+					}},
+				}, ignoreCqCondition))
+			})
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(util.DeleteResourceFlavor(ctx, k8sClient, onDemandFlavor)).To(gomega.Succeed())
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		})
+
+		ginkgo.When("When the workload is admissible", func() {
+			ginkgo.It("Should not consume resources", func() {
+				var wl *kueue.Workload
+				ginkgo.By("Create the workload", func() {
+					wl = testing.MakeWorkload("one", ns.Name).
+						Queue(localQueue.Name).
+						Request(corev1.ResourceCPU, "1").
+						Obj()
+					gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+				})
+
+				updatedLr := corev1.LimitRange{}
+				ginkgo.By("Preparing the updated limitRange", func() {
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(limitRange), &updatedLr)).To(gomega.Succeed())
+					updatedLr.Spec.Limits[0].DefaultRequest[corev1.ResourceCPU] = resource.MustParse("2")
+				})
+				ginkgo.By("Updating the limitRange and delete the workload", func() {
+					gomega.Expect(k8sClient.Update(ctx, &updatedLr)).To(gomega.Succeed())
+					gomega.Expect(k8sClient.Delete(ctx, wl)).To(gomega.Succeed())
+				})
+			})
+		})
+
+		ginkgo.When("When the workload is not admissible", func() {
+			ginkgo.It("Should not consume resources", func() {
+				var wl *kueue.Workload
+				ginkgo.By("Create the workload", func() {
+					wl = testing.MakeWorkload("one", ns.Name).
+						Queue(localQueue.Name).
+						Request(corev1.ResourceCPU, "7").
+						Obj()
+					gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+				})
+				updatedLr := corev1.LimitRange{}
+				ginkgo.By("Preparing the updated limitRange", func() {
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(limitRange), &updatedLr)).To(gomega.Succeed())
+					updatedLr.Spec.Limits[0].DefaultRequest[corev1.ResourceCPU] = resource.MustParse("2")
+				})
+				ginkgo.By("Updating the limitRange and delete the workload", func() {
+					gomega.Expect(k8sClient.Update(ctx, &updatedLr)).To(gomega.Succeed())
+					gomega.Expect(k8sClient.Delete(ctx, wl)).To(gomega.Succeed())
+				})
+			})
+		})
+	})
 })
