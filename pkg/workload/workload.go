@@ -48,11 +48,13 @@ type PodSetResources struct {
 
 func NewInfo(w *kueue.Workload) *Info {
 	info := &Info{
-		Obj:           w,
-		TotalRequests: totalRequests(w),
+		Obj: w,
 	}
 	if w.Status.Admission != nil {
 		info.ClusterQueue = string(w.Status.Admission.ClusterQueue)
+		info.TotalRequests = totalRequestsFromAdmission(w)
+	} else {
+		info.TotalRequests = totalRequestsFromPodSets(w)
 	}
 	return info
 }
@@ -69,18 +71,11 @@ func QueueKey(w *kueue.Workload) string {
 	return fmt.Sprintf("%s/%s", w.Namespace, w.Spec.QueueName)
 }
 
-func totalRequests(wl *kueue.Workload) []PodSetResources {
+func totalRequestsFromPodSets(wl *kueue.Workload) []PodSetResources {
 	if len(wl.Spec.PodSets) == 0 {
 		return nil
 	}
 	res := make([]PodSetResources, 0, len(wl.Spec.PodSets))
-	var podSetFlavors map[string]map[corev1.ResourceName]kueue.ResourceFlavorReference
-	if wl.Status.Admission != nil {
-		podSetFlavors = make(map[string]map[corev1.ResourceName]kueue.ResourceFlavorReference, len(wl.Status.Admission.PodSetFlavors))
-		for _, ps := range wl.Status.Admission.PodSetFlavors {
-			podSetFlavors[ps.Name] = ps.Flavors
-		}
-	}
 
 	for _, ps := range wl.Spec.PodSets {
 		setRes := PodSetResources{
@@ -88,13 +83,22 @@ func totalRequests(wl *kueue.Workload) []PodSetResources {
 		}
 		setRes.Requests = podRequests(&ps.Template.Spec)
 		setRes.Requests.scale(int64(ps.Count))
-		flavors := podSetFlavors[ps.Name]
-		if len(flavors) > 0 {
-			setRes.Flavors = make(map[corev1.ResourceName]kueue.ResourceFlavorReference, len(flavors))
-			for r, t := range flavors {
-				setRes.Flavors[r] = t
-			}
+		res = append(res, setRes)
+	}
+	return res
+}
+
+func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
+	if wl.Status.Admission == nil {
+		return nil
+	}
+	res := make([]PodSetResources, 0, len(wl.Spec.PodSets))
+	for _, ps := range wl.Status.Admission.PodSetAssignments {
+		setRes := PodSetResources{
+			Name: ps.Name,
 		}
+		setRes.Flavors = ps.Flavors
+		setRes.Requests = newRequests(ps.ResourceUsage)
 		res = append(res, setRes)
 	}
 	return res
@@ -124,6 +128,14 @@ func newRequests(rl corev1.ResourceList) Requests {
 		r[name] = ResourceValue(name, quant)
 	}
 	return r
+}
+
+func (r Requests) ToResourceList() corev1.ResourceList {
+	ret := make(corev1.ResourceList, len(r))
+	for k, v := range r {
+		ret[k] = ResourceQuantity(k, v)
+	}
+	return ret
 }
 
 // ResourceValue returns the integer value for the resource name.

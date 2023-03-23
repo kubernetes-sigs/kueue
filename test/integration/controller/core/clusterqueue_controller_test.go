@@ -181,15 +181,15 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			ginkgo.By("Admitting workloads")
 			admissions := []*kueue.Admission{
 				testing.MakeAdmission(clusterQueue.Name).
-					Flavor(corev1.ResourceCPU, flavorOnDemand).Flavor(resourceGPU, flavorModelA).Obj(),
+					Assignment(corev1.ResourceCPU, flavorOnDemand, "2").Assignment(resourceGPU, flavorModelA, "2").Obj(),
 				testing.MakeAdmission(clusterQueue.Name).
-					Flavor(corev1.ResourceCPU, flavorOnDemand).Flavor(resourceGPU, flavorModelA).Obj(),
+					Assignment(corev1.ResourceCPU, flavorOnDemand, "3").Assignment(resourceGPU, flavorModelA, "3").Obj(),
 				testing.MakeAdmission(clusterQueue.Name).
-					Flavor(corev1.ResourceCPU, flavorOnDemand).Flavor(resourceGPU, flavorModelB).Obj(),
+					Assignment(corev1.ResourceCPU, flavorOnDemand, "1").Assignment(resourceGPU, flavorModelB, "1").Obj(),
 				testing.MakeAdmission(clusterQueue.Name).
-					Flavor(corev1.ResourceCPU, flavorSpot).Flavor(resourceGPU, flavorModelB).Obj(),
+					Assignment(corev1.ResourceCPU, flavorSpot, "1").Assignment(resourceGPU, flavorModelB, "1").Obj(),
 				testing.MakeAdmission("other").
-					Flavor(corev1.ResourceCPU, flavorSpot).Flavor(resourceGPU, flavorModelB).Obj(),
+					Assignment(corev1.ResourceCPU, flavorSpot, "1").Assignment(resourceGPU, flavorModelB, "1").Obj(),
 				nil,
 			}
 			for i, w := range workloads {

@@ -257,13 +257,13 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		"admission can be set": {
 			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
 			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Admit(
-				testingutil.MakeAdmission("cluster-queue").Flavor("on-demand", "5").Obj(),
+				testingutil.MakeAdmission("cluster-queue").Assignment("on-demand", "5", "1").Obj(),
 			).Obj(),
 			wantErr: nil,
 		},
 		"admission can be unset": {
 			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Admit(
-				testingutil.MakeAdmission("cluster-queue").Flavor("on-demand", "5").Obj(),
+				testingutil.MakeAdmission("cluster-queue").Assignment("on-demand", "5", "1").Obj(),
 			).Obj(),
 			after:   testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
 			wantErr: nil,
@@ -273,7 +273,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				testingutil.MakeAdmission("cluster-queue").Obj(),
 			).Obj(),
 			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Admit(
-				testingutil.MakeAdmission("cluster-queue").Flavor("on-demand", "5").Obj(),
+				testingutil.MakeAdmission("cluster-queue").Assignment("on-demand", "5", "1").Obj(),
 			).Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("status", "admission"), nil, ""),

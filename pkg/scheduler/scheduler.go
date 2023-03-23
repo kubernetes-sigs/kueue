@@ -265,8 +265,8 @@ func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 	log := ctrl.LoggerFrom(ctx)
 	newWorkload := e.Obj.DeepCopy()
 	admission := &kueue.Admission{
-		ClusterQueue:  kueue.ClusterQueueReference(e.ClusterQueue),
-		PodSetFlavors: e.assignment.ToAPI(),
+		ClusterQueue:      kueue.ClusterQueueReference(e.ClusterQueue),
+		PodSetAssignments: e.assignment.ToAPI(),
 	}
 	newWorkload.Status.Admission = admission
 	if err := s.cache.AssumeWorkload(newWorkload); err != nil {

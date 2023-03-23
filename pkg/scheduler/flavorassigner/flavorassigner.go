@@ -93,8 +93,8 @@ func (a *Assignment) Message() string {
 	return builder.String()
 }
 
-func (a *Assignment) ToAPI() []kueue.PodSetFlavors {
-	psFlavors := make([]kueue.PodSetFlavors, len(a.PodSets))
+func (a *Assignment) ToAPI() []kueue.PodSetAssignment {
+	psFlavors := make([]kueue.PodSetAssignment, len(a.PodSets))
 	for i := range psFlavors {
 		psFlavors[i] = a.PodSets[i].toAPI()
 	}
@@ -146,9 +146,10 @@ func (s *Status) Equal(o *Status) bool {
 // .Flavors and .Status can't be empty at the same time, once PodSetAssignment
 // is fully calculated.
 type PodSetAssignment struct {
-	Name    string
-	Flavors ResourceAssignment
-	Status  *Status
+	Name     string
+	Flavors  ResourceAssignment
+	Status   *Status
+	Requests corev1.ResourceList
 }
 
 // RepresentativeMode calculates the representative mode for this assignment as
@@ -171,14 +172,15 @@ func (psa *PodSetAssignment) RepresentativeMode() FlavorAssignmentMode {
 
 type ResourceAssignment map[corev1.ResourceName]*FlavorAssignment
 
-func (psa *PodSetAssignment) toAPI() kueue.PodSetFlavors {
+func (psa *PodSetAssignment) toAPI() kueue.PodSetAssignment {
 	flavors := make(map[corev1.ResourceName]kueue.ResourceFlavorReference, len(psa.Flavors))
 	for res, flvAssignment := range psa.Flavors {
 		flavors[res] = flvAssignment.Name
 	}
-	return kueue.PodSetFlavors{
-		Name:    psa.Name,
-		Flavors: flavors,
+	return kueue.PodSetAssignment{
+		Name:          psa.Name,
+		Flavors:       flavors,
+		ResourceUsage: psa.Requests,
 	}
 }
 
@@ -230,8 +232,9 @@ func AssignFlavors(log logr.Logger, wl *workload.Info, resourceFlavors map[kueue
 	}
 	for i, podSet := range wl.TotalRequests {
 		psAssignment := PodSetAssignment{
-			Name:    podSet.Name,
-			Flavors: make(ResourceAssignment, len(podSet.Requests)),
+			Name:     podSet.Name,
+			Flavors:  make(ResourceAssignment, len(podSet.Requests)),
+			Requests: podSet.Requests.ToResourceList(),
 		}
 		for resName := range podSet.Requests {
 			if _, found := psAssignment.Flavors[resName]; found {

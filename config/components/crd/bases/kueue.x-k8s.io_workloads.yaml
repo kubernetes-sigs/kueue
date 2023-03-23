@@ -8062,9 +8062,9 @@ spec:
                     description: clusterQueue is the name of the ClusterQueue that
                       admitted this workload.
                     type: string
-                  podSetFlavors:
-                    description: podSetFlavors hold the admission results for each
-                      of the .spec.podSets entries.
+                  podSetAssignments:
+                    description: PodSetAssignments hold the admission results for
+                      each of the .spec.podSets entries.
                     items:
                       properties:
                         flavors:
@@ -8080,6 +8080,19 @@ spec:
                           description: Name is the name of the podSet. It should match
                             one of the names in .spec.podSets.
                           type: string
+                        resourceUsage:
+                          additionalProperties:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                          description: "resourceUsage keeps track of the total resources
+                            all the pods in the podset need to run. \n Beside what
+                            is provided in podSet's specs, this calculation takes
+                            into account the LimitRange defaults and RuntimeClass
+                            overheads at the moment of admission."
+                          type: object
                       required:
                       - name
                       type: object
@@ -8089,7 +8102,7 @@ spec:
                     x-kubernetes-list-type: map
                 required:
                 - clusterQueue
-                - podSetFlavors
+                - podSetAssignments
                 type: object
               conditions:
                 description: "conditions hold the latest available observations of

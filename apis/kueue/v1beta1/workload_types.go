@@ -58,19 +58,25 @@ type Admission struct {
 	// clusterQueue is the name of the ClusterQueue that admitted this workload.
 	ClusterQueue ClusterQueueReference `json:"clusterQueue"`
 
-	// podSetFlavors hold the admission results for each of the .spec.podSets entries.
+	// PodSetAssignments hold the admission results for each of the .spec.podSets entries.
 	// +listType=map
 	// +listMapKey=name
-	PodSetFlavors []PodSetFlavors `json:"podSetFlavors"`
+	PodSetAssignments []PodSetAssignment `json:"podSetAssignments"`
 }
 
-type PodSetFlavors struct {
+type PodSetAssignment struct {
 	// Name is the name of the podSet. It should match one of the names in .spec.podSets.
 	// +kubebuilder:default=main
 	Name string `json:"name"`
 
 	// Flavors are the flavors assigned to the workload for each resource.
 	Flavors map[corev1.ResourceName]ResourceFlavorReference `json:"flavors,omitempty"`
+
+	// resourceUsage keeps track of the total resources all the pods in the podset need to run.
+	//
+	// Beside what is provided in podSet's specs, this calculation takes into account
+	// the LimitRange defaults and RuntimeClass overheads at the moment of admission.
+	ResourceUsage corev1.ResourceList `json:"resourceUsage,omitempty"`
 }
 
 type PodSet struct {

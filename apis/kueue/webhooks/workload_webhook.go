@@ -142,11 +142,11 @@ func validateAdmission(obj *kueue.Workload, path *field.Path) field.ErrorList {
 		names.Insert(ps.Name)
 	}
 	psFlavorsPath := path.Child("podSetFlavors")
-	if names.Len() != len(admission.PodSetFlavors) {
+	if names.Len() != len(admission.PodSetAssignments) {
 		allErrs = append(allErrs, field.Invalid(psFlavorsPath, field.OmitValueType{}, "must have the same number of podSets as the spec"))
 	}
 
-	for i, ps := range admission.PodSetFlavors {
+	for i, ps := range admission.PodSetAssignments {
 		if !names.Has(ps.Name) {
 			allErrs = append(allErrs, field.NotFound(psFlavorsPath.Index(i).Child("name"), ps.Name))
 		}

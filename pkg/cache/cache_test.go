@@ -720,11 +720,14 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			Request(corev1.ResourceCPU, "5m").
 			Obj(),
 	}
-	podSetFlavors := []kueue.PodSetFlavors{
+	podSetFlavors := []kueue.PodSetAssignment{
 		{
 			Name: "driver",
 			Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 				corev1.ResourceCPU: "on-demand",
+			},
+			ResourceUsage: corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("10m"),
 			},
 		},
 		{
@@ -732,12 +735,15 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 				corev1.ResourceCPU: "spot",
 			},
+			ResourceUsage: corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("15m"),
+			},
 		},
 	}
 	cl := utiltesting.NewFakeClient(
 		utiltesting.MakeWorkload("a", "").PodSets(podSets...).Admit(&kueue.Admission{
-			ClusterQueue:  "one",
-			PodSetFlavors: podSetFlavors,
+			ClusterQueue:      "one",
+			PodSetAssignments: podSetFlavors,
 		}).Obj(),
 		utiltesting.MakeWorkload("b", "").Admit(&kueue.Admission{
 			ClusterQueue: "one",
@@ -763,8 +769,8 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			operation: func(cache *Cache) error {
 				workloads := []*kueue.Workload{
 					utiltesting.MakeWorkload("a", "").PodSets(podSets...).Admit(&kueue.Admission{
-						ClusterQueue:  "one",
-						PodSetFlavors: podSetFlavors,
+						ClusterQueue:      "one",
+						PodSetAssignments: podSetFlavors,
 					}).Obj(),
 					utiltesting.MakeWorkload("d", "").Admit(&kueue.Admission{
 						ClusterQueue: "two",
@@ -857,8 +863,8 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					ClusterQueue: "one",
 				}).Obj()
 				latest := utiltesting.MakeWorkload("a", "").PodSets(podSets...).Admit(&kueue.Admission{
-					ClusterQueue:  "two",
-					PodSetFlavors: podSetFlavors,
+					ClusterQueue:      "two",
+					PodSetAssignments: podSetFlavors,
 				}).Obj()
 				return cache.UpdateWorkload(old, latest)
 			},
@@ -1093,12 +1099,12 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			operation: func(cache *Cache) error {
 				workloads := []*kueue.Workload{
 					utiltesting.MakeWorkload("d", "").PodSets(podSets...).Admit(&kueue.Admission{
-						ClusterQueue:  "one",
-						PodSetFlavors: podSetFlavors,
+						ClusterQueue:      "one",
+						PodSetAssignments: podSetFlavors,
 					}).Obj(),
 					utiltesting.MakeWorkload("e", "").PodSets(podSets...).Admit(&kueue.Admission{
-						ClusterQueue:  "two",
-						PodSetFlavors: podSetFlavors,
+						ClusterQueue:      "two",
+						PodSetAssignments: podSetFlavors,
 					}).Obj(),
 				}
 				for i := range workloads {
@@ -1164,12 +1170,12 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			operation: func(cache *Cache) error {
 				workloads := []*kueue.Workload{
 					utiltesting.MakeWorkload("d", "").PodSets(podSets...).Admit(&kueue.Admission{
-						ClusterQueue:  "one",
-						PodSetFlavors: podSetFlavors,
+						ClusterQueue:      "one",
+						PodSetAssignments: podSetFlavors,
 					}).Obj(),
 					utiltesting.MakeWorkload("e", "").PodSets(podSets...).Admit(&kueue.Admission{
-						ClusterQueue:  "two",
-						PodSetFlavors: podSetFlavors,
+						ClusterQueue:      "two",
+						PodSetAssignments: podSetFlavors,
 					}).Obj(),
 				}
 				for i := range workloads {
@@ -1235,12 +1241,12 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			operation: func(cache *Cache) error {
 				workloads := []*kueue.Workload{
 					utiltesting.MakeWorkload("d", "").PodSets(podSets...).Admit(&kueue.Admission{
-						ClusterQueue:  "one",
-						PodSetFlavors: podSetFlavors,
+						ClusterQueue:      "one",
+						PodSetAssignments: podSetFlavors,
 					}).Obj(),
 					utiltesting.MakeWorkload("e", "").PodSets(podSets...).Admit(&kueue.Admission{
-						ClusterQueue:  "two",
-						PodSetFlavors: podSetFlavors,
+						ClusterQueue:      "two",
+						PodSetAssignments: podSetFlavors,
 					}).Obj(),
 				}
 				for i := range workloads {
@@ -1327,18 +1333,12 @@ func TestClusterQueueUsage(t *testing.T) {
 		*utiltesting.MakeWorkload("one", "").
 			Request(corev1.ResourceCPU, "8").
 			Request("example.com/gpu", "5").
-			Admit(utiltesting.MakeAdmission("foo").
-				Flavor(corev1.ResourceCPU, "default").
-				Flavor("example.com/gpu", "model_a").
-				Obj()).
+			Admit(utiltesting.MakeAdmission("foo").Assignment(corev1.ResourceCPU, "default", "8000m").Assignment("example.com/gpu", "model_a", "5").Obj()).
 			Obj(),
 		*utiltesting.MakeWorkload("two", "").
 			Request(corev1.ResourceCPU, "5").
 			Request("example.com/gpu", "6").
-			Admit(utiltesting.MakeAdmission("foo").
-				Flavor(corev1.ResourceCPU, "default").
-				Flavor("example.com/gpu", "model_b").
-				Obj()).
+			Admit(utiltesting.MakeAdmission("foo").Assignment(corev1.ResourceCPU, "default", "5000m").Assignment("example.com/gpu", "model_b", "6").Obj()).
 			Obj(),
 	}
 	cases := map[string]struct {

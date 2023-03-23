@@ -193,7 +193,7 @@ var _ = ginkgo.Describe("Queue controller", func() {
 				var newWL kueue.Workload
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
 				newWL.Status.Admission = testing.MakeAdmission(clusterQueue.Name).
-					Flavor(corev1.ResourceCPU, flavorOnDemand).Obj()
+					Assignment(corev1.ResourceCPU, flavorOnDemand, "1").Obj()
 				return k8sClient.Status().Update(ctx, &newWL)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		}

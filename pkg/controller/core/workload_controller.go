@@ -27,11 +27,13 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
@@ -193,7 +195,11 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 }
 
 func (r *WorkloadReconciler) Create(e event.CreateEvent) bool {
-	wl := e.Object.(*kueue.Workload)
+	wl, isWorkload := e.Object.(*kueue.Workload)
+	if !isWorkload {
+		// this event will be handled by the LimitRange/RuntimeClass handle
+		return true
+	}
 	defer r.notifyWatchers(wl)
 	status := workloadStatus(wl)
 	log := r.log.WithValues("workload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
@@ -204,9 +210,7 @@ func (r *WorkloadReconciler) Create(e event.CreateEvent) bool {
 	}
 
 	wlCopy := wl.DeepCopy()
-	handlePodOverhead(r.log, wlCopy, r.client)
-	r.handlePodLimitRange(log, wlCopy)
-	r.handleLimitsToRequests(wlCopy)
+	r.adjustResources(log, wlCopy)
 
 	if wl.Status.Admission == nil {
 		if !r.queues.AddOrUpdateWorkload(wlCopy) {
@@ -222,7 +226,11 @@ func (r *WorkloadReconciler) Create(e event.CreateEvent) bool {
 }
 
 func (r *WorkloadReconciler) Delete(e event.DeleteEvent) bool {
-	wl := e.Object.(*kueue.Workload)
+	wl, isWorkload := e.Object.(*kueue.Workload)
+	if !isWorkload {
+		// this event will be handled by the LimitRange/RuntimeClass handle
+		return true
+	}
 	defer r.notifyWatchers(wl)
 	status := "unknown"
 	if !e.DeleteStateUnknown {
@@ -258,7 +266,11 @@ func (r *WorkloadReconciler) Delete(e event.DeleteEvent) bool {
 }
 
 func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
-	oldWl := e.ObjectOld.(*kueue.Workload)
+	oldWl, isWorkload := e.ObjectOld.(*kueue.Workload)
+	if !isWorkload {
+		// this event will be handled by the LimitRange/RuntimeClass handle
+		return true
+	}
 	wl := e.ObjectNew.(*kueue.Workload)
 	defer r.notifyWatchers(oldWl)
 	defer r.notifyWatchers(wl)
@@ -285,9 +297,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 
 	wlCopy := wl.DeepCopy()
 	// We do not handle old workload here as it will be deleted or replaced by new one anyway.
-	handlePodOverhead(r.log, wlCopy, r.client)
-	r.handlePodLimitRange(log, wlCopy)
-	r.handleLimitsToRequests(wlCopy)
+	r.adjustResources(log, wlCopy)
 
 	switch {
 	case status == finished:
@@ -359,8 +369,13 @@ func (r *WorkloadReconciler) notifyWatchers(wl *kueue.Workload) {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	ruh := &resourceUpdatesHandler{
+		r: r,
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.Workload{}).
+		Watches(&source.Kind{Type: &corev1.LimitRange{}}, ruh).
+		Watches(&source.Kind{Type: &nodev1.RuntimeClass{}}, ruh).
 		WithEventFilter(r).
 		Complete(r)
 }
@@ -417,14 +432,14 @@ func workloadStatus(w *kueue.Workload) string {
 // As a result, the pod's Overhead is not always correct. E.g. if we set a non-existent runtime class name to
 // `pod.Spec.RuntimeClassName` and we also set the `pod.Spec.Overhead`, in real world, the pod creation will be
 // rejected due to the mismatch with RuntimeClass. However, in the future we assume that they are correct.
-func handlePodOverhead(log logr.Logger, wl *kueue.Workload, c client.Client) {
+func (r *WorkloadReconciler) handlePodOverhead(log logr.Logger, wl *kueue.Workload) {
 	ctx := context.Background()
 
 	for i := range wl.Spec.PodSets {
 		podSpec := &wl.Spec.PodSets[i].Template.Spec
 		if podSpec.RuntimeClassName != nil && len(podSpec.Overhead) == 0 {
 			var runtimeClass nodev1.RuntimeClass
-			if err := c.Get(ctx, types.NamespacedName{Name: *podSpec.RuntimeClassName}, &runtimeClass); err != nil {
+			if err := r.client.Get(ctx, types.NamespacedName{Name: *podSpec.RuntimeClassName}, &runtimeClass); err != nil {
 				log.Error(err, "Could not get RuntimeClass")
 				continue
 			}
@@ -478,6 +493,80 @@ func (r *WorkloadReconciler) handleLimitsToRequests(wl *kueue.Workload) {
 		for ci := range pod.Containers {
 			res := &pod.Containers[ci].Resources
 			res.Requests = resource.MergeResourceListKeepFirst(res.Requests, res.Limits)
+		}
+	}
+}
+
+func (r *WorkloadReconciler) adjustResources(log logr.Logger, wl *kueue.Workload) {
+	r.handlePodOverhead(log, wl)
+	r.handlePodLimitRange(log, wl)
+	r.handleLimitsToRequests(wl)
+}
+
+type resourceUpdatesHandler struct {
+	r *WorkloadReconciler
+}
+
+func (h *resourceUpdatesHandler) Create(e event.CreateEvent, q workqueue.RateLimitingInterface) {
+	//TODO: the eventHandler should get a context soon, and this could be dropped
+	// https://github.com/kubernetes-sigs/controller-runtime/blob/master/pkg/handler/eventhandler.go
+	ctx := context.TODO()
+	log := ctrl.LoggerFrom(ctx).WithValues("kind", e.Object.GetObjectKind())
+	ctx = ctrl.LoggerInto(ctx, log)
+	log.V(5).Info("Create event")
+	h.handle(ctx, e.Object, q)
+}
+
+func (h *resourceUpdatesHandler) Update(e event.UpdateEvent, q workqueue.RateLimitingInterface) {
+	ctx := context.TODO()
+	log := ctrl.LoggerFrom(ctx).WithValues("kind", e.ObjectNew.GetObjectKind())
+	ctx = ctrl.LoggerInto(ctx, log)
+	log.V(5).Info("Update event")
+	h.handle(ctx, e.ObjectNew, q)
+}
+
+func (h *resourceUpdatesHandler) Delete(e event.DeleteEvent, q workqueue.RateLimitingInterface) {
+	ctx := context.TODO()
+	log := ctrl.LoggerFrom(ctx).WithValues("kind", e.Object.GetObjectKind())
+	ctx = ctrl.LoggerInto(ctx, log)
+	log.V(5).Info("Delete event")
+	h.handle(ctx, e.Object, q)
+}
+
+func (h *resourceUpdatesHandler) Generic(_ event.GenericEvent, _ workqueue.RateLimitingInterface) {
+}
+
+func (h *resourceUpdatesHandler) handle(ctx context.Context, obj client.Object, q workqueue.RateLimitingInterface) {
+	switch v := obj.(type) {
+	case *corev1.LimitRange:
+		log := ctrl.LoggerFrom(ctx).WithValues("limitRange", klog.KObj(v))
+		ctx = ctrl.LoggerInto(ctx, log)
+		h.queueReconcileForPending(ctx, q, client.InNamespace(v.Namespace))
+	case *nodev1.RuntimeClass:
+		log := ctrl.LoggerFrom(ctx).WithValues("runtimeClass", klog.KObj(v))
+		ctx = ctrl.LoggerInto(ctx, log)
+		h.queueReconcileForPending(ctx, q, client.MatchingFields{indexer.WorkloadRuntimeClassKey: v.Name})
+	default:
+		panic(v)
+	}
+}
+
+func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, q workqueue.RateLimitingInterface, opts ...client.ListOption) {
+	log := ctrl.LoggerFrom(ctx)
+	lst := kueue.WorkloadList{}
+	opts = append(opts, client.MatchingFields{indexer.WorkloadAdmittedKey: string(metav1.ConditionFalse)})
+	err := h.r.client.List(ctx, &lst, opts...)
+	if err != nil {
+		log.Error(err, "Could not list pending workloads")
+	}
+	log.V(4).Info("Updating pending workload requests", "count", len(lst.Items))
+	for _, w := range lst.Items {
+		wlCopy := w.DeepCopy()
+		log := log.WithValues("workload", klog.KObj(wlCopy))
+		log.V(5).Info("Queue reconcile for")
+		h.r.adjustResources(log, wlCopy)
+		if !h.r.queues.AddOrUpdateWorkload(wlCopy) {
+			log.V(2).Info("Queue for workload didn't exist")
 		}
 	}
 }
