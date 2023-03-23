@@ -19,12 +19,9 @@ Make sure the following conditions are met:
 - [Kueue is installed](/docs/installation).
 - The cluster has [quotas configured](/docs/tasks/administer_cluster_quotas).
 
-<figure>
-  <img src="/images/queueing-components.svg" alt="Kueue Components" style="width:100%">
-  <figcaption>Kueue Components</figcaption>
-</figure>
+The following picture shows all the concepts you will interact with in this tutorial:
 
-Kubernetes batch workload is abstracted by a Kueue workload which is submitted to a LocalQueue for scheduling. LocalQueue is a namespace-scoped resource that is created by the user. The LocalQueue is then mapped to a ClusterQueue by the Kueue controller.
+![Kueue Components](/images/queueing-components.svg)
 
 ## 0. Identify the queues available in your namespace
 

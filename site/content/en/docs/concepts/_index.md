@@ -51,8 +51,6 @@ Sometimes referred to as _workload scheduling_ or _job scheduling_
 
 A group of ClusterQueues that can borrow unused quota from each other.
 
-![Cohort](/images/cluster-queue.svg)
-
 ### Queueing
 
 The time between a Workload is created until it is admitted by a ClusterQueue.

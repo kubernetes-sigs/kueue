@@ -15,18 +15,17 @@ You can install Kueue on top of a vanilla Kubernetes cluster. Kueue does not rep
 * Compute resources are elastic and can be scaled up and down.
 * Compute resources are heterogeneous (in architecture, availability, price, etc.).
 
-<figure>
-  <img src="/images/theory-of-operation.svg" alt="theory-of-operation" style="width:100%">
-  <figcaption>High-level Kueue operation</figcaption>
-</figure>
-
-To learn more about Kueue concepts, see the [concepts](/docs/concepts) section.
-
-To learn about different Kueue personas and what you can do with Kueue, see the [tasks](/docs/tasks) section.
-
 Kueue APIs allow you to express:
 
 * Quotas and policies for fair sharing among tenants.
 * Resource fungibility: if a resource flavor is fully utilized, Kueue can admit the job using a different flavor.
 
 A core design principle for Kueue is to avoid duplicating mature functionality in Kubernetes components and well-established third-party controllers. Autoscaling, pod-to-node scheduling and job lifecycle management are the responsibility of cluster-autoscaler, kube-scheduler and kube-controller-manager, respectively. Advanced admission control can be delegated to controllers such as gatekeeper.
+
+## High-level Kueue operation
+
+![High Level Kueue Operation](/images/theory-of-operation.svg)
+
+To learn more about Kueue concepts, see the [concepts](/docs/concepts) section.
+
+To learn about different Kueue personas and what you can do with Kueue, see the [tasks](/docs/tasks) section.
