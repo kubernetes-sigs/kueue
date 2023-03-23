@@ -15,6 +15,7 @@ package jobframework
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
@@ -32,6 +33,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
+)
+
+var (
+	errNodeSelectorsNotFound = fmt.Errorf("annotation %s not found", OriginalNodeSelectorsAnnotation)
 )
 
 // JobReconciler reconciles a GenericJob object
@@ -300,7 +305,13 @@ func (r *JobReconciler) equivalentToWorkload(job GenericJob, object client.Objec
 
 // startJob will unsuspend the job, and also inject the node affinity.
 func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
-	nodeSelectors, err := r.getNodeSelectors(ctx, wl)
+	//get the original selectors and store them in the job object
+	originalSelectors := r.getNodeSelectorsFromPodSets(wl)
+	if err := nodeSelectorsSetToObject(object, originalSelectors); err != nil {
+		return fmt.Errorf("startJob, record original node selectors: %w", err)
+	}
+
+	nodeSelectors, err := r.getNodeSelectorsFromAdmission(ctx, wl)
 	if err != nil {
 		return err
 	}
@@ -318,6 +329,7 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 
 // stopJob will suspend the job, and also restore node affinity, reset job status if needed.
 func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload, eventMsg string) error {
+	log := ctrl.LoggerFrom(ctx)
 	// Suspend the job at first then we're able to update the scheduling directives.
 	job.Suspend()
 
@@ -333,8 +345,12 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, object clie
 		}
 	}
 
-	if wl != nil {
-		job.RestoreNodeAffinity(wl.Spec.PodSets)
+	log.V(3).Info("restore node selectors from annotation")
+	selectors, err := getNodeSelectorsFromObjectAnnotation(object)
+	if err != nil {
+		log.V(3).Error(err, "Unable to get original node selectors")
+	} else {
+		job.RestoreNodeAffinity(selectors)
 		return r.client.Update(ctx, object)
 	}
 
@@ -369,8 +385,8 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 	return wl, nil
 }
 
-// getNodeSelectors will extract node selectors from admitted workloads.
-func (r *JobReconciler) getNodeSelectors(ctx context.Context, w *kueue.Workload) ([]map[string]string, error) {
+// getNodeSelectorsFromAdmission will extract node selectors from admitted workloads.
+func (r *JobReconciler) getNodeSelectorsFromAdmission(ctx context.Context, w *kueue.Workload) ([]map[string]string, error) {
 	if len(w.Status.Admission.PodSetAssignments) == 0 {
 		return nil, nil
 	}
@@ -399,6 +415,19 @@ func (r *JobReconciler) getNodeSelectors(ctx context.Context, w *kueue.Workload)
 		nodeSelectors[i] = nodeSelector
 	}
 	return nodeSelectors, nil
+}
+
+// getNodeSelectorsFromPodSets will extract node selectors from a workload's podSets.
+func (r *JobReconciler) getNodeSelectorsFromPodSets(w *kueue.Workload) []map[string]string {
+	podSets := w.Spec.PodSets
+	if len(podSets) == 0 {
+		return nil
+	}
+	ret := make([]map[string]string, len(podSets))
+	for psi := range podSets {
+		ret[psi] = cloneNodeSelector(podSets[psi].Template.Spec.NodeSelector)
+	}
+	return ret
 }
 
 func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job GenericJob, object client.Object) error {
@@ -441,4 +470,45 @@ func generatePodsReadyCondition(job GenericJob, wl *kueue.Workload) metav1.Condi
 		Reason:  "PodsReady",
 		Message: message,
 	}
+}
+
+func cloneNodeSelector(src map[string]string) map[string]string {
+	ret := make(map[string]string, len(src))
+	for k, v := range src {
+		ret[k] = v
+	}
+	return ret
+}
+
+// getNodeSelectorsFromObjectAnnotation tries to retrieve a node selectors slice from the
+// object's annotations fails if it's not found or is unable to unmarshal
+func getNodeSelectorsFromObjectAnnotation(obj client.Object) ([]map[string]string, error) {
+	str, found := obj.GetAnnotations()[OriginalNodeSelectorsAnnotation]
+	if !found {
+		return nil, errNodeSelectorsNotFound
+	}
+	// unmarshal
+	ret := []map[string]string{}
+	if err := json.Unmarshal([]byte(str), &ret); err != nil {
+		return nil, err
+	}
+	return ret, nil
+}
+
+// nodeSelectorsSetToObject - sets an annotation containing the provided node selectors into
+// a job object, even if very unlikely it could return an error related to json.marshaling
+func nodeSelectorsSetToObject(obj client.Object, nodeSelectors []map[string]string) error {
+	nodeSelectorsBytes, err := json.Marshal(nodeSelectors)
+	if err != nil {
+		return err
+	}
+
+	annotations := obj.GetAnnotations()
+	if annotations == nil {
+		annotations = map[string]string{OriginalNodeSelectorsAnnotation: string(nodeSelectorsBytes)}
+	} else {
+		annotations[OriginalNodeSelectorsAnnotation] = string(nodeSelectorsBytes)
+	}
+	obj.SetAnnotations(annotations)
+	return nil
 }

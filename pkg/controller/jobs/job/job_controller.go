@@ -165,14 +165,14 @@ func (j *Job) RunWithNodeAffinity(nodeSelectors []map[string]string) {
 	}
 }
 
-func (j *Job) RestoreNodeAffinity(podSets []kueue.PodSet) {
-	if len(podSets) == 0 || equality.Semantic.DeepEqual(j.Spec.Template.Spec.NodeSelector, podSets[0].Template.Spec.NodeSelector) {
+func (j *Job) RestoreNodeAffinity(nodeSelectors []map[string]string) {
+	if len(nodeSelectors) == 0 || equality.Semantic.DeepEqual(j.Spec.Template.Spec.NodeSelector, nodeSelectors[0]) {
 		return
 	}
 
 	j.Spec.Template.Spec.NodeSelector = map[string]string{}
 
-	for k, v := range podSets[0].Template.Spec.NodeSelector {
+	for k, v := range nodeSelectors[0] {
 		j.Spec.Template.Spec.NodeSelector[k] = v
 	}
 }

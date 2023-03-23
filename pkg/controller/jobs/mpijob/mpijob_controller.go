@@ -125,11 +125,10 @@ func (j *MPIJob) RunWithNodeAffinity(nodeSelectors []map[string]string) {
 	}
 }
 
-func (j *MPIJob) RestoreNodeAffinity(podSets []kueue.PodSet) {
+func (j *MPIJob) RestoreNodeAffinity(nodeSelectors []map[string]string) {
 	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
-	for index := range podSets {
+	for index, nodeSelector := range nodeSelectors {
 		replicaType := orderedReplicaTypes[index]
-		nodeSelector := podSets[index].Template.Spec.NodeSelector
 		if !equality.Semantic.DeepEqual(j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector, nodeSelector) {
 			j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector = map[string]string{}
 			for k, v := range nodeSelector {
