@@ -23,113 +23,12 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
-
-func TestPodRequests(t *testing.T) {
-	cases := map[string]struct {
-		spec         corev1.PodSpec
-		wantRequests Requests
-	}{
-		"core": {
-			spec: corev1.PodSpec{
-				Containers: containersForRequests(
-					map[corev1.ResourceName]string{
-						corev1.ResourceCPU:    "10m",
-						corev1.ResourceMemory: "1Ki",
-					},
-					map[corev1.ResourceName]string{
-						corev1.ResourceCPU:              "5m",
-						corev1.ResourceEphemeralStorage: "1Ki",
-					},
-				),
-				InitContainers: containersForRequests(
-					map[corev1.ResourceName]string{
-						corev1.ResourceCPU:    "10m",
-						corev1.ResourceMemory: "1Ki",
-					},
-					map[corev1.ResourceName]string{
-						corev1.ResourceMemory: "2Ki",
-					},
-				),
-			},
-			wantRequests: Requests{
-				corev1.ResourceCPU:              15,
-				corev1.ResourceMemory:           2048,
-				corev1.ResourceEphemeralStorage: 1024,
-			},
-		},
-		"extended": {
-			spec: corev1.PodSpec{
-				Containers: containersForRequests(
-					map[corev1.ResourceName]string{
-						"ex.com/gpu": "2",
-					},
-					map[corev1.ResourceName]string{
-						"ex.com/gpu": "1",
-					},
-				),
-				InitContainers: containersForRequests(
-					map[corev1.ResourceName]string{
-						"ex.com/ssd": "1",
-					},
-					map[corev1.ResourceName]string{
-						"ex.com/gpu": "1",
-						"ex.com/ssd": "1",
-					},
-				),
-			},
-			wantRequests: Requests{
-				"ex.com/gpu": 3,
-				"ex.com/ssd": 1,
-			},
-		},
-		"Pod Overhead defined": {
-			spec: corev1.PodSpec{
-				Containers: containersForRequests(
-					map[corev1.ResourceName]string{
-						corev1.ResourceCPU:    "10m",
-						corev1.ResourceMemory: "1Ki",
-					},
-					map[corev1.ResourceName]string{
-						corev1.ResourceCPU:              "5m",
-						corev1.ResourceEphemeralStorage: "1Ki",
-					},
-				),
-				InitContainers: containersForRequests(
-					map[corev1.ResourceName]string{
-						corev1.ResourceCPU:    "10m",
-						corev1.ResourceMemory: "1Ki",
-					},
-					map[corev1.ResourceName]string{
-						corev1.ResourceMemory: "2Ki",
-					},
-				),
-				Overhead: corev1.ResourceList{
-					corev1.ResourceCPU: resource.MustParse("0.1"),
-				},
-			},
-			wantRequests: Requests{
-				corev1.ResourceCPU:              115,
-				corev1.ResourceMemory:           2048,
-				corev1.ResourceEphemeralStorage: 1024,
-			},
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			gotRequests := podRequests(&tc.spec)
-			if diff := cmp.Diff(tc.wantRequests, gotRequests); diff != "" {
-				t.Errorf("podRequests returned unexpected requests (-want,+got):\n%s", diff)
-			}
-		})
-	}
-}
 
 func TestNewInfo(t *testing.T) {
 	cases := map[string]struct {
@@ -295,18 +194,4 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 			}
 		})
 	}
-}
-
-func containersForRequests(requests ...map[corev1.ResourceName]string) []corev1.Container {
-	containers := make([]corev1.Container, len(requests))
-	for i, r := range requests {
-		rl := make(corev1.ResourceList, len(r))
-		for name, val := range r {
-			rl[name] = resource.MustParse(val)
-		}
-		containers[i].Resources = corev1.ResourceRequirements{
-			Requests: rl,
-		}
-	}
-	return containers
 }

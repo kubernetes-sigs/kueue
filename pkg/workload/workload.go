@@ -29,6 +29,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	"sigs.k8s.io/kueue/pkg/util/limitrange"
 )
 
 // Info holds a Workload object and some pre-processing.
@@ -82,7 +83,7 @@ func totalRequestsFromPodSets(wl *kueue.Workload) []PodSetResources {
 		setRes := PodSetResources{
 			Name: ps.Name,
 		}
-		setRes.Requests = podRequests(&ps.Template.Spec)
+		setRes.Requests = newRequests(limitrange.TotalRequests(&ps.Template.Spec))
 		setRes.Requests.scale(int64(ps.Count))
 		res = append(res, setRes)
 	}
@@ -110,18 +111,6 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 
 // Requests maps ResourceName to flavor to value; for CPU it is tracked in MilliCPU.
 type Requests map[corev1.ResourceName]int64
-
-func podRequests(spec *corev1.PodSpec) Requests {
-	res := Requests{}
-	for _, c := range spec.Containers {
-		res.add(newRequests(c.Resources.Requests))
-	}
-	for _, c := range spec.InitContainers {
-		res.setMax(newRequests(c.Resources.Requests))
-	}
-	res.add(newRequests(spec.Overhead))
-	return res
-}
 
 func newRequests(rl corev1.ResourceList) Requests {
 	r := Requests{}
@@ -162,29 +151,10 @@ func ResourceQuantity(name corev1.ResourceName, v int64) resource.Quantity {
 	}
 }
 
-func (r Requests) add(o Requests) {
-	for name, val := range o {
-		r[name] += val
-	}
-}
-
-func (r Requests) setMax(o Requests) {
-	for name, val := range o {
-		r[name] = max(r[name], val)
-	}
-}
-
 func (r Requests) scale(f int64) {
 	for name := range r {
 		r[name] *= f
 	}
-}
-
-func max(v1, v2 int64) int64 {
-	if v1 > v2 {
-		return v1
-	}
-	return v2
 }
 
 // FindConditionIndex finds the provided condition from the given status and returns the index.
