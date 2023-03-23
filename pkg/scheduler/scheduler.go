@@ -256,7 +256,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		} else if !cq.NamespaceSelector.Matches(labels.Set(ns.Labels)) {
 			e.inadmissibleMsg = "Workload namespace doesn't match ClusterQueue selector"
 			e.requeueReason = queue.RequeueReasonNamespaceMismatch
-		} else if err := s.validateRresources(&w); err != nil {
+		} else if err := s.validateResources(&w); err != nil {
 			e.inadmissibleMsg = err.Error()
 		} else if err := s.validateLimitRange(ctx, &w); err != nil {
 			e.inadmissibleMsg = err.Error()
@@ -271,7 +271,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 
 // validateResources validates that requested resources are less or equal
 // to limits
-func (s *Scheduler) validateRresources(wi *workload.Info) error {
+func (s *Scheduler) validateResources(wi *workload.Info) error {
 	podsetsPath := field.NewPath("podSets")
 	// requests should be less then limits
 	allReasons := []string{}
@@ -280,15 +280,19 @@ func (s *Scheduler) validateRresources(wi *workload.Info) error {
 		psPath := podsetsPath.Child(ps.Name)
 		for i := range ps.Template.Spec.InitContainers {
 			c := ps.Template.Spec.InitContainers[i]
-			if !resource.IsLessOrEqual(c.Resources.Requests, c.Resources.Limits) {
-				allReasons = append(allReasons, fmt.Sprintf("%s requests exceed it's limits", psPath.Child("initContainers").Index(i).String()))
+			if list := resource.GetGraterKeys(c.Resources.Requests, c.Resources.Limits); len(list) > 0 {
+				allReasons = append(allReasons, fmt.Sprintf("%s[%s] requests exceed it's limits",
+					psPath.Child("initContainers").Index(i).String(),
+					strings.Join(list, ", ")))
 			}
 		}
 
 		for i := range ps.Template.Spec.Containers {
 			c := ps.Template.Spec.Containers[i]
-			if !resource.IsLessOrEqual(c.Resources.Requests, c.Resources.Limits) {
-				allReasons = append(allReasons, fmt.Sprintf("%s requests exceed it's limits", psPath.Child("containers").Index(i).String()))
+			if list := resource.GetGraterKeys(c.Resources.Requests, c.Resources.Limits); len(list) > 0 {
+				allReasons = append(allReasons, fmt.Sprintf("%s[%s] requests exceed it's limits",
+					psPath.Child("containers").Index(i).String(),
+					strings.Join(list, ", ")))
 			}
 		}
 	}
@@ -319,7 +323,7 @@ func (s *Scheduler) validateLimitRange(ctx context.Context, wi *workload.Info) e
 		allReasons = append(allReasons, summary.ValidatePodSpec(&ps.Template.Spec, podsetsPath.Child(ps.Name))...)
 	}
 	if len(allReasons) > 0 {
-		return fmt.Errorf("limits validation failed: %s", strings.Join(allReasons, "; "))
+		return fmt.Errorf("didn't satisfy LimitRange constraints: %s", strings.Join(allReasons, "; "))
 	}
 	return nil
 }

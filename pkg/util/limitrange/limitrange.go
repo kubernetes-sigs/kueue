@@ -18,6 +18,7 @@ package limitrange
 
 import (
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/field"
@@ -52,11 +53,11 @@ func addToSummary(summary, item corev1.LimitRangeItem) corev1.LimitRangeItem {
 	return summary
 }
 
-func violateMessage(path *field.Path, isMore bool) string {
-	if isMore {
-		return fmt.Sprintf("the requests of %s exceeds the limits", path.String())
-	}
-	return fmt.Sprintf("the requests of %s are less than the limits", path.String())
+func violateMaxMessage(path *field.Path, keys ...string) string {
+	return fmt.Sprintf("the requests of %s[%s] exceeds the limits", path.String(), strings.Join(keys, ", "))
+}
+func violateMinMessage(path *field.Path, keys ...string) string {
+	return fmt.Sprintf("the requests of %s[%s] are less than the limits", path.String(), strings.Join(keys, ", "))
 }
 
 func (s Summary) validatePodSpecContainers(containers []corev1.Container, path *field.Path) []string {
@@ -69,11 +70,11 @@ func (s Summary) validatePodSpecContainers(containers []corev1.Container, path *
 		res := &containers[i].Resources
 		cMin := resource.MergeResourceListKeepMin(res.Requests, res.Limits)
 		cMax := resource.MergeResourceListKeepMax(res.Requests, res.Limits)
-		if !resource.IsLessOrEqual(cMax, containerRange.Max) {
-			reasons = append(reasons, violateMessage(path.Index(i), true))
+		if list := resource.GetGraterKeys(cMax, containerRange.Max); len(list) > 0 {
+			reasons = append(reasons, violateMaxMessage(path.Index(i), list...))
 		}
-		if !resource.IsLessOrEqual(containerRange.Min, cMin) {
-			reasons = append(reasons, violateMessage(path.Index(i), false))
+		if list := resource.GetGraterKeys(containerRange.Min, cMin); len(list) > 0 {
+			reasons = append(reasons, violateMinMessage(path.Index(i), list...))
 		}
 	}
 	return reasons
@@ -106,11 +107,11 @@ func (s Summary) ValidatePodSpec(ps *corev1.PodSpec, path *field.Path) []string 
 	reasons = append(reasons, s.validatePodSpecContainers(ps.Containers, path.Child("containers"))...)
 	if containerRange, found := s[corev1.LimitTypePod]; found {
 		total := TotalRequests(ps)
-		if !resource.IsLessOrEqual(total, containerRange.Max) {
-			reasons = append(reasons, violateMessage(path, true))
+		if list := resource.GetGraterKeys(total, containerRange.Max); len(list) > 0 {
+			reasons = append(reasons, violateMaxMessage(path, list...))
 		}
-		if !resource.IsLessOrEqual(containerRange.Min, total) {
-			reasons = append(reasons, violateMessage(path, false))
+		if list := resource.GetGraterKeys(containerRange.Min, total); len(list) > 0 {
+			reasons = append(reasons, violateMinMessage(path, list...))
 		}
 	}
 	return reasons

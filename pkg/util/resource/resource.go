@@ -78,13 +78,20 @@ func MergeResourceListKeepSum(a, b corev1.ResourceList) corev1.ResourceList {
 	})
 }
 
-// IsLessOrEqual returns true if for all the common keys the value in a is less than the
-// values in b
-func IsLessOrEqual(a, b corev1.ResourceList) bool {
+// GetGraterKeys returns the list of ResourceNames for which the value in a are grater than the value in b
+func GetGraterKeys(a, b corev1.ResourceList) []string {
+	if len(a) == 0 || len(b) == 0 {
+		return nil
+	}
+
+	ret := make([]string, 0, len(a))
 	for k, va := range a {
 		if vb, found := b[k]; found && va.Cmp(vb) > 0 {
-			return false
+			ret = append(ret, k.String())
 		}
 	}
-	return true
+	if len(ret) == 0 {
+		return nil
+	}
+	return ret
 }

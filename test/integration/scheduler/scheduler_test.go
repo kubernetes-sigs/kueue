@@ -998,22 +998,43 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
-		ginkgo.DescribeTable("", func(reqCPU, limCPU, minCPU, maxCPU string, limitType corev1.LimitType, status string, shouldBeAdmited bool) {
-			lr := testing.MakeLimitRange("limit", ns.Name).
-				WithType(limitType).
-				WithValue("Min", corev1.ResourceCPU, minCPU).
-				WithValue("Max", corev1.ResourceCPU, maxCPU).
-				Obj()
+		type testParams struct {
+			reqCPU          string
+			limitCPU        string
+			minCPU          string
+			maxCPU          string
+			limitType       corev1.LimitType
+			wantedStatus    string
+			shouldBeAdmited bool
+		}
+
+		ginkgo.DescribeTable("", func(tp testParams) {
+			lrBuilder := testing.MakeLimitRange("limit", ns.Name)
+			if tp.limitType != "" {
+				lrBuilder.WithType(tp.limitType)
+			}
+			if tp.maxCPU != "" {
+				lrBuilder.WithValue("Max", corev1.ResourceCPU, tp.maxCPU)
+			}
+			if tp.minCPU != "" {
+				lrBuilder.WithValue("Min", corev1.ResourceCPU, tp.minCPU)
+			}
+			lr := lrBuilder.Obj()
 			gomega.Expect(k8sClient.Create(ctx, lr)).To(gomega.Succeed())
 
-			wl := testing.MakeWorkload("workload", ns.Name).
-				Queue(queue.Name).
-				Request(corev1.ResourceCPU, reqCPU).
-				Limit(corev1.ResourceCPU, limCPU).
-				Obj()
+			wlBuilder := testing.MakeWorkload("workload", ns.Name).Queue(queue.Name)
+
+			if tp.reqCPU != "" {
+				wlBuilder.Request(corev1.ResourceCPU, tp.reqCPU)
+			}
+			if tp.limitCPU != "" {
+				wlBuilder.Limit(corev1.ResourceCPU, tp.limitCPU)
+			}
+
+			wl := wlBuilder.Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
-			if shouldBeAdmited {
+			if tp.shouldBeAdmited {
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, cq.Name, wl)
 			} else {
 				gomega.Eventually(func() string {
@@ -1027,17 +1048,17 @@ var _ = ginkgo.Describe("Scheduler", func() {
 						return ""
 					}
 					return rwl.Status.Conditions[ci].Message
-				}, util.Timeout, util.Interval).Should(gomega.ContainSubstring(status))
+				}, util.Timeout, util.Interval).Should(gomega.ContainSubstring(tp.wantedStatus))
 			}
 			gomega.Expect(util.DeleteWorkload(ctx, k8sClient, wl)).To(gomega.Succeed())
 			gomega.Expect(k8sClient.Delete(ctx, lr)).To(gomega.Succeed())
 		},
-			ginkgo.Entry("request more that limits", "3", "2", "1", "4", corev1.LimitTypeContainer, "resource validation failed:", false),
-			ginkgo.Entry("request over container limits", "2", "3", "1", "1", corev1.LimitTypeContainer, "limits validation failed:", false),
-			ginkgo.Entry("request under container limits", "2", "3", "3", "4", corev1.LimitTypeContainer, "limits validation failed:", false),
-			ginkgo.Entry("request over pod limits", "2", "3", "1", "1", corev1.LimitTypePod, "limits validation failed:", false),
-			ginkgo.Entry("request under pod limits", "2", "3", "3", "4", corev1.LimitTypePod, "limits validation failed:", false),
-			ginkgo.Entry("valid", "2", "3", "1", "4", corev1.LimitTypeContainer, "", true),
+			ginkgo.Entry("request more that limits", testParams{reqCPU: "3", limitCPU: "2", wantedStatus: "resource validation failed:"}),
+			ginkgo.Entry("request over container limits", testParams{reqCPU: "2", limitCPU: "3", maxCPU: "1", wantedStatus: "didn't satisfy LimitRange constraints:"}),
+			ginkgo.Entry("request under container limits", testParams{reqCPU: "2", limitCPU: "3", minCPU: "3", wantedStatus: "didn't satisfy LimitRange constraints:"}),
+			ginkgo.Entry("request over pod limits", testParams{reqCPU: "2", limitCPU: "3", maxCPU: "1", limitType: corev1.LimitTypePod, wantedStatus: "didn't satisfy LimitRange constraints:"}),
+			ginkgo.Entry("request under pod limits", testParams{reqCPU: "2", limitCPU: "3", minCPU: "3", limitType: corev1.LimitTypePod, wantedStatus: "didn't satisfy LimitRange constraints:"}),
+			ginkgo.Entry("valid", testParams{reqCPU: "2", limitCPU: "3", minCPU: "1", maxCPU: "4", shouldBeAdmited: true}),
 		)
 	})
 })

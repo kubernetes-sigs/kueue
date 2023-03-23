@@ -197,7 +197,7 @@ func TestMerge(t *testing.T) {
 
 }
 
-func TestLessOrEqual(t *testing.T) {
+func TestGetGraterKeys(t *testing.T) {
 	cpuOnly1 := corev1.ResourceList{
 		corev1.ResourceCPU: resource.MustParse("1"),
 	}
@@ -206,25 +206,25 @@ func TestLessOrEqual(t *testing.T) {
 	}
 	cases := map[string]struct {
 		a, b corev1.ResourceList
-		want bool
+		want []string
 	}{
 		"empty_a": {
 			b:    cpuOnly1,
-			want: true,
+			want: nil,
 		},
 		"empty_b": {
 			a:    cpuOnly1,
-			want: true,
+			want: nil,
 		},
-		"less one resourece": {
+		"less one resource": {
 			a:    cpuOnly500m,
 			b:    cpuOnly1,
-			want: true,
+			want: nil,
 		},
-		"not less one resourece": {
+		"not less one resource": {
 			a:    cpuOnly1,
 			b:    cpuOnly500m,
-			want: false,
+			want: []string{corev1.ResourceCPU.String()},
 		},
 		"multiple unrelated": {
 			a: corev1.ResourceList{
@@ -235,7 +235,7 @@ func TestLessOrEqual(t *testing.T) {
 				"r3": resource.MustParse("1"),
 				"r4": resource.MustParse("1"),
 			},
-			want: true,
+			want: nil,
 		},
 		"multiple": {
 			a: corev1.ResourceList{
@@ -246,17 +246,16 @@ func TestLessOrEqual(t *testing.T) {
 				"r1": resource.MustParse("1"),
 				"r2": resource.MustParse("2"),
 			},
-			want: false,
+			want: []string{"r1"},
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if tc.want != IsLessOrEqual(tc.a, tc.b) {
-				t.Errorf("Unexpected result, expecting %v", tc.want)
+			got := GetGraterKeys(tc.a, tc.b)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Unexpected result (-want, +got)\n%s", diff)
 			}
-
 		})
 	}
-
 }

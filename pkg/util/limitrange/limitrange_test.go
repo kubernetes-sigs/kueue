@@ -306,7 +306,7 @@ func TestValidate(t *testing.T) {
 				WithValue("Max", "example.com/initContainerGpu", "1").
 				Obj()),
 			want: []string{
-				violateMessage(field.NewPath("testPodSet", "initContainers").Index(1), true),
+				violateMaxMessage(field.NewPath("testPodSet", "initContainers").Index(1), "example.com/initContainerGpu"),
 			},
 		},
 		"init container under": {
@@ -315,7 +315,7 @@ func TestValidate(t *testing.T) {
 				WithValue("Min", "example.com/initContainerGpu", "3").
 				Obj()),
 			want: []string{
-				violateMessage(field.NewPath("testPodSet", "initContainers").Index(1), false),
+				violateMinMessage(field.NewPath("testPodSet", "initContainers").Index(1), "example.com/initContainerGpu"),
 			},
 		},
 		"container over": {
@@ -324,7 +324,7 @@ func TestValidate(t *testing.T) {
 				WithValue("Max", "example.com/mainContainerGpu", "1").
 				Obj()),
 			want: []string{
-				violateMessage(field.NewPath("testPodSet", "containers").Index(0), true),
+				violateMaxMessage(field.NewPath("testPodSet", "containers").Index(0), "example.com/mainContainerGpu"),
 			},
 		},
 		"container under": {
@@ -333,7 +333,7 @@ func TestValidate(t *testing.T) {
 				WithValue("Min", "example.com/mainContainerGpu", "3").
 				Obj()),
 			want: []string{
-				violateMessage(field.NewPath("testPodSet", "containers").Index(0), false),
+				violateMinMessage(field.NewPath("testPodSet", "containers").Index(0), "example.com/mainContainerGpu"),
 			},
 		},
 		"pod over": {
@@ -342,7 +342,7 @@ func TestValidate(t *testing.T) {
 				WithValue("Max", corev1.ResourceCPU, "4").
 				Obj()),
 			want: []string{
-				violateMessage(field.NewPath("testPodSet"), true),
+				violateMaxMessage(field.NewPath("testPodSet"), string(corev1.ResourceCPU)),
 			},
 		},
 		"pod under": {
@@ -351,7 +351,7 @@ func TestValidate(t *testing.T) {
 				WithValue("Min", corev1.ResourceCPU, "6").
 				Obj()),
 			want: []string{
-				violateMessage(field.NewPath("testPodSet"), false),
+				violateMinMessage(field.NewPath("testPodSet"), string(corev1.ResourceCPU)),
 			},
 		},
 		"multiple": {
@@ -370,9 +370,9 @@ func TestValidate(t *testing.T) {
 					Obj(),
 			),
 			want: []string{
-				violateMessage(field.NewPath("testPodSet", "initContainers").Index(1), true),
-				violateMessage(field.NewPath("testPodSet", "containers").Index(0), false),
-				violateMessage(field.NewPath("testPodSet"), true),
+				violateMaxMessage(field.NewPath("testPodSet", "initContainers").Index(1), "example.com/initContainerGpu"),
+				violateMinMessage(field.NewPath("testPodSet", "containers").Index(0), "example.com/mainContainerGpu"),
+				violateMaxMessage(field.NewPath("testPodSet"), string(corev1.ResourceCPU)),
 			},
 		},
 	}
