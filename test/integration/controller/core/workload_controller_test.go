@@ -126,8 +126,8 @@ var _ = ginkgo.Describe("Workload controller", func() {
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteResourceFlavor(ctx, k8sClient, flavor)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, clusterQueue)).To(gomega.Succeed())
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, flavor, true)
 		})
 
 		ginkgo.It("Should update the workload's condition", func() {
