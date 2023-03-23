@@ -42,6 +42,8 @@ This ClusterQueue admits [Workloads](/docs/concepts/workload) if and only if:
 
 You can specify the quota as a [quantity](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/quantity/).
 
+![Cohort](/images/cluster-queue.svg)
+
 ## Resources
 
 In a ClusterQueue, you can define quotas for multiple [compute resources](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#resource-types)

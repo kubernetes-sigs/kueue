@@ -34,6 +34,8 @@ single tenant.
 An application that will run to completion. It is the unit of _admission_ in
 Kueue. Sometimes referred to as _job_.
 
+![Components](/images/queueing-components.svg)
+
 ## Glossary
 
 ### Admission

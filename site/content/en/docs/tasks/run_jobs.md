@@ -19,6 +19,10 @@ Make sure the following conditions are met:
 - [Kueue is installed](/docs/installation).
 - The cluster has [quotas configured](/docs/tasks/administer_cluster_quotas).
 
+The following picture shows all the concepts you will interact with in this tutorial:
+
+![Kueue Components](/images/queueing-components.svg)
+
 ## 0. Identify the queues available in your namespace
 
 Run the following command to list the `LocalQueues` available in your namespace.

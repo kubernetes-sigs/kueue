@@ -21,3 +21,11 @@ Kueue APIs allow you to express:
 * Resource fungibility: if a resource flavor is fully utilized, Kueue can admit the job using a different flavor.
 
 A core design principle for Kueue is to avoid duplicating mature functionality in Kubernetes components and well-established third-party controllers. Autoscaling, pod-to-node scheduling and job lifecycle management are the responsibility of cluster-autoscaler, kube-scheduler and kube-controller-manager, respectively. Advanced admission control can be delegated to controllers such as gatekeeper.
+
+## High-level Kueue operation
+
+![High Level Kueue Operation](/images/theory-of-operation.svg)
+
+To learn more about Kueue concepts, see the [concepts](/docs/concepts) section.
+
+To learn about different Kueue personas and what you can do with Kueue, see the [tasks](/docs/tasks) section.
