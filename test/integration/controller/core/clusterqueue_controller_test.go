@@ -17,6 +17,7 @@ limitations under the License.
 package core
 
 import (
+	"fmt"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -197,6 +198,15 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 					var newWL kueue.Workload
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
 					newWL.Status.Admission = admissions[i]
+					if newWL.Status.Admission != nil {
+						newWL.Status.Conditions = []metav1.Condition{{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.Now(),
+							Reason:             "AdmissionSet",
+							Message:            fmt.Sprintf("Admitted by ClusterQueue %s", newWL.Status.Admission.ClusterQueue),
+						}}
+					}
 					return k8sClient.Status().Update(ctx, &newWL)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			}
@@ -377,6 +387,13 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			wl := testing.MakeWorkload("workload", ns.Name).Queue(lq.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 			wl.Status.Admission = testing.MakeAdmission(cq.Name).Obj()
+			wl.Status.Conditions = []metav1.Condition{{
+				Type:               kueue.WorkloadAdmitted,
+				Status:             metav1.ConditionTrue,
+				LastTransitionTime: metav1.Now(),
+				Reason:             "AdmissionSet",
+				Message:            fmt.Sprintf("Admitted by ClusterQueue %s", wl.Status.Admission.ClusterQueue),
+			}}
 			gomega.Expect(k8sClient.Status().Update(ctx, wl)).To(gomega.Succeed())
 
 			ginkgo.By("Delete clusterQueue")

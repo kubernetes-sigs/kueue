@@ -19,6 +19,7 @@ package workload
 import (
 	"context"
 	"fmt"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -242,6 +243,25 @@ func UpdateStatusIfChanged(ctx context.Context,
 	}
 	// Updating an existing condition
 	return UpdateStatus(ctx, c, wl, conditionType, conditionStatus, reason, message, managerPrefix)
+}
+
+func UpdateAdmittedCondition(
+	ctx context.Context,
+	c client.Client,
+	wl *kueue.Workload,
+	conditionStatus metav1.ConditionStatus,
+	reason, message string) error {
+	condition := metav1.Condition{
+		Type:               kueue.WorkloadAdmitted,
+		Status:             conditionStatus,
+		LastTransitionTime: metav1.Now(),
+		Reason:             reason,
+		Message:            api.TruncateConditionMessage(message),
+	}
+	newWl := BaseSSAWorkload(wl)
+	newWl.Status.Conditions = []metav1.Condition{condition}
+	return c.Status().Patch(ctx, newWl, client.Apply, client.FieldOwner(constants.AdmissionName))
+
 }
 
 // BaseSSAWorkload creates a new object based on the input workload that

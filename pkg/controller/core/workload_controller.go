@@ -37,7 +37,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
@@ -49,20 +48,7 @@ const (
 	// statuses for logging purposes
 	pending  = "pending"
 	admitted = "admitted"
-	// The cancellingAdmission status means that Admission=nil, but the workload
-	// still has the Admitted=True condition.
-	//
-	// This is a transient state as the workload controller is about the set the
-	// Admitted condition to False, transitioning the workload into the pending
-	// status. Only once the workload reaches the pending status is requeued
-	// so that scheduler can re-admit it.
-	//
-	// Cancellation of admission can be triggered in the following scenarios:
-	// - exceeding the timeout to reach the PodsReady=True condition when the waitForPodsReady configuration is enabled
-	// - workload preemption
-	// - clearing of the Admission field manually via API
-	cancellingAdmission = "cancellingAdmission"
-	finished            = "finished"
+	finished = "finished"
 )
 
 var (
@@ -141,41 +127,31 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(2).Info("Reconciling Workload")
 
-	status := workloadStatus(&wl)
-	switch status {
-	case pending:
-		if !r.queues.QueueForWorkloadExists(&wl) {
-			err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, metav1.ConditionFalse,
-				"Inadmissible", fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName), constants.AdmissionName)
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-
-		cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)
-		if !cqOk {
-			err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, metav1.ConditionFalse,
-				"Inadmissible", fmt.Sprintf("ClusterQueue %s doesn't exist", cqName), constants.AdmissionName)
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-
-		if !r.cache.ClusterQueueActive(cqName) {
-			err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, metav1.ConditionFalse,
-				"Inadmissible", fmt.Sprintf("ClusterQueue %s is inactive", cqName), constants.AdmissionName)
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-	case cancellingAdmission:
-		err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, metav1.ConditionFalse,
-			"AdmissionCancelled", "Admission cancelled", constants.AdmissionName)
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	case admitted:
-		if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadAdmitted) {
-			return r.reconcileNotReadyTimeout(ctx, req, &wl)
-		} else {
-			msg := fmt.Sprintf("Admitted by ClusterQueue %s", wl.Status.Admission.ClusterQueue)
-			err := workload.UpdateStatusIfChanged(ctx, r.client, &wl, kueue.WorkloadAdmitted, metav1.ConditionTrue, "AdmissionByKueue", msg, constants.AdmissionName)
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
+	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
+		return ctrl.Result{}, nil
+	}
+	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadAdmitted) {
+		return r.reconcileNotReadyTimeout(ctx, req, &wl)
 	}
 
+	if !r.queues.QueueForWorkloadExists(&wl) {
+		err := workload.UpdateAdmittedCondition(ctx, r.client, &wl, metav1.ConditionFalse,
+			"Inadmissible", fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName))
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)
+	if !cqOk {
+		err := workload.UpdateAdmittedCondition(ctx, r.client, &wl, metav1.ConditionFalse,
+			"Inadmissible", fmt.Sprintf("ClusterQueue %s doesn't exist", cqName))
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	if !r.cache.ClusterQueueActive(cqName) {
+		err := workload.UpdateAdmittedCondition(ctx, r.client, &wl, metav1.ConditionFalse,
+			"Inadmissible", fmt.Sprintf("ClusterQueue %s is inactive", cqName))
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
 	return ctrl.Result{}, nil
 }
 
@@ -189,7 +165,8 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 		return ctrl.Result{RequeueAfter: recheckAfter}, nil
 	} else {
 		klog.V(2).InfoS("Cancelling admission of the workload due to exceeding the PodsReady timeout", "workload", req.NamespacedName.String())
-		err := r.client.Status().Patch(ctx, workload.BaseSSAWorkload(wl), client.Apply, client.FieldOwner(constants.AdmissionName))
+		err := workload.UpdateAdmittedCondition(ctx, r.client, wl, metav1.ConditionFalse,
+			"AdmissionCancelled", fmt.Sprintf("Cancelling admission of the workload due to exceeding the PodsReady timeout %s", req.NamespacedName.String()))
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 }
@@ -324,14 +301,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 		if !r.cache.AddOrUpdateWorkload(wlCopy) {
 			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 		}
-	case prevStatus == admitted && status == cancellingAdmission:
-		// The workload will be requeued when handling transitioning
-		// from cancellingAdmission to pending.
-		// When the workload is in the cancellingAdmission status, the only
-		// transition possible, triggered by the workload controller, is to the
-		// pending status. Scheduler is only able to re-admit the workload once
-		// requeued after reaching the pending status.
-	case prevStatus == cancellingAdmission && status == pending:
+	case prevStatus == admitted && status == pending:
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wl, func() {
 			// Delete the workload from cache while holding the queues lock
@@ -419,11 +389,8 @@ func workloadStatus(w *kueue.Workload) string {
 	if apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished) {
 		return finished
 	}
-	if w.Status.Admission != nil {
-		return admitted
-	}
 	if apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadAdmitted) {
-		return cancellingAdmission
+		return admitted
 	}
 	return pending
 }

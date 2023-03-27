@@ -22,7 +22,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -128,22 +127,6 @@ var _ = ginkgo.Describe("Workload controller", func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, flavor, true)
-		})
-
-		ginkgo.It("Should update the workload's condition", func() {
-			ginkgo.By("Create workload")
-			wl = testing.MakeWorkload("one", ns.Name).Queue(localQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
-			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
-
-			ginkgo.By("Admit workload")
-			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
-			updatedQueueWorkload.Status.Admission = testing.MakeAdmission(clusterQueue.Name).
-				Assignment(corev1.ResourceCPU, flavorOnDemand, "1").Obj()
-			gomega.Expect(k8sClient.Status().Update(ctx, &updatedQueueWorkload)).To(gomega.Succeed())
-			gomega.Eventually(func() bool {
-				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
-				return apimeta.IsStatusConditionTrue(updatedQueueWorkload.Status.Conditions, kueue.WorkloadAdmitted)
-			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 		})
 	})
 })

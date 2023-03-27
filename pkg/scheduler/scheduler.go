@@ -176,7 +176,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 				log.V(5).Info("Waiting for all admitted workloads to be in the PodsReady condition")
 				// Block admission until all currently admitted workloads are in
 				// PodsReady condition if the waitForPodsReady is enabled
-				if err := workload.UpdateStatus(ctx, s.client, e.Obj, kueue.WorkloadAdmitted, metav1.ConditionFalse, "Waiting", "waiting for all admitted workloads to be in PodsReady condition", constants.AdmissionName); err != nil {
+				if err := workload.UpdateAdmittedCondition(ctx, s.client, e.Obj, metav1.ConditionFalse, "Waiting", "waiting for all admitted workloads to be in PodsReady condition"); err != nil {
 					log.Error(err, "Could not update Workload status")
 				}
 				s.cache.WaitForPodsReady(ctx)
@@ -276,7 +276,15 @@ func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 	log.V(2).Info("Workload assumed in the cache")
 
 	s.admissionRoutineWrapper.Run(func() {
-		err := s.applyAdmission(ctx, workload.AdmissionPatch(newWorkload))
+		patch := workload.AdmissionPatch(newWorkload)
+		patch.Status.Conditions = []metav1.Condition{{
+			Type:               kueue.WorkloadAdmitted,
+			Status:             metav1.ConditionTrue,
+			LastTransitionTime: metav1.Now(),
+			Reason:             "AdmissionSet",
+			Message:            fmt.Sprintf("Admitted by ClusterQueue %s", newWorkload.Status.Admission.ClusterQueue),
+		}}
+		err := s.applyAdmission(ctx, patch)
 		if err == nil {
 			waitTime := time.Since(e.Obj.CreationTimestamp.Time)
 			s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time was %.3fs", admission.ClusterQueue, waitTime.Seconds())
@@ -338,7 +346,7 @@ func (s *Scheduler) requeueAndUpdate(log logr.Logger, ctx context.Context, e ent
 	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue), "queue", klog.KRef(e.Obj.Namespace, e.Obj.Spec.QueueName), "requeueReason", e.requeueReason, "added", added)
 
 	if e.status == notNominated {
-		err := workload.UpdateStatus(ctx, s.client, e.Obj, kueue.WorkloadAdmitted, metav1.ConditionFalse, "Pending", e.inadmissibleMsg, constants.AdmissionName)
+		err := workload.UpdateAdmittedCondition(ctx, s.client, e.Obj, metav1.ConditionFalse, "Pending", e.inadmissibleMsg)
 		if err != nil {
 			log.Error(err, "Could not update Workload status")
 		}
