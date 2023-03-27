@@ -101,6 +101,25 @@ webhooks:
     resources:
     - mpijobs
   sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /mutate-ray-io-v1alpha1-rayjob
+  failurePolicy: Fail
+  name: mrayjob.kb.io
+  rules:
+  - apiGroups:
+    - ray.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    resources:
+    - rayjobs
+  sideEffects: None
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
@@ -226,4 +245,23 @@ webhooks:
     - UPDATE
     resources:
     - mpijobs
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-ray-io-v1alpha1-rayjob
+  failurePolicy: Fail
+  name: vrayjob.kb.io
+  rules:
+  - apiGroups:
+    - ray.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - UPDATE
+    resources:
+    - rayjobs
   sideEffects: None

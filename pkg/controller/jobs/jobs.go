@@ -20,4 +20,5 @@ package jobs
 import (
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 )
