@@ -166,7 +166,7 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 	} else {
 		klog.V(2).InfoS("Cancelling admission of the workload due to exceeding the PodsReady timeout", "workload", req.NamespacedName.String())
 		err := workload.UpdateAdmittedCondition(ctx, r.client, wl, metav1.ConditionFalse,
-			"AdmissionCancelled", fmt.Sprintf("Cancelling admission of the workload due to exceeding the PodsReady timeout %s", req.NamespacedName.String()))
+			"Pending", fmt.Sprintf("Cancelling admission of the workload due to exceeding the PodsReady timeout %s", req.NamespacedName.String()))
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 }
@@ -389,7 +389,7 @@ func workloadStatus(w *kueue.Workload) string {
 	if apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished) {
 		return finished
 	}
-	if apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadAdmitted) {
+	if w.Status.Admission != nil {
 		return admitted
 	}
 	return pending

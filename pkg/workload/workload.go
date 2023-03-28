@@ -19,7 +19,6 @@ package workload
 import (
 	"context"
 	"fmt"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -28,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/util/api"
 )
 
