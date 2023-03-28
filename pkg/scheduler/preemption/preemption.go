@@ -18,7 +18,6 @@ package preemption
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"sync/atomic"
 	"time"
@@ -135,7 +134,7 @@ func (p *Preemptor) issuePreemptions(ctx context.Context, targets []*workload.In
 			Status:             metav1.ConditionFalse,
 			LastTransitionTime: metav1.Now(),
 			Reason:             "Pending",
-			Message:            fmt.Sprintf("Admission cancelled"),
+			Message:            "Admission cancelled",
 		}}
 		err := p.applyPreemption(ctx, patch)
 		if err != nil {
