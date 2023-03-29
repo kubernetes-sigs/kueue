@@ -38,6 +38,8 @@ var (
 	parentWorkloadKeyPath    = annotationsPath.Key(jobframework.ParentWorkloadAnnotation)
 	queueNameLabelPath       = labelsPath.Key(jobframework.QueueLabel)
 	queueNameAnnotationsPath = annotationsPath.Key(jobframework.QueueAnnotation)
+
+	originalNodeSelectorsKeyPath = annotationsPath.Key(jobframework.OriginalNodeSelectorsAnnotation)
 )
 
 func TestValidateCreate(t *testing.T) {
@@ -154,6 +156,34 @@ func TestValidateUpdate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(queueNameLabelPath, "queue name", invalidRFC1123Message),
 				field.Forbidden(parentWorkloadKeyPath, "this annotation is immutable"),
+			},
+		},
+		{
+			name:    "original node selectors can be set while unsuspending",
+			oldJob:  testingutil.MakeJob("job", "default").Suspend(true).Obj(),
+			newJob:  testingutil.MakeJob("job", "default").Suspend(false).OriginalNodeSelectorsAnnotation("[{\"l1\":\"v1\"}]").Obj(),
+			wantErr: nil,
+		},
+		{
+			name:    "original node selectors can be set while suspending",
+			oldJob:  testingutil.MakeJob("job", "default").Suspend(true).Obj(),
+			newJob:  testingutil.MakeJob("job", "default").Suspend(false).OriginalNodeSelectorsAnnotation("[{\"l1\":\"v1\"}]").Obj(),
+			wantErr: nil,
+		},
+		{
+			name:   "immutable original node selectors while not suspended",
+			oldJob: testingutil.MakeJob("job", "default").Suspend(false).OriginalNodeSelectorsAnnotation("[{\"l1\":\"v1\"}]").Obj(),
+			newJob: testingutil.MakeJob("job", "default").Suspend(false).OriginalNodeSelectorsAnnotation("").Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(originalNodeSelectorsKeyPath, "this annotation is immutable while the job is not changing its suspended state"),
+			},
+		},
+		{
+			name:   "immutable original node selectors while suspended",
+			oldJob: testingutil.MakeJob("job", "default").Suspend(true).OriginalNodeSelectorsAnnotation("[{\"l1\":\"v1\"}]").Obj(),
+			newJob: testingutil.MakeJob("job", "default").Suspend(true).OriginalNodeSelectorsAnnotation("").Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(originalNodeSelectorsKeyPath, "this annotation is immutable while the job is not changing its suspended state"),
 			},
 		},
 	}

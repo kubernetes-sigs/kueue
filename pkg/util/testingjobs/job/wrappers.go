@@ -102,6 +102,11 @@ func (j *JobWrapper) ParentWorkload(parentWorkload string) *JobWrapper {
 	return j
 }
 
+func (j *JobWrapper) OriginalNodeSelectorsAnnotation(content string) *JobWrapper {
+	j.Annotations[jobframework.OriginalNodeSelectorsAnnotation] = content
+	return j
+}
+
 // Toleration adds a toleration to the job.
 func (j *JobWrapper) Toleration(t corev1.Toleration) *JobWrapper {
 	j.Spec.Template.Spec.Tolerations = append(j.Spec.Template.Spec.Tolerations, t)

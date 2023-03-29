@@ -116,3 +116,15 @@ func (j *MPIJobWrapper) Parallelism(p int32) *MPIJobWrapper {
 	j.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeWorker].Replicas = pointer.Int32(p)
 	return j
 }
+
+// OriginalNodeSelectorsAnnotation updates the original node selectors annotation
+func (j *MPIJobWrapper) OriginalNodeSelectorsAnnotation(content string) *MPIJobWrapper {
+	j.Annotations[jobframework.OriginalNodeSelectorsAnnotation] = content
+	return j
+}
+
+// Suspend updates the suspend status of the job
+func (j *MPIJobWrapper) Suspend(s bool) *MPIJobWrapper {
+	j.Spec.RunPolicy.Suspend = &s
+	return j
+}
