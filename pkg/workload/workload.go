@@ -245,7 +245,7 @@ func UpdateStatusIfChanged(ctx context.Context,
 	return UpdateStatus(ctx, c, wl, conditionType, conditionStatus, reason, message, managerPrefix)
 }
 
-func UpdateAdmittedCondition(
+func UnsetAdmissionWithCondition(
 	ctx context.Context,
 	c client.Client,
 	wl *kueue.Workload,
@@ -261,7 +261,6 @@ func UpdateAdmittedCondition(
 	newWl := BaseSSAWorkload(wl)
 	newWl.Status.Conditions = []metav1.Condition{condition}
 	return c.Status().Patch(ctx, newWl, client.Apply, client.FieldOwner(constants.AdmissionName))
-
 }
 
 // BaseSSAWorkload creates a new object based on the input workload that

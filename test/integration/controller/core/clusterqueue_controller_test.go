@@ -198,16 +198,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 				gomega.Eventually(func() error {
 					var newWL kueue.Workload
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
-					newWL.Status.Admission = admissions[i]
-					if newWL.Status.Admission != nil {
-						newWL.Status.Conditions = []metav1.Condition{{
-							Type:               kueue.WorkloadAdmitted,
-							Status:             metav1.ConditionTrue,
-							LastTransitionTime: metav1.Now(),
-							Reason:             "AdmissionSet",
-							Message:            fmt.Sprintf("Admitted by ClusterQueue %s", newWL.Status.Admission.ClusterQueue),
-						}}
-					}
+					_ = util.SetWorkloadAdmission(&newWL, admissions[i])
 					return k8sClient.Status().Update(ctx, &newWL)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			}

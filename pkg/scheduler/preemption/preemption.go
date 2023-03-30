@@ -133,8 +133,8 @@ func (p *Preemptor) issuePreemptions(ctx context.Context, targets []*workload.In
 			Type:               kueue.WorkloadAdmitted,
 			Status:             metav1.ConditionFalse,
 			LastTransitionTime: metav1.Now(),
-			Reason:             "Pending",
-			Message:            "Admission cancelled",
+			Reason:             "Preempted",
+			Message:            "Preempted to accommodate a higher priority Workload",
 		}}
 		err := p.applyPreemption(ctx, patch)
 		if err != nil {

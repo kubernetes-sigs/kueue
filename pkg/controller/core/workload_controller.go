@@ -135,20 +135,20 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if !r.queues.QueueForWorkloadExists(&wl) {
-		err := workload.UpdateAdmittedCondition(ctx, r.client, &wl, metav1.ConditionFalse,
+		err := workload.UnsetAdmissionWithCondition(ctx, r.client, &wl, metav1.ConditionFalse,
 			"Inadmissible", fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName))
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)
 	if !cqOk {
-		err := workload.UpdateAdmittedCondition(ctx, r.client, &wl, metav1.ConditionFalse,
+		err := workload.UnsetAdmissionWithCondition(ctx, r.client, &wl, metav1.ConditionFalse,
 			"Inadmissible", fmt.Sprintf("ClusterQueue %s doesn't exist", cqName))
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	if !r.cache.ClusterQueueActive(cqName) {
-		err := workload.UpdateAdmittedCondition(ctx, r.client, &wl, metav1.ConditionFalse,
+		err := workload.UnsetAdmissionWithCondition(ctx, r.client, &wl, metav1.ConditionFalse,
 			"Inadmissible", fmt.Sprintf("ClusterQueue %s is inactive", cqName))
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -165,8 +165,8 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 		return ctrl.Result{RequeueAfter: recheckAfter}, nil
 	} else {
 		klog.V(2).InfoS("Cancelling admission of the workload due to exceeding the PodsReady timeout", "workload", req.NamespacedName.String())
-		err := workload.UpdateAdmittedCondition(ctx, r.client, wl, metav1.ConditionFalse,
-			"Pending", fmt.Sprintf("Cancelling admission of the workload due to exceeding the PodsReady timeout %s", req.NamespacedName.String()))
+		err := workload.UnsetAdmissionWithCondition(ctx, r.client, wl, metav1.ConditionFalse,
+			"Evicted", fmt.Sprintf("Exceeded the PodsReady timeout %s", req.NamespacedName.String()))
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 }
@@ -389,7 +389,7 @@ func workloadStatus(w *kueue.Workload) string {
 	if apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished) {
 		return finished
 	}
-	if w.Status.Admission != nil {
+	if apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadAdmitted) {
 		return admitted
 	}
 	return pending

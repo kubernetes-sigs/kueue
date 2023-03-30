@@ -17,8 +17,6 @@ limitations under the License.
 package core
 
 import (
-	"fmt"
-
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -194,15 +192,8 @@ var _ = ginkgo.Describe("Queue controller", func() {
 			gomega.Eventually(func() error {
 				var newWL kueue.Workload
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
-				newWL.Status.Admission = testing.MakeAdmission(clusterQueue.Name).
-					Assignment(corev1.ResourceCPU, flavorOnDemand, "1").Obj()
-				newWL.Status.Conditions = []metav1.Condition{{
-					Type:               kueue.WorkloadAdmitted,
-					Status:             metav1.ConditionTrue,
-					LastTransitionTime: metav1.Now(),
-					Reason:             "AdmissionSet",
-					Message:            fmt.Sprintf("Admitted by ClusterQueue %s", newWL.Status.Admission.ClusterQueue),
-				}}
+				_ = util.SetWorkloadAdmission(&newWL, testing.MakeAdmission(clusterQueue.Name).
+					Assignment(corev1.ResourceCPU, flavorOnDemand, "1").Obj())
 				return k8sClient.Status().Update(ctx, &newWL)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		}
