@@ -703,6 +703,15 @@ func (c *Cache) DeleteWorkload(w *kueue.Workload) error {
 	return nil
 }
 
+func (c *Cache) HasAssumedWorkload(w *kueue.Workload) bool {
+	c.Lock()
+	defer c.Unlock()
+
+	k := workload.Key(w)
+	_, assumed := c.assumedWorkloads[k]
+	return assumed
+}
+
 func (c *Cache) AssumeWorkload(w *kueue.Workload) error {
 	c.Lock()
 	defer c.Unlock()

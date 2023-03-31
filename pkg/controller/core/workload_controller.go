@@ -81,7 +81,7 @@ func WithWorkloadUpdateWatchers(value ...WorkloadUpdateWatcher) Option {
 var defaultOptions = options{}
 
 type WorkloadUpdateWatcher interface {
-	NotifyWorkloadUpdate(*kueue.Workload)
+	NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload)
 }
 
 // WorkloadReconciler reconciles a Workload object
@@ -135,20 +135,20 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if !r.queues.QueueForWorkloadExists(&wl) {
-		err := workload.UnsetAdmissionWithCondition(ctx, r.client, &wl, metav1.ConditionFalse,
+		err := workload.UnsetAdmissionWithCondition(ctx, r.client, &wl,
 			"Inadmissible", fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName))
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)
 	if !cqOk {
-		err := workload.UnsetAdmissionWithCondition(ctx, r.client, &wl, metav1.ConditionFalse,
+		err := workload.UnsetAdmissionWithCondition(ctx, r.client, &wl,
 			"Inadmissible", fmt.Sprintf("ClusterQueue %s doesn't exist", cqName))
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	if !r.cache.ClusterQueueActive(cqName) {
-		err := workload.UnsetAdmissionWithCondition(ctx, r.client, &wl, metav1.ConditionFalse,
+		err := workload.UnsetAdmissionWithCondition(ctx, r.client, &wl,
 			"Inadmissible", fmt.Sprintf("ClusterQueue %s is inactive", cqName))
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -165,7 +165,7 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 		return ctrl.Result{RequeueAfter: recheckAfter}, nil
 	} else {
 		klog.V(2).InfoS("Cancelling admission of the workload due to exceeding the PodsReady timeout", "workload", req.NamespacedName.String())
-		err := workload.UnsetAdmissionWithCondition(ctx, r.client, wl, metav1.ConditionFalse,
+		err := workload.UnsetAdmissionWithCondition(ctx, r.client, wl,
 			"Evicted", fmt.Sprintf("Exceeded the PodsReady timeout %s", req.NamespacedName.String()))
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -177,7 +177,7 @@ func (r *WorkloadReconciler) Create(e event.CreateEvent) bool {
 		// this event will be handled by the LimitRange/RuntimeClass handle
 		return true
 	}
-	defer r.notifyWatchers(wl)
+	defer r.notifyWatchers(nil, wl)
 	status := workloadStatus(wl)
 	log := r.log.WithValues("workload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
 	log.V(2).Info("Workload create event")
@@ -208,7 +208,7 @@ func (r *WorkloadReconciler) Delete(e event.DeleteEvent) bool {
 		// this event will be handled by the LimitRange/RuntimeClass handle
 		return true
 	}
-	defer r.notifyWatchers(wl)
+	defer r.notifyWatchers(wl, nil)
 	status := "unknown"
 	if !e.DeleteStateUnknown {
 		status = workloadStatus(wl)
@@ -249,8 +249,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 		return true
 	}
 	wl := e.ObjectNew.(*kueue.Workload)
-	defer r.notifyWatchers(oldWl)
-	defer r.notifyWatchers(wl)
+	defer r.notifyWatchers(oldWl, wl)
 
 	status := workloadStatus(wl)
 	log := r.log.WithValues("workload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
@@ -331,9 +330,9 @@ func (r *WorkloadReconciler) Generic(e event.GenericEvent) bool {
 	return false
 }
 
-func (r *WorkloadReconciler) notifyWatchers(wl *kueue.Workload) {
+func (r *WorkloadReconciler) notifyWatchers(oldWl, newWl *kueue.Workload) {
 	for _, w := range r.watchers {
-		w.NotifyWorkloadUpdate(wl)
+		w.NotifyWorkloadUpdate(oldWl, newWl)
 	}
 }
 

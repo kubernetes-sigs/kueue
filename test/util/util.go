@@ -292,17 +292,17 @@ func ExpectResourceFlavorToBeDeleted(ctx context.Context, k8sClient client.Clien
 	}, Timeout, Interval).Should(testing.BeNotFoundError())
 }
 
-func SetWorkloadAdmission(wl *kueue.Workload, admission *kueue.Admission) bool {
-	wl.Status.Admission = admission
-	if admission != nil {
-		wl.Status.Conditions = []metav1.Condition{{
-			Type:               kueue.WorkloadAdmitted,
-			Status:             metav1.ConditionTrue,
-			LastTransitionTime: metav1.Now(),
-			Reason:             "AdmittedByTest",
-			Message:            fmt.Sprintf("Admitted by ClusterQueue %s", wl.Status.Admission.ClusterQueue),
-		}}
-		return true
+func AdmitWorkload(wl *kueue.Workload, admission *kueue.Admission) error {
+	if admission == nil {
+		return fmt.Errorf("admission can't be null")
 	}
-	return false
+	wl.Status.Admission = admission
+	wl.Status.Conditions = []metav1.Condition{{
+		Type:               kueue.WorkloadAdmitted,
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "AdmittedByTest",
+		Message:            fmt.Sprintf("Admitted by ClusterQueue %s", wl.Status.Admission.ClusterQueue),
+	}}
+	return nil
 }

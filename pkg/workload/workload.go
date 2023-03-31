@@ -249,11 +249,10 @@ func UnsetAdmissionWithCondition(
 	ctx context.Context,
 	c client.Client,
 	wl *kueue.Workload,
-	conditionStatus metav1.ConditionStatus,
 	reason, message string) error {
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadAdmitted,
-		Status:             conditionStatus,
+		Status:             metav1.ConditionFalse,
 		LastTransitionTime: metav1.Now(),
 		Reason:             reason,
 		Message:            api.TruncateConditionMessage(message),
