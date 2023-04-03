@@ -197,7 +197,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 					var newWL kueue.Workload
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
 					if admissions[i] != nil {
-						_ = util.AdmitWorkload(&newWL, admissions[i])
+						return util.AdmitWorkload(ctx, k8sClient, &newWL, admissions[i])
 					}
 					return k8sClient.Status().Update(ctx, &newWL)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -378,8 +378,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			ginkgo.By("Admit workload")
 			wl := testing.MakeWorkload("workload", ns.Name).Queue(lq.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
-			_ = util.AdmitWorkload(wl, testing.MakeAdmission(cq.Name).Obj())
-			gomega.Expect(k8sClient.Status().Update(ctx, wl)).To(gomega.Succeed())
+			gomega.Expect(util.AdmitWorkload(ctx, k8sClient, wl, testing.MakeAdmission(cq.Name).Obj())).To(gomega.Succeed())
 
 			ginkgo.By("Delete clusterQueue")
 			gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, cq)).To(gomega.Succeed())
