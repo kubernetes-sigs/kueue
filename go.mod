@@ -3,7 +3,7 @@ module sigs.k8s.io/kueue
 go 1.19
 
 require (
-	github.com/go-logr/logr v1.2.3
+	github.com/go-logr/logr v1.2.4
 	github.com/google/go-cmp v0.5.9
 	github.com/kubeflow/common v0.4.6
 	github.com/kubeflow/mpi-operator v0.3.1-0.20230210191002-c21942d1e27d
