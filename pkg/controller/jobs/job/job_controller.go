@@ -43,6 +43,8 @@ import (
 var (
 	parentWorkloadKey = ".metadata.parentWorkload"
 	gvk               = batchv1.SchemeGroupVersion.WithKind("Job")
+
+	FrameworkName = "batch/job"
 )
 
 // JobReconciler reconciles a Job object

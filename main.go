@@ -49,6 +49,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/noop"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
@@ -121,7 +122,7 @@ func main() {
 	queues := queue.NewManager(mgr.GetClient(), cCache)
 
 	ctx := ctrl.SetupSignalHandler()
-	setupIndexes(ctx, mgr)
+	setupIndexes(ctx, mgr, &cfg)
 
 	setupProbeEndpoints(mgr)
 	// Cert won't be ready until manager starts, so start a goroutine here which
@@ -145,15 +146,19 @@ func main() {
 	}
 }
 
-func setupIndexes(ctx context.Context, mgr ctrl.Manager) {
+func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *config.Configuration) {
 	if err := indexer.Setup(ctx, mgr.GetFieldIndexer()); err != nil {
 		setupLog.Error(err, "Unable to setup core api indexes")
 	}
-	if err := job.SetupIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
-		setupLog.Error(err, "Unable to setup job indexes")
+	if isFrameworkEnabled(cfg, job.FrameworkName) {
+		if err := job.SetupIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
+			setupLog.Error(err, "Unable to setup job indexes")
+		}
 	}
-	if err := mpijob.SetupIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
-		setupLog.Error(err, "Unable to setup mpijob indexes")
+	if isFrameworkEnabled(cfg, mpijob.FrameworkName) {
+		if err := mpijob.SetupIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
+			setupLog.Error(err, "Unable to setup mpijob indexes")
+		}
 	}
 }
 
@@ -169,35 +174,52 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 		os.Exit(1)
 	}
 	manageJobsWithoutQueueName := cfg.ManageJobsWithoutQueueName
-	if err := job.NewReconciler(mgr.GetScheme(),
-		mgr.GetClient(),
-		mgr.GetEventRecorderFor(constants.JobControllerName),
-		jobframework.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName),
-		jobframework.WithWaitForPodsReady(waitForPodsReady(cfg)),
-	).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Job")
-		os.Exit(1)
-	}
-	if err := mpijob.NewReconciler(mgr.GetScheme(),
-		mgr.GetClient(),
-		mgr.GetEventRecorderFor(constants.KueueName+"-mpijob-controller"),
-		jobframework.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName),
-		jobframework.WithWaitForPodsReady(waitForPodsReady(cfg)),
-	).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "MPIJob")
-		os.Exit(1)
-	}
+
 	if failedWebhook, err := webhooks.Setup(mgr); err != nil {
 		setupLog.Error(err, "Unable to create webhook", "webhook", failedWebhook)
 		os.Exit(1)
 	}
-	if err := job.SetupWebhook(mgr, jobframework.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName)); err != nil {
-		setupLog.Error(err, "Unable to create webhook", "webhook", "Job")
-		os.Exit(1)
+
+	if isFrameworkEnabled(cfg, job.FrameworkName) {
+		if err := job.NewReconciler(mgr.GetScheme(),
+			mgr.GetClient(),
+			mgr.GetEventRecorderFor(constants.JobControllerName),
+			jobframework.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName),
+			jobframework.WithWaitForPodsReady(waitForPodsReady(cfg)),
+		).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "Job")
+			os.Exit(1)
+		}
+		if err := job.SetupWebhook(mgr, jobframework.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName)); err != nil {
+			setupLog.Error(err, "Unable to create webhook", "webhook", "Job")
+			os.Exit(1)
+		}
+	} else {
+		if err := noop.SetupWebhook(mgr, job.WebhookType()); err != nil {
+			setupLog.Error(err, "Unable to create webhook", "webhook", "Job")
+			os.Exit(1)
+		}
 	}
-	if err := mpijob.SetupMPIJobWebhook(mgr, jobframework.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName)); err != nil {
-		setupLog.Error(err, "Unable to create webhook", "webhook", "MPIJob")
-		os.Exit(1)
+
+	if isFrameworkEnabled(cfg, mpijob.FrameworkName) {
+		if err := mpijob.NewReconciler(mgr.GetScheme(),
+			mgr.GetClient(),
+			mgr.GetEventRecorderFor(constants.KueueName+"-mpijob-controller"),
+			jobframework.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName),
+			jobframework.WithWaitForPodsReady(waitForPodsReady(cfg)),
+		).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "MPIJob")
+			os.Exit(1)
+		}
+		if err := mpijob.SetupMPIJobWebhook(mgr, jobframework.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName)); err != nil {
+			setupLog.Error(err, "Unable to create webhook", "webhook", "MPIJob")
+			os.Exit(1)
+		}
+	} else {
+		if err := noop.SetupWebhook(mgr, mpijob.WebhookType()); err != nil {
+			setupLog.Error(err, "Unable to create webhook", "webhook", "MPIJob")
+			os.Exit(1)
+		}
 	}
 	// +kubebuilder:scaffold:builder
 }
@@ -276,4 +298,13 @@ func apply(configFile string) (ctrl.Options, config.Configuration) {
 	setupLog.Info("Successfully loaded configuration", "config", cfgStr)
 
 	return options, cfg
+}
+
+func isFrameworkEnabled(cfg *config.Configuration, name string) bool {
+	for _, framework := range cfg.Integrations.Frameworks {
+		if framework == name {
+			return true
+		}
+	}
+	return false
 }

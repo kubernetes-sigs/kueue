@@ -25,6 +25,8 @@ import (
 	componentconfigv1alpha1 "k8s.io/component-base/config/v1alpha1"
 	"k8s.io/utils/pointer"
 	ctrlconfigv1alpha1 "sigs.k8s.io/controller-runtime/pkg/config/v1alpha1"
+
+	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 )
 
 const (
@@ -51,6 +53,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		QPS:   pointer.Float32(DefaultClientConnectionQPS),
 		Burst: pointer.Int32(DefaultClientConnectionBurst),
 	}
+	defaultIntegrations := &Integrations{
+		Frameworks: []string{job.FrameworkName},
+	}
 	podsReadyTimeoutTimeout := metav1.Duration{Duration: defaultPodsReadyTimeout}
 	podsReadyTimeoutOverwrite := metav1.Duration{Duration: time.Minute}
 
@@ -71,6 +76,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable: pointer.Bool(false),
 				},
 				ClientConnection: defaultClientConnection,
+				Integrations:     defaultIntegrations,
 			},
 		},
 		"defaulting ControllerManagerConfigurationSpec": {
@@ -105,6 +111,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable: pointer.Bool(false),
 				},
 				ClientConnection: defaultClientConnection,
+				Integrations:     defaultIntegrations,
 			},
 		},
 		"should not default ControllerManagerConfigurationSpec": {
@@ -127,6 +134,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				InternalCertManagement: &InternalCertManagement{
 					Enable: pointer.Bool(false),
 				},
+				Integrations: defaultIntegrations,
 			},
 			want: &Configuration{
 				Namespace: pointer.String(DefaultNamespace),
@@ -149,6 +157,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable: pointer.Bool(false),
 				},
 				ClientConnection: defaultClientConnection,
+				Integrations:     defaultIntegrations,
 			},
 		},
 		"should not set LeaderElectionID": {
@@ -182,6 +191,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable: pointer.Bool(false),
 				},
 				ClientConnection: defaultClientConnection,
+				Integrations:     defaultIntegrations,
 			},
 		},
 		"defaulting InternalCertManagement": {
@@ -197,6 +207,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					WebhookSecretName:  pointer.String(DefaultWebhookSecretName),
 				},
 				ClientConnection: defaultClientConnection,
+				Integrations:     defaultIntegrations,
 			},
 		},
 		"should not default InternalCertManagement": {
@@ -213,6 +224,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable: pointer.Bool(false),
 				},
 				ClientConnection: defaultClientConnection,
+				Integrations:     defaultIntegrations,
 			},
 		},
 		"should not default values in custom ClientConnection": {
@@ -236,6 +248,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					QPS:   pointer.Float32(123.0),
 					Burst: pointer.Int32(456),
 				},
+				Integrations: defaultIntegrations,
 			},
 		},
 		"should default empty custom ClientConnection": {
@@ -253,6 +266,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable: pointer.Bool(false),
 				},
 				ClientConnection: defaultClientConnection,
+				Integrations:     defaultIntegrations,
 			},
 		},
 		"defaulting waitForPodsReady.timeout": {
@@ -275,6 +289,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable: pointer.Bool(false),
 				},
 				ClientConnection: defaultClientConnection,
+				Integrations:     defaultIntegrations,
 			},
 		},
 		"respecting provided waitForPodsReady.timeout": {
@@ -298,6 +313,28 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable: pointer.Bool(false),
 				},
 				ClientConnection: defaultClientConnection,
+				Integrations:     defaultIntegrations,
+			},
+		},
+		"integrations": {
+			original: &Configuration{
+				InternalCertManagement: &InternalCertManagement{
+					Enable: pointer.Bool(false),
+				},
+				Integrations: &Integrations{
+					Frameworks: []string{"a", "b"},
+				},
+			},
+			want: &Configuration{
+				Namespace:                          pointer.String(DefaultNamespace),
+				ControllerManagerConfigurationSpec: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: pointer.Bool(false),
+				},
+				ClientConnection: defaultClientConnection,
+				Integrations: &Integrations{
+					Frameworks: []string{"a", "b"},
+				},
 			},
 		},
 	}

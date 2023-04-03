@@ -27,3 +27,7 @@ clientConnection:
 #  enable: false
 #  webhookServiceName: ""
 #  webhookSecretName: ""
+integrations:
+  frameworks:
+  - "batch/job"
+# - "kubeflow.org/mpijob"

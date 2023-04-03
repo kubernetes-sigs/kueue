@@ -37,6 +37,8 @@ import (
 
 var (
 	gvk = kubeflow.SchemeGroupVersionKind
+
+	FrameworkName = "kubeflow.org/mpijob"
 )
 
 // MPIJobReconciler reconciles a Job object

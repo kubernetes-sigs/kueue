@@ -33,6 +33,10 @@ type MPIJobWebhook struct {
 	manageJobsWithoutQueueName bool
 }
 
+func WebhookType() runtime.Object {
+	return &kubeflow.MPIJob{}
+}
+
 // SetupWebhook configures the webhook for kubeflow MPIJob.
 func SetupMPIJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.DefaultOptions
@@ -43,7 +47,7 @@ func SetupMPIJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 	}
 	return ctrl.NewWebhookManagedBy(mgr).
-		For(&kubeflow.MPIJob{}).
+		For(WebhookType()).
 		WithDefaulter(wh).
 		WithValidator(wh).
 		Complete()
