@@ -32,9 +32,9 @@ type GenericJob interface {
 	// If true, status is modified, if not, status is as it was.
 	ResetStatus() bool
 	// RunWithNodeAffinity will inject the node affinity extracting from workload to job and unsuspend the job.
-	RunWithNodeAffinity(nodeSelectors []map[string]string)
+	RunWithNodeAffinity(nodeSelectors []PodSetNodeSelector)
 	// RestoreNodeAffinity will restore the original node affinity of job.
-	RestoreNodeAffinity(nodeSelectors []map[string]string)
+	RestoreNodeAffinity(nodeSelectors []PodSetNodeSelector)
 	// Finished means whether the job is completed/failed or not,
 	// condition represents the workload finished condition.
 	Finished() (condition metav1.Condition, finished bool)

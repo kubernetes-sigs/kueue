@@ -95,6 +95,17 @@ func TestValidateCreate(t *testing.T) {
 }
 
 func TestValidateUpdate(t *testing.T) {
+
+	validPodSelectors := `
+[
+  {
+    "name": "podSetName",
+    "nodeSelector": {
+      "l1": "v1"
+    }
+  }
+]
+	`
 	testcases := []struct {
 		name    string
 		oldJob  *batchv1.Job
@@ -161,18 +172,18 @@ func TestValidateUpdate(t *testing.T) {
 		{
 			name:    "original node selectors can be set while unsuspending",
 			oldJob:  testingutil.MakeJob("job", "default").Suspend(true).Obj(),
-			newJob:  testingutil.MakeJob("job", "default").Suspend(false).OriginalNodeSelectorsAnnotation("[{\"l1\":\"v1\"}]").Obj(),
+			newJob:  testingutil.MakeJob("job", "default").Suspend(false).OriginalNodeSelectorsAnnotation(validPodSelectors).Obj(),
 			wantErr: nil,
 		},
 		{
 			name:    "original node selectors can be set while suspending",
-			oldJob:  testingutil.MakeJob("job", "default").Suspend(true).Obj(),
-			newJob:  testingutil.MakeJob("job", "default").Suspend(false).OriginalNodeSelectorsAnnotation("[{\"l1\":\"v1\"}]").Obj(),
+			oldJob:  testingutil.MakeJob("job", "default").Suspend(false).Obj(),
+			newJob:  testingutil.MakeJob("job", "default").Suspend(true).OriginalNodeSelectorsAnnotation(validPodSelectors).Obj(),
 			wantErr: nil,
 		},
 		{
 			name:   "immutable original node selectors while not suspended",
-			oldJob: testingutil.MakeJob("job", "default").Suspend(false).OriginalNodeSelectorsAnnotation("[{\"l1\":\"v1\"}]").Obj(),
+			oldJob: testingutil.MakeJob("job", "default").Suspend(false).OriginalNodeSelectorsAnnotation(validPodSelectors).Obj(),
 			newJob: testingutil.MakeJob("job", "default").Suspend(false).OriginalNodeSelectorsAnnotation("").Obj(),
 			wantErr: field.ErrorList{
 				field.Forbidden(originalNodeSelectorsKeyPath, "this annotation is immutable while the job is not changing its suspended state"),
@@ -180,7 +191,7 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		{
 			name:   "immutable original node selectors while suspended",
-			oldJob: testingutil.MakeJob("job", "default").Suspend(true).OriginalNodeSelectorsAnnotation("[{\"l1\":\"v1\"}]").Obj(),
+			oldJob: testingutil.MakeJob("job", "default").Suspend(true).OriginalNodeSelectorsAnnotation(validPodSelectors).Obj(),
 			newJob: testingutil.MakeJob("job", "default").Suspend(true).OriginalNodeSelectorsAnnotation("").Obj(),
 			wantErr: field.ErrorList{
 				field.Forbidden(originalNodeSelectorsKeyPath, "this annotation is immutable while the job is not changing its suspended state"),

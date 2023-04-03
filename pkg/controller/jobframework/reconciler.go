@@ -307,7 +307,7 @@ func (r *JobReconciler) equivalentToWorkload(job GenericJob, object client.Objec
 func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
 	//get the original selectors and store them in the job object
 	originalSelectors := r.getNodeSelectorsFromPodSets(wl)
-	if err := nodeSelectorsSetToObject(object, originalSelectors); err != nil {
+	if err := setNodeSelectorsInAnnotation(object, originalSelectors); err != nil {
 		return fmt.Errorf("startJob, record original node selectors: %w", err)
 	}
 
@@ -385,17 +385,25 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 	return wl, nil
 }
 
+type PodSetNodeSelector struct {
+	Name         string            `json:"name"`
+	NodeSelector map[string]string `json:"nodeSelector"`
+}
+
 // getNodeSelectorsFromAdmission will extract node selectors from admitted workloads.
-func (r *JobReconciler) getNodeSelectorsFromAdmission(ctx context.Context, w *kueue.Workload) ([]map[string]string, error) {
+func (r *JobReconciler) getNodeSelectorsFromAdmission(ctx context.Context, w *kueue.Workload) ([]PodSetNodeSelector, error) {
 	if len(w.Status.Admission.PodSetAssignments) == 0 {
 		return nil, nil
 	}
 
-	nodeSelectors := make([]map[string]string, len(w.Status.Admission.PodSetAssignments))
+	nodeSelectors := make([]PodSetNodeSelector, len(w.Status.Admission.PodSetAssignments))
 
 	for i, podSetFlavor := range w.Status.Admission.PodSetAssignments {
 		processedFlvs := sets.NewString()
-		nodeSelector := map[string]string{}
+		nodeSelector := PodSetNodeSelector{
+			Name:         podSetFlavor.Name,
+			NodeSelector: make(map[string]string),
+		}
 		for _, flvRef := range podSetFlavor.Flavors {
 			flvName := string(flvRef)
 			if processedFlvs.Has(flvName) {
@@ -407,7 +415,7 @@ func (r *JobReconciler) getNodeSelectorsFromAdmission(ctx context.Context, w *ku
 				return nil, err
 			}
 			for k, v := range flv.Spec.NodeLabels {
-				nodeSelector[k] = v
+				nodeSelector.NodeSelector[k] = v
 			}
 			processedFlvs.Insert(flvName)
 		}
@@ -418,14 +426,18 @@ func (r *JobReconciler) getNodeSelectorsFromAdmission(ctx context.Context, w *ku
 }
 
 // getNodeSelectorsFromPodSets will extract node selectors from a workload's podSets.
-func (r *JobReconciler) getNodeSelectorsFromPodSets(w *kueue.Workload) []map[string]string {
+func (r *JobReconciler) getNodeSelectorsFromPodSets(w *kueue.Workload) []PodSetNodeSelector {
 	podSets := w.Spec.PodSets
 	if len(podSets) == 0 {
 		return nil
 	}
-	ret := make([]map[string]string, len(podSets))
+	ret := make([]PodSetNodeSelector, len(podSets))
 	for psi := range podSets {
-		ret[psi] = cloneNodeSelector(podSets[psi].Template.Spec.NodeSelector)
+		ps := &podSets[psi]
+		ret[psi] = PodSetNodeSelector{
+			Name:         ps.Name,
+			NodeSelector: cloneNodeSelector(ps.Template.Spec.NodeSelector),
+		}
 	}
 	return ret
 }
@@ -482,22 +494,22 @@ func cloneNodeSelector(src map[string]string) map[string]string {
 
 // getNodeSelectorsFromObjectAnnotation tries to retrieve a node selectors slice from the
 // object's annotations fails if it's not found or is unable to unmarshal
-func getNodeSelectorsFromObjectAnnotation(obj client.Object) ([]map[string]string, error) {
+func getNodeSelectorsFromObjectAnnotation(obj client.Object) ([]PodSetNodeSelector, error) {
 	str, found := obj.GetAnnotations()[OriginalNodeSelectorsAnnotation]
 	if !found {
 		return nil, errNodeSelectorsNotFound
 	}
 	// unmarshal
-	ret := []map[string]string{}
+	ret := []PodSetNodeSelector{}
 	if err := json.Unmarshal([]byte(str), &ret); err != nil {
 		return nil, err
 	}
 	return ret, nil
 }
 
-// nodeSelectorsSetToObject - sets an annotation containing the provided node selectors into
+// setNodeSelectorsInAnnotation - sets an annotation containing the provided node selectors into
 // a job object, even if very unlikely it could return an error related to json.marshaling
-func nodeSelectorsSetToObject(obj client.Object, nodeSelectors []map[string]string) error {
+func setNodeSelectorsInAnnotation(obj client.Object, nodeSelectors []PodSetNodeSelector) error {
 	nodeSelectorsBytes, err := json.Marshal(nodeSelectors)
 	if err != nil {
 		return err

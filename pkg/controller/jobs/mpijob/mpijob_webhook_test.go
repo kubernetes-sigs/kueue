@@ -33,6 +33,16 @@ var (
 )
 
 func TestUpdate(t *testing.T) {
+	validPodSelectors := `
+[
+  {
+    "name": "podSetName",
+    "nodeSelector": {
+      "l1": "v1"
+    }
+  }
+]
+`
 	testcases := map[string]struct {
 		oldJob  *kubeflow.MPIJob
 		newJob  *kubeflow.MPIJob
@@ -40,23 +50,23 @@ func TestUpdate(t *testing.T) {
 	}{
 		"original node selectors can be set while unsuspending": {
 			oldJob:  testingutil.MakeMPIJob("job", "default").Suspend(true).Obj(),
-			newJob:  testingutil.MakeMPIJob("job", "default").Suspend(false).OriginalNodeSelectorsAnnotation("[{\"l1\":\"v1\"}]").Obj(),
+			newJob:  testingutil.MakeMPIJob("job", "default").Suspend(false).OriginalNodeSelectorsAnnotation(validPodSelectors).Obj(),
 			wantErr: nil,
 		},
 		"original node selectors can be set while suspending": {
-			oldJob:  testingutil.MakeMPIJob("job", "default").Suspend(true).Obj(),
-			newJob:  testingutil.MakeMPIJob("job", "default").Suspend(false).OriginalNodeSelectorsAnnotation("[{\"l1\":\"v1\"}]").Obj(),
+			oldJob:  testingutil.MakeMPIJob("job", "default").Suspend(false).Obj(),
+			newJob:  testingutil.MakeMPIJob("job", "default").Suspend(true).OriginalNodeSelectorsAnnotation(validPodSelectors).Obj(),
 			wantErr: nil,
 		},
 		"immutable original node selectors while not suspended": {
-			oldJob: testingutil.MakeMPIJob("job", "default").Suspend(false).OriginalNodeSelectorsAnnotation("[{\"l1\":\"v1\"}]").Obj(),
+			oldJob: testingutil.MakeMPIJob("job", "default").Suspend(false).OriginalNodeSelectorsAnnotation(validPodSelectors).Obj(),
 			newJob: testingutil.MakeMPIJob("job", "default").Suspend(false).OriginalNodeSelectorsAnnotation("").Obj(),
 			wantErr: field.ErrorList{
 				field.Forbidden(originalNodeSelectorsKeyPath, "this annotation is immutable while the job is not changing its suspended state"),
 			}.ToAggregate(),
 		},
 		"immutable original node selectors while suspended": {
-			oldJob: testingutil.MakeMPIJob("job", "default").Suspend(true).OriginalNodeSelectorsAnnotation("[{\"l1\":\"v1\"}]").Obj(),
+			oldJob: testingutil.MakeMPIJob("job", "default").Suspend(true).OriginalNodeSelectorsAnnotation(validPodSelectors).Obj(),
 			newJob: testingutil.MakeMPIJob("job", "default").Suspend(true).OriginalNodeSelectorsAnnotation("").Obj(),
 			wantErr: field.ErrorList{
 				field.Forbidden(originalNodeSelectorsKeyPath, "this annotation is immutable while the job is not changing its suspended state"),
