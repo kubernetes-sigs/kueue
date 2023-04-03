@@ -140,7 +140,7 @@ The controller runs in the `kueue-system` namespace.
 To uninstall Kueue, run the following command:
 
 ```shell
-kubectl delete -k "github.com/kubernetes-sigs/kueue/config/default"
+kubectl delete -k "github.com/kubernetes-sigs/kueue/config/default?ref=main"
 ```
 
 ## Build and install from source
