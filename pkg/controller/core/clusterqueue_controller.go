@@ -140,6 +140,10 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 func (r *ClusterQueueReconciler) NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload) {
 	if oldWl != nil {
 		r.wlUpdateCh <- event.GenericEvent{Object: oldWl}
+		if newWl != nil && oldWl.Spec.QueueName != newWl.Spec.QueueName {
+			r.wlUpdateCh <- event.GenericEvent{Object: newWl}
+		}
+		return
 	}
 	if newWl != nil {
 		r.wlUpdateCh <- event.GenericEvent{Object: newWl}

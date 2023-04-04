@@ -240,7 +240,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		cq := snap.ClusterQueues[w.ClusterQueue]
 		ns := corev1.Namespace{}
 		e := entry{Info: w}
-		if s.cache.IsAssumedWorkload(w.Obj) {
+		if s.cache.IsAssumedOrAdmittedWorkload(w) {
 			log.Error(fmt.Errorf("workload is assumed"), "nominate", "workloadInfo", w)
 			continue
 		} else if snap.InactiveClusterQueueSets.Has(w.ClusterQueue) {

@@ -68,8 +68,8 @@ func (r *LocalQueueReconciler) NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload
 		r.wlUpdateCh <- event.GenericEvent{Object: oldWl}
 		if newWl != nil && oldWl.Spec.QueueName != newWl.Spec.QueueName {
 			r.wlUpdateCh <- event.GenericEvent{Object: newWl}
-			return
 		}
+		return
 	}
 	if newWl != nil {
 		r.wlUpdateCh <- event.GenericEvent{Object: newWl}
