@@ -11,6 +11,25 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
+      path: /mutate-batch-v1-job
+  failurePolicy: Fail
+  name: mjob.kb.io
+  rules:
+  - apiGroups:
+    - batch
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    resources:
+    - jobs
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
       path: /mutate-kueue-x-k8s-io-v1beta1-clusterqueue
   failurePolicy: Fail
   name: mclusterqueue.kb.io
@@ -69,25 +88,6 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /mutate-batch-v1-job
-  failurePolicy: Fail
-  name: mjob.kb.io
-  rules:
-  - apiGroups:
-    - batch
-    apiVersions:
-    - v1
-    operations:
-    - CREATE
-    resources:
-    - jobs
-  sideEffects: None
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: webhook-service
-      namespace: system
       path: /mutate-kubeflow-org-v2beta1-mpijob
   failurePolicy: Fail
   name: mmpijob.kb.io
@@ -108,6 +108,25 @@ metadata:
   creationTimestamp: null
   name: validating-webhook-configuration
 webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-batch-v1-job
+  failurePolicy: Fail
+  name: vjob.kb.io
+  rules:
+  - apiGroups:
+    - batch
+    apiVersions:
+    - v1
+    operations:
+    - UPDATE
+    resources:
+    - jobs
+  sideEffects: None
 - admissionReviewVersions:
   - v1
   clientConfig:
@@ -188,25 +207,6 @@ webhooks:
     resources:
     - workloads
     - workloads/status
-  sideEffects: None
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: webhook-service
-      namespace: system
-      path: /validate-batch-v1-job
-  failurePolicy: Fail
-  name: vjob.kb.io
-  rules:
-  - apiGroups:
-    - batch
-    apiVersions:
-    - v1
-    operations:
-    - UPDATE
-    resources:
-    - jobs
   sideEffects: None
 - admissionReviewVersions:
   - v1

@@ -19,10 +19,11 @@ package v1beta1
 import (
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/pointer"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 )
 
 const (
@@ -88,5 +89,11 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	}
 	if cfg.WaitForPodsReady != nil && cfg.WaitForPodsReady.Timeout == nil {
 		cfg.WaitForPodsReady.Timeout = &metav1.Duration{Duration: defaultPodsReadyTimeout}
+	}
+	if cfg.Integrations == nil {
+		cfg.Integrations = &Integrations{}
+	}
+	if cfg.Integrations.Frameworks == nil {
+		cfg.Integrations.Frameworks = []string{job.FrameworkName}
 	}
 }

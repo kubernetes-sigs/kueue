@@ -29,6 +29,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 )
 
 func TestApply(t *testing.T) {
@@ -165,6 +166,18 @@ clientConnection:
 		t.Fatal(err)
 	}
 
+	integrationsConfig := filepath.Join(tmpDir, "integrations.yaml")
+	if err := os.WriteFile(integrationsConfig, []byte(`
+apiVersion: config.kueue.x-k8s.io/v1beta1
+kind: Configuration
+integrations:
+  frameworks: 
+  - a
+  - b
+`), os.FileMode(0600)); err != nil {
+		t.Fatal(err)
+	}
+
 	defaultControlOptions := ctrl.Options{
 		Port:                   config.DefaultWebhookPort,
 		HealthProbeBindAddress: config.DefaultHealthProbeBindAddress,
@@ -193,6 +206,10 @@ clientConnection:
 		Burst: pointer.Int32(config.DefaultClientConnectionBurst),
 	}
 
+	defaultIntegrations := &config.Integrations{
+		Frameworks: []string{job.FrameworkName},
+	}
+
 	testcases := []struct {
 		name              string
 		configFile        string
@@ -206,6 +223,7 @@ clientConnection:
 				Namespace:              pointer.String(config.DefaultNamespace),
 				InternalCertManagement: enableDefaultInternalCertManagement,
 				ClientConnection:       defaultClientConnection,
+				Integrations:           defaultIntegrations,
 			},
 			wantOptions: ctrl.Options{
 				Port:                   config.DefaultWebhookPort,
@@ -227,6 +245,7 @@ clientConnection:
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection:           defaultClientConnection,
+				Integrations:               defaultIntegrations,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -242,6 +261,7 @@ clientConnection:
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection:           defaultClientConnection,
+				Integrations:               defaultIntegrations,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: ":38081",
@@ -267,6 +287,7 @@ clientConnection:
 					WebhookSecretName:  pointer.String("kueue-tenant-a-webhook-server-cert"),
 				},
 				ClientConnection: defaultClientConnection,
+				Integrations:     defaultIntegrations,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -284,6 +305,7 @@ clientConnection:
 					Enable: pointer.Bool(false),
 				},
 				ClientConnection: defaultClientConnection,
+				Integrations:     defaultIntegrations,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -299,6 +321,7 @@ clientConnection:
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection:           defaultClientConnection,
+				Integrations:               defaultIntegrations,
 			},
 			wantOptions: ctrl.Options{
 				Port:                   config.DefaultWebhookPort,
@@ -324,6 +347,7 @@ clientConnection:
 					Timeout: &metav1.Duration{Duration: 5 * time.Minute},
 				},
 				ClientConnection: defaultClientConnection,
+				Integrations:     defaultIntegrations,
 			},
 			wantOptions: ctrl.Options{
 				Port:                   config.DefaultWebhookPort,
@@ -346,8 +370,31 @@ clientConnection:
 					QPS:   pointer.Float32(50),
 					Burst: pointer.Int32(100),
 				},
+				Integrations: defaultIntegrations,
 			},
 			wantOptions: defaultControlOptions,
+		},
+		{
+			name:       "integrations config",
+			configFile: integrationsConfig,
+			wantConfiguration: config.Configuration{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: config.GroupVersion.String(),
+					Kind:       "Configuration",
+				},
+				Namespace:                  pointer.String(config.DefaultNamespace),
+				ManageJobsWithoutQueueName: false,
+				InternalCertManagement:     enableDefaultInternalCertManagement,
+				ClientConnection:           defaultClientConnection,
+				Integrations: &config.Integrations{
+					Frameworks: []string{"a", "b"},
+				},
+			},
+			wantOptions: ctrl.Options{
+				Port:                   config.DefaultWebhookPort,
+				HealthProbeBindAddress: config.DefaultHealthProbeBindAddress,
+				MetricsBindAddress:     config.DefaultMetricsBindAddress,
+			},
 		},
 	}
 

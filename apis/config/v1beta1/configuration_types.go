@@ -55,6 +55,10 @@ type Configuration struct {
 	// ClientConnection provides additional configuration options for Kubernetes
 	// API server client.
 	ClientConnection *ClientConnection `json:"clientConnection,omitempty"`
+
+	// Integrations provide configuration options for AI/ML/Batch frameworks
+	// integrations (including K8S job).
+	Integrations *Integrations `json:"integrations,omitempty"`
 }
 
 type WaitForPodsReady struct {
@@ -95,4 +99,12 @@ type ClientConnection struct {
 
 	// Burst allows extra queries to accumulate when a client is exceeding its rate.
 	Burst *int32 `json:"burst,omitempty"`
+}
+
+type Integrations struct {
+	// List of framework names to be enabled.
+	// Possible options:
+	//  - "batch/job"
+	//  - "kubeflow.org/mpijob"
+	Frameworks []string `json:"frameworks,omitempty"`
 }
