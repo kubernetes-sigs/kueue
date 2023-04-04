@@ -89,3 +89,8 @@ func (j *JobWrapper) WithWorkerGroups(workers ...rayjobapi.WorkerGroupSpec) *Job
 	j.Spec.RayClusterSpec.WorkerGroupSpecs = workers
 	return j
 }
+
+func (j *JobWrapper) WithHeadGroupSpec(value rayjobapi.HeadGroupSpec) *JobWrapper {
+	j.Spec.RayClusterSpec.HeadGroupSpec = value
+	return j
+}

@@ -70,7 +70,9 @@ func TestValidateDefault(t *testing.T) {
 				manageJobsWithoutQueueName: tc.manageAll,
 			}
 			result := tc.oldJob.DeepCopy()
-			wh.Default(context.Background(), result)
+			if err := wh.Default(context.Background(), result); err != nil {
+				t.Errorf("unexpected Default() error: %s", err)
+			}
 			if diff := cmp.Diff(tc.newJob, result); diff != "" {
 				t.Errorf("Default() mismatch (-want +got):\n%s", diff)
 			}
