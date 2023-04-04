@@ -2082,6 +2082,120 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 	}
 }
 
+// TestIsAssumedOrAdmittedCheckWorkload verifies if workload is in Assumed map from cache or if it is Admitted in one ClusterQueue
+func TestIsAssumedOrAdmittedCheckWorkload(t *testing.T) {
+	tests := []struct {
+		name     string
+		cache    *Cache
+		workload workload.Info
+		expected bool
+	}{
+		{
+			name: "Workload Is Assumed and not Admitted",
+			cache: &Cache{
+				assumedWorkloads: map[string]string{"workload_namespace/workload_name": "test", "test2": "test2"},
+			},
+			workload: workload.Info{
+				ClusterQueue: "ClusterQueue1",
+				Obj: &kueue.Workload{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "workload_name",
+						Namespace: "workload_namespace",
+					},
+				},
+			},
+			expected: true,
+		}, {
+			name: "Workload Is not Assumed but is Admitted",
+			cache: &Cache{
+				clusterQueues: map[string]*ClusterQueue{
+					"ClusterQueue1": {
+						Name: "ClusterQueue1",
+						Workloads: map[string]*workload.Info{"workload_namespace/workload_name": {
+							Obj: &kueue.Workload{
+								ObjectMeta: metav1.ObjectMeta{
+									Name:      "workload_name",
+									Namespace: "workload_namespace",
+								},
+							},
+						}},
+					}},
+			},
+
+			workload: workload.Info{
+				ClusterQueue: "ClusterQueue1",
+				Obj: &kueue.Workload{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "workload_name",
+						Namespace: "workload_namespace",
+					},
+				},
+			},
+			expected: true,
+		}, {
+			name: "Workload Is Assumed and Admitted",
+			cache: &Cache{
+				clusterQueues: map[string]*ClusterQueue{
+					"ClusterQueue1": {
+						Name: "ClusterQueue1",
+						Workloads: map[string]*workload.Info{"workload_namespace/workload_name": {
+							Obj: &kueue.Workload{
+								ObjectMeta: metav1.ObjectMeta{
+									Name:      "workload_name",
+									Namespace: "workload_namespace",
+								},
+							},
+						}},
+					}},
+				assumedWorkloads: map[string]string{"workload_namespace/workload_name": "test", "test2": "test2"},
+			},
+			workload: workload.Info{
+				ClusterQueue: "ClusterQueue1",
+				Obj: &kueue.Workload{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "workload_name",
+						Namespace: "workload_namespace",
+					},
+				},
+			},
+			expected: true,
+		}, {
+			name: "Workload Is not Assumed and is not Admitted",
+			cache: &Cache{
+				clusterQueues: map[string]*ClusterQueue{
+					"ClusterQueue1": {
+						Name: "ClusterQueue1",
+						Workloads: map[string]*workload.Info{"workload_namespace2/workload_name2": {
+							Obj: &kueue.Workload{
+								ObjectMeta: metav1.ObjectMeta{
+									Name:      "workload_name2",
+									Namespace: "workload_namespace2",
+								},
+							},
+						}},
+					}},
+			},
+			workload: workload.Info{
+				ClusterQueue: "ClusterQueue1",
+				Obj: &kueue.Workload{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "workload_name",
+						Namespace: "workload_namespace",
+					},
+				},
+			},
+			expected: false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.cache.IsAssumedOrAdmittedWorkload(tc.workload) != tc.expected {
+				t.Error("Unexpected response")
+			}
+		})
+	}
+}
+
 func messageOrEmpty(err error) string {
 	if err == nil {
 		return ""
