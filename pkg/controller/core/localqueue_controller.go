@@ -63,8 +63,17 @@ func NewLocalQueueReconciler(client client.Client, queues *queue.Manager, cache 
 	}
 }
 
-func (r *LocalQueueReconciler) NotifyWorkloadUpdate(w *kueue.Workload) {
-	r.wlUpdateCh <- event.GenericEvent{Object: w}
+func (r *LocalQueueReconciler) NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload) {
+	if oldWl != nil {
+		r.wlUpdateCh <- event.GenericEvent{Object: oldWl}
+		if newWl != nil && oldWl.Spec.QueueName != newWl.Spec.QueueName {
+			r.wlUpdateCh <- event.GenericEvent{Object: newWl}
+		}
+		return
+	}
+	if newWl != nil {
+		r.wlUpdateCh <- event.GenericEvent{Object: newWl}
+	}
 }
 
 //+kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update

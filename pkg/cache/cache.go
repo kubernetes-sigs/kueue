@@ -703,6 +703,22 @@ func (c *Cache) DeleteWorkload(w *kueue.Workload) error {
 	return nil
 }
 
+func (c *Cache) IsAssumedOrAdmittedWorkload(w workload.Info) bool {
+	c.Lock()
+	defer c.Unlock()
+
+	k := workload.Key(w.Obj)
+	if _, assumed := c.assumedWorkloads[k]; assumed {
+		return true
+	}
+	if cq, exists := c.clusterQueues[w.ClusterQueue]; exists {
+		if _, admitted := cq.Workloads[k]; admitted {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *Cache) AssumeWorkload(w *kueue.Workload) error {
 	c.Lock()
 	defer c.Unlock()

@@ -137,8 +137,17 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	return ctrl.Result{}, nil
 }
 
-func (r *ClusterQueueReconciler) NotifyWorkloadUpdate(w *kueue.Workload) {
-	r.wlUpdateCh <- event.GenericEvent{Object: w}
+func (r *ClusterQueueReconciler) NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload) {
+	if oldWl != nil {
+		r.wlUpdateCh <- event.GenericEvent{Object: oldWl}
+		if newWl != nil && oldWl.Spec.QueueName != newWl.Spec.QueueName {
+			r.wlUpdateCh <- event.GenericEvent{Object: newWl}
+		}
+		return
+	}
+	if newWl != nil {
+		r.wlUpdateCh <- event.GenericEvent{Object: newWl}
+	}
 }
 
 func (r *ClusterQueueReconciler) notifyWatchers(oldCQ, newCQ *kueue.ClusterQueue) {

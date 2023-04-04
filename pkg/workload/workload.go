@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/util/api"
 )
 
@@ -242,6 +243,23 @@ func UpdateStatusIfChanged(ctx context.Context,
 	}
 	// Updating an existing condition
 	return UpdateStatus(ctx, c, wl, conditionType, conditionStatus, reason, message, managerPrefix)
+}
+
+func UnsetAdmissionWithCondition(
+	ctx context.Context,
+	c client.Client,
+	wl *kueue.Workload,
+	reason, message string) error {
+	condition := metav1.Condition{
+		Type:               kueue.WorkloadAdmitted,
+		Status:             metav1.ConditionFalse,
+		LastTransitionTime: metav1.Now(),
+		Reason:             reason,
+		Message:            api.TruncateConditionMessage(message),
+	}
+	newWl := BaseSSAWorkload(wl)
+	newWl.Status.Conditions = []metav1.Condition{condition}
+	return c.Status().Patch(ctx, newWl, client.Apply, client.FieldOwner(constants.AdmissionName))
 }
 
 // BaseSSAWorkload creates a new object based on the input workload that

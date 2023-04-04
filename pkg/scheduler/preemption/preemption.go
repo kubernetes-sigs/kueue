@@ -128,7 +128,15 @@ func (p *Preemptor) issuePreemptions(ctx context.Context, targets []*workload.In
 	defer cancel()
 	workqueue.ParallelizeUntil(ctx, parallelPreemptions, len(targets), func(i int) {
 		target := targets[i]
-		err := p.applyPreemption(ctx, workload.BaseSSAWorkload(target.Obj))
+		patch := workload.BaseSSAWorkload(target.Obj)
+		patch.Status.Conditions = []metav1.Condition{{
+			Type:               kueue.WorkloadAdmitted,
+			Status:             metav1.ConditionFalse,
+			LastTransitionTime: metav1.Now(),
+			Reason:             "Preempted",
+			Message:            "Preempted to accommodate a higher priority Workload",
+		}}
+		err := p.applyPreemption(ctx, patch)
 		if err != nil {
 			errCh.SendErrorWithCancel(err, cancel)
 			return
