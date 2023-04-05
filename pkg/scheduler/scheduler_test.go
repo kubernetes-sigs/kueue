@@ -737,7 +737,7 @@ func TestEntryOrdering(t *testing.T) {
 			Info: workload.Info{
 				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
 					Name:              "gamma",
-					CreationTimestamp: metav1.NewTime(now.Add(2 * time.Second)),
+					CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
 				}},
 			},
 		},
@@ -745,12 +745,57 @@ func TestEntryOrdering(t *testing.T) {
 			Info: workload.Info{
 				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
 					Name:              "delta",
-					CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
+					CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
 				}},
 			},
 			assignment: flavorassigner.Assignment{
 				TotalBorrow: cache.FlavorResourceQuantities{
 					"flavor": {},
+				},
+			},
+		},
+		{
+			Info: workload.Info{
+				Obj: &kueue.Workload{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:              "epsilon",
+						CreationTimestamp: metav1.NewTime(now),
+					},
+					Status: kueue.WorkloadStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:               kueue.WorkloadEvicted,
+								Status:             metav1.ConditionTrue,
+								LastTransitionTime: metav1.NewTime(now.Add(2 * time.Second)),
+								Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+							},
+						},
+					},
+				},
+			},
+			assignment: flavorassigner.Assignment{
+				TotalBorrow: cache.FlavorResourceQuantities{
+					"flavor": {},
+				},
+			},
+		},
+		{
+			Info: workload.Info{
+				Obj: &kueue.Workload{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:              "zeta",
+						CreationTimestamp: metav1.NewTime(now.Add(2 * time.Second)),
+					},
+					Status: kueue.WorkloadStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:               kueue.WorkloadEvicted,
+								Status:             metav1.ConditionTrue,
+								LastTransitionTime: metav1.NewTime(now.Add(2 * time.Second)),
+								Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+							},
+						},
+					},
 				},
 			},
 		},
@@ -760,7 +805,7 @@ func TestEntryOrdering(t *testing.T) {
 	for i, e := range input {
 		order[i] = e.Obj.Name
 	}
-	wantOrder := []string{"beta", "gamma", "alpha", "delta"}
+	wantOrder := []string{"beta", "zeta", "gamma", "alpha", "epsilon", "delta"}
 	if diff := cmp.Diff(wantOrder, order); diff != "" {
 		t.Errorf("Unexpected order (-want,+got):\n%s", diff)
 	}

@@ -170,6 +170,9 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 		klog.V(2).InfoS("Cancelling admission of the workload due to exceeding the PodsReady timeout", "workload", req.NamespacedName.String())
 		err := workload.UnsetAdmissionWithCondition(ctx, r.client, wl,
 			"Evicted", fmt.Sprintf("Exceeded the PodsReady timeout %s", req.NamespacedName.String()))
+		if err == nil {
+			err = workload.UpdateStatus(ctx, r.client, wl, kueue.WorkloadEvicted, metav1.ConditionTrue, kueue.WorkloadEvictedByPodsReadyTimeout, fmt.Sprintf("Exceeded the PodsReady timeout %s", req.NamespacedName.String()), "evict")
+		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 }

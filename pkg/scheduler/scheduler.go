@@ -337,7 +337,9 @@ func (e entryOrdering) Less(i, j int) bool {
 		return !aBorrows
 	}
 	// 2. FIFO.
-	return a.Obj.CreationTimestamp.Before(&b.Obj.CreationTimestamp)
+	aComparisonTimestamp := workload.GetSchedulingTimestamp(a.Obj)
+	bComparisonTimestamp := workload.GetSchedulingTimestamp(b.Obj)
+	return aComparisonTimestamp.Before(bComparisonTimestamp)
 }
 
 func (s *Scheduler) requeueAndUpdate(log logr.Logger, ctx context.Context, e entry) {

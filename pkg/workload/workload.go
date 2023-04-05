@@ -294,3 +294,16 @@ func AdmissionPatch(w *kueue.Workload) *kueue.Workload {
 	wlCopy.Status.Admission = w.Status.Admission.DeepCopy()
 	return wlCopy
 }
+
+// GetSchedulingTimestamp return the timestamp to be used by the scheduler. It could
+// be the workload creation time or the last time a PodsReady timeout has occurred.
+func GetSchedulingTimestamp(w *kueue.Workload) *metav1.Time {
+	evictedConditionPosition := FindConditionIndex(&w.Status, kueue.WorkloadEvicted)
+	if evictedConditionPosition != -1 {
+		evictedCondition := w.Status.Conditions[evictedConditionPosition]
+		if evictedCondition.Reason == kueue.WorkloadEvictedByPodsReadyTimeout {
+			return &w.Status.Conditions[evictedConditionPosition].LastTransitionTime
+		}
+	}
+	return &w.CreationTimestamp
+}
