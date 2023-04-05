@@ -32,4 +32,10 @@ const (
 	// ignores this Job from admission, and takes control of its suspension
 	// status based on the admission status of the parent workload.
 	ParentWorkloadAnnotation = "kueue.x-k8s.io/parent-workload"
+
+	// OriginalNodeSelectorsAnnotation is the annotation in which the original
+	// node selectors are recorded upon a workload admission. This information
+	// will be used to restore them when the job is suspended.
+	// The content is a json marshaled slice of selectors.
+	OriginalNodeSelectorsAnnotation = "kueue.x-k8s.io/original-node-selectors"
 )

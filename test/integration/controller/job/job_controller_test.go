@@ -831,4 +831,63 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", func() {
 			return createdProdJob.Spec.Suspend
 		}, util.Timeout, util.Interval).Should(gomega.Equal(pointer.Bool(false)))
 	})
+
+	ginkgo.When("The workload is deleted while it's admitted", func() {
+		ginkgo.It("Should restore the original node selectors", func() {
+			localQueue := testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
+			job := testingjob.MakeJob(jobName, ns.Name).Queue(localQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
+			lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
+			createdJob := &batchv1.Job{}
+
+			ginkgo.By("create a job", func() {
+				gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("job should be suspend", func() {
+				gomega.Eventually(func() *bool {
+					gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+					return createdJob.Spec.Suspend
+				}, util.Timeout, util.Interval).Should(gomega.Equal(pointer.Bool(true)))
+			})
+
+			// backup the the podSet's node selector
+			originalNodeSelector := createdJob.Spec.Template.Spec.NodeSelector
+
+			ginkgo.By("create a localQueue", func() {
+				gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("job should be unsuspended", func() {
+				gomega.Eventually(func() *bool {
+					gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+					return createdJob.Spec.Suspend
+				}, util.Timeout, util.Interval).Should(gomega.Equal(pointer.Bool(false)))
+			})
+
+			ginkgo.By("the node selector should be updated", func() {
+				gomega.Eventually(func() map[string]string {
+					gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+					return createdJob.Spec.Template.Spec.NodeSelector
+				}, util.Timeout, util.Interval).ShouldNot(gomega.Equal(originalNodeSelector))
+			})
+
+			ginkgo.By("delete the localQueue to prevent readmission", func() {
+				gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("delete the workload to stop the job", func() {
+				wl := &kueue.Workload{}
+				wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name), Namespace: job.Namespace}
+				gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				gomega.Expect(util.DeleteWorkload(ctx, k8sClient, wl)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("the node selector should be restored", func() {
+				gomega.Eventually(func() map[string]string {
+					gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+					return createdJob.Spec.Template.Spec.NodeSelector
+				}, util.Timeout, util.Interval).Should(gomega.Equal(originalNodeSelector))
+			})
+		})
+	})
 })

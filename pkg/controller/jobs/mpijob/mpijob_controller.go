@@ -106,20 +106,22 @@ func (j *MPIJob) PodSets() []kueue.PodSet {
 	return podSets
 }
 
-func (j *MPIJob) RunWithNodeAffinity(nodeSelectors []map[string]string) {
+func (j *MPIJob) RunWithNodeAffinity(nodeSelectors []jobframework.PodSetNodeSelector) {
 	j.Spec.RunPolicy.Suspend = pointer.Bool(false)
 	if len(nodeSelectors) == 0 {
 		return
 	}
+	// The node selectors are provided in the same order as the generated list of
+	// podSets, use the same ordering logic to restore them.
 	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
 	for index := range nodeSelectors {
 		replicaType := orderedReplicaTypes[index]
 		nodeSelector := nodeSelectors[index]
-		if len(nodeSelector) != 0 {
+		if len(nodeSelector.NodeSelector) != 0 {
 			if j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector == nil {
-				j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector = nodeSelector
+				j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector = nodeSelector.NodeSelector
 			} else {
-				for k, v := range nodeSelector {
+				for k, v := range nodeSelector.NodeSelector {
 					j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector[k] = v
 				}
 			}
@@ -127,14 +129,13 @@ func (j *MPIJob) RunWithNodeAffinity(nodeSelectors []map[string]string) {
 	}
 }
 
-func (j *MPIJob) RestoreNodeAffinity(podSets []kueue.PodSet) {
+func (j *MPIJob) RestoreNodeAffinity(nodeSelectors []jobframework.PodSetNodeSelector) {
 	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
-	for index := range podSets {
+	for index, nodeSelector := range nodeSelectors {
 		replicaType := orderedReplicaTypes[index]
-		nodeSelector := podSets[index].Template.Spec.NodeSelector
 		if !equality.Semantic.DeepEqual(j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector, nodeSelector) {
 			j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector = map[string]string{}
-			for k, v := range nodeSelector {
+			for k, v := range nodeSelector.NodeSelector {
 				j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector[k] = v
 			}
 		}

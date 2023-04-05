@@ -152,29 +152,29 @@ func (j *Job) PodSets() []kueue.PodSet {
 	}
 }
 
-func (j *Job) RunWithNodeAffinity(nodeSelectors []map[string]string) {
+func (j *Job) RunWithNodeAffinity(nodeSelectors []jobframework.PodSetNodeSelector) {
 	j.Spec.Suspend = pointer.Bool(false)
 	if len(nodeSelectors) == 0 {
 		return
 	}
 
 	if j.Spec.Template.Spec.NodeSelector == nil {
-		j.Spec.Template.Spec.NodeSelector = nodeSelectors[0]
+		j.Spec.Template.Spec.NodeSelector = nodeSelectors[0].NodeSelector
 	} else {
-		for k, v := range nodeSelectors[0] {
+		for k, v := range nodeSelectors[0].NodeSelector {
 			j.Spec.Template.Spec.NodeSelector[k] = v
 		}
 	}
 }
 
-func (j *Job) RestoreNodeAffinity(podSets []kueue.PodSet) {
-	if len(podSets) == 0 || equality.Semantic.DeepEqual(j.Spec.Template.Spec.NodeSelector, podSets[0].Template.Spec.NodeSelector) {
+func (j *Job) RestoreNodeAffinity(nodeSelectors []jobframework.PodSetNodeSelector) {
+	if len(nodeSelectors) == 0 || equality.Semantic.DeepEqual(j.Spec.Template.Spec.NodeSelector, nodeSelectors[0].NodeSelector) {
 		return
 	}
 
 	j.Spec.Template.Spec.NodeSelector = map[string]string{}
 
-	for k, v := range podSets[0].Template.Spec.NodeSelector {
+	for k, v := range nodeSelectors[0].NodeSelector {
 		j.Spec.Template.Spec.NodeSelector[k] = v
 	}
 }

@@ -110,6 +110,7 @@ func (w *JobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.
 func validateUpdate(oldJob, newJob jobframework.GenericJob) field.ErrorList {
 	allErrs := validateCreate(newJob)
 	allErrs = append(allErrs, jobframework.ValidateUpdateForParentWorkload(oldJob, newJob)...)
+	allErrs = append(allErrs, jobframework.ValidateUpdateForOriginalNodeSelectors(oldJob, newJob)...)
 	allErrs = append(allErrs, jobframework.ValidateUpdateForQueueName(oldJob, newJob)...)
 	return allErrs
 }

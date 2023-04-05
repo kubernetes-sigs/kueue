@@ -86,10 +86,14 @@ func validateCreate(job jobframework.GenericJob) field.ErrorList {
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *MPIJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
 	oldJob := oldObj.(*kubeflow.MPIJob)
+	oldGenJob := &MPIJob{*oldJob}
 	newJob := newObj.(*kubeflow.MPIJob)
+	newGenJob := &MPIJob{*newJob}
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.Info("Validating update", "job", klog.KObj(newJob))
-	return jobframework.ValidateUpdateForQueueName(&MPIJob{*oldJob}, &MPIJob{*newJob}).ToAggregate()
+	allErrs := jobframework.ValidateUpdateForQueueName(oldGenJob, newGenJob)
+	allErrs = append(allErrs, jobframework.ValidateUpdateForOriginalNodeSelectors(oldGenJob, newGenJob)...)
+	return allErrs.ToAggregate()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
