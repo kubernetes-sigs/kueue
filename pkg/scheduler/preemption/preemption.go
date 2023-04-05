@@ -141,6 +141,14 @@ func (p *Preemptor) issuePreemptions(ctx context.Context, targets []*workload.In
 			errCh.SendErrorWithCancel(err, cancel)
 			return
 		}
+
+		workload.SetEvictedCondition(patch, kueue.WorkloadEvictedByPreemption, "Preempted to accommodate a higher priority Workload")
+		err = workload.ApplyAdmissionStatus(ctx, p.client, patch, false)
+		if err != nil {
+			errCh.SendErrorWithCancel(err, cancel)
+			return
+		}
+
 		origin := "ClusterQueue"
 		if cq.Name != target.ClusterQueue {
 			origin = "cohort"

@@ -127,6 +127,17 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(2).Info("Reconciling Workload")
 
+	// if a pods ready timeout eviction is ongoing.
+	if evictionCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted); evictionCond != nil && evictionCond.Status == metav1.ConditionTrue &&
+		evictionCond.Reason == kueue.WorkloadEvictedByPodsReadyTimeout &&
+		apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadAdmitted) {
+
+		log.V(2).Info("Cancelling admission of the workload due to exceeding the PodsReady timeout")
+		workload.UnsetAdmissionWithCondition(&wl, "Evicted", evictionCond.Message)
+		err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
 	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
 		return ctrl.Result{}, nil
 	}
@@ -136,40 +147,41 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	if !r.queues.QueueForWorkloadExists(&wl) {
 		log.V(3).Info("Workload is inadmissible because of missing LocalQueue", "localQueue", klog.KRef(wl.Namespace, wl.Spec.QueueName))
-		err := workload.UnsetAdmissionWithCondition(ctx, r.client, &wl,
-			"Inadmissible", fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName))
+		workload.UnsetAdmissionWithCondition(&wl, "Inadmissible", fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName))
+		err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)
 	if !cqOk {
 		log.V(3).Info("Workload is inadmissible because of missing ClusterQueue", "clusterQueue", klog.KRef("", cqName))
-		err := workload.UnsetAdmissionWithCondition(ctx, r.client, &wl,
-			"Inadmissible", fmt.Sprintf("ClusterQueue %s doesn't exist", cqName))
+		workload.UnsetAdmissionWithCondition(&wl, "Inadmissible", fmt.Sprintf("ClusterQueue %s doesn't exist", cqName))
+		err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	if !r.cache.ClusterQueueActive(cqName) {
 		log.V(3).Info("Workload is inadmissible because ClusterQueue is inactive", "clusterQueue", klog.KRef("", cqName))
-		err := workload.UnsetAdmissionWithCondition(ctx, r.client, &wl,
-			"Inadmissible", fmt.Sprintf("ClusterQueue %s is inactive", cqName))
+		workload.UnsetAdmissionWithCondition(&wl, "Inadmissible", fmt.Sprintf("ClusterQueue %s is inactive", cqName))
+		err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	return ctrl.Result{}, nil
 }
 
 func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req ctrl.Request, wl *kueue.Workload) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
 	countingTowardsTimeout, recheckAfter := r.admittedNotReadyWorkload(wl, realClock)
 	if !countingTowardsTimeout {
 		return ctrl.Result{}, nil
 	}
 	if recheckAfter > 0 {
-		klog.V(4).InfoS("Workload not yet ready and did not exceed its timeout", "workload", req.NamespacedName.String(), "recheckAfter", recheckAfter)
+		log.V(4).Info("Workload not yet ready and did not exceed its timeout", "recheckAfter", recheckAfter)
 		return ctrl.Result{RequeueAfter: recheckAfter}, nil
 	} else {
-		klog.V(2).InfoS("Cancelling admission of the workload due to exceeding the PodsReady timeout", "workload", req.NamespacedName.String())
-		err := workload.UnsetAdmissionWithCondition(ctx, r.client, wl,
-			"Evicted", fmt.Sprintf("Exceeded the PodsReady timeout %s", req.NamespacedName.String()))
+		log.V(2).Info("Start the eviction of the workload due to exceeding the PodsReady timeout")
+		workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByPodsReadyTimeout, fmt.Sprintf("Exceeded the PodsReady timeout %s", req.NamespacedName.String()))
+		err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 }
@@ -517,7 +529,7 @@ func (h *resourceUpdatesHandler) handle(ctx context.Context, obj client.Object, 
 	}
 }
 
-func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, q workqueue.RateLimitingInterface, opts ...client.ListOption) {
+func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, _ workqueue.RateLimitingInterface, opts ...client.ListOption) {
 	log := ctrl.LoggerFrom(ctx)
 	lst := kueue.WorkloadList{}
 	opts = append(opts, client.MatchingFields{indexer.WorkloadAdmittedKey: string(metav1.ConditionFalse)})

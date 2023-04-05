@@ -100,6 +100,7 @@ func TestFIFOClusterQueue(t *testing.T) {
 func TestStrictFIFO(t *testing.T) {
 	t1 := time.Now()
 	t2 := t1.Add(time.Second)
+	t3 := t2.Add(time.Second)
 	for _, tt := range []struct {
 		name     string
 		w1       *kueue.Workload
@@ -145,6 +146,33 @@ func TestStrictFIFO(t *testing.T) {
 				},
 			},
 			expected: "w1",
+		},
+		{
+			name: "w1.priority equals w2.priority and w1.create time is earlier than w2.create time but w1 was evicted",
+			w1: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "w1",
+					CreationTimestamp: metav1.NewTime(t1),
+				},
+				Status: kueue.WorkloadStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadEvicted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(t3),
+							Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+							Message:            "by test",
+						},
+					},
+				},
+			},
+			w2: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "w2",
+					CreationTimestamp: metav1.NewTime(t2),
+				},
+			},
+			expected: "w2",
 		},
 		{
 			name: "p1.priority is lower than p2.priority and w1.create time is earlier than w2.create time",

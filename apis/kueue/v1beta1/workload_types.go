@@ -137,6 +137,19 @@ const (
 	// WorkloadPodsReady means that at least `.spec.podSets[*].count` Pods are
 	// ready or have succeeded.
 	WorkloadPodsReady = "PodsReady"
+
+	// WorkloadEvicted means that the Workload was evicted by a ClusterQueue
+	WorkloadEvicted = "Evicted"
+)
+
+const (
+	// WorkloadEvictedByPreemption indicates that the workload was evicted
+	// in order to free resources for a workload with a higher priority.
+	WorkloadEvictedByPreemption = "Preempted"
+
+	// WorkloadEvictedByPodsReadyTimeout indicates that the eviction took
+	// place due to a PodsReady timeout.
+	WorkloadEvictedByPodsReadyTimeout = "PodsReadyTimeout"
 )
 
 // +kubebuilder:object:root=true
