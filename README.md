@@ -30,7 +30,7 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) to learn more.
 To install the latest release of Kueue in your cluster, run the following command:
 
 ```shell
-kubectl apply -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.2.1/manifests.yaml
+kubectl apply -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.3.0/manifests.yaml
 ```
 
 The controller runs in the `kueue-system` namespace.
