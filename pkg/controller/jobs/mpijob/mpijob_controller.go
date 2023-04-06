@@ -189,10 +189,10 @@ func (j *MPIJob) EquivalentToWorkload(wl kueue.Workload) bool {
 	return true
 }
 
-// calcPriorityClassName calculates the priorityClass name needed for workload according to the following priorities:
+// PriorityClass calculates the priorityClass name needed for workload according to the following priorities:
 //  1. .spec.runPolicy.schedulingPolicy.priorityClass
-//  2. .spec.mpiReplicaSecs[Launcher].template.spec.priorityClassName
-//  3. .spec.mpiReplicaSecs[Worker].template.spec.priorityClassName
+//  2. .spec.mpiReplicaSpecs[Launcher].template.spec.priorityClassName
+//  3. .spec.mpiReplicaSpecs[Worker].template.spec.priorityClassName
 //
 // This function is inspired by an analogous one in mpi-controller:
 // https://github.com/kubeflow/mpi-operator/blob/5946ef4157599a474ab82ff80e780d5c2546c9ee/pkg/controller/podgroup.go#L69-L72
