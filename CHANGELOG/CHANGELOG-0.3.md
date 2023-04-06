@@ -26,10 +26,12 @@ Changes since `v0.2.1`:
     - Add `conditions` field to `status`.
   - `Workload`:
     - Add `metadata` to `podSet` templates.
+    - Move `admission` into `status`.
   - `ResourceFlavor`:
     - Introduce `spec` to hold all fields.
     - Rename `labels` to `nodeLabels`.
     - Rename `taints` to `nodeTaints`.
+- Reduce API calls by setting `.status.admission` and updating the `Admitted` condition in the same API call.
 - Obtain queue names from label `kueue.x-k8s.io/queue-name`. The annotation with
   the same name is still supported, but it's now deprecated.
 - Multiplatform support for `linux/amd64` and `linux/arm64`.
