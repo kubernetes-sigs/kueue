@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -143,6 +144,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 	// head got admitted that should be scheduled in the cohort before the heads
 	// of other clusterQueues.
 	usedCohorts := sets.New[string]()
+	wg := &sync.WaitGroup{}
 	for i := range entries {
 		e := &entries[i]
 		if e.assignment.RepresentativeMode() == flavorassigner.NoFit {
@@ -184,10 +186,11 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			}
 		}
 		e.status = nominated
-		if err := s.admit(ctx, e); err != nil {
+		if err := s.admit(ctx, e, wg); err != nil {
 			e.inadmissibleMsg = fmt.Sprintf("Failed to admit workload: %v", err)
 		}
 	}
+	wg.Wait()
 
 	// 6. Requeue the heads that were not scheduled.
 	result := metrics.AdmissionResultInadmissible
@@ -264,7 +267,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 // admit sets the admitting clusterQueue and flavors into the workload of
 // the entry, and asynchronously updates the object in the apiserver after
 // assuming it in the cache.
-func (s *Scheduler) admit(ctx context.Context, e *entry) error {
+func (s *Scheduler) admit(ctx context.Context, e *entry, wg *sync.WaitGroup) error {
 	log := ctrl.LoggerFrom(ctx)
 	newWorkload := e.Obj.DeepCopy()
 	admission := &kueue.Admission{
@@ -279,6 +282,8 @@ func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 	log.V(2).Info("Workload assumed in the cache")
 
 	s.admissionRoutineWrapper.Run(func() {
+		wg.Add(1)
+		defer wg.Done()
 		patch := workload.AdmissionPatch(newWorkload)
 		patch.Status.Conditions = []metav1.Condition{{
 			Type:               kueue.WorkloadAdmitted,
