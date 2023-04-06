@@ -704,8 +704,8 @@ func (c *Cache) DeleteWorkload(w *kueue.Workload) error {
 }
 
 func (c *Cache) IsAssumedOrAdmittedWorkload(w workload.Info) bool {
-	c.Lock()
-	defer c.Unlock()
+	c.RLock()
+	defer c.RUnlock()
 
 	k := workload.Key(w.Obj)
 	if _, assumed := c.assumedWorkloads[k]; assumed {
