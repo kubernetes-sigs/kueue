@@ -258,6 +258,9 @@ func UnsetAdmissionWithCondition(
 		Message:            api.TruncateConditionMessage(message),
 	}
 	newWl := BaseSSAWorkload(wl)
+	// Use resourceVersion to avoid overriding admissions by the scheduler that
+	// happen in a different routine.
+	newWl.ResourceVersion = wl.ResourceVersion
 	newWl.Status.Conditions = []metav1.Condition{condition}
 	return c.Status().Patch(ctx, newWl, client.Apply, client.FieldOwner(constants.AdmissionName))
 }
