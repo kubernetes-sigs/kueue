@@ -369,14 +369,19 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			ginkgo.By("updating ClusterQueue")
 			updatedCq := &kueue.ClusterQueue{}
-			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: cq.Name}, updatedCq)).Should(gomega.Succeed())
 
-			updatedCq.Spec.ResourceGroups[0].Flavors[0].Resources[0] = kueue.ResourceQuota{
-				Name:           corev1.ResourceCPU,
-				NominalQuota:   resource.MustParse("6"),
-				BorrowingLimit: pointer.Quantity(resource.MustParse("0")),
-			}
-			gomega.Expect(k8sClient.Update(ctx, updatedCq)).Should(gomega.Succeed())
+			gomega.Eventually(func() error {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: cq.Name}, updatedCq)
+				if err != nil {
+					return err
+				}
+				updatedCq.Spec.ResourceGroups[0].Flavors[0].Resources[0] = kueue.ResourceQuota{
+					Name:           corev1.ResourceCPU,
+					NominalQuota:   resource.MustParse("6"),
+					BorrowingLimit: pointer.Quantity(resource.MustParse("0")),
+				}
+				return k8sClient.Update(ctx, updatedCq)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			expectAdmission := testing.MakeAdmission(cq.Name).Assignment(corev1.ResourceCPU, "on-demand", "6").Obj()
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl, expectAdmission)
