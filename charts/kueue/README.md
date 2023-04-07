@@ -11,17 +11,17 @@
   - [Configuration](#configuration)
 <!-- /toc -->
 
-## Installation
+### Installation
 
 Quick start instructions for the setup and configuration of kueue using Helm.
 
-### Prerequisites
+#### Prerequisites
 
 - [Helm](https://helm.sh/docs/intro/quickstart/#install-helm)
 
-### Installing the chart
+#### Installing the chart
 
-#### Install chart using Helm v3.0+
+##### Install chart using Helm v3.0+
 
 ```bash
 $ git clone git@github.com:kubernetes-sigs/kueue.git
@@ -29,7 +29,7 @@ $ cd charts
 $ helm install kueue kueue --create-namespace --namespace kueue-system
 ```
 
-#### Verify that controller pods are running properly.
+##### Verify that controller pods are running properly.
 
 ```bash
 $ kubectl get deploy -n kueue-system
@@ -43,6 +43,8 @@ The following table lists the configurable parameters of the kueue chart and the
 
 | Parameter                                   | Description                             |Default                                      |
 |---------------------------------------------|-----------------------------------------|---------------------------------------------|
+| `nameOverride`                              | nameOverride                            | ``                                          |
+| `fullnameOverride`                          | fullnameOverride                        | ``                                          |
 | `enablePrometheus`                          | enable Prometheus                       | `false`                                     |
 | `enableCertManager`                         | enable CertManager                      | `false`                                     |
 | `enableWebhook`                             | enable Webhook                          | `true`                                      |
@@ -50,6 +52,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | `controllerManager.manager.image`           | controllerManager.manager's image       |`gcr.io/k8s-staging-kueue/kueue:main`        |
 | `controllerManager.manager.resources`       | controllerManager.manager's resources   | abbr.                                       |
 | `controllerManager.replicas`                | ControllerManager's replicaCount        | `1`                                         |
+| `controllerManager.imagePullSecrets`        | ControllerManager's imagePullSecrets    | `[]`                                        |
 | `kubernetesClusterDomain`                   | kubernetesCluster's Domain              | `cluster.local`                             |
 | `managerConfig.controllerManagerConfigYaml` | controllerManagerConfigYaml             | abbr.                                       |
 | `metricsService`                            | metricsService's ports                  | abbr.                                       |

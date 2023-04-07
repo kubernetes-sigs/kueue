@@ -106,9 +106,14 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 		webhook output:webhook:artifacts:config=config/components/webhook\
 		paths="./..."
 
+.PHONY: update-helm-crd
+update-helm-crd:
+	./hack/update-helm-crd.sh
+
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+	make update-helm-crd
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -240,6 +245,7 @@ artifacts: kustomize
 	$(KUSTOMIZE) build config/dev -o artifacts/manifests-dev.yaml
 	$(KUSTOMIZE) build config/prometheus -o artifacts/prometheus.yaml
 	@$(call clean-manifests)
+	cp -r charts artifacts/charts
 
 ##@ Tools
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))

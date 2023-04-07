@@ -1,3 +1,4 @@
+---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
@@ -6,6 +7,7 @@ metadata:
     cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert
     {{- end }}
     controller-gen.kubebuilder.io/version: v0.9.2
+  creationTimestamp: null
   name: localqueues.kueue.x-k8s.io
 spec:
   {{- if .Values.enableWebhook }}

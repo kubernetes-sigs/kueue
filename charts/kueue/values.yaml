@@ -1,6 +1,8 @@
 # Default values for kueue.
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
+nameOverride: ""
+fullnameOverride: ""
 
 # Enable each function, like kustomize https://github.com/kubernetes-sigs/kueue/blob/main/config/default/kustomization.yaml
 enablePrometheus: false
@@ -10,9 +12,19 @@ enableWebhook: true
 # Customize controlerManager
 controllerManager:
   kubeRbacProxy:
-    image: gcr.io/kubebuilder/kube-rbac-proxy:v0.8.0
+    image: 
+      repository: gcr.io/kubebuilder/kube-rbac-proxy
+      # tag
+      tag: v0.8.0
+      # This should be set to 'IfNotPresent' for released version
+      pullPolicy: IfNotPresent
   manager:
-    image: gcr.io/k8s-staging-kueue/kueue:main
+    image:
+      repository: gcr.io/k8s-staging-kueue/kueue
+      # tag, if defined will use the given image tag, else Chart.AppVersion will be used
+      tag: main
+      # This should be set to 'IfNotPresent' for released version      
+      pullPolicy: Always
     resources:
       limits:
         cpu: 500m
@@ -21,6 +33,7 @@ controllerManager:
         cpu: 500m
         memory: 512Mi
   replicas: 1
+  imagePullSecrets: []
 
 kubernetesClusterDomain: cluster.local
 

@@ -28,8 +28,8 @@ spec:
         env:
         - name: KUBERNETES_CLUSTER_DOMAIN
           value: {{ quote .Values.kubernetesClusterDomain }}
-        image: {{ .Values.controllerManager.manager.image }}
-        imagePullPolicy: Always
+        image: "{{ .Values.controllerManager.manager.image.repository }}:{{ .Values.controllerManager.manager.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.controllerManager.manager.image.pullPolicy }}
         livenessProbe:
           httpGet:
             path: /healthz
@@ -70,7 +70,8 @@ spec:
         env:
         - name: KUBERNETES_CLUSTER_DOMAIN
           value: {{ quote .Values.kubernetesClusterDomain }}
-        image: {{ .Values.controllerManager.kubeRbacProxy.image }}
+        image: "{{ .Values.controllerManager.kubeRbacProxy.image.repository }}:{{ .Values.controllerManager.kubeRbacProxy.image.tag }}"
+        imagePullPolicy: {{ .Values.controllerManager.kubeRbacProxy.image.pullPolicy }}
         name: kube-rbac-proxy
         ports:
         - containerPort: 8443
@@ -80,6 +81,10 @@ spec:
       securityContext:
         runAsNonRoot: true
       serviceAccountName: {{ include "kueue.fullname" . }}-controller-manager
+      {{- with .Values.controllerManager.imagePullSecrets  }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       terminationGracePeriodSeconds: 10
       volumes:
       {{- if .Values.enableWebhook }}
