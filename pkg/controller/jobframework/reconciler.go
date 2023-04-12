@@ -166,7 +166,24 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	// 5. handle job is suspended.
+	// 5. handle eviction
+	if evCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted); evCond != nil && evCond.Status == metav1.ConditionTrue {
+		if !job.IsSuspended() {
+			log.V(6).Info("The job is not suspended, stop")
+			return ctrl.Result{}, r.stopJob(ctx, job, object, wl, evCond.Message)
+		}
+		if workload.IsAdmitted(wl) {
+			if !job.IsActive() {
+				log.V(6).Info("The job is no longer active, clear the workloads admission")
+				workload.UnsetAdmissionWithCondition(wl, "Pending", evCond.Message)
+				return ctrl.Result{}, workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
+			}
+			// The job is suspended but active, nothing to do now.
+			return ctrl.Result{}, nil
+		}
+	}
+
+	// 6. handle job is suspended.
 	if job.IsSuspended() {
 		// start the job if the workload has been admitted, and the job is still suspended
 		if workload.IsAdmitted(wl) {
@@ -193,7 +210,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, nil
 	}
 
-	// 6. handle job is unsuspended.
+	// 7. handle job is unsuspended.
 	if !workload.IsAdmitted(wl) {
 		// the job must be suspended if the workload is not yet admitted.
 		log.V(2).Info("Running job is not admitted by a cluster queue, suspending")

@@ -127,17 +127,6 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(2).Info("Reconciling Workload")
 
-	// if a pods ready timeout eviction is ongoing.
-	if evictionCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted); evictionCond != nil && evictionCond.Status == metav1.ConditionTrue &&
-		evictionCond.Reason == kueue.WorkloadEvictedByPodsReadyTimeout &&
-		apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadAdmitted) {
-
-		log.V(2).Info("Cancelling admission of the workload due to exceeding the PodsReady timeout")
-		workload.UnsetAdmissionWithCondition(&wl, "Evicted", evictionCond.Message)
-		err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
-
 	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
 		return ctrl.Result{}, nil
 	}

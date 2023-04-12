@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -378,6 +379,65 @@ var _ = ginkgo.Describe("Job controller", func() {
 				gomega.Expect(k8sClient.Get(ctx, childLookupKey, childJob)).Should(gomega.Succeed())
 				return childJob.Spec.Suspend
 			}, util.Timeout, util.Interval).Should(gomega.Equal(pointer.Bool(true)))
+		})
+	})
+
+	ginkgo.It("Should finish the preemption when the job becomes inactive", func() {
+		job := testingjob.MakeJob(jobName, jobNamespace).Queue("q").Obj()
+		wl := &kueue.Workload{}
+		ginkgo.By("create the job and admit the workload", func() {
+			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+			gomega.Eventually(func() error { return k8sClient.Get(ctx, wlLookupKey, wl) }, util.Timeout, util.Interval).Should(gomega.Succeed())
+			admission := testing.MakeAdmission("q", job.Spec.Template.Spec.Containers[0].Name).Obj()
+			gomega.Expect(util.SetAdmission(ctx, k8sClient, wl, admission)).To(gomega.Succeed())
+		})
+
+		ginkgo.By("wait for the job to be unsuspended", func() {
+			gomega.Eventually(func() bool {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+				return *job.Spec.Suspend
+			}, util.Timeout, util.Interval).Should(gomega.BeFalse())
+		})
+
+		ginkgo.By("mark the job as active", func() {
+			gomega.Eventually(func() error {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+				job.Status.Active = 1
+				return k8sClient.Status().Update(ctx, job)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("preempt the workload", func() {
+			gomega.Eventually(func() error {
+				gomega.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).To(gomega.Succeed())
+				return workload.UpdateStatus(ctx, k8sClient, wl, kueue.WorkloadEvicted, metav1.ConditionTrue, kueue.WorkloadEvictedByPreemption, "By test", "evict")
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("wait for the job to be suspended", func() {
+			gomega.Eventually(func() bool {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+				return *job.Spec.Suspend
+			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+		})
+
+		ginkgo.By("the workload should stay admitted", func() {
+			gomega.Consistently(func() bool {
+				gomega.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).To(gomega.Succeed())
+				return apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadAdmitted)
+			}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
+		})
+
+		ginkgo.By("mark the job as inactive", func() {
+			gomega.Eventually(func() error {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+				job.Status.Active = 0
+				return k8sClient.Status().Update(ctx, job)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("the workload should get unadmitted", func() {
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
 		})
 	})
 })

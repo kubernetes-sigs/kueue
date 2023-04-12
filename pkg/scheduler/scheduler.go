@@ -169,7 +169,8 @@ func (s *Scheduler) schedule(ctx context.Context) {
 				log.Error(err, "Failed to preempt workloads")
 			}
 			if preempted != 0 {
-				e.inadmissibleMsg += fmt.Sprintf(". Preempted %d workload(s)", preempted)
+				e.inadmissibleMsg += fmt.Sprintf(". Pending the preemption of %d workload(s)", preempted)
+				e.requeueReason = queue.RequeueReasonPendingPreemption
 			}
 			continue
 		}
