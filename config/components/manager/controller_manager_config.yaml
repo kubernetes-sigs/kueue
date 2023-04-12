@@ -31,3 +31,4 @@ integrations:
   frameworks:
   - "batch/job"
 # - "kubeflow.org/mpijob"
+# - "ray.io/rayjob"
