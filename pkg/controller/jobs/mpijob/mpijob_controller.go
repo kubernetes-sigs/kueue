@@ -26,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -41,6 +42,16 @@ var (
 	FrameworkName = "kubeflow.org/mpijob"
 )
 
+func init() {
+	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
+		SetupIndexes:  SetupIndexes,
+		NewReconciler: NewReconciler,
+		SetupWebhook:  SetupMPIJobWebhook,
+		JobType:       &kubeflow.MPIJob{},
+		AddToScheme:   kubeflow.AddToScheme,
+	}))
+}
+
 // MPIJobReconciler reconciles a Job object
 type MPIJobReconciler jobframework.JobReconciler
 
@@ -48,7 +59,7 @@ func NewReconciler(
 	scheme *runtime.Scheme,
 	client client.Client,
 	record record.EventRecorder,
-	opts ...jobframework.Option) *MPIJobReconciler {
+	opts ...jobframework.Option) jobframework.JobReconcilerInterface {
 	return (*MPIJobReconciler)(jobframework.NewReconciler(scheme,
 		client,
 		record,

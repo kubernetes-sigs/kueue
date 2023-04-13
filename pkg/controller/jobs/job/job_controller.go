@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -47,6 +48,15 @@ var (
 	FrameworkName = "batch/job"
 )
 
+func init() {
+	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
+		SetupIndexes:  SetupIndexes,
+		NewReconciler: NewReconciler,
+		SetupWebhook:  SetupWebhook,
+		JobType:       &batchv1.Job{},
+	}))
+}
+
 // JobReconciler reconciles a Job object
 type JobReconciler jobframework.JobReconciler
 
@@ -54,7 +64,7 @@ func NewReconciler(
 	scheme *runtime.Scheme,
 	client client.Client,
 	record record.EventRecorder,
-	opts ...jobframework.Option) *JobReconciler {
+	opts ...jobframework.Option) jobframework.JobReconcilerInterface {
 	return (*JobReconciler)(jobframework.NewReconciler(scheme,
 		client,
 		record,
