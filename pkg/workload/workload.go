@@ -224,27 +224,6 @@ func UpdateStatus(ctx context.Context,
 	return c.Status().Patch(ctx, newWl, client.Apply, client.FieldOwner(managerPrefix+"-"+condition.Type))
 }
 
-func UpdateStatusIfChanged(ctx context.Context,
-	c client.Client,
-	wl *kueue.Workload,
-	conditionType string,
-	conditionStatus metav1.ConditionStatus,
-	reason, message string,
-	managerPrefix string) error {
-	i := FindConditionIndex(&wl.Status, conditionType)
-	if i == -1 {
-		// We are adding new pod condition.
-		return UpdateStatus(ctx, c, wl, conditionType, conditionStatus, reason, message, managerPrefix)
-	}
-	if wl.Status.Conditions[i].Status == conditionStatus && wl.Status.Conditions[i].Type == conditionType &&
-		wl.Status.Conditions[i].Reason == reason && wl.Status.Conditions[i].Message == message {
-		// No need to update
-		return nil
-	}
-	// Updating an existing condition
-	return UpdateStatus(ctx, c, wl, conditionType, conditionStatus, reason, message, managerPrefix)
-}
-
 func UnsetAdmissionWithCondition(
 	ctx context.Context,
 	c client.Client,
