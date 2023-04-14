@@ -157,20 +157,6 @@ func (r Requests) scale(f int64) {
 	}
 }
 
-// FindConditionIndex finds the provided condition from the given status and returns the index.
-// Returns -1 if the condition is not present.
-func FindConditionIndex(status *kueue.WorkloadStatus, conditionType string) int {
-	if status == nil || status.Conditions == nil {
-		return -1
-	}
-	for i := range status.Conditions {
-		if status.Conditions[i].Type == conditionType {
-			return i
-		}
-	}
-	return -1
-}
-
 // UpdateStatus updates the condition of a workload with ssa,
 // filelManager being set to managerPrefix + "-" + conditionType
 func UpdateStatus(ctx context.Context,

@@ -20,6 +20,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -29,7 +30,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 	"sigs.k8s.io/kueue/pkg/util/testing"
-	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -1043,11 +1043,11 @@ var _ = ginkgo.Describe("Scheduler", func() {
 						return ""
 					}
 
-					ci := workload.FindConditionIndex(&rwl.Status, kueue.WorkloadAdmitted)
-					if ci < 0 {
+					cond := meta.FindStatusCondition(rwl.Status.Conditions, kueue.WorkloadAdmitted)
+					if cond == nil {
 						return ""
 					}
-					return rwl.Status.Conditions[ci].Message
+					return cond.Message
 				}, util.Timeout, util.Interval).Should(gomega.ContainSubstring(tp.wantedStatus))
 			}
 			gomega.Expect(util.DeleteWorkload(ctx, k8sClient, wl)).To(gomega.Succeed())
