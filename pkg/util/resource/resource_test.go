@@ -252,7 +252,7 @@ func TestGetGraterKeys(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := GetGraterKeys(tc.a, tc.b)
+			got := GetGreaterKeys(tc.a, tc.b)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("Unexpected result (-want, +got)\n%s", diff)
 			}

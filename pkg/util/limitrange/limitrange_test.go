@@ -21,18 +21,18 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
-	apiresource "k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/utils/field"
 
 	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 var (
-	ar1    = apiresource.MustParse("1")
-	ar2    = apiresource.MustParse("2")
-	ar500m = apiresource.MustParse("500m")
-	ar1Gi  = apiresource.MustParse("1Gi")
-	ar2Gi  = apiresource.MustParse("2Gi")
+	ar1    = resource.MustParse("1")
+	ar2    = resource.MustParse("2")
+	ar500m = resource.MustParse("500m")
+	ar1Gi  = resource.MustParse("1Gi")
+	ar2Gi  = resource.MustParse("2Gi")
 )
 
 func TestSummarize(t *testing.T) {
@@ -164,32 +164,32 @@ func TestTotalRequest(t *testing.T) {
 		{
 			Resources: corev1.ResourceRequirements{
 				Requests: corev1.ResourceList{
-					corev1.ResourceCPU:    apiresource.MustParse("1"),
-					corev1.ResourceMemory: apiresource.MustParse("2Gi"),
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("2Gi"),
 				},
 			},
 		},
 		{
 			Resources: corev1.ResourceRequirements{
 				Requests: corev1.ResourceList{
-					corev1.ResourceCPU: apiresource.MustParse("1500m"),
-					"example.com/gpu":  apiresource.MustParse("2"),
+					corev1.ResourceCPU: resource.MustParse("1500m"),
+					"example.com/gpu":  resource.MustParse("2"),
 				},
 			},
 		},
 		{
 			Resources: corev1.ResourceRequirements{
 				Requests: corev1.ResourceList{
-					corev1.ResourceCPU:    apiresource.MustParse("4"),
-					corev1.ResourceMemory: apiresource.MustParse("2Gi"),
+					corev1.ResourceCPU:    resource.MustParse("4"),
+					corev1.ResourceMemory: resource.MustParse("2Gi"),
 				},
 			},
 		},
 		{
 			Resources: corev1.ResourceRequirements{
 				Requests: corev1.ResourceList{
-					corev1.ResourceCPU: apiresource.MustParse("1500m"),
-					"example.com/gpu":  apiresource.MustParse("2"),
+					corev1.ResourceCPU: resource.MustParse("1500m"),
+					"example.com/gpu":  resource.MustParse("2"),
 				},
 			},
 		},
@@ -203,9 +203,9 @@ func TestTotalRequest(t *testing.T) {
 				Containers: containers[:2],
 			},
 			want: corev1.ResourceList{
-				corev1.ResourceCPU:    apiresource.MustParse("2500m"),
-				corev1.ResourceMemory: apiresource.MustParse("2Gi"),
-				"example.com/gpu":     apiresource.MustParse("2"),
+				corev1.ResourceCPU:    resource.MustParse("2500m"),
+				corev1.ResourceMemory: resource.MustParse("2Gi"),
+				"example.com/gpu":     resource.MustParse("2"),
 			},
 		},
 		"one init wants more": {
@@ -214,9 +214,9 @@ func TestTotalRequest(t *testing.T) {
 				Containers:     containers[:2],
 			},
 			want: corev1.ResourceList{
-				corev1.ResourceCPU:    apiresource.MustParse("4000m"),
-				corev1.ResourceMemory: apiresource.MustParse("2Gi"),
-				"example.com/gpu":     apiresource.MustParse("2"),
+				corev1.ResourceCPU:    resource.MustParse("4000m"),
+				corev1.ResourceMemory: resource.MustParse("2Gi"),
+				"example.com/gpu":     resource.MustParse("2"),
 			},
 		},
 		"adds overhead": {
@@ -224,15 +224,15 @@ func TestTotalRequest(t *testing.T) {
 				InitContainers: containers[2:],
 				Containers:     containers[:2],
 				Overhead: corev1.ResourceList{
-					corev1.ResourceCPU:    apiresource.MustParse("1"),
-					corev1.ResourceMemory: apiresource.MustParse("1Gi"),
-					"example.com/gpu":     apiresource.MustParse("1"),
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("1Gi"),
+					"example.com/gpu":     resource.MustParse("1"),
 				},
 			},
 			want: corev1.ResourceList{
-				corev1.ResourceCPU:    apiresource.MustParse("5000m"),
-				corev1.ResourceMemory: apiresource.MustParse("3Gi"),
-				"example.com/gpu":     apiresource.MustParse("3"),
+				corev1.ResourceCPU:    resource.MustParse("5000m"),
+				corev1.ResourceMemory: resource.MustParse("3Gi"),
+				"example.com/gpu":     resource.MustParse("3"),
 			},
 		},
 	}
@@ -246,23 +246,23 @@ func TestTotalRequest(t *testing.T) {
 		})
 	}
 }
-func TestValidate(t *testing.T) {
+func TestValidatePodSpec(t *testing.T) {
 	podSpec := &corev1.PodSpec{
 		Containers: []corev1.Container{
 			{
 				Resources: corev1.ResourceRequirements{
 					Requests: corev1.ResourceList{
-						corev1.ResourceCPU:             apiresource.MustParse("1"),
-						corev1.ResourceMemory:          apiresource.MustParse("2Gi"),
-						"example.com/mainContainerGpu": apiresource.MustParse("2"),
+						corev1.ResourceCPU:             resource.MustParse("1"),
+						corev1.ResourceMemory:          resource.MustParse("2Gi"),
+						"example.com/mainContainerGpu": resource.MustParse("2"),
 					},
 				},
 			},
 			{
 				Resources: corev1.ResourceRequirements{
 					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: apiresource.MustParse("1500m"),
-						"example.com/gpu":  apiresource.MustParse("2"),
+						corev1.ResourceCPU: resource.MustParse("1500m"),
+						"example.com/gpu":  resource.MustParse("2"),
 					},
 				},
 			},
@@ -271,25 +271,25 @@ func TestValidate(t *testing.T) {
 			{
 				Resources: corev1.ResourceRequirements{
 					Requests: corev1.ResourceList{
-						corev1.ResourceCPU:    apiresource.MustParse("4"),
-						corev1.ResourceMemory: apiresource.MustParse("2Gi"),
+						corev1.ResourceCPU:    resource.MustParse("4"),
+						corev1.ResourceMemory: resource.MustParse("2Gi"),
 					},
 				},
 			},
 			{
 				Resources: corev1.ResourceRequirements{
 					Requests: corev1.ResourceList{
-						corev1.ResourceCPU:             apiresource.MustParse("1500m"),
-						"example.com/gpu":              apiresource.MustParse("2"),
-						"example.com/initContainerGpu": apiresource.MustParse("2"),
+						corev1.ResourceCPU:             resource.MustParse("1500m"),
+						"example.com/gpu":              resource.MustParse("2"),
+						"example.com/initContainerGpu": resource.MustParse("2"),
 					},
 				},
 			},
 		},
 		Overhead: corev1.ResourceList{
-			corev1.ResourceCPU:    apiresource.MustParse("1"),
-			corev1.ResourceMemory: apiresource.MustParse("1Gi"),
-			"example.com/gpu":     apiresource.MustParse("1"),
+			corev1.ResourceCPU:    resource.MustParse("1"),
+			corev1.ResourceMemory: resource.MustParse("1Gi"),
+			"example.com/gpu":     resource.MustParse("1"),
 		},
 	}
 	cases := map[string]struct {
@@ -374,6 +374,23 @@ func TestValidate(t *testing.T) {
 				violateMinMessage(field.NewPath("testPodSet", "containers").Index(0), "example.com/mainContainerGpu"),
 				violateMaxMessage(field.NewPath("testPodSet"), string(corev1.ResourceCPU)),
 			},
+		},
+		"multiple valid": {
+			summary: Summarize(
+				*testingutil.MakeLimitRange("", "").
+					WithType(corev1.LimitTypePod).
+					WithValue("Max", corev1.ResourceCPU, "5").
+					Obj(),
+				*testingutil.MakeLimitRange("", "").
+					WithType(corev1.LimitTypeContainer).
+					WithValue("Min", "example.com/mainContainerGpu", "1").
+					Obj(),
+				*testingutil.MakeLimitRange("", "").
+					WithType(corev1.LimitTypeContainer).
+					WithValue("Max", "example.com/initContainerGpu", "2").
+					Obj(),
+			),
+			want: []string{},
 		},
 	}
 	for name, tc := range cases {

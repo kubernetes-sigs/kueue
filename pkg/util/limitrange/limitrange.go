@@ -70,10 +70,10 @@ func (s Summary) validatePodSpecContainers(containers []corev1.Container, path *
 		res := &containers[i].Resources
 		cMin := resource.MergeResourceListKeepMin(res.Requests, res.Limits)
 		cMax := resource.MergeResourceListKeepMax(res.Requests, res.Limits)
-		if list := resource.GetGraterKeys(cMax, containerRange.Max); len(list) > 0 {
+		if list := resource.GetGreaterKeys(cMax, containerRange.Max); len(list) > 0 {
 			reasons = append(reasons, violateMaxMessage(path.Index(i), list...))
 		}
-		if list := resource.GetGraterKeys(containerRange.Min, cMin); len(list) > 0 {
+		if list := resource.GetGreaterKeys(containerRange.Min, cMin); len(list) > 0 {
 			reasons = append(reasons, violateMinMessage(path.Index(i), list...))
 		}
 	}
@@ -81,7 +81,7 @@ func (s Summary) validatePodSpecContainers(containers []corev1.Container, path *
 }
 
 // TotalRequests computes the total resource requests of a pod.
-// total = sum(max(sum(.containers[].requests), initContainers[].request), overhead)
+// total = sum(max(sum(.containers[].requests), initContainers[].requests), overhead)
 func TotalRequests(ps *corev1.PodSpec) corev1.ResourceList {
 	total := corev1.ResourceList{}
 
@@ -100,17 +100,17 @@ func TotalRequests(ps *corev1.PodSpec) corev1.ResourceList {
 	return total
 }
 
-// ValidatePodSpec verifies if the provided podSpec (ps) first into the boundaries of the summary  (s)
+// ValidatePodSpec verifies if the provided podSpec (ps) first into the boundaries of the summary (s).
 func (s Summary) ValidatePodSpec(ps *corev1.PodSpec, path *field.Path) []string {
 	reasons := []string{}
 	reasons = append(reasons, s.validatePodSpecContainers(ps.InitContainers, path.Child("initContainers"))...)
 	reasons = append(reasons, s.validatePodSpecContainers(ps.Containers, path.Child("containers"))...)
 	if containerRange, found := s[corev1.LimitTypePod]; found {
 		total := TotalRequests(ps)
-		if list := resource.GetGraterKeys(total, containerRange.Max); len(list) > 0 {
+		if list := resource.GetGreaterKeys(total, containerRange.Max); len(list) > 0 {
 			reasons = append(reasons, violateMaxMessage(path, list...))
 		}
-		if list := resource.GetGraterKeys(containerRange.Min, total); len(list) > 0 {
+		if list := resource.GetGreaterKeys(containerRange.Min, total); len(list) > 0 {
 			reasons = append(reasons, violateMinMessage(path, list...))
 		}
 	}

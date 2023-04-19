@@ -78,8 +78,8 @@ func MergeResourceListKeepSum(a, b corev1.ResourceList) corev1.ResourceList {
 	})
 }
 
-// GetGraterKeys returns the list of ResourceNames for which the value in a are grater than the value in b
-func GetGraterKeys(a, b corev1.ResourceList) []string {
+// GetGreaterKeys returns the list of ResourceNames for which the value in a are greater than the value in b.
+func GetGreaterKeys(a, b corev1.ResourceList) []string {
 	if len(a) == 0 || len(b) == 0 {
 		return nil
 	}
