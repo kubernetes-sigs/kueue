@@ -19,6 +19,7 @@ package workload
 import (
 	"context"
 	"fmt"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -228,4 +229,9 @@ func AdmissionPatch(w *kueue.Workload) *kueue.Workload {
 	wlCopy := BaseSSAWorkload(w)
 	wlCopy.Status.Admission = w.Status.Admission.DeepCopy()
 	return wlCopy
+}
+
+// IsWorkloadAdmitted check if workload is admitted based on conditions
+func IsWorkloadAdmitted(w *kueue.Workload) bool {
+	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadAdmitted)
 }

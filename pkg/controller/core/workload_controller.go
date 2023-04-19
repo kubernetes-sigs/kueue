@@ -130,7 +130,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
 		return ctrl.Result{}, nil
 	}
-	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadAdmitted) {
+	if workload.IsWorkloadAdmitted(&wl) {
 		return r.reconcileNotReadyTimeout(ctx, req, &wl)
 	}
 
@@ -391,7 +391,7 @@ func workloadStatus(w *kueue.Workload) string {
 	if apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished) {
 		return finished
 	}
-	if apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadAdmitted) {
+	if workload.IsWorkloadAdmitted(w) {
 		return admitted
 	}
 	return pending

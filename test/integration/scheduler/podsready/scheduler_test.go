@@ -19,6 +19,7 @@ package podsready
 import (
 	"context"
 	"path/filepath"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -197,7 +198,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			// kueue cancels the admission. Mentioning this in case this test flakes in the future.
 			gomega.Eventually(func() bool {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl1), prodWl1)).Should(gomega.Succeed())
-				return apimeta.IsStatusConditionTrue(prodWl1.Status.Conditions, kueue.WorkloadAdmitted)
+				return workload.IsWorkloadAdmitted(prodWl1)
 			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 
 			ginkgo.By("determining the time of admission as LastTransitionTime for the Admitted condition")
