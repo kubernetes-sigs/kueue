@@ -355,8 +355,9 @@ integrations:
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				WaitForPodsReady: &config.WaitForPodsReady{
-					Enable:  true,
-					Timeout: &metav1.Duration{Duration: 5 * time.Minute},
+					Enable:         true,
+					BlockAdmission: true,
+					Timeout:        &metav1.Duration{Duration: 5 * time.Minute},
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
