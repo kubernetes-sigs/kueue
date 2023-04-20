@@ -60,13 +60,13 @@ type Scheduler struct {
 	recorder                record.EventRecorder
 	admissionRoutineWrapper routine.Wrapper
 	preemptor               *preemption.Preemptor
-	waitForPodsReady        bool
+	blockForPodsReady       bool
 	// Stubs.
 	applyAdmission func(context.Context, *kueue.Workload) error
 }
 
 type options struct {
-	waitForPodsReady bool
+	blockForPodsReady bool
 }
 
 // Option configures the reconciler.
@@ -74,9 +74,9 @@ type Option func(*options)
 
 // WithWaitForPodsReady indicates if the controller should wait for the
 // PodsReady condition for all admitted workloads before admitting a new one.
-func WithWaitForPodsReady(f bool) Option {
+func WithBlockForPodsReady(f bool) Option {
 	return func(o *options) {
-		o.waitForPodsReady = f
+		o.blockForPodsReady = f
 	}
 }
 
@@ -94,7 +94,7 @@ func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder r
 		recorder:                recorder,
 		preemptor:               preemption.New(cl, recorder),
 		admissionRoutineWrapper: routine.DefaultWrapper,
-		waitForPodsReady:        options.waitForPodsReady,
+		blockForPodsReady:       options.blockForPodsReady,
 	}
 	s.applyAdmission = s.applyAdmissionWithSSA
 	return s
@@ -174,7 +174,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			}
 			continue
 		}
-		if s.waitForPodsReady {
+		if s.blockForPodsReady {
 			if !s.cache.PodsReadyForAllAdmittedWorkloads(ctx) {
 				log.V(5).Info("Waiting for all admitted workloads to be in the PodsReady condition")
 				// Block admission until all currently admitted workloads are in

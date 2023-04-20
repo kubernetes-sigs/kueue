@@ -248,12 +248,16 @@ func setupScheduler(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager
 		cCache,
 		mgr.GetClient(),
 		mgr.GetEventRecorderFor(constants.AdmissionName),
-		scheduler.WithWaitForPodsReady(waitForPodsReady(cfg)),
+		scheduler.WithBlockForPodsReady(blockForPodsReady(cfg)),
 	)
 	if err := mgr.Add(sched); err != nil {
 		setupLog.Error(err, "Unable to add scheduler to manager")
 		os.Exit(1)
 	}
+}
+
+func blockForPodsReady(cfg *config.Configuration) bool {
+	return cfg.WaitForPodsReady != nil && cfg.WaitForPodsReady.Enable && cfg.WaitForPodsReady.BlockAdmission
 }
 
 func waitForPodsReady(cfg *config.Configuration) bool {

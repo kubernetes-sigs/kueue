@@ -74,6 +74,10 @@ type WaitForPodsReady struct {
 	// is cancelled and requeued in the same cluster queue. Defaults to 5min.
 	// +optional
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
+
+	// BlockAdmission when true, cluster queue will block admissions for all subsequent jobs
+	// until the jobs reach the PodsReady=true condition. It defaults to false.
+	BlockAdmission bool `json:"blockAdmission,omitempty" default:"false"`
 }
 
 type InternalCertManagement struct {
