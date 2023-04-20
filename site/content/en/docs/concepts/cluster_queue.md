@@ -203,6 +203,7 @@ spec:
       resources:
       - name: "cpu"
         nominalQuota: 9  
+        borrowingLimit: 1
       - name: "memory"
         nominalQuota: 36Gi
 ```
@@ -236,6 +237,78 @@ scenarios:
   `team-a-cq` has all its `nominalQuota` quota used, Kueue will admit Workloads in
   ClusterQueue `team-b-cq` before admitting any new Workloads in `team-a-cq`.
   Therefore, Kueue ensures the `nominalQuota` quota for `team-b-cq` is met.
+
+You can test borrowing limit by create the following two jobs and local queues:
+
+```
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: LocalQueue
+metadata:
+  namespace: "default"
+  name: "user-queue-1"
+spec:
+  clusterQueue: "team-a-cq"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sample-job-team-a
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue-1
+spec:
+  parallelism: 1
+  completions: 1
+  suspend: true
+  template:
+    spec:
+      containers:
+      - name: dummy-job
+        image: gcr.io/k8s-staging-perf-tests/sleep:v0.0.3
+        args: ["30s"]
+        resources:
+          requests:
+            cpu: 10
+            memory: "200Mi"
+      restartPolicy: Never
+```
+
+```
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: LocalQueue
+metadata:
+  namespace: "default"
+  name: "user-queue-2"
+spec:
+  clusterQueue: "team-b-cq"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sample-job-team-b
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue-2
+spec:
+  parallelism: 1
+  completions: 1
+  suspend: true
+  template:
+    spec:
+      containers:
+      - name: dummy-job
+        image: gcr.io/k8s-staging-perf-tests/sleep:v0.0.3
+        args: ["30s"]
+        resources:
+          requests:
+            cpu: 12
+            memory: "200Mi"
+      restartPolicy: Never
+```
+
+You will see job `sample-job-team-a` is admitted because it borrowed 1 cpu from the cohort and `sample-job-team-b` can't be admitted because there is not enough cpu in the cohort.
 
 ### BorrowingLimit
 
