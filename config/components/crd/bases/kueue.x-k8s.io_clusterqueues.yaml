@@ -154,10 +154,14 @@ spec:
                       values are: \n - `Never` (default): do not preempt Workloads
                       in the ClusterQueue. - `LowerPriority`: only preempt Workloads
                       in the ClusterQueue that have lower priority than the pending
-                      Workload."
+                      Workload. - `LowerOrNewerEqualPriority`: only preempt Workloads
+                      in the ClusterQueue that either have a lower priority than the
+                      pending workload or equal priority and are newer than the pending
+                      workload."
                     enum:
                     - Never
                     - LowerPriority
+                    - LowerOrNewerEqualPriority
                     type: string
                 type: object
               queueingStrategy:
