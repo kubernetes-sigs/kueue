@@ -180,7 +180,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 		// update queue name if changed.
 		q := QueueName(job)
-		if wl.Spec.QueueName != q {
+		if wl.Spec.QueueName != q && isStandaloneJob {
 			log.V(2).Info("Job changed queues, updating workload")
 			wl.Spec.QueueName = q
 			err := r.client.Update(ctx, wl)
