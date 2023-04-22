@@ -300,6 +300,33 @@ var _ = ginkgo.Describe("Job controller", func() {
 			}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
 		})
 
+		ginkgo.It("Should not update the queue name of the workload with an empty value that the child job has", func() {
+			jobQueueName := "test-queue"
+
+			ginkgo.By("creating the parent job with queue name")
+			parentJob := testingjob.MakeJob(parentJobName, jobNamespace).Queue(jobQueueName).Obj()
+			gomega.Expect(k8sClient.Create(ctx, parentJob)).Should(gomega.Succeed())
+
+			ginkgo.By("waiting for the parent workload to be created")
+			parentWorkload := &kueue.Workload{}
+			gomega.Eventually(func() error {
+				return k8sClient.Get(ctx, parentWlLookupKey, parentWorkload)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Creating the child job which uses the parent workload annotation")
+			childJob := testingjob.MakeJob(childJobName, jobNamespace).ParentWorkload(parentWorkload.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, childJob)).Should(gomega.Succeed())
+
+			ginkgo.By("Checking that the queue name of the parent workload isn't updated with an empty value")
+			parentWorkload = &kueue.Workload{}
+			gomega.Consistently(func() bool {
+				if err := k8sClient.Get(ctx, parentWlLookupKey, parentWorkload); err != nil {
+					return true
+				}
+				return parentWorkload.Spec.QueueName == jobQueueName
+			}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
+		})
+
 		ginkgo.It("Should change the suspension status of the child job when the parent workload is admitted or unadmitted", func() {
 			ginkgo.By("Create a resource flavor")
 			defaultFlavor := testing.MakeResourceFlavor("default").Label(labelKey, "default").Obj()
