@@ -90,7 +90,7 @@ func (j *JobWrapper) Queue(queue string) *JobWrapper {
 	return j
 }
 
-// Queue updates the queue name of the job by annotation (deprecated)
+// QueueNameAnnotation updates the queue name of the job by annotation (deprecated)
 func (j *JobWrapper) QueueNameAnnotation(queue string) *JobWrapper {
 	j.Annotations[jobframework.QueueAnnotation] = queue
 	return j
