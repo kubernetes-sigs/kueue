@@ -5,6 +5,7 @@ Changes since `v0.3.0`:
 ### Features
 
 - Add LimitRange based validation before admission #613
+- Move the workloads evicted due to pods ready timeout to the end of the queue. #689
 
 ### Production Readiness
 

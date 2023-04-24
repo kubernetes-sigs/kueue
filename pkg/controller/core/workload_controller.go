@@ -181,7 +181,7 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 	} else {
 		log.V(2).Info("Start the eviction of the workload due to exceeding the PodsReady timeout")
 		workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByPodsReadyTimeout, fmt.Sprintf("Exceeded the PodsReady timeout %s", req.NamespacedName.String()))
-		err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
+		err := workload.ApplyAdmissionStatus(ctx, r.client, wl, false)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 }
