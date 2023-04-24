@@ -19,7 +19,6 @@ package podsready
 import (
 	"context"
 	"path/filepath"
-	"sigs.k8s.io/kueue/pkg/workload"
 	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -35,6 +34,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )

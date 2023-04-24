@@ -169,7 +169,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// 5. handle job is suspended.
 	if job.IsSuspended() {
 		// start the job if the workload has been admitted, and the job is still suspended
-		if wl.Status.Admission != nil {
+		if workload.IsWorkloadAdmitted(wl) {
 			log.V(2).Info("Job admitted, unsuspending")
 			err := r.startJob(ctx, job, object, wl)
 			if err != nil {
@@ -194,7 +194,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	// 6. handle job is unsuspended.
-	if wl.Status.Admission == nil {
+	if !workload.IsWorkloadAdmitted(wl) {
 		// the job must be suspended if the workload is not yet admitted.
 		log.V(2).Info("Running job is not admitted by a cluster queue, suspending")
 		err := r.stopJob(ctx, job, object, wl, "Not admitted by cluster queue")
@@ -472,7 +472,7 @@ func generatePodsReadyCondition(job GenericJob, wl *kueue.Workload) metav1.Condi
 	// Ready to Completed. As pods finish, they transition first into the
 	// uncountedTerminatedPods staging area, before passing to the
 	// succeeded/failed counters.
-	if wl.Status.Admission != nil && (job.PodsReady() || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPodsReady)) {
+	if workload.IsWorkloadAdmitted(wl) && (job.PodsReady() || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPodsReady)) {
 		conditionStatus = metav1.ConditionTrue
 		message = "All pods were ready or succeeded since the workload admission"
 	}

@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -893,7 +894,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Consistently(func() bool {
 				lookupKey := types.NamespacedName{Name: wl3.Name, Namespace: wl3.Namespace}
 				gomega.Expect(k8sClient.Get(ctx, lookupKey, wl3)).Should(gomega.Succeed())
-				return wl3.Status.Admission == nil
+				return !workload.IsWorkloadAdmitted(wl3)
 			}, util.ConsistentDuration, util.Interval).Should(gomega.Equal(true))
 			util.ExpectPendingWorkloadsMetric(strictFIFOClusterQ, 2, 0)
 			util.ExpectAdmittedActiveWorkloadsMetric(strictFIFOClusterQ, 1)

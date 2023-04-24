@@ -33,6 +33,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func DeleteWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) error {
@@ -138,6 +139,14 @@ func SetAdmission(ctx context.Context, k8sClient client.Client, wl *kueue.Worklo
 		var newWL kueue.Workload
 		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &newWL)).To(gomega.Succeed())
 		newWL.Status.Admission = admission
+		newWL.Status.Conditions = wl.Status.Conditions
+		apimeta.SetStatusCondition(&newWL.Status.Conditions, metav1.Condition{
+			Type:               kueue.WorkloadAdmitted,
+			Status:             metav1.ConditionTrue,
+			LastTransitionTime: metav1.Now(),
+			Reason:             "AdmittedByTest",
+			Message:            fmt.Sprintf("Admitted by ClusterQueue %s", newWL.Status.Admission.ClusterQueue),
+		})
 		return k8sClient.Status().Update(ctx, &newWL)
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
@@ -148,7 +157,7 @@ func ExpectWorkloadsToBeAdmitted(ctx context.Context, k8sClient client.Client, c
 		var updatedWorkload kueue.Workload
 		for _, wl := range wls {
 			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-			if updatedWorkload.Status.Admission != nil && string(updatedWorkload.Status.Admission.ClusterQueue) == cqName {
+			if workload.IsWorkloadAdmitted(&updatedWorkload) && string(updatedWorkload.Status.Admission.ClusterQueue) == cqName {
 				admitted++
 			}
 		}
@@ -166,7 +175,7 @@ func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wl
 			if cond == nil {
 				continue
 			}
-			if cond.Status == metav1.ConditionFalse && cond.Reason == "Pending" && wl.Status.Admission == nil {
+			if cond.Status == metav1.ConditionFalse && cond.Reason == "Pending" && !workload.IsWorkloadAdmitted(wl) {
 				pending++
 			}
 		}
@@ -184,7 +193,7 @@ func ExpectWorkloadsToBeWaiting(ctx context.Context, k8sClient client.Client, wl
 			if cond == nil {
 				continue
 			}
-			if cond.Status == metav1.ConditionFalse && cond.Reason == "Waiting" && wl.Status.Admission == nil {
+			if cond.Status == metav1.ConditionFalse && cond.Reason == "Waiting" && !workload.IsWorkloadAdmitted(wl) {
 				pending++
 			}
 		}
@@ -203,7 +212,7 @@ func ExpectWorkloadsToBeFrozen(ctx context.Context, k8sClient client.Client, cq 
 				continue
 			}
 			msg := fmt.Sprintf("ClusterQueue %s is inactive", cq)
-			if cond.Status == metav1.ConditionFalse && cond.Reason == "Inadmissible" && wl.Status.Admission == nil && cond.Message == msg {
+			if cond.Status == metav1.ConditionFalse && cond.Reason == "Inadmissible" && !workload.IsWorkloadAdmitted(wl) && cond.Message == msg {
 				frozen++
 			}
 		}
@@ -294,12 +303,25 @@ func AdmitWorkload(ctx context.Context, k8sClient client.Client, wl *kueue.Workl
 		return fmt.Errorf("admission can't be null")
 	}
 	wl.Status.Admission = admission
-	wl.Status.Conditions = []metav1.Condition{{
+	apimeta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
 		Type:               kueue.WorkloadAdmitted,
 		Status:             metav1.ConditionTrue,
 		LastTransitionTime: metav1.Now(),
 		Reason:             "AdmittedByTest",
 		Message:            fmt.Sprintf("Admitted by ClusterQueue %s", wl.Status.Admission.ClusterQueue),
-	}}
+	})
+
+	return k8sClient.Status().Update(ctx, wl)
+}
+
+func UnAdmitWorkload(ctx context.Context, k8sClient client.Client, wl *kueue.Workload) error {
+	wl.Status.Admission = nil
+	apimeta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
+		Type:               kueue.WorkloadAdmitted,
+		Status:             metav1.ConditionFalse,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "PreemptedByTest",
+		Message:            "Preempted by test",
+	})
 	return k8sClient.Status().Update(ctx, wl)
 }

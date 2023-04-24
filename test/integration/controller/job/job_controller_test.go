@@ -146,7 +146,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 				*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
 				*testing.MakeFlavorQuotas("spot").Resource(corev1.ResourceCPU, "5").Obj(),
 			).Obj()
-		createdWorkload.Status.Admission = &kueue.Admission{
+		admission := &kueue.Admission{
 			ClusterQueue: kueue.ClusterQueueReference(clusterQueue.Name),
 			PodSetAssignments: []kueue.PodSetAssignment{{
 				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -154,7 +154,8 @@ var _ = ginkgo.Describe("Job controller", func() {
 				},
 			}},
 		}
-		gomega.Expect(k8sClient.Status().Update(ctx, createdWorkload)).Should(gomega.Succeed())
+
+		gomega.Expect(util.AdmitWorkload(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
 		gomega.Eventually(func() bool {
 			if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {
 				return false
@@ -171,7 +172,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 			if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 				return false
 			}
-			return len(createdWorkload.Status.Conditions) == 0
+			return len(createdWorkload.Status.Conditions) == 1
 		}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking the job gets suspended when parallelism changes and the added node selectors are removed")
@@ -200,7 +201,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 		gomega.Expect(createdWorkload.Status.Admission).Should(gomega.BeNil())
 
 		ginkgo.By("checking the job is unsuspended and selectors added when workload is assigned again")
-		createdWorkload.Status.Admission = &kueue.Admission{
+		admission = &kueue.Admission{
 			ClusterQueue: kueue.ClusterQueueReference(clusterQueue.Name),
 			PodSetAssignments: []kueue.PodSetAssignment{{
 				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -208,7 +209,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 				},
 			}},
 		}
-		gomega.Expect(k8sClient.Status().Update(ctx, createdWorkload)).Should(gomega.Succeed())
+		gomega.Expect(util.AdmitWorkload(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
 		gomega.Eventually(func() bool {
 			if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {
 				return false
@@ -221,7 +222,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 			if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 				return false
 			}
-			return len(createdWorkload.Status.Conditions) == 0
+			return len(createdWorkload.Status.Conditions) == 1
 		}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking the workload is finished when job is completed")
@@ -235,12 +236,11 @@ var _ = ginkgo.Describe("Job controller", func() {
 		gomega.Expect(k8sClient.Status().Update(ctx, createdJob)).Should(gomega.Succeed())
 		gomega.Eventually(func() bool {
 			err := k8sClient.Get(ctx, wlLookupKey, createdWorkload)
-			if err != nil || len(createdWorkload.Status.Conditions) == 0 {
+			if err != nil || len(createdWorkload.Status.Conditions) == 1 {
 				return false
 			}
 
-			return createdWorkload.Status.Conditions[0].Type == kueue.WorkloadFinished &&
-				createdWorkload.Status.Conditions[0].Status == metav1.ConditionTrue
+			return apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadFinished)
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 	})
 
@@ -347,7 +347,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("admit the parent workload")
-			parentWorkload.Status.Admission = &kueue.Admission{
+			admission := &kueue.Admission{
 				ClusterQueue: kueue.ClusterQueueReference("foo"),
 				PodSetAssignments: []kueue.PodSetAssignment{{
 					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -356,7 +356,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 				}},
 			}
 			gomega.Eventually(func() error {
-				return k8sClient.Status().Update(ctx, parentWorkload)
+				return util.AdmitWorkload(ctx, k8sClient, parentWorkload, admission)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("checking that the child job is unsuspended")
@@ -370,8 +370,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 				if err := k8sClient.Get(ctx, parentWlLookupKey, parentWorkload); err != nil {
 					return err
 				}
-				parentWorkload.Status.Admission = nil
-				return k8sClient.Status().Update(ctx, parentWorkload)
+				return util.UnAdmitWorkload(ctx, k8sClient, parentWorkload)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("checking that the child job is suspended")
@@ -479,7 +478,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Admit the workload created for the job")
-			createdWorkload.Status.Admission = &kueue.Admission{
+			admission := &kueue.Admission{
 				ClusterQueue: kueue.ClusterQueueReference("foo"),
 				PodSetAssignments: []kueue.PodSetAssignment{{
 					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -487,7 +486,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", func() {
 					},
 				}},
 			}
-			gomega.Expect(k8sClient.Status().Update(ctx, createdWorkload)).Should(gomega.Succeed())
+			gomega.Expect(util.AdmitWorkload(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
 			gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 
 			ginkgo.By("Await for the job to be unsuspended")
@@ -524,8 +523,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", func() {
 					if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 						return err
 					}
-					createdWorkload.Status.Admission = nil
-					return k8sClient.Status().Update(ctx, createdWorkload)
+					return util.UnAdmitWorkload(ctx, k8sClient, createdWorkload)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			}
 
