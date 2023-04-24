@@ -18,6 +18,7 @@ package cache
 
 import (
 	"context"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -36,6 +37,7 @@ var snapCmpOpts = []cmp.Option{
 	cmpopts.IgnoreUnexported(ClusterQueue{}),
 	cmpopts.IgnoreFields(ClusterQueue{}, "RGByResource"),
 	cmpopts.IgnoreFields(Cohort{}, "Members"), // avoid recursion.
+	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 }
 
 func TestSnapshot(t *testing.T) {

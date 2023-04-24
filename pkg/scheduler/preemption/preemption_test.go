@@ -753,7 +753,7 @@ func TestCandidatesOrdering(t *testing.T) {
 			Obj()),
 		workload.NewInfo(utiltesting.MakeWorkload("old", "").
 			Admit(utiltesting.MakeAdmission("self").Obj()).
-			Condition(metav1.Condition{
+			SetOrReplaceCondition(metav1.Condition{
 				Type:               kueue.WorkloadAdmitted,
 				Status:             metav1.ConditionTrue,
 				LastTransitionTime: metav1.NewTime(now.Add(time.Second)),

@@ -228,6 +228,10 @@ func BaseSSAWorkload(w *kueue.Workload) *kueue.Workload {
 func AdmissionPatch(w *kueue.Workload) *kueue.Workload {
 	wlCopy := BaseSSAWorkload(w)
 	wlCopy.Status.Admission = w.Status.Admission.DeepCopy()
+	if admittedCondition := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadAdmitted); admittedCondition != nil {
+		wlCopy.Status.Conditions = []metav1.Condition{*admittedCondition}
+	}
+
 	return wlCopy
 }
 
