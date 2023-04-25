@@ -46,17 +46,16 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GH_TOKEN_PROJECT_ACCESS }}
       # KDEV
       PROJECT_ID: PVT_kwDOABhCKs4APR3F
-      GITHUB_USER: ${{inputs.gh_user}}
     steps: 
     - name: Get ${{inputs.gh_user}} issues
       id: issues
-      run: echo ids=$(gh api 'repos/${{inputs.gh_repo}}/issues?state=${{inputs.status}}&assignee=${{env.GITHUB_USER}}' -q '.[].node_id' | xargs) >> $GITHUB_OUTPUT
+      run: echo ids=$(gh api 'repos/${{inputs.gh_repo}}/issues?state=${{inputs.status}}&assignee=${{inputs.gh_user}}' -q '.[].node_id' | xargs) >> $GITHUB_OUTPUT
     - name: Get ${{inputs.gh_user}} PRs
       id: pulls
-      run: echo ids=$(gh api 'repos/${{inputs.gh_repo}}/pulls?state=${{inputs.status}}&assignee=${{env.GITHUB_USER}}' -q '.[].node_id' | xargs) >> $GITHUB_OUTPUT
+      run: echo ids=$(gh api 'repos/${{inputs.gh_repo}}/pulls?state=${{inputs.status}}&assignee=${{inputs.gh_user}}' -q '.[].node_id' | xargs) >> $GITHUB_OUTPUT
     - name: Add to KDEV
       run: | 
-        for issue in ${{ steps.issues.outputs.ids }}; do
+        for issue in  ${{ steps.issues.outputs.ids }} ${{ steps.pulls.outputs.ids }}; do
           gh api graphql -f query='
             mutation($project:ID!, $content:ID!) {
               addProjectV2ItemById(input: {projectId: $project contentId: $content}) {
