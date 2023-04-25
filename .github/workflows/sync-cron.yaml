@@ -1,5 +1,6 @@
 name: Add to KDEV with cron
 on:
+  workflow_dispatch: {}
   schedule:
     - cron:  '3 * * * *'
 jobs:
