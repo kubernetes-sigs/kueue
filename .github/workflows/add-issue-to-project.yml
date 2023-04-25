@@ -2,11 +2,11 @@ name: Add issue to KDEV project
 on:
   workflow_dispatch:
     inputs:
-      issue-repository:
+      issue_repo:
         description: 'Repository name'
         required: true
         default: 'kubernetes-sigs/kueue'
-      issue-number:
+      issue_num:
         description: 'Issue number'
         required: true
 
@@ -19,14 +19,15 @@ jobs:
       PROJECT_ID: PVT_kwDOABhCKs4APR3F
     steps: 
     - name: Get Issue ID
-      run: echo 'ISSUE_ID='$(jq '.data.organization.projectNext.id' project_data.json) >> $GITHUB_ENV
+      id: issue_node_id
+      run: gh api -q '.node_id' "repos/${{github.event.inputs.issue_repo}}/issues/${{github.event.inputs.issue_num}}" >> $GITHUB_OUTPUT
     - name: Add issue to KDEV
       run: |
-        gh api -f query='
-        mutation AddToProject($project: ID!, $item: ID!) {
-          addProjectNextItem(input: { projectId: $project, contentId: $item }) {
-            projectNextItem {
-              id
+        gh api graphql -f query='
+          mutation($project:ID!, $content:ID!) {
+            addProjectV2ItemById(input: {projectId: $project contentId: $content}) {
+              item {
+                id
+              }
             }
-          }
-        }' -f project="$KDEV_PROJECT_ID" -f item="$ISSUE_ID"
+          }'  -f project=$PROJECT_ID -f content=${{steps.issue_node_id.outputs}}
