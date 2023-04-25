@@ -27,10 +27,10 @@ jobs:
       PROJECT_ID: PVT_kwDOABhCKs4APR3F
       GITHUB_USER: ${{github.event.inputs.gh_user}}
     steps: 
-    - name: Get issues by user
+    - name: Get ${{github.event.inputs.gh_user}} issues
       id: issues
-      run: node_ids=$(gh api  'repos/${{github.event.inputs.gh_repo}}/issues?state=open&assignee=${{env.GITHUB_USER}}' -q '.[].node_id' | xargs) >> $GITHUB_ENV
-    - name: Add issues to KDEV
+      run: node_ids=$(gh api  'repos/${{github.event.inputs.gh_repo}}/issues?state=open&assignee=${{env.GITHUB_USER}}' -q '.[].node_id' | xargs) >> $GITHUB_OUTPUT
+    - name: Add to KDEV
       run: |
         for issue in ${{ steps.issues.outputs.node_ids }}; do
           gh api graphql -f query='
