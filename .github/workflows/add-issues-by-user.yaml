@@ -19,7 +19,7 @@ on:
       gh_user:
         description: 'Assignee'
         required: true
-        default: ${{ github.actor }}
+        default: trasc
         type: choice
         options:
           - trasc
