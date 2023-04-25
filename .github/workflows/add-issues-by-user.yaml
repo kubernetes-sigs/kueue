@@ -6,7 +6,7 @@ on:
         description: 'Repository name'
         required: true
         default: 'kubernetes-sigs/kueue'
-      user:
+      gh_user:
         description: 'Assignee'
         required: true
         default: 'trasc'
@@ -24,12 +24,13 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GH_TOKEN_PROJECT_ACCESS }}
       # KDEV
       PROJECT_ID: PVT_kwDOABhCKs4APR3F
+      GITHUB_USER: ${{github.event.inputs.gh_user}}
     steps: 
     - name: Get issues by user
-      run: ${{user}}_issues=$(gh api  'repos/${{github.event.inputs.gh_repo}}/issues?state=open&assignee=${{github.event.inputs.user}}' -q '.[].node_id' | xargs)
+      run: ${{env.GITHUB_USER}}_issues=$(gh api  'repos/${{github.event.inputs.gh_repo}}/issues?state=open&assignee=${{env.GITHUB_USER}}' -q '.[].node_id' | xargs) >> $GITHUB_ENV
     - name: Add issues to KDEV
       run: |
-        for issue in ${{env.user}}_issues; do
+        for issue in ${{env.GITHUB_USER}}_issues; do
           gh api graphql -f query='
             mutation($project:ID!, $content:ID!) {
               addProjectV2ItemById(input: {projectId: $project contentId: $content}) {
