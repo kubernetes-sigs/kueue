@@ -25,6 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/metrics/testutil"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -32,7 +33,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/testing"
-	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func DeleteWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) error {
@@ -162,11 +162,10 @@ func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wl
 		var updatedWorkload kueue.Workload
 		for _, wl := range wls {
 			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-			idx := workload.FindConditionIndex(&updatedWorkload.Status, kueue.WorkloadAdmitted)
-			if idx == -1 {
+			cond := apimeta.FindStatusCondition(updatedWorkload.Status.Conditions, kueue.WorkloadAdmitted)
+			if cond == nil {
 				continue
 			}
-			cond := updatedWorkload.Status.Conditions[idx]
 			if cond.Status == metav1.ConditionFalse && cond.Reason == "Pending" && wl.Status.Admission == nil {
 				pending++
 			}
@@ -181,11 +180,10 @@ func ExpectWorkloadsToBeWaiting(ctx context.Context, k8sClient client.Client, wl
 		var updatedWorkload kueue.Workload
 		for _, wl := range wls {
 			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-			idx := workload.FindConditionIndex(&updatedWorkload.Status, kueue.WorkloadAdmitted)
-			if idx == -1 {
+			cond := apimeta.FindStatusCondition(updatedWorkload.Status.Conditions, kueue.WorkloadAdmitted)
+			if cond == nil {
 				continue
 			}
-			cond := updatedWorkload.Status.Conditions[idx]
 			if cond.Status == metav1.ConditionFalse && cond.Reason == "Waiting" && wl.Status.Admission == nil {
 				pending++
 			}
@@ -200,12 +198,11 @@ func ExpectWorkloadsToBeFrozen(ctx context.Context, k8sClient client.Client, cq 
 		var updatedWorkload kueue.Workload
 		for _, wl := range wls {
 			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-			idx := workload.FindConditionIndex(&updatedWorkload.Status, kueue.WorkloadAdmitted)
-			if idx == -1 {
+			cond := apimeta.FindStatusCondition(updatedWorkload.Status.Conditions, kueue.WorkloadAdmitted)
+			if cond == nil {
 				continue
 			}
 			msg := fmt.Sprintf("ClusterQueue %s is inactive", cq)
-			cond := updatedWorkload.Status.Conditions[idx]
 			if cond.Status == metav1.ConditionFalse && cond.Reason == "Inadmissible" && wl.Status.Admission == nil && cond.Message == msg {
 				frozen++
 			}
