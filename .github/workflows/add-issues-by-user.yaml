@@ -29,12 +29,10 @@ jobs:
     steps: 
     - name: Get ${{github.event.inputs.gh_user}} issues
       id: issues
-      run: gh api  'repos/${{github.event.inputs.gh_repo}}/issues?state=open&assignee=${{env.GITHUB_USER}}' -q '.[].node_id' | xargs
+      run: echo ids=$(gh api 'repos/${{github.event.inputs.gh_repo}}/issues?state=open&assignee=${{env.GITHUB_USER}}' -q '.[].node_id' | xargs) >> $GITHUB_ENV
     - name: Add to KDEV
-      env:
-        ISSUES: ${{ steps.issues.outputs.stdout }}
       run: | 
-        for issue in ${{ steps.issues.outputs.stdout }}; do
+        for issue in ${{ steps.issues.outputs.ids }}; do
           gh api graphql -f query='
             mutation($project:ID!, $content:ID!) {
               addProjectV2ItemById(input: {projectId: $project contentId: $content}) {
