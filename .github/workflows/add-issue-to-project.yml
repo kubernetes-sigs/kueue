@@ -1,5 +1,4 @@
-name: Claim an issue to project
-run-name: ${{ github.actor }} is testing out GitHub Actions 🚀
+name: Add issue to KDEV project
 on:
   workflow_dispatch:
     inputs:
