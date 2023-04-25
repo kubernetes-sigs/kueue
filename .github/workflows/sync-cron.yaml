@@ -8,12 +8,15 @@ jobs:
   sync-trasc:
     uses: epam/kubernetes-kueue/.github/workflows/add-issues-by-user.yaml@main
     with:
+      gh_repo: kubernetes-sigs/kueue
       gh_user: trasc
   sync-mcariatm:
     uses: epam/kubernetes-kueue/.github/workflows/add-issues-by-user.yaml@main
     with:
+      gh_repo: kubernetes-sigs/kueue
       gh_user: mcariatm
   sync-akranga:
     uses: epam/kubernetes-kueue/.github/workflows/add-issues-by-user.yaml@main
     with:
+      gh_repo: kubernetes-sigs/kueue
       gh_user: akranga
