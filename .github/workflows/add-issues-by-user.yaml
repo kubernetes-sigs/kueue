@@ -12,6 +12,9 @@ on:
       status:
         type: string
         default: open
+    secrets:
+      GH_TOKEN_PROJECT_ACCESS:
+        required: true        
   workflow_dispatch:
     inputs:
       gh_repo:
