@@ -1,0 +1,32 @@
+name: Add Issue to KDEV project
+run-name: ${{ github.actor }} is testing out GitHub Actions 🚀
+on:
+  workflow_dispatch:
+    inputs:
+      issue-repository:
+        description: 'Repository name'
+        required: true
+        default: 'kubernetes-sigs/kueue'
+      issue-number:
+        description: 'Issue number'
+        required: true
+
+jobs:
+  Add-Issue-to-KDEV:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GH_TOKEN_PROJECT_ACCESS }}
+      KDEV_PROJECT_ID: PVT_kwDOABhCKs4APR3F
+    steps: 
+    - name: Get Issue ID
+      run: echo 'ISSUE_ID='$(jq '.data.organization.projectNext.id' project_data.json) >> $GITHUB_ENV
+    - name: Add issue to KDEV
+      run: |
+        item_id="$( gh api graphql -f query='
+          mutation($project:ID!, $issue:ID!) {
+            addProjectNextItem(input: {projectId: $project, contentId: $issue}) {
+              projectNextItem {
+                id
+              }
+            }
+          }' -f project=$PROJECT_ID -f issue=$ISSUE_ID --jq '.data.addProjectNextItem.projectNextItem.id')"
