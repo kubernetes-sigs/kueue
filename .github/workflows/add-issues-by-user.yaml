@@ -1,5 +1,5 @@
 name: Add issues by user to KDEV project
-run-name: Add ${{github.event.inputs.status}} @${{github.event.inputs.gh_user}} issues/PRs
+run-name: Add ${{github.event.inputs.status}} @${{github.event.inputs.gh_user}} issues + pulls
 on:
   workflow_dispatch:
     inputs:
@@ -25,6 +25,7 @@ on:
         options:
           - open
           - closed
+          - all
         
 
 jobs:
