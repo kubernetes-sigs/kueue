@@ -107,13 +107,12 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 		paths="./..."
 
 .PHONY: update-helm-crd
-update-helm-crd:
+update-helm-crd: manifests
 	./hack/update-helm-crd.sh
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
-	make update-helm-crd
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -163,8 +162,8 @@ ci-lint: golangci-lint
 	$(GOLANGCI_LINT) run --timeout 7m0s
 
 .PHONY: verify
-verify: gomod-verify vet ci-lint fmt-verify toc-verify manifests generate
-	git --no-pager diff --exit-code config/components apis
+verify: gomod-verify vet ci-lint fmt-verify toc-verify manifests generate update-helm-crd
+	git --no-pager diff --exit-code config/components apis charts/kueue/templates/crd
 
 ##@ Build
 

@@ -43,13 +43,13 @@ The following table lists the configurable parameters of the kueue chart and the
 
 | Parameter                                   | Description                             |Default                                      |
 |---------------------------------------------|-----------------------------------------|---------------------------------------------|
-| `nameOverride`                              | nameOverride                            | ``                                          |
-| `fullnameOverride`                          | fullnameOverride                        | ``                                          |
+| `nameOverride`                              | override the resource name              | ``                                          |
+| `fullnameOverride`                          | override the resource name              | ``                                          |
 | `enablePrometheus`                          | enable Prometheus                       | `false`                                     |
 | `enableCertManager`                         | enable CertManager                      | `false`                                     |
 | `enableWebhook`                             | enable Webhook                          | `true`                                      |
 | `controllerManager.kubeRbacProxy.image`     | controllerManager.kubeRbacProxy's image | `gcr.io/kubebuilder/kube-rbac-proxy:v0.8.0` |
-| `controllerManager.manager.image`           | controllerManager.manager's image       |`gcr.io/k8s-staging-kueue/kueue:main`        |
+| `controllerManager.manager.image`           | controllerManager.manager's image       | `gcr.io/k8s-staging-kueue/kueue:main`       |
 | `controllerManager.manager.resources`       | controllerManager.manager's resources   | abbr.                                       |
 | `controllerManager.replicas`                | ControllerManager's replicaCount        | `1`                                         |
 | `controllerManager.imagePullSecrets`        | ControllerManager's imagePullSecrets    | `[]`                                        |
