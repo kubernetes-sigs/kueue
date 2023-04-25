@@ -1,5 +1,5 @@
 name: Add issues by user to KDEV project
-run-name: Add issues by ${{github.event.inputs.gh_user}} to KDEV project
+run-name: Add @${{github.event.inputs.gh_user}} issues
 on:
   workflow_dispatch:
     inputs:
@@ -29,10 +29,10 @@ jobs:
     steps: 
     - name: Get ${{github.event.inputs.gh_user}} issues
       id: issues
-      run: node_ids=$(gh api  'repos/${{github.event.inputs.gh_repo}}/issues?state=open&assignee=${{env.GITHUB_USER}}' -q '.[].node_id' | xargs) >> $GITHUB_OUTPUT
+      run: gh api  'repos/${{github.event.inputs.gh_repo}}/issues?state=open&assignee=${{env.GITHUB_USER}}' -q '.[].node_id' | xargs
     - name: Add to KDEV
       run: |
-        for issue in ${{ steps.issues.outputs.node_ids }}; do
+        for issue in ${{ steps.issues.outputs.stdout }}; do
           gh api graphql -f query='
             mutation($project:ID!, $content:ID!) {
               addProjectV2ItemById(input: {projectId: $project contentId: $content}) {
