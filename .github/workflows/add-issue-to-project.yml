@@ -1,5 +1,5 @@
 name: 'KDEV: Add one issue'
-run-name: "Add #${{github.event.inputs.issue_num}} to KDEV"
+run-name: "Add #${{inputs.issue_num}} to KDEV"
 on:
   workflow_dispatch:
     inputs:
@@ -20,7 +20,7 @@ jobs:
       PROJECT_ID: PVT_kwDOABhCKs4APR3F
     steps: 
     - name: Get Issue ID
-      run: echo issue_node_id=$(gh api -q '.node_id' "repos/${{github.event.inputs.issue_repo}}/issues/${{github.event.inputs.issue_num}}") >> $GITHUB_ENV
+      run: echo issue_node_id=$(gh api -q '.node_id' "repos/${{inputs.issue_repo}}/issues/${{inputs.issue_num}}") >> $GITHUB_ENV
     - name: Add issue to KDEV
       run: |
         gh api graphql -f query='
