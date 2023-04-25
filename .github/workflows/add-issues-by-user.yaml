@@ -1,6 +1,14 @@
 name: Add issues by user to KDEV project
 run-name: Add ${{github.event.inputs.status}} @${{github.event.inputs.gh_user}} issues + pulls
 on:
+  workflow_call:
+    gh_repo:
+      type: string
+      default: 'kubernetes-sigs/kueue'
+      required: true
+    gh_user:
+      type: string
+      required: true
   workflow_dispatch:
     inputs:
       gh_repo:
