@@ -1,4 +1,5 @@
 name: Add issue to KDEV project
+run-name: "Add #${{github.event.inputs.issue_num}} to KDEV"
 on:
   workflow_dispatch:
     inputs:
