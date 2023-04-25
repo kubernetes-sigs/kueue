@@ -1,70 +1,34 @@
-name: 'KDEV: Add all by user'
-run-name: Add ${{inputs.status}} @${{inputs.gh_user}} issues + pulls
+name: 'KDEV: Add one issue'
+run-name: "Add #${{inputs.issue_num}} to KDEV"
 on:
-  workflow_call:
-    inputs:
-      gh_repo:
-        type: string
-        required: true
-      gh_user:
-        type: string
-        required: true
-      status:
-        type: string
-        default: open
-    secrets:
-      GH_TOKEN_PROJECT_ACCESS:
-        required: true        
   workflow_dispatch:
     inputs:
-      gh_repo:
+      issue_repo:
         description: 'Repository name'
         required: true
         default: 'kubernetes-sigs/kueue'
-      gh_user:
-        description: 'Assignee'
+      issue_num:
+        description: 'Issue number'
         required: true
-        default: trasc
-        type: choice
-        options:
-          - trasc
-          - mcariatm
-          - akranga
-          - oginskis
-      status:
-        description: 'Status'
-        required: true
-        default: open
-        type: choice
-        options:
-          - open
-          - closed
-          - all
-        
 
 jobs:
   Add-Issue-to-KDEV:
     runs-on: ubuntu-latest
     env:
-      GITHUB_TOKEN: ${{ secrets.GH_TOKEN_PROJECT_ACCESS }}
+      # GITHUB_TOKEN: ${{ secrets.GH_TOKEN_PROJECT_ACCESS }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       # KDEV
       PROJECT_ID: PVT_kwDOABhCKs4APR3F
     steps: 
-    - name: Get ${{inputs.gh_user}} issues
-      id: issues
-      run: echo ids=$(gh api 'repos/${{inputs.gh_repo}}/issues?state=${{inputs.status}}&assignee=${{inputs.gh_user}}' -q '.[].node_id' | xargs) >> $GITHUB_OUTPUT
-    - name: Get ${{inputs.gh_user}} PRs
-      id: pulls
-      run: echo ids=$(gh api 'repos/${{inputs.gh_repo}}/pulls?state=${{inputs.status}}&assignee=${{inputs.gh_user}}' -q '.[].node_id' | xargs) >> $GITHUB_OUTPUT
-    - name: Add to KDEV
-      run: | 
-        for issue in  ${{ steps.issues.outputs.ids }} ${{ steps.pulls.outputs.ids }}; do
-          gh api graphql -f query='
-            mutation($project:ID!, $content:ID!) {
-              addProjectV2ItemById(input: {projectId: $project contentId: $content}) {
-                item {
-                  id
-                }
+    - name: Get Issue ID
+      run: echo issue_node_id=$(gh api -q '.node_id' "repos/${{inputs.issue_repo}}/issues/${{inputs.issue_num}}") >> $GITHUB_ENV
+    - name: Add issue to KDEV
+      run: |
+        gh api graphql -f query='
+          mutation($project:ID!, $content:ID!) {
+            addProjectV2ItemById(input: {projectId: $project contentId: $content}) {
+              item {
+                id
               }
-            }'  -f project=$PROJECT_ID -f content=$issue
-        done
+            }
+          }'  -f project=$PROJECT_ID -f content=${{env.issue_node_id}}
