@@ -1,5 +1,5 @@
 name: 'KDEV: Add with cron'
-run-name: 'KDEV: Add scheduled ${{github.run_number}}'
+run-name: 'KDEV: Add scheduled run #${{github.run_number}}'
 on:
   workflow_dispatch: {}
   schedule:
@@ -10,13 +10,22 @@ jobs:
     with:
       gh_repo: kubernetes-sigs/kueue
       gh_user: trasc
+      status: open
+    secrets:
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
   sync-mcariatm:
     uses: epam/kubernetes-kueue/.github/workflows/add-issues-by-user.yaml@main
     with:
       gh_repo: kubernetes-sigs/kueue
       gh_user: mcariatm
+      status: open      
+    secrets:
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}      
   sync-akranga:
     uses: epam/kubernetes-kueue/.github/workflows/add-issues-by-user.yaml@main
     with:
       gh_repo: kubernetes-sigs/kueue
       gh_user: akranga
+      status: open      
+    secrets:
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
