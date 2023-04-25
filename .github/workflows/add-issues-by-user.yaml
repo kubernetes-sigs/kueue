@@ -29,7 +29,7 @@ jobs:
     steps: 
     - name: Get ${{github.event.inputs.gh_user}} issues
       id: issues
-      run: echo ids=$(gh api 'repos/${{github.event.inputs.gh_repo}}/issues?state=open&assignee=${{env.GITHUB_USER}}' -q '.[].node_id' | xargs) >> $GITHUB_ENV
+      run: echo ids=$(gh api 'repos/${{github.event.inputs.gh_repo}}/issues?state=open&assignee=${{env.GITHUB_USER}}' -q '.[].node_id' | xargs) >> $GITHUB_OUTPUT
     - name: Add to KDEV
       run: | 
         for issue in ${{ steps.issues.outputs.ids }}; do
