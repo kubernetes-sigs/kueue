@@ -5,7 +5,7 @@ on:
   schedule:
     - cron:  '8 * * * *'
 jobs:
-  sync-trasc:
+  trasc:
     uses: epam/kubernetes-kueue/.github/workflows/add-issues-by-user.yaml@main
     with:
       gh_repo: kubernetes-sigs/kueue
@@ -13,7 +13,7 @@ jobs:
       status: open
     secrets:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
-  sync-mcariatm:
+  mcariatm:
     uses: epam/kubernetes-kueue/.github/workflows/add-issues-by-user.yaml@main
     with:
       gh_repo: kubernetes-sigs/kueue
@@ -21,11 +21,19 @@ jobs:
       status: open      
     secrets:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}      
-  sync-akranga:
+  akranga:
     uses: epam/kubernetes-kueue/.github/workflows/add-issues-by-user.yaml@main
     with:
       gh_repo: kubernetes-sigs/kueue
       gh_user: akranga
+      status: open      
+    secrets:
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
+  oginskis:
+    uses: epam/kubernetes-kueue/.github/workflows/add-issues-by-user.yaml@main
+    with:
+      gh_repo: kubernetes-sigs/kueue
+      gh_user: oginskis
       status: open      
     secrets:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
