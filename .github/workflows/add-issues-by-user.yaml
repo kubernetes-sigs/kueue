@@ -5,11 +5,13 @@ on:
     inputs:
       gh_repo:
         type: string
-        default: 'kubernetes-sigs/kueue'
         required: true
       gh_user:
         type: string
         required: true
+      status:
+        type: string
+        default: open
   workflow_dispatch:
     inputs:
       gh_repo:
