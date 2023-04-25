@@ -19,8 +19,7 @@ jobs:
       PROJECT_ID: PVT_kwDOABhCKs4APR3F
     steps: 
     - name: Get Issue ID
-      id: issue_node_id
-      run: gh api -q '.node_id' "repos/${{github.event.inputs.issue_repo}}/issues/${{github.event.inputs.issue_num}}" >> $GITHUB_OUTPUT
+      run: echo issue_node_id=$(gh api -q '.node_id' "repos/${{github.event.inputs.issue_repo}}/issues/${{github.event.inputs.issue_num}}") >> $GITHUB_ENV
     - name: Add issue to KDEV
       run: |
         gh api graphql -f query='
@@ -30,4 +29,4 @@ jobs:
                 id
               }
             }
-          }'  -f project=$PROJECT_ID -f content=${{steps.issue_node_id.outputs}}
+          }'  -f project=$PROJECT_ID -f content=${{env.issue_node_id}}
