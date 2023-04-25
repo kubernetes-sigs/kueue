@@ -1,5 +1,5 @@
 name: 'KDEV: Add with cron'
-run-name: Add to KDEV by @${{ github.actor }}
+run-name: 'KDEV: Add scheduled ${{github.run_number}}'
 on:
   workflow_dispatch: {}
   schedule:
