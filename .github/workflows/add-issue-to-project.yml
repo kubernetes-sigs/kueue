@@ -15,7 +15,8 @@ jobs:
   Add-Issue-to-KDEV:
     runs-on: ubuntu-latest
     env:
-      GITHUB_TOKEN: ${{ secrets.GH_TOKEN_PROJECT_ACCESS }}
+      # GITHUB_TOKEN: ${{ secrets.GH_TOKEN_PROJECT_ACCESS }}
+      GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
       # KDEV
       PROJECT_ID: PVT_kwDOABhCKs4APR3F
     steps: 
