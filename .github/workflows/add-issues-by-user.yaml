@@ -31,7 +31,9 @@ jobs:
       id: issues
       run: gh api  'repos/${{github.event.inputs.gh_repo}}/issues?state=open&assignee=${{env.GITHUB_USER}}' -q '.[].node_id' | xargs
     - name: Add to KDEV
-      run: |
+      env:
+        ISSUES: ${{ steps.issues.outputs.stdout }}
+      run: | 
         for issue in ${{ steps.issues.outputs.stdout }}; do
           gh api graphql -f query='
             mutation($project:ID!, $content:ID!) {
