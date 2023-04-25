@@ -22,11 +22,11 @@ jobs:
       run: echo 'ISSUE_ID='$(jq '.data.organization.projectNext.id' project_data.json) >> $GITHUB_ENV
     - name: Add issue to KDEV
       run: |
-        item_id="$( gh api graphql -f query='
-          mutation($project:ID!, $issue:ID!) {
-            addProjectNextItem(input: {projectId: $project, contentId: $issue}) {
-              projectNextItem {
-                id
-              }
-            }
-          }' -f project=$PROJECT_ID -f issue=$ISSUE_ID --jq '.data.addProjectNextItem.projectNextItem.id')"
+        gh api -f query='
+mutation AddToProject($project: ID!, $item: ID!) {
+	addProjectNextItem(input: { projectId: $project, contentId: $item }) {
+		projectNextItem {
+			id
+		}
+	}
+}' -f project="$KDEV_PROJECT_ID" -f item="$ISSUE_ID"
