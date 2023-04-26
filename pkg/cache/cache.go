@@ -552,9 +552,6 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 			continue
 		}
 		c.addOrUpdateWorkload(&workloads.Items[i])
-		if _, ok := cqImpl.admittedWorkloadsPerQueue[w.Spec.QueueName]; ok {
-			cqImpl.admittedWorkloadsPerQueue[w.Spec.QueueName]++
-		}
 	}
 
 	return nil
