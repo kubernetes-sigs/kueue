@@ -33,6 +33,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func DeleteWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) error {
@@ -133,22 +134,13 @@ func FinishWorkloads(ctx context.Context, k8sClient client.Client, workloads ...
 	}
 }
 
-func SetAdmission(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, admission *kueue.Admission) {
-	gomega.EventuallyWithOffset(1, func() error {
-		var newWL kueue.Workload
-		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &newWL)).To(gomega.Succeed())
-		newWL.Status.Admission = admission
-		return k8sClient.Status().Update(ctx, &newWL)
-	}, Timeout, Interval).Should(gomega.Succeed())
-}
-
 func ExpectWorkloadsToBeAdmitted(ctx context.Context, k8sClient client.Client, cqName string, wls ...*kueue.Workload) {
 	gomega.EventuallyWithOffset(1, func() int {
 		admitted := 0
 		var updatedWorkload kueue.Workload
 		for _, wl := range wls {
 			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-			if updatedWorkload.Status.Admission != nil && string(updatedWorkload.Status.Admission.ClusterQueue) == cqName {
+			if workload.IsAdmitted(&updatedWorkload) && string(updatedWorkload.Status.Admission.ClusterQueue) == cqName {
 				admitted++
 			}
 		}
@@ -166,7 +158,7 @@ func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wl
 			if cond == nil {
 				continue
 			}
-			if cond.Status == metav1.ConditionFalse && cond.Reason == "Pending" && wl.Status.Admission == nil {
+			if cond.Status == metav1.ConditionFalse && cond.Reason == "Pending" {
 				pending++
 			}
 		}
@@ -184,7 +176,7 @@ func ExpectWorkloadsToBeWaiting(ctx context.Context, k8sClient client.Client, wl
 			if cond == nil {
 				continue
 			}
-			if cond.Status == metav1.ConditionFalse && cond.Reason == "Waiting" && wl.Status.Admission == nil {
+			if cond.Status == metav1.ConditionFalse && cond.Reason == "Waiting" {
 				pending++
 			}
 		}
@@ -203,7 +195,7 @@ func ExpectWorkloadsToBeFrozen(ctx context.Context, k8sClient client.Client, cq 
 				continue
 			}
 			msg := fmt.Sprintf("ClusterQueue %s is inactive", cq)
-			if cond.Status == metav1.ConditionFalse && cond.Reason == "Inadmissible" && wl.Status.Admission == nil && cond.Message == msg {
+			if cond.Status == metav1.ConditionFalse && cond.Reason == "Inadmissible" && cond.Message == msg {
 				frozen++
 			}
 		}
@@ -289,17 +281,25 @@ func ExpectResourceFlavorToBeDeleted(ctx context.Context, k8sClient client.Clien
 	}, Timeout, Interval).Should(testing.BeNotFoundError())
 }
 
-func AdmitWorkload(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, admission *kueue.Admission) error {
+func SetAdmission(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, admission *kueue.Admission) error {
 	if admission == nil {
-		return fmt.Errorf("admission can't be null")
+		wl.Status.Admission = nil
+		apimeta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
+			Type:               kueue.WorkloadAdmitted,
+			Status:             metav1.ConditionFalse,
+			LastTransitionTime: metav1.Now(),
+			Reason:             "EvictedByTest",
+			Message:            "Evicted by test",
+		})
+	} else {
+		wl.Status.Admission = admission
+		apimeta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
+			Type:               kueue.WorkloadAdmitted,
+			Status:             metav1.ConditionTrue,
+			LastTransitionTime: metav1.Now(),
+			Reason:             "AdmittedByTest",
+			Message:            fmt.Sprintf("Admitted by ClusterQueue %s", wl.Status.Admission.ClusterQueue),
+		})
 	}
-	wl.Status.Admission = admission
-	wl.Status.Conditions = []metav1.Condition{{
-		Type:               kueue.WorkloadAdmitted,
-		Status:             metav1.ConditionTrue,
-		LastTransitionTime: metav1.Now(),
-		Reason:             "AdmittedByTest",
-		Message:            fmt.Sprintf("Admitted by ClusterQueue %s", wl.Status.Admission.ClusterQueue),
-	}}
 	return k8sClient.Status().Update(ctx, wl)
 }

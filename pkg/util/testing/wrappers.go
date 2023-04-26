@@ -17,6 +17,7 @@ limitations under the License.
 package testing
 
 import (
+	"fmt"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -98,6 +99,13 @@ func (w *WorkloadWrapper) Queue(q string) *WorkloadWrapper {
 
 func (w *WorkloadWrapper) Admit(a *kueue.Admission) *WorkloadWrapper {
 	w.Status.Admission = a
+	w.Status.Conditions = []metav1.Condition{{
+		Type:               kueue.WorkloadAdmitted,
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "AdmittedByTest",
+		Message:            fmt.Sprintf("Admitted by ClusterQueue %s", w.Status.Admission.ClusterQueue),
+	}}
 	return w
 }
 
@@ -139,6 +147,15 @@ func (w *WorkloadWrapper) NodeSelector(kv map[string]string) *WorkloadWrapper {
 }
 
 func (w *WorkloadWrapper) Condition(condition metav1.Condition) *WorkloadWrapper {
+	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
+	return w
+}
+
+func (w *WorkloadWrapper) SetOrReplaceCondition(condition metav1.Condition) *WorkloadWrapper {
+	existingCondition := apimeta.FindStatusCondition(w.Status.Conditions, condition.Type)
+	if existingCondition != nil {
+		apimeta.RemoveStatusCondition(&w.Status.Conditions, condition.Type)
+	}
 	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
 	return w
 }

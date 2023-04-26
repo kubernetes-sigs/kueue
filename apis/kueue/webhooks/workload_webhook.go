@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type WorkloadWebhook struct{}
@@ -114,7 +115,7 @@ func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 	}
 
 	statusPath := field.NewPath("status")
-	if obj.Status.Admission != nil {
+	if workload.IsAdmitted(obj) {
 		allErrs = append(allErrs, validateAdmission(obj, statusPath.Child("admission"))...)
 	}
 
@@ -160,7 +161,7 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 	specPath := field.NewPath("spec")
 	allErrs = append(allErrs, ValidateWorkload(newObj)...)
 	allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"))...)
-	if newObj.Status.Admission != nil && oldObj.Status.Admission != nil {
+	if workload.IsAdmitted(newObj) && workload.IsAdmitted(oldObj) {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.QueueName, oldObj.Spec.QueueName, specPath.Child("queueName"))...)
 	}
 	allErrs = append(allErrs, validateAdmissionUpdate(newObj.Status.Admission, oldObj.Status.Admission, field.NewPath("status", "admission"))...)

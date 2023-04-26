@@ -34,6 +34,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -197,7 +198,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			// kueue cancels the admission. Mentioning this in case this test flakes in the future.
 			gomega.Eventually(func() bool {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl1), prodWl1)).Should(gomega.Succeed())
-				return apimeta.IsStatusConditionTrue(prodWl1.Status.Conditions, kueue.WorkloadAdmitted)
+				return workload.IsAdmitted(prodWl1)
 			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 
 			ginkgo.By("determining the time of admission as LastTransitionTime for the Admitted condition")

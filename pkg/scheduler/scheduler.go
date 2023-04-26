@@ -339,6 +339,13 @@ func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 		PodSetAssignments: e.assignment.ToAPI(),
 	}
 	newWorkload.Status.Admission = admission
+	newWorkload.Status.Conditions = []metav1.Condition{{
+		Type:               kueue.WorkloadAdmitted,
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "Admitted",
+		Message:            fmt.Sprintf("Admitted by ClusterQueue %s", newWorkload.Status.Admission.ClusterQueue),
+	}}
 	if err := s.cache.AssumeWorkload(newWorkload); err != nil {
 		return err
 	}
@@ -347,13 +354,6 @@ func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 
 	s.admissionRoutineWrapper.Run(func() {
 		patch := workload.AdmissionPatch(newWorkload)
-		patch.Status.Conditions = []metav1.Condition{{
-			Type:               kueue.WorkloadAdmitted,
-			Status:             metav1.ConditionTrue,
-			LastTransitionTime: metav1.Now(),
-			Reason:             "Admitted",
-			Message:            fmt.Sprintf("Admitted by ClusterQueue %s", newWorkload.Status.Admission.ClusterQueue),
-		}}
 		err := s.applyAdmission(ctx, patch)
 		if err == nil {
 			waitTime := time.Since(e.Obj.CreationTimestamp.Time)

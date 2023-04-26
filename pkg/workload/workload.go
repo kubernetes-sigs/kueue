@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -227,5 +228,14 @@ func BaseSSAWorkload(w *kueue.Workload) *kueue.Workload {
 func AdmissionPatch(w *kueue.Workload) *kueue.Workload {
 	wlCopy := BaseSSAWorkload(w)
 	wlCopy.Status.Admission = w.Status.Admission.DeepCopy()
+	if admittedCondition := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadAdmitted); admittedCondition != nil {
+		wlCopy.Status.Conditions = []metav1.Condition{*admittedCondition}
+	}
+
 	return wlCopy
+}
+
+// IsAdmitted checks if workload is admitted based on conditions
+func IsAdmitted(w *kueue.Workload) bool {
+	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadAdmitted)
 }
