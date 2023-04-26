@@ -894,7 +894,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Consistently(func() bool {
 				lookupKey := types.NamespacedName{Name: wl3.Name, Namespace: wl3.Namespace}
 				gomega.Expect(k8sClient.Get(ctx, lookupKey, wl3)).Should(gomega.Succeed())
-				return !workload.IsWorkloadAdmitted(wl3)
+				return !workload.IsAdmitted(wl3)
 			}, util.ConsistentDuration, util.Interval).Should(gomega.Equal(true))
 			util.ExpectPendingWorkloadsMetric(strictFIFOClusterQ, 2, 0)
 			util.ExpectAdmittedActiveWorkloadsMetric(strictFIFOClusterQ, 1)

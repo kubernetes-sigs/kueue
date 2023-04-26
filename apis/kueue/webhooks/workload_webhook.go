@@ -115,7 +115,7 @@ func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 	}
 
 	statusPath := field.NewPath("status")
-	if workload.IsWorkloadAdmitted(obj) {
+	if workload.IsAdmitted(obj) {
 		allErrs = append(allErrs, validateAdmission(obj, statusPath.Child("admission"))...)
 	}
 
@@ -161,7 +161,7 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 	specPath := field.NewPath("spec")
 	allErrs = append(allErrs, ValidateWorkload(newObj)...)
 	allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"))...)
-	if workload.IsWorkloadAdmitted(newObj) && workload.IsWorkloadAdmitted(oldObj) {
+	if workload.IsAdmitted(newObj) && workload.IsAdmitted(oldObj) {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.QueueName, oldObj.Spec.QueueName, specPath.Child("queueName"))...)
 	}
 	allErrs = append(allErrs, validateAdmissionUpdate(newObj.Status.Admission, oldObj.Status.Admission, field.NewPath("status", "admission"))...)

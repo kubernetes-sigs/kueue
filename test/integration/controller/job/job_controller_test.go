@@ -155,7 +155,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 			}},
 		}
 
-		gomega.Expect(util.AdmitWorkload(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+		gomega.Expect(util.SetAdmission(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
 		gomega.Eventually(func() bool {
 			if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {
 				return false
@@ -209,7 +209,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 				},
 			}},
 		}
-		gomega.Expect(util.AdmitWorkload(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+		gomega.Expect(util.SetAdmission(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
 		gomega.Eventually(func() bool {
 			if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {
 				return false
@@ -356,7 +356,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 				}},
 			}
 			gomega.Eventually(func() error {
-				return util.AdmitWorkload(ctx, k8sClient, parentWorkload, admission)
+				return util.SetAdmission(ctx, k8sClient, parentWorkload, admission)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("checking that the child job is unsuspended")
@@ -370,7 +370,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 				if err := k8sClient.Get(ctx, parentWlLookupKey, parentWorkload); err != nil {
 					return err
 				}
-				return util.UnAdmitWorkload(ctx, k8sClient, parentWorkload)
+				return util.SetAdmission(ctx, k8sClient, parentWorkload, nil)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("checking that the child job is suspended")
@@ -486,7 +486,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", func() {
 					},
 				}},
 			}
-			gomega.Expect(util.AdmitWorkload(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+			gomega.Expect(util.SetAdmission(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
 			gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 
 			ginkgo.By("Await for the job to be unsuspended")
@@ -523,7 +523,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", func() {
 					if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 						return err
 					}
-					return util.UnAdmitWorkload(ctx, k8sClient, createdWorkload)
+					return util.SetAdmission(ctx, k8sClient, createdWorkload, nil)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			}
 

@@ -235,7 +235,7 @@ func AdmissionPatch(w *kueue.Workload) *kueue.Workload {
 	return wlCopy
 }
 
-// IsWorkloadAdmitted checks if workload is admitted based on conditions
-func IsWorkloadAdmitted(w *kueue.Workload) bool {
+// IsAdmitted checks if workload is admitted based on conditions
+func IsAdmitted(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadAdmitted)
 }

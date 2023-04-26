@@ -192,7 +192,7 @@ var _ = ginkgo.Describe("Queue controller", func() {
 			gomega.Eventually(func() error {
 				var newWL kueue.Workload
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
-				return util.AdmitWorkload(ctx, k8sClient, &newWL, testing.MakeAdmission(clusterQueue.Name).
+				return util.SetAdmission(ctx, k8sClient, &newWL, testing.MakeAdmission(clusterQueue.Name).
 					Assignment(corev1.ResourceCPU, flavorOnDemand, "1").Obj())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		}

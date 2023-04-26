@@ -260,7 +260,7 @@ func (h *cqWorkloadHandler) Generic(e event.GenericEvent, q workqueue.RateLimiti
 
 func (h *cqWorkloadHandler) requestForWorkloadClusterQueue(w *kueue.Workload) *reconcile.Request {
 	var name string
-	if workload.IsWorkloadAdmitted(w) {
+	if workload.IsAdmitted(w) {
 		name = string(w.Status.Admission.ClusterQueue)
 	} else {
 		var ok bool

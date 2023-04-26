@@ -548,7 +548,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 	}
 	for i, w := range workloads.Items {
 		// Checking ClusterQueue name again because the field index is not available in tests.
-		if !workload.IsWorkloadAdmitted(&w) || string(w.Status.Admission.ClusterQueue) != cq.Name {
+		if !workload.IsAdmitted(&w) || string(w.Status.Admission.ClusterQueue) != cq.Name {
 			continue
 		}
 		c.addOrUpdateWorkload(&workloads.Items[i])
@@ -639,7 +639,7 @@ func (c *Cache) AddOrUpdateWorkload(w *kueue.Workload) bool {
 }
 
 func (c *Cache) addOrUpdateWorkload(w *kueue.Workload) bool {
-	if !workload.IsWorkloadAdmitted(w) {
+	if !workload.IsAdmitted(w) {
 		return false
 	}
 
@@ -663,7 +663,7 @@ func (c *Cache) addOrUpdateWorkload(w *kueue.Workload) bool {
 func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.Workload) error {
 	c.Lock()
 	defer c.Unlock()
-	if workload.IsWorkloadAdmitted(oldWl) {
+	if workload.IsAdmitted(oldWl) {
 		cq, ok := c.clusterQueues[string(oldWl.Status.Admission.ClusterQueue)]
 		if !ok {
 			return fmt.Errorf("old ClusterQueue doesn't exist")
@@ -672,7 +672,7 @@ func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.Workload) error {
 	}
 	c.cleanupAssumedState(oldWl)
 
-	if !workload.IsWorkloadAdmitted(newWl) {
+	if !workload.IsAdmitted(newWl) {
 		return nil
 	}
 	cq, ok := c.clusterQueues[string(newWl.Status.Admission.ClusterQueue)]
@@ -723,7 +723,7 @@ func (c *Cache) AssumeWorkload(w *kueue.Workload) error {
 	c.Lock()
 	defer c.Unlock()
 
-	if !workload.IsWorkloadAdmitted(w) {
+	if !workload.IsAdmitted(w) {
 		return errWorkloadNotAdmitted
 	}
 
@@ -754,7 +754,7 @@ func (c *Cache) ForgetWorkload(w *kueue.Workload) error {
 	}
 	c.cleanupAssumedState(w)
 
-	if !workload.IsWorkloadAdmitted(w) {
+	if !workload.IsAdmitted(w) {
 		return errWorkloadNotAdmitted
 	}
 
@@ -811,7 +811,7 @@ func (c *Cache) cleanupAssumedState(w *kueue.Workload) {
 	if assumed {
 		// If the workload's assigned ClusterQueue is different from the assumed
 		// one, then we should also cleanup the assumed one.
-		if workload.IsWorkloadAdmitted(w) && assumedCQName != string(w.Status.Admission.ClusterQueue) {
+		if workload.IsAdmitted(w) && assumedCQName != string(w.Status.Admission.ClusterQueue) {
 			if assumedCQ, exist := c.clusterQueues[assumedCQName]; exist {
 				assumedCQ.deleteWorkload(w)
 			}
@@ -821,7 +821,7 @@ func (c *Cache) cleanupAssumedState(w *kueue.Workload) {
 }
 
 func (c *Cache) clusterQueueForWorkload(w *kueue.Workload) *ClusterQueue {
-	if workload.IsWorkloadAdmitted(w) {
+	if workload.IsAdmitted(w) {
 		return c.clusterQueues[string(w.Status.Admission.ClusterQueue)]
 	}
 	wKey := workload.Key(w)

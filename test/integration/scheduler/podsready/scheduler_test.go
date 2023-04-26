@@ -198,7 +198,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			// kueue cancels the admission. Mentioning this in case this test flakes in the future.
 			gomega.Eventually(func() bool {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl1), prodWl1)).Should(gomega.Succeed())
-				return workload.IsWorkloadAdmitted(prodWl1)
+				return workload.IsAdmitted(prodWl1)
 			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 
 			ginkgo.By("determining the time of admission as LastTransitionTime for the Admitted condition")
