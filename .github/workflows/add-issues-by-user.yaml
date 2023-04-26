@@ -56,7 +56,7 @@ jobs:
       run: echo ids=$(gh api 'repos/${{inputs.gh_repo}}/issues?state=${{inputs.status}}&assignee=${{inputs.gh_user}}' -q '.[].node_id' | xargs) >> $GITHUB_OUTPUT
     - name: Get ${{inputs.gh_user}} PRs
       id: pulls
-      run: echo ids=$(gh api 'repos/${{inputs.gh_repo}}/pulls?state=${{inputs.status}}&assignee=${{inputs.gh_user}}' -q '.[].node_id' | xargs) >> $GITHUB_OUTPUT
+      run: echo ids=$(gh api 'repos/${{inputs.gh_repo}}/pulls?state=${{inputs.status}}' -q '.[] | select(.user.login=="${{inputs.gh_user}}") | .node_id' | xargs) >> $GITHUB_OUTPUT
     - name: Add to KDEV
       run: | 
         for issue in  ${{ steps.issues.outputs.ids }} ${{ steps.pulls.outputs.ids }}; do
