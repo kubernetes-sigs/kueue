@@ -537,18 +537,14 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 		return fmt.Errorf("listing queues that match the clusterQueue: %w", err)
 	}
 	for _, q := range queues.Items {
-		// Checking ClusterQueue name again because the field index is not available in tests.
-		if string(q.Spec.ClusterQueue) == cq.Name {
-			cqImpl.admittedWorkloadsPerQueue[queueKey(&q)] = 0
-		}
+		cqImpl.admittedWorkloadsPerQueue[queueKey(&q)] = 0
 	}
 	var workloads kueue.WorkloadList
 	if err := c.client.List(ctx, &workloads, client.MatchingFields{utilindexer.WorkloadClusterQueueKey: cq.Name}); err != nil {
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
 	for i, w := range workloads.Items {
-		// Checking ClusterQueue name again because the field index is not available in tests.
-		if !workload.IsAdmitted(&w) || string(w.Status.Admission.ClusterQueue) != cq.Name {
+		if !workload.IsAdmitted(&w) {
 			continue
 		}
 		c.addOrUpdateWorkload(&workloads.Items[i])
