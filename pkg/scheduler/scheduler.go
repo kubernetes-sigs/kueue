@@ -72,7 +72,7 @@ type options struct {
 // Option configures the reconciler.
 type Option func(*options)
 
-// WithWaitForPodsReady indicates if the controller should wait for the
+// WithBlockForPodsReady indicates if the controller should wait for the
 // PodsReady condition for all admitted workloads before admitting a new one.
 func WithBlockForPodsReady(f bool) Option {
 	return func(o *options) {
