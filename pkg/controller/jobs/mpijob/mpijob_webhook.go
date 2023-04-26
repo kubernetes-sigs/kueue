@@ -37,7 +37,7 @@ func WebhookType() runtime.Object {
 	return &kubeflow.MPIJob{}
 }
 
-// SetupWebhook configures the webhook for kubeflow MPIJob.
+// SetupMPIJobWebhook configures the webhook for kubeflow MPIJob.
 func SetupMPIJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.DefaultOptions
 	for _, opt := range opts {
@@ -80,7 +80,7 @@ func (w *MPIJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) 
 }
 
 func validateCreate(job jobframework.GenericJob) field.ErrorList {
-	return jobframework.ValidateAnnotationAsCRDName(job, jobframework.QueueAnnotation)
+	return jobframework.ValidateCreateForQueueName(job)
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
