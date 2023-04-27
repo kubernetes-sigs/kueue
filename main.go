@@ -27,13 +27,13 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
-	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -47,8 +47,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/noop"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
@@ -56,6 +54,9 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/cert"
 	"sigs.k8s.io/kueue/pkg/util/useragent"
 	"sigs.k8s.io/kueue/pkg/version"
+
+	// Ensure linking of the job controllers.
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -70,7 +71,15 @@ func init() {
 
 	utilruntime.Must(kueue.AddToScheme(scheme))
 	utilruntime.Must(config.AddToScheme(scheme))
-	utilruntime.Must(kubeflow.AddToScheme(scheme))
+	// Add any additional framework integration types.
+	utilruntime.Must(
+		jobframework.ForEachIntegration(func(_ string, cb jobframework.IntegrationCallbacks) error {
+			if cb.AddToScheme != nil {
+				return cb.AddToScheme(scheme)
+			}
+			return nil
+		}),
+	)
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -90,7 +99,10 @@ func main() {
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	setupLog.Info("Initializing", "gitVersion", version.GitVersion, "gitCommit", version.GitCommit)
 
-	options, cfg := apply(configFile)
+	options, cfg, err := apply(configFile)
+	if err != nil {
+		os.Exit(1)
+	}
 
 	metrics.Register()
 
@@ -147,18 +159,21 @@ func main() {
 }
 
 func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *config.Configuration) {
-	if err := indexer.Setup(ctx, mgr.GetFieldIndexer()); err != nil {
+	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
+	if err != nil {
 		setupLog.Error(err, "Unable to setup core api indexes")
 	}
-	if isFrameworkEnabled(cfg, job.FrameworkName) {
-		if err := job.SetupIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
-			setupLog.Error(err, "Unable to setup job indexes")
+
+	err = jobframework.ForEachIntegration(func(name string, cb jobframework.IntegrationCallbacks) error {
+		if isFrameworkEnabled(cfg, name) {
+			if err := cb.SetupIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
+				return fmt.Errorf("integration %s: %w", name, err)
+			}
 		}
-	}
-	if isFrameworkEnabled(cfg, mpijob.FrameworkName) {
-		if err := mpijob.SetupIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
-			setupLog.Error(err, "Unable to setup mpijob indexes")
-		}
+		return nil
+	})
+	if err != nil {
+		setupLog.Error(err, "Unable to setup jobs indexes")
 	}
 }
 
@@ -180,46 +195,35 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 		os.Exit(1)
 	}
 
-	if isFrameworkEnabled(cfg, job.FrameworkName) {
-		if err := job.NewReconciler(mgr.GetScheme(),
-			mgr.GetClient(),
-			mgr.GetEventRecorderFor(constants.JobControllerName),
-			jobframework.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName),
-			jobframework.WithWaitForPodsReady(waitForPodsReady(cfg)),
-		).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "Job")
-			os.Exit(1)
-		}
-		if err := job.SetupWebhook(mgr, jobframework.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName)); err != nil {
-			setupLog.Error(err, "Unable to create webhook", "webhook", "Job")
-			os.Exit(1)
-		}
-	} else {
-		if err := noop.SetupWebhook(mgr, job.WebhookType()); err != nil {
-			setupLog.Error(err, "Unable to create webhook", "webhook", "Job")
-			os.Exit(1)
-		}
+	opts := []jobframework.Option{
+		jobframework.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName),
+		jobframework.WithWaitForPodsReady(waitForPodsReady(cfg)),
 	}
-
-	if isFrameworkEnabled(cfg, mpijob.FrameworkName) {
-		if err := mpijob.NewReconciler(mgr.GetScheme(),
-			mgr.GetClient(),
-			mgr.GetEventRecorderFor(constants.KueueName+"-mpijob-controller"),
-			jobframework.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName),
-			jobframework.WithWaitForPodsReady(waitForPodsReady(cfg)),
-		).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "unable to create controller", "controller", "MPIJob")
-			os.Exit(1)
+	err := jobframework.ForEachIntegration(func(name string, cb jobframework.IntegrationCallbacks) error {
+		log := setupLog.WithValues("jobFrameworkName", name)
+		if isFrameworkEnabled(cfg, name) {
+			if err := cb.NewReconciler(mgr.GetScheme(),
+				mgr.GetClient(),
+				mgr.GetEventRecorderFor(fmt.Sprintf("%s-%s-controller", name, constants.KueueName)),
+				opts...,
+			).SetupWithManager(mgr); err != nil {
+				log.Error(err, "unable to create controller")
+				return err
+			}
+			if err := cb.SetupWebhook(mgr, opts...); err != nil {
+				log.Error(err, "Unable to create webhook")
+				return err
+			}
+		} else {
+			if err := noop.SetupWebhook(mgr, cb.JobType); err != nil {
+				log.Error(err, "Unable to create noop webhook")
+				return err
+			}
 		}
-		if err := mpijob.SetupMPIJobWebhook(mgr, jobframework.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName)); err != nil {
-			setupLog.Error(err, "Unable to create webhook", "webhook", "MPIJob")
-			os.Exit(1)
-		}
-	} else {
-		if err := noop.SetupWebhook(mgr, mpijob.WebhookType()); err != nil {
-			setupLog.Error(err, "Unable to create webhook", "webhook", "MPIJob")
-			os.Exit(1)
-		}
+		return nil
+	})
+	if err != nil {
+		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
 }
@@ -272,7 +276,7 @@ func encodeConfig(cfg *config.Configuration) (string, error) {
 	return buf.String(), nil
 }
 
-func apply(configFile string) (ctrl.Options, config.Configuration) {
+func apply(configFile string) (ctrl.Options, config.Configuration, error) {
 	var err error
 	options := ctrl.Options{
 		Scheme: scheme,
@@ -287,17 +291,33 @@ func apply(configFile string) (ctrl.Options, config.Configuration) {
 	}
 	if err != nil {
 		setupLog.Error(err, "unable to load the config")
-		os.Exit(1)
+		return options, cfg, err
+	}
+
+	if cfg.Integrations != nil {
+		var errorlist field.ErrorList
+		availableFrameworks := jobframework.GetIntegrationsList()
+		path := field.NewPath("integrations", "frameworks")
+		for _, framework := range cfg.Integrations.Frameworks {
+			if _, found := jobframework.GetIntegration(framework); !found {
+				errorlist = append(errorlist, field.NotSupported(path, framework, availableFrameworks))
+			}
+		}
+		if len(errorlist) > 0 {
+			err := errorlist.ToAggregate()
+			setupLog.Error(err, "unknown framework", "available", jobframework.GetIntegrationsList())
+			return options, cfg, err
+		}
 	}
 
 	cfgStr, err := encodeConfig(&cfg)
 	if err != nil {
 		setupLog.Error(err, "unable to encode the config")
-		os.Exit(1)
+		return options, cfg, err
 	}
 	setupLog.Info("Successfully loaded configuration", "config", cfgStr)
 
-	return options, cfg
+	return options, cfg, nil
 }
 
 func isFrameworkEnabled(cfg *config.Configuration, name string) bool {

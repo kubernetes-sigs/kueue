@@ -34,10 +34,6 @@ type JobWebhook struct {
 	manageJobsWithoutQueueName bool
 }
 
-func WebhookType() runtime.Object {
-	return &batchv1.Job{}
-}
-
 // SetupWebhook configures the webhook for batchJob.
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.DefaultOptions
@@ -48,7 +44,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 	}
 	return ctrl.NewWebhookManagedBy(mgr).
-		For(WebhookType()).
+		For(&batchv1.Job{}).
 		WithDefaulter(wh).
 		WithValidator(wh).
 		Complete()
