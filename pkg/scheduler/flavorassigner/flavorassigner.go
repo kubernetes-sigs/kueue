@@ -376,6 +376,9 @@ func (a *Assignment) findFlavorForResourceGroup(
 			}
 		}
 
+		if cq.Preemption.PreemptBasedOnFlavorOrder && representativeMode == Preempt {
+			return assignments, status
+		}
 		if representativeMode > bestAssignmentMode {
 			bestAssignment = assignments
 			bestAssignmentMode = representativeMode

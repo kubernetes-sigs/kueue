@@ -129,6 +129,9 @@ spec:
                   of Workloads to preempt to accomomdate the pending Workload, preempting
                   Workloads with lower priority first."
                 properties:
+                  preemptBasedOnFlavorOrder:
+                    default: flase
+                    type: boolean
                   reclaimWithinCohort:
                     default: Never
                     description: "reclaimWithinCohort determines whether a pending
@@ -163,6 +166,8 @@ spec:
                     - LowerPriority
                     - LowerOrNewerEqualPriority
                     type: string
+                required:
+                - preemptBasedOnFlavorOrder
                 type: object
               queueingStrategy:
                 default: BestEffortFIFO

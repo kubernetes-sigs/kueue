@@ -276,6 +276,9 @@ type ClusterQueuePreemption struct {
 	// +kubebuilder:default=Never
 	// +kubebuilder:validation:Enum=Never;LowerPriority;LowerOrNewerEqualPriority
 	WithinClusterQueue PreemptionPolicy `json:"withinClusterQueue,omitempty"`
+
+	// +kubebuilder:default="flase"
+	PreemptBasedOnFlavorOrder bool `json:"preemptBasedOnFlavorOrder"`
 }
 
 //+kubebuilder:object:root=true
