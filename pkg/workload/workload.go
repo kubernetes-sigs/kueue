@@ -33,6 +33,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 )
 
+var (
+	admissionManagedConditions = []string{kueue.WorkloadAdmitted, kueue.WorkloadEvicted}
+)
+
 // Info holds a Workload object and some pre-processing.
 type Info struct {
 	Obj *kueue.Workload
@@ -181,11 +185,7 @@ func UpdateStatus(ctx context.Context,
 	return c.Status().Patch(ctx, newWl, client.Apply, client.FieldOwner(managerPrefix+"-"+condition.Type))
 }
 
-func UnsetAdmissionWithCondition(
-	ctx context.Context,
-	c client.Client,
-	wl *kueue.Workload,
-	reason, message string) error {
+func UnsetAdmissionWithCondition(wl *kueue.Workload, reason, message string) {
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadAdmitted,
 		Status:             metav1.ConditionFalse,
@@ -193,12 +193,8 @@ func UnsetAdmissionWithCondition(
 		Reason:             reason,
 		Message:            api.TruncateConditionMessage(message),
 	}
-	newWl := BaseSSAWorkload(wl)
-	// Use resourceVersion to avoid overriding admissions by the scheduler that
-	// happen in a different routine.
-	newWl.ResourceVersion = wl.ResourceVersion
-	newWl.Status.Conditions = []metav1.Condition{condition}
-	return c.Status().Patch(ctx, newWl, client.Apply, client.FieldOwner(constants.AdmissionName))
+	apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
+	wl.Status.Admission = nil
 }
 
 // BaseSSAWorkload creates a new object based on the input workload that
@@ -223,16 +219,69 @@ func BaseSSAWorkload(w *kueue.Workload) *kueue.Workload {
 	return wlCopy
 }
 
-// AdmissionPatch creates a new object based on the input workload that
-// contains the admission. The object can be used in Server-Side-Apply.
-func AdmissionPatch(w *kueue.Workload) *kueue.Workload {
-	wlCopy := BaseSSAWorkload(w)
-	wlCopy.Status.Admission = w.Status.Admission.DeepCopy()
-	if admittedCondition := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadAdmitted); admittedCondition != nil {
-		wlCopy.Status.Conditions = []metav1.Condition{*admittedCondition}
+// SetAdmission applies the provided admission to the workload.
+// The WorkloadAdmitted and WorkloadEvicted are added or updated if necessary.
+func SetAdmission(w *kueue.Workload, admission *kueue.Admission) {
+	w.Status.Admission = admission
+	admittedCond := metav1.Condition{
+		Type:               kueue.WorkloadAdmitted,
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "Admitted",
+		Message:            fmt.Sprintf("Admitted by ClusterQueue %s", w.Status.Admission.ClusterQueue),
 	}
+	apimeta.SetStatusCondition(&w.Status.Conditions, admittedCond)
 
+	//reset Evicted condition if present.
+	if evictedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted); evictedCond != nil {
+		evictedCond.Status = metav1.ConditionFalse
+		evictedCond.LastTransitionTime = metav1.Now()
+	}
+}
+
+func SetEvictedCondition(w *kueue.Workload, reason string, message string) {
+	condition := metav1.Condition{
+		Type:               kueue.WorkloadEvicted,
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             reason,
+		Message:            message,
+	}
+	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
+}
+
+// admissionPatch creates a new object based on the input workload that contains
+// the admission and related conditions. The object can be used in Server-Side-Apply.
+func admissionPatch(w *kueue.Workload) *kueue.Workload {
+	wlCopy := BaseSSAWorkload(w)
+
+	wlCopy.Status.Admission = w.Status.Admission.DeepCopy()
+	for _, conditionName := range admissionManagedConditions {
+		if existing := apimeta.FindStatusCondition(w.Status.Conditions, conditionName); existing != nil {
+			wlCopy.Status.Conditions = append(wlCopy.Status.Conditions, *existing.DeepCopy())
+		}
+	}
 	return wlCopy
+}
+
+// ApplyAdmissionStatus updated all the admission related status fields of a workload with SSA.
+// if strict is true, resourceVersion will be part of the patch, make this call fail if Workload
+// was changed.
+func ApplyAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, strict bool) error {
+	patch := admissionPatch(w)
+	if strict {
+		patch.ResourceVersion = w.ResourceVersion
+	}
+	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.AdmissionName))
+}
+
+// GetQueueOrderTimestamp return the timestamp to be used by the scheduler. It could
+// be the workload creation time or the last time a PodsReady timeout has occurred.
+func GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
+	if c := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted); c != nil && c.Status == metav1.ConditionTrue && c.Reason == kueue.WorkloadEvictedByPodsReadyTimeout {
+		return &c.LastTransitionTime
+	}
+	return &w.CreationTimestamp
 }
 
 // IsAdmitted checks if workload is admitted based on conditions

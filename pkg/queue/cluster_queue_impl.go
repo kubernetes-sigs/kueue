@@ -21,6 +21,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
@@ -89,8 +90,11 @@ func (c *clusterQueueBase) PushOrUpdate(wInfo *workload.Info) {
 	oldInfo := c.inadmissibleWorkloads[key]
 	if oldInfo != nil {
 		// update in place if the workload was inadmissible and didn't change
-		// to potentially become admissible.
-		if equality.Semantic.DeepEqual(oldInfo.Obj.Spec, wInfo.Obj.Spec) {
+		// to potentially become admissible, unless the Eviction status changed
+		// which can affect the workloads order in the queue.
+		if equality.Semantic.DeepEqual(oldInfo.Obj.Spec, wInfo.Obj.Spec) &&
+			equality.Semantic.DeepEqual(apimeta.FindStatusCondition(oldInfo.Obj.Status.Conditions, kueue.WorkloadEvicted),
+				apimeta.FindStatusCondition(wInfo.Obj.Status.Conditions, kueue.WorkloadEvicted)) {
 			c.inadmissibleWorkloads[key] = wInfo
 			return
 		}

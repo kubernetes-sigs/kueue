@@ -30,7 +30,7 @@ type ClusterQueueBestEffortFIFO struct {
 var _ ClusterQueue = &ClusterQueueBestEffortFIFO{}
 
 func newClusterQueueBestEffortFIFO(cq *kueue.ClusterQueue) (ClusterQueue, error) {
-	cqImpl := newClusterQueueImpl(keyFunc, byCreationTime)
+	cqImpl := newClusterQueueImpl(keyFunc, queueOrdering)
 	cqBE := &ClusterQueueBestEffortFIFO{
 		clusterQueueBase: cqImpl,
 	}

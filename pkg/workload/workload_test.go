@@ -19,6 +19,7 @@ package workload
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -192,6 +193,66 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantStatus, updatedWl.Status, ignoreConditionTimestamps); diff != "" {
 				t.Errorf("Unexpected status after updating (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestGetQueueOrderTimestamp(t *testing.T) {
+	creationTime := metav1.Now()
+	conditionTime := metav1.NewTime(time.Now().Add(time.Hour))
+	cases := map[string]struct {
+		wl   *kueue.Workload
+		want metav1.Time
+	}{
+		"no condition": {
+			wl: utiltesting.MakeWorkload("name", "ns").
+				Creation(creationTime.Time).
+				Obj(),
+			want: creationTime,
+		},
+		"evicted by preemption": {
+			wl: utiltesting.MakeWorkload("name", "ns").
+				Creation(creationTime.Time).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadEvicted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: conditionTime,
+					Reason:             kueue.WorkloadEvictedByPreemption,
+				}).
+				Obj(),
+			want: creationTime,
+		},
+		"evicted by PodsReady timeout": {
+			wl: utiltesting.MakeWorkload("name", "ns").
+				Creation(creationTime.Time).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadEvicted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: conditionTime,
+					Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+				}).
+				Obj(),
+			want: conditionTime,
+		},
+		"after eviction": {
+			wl: utiltesting.MakeWorkload("name", "ns").
+				Creation(creationTime.Time).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadEvicted,
+					Status:             metav1.ConditionFalse,
+					LastTransitionTime: conditionTime,
+					Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+				}).
+				Obj(),
+			want: creationTime,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			gotTime := GetQueueOrderTimestamp(tc.wl)
+			if diff := cmp.Diff(*gotTime, tc.want); diff != "" {
+				t.Errorf("Unexpected time (-want,+got):\n%s", diff)
 			}
 		})
 	}

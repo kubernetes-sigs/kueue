@@ -300,6 +300,50 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			ginkgo.By("delete the waiting 'prod' workload so that it does not get admitted during teardown")
 			gomega.Expect(k8sClient.Delete(ctx, prodWl)).Should(gomega.Succeed())
 		})
-	})
 
+		ginkgo.It("Should move the evicted workload at the end of the queue", func() {
+			localQueueName := "eviction-lq"
+
+			// the workloads are created with a 5 cpu resource requirement to ensure only one can fit at a given time,
+			// letting them all to time out, we should see a circular buffer admission pattern
+			wl1 := testing.MakeWorkload("prod1", ns.Name).Queue(localQueueName).Request(corev1.ResourceCPU, "5").Obj()
+			wl2 := testing.MakeWorkload("prod2", ns.Name).Queue(localQueueName).Request(corev1.ResourceCPU, "5").Obj()
+			wl3 := testing.MakeWorkload("prod3", ns.Name).Queue(localQueueName).Request(corev1.ResourceCPU, "5").Obj()
+
+			ginkgo.By("create the workloads", func() {
+				// since metav1.Time has only second resolution, wait one second between
+				// create calls to avoid any potential creation timestamp collision
+				gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
+				time.Sleep(time.Second)
+				gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
+				time.Sleep(time.Second)
+				gomega.Expect(k8sClient.Create(ctx, wl3)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("create the local queue to start admission", func() {
+				lq := testing.MakeLocalQueue(localQueueName, ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
+				gomega.Expect(k8sClient.Create(ctx, lq)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("waiting for the first workload to be admitted ", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, wl1)
+			})
+
+			ginkgo.By("waiting the timeout, the first workload should be evicted and the second one admitted ", func() {
+				time.Sleep(podsReadyTimeout)
+				util.ExpectWorkloadsToBeEvicted(ctx, k8sClient, wl1)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, wl2)
+			})
+
+			ginkgo.By("finishing the second workload, the third one should be admitted ", func() {
+				util.FinishWorkloads(ctx, k8sClient, wl2)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, wl3)
+			})
+
+			ginkgo.By("finishing the third workload, the first one should be admitted ", func() {
+				util.FinishWorkloads(ctx, k8sClient, wl3)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, wl1)
+			})
+		})
+	})
 })
