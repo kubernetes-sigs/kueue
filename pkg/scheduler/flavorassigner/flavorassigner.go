@@ -231,11 +231,16 @@ func AssignFlavors(log logr.Logger, wl *workload.Info, resourceFlavors map[kueue
 		usage:       make(cache.FlavorResourceQuantities),
 	}
 	for i, podSet := range wl.TotalRequests {
+		if _, found := cq.RGByResource[corev1.ResourcePods]; found {
+			podSet.Requests[corev1.ResourcePods] = int64(wl.Obj.Spec.PodSets[i].Count)
+		}
+
 		psAssignment := PodSetAssignment{
 			Name:     podSet.Name,
 			Flavors:  make(ResourceAssignment, len(podSet.Requests)),
 			Requests: podSet.Requests.ToResourceList(),
 		}
+
 		for resName := range podSet.Requests {
 			if _, found := psAssignment.Flavors[resName]; found {
 				// This resource got assigned the same flavor as its resource group.
