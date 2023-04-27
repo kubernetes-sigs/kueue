@@ -203,7 +203,6 @@ spec:
       resources:
       - name: "cpu"
         nominalQuota: 9  
-        borrowingLimit: 1
       - name: "memory"
         nominalQuota: 36Gi
 ```
@@ -238,87 +237,61 @@ scenarios:
   ClusterQueue `team-b-cq` before admitting any new Workloads in `team-a-cq`.
   Therefore, Kueue ensures the `nominalQuota` quota for `team-b-cq` is met.
 
-You can test borrowing limit by create the following two jobs and local queues:
-
-```
----
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: LocalQueue
-metadata:
-  namespace: "default"
-  name: "user-queue-1"
-spec:
-  clusterQueue: "team-a-cq"
----
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: sample-job-team-a
-  namespace: default
-  labels:
-    kueue.x-k8s.io/queue-name: user-queue-1
-spec:
-  parallelism: 1
-  completions: 1
-  suspend: true
-  template:
-    spec:
-      containers:
-      - name: dummy-job
-        image: gcr.io/k8s-staging-perf-tests/sleep:v0.0.3
-        args: ["30s"]
-        resources:
-          requests:
-            cpu: 10
-            memory: "200Mi"
-      restartPolicy: Never
-```
-
-```
----
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: LocalQueue
-metadata:
-  namespace: "default"
-  name: "user-queue-2"
-spec:
-  clusterQueue: "team-b-cq"
----
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: sample-job-team-b
-  namespace: default
-  labels:
-    kueue.x-k8s.io/queue-name: user-queue-2
-spec:
-  parallelism: 1
-  completions: 1
-  suspend: true
-  template:
-    spec:
-      containers:
-      - name: dummy-job
-        image: gcr.io/k8s-staging-perf-tests/sleep:v0.0.3
-        args: ["30s"]
-        resources:
-          requests:
-            cpu: 12
-            memory: "200Mi"
-      restartPolicy: Never
-```
-
-You will see job `sample-job-team-a` is admitted because it borrowed 1 cpu from the cohort and `sample-job-team-b` can't be admitted because there is not enough cpu in the cohort.
-
 ### BorrowingLimit
 
 To limit the amount of resources that a ClusterQueue can borrow from others,
 you can set the `.spec.resourcesGroup[*].flavors[*].resource[*].borrowingLimit`
 [quantity](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/quantity/) field.
 
+As an example, assume you created the following two ClusterQueues:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: "team-a-cq"
+spec:
+  namespaceSelector: {} # match all.
+  cohort: "team-ab"
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
+    flavors:
+    - name: "default-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 9  
+        borrowingLimit: 1
+      - name: "memory"
+        nominalQuota: 36Gi
+```
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: "team-b-cq"
+spec:
+  namespaceSelector: {} # match all.
+  cohort: "team-ab"
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
+    flavors:
+    - name: "default-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 12  
+      - name: "memory"
+        nominalQuota: 48Gi
+```
+
+In this case, because we set borrowingLimit in ClusterQueue `team-a-cq`, if 
+ClusterQueue `team-b-cq` has no admitted Workloads, then ClusterQueue `team-a-cq` 
+can admit Workloads with resources adding up to `9+1=10` CPUs. 
+
 If, for a given flavor/resource, the `borrowingLimit` field is empty or null, 
 a ClusterQueue can borrow up to the sum of nominal quotas from all the 
-ClusterQueues in the cohort.
+ClusterQueues in the cohort. So for the yamls listed above, `team-b-cq` can 
+borrow `12+9` CPUs.
 
 ## Preemption
 
