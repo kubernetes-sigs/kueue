@@ -19,6 +19,7 @@ package webhooks
 import (
 	"context"
 
+	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -129,6 +130,28 @@ func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 	// Apply the same validation as container names.
 	for _, msg := range validation.IsDNS1123Label(ps.Name) {
 		allErrs = append(allErrs, field.Invalid(path.Child("name"), ps.Name, msg))
+	}
+
+	// validate initContainers
+	icPath := path.Child("template", "spec", "initContainers")
+	for ci := range ps.Template.Spec.InitContainers {
+		allErrs = append(allErrs, validateContainer(&ps.Template.Spec.InitContainers[ci], icPath.Index(ci))...)
+	}
+	// validate containers
+	cPath := path.Child("template", "spec", "containers")
+	for ci := range ps.Template.Spec.Containers {
+		allErrs = append(allErrs, validateContainer(&ps.Template.Spec.Containers[ci], cPath.Index(ci))...)
+	}
+	return allErrs
+}
+
+func validateContainer(c *corev1.Container, path *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	rPath := path.Child("resources", "requests")
+	for name := range c.Resources.Requests {
+		if name == corev1.ResourcePods {
+			allErrs = append(allErrs, field.Invalid(rPath.Key(string(name)), corev1.ResourcePods, "the key is reserved for internal kueue use"))
+		}
 	}
 	return allErrs
 }
