@@ -157,13 +157,24 @@ var _ = ginkgo.Describe("Queue controller", func() {
 		workloads := []*kueue.Workload{
 			testing.MakeWorkload("one", ns.Name).
 				Queue(queue.Name).
-				Request(corev1.ResourceCPU, "2").Obj(),
+				Request(resourceGPU, "2").
+				Obj(),
 			testing.MakeWorkload("two", ns.Name).
 				Queue(queue.Name).
-				Request(corev1.ResourceCPU, "3").Obj(),
+				Request(resourceGPU, "3").
+				Obj(),
 			testing.MakeWorkload("three", ns.Name).
 				Queue(queue.Name).
-				Request(corev1.ResourceCPU, "1").Obj(),
+				Request(resourceGPU, "1").
+				Obj(),
+		}
+		admissions := []*kueue.Admission{
+			testing.MakeAdmission(clusterQueue.Name).
+				Assignment(resourceGPU, flavorModelC, "2").Obj(),
+			testing.MakeAdmission(clusterQueue.Name).
+				Assignment(resourceGPU, flavorModelC, "3").Obj(),
+			testing.MakeAdmission(clusterQueue.Name).
+				Assignment(resourceGPU, flavorModelD, "1").Obj(),
 		}
 
 		ginkgo.By("Creating workloads")
@@ -188,12 +199,11 @@ var _ = ginkgo.Describe("Queue controller", func() {
 		}, ignoreConditionTimestamps))
 
 		ginkgo.By("Admitting workloads")
-		for _, w := range workloads {
+		for i, w := range workloads {
 			gomega.Eventually(func() error {
 				var newWL kueue.Workload
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
-				return util.SetAdmission(ctx, k8sClient, &newWL, testing.MakeAdmission(clusterQueue.Name).
-					Assignment(corev1.ResourceCPU, flavorOnDemand, "1").Obj())
+				return util.SetAdmission(ctx, k8sClient, &newWL, admissions[i])
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		}
 		gomega.Eventually(func() kueue.LocalQueueStatus {
