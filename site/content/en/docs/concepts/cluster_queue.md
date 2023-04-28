@@ -261,8 +261,6 @@ spec:
       - name: "cpu"
         nominalQuota: 9  
         borrowingLimit: 1
-      - name: "memory"
-        nominalQuota: 36Gi
 ```
 
 ```yaml
@@ -280,8 +278,6 @@ spec:
       resources:
       - name: "cpu"
         nominalQuota: 12  
-      - name: "memory"
-        nominalQuota: 48Gi
 ```
 
 In this case, because we set borrowingLimit in ClusterQueue `team-a-cq`, if 
