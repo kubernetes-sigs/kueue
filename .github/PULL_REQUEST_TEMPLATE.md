@@ -35,14 +35,14 @@ _If PR is about `failing-tests or flakes`, please post the related issues/tests 
 -->
 Fixes #
 
-#### Release note:
-<!--  Write your release note:
-1. Enter your extended release note in the below block. If the PR requires additional action from users switching to the new release, include the string "action required".
-2. If no release note is required, just write "NONE".
+#### Special notes for your reviewer:
+
+**Does this PR introduce a user-facing change?**:
+<!--
+If no, just write "NONE" in the release-note block below.
+If yes, a release note is required:
+Enter your extended release note in the block below. If the PR requires additional action from users switching to the new release, include the string "action required".
 -->
 ```release-note
 
 ```
-
-#### Special notes for your reviewer:
-
