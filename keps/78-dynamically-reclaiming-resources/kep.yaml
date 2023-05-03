@@ -2,6 +2,7 @@ title: Dynamically Reclaiming Resources
 kep-number: 78
 authors:
   - "@thisisprasad"
+  - "@trasc"
 owning-sig: sig-scheduling
 reviewers:
   - "@alculquicondor"
