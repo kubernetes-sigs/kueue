@@ -37,7 +37,7 @@ Fixes #
 
 #### Special notes for your reviewer:
 
-**Does this PR introduce a user-facing change?**:
+#### Does this PR introduce a user-facing change?
 <!--
 If no, just write "NONE" in the release-note block below.
 If yes, a release note is required:
