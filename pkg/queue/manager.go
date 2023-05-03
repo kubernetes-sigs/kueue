@@ -91,10 +91,6 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 	}
 	addedWorkloads := false
 	for _, q := range queues.Items {
-		// Checking clusterQueue name again because the field index is not available in tests.
-		if string(q.Spec.ClusterQueue) != cq.Name {
-			continue
-		}
 		qImpl := m.localQueues[Key(&q)]
 		if qImpl != nil {
 			added := cqImpl.AddFromLocalQueue(qImpl)
