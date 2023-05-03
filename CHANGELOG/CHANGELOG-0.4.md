@@ -7,6 +7,7 @@ Changes since `v0.3.0`:
 - Add LimitRange based validation before admission #613
 - Move the workloads evicted due to pods ready timeout to the end of the queue. #689
 - Manage number of Pods as part of ClusterQueue quota. #732
+- Add a new `withinClusterQueue` preemption policy, `LowerOrNewerEqualPriority` #710
 
 ### Production Readiness
 

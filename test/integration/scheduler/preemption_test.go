@@ -17,6 +17,8 @@ limitations under the License.
 package scheduler
 
 import (
+	"time"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -65,7 +67,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			cq = testing.MakeClusterQueue("cq").
 				ResourceGroup(*testing.MakeFlavorQuotas("alpha").Resource(corev1.ResourceCPU, "4").Obj()).
 				Preemption(kueue.ClusterQueuePreemption{
-					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					WithinClusterQueue: kueue.PreemptionPolicyLowerOrNewerEqualPriority,
 				}).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
@@ -128,6 +130,51 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, cq.Name, highWl2)
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, lowWl1, lowWl2)
+		})
+
+		ginkgo.It("Should preempt newer Workloads with the same priority when there is not enough quota", func() {
+			ginkgo.By("Creating initial Workloads")
+			wl1 := testing.MakeWorkload("wl-1", ns.Name).
+				Queue(q.Name).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			wl2 := testing.MakeWorkload("wl-2", ns.Name).
+				Queue(q.Name).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			wl3 := testing.MakeWorkload("wl-3", ns.Name).
+				Queue(q.Name).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "3").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl1)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, cq.Name, wl1, wl2)
+
+			gomega.Expect(k8sClient.Create(ctx, wl3)).To(gomega.Succeed())
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl3)
+
+			ginkgo.By("Waiting one second, to ensure that the new workload has a later creation time")
+			time.Sleep(time.Second)
+
+			ginkgo.By("Creating a new Workload")
+			wl4 := testing.MakeWorkload("wl-4", ns.Name).
+				Queue(q.Name).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl4)).To(gomega.Succeed())
+
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, cq.Name, wl1, wl2, wl4)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl3)
+
+			ginkgo.By("Finishing the first workload")
+			util.FinishWorkloads(ctx, k8sClient, wl1)
+
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, cq.Name, wl3)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl4)
 		})
 	})
 
