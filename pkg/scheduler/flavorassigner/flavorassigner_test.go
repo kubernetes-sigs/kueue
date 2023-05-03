@@ -17,6 +17,7 @@ limitations under the License.
 package flavorassigner
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/go-logr/logr/testr"
@@ -1299,6 +1300,71 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Status: &Status{
 						reasons: []string{"flavor nonexistent-flavor not found"},
+					},
+				}},
+			},
+		},
+		"num pods fit": {
+			wlPods: []kueue.PodSet{
+				*utiltesting.MakePodSet("main", 3).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			clusterQueue: cache.ClusterQueue{
+				ResourceGroups: []cache.ResourceGroup{{
+					CoveredResources: sets.New(corev1.ResourceCPU, corev1.ResourcePods),
+					Flavors: []cache.FlavorQuotas{{
+						Name: "default",
+						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
+							corev1.ResourcePods: {Nominal: 3},
+							corev1.ResourceCPU:  {Nominal: 10000},
+						},
+					}},
+				}},
+			},
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: "main",
+					Flavors: ResourceAssignment{
+
+						corev1.ResourceCPU:  &FlavorAssignment{Name: "default", Mode: Fit},
+						corev1.ResourcePods: &FlavorAssignment{Name: "default", Mode: Fit},
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3000m"),
+						corev1.ResourcePods: resource.MustParse("3"),
+					},
+				}},
+			},
+			wantRepMode: Fit,
+		},
+		"num pods don't fit": {
+			wlPods: []kueue.PodSet{
+				*utiltesting.MakePodSet("main", 3).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			clusterQueue: cache.ClusterQueue{
+				ResourceGroups: []cache.ResourceGroup{{
+					CoveredResources: sets.New(corev1.ResourceCPU, corev1.ResourcePods),
+					Flavors: []cache.FlavorQuotas{{
+						Name: "default",
+						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
+							corev1.ResourcePods: {Nominal: 2},
+							corev1.ResourceCPU:  {Nominal: 10000},
+						},
+					}},
+				}},
+			},
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: "main",
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3000m"),
+						corev1.ResourcePods: resource.MustParse("3"),
+					},
+					Status: &Status{
+						reasons: []string{fmt.Sprintf("insufficient quota for %s in flavor default in ClusterQueue", corev1.ResourcePods)},
 					},
 				}},
 			},
