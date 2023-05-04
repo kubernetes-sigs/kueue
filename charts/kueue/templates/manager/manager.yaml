@@ -37,12 +37,10 @@ spec:
           initialDelaySeconds: 15
           periodSeconds: 20
         name: manager
-        {{- if .Values.enableWebhook }}
         ports:
         - containerPort: 9443
           name: webhook-server
           protocol: TCP
-        {{- end }}
         readinessProbe:
           httpGet:
             path: /readyz
@@ -54,11 +52,9 @@ spec:
         securityContext:
           allowPrivilegeEscalation: false
         volumeMounts:
-        {{- if .Values.enableWebhook }}        
         - mountPath: /tmp/k8s-webhook-server/serving-certs
           name: cert
           readOnly: true
-        {{- end }}
         - mountPath: /controller_manager_config.yaml
           name: manager-config
           subPath: controller_manager_config.yaml
@@ -87,12 +83,10 @@ spec:
       {{- end }}
       terminationGracePeriodSeconds: 10
       volumes:
-      {{- if .Values.enableWebhook }}
       - name: cert
         secret:
           defaultMode: 420
           secretName: {{ include "kueue.fullname" . }}-webhook-server-cert
-      {{- end }}
       - configMap:
           name: {{ include "kueue.fullname" . }}-manager-config
         name: manager-config

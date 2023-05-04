@@ -34,7 +34,6 @@ EOF
 
 search_webhook_line="spec:"
 replace_webhook_line=$(cat <<'EOF'
-  {{- if .Values.enableWebhook }}
   conversion:
     strategy: Webhook
     webhook:
@@ -45,7 +44,6 @@ replace_webhook_line=$(cat <<'EOF'
           path: /convert
       conversionReviewVersions:
       - v1
-  {{- end }}
 EOF
 )
 

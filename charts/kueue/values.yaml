@@ -7,7 +7,6 @@ fullnameOverride: ""
 # Enable each function, like kustomize https://github.com/kubernetes-sigs/kueue/blob/main/config/default/kustomization.yaml
 enablePrometheus: false
 enableCertManager: true
-enableWebhook: true
 
 # Customize controlerManager
 controllerManager:

@@ -1,4 +1,3 @@
-{{- if .Values.enableWebhook }}
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
@@ -231,4 +230,3 @@ webhooks:
     resources:
     - mpijobs
   sideEffects: None
-{{- end }}

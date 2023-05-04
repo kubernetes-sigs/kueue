@@ -1,4 +1,3 @@
-{{- if .Values.enableWebhook }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -11,4 +10,3 @@ spec:
   {{- include "kueue.selectorLabels" . | nindent 4 }}
   ports:
   {{- .Values.webhookService.ports | toYaml | nindent 2 -}}
-{{- end }}

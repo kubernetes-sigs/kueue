@@ -10,7 +10,6 @@ metadata:
   creationTimestamp: null
   name: clusterqueues.kueue.x-k8s.io
 spec:
-  {{- if .Values.enableWebhook }}
   conversion:
     strategy: Webhook
     webhook:
@@ -21,7 +20,6 @@ spec:
           path: /convert
       conversionReviewVersions:
       - v1
-  {{- end }}
   group: kueue.x-k8s.io
   names:
     kind: ClusterQueue
