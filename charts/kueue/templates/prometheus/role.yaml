@@ -1,0 +1,51 @@
+{{- if .Values.enablePrometheus }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "kueue.fullname" . }}-prometheus-k8s
+  namespace: '{{ .Release.Namespace }}'
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - services
+  - endpoints
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - extensions
+  resources:
+  - ingresses
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "kueue.fullname" . }}-prometheus-k8s
+  namespace: '{{ .Release.Namespace }}'
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: '{{ include "kueue.fullname" . }}-prometheus-k8s'
+subjects:
+- kind: ServiceAccount
+  name: prometheus-k8s
+  namespace: '{{ .Release.Namespace }}'
+- kind: ServiceAccount
+  name: prometheus-operator
+  namespace: '{{ .Release.Namespace }}'
+{{- end }}
