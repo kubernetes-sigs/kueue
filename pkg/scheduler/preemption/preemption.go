@@ -24,6 +24,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
@@ -34,7 +35,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
-	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/routine"
@@ -128,40 +128,31 @@ func (p *Preemptor) issuePreemptions(ctx context.Context, targets []*workload.In
 	defer cancel()
 	workqueue.ParallelizeUntil(ctx, parallelPreemptions, len(targets), func(i int) {
 		target := targets[i]
-		patch := workload.BaseSSAWorkload(target.Obj)
-		patch.Status.Conditions = []metav1.Condition{{
-			Type:               kueue.WorkloadAdmitted,
-			Status:             metav1.ConditionFalse,
-			LastTransitionTime: metav1.Now(),
-			Reason:             "Preempted",
-			Message:            "Preempted to accommodate a higher priority Workload",
-		}}
-		err := p.applyPreemption(ctx, patch)
-		if err != nil {
-			errCh.SendErrorWithCancel(err, cancel)
-			return
-		}
+		if !apimeta.IsStatusConditionTrue(target.Obj.Status.Conditions, kueue.WorkloadEvicted) {
+			err := p.applyPreemption(ctx, target.Obj)
+			if err != nil {
+				errCh.SendErrorWithCancel(err, cancel)
+				return
+			}
 
-		workload.SetEvictedCondition(patch, kueue.WorkloadEvictedByPreemption, "Preempted to accommodate a higher priority Workload")
-		err = workload.ApplyAdmissionStatus(ctx, p.client, patch, false)
-		if err != nil {
-			errCh.SendErrorWithCancel(err, cancel)
-			return
+			origin := "ClusterQueue"
+			if cq.Name != target.ClusterQueue {
+				origin = "cohort"
+			}
+			log.V(3).Info("Preempted", "targetWorkload", klog.KObj(target.Obj))
+			p.recorder.Eventf(target.Obj, corev1.EventTypeNormal, "Preempted", "Preempted by another workload in the %s", origin)
+		} else {
+			log.V(3).Info("Preemption ongoing", "targetWorkload", klog.KObj(target.Obj))
 		}
-
-		origin := "ClusterQueue"
-		if cq.Name != target.ClusterQueue {
-			origin = "cohort"
-		}
-		log.V(3).Info("Preempted", "targetWorkload", klog.KObj(target.Obj))
-		p.recorder.Eventf(target.Obj, corev1.EventTypeNormal, "Preempted", "Preempted by another workload in the %s", origin)
 		atomic.AddInt64(&successfullyPreempted, 1)
 	})
 	return int(successfullyPreempted), errCh.ReceiveError()
 }
 
 func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workload) error {
-	return p.client.Status().Patch(ctx, w, client.Apply, client.FieldOwner(constants.AdmissionName))
+	w = w.DeepCopy()
+	workload.SetEvictedCondition(w, kueue.WorkloadEvictedByPreemption, "Preempted to accommodate a higher priority Workload")
+	return workload.ApplyAdmissionStatus(ctx, p.client, w, false)
 }
 
 // minimalPreemptions implements a heuristic to find a minimal set of Workloads

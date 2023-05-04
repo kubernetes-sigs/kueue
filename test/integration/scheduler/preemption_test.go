@@ -128,6 +128,8 @@ var _ = ginkgo.Describe("Preemption", func() {
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, highWl2)).To(gomega.Succeed())
 
+			util.FinishEvictionForWorkloads(ctx, k8sClient, lowWl1, lowWl2)
+
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, cq.Name, highWl2)
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, lowWl1, lowWl2)
 		})
@@ -172,6 +174,9 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			ginkgo.By("Finishing the first workload")
 			util.FinishWorkloads(ctx, k8sClient, wl1)
+
+			ginkgo.By("Finishing eviction for wl4")
+			util.FinishEvictionForWorkloads(ctx, k8sClient, wl4)
 
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, cq.Name, wl3)
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl4)
@@ -245,6 +250,8 @@ var _ = ginkgo.Describe("Preemption", func() {
 				Request(corev1.ResourceCPU, "2").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, alphaMidWl)).To(gomega.Succeed())
+
+			util.FinishEvictionForWorkloads(ctx, k8sClient, alphaLowWl, betaMidWl)
 
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, alphaCQ.Name, alphaMidWl)
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, alphaLowWl, betaMidWl)

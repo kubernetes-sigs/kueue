@@ -204,14 +204,17 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			ginkgo.By("determining the time of admission as LastTransitionTime for the Admitted condition")
 			admittedAt := apimeta.FindStatusCondition(prodWl1.Status.Conditions, kueue.WorkloadAdmitted).LastTransitionTime.Time
 
-			ginkgo.By("wait for the 'prod1' workload to be unadmitted")
-			gomega.Eventually(func() *kueue.Admission {
+			ginkgo.By("wait for the 'prod1' workload to be evicted")
+			gomega.Eventually(func() bool {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl1), prodWl1)).Should(gomega.Succeed())
+				isEvicting := apimeta.IsStatusConditionTrue(prodWl1.Status.Conditions, kueue.WorkloadEvicted)
 				if time.Since(admittedAt) < podsReadyTimeout {
-					gomega.Expect(prodWl1.Status.Admission).ShouldNot(gomega.BeNil())
+					gomega.Expect(isEvicting).Should(gomega.BeFalse(), "the workload should not be evicted until the timeout expires")
 				}
-				return prodWl1.Status.Admission
-			}, util.Timeout, util.Interval).Should(gomega.BeNil())
+				return isEvicting
+			}, util.Timeout, util.Interval).Should(gomega.BeTrue(), "the workload should be evicted after the timeout expires")
+
+			util.FinishEvictionForWorkloads(ctx, k8sClient, prodWl1)
 
 			ginkgo.By("verify the 'prod2' workload gets admitted and the 'prod1' is waiting")
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, prodWl2)
@@ -227,6 +230,8 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 1)
 			ginkgo.By("exceed the timeout for the 'prod' workload")
 			time.Sleep(podsReadyTimeout)
+			ginkgo.By("finish the eviction")
+			util.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
 			ginkgo.By("verify the 'prod' workload gets re-admitted once")
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, prodWl)
 			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 2)
@@ -265,6 +270,9 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 
 			ginkgo.By("wait for the timeout to be exceeded")
 			time.Sleep(podsReadyTimeout)
+
+			ginkgo.By("finish the eviction")
+			util.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
 
 			ginkgo.By("wait for the first workload to be unadmitted")
 			gomega.Eventually(func() *kueue.Admission {
@@ -331,7 +339,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 
 			ginkgo.By("waiting the timeout, the first workload should be evicted and the second one admitted ", func() {
 				time.Sleep(podsReadyTimeout)
-				util.ExpectWorkloadsToBeEvicted(ctx, k8sClient, wl1)
+				util.FinishEvictionForWorkloads(ctx, k8sClient, wl1)
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, wl2)
 			})
 
