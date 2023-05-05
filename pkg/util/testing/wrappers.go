@@ -160,6 +160,11 @@ func (w *WorkloadWrapper) SetOrReplaceCondition(condition metav1.Condition) *Wor
 	return w
 }
 
+func (w *WorkloadWrapper) ReclaimablePods(rps ...kueue.ReclaimablePod) *WorkloadWrapper {
+	w.Status.ReclaimablePods = rps
+	return w
+}
+
 type PodSetWrapper struct{ kueue.PodSet }
 
 func MakePodSet(name string, count int) *PodSetWrapper {

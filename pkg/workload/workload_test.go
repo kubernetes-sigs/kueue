@@ -55,6 +55,34 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
+		"pending with reclaim": {
+			workload: *utiltesting.MakeWorkload("", "").
+				PodSets(
+					*utiltesting.MakePodSet("main", 5).
+						Request(corev1.ResourceCPU, "10m").
+						Request(corev1.ResourceMemory, "512Ki").
+						Obj(),
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{
+						Name:  "main",
+						Count: 2,
+					},
+				).
+				Obj(),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: "main",
+						Requests: Requests{
+							corev1.ResourceCPU:    3 * 10,
+							corev1.ResourceMemory: 3 * 512 * 1024,
+						},
+						Count: 3,
+					},
+				},
+			},
+		},
 		"admitted": {
 			workload: *utiltesting.MakeWorkload("", "").
 				PodSets(
@@ -113,6 +141,45 @@ func TestNewInfo(t *testing.T) {
 							corev1.ResourceCPU:    15,
 							corev1.ResourceMemory: 3 * 1024 * 1024,
 							"ex.com/gpu":          3,
+						},
+						Count: 3,
+					},
+				},
+			},
+		},
+		"admitted with reclaim": {
+			workload: *utiltesting.MakeWorkload("", "").
+				PodSets(
+					*utiltesting.MakePodSet("main", 5).
+						Request(corev1.ResourceCPU, "10m").
+						Request(corev1.ResourceMemory, "10Ki").
+						Obj(),
+				).
+				Admit(
+					utiltesting.MakeAdmission("").
+						Assignment(corev1.ResourceCPU, "f1", "30m").
+						Assignment(corev1.ResourceMemory, "f1", "30Ki").
+						AssignmentPodCount(3).
+						Obj(),
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{
+						Name:  "main",
+						Count: 2,
+					},
+				).
+				Obj(),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: "main",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU:    "f1",
+							corev1.ResourceMemory: "f1",
+						},
+						Requests: Requests{
+							corev1.ResourceCPU:    3 * 10,
+							corev1.ResourceMemory: 3 * 10 * 1024,
 						},
 						Count: 3,
 					},
