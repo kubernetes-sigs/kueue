@@ -205,7 +205,7 @@ func ExpectWorkloadsToBeFrozen(ctx context.Context, k8sClient client.Client, cq 
 
 func ExpectWorkloadToBeAdmittedAs(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, admission *kueue.Admission) {
 	var updatedWorkload kueue.Workload
-	gomega.Eventually(func() *kueue.Admission {
+	gomega.EventuallyWithOffset(1, func() *kueue.Admission {
 		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
 		return updatedWorkload.Status.Admission
 	}, Timeout, Interval).Should(gomega.BeComparableTo(admission))

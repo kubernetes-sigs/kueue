@@ -50,6 +50,7 @@ func TestNewInfo(t *testing.T) {
 							corev1.ResourceCPU:    10,
 							corev1.ResourceMemory: 512 * 1024,
 						},
+						Count: 1,
 					},
 				},
 			},
@@ -78,6 +79,7 @@ func TestNewInfo(t *testing.T) {
 								corev1.ResourceCPU:    resource.MustParse("10m"),
 								corev1.ResourceMemory: resource.MustParse("512Ki"),
 							},
+							Count: 1,
 						},
 						kueue.PodSetAssignment{
 							Name: "workers",
@@ -86,6 +88,7 @@ func TestNewInfo(t *testing.T) {
 								corev1.ResourceMemory: resource.MustParse("3Mi"),
 								"ex.com/gpu":          resource.MustParse("3"),
 							},
+							Count: 3,
 						},
 					).
 					Obj()).
@@ -102,6 +105,7 @@ func TestNewInfo(t *testing.T) {
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "on-demand",
 						},
+						Count: 1,
 					},
 					{
 						Name: "workers",
@@ -110,6 +114,7 @@ func TestNewInfo(t *testing.T) {
 							corev1.ResourceMemory: 3 * 1024 * 1024,
 							"ex.com/gpu":          3,
 						},
+						Count: 3,
 					},
 				},
 			},

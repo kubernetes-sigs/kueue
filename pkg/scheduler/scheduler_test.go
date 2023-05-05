@@ -209,6 +209,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("10000m"),
 							},
+							Count: 10,
 						},
 					},
 				},
@@ -241,7 +242,7 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("one", 40).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					Admit(utiltesting.MakeAdmission("sales", "one").Assignment(corev1.ResourceCPU, "default", "40000m").Obj()).
+					Admit(utiltesting.MakeAdmission("sales", "one").Assignment(corev1.ResourceCPU, "default", "40000m").AssignmentPodCount(40).Obj()).
 					Obj(),
 			},
 			wantAssignments: map[string]kueue.Admission{
@@ -256,6 +257,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
+							Count: 40,
 						},
 					},
 				},
@@ -304,6 +306,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("1000m"),
 							},
+							Count: 1,
 						},
 					},
 				},
@@ -318,6 +321,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("51000m"),
 							},
+							Count: 51,
 						},
 					},
 				},
@@ -351,6 +355,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
+							Count: 40,
 						},
 					},
 				},
@@ -365,6 +370,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
+							Count: 40,
 						},
 					},
 				},
@@ -400,6 +406,7 @@ func TestSchedule(t *testing.T) {
 								corev1.ResourceCPU: resource.MustParse("60000m"),
 								"example.com/gpu":  resource.MustParse("10"),
 							},
+							Count: 10,
 						},
 						{
 							Name: "two",
@@ -409,6 +416,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
+							Count: 40,
 						},
 					},
 				},
@@ -442,6 +450,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
+							Count: 40,
 						},
 					},
 				},
@@ -540,7 +549,7 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("one", 45).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					Admit(utiltesting.MakeAdmission("eng-beta", "one").Assignment(corev1.ResourceCPU, "on-demand", "45000m").Obj()).
+					Admit(utiltesting.MakeAdmission("eng-beta", "one").Assignment(corev1.ResourceCPU, "on-demand", "45000m").AssignmentPodCount(45).Obj()).
 					Obj(),
 			},
 			wantAssignments: map[string]kueue.Admission{
@@ -555,6 +564,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("60000m"),
 							},
+							Count: 60,
 						},
 					},
 				},
@@ -569,6 +579,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("45000m"),
 							},
+							Count: 45,
 						},
 					},
 				},

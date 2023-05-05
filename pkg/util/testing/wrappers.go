@@ -211,6 +211,7 @@ func MakeAdmission(cq string, podSetNames ...string) *AdmissionWrapper {
 				Name:          kueue.DefaultPodSetName,
 				Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
 				ResourceUsage: make(corev1.ResourceList),
+				Count:         1,
 			},
 		}
 		return wrap
@@ -222,6 +223,7 @@ func MakeAdmission(cq string, podSetNames ...string) *AdmissionWrapper {
 			Name:          name,
 			Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
 			ResourceUsage: make(corev1.ResourceList),
+			Count:         1,
 		})
 	}
 	wrap.PodSetAssignments = psFlavors
@@ -235,6 +237,11 @@ func (w *AdmissionWrapper) Obj() *kueue.Admission {
 func (w *AdmissionWrapper) Assignment(r corev1.ResourceName, f kueue.ResourceFlavorReference, value string) *AdmissionWrapper {
 	w.PodSetAssignments[0].Flavors[r] = f
 	w.PodSetAssignments[0].ResourceUsage[r] = resource.MustParse(value)
+	return w
+}
+
+func (w *AdmissionWrapper) AssignmentPodCount(value int32) *AdmissionWrapper {
+	w.PodSetAssignments[0].Count = value
 	return w
 }
 

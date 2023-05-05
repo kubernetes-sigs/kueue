@@ -185,6 +185,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				wl1Admission := testing.MakeAdmission(podsCountClusterQ.Name).
 					Assignment(corev1.ResourceCPU, "on-demand", "6").
 					Assignment(corev1.ResourcePods, "on-demand", "3").
+					AssignmentPodCount(3).
 					Obj()
 				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1, wl1Admission)
 				util.ExpectPendingWorkloadsMetric(podsCountClusterQ, 0, 0)

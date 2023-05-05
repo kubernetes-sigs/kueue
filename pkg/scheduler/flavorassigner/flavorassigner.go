@@ -150,6 +150,7 @@ type PodSetAssignment struct {
 	Flavors  ResourceAssignment
 	Status   *Status
 	Requests corev1.ResourceList
+	Count    int32
 }
 
 // RepresentativeMode calculates the representative mode for this assignment as
@@ -181,6 +182,7 @@ func (psa *PodSetAssignment) toAPI() kueue.PodSetAssignment {
 		Name:          psa.Name,
 		Flavors:       flavors,
 		ResourceUsage: psa.Requests,
+		Count:         psa.Count,
 	}
 }
 
@@ -239,6 +241,7 @@ func AssignFlavors(log logr.Logger, wl *workload.Info, resourceFlavors map[kueue
 			Name:     podSet.Name,
 			Flavors:  make(ResourceAssignment, len(podSet.Requests)),
 			Requests: podSet.Requests.ToResourceList(),
+			Count:    podSet.Count,
 		}
 
 		for resName := range podSet.Requests {

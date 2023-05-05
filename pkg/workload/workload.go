@@ -50,6 +50,7 @@ type Info struct {
 type PodSetResources struct {
 	Name     string
 	Requests Requests
+	Count    int32
 	Flavors  map[corev1.ResourceName]kueue.ResourceFlavorReference
 }
 
@@ -86,7 +87,8 @@ func totalRequestsFromPodSets(wl *kueue.Workload) []PodSetResources {
 
 	for _, ps := range wl.Spec.PodSets {
 		setRes := PodSetResources{
-			Name: ps.Name,
+			Name:  ps.Name,
+			Count: ps.Count,
 		}
 		setRes.Requests = newRequests(limitrange.TotalRequests(&ps.Template.Spec))
 		setRes.Requests.scale(int64(ps.Count))
@@ -102,10 +104,11 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 	res := make([]PodSetResources, 0, len(wl.Spec.PodSets))
 	for _, ps := range wl.Status.Admission.PodSetAssignments {
 		setRes := PodSetResources{
-			Name: ps.Name,
+			Name:     ps.Name,
+			Flavors:  ps.Flavors,
+			Count:    ps.Count,
+			Requests: newRequests(ps.ResourceUsage),
 		}
-		setRes.Flavors = ps.Flavors
-		setRes.Requests = newRequests(ps.ResourceUsage)
 		res = append(res, setRes)
 	}
 	return res
