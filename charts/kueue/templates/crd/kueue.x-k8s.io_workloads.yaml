@@ -8080,6 +8080,14 @@ spec:
                       each of the .spec.podSets entries.
                     items:
                       properties:
+                        count:
+                          description: count is the number of pods taken into account
+                            at admission time. This field will not change in case
+                            of quota reclaim. Value could be zero for Workloads created
+                            before this field was added.
+                          format: int32
+                          minimum: 0
+                          type: integer
                         flavors:
                           additionalProperties:
                             description: ResourceFlavorReference is the name of the
@@ -8104,9 +8112,11 @@ spec:
                             all the pods in the podset need to run. \n Beside what
                             is provided in podSet's specs, this calculation takes
                             into account the LimitRange defaults and RuntimeClass
-                            overheads at the moment of admission."
+                            overheads at the moment of admission. This field will
+                            not change in case of quota reclaim."
                           type: object
                       required:
+                      - count
                       - name
                       type: object
                     type: array

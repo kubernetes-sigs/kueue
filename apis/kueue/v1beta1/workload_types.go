@@ -76,7 +76,14 @@ type PodSetAssignment struct {
 	//
 	// Beside what is provided in podSet's specs, this calculation takes into account
 	// the LimitRange defaults and RuntimeClass overheads at the moment of admission.
+	// This field will not change in case of quota reclaim.
 	ResourceUsage corev1.ResourceList `json:"resourceUsage,omitempty"`
+
+	// count is the number of pods taken into account at admission time.
+	// This field will not change in case of quota reclaim.
+	// Value could be zero for Workloads created before this field was added.
+	// +kubebuilder:validation:Minimum=0
+	Count int32 `json:"count"`
 }
 
 type PodSet struct {
