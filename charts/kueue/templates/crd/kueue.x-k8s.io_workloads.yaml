@@ -8194,6 +8194,28 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              reclaimablePods:
+                description: reclaimablePods keeps track of the number pods within
+                  a podset for which the resource reservation is no longer needed.
+                items:
+                  properties:
+                    count:
+                      description: count is the number of pods for which the requested
+                        resources are no longer needed.
+                      format: int32
+                      minimum: 0
+                      type: integer
+                    name:
+                      description: name is the PodSet name.
+                      type: string
+                  required:
+                  - count
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
             type: object
         type: object
     served: true

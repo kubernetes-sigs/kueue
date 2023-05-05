@@ -124,6 +124,22 @@ type WorkloadStatus struct {
 	// +listType=map
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// reclaimablePods keeps track of the number pods within a podset for which
+	// the resource reservation is no longer needed.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	ReclaimablePods []ReclaimablePod `json:"reclaimablePods,omitempty"`
+}
+
+type ReclaimablePod struct {
+	// name is the PodSet name.
+	Name string `json:"name"`
+
+	// count is the number of pods for which the requested resources are no longer needed.
+	// +kubebuilder:validation:Minimum=0
+	Count int32 `json:"count"`
 }
 
 const (
