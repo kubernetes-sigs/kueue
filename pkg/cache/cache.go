@@ -134,8 +134,8 @@ type ClusterQueue struct {
 
 	// The following fields are not populated in a snapshot.
 
-	// Key is queue's key (namespace/name).
-	queues            map[string]*queue
+	// Key is localQueue's key (namespace/name).
+	localQueues       map[string]*queue
 	podsReadyTracking bool
 }
 
@@ -170,7 +170,7 @@ func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*ClusterQueue, error) {
 		Name:              cq.Name,
 		Workloads:         make(map[string]*workload.Info),
 		WorkloadsNotReady: sets.New[string](),
-		queues:            make(map[string]*queue),
+		localQueues:       make(map[string]*queue),
 		podsReadyTracking: c.podsReadyTracking,
 	}
 	if err := cqImpl.update(cq, c.resourceFlavors); err != nil {
@@ -240,7 +240,7 @@ func (c *Cache) AdmittedWorkloadsInLocalQueue(localQueue *kueue.LocalQueue) int3
 	if !ok {
 		return 0
 	}
-	qImpl, ok := cq.queues[queueKey(localQueue)]
+	qImpl, ok := cq.localQueues[queueKey(localQueue)]
 	if !ok {
 		return 0
 	}
@@ -402,9 +402,9 @@ func (c *ClusterQueue) deleteWorkload(w *kueue.Workload) {
 func (c *ClusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 	updateUsage(wi, c.Usage, m)
 	qKey := workload.QueueKey(wi.Obj)
-	if _, ok := c.queues[qKey]; ok {
-		updateUsage(wi, c.queues[qKey].usage, m)
-		c.queues[qKey].admittedWorkloads += int(m)
+	if _, ok := c.localQueues[qKey]; ok {
+		updateUsage(wi, c.localQueues[qKey].usage, m)
+		c.localQueues[qKey].admittedWorkloads += int(m)
 	}
 }
 
@@ -424,7 +424,7 @@ func updateUsage(wi *workload.Info, flvUsage FlavorResourceQuantities, m int64) 
 
 func (c *ClusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	qKey := queueKey(q)
-	if _, ok := c.queues[qKey]; ok {
+	if _, ok := c.localQueues[qKey]; ok {
 		return errQueueAlreadyExists
 	}
 	// We need to count the workloads, because they could have been added before
@@ -434,22 +434,22 @@ func (c *ClusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 		admittedWorkloads: 0,
 		usage:             make(FlavorResourceQuantities),
 	}
-	if err := qImpl.updateQueueUsages(c.Usage); err != nil {
+	if err := qImpl.resetFlavorsAndResources(c.Usage); err != nil {
 		return err
 	}
 	for _, wl := range c.Workloads {
 		if workloadBelongsToLocalQueue(wl.Obj, q) {
+			updateUsage(wl, qImpl.usage, 1)
 			qImpl.admittedWorkloads++
 		}
-		updateUsage(wl, qImpl.usage, 1)
 	}
-	c.queues[qKey] = qImpl
+	c.localQueues[qKey] = qImpl
 	return nil
 }
 
 func (c *ClusterQueue) deleteLocalQueue(q *kueue.LocalQueue) {
 	qKey := queueKey(q)
-	delete(c.queues, qKey)
+	delete(c.localQueues, qKey)
 }
 
 func (c *ClusterQueue) flavorInUse(flavor string) bool {
@@ -463,7 +463,7 @@ func (c *ClusterQueue) flavorInUse(flavor string) bool {
 	return false
 }
 
-func (q *queue) updateQueueUsages(cqUsage FlavorResourceQuantities) error {
+func (q *queue) resetFlavorsAndResources(cqUsage FlavorResourceQuantities) error {
 	// Clean up removed flavors or resources.
 	usedFlavorResources := make(FlavorResourceQuantities)
 	for cqFlv, cqRes := range cqUsage {
@@ -578,10 +578,10 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 			admittedWorkloads: 0,
 			usage:             make(FlavorResourceQuantities),
 		}
-		if err = qImpl.updateQueueUsages(cqImpl.Usage); err != nil {
+		if err = qImpl.resetFlavorsAndResources(cqImpl.Usage); err != nil {
 			return err
 		}
-		cqImpl.queues[qKey] = qImpl
+		cqImpl.localQueues[qKey] = qImpl
 	}
 	var workloads kueue.WorkloadList
 	if err := c.client.List(ctx, &workloads, client.MatchingFields{utilindexer.WorkloadClusterQueueKey: cq.Name}); err != nil {
@@ -607,11 +607,11 @@ func (c *Cache) UpdateClusterQueue(cq *kueue.ClusterQueue) error {
 	if err := cqImpl.update(cq, c.resourceFlavors); err != nil {
 		return err
 	}
-	for _, qImpl := range cqImpl.queues {
+	for _, qImpl := range cqImpl.localQueues {
 		if qImpl == nil {
 			return errQNotFound
 		}
-		if err := qImpl.updateQueueUsages(cqImpl.Usage); err != nil {
+		if err := qImpl.resetFlavorsAndResources(cqImpl.Usage); err != nil {
 			return err
 		}
 	}
@@ -858,7 +858,7 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) ([]kueue.LocalQueueFlavo
 	if !ok {
 		return nil, nil
 	}
-	qImpl, ok := cqImpl.queues[queueKey(qObj)]
+	qImpl, ok := cqImpl.localQueues[queueKey(qObj)]
 	if !ok {
 		return nil, errQNotFound
 	}
