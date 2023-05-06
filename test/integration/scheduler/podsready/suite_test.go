@@ -56,11 +56,11 @@ func TestSchedulerWithWaitForPodsReady(t *testing.T) {
 	)
 }
 
-func managerAndSchedulerSetupWithTimeout(mgr manager.Manager, ctx context.Context, value time.Duration) {
+func managerAndSchedulerSetupWithTimeoutAdmission(mgr manager.Manager, ctx context.Context, value time.Duration, blockAdmission bool) {
 	cfg := config.Configuration{
 		WaitForPodsReady: &config.WaitForPodsReady{
 			Enable:         true,
-			BlockAdmission: true,
+			BlockAdmission: &blockAdmission,
 			Timeout:        &metav1.Duration{Duration: value},
 		},
 	}
@@ -80,7 +80,7 @@ func managerAndSchedulerSetupWithTimeout(mgr manager.Manager, ctx context.Contex
 	err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithBlockForPodsReady(cfg.WaitForPodsReady.Enable && cfg.WaitForPodsReady.BlockAdmission))
+	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), scheduler.WithBlockForPodsReady(cfg.WaitForPodsReady.Enable && cfg.WaitForPodsReady.BlockAdmission != nil && *cfg.WaitForPodsReady.BlockAdmission))
 	err = sched.Start(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }

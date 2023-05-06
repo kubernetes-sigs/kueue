@@ -356,7 +356,7 @@ integrations:
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				WaitForPodsReady: &config.WaitForPodsReady{
 					Enable:         true,
-					BlockAdmission: false,
+					BlockAdmission: nil,
 					Timeout:        &metav1.Duration{Duration: 5 * time.Minute},
 				},
 				ClientConnection: defaultClientConnection,

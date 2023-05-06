@@ -58,7 +58,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 	ginkgo.JustBeforeEach(func() {
 		fwk = &framework.Framework{
 			ManagerSetup: func(mgr manager.Manager, ctx context.Context) {
-				managerAndSchedulerSetupWithTimeout(mgr, ctx, podsReadyTimeout)
+				managerAndSchedulerSetupWithTimeoutAdmission(mgr, ctx, podsReadyTimeout, true)
 			},
 			CRDPath:     filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases"),
 			WebhookPath: filepath.Join("..", "..", "..", "..", "config", "components", "webhook"),
@@ -353,5 +353,99 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, wl1)
 			})
 		})
+	})
+})
+
+var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
+
+	var (
+		defaultFlavor    *kueue.ResourceFlavor
+		podsReadyTimeout time.Duration
+		ns               *corev1.Namespace
+		prodClusterQ     *kueue.ClusterQueue
+		devClusterQ      *kueue.ClusterQueue
+		prodQueue        *kueue.LocalQueue
+		devQueue         *kueue.LocalQueue
+	)
+
+	ginkgo.JustBeforeEach(func() {
+		fwk = &framework.Framework{
+			ManagerSetup: func(mgr manager.Manager, ctx context.Context) {
+				managerAndSchedulerSetupWithTimeoutAdmission(mgr, ctx, podsReadyTimeout, false)
+			},
+			CRDPath:     filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases"),
+			WebhookPath: filepath.Join("..", "..", "..", "..", "config", "components", "webhook"),
+		}
+		ctx, cfg, k8sClient = fwk.Setup()
+
+		defaultFlavor = utiltesting.MakeResourceFlavor("default").Obj()
+		gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).To(gomega.Succeed())
+
+		ns = &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "podsready-",
+			},
+		}
+		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+
+		prodClusterQ = testing.MakeClusterQueue("prod-cq").
+			Cohort("all").
+			ResourceGroup(*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
+			Obj()
+		gomega.Expect(k8sClient.Create(ctx, prodClusterQ)).Should(gomega.Succeed())
+
+		devClusterQ = testing.MakeClusterQueue("dev-cq").
+			Cohort("all").
+			ResourceGroup(*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
+			Obj()
+		gomega.Expect(k8sClient.Create(ctx, devClusterQ)).Should(gomega.Succeed())
+
+		prodQueue = testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
+		gomega.Expect(k8sClient.Create(ctx, prodQueue)).Should(gomega.Succeed())
+
+		devQueue = testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devClusterQ.Name).Obj()
+		gomega.Expect(k8sClient.Create(ctx, devQueue)).Should(gomega.Succeed())
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, prodClusterQ, true)
+		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, devClusterQ, true)
+		fwk.Teardown()
+	})
+
+	ginkgo.Context("Long PodsReady timeout", func() {
+
+		ginkgo.BeforeEach(func() {
+			podsReadyTimeout = time.Minute
+		})
+
+		ginkgo.It("Should not block admission of one new workload if two are considered in the same scheduling cycle", func() {
+			ginkgo.By("creating two workloads but delaying cluster queue creation which has enough capacity")
+			prodWl := testing.MakeWorkload("prod-wl", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "11").Obj()
+			gomega.Expect(k8sClient.Create(ctx, prodWl)).Should(gomega.Succeed())
+			// wait a second to ensure the CreationTimestamps differ and scheduler picks the first created to be admitted
+			time.Sleep(time.Second)
+			devWl := testing.MakeWorkload("dev-wl", ns.Name).Queue(devQueue.Name).Request(corev1.ResourceCPU, "11").Obj()
+			gomega.Expect(k8sClient.Create(ctx, devWl)).Should(gomega.Succeed())
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, prodWl, devWl)
+
+			ginkgo.By("creating the cluster queue")
+			// Delay cluster queue creation to make sure workloads are in the same
+			// scheduling cycle.
+			testCQ := testing.MakeClusterQueue("test-cq").
+				Cohort("all").
+				ResourceGroup(*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "25", "0").Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, testCQ)).Should(gomega.Succeed())
+			defer func() {
+				gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, testCQ)).Should(gomega.Succeed())
+			}()
+
+			ginkgo.By("verifying that the first created workload is admitted and the second workload is admitted as the blockAdmission is false")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, prodWl)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, devClusterQ.Name, devWl)
+		})
+
 	})
 })

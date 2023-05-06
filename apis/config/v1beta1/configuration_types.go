@@ -77,7 +77,7 @@ type WaitForPodsReady struct {
 
 	// BlockAdmission when true, cluster queue will block admissions for all subsequent jobs
 	// until the jobs reach the PodsReady=true condition. It defaults to false.
-	BlockAdmission bool `json:"blockAdmission,omitempty"`
+	BlockAdmission *bool `json:"blockAdmission,omitempty"`
 }
 
 type InternalCertManagement struct {

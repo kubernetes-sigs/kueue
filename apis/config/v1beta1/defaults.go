@@ -87,8 +87,14 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	if cfg.ClientConnection.Burst == nil {
 		cfg.ClientConnection.Burst = pointer.Int32(DefaultClientConnectionBurst)
 	}
-	if cfg.WaitForPodsReady != nil && cfg.WaitForPodsReady.Timeout == nil {
-		cfg.WaitForPodsReady.Timeout = &metav1.Duration{Duration: defaultPodsReadyTimeout}
+	if cfg.WaitForPodsReady != nil {
+		if cfg.WaitForPodsReady.Timeout == nil {
+			cfg.WaitForPodsReady.Timeout = &metav1.Duration{Duration: defaultPodsReadyTimeout}
+		}
+		if cfg.WaitForPodsReady.BlockAdmission == nil {
+			defaultBlockAdmission := true
+			cfg.WaitForPodsReady.BlockAdmission = &defaultBlockAdmission
+		}
 	}
 	if cfg.Integrations == nil {
 		cfg.Integrations = &Integrations{}
