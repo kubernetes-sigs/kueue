@@ -130,7 +130,7 @@ func main() {
 		close(certsReady)
 	}
 
-	cCache := cache.New(mgr.GetClient(), cache.WithPodsReadyTracking(waitForPodsReady(&cfg)))
+	cCache := cache.New(mgr.GetClient(), cache.WithPodsReadyTracking(blockForPodsReady(&cfg)))
 	queues := queue.NewManager(mgr.GetClient(), cCache)
 
 	ctx := ctrl.SetupSignalHandler()
@@ -248,7 +248,6 @@ func setupScheduler(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager
 		cCache,
 		mgr.GetClient(),
 		mgr.GetEventRecorderFor(constants.AdmissionName),
-		scheduler.WithBlockForPodsReady(blockForPodsReady(cfg)),
 	)
 	if err := mgr.Add(sched); err != nil {
 		setupLog.Error(err, "Unable to add scheduler to manager")
