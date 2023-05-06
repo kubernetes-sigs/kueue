@@ -307,8 +307,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
-					Enable:  true,
-					Timeout: &podsReadyTimeoutOverwrite,
+					Enable:         true,
+					BlockAdmission: &expectBlockAdmission,
+					Timeout:        &podsReadyTimeoutOverwrite,
 				},
 				Namespace:                          pointer.String(DefaultNamespace),
 				ControllerManagerConfigurationSpec: defaultCtrlManagerConfigurationSpec,
