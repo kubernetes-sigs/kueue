@@ -41,7 +41,8 @@ import (
 )
 
 const (
-	queueIsInactiveMsg = "Can't submit new workloads to clusterQueue"
+	queueIsInactiveMsg      = "Can't submit new workloads to clusterQueue"
+	failedUpdateLqStatusMsg = "Failed to retrieve localQueue status"
 )
 
 // LocalQueueReconciler reconciles a LocalQueue object
@@ -269,11 +270,17 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 	oldStatus := queue.Status.DeepCopy()
 	pendingWls, err := r.queues.PendingWorkloads(queue)
 	if err != nil {
-		r.log.Error(err, "Failed to retrieve localQueue status")
+		r.log.Error(err, failedUpdateLqStatusMsg)
+		return err
+	}
+	usage, err := r.cache.LocalQueueUsage(queue)
+	if err != nil {
+		r.log.Error(err, failedUpdateLqStatusMsg)
 		return err
 	}
 	queue.Status.PendingWorkloads = pendingWls
 	queue.Status.AdmittedWorkloads = r.cache.AdmittedWorkloadsInLocalQueue(queue)
+	queue.Status.FlavorUsage = usage
 	if len(conditionStatus) != 0 && len(reason) != 0 && len(msg) != 0 {
 		meta.SetStatusCondition(&queue.Status.Conditions, metav1.Condition{
 			Type:    kueue.LocalQueueActive,
