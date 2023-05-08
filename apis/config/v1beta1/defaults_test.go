@@ -59,8 +59,6 @@ func TestSetDefaults_Configuration(t *testing.T) {
 	podsReadyTimeoutTimeout := metav1.Duration{Duration: defaultPodsReadyTimeout}
 	podsReadyTimeoutOverwrite := metav1.Duration{Duration: time.Minute}
 
-	expectBlockAdmission := true
-
 	testCases := map[string]struct {
 		original *Configuration
 		want     *Configuration
@@ -283,7 +281,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
 					Enable:         true,
-					BlockAdmission: &expectBlockAdmission,
+					BlockAdmission: pointer.Bool(true),
 					Timeout:        &podsReadyTimeoutTimeout,
 				},
 				Namespace:                          pointer.String(DefaultNamespace),
@@ -308,7 +306,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
 					Enable:         true,
-					BlockAdmission: &expectBlockAdmission,
+					BlockAdmission: pointer.Bool(true),
 					Timeout:        &podsReadyTimeoutOverwrite,
 				},
 				Namespace:                          pointer.String(DefaultNamespace),

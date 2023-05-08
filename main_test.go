@@ -221,8 +221,6 @@ integrations:
 		Frameworks: []string{job.FrameworkName},
 	}
 
-	defaultBlockAdmission := true
-
 	testcases := []struct {
 		name              string
 		configFile        string
@@ -358,7 +356,7 @@ integrations:
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				WaitForPodsReady: &config.WaitForPodsReady{
 					Enable:         true,
-					BlockAdmission: &defaultBlockAdmission,
+					BlockAdmission: pointer.Bool(true),
 					Timeout:        &metav1.Duration{Duration: 5 * time.Minute},
 				},
 				ClientConnection: defaultClientConnection,

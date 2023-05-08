@@ -165,6 +165,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 		}
 		if !s.cache.PodsReadyForAllAdmittedWorkloads(ctx) {
 			log.V(5).Info("Waiting for all admitted workloads to be in the PodsReady condition")
+			// If WaitForPodsReady is enabled and WaitForPodsReady.BlockAdmission is true
 			// Block admission until all currently admitted workloads are in
 			// PodsReady condition if the waitForPodsReady is enabled
 			workload.UnsetAdmissionWithCondition(e.Obj, "Waiting", "waiting for all admitted workloads to be in PodsReady condition")

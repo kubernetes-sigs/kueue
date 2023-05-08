@@ -93,6 +93,9 @@ func SetDefaults_Configuration(cfg *Configuration) {
 		}
 		if cfg.WaitForPodsReady.BlockAdmission == nil {
 			defaultBlockAdmission := true
+			if !cfg.WaitForPodsReady.Enable {
+				defaultBlockAdmission = false
+			}
 			cfg.WaitForPodsReady.BlockAdmission = &defaultBlockAdmission
 		}
 	}
