@@ -274,6 +274,182 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 			util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 0)
 		})
+		ginkgo.It("Should update status when workloads have reclaimable pods", func() {
+
+			ginkgo.By("Creating ResourceFlavors", func() {
+				onDemandFlavor = testing.MakeResourceFlavor(flavorOnDemand).Obj()
+				gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).To(gomega.Succeed())
+				spotFlavor = testing.MakeResourceFlavor(flavorSpot).Obj()
+				gomega.Expect(k8sClient.Create(ctx, spotFlavor)).To(gomega.Succeed())
+				modelAFlavor = testing.MakeResourceFlavor(flavorModelA).Label(resourceGPU.String(), flavorModelA).Obj()
+				gomega.Expect(k8sClient.Create(ctx, modelAFlavor)).To(gomega.Succeed())
+				modelBFlavor = testing.MakeResourceFlavor(flavorModelB).Label(resourceGPU.String(), flavorModelB).Obj()
+				gomega.Expect(k8sClient.Create(ctx, modelBFlavor)).To(gomega.Succeed())
+			})
+
+			workload := testing.MakeWorkload("one", ns.Name).
+				Queue(localQueue.Name).
+				PodSets(
+					*testing.MakePodSet("driver", 2).
+						Request(corev1.ResourceCPU, "1").
+						Obj(),
+					*testing.MakePodSet("workers", 5).
+						Request(resourceGPU, "1").
+						Obj(),
+				).
+				Obj()
+			ginkgo.By("Creating the workload", func() {
+				gomega.Expect(k8sClient.Create(ctx, workload)).To(gomega.Succeed())
+				util.ExpectPendingWorkloadsMetric(clusterQueue, 1, 0)
+			})
+
+			ginkgo.By("Admitting the workload", func() {
+				admission := testing.MakeAdmission(clusterQueue.Name).PodSets(
+					kueue.PodSetAssignment{
+						Name: "driver",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "on-demand",
+						},
+						ResourceUsage: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("2"),
+						},
+						Count: 2,
+					},
+					kueue.PodSetAssignment{
+						Name: "workers",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							resourceGPU: "model-a",
+						},
+						ResourceUsage: corev1.ResourceList{
+							resourceGPU: resource.MustParse("5"),
+						},
+						Count: 5,
+					},
+				).Obj()
+
+				gomega.Eventually(func() error {
+					var newWL kueue.Workload
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
+					return util.SetAdmission(ctx, k8sClient, &newWL, admission)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 1)
+			gomega.Eventually(func() []kueue.FlavorUsage {
+				var updatedCq kueue.ClusterQueue
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
+				return updatedCq.Status.FlavorsUsage
+			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]kueue.FlavorUsage{
+				{
+					Name: flavorOnDemand,
+					Resources: []kueue.ResourceUsage{{
+						Name:  corev1.ResourceCPU,
+						Total: resource.MustParse("2"),
+					}},
+				},
+				{
+					Name: flavorSpot,
+					Resources: []kueue.ResourceUsage{{
+						Name: corev1.ResourceCPU,
+					}},
+				},
+				{
+					Name: flavorModelA,
+					Resources: []kueue.ResourceUsage{{
+						Name:  resourceGPU,
+						Total: resource.MustParse("5"),
+					}},
+				},
+				{
+					Name: flavorModelB,
+					Resources: []kueue.ResourceUsage{{
+						Name: resourceGPU,
+					}},
+				},
+			}, ignoreConditionTimestamps))
+
+			ginkgo.By("Mark two workers as reclaimable", func() {
+				gomega.Expect(util.SetReclaimablePods(ctx, k8sClient, workload, kueue.ReclaimablePod{Name: "workers", Count: 2})).To(gomega.Succeed())
+
+				util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 1)
+				gomega.Eventually(func() []kueue.FlavorUsage {
+					var updatedCq kueue.ClusterQueue
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
+					return updatedCq.Status.FlavorsUsage
+				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]kueue.FlavorUsage{
+					{
+						Name: flavorOnDemand,
+						Resources: []kueue.ResourceUsage{{
+							Name:  corev1.ResourceCPU,
+							Total: resource.MustParse("2"),
+						}},
+					},
+					{
+						Name: flavorSpot,
+						Resources: []kueue.ResourceUsage{{
+							Name: corev1.ResourceCPU,
+						}},
+					},
+					{
+						Name: flavorModelA,
+						Resources: []kueue.ResourceUsage{{
+							Name:  resourceGPU,
+							Total: resource.MustParse("3"),
+						}},
+					},
+					{
+						Name: flavorModelB,
+						Resources: []kueue.ResourceUsage{{
+							Name: resourceGPU,
+						}},
+					},
+				}, ignoreConditionTimestamps))
+			})
+
+			ginkgo.By("Mark all workers and a driver as reclaimable", func() {
+				gomega.Expect(util.SetReclaimablePods(ctx, k8sClient, workload, kueue.ReclaimablePod{Name: "workers", Count: 5}, kueue.ReclaimablePod{Name: "driver", Count: 1})).To(gomega.Succeed())
+
+				util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 1)
+				gomega.Eventually(func() []kueue.FlavorUsage {
+					var updatedCq kueue.ClusterQueue
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
+					return updatedCq.Status.FlavorsUsage
+				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]kueue.FlavorUsage{
+					{
+						Name: flavorOnDemand,
+						Resources: []kueue.ResourceUsage{{
+							Name:  corev1.ResourceCPU,
+							Total: resource.MustParse("1"),
+						}},
+					},
+					{
+						Name: flavorSpot,
+						Resources: []kueue.ResourceUsage{{
+							Name: corev1.ResourceCPU,
+						}},
+					},
+					{
+						Name: flavorModelA,
+						Resources: []kueue.ResourceUsage{{
+							Name: resourceGPU,
+						}},
+					},
+					{
+						Name: flavorModelB,
+						Resources: []kueue.ResourceUsage{{
+							Name: resourceGPU,
+						}},
+					},
+				}, ignoreConditionTimestamps))
+			})
+
+			ginkgo.By("Finishing workload", func() {
+				util.FinishWorkloads(ctx, k8sClient, workload)
+				util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
+				util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 0)
+			})
+
+		})
 	})
 
 	ginkgo.When("Reconciling clusterQueue status condition", func() {

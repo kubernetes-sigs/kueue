@@ -291,6 +291,12 @@ func SetAdmission(ctx context.Context, k8sClient client.Client, wl *kueue.Worklo
 	return workload.ApplyAdmissionStatus(ctx, k8sClient, wl, false)
 }
 
+func SetReclaimablePods(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, reclaimablePods ...kueue.ReclaimablePod) error {
+	wl = workload.BaseSSAWorkload(wl)
+	wl.Status.ReclaimablePods = reclaimablePods
+	return k8sClient.Status().Patch(ctx, wl, client.Apply, client.FieldOwner("ReclaimablePods-test"))
+}
+
 func FinishEvictionForWorkloads(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
 	gomega.EventuallyWithOffset(1, func() int {
 		evicting := 0
