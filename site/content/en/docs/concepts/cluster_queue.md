@@ -7,13 +7,13 @@ description: >
 ---
 
 A ClusterQueue is a cluster-scoped object that governs a pool of resources
-such as CPU, memory, and hardware accelerators. A ClusterQueue defines:
+such as pods, CPU, memory, and hardware accelerators. A ClusterQueue defines:
 
 - The quotas for the [resource _flavors_](/docs/concepts/resource_flavor) that the ClusterQueue manages,
   with usage limits and order of consumption.
 - Fair sharing rules across the multiple ClusterQueues in the cluster.
 
-Only [cluster administrators](/docs/tasks#batch-administrator) should create `ClusterQueue` objects.
+Only [batch administrators](/docs/tasks#batch-administrator) should create `ClusterQueue` objects.
 
 A sample ClusterQueue looks like the following:
 
@@ -25,7 +25,7 @@ metadata:
 spec:
   namespaceSelector: {} # match all.
   resourceGroups:
-  - coveredResources: ["cpu", "memory"]
+  - coveredResources: ["cpu", "memory", "pods"]
     flavors:
     - name: "default-flavor"
       resources:
@@ -33,12 +33,15 @@ spec:
         nominalQuota: 9  
       - name: "memory"
         nominalQuota: 36Gi
+      - name: "pods"
+        nominalQuota: 5
 ```
 
 This ClusterQueue admits [Workloads](/docs/concepts/workload) if and only if:
 
 - The sum of the CPU requests is less than or equal to 9.
 - The sum of the memory requests is less than or equal to 36Gi.
+- The total number of pods is less than or equal to 5.
 
 You can specify the quota as a [quantity](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/quantity/).
 
@@ -47,7 +50,7 @@ You can specify the quota as a [quantity](https://kubernetes.io/docs/reference/k
 ## Resources
 
 In a ClusterQueue, you can define quotas for multiple [compute resources](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#resource-types)
-(CPU, memory, GPUs, etc.).
+(CPU, memory, GPUs, pods, etc.).
 
 For each resource, you can define quotas for multiple _flavors_.
 Flavors represent different variations of a resource (for example, different GPU
@@ -59,6 +62,11 @@ requests.
 Kueue assigns the first flavor in the ClusterQueue's `.spec.resourceGroups[*].flavors`
 list that has enough unused `nominalQuota` quota in the ClusterQueue or the
 ClusterQueue's [cohort](#cohort).
+
+Since `pods` resource name is [reserved](/docs/conceps/workload#reserved-resource-names) and it's value
+is computed by Kueue in the during [admission](/docs/concepts#admission), not provided by the [batch user](/docs/tasks/#batch-user),
+it could be used by the [batch administrators](/docs/tasks#batch-administrator) to limit the number of zero or very
+small resource requesting workloads admitted at the same time.
 
 ### Resource Groups
 
@@ -77,7 +85,7 @@ metadata:
 spec:
   namespaceSelector: {} # match all.
   resourceGroups:
-  - coveredResources: ["cpu", "memory"]
+  - coveredResources: ["cpu", "memory", "pods"]
     flavors:
     - name: "spot"
       resources:
@@ -85,12 +93,16 @@ spec:
         nominalQuota: 9
       - name: "memory"
         nominalQuota: 36Gi
+      - name: "pods"
+        nominalQuota: 50
     - name: "on-demand"
       resources:
       - name: "cpu"
         nominalQuota: 18
       - name: "memory"
         nominalQuota: 72Gi
+      - name: "pods"
+        nominalQuota: 100
   - coveredResources: ["gpu"]
     flavors:
     - name: "vendor1"

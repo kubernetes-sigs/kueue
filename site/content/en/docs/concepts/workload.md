@@ -62,6 +62,29 @@ the following fields:
 - `name` is a human-readable identifier for the pod set. You can use the role of
   the Pods in the Workload, like `driver`, `worker`, `parameter-server`, etc.
 
+### Resource requests
+
+Kueue uses the `podSets` resources requests to calculate the quota used by a Workload and decide if and when to admit a Workload.
+
+Kueue calculates the total resources usage for a Workload as the sum of the resource requests for each `podSet`. The resource usage of a `podSet` is equal to the resource requests of the pod spec multiplied by the `count`.
+
+#### Requests values adjustment
+
+Depending on the cluster setup, Kueue will adjust the resource usage of a Workload based on:
+
+- The cluster defines default values in [Limit Ranges](https://kubernetes.io/docs/concepts/policy/limit-range/), the default values will be used if not provided in the `spec`.
+- The created pods are subject of a [Runtime Class Overhead](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-overhead/).
+- The spec defines only resource limits, case in which the limit values will be treated as requests.
+
+#### Requests values validation
+
+In cases when the cluster defines Limit Ranges, the values resulting from the adjustment above will be validated against the ranges.
+Kueue will mark the workload as `Inadmissible` if the range validation fails.
+
+#### Reserved resource names
+
+In addition to the usual resource naming restrictions, you cannot use the `pods` resource name in a Pod spec, as it is reserved for internal Kueue use. You can use the `pods` resource name in a [ClusterQueue](/docs/concepts/cluster_queue#resources) to set quotas on the maximum number of pods. 
+
 ## Priority
 
 Workloads have a priority that influences the [order in which they are admitted by a ClusterQueue](/docs/concepts/cluster_queue#queueing-strategy).
