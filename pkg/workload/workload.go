@@ -341,3 +341,30 @@ func GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
 func IsAdmitted(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadAdmitted)
 }
+
+// UpdateReclaimablePods updates the ReclaimablePods list for the workload wit SSA.
+func UpdateReclaimablePods(ctx context.Context, c client.Client, w *kueue.Workload, reclaimablePods []kueue.ReclaimablePod) error {
+	patch := BaseSSAWorkload(w)
+	patch.Status.ReclaimablePods = reclaimablePods
+	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.ReclaimablePodsMgr))
+}
+
+// ReclaimablePodsAreEqual checks if two Reclaimable pods are semantically equal
+// having the same length and all keys have the same value.
+func ReclaimablePodsAreEqual(a, b []kueue.ReclaimablePod) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	mb := make(map[string]int32, len(b))
+	for i := range b {
+		mb[b[i].Name] = b[i].Count
+	}
+
+	for i := range a {
+		if bCount, found := mb[a[i].Name]; !found || bCount != a[i].Count {
+			return false
+		}
+	}
+	return true
+}

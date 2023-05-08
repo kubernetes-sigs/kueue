@@ -50,6 +50,8 @@ type GenericJob interface {
 	PodsReady() bool
 	// GetGVK returns GVK (Group Version Kind) for the job.
 	GetGVK() schema.GroupVersionKind
+	// ReclaimablePods returns the list of reclaimable pods.
+	ReclaimablePods() []kueue.ReclaimablePod
 }
 
 func ParentWorkloadName(job GenericJob) string {

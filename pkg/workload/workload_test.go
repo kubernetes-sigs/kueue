@@ -329,3 +329,47 @@ func TestGetQueueOrderTimestamp(t *testing.T) {
 		})
 	}
 }
+
+func TestReclaimablePodsAreEqual(t *testing.T) {
+	cases := map[string]struct {
+		a, b       []kueue.ReclaimablePod
+		wantResult bool
+	}{
+		"both empty": {
+			b:          []kueue.ReclaimablePod{},
+			wantResult: true,
+		},
+		"one empty": {
+			b:          []kueue.ReclaimablePod{{Name: "rp1", Count: 1}},
+			wantResult: false,
+		},
+		"one value missmatch": {
+			a:          []kueue.ReclaimablePod{{Name: "rp1", Count: 1}, {Name: "rp2", Count: 2}},
+			b:          []kueue.ReclaimablePod{{Name: "rp2", Count: 1}, {Name: "rp1", Count: 1}},
+			wantResult: false,
+		},
+		"one name missmatch": {
+			a:          []kueue.ReclaimablePod{{Name: "rp1", Count: 1}, {Name: "rp2", Count: 2}},
+			b:          []kueue.ReclaimablePod{{Name: "rp3", Count: 3}, {Name: "rp1", Count: 1}},
+			wantResult: false,
+		},
+		"length missmatch": {
+			a:          []kueue.ReclaimablePod{{Name: "rp1", Count: 1}, {Name: "rp2", Count: 2}},
+			b:          []kueue.ReclaimablePod{{Name: "rp1", Count: 1}},
+			wantResult: false,
+		},
+		"equal": {
+			a:          []kueue.ReclaimablePod{{Name: "rp1", Count: 1}, {Name: "rp2", Count: 2}},
+			b:          []kueue.ReclaimablePod{{Name: "rp2", Count: 2}, {Name: "rp1", Count: 1}},
+			wantResult: true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			result := ReclaimablePodsAreEqual(tc.a, tc.b)
+			if diff := cmp.Diff(result, tc.wantResult); diff != "" {
+				t.Errorf("Unexpected time (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}

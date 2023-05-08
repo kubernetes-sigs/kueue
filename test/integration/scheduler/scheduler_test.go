@@ -323,7 +323,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			})
 
 			ginkgo.By("Reclaim one pod from the first workload", func() {
-				gomega.Expect(util.SetReclaimablePods(ctx, k8sClient, firstWl, kueue.ReclaimablePod{Name: "main", Count: 1})).To(gomega.Succeed())
+				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, firstWl, []kueue.ReclaimablePod{{Name: "main", Count: 1}})).To(gomega.Succeed())
 
 				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, firstWl, secondWl)
 				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)

@@ -153,9 +153,27 @@ func (j *Job) GetGVK() schema.GroupVersionKind {
 	return gvk
 }
 
+func (j *Job) ReclaimablePods() []kueue.ReclaimablePod {
+	parallelism := pointer.Int32Deref(j.Spec.Parallelism, 1)
+	if parallelism == 1 || j.Status.Succeeded == 0 {
+		return nil
+	}
+
+	remaining := pointer.Int32Deref(j.Spec.Completions, parallelism) - j.Status.Succeeded
+	if remaining >= parallelism {
+		return nil
+	}
+
+	return []kueue.ReclaimablePod{{
+		Name:  kueue.DefaultPodSetName,
+		Count: parallelism - remaining,
+	}}
+}
+
 func (j *Job) PodSets() []kueue.PodSet {
 	return []kueue.PodSet{
 		{
+			Name:     kueue.DefaultPodSetName,
 			Template: *j.Spec.Template.DeepCopy(),
 			Count:    j.podsCount(),
 		},

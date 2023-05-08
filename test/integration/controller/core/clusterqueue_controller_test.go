@@ -28,6 +28,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -287,7 +288,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 				gomega.Expect(k8sClient.Create(ctx, modelBFlavor)).To(gomega.Succeed())
 			})
 
-			workload := testing.MakeWorkload("one", ns.Name).
+			wl := testing.MakeWorkload("one", ns.Name).
 				Queue(localQueue.Name).
 				PodSets(
 					*testing.MakePodSet("driver", 2).
@@ -299,7 +300,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 				).
 				Obj()
 			ginkgo.By("Creating the workload", func() {
-				gomega.Expect(k8sClient.Create(ctx, workload)).To(gomega.Succeed())
+				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 				util.ExpectPendingWorkloadsMetric(clusterQueue, 1, 0)
 			})
 
@@ -329,7 +330,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 
 				gomega.Eventually(func() error {
 					var newWL kueue.Workload
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &newWL)).To(gomega.Succeed())
 					return util.SetAdmission(ctx, k8sClient, &newWL, admission)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -369,7 +370,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			}, ignoreConditionTimestamps))
 
 			ginkgo.By("Mark two workers as reclaimable", func() {
-				gomega.Expect(util.SetReclaimablePods(ctx, k8sClient, workload, kueue.ReclaimablePod{Name: "workers", Count: 2})).To(gomega.Succeed())
+				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "workers", Count: 2}})).To(gomega.Succeed())
 
 				util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 1)
 				gomega.Eventually(func() []kueue.FlavorUsage {
@@ -407,7 +408,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			})
 
 			ginkgo.By("Mark all workers and a driver as reclaimable", func() {
-				gomega.Expect(util.SetReclaimablePods(ctx, k8sClient, workload, kueue.ReclaimablePod{Name: "workers", Count: 5}, kueue.ReclaimablePod{Name: "driver", Count: 1})).To(gomega.Succeed())
+				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "workers", Count: 5}, {Name: "driver", Count: 1}})).To(gomega.Succeed())
 
 				util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 1)
 				gomega.Eventually(func() []kueue.FlavorUsage {
@@ -444,7 +445,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			})
 
 			ginkgo.By("Finishing workload", func() {
-				util.FinishWorkloads(ctx, k8sClient, workload)
+				util.FinishWorkloads(ctx, k8sClient, wl)
 				util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 				util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 0)
 			})
