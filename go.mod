@@ -10,7 +10,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.9.4
 	github.com/onsi/gomega v1.27.6
 	github.com/open-policy-agent/cert-controller v0.7.0
-	github.com/prometheus/client_golang v1.15.0
+	github.com/prometheus/client_golang v1.15.1
 	go.uber.org/zap v1.24.0
 	k8s.io/api v0.26.4
 	k8s.io/apimachinery v0.26.4
