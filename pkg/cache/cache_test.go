@@ -1456,7 +1456,7 @@ func TestLocalQueueUsage(t *testing.T) {
 					Queue("test").
 					Request(corev1.ResourceCPU, "5").Obj(),
 			},
-			inAdmissibleWl: sets.New[string]("one"),
+			inAdmissibleWl: sets.New("one"),
 		},
 		"workloads is nothing": {
 			cq: &cq,
@@ -1561,7 +1561,7 @@ func TestLocalQueueUsage(t *testing.T) {
 					Request(corev1.ResourceCPU, "100000").
 					Request("example.com/gpu", "3").Obj(),
 			},
-			inAdmissibleWl: sets.New[string]("two"),
+			inAdmissibleWl: sets.New("two"),
 			wantUsage: []kueue.LocalQueueFlavorUsage{
 				{
 					Name: "default",
