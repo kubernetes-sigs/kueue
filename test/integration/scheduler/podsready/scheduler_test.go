@@ -425,7 +425,6 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 			prodWl := testing.MakeWorkload("prod-wl", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "11").Obj()
 			gomega.Expect(k8sClient.Create(ctx, prodWl)).Should(gomega.Succeed())
 			// wait a second to ensure the CreationTimestamps differ and scheduler picks the first created to be admitted
-			time.Sleep(time.Second)
 			devWl := testing.MakeWorkload("dev-wl", ns.Name).Queue(devQueue.Name).Request(corev1.ResourceCPU, "11").Obj()
 			gomega.Expect(k8sClient.Create(ctx, devWl)).Should(gomega.Succeed())
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, prodWl, devWl)
@@ -448,4 +447,106 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 		})
 
 	})
+
+	var _ = ginkgo.Context("Short PodsReady timeout", func() {
+		ginkgo.BeforeEach(func() {
+			podsReadyTimeout = 3 * time.Second
+		})
+
+		ginkgo.It("Should requeue a workload which exceeded the timeout to reach PodsReady=True", func() {
+			const lowPrio, highPrio = 0, 100
+
+			ginkgo.By("create the 'prod1' workload")
+			prodWl1 := testing.MakeWorkload("prod1", ns.Name).Queue(prodQueue.Name).Priority(highPrio).Request(corev1.ResourceCPU, "2").Obj()
+			gomega.Expect(k8sClient.Create(ctx, prodWl1)).Should(gomega.Succeed())
+
+			ginkgo.By("checking the 'prod1' workload is admitted and the 'prod2' workload is waiting")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, prodWl1)
+
+			ginkgo.By("awaiting for the Admitted=True condition to be added to 'prod1")
+			// We assume that the test will get to this check before the timeout expires and the
+			// kueue cancels the admission. Mentioning this in case this test flakes in the future.
+			gomega.Eventually(func() bool {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl1), prodWl1)).Should(gomega.Succeed())
+				return workload.IsAdmitted(prodWl1)
+			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+
+			ginkgo.By("determining the time of admission as LastTransitionTime for the Admitted condition")
+			admittedAt := apimeta.FindStatusCondition(prodWl1.Status.Conditions, kueue.WorkloadAdmitted).LastTransitionTime.Time
+
+			ginkgo.By("wait for the 'prod1' workload to be evicted")
+			gomega.Eventually(func() bool {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl1), prodWl1)).Should(gomega.Succeed())
+				isEvicting := apimeta.IsStatusConditionTrue(prodWl1.Status.Conditions, kueue.WorkloadEvicted)
+				if time.Since(admittedAt) < podsReadyTimeout {
+					gomega.Expect(isEvicting).Should(gomega.BeFalse(), "the workload should not be evicted until the timeout expires")
+				}
+				return isEvicting
+			}, util.Timeout, util.Interval).Should(gomega.BeTrue(), "the workload should be evicted after the timeout expires")
+
+			util.FinishEvictionForWorkloads(ctx, k8sClient, prodWl1)
+		})
+
+		ginkgo.It("Should re-admit a timed out workload", func() {
+			ginkgo.By("create the 'prod' workload")
+			prodWl := testing.MakeWorkload("prod", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
+			gomega.Expect(k8sClient.Create(ctx, prodWl)).Should(gomega.Succeed())
+			ginkgo.By("checking the 'prod' workload is admitted")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, prodWl)
+			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 1)
+			ginkgo.By("exceed the timeout for the 'prod' workload")
+			time.Sleep(podsReadyTimeout)
+			ginkgo.By("finish the eviction")
+			util.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
+			ginkgo.By("verify the 'prod' workload gets re-admitted once")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, prodWl)
+			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 2)
+		})
+
+		ginkgo.It("Should move the evicted workload at the end of the queue", func() {
+			localQueueName := "eviction-lq"
+
+			// the workloads are created with a 5 cpu resource requirement to ensure only one can fit at a given time,
+			// letting them all to time out, we should see a circular buffer admission pattern
+			wl1 := testing.MakeWorkload("prod1", ns.Name).Queue(localQueueName).Request(corev1.ResourceCPU, "5").Obj()
+			wl2 := testing.MakeWorkload("prod2", ns.Name).Queue(localQueueName).Request(corev1.ResourceCPU, "5").Obj()
+			wl3 := testing.MakeWorkload("prod3", ns.Name).Queue(localQueueName).Request(corev1.ResourceCPU, "5").Obj()
+
+			ginkgo.By("create the workloads", func() {
+				// since metav1.Time has only second resolution, wait one second between
+				// create calls to avoid any potential creation timestamp collision
+				gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
+				time.Sleep(time.Second)
+				gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
+				time.Sleep(time.Second)
+				gomega.Expect(k8sClient.Create(ctx, wl3)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("create the local queue to start admission", func() {
+				lq := testing.MakeLocalQueue(localQueueName, ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
+				gomega.Expect(k8sClient.Create(ctx, lq)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("waiting for the first workload to be admitted ", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, wl1)
+			})
+
+			ginkgo.By("waiting the timeout, the first workload should be evicted and the second one admitted ", func() {
+				time.Sleep(podsReadyTimeout)
+				util.FinishEvictionForWorkloads(ctx, k8sClient, wl1)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, wl2)
+			})
+
+			ginkgo.By("finishing the second workload, the third one should be admitted ", func() {
+				util.FinishWorkloads(ctx, k8sClient, wl2)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, wl3)
+			})
+
+			ginkgo.By("finishing the third workload, the first one should be admitted ", func() {
+				util.FinishWorkloads(ctx, k8sClient, wl3)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, wl1)
+			})
+		})
+	})
+
 })
