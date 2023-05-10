@@ -85,7 +85,7 @@ func TestValidateCreate(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			gotErr := validateCreate(&Job{*tc.job})
+			gotErr := validateCreate(&Job{tc.job})
 
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validateCreate() mismatch (-want +got):\n%s", diff)
@@ -201,7 +201,7 @@ func TestValidateUpdate(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			gotErr := validateUpdate(&Job{*tc.oldJob}, &Job{*tc.newJob})
+			gotErr := validateUpdate(&Job{tc.oldJob}, &Job{tc.newJob})
 
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{})); diff != "" {
 				t.Errorf("validateUpdate() mismatch (-want +got):\n%s", diff)

@@ -121,11 +121,11 @@ func (h *parentWorkloadHandler) queueReconcileForChildJob(object client.Object, 
 }
 
 type Job struct {
-	batchv1.Job
+	*batchv1.Job
 }
 
 func (j *Job) Object() client.Object {
-	return &j.Job
+	return j.Job
 }
 
 func (j *Job) IsSuspended() bool {
@@ -265,7 +265,7 @@ func (r *JobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &batchv1.Job{}, parentWorkloadKey, func(o client.Object) []string {
 		job := o.(*batchv1.Job)
-		if pwName := jobframework.ParentWorkloadName(&Job{*job}); pwName != "" {
+		if pwName := jobframework.ParentWorkloadName(&Job{job}); pwName != "" {
 			return []string{pwName}
 		}
 		return nil
@@ -287,7 +287,7 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 
 func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	fjr := (*jobframework.JobReconciler)(r)
-	return fjr.ReconcileGenericJob(ctx, req, &Job{})
+	return fjr.ReconcileGenericJob(ctx, req, &Job{&batchv1.Job{}})
 }
 
 func GetWorkloadNameForJob(jobName string) string {

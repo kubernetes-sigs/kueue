@@ -140,7 +140,7 @@ func TestPodsReady(t *testing.T) {
 
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
-			batchJob := &Job{tc.job}
+			batchJob := &Job{&tc.job}
 			got := batchJob.PodsReady()
 			if tc.want != got {
 				t.Errorf("Unexpected response (want: %v, got: %v)", tc.want, got)
