@@ -114,6 +114,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 					*testing.MakeFlavorQuotas(flavorModelB).
 						Resource(resourceGPU, "5", "5").Obj(),
 				).
+				Cohort("cohort").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
