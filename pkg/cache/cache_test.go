@@ -1314,7 +1314,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 }
 
 func TestClusterQueueUsage(t *testing.T) {
-	cq := *utiltesting.MakeClusterQueue("foo").
+	cq := utiltesting.MakeClusterQueue("foo").
 		ResourceGroup(
 			*utiltesting.MakeFlavorQuotas("default").
 				Resource(corev1.ResourceCPU, "10", "10").
@@ -1327,8 +1327,9 @@ func TestClusterQueueUsage(t *testing.T) {
 			*utiltesting.MakeFlavorQuotas("model_b").
 				Resource("example.com/gpu", "5").
 				Obj(),
-		).
-		Obj()
+		).Cohort("one").Obj()
+	cqWithOutCohort := cq.DeepCopy()
+	cqWithOutCohort.Spec.Cohort = ""
 	workloads := []kueue.Workload{
 		*utiltesting.MakeWorkload("one", "").
 			Request(corev1.ResourceCPU, "8").
@@ -1342,12 +1343,14 @@ func TestClusterQueueUsage(t *testing.T) {
 			Obj(),
 	}
 	cases := map[string]struct {
+		clusterQueue      *kueue.ClusterQueue
 		workloads         []kueue.Workload
 		wantUsedResources []kueue.FlavorUsage
 		wantWorkloads     int
 	}{
-		"single no borrowing": {
-			workloads: workloads[:1],
+		"clusterQueue without cohort; single no borrowing": {
+			clusterQueue: cqWithOutCohort,
+			workloads:    workloads[:1],
 			wantUsedResources: []kueue.FlavorUsage{
 				{
 					Name: "default",
@@ -1372,8 +1375,9 @@ func TestClusterQueueUsage(t *testing.T) {
 			},
 			wantWorkloads: 1,
 		},
-		"multiple borrowing": {
-			workloads: workloads,
+		"clusterQueue with cohort; multiple borrowing": {
+			clusterQueue: cq,
+			workloads:    workloads,
 			wantUsedResources: []kueue.FlavorUsage{
 				{
 					Name: "default",
@@ -1401,12 +1405,42 @@ func TestClusterQueueUsage(t *testing.T) {
 			},
 			wantWorkloads: 2,
 		},
+		"clusterQueue without cohort; multiple borrowing": {
+			clusterQueue: cqWithOutCohort,
+			workloads:    workloads,
+			wantUsedResources: []kueue.FlavorUsage{
+				{
+					Name: "default",
+					Resources: []kueue.ResourceUsage{{
+						Name:     corev1.ResourceCPU,
+						Total:    resource.MustParse("13"),
+						Borrowed: resource.MustParse("0"),
+					}},
+				},
+				{
+					Name: "model_a",
+					Resources: []kueue.ResourceUsage{{
+						Name:  "example.com/gpu",
+						Total: resource.MustParse("5"),
+					}},
+				},
+				{
+					Name: "model_b",
+					Resources: []kueue.ResourceUsage{{
+						Name:     "example.com/gpu",
+						Total:    resource.MustParse("6"),
+						Borrowed: resource.MustParse("0"),
+					}},
+				},
+			},
+			wantWorkloads: 2,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			cache := New(utiltesting.NewFakeClient())
 			ctx := context.Background()
-			err := cache.AddClusterQueue(ctx, &cq)
+			err := cache.AddClusterQueue(ctx, tc.clusterQueue)
 			if err != nil {
 				t.Fatalf("Adding ClusterQueue: %v", err)
 			}
@@ -1415,7 +1449,7 @@ func TestClusterQueueUsage(t *testing.T) {
 					t.Fatalf("Workload %s was not added", workload.Key(&w))
 				}
 			}
-			resources, workloads, err := cache.Usage(&cq)
+			resources, workloads, err := cache.Usage(tc.clusterQueue)
 			if err != nil {
 				t.Fatalf("Couldn't get usage: %v", err)
 			}

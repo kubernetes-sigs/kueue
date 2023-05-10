@@ -160,7 +160,7 @@ func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workloa
 // The heuristic first removes candidates, in the input order, while their
 // ClusterQueues are still borrowing resources and while the incoming Workload
 // doesn't fit in the quota.
-// Once the Worklod fits, the heuristic tries to add Workloads back, in the
+// Once the Workload fits, the heuristic tries to add Workloads back, in the
 // reverse order in which they were removed, while the incoming Workload still
 // fits.
 func minimalPreemptions(wl *workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot, resPerFlv resourcesPerFlavor, candidates []*workload.Info, allowBorrowing bool) []*workload.Info {
@@ -281,6 +281,9 @@ func findCandidates(wl *kueue.Workload, cq *cache.ClusterQueue, resPerFlv resour
 }
 
 func cqIsBorrowing(cq *cache.ClusterQueue, resPerFlv resourcesPerFlavor) bool {
+	if cq.Cohort == nil {
+		return false
+	}
 	for _, rg := range cq.ResourceGroups {
 		for _, fQuotas := range rg.Flavors {
 			fUsage := cq.Usage[fQuotas.Name]
