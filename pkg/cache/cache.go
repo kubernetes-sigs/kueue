@@ -838,9 +838,12 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) ([]kueue.FlavorUsage, int, erro
 					Name:  rName,
 					Total: workload.ResourceQuantity(rName, used),
 				}
-				borrowed := used - rQuota.Nominal
-				if borrowed > 0 {
-					rUsage.Borrowed = workload.ResourceQuantity(rName, borrowed)
+				// Enforce `borrowed=0` if the clusterQueue doesn't belong to a cohort.
+				if cq.Cohort != nil {
+					borrowed := used - rQuota.Nominal
+					if borrowed > 0 {
+						rUsage.Borrowed = workload.ResourceQuantity(rName, borrowed)
+					}
 				}
 				outFlvUsage.Resources = append(outFlvUsage.Resources, rUsage)
 			}
