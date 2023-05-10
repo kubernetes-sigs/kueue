@@ -293,6 +293,30 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				Integrations:     defaultIntegrations,
 			},
 		},
+		"set waitForPodsReady.blockAdmission to false when enable is false": {
+			original: &Configuration{
+				WaitForPodsReady: &WaitForPodsReady{
+					Enable: false,
+				},
+				InternalCertManagement: &InternalCertManagement{
+					Enable: pointer.Bool(false),
+				},
+			},
+			want: &Configuration{
+				WaitForPodsReady: &WaitForPodsReady{
+					Enable:         false,
+					BlockAdmission: pointer.Bool(false),
+					Timeout:        &podsReadyTimeoutTimeout,
+				},
+				Namespace:                          pointer.String(DefaultNamespace),
+				ControllerManagerConfigurationSpec: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: pointer.Bool(false),
+				},
+				ClientConnection: defaultClientConnection,
+				Integrations:     defaultIntegrations,
+			},
+		},
 		"respecting provided waitForPodsReady.timeout": {
 			original: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
