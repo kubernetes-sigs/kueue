@@ -57,11 +57,11 @@ func NewReconciler(
 }
 
 type MPIJob struct {
-	kubeflow.MPIJob
+	*kubeflow.MPIJob
 }
 
 func (j *MPIJob) Object() client.Object {
-	return &j.MPIJob
+	return j.MPIJob
 }
 
 func (j *MPIJob) IsSuspended() bool {
@@ -240,7 +240,7 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 
 func (r *MPIJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	fjr := (*jobframework.JobReconciler)(r)
-	return fjr.ReconcileGenericJob(ctx, req, &MPIJob{})
+	return fjr.ReconcileGenericJob(ctx, req, &MPIJob{&kubeflow.MPIJob{}})
 }
 
 func orderedReplicaTypes(jobSpec *kubeflow.MPIJobSpec) []kubeflow.MPIReplicaType {

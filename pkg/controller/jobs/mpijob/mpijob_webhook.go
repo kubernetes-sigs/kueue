@@ -63,7 +63,7 @@ func (w *MPIJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Applying defaults", "job", klog.KObj(job))
 
-	jobframework.ApplyDefaultForSuspend(&MPIJob{*job}, w.manageJobsWithoutQueueName)
+	jobframework.ApplyDefaultForSuspend(&MPIJob{job}, w.manageJobsWithoutQueueName)
 	return nil
 }
 
@@ -76,7 +76,7 @@ func (w *MPIJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) 
 	job := obj.(*kubeflow.MPIJob)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.Info("Validating create", "job", klog.KObj(job))
-	return validateCreate(&MPIJob{*job}).ToAggregate()
+	return validateCreate(&MPIJob{job}).ToAggregate()
 }
 
 func validateCreate(job jobframework.GenericJob) field.ErrorList {
@@ -86,9 +86,9 @@ func validateCreate(job jobframework.GenericJob) field.ErrorList {
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *MPIJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
 	oldJob := oldObj.(*kubeflow.MPIJob)
-	oldGenJob := &MPIJob{*oldJob}
+	oldGenJob := &MPIJob{oldJob}
 	newJob := newObj.(*kubeflow.MPIJob)
-	newGenJob := &MPIJob{*newJob}
+	newGenJob := &MPIJob{newJob}
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.Info("Validating update", "job", klog.KObj(newJob))
 	allErrs := jobframework.ValidateUpdateForQueueName(oldGenJob, newGenJob)
