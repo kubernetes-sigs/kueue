@@ -21,9 +21,10 @@ require (
 	k8s.io/code-generator v0.27.3
 	k8s.io/component-base v0.27.3
 	k8s.io/component-helpers v0.27.3
-	k8s.io/klog/v2 v2.90.1
-	k8s.io/utils v0.0.0-20230313181309-38a27ef9d749
+	k8s.io/klog/v2 v2.100.1
+	k8s.io/utils v0.0.0-20230505201702-9f6742963106
 	sigs.k8s.io/controller-runtime v0.15.0
+	sigs.k8s.io/jobset v0.2.0-devel.0.20230622185540-9a17bf81d7b2
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3
 )
 
@@ -48,7 +49,7 @@ require (
 	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/pprof v0.0.0-20230323073829-e72429f035bd // indirect
 	github.com/google/uuid v1.3.0 // indirect
-	github.com/imdario/mergo v0.3.15 // indirect
+	github.com/imdario/mergo v0.3.16 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
@@ -58,15 +59,15 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/client_model v0.4.0 // indirect
-	github.com/prometheus/common v0.42.0 // indirect
+	github.com/prometheus/common v0.44.0 // indirect
 	github.com/prometheus/procfs v0.10.1 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
-	github.com/stretchr/testify v1.8.2 // indirect
+	github.com/stretchr/testify v1.8.4 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/mod v0.10.0 // indirect
 	golang.org/x/net v0.10.0 // indirect
-	golang.org/x/oauth2 v0.6.0 // indirect
+	golang.org/x/oauth2 v0.8.0 // indirect
 	golang.org/x/sys v0.9.0 // indirect
 	golang.org/x/term v0.8.0 // indirect
 	golang.org/x/text v0.9.0 // indirect
