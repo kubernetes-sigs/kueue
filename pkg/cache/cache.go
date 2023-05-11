@@ -208,6 +208,10 @@ func (c *Cache) WaitForPodsReady(ctx context.Context) {
 }
 
 func (c *Cache) PodsReadyForAllAdmittedWorkloads(ctx context.Context) bool {
+	if !c.podsReadyTracking {
+		return true
+	}
+
 	c.Lock()
 	defer c.Unlock()
 	return c.podsReadyForAllAdmittedWorkloads(ctx)

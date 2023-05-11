@@ -60,25 +60,15 @@ type Scheduler struct {
 	recorder                record.EventRecorder
 	admissionRoutineWrapper routine.Wrapper
 	preemptor               *preemption.Preemptor
-	waitForPodsReady        bool
 	// Stubs.
 	applyAdmission func(context.Context, *kueue.Workload) error
 }
 
 type options struct {
-	waitForPodsReady bool
 }
 
 // Option configures the reconciler.
 type Option func(*options)
-
-// WithWaitForPodsReady indicates if the controller should wait for the
-// PodsReady condition for all admitted workloads before admitting a new one.
-func WithWaitForPodsReady(f bool) Option {
-	return func(o *options) {
-		o.waitForPodsReady = f
-	}
-}
 
 var defaultOptions = options{}
 
@@ -94,7 +84,6 @@ func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder r
 		recorder:                recorder,
 		preemptor:               preemption.New(cl, recorder),
 		admissionRoutineWrapper: routine.DefaultWrapper,
-		waitForPodsReady:        options.waitForPodsReady,
 	}
 	s.applyAdmission = s.applyAdmissionWithSSA
 	return s
@@ -174,18 +163,17 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			}
 			continue
 		}
-		if s.waitForPodsReady {
-			if !s.cache.PodsReadyForAllAdmittedWorkloads(ctx) {
-				log.V(5).Info("Waiting for all admitted workloads to be in the PodsReady condition")
-				// Block admission until all currently admitted workloads are in
-				// PodsReady condition if the waitForPodsReady is enabled
-				workload.UnsetAdmissionWithCondition(e.Obj, "Waiting", "waiting for all admitted workloads to be in PodsReady condition")
-				if err := workload.ApplyAdmissionStatus(ctx, s.client, e.Obj, true); err != nil {
-					log.Error(err, "Could not update Workload status")
-				}
-				s.cache.WaitForPodsReady(ctx)
-				log.V(5).Info("Finished waiting for all admitted workloads to be in the PodsReady condition")
+		if !s.cache.PodsReadyForAllAdmittedWorkloads(ctx) {
+			log.V(5).Info("Waiting for all admitted workloads to be in the PodsReady condition")
+			// If WaitForPodsReady is enabled and WaitForPodsReady.BlockAdmission is true
+			// Block admission until all currently admitted workloads are in
+			// PodsReady condition if the waitForPodsReady is enabled
+			workload.UnsetAdmissionWithCondition(e.Obj, "Waiting", "waiting for all admitted workloads to be in PodsReady condition")
+			if err := workload.ApplyAdmissionStatus(ctx, s.client, e.Obj, true); err != nil {
+				log.Error(err, "Could not update Workload status")
 			}
+			s.cache.WaitForPodsReady(ctx)
+			log.V(5).Info("Finished waiting for all admitted workloads to be in the PodsReady condition")
 		}
 		e.status = nominated
 		if err := s.admit(ctx, e); err != nil {
