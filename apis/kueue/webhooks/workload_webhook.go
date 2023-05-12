@@ -18,6 +18,7 @@ package webhooks
 
 import (
 	"context"
+	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
@@ -121,6 +122,7 @@ func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 	}
 
 	allErrs = append(allErrs, metav1validation.ValidateConditions(obj.Status.Conditions, statusPath.Child("conditions"))...)
+	allErrs = append(allErrs, validateReclaimablePods(obj, statusPath.Child("reclaimablePods"))...)
 
 	return allErrs
 }
@@ -165,18 +167,52 @@ func validateAdmission(obj *kueue.Workload, path *field.Path) field.ErrorList {
 	for _, ps := range obj.Spec.PodSets {
 		names.Insert(ps.Name)
 	}
-	psFlavorsPath := path.Child("podSetFlavors")
+	assigmentsPath := path.Child("podSetAssignments")
 	if names.Len() != len(admission.PodSetAssignments) {
-		allErrs = append(allErrs, field.Invalid(psFlavorsPath, field.OmitValueType{}, "must have the same number of podSets as the spec"))
+		allErrs = append(allErrs, field.Invalid(assigmentsPath, field.OmitValueType{}, "must have the same number of podSets as the spec"))
 	}
 
 	for i, ps := range admission.PodSetAssignments {
+		psaPath := assigmentsPath.Index(i)
 		if !names.Has(ps.Name) {
-			allErrs = append(allErrs, field.NotFound(psFlavorsPath.Index(i).Child("name"), ps.Name))
+			allErrs = append(allErrs, field.NotFound(psaPath.Child("name"), ps.Name))
+		}
+		if ps.Count > 0 {
+			for k, v := range ps.ResourceUsage {
+				if (workload.ResourceValue(k, v) % int64(ps.Count)) != 0 {
+					allErrs = append(allErrs, field.Invalid(psaPath.Child("resourceUsage").Key(string(k)), v, fmt.Sprintf("is not a multiple of %d", ps.Count)))
+				}
+			}
 		}
 	}
 
 	return allErrs
+}
+
+func validateReclaimablePods(obj *kueue.Workload, basePath *field.Path) field.ErrorList {
+	if len(obj.Status.ReclaimablePods) == 0 {
+		return nil
+	}
+	knowPodSets := make(map[string]*kueue.PodSet, len(obj.Spec.PodSets))
+	knowPodSetNames := make([]string, len(obj.Spec.PodSets))
+	for i := range obj.Spec.PodSets {
+		name := obj.Spec.PodSets[i].Name
+		knowPodSets[name] = &obj.Spec.PodSets[i]
+		knowPodSetNames = append(knowPodSetNames, name)
+	}
+
+	var ret field.ErrorList
+	for i := range obj.Status.ReclaimablePods {
+		rps := &obj.Status.ReclaimablePods[i]
+		ps, found := knowPodSets[rps.Name]
+		rpsPath := basePath.Key(rps.Name)
+		if !found {
+			ret = append(ret, field.NotSupported(rpsPath.Child("name"), rps.Name, knowPodSetNames))
+		} else if rps.Count > ps.Count {
+			ret = append(ret, field.Invalid(rpsPath.Child("count"), rps.Count, fmt.Sprintf("should be less or equal to %d", ps.Count)))
+		}
+	}
+	return ret
 }
 
 func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
@@ -186,6 +222,7 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 	allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"))...)
 	if workload.IsAdmitted(newObj) && workload.IsAdmitted(oldObj) {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.QueueName, oldObj.Spec.QueueName, specPath.Child("queueName"))...)
+		allErrs = append(allErrs, validateReclaimablePodsUpdate(newObj, oldObj, field.NewPath("status", "reclaimablePods"))...)
 	}
 	allErrs = append(allErrs, validateAdmissionUpdate(newObj.Status.Admission, oldObj.Status.Admission, field.NewPath("status", "admission"))...)
 
@@ -199,4 +236,40 @@ func validateAdmissionUpdate(new, old *kueue.Admission, path *field.Path) field.
 		return nil
 	}
 	return apivalidation.ValidateImmutableField(new, old, path)
+}
+
+// validateReclaimablePodsUpdate validates that the reclaimable counts do not decrease, this should be checked
+// while the workload is admitted.
+func validateReclaimablePodsUpdate(newObj, oldObj *kueue.Workload, basePath *field.Path) field.ErrorList {
+	if workload.ReclaimablePodsAreEqual(newObj.Status.ReclaimablePods, oldObj.Status.ReclaimablePods) {
+		return nil
+	}
+
+	if len(oldObj.Status.ReclaimablePods) == 0 {
+		return nil
+	}
+
+	knowPodSets := make(map[string]*kueue.ReclaimablePod, len(oldObj.Status.ReclaimablePods))
+	for i := range oldObj.Status.ReclaimablePods {
+		name := oldObj.Status.ReclaimablePods[i].Name
+		knowPodSets[name] = &oldObj.Status.ReclaimablePods[i]
+	}
+
+	var ret field.ErrorList
+	newNames := sets.New[string]()
+	for i := range newObj.Status.ReclaimablePods {
+		newCount := &newObj.Status.ReclaimablePods[i]
+		newNames.Insert(newCount.Name)
+		oldCount, found := knowPodSets[newCount.Name]
+		if found && newCount.Count < oldCount.Count {
+			ret = append(ret, field.Invalid(basePath.Key(newCount.Name).Child("count"), newCount.Count, fmt.Sprintf("cannot be less then %d", oldCount.Count)))
+		}
+	}
+
+	for name := range knowPodSets {
+		if !newNames.Has(name) {
+			ret = append(ret, field.Required(basePath.Key(name), "cannot be removed"))
+		}
+	}
+	return ret
 }

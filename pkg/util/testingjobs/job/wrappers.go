@@ -75,6 +75,12 @@ func (j *JobWrapper) Parallelism(p int32) *JobWrapper {
 	return j
 }
 
+// Completions updates job completions.
+func (j *JobWrapper) Completions(p int32) *JobWrapper {
+	j.Spec.Completions = pointer.Int32(p)
+	return j
+}
+
 // PriorityClass updates job priorityclass.
 func (j *JobWrapper) PriorityClass(pc string) *JobWrapper {
 	j.Spec.Template.Spec.PriorityClassName = pc

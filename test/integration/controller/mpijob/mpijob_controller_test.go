@@ -145,20 +145,24 @@ var _ = ginkgo.Describe("Job controller", func() {
 				*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
 				*testing.MakeFlavorQuotas("spot").Resource(corev1.ResourceCPU, "5").Obj(),
 			).Obj()
-		admission := &kueue.Admission{
-			ClusterQueue: kueue.ClusterQueueReference(clusterQueue.Name),
-			PodSetAssignments: []kueue.PodSetAssignment{{
-				Name: "Launcher",
-				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-					corev1.ResourceCPU: "on-demand",
+		admission := testing.MakeAdmission(clusterQueue.Name).
+			PodSets(
+				kueue.PodSetAssignment{
+					Name: "Launcher",
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: "on-demand",
+					},
+					Count: createdWorkload.Spec.PodSets[0].Count,
 				},
-			}, {
-				Name: "Worker",
-				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-					corev1.ResourceCPU: "spot",
+				kueue.PodSetAssignment{
+					Name: "Worker",
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: "spot",
+					},
+					Count: createdWorkload.Spec.PodSets[1].Count,
 				},
-			}},
-		}
+			).
+			Obj()
 		gomega.Expect(util.SetAdmission(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
 		lookupKey := types.NamespacedName{Name: jobName, Namespace: jobNamespace}
 		gomega.Eventually(func() bool {
@@ -209,20 +213,24 @@ var _ = ginkgo.Describe("Job controller", func() {
 		gomega.Expect(createdWorkload.Status.Admission).Should(gomega.BeNil())
 
 		ginkgo.By("checking the job is unsuspended and selectors added when workload is assigned again")
-		admission = &kueue.Admission{
-			ClusterQueue: kueue.ClusterQueueReference(clusterQueue.Name),
-			PodSetAssignments: []kueue.PodSetAssignment{{
-				Name: "Launcher",
-				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-					corev1.ResourceCPU: "on-demand",
+		admission = testing.MakeAdmission(clusterQueue.Name).
+			PodSets(
+				kueue.PodSetAssignment{
+					Name: "Launcher",
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: "on-demand",
+					},
+					Count: createdWorkload.Spec.PodSets[0].Count,
 				},
-			}, {
-				Name: "Worker",
-				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-					corev1.ResourceCPU: "spot",
+				kueue.PodSetAssignment{
+					Name: "Worker",
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: "spot",
+					},
+					Count: createdWorkload.Spec.PodSets[1].Count,
 				},
-			}},
-		}
+			).
+			Obj()
 		gomega.Expect(util.SetAdmission(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
 		gomega.Eventually(func() bool {
 			if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {
@@ -339,20 +347,24 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Admit the workload created for the job")
-			admission := &kueue.Admission{
-				ClusterQueue: kueue.ClusterQueueReference("foo"),
-				PodSetAssignments: []kueue.PodSetAssignment{{
-					Name: "Launcher",
-					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-						corev1.ResourceCPU: "default",
+			admission := testing.MakeAdmission("foo").
+				PodSets(
+					kueue.PodSetAssignment{
+						Name: "Launcher",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "default",
+						},
+						Count: createdWorkload.Spec.PodSets[0].Count,
 					},
-				}, {
-					Name: "Worker",
-					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-						corev1.ResourceCPU: "default",
+					kueue.PodSetAssignment{
+						Name: "Worker",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "default",
+						},
+						Count: createdWorkload.Spec.PodSets[1].Count,
 					},
-				}},
-			}
+				).
+				Obj()
 			gomega.Expect(util.SetAdmission(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
 			gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 

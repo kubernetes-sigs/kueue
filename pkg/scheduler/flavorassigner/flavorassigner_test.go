@@ -89,6 +89,7 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourceCPU:    resource.MustParse("1000m"),
 						corev1.ResourceMemory: resource.MustParse("1Mi"),
 					},
+					Count: 1,
 				}},
 			},
 		},
@@ -125,6 +126,7 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("1000m"),
 					},
+					Count: 1,
 				}},
 			},
 		},
@@ -161,6 +163,7 @@ func TestAssignFlavors(t *testing.T) {
 					Status: &Status{
 						reasons: []string{"insufficient unused quota for cpu in flavor default, 1 more needed"},
 					},
+					Count: 1,
 				}},
 			},
 		},
@@ -221,6 +224,7 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourceCPU:    resource.MustParse("3000m"),
 						corev1.ResourceMemory: resource.MustParse("10Mi"),
 					},
+					Count: 1,
 				}},
 			},
 		},
@@ -268,6 +272,7 @@ func TestAssignFlavors(t *testing.T) {
 							"insufficient quota for memory in flavor b_one in ClusterQueue",
 						},
 					},
+					Count: 1,
 				}},
 			},
 		},
@@ -333,6 +338,7 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourceMemory: resource.MustParse("10Mi"),
 						"example.com/gpu":     resource.MustParse("3"),
 					},
+					Count: 1,
 				}},
 			},
 		},
@@ -423,6 +429,7 @@ func TestAssignFlavors(t *testing.T) {
 							"insufficient unused quota in cohort for example.com/gpu in flavor b_one, 1 more needed",
 						},
 					},
+					Count: 1,
 				}},
 			},
 		},
@@ -469,6 +476,7 @@ func TestAssignFlavors(t *testing.T) {
 							"insufficient quota for memory in flavor two in ClusterQueue",
 						},
 					},
+					Count: 1,
 				}},
 			},
 		},
@@ -509,6 +517,7 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("3000m"),
 					},
+					Count: 1,
 				}},
 			},
 		},
@@ -549,6 +558,7 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("3000m"),
 					},
+					Count: 1,
 				}},
 			},
 		},
@@ -621,6 +631,7 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("1000m"),
 					},
+					Count: 1,
 				}},
 			},
 		},
@@ -690,6 +701,7 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourceCPU:    resource.MustParse("1000m"),
 						corev1.ResourceMemory: resource.MustParse("1Mi"),
 					},
+					Count: 1,
 				}},
 			},
 		},
@@ -766,6 +778,7 @@ func TestAssignFlavors(t *testing.T) {
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("1000m"),
 					},
+					Count: 1,
 				}},
 			},
 		},
@@ -831,6 +844,7 @@ func TestAssignFlavors(t *testing.T) {
 							"flavor two doesn't match node affinity",
 						},
 					},
+					Count: 1,
 				}},
 			},
 		},
@@ -875,6 +889,7 @@ func TestAssignFlavors(t *testing.T) {
 						Requests: corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("5000m"),
 						},
+						Count: 1,
 					},
 					{
 						Name: "worker",
@@ -884,6 +899,7 @@ func TestAssignFlavors(t *testing.T) {
 						Requests: corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("3000m"),
 						},
+						Count: 1,
 					},
 				},
 			},
@@ -932,6 +948,7 @@ func TestAssignFlavors(t *testing.T) {
 							corev1.ResourceCPU:    resource.MustParse("4000m"),
 							corev1.ResourceMemory: resource.MustParse("1Gi"),
 						},
+						Count: 1,
 					},
 					{
 						Name: "worker",
@@ -943,6 +960,7 @@ func TestAssignFlavors(t *testing.T) {
 							corev1.ResourceCPU:    resource.MustParse("6000m"),
 							corev1.ResourceMemory: resource.MustParse("4Gi"),
 						},
+						Count: 1,
 					},
 				},
 				TotalBorrow: cache.FlavorResourceQuantities{
@@ -987,6 +1005,7 @@ func TestAssignFlavors(t *testing.T) {
 					Status: &Status{
 						reasons: []string{"insufficient unused quota in cohort for cpu in flavor one, 1 more needed"},
 					},
+					Count: 1,
 				}},
 			},
 		},
@@ -1032,6 +1051,7 @@ func TestAssignFlavors(t *testing.T) {
 					Status: &Status{
 						reasons: []string{"borrowing limit for cpu in flavor one exceeded"},
 					},
+					Count: 1,
 				}},
 			},
 		},
@@ -1068,6 +1088,7 @@ func TestAssignFlavors(t *testing.T) {
 					Status: &Status{
 						reasons: []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
 					},
+					Count: 1,
 				}},
 			},
 		},
@@ -1112,6 +1133,7 @@ func TestAssignFlavors(t *testing.T) {
 					Status: &Status{
 						reasons: []string{"insufficient unused quota in cohort for cpu in flavor one, 2 more needed"},
 					},
+					Count: 1,
 				}},
 			},
 		},
@@ -1169,6 +1191,7 @@ func TestAssignFlavors(t *testing.T) {
 							"insufficient unused quota for cpu in flavor two, 1 more needed",
 						},
 					},
+					Count: 1,
 				}},
 			},
 		},
@@ -1227,6 +1250,7 @@ func TestAssignFlavors(t *testing.T) {
 								"untolerated taint {instance spot NoSchedule <nil>} in flavor tainted",
 							},
 						},
+						Count: 1,
 					},
 					{
 						Name: "workers",
@@ -1242,6 +1266,7 @@ func TestAssignFlavors(t *testing.T) {
 								"insufficient unused quota for cpu in flavor tainted, 3 more needed",
 							},
 						},
+						Count: 10,
 					},
 				},
 			},
@@ -1272,6 +1297,7 @@ func TestAssignFlavors(t *testing.T) {
 					Status: &Status{
 						reasons: []string{"resource example.com/gpu unavailable in ClusterQueue"},
 					},
+					Count: 1,
 				}},
 			},
 		},
@@ -1301,6 +1327,7 @@ func TestAssignFlavors(t *testing.T) {
 					Status: &Status{
 						reasons: []string{"flavor nonexistent-flavor not found"},
 					},
+					Count: 1,
 				}},
 			},
 		},
@@ -1334,6 +1361,7 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourceCPU:  resource.MustParse("3000m"),
 						corev1.ResourcePods: resource.MustParse("3"),
 					},
+					Count: 3,
 				}},
 			},
 			wantRepMode: Fit,
@@ -1366,6 +1394,7 @@ func TestAssignFlavors(t *testing.T) {
 					Status: &Status{
 						reasons: []string{fmt.Sprintf("insufficient quota for %s in flavor default in ClusterQueue", corev1.ResourcePods)},
 					},
+					Count: 3,
 				}},
 			},
 		},
@@ -1386,6 +1415,7 @@ func TestAssignFlavors(t *testing.T) {
 			if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
 				t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
 			}
+
 			if diff := cmp.Diff(tc.wantAssignment, assignment, cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{})); diff != "" {
 				t.Errorf("Unexpected assignment (-want,+got):\n%s", diff)
 			}

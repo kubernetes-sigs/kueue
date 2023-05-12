@@ -104,6 +104,10 @@ func (j *MPIJob) GetGVK() schema.GroupVersionKind {
 	return gvk
 }
 
+func (j *MPIJob) ReclaimablePods() []kueue.ReclaimablePod {
+	return nil
+}
+
 func (j *MPIJob) PodSets() []kueue.PodSet {
 	replicaTypes := orderedReplicaTypes(&j.Spec)
 	podSets := make([]kueue.PodSet, len(replicaTypes))
