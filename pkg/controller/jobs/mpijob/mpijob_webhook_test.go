@@ -85,3 +85,32 @@ func TestUpdate(t *testing.T) {
 		})
 	}
 }
+
+func TestDefault(t *testing.T) {
+	testcases := map[string]struct {
+		job                        *kubeflow.MPIJob
+		manageJobsWithoutQueueName bool
+		want                       *kubeflow.MPIJob
+	}{
+		"update the suspend field with 'manageJobsWithoutQueueName=false'": {
+			job:  testingutil.MakeMPIJob("job", "default").Queue("queue").Suspend(false).Obj(),
+			want: testingutil.MakeMPIJob("job", "default").Queue("queue").Obj(),
+		},
+		"update the suspend field 'manageJobsWithoutQueueName=true'": {
+			job:                        testingutil.MakeMPIJob("job", "default").Suspend(false).Obj(),
+			manageJobsWithoutQueueName: true,
+			want:                       testingutil.MakeMPIJob("job", "default").Obj(),
+		},
+	}
+	for name, tc := range testcases {
+		t.Run(name, func(t *testing.T) {
+			w := &MPIJobWebhook{manageJobsWithoutQueueName: tc.manageJobsWithoutQueueName}
+			if err := w.Default(context.Background(), tc.job); err != nil {
+				t.Errorf("set defaults to a kubeflow/mpijob by a Defaulter")
+			}
+			if diff := cmp.Diff(tc.want, tc.job); len(diff) != 0 {
+				t.Errorf("Default() mismatch (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
