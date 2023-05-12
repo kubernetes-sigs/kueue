@@ -111,6 +111,17 @@ type PodSet struct {
 	// count is the number of pods for the spec.
 	// +kubebuilder:validation:Minimum=1
 	Count int32 `json:"count"`
+
+	// minCount is the minimum number of pods for the spec acceptable
+	// if the workload supports partial admission.
+	//
+	// If not provided, partial admission for the current PodSet is not
+	// enabled.
+	//
+	// Only one podSet within the workload can use this.
+	//
+	// +optional
+	MinCount *int32 `json:"minCount,omitempty"`
 }
 
 // WorkloadStatus defines the observed state of Workload
