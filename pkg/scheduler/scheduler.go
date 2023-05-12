@@ -260,15 +260,57 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		} else if err := s.validateLimitRange(ctx, &w); err != nil {
 			e.inadmissibleMsg = err.Error()
 		} else {
-			e.assignment = flavorassigner.AssignFlavors(log, &e.Info, snap.ResourceFlavors, cq)
-			if e.assignment.RepresentativeMode() == flavorassigner.Preempt {
-				e.preemptionTargets = s.preemptor.GetTargets(e.Info, e.assignment, &snap)
-			}
+			e.assignment, e.preemptionTargets = s.getAssignments(log, &e.Info, &snap)
 			e.inadmissibleMsg = e.assignment.Message()
 		}
 		entries = append(entries, e)
 	}
 	return entries
+}
+
+type partialAssignment struct {
+	assignment        flavorassigner.Assignment
+	preemptionTargets []*workload.Info
+}
+
+func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cache.Snapshot) (flavorassigner.Assignment, []*workload.Info) {
+	cq := snap.ClusterQueues[wl.ClusterQueue]
+	fullAssignment := flavorassigner.AssignFlavors(log, wl, snap.ResourceFlavors, cq, nil)
+	var fullAssignmentTargets []*workload.Info
+
+	arm := fullAssignment.RepresentativeMode()
+	if arm == flavorassigner.Fit {
+		return fullAssignment, nil
+	}
+
+	if arm == flavorassigner.Preempt {
+		fullAssignmentTargets = s.preemptor.GetTargets(*wl, fullAssignment, snap)
+	}
+
+	// if we can preempt
+	if len(fullAssignmentTargets) > 0 {
+		return fullAssignment, fullAssignmentTargets
+	}
+
+	if wl.CanBePartiallyAdmitted() {
+		reducer := flavorassigner.NewPodSetReducer(wl.Obj.Spec.PodSets, func(nextCounts []int32) (*partialAssignment, bool) {
+			assignment := flavorassigner.AssignFlavors(log, wl, snap.ResourceFlavors, cq, nextCounts)
+			if assignment.RepresentativeMode() == flavorassigner.Fit {
+				return &partialAssignment{assignment: assignment}, true
+			}
+			preemptionTargets := s.preemptor.GetTargets(*wl, assignment, snap)
+			if len(preemptionTargets) > 0 {
+
+				return &partialAssignment{assignment: assignment, preemptionTargets: preemptionTargets}, true
+			}
+			return nil, false
+
+		})
+		if pa, found := reducer.Search(); found {
+			return pa.assignment, pa.preemptionTargets
+		}
+	}
+	return fullAssignment, nil
 }
 
 // validateResources validates that requested resources are less or equal

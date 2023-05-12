@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
+	"sigs.k8s.io/kueue/pkg/util/maps"
 )
 
 var (
@@ -55,6 +56,19 @@ type PodSetResources struct {
 	Flavors  map[corev1.ResourceName]kueue.ResourceFlavorReference
 }
 
+func (psr *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
+	ret := &PodSetResources{
+		Name:     psr.Name,
+		Requests: maps.Clone(psr.Requests),
+		Count:    psr.Count,
+		Flavors:  maps.Clone(psr.Flavors),
+	}
+	ret.Requests.scaleDown(int64(ret.Count))
+	ret.Requests.scaleUp(int64(newCount))
+	ret.Count = newCount
+	return ret
+}
+
 func NewInfo(w *kueue.Workload) *Info {
 	info := &Info{
 		Obj: w,
@@ -70,6 +84,16 @@ func NewInfo(w *kueue.Workload) *Info {
 
 func (i *Info) Update(wl *kueue.Workload) {
 	i.Obj = wl
+}
+
+func (i *Info) CanBePartiallyAdmitted() bool {
+	ps := i.Obj.Spec.PodSets
+	for psi := range ps {
+		if ps[psi].Count > pointer.Int32Deref(ps[psi].MinCount, ps[psi].Count) {
+			return true
+		}
+	}
+	return false
 }
 
 func Key(w *kueue.Workload) string {
