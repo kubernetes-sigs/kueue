@@ -137,20 +137,20 @@ func applySelectors(dst, src map[string]string) map[string]string {
 	return dst
 }
 
-func (j *RayJob) RunWithNodeAffinity(nodeSelectors []jobframework.PodSetNodeSelector) {
+func (j *RayJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
 	j.Spec.Suspend = false
-	if len(nodeSelectors) != len(j.Spec.RayClusterSpec.WorkerGroupSpecs)+1 {
+	if len(podSetInfos) != len(j.Spec.RayClusterSpec.WorkerGroupSpecs)+1 {
 		return
 	}
 
 	// head
 	headPodSpec := &j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec
-	headPodSpec.NodeSelector = applySelectors(headPodSpec.NodeSelector, nodeSelectors[0].NodeSelector)
+	headPodSpec.NodeSelector = applySelectors(headPodSpec.NodeSelector, podSetInfos[0].NodeSelector)
 
 	// workers
 	for index := range j.Spec.RayClusterSpec.WorkerGroupSpecs {
 		workerPodSpec := &j.Spec.RayClusterSpec.WorkerGroupSpecs[index].Template.Spec
-		workerPodSpec.NodeSelector = applySelectors(workerPodSpec.NodeSelector, nodeSelectors[index+1].NodeSelector)
+		workerPodSpec.NodeSelector = applySelectors(workerPodSpec.NodeSelector, podSetInfos[index+1].NodeSelector)
 	}
 }
 
@@ -162,22 +162,22 @@ func cloneSelectors(src map[string]string) map[string]string {
 	return dst
 }
 
-func (j *RayJob) RestoreNodeAffinity(nodeSelectors []jobframework.PodSetNodeSelector) {
-	if len(nodeSelectors) != len(j.Spec.RayClusterSpec.WorkerGroupSpecs)+1 {
+func (j *RayJob) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
+	if len(podSetInfos) != len(j.Spec.RayClusterSpec.WorkerGroupSpecs)+1 {
 		return
 	}
 
 	// head
 	headPodSpec := &j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec
-	if !equality.Semantic.DeepEqual(headPodSpec.NodeSelector, nodeSelectors[0].NodeSelector) {
-		headPodSpec.NodeSelector = cloneSelectors(nodeSelectors[0].NodeSelector)
+	if !equality.Semantic.DeepEqual(headPodSpec.NodeSelector, podSetInfos[0].NodeSelector) {
+		headPodSpec.NodeSelector = cloneSelectors(podSetInfos[0].NodeSelector)
 	}
 
 	// workers
 	for index := range j.Spec.RayClusterSpec.WorkerGroupSpecs {
 		workerPodSpec := &j.Spec.RayClusterSpec.WorkerGroupSpecs[index].Template.Spec
-		if !equality.Semantic.DeepEqual(workerPodSpec.NodeSelector, nodeSelectors[index+1].NodeSelector) {
-			workerPodSpec.NodeSelector = cloneSelectors(nodeSelectors[index+1].NodeSelector)
+		if !equality.Semantic.DeepEqual(workerPodSpec.NodeSelector, podSetInfos[index+1].NodeSelector) {
+			workerPodSpec.NodeSelector = cloneSelectors(podSetInfos[index+1].NodeSelector)
 		}
 	}
 }

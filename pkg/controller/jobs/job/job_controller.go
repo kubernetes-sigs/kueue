@@ -182,7 +182,7 @@ func (j *Job) PodSets() []kueue.PodSet {
 	}
 }
 
-func (j *Job) RunWithNodeAffinity(nodeSelectors []jobframework.PodSetNodeSelector) {
+func (j *Job) RunWithPodSetsInfo(nodeSelectors []jobframework.PodSetInfo) {
 	j.Spec.Suspend = pointer.Bool(false)
 	if len(nodeSelectors) == 0 {
 		return
@@ -197,7 +197,7 @@ func (j *Job) RunWithNodeAffinity(nodeSelectors []jobframework.PodSetNodeSelecto
 	}
 }
 
-func (j *Job) RestoreNodeAffinity(nodeSelectors []jobframework.PodSetNodeSelector) {
+func (j *Job) RestorePodSetsInfo(nodeSelectors []jobframework.PodSetInfo) {
 	if len(nodeSelectors) == 0 || equality.Semantic.DeepEqual(j.Spec.Template.Spec.NodeSelector, nodeSelectors[0].NodeSelector) {
 		return
 	}

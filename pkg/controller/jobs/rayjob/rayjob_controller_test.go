@@ -297,8 +297,8 @@ func TestNodeSelectors(t *testing.T) {
 		}).
 		Obj())
 
-	// run with Affinity should append or update the node selectors
-	job.RunWithNodeAffinity([]jobframework.PodSetNodeSelector{
+	// RunWithPodSetsInfo should append or update the node selectors
+	job.RunWithPodSetsInfo([]jobframework.PodSetInfo{
 		{
 			NodeSelector: map[string]string{
 				"newKey": "newValue",
@@ -341,7 +341,7 @@ func TestNodeSelectors(t *testing.T) {
 	}
 
 	// restore should replace node selectors
-	job.RestoreNodeAffinity([]jobframework.PodSetNodeSelector{
+	job.RestorePodSetsInfo([]jobframework.PodSetInfo{
 		{
 			NodeSelector: map[string]string{
 				// clean it all
