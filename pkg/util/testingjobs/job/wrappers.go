@@ -21,6 +21,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
@@ -131,6 +132,18 @@ func (j *JobWrapper) Image(name string, image string, args []string) *JobWrapper
 		Image:     image,
 		Args:      args,
 		Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+	}
+	return j
+}
+
+func (j *JobWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *JobWrapper {
+	j.ObjectMeta.OwnerReferences = []metav1.OwnerReference{
+		{
+			APIVersion: ownerGVK.GroupVersion().String(),
+			Kind:       ownerGVK.Kind,
+			Name:       ownerName,
+			Controller: pointer.Bool(true),
+		},
 	}
 	return j
 }

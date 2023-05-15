@@ -17,10 +17,12 @@ limitations under the License.
 package job
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
@@ -205,6 +207,44 @@ func TestValidateUpdate(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{})); diff != "" {
 				t.Errorf("validateUpdate() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestDefault(t *testing.T) {
+	testcases := map[string]struct {
+		job                        *batchv1.Job
+		manageJobsWithoutQueueName bool
+		want                       *batchv1.Job
+	}{
+		"add a parent job name to annotations": {
+			job: testingutil.MakeJob("child-job", "default").
+				OwnerReference("parent-job", kubeflow.SchemeGroupVersionKind).
+				Obj(),
+			want: testingutil.MakeJob("child-job", "default").
+				OwnerReference("parent-job", kubeflow.SchemeGroupVersionKind).
+				ParentWorkload(jobframework.GetWorkloadNameForOwnerWithGVK("parent-job", kubeflow.SchemeGroupVersionKind)).
+				Obj(),
+		},
+		"update the suspend field with 'manageJobsWithoutQueueName=false'": {
+			job:  testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
+			want: testingutil.MakeJob("job", "default").Queue("queue").Obj(),
+		},
+		"update the suspend field 'manageJobsWithoutQueueName=true'": {
+			job:                        testingutil.MakeJob("job", "default").Suspend(false).Obj(),
+			manageJobsWithoutQueueName: true,
+			want:                       testingutil.MakeJob("job", "default").Obj(),
+		},
+	}
+	for name, tc := range testcases {
+		t.Run(name, func(t *testing.T) {
+			w := &JobWebhook{manageJobsWithoutQueueName: tc.manageJobsWithoutQueueName}
+			if err := w.Default(context.Background(), tc.job); err != nil {
+				t.Errorf("set defaults to a batch/job by a Defaulter")
+			}
+			if diff := cmp.Diff(tc.want, tc.job); len(diff) != 0 {
+				t.Errorf("Default() mismatch (-want,+got):\n%s", diff)
 			}
 		})
 	}
