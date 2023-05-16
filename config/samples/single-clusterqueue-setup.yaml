@@ -4,6 +4,11 @@ metadata:
   name: "default-flavor"
 ---
 apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: "default-flavor1"
+---
+apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
 metadata:
   name: "cluster-queue"
@@ -15,9 +20,30 @@ spec:
     - name: "default-flavor"
       resources:
       - name: "cpu"
-        nominalQuota: 9
+        nominalQuota: 1
       - name: "memory"
-        nominalQuota: 36Gi
+        nominalQuota: 3Gi
+  - coveredResources: ["memory"]
+    flavors:
+    - name: "default-flavor1"
+      resources:
+      - name: "memory"
+        nominalQuota: 1Gi
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: "cluster-queue1"
+spec:
+  namespaceSelector: {} # match all.
+  cohort: "team-ab"
+  resourceGroups:
+  - coveredResources: ["cpu"]
+    flavors:
+    - name: "default-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 5
 ---
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: LocalQueue
@@ -26,4 +52,12 @@ metadata:
   name: "user-queue"
 spec:
   clusterQueue: "cluster-queue"
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: LocalQueue
+metadata:
+  namespace: "default"
+  name: "user-queue1"
+spec:
+  clusterQueue: "cluster-queue1"
 

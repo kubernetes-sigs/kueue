@@ -130,8 +130,11 @@ spec:
                   Workloads with lower priority first."
                 properties:
                   preemptBasedOnFlavorOrder:
-                    default: flase
-                    type: boolean
+                    default: AfterAllFlavors
+                    enum:
+                    - BeforeNextFlavor
+                    - AfterAllFlavors
+                    type: string
                   reclaimWithinCohort:
                     default: Never
                     description: "reclaimWithinCohort determines whether a pending
