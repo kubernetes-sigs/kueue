@@ -29,5 +29,5 @@ quotas and queues.
 A _batch user_ runs [workloads](/docs/concepts/workload). A typical
 batch user is a researcher, AI/ML engineer, data scientist, among others.
 
-- As a batch user, you can learn how to [run a job](/docs/tasks/run_jobs) to
-  run a Workload.
+- As a batch user, you can learn how to [run a Kueue managed batch/Job](/docs/tasks/run_jobs).
+- As a batch user, you can learn how to [run a Kueue managed KubeRay RayJob](/docs/tasks/run_rayjobs).
