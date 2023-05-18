@@ -1,5 +1,7 @@
 # Kueue
 
+<img src="https://github.com/kubernetes-sigs/kueue/blob/main/site/static/images/logo.svg" width="100" alt="kueue logo">
+
 Kueue is a set of APIs and controller for [job](https://kueue.sigs.k8s.io/docs/concepts/workload)
 [queueing](https://kueue.sigs.k8s.io/docs/concepts#queueing). It is a job-level manager that decides when
 a job should be [admitted](https://kueue.sigs.k8s.io/docs/concepts#admission) to start (as in pods can be
