@@ -208,29 +208,29 @@ func compareCallbacks(x, y interface{}) bool {
 func TestForEach(t *testing.T) {
 	foeEachError := errors.New("test error")
 	cases := map[string]struct {
-		registerd []string
-		errorOn   string
-		wantCalls []string
-		wantError error
+		registered []string
+		errorOn    string
+		wantCalls  []string
+		wantError  error
 	}{
 		"all": {
-			registerd: []string{"a", "b", "c", "d", "e"},
-			errorOn:   "",
-			wantCalls: []string{"a", "b", "c", "d", "e"},
-			wantError: nil,
+			registered: []string{"a", "b", "c", "d", "e"},
+			errorOn:    "",
+			wantCalls:  []string{"a", "b", "c", "d", "e"},
+			wantError:  nil,
 		},
 		"partial": {
-			registerd: []string{"a", "b", "c", "d", "e"},
-			errorOn:   "c",
-			wantCalls: []string{"a", "b", "c"},
-			wantError: foeEachError,
+			registered: []string{"a", "b", "c", "d", "e"},
+			errorOn:    "c",
+			wantCalls:  []string{"a", "b", "c"},
+			wantError:  foeEachError,
 		},
 	}
 
 	for tcName, tc := range cases {
 		t.Run(tcName, func(t *testing.T) {
 			manager := integrationManager{}
-			for _, name := range tc.registerd {
+			for _, name := range tc.registered {
 				if err := manager.register(name, testIntegrationCallbacks); err != nil {
 					t.Fatalf("unable to register %s, %s", name, err.Error())
 				}
