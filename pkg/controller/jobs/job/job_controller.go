@@ -124,6 +124,8 @@ type Job struct {
 	*batchv1.Job
 }
 
+var _ jobframework.GenericJob = &Job{}
+
 func (j *Job) Object() client.Object {
 	return j.Job
 }

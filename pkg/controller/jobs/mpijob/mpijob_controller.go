@@ -71,6 +71,8 @@ type MPIJob struct {
 	*kubeflow.MPIJob
 }
 
+var _ jobframework.GenericJob = &MPIJob{}
+
 func (j *MPIJob) Object() client.Object {
 	return j.MPIJob
 }
