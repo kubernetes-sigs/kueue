@@ -202,6 +202,16 @@ func (p *PodSetWrapper) Toleration(t corev1.Toleration) *PodSetWrapper {
 	return p
 }
 
+func (p *PodSetWrapper) Containers(containers ...corev1.Container) *PodSetWrapper {
+	p.Template.Spec.Containers = containers
+	return p
+}
+
+func (p *PodSetWrapper) InitContainers(containers ...corev1.Container) *PodSetWrapper {
+	p.Template.Spec.InitContainers = containers
+	return p
+}
+
 // AdmissionWrapper wraps an Admission
 type AdmissionWrapper struct{ kueue.Admission }
 

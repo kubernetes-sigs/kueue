@@ -145,3 +145,8 @@ func (j *JobWrapper) WithPriorityClassName(value string) *JobWrapper {
 	j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.PriorityClassName = value
 	return j
 }
+
+func (j *JobWrapper) WithWorkerPriorityClassName(value string) *JobWrapper {
+	j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.PriorityClassName = value
+	return j
+}
