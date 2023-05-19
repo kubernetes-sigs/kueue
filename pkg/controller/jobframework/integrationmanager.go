@@ -107,7 +107,7 @@ func (m *integrationManager) getList() []string {
 	return ret
 }
 
-// RegisterIntegration registeres a new framework, returns an error when
+// RegisterIntegration registers a new framework, returns an error when
 // attempting to register multiple frameworks with the same name of if a
 // mandatory callback is missing.
 func RegisterIntegration(name string, cb IntegrationCallbacks) error {
