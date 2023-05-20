@@ -159,6 +159,9 @@ func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []co
 	}
 
 	for i, rq := range flavorQuotas.Resources {
+		if i >= len(coveredResources) {
+			break
+		}
 		path := path.Child("resources").Index(i)
 		if rq.Name != coveredResources[i] {
 			allErrs = append(allErrs, field.Invalid(path.Child("name"), rq.Name, "must match the name in coveredResources"))
