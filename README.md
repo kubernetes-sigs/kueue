@@ -1,5 +1,13 @@
 # Kueue
 
+[![GoReport Widget]][GoReport Status]
+[![Latest Release](https://img.shields.io/github/v/release/kubernetes-sigs/kueue?include_prereleases)](https://github.com/kubernetes-sigs/kueue/releases/latest)
+
+[GoReport Widget]: https://goreportcard.com/badge/github.com/kubernetes-sigs/kueue
+[GoReport Status]: https://goreportcard.com/report/github.com/kubernetes-sigs/kueue
+
+<img src="https://github.com/kubernetes-sigs/kueue/blob/main/site/static/images/logo.svg" width="100" alt="kueue logo">
+
 Kueue is a set of APIs and controller for [job](https://kueue.sigs.k8s.io/docs/concepts/workload)
 [queueing](https://kueue.sigs.k8s.io/docs/concepts#queueing). It is a job-level manager that decides when
 a job should be [admitted](https://kueue.sigs.k8s.io/docs/concepts#admission) to start (as in pods can be
