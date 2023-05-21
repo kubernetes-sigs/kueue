@@ -22,6 +22,15 @@ import (
 	"k8s.io/component-base/featuregate"
 )
 
+const (
+	// owner: @kerthcet
+	// kep: <link to kep>
+	// alpha: v0.3.1
+	//
+	// TODO: This is for reference. Remove it once we have real feature gates.
+	FeatureGateForTest featuregate.Feature = "FeatureGateForTest"
+)
+
 func init() {
 	runtime.Must(utilfeature.DefaultMutableFeatureGate.Add(defaultFeatureGates))
 }
@@ -32,4 +41,6 @@ func init() {
 //
 // Entries are separated from each other with blank lines to avoid sweeping gofmt changes
 // when adding or removing one entry.
-var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{}
+var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
+	FeatureGateForTest: {Default: false, PreRelease: featuregate.Alpha},
+}
