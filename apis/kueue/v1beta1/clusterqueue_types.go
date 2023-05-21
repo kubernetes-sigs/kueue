@@ -278,6 +278,7 @@ type ClusterQueuePreemption struct {
 	WithinClusterQueue PreemptionPolicy `json:"withinClusterQueue,omitempty"`
 }
 
+//+genclient
 //+kubebuilder:object:root=true
 //+kubebuilder:storageversion
 //+kubebuilder:resource:scope=Cluster
