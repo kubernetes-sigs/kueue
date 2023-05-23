@@ -159,13 +159,17 @@ func (s *Scheduler) schedule(ctx context.Context) {
 		log := log.WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue))
 		ctx := ctrl.LoggerInto(ctx, log)
 		if e.assignment.RepresentativeMode() != flavorassigner.Fit {
-			preempted, err := s.preemptor.Do(ctx, e.Info, e.assignment, &snapshot)
-			if err != nil {
-				log.Error(err, "Failed to preempt workloads")
-			}
-			if preempted != 0 {
-				e.inadmissibleMsg += fmt.Sprintf(". Pending the preemption of %d workload(s)", preempted)
-				e.requeueReason = queue.RequeueReasonPendingPreemption
+			if len(e.preemptionTargets) != 0 {
+				preempted, err := s.preemptor.IssuePreemptions(ctx, e.preemptionTargets, cq)
+				if err != nil {
+					log.Error(err, "Failed to preempt workloads")
+				}
+				if preempted != 0 {
+					e.inadmissibleMsg += fmt.Sprintf(". Pending the preemption of %d workload(s)", preempted)
+					e.requeueReason = queue.RequeueReasonPendingPreemption
+				}
+			} else {
+				log.V(2).Info("Workload requires preemption, but there are no candidate workloads allowed for preemption", "preemptionReclaimWithinCohort", cq.Preemption.ReclaimWithinCohort, "preemptionWithinClusterQueue", cq.Preemption.WithinClusterQueue)
 			}
 			continue
 		}
@@ -222,10 +226,11 @@ type entry struct {
 	// workload.Info holds the workload from the API as well as resource usage
 	// and flavors assigned.
 	workload.Info
-	assignment      flavorassigner.Assignment
-	status          entryStatus
-	inadmissibleMsg string
-	requeueReason   queue.RequeueReason
+	assignment        flavorassigner.Assignment
+	status            entryStatus
+	inadmissibleMsg   string
+	requeueReason     queue.RequeueReason
+	preemptionTargets []*workload.Info
 }
 
 // nominate returns the workloads with their requirements (resource flavors, borrowing) if
@@ -256,6 +261,9 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 			e.inadmissibleMsg = err.Error()
 		} else {
 			e.assignment = flavorassigner.AssignFlavors(log, &e.Info, snap.ResourceFlavors, cq)
+			if e.assignment.RepresentativeMode() == flavorassigner.Preempt {
+				e.preemptionTargets = s.preemptor.GetTargets(e.Info, e.assignment, &snap)
+			}
 			e.inadmissibleMsg = e.assignment.Message()
 		}
 		entries = append(entries, e)

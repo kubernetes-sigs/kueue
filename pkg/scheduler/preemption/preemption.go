@@ -74,16 +74,14 @@ func candidatesOnlyFromQueue(candidates []*workload.Info, clusterQueue string) [
 	return result
 }
 
-func (p *Preemptor) Do(ctx context.Context, wl workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot) (int, error) {
-	log := ctrl.LoggerFrom(ctx)
-
+// GetTargets returns the list of workloads that should be evicted in order to make room for wl.
+func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot) []*workload.Info {
 	resPerFlv := resourcesRequiringPreemption(assignment)
 	cq := snapshot.ClusterQueues[wl.ClusterQueue]
 
 	candidates := findCandidates(wl.Obj, cq, resPerFlv)
 	if len(candidates) == 0 {
-		log.V(2).Info("Workload requires preemption, but there are no candidate workloads allowed for preemption", "preemptionReclaimWithinCohort", cq.Preemption.ReclaimWithinCohort, "preemptionWithinClusterQueue", cq.Preemption.WithinClusterQueue)
-		return 0, nil
+		return nil
 	}
 	sort.Slice(candidates, candidatesOrdering(candidates, cq.Name, time.Now()))
 
@@ -112,15 +110,11 @@ func (p *Preemptor) Do(ctx context.Context, wl workload.Info, assignment flavora
 		}
 	}
 
-	if len(targets) == 0 {
-		log.V(2).Info("Workload requires preemption, but there are not enough candidate workloads allowed for preemption")
-		return 0, nil
-	}
-
-	return p.issuePreemptions(ctx, targets, cq)
+	return targets
 }
 
-func (p *Preemptor) issuePreemptions(ctx context.Context, targets []*workload.Info, cq *cache.ClusterQueue) (int, error) {
+// IssuePreemptions marks the target workloads as evicted.
+func (p *Preemptor) IssuePreemptions(ctx context.Context, targets []*workload.Info, cq *cache.ClusterQueue) (int, error) {
 	log := ctrl.LoggerFrom(ctx)
 	errCh := routine.NewErrorChannel()
 	ctx, cancel := context.WithCancel(ctx)
