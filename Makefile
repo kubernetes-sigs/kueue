@@ -27,6 +27,8 @@ GO_VERSION := $(shell awk '/^go /{print $$2}' go.mod|head -n1)
 
 # Use go.mod go version as a single source of truth of MPI version.
 MPI_VERSION := $(shell awk '/mpi-operator/{print $$2}' go.mod|head -n1)
+# Use go.mod go version as a single source of truth of Ginkgo version.
+GINKGO_VERSION ?= $(shell $(GO_CMD) list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)
 
 GIT_TAG ?= $(shell git describe --tags --dirty --always)
 # Image URL to use all building/pushing image targets
@@ -271,7 +273,7 @@ envtest: ## Download envtest-setup locally if necessary.
 GINKGO = $(shell pwd)/bin/ginkgo
 .PHONY: ginkgo
 ginkgo: ## Download ginkgo locally if necessary.
-	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install github.com/onsi/ginkgo/v2/ginkgo@v2.1.4
+	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install github.com/onsi/ginkgo/v2/ginkgo@$(GINKGO_VERSION)
 
 GOTESTSUM = $(shell pwd)/bin/gotestsum
 .PHONY: gotestsum
