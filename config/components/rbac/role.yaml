@@ -81,6 +81,7 @@ rules:
   - jobs/status
   verbs:
   - get
+  - update
 - apiGroups:
   - kubeflow.org
   resources:
@@ -97,6 +98,7 @@ rules:
   - mpijobs/status
   verbs:
   - get
+  - update
 - apiGroups:
   - kueue.x-k8s.io
   resources:
