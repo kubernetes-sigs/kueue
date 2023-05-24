@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -89,6 +90,9 @@ func main() {
 		"The controller will load its initial configuration from this file. "+
 			"Omit this flag to use the default configuration values. ")
 
+	var featureGates string
+	flag.StringVar(&featureGates, "feature-gates", "", "A set of key=value pairs that describe feature gates for alpha/experimental features.")
+
 	opts := zap.Options{
 		TimeEncoder: zapcore.RFC3339NanoTimeEncoder,
 		ZapOpts:     []zaplog.Option{zaplog.AddCaller()},
@@ -96,11 +100,17 @@ func main() {
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
+	if err := utilfeature.DefaultMutableFeatureGate.Set(featureGates); err != nil {
+		setupLog.Error(err, "Unable to set flag gates for known features")
+		os.Exit(1)
+	}
+
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	setupLog.Info("Initializing", "gitVersion", version.GitVersion, "gitCommit", version.GitCommit)
 
 	options, cfg, err := apply(configFile)
 	if err != nil {
+		setupLog.Error(err, "Unable to load the configuration")
 		os.Exit(1)
 	}
 
@@ -293,7 +303,6 @@ func apply(configFile string) (ctrl.Options, config.Configuration, error) {
 		options, err = options.AndFrom(ctrl.ConfigFile().AtPath(configFile).OfKind(&cfg))
 	}
 	if err != nil {
-		setupLog.Error(err, "unable to load the config")
 		return options, cfg, err
 	}
 
@@ -308,14 +317,12 @@ func apply(configFile string) (ctrl.Options, config.Configuration, error) {
 		}
 		if len(errorlist) > 0 {
 			err := errorlist.ToAggregate()
-			setupLog.Error(err, "unknown framework", "available", jobframework.GetIntegrationsList())
 			return options, cfg, err
 		}
 	}
 
 	cfgStr, err := encodeConfig(&cfg)
 	if err != nil {
-		setupLog.Error(err, "unable to encode the config")
 		return options, cfg, err
 	}
 	setupLog.Info("Successfully loaded configuration", "config", cfgStr)
