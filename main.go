@@ -110,6 +110,7 @@ func main() {
 
 	options, cfg, err := apply(configFile)
 	if err != nil {
+		setupLog.Error(err, "Unable to load the configuration")
 		os.Exit(1)
 	}
 
@@ -302,7 +303,6 @@ func apply(configFile string) (ctrl.Options, config.Configuration, error) {
 		options, err = options.AndFrom(ctrl.ConfigFile().AtPath(configFile).OfKind(&cfg))
 	}
 	if err != nil {
-		setupLog.Error(err, "unable to load the config")
 		return options, cfg, err
 	}
 
@@ -317,14 +317,12 @@ func apply(configFile string) (ctrl.Options, config.Configuration, error) {
 		}
 		if len(errorlist) > 0 {
 			err := errorlist.ToAggregate()
-			setupLog.Error(err, "unknown framework", "available", jobframework.GetIntegrationsList())
 			return options, cfg, err
 		}
 	}
 
 	cfgStr, err := encodeConfig(&cfg)
 	if err != nil {
-		setupLog.Error(err, "unable to encode the config")
 		return options, cfg, err
 	}
 	setupLog.Info("Successfully loaded configuration", "config", cfgStr)
