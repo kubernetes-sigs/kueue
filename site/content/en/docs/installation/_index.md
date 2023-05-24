@@ -110,6 +110,11 @@ data:
     waitForPodsReady:
       enable: true
       timeout: 10m
+    integrations:
+      frameworks:
+      - "batch/job"
+    # - "kubeflow.org/mpijob"
+    # - "ray.io/rayjob"
 ```
 
 __The `namespace`, `waitForPodsReady`, and `internalCertManagement` fields are available in Kueue v0.3.0 and later__
