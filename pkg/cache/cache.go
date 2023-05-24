@@ -112,6 +112,15 @@ func newCohort(name string, size int) *Cohort {
 	}
 }
 
+func (c *Cohort) HasBorrowingQueues() bool {
+	for cq := range c.Members {
+		if cq.IsBorrowing() {
+			return true
+		}
+	}
+	return false
+}
+
 const (
 	pending     = metrics.CQStatusPending
 	active      = metrics.CQStatusActive
@@ -137,6 +146,25 @@ type ClusterQueue struct {
 	// Key is localQueue's key (namespace/name).
 	localQueues       map[string]*queue
 	podsReadyTracking bool
+}
+
+func (cq *ClusterQueue) IsBorrowing() bool {
+	if cq.Cohort == nil || len(cq.Usage) == 0 {
+		return false
+	}
+	for _, rg := range cq.ResourceGroups {
+		for _, flvQuotas := range rg.Flavors {
+			if flvUsage, isUsing := cq.Usage[flvQuotas.Name]; isUsing {
+				for rName, rQuota := range flvQuotas.Resources {
+					used := flvUsage[rName]
+					if used > rQuota.Nominal {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
 }
 
 type queue struct {
