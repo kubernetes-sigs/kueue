@@ -202,6 +202,23 @@ rules:
   - list
   - watch
 - apiGroups:
+  - ray.io
+  resources:
+  - rayjobs
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ray.io
+  resources:
+  - rayjobs/status
+  verbs:
+  - get
+  - update
+- apiGroups:
   - scheduling.k8s.io
   resources:
   - priorityclasses

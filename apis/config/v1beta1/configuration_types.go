@@ -111,5 +111,6 @@ type Integrations struct {
 	// Possible options:
 	//  - "batch/job"
 	//  - "kubeflow.org/mpijob"
+	//  - "ray.io/rayjob"
 	Frameworks []string `json:"frameworks,omitempty"`
 }

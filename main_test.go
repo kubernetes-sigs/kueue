@@ -414,7 +414,7 @@ integrations:
 		{
 			name:       "bad integrations config",
 			configFile: badIntegrationsConfig,
-			wantError:  fmt.Errorf("integrations.frameworks: Unsupported value: \"unregistered/jobframework\": supported values: \"batch/job\", \"kubeflow.org/mpijob\""),
+			wantError:  fmt.Errorf("integrations.frameworks: Unsupported value: \"unregistered/jobframework\": supported values: \"batch/job\", \"kubeflow.org/mpijob\", \"ray.io/rayjob\""),
 		},
 	}
 

@@ -26,6 +26,7 @@ import (
 	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	rayjobapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -80,6 +81,9 @@ func (f *Framework) Setup() (context.Context, *rest.Config, client.Client) {
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = kubeflow.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = rayjobapi.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme
