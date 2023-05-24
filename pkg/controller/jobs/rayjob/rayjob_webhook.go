@@ -18,6 +18,7 @@ package rayjob
 
 import (
 	"context"
+	"fmt"
 
 	rayjobapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -104,6 +105,13 @@ func (w *RayJobWebhook) validateCreate(job *rayjobapi.RayJob) field.ErrorList {
 		// Should limit the worker count to 8 - 1 (max podSets num - cluster head)
 		if len(clusterSpec.WorkerGroupSpecs) > 7 {
 			allErrors = append(allErrors, field.TooMany(clusterSpecPath.Child("workerGroupSpecs"), len(clusterSpec.WorkerGroupSpecs), 7))
+		}
+
+		// None of the workerGroups should be named "head"
+		for i := range clusterSpec.WorkerGroupSpecs {
+			if clusterSpec.WorkerGroupSpecs[i].GroupName == headGroupPodSetName {
+				allErrors = append(allErrors, field.Forbidden(clusterSpecPath.Child("workerGroupSpecs").Index(i).Child("groupName"), fmt.Sprintf("%q is reserved for the head group", headGroupPodSetName)))
+			}
 		}
 	}
 

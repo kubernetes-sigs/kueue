@@ -39,6 +39,10 @@ var (
 	FrameworkName = "ray.io/rayjob"
 )
 
+const (
+	headGroupPodSetName = "head"
+)
+
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:  SetupIndexes,
@@ -102,7 +106,7 @@ func (j *RayJob) PodSets() []kueue.PodSet {
 
 	// head
 	podSets[0] = kueue.PodSet{
-		Name:     "head",
+		Name:     headGroupPodSetName,
 		Template: *j.Spec.RayClusterSpec.HeadGroupSpec.Template.DeepCopy(),
 		Count:    1,
 	}

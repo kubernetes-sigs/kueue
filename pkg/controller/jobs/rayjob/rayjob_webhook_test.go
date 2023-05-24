@@ -18,6 +18,7 @@ package rayjob
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -136,6 +137,16 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.TooMany(field.NewPath("spec", "rayClusterSpec", "workerGroupSpecs"), 8, 7),
+			}.ToAggregate(),
+		},
+		"worker group uses head name": {
+			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
+				WithWorkerGroups(rayjobapi.WorkerGroupSpec{
+					GroupName: headGroupPodSetName,
+				}).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(field.NewPath("spec", "rayClusterSpec", "workerGroupSpecs").Index(0).Child("groupName"), fmt.Sprintf("%q is reserved for the head group", headGroupPodSetName)),
 			}.ToAggregate(),
 		},
 	}
