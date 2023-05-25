@@ -17,3 +17,9 @@ filters:
   "^go\\.(mod|sum)$":
     approvers:
     - kerthcet
+  "^(Make|Docker)file$":
+    approvers:
+    - tenzen-y
+  "^cloudbuild\\.yaml$":
+    approvers:
+    - tenzen-y
