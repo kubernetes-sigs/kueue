@@ -25,8 +25,6 @@ GO_TEST_FLAGS ?= -race
 # Use go.mod go version as a single source of truth of GO version.
 GO_VERSION := $(shell awk '/^go /{print $$2}' go.mod|head -n1)
 
-# Use go.mod go version as a single source of truth of MPI version.
-MPI_VERSION := $(shell awk '/mpi-operator/{print $$2}' go.mod|head -n1)
 # Use go.mod go version as a single source of truth of Ginkgo version.
 GINKGO_VERSION ?= $(shell $(GO_CMD) list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)
 
@@ -283,12 +281,12 @@ KIND = $(shell pwd)/bin/kind
 .PHONY: kind
 kind:
 	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kind@v0.16.0
+
+MPIROOT = $(shell go list -m -f "{{.Dir}}" github.com/kubeflow/mpi-operator)
 .PHONY: mpi-operator-crd
 mpi-operator-crd:
-	GOPATH=/tmp GO111MODULE=on $(GO_CMD) install github.com/kubeflow/mpi-operator/cmd/mpi-operator@$(MPI_VERSION)
 	mkdir -p $(shell pwd)/dep-crds/mpi-operator/
-	cp -f /tmp/pkg/mod/github.com/kubeflow/mpi-operator@$(MPI_VERSION)/manifests/base/* $(shell pwd)/dep-crds/mpi-operator/
-
+	cp -f $(MPIROOT)/manifests/base/* $(shell pwd)/dep-crds/mpi-operator/
 
 RAYROOT = $(shell go list -m -f "{{.Dir}}" github.com/ray-project/kuberay/ray-operator)
 .PHONY: ray-operator-crd
