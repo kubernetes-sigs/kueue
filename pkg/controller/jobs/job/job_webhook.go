@@ -22,6 +22,7 @@ import (
 	"strconv"
 
 	batchv1 "k8s.io/api/batch/v1"
+	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -36,7 +37,8 @@ import (
 )
 
 var (
-	minPodsCountAnnotationsPath = field.NewPath("metadata", "annotations").Key(JobMinParallelismAnnotation)
+	minPodsCountAnnotationsPath   = field.NewPath("metadata", "annotations").Key(JobMinParallelismAnnotation)
+	syncCompletionAnnotationsPath = field.NewPath("metadata", "annotations").Key(JobCompletionsEqualParallelismAnnotation)
 )
 
 type JobWebhook struct {
@@ -81,6 +83,7 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	}
 
 	jobframework.ApplyDefaultForSuspend(job, w.manageJobsWithoutQueueName)
+
 	return nil
 }
 
@@ -117,6 +120,20 @@ func validatePartialAdmissionCreate(job *Job) field.ErrorList {
 			}
 		}
 	}
+	if strVal, found := job.Annotations[JobCompletionsEqualParallelismAnnotation]; found {
+		enabled, err := strconv.ParseBool(strVal)
+		if err != nil {
+			allErrs = append(allErrs, field.Invalid(syncCompletionAnnotationsPath, job.Annotations[JobCompletionsEqualParallelismAnnotation], err.Error()))
+		}
+		if enabled {
+			if job.Spec.CompletionMode == nil || *job.Spec.CompletionMode == batchv1.NonIndexedCompletion {
+				allErrs = append(allErrs, field.Invalid(syncCompletionAnnotationsPath, job.Annotations[JobCompletionsEqualParallelismAnnotation], "should not be enabled for NonIndexed jobs"))
+			}
+			if pointer.Int32Deref(job.Spec.Parallelism, 1) != pointer.Int32Deref(job.Spec.Completions, 1) {
+				allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "completions"), job.Spec.Completions, fmt.Sprintf("should be equal to parallelism when %s is annotation is true", JobCompletionsEqualParallelismAnnotation)))
+			}
+		}
+	}
 	return allErrs
 }
 
@@ -143,6 +160,10 @@ func validatePartialAdmissionUpdate(oldJob, newJob *Job) field.ErrorList {
 		if !oldJob.IsSuspended() && pointer.Int32Deref(oldJob.Spec.Parallelism, 1) != pointer.Int32Deref(newJob.Spec.Parallelism, 1) {
 			allErrs = append(allErrs, field.Forbidden(field.NewPath("spec", "parallelism"), "cannot change when partial admission is enabled and the job is not suspended"))
 		}
+	}
+
+	if oldJob.IsSuspended() == newJob.IsSuspended() && !newJob.IsSuspended() && oldJob.syncCompletionWithParallelism() != newJob.syncCompletionWithParallelism() {
+		allErrs = append(allErrs, field.Forbidden(syncCompletionAnnotationsPath, fmt.Sprintf("%s while the job is not suspended", apivalidation.FieldImmutableErrorMsg)))
 	}
 	return allErrs
 }

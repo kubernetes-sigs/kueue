@@ -18,16 +18,19 @@ package job
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	batchv1 "k8s.io/api/batch/v1"
+	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/util/pointer"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 
 	// without this only the job framework is registered
@@ -135,6 +138,63 @@ func TestValidateCreate(t *testing.T) {
 				Parallelism(4).
 				Completions(6).
 				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			wantErr: nil,
+		},
+		{
+			name: "invalid sync completions annotation (format)",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "-").
+				Indexed(true).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(syncCompletionAnnotationsPath, "-", "strconv.ParseBool: parsing \"-\": invalid syntax"),
+			},
+		},
+		{
+			name: "valid sync completions annotation, wrong completions count",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "true").
+				Indexed(true).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "completions"), pointer.Int32(6), fmt.Sprintf("should be equal to parallelism when %s is annotation is true", JobCompletionsEqualParallelismAnnotation)),
+			},
+		},
+		{
+			name: "valid sync completions annotation, wrong job completions type (default)",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "true").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(syncCompletionAnnotationsPath, "true", "should not be enabled for NonIndexed jobs"),
+			},
+		},
+		{
+			name: "valid sync completions annotation, wrong job completions type",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "true").
+				Indexed(false).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(syncCompletionAnnotationsPath, "true", "should not be enabled for NonIndexed jobs"),
+			},
+		},
+		{
+			name: "valid sync completions annotation",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "true").
+				Indexed(true).
 				Obj(),
 			wantErr: nil,
 		},
@@ -251,6 +311,40 @@ func TestValidateUpdate(t *testing.T) {
 				Parallelism(5).
 				Completions(6).
 				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			wantErr: nil,
+		},
+		{
+			name: "immutable sync completion annotation while unsuspended",
+			oldJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "true").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				Parallelism(5).
+				Completions(6).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "false").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(syncCompletionAnnotationsPath, fmt.Sprintf("%s while the job is not suspended", apivalidation.FieldImmutableErrorMsg)),
+			},
+		},
+		{
+			name: "mutable sync completion annotation while suspended",
+			oldJob: testingutil.MakeJob("job", "default").
+				Suspend(true).
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "true").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				Parallelism(5).
+				Completions(6).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "false").
 				Obj(),
 			wantErr: nil,
 		},
