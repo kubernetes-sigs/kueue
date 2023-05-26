@@ -47,16 +47,16 @@ Read the [installation guide](https://kueue.sigs.k8s.io/docs/installation/) to l
 
 ## Usage
 
-A minimal configuration can be set by running the [samples](config/samples):
+A minimal configuration can be set by running the [examples](examples):
 
 ```shell
-kubectl apply -f config/samples/single-clusterqueue-setup.yaml
+kubectl apply -f examples/single-clusterqueue-setup.yaml
 ```
 
 Then you can run a job with:
 
 ```shell
-kubectl create -f config/samples/sample-job.yaml
+kubectl create -f examples/sample-job.yaml
 ```
 
 Learn more about:
