@@ -13,7 +13,7 @@ approvers:
 
 
 # The target maturity stage in the current dev cycle for this KEP.
-stage: stable
+stage: alpha
 
 # The most recent milestone for which work toward delivery of this KEP has been
 # done. This can be the current (upcoming) milestone, if it is being actively
@@ -22,5 +22,9 @@ latest-milestone: "v0.4"
 
 # The milestone at which this feature was, or is targeted to be, at each stage.
 milestone:
-  stable: "v0.5"
+  alpha: "v0.4"
+  beta: "v0.5"
+  stable: "v0.6"
 
+feature-gates:
+  - name: PartialAdmission

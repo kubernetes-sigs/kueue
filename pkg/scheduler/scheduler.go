@@ -38,6 +38,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
@@ -287,8 +288,8 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 		fullAssignmentTargets = s.preemptor.GetTargets(*wl, fullAssignment, snap)
 	}
 
-	// if we can preempt
-	if len(fullAssignmentTargets) > 0 {
+	// if the feature gate is not enabled or we can preempt
+	if !features.Enabled(features.PartialAdmission) || len(fullAssignmentTargets) > 0 {
 		return fullAssignment, fullAssignmentTargets
 	}
 

@@ -120,6 +120,8 @@ type PodSet struct {
 	//
 	// Only one podSet within the workload can use this.
 	//
+	// This is an alpha field and requires enabling PartialAdmission feature gate.
+	//
 	// +optional
 	MinCount *int32 `json:"minCount,omitempty"`
 }

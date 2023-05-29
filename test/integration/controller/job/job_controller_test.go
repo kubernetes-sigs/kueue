@@ -35,6 +35,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -1081,6 +1082,11 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 	})
 
 	ginkgo.It("Should schedule jobs when partial admission is enabled", func() {
+		origPartialAdmission := features.Enabled(features.PartialAdmission)
+		ginkgo.By("enable partial admission", func() {
+			gomega.Expect(features.SetEnable(features.PartialAdmission, true)).To(gomega.Succeed())
+		})
+
 		prodLocalQ = testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
 		job1 := testingjob.MakeJob("job1", ns.Name).
 			Queue(prodLocalQ.Name).
@@ -1148,6 +1154,10 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 				return createdJob.Spec.Suspend
 			}, util.Timeout, util.Interval).Should(gomega.Equal(pointer.Bool(true)))
 			gomega.Expect(*createdJob.Spec.Parallelism).To(gomega.BeEquivalentTo(5))
+		})
+
+		ginkgo.By("restore partial admission", func() {
+			gomega.Expect(features.SetEnable(features.PartialAdmission, origPartialAdmission)).To(gomega.Succeed())
 		})
 	})
 })

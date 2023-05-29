@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -62,6 +63,13 @@ func (w *WorkloadWebhook) Default(ctx context.Context, obj runtime.Object) error
 		podSet := &wl.Spec.PodSets[0]
 		if len(podSet.Name) == 0 {
 			podSet.Name = kueue.DefaultPodSetName
+		}
+	}
+
+	// drop minCounts if PartialAdmission is not enabled
+	if !features.Enabled(features.PartialAdmission) {
+		for i := range wl.Spec.PodSets {
+			wl.Spec.PodSets[i].MinCount = nil
 		}
 	}
 	return nil
