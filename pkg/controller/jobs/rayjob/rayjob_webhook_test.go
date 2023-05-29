@@ -25,7 +25,7 @@ import (
 	rayjobapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
-	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 )
@@ -217,7 +217,7 @@ func TestValidateUpdate(t *testing.T) {
 				ShutdownAfterJobFinishes(true).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Forbidden(field.NewPath("metadata", "labels").Key(jobframework.QueueLabel), "must not update queue name when job is unsuspend"),
+				field.Forbidden(field.NewPath("metadata", "labels").Key(constants.QueueLabel), "must not update queue name when job is unsuspend"),
 			}.ToAggregate(),
 		},
 		"managed - queue name can change while suspended": {

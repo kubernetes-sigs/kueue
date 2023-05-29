@@ -26,6 +26,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 )
@@ -37,11 +38,11 @@ const (
 var (
 	annotationsPath          = field.NewPath("metadata", "annotations")
 	labelsPath               = field.NewPath("metadata", "labels")
-	parentWorkloadKeyPath    = annotationsPath.Key(jobframework.ParentWorkloadAnnotation)
-	queueNameLabelPath       = labelsPath.Key(jobframework.QueueLabel)
-	queueNameAnnotationsPath = annotationsPath.Key(jobframework.QueueAnnotation)
+	parentWorkloadKeyPath    = annotationsPath.Key(constants.ParentWorkloadAnnotation)
+	queueNameLabelPath       = labelsPath.Key(constants.QueueLabel)
+	queueNameAnnotationsPath = annotationsPath.Key(constants.QueueAnnotation)
 
-	originalNodeSelectorsKeyPath = annotationsPath.Key(jobframework.OriginalNodeSelectorsAnnotation)
+	originalNodeSelectorsKeyPath = annotationsPath.Key(constants.OriginalNodeSelectorsAnnotation)
 )
 
 func TestValidateCreate(t *testing.T) {

@@ -22,7 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 )
 
@@ -92,7 +92,7 @@ func (j *JobWrapper) Queue(queue string) *JobWrapper {
 	if j.Labels == nil {
 		j.Labels = make(map[string]string)
 	}
-	j.Labels[jobframework.QueueLabel] = queue
+	j.Labels[constants.QueueLabel] = queue
 	return j
 }
 

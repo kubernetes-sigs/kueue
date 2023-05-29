@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
@@ -57,7 +58,7 @@ func TestAPIs(t *testing.T) {
 	)
 }
 
-func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
+func managerSetup(setupJobManager bool, opts ...jobframework.Option) framework.ManagerSetup {
 	return func(mgr manager.Manager, ctx context.Context) {
 		reconciler := mpijob.NewReconciler(
 			mgr.GetScheme(),
@@ -70,6 +71,20 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = mpijob.SetupMPIJobWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		if setupJobManager {
+			jobReconciler := job.NewReconciler(
+				mgr.GetScheme(),
+				mgr.GetClient(),
+				mgr.GetEventRecorderFor(constants.JobControllerName),
+				opts...)
+			err = job.SetupIndexes(ctx, mgr.GetFieldIndexer())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = jobReconciler.SetupWithManager(mgr)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			err = job.SetupWebhook(mgr, opts...)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
 	}
 }
 
