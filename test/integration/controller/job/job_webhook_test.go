@@ -34,16 +34,17 @@ import (
 var _ = ginkgo.Describe("Job Webhook", func() {
 	var ns *corev1.Namespace
 
-	ginkgo.When("With manageJobsWithoutQueueName enabled", func() {
+	ginkgo.When("With manageJobsWithoutQueueName enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 
-		ginkgo.BeforeEach(func() {
+		ginkgo.BeforeAll(func() {
 			fwk = &framework.Framework{
 				ManagerSetup: managerSetup(jobframework.WithManageJobsWithoutQueueName(true)),
 				CRDPath:      crdPath,
 				WebhookPath:  webhookPath,
 			}
 			ctx, cfg, k8sClient = fwk.Setup()
-
+		})
+		ginkgo.BeforeEach(func() {
 			ns = &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
 					GenerateName: "job-",
@@ -51,8 +52,11 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 			}
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 		})
+
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		})
+		ginkgo.AfterAll(func() {
 			fwk.Teardown()
 		})
 
@@ -84,16 +88,16 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 		})
 	})
 
-	ginkgo.When("with manageJobsWithoutQueueName disabled", func() {
-
-		ginkgo.BeforeEach(func() {
+	ginkgo.When("with manageJobsWithoutQueueName disabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+		ginkgo.BeforeAll(func() {
 			fwk = &framework.Framework{
 				ManagerSetup: managerSetup(jobframework.WithManageJobsWithoutQueueName(false)),
 				CRDPath:      crdPath,
 				WebhookPath:  webhookPath,
 			}
 			ctx, cfg, k8sClient = fwk.Setup()
-
+		})
+		ginkgo.BeforeEach(func() {
 			ns = &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
 					GenerateName: "job-",
@@ -103,6 +107,8 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		})
+		ginkgo.AfterAll(func() {
 			fwk.Teardown()
 		})
 
