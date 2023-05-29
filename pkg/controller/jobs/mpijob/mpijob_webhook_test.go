@@ -24,12 +24,12 @@ import (
 	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
-	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 )
 
 var (
-	originalNodeSelectorsKeyPath = field.NewPath("metadata", "annotations").Key(jobframework.OriginalNodeSelectorsAnnotation)
+	originalNodeSelectorsKeyPath = field.NewPath("metadata", "annotations").Key(constants.OriginalNodeSelectorsAnnotation)
 )
 
 func TestUpdate(t *testing.T) {

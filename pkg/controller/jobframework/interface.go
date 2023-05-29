@@ -19,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 type GenericJob interface {
@@ -55,13 +56,17 @@ type GenericJob interface {
 }
 
 func ParentWorkloadName(job GenericJob) string {
-	return job.Object().GetAnnotations()[ParentWorkloadAnnotation]
+	return job.Object().GetAnnotations()[constants.ParentWorkloadAnnotation]
 }
 
 func QueueName(job GenericJob) string {
-	if queueLabel := job.Object().GetLabels()[QueueLabel]; queueLabel != "" {
+	return QueueNameForObject(job.Object())
+}
+
+func QueueNameForObject(object client.Object) string {
+	if queueLabel := object.GetLabels()[constants.QueueLabel]; queueLabel != "" {
 		return queueLabel
 	}
 	// fallback to the annotation (deprecated)
-	return job.Object().GetAnnotations()[QueueAnnotation]
+	return object.GetAnnotations()[constants.QueueAnnotation]
 }

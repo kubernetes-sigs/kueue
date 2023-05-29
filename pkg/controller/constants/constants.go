@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package jobframework
+package constants
 
 const (
 	// QueueLabel is the label key in the workload that holds the queue name.
