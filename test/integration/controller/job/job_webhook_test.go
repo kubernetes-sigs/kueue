@@ -24,6 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -78,7 +79,7 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 			createdJob := &batchv1.Job{}
 			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
-			createdJob.Annotations = map[string]string{jobframework.QueueAnnotation: "queue"}
+			createdJob.Annotations = map[string]string{constants.QueueAnnotation: "queue"}
 			createdJob.Spec.Suspend = pointer.Bool(false)
 			gomega.Expect(k8sClient.Update(ctx, createdJob)).ShouldNot(gomega.Succeed())
 		})
@@ -142,7 +143,7 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 			createdJob := &batchv1.Job{}
 			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
-			createdJob.Labels[jobframework.QueueLabel] = "queue2"
+			createdJob.Labels[constants.QueueLabel] = "queue2"
 			createdJob.Spec.Suspend = pointer.Bool(false)
 			gomega.Expect(k8sClient.Update(ctx, createdJob)).ShouldNot(gomega.Succeed())
 		})

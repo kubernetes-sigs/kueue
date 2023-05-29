@@ -22,15 +22,16 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
-	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 )
 
-// JobWrapper wraps a Job.
+// MPIJobWrapper wraps a Job.
 type MPIJobWrapper struct{ kubeflow.MPIJob }
 
-// MakeJob creates a wrapper for a suspended job with a single container and parallelism=1.
+// MakeMPIJob creates a wrapper for a suspended job with a single container and parallelism=1.
 func MakeMPIJob(name, ns string) *MPIJobWrapper {
 	return &MPIJobWrapper{kubeflow.MPIJob{
 		ObjectMeta: metav1.ObjectMeta{
@@ -96,12 +97,12 @@ func (j *MPIJobWrapper) Obj() *kubeflow.MPIJob {
 	return &j.MPIJob
 }
 
-// Queue updates the queue name of the job
+// Queue updates the queue name of the job.
 func (j *MPIJobWrapper) Queue(queue string) *MPIJobWrapper {
 	if j.Labels == nil {
 		j.Labels = make(map[string]string)
 	}
-	j.Labels[jobframework.QueueLabel] = queue
+	j.Labels[constants.QueueLabel] = queue
 	return j
 }
 
@@ -117,14 +118,20 @@ func (j *MPIJobWrapper) Parallelism(p int32) *MPIJobWrapper {
 	return j
 }
 
-// OriginalNodeSelectorsAnnotation updates the original node selectors annotation
+// OriginalNodeSelectorsAnnotation updates the original node selectors annotation.
 func (j *MPIJobWrapper) OriginalNodeSelectorsAnnotation(content string) *MPIJobWrapper {
-	j.Annotations[jobframework.OriginalNodeSelectorsAnnotation] = content
+	j.Annotations[constants.OriginalNodeSelectorsAnnotation] = content
 	return j
 }
 
-// Suspend updates the suspend status of the job
+// Suspend updates the suspend status of the job.
 func (j *MPIJobWrapper) Suspend(s bool) *MPIJobWrapper {
 	j.Spec.RunPolicy.Suspend = &s
+	return j
+}
+
+// UID updates the uid of the job.
+func (j *MPIJobWrapper) UID(uid string) *MPIJobWrapper {
+	j.ObjectMeta.UID = types.UID(uid)
 	return j
 }
