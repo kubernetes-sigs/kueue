@@ -149,14 +149,20 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			continue
 		}
 		cq := snapshot.ClusterQueues[e.ClusterQueue]
-		if e.assignment.Borrows() && cq.Cohort != nil && usedCohorts.Has(cq.Cohort.Name) {
-			e.status = skipped
-			e.inadmissibleMsg = "workloads in the cohort that don't require borrowing were prioritized and admitted first"
-			continue
-		}
-		// Even if there was a failure, we shouldn't admit other workloads to this
-		// cohort.
 		if cq.Cohort != nil {
+			// Having more than one workloads from the same cohort admitted in the same scheduling cycle can lead
+			// to over admission if:
+			//   1. One of the workloads is borrowing, since during the nomination the usage of the other workloads
+			//      evaluated in the same cycle is not taken into account.
+			//   2. An already admitted workload from a different cluster queue is borrowing, since all workloads
+			//      evaluated in the current cycle will compete for the resources that are not borrowed.
+			if usedCohorts.Has(cq.Cohort.Name) && (e.assignment.Borrows() || cq.Cohort.HasBorrowingQueues()) {
+				e.status = skipped
+				e.inadmissibleMsg = "other workloads in the cohort were prioritized"
+				continue
+			}
+			// Even if there was a failure, we shouldn't admit other workloads to this
+			// cohort.
 			usedCohorts.Insert(cq.Cohort.Name)
 		}
 		log := log.WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue))

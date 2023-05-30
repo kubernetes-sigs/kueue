@@ -133,8 +133,8 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 	ginkgo.Context("In a ClusterQueue that is part of a cohort", func() {
 		var (
-			alphaCQ, betaCQ *kueue.ClusterQueue
-			alphaQ, betaQ   *kueue.LocalQueue
+			alphaCQ, betaCQ, gammaCQ *kueue.ClusterQueue
+			alphaQ, betaQ, gammaQ    *kueue.LocalQueue
 		)
 
 		ginkgo.BeforeEach(func() {
@@ -157,12 +157,25 @@ var _ = ginkgo.Describe("Preemption", func() {
 			gomega.Expect(k8sClient.Create(ctx, betaCQ)).To(gomega.Succeed())
 			betaQ = testing.MakeLocalQueue("beta-q", ns.Name).ClusterQueue(betaCQ.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, betaQ)).To(gomega.Succeed())
+
+			gammaCQ = testing.MakeClusterQueue("gamma-cq").
+				Cohort("all").
+				ResourceGroup(*testing.MakeFlavorQuotas("alpha").Resource(corev1.ResourceCPU, "2").Obj()).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, gammaCQ)).To(gomega.Succeed())
+			gammaQ = testing.MakeLocalQueue("gamma-q", ns.Name).ClusterQueue(gammaCQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, gammaQ)).To(gomega.Succeed())
 		})
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, alphaCQ, true)
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, betaCQ, true)
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, gammaCQ, true)
 		})
 
 		ginkgo.It("Should preempt Workloads in the cohort borrowing quota, when the ClusterQueue is using less than nominal quota", func() {
@@ -184,7 +197,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			betaHighWl := testing.MakeWorkload("beta-high", ns.Name).
 				Queue(betaQ.Name).
 				Priority(highPriority).
-				Request(corev1.ResourceCPU, "2").
+				Request(corev1.ResourceCPU, "4").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, betaHighWl)).To(gomega.Succeed())
 
@@ -215,7 +228,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			betaLowWl := testing.MakeWorkload("beta-low", ns.Name).
 				Queue(betaQ.Name).
 				Priority(lowPriority).
-				Request(corev1.ResourceCPU, "2").
+				Request(corev1.ResourceCPU, "4").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, betaLowWl)).To(gomega.Succeed())
 
@@ -234,6 +247,44 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, alphaHighWl2)
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, alphaCQ.Name, alphaHighWl1)
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, betaCQ.Name, betaLowWl)
+		})
+
+		ginkgo.It("Should preempt all necessary workloads in concurrent scheduling", func() {
+			ginkgo.By("Creating workloads in beta-cq that borrow quota")
+
+			betaMidWl := testing.MakeWorkload("beta-mid", ns.Name).
+				Queue(betaQ.Name).
+				Priority(midPriority).
+				Request(corev1.ResourceCPU, "3").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, betaMidWl)).To(gomega.Succeed())
+			betaHighWl := testing.MakeWorkload("beta-high", ns.Name).
+				Queue(betaQ.Name).
+				Priority(highPriority).
+				Request(corev1.ResourceCPU, "3").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, betaHighWl)).To(gomega.Succeed())
+
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, betaCQ.Name, betaMidWl, betaHighWl)
+
+			ginkgo.By("Creating workload in alpha-cq and gamma-cq that need to preempt")
+			alphaMidWl := testing.MakeWorkload("alpha-mid", ns.Name).
+				Queue(alphaQ.Name).
+				Priority(midPriority).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+
+			gammaMidWl := testing.MakeWorkload("gamma-mid", ns.Name).
+				Queue(gammaQ.Name).
+				Priority(midPriority).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+
+			gomega.Expect(k8sClient.Create(ctx, alphaMidWl)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, gammaMidWl)).To(gomega.Succeed())
+
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, alphaCQ.Name, alphaMidWl)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, gammaCQ.Name, gammaMidWl)
 		})
 	})
 

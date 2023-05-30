@@ -187,6 +187,10 @@ func TestSchedule(t *testing.T) {
 		wantInadmissibleLeft map[string]sets.Set[string]
 		// wantPreempted is the keys of the workloads that get preempted in the scheduling cycle.
 		wantPreempted sets.Set[string]
+
+		// additional*Queues can hold any extra queues needed by the tc
+		additionalClusterQueues []kueue.ClusterQueue
+		additionalLocalQueues   []kueue.LocalQueue
 	}{
 		"workload fits in single clusterQueue": {
 			workloads: []kueue.Workload{
@@ -594,6 +598,108 @@ func TestSchedule(t *testing.T) {
 				"flavor-nonexistent-cq": sets.New("sales/foo"),
 			},
 		},
+		"only one workload is admitted in a cohort while borrowing": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "eng-beta").
+					Queue("main").
+					Creation(time.Now().Add(-time.Second)).
+					PodSets(*utiltesting.MakePodSet("one", 50).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("new-gamma", "eng-beta").
+					Queue("gamma").
+					Creation(time.Now()).
+					PodSets(*utiltesting.MakePodSet("one", 50).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("existing", "eng-alpha").
+					PodSets(
+						*utiltesting.MakePodSet("borrow-on-demand", 51).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltesting.MakePodSet("use-all-spot", 100).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Admit(utiltesting.MakeAdmission("eng-alpha").
+						PodSets(
+							kueue.PodSetAssignment{
+								Name: "borrow-on-demand",
+								Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+									corev1.ResourceCPU: "on-demand",
+								},
+								ResourceUsage: corev1.ResourceList{
+									corev1.ResourceCPU: resource.MustParse("51"),
+								},
+							},
+							kueue.PodSetAssignment{
+								Name: "use-all-spot",
+								Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+									corev1.ResourceCPU: "spot",
+								},
+								ResourceUsage: corev1.ResourceList{
+									corev1.ResourceCPU: resource.MustParse("100"),
+								},
+							},
+						).
+						Obj()).
+					Obj(),
+			},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("eng-gamma").
+					Cohort("eng").
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "50", "10").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "eng-beta",
+						Name:      "gamma",
+					},
+					Spec: kueue.LocalQueueSpec{
+						ClusterQueue: "eng-gamma",
+					},
+				},
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"eng-alpha/existing": *utiltesting.MakeAdmission("eng-alpha").
+					PodSets(
+						kueue.PodSetAssignment{
+							Name: "borrow-on-demand",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "on-demand",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("51"),
+							},
+						},
+						kueue.PodSetAssignment{
+							Name: "use-all-spot",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "spot",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("100"),
+							},
+						},
+					).Obj(),
+				"eng-beta/new": *utiltesting.MakeAdmission("eng-beta", "one").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj(),
+			},
+			wantScheduled: []string{"eng-beta/new"},
+			wantLeft: map[string]sets.Set[string]{
+				"eng-gamma": sets.New("eng-beta/new-gamma"),
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -602,8 +708,12 @@ func TestSchedule(t *testing.T) {
 			})
 			ctx := ctrl.LoggerInto(context.Background(), log)
 			scheme := runtime.NewScheme()
+
+			allQueues := append(queues, tc.additionalLocalQueues...)
+			allClusterQueues := append(clusterQueues, tc.additionalClusterQueues...)
+
 			clientBuilder := utiltesting.NewClientBuilder().
-				WithLists(&kueue.WorkloadList{Items: tc.workloads}, &kueue.LocalQueueList{Items: queues}).
+				WithLists(&kueue.WorkloadList{Items: tc.workloads}, &kueue.LocalQueueList{Items: allQueues}).
 				WithObjects(
 					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-alpha", Labels: map[string]string{"dep": "eng"}}},
 					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-beta", Labels: map[string]string{"dep": "eng"}}},
@@ -616,7 +726,7 @@ func TestSchedule(t *testing.T) {
 			cqCache := cache.New(cl)
 			qManager := queue.NewManager(cl, cqCache)
 			// Workloads are loaded into queues or clusterQueues as we add them.
-			for _, q := range queues {
+			for _, q := range allQueues {
 				if err := qManager.AddLocalQueue(ctx, &q); err != nil {
 					t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
 				}
@@ -624,7 +734,7 @@ func TestSchedule(t *testing.T) {
 			for i := range resourceFlavors {
 				cqCache.AddOrUpdateResourceFlavor(resourceFlavors[i])
 			}
-			for _, cq := range clusterQueues {
+			for _, cq := range allClusterQueues {
 				if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
 					t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
 				}
