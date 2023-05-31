@@ -159,7 +159,7 @@ test-e2e: kustomize manifests generate envtest ginkgo
 
 .PHONY: ci-lint
 ci-lint: golangci-lint
-	$(GOLANGCI_LINT) run --timeout 7m0s
+	$(GOLANGCI_LINT) run --timeout 15m0s
 
 .PHONY: verify
 verify: gomod-verify vet ci-lint fmt-verify toc-verify manifests generate update-helm-crd
