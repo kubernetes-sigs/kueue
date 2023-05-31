@@ -43,14 +43,12 @@ import (
 
 const (
 	jobName                 = "test-job"
-	jobNamespace            = "default"
 	labelKey                = "cloud.provider.com/instance"
 	priorityClassName       = "test-priority-class"
 	priorityValue     int32 = 10
 )
 
 var (
-	wlLookupKey               = types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(jobName), Namespace: jobNamespace}
 	ignoreConditionTimestamps = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
 )
 
@@ -68,9 +66,8 @@ func setInitStatus(name, namespace string) {
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 }
 
-var _ = ginkgo.Describe("Job controller", func() {
-
-	ginkgo.BeforeEach(func() {
+var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	ginkgo.BeforeAll(func() {
 		fwk = &framework.Framework{
 			ManagerSetup: managerSetup(jobframework.WithManageJobsWithoutQueueName(true)),
 			CRDPath:      crdPath,
@@ -79,8 +76,26 @@ var _ = ginkgo.Describe("Job controller", func() {
 
 		ctx, cfg, k8sClient = fwk.Setup()
 	})
-	ginkgo.AfterEach(func() {
+	ginkgo.AfterAll(func() {
 		fwk.Teardown()
+	})
+
+	var (
+		ns          *corev1.Namespace
+		wlLookupKey types.NamespacedName
+	)
+	ginkgo.BeforeEach(func() {
+		ns = &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "core-",
+			},
+		}
+		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+
+		wlLookupKey = types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(jobName), Namespace: ns.Name}
+	})
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
 	ginkgo.It("Should reconcile RayJobs", func() {
@@ -89,7 +104,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 			PriorityValue(priorityValue).Obj()
 		gomega.Expect(k8sClient.Create(ctx, priorityClass)).Should(gomega.Succeed())
 
-		job := testingrayjob.MakeJob(jobName, jobNamespace).
+		job := testingrayjob.MakeJob(jobName, ns.Name).
 			Suspend(false).
 			WithPriorityClassName(priorityClassName).
 			Obj()
@@ -97,9 +112,9 @@ var _ = ginkgo.Describe("Job controller", func() {
 		gomega.Expect(err).To(gomega.Succeed())
 		createdJob := &rayjobapi.RayJob{}
 
-		setInitStatus(jobName, jobNamespace)
+		setInitStatus(jobName, ns.Name)
 		gomega.Eventually(func() bool {
-			if err := k8sClient.Get(ctx, types.NamespacedName{Name: jobName, Namespace: jobNamespace}, createdJob); err != nil {
+			if err := k8sClient.Get(ctx, types.NamespacedName{Name: jobName, Namespace: ns.Name}, createdJob); err != nil {
 				return false
 			}
 			return createdJob.Spec.Suspend
@@ -175,7 +190,7 @@ var _ = ginkgo.Describe("Job controller", func() {
 			},
 		).Obj()
 		gomega.Expect(util.SetAdmission(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
-		lookupKey := types.NamespacedName{Name: jobName, Namespace: jobNamespace}
+		lookupKey := types.NamespacedName{Name: jobName, Namespace: ns.Name}
 		gomega.Eventually(func() bool {
 			if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {
 				return false
@@ -254,8 +269,8 @@ var _ = ginkgo.Describe("Job controller", func() {
 	})
 })
 
-var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue are managed", func() {
-	ginkgo.BeforeEach(func() {
+var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue are managed", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	ginkgo.BeforeAll(func() {
 		fwk = &framework.Framework{
 			ManagerSetup: managerSetup(),
 			CRDPath:      crdPath,
@@ -263,19 +278,36 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 		}
 		ctx, cfg, k8sClient = fwk.Setup()
 	})
-	ginkgo.AfterEach(func() {
+	ginkgo.AfterAll(func() {
 		fwk.Teardown()
 	})
+
+	var (
+		ns *corev1.Namespace
+	)
+	ginkgo.BeforeEach(func() {
+		ns = &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "core-",
+			},
+		}
+		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+	})
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+	})
+
 	ginkgo.It("Should reconcile jobs only when queue is set", func() {
 		ginkgo.By("checking the workload is not created when queue name is not set")
-		job := testingrayjob.MakeJob(jobName, jobNamespace).Obj()
+		job := testingrayjob.MakeJob(jobName, ns.Name).Obj()
 		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
-		lookupKey := types.NamespacedName{Name: jobName, Namespace: jobNamespace}
+		lookupKey := types.NamespacedName{Name: jobName, Namespace: ns.Name}
 		createdJob := &rayjobapi.RayJob{}
-		setInitStatus(jobName, jobNamespace)
+		setInitStatus(jobName, ns.Name)
 		gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
 		createdWorkload := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(jobName), Namespace: ns.Name}
 		gomega.Consistently(func() bool {
 			return apierrors.IsNotFound(k8sClient.Get(ctx, wlLookupKey, createdWorkload))
 		}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
@@ -295,7 +327,7 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 
 })
 
-var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", func() {
+var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	type podsReadyTestSpec struct {
 		beforeJobStatus *rayjobapi.RayJobStatus
 		beforeCondition *metav1.Condition
@@ -304,33 +336,52 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", func() {
 		wantCondition   *metav1.Condition
 	}
 
-	ginkgo.BeforeEach(func() {
+	var defaultFlavor = testing.MakeResourceFlavor("default").Label(labelKey, "default").Obj()
+
+	ginkgo.BeforeAll(func() {
 		fwk = &framework.Framework{
 			ManagerSetup: managerSetup(jobframework.WithWaitForPodsReady(true)),
 			CRDPath:      crdPath,
 			DepCRDPaths:  []string{rayCrdPath},
 		}
 		ctx, cfg, k8sClient = fwk.Setup()
+
+		ginkgo.By("Create a resource flavor")
+		gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).Should(gomega.Succeed())
 	})
 
-	ginkgo.AfterEach(func() {
+	ginkgo.AfterAll(func() {
+		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 		fwk.Teardown()
 	})
 
+	var (
+		ns          *corev1.Namespace
+		wlLookupKey types.NamespacedName
+	)
+	ginkgo.BeforeEach(func() {
+		ns = &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "core-",
+			},
+		}
+		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+
+		wlLookupKey = types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(jobName), Namespace: ns.Name}
+	})
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+	})
+
 	ginkgo.DescribeTable("Single job at different stages of progress towards completion",
-
 		func(podsReadyTestSpec podsReadyTestSpec) {
-			ginkgo.By("Create a resource flavor")
-			defaultFlavor := testing.MakeResourceFlavor("default").Label(labelKey, "default").Obj()
-			gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).Should(gomega.Succeed())
-
 			ginkgo.By("Create a job")
-			job := testingrayjob.MakeJob(jobName, jobNamespace).Obj()
+			job := testingrayjob.MakeJob(jobName, ns.Name).Obj()
 			jobQueueName := "test-queue"
 			job.Annotations = map[string]string{jobframework.QueueAnnotation: jobQueueName}
 			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
-			lookupKey := types.NamespacedName{Name: jobName, Namespace: jobNamespace}
-			setInitStatus(jobName, jobNamespace)
+			lookupKey := types.NamespacedName{Name: jobName, Namespace: ns.Name}
+			setInitStatus(jobName, ns.Name)
 			createdJob := &rayjobapi.RayJob{}
 			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
@@ -470,7 +521,19 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", func() {
 	)
 })
 
-var _ = ginkgo.Describe("Job controller interacting with scheduler", func() {
+var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	ginkgo.BeforeAll(func() {
+		fwk = &framework.Framework{
+			ManagerSetup: managerAndSchedulerSetup(),
+			CRDPath:      crdPath,
+			DepCRDPaths:  []string{rayCrdPath},
+		}
+		ctx, cfg, k8sClient = fwk.Setup()
+	})
+	ginkgo.AfterAll(func() {
+		fwk.Teardown()
+	})
+
 	const (
 		instanceKey = "cloud.provider.com/instance"
 	)
@@ -484,13 +547,6 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		fwk = &framework.Framework{
-			ManagerSetup: managerAndSchedulerSetup(),
-			CRDPath:      crdPath,
-			DepCRDPaths:  []string{rayCrdPath},
-		}
-		ctx, cfg, k8sClient = fwk.Setup()
-
 		ns = &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "core-",
@@ -511,14 +567,11 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", func() {
 			).Obj()
 		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
 	})
-
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		gomega.Expect(util.DeleteResourceFlavor(ctx, k8sClient, spotUntaintedFlavor)).To(gomega.Succeed())
-
-		fwk.Teardown()
 	})
 
 	ginkgo.It("Should schedule jobs as they fit in their ClusterQueue", func() {
