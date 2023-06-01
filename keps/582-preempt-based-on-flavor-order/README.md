@@ -84,7 +84,7 @@ in preferred ResourceFlavors.
 List the specific goals of the KEP. What is it trying to achieve? How will we
 know that this has succeeded?
 -->
-- a mechanism to enable high level jobs preempt low level jobs before consider
+- a mechanism to enable high priority jobs preempt low priority jobs using a flavor before considering the
   next resource flavor when scheduling
 
 ### Non-Goals
@@ -119,10 +119,10 @@ bogged down.
 As a Kueue administrator I want to ensure more important jobs running on more 
 stable resources. This can happen in case that there are normal and spot instances
 in my cluster. In this case I prefer my high priority jobs not running on spot 
-instances. If high priority jobs can preempt jobs in normal ecs before try spot instances,
+instances. If high priority jobs can preempt jobs in standard instances before trying spot instances,
 stability can be achieved.
 
-My use case can be supported by set `flavorFungibility` to `BeforeNextFlavor`  in the Kueue configuration.
+My use case can be supported by setting `flavorFungibility` to `BeforeNextFlavor`  in the Kueue configuration.
 
 ### Notes/Constraints/Caveats (Optional)
 
@@ -161,11 +161,12 @@ proposal will be implemented, this is the place to discuss them.
 We extend the Cluster Queue API to introduce the new fields: flavorFungibility to opt-in and configure the new behavior.
 
 ```
-type FlavorFungibility string
+type FlavorConsumingPolicy string
 
 const (
-	BeforeNextFlavor FlavorFungibility = "BeforeNextFlavor"
-	AfterAllFlavors  FlavorFungibility = "AfterAllFlavors"
+	Borrow FlavorConsumingPolicy = "Borrow"
+	Preempt  FlavorConsumingPolicy = "Preempt"
+  TryNextFlavor FlavorConsumingPolicy = "TryNextFlavor"
 )
 
 // ClusterQueuePreemption contains policies to preempt Workloads from this
@@ -173,9 +174,14 @@ const (
 type ClusterQueuePreemption struct {
 	...
 
-	// +kubebuilder:default="AfterAllFlavors"
-	// +kubebuilder:validation:Enum=BeforeNextFlavor;AfterAllFlavors
 	FlavorFungibility FlavorFungibility `json:"flavorFungibility"`
+}
+
+type FlavorFungibility struct {
+	// +kubebuilder:validation:Enum=Borrow;TryNextFlavor
+  WhenCanBorrow BorrowPolicy `json:"whenCanBorrow"`
+	// +kubebuilder:validation:Enum=Preempt;TryNextFlavor
+  WhenCanPreempt PreemptPolicy `json:"whenCanPreempt"`
 }
 ```
 

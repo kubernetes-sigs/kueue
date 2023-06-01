@@ -6,10 +6,11 @@ status: provisional
 creation-date: 2023-05-17
 reviewers:
   - "@alculquicondor"
+  - "@tenzen-y"
 approvers:
 
 # The target maturity stage in the current dev cycle for this KEP.
-stage: alpha|beta|stable
+stage: beta|stable
 
 # The most recent milestone for which work toward delivery of this KEP has been
 # done. This can be the current (upcoming) milestone, if it is being actively
