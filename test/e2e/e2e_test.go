@@ -29,6 +29,7 @@ import (
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -69,7 +70,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 					return false
 				}
-				return apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)
+				return workload.IsAdmitted(createdWorkload)
 
 			}, util.Timeout, util.Interval).Should(gomega.BeFalse())
 			gomega.Expect(k8sClient.Delete(ctx, sampleJob)).Should(gomega.Succeed())
@@ -117,7 +118,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 					return false
 				}
-				return apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted) &&
+				return workload.IsAdmitted(createdWorkload) &&
 					apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadFinished)
 
 			}, util.Timeout, util.Interval).Should(gomega.BeTrue())

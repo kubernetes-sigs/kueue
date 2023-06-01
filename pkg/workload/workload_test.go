@@ -19,6 +19,7 @@ package workload
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -49,6 +50,35 @@ func TestNewInfo(t *testing.T) {
 							corev1.ResourceCPU:    10,
 							corev1.ResourceMemory: 512 * 1024,
 						},
+						Count: 1,
+					},
+				},
+			},
+		},
+		"pending with reclaim": {
+			workload: *utiltesting.MakeWorkload("", "").
+				PodSets(
+					*utiltesting.MakePodSet("main", 5).
+						Request(corev1.ResourceCPU, "10m").
+						Request(corev1.ResourceMemory, "512Ki").
+						Obj(),
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{
+						Name:  "main",
+						Count: 2,
+					},
+				).
+				Obj(),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: "main",
+						Requests: Requests{
+							corev1.ResourceCPU:    3 * 10,
+							corev1.ResourceMemory: 3 * 512 * 1024,
+						},
+						Count: 3,
 					},
 				},
 			},
@@ -77,6 +107,7 @@ func TestNewInfo(t *testing.T) {
 								corev1.ResourceCPU:    resource.MustParse("10m"),
 								corev1.ResourceMemory: resource.MustParse("512Ki"),
 							},
+							Count: 1,
 						},
 						kueue.PodSetAssignment{
 							Name: "workers",
@@ -85,6 +116,7 @@ func TestNewInfo(t *testing.T) {
 								corev1.ResourceMemory: resource.MustParse("3Mi"),
 								"ex.com/gpu":          resource.MustParse("3"),
 							},
+							Count: 3,
 						},
 					).
 					Obj()).
@@ -101,6 +133,7 @@ func TestNewInfo(t *testing.T) {
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "on-demand",
 						},
+						Count: 1,
 					},
 					{
 						Name: "workers",
@@ -109,6 +142,46 @@ func TestNewInfo(t *testing.T) {
 							corev1.ResourceMemory: 3 * 1024 * 1024,
 							"ex.com/gpu":          3,
 						},
+						Count: 3,
+					},
+				},
+			},
+		},
+		"admitted with reclaim": {
+			workload: *utiltesting.MakeWorkload("", "").
+				PodSets(
+					*utiltesting.MakePodSet("main", 5).
+						Request(corev1.ResourceCPU, "10m").
+						Request(corev1.ResourceMemory, "10Ki").
+						Obj(),
+				).
+				Admit(
+					utiltesting.MakeAdmission("").
+						Assignment(corev1.ResourceCPU, "f1", "30m").
+						Assignment(corev1.ResourceMemory, "f1", "30Ki").
+						AssignmentPodCount(3).
+						Obj(),
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{
+						Name:  "main",
+						Count: 2,
+					},
+				).
+				Obj(),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: "main",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU:    "f1",
+							corev1.ResourceMemory: "f1",
+						},
+						Requests: Requests{
+							corev1.ResourceCPU:    3 * 10,
+							corev1.ResourceMemory: 3 * 10 * 1024,
+						},
+						Count: 3,
 					},
 				},
 			},
@@ -192,6 +265,110 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantStatus, updatedWl.Status, ignoreConditionTimestamps); diff != "" {
 				t.Errorf("Unexpected status after updating (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestGetQueueOrderTimestamp(t *testing.T) {
+	creationTime := metav1.Now()
+	conditionTime := metav1.NewTime(time.Now().Add(time.Hour))
+	cases := map[string]struct {
+		wl   *kueue.Workload
+		want metav1.Time
+	}{
+		"no condition": {
+			wl: utiltesting.MakeWorkload("name", "ns").
+				Creation(creationTime.Time).
+				Obj(),
+			want: creationTime,
+		},
+		"evicted by preemption": {
+			wl: utiltesting.MakeWorkload("name", "ns").
+				Creation(creationTime.Time).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadEvicted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: conditionTime,
+					Reason:             kueue.WorkloadEvictedByPreemption,
+				}).
+				Obj(),
+			want: creationTime,
+		},
+		"evicted by PodsReady timeout": {
+			wl: utiltesting.MakeWorkload("name", "ns").
+				Creation(creationTime.Time).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadEvicted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: conditionTime,
+					Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+				}).
+				Obj(),
+			want: conditionTime,
+		},
+		"after eviction": {
+			wl: utiltesting.MakeWorkload("name", "ns").
+				Creation(creationTime.Time).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadEvicted,
+					Status:             metav1.ConditionFalse,
+					LastTransitionTime: conditionTime,
+					Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+				}).
+				Obj(),
+			want: creationTime,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			gotTime := GetQueueOrderTimestamp(tc.wl)
+			if diff := cmp.Diff(*gotTime, tc.want); diff != "" {
+				t.Errorf("Unexpected time (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestReclaimablePodsAreEqual(t *testing.T) {
+	cases := map[string]struct {
+		a, b       []kueue.ReclaimablePod
+		wantResult bool
+	}{
+		"both empty": {
+			b:          []kueue.ReclaimablePod{},
+			wantResult: true,
+		},
+		"one empty": {
+			b:          []kueue.ReclaimablePod{{Name: "rp1", Count: 1}},
+			wantResult: false,
+		},
+		"one value missmatch": {
+			a:          []kueue.ReclaimablePod{{Name: "rp1", Count: 1}, {Name: "rp2", Count: 2}},
+			b:          []kueue.ReclaimablePod{{Name: "rp2", Count: 1}, {Name: "rp1", Count: 1}},
+			wantResult: false,
+		},
+		"one name missmatch": {
+			a:          []kueue.ReclaimablePod{{Name: "rp1", Count: 1}, {Name: "rp2", Count: 2}},
+			b:          []kueue.ReclaimablePod{{Name: "rp3", Count: 3}, {Name: "rp1", Count: 1}},
+			wantResult: false,
+		},
+		"length missmatch": {
+			a:          []kueue.ReclaimablePod{{Name: "rp1", Count: 1}, {Name: "rp2", Count: 2}},
+			b:          []kueue.ReclaimablePod{{Name: "rp1", Count: 1}},
+			wantResult: false,
+		},
+		"equal": {
+			a:          []kueue.ReclaimablePod{{Name: "rp1", Count: 1}, {Name: "rp2", Count: 2}},
+			b:          []kueue.ReclaimablePod{{Name: "rp2", Count: 2}, {Name: "rp1", Count: 1}},
+			wantResult: true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			result := ReclaimablePodsAreEqual(tc.a, tc.b)
+			if diff := cmp.Diff(result, tc.wantResult); diff != "" {
+				t.Errorf("Unexpected time (-want,+got):\n%s", diff)
 			}
 		})
 	}

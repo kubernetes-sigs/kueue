@@ -41,6 +41,7 @@ import (
 var (
 	errQueueAlreadyExists  = errors.New("queue already exists")
 	errCqNotFound          = errors.New("cluster queue not found")
+	errQNotFound           = errors.New("queue not found")
 	errWorkloadNotAdmitted = errors.New("workload not admitted by a ClusterQueue")
 )
 
@@ -111,6 +112,15 @@ func newCohort(name string, size int) *Cohort {
 	}
 }
 
+func (c *Cohort) HasBorrowingQueues() bool {
+	for cq := range c.Members {
+		if cq.IsBorrowing() {
+			return true
+		}
+	}
+	return false
+}
+
 const (
 	pending     = metrics.CQStatusPending
 	active      = metrics.CQStatusActive
@@ -133,8 +143,34 @@ type ClusterQueue struct {
 
 	// The following fields are not populated in a snapshot.
 
-	admittedWorkloadsPerQueue map[string]int
-	podsReadyTracking         bool
+	// Key is localQueue's key (namespace/name).
+	localQueues       map[string]*queue
+	podsReadyTracking bool
+}
+
+func (cq *ClusterQueue) IsBorrowing() bool {
+	if cq.Cohort == nil || len(cq.Usage) == 0 {
+		return false
+	}
+	for _, rg := range cq.ResourceGroups {
+		for _, flvQuotas := range rg.Flavors {
+			if flvUsage, isUsing := cq.Usage[flvQuotas.Name]; isUsing {
+				for rName, rQuota := range flvQuotas.Resources {
+					used := flvUsage[rName]
+					if used > rQuota.Nominal {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+type queue struct {
+	key               string
+	admittedWorkloads int
+	usage             FlavorResourceQuantities
 }
 
 type ResourceGroup struct {
@@ -159,11 +195,11 @@ type ResourceQuota struct {
 
 func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*ClusterQueue, error) {
 	cqImpl := &ClusterQueue{
-		Name:                      cq.Name,
-		Workloads:                 make(map[string]*workload.Info),
-		WorkloadsNotReady:         sets.New[string](),
-		admittedWorkloadsPerQueue: make(map[string]int),
-		podsReadyTracking:         c.podsReadyTracking,
+		Name:              cq.Name,
+		Workloads:         make(map[string]*workload.Info),
+		WorkloadsNotReady: sets.New[string](),
+		localQueues:       make(map[string]*queue),
+		podsReadyTracking: c.podsReadyTracking,
 	}
 	if err := cqImpl.update(cq, c.resourceFlavors); err != nil {
 		return nil, err
@@ -200,6 +236,10 @@ func (c *Cache) WaitForPodsReady(ctx context.Context) {
 }
 
 func (c *Cache) PodsReadyForAllAdmittedWorkloads(ctx context.Context) bool {
+	if !c.podsReadyTracking {
+		return true
+	}
+
 	c.Lock()
 	defer c.Unlock()
 	return c.podsReadyForAllAdmittedWorkloads(ctx)
@@ -232,8 +272,11 @@ func (c *Cache) AdmittedWorkloadsInLocalQueue(localQueue *kueue.LocalQueue) int3
 	if !ok {
 		return 0
 	}
-	qKey := queueKey(localQueue)
-	return int32(cq.admittedWorkloadsPerQueue[qKey])
+	qImpl, ok := cq.localQueues[queueKey(localQueue)]
+	if !ok {
+		return 0
+	}
+	return int32(qImpl.admittedWorkloads)
 }
 
 func (c *ClusterQueue) Active() bool {
@@ -391,19 +434,20 @@ func (c *ClusterQueue) deleteWorkload(w *kueue.Workload) {
 func (c *ClusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 	updateUsage(wi, c.Usage, m)
 	qKey := workload.QueueKey(wi.Obj)
-	if _, ok := c.admittedWorkloadsPerQueue[qKey]; ok {
-		c.admittedWorkloadsPerQueue[qKey] += int(m)
+	if _, ok := c.localQueues[qKey]; ok {
+		updateUsage(wi, c.localQueues[qKey].usage, m)
+		c.localQueues[qKey].admittedWorkloads += int(m)
 	}
 }
 
-func updateUsage(wi *workload.Info, cqUsage FlavorResourceQuantities, m int64) {
+func updateUsage(wi *workload.Info, flvUsage FlavorResourceQuantities, m int64) {
 	for _, ps := range wi.TotalRequests {
 		for wlRes, wlResFlv := range ps.Flavors {
 			v, wlResExist := ps.Requests[wlRes]
-			cqFlv, cqFlvExist := cqUsage[wlResFlv]
-			if cqFlvExist && wlResExist {
-				if _, exists := cqFlv[wlRes]; exists {
-					cqFlv[wlRes] += v * m
+			flv, flvExist := flvUsage[wlResFlv]
+			if flvExist && wlResExist {
+				if _, exists := flv[wlRes]; exists {
+					flv[wlRes] += v * m
 				}
 			}
 		}
@@ -412,24 +456,32 @@ func updateUsage(wi *workload.Info, cqUsage FlavorResourceQuantities, m int64) {
 
 func (c *ClusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	qKey := queueKey(q)
-	if _, ok := c.admittedWorkloadsPerQueue[qKey]; ok {
+	if _, ok := c.localQueues[qKey]; ok {
 		return errQueueAlreadyExists
 	}
 	// We need to count the workloads, because they could have been added before
 	// receiving the queue add event.
-	workloads := 0
+	qImpl := &queue{
+		key:               qKey,
+		admittedWorkloads: 0,
+		usage:             make(FlavorResourceQuantities),
+	}
+	if err := qImpl.resetFlavorsAndResources(c.Usage); err != nil {
+		return err
+	}
 	for _, wl := range c.Workloads {
 		if workloadBelongsToLocalQueue(wl.Obj, q) {
-			workloads++
+			updateUsage(wl, qImpl.usage, 1)
+			qImpl.admittedWorkloads++
 		}
 	}
-	c.admittedWorkloadsPerQueue[qKey] = workloads
+	c.localQueues[qKey] = qImpl
 	return nil
 }
 
 func (c *ClusterQueue) deleteLocalQueue(q *kueue.LocalQueue) {
 	qKey := queueKey(q)
-	delete(c.admittedWorkloadsPerQueue, qKey)
+	delete(c.localQueues, qKey)
 }
 
 func (c *ClusterQueue) flavorInUse(flavor string) bool {
@@ -441,6 +493,21 @@ func (c *ClusterQueue) flavorInUse(flavor string) bool {
 		}
 	}
 	return false
+}
+
+func (q *queue) resetFlavorsAndResources(cqUsage FlavorResourceQuantities) error {
+	// Clean up removed flavors or resources.
+	usedFlavorResources := make(FlavorResourceQuantities)
+	for cqFlv, cqRes := range cqUsage {
+		existingUsedResources := q.usage[cqFlv]
+		usedResources := make(map[corev1.ResourceName]int64, len(cqRes))
+		for rName := range cqRes {
+			usedResources[rName] = existingUsedResources[rName]
+		}
+		usedFlavorResources[cqFlv] = usedResources
+	}
+	q.usage = usedFlavorResources
+	return nil
 }
 
 func (c *Cache) updateClusterQueues() sets.Set[string] {
@@ -537,24 +604,26 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 		return fmt.Errorf("listing queues that match the clusterQueue: %w", err)
 	}
 	for _, q := range queues.Items {
-		// Checking ClusterQueue name again because the field index is not available in tests.
-		if string(q.Spec.ClusterQueue) == cq.Name {
-			cqImpl.admittedWorkloadsPerQueue[queueKey(&q)] = 0
+		qKey := queueKey(&q)
+		qImpl := &queue{
+			key:               qKey,
+			admittedWorkloads: 0,
+			usage:             make(FlavorResourceQuantities),
 		}
+		if err = qImpl.resetFlavorsAndResources(cqImpl.Usage); err != nil {
+			return err
+		}
+		cqImpl.localQueues[qKey] = qImpl
 	}
 	var workloads kueue.WorkloadList
 	if err := c.client.List(ctx, &workloads, client.MatchingFields{utilindexer.WorkloadClusterQueueKey: cq.Name}); err != nil {
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
 	for i, w := range workloads.Items {
-		// Checking ClusterQueue name again because the field index is not available in tests.
-		if w.Status.Admission == nil || string(w.Status.Admission.ClusterQueue) != cq.Name {
+		if !workload.IsAdmitted(&w) {
 			continue
 		}
 		c.addOrUpdateWorkload(&workloads.Items[i])
-		if _, ok := cqImpl.admittedWorkloadsPerQueue[w.Spec.QueueName]; ok {
-			cqImpl.admittedWorkloadsPerQueue[w.Spec.QueueName]++
-		}
 	}
 
 	return nil
@@ -569,6 +638,14 @@ func (c *Cache) UpdateClusterQueue(cq *kueue.ClusterQueue) error {
 	}
 	if err := cqImpl.update(cq, c.resourceFlavors); err != nil {
 		return err
+	}
+	for _, qImpl := range cqImpl.localQueues {
+		if qImpl == nil {
+			return errQNotFound
+		}
+		if err := qImpl.resetFlavorsAndResources(cqImpl.Usage); err != nil {
+			return err
+		}
 	}
 
 	if cqImpl.Cohort == nil {
@@ -639,7 +716,7 @@ func (c *Cache) AddOrUpdateWorkload(w *kueue.Workload) bool {
 }
 
 func (c *Cache) addOrUpdateWorkload(w *kueue.Workload) bool {
-	if w.Status.Admission == nil {
+	if !workload.IsAdmitted(w) {
 		return false
 	}
 
@@ -663,7 +740,7 @@ func (c *Cache) addOrUpdateWorkload(w *kueue.Workload) bool {
 func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.Workload) error {
 	c.Lock()
 	defer c.Unlock()
-	if oldWl.Status.Admission != nil {
+	if workload.IsAdmitted(oldWl) {
 		cq, ok := c.clusterQueues[string(oldWl.Status.Admission.ClusterQueue)]
 		if !ok {
 			return fmt.Errorf("old ClusterQueue doesn't exist")
@@ -672,7 +749,7 @@ func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.Workload) error {
 	}
 	c.cleanupAssumedState(oldWl)
 
-	if newWl.Status.Admission == nil {
+	if !workload.IsAdmitted(newWl) {
 		return nil
 	}
 	cq, ok := c.clusterQueues[string(newWl.Status.Admission.ClusterQueue)]
@@ -723,7 +800,7 @@ func (c *Cache) AssumeWorkload(w *kueue.Workload) error {
 	c.Lock()
 	defer c.Unlock()
 
-	if w.Status.Admission == nil {
+	if !workload.IsAdmitted(w) {
 		return errWorkloadNotAdmitted
 	}
 
@@ -754,7 +831,7 @@ func (c *Cache) ForgetWorkload(w *kueue.Workload) error {
 	}
 	c.cleanupAssumedState(w)
 
-	if w.Status.Admission == nil {
+	if !workload.IsAdmitted(w) {
 		return errWorkloadNotAdmitted
 	}
 
@@ -793,9 +870,12 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) ([]kueue.FlavorUsage, int, erro
 					Name:  rName,
 					Total: workload.ResourceQuantity(rName, used),
 				}
-				borrowed := used - rQuota.Nominal
-				if borrowed > 0 {
-					rUsage.Borrowed = workload.ResourceQuantity(rName, borrowed)
+				// Enforce `borrowed=0` if the clusterQueue doesn't belong to a cohort.
+				if cq.Cohort != nil {
+					borrowed := used - rQuota.Nominal
+					if borrowed > 0 {
+						rUsage.Borrowed = workload.ResourceQuantity(rName, borrowed)
+					}
 				}
 				outFlvUsage.Resources = append(outFlvUsage.Resources, rUsage)
 			}
@@ -805,13 +885,46 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) ([]kueue.FlavorUsage, int, erro
 	return usage, len(cq.Workloads), nil
 }
 
+func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) ([]kueue.LocalQueueFlavorUsage, error) {
+	c.RLock()
+	defer c.RUnlock()
+
+	cqImpl, ok := c.clusterQueues[string(qObj.Spec.ClusterQueue)]
+	if !ok {
+		return nil, nil
+	}
+	qImpl, ok := cqImpl.localQueues[queueKey(qObj)]
+	if !ok {
+		return nil, errQNotFound
+	}
+
+	qFlvUsages := make([]kueue.LocalQueueFlavorUsage, 0, len(qImpl.usage))
+	for _, rg := range cqImpl.ResourceGroups {
+		for _, flvQuotas := range rg.Flavors {
+			flvUsage := qImpl.usage[flvQuotas.Name]
+			outFlvUsage := kueue.LocalQueueFlavorUsage{
+				Name:      flvQuotas.Name,
+				Resources: make([]kueue.LocalQueueResourceUsage, 0, len(flvQuotas.Resources)),
+			}
+			for rName := range flvQuotas.Resources {
+				outFlvUsage.Resources = append(outFlvUsage.Resources, kueue.LocalQueueResourceUsage{
+					Name:  rName,
+					Total: workload.ResourceQuantity(rName, flvUsage[rName]),
+				})
+			}
+			qFlvUsages = append(qFlvUsages, outFlvUsage)
+		}
+	}
+	return qFlvUsages, nil
+}
+
 func (c *Cache) cleanupAssumedState(w *kueue.Workload) {
 	k := workload.Key(w)
 	assumedCQName, assumed := c.assumedWorkloads[k]
 	if assumed {
 		// If the workload's assigned ClusterQueue is different from the assumed
 		// one, then we should also cleanup the assumed one.
-		if w.Status.Admission != nil && assumedCQName != string(w.Status.Admission.ClusterQueue) {
+		if workload.IsAdmitted(w) && assumedCQName != string(w.Status.Admission.ClusterQueue) {
 			if assumedCQ, exist := c.clusterQueues[assumedCQName]; exist {
 				assumedCQ.deleteWorkload(w)
 			}
@@ -821,7 +934,7 @@ func (c *Cache) cleanupAssumedState(w *kueue.Workload) {
 }
 
 func (c *Cache) clusterQueueForWorkload(w *kueue.Workload) *ClusterQueue {
-	if w.Status.Admission != nil {
+	if workload.IsAdmitted(w) {
 		return c.clusterQueues[string(w.Status.Admission.ClusterQueue)]
 	}
 	wKey := workload.Key(w)

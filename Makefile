@@ -25,8 +25,8 @@ GO_TEST_FLAGS ?= -race
 # Use go.mod go version as a single source of truth of GO version.
 GO_VERSION := $(shell awk '/^go /{print $$2}' go.mod|head -n1)
 
-# Use go.mod go version as a single source of truth of MPI version.
-MPI_VERSION := $(shell awk '/mpi-operator/{print $$2}' go.mod|head -n1)
+# Use go.mod go version as a single source of truth of Ginkgo version.
+GINKGO_VERSION ?= $(shell $(GO_CMD) list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)
 
 GIT_TAG ?= $(shell git describe --tags --dirty --always)
 # Image URL to use all building/pushing image targets
@@ -106,6 +106,10 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 		webhook output:webhook:artifacts:config=config/components/webhook\
 		paths="./..."
 
+.PHONY: update-helm-crd
+update-helm-crd: manifests
+	./hack/update-helm-crd.sh
+
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
@@ -140,26 +144,26 @@ vet: ## Run go vet against code.
 	$(GO_CMD) vet ./...
 
 .PHONY: test
-test: generate fmt vet gotestsum ## Run tests.
+test: generate gotestsum ## Run tests.
 	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) $(shell go list ./... | grep -v '/test/') -coverprofile $(ARTIFACTS)/cover.out
 
 .PHONY: test-integration
-test-integration: manifests generate fmt vet envtest ginkgo mpi-operator-crd ## Run tests.
+test-integration: manifests generate envtest ginkgo mpi-operator-crd ray-operator-crd ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	$(GINKGO) --junit-report=junit.xml --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 
 CREATE_KIND_CLUSTER ?= true
 .PHONY: test-e2e
-test-e2e: kustomize manifests generate fmt vet envtest ginkgo
+test-e2e: kustomize manifests generate envtest ginkgo
 	E2E_KIND_VERSION=$(E2E_KIND_VERSION) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) ARTIFACTS=$(ARTIFACTS) IMAGE_TAG=$(IMAGE_TAG) ./hack/e2e-test.sh
 
 .PHONY: ci-lint
 ci-lint: golangci-lint
-	$(GOLANGCI_LINT) run --timeout 7m0s
+	$(GOLANGCI_LINT) run --timeout 15m0s
 
 .PHONY: verify
-verify: gomod-verify vet ci-lint fmt-verify toc-verify manifests generate
-	git --no-pager diff --exit-code config/components apis
+verify: gomod-verify vet ci-lint fmt-verify toc-verify manifests generate update-helm-crd
+	git --no-pager diff --exit-code config/components apis charts/kueue/templates/crd
 
 ##@ Build
 
@@ -240,6 +244,7 @@ artifacts: kustomize
 	$(KUSTOMIZE) build config/dev -o artifacts/manifests-dev.yaml
 	$(KUSTOMIZE) build config/prometheus -o artifacts/prometheus.yaml
 	@$(call clean-manifests)
+	cp -r charts artifacts/charts
 
 ##@ Tools
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
@@ -266,7 +271,7 @@ envtest: ## Download envtest-setup locally if necessary.
 GINKGO = $(shell pwd)/bin/ginkgo
 .PHONY: ginkgo
 ginkgo: ## Download ginkgo locally if necessary.
-	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install github.com/onsi/ginkgo/v2/ginkgo@v2.1.4
+	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install github.com/onsi/ginkgo/v2/ginkgo@$(GINKGO_VERSION)
 
 GOTESTSUM = $(shell pwd)/bin/gotestsum
 .PHONY: gotestsum
@@ -276,8 +281,16 @@ KIND = $(shell pwd)/bin/kind
 .PHONY: kind
 kind:
 	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kind@v0.16.0
+
+MPIROOT = $(shell go list -m -f "{{.Dir}}" github.com/kubeflow/mpi-operator)
 .PHONY: mpi-operator-crd
 mpi-operator-crd:
-	GOPATH=/tmp GO111MODULE=on $(GO_CMD) install github.com/kubeflow/mpi-operator/cmd/mpi-operator@$(MPI_VERSION)
 	mkdir -p $(shell pwd)/dep-crds/mpi-operator/
-	cp -f /tmp/pkg/mod/github.com/kubeflow/mpi-operator@$(MPI_VERSION)/manifests/base/* $(shell pwd)/dep-crds/mpi-operator/
+	cp -f $(MPIROOT)/manifests/base/* $(shell pwd)/dep-crds/mpi-operator/
+
+RAYROOT = $(shell go list -m -f "{{.Dir}}" github.com/ray-project/kuberay/ray-operator)
+.PHONY: ray-operator-crd
+ray-operator-crd:
+	mkdir -p $(shell pwd)/dep-crds/ray-operator/
+	cp -f $(RAYROOT)/config/crd/bases/* $(shell pwd)/dep-crds/ray-operator/
+

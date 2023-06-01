@@ -1,3 +1,14 @@
+## v0.3.1
+
+Changes since `v0.3.0`:
+
+### Bug fixes
+
+- Fix a bug that the validation webhook doesn't validate the queue name set as a label when creating MPIJob. #711
+- Fix a bug that updates a queue name in workloads with an empty value when using framework jobs that use batch/job internally, such as MPIJob. #713
+- Fix a bug in which borrowed values are set to a non-zero value even though the ClusterQueue doesn't belong to a cohort. #761
+- Fixed adding suspend=true job/mpijob by the default webhook. #765
+
 ## v0.3.0
 
 Changes since `v0.2.1`:

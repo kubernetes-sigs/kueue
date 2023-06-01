@@ -91,10 +91,6 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 	}
 	addedWorkloads := false
 	for _, q := range queues.Items {
-		// Checking clusterQueue name again because the field index is not available in tests.
-		if string(q.Spec.ClusterQueue) != cq.Name {
-			continue
-		}
 		qImpl := m.localQueues[Key(&q)]
 		if qImpl != nil {
 			added := cqImpl.AddFromLocalQueue(qImpl)
@@ -169,7 +165,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 	}
 	for _, w := range workloads.Items {
 		w := w
-		if w.Status.Admission != nil {
+		if workload.IsAdmitted(&w) {
 			continue
 		}
 		qImpl.AddOrUpdate(workload.NewInfo(&w))
@@ -293,7 +289,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	// Always get the newest workload to avoid requeuing the out-of-date obj.
 	err := m.client.Get(ctx, client.ObjectKeyFromObject(info.Obj), &w)
 	// Since the client is cached, the only possible error is NotFound
-	if apierrors.IsNotFound(err) || w.Status.Admission != nil {
+	if apierrors.IsNotFound(err) || workload.IsAdmitted(&w) {
 		return false
 	}
 

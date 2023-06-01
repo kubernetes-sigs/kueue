@@ -21,6 +21,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
@@ -75,6 +76,12 @@ func (j *JobWrapper) Parallelism(p int32) *JobWrapper {
 	return j
 }
 
+// Completions updates job completions.
+func (j *JobWrapper) Completions(p int32) *JobWrapper {
+	j.Spec.Completions = pointer.Int32(p)
+	return j
+}
+
 // PriorityClass updates job priorityclass.
 func (j *JobWrapper) PriorityClass(pc string) *JobWrapper {
 	j.Spec.Template.Spec.PriorityClassName = pc
@@ -90,7 +97,7 @@ func (j *JobWrapper) Queue(queue string) *JobWrapper {
 	return j
 }
 
-// Queue updates the queue name of the job by annotation (deprecated)
+// QueueNameAnnotation updates the queue name of the job by annotation (deprecated)
 func (j *JobWrapper) QueueNameAnnotation(queue string) *JobWrapper {
 	j.Annotations[jobframework.QueueAnnotation] = queue
 	return j
@@ -131,6 +138,18 @@ func (j *JobWrapper) Image(name string, image string, args []string) *JobWrapper
 		Image:     image,
 		Args:      args,
 		Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+	}
+	return j
+}
+
+func (j *JobWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *JobWrapper {
+	j.ObjectMeta.OwnerReferences = []metav1.OwnerReference{
+		{
+			APIVersion: ownerGVK.GroupVersion().String(),
+			Kind:       ownerGVK.Kind,
+			Name:       ownerName,
+			Controller: pointer.Bool(true),
+		},
 	}
 	return j
 }

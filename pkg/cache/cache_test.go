@@ -1314,7 +1314,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 }
 
 func TestClusterQueueUsage(t *testing.T) {
-	cq := *utiltesting.MakeClusterQueue("foo").
+	cq := utiltesting.MakeClusterQueue("foo").
 		ResourceGroup(
 			*utiltesting.MakeFlavorQuotas("default").
 				Resource(corev1.ResourceCPU, "10", "10").
@@ -1327,8 +1327,9 @@ func TestClusterQueueUsage(t *testing.T) {
 			*utiltesting.MakeFlavorQuotas("model_b").
 				Resource("example.com/gpu", "5").
 				Obj(),
-		).
-		Obj()
+		).Cohort("one").Obj()
+	cqWithOutCohort := cq.DeepCopy()
+	cqWithOutCohort.Spec.Cohort = ""
 	workloads := []kueue.Workload{
 		*utiltesting.MakeWorkload("one", "").
 			Request(corev1.ResourceCPU, "8").
@@ -1342,12 +1343,14 @@ func TestClusterQueueUsage(t *testing.T) {
 			Obj(),
 	}
 	cases := map[string]struct {
+		clusterQueue      *kueue.ClusterQueue
 		workloads         []kueue.Workload
 		wantUsedResources []kueue.FlavorUsage
 		wantWorkloads     int
 	}{
-		"single no borrowing": {
-			workloads: workloads[:1],
+		"clusterQueue without cohort; single no borrowing": {
+			clusterQueue: cqWithOutCohort,
+			workloads:    workloads[:1],
 			wantUsedResources: []kueue.FlavorUsage{
 				{
 					Name: "default",
@@ -1372,8 +1375,9 @@ func TestClusterQueueUsage(t *testing.T) {
 			},
 			wantWorkloads: 1,
 		},
-		"multiple borrowing": {
-			workloads: workloads,
+		"clusterQueue with cohort; multiple borrowing": {
+			clusterQueue: cq,
+			workloads:    workloads,
 			wantUsedResources: []kueue.FlavorUsage{
 				{
 					Name: "default",
@@ -1401,12 +1405,42 @@ func TestClusterQueueUsage(t *testing.T) {
 			},
 			wantWorkloads: 2,
 		},
+		"clusterQueue without cohort; multiple borrowing": {
+			clusterQueue: cqWithOutCohort,
+			workloads:    workloads,
+			wantUsedResources: []kueue.FlavorUsage{
+				{
+					Name: "default",
+					Resources: []kueue.ResourceUsage{{
+						Name:     corev1.ResourceCPU,
+						Total:    resource.MustParse("13"),
+						Borrowed: resource.MustParse("0"),
+					}},
+				},
+				{
+					Name: "model_a",
+					Resources: []kueue.ResourceUsage{{
+						Name:  "example.com/gpu",
+						Total: resource.MustParse("5"),
+					}},
+				},
+				{
+					Name: "model_b",
+					Resources: []kueue.ResourceUsage{{
+						Name:     "example.com/gpu",
+						Total:    resource.MustParse("6"),
+						Borrowed: resource.MustParse("0"),
+					}},
+				},
+			},
+			wantWorkloads: 2,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			cache := New(utiltesting.NewFakeClient())
 			ctx := context.Background()
-			err := cache.AddClusterQueue(ctx, &cq)
+			err := cache.AddClusterQueue(ctx, tc.clusterQueue)
 			if err != nil {
 				t.Fatalf("Adding ClusterQueue: %v", err)
 			}
@@ -1415,7 +1449,7 @@ func TestClusterQueueUsage(t *testing.T) {
 					t.Fatalf("Workload %s was not added", workload.Key(&w))
 				}
 			}
-			resources, workloads, err := cache.Usage(&cq)
+			resources, workloads, err := cache.Usage(tc.clusterQueue)
 			if err != nil {
 				t.Fatalf("Couldn't get usage: %v", err)
 			}
@@ -1429,10 +1463,218 @@ func TestClusterQueueUsage(t *testing.T) {
 	}
 }
 
+func TestLocalQueueUsage(t *testing.T) {
+	cq := *utiltesting.MakeClusterQueue("foo").
+		ResourceGroup(
+			*utiltesting.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "10", "10").Obj(),
+		).
+		ResourceGroup(
+			*utiltesting.MakeFlavorQuotas("model-a").
+				Resource("example.com/gpu", "5").Obj(),
+			*utiltesting.MakeFlavorQuotas("model-b").
+				Resource("example.com/gpu", "5").Obj(),
+		).
+		Obj()
+	localQueue := *utiltesting.MakeLocalQueue("test", "ns1").
+		ClusterQueue("foo").Obj()
+	cases := map[string]struct {
+		cq             *kueue.ClusterQueue
+		wls            []kueue.Workload
+		wantUsage      []kueue.LocalQueueFlavorUsage
+		inAdmissibleWl sets.Set[string]
+	}{
+		"clusterQueue is missing": {
+			wls: []kueue.Workload{
+				*utiltesting.MakeWorkload("one", "ns1").
+					Queue("test").
+					Request(corev1.ResourceCPU, "5").Obj(),
+			},
+			inAdmissibleWl: sets.New("one"),
+		},
+		"workloads is nothing": {
+			cq: &cq,
+			wantUsage: []kueue.LocalQueueFlavorUsage{
+				{
+					Name: "default",
+					Resources: []kueue.LocalQueueResourceUsage{
+						{
+							Name:  corev1.ResourceCPU,
+							Total: resource.MustParse("0"),
+						},
+					},
+				},
+				{
+					Name: "model-a",
+					Resources: []kueue.LocalQueueResourceUsage{
+						{
+							Name:  "example.com/gpu",
+							Total: resource.MustParse("0"),
+						},
+					},
+				},
+				{
+					Name: "model-b",
+					Resources: []kueue.LocalQueueResourceUsage{
+						{
+							Name:  "example.com/gpu",
+							Total: resource.MustParse("0"),
+						},
+					},
+				},
+			},
+		},
+		"all workloads are admitted": {
+			cq: &cq,
+			wls: []kueue.Workload{
+				*utiltesting.MakeWorkload("one", "ns1").
+					Queue("test").
+					Request(corev1.ResourceCPU, "5").
+					Request("example.com/gpu", "5").
+					Admit(
+						utiltesting.MakeAdmission("foo").
+							Assignment(corev1.ResourceCPU, "default", "5000m").
+							Assignment("example.com/gpu", "model-a", "5").Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeWorkload("two", "ns1").
+					Queue("test").
+					Request(corev1.ResourceCPU, "3").
+					Request("example.com/gpu", "3").
+					Admit(
+						utiltesting.MakeAdmission("foo").
+							Assignment(corev1.ResourceCPU, "default", "3000m").
+							Assignment("example.com/gpu", "model-b", "3").Obj(),
+					).
+					Obj(),
+			},
+			wantUsage: []kueue.LocalQueueFlavorUsage{
+				{
+					Name: "default",
+					Resources: []kueue.LocalQueueResourceUsage{
+						{
+							Name:  corev1.ResourceCPU,
+							Total: resource.MustParse("8"),
+						},
+					},
+				},
+				{
+					Name: "model-a",
+					Resources: []kueue.LocalQueueResourceUsage{
+						{
+							Name:  "example.com/gpu",
+							Total: resource.MustParse("5"),
+						},
+					},
+				},
+				{
+					Name: "model-b",
+					Resources: []kueue.LocalQueueResourceUsage{
+						{
+							Name:  "example.com/gpu",
+							Total: resource.MustParse("3"),
+						},
+					},
+				},
+			},
+		},
+		"some workloads are inadmissible": {
+			cq: &cq,
+			wls: []kueue.Workload{
+				*utiltesting.MakeWorkload("one", "ns1").
+					Queue("test").
+					Request(corev1.ResourceCPU, "5").
+					Request("example.com/gpu", "5").
+					Admit(
+						utiltesting.MakeAdmission("foo").
+							Assignment(corev1.ResourceCPU, "default", "5000m").
+							Assignment("example.com/gpu", "model-a", "5").Obj(),
+					).Obj(),
+				*utiltesting.MakeWorkload("two", "ns1").
+					Queue("test").
+					Request(corev1.ResourceCPU, "100000").
+					Request("example.com/gpu", "3").Obj(),
+			},
+			inAdmissibleWl: sets.New("two"),
+			wantUsage: []kueue.LocalQueueFlavorUsage{
+				{
+					Name: "default",
+					Resources: []kueue.LocalQueueResourceUsage{
+						{
+							Name:  corev1.ResourceCPU,
+							Total: resource.MustParse("5"),
+						},
+					},
+				},
+				{
+					Name: "model-a",
+					Resources: []kueue.LocalQueueResourceUsage{
+						{
+							Name:  "example.com/gpu",
+							Total: resource.MustParse("5"),
+						},
+					},
+				},
+				{
+					Name: "model-b",
+					Resources: []kueue.LocalQueueResourceUsage{
+						{
+							Name:  "example.com/gpu",
+							Total: resource.MustParse("0"),
+						},
+					},
+				},
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cache := New(utiltesting.NewFakeClient())
+			ctx := context.Background()
+			if tc.cq != nil {
+				if err := cache.AddClusterQueue(ctx, tc.cq); err != nil {
+					t.Fatalf("Adding ClusterQueue: %v", err)
+				}
+			}
+			if err := cache.AddLocalQueue(&localQueue); err != nil {
+				t.Fatalf("Adding LocalQueue: %v", err)
+			}
+			for _, w := range tc.wls {
+				if added := cache.AddOrUpdateWorkload(&w); !added && !tc.inAdmissibleWl.Has(w.Name) {
+					t.Fatalf("Workload %s was not added", workload.Key(&w))
+				}
+			}
+			gotUsage, err := cache.LocalQueueUsage(&localQueue)
+			if err != nil {
+				t.Fatalf("Couldn't get usage for the queue: %v", err)
+			}
+			if diff := cmp.Diff(tc.wantUsage, gotUsage); diff != "" {
+				t.Errorf("Unexpected used resources for the queue (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestCacheQueueOperations(t *testing.T) {
 	cqs := []*kueue.ClusterQueue{
-		utiltesting.MakeClusterQueue("foo").Obj(),
-		utiltesting.MakeClusterQueue("bar").Obj(),
+		utiltesting.MakeClusterQueue("foo").
+			ResourceGroup(
+				*utiltesting.MakeFlavorQuotas("spot").
+					Resource("cpu", "10", "10").
+					Resource("memory", "64Gi", "64Gi").Obj(),
+			).ResourceGroup(
+			*utiltesting.MakeFlavorQuotas("model-a").
+				Resource("example.com/gpu", "10", "10").Obj(),
+		).Obj(),
+		utiltesting.MakeClusterQueue("bar").
+			ResourceGroup(
+				*utiltesting.MakeFlavorQuotas("ondemand").
+					Resource("cpu", "5", "5").
+					Resource("memory", "32Gi", "32Gi").Obj(),
+			).ResourceGroup(
+			*utiltesting.MakeFlavorQuotas("model-b").
+				Resource("example.com/gpu", "5", "5").Obj(),
+		).Obj(),
 	}
 	queues := []*kueue.LocalQueue{
 		utiltesting.MakeLocalQueue("alpha", "ns1").ClusterQueue("foo").Obj(),
@@ -1440,10 +1682,38 @@ func TestCacheQueueOperations(t *testing.T) {
 		utiltesting.MakeLocalQueue("gamma", "ns1").ClusterQueue("bar").Obj(),
 	}
 	workloads := []*kueue.Workload{
-		utiltesting.MakeWorkload("job1", "ns1").Queue("alpha").Admit(utiltesting.MakeAdmission("foo").Obj()).Obj(),
-		utiltesting.MakeWorkload("job2", "ns2").Queue("beta").Admit(utiltesting.MakeAdmission("foo").Obj()).Obj(),
-		utiltesting.MakeWorkload("job3", "ns1").Queue("gamma").Admit(utiltesting.MakeAdmission("bar").Obj()).Obj(),
-		utiltesting.MakeWorkload("job4", "ns2").Queue("beta").Admit(utiltesting.MakeAdmission("foo").Obj()).Obj(),
+		utiltesting.MakeWorkload("job1", "ns1").
+			Queue("alpha").
+			Request("cpu", "2").
+			Request("memory", "8Gi").
+			Admit(
+				utiltesting.MakeAdmission("foo").
+					Assignment("cpu", "spot", "2").
+					Assignment("memory", "spot", "8Gi").Obj(),
+			).Obj(),
+		utiltesting.MakeWorkload("job2", "ns2").
+			Queue("beta").
+			Request("example.com/gpu", "2").
+			Admit(
+				utiltesting.MakeAdmission("foo").
+					Assignment("example.com/gpu", "model-a", "2").Obj(),
+			).Obj(),
+		utiltesting.MakeWorkload("job3", "ns1").
+			Queue("gamma").
+			Request("cpu", "5").
+			Request("memory", "16Gi").
+			Admit(
+				utiltesting.MakeAdmission("bar").
+					Assignment("cpu", "ondemand", "5").
+					Assignment("memory", "ondemand", "16Gi").Obj(),
+			).Obj(),
+		utiltesting.MakeWorkload("job4", "ns2").
+			Queue("beta").
+			Request("example.com/gpu", "5").
+			Admit(
+				utiltesting.MakeAdmission("foo").
+					Assignment("example.com/gpu", "model-a", "5").Obj(),
+			).Obj(),
 	}
 	insertAllClusterQueues := func(ctx context.Context, cl client.Client, cache *Cache) error {
 		for _, cq := range cqs {
@@ -1479,9 +1749,91 @@ func TestCacheQueueOperations(t *testing.T) {
 		}
 		return nil
 	}
+	cacheLocalQueuesAfterInsertingAll := map[string]*queue{
+		"ns1/alpha": {
+			key:               "ns1/alpha",
+			admittedWorkloads: 1,
+			usage: FlavorResourceQuantities{
+				"spot": {
+					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("2")),
+					corev1.ResourceMemory: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("8Gi")),
+				},
+				"model-a": {
+					"example.com/gpu": workload.ResourceValue("example.com/gpu", resource.MustParse("0")),
+				},
+			},
+		},
+		"ns2/beta": {
+			key:               "ns2/beta",
+			admittedWorkloads: 2,
+			usage: FlavorResourceQuantities{
+				"spot": {
+					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
+					corev1.ResourceMemory: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
+				},
+				"model-a": {
+					"example.com/gpu": workload.ResourceValue("example.com/gpu", resource.MustParse("7")),
+				},
+			},
+		},
+		"ns1/gamma": {
+			key:               "ns1/gamma",
+			admittedWorkloads: 1,
+			usage: FlavorResourceQuantities{
+				"ondemand": {
+					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("5")),
+					corev1.ResourceMemory: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("16Gi")),
+				},
+				"model-b": {
+					"example.com/gpu": workload.ResourceValue("example.com/gpu", resource.MustParse("0")),
+				},
+			},
+		},
+	}
+	cacheLocalQueuesAfterInsertingCqAndQ := map[string]*queue{
+		"ns1/alpha": {
+			key:               "ns1/alpha",
+			admittedWorkloads: 0,
+			usage: FlavorResourceQuantities{
+				"spot": {
+					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
+					corev1.ResourceMemory: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
+				},
+				"model-a": {
+					"example.com/gpu": workload.ResourceValue("example.com/gpu", resource.MustParse("0")),
+				},
+			},
+		},
+		"ns2/beta": {
+			key:               "ns2/beta",
+			admittedWorkloads: 0,
+			usage: FlavorResourceQuantities{
+				"spot": {
+					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
+					corev1.ResourceMemory: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
+				},
+				"model-a": {
+					"example.com/gpu": workload.ResourceValue("example.com/gpu", resource.MustParse("0")),
+				},
+			},
+		},
+		"ns1/gamma": {
+			key:               "ns1/gamma",
+			admittedWorkloads: 0,
+			usage: FlavorResourceQuantities{
+				"ondemand": {
+					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
+					corev1.ResourceMemory: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
+				},
+				"model-b": {
+					"example.com/gpu": workload.ResourceValue("example.com/gpu", resource.MustParse("0")),
+				},
+			},
+		},
+	}
 	cases := map[string]struct {
 		ops             []func(context.Context, client.Client, *Cache) error
-		wantQueueCounts map[string]int32
+		wantLocalQueues map[string]*queue
 	}{
 		"insert cqs, queues, workloads": {
 			ops: []func(ctx context.Context, cl client.Client, cache *Cache) error{
@@ -1489,25 +1841,21 @@ func TestCacheQueueOperations(t *testing.T) {
 				insertAllQueues,
 				insertAllWorkloads,
 			},
-			wantQueueCounts: map[string]int32{
-				"ns1/alpha": 1,
-				"ns2/beta":  2,
-				"ns1/gamma": 1,
-			},
+			wantLocalQueues: cacheLocalQueuesAfterInsertingAll,
 		},
 		"insert cqs, workloads but no queues": {
 			ops: []func(context.Context, client.Client, *Cache) error{
 				insertAllClusterQueues,
 				insertAllWorkloads,
 			},
-			wantQueueCounts: map[string]int32{},
+			wantLocalQueues: map[string]*queue{},
 		},
 		"insert queues, workloads but no cqs": {
 			ops: []func(context.Context, client.Client, *Cache) error{
 				insertAllQueues,
 				insertAllWorkloads,
 			},
-			wantQueueCounts: map[string]int32{},
+			wantLocalQueues: map[string]*queue{},
 		},
 		"insert queues last": {
 			ops: []func(context.Context, client.Client, *Cache) error{
@@ -1515,11 +1863,7 @@ func TestCacheQueueOperations(t *testing.T) {
 				insertAllWorkloads,
 				insertAllQueues,
 			},
-			wantQueueCounts: map[string]int32{
-				"ns1/alpha": 1,
-				"ns2/beta":  2,
-				"ns1/gamma": 1,
-			},
+			wantLocalQueues: cacheLocalQueuesAfterInsertingAll,
 		},
 		"insert cqs last": {
 			ops: []func(context.Context, client.Client, *Cache) error{
@@ -1527,11 +1871,7 @@ func TestCacheQueueOperations(t *testing.T) {
 				insertAllWorkloads,
 				insertAllClusterQueues,
 			},
-			wantQueueCounts: map[string]int32{
-				"ns1/alpha": 1,
-				"ns2/beta":  2,
-				"ns1/gamma": 1,
-			},
+			wantLocalQueues: cacheLocalQueuesAfterInsertingAll,
 		},
 		"assume": {
 			ops: []func(context.Context, client.Client, *Cache) error{
@@ -1545,10 +1885,10 @@ func TestCacheQueueOperations(t *testing.T) {
 					return cache.AssumeWorkload(wl)
 				},
 			},
-			wantQueueCounts: map[string]int32{
-				"ns1/alpha": 1,
-				"ns2/beta":  0,
-				"ns1/gamma": 0,
+			wantLocalQueues: map[string]*queue{
+				"ns1/alpha": cacheLocalQueuesAfterInsertingAll["ns1/alpha"],
+				"ns2/beta":  cacheLocalQueuesAfterInsertingCqAndQ["ns2/beta"],
+				"ns1/gamma": cacheLocalQueuesAfterInsertingCqAndQ["ns1/gamma"],
 			},
 		},
 		"assume and forget": {
@@ -1566,10 +1906,10 @@ func TestCacheQueueOperations(t *testing.T) {
 					return cache.ForgetWorkload(wl)
 				},
 			},
-			wantQueueCounts: map[string]int32{
-				"ns1/alpha": 0,
-				"ns2/beta":  0,
-				"ns1/gamma": 0,
+			wantLocalQueues: map[string]*queue{
+				"ns1/alpha": cacheLocalQueuesAfterInsertingCqAndQ["ns1/alpha"],
+				"ns2/beta":  cacheLocalQueuesAfterInsertingCqAndQ["ns2/beta"],
+				"ns1/gamma": cacheLocalQueuesAfterInsertingCqAndQ["ns1/gamma"],
 			},
 		},
 		"delete workload": {
@@ -1581,10 +1921,10 @@ func TestCacheQueueOperations(t *testing.T) {
 					return cache.DeleteWorkload(workloads[0])
 				},
 			},
-			wantQueueCounts: map[string]int32{
-				"ns1/alpha": 0,
-				"ns2/beta":  2,
-				"ns1/gamma": 1,
+			wantLocalQueues: map[string]*queue{
+				"ns1/alpha": cacheLocalQueuesAfterInsertingCqAndQ["ns1/alpha"],
+				"ns2/beta":  cacheLocalQueuesAfterInsertingAll["ns2/beta"],
+				"ns1/gamma": cacheLocalQueuesAfterInsertingAll["ns1/gamma"],
 			},
 		},
 		"delete cq": {
@@ -1597,8 +1937,8 @@ func TestCacheQueueOperations(t *testing.T) {
 					return nil
 				},
 			},
-			wantQueueCounts: map[string]int32{
-				"ns1/gamma": 1,
+			wantLocalQueues: map[string]*queue{
+				"ns1/gamma": cacheLocalQueuesAfterInsertingAll["ns1/gamma"],
 			},
 		},
 		"delete queue": {
@@ -1611,9 +1951,9 @@ func TestCacheQueueOperations(t *testing.T) {
 					return nil
 				},
 			},
-			wantQueueCounts: map[string]int32{
-				"ns2/beta":  2,
-				"ns1/gamma": 1,
+			wantLocalQueues: map[string]*queue{
+				"ns2/beta":  cacheLocalQueuesAfterInsertingAll["ns2/beta"],
+				"ns1/gamma": cacheLocalQueuesAfterInsertingAll["ns1/gamma"],
 			},
 		},
 		// Not tested: changing a workload's queue and changing a queue's cluster queue.
@@ -1629,12 +1969,17 @@ func TestCacheQueueOperations(t *testing.T) {
 					t.Fatalf("Running op %d: %v", i, err)
 				}
 			}
-			for _, lq := range queues {
-				queueAdmitted := cache.AdmittedWorkloadsInLocalQueue(lq)
-				key := fmt.Sprintf("%s/%s", lq.Namespace, lq.Name)
-				if diff := cmp.Diff(tc.wantQueueCounts[key], queueAdmitted); diff != "" {
-					t.Errorf("Want %d but got %d for %s", tc.wantQueueCounts[key], queueAdmitted, key)
+			cacheQueues := make(map[string]*queue)
+			for _, cacheCQ := range cache.clusterQueues {
+				for qKey, cacheQ := range cacheCQ.localQueues {
+					if _, ok := cacheQueues[qKey]; ok {
+						t.Fatalf("The cache have a duplicated localQueue %q across multiple clusterQueues", qKey)
+					}
+					cacheQueues[qKey] = cacheQ
 				}
+			}
+			if diff := cmp.Diff(tc.wantLocalQueues, cacheQueues, cmp.AllowUnexported(queue{})); diff != "" {
+				t.Errorf("Unexpected localQueues (-want,+got):\n%s", diff)
 			}
 		})
 	}

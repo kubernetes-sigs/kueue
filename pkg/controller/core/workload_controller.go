@@ -110,7 +110,7 @@ func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *c
 	}
 }
 
-//+kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
+//+kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
 //+kubebuilder:rbac:groups="",resources=limitranges,verbs=get;list;watch
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
@@ -130,46 +130,47 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
 		return ctrl.Result{}, nil
 	}
-	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadAdmitted) {
+	if workload.IsAdmitted(&wl) {
 		return r.reconcileNotReadyTimeout(ctx, req, &wl)
 	}
 
 	if !r.queues.QueueForWorkloadExists(&wl) {
 		log.V(3).Info("Workload is inadmissible because of missing LocalQueue", "localQueue", klog.KRef(wl.Namespace, wl.Spec.QueueName))
-		err := workload.UnsetAdmissionWithCondition(ctx, r.client, &wl,
-			"Inadmissible", fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName))
+		workload.UnsetAdmissionWithCondition(&wl, "Inadmissible", fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName))
+		err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)
 	if !cqOk {
 		log.V(3).Info("Workload is inadmissible because of missing ClusterQueue", "clusterQueue", klog.KRef("", cqName))
-		err := workload.UnsetAdmissionWithCondition(ctx, r.client, &wl,
-			"Inadmissible", fmt.Sprintf("ClusterQueue %s doesn't exist", cqName))
+		workload.UnsetAdmissionWithCondition(&wl, "Inadmissible", fmt.Sprintf("ClusterQueue %s doesn't exist", cqName))
+		err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	if !r.cache.ClusterQueueActive(cqName) {
 		log.V(3).Info("Workload is inadmissible because ClusterQueue is inactive", "clusterQueue", klog.KRef("", cqName))
-		err := workload.UnsetAdmissionWithCondition(ctx, r.client, &wl,
-			"Inadmissible", fmt.Sprintf("ClusterQueue %s is inactive", cqName))
+		workload.UnsetAdmissionWithCondition(&wl, "Inadmissible", fmt.Sprintf("ClusterQueue %s is inactive", cqName))
+		err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	return ctrl.Result{}, nil
 }
 
 func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req ctrl.Request, wl *kueue.Workload) (ctrl.Result, error) {
+	log := ctrl.LoggerFrom(ctx)
 	countingTowardsTimeout, recheckAfter := r.admittedNotReadyWorkload(wl, realClock)
 	if !countingTowardsTimeout {
 		return ctrl.Result{}, nil
 	}
 	if recheckAfter > 0 {
-		klog.V(4).InfoS("Workload not yet ready and did not exceed its timeout", "workload", req.NamespacedName.String(), "recheckAfter", recheckAfter)
+		log.V(4).Info("Workload not yet ready and did not exceed its timeout", "recheckAfter", recheckAfter)
 		return ctrl.Result{RequeueAfter: recheckAfter}, nil
 	} else {
-		klog.V(2).InfoS("Cancelling admission of the workload due to exceeding the PodsReady timeout", "workload", req.NamespacedName.String())
-		err := workload.UnsetAdmissionWithCondition(ctx, r.client, wl,
-			"Evicted", fmt.Sprintf("Exceeded the PodsReady timeout %s", req.NamespacedName.String()))
+		log.V(2).Info("Start the eviction of the workload due to exceeding the PodsReady timeout")
+		workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByPodsReadyTimeout, fmt.Sprintf("Exceeded the PodsReady timeout %s", req.NamespacedName.String()))
+		err := workload.ApplyAdmissionStatus(ctx, r.client, wl, false)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 }
@@ -192,7 +193,7 @@ func (r *WorkloadReconciler) Create(e event.CreateEvent) bool {
 	wlCopy := wl.DeepCopy()
 	r.adjustResources(log, wlCopy)
 
-	if wl.Status.Admission == nil {
+	if !workload.IsAdmitted(wl) {
 		if !r.queues.AddOrUpdateWorkload(wlCopy) {
 			log.V(2).Info("Queue for workload didn't exist; ignored for now")
 		}
@@ -223,7 +224,7 @@ func (r *WorkloadReconciler) Delete(e event.DeleteEvent) bool {
 	// When assigning a clusterQueue to a workload, we assume it in the cache. If
 	// the state is unknown, the workload could have been assumed and we need
 	// to clear it from the cache.
-	if wl.Status.Admission != nil || e.DeleteStateUnknown {
+	if workload.IsAdmitted(wl) || e.DeleteStateUnknown {
 		// trigger the move of associated inadmissibleWorkloads if required.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wl, func() {
 			// Delete the workload from cache while holding the queues lock
@@ -239,7 +240,7 @@ func (r *WorkloadReconciler) Delete(e event.DeleteEvent) bool {
 
 	// Even if the state is unknown, the last cached state tells us whether the
 	// workload was in the queues and should be cleared from them.
-	if wl.Status.Admission == nil {
+	if workload.IsAdmitted(wl) {
 		r.queues.DeleteWorkload(wl)
 	}
 	return true
@@ -266,10 +267,10 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 	if prevStatus != status {
 		log = log.WithValues("prevStatus", prevStatus)
 	}
-	if wl.Status.Admission != nil {
+	if workload.IsAdmitted(wl) {
 		log = log.WithValues("clusterQueue", wl.Status.Admission.ClusterQueue)
 	}
-	if oldWl.Status.Admission != nil && (wl.Status.Admission == nil || wl.Status.Admission.ClusterQueue != oldWl.Status.Admission.ClusterQueue) {
+	if workload.IsAdmitted(oldWl) && (!workload.IsAdmitted(wl) || wl.Status.Admission.ClusterQueue != oldWl.Status.Admission.ClusterQueue) {
 		log = log.WithValues("prevClusterQueue", oldWl.Status.Admission.ClusterQueue)
 	}
 	log.V(2).Info("Workload update event")
@@ -358,24 +359,21 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // True (False or not set). The second value is the remaining time to exceed the
 // specified timeout counted since max of the LastTransitionTime's for the
 // Admitted and PodsReady conditions.
-func (r *WorkloadReconciler) admittedNotReadyWorkload(workload *kueue.Workload, clock clock.Clock) (bool, time.Duration) {
+func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload, clock clock.Clock) (bool, time.Duration) {
 	if r.podsReadyTimeout == nil {
 		// the timeout is not configured for the workload controller
 		return false, 0
 	}
-	if workload.Status.Admission == nil {
+	if !workload.IsAdmitted(wl) {
 		// the workload is not admitted so there is no need to time it out
 		return false, 0
 	}
-	admittedCond := apimeta.FindStatusCondition(workload.Status.Conditions, kueue.WorkloadAdmitted)
-	if admittedCond == nil || admittedCond.Status != metav1.ConditionTrue {
-		// workload does not yet have the condition indicating its admission time
-		return false, 0
-	}
-	podsReadyCond := apimeta.FindStatusCondition(workload.Status.Conditions, kueue.WorkloadPodsReady)
+
+	podsReadyCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady)
 	if podsReadyCond != nil && podsReadyCond.Status == metav1.ConditionTrue {
 		return false, 0
 	}
+	admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
 	elapsedTime := clock.Since(admittedCond.LastTransitionTime.Time)
 	if podsReadyCond != nil && podsReadyCond.Status == metav1.ConditionFalse && podsReadyCond.LastTransitionTime.After(admittedCond.LastTransitionTime.Time) {
 		elapsedTime = clock.Since(podsReadyCond.LastTransitionTime.Time)
@@ -391,7 +389,7 @@ func workloadStatus(w *kueue.Workload) string {
 	if apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished) {
 		return finished
 	}
-	if apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadAdmitted) {
+	if workload.IsAdmitted(w) {
 		return admitted
 	}
 	return pending
@@ -520,7 +518,7 @@ func (h *resourceUpdatesHandler) handle(ctx context.Context, obj client.Object, 
 	}
 }
 
-func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, q workqueue.RateLimitingInterface, opts ...client.ListOption) {
+func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, _ workqueue.RateLimitingInterface, opts ...client.ListOption) {
 	log := ctrl.LoggerFrom(ctx)
 	lst := kueue.WorkloadList{}
 	opts = append(opts, client.MatchingFields{indexer.WorkloadAdmittedKey: string(metav1.ConditionFalse)})

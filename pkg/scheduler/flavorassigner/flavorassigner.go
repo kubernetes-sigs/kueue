@@ -150,6 +150,7 @@ type PodSetAssignment struct {
 	Flavors  ResourceAssignment
 	Status   *Status
 	Requests corev1.ResourceList
+	Count    int32
 }
 
 // RepresentativeMode calculates the representative mode for this assignment as
@@ -181,6 +182,7 @@ func (psa *PodSetAssignment) toAPI() kueue.PodSetAssignment {
 		Name:          psa.Name,
 		Flavors:       flavors,
 		ResourceUsage: psa.Requests,
+		Count:         psa.Count,
 	}
 }
 
@@ -231,11 +233,17 @@ func AssignFlavors(log logr.Logger, wl *workload.Info, resourceFlavors map[kueue
 		usage:       make(cache.FlavorResourceQuantities),
 	}
 	for i, podSet := range wl.TotalRequests {
+		if _, found := cq.RGByResource[corev1.ResourcePods]; found {
+			podSet.Requests[corev1.ResourcePods] = int64(wl.Obj.Spec.PodSets[i].Count)
+		}
+
 		psAssignment := PodSetAssignment{
 			Name:     podSet.Name,
 			Flavors:  make(ResourceAssignment, len(podSet.Requests)),
 			Requests: podSet.Requests.ToResourceList(),
+			Count:    podSet.Count,
 		}
+
 		for resName := range podSet.Requests {
 			if _, found := psAssignment.Flavors[resName]; found {
 				// This resource got assigned the same flavor as its resource group.

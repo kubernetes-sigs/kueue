@@ -85,9 +85,14 @@ var _ = ginkgo.Describe("ResourceFlavor controller", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Change clusterQueue's flavor")
-			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &cq)).To(gomega.Succeed())
-			cq.Spec.ResourceGroups[0].Flavors[0].Name = "alternate-flavor"
-			gomega.Expect(k8sClient.Update(ctx, &cq)).To(gomega.Succeed())
+			gomega.Eventually(func() error {
+				err := k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &cq)
+				if err != nil {
+					return err
+				}
+				cq.Spec.ResourceGroups[0].Flavors[0].Name = "alternate-flavor"
+				return k8sClient.Update(ctx, &cq)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func() error {
 				return k8sClient.Get(ctx, client.ObjectKeyFromObject(resourceFlavor), &rf)

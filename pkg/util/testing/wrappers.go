@@ -17,6 +17,7 @@ limitations under the License.
 package testing
 
 import (
+	"fmt"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -98,6 +99,13 @@ func (w *WorkloadWrapper) Queue(q string) *WorkloadWrapper {
 
 func (w *WorkloadWrapper) Admit(a *kueue.Admission) *WorkloadWrapper {
 	w.Status.Admission = a
+	w.Status.Conditions = []metav1.Condition{{
+		Type:               kueue.WorkloadAdmitted,
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "AdmittedByTest",
+		Message:            fmt.Sprintf("Admitted by ClusterQueue %s", w.Status.Admission.ClusterQueue),
+	}}
 	return w
 }
 
@@ -143,6 +151,20 @@ func (w *WorkloadWrapper) Condition(condition metav1.Condition) *WorkloadWrapper
 	return w
 }
 
+func (w *WorkloadWrapper) SetOrReplaceCondition(condition metav1.Condition) *WorkloadWrapper {
+	existingCondition := apimeta.FindStatusCondition(w.Status.Conditions, condition.Type)
+	if existingCondition != nil {
+		apimeta.RemoveStatusCondition(&w.Status.Conditions, condition.Type)
+	}
+	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
+	return w
+}
+
+func (w *WorkloadWrapper) ReclaimablePods(rps ...kueue.ReclaimablePod) *WorkloadWrapper {
+	w.Status.ReclaimablePods = rps
+	return w
+}
+
 type PodSetWrapper struct{ kueue.PodSet }
 
 func MakePodSet(name string, count int) *PodSetWrapper {
@@ -180,6 +202,16 @@ func (p *PodSetWrapper) Toleration(t corev1.Toleration) *PodSetWrapper {
 	return p
 }
 
+func (p *PodSetWrapper) Containers(containers ...corev1.Container) *PodSetWrapper {
+	p.Template.Spec.Containers = containers
+	return p
+}
+
+func (p *PodSetWrapper) InitContainers(containers ...corev1.Container) *PodSetWrapper {
+	p.Template.Spec.InitContainers = containers
+	return p
+}
+
 // AdmissionWrapper wraps an Admission
 type AdmissionWrapper struct{ kueue.Admission }
 
@@ -194,6 +226,7 @@ func MakeAdmission(cq string, podSetNames ...string) *AdmissionWrapper {
 				Name:          kueue.DefaultPodSetName,
 				Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
 				ResourceUsage: make(corev1.ResourceList),
+				Count:         1,
 			},
 		}
 		return wrap
@@ -205,6 +238,7 @@ func MakeAdmission(cq string, podSetNames ...string) *AdmissionWrapper {
 			Name:          name,
 			Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
 			ResourceUsage: make(corev1.ResourceList),
+			Count:         1,
 		})
 	}
 	wrap.PodSetAssignments = psFlavors
@@ -218,6 +252,11 @@ func (w *AdmissionWrapper) Obj() *kueue.Admission {
 func (w *AdmissionWrapper) Assignment(r corev1.ResourceName, f kueue.ResourceFlavorReference, value string) *AdmissionWrapper {
 	w.PodSetAssignments[0].Flavors[r] = f
 	w.PodSetAssignments[0].ResourceUsage[r] = resource.MustParse(value)
+	return w
+}
+
+func (w *AdmissionWrapper) AssignmentPodCount(value int32) *AdmissionWrapper {
+	w.PodSetAssignments[0].Count = value
 	return w
 }
 

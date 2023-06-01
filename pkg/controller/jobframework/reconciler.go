@@ -148,7 +148,17 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
-	// 4. handle WaitForPodsReady only for a standalone job.
+	// 4. update reclaimable counts.
+	if rp := job.ReclaimablePods(); !workload.ReclaimablePodsAreEqual(rp, wl.Status.ReclaimablePods) {
+		err = workload.UpdateReclaimablePods(ctx, r.client, wl, rp)
+		if err != nil {
+			log.Error(err, "Updating reclaimable pods")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// 5. handle WaitForPodsReady only for a standalone job.
 	if isStandaloneJob {
 		// handle a job when waitForPodsReady is enabled, and it is the main job
 		if r.waitForPodsReady {
@@ -166,10 +176,27 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	// 5. handle job is suspended.
+	// 6. handle eviction
+	if evCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted); evCond != nil && evCond.Status == metav1.ConditionTrue {
+		if !job.IsSuspended() {
+			log.V(6).Info("The job is not suspended, stop")
+			return ctrl.Result{}, r.stopJob(ctx, job, object, wl, evCond.Message)
+		}
+		if workload.IsAdmitted(wl) {
+			if !job.IsActive() {
+				log.V(6).Info("The job is no longer active, clear the workloads admission")
+				workload.UnsetAdmissionWithCondition(wl, "Pending", evCond.Message)
+				return ctrl.Result{}, workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
+			}
+			// The job is suspended but active, nothing to do now.
+			return ctrl.Result{}, nil
+		}
+	}
+
+	// 7. handle job is suspended.
 	if job.IsSuspended() {
 		// start the job if the workload has been admitted, and the job is still suspended
-		if wl.Status.Admission != nil {
+		if workload.IsAdmitted(wl) {
 			log.V(2).Info("Job admitted, unsuspending")
 			err := r.startJob(ctx, job, object, wl)
 			if err != nil {
@@ -180,7 +207,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 		// update queue name if changed.
 		q := QueueName(job)
-		if wl.Spec.QueueName != q {
+		if wl.Spec.QueueName != q && isStandaloneJob {
 			log.V(2).Info("Job changed queues, updating workload")
 			wl.Spec.QueueName = q
 			err := r.client.Update(ctx, wl)
@@ -193,8 +220,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, nil
 	}
 
-	// 6. handle job is unsuspended.
-	if wl.Status.Admission == nil {
+	// 8. handle job is unsuspended.
+	if !workload.IsAdmitted(wl) {
 		// the job must be suspended if the workload is not yet admitted.
 		log.V(2).Info("Running job is not admitted by a cluster queue, suspending")
 		err := r.stopJob(ctx, job, object, wl, "Not admitted by cluster queue")
@@ -472,7 +499,7 @@ func generatePodsReadyCondition(job GenericJob, wl *kueue.Workload) metav1.Condi
 	// Ready to Completed. As pods finish, they transition first into the
 	// uncountedTerminatedPods staging area, before passing to the
 	// succeeded/failed counters.
-	if wl.Status.Admission != nil && (job.PodsReady() || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPodsReady)) {
+	if workload.IsAdmitted(wl) && (job.PodsReady() || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPodsReady)) {
 		conditionStatus = metav1.ConditionTrue
 		message = "All pods were ready or succeeded since the workload admission"
 	}

@@ -243,9 +243,51 @@ To limit the amount of resources that a ClusterQueue can borrow from others,
 you can set the `.spec.resourcesGroup[*].flavors[*].resource[*].borrowingLimit`
 [quantity](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/quantity/) field.
 
+As an example, assume you created the following two ClusterQueues:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: "team-a-cq"
+spec:
+  namespaceSelector: {} # match all.
+  cohort: "team-ab"
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
+    flavors:
+    - name: "default-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 9  
+        borrowingLimit: 1
+```
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: "team-b-cq"
+spec:
+  namespaceSelector: {} # match all.
+  cohort: "team-ab"
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
+    flavors:
+    - name: "default-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 12  
+```
+
+In this case, because we set borrowingLimit in ClusterQueue `team-a-cq`, if 
+ClusterQueue `team-b-cq` has no admitted Workloads, then ClusterQueue `team-a-cq` 
+can admit Workloads with resources adding up to `9+1=10` CPUs. 
+
 If, for a given flavor/resource, the `borrowingLimit` field is empty or null, 
 a ClusterQueue can borrow up to the sum of nominal quotas from all the 
-ClusterQueues in the cohort.
+ClusterQueues in the cohort. So for the yamls listed above, `team-b-cq` can 
+borrow `12+9` CPUs.
 
 ## Preemption
 

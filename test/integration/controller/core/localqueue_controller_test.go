@@ -20,6 +20,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -157,13 +158,24 @@ var _ = ginkgo.Describe("Queue controller", func() {
 		workloads := []*kueue.Workload{
 			testing.MakeWorkload("one", ns.Name).
 				Queue(queue.Name).
-				Request(corev1.ResourceCPU, "2").Obj(),
+				Request(resourceGPU, "2").
+				Obj(),
 			testing.MakeWorkload("two", ns.Name).
 				Queue(queue.Name).
-				Request(corev1.ResourceCPU, "3").Obj(),
+				Request(resourceGPU, "3").
+				Obj(),
 			testing.MakeWorkload("three", ns.Name).
 				Queue(queue.Name).
-				Request(corev1.ResourceCPU, "1").Obj(),
+				Request(resourceGPU, "1").
+				Obj(),
+		}
+		admissions := []*kueue.Admission{
+			testing.MakeAdmission(clusterQueue.Name).
+				Assignment(resourceGPU, flavorModelC, "2").Obj(),
+			testing.MakeAdmission(clusterQueue.Name).
+				Assignment(resourceGPU, flavorModelC, "3").Obj(),
+			testing.MakeAdmission(clusterQueue.Name).
+				Assignment(resourceGPU, flavorModelD, "1").Obj(),
 		}
 
 		ginkgo.By("Creating workloads")
@@ -185,15 +197,34 @@ var _ = ginkgo.Describe("Queue controller", func() {
 					Message: "Can submit new workloads to clusterQueue",
 				},
 			},
+			FlavorUsage: []kueue.LocalQueueFlavorUsage{
+				{
+					Name: flavorModelC,
+					Resources: []kueue.LocalQueueResourceUsage{
+						{
+							Name:  resourceGPU,
+							Total: resource.MustParse("0"),
+						},
+					},
+				},
+				{
+					Name: flavorModelD,
+					Resources: []kueue.LocalQueueResourceUsage{
+						{
+							Name:  resourceGPU,
+							Total: resource.MustParse("0"),
+						},
+					},
+				},
+			},
 		}, ignoreConditionTimestamps))
 
 		ginkgo.By("Admitting workloads")
-		for _, w := range workloads {
+		for i, w := range workloads {
 			gomega.Eventually(func() error {
 				var newWL kueue.Workload
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
-				return util.AdmitWorkload(ctx, k8sClient, &newWL, testing.MakeAdmission(clusterQueue.Name).
-					Assignment(corev1.ResourceCPU, flavorOnDemand, "1").Obj())
+				return util.SetAdmission(ctx, k8sClient, &newWL, admissions[i])
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		}
 		gomega.Eventually(func() kueue.LocalQueueStatus {
@@ -211,6 +242,26 @@ var _ = ginkgo.Describe("Queue controller", func() {
 					Message: "Can submit new workloads to clusterQueue",
 				},
 			},
+			FlavorUsage: []kueue.LocalQueueFlavorUsage{
+				{
+					Name: flavorModelC,
+					Resources: []kueue.LocalQueueResourceUsage{
+						{
+							Name:  resourceGPU,
+							Total: resource.MustParse("5"),
+						},
+					},
+				},
+				{
+					Name: flavorModelD,
+					Resources: []kueue.LocalQueueResourceUsage{
+						{
+							Name:  resourceGPU,
+							Total: resource.MustParse("1"),
+						},
+					},
+				},
+			},
 		}, ignoreConditionTimestamps))
 
 		ginkgo.By("Finishing workloads")
@@ -226,6 +277,26 @@ var _ = ginkgo.Describe("Queue controller", func() {
 					Status:  metav1.ConditionTrue,
 					Reason:  "Ready",
 					Message: "Can submit new workloads to clusterQueue",
+				},
+			},
+			FlavorUsage: []kueue.LocalQueueFlavorUsage{
+				{
+					Name: flavorModelC,
+					Resources: []kueue.LocalQueueResourceUsage{
+						{
+							Name:  resourceGPU,
+							Total: resource.MustParse("0"),
+						},
+					},
+				},
+				{
+					Name: flavorModelD,
+					Resources: []kueue.LocalQueueResourceUsage{
+						{
+							Name:  resourceGPU,
+							Total: resource.MustParse("0"),
+						},
+					},
 				},
 			},
 		}, ignoreConditionTimestamps))

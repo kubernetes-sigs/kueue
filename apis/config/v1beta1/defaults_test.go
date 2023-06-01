@@ -280,8 +280,33 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
-					Enable:  true,
-					Timeout: &podsReadyTimeoutTimeout,
+					Enable:         true,
+					BlockAdmission: pointer.Bool(true),
+					Timeout:        &podsReadyTimeoutTimeout,
+				},
+				Namespace:                          pointer.String(DefaultNamespace),
+				ControllerManagerConfigurationSpec: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: pointer.Bool(false),
+				},
+				ClientConnection: defaultClientConnection,
+				Integrations:     defaultIntegrations,
+			},
+		},
+		"set waitForPodsReady.blockAdmission to false when enable is false": {
+			original: &Configuration{
+				WaitForPodsReady: &WaitForPodsReady{
+					Enable: false,
+				},
+				InternalCertManagement: &InternalCertManagement{
+					Enable: pointer.Bool(false),
+				},
+			},
+			want: &Configuration{
+				WaitForPodsReady: &WaitForPodsReady{
+					Enable:         false,
+					BlockAdmission: pointer.Bool(false),
+					Timeout:        &podsReadyTimeoutTimeout,
 				},
 				Namespace:                          pointer.String(DefaultNamespace),
 				ControllerManagerConfigurationSpec: defaultCtrlManagerConfigurationSpec,
@@ -304,8 +329,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
-					Enable:  true,
-					Timeout: &podsReadyTimeoutOverwrite,
+					Enable:         true,
+					BlockAdmission: pointer.Bool(true),
+					Timeout:        &podsReadyTimeoutOverwrite,
 				},
 				Namespace:                          pointer.String(DefaultNamespace),
 				ControllerManagerConfigurationSpec: defaultCtrlManagerConfigurationSpec,

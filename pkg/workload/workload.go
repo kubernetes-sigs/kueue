@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -30,6 +31,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
+)
+
+var (
+	admissionManagedConditions = []string{kueue.WorkloadAdmitted, kueue.WorkloadEvicted}
 )
 
 // Info holds a Workload object and some pre-processing.
@@ -45,6 +50,7 @@ type Info struct {
 type PodSetResources struct {
 	Name     string
 	Requests Requests
+	Count    int32
 	Flavors  map[corev1.ResourceName]kueue.ResourceFlavorReference
 }
 
@@ -73,18 +79,49 @@ func QueueKey(w *kueue.Workload) string {
 	return fmt.Sprintf("%s/%s", w.Namespace, w.Spec.QueueName)
 }
 
+func reclaimableCounts(wl *kueue.Workload) map[string]int32 {
+	ret := make(map[string]int32, len(wl.Status.ReclaimablePods))
+	for i := range wl.Status.ReclaimablePods {
+		reclaimInfo := &wl.Status.ReclaimablePods[i]
+		ret[reclaimInfo.Name] = reclaimInfo.Count
+	}
+	return ret
+}
+
+func podSetsCounts(wl *kueue.Workload) map[string]int32 {
+	ret := make(map[string]int32, len(wl.Spec.PodSets))
+	for i := range wl.Spec.PodSets {
+		ps := &wl.Spec.PodSets[i]
+		ret[ps.Name] = ps.Count
+	}
+	return ret
+}
+
+func podSetsCountsAfterReclaim(wl *kueue.Workload) map[string]int32 {
+	totalCounts := podSetsCounts(wl)
+	reclaimCounts := reclaimableCounts(wl)
+	for podSetName := range totalCounts {
+		if rc, found := reclaimCounts[podSetName]; found {
+			totalCounts[podSetName] -= rc
+		}
+	}
+	return totalCounts
+}
+
 func totalRequestsFromPodSets(wl *kueue.Workload) []PodSetResources {
 	if len(wl.Spec.PodSets) == 0 {
 		return nil
 	}
 	res := make([]PodSetResources, 0, len(wl.Spec.PodSets))
-
+	currentCounts := podSetsCountsAfterReclaim(wl)
 	for _, ps := range wl.Spec.PodSets {
+		count := currentCounts[ps.Name]
 		setRes := PodSetResources{
-			Name: ps.Name,
+			Name:  ps.Name,
+			Count: count,
 		}
 		setRes.Requests = newRequests(limitrange.TotalRequests(&ps.Template.Spec))
-		setRes.Requests.scale(int64(ps.Count))
+		setRes.Requests.scaleUp(int64(count))
 		res = append(res, setRes)
 	}
 	return res
@@ -95,12 +132,27 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 		return nil
 	}
 	res := make([]PodSetResources, 0, len(wl.Spec.PodSets))
-	for _, ps := range wl.Status.Admission.PodSetAssignments {
+	currentCounts := podSetsCountsAfterReclaim(wl)
+	totalCounts := podSetsCounts(wl)
+	for _, psa := range wl.Status.Admission.PodSetAssignments {
 		setRes := PodSetResources{
-			Name: ps.Name,
+			Name:     psa.Name,
+			Flavors:  psa.Flavors,
+			Count:    psa.Count,
+			Requests: newRequests(psa.ResourceUsage),
 		}
-		setRes.Flavors = ps.Flavors
-		setRes.Requests = newRequests(ps.ResourceUsage)
+
+		if psa.Count == 0 {
+			// this can happen if the operator version is changed while the workload is admitted
+			setRes.Count = totalCounts[psa.Name]
+		}
+
+		if count := currentCounts[psa.Name]; count != psa.Count {
+			setRes.Requests.scaleDown(int64(setRes.Count))
+			setRes.Requests.scaleUp(int64(count))
+			setRes.Count = count
+		}
+
 		res = append(res, setRes)
 	}
 	return res
@@ -151,24 +203,16 @@ func ResourceQuantity(name corev1.ResourceName, v int64) resource.Quantity {
 	}
 }
 
-func (r Requests) scale(f int64) {
+func (r Requests) scaleUp(f int64) {
 	for name := range r {
 		r[name] *= f
 	}
 }
 
-// FindConditionIndex finds the provided condition from the given status and returns the index.
-// Returns -1 if the condition is not present.
-func FindConditionIndex(status *kueue.WorkloadStatus, conditionType string) int {
-	if status == nil || status.Conditions == nil {
-		return -1
+func (r Requests) scaleDown(f int64) {
+	for name := range r {
+		r[name] /= f
 	}
-	for i := range status.Conditions {
-		if status.Conditions[i].Type == conditionType {
-			return i
-		}
-	}
-	return -1
 }
 
 // UpdateStatus updates the condition of a workload with ssa,
@@ -194,11 +238,7 @@ func UpdateStatus(ctx context.Context,
 	return c.Status().Patch(ctx, newWl, client.Apply, client.FieldOwner(managerPrefix+"-"+condition.Type))
 }
 
-func UnsetAdmissionWithCondition(
-	ctx context.Context,
-	c client.Client,
-	wl *kueue.Workload,
-	reason, message string) error {
+func UnsetAdmissionWithCondition(wl *kueue.Workload, reason, message string) {
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadAdmitted,
 		Status:             metav1.ConditionFalse,
@@ -206,12 +246,8 @@ func UnsetAdmissionWithCondition(
 		Reason:             reason,
 		Message:            api.TruncateConditionMessage(message),
 	}
-	newWl := BaseSSAWorkload(wl)
-	// Use resourceVersion to avoid overriding admissions by the scheduler that
-	// happen in a different routine.
-	newWl.ResourceVersion = wl.ResourceVersion
-	newWl.Status.Conditions = []metav1.Condition{condition}
-	return c.Status().Patch(ctx, newWl, client.Apply, client.FieldOwner(constants.AdmissionName))
+	apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
+	wl.Status.Admission = nil
 }
 
 // BaseSSAWorkload creates a new object based on the input workload that
@@ -236,10 +272,99 @@ func BaseSSAWorkload(w *kueue.Workload) *kueue.Workload {
 	return wlCopy
 }
 
-// AdmissionPatch creates a new object based on the input workload that
-// contains the admission. The object can be used in Server-Side-Apply.
-func AdmissionPatch(w *kueue.Workload) *kueue.Workload {
+// SetAdmission applies the provided admission to the workload.
+// The WorkloadAdmitted and WorkloadEvicted are added or updated if necessary.
+func SetAdmission(w *kueue.Workload, admission *kueue.Admission) {
+	w.Status.Admission = admission
+	admittedCond := metav1.Condition{
+		Type:               kueue.WorkloadAdmitted,
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "Admitted",
+		Message:            fmt.Sprintf("Admitted by ClusterQueue %s", w.Status.Admission.ClusterQueue),
+	}
+	apimeta.SetStatusCondition(&w.Status.Conditions, admittedCond)
+
+	//reset Evicted condition if present.
+	if evictedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted); evictedCond != nil {
+		evictedCond.Status = metav1.ConditionFalse
+		evictedCond.LastTransitionTime = metav1.Now()
+	}
+}
+
+func SetEvictedCondition(w *kueue.Workload, reason string, message string) {
+	condition := metav1.Condition{
+		Type:               kueue.WorkloadEvicted,
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             reason,
+		Message:            message,
+	}
+	apimeta.SetStatusCondition(&w.Status.Conditions, condition)
+}
+
+// admissionPatch creates a new object based on the input workload that contains
+// the admission and related conditions. The object can be used in Server-Side-Apply.
+func admissionPatch(w *kueue.Workload) *kueue.Workload {
 	wlCopy := BaseSSAWorkload(w)
+
 	wlCopy.Status.Admission = w.Status.Admission.DeepCopy()
+	for _, conditionName := range admissionManagedConditions {
+		if existing := apimeta.FindStatusCondition(w.Status.Conditions, conditionName); existing != nil {
+			wlCopy.Status.Conditions = append(wlCopy.Status.Conditions, *existing.DeepCopy())
+		}
+	}
 	return wlCopy
+}
+
+// ApplyAdmissionStatus updated all the admission related status fields of a workload with SSA.
+// if strict is true, resourceVersion will be part of the patch, make this call fail if Workload
+// was changed.
+func ApplyAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, strict bool) error {
+	patch := admissionPatch(w)
+	if strict {
+		patch.ResourceVersion = w.ResourceVersion
+	}
+	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.AdmissionName))
+}
+
+// GetQueueOrderTimestamp return the timestamp to be used by the scheduler. It could
+// be the workload creation time or the last time a PodsReady timeout has occurred.
+func GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
+	if c := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted); c != nil && c.Status == metav1.ConditionTrue && c.Reason == kueue.WorkloadEvictedByPodsReadyTimeout {
+		return &c.LastTransitionTime
+	}
+	return &w.CreationTimestamp
+}
+
+// IsAdmitted checks if workload is admitted based on conditions
+func IsAdmitted(w *kueue.Workload) bool {
+	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadAdmitted)
+}
+
+// UpdateReclaimablePods updates the ReclaimablePods list for the workload wit SSA.
+func UpdateReclaimablePods(ctx context.Context, c client.Client, w *kueue.Workload, reclaimablePods []kueue.ReclaimablePod) error {
+	patch := BaseSSAWorkload(w)
+	patch.Status.ReclaimablePods = reclaimablePods
+	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.ReclaimablePodsMgr))
+}
+
+// ReclaimablePodsAreEqual checks if two Reclaimable pods are semantically equal
+// having the same length and all keys have the same value.
+func ReclaimablePodsAreEqual(a, b []kueue.ReclaimablePod) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	mb := make(map[string]int32, len(b))
+	for i := range b {
+		mb[b[i].Name] = b[i].Count
+	}
+
+	for i := range a {
+		if bCount, found := mb[a[i].Name]; !found || bCount != a[i].Count {
+			return false
+		}
+	}
+	return true
 }

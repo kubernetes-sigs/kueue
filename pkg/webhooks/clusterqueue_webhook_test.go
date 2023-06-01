@@ -224,6 +224,55 @@ func TestValidateClusterQueue(t *testing.T) {
 			},
 		},
 		{
+			name: "missing resources in a flavor",
+			clusterQueue: &kueue.ClusterQueue{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "cluster-queue",
+				},
+				Spec: kueue.ClusterQueueSpec{
+					ResourceGroups: []kueue.ResourceGroup{
+						{
+							CoveredResources: []corev1.ResourceName{"cpu"},
+							Flavors: []kueue.FlavorQuotas{
+								*testingutil.MakeFlavorQuotas("alpha").
+									Resource("cpu", "0").
+									Resource("memory", "0").
+									Obj(),
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				field.Invalid(resourceGroupsPath.Index(0).Child("flavors").Index(0).Child("resources"), nil, ""),
+			},
+		},
+		{
+			name: "missing resources in a flavor and mismatch",
+			clusterQueue: &kueue.ClusterQueue{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "cluster-queue",
+				},
+				Spec: kueue.ClusterQueueSpec{
+					ResourceGroups: []kueue.ResourceGroup{
+						{
+							CoveredResources: []corev1.ResourceName{"blah"},
+							Flavors: []kueue.FlavorQuotas{
+								*testingutil.MakeFlavorQuotas("alpha").
+									Resource("cpu", "0").
+									Resource("memory", "0").
+									Obj(),
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				field.Invalid(resourceGroupsPath.Index(0).Child("flavors").Index(0).Child("resources"), nil, ""),
+				field.Invalid(resourceGroupsPath.Index(0).Child("flavors").Index(0).Child("resources").Index(0).Child("name"), nil, ""),
+			},
+		},
+		{
 			name: "resource in more than one resource group",
 			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").
 				ResourceGroup(

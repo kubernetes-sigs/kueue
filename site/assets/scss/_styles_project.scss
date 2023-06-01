@@ -12,6 +12,10 @@ footer {
   overflow-wrap: break-word;
 }
 
+.td-overlay--dark::after {
+  background-color: rgba(33, 61, 122, 0.6);
+}
+
 #main_navbar {
   justify-content: end;
   padding-right: 16px;

@@ -11,6 +11,7 @@ rules:
   - events
   verbs:
   - create
+  - patch
   - update
   - watch
 - apiGroups:
@@ -80,6 +81,7 @@ rules:
   - jobs/status
   verbs:
   - get
+  - update
 - apiGroups:
   - kubeflow.org
   resources:
@@ -96,6 +98,7 @@ rules:
   - mpijobs/status
   verbs:
   - get
+  - update
 - apiGroups:
   - kueue.x-k8s.io
   resources:
@@ -198,6 +201,23 @@ rules:
   - get
   - list
   - watch
+- apiGroups:
+  - ray.io
+  resources:
+  - rayjobs
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ray.io
+  resources:
+  - rayjobs/status
+  verbs:
+  - get
+  - update
 - apiGroups:
   - scheduling.k8s.io
   resources:

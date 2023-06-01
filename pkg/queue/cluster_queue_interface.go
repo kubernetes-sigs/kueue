@@ -33,6 +33,7 @@ const (
 	RequeueReasonFailedAfterNomination RequeueReason = "FailedAfterNomination"
 	RequeueReasonNamespaceMismatch     RequeueReason = "NamespaceMismatch"
 	RequeueReasonGeneric               RequeueReason = ""
+	RequeueReasonPendingPreemption     RequeueReason = "PendingPreemption"
 )
 
 // ClusterQueue is an interface for a cluster queue to store workloads waiting

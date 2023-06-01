@@ -101,6 +101,15 @@ func TestPreemption(t *testing.T) {
 				ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 			}).
 			Obj(),
+		utiltesting.MakeClusterQueue("preventStarvation").
+			ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "6").
+				Obj(),
+			).
+			Preemption(kueue.ClusterQueuePreemption{
+				WithinClusterQueue: kueue.PreemptionPolicyLowerOrNewerEqualPriority,
+			}).
+			Obj(),
 	}
 	cases := map[string]struct {
 		admitted      []kueue.Workload
@@ -684,6 +693,55 @@ func TestPreemption(t *testing.T) {
 			},
 			wantPreempted: sets.New("/low-alpha", "/low-beta"),
 		},
+		"preempt newer workloads with the same priority": {
+			admitted: []kueue.Workload{
+				*utiltesting.MakeWorkload("wl1", "").
+					Priority(2).
+					Request(corev1.ResourceCPU, "2").
+					Admit(utiltesting.MakeAdmission("preventStarvation").Assignment(corev1.ResourceCPU, "default", "2").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("wl2", "").
+					Priority(1).
+					Creation(time.Now()).
+					Request(corev1.ResourceCPU, "2").
+					Admit(utiltesting.MakeAdmission("preventStarvation").Assignment(corev1.ResourceCPU, "default", "2").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("wl3", "").
+					Priority(1).
+					Creation(time.Now()).
+					Request(corev1.ResourceCPU, "2").
+					Admit(utiltesting.MakeAdmission("preventStarvation").Assignment(corev1.ResourceCPU, "default", "2").Obj()).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(time.Now().Add(time.Second)),
+					}).
+					Obj(),
+			},
+			incoming: utiltesting.MakeWorkload("in", "").
+				Priority(1).
+				Creation(time.Now().Add(-15 * time.Second)).
+				PodSets(
+					*utiltesting.MakePodSet("launcher", 1).
+						Request(corev1.ResourceCPU, "2").Obj(),
+				).
+				Obj(),
+			targetCQ: "preventStarvation",
+			assignment: flavorassigner.Assignment{
+				PodSets: []flavorassigner.PodSetAssignment{
+					{
+						Name: "launcher",
+						Flavors: flavorassigner.ResourceAssignment{
+							corev1.ResourceCPU: {
+								Name: "default",
+								Mode: flavorassigner.Preempt,
+							},
+						},
+					},
+				},
+			},
+			wantPreempted: sets.New("/wl2"),
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -721,7 +779,8 @@ func TestPreemption(t *testing.T) {
 			snapshot := cqCache.Snapshot()
 			wlInfo := workload.NewInfo(tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
-			preempted, err := preemptor.Do(ctx, *wlInfo, tc.assignment, &snapshot)
+			targets := preemptor.GetTargets(*wlInfo, tc.assignment, &snapshot)
+			preempted, err := preemptor.IssuePreemptions(ctx, targets, snapshot.ClusterQueues[wlInfo.ClusterQueue])
 			if err != nil {
 				t.Fatalf("Failed doing preemption")
 			}
@@ -753,7 +812,7 @@ func TestCandidatesOrdering(t *testing.T) {
 			Obj()),
 		workload.NewInfo(utiltesting.MakeWorkload("old", "").
 			Admit(utiltesting.MakeAdmission("self").Obj()).
-			Condition(metav1.Condition{
+			SetOrReplaceCondition(metav1.Condition{
 				Type:               kueue.WorkloadAdmitted,
 				Status:             metav1.ConditionTrue,
 				LastTransitionTime: metav1.NewTime(now.Add(time.Second)),

@@ -74,6 +74,11 @@ type WaitForPodsReady struct {
 	// is cancelled and requeued in the same cluster queue. Defaults to 5min.
 	// +optional
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
+
+	// BlockAdmission when true, cluster queue will block admissions for all subsequent jobs
+	// until the jobs reach the PodsReady=true condition. It defaults to false if Enable is false
+	// and defaults to true otherwise.
+	BlockAdmission *bool `json:"blockAdmission,omitempty"`
 }
 
 type InternalCertManagement struct {
@@ -106,5 +111,6 @@ type Integrations struct {
 	// Possible options:
 	//  - "batch/job"
 	//  - "kubeflow.org/mpijob"
+	//  - "ray.io/rayjob"
 	Frameworks []string `json:"frameworks,omitempty"`
 }

@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -92,6 +93,7 @@ func TestValidateWorkload(t *testing.T) {
 	specPath := field.NewPath("spec")
 	podSetsPath := specPath.Child("podSets")
 	statusPath := field.NewPath("status")
+	firstPodSetSpecPath := podSetsPath.Index(0).Child("template", "spec")
 	testCases := map[string]struct {
 		workload *kueue.Workload
 		wantErr  field.ErrorList
@@ -154,12 +156,12 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(statusPath.Child("admission", "clusterQueue"), nil, ""),
 			},
 		},
-		"should have a valid podSet name in status": {
+		"should have a valid podSet name in status assigment": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				Admit(testingutil.MakeAdmission("cluster-queue", "@invalid").Obj()).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.NotFound(statusPath.Child("admission", "podSetFlavors").Index(0).Child("name"), nil),
+				field.NotFound(statusPath.Child("admission", "podSetAssignments").Index(0).Child("name"), nil),
 			},
 		},
 		"should have same podSets in admission": {
@@ -177,8 +179,71 @@ func TestValidateWorkload(t *testing.T) {
 				Admit(testingutil.MakeAdmission("cluster-queue", "main1", "main2", "main3").Obj()).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(statusPath.Child("admission", "podSetFlavors"), nil, ""),
-				field.NotFound(statusPath.Child("admission", "podSetFlavors").Index(2).Child("name"), nil),
+				field.Invalid(statusPath.Child("admission", "podSetAssignments"), nil, ""),
+				field.NotFound(statusPath.Child("admission", "podSetAssignments").Index(2).Child("name"), nil),
+			},
+		},
+		"assignment usage should be divisible by count": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*testingutil.MakePodSet("main", 3).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				Admit(testingutil.MakeAdmission("cluster-queue").
+					Assignment(corev1.ResourceCPU, "flv", "1").
+					AssignmentPodCount(3).
+					Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(statusPath.Child("admission", "podSetAssignments").Index(0).Child("resourceUsage").Key(string(corev1.ResourceCPU)), nil, ""),
+			},
+		},
+		"should not request num-pods resource": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(kueue.PodSet{
+					Name:  "bad",
+					Count: 1,
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							InitContainers: []corev1.Container{
+								{
+									Resources: corev1.ResourceRequirements{
+										Requests: corev1.ResourceList{
+											corev1.ResourcePods: resource.MustParse("1"),
+										},
+									},
+								},
+							},
+							Containers: []corev1.Container{
+								{
+									Resources: corev1.ResourceRequirements{
+										Requests: corev1.ResourceList{
+											corev1.ResourcePods: resource.MustParse("1"),
+										},
+									},
+								},
+							},
+						},
+					},
+				}).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(firstPodSetSpecPath.Child("initContainers").Index(0).Child("resources", "requests").Key(string(corev1.ResourcePods)), nil, ""),
+				field.Invalid(firstPodSetSpecPath.Child("containers").Index(0).Child("resources", "requests").Key(string(corev1.ResourcePods)), nil, ""),
+			},
+		},
+		"invalid reclaimablePods": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*testingutil.MakePodSet("ps1", 3).Obj(),
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 4},
+					kueue.ReclaimablePod{Name: "ps2", Count: 1},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(statusPath.Child("reclaimablePods").Key("ps1").Child("count"), nil, ""),
+				field.NotSupported(statusPath.Child("reclaimablePods").Key("ps2").Child("name"), nil, nil),
 			},
 		},
 	}
@@ -277,6 +342,74 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			).Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("status", "admission"), nil, ""),
+			},
+		},
+
+		"reclaimable pod count can change up": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*testingutil.MakePodSet("ps1", 3).Obj(),
+					*testingutil.MakePodSet("ps2", 3).Obj(),
+				).
+				Admit(
+					testingutil.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}, kueue.PodSetAssignment{Name: "ps2"}).
+						Obj(),
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 1},
+				).
+				Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*testingutil.MakePodSet("ps1", 3).Obj(),
+					*testingutil.MakePodSet("ps2", 3).Obj(),
+				).
+				Admit(
+					testingutil.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}, kueue.PodSetAssignment{Name: "ps2"}).
+						Obj(),
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 2},
+					kueue.ReclaimablePod{Name: "ps2", Count: 1},
+				).
+				Obj(),
+			wantErr: nil,
+		},
+		"reclaimable pod count cannot change down": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*testingutil.MakePodSet("ps1", 3).Obj(),
+					*testingutil.MakePodSet("ps2", 3).Obj(),
+				).
+				Admit(
+					testingutil.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}, kueue.PodSetAssignment{Name: "ps2"}).
+						Obj(),
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 2},
+					kueue.ReclaimablePod{Name: "ps2", Count: 1},
+				).
+				Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*testingutil.MakePodSet("ps1", 3).Obj(),
+					*testingutil.MakePodSet("ps2", 3).Obj(),
+				).
+				Admit(
+					testingutil.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}, kueue.PodSetAssignment{Name: "ps2"}).
+						Obj(),
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 1},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("status", "reclaimablePods").Key("ps1").Child("count"), nil, ""),
+				field.Required(field.NewPath("status", "reclaimablePods").Key("ps2"), ""),
 			},
 		},
 	}

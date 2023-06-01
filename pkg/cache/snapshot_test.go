@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 
@@ -36,6 +37,7 @@ var snapCmpOpts = []cmp.Option{
 	cmpopts.IgnoreUnexported(ClusterQueue{}),
 	cmpopts.IgnoreFields(ClusterQueue{}, "RGByResource"),
 	cmpopts.IgnoreFields(Cohort{}, "Members"), // avoid recursion.
+	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 }
 
 func TestSnapshot(t *testing.T) {
@@ -155,7 +157,7 @@ func TestSnapshot(t *testing.T) {
 				utiltesting.MakeWorkload("alpha", "").
 					PodSets(*utiltesting.MakePodSet("main", 5).
 						Request(corev1.ResourceCPU, "2").Obj()).
-					Admit(utiltesting.MakeAdmission("a", "main").Assignment(corev1.ResourceCPU, "demand", "10000m").Obj()).
+					Admit(utiltesting.MakeAdmission("a", "main").Assignment(corev1.ResourceCPU, "demand", "10000m").AssignmentPodCount(5).Obj()).
 					Obj(),
 				utiltesting.MakeWorkload("beta", "").
 					PodSets(*utiltesting.MakePodSet("main", 5).
@@ -163,7 +165,11 @@ func TestSnapshot(t *testing.T) {
 						Request("example.com/gpu", "2").
 						Obj(),
 					).
-					Admit(utiltesting.MakeAdmission("b", "main").Assignment(corev1.ResourceCPU, "spot", "5000m").Assignment("example.com/gpu", "default", "10").Obj()).
+					Admit(utiltesting.MakeAdmission("b", "main").
+						Assignment(corev1.ResourceCPU, "spot", "5000m").
+						Assignment("example.com/gpu", "default", "10").
+						AssignmentPodCount(5).
+						Obj()).
 					Obj(),
 				utiltesting.MakeWorkload("gamma", "").
 					PodSets(*utiltesting.MakePodSet("main", 5).
@@ -171,7 +177,11 @@ func TestSnapshot(t *testing.T) {
 						Request("example.com/gpu", "1").
 						Obj(),
 					).
-					Admit(utiltesting.MakeAdmission("b", "main").Assignment(corev1.ResourceCPU, "spot", "5000m").Assignment("example.com/gpu", "default", "5").Obj()).
+					Admit(utiltesting.MakeAdmission("b", "main").
+						Assignment(corev1.ResourceCPU, "spot", "5000m").
+						Assignment("example.com/gpu", "default", "5").
+						AssignmentPodCount(5).
+						Obj()).
 					Obj(),
 				utiltesting.MakeWorkload("sigma", "").
 					PodSets(*utiltesting.MakePodSet("main", 5).
@@ -239,7 +249,10 @@ func TestSnapshot(t *testing.T) {
 								"/alpha": workload.NewInfo(utiltesting.MakeWorkload("alpha", "").
 									PodSets(*utiltesting.MakePodSet("main", 5).
 										Request(corev1.ResourceCPU, "2").Obj()).
-									Admit(utiltesting.MakeAdmission("a", "main").Assignment(corev1.ResourceCPU, "demand", "10000m").Obj()).
+									Admit(utiltesting.MakeAdmission("a", "main").
+										Assignment(corev1.ResourceCPU, "demand", "10000m").
+										AssignmentPodCount(5).
+										Obj()).
 									Obj()),
 							},
 							Preemption:        defaultPreemption,
@@ -284,7 +297,11 @@ func TestSnapshot(t *testing.T) {
 										Request(corev1.ResourceCPU, "1").
 										Request("example.com/gpu", "2").
 										Obj()).
-									Admit(utiltesting.MakeAdmission("b", "main").Assignment(corev1.ResourceCPU, "spot", "5000m").Assignment("example.com/gpu", "default", "10").Obj()).
+									Admit(utiltesting.MakeAdmission("b", "main").
+										Assignment(corev1.ResourceCPU, "spot", "5000m").
+										Assignment("example.com/gpu", "default", "10").
+										AssignmentPodCount(5).
+										Obj()).
 									Obj()),
 								"/gamma": workload.NewInfo(utiltesting.MakeWorkload("gamma", "").
 									PodSets(*utiltesting.MakePodSet("main", 5).
@@ -292,7 +309,11 @@ func TestSnapshot(t *testing.T) {
 										Request("example.com/gpu", "1").
 										Obj(),
 									).
-									Admit(utiltesting.MakeAdmission("b", "main").Assignment(corev1.ResourceCPU, "spot", "5000m").Assignment("example.com/gpu", "default", "5").Obj()).
+									Admit(utiltesting.MakeAdmission("b", "main").
+										Assignment(corev1.ResourceCPU, "spot", "5000m").
+										Assignment("example.com/gpu", "default", "5").
+										AssignmentPodCount(5).
+										Obj()).
 									Obj()),
 							},
 							Preemption:        defaultPreemption,

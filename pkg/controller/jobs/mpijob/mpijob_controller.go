@@ -26,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -41,6 +42,16 @@ var (
 	FrameworkName = "kubeflow.org/mpijob"
 )
 
+func init() {
+	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
+		SetupIndexes:  SetupIndexes,
+		NewReconciler: NewReconciler,
+		SetupWebhook:  SetupMPIJobWebhook,
+		JobType:       &kubeflow.MPIJob{},
+		AddToScheme:   kubeflow.AddToScheme,
+	}))
+}
+
 // MPIJobReconciler reconciles a Job object
 type MPIJobReconciler jobframework.JobReconciler
 
@@ -48,7 +59,7 @@ func NewReconciler(
 	scheme *runtime.Scheme,
 	client client.Client,
 	record record.EventRecorder,
-	opts ...jobframework.Option) *MPIJobReconciler {
+	opts ...jobframework.Option) jobframework.JobReconcilerInterface {
 	return (*MPIJobReconciler)(jobframework.NewReconciler(scheme,
 		client,
 		record,
@@ -57,11 +68,13 @@ func NewReconciler(
 }
 
 type MPIJob struct {
-	kubeflow.MPIJob
+	*kubeflow.MPIJob
 }
 
+var _ jobframework.GenericJob = &MPIJob{}
+
 func (j *MPIJob) Object() client.Object {
-	return &j.MPIJob
+	return j.MPIJob
 }
 
 func (j *MPIJob) IsSuspended() bool {
@@ -91,6 +104,10 @@ func (j *MPIJob) ResetStatus() bool {
 
 func (j *MPIJob) GetGVK() schema.GroupVersionKind {
 	return gvk
+}
+
+func (j *MPIJob) ReclaimablePods() []kueue.ReclaimablePod {
+	return nil
 }
 
 func (j *MPIJob) PodSets() []kueue.PodSet {
@@ -230,9 +247,9 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 }
 
 //+kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
-//+kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
+//+kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
 //+kubebuilder:rbac:groups=kubeflow.org,resources=mpijobs,verbs=get;list;watch;update;patch
-//+kubebuilder:rbac:groups=kubeflow.org,resources=mpijobs/status,verbs=get
+//+kubebuilder:rbac:groups=kubeflow.org,resources=mpijobs/status,verbs=get;update
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
@@ -240,7 +257,7 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 
 func (r *MPIJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	fjr := (*jobframework.JobReconciler)(r)
-	return fjr.ReconcileGenericJob(ctx, req, &MPIJob{})
+	return fjr.ReconcileGenericJob(ctx, req, &MPIJob{&kubeflow.MPIJob{}})
 }
 
 func orderedReplicaTypes(jobSpec *kubeflow.MPIJobSpec) []kubeflow.MPIReplicaType {

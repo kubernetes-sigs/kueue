@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -47,6 +48,15 @@ var (
 	FrameworkName = "batch/job"
 )
 
+func init() {
+	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
+		SetupIndexes:  SetupIndexes,
+		NewReconciler: NewReconciler,
+		SetupWebhook:  SetupWebhook,
+		JobType:       &batchv1.Job{},
+	}))
+}
+
 // JobReconciler reconciles a Job object
 type JobReconciler jobframework.JobReconciler
 
@@ -54,7 +64,7 @@ func NewReconciler(
 	scheme *runtime.Scheme,
 	client client.Client,
 	record record.EventRecorder,
-	opts ...jobframework.Option) *JobReconciler {
+	opts ...jobframework.Option) jobframework.JobReconcilerInterface {
 	return (*JobReconciler)(jobframework.NewReconciler(scheme,
 		client,
 		record,
@@ -111,11 +121,13 @@ func (h *parentWorkloadHandler) queueReconcileForChildJob(object client.Object, 
 }
 
 type Job struct {
-	batchv1.Job
+	*batchv1.Job
 }
 
+var _ jobframework.GenericJob = &Job{}
+
 func (j *Job) Object() client.Object {
-	return &j.Job
+	return j.Job
 }
 
 func (j *Job) IsSuspended() bool {
@@ -143,9 +155,27 @@ func (j *Job) GetGVK() schema.GroupVersionKind {
 	return gvk
 }
 
+func (j *Job) ReclaimablePods() []kueue.ReclaimablePod {
+	parallelism := pointer.Int32Deref(j.Spec.Parallelism, 1)
+	if parallelism == 1 || j.Status.Succeeded == 0 {
+		return nil
+	}
+
+	remaining := pointer.Int32Deref(j.Spec.Completions, parallelism) - j.Status.Succeeded
+	if remaining >= parallelism {
+		return nil
+	}
+
+	return []kueue.ReclaimablePod{{
+		Name:  kueue.DefaultPodSetName,
+		Count: parallelism - remaining,
+	}}
+}
+
 func (j *Job) PodSets() []kueue.PodSet {
 	return []kueue.PodSet{
 		{
+			Name:     kueue.DefaultPodSetName,
 			Template: *j.Spec.Template.DeepCopy(),
 			Count:    j.podsCount(),
 		},
@@ -255,7 +285,7 @@ func (r *JobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &batchv1.Job{}, parentWorkloadKey, func(o client.Object) []string {
 		job := o.(*batchv1.Job)
-		if pwName := jobframework.ParentWorkloadName(&Job{*job}); pwName != "" {
+		if pwName := jobframework.ParentWorkloadName(&Job{job}); pwName != "" {
 			return []string{pwName}
 		}
 		return nil
@@ -266,9 +296,9 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 }
 
 //+kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
-//+kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
+//+kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
 //+kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;update;patch
-//+kubebuilder:rbac:groups=batch,resources=jobs/status,verbs=get
+//+kubebuilder:rbac:groups=batch,resources=jobs/status,verbs=get;update
 //+kubebuilder:rbac:groups=batch,resources=jobs/finalizers,verbs=get;update;patch
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
@@ -277,7 +307,7 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 
 func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	fjr := (*jobframework.JobReconciler)(r)
-	return fjr.ReconcileGenericJob(ctx, req, &Job{})
+	return fjr.ReconcileGenericJob(ctx, req, &Job{&batchv1.Job{}})
 }
 
 func GetWorkloadNameForJob(jobName string) string {

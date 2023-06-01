@@ -76,7 +76,14 @@ type PodSetAssignment struct {
 	//
 	// Beside what is provided in podSet's specs, this calculation takes into account
 	// the LimitRange defaults and RuntimeClass overheads at the moment of admission.
+	// This field will not change in case of quota reclaim.
 	ResourceUsage corev1.ResourceList `json:"resourceUsage,omitempty"`
+
+	// count is the number of pods taken into account at admission time.
+	// This field will not change in case of quota reclaim.
+	// Value could be zero for Workloads created before this field was added.
+	// +kubebuilder:validation:Minimum=0
+	Count int32 `json:"count"`
 }
 
 type PodSet struct {
@@ -124,6 +131,22 @@ type WorkloadStatus struct {
 	// +listType=map
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// reclaimablePods keeps track of the number pods within a podset for which
+	// the resource reservation is no longer needed.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	ReclaimablePods []ReclaimablePod `json:"reclaimablePods,omitempty"`
+}
+
+type ReclaimablePod struct {
+	// name is the PodSet name.
+	Name string `json:"name"`
+
+	// count is the number of pods for which the requested resources are no longer needed.
+	// +kubebuilder:validation:Minimum=0
+	Count int32 `json:"count"`
 }
 
 const (
@@ -137,6 +160,19 @@ const (
 	// WorkloadPodsReady means that at least `.spec.podSets[*].count` Pods are
 	// ready or have succeeded.
 	WorkloadPodsReady = "PodsReady"
+
+	// WorkloadEvicted means that the Workload was evicted by a ClusterQueue
+	WorkloadEvicted = "Evicted"
+)
+
+const (
+	// WorkloadEvictedByPreemption indicates that the workload was evicted
+	// in order to free resources for a workload with a higher priority.
+	WorkloadEvictedByPreemption = "Preempted"
+
+	// WorkloadEvictedByPodsReadyTimeout indicates that the eviction took
+	// place due to a PodsReady timeout.
+	WorkloadEvictedByPodsReadyTimeout = "PodsReadyTimeout"
 )
 
 // +kubebuilder:object:root=true

@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -172,8 +173,18 @@ apiVersion: config.kueue.x-k8s.io/v1beta1
 kind: Configuration
 integrations:
   frameworks: 
-  - a
-  - b
+  - batch/job
+`), os.FileMode(0600)); err != nil {
+		t.Fatal(err)
+	}
+
+	badIntegrationsConfig := filepath.Join(tmpDir, "badIntegrations.yaml")
+	if err := os.WriteFile(badIntegrationsConfig, []byte(`
+apiVersion: config.kueue.x-k8s.io/v1beta1
+kind: Configuration
+integrations:
+  frameworks:
+  - unregistered/jobframework
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
@@ -215,6 +226,7 @@ integrations:
 		configFile        string
 		wantConfiguration config.Configuration
 		wantOptions       ctrl.Options
+		wantError         error
 	}{
 		{
 			name:       "default config",
@@ -343,8 +355,9 @@ integrations:
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				WaitForPodsReady: &config.WaitForPodsReady{
-					Enable:  true,
-					Timeout: &metav1.Duration{Duration: 5 * time.Minute},
+					Enable:         true,
+					BlockAdmission: pointer.Bool(true),
+					Timeout:        &metav1.Duration{Duration: 5 * time.Minute},
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
@@ -387,7 +400,9 @@ integrations:
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection:           defaultClientConnection,
 				Integrations: &config.Integrations{
-					Frameworks: []string{"a", "b"},
+					// referencing job.FrameworkName ensures the link of job package
+					// therefore the batch/framework should be registered
+					Frameworks: []string{job.FrameworkName},
 				},
 			},
 			wantOptions: ctrl.Options{
@@ -396,16 +411,27 @@ integrations:
 				MetricsBindAddress:     config.DefaultMetricsBindAddress,
 			},
 		},
+		{
+			name:       "bad integrations config",
+			configFile: badIntegrationsConfig,
+			wantError:  fmt.Errorf("integrations.frameworks: Unsupported value: \"unregistered/jobframework\": supported values: \"batch/job\", \"kubeflow.org/mpijob\", \"ray.io/rayjob\""),
+		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			options, cfg := apply(tc.configFile)
-			if diff := cmp.Diff(tc.wantConfiguration, cfg, configCmpOpts...); diff != "" {
-				t.Errorf("Unexpected config (-want +got):\n%s", diff)
-			}
-			if diff := cmp.Diff(tc.wantOptions, options, ctrlOptsCmpOpts...); diff != "" {
-				t.Errorf("Unexpected options (-want +got):\n%s", diff)
+			options, cfg, err := apply(tc.configFile)
+			if tc.wantError == nil {
+				if diff := cmp.Diff(tc.wantConfiguration, cfg, configCmpOpts...); diff != "" {
+					t.Errorf("Unexpected config (-want +got):\n%s", diff)
+				}
+				if diff := cmp.Diff(tc.wantOptions, options, ctrlOptsCmpOpts...); diff != "" {
+					t.Errorf("Unexpected options (-want +got):\n%s", diff)
+				}
+			} else {
+				if diff := cmp.Diff(tc.wantError.Error(), err.Error()); diff != "" {
+					t.Errorf("Unexpected error (-want +got):\n%s", diff)
+				}
 			}
 		})
 	}

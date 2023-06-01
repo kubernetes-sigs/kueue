@@ -34,10 +34,6 @@ type JobWebhook struct {
 	manageJobsWithoutQueueName bool
 }
 
-func WebhookType() runtime.Object {
-	return &batchv1.Job{}
-}
-
 // SetupWebhook configures the webhook for batchJob.
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.DefaultOptions
@@ -48,7 +44,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 	}
 	return ctrl.NewWebhookManagedBy(mgr).
-		For(WebhookType()).
+		For(&batchv1.Job{}).
 		WithDefaulter(wh).
 		WithValidator(wh).
 		Complete()
@@ -75,7 +71,7 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		}
 	}
 
-	jobframework.ApplyDefaultForSuspend(&Job{*job}, w.manageJobsWithoutQueueName)
+	jobframework.ApplyDefaultForSuspend(&Job{job}, w.manageJobsWithoutQueueName)
 	return nil
 }
 
@@ -88,7 +84,7 @@ func (w *JobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) err
 	job := obj.(*batchv1.Job)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Validating create", "job", klog.KObj(job))
-	return validateCreate(&Job{*job}).ToAggregate()
+	return validateCreate(&Job{job}).ToAggregate()
 }
 
 func validateCreate(job jobframework.GenericJob) field.ErrorList {
@@ -104,7 +100,7 @@ func (w *JobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.
 	newJob := newObj.(*batchv1.Job)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Validating update", "job", klog.KObj(newJob))
-	return validateUpdate(&Job{*oldJob}, &Job{*newJob}).ToAggregate()
+	return validateUpdate(&Job{oldJob}, &Job{newJob}).ToAggregate()
 }
 
 func validateUpdate(oldJob, newJob jobframework.GenericJob) field.ErrorList {

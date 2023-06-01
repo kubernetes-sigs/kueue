@@ -30,7 +30,7 @@ type ClusterQueueBestEffortFIFO struct {
 var _ ClusterQueue = &ClusterQueueBestEffortFIFO{}
 
 func newClusterQueueBestEffortFIFO(cq *kueue.ClusterQueue) (ClusterQueue, error) {
-	cqImpl := newClusterQueueImpl(keyFunc, byCreationTime)
+	cqImpl := newClusterQueueImpl(keyFunc, queueOrdering)
 	cqBE := &ClusterQueueBestEffortFIFO{
 		clusterQueueBase: cqImpl,
 	}
@@ -40,5 +40,5 @@ func newClusterQueueBestEffortFIFO(cq *kueue.ClusterQueue) (ClusterQueue, error)
 }
 
 func (cq *ClusterQueueBestEffortFIFO) RequeueIfNotPresent(wInfo *workload.Info, reason RequeueReason) bool {
-	return cq.requeueIfNotPresent(wInfo, reason == RequeueReasonFailedAfterNomination)
+	return cq.requeueIfNotPresent(wInfo, reason == RequeueReasonFailedAfterNomination || reason == RequeueReasonPendingPreemption)
 }

@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type ClusterQueueUpdateWatcher interface {
@@ -74,7 +75,7 @@ func NewClusterQueueReconciler(
 }
 
 //+kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
-//+kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
+//+kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues/finalizers,verbs=update
@@ -259,7 +260,7 @@ func (h *cqWorkloadHandler) Generic(e event.GenericEvent, q workqueue.RateLimiti
 
 func (h *cqWorkloadHandler) requestForWorkloadClusterQueue(w *kueue.Workload) *reconcile.Request {
 	var name string
-	if w.Status.Admission != nil {
+	if workload.IsAdmitted(w) {
 		name = string(w.Status.Admission.ClusterQueue)
 	} else {
 		var ok bool
