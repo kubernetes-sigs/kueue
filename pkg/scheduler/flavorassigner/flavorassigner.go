@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
+	"k8s.io/utils/pointer"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
@@ -182,7 +183,7 @@ func (psa *PodSetAssignment) toAPI() kueue.PodSetAssignment {
 		Name:          psa.Name,
 		Flavors:       flavors,
 		ResourceUsage: psa.Requests,
-		Count:         psa.Count,
+		Count:         pointer.Int32(psa.Count),
 	}
 }
 

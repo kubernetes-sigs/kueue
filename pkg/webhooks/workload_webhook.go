@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
@@ -177,9 +178,9 @@ func validateAdmission(obj *kueue.Workload, path *field.Path) field.ErrorList {
 		if !names.Has(ps.Name) {
 			allErrs = append(allErrs, field.NotFound(psaPath.Child("name"), ps.Name))
 		}
-		if ps.Count > 0 {
+		if count := pointer.Int32Deref(ps.Count, 0); count > 0 {
 			for k, v := range ps.ResourceUsage {
-				if (workload.ResourceValue(k, v) % int64(ps.Count)) != 0 {
+				if (workload.ResourceValue(k, v) % int64(count)) != 0 {
 					allErrs = append(allErrs, field.Invalid(psaPath.Child("resourceUsage").Key(string(k)), v, fmt.Sprintf("is not a multiple of %d", ps.Count)))
 				}
 			}

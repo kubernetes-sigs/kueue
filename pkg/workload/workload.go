@@ -25,6 +25,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -89,6 +90,7 @@ func reclaimableCounts(wl *kueue.Workload) map[string]int32 {
 }
 
 func podSetsCounts(wl *kueue.Workload) map[string]int32 {
+
 	ret := make(map[string]int32, len(wl.Spec.PodSets))
 	for i := range wl.Spec.PodSets {
 		ps := &wl.Spec.PodSets[i]
@@ -138,16 +140,11 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 		setRes := PodSetResources{
 			Name:     psa.Name,
 			Flavors:  psa.Flavors,
-			Count:    psa.Count,
+			Count:    pointer.Int32Deref(psa.Count, totalCounts[psa.Name]),
 			Requests: newRequests(psa.ResourceUsage),
 		}
 
-		if psa.Count == 0 {
-			// this can happen if the operator version is changed while the workload is admitted
-			setRes.Count = totalCounts[psa.Name]
-		}
-
-		if count := currentCounts[psa.Name]; count != psa.Count {
+		if count := currentCounts[psa.Name]; count != setRes.Count {
 			setRes.Requests.scaleDown(int64(setRes.Count))
 			setRes.Requests.scaleUp(int64(count))
 			setRes.Count = count

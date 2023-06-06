@@ -81,9 +81,12 @@ type PodSetAssignment struct {
 
 	// count is the number of pods taken into account at admission time.
 	// This field will not change in case of quota reclaim.
-	// Value could be zero for Workloads created before this field was added.
+	// Value could be missing for Workloads created before this field was added,
+	// in that case spec.podSets[*].count value will be used.
+	//
+	// +optional
 	// +kubebuilder:validation:Minimum=0
-	Count int32 `json:"count"`
+	Count *int32 `json:"count,omitempty"`
 }
 
 type PodSet struct {

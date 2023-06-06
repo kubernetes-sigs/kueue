@@ -8136,8 +8136,9 @@ spec:
                         count:
                           description: count is the number of pods taken into account
                             at admission time. This field will not change in case
-                            of quota reclaim. Value could be zero for Workloads created
-                            before this field was added.
+                            of quota reclaim. Value could be missing for Workloads
+                            created before this field was added, in that case spec.podSets[*].count
+                            value will be used.
                           format: int32
                           minimum: 0
                           type: integer
@@ -8169,7 +8170,6 @@ spec:
                             not change in case of quota reclaim."
                           type: object
                       required:
-                      - count
                       - name
                       type: object
                     type: array
