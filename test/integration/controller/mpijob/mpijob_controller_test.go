@@ -167,14 +167,14 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 						corev1.ResourceCPU: "on-demand",
 					},
-					Count: createdWorkload.Spec.PodSets[0].Count,
+					Count: pointer.Int32(createdWorkload.Spec.PodSets[0].Count),
 				},
 				kueue.PodSetAssignment{
 					Name: "Worker",
 					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 						corev1.ResourceCPU: "spot",
 					},
-					Count: createdWorkload.Spec.PodSets[1].Count,
+					Count: pointer.Int32(createdWorkload.Spec.PodSets[1].Count),
 				},
 			).
 			Obj()
@@ -235,14 +235,14 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 						corev1.ResourceCPU: "on-demand",
 					},
-					Count: createdWorkload.Spec.PodSets[0].Count,
+					Count: pointer.Int32(createdWorkload.Spec.PodSets[0].Count),
 				},
 				kueue.PodSetAssignment{
 					Name: "Worker",
 					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 						corev1.ResourceCPU: "spot",
 					},
-					Count: createdWorkload.Spec.PodSets[1].Count,
+					Count: pointer.Int32(createdWorkload.Spec.PodSets[1].Count),
 				},
 			).
 			Obj()
@@ -405,14 +405,14 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "default",
 						},
-						Count: createdWorkload.Spec.PodSets[0].Count,
+						Count: pointer.Int32(createdWorkload.Spec.PodSets[0].Count),
 					},
 					kueue.PodSetAssignment{
 						Name: "Worker",
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "default",
 						},
-						Count: createdWorkload.Spec.PodSets[1].Count,
+						Count: pointer.Int32(createdWorkload.Spec.PodSets[1].Count),
 					},
 				).
 				Obj()

@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -213,7 +214,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("10000m"),
 							},
-							Count: 10,
+							Count: pointer.Int32(10),
 						},
 					},
 				},
@@ -261,7 +262,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
-							Count: 40,
+							Count: pointer.Int32(40),
 						},
 					},
 				},
@@ -310,7 +311,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("1000m"),
 							},
-							Count: 1,
+							Count: pointer.Int32(1),
 						},
 					},
 				},
@@ -325,7 +326,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("51000m"),
 							},
-							Count: 51,
+							Count: pointer.Int32(51),
 						},
 					},
 				},
@@ -359,7 +360,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
-							Count: 40,
+							Count: pointer.Int32(40),
 						},
 					},
 				},
@@ -374,7 +375,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
-							Count: 40,
+							Count: pointer.Int32(40),
 						},
 					},
 				},
@@ -410,7 +411,7 @@ func TestSchedule(t *testing.T) {
 								corev1.ResourceCPU: resource.MustParse("60000m"),
 								"example.com/gpu":  resource.MustParse("10"),
 							},
-							Count: 10,
+							Count: pointer.Int32(10),
 						},
 						{
 							Name: "two",
@@ -420,7 +421,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
-							Count: 40,
+							Count: pointer.Int32(40),
 						},
 					},
 				},
@@ -454,7 +455,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
-							Count: 40,
+							Count: pointer.Int32(40),
 						},
 					},
 				},
@@ -568,7 +569,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("60000m"),
 							},
-							Count: 60,
+							Count: pointer.Int32(60),
 						},
 					},
 				},
@@ -583,7 +584,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("45000m"),
 							},
-							Count: 45,
+							Count: pointer.Int32(45),
 						},
 					},
 				},
@@ -644,7 +645,7 @@ func TestSchedule(t *testing.T) {
 								ResourceUsage: corev1.ResourceList{
 									corev1.ResourceCPU: resource.MustParse("51"),
 								},
-								Count: 51,
+								Count: pointer.Int32(51),
 							},
 							kueue.PodSetAssignment{
 								Name: "use-all-spot",
@@ -654,7 +655,7 @@ func TestSchedule(t *testing.T) {
 								ResourceUsage: corev1.ResourceList{
 									corev1.ResourceCPU: resource.MustParse("100"),
 								},
-								Count: 100,
+								Count: pointer.Int32(100),
 							},
 						).
 						Obj()).
@@ -695,7 +696,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("51"),
 							},
-							Count: 51,
+							Count: pointer.Int32(51),
 						},
 						kueue.PodSetAssignment{
 							Name: "use-all-spot",
@@ -705,7 +706,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("100"),
 							},
-							Count: 100,
+							Count: pointer.Int32(100),
 						},
 					).Obj(),
 				"eng-beta/new": *utiltesting.MakeAdmission("eng-beta", "one").Assignment(corev1.ResourceCPU, "on-demand", "50").AssignmentPodCount(50).Obj(),
