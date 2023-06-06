@@ -153,6 +153,11 @@ func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 	for ci := range ps.Template.Spec.Containers {
 		allErrs = append(allErrs, validateContainer(&ps.Template.Spec.Containers[ci], cPath.Index(ci))...)
 	}
+
+	if min := pointer.Int32Deref(ps.MinCount, ps.Count); min > ps.Count || min < 0 {
+		allErrs = append(allErrs, field.Forbidden(path.Child("minCount"), fmt.Sprintf("%d should be positive and less or equal to %d", min, ps.Count)))
+	}
+
 	return allErrs
 }
 

@@ -246,6 +246,26 @@ func TestValidateWorkload(t *testing.T) {
 				field.NotSupported(statusPath.Child("reclaimablePods").Key("ps2").Child("name"), nil, nil),
 			},
 		},
+		"invalid podSet minCount (negative)": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*testingutil.MakePodSet("ps1", 3).SetMinimumCount(-1).Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(podSetsPath.Index(0).Child("minCount"), ""),
+			},
+		},
+		"invalid podSet minCount (too big)": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*testingutil.MakePodSet("ps1", 3).SetMinimumCount(4).Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(podSetsPath.Index(0).Child("minCount"), ""),
+			},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
