@@ -1,10 +1,8 @@
 # Dev/testing friendly settings for Kueue.
 
 # Use default settings as a base.
-bases:
+resources:
 - ../default
-
-patchesStrategicMerge:
+patches:
 # Modify logging for better user experience. 
-- manager_config_patch.yaml
-
+- path: manager_config_patch.yaml
