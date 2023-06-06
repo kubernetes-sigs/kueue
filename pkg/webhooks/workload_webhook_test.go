@@ -266,6 +266,17 @@ func TestValidateWorkload(t *testing.T) {
 				field.Forbidden(podSetsPath.Index(0).Child("minCount"), ""),
 			},
 		},
+		"too many variable count podSets": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*testingutil.MakePodSet("ps1", 3).SetMinimumCount(2).Obj(),
+					*testingutil.MakePodSet("ps2", 3).SetMinimumCount(1).Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath, nil, ""),
+			},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
