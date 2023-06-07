@@ -33,6 +33,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/util/testing"
@@ -134,7 +135,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 		ginkgo.By("checking the workload is updated with queue name when the job does")
 		jobQueueName := "test-queue"
-		createdJob.Annotations = map[string]string{jobframework.QueueAnnotation: jobQueueName}
+		createdJob.Annotations = map[string]string{constants.QueueAnnotation: jobQueueName}
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
 		gomega.Eventually(func() bool {
 			if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
@@ -315,9 +316,9 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 		ginkgo.By("checking the workload is created when queue name is set")
 		jobQueueName := "test-queue"
 		if createdJob.Labels == nil {
-			createdJob.Labels = map[string]string{jobframework.QueueAnnotation: jobQueueName}
+			createdJob.Labels = map[string]string{constants.QueueAnnotation: jobQueueName}
 		} else {
-			createdJob.Labels[jobframework.QueueLabel] = jobQueueName
+			createdJob.Labels[constants.QueueLabel] = jobQueueName
 		}
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
 		gomega.Eventually(func() error {
@@ -378,7 +379,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 			ginkgo.By("Create a job")
 			job := testingrayjob.MakeJob(jobName, ns.Name).Obj()
 			jobQueueName := "test-queue"
-			job.Annotations = map[string]string{jobframework.QueueAnnotation: jobQueueName}
+			job.Annotations = map[string]string{constants.QueueAnnotation: jobQueueName}
 			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 			lookupKey := types.NamespacedName{Name: jobName, Namespace: ns.Name}
 			setInitStatus(jobName, ns.Name)

@@ -33,9 +33,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -58,7 +60,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 	ginkgo.BeforeAll(func() {
 		fwk = &framework.Framework{
-			ManagerSetup: managerSetup(jobframework.WithManageJobsWithoutQueueName(true)),
+			ManagerSetup: managerSetup(false, jobframework.WithManageJobsWithoutQueueName(true)),
 			CRDPath:      crdPath,
 			DepCRDPaths:  []string{mpiCrdPath},
 		}
@@ -118,7 +120,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 		ginkgo.By("checking the workload is updated with queue name when the job does")
 		jobQueueName := "test-queue"
-		createdJob.Annotations = map[string]string{jobframework.QueueAnnotation: jobQueueName}
+		createdJob.Annotations = map[string]string{constants.QueueAnnotation: jobQueueName}
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
 		gomega.Eventually(func() bool {
 			if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
@@ -286,7 +288,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue are managed", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	ginkgo.BeforeAll(func() {
 		fwk = &framework.Framework{
-			ManagerSetup: managerSetup(),
+			ManagerSetup: managerSetup(true),
 			CRDPath:      crdPath,
 			DepCRDPaths:  []string{mpiCrdPath},
 		}
@@ -297,7 +299,10 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 	})
 
 	var (
-		ns *corev1.Namespace
+		ns             *corev1.Namespace
+		childLookupKey types.NamespacedName
+		parentJobName  = jobName + "-parent"
+		childJobName   = jobName + "-child"
 	)
 	ginkgo.BeforeEach(func() {
 		ns = &corev1.Namespace{
@@ -306,6 +311,7 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 			},
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+		childLookupKey = types.NamespacedName{Name: childJobName, Namespace: ns.Name}
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -327,13 +333,59 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 
 		ginkgo.By("checking the workload is created when queue name is set")
 		jobQueueName := "test-queue"
-		createdJob.Annotations = map[string]string{jobframework.QueueAnnotation: jobQueueName}
+		createdJob.Annotations = map[string]string{constants.QueueAnnotation: jobQueueName}
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
 		gomega.Eventually(func() error {
 			return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
+	ginkgo.It("Should suspend a job if the parent workload does not exist", func() {
+		ginkgo.By("Creating the parent job which has a queue name")
+		parentJob := testingmpijob.MakeMPIJob(parentJobName, ns.Name).
+			UID(parentJobName).
+			Queue("test").
+			Suspend(false).
+			Obj()
+		gomega.Expect(k8sClient.Create(ctx, parentJob)).Should(gomega.Succeed())
+
+		ginkgo.By("Creating the child job which uses the parent workload annotation")
+		childJob := testingjob.MakeJob(childJobName, ns.Name).
+			OwnerReference(parentJobName, kubeflow.SchemeGroupVersionKind).
+			Suspend(false).
+			ParentWorkload("non-existing-parent-workload").
+			Obj()
+		gomega.Expect(k8sClient.Create(ctx, childJob)).Should(gomega.Succeed())
+
+		ginkgo.By("checking that the child job is suspended")
+		gomega.Eventually(func() *bool {
+			gomega.Expect(k8sClient.Get(ctx, childLookupKey, childJob)).Should(gomega.Succeed())
+			return childJob.Spec.Suspend
+		}, util.Timeout, util.Interval).Should(gomega.Equal(pointer.Bool(true)))
+	})
+
+	ginkgo.It("Should not suspend a child job if the parent job doesn't have a queue name", func() {
+		ginkgo.By("Creating the parent job which doesn't have a queue name")
+		parentJob := testingmpijob.MakeMPIJob(parentJobName, ns.Name).
+			UID(parentJobName).
+			Suspend(false).
+			Obj()
+		gomega.Expect(k8sClient.Create(ctx, parentJob)).Should(gomega.Succeed())
+
+		ginkgo.By("Creating the child job which has ownerReference with known existing workload owner")
+		childJob := testingjob.MakeJob(childJobName, ns.Name).
+			OwnerReference(parentJobName, kubeflow.SchemeGroupVersionKind).
+			ParentWorkload(jobframework.GetWorkloadNameForOwnerWithGVK(parentJobName, kubeflow.SchemeGroupVersionKind)).
+			Suspend(false).
+			Obj()
+		gomega.Expect(k8sClient.Create(ctx, childJob)).Should(gomega.Succeed())
+
+		ginkgo.By("Checking that the child job isn't suspended")
+		gomega.Consistently(func() *bool {
+			gomega.Expect(k8sClient.Get(ctx, childLookupKey, childJob))
+			return childJob.Spec.Suspend
+		}, util.ConsistentDuration, util.Interval).Should(gomega.Equal(pointer.Bool(false)))
+	})
 })
 
 var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -353,7 +405,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 
 	ginkgo.BeforeAll(func() {
 		fwk = &framework.Framework{
-			ManagerSetup: managerSetup(jobframework.WithWaitForPodsReady(true)),
+			ManagerSetup: managerSetup(false, jobframework.WithWaitForPodsReady(true)),
 			CRDPath:      crdPath,
 			DepCRDPaths:  []string{mpiCrdPath},
 		}
@@ -385,7 +437,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 			ginkgo.By("Create a job")
 			job := testingmpijob.MakeMPIJob(jobName, ns.Name).Parallelism(2).Obj()
 			jobQueueName := "test-queue"
-			job.Annotations = map[string]string{jobframework.QueueAnnotation: jobQueueName}
+			job.Annotations = map[string]string{constants.QueueAnnotation: jobQueueName}
 			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 			lookupKey := types.NamespacedName{Name: jobName, Namespace: ns.Name}
 			createdJob := &kubeflow.MPIJob{}

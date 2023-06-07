@@ -20,22 +20,25 @@ import (
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+
+	"sigs.k8s.io/kueue/pkg/controller/constants"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 var (
 	annotationsPath       = field.NewPath("metadata", "annotations")
 	labelsPath            = field.NewPath("metadata", "labels")
-	parentWorkloadKeyPath = annotationsPath.Key(ParentWorkloadAnnotation)
-	queueNameLabelPath    = labelsPath.Key(QueueLabel)
+	parentWorkloadKeyPath = annotationsPath.Key(constants.ParentWorkloadAnnotation)
+	queueNameLabelPath    = labelsPath.Key(constants.QueueLabel)
 
-	originalNodeSelectorsWorkloadKeyPath = annotationsPath.Key(OriginalNodeSelectorsAnnotation)
-	originalPodSetsInfosWorkloadKeyPath  = annotationsPath.Key(OriginalPodSetsInfoAnnotation)
+	originalNodeSelectorsWorkloadKeyPath = annotationsPath.Key(controllerconsts.OriginalNodeSelectorsAnnotation)
+	originalPodSetsInfosWorkloadKeyPath  = annotationsPath.Key(controllerconsts.OriginalPodSetsInfoAnnotation)
 )
 
 func ValidateCreateForQueueName(job GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
-	allErrs = append(allErrs, validateLabelAsCRDName(job, QueueLabel)...)
-	allErrs = append(allErrs, ValidateAnnotationAsCRDName(job, QueueAnnotation)...)
+	allErrs = append(allErrs, validateLabelAsCRDName(job, constants.QueueLabel)...)
+	allErrs = append(allErrs, ValidateAnnotationAsCRDName(job, constants.QueueAnnotation)...)
 	return allErrs
 }
 
@@ -79,11 +82,11 @@ func ValidateUpdateForParentWorkload(oldJob, newJob GenericJob) field.ErrorList 
 func ValidateUpdateForOriginalNodeSelectors(oldJob, newJob GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
 	if oldJob.IsSuspended() == newJob.IsSuspended() {
-		if errList := apivalidation.ValidateImmutableField(oldJob.Object().GetAnnotations()[OriginalNodeSelectorsAnnotation],
-			newJob.Object().GetAnnotations()[OriginalNodeSelectorsAnnotation], originalNodeSelectorsWorkloadKeyPath); len(errList) > 0 {
+		if errList := apivalidation.ValidateImmutableField(oldJob.Object().GetAnnotations()[constants.OriginalNodeSelectorsAnnotation],
+			newJob.Object().GetAnnotations()[constants.OriginalNodeSelectorsAnnotation], originalNodeSelectorsWorkloadKeyPath); len(errList) > 0 {
 			allErrs = append(allErrs, field.Forbidden(originalNodeSelectorsWorkloadKeyPath, "this annotation is immutable while the job is not changing its suspended state"))
 		}
-	} else if av, found := newJob.Object().GetAnnotations()[OriginalNodeSelectorsAnnotation]; found {
+	} else if av, found := newJob.Object().GetAnnotations()[controllerconsts.OriginalNodeSelectorsAnnotation]; found {
 		out := []PodSetInfo{}
 		if err := json.Unmarshal([]byte(av), &out); err != nil {
 			allErrs = append(allErrs, field.Invalid(originalNodeSelectorsWorkloadKeyPath, av, err.Error()))
@@ -95,11 +98,11 @@ func ValidateUpdateForOriginalNodeSelectors(oldJob, newJob GenericJob) field.Err
 func ValidateUpdateForOriginalPodSetsInfo(oldJob, newJob GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
 	if oldJob.IsSuspended() == newJob.IsSuspended() {
-		if errList := apivalidation.ValidateImmutableField(oldJob.Object().GetAnnotations()[OriginalPodSetsInfoAnnotation],
-			newJob.Object().GetAnnotations()[OriginalPodSetsInfoAnnotation], originalPodSetsInfosWorkloadKeyPath); len(errList) > 0 {
+		if errList := apivalidation.ValidateImmutableField(oldJob.Object().GetAnnotations()[controllerconsts.OriginalPodSetsInfoAnnotation],
+			newJob.Object().GetAnnotations()[controllerconsts.OriginalPodSetsInfoAnnotation], originalPodSetsInfosWorkloadKeyPath); len(errList) > 0 {
 			allErrs = append(allErrs, field.Forbidden(originalPodSetsInfosWorkloadKeyPath, "this annotation is immutable while the job is not changing its suspended state"))
 		}
-	} else if av, found := newJob.Object().GetAnnotations()[OriginalPodSetsInfoAnnotation]; found {
+	} else if av, found := newJob.Object().GetAnnotations()[controllerconsts.OriginalPodSetsInfoAnnotation]; found {
 		out := []PodSetInfo{}
 		if err := json.Unmarshal([]byte(av), &out); err != nil {
 			allErrs = append(allErrs, field.Invalid(originalPodSetsInfosWorkloadKeyPath, av, err.Error()))

@@ -33,14 +33,18 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var (
-	errPodSetsInfoNotFound = fmt.Errorf("annotation %s or %s not found", OriginalNodeSelectorsAnnotation, OriginalPodSetsInfoAnnotation)
-	errUnknownPodSetName   = errors.New("unknown podSet name")
+	errPodSetsInfoNotFound   = fmt.Errorf("annotation %s or %s not found", controllerconsts.OriginalNodeSelectorsAnnotation, controllerconsts.OriginalPodSetsInfoAnnotation)
+	errUnknownPodSetName     = errors.New("unknown podSet name")
+	errChildJobOwnerNotFound = fmt.Errorf("owner isn't set even though %s annotation is set", controllerconsts.ParentWorkloadAnnotation)
+	errUnknownWorkloadOwner  = errors.New("workload owner is unknown")
+	errWorkloadOwnerNotFound = errors.New("workload owner not found")
 )
 
 // JobReconciler reconciles a GenericJob object
@@ -113,9 +117,23 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// when manageJobsWithoutQueueName is disabled we only reconcile jobs that have either
 	// queue-name or the parent-workload annotation set.
-	if !r.manageJobsWithoutQueueName && QueueName(job) == "" && isStandaloneJob {
-		log.V(3).Info(fmt.Sprintf("Neither %s label, nor %s annotation is set, ignoring the job", QueueLabel, ParentWorkloadAnnotation))
-		return ctrl.Result{}, nil
+	// If the parent-workload annotation is set, it also checks whether the parent job has queue-name label.
+	if !r.manageJobsWithoutQueueName && QueueName(job) == "" {
+		if isStandaloneJob {
+			log.V(3).Info("Neither queue-name label, nor parent-workload annotation is set, ignoring the job",
+				"queueName", QueueName(job), "parentWorkload", ParentWorkloadName(job))
+			return ctrl.Result{}, nil
+		}
+		isParentJobManaged, err := r.isParentJobManaged(ctx, job.Object(), namespacedName.Namespace)
+		if err != nil {
+			log.Error(err, "couldn't check whether the parent job is managed by kueue")
+			return ctrl.Result{}, err
+		}
+		if !isParentJobManaged {
+			log.V(3).Info("parent-workload annotation is set, and the parent job doesn't have a queue-name label, ignoring the job",
+				"parentWorkload", ParentWorkloadName(job))
+			return ctrl.Result{}, nil
+		}
 	}
 
 	log.V(2).Info("Reconciling Job")
@@ -240,6 +258,22 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{}, nil
 }
 
+// isParentJobManaged checks whether the parent job is managed by kueue.
+func (r *JobReconciler) isParentJobManaged(ctx context.Context, jobObj client.Object, namespace string) (bool, error) {
+	owner := metav1.GetControllerOf(jobObj)
+	if owner == nil {
+		return false, errChildJobOwnerNotFound
+	}
+	parentJob := KnownWorkloadOwnerObject(owner)
+	if parentJob == nil {
+		return false, fmt.Errorf("workload owner %v: %w", owner, errUnknownWorkloadOwner)
+	}
+	if err := r.client.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: namespace}, parentJob); err != nil {
+		return false, errors.Join(errWorkloadOwnerNotFound, err)
+	}
+	return QueueNameForObject(parentJob) != "", nil
+}
+
 // ensureOneWorkload will query for the single matched workload corresponding to job and return it.
 // If there're more than one workload, we should delete the excess ones.
 // The returned workload could be nil.
@@ -260,7 +294,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			if !apierrors.IsNotFound(err) {
 				return nil, err
 			}
-			log.V(2).Info("job with no matching parent workload", "parent-workload", pwName)
+			log.V(2).Info("job with no matching parent workload", "parentWorkload", pwName)
 		} else {
 			match = &pw
 		}
@@ -530,10 +564,10 @@ func cloneNodeSelector(src map[string]string) map[string]string {
 // object's annotations fails if it's not found or is unable to unmarshal
 func getPodSetsInfoFromObjectAnnotation(obj client.Object, job GenericJob) ([]PodSetInfo, error) {
 	hasCounts := true
-	str, found := obj.GetAnnotations()[OriginalPodSetsInfoAnnotation]
+	str, found := obj.GetAnnotations()[controllerconsts.OriginalPodSetsInfoAnnotation]
 	if !found {
 		hasCounts = false
-		str, found = obj.GetAnnotations()[OriginalNodeSelectorsAnnotation]
+		str, found = obj.GetAnnotations()[controllerconsts.OriginalNodeSelectorsAnnotation]
 		if !found {
 			return nil, errPodSetsInfoNotFound
 		}
@@ -569,9 +603,9 @@ func setNodeSelectorsInAnnotation(obj client.Object, info []PodSetInfo) error {
 
 	annotations := obj.GetAnnotations()
 	if annotations == nil {
-		annotations = map[string]string{OriginalPodSetsInfoAnnotation: string(nodeSelectorsBytes)}
+		annotations = map[string]string{controllerconsts.OriginalPodSetsInfoAnnotation: string(nodeSelectorsBytes)}
 	} else {
-		annotations[OriginalPodSetsInfoAnnotation] = string(nodeSelectorsBytes)
+		annotations[controllerconsts.OriginalPodSetsInfoAnnotation] = string(nodeSelectorsBytes)
 	}
 	obj.SetAnnotations(annotations)
 	return nil
