@@ -8,7 +8,7 @@ require (
 	github.com/kubeflow/common v0.4.7
 	github.com/kubeflow/mpi-operator v0.4.0
 	github.com/onsi/ginkgo/v2 v2.9.7
-	github.com/onsi/gomega v1.27.7
+	github.com/onsi/gomega v1.27.8
 	github.com/open-policy-agent/cert-controller v0.7.0
 	github.com/prometheus/client_golang v1.15.1
 	github.com/ray-project/kuberay/ray-operator v0.0.0-20230516192117-9bc5d854bd31
