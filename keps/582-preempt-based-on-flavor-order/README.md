@@ -29,7 +29,14 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Risks and Mitigations](#risks-and-mitigations)
   - [Design Details](#design-details)
     - [Cluster Queue API](#cluster-queue-api)
-    - [Schduling Process in Kueue](#schduling-process-in-kueue)
+      - [Plan A](#plan-a)
+        - [Advantages](#advantages)
+        - [Disadvantages](#disadvantages)
+      - [Plan B](#plan-b)
+        - [Advantages](#advantages-1)
+        - [Disadvantages](#disadvantages-1)
+    - [Preemptor](#preemptor)
+    - [Implementation](#implementation)
     - [Test Plan](#test-plan)
         - [Prerequisite testing updates](#prerequisite-testing-updates)
       - [Unit Tests](#unit-tests)
@@ -160,36 +167,45 @@ proposal will be implemented, this is the place to discuss them.
 
 We extend the Cluster Queue API to introduce the new fields: flavorFungibility to opt-in and configure the new behavior.
 
-```
-type FlavorConsumingPolicy string
+For each type of resource in each podSet, Kueue will traverse all resource groups and resource flavors to find a available flavor in present. When there are insufficient resources in the flavor, kueue will prioritize preemption or borrowing based on the configured policy. 
 
+Here are two candidate plans.
+
+#### Plan A
+
+```
 const (
-	Borrow FlavorConsumingPolicy = "Borrow"
-	Preempt  FlavorConsumingPolicy = "Preempt"
-  TryNextFlavor FlavorConsumingPolicy = "TryNextFlavor"
+	Borrow FlavorFungibilityPolicy = "Borrow"
+	Preempt  FlavorFungibilityPolicy = "Preempt"
+  TryNextFlavor FlavorFungibilityPolicy = "TryNextFlavor"
 )
+
+type FlavorFungibility struct {
+  // +kubebuilder:validation:Enum="Borrow,TryNextFlavor"
+  WhenCanBorrow FlavorFungibilityPolicy  `json:"whenCanBorrow"`
+  // +kubebuilder:validation:Enum="Preempt,TryNextFlavor"
+  WhenCanPreempt FlavorFungibilityPolicy `json:"whenCanPreempt"`
+}
 
 // ClusterQueuePreemption contains policies to preempt Workloads from this
 // ClusterQueue or the ClusterQueue's cohort.
 type ClusterQueuePreemption struct {
 	...
-
 	FlavorFungibility FlavorFungibility `json:"flavorFungibility"`
-}
-
-type FlavorFungibility struct {
-	// +kubebuilder:validation:Enum=Borrow;TryNextFlavor
-  WhenCanBorrow BorrowPolicy `json:"whenCanBorrow"`
-	// +kubebuilder:validation:Enum=Preempt;TryNextFlavor
-  WhenCanPreempt PreemptPolicy `json:"whenCanPreempt"`
 }
 ```
 
-### Schduling Process in Kueue
+If flavorFungibility is nil in configuration, we will set the `WhenCanBorrow` to `true` and set `WhenCanPreempt` to `false` to maintain consistency with the current behavior.
 
-For each type of resource in each podSet, Kueue will traverse all resource groups and resource flavors to find a available flavor in present. And this will be the behavior for `AfterAllFlavors`.
+If flavorFungibility is not nil and `WhenCanBorrow` is `Borrow`, we calculate the total resource consumption in the flavor and current amount of borrowed resources to determine if the workload can fit the flavor by borrowing before try next flavor. We return `Fit` and the count of resources to be borrowed if there are enough unused resources in cohort.
 
-If flavorFungibility is BeforeNextFlavor, we will try to allocate podSet's resources in the first flavor in the resource group. Then we will try to preempt in these flavors if some resources not fit. If there are still some resource not fit, we will try the next flavor in the resource group until all resource types get allocated or there is no more resource flavors. 
+If flavorFungibility is not nil and `WhenCanPreempt` is `Preempt`, we will preempt in current flavor before try allocate in next flavor. We call the `GetTargets` function to determine if preempting can help the workload to get enough quota.  We call `IssuePreemptions` when try to admit the workload if preemption is successful. 
+
+If flavorFungibility is not nil and `WhenCanBorrow` is `TryNextFlavor`, we will try to borrow after all flavors have been consiedered.
+
+If flavorFungibility is not nil and `WhenCanPreempt` is `TryNextFlavor`, we will try to preempt after all flavors have been consiedered.
+
+If both `WhenCanPreempt` and `WhenCanBorrow` are `true`, we will first try borrowing before preempting.
 
 For example, if cluster queue has 2 resource groups and workload has 1 podSet as the following:
 
@@ -236,6 +252,45 @@ For example, if cluster queue has 2 resource groups and workload has 1 podSet as
 We will first try `default-flavor1` for cpu and memory resources. If `default-flavor1` doesn't fit, we try preempt in `default-flavor1`. If preemptor return preempt fail, we try to allocate resource in `default-flavor2`.
 
 We will pass preemptor to flavorAssigner and let flavorAssigner try to call public interface of preemptor to get candidate for certain podSet in current flavor if podSet can not find enough resources in current flavor.
+
+##### Advantages
+
+##### Disadvantages
+
+#### Plan B
+
+```
+type FlavorFungibility string
+
+const (
+  Borrow   FlavorFungibility = "Borrow"
+  Preempt  FlavorFungibility = "Preempt"
+  TryNextFlavor FlavorFungibility = "TryNextFlavor"
+)
+
+// ClusterQueuePreemption contains policies to preempt Workloads from this
+// ClusterQueue or the ClusterQueue's cohort.
+type ClusterQueuePreemption struct {
+	...
+  // +kubebuilder:validation:UniqueItems=true
+  // +kubebuilder:validation:Enum="Borrow,Preempt,TryNextFlavor"
+  FlavorFungibility []FlavorFungibility `json:"flavorFungibility"`
+}
+```
+
+Length of FlavorFungibility should be either 0 or 3, this means we don't allow users to omit any of these three actions. If FlavorFungibility is empty, we set FlavorFungibility as `Borrow,TryNextFlavor,Preempt`. Actions after `TryNextFlavor` will be executed after all flavors are considered, and actions before `TryNextFlavor` will be executed before next flavor be considered.
+
+##### Advantages
+
+##### Disadvantages
+
+### Preemptor
+
+We need a new parameter to tell preemptor to preempt in a certain flavor for a pod set,
+
+### Implementation
+
+For each time a workload try to assign flavors, it will call `AssignFlavors()` to get a best assignment. We will check whether the current assignment matches FlavorFungibility and return the assignment is yes. The assignment will be handled by scheduler and preemptor. When the mode is `Fit`, scheduler will try to admit the workload and preemptor will try to find candidates when the mode is `Preempt`. If the preemptor can't find any candidates when the mode is `Preempt`, we record the 
 
 ### Test Plan
 
