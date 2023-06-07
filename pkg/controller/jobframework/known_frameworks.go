@@ -19,11 +19,20 @@ package jobframework
 import (
 	"strings"
 
+	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 func KnownWorkloadOwner(owner *metav1.OwnerReference) bool {
 	return IsMPIJob(owner)
+}
+
+func KnownWorkloadOwnerObject(owner *metav1.OwnerReference) client.Object {
+	if IsMPIJob(owner) {
+		return &kubeflow.MPIJob{}
+	}
+	return nil
 }
 
 func IsMPIJob(owner *metav1.OwnerReference) bool {
