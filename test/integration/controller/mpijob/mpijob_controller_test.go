@@ -676,7 +676,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 
 	})
 
-	ginkgo.When("The workload is deleted while it's admitted", func() {
+	ginkgo.When("The workload's admission is removed", func() {
 		ginkgo.It("Should restore the original node selectors", func() {
 
 			localQueue := testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
@@ -731,11 +731,11 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 				gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("delete the workload to stop the job", func() {
+			ginkgo.By("clear the workload's admission to stop the job", func() {
 				wl := &kueue.Workload{}
 				wlKey := types.NamespacedName{Name: workloadmpijob.GetWorkloadNameForMPIJob(job.Name), Namespace: job.Namespace}
 				gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-				gomega.Expect(util.DeleteWorkload(ctx, k8sClient, wl)).Should(gomega.Succeed())
+				gomega.Expect(util.SetAdmission(ctx, k8sClient, wl, nil)).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("the node selectors should be restored", func() {

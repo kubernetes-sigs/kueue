@@ -118,12 +118,6 @@ func (j *MPIJobWrapper) Parallelism(p int32) *MPIJobWrapper {
 	return j
 }
 
-// OriginalNodeSelectorsAnnotation updates the original node selectors annotation.
-func (j *MPIJobWrapper) OriginalNodeSelectorsAnnotation(content string) *MPIJobWrapper {
-	j.Annotations[constants.OriginalNodeSelectorsAnnotation] = content
-	return j
-}
-
 // Suspend updates the suspend status of the job.
 func (j *MPIJobWrapper) Suspend(s bool) *MPIJobWrapper {
 	j.Spec.RunPolicy.Suspend = &s
