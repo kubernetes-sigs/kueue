@@ -8,6 +8,7 @@ updates:
       interval: "weekly"
     labels:
       - "ok-to-test"
+      - "release-note-none"
     ignore:
       # Ignore major and minor versions for dependencies updates
       # Allow patches and security updates.
