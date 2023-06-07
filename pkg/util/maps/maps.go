@@ -14,19 +14,23 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package features
+// replacing this with `https://pkg.go.dev/golang.org/x/exp/maps` should be considered
+// when `x/exp/maps` graduates to stable.
+package maps
 
-import (
-	"testing"
-
-	utilfeature "k8s.io/apiserver/pkg/util/feature"
-	featuregatetesting "k8s.io/component-base/featuregate/testing"
-)
-
-func TestFeatureGate(t *testing.T) {
-	defer featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, PartialAdmission, true)()
-
-	if !utilfeature.DefaultFeatureGate.Enabled(PartialAdmission) {
-		t.Error("feature gate should be enabled")
+// Clone clones the input
+func Clone[K comparable, V any, S ~map[K]V](s S) S {
+	if s == nil {
+		return nil
 	}
+
+	if len(s) == 0 {
+		return S{}
+	}
+
+	ret := make(S, len(s))
+	for k, v := range s {
+		ret[k] = v
+	}
+	return ret
 }

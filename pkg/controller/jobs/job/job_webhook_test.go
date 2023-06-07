@@ -83,6 +83,37 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(queueNameLabelPath, "queue name", invalidRFC1123Message),
 			},
 		},
+		{
+			name: "invalid partial admission annotation (format)",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "NaN").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(minPodsCountAnnotationsPath, "NaN", "strconv.Atoi: parsing \"NaN\": invalid syntax"),
+			},
+		},
+		{
+			name: "invalid partial admission annotation (badValue)",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "5").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(minPodsCountAnnotationsPath, 5, "should be between 0 and 3"),
+			},
+		},
+		{
+			name: "valid partial admission annotation",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			wantErr: nil,
+		},
 	}
 
 	for _, tc := range testcases {
@@ -198,6 +229,38 @@ func TestValidateUpdate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Forbidden(originalNodeSelectorsKeyPath, "this annotation is immutable while the job is not changing its suspended state"),
 			},
+		},
+		{
+			name: "immutable parallelism while unsuspended with partial admission enabled",
+			oldJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				Parallelism(5).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(field.NewPath("spec", "parallelism"), "cannot change when partial admission is enabled and the job is not suspended"),
+			},
+		},
+		{
+			name: "mutable parallelism while suspended with partial admission enabled",
+			oldJob: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Parallelism(5).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			wantErr: nil,
 		},
 	}
 

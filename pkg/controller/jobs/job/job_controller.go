@@ -18,6 +18,7 @@ package job
 
 import (
 	"context"
+	"strconv"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -46,6 +47,10 @@ var (
 	gvk               = batchv1.SchemeGroupVersion.WithKind("Job")
 
 	FrameworkName = "batch/job"
+)
+
+const (
+	JobMinParallelismAnnotation = "kueue.x-k8s.io/job-min-parallelism"
 )
 
 func init() {
@@ -178,33 +183,46 @@ func (j *Job) PodSets() []kueue.PodSet {
 			Name:     kueue.DefaultPodSetName,
 			Template: *j.Spec.Template.DeepCopy(),
 			Count:    j.podsCount(),
+			MinCount: j.minPodsCount(),
 		},
 	}
 }
 
-func (j *Job) RunWithNodeAffinity(nodeSelectors []jobframework.PodSetNodeSelector) {
+func (j *Job) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) {
 	j.Spec.Suspend = pointer.Bool(false)
-	if len(nodeSelectors) == 0 {
+	if len(podSetsInfo) == 0 {
 		return
 	}
 
 	if j.Spec.Template.Spec.NodeSelector == nil {
-		j.Spec.Template.Spec.NodeSelector = nodeSelectors[0].NodeSelector
+		j.Spec.Template.Spec.NodeSelector = podSetsInfo[0].NodeSelector
 	} else {
-		for k, v := range nodeSelectors[0].NodeSelector {
+		for k, v := range podSetsInfo[0].NodeSelector {
 			j.Spec.Template.Spec.NodeSelector[k] = v
 		}
 	}
+	if j.minPodsCount() != nil {
+		j.Spec.Parallelism = pointer.Int32(podSetsInfo[0].Count)
+	}
 }
 
-func (j *Job) RestoreNodeAffinity(nodeSelectors []jobframework.PodSetNodeSelector) {
-	if len(nodeSelectors) == 0 || equality.Semantic.DeepEqual(j.Spec.Template.Spec.NodeSelector, nodeSelectors[0].NodeSelector) {
+func (j *Job) RestorePodSetsInfo(podSetsInfo []jobframework.PodSetInfo) {
+	if len(podSetsInfo) == 0 {
+		return
+	}
+
+	// if the job accepts partial admission
+	if j.minPodsCount() != nil {
+		j.Spec.Parallelism = pointer.Int32(podSetsInfo[0].Count)
+	}
+
+	if equality.Semantic.DeepEqual(j.Spec.Template.Spec.NodeSelector, podSetsInfo[0].NodeSelector) {
 		return
 	}
 
 	j.Spec.Template.Spec.NodeSelector = map[string]string{}
 
-	for k, v := range nodeSelectors[0].NodeSelector {
+	for k, v := range podSetsInfo[0].NodeSelector {
 		j.Spec.Template.Spec.NodeSelector[k] = v
 	}
 }
@@ -239,7 +257,18 @@ func (j *Job) EquivalentToWorkload(wl kueue.Workload) bool {
 		return false
 	}
 
-	if *j.Spec.Parallelism != wl.Spec.PodSets[0].Count {
+	ps0 := &wl.Spec.PodSets[0]
+
+	// if the job accepts partial admission
+	if mpc := j.minPodsCount(); mpc != nil {
+		if pointer.Int32Deref(ps0.MinCount, -1) != *mpc {
+			return false
+		}
+
+		if j.IsSuspended() && j.podsCount() != ps0.Count {
+			return false
+		}
+	} else if j.podsCount() != ps0.Count {
 		return false
 	}
 
@@ -269,6 +298,15 @@ func (j *Job) podsCount() int32 {
 		podsCount = *j.Spec.Completions
 	}
 	return podsCount
+}
+
+func (j *Job) minPodsCount() *int32 {
+	if strVal, found := j.GetAnnotations()[JobMinParallelismAnnotation]; found {
+		if iVal, err := strconv.Atoi(strVal); err == nil {
+			return pointer.Int32(int32(iVal))
+		}
+	}
+	return nil
 }
 
 // SetupWithManager sets up the controller with the Manager. It indexes workloads

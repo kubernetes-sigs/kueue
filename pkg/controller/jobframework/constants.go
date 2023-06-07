@@ -37,5 +37,13 @@ const (
 	// node selectors are recorded upon a workload admission. This information
 	// will be used to restore them when the job is suspended.
 	// The content is a json marshaled slice of selectors.
+	//
+	// DEPRECATED: Use OriginalPodSetsInfoAnnotation.
 	OriginalNodeSelectorsAnnotation = "kueue.x-k8s.io/original-node-selectors"
+
+	// OriginalPodSetsInfoAnnotation is the annotation in which the original
+	// node selectors and podSet counts are recorded upon a workload admission.
+	// This information will be used to restore them when the job is suspended.
+	// The content is a json marshaled slice of PodSetInfo.
+	OriginalPodSetsInfoAnnotation = "kueue.x-k8s.io/original-pod-sets-info"
 )

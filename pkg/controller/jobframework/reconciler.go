@@ -16,6 +16,7 @@ package jobframework
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
@@ -26,17 +27,20 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
+	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var (
-	errNodeSelectorsNotFound = fmt.Errorf("annotation %s not found", OriginalNodeSelectorsAnnotation)
+	errPodSetsInfoNotFound = fmt.Errorf("annotation %s or %s not found", OriginalNodeSelectorsAnnotation, OriginalPodSetsInfoAnnotation)
+	errUnknownPodSetName   = errors.New("unknown podSet name")
 )
 
 // JobReconciler reconciles a GenericJob object
@@ -332,17 +336,17 @@ func (r *JobReconciler) equivalentToWorkload(job GenericJob, object client.Objec
 
 // startJob will unsuspend the job, and also inject the node affinity.
 func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
-	//get the original selectors and store them in the job object
-	originalSelectors := r.getNodeSelectorsFromPodSets(wl)
-	if err := setNodeSelectorsInAnnotation(object, originalSelectors); err != nil {
-		return fmt.Errorf("startJob, record original node selectors: %w", err)
+	//get the original podSetsInfo and store them in the job object
+	originalPodSetsInfo := r.getPodSetsInfoFromSpec(wl)
+	if err := setNodeSelectorsInAnnotation(object, originalPodSetsInfo); err != nil {
+		return fmt.Errorf("startJob, record original podSetsInfo: %w", err)
 	}
 
-	nodeSelectors, err := r.getNodeSelectorsFromAdmission(ctx, wl)
+	info, err := r.getPodSetsInfoFromAdmission(ctx, wl)
 	if err != nil {
 		return err
 	}
-	job.RunWithNodeAffinity(nodeSelectors)
+	job.RunWithPodSetsInfo(info)
 
 	if err := r.client.Update(ctx, object); err != nil {
 		return err
@@ -372,12 +376,12 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, object clie
 		}
 	}
 
-	log.V(3).Info("restore node selectors from annotation")
-	selectors, err := getNodeSelectorsFromObjectAnnotation(object)
+	log.V(3).Info("restore podSetsInfo from annotation")
+	info, err := getPodSetsInfoFromObjectAnnotation(object, job)
 	if err != nil {
-		log.V(3).Error(err, "Unable to get original node selectors")
+		log.V(3).Error(err, "Unable to get original podSetsInfo")
 	} else {
-		job.RestoreNodeAffinity(selectors)
+		job.RestorePodSetsInfo(info)
 		return r.client.Update(ctx, object)
 	}
 
@@ -412,24 +416,26 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 	return wl, nil
 }
 
-type PodSetNodeSelector struct {
+type PodSetInfo struct {
 	Name         string            `json:"name"`
 	NodeSelector map[string]string `json:"nodeSelector"`
+	Count        int32             `json:"count"`
 }
 
-// getNodeSelectorsFromAdmission will extract node selectors from admitted workloads.
-func (r *JobReconciler) getNodeSelectorsFromAdmission(ctx context.Context, w *kueue.Workload) ([]PodSetNodeSelector, error) {
+// getPodSetsInfoFromAdmission will extract podSetsInfo and podSets count from admitted workloads.
+func (r *JobReconciler) getPodSetsInfoFromAdmission(ctx context.Context, w *kueue.Workload) ([]PodSetInfo, error) {
 	if len(w.Status.Admission.PodSetAssignments) == 0 {
 		return nil, nil
 	}
 
-	nodeSelectors := make([]PodSetNodeSelector, len(w.Status.Admission.PodSetAssignments))
+	nodeSelectors := make([]PodSetInfo, len(w.Status.Admission.PodSetAssignments))
 
 	for i, podSetFlavor := range w.Status.Admission.PodSetAssignments {
 		processedFlvs := sets.NewString()
-		nodeSelector := PodSetNodeSelector{
+		nodeSelector := PodSetInfo{
 			Name:         podSetFlavor.Name,
 			NodeSelector: make(map[string]string),
+			Count:        pointer.Int32Deref(podSetFlavor.Count, w.Spec.PodSets[i].Count),
 		}
 		for _, flvRef := range podSetFlavor.Flavors {
 			flvName := string(flvRef)
@@ -452,18 +458,19 @@ func (r *JobReconciler) getNodeSelectorsFromAdmission(ctx context.Context, w *ku
 	return nodeSelectors, nil
 }
 
-// getNodeSelectorsFromPodSets will extract node selectors from a workload's podSets.
-func (r *JobReconciler) getNodeSelectorsFromPodSets(w *kueue.Workload) []PodSetNodeSelector {
+// getPodSetsInfoFromSpec will extract podSetsInfo and podSet's counts from a workload's spec.
+func (r *JobReconciler) getPodSetsInfoFromSpec(w *kueue.Workload) []PodSetInfo {
 	podSets := w.Spec.PodSets
 	if len(podSets) == 0 {
 		return nil
 	}
-	ret := make([]PodSetNodeSelector, len(podSets))
+	ret := make([]PodSetInfo, len(podSets))
 	for psi := range podSets {
 		ps := &podSets[psi]
-		ret[psi] = PodSetNodeSelector{
+		ret[psi] = PodSetInfo{
 			Name:         ps.Name,
 			NodeSelector: cloneNodeSelector(ps.Template.Spec.NodeSelector),
+			Count:        ps.Count,
 		}
 	}
 	return ret
@@ -519,34 +526,52 @@ func cloneNodeSelector(src map[string]string) map[string]string {
 	return ret
 }
 
-// getNodeSelectorsFromObjectAnnotation tries to retrieve a node selectors slice from the
+// getPodSetsInfoFromObjectAnnotation tries to retrieve a podSetsInfo slice from the
 // object's annotations fails if it's not found or is unable to unmarshal
-func getNodeSelectorsFromObjectAnnotation(obj client.Object) ([]PodSetNodeSelector, error) {
-	str, found := obj.GetAnnotations()[OriginalNodeSelectorsAnnotation]
+func getPodSetsInfoFromObjectAnnotation(obj client.Object, job GenericJob) ([]PodSetInfo, error) {
+	hasCounts := true
+	str, found := obj.GetAnnotations()[OriginalPodSetsInfoAnnotation]
 	if !found {
-		return nil, errNodeSelectorsNotFound
+		hasCounts = false
+		str, found = obj.GetAnnotations()[OriginalNodeSelectorsAnnotation]
+		if !found {
+			return nil, errPodSetsInfoNotFound
+		}
 	}
 	// unmarshal
-	ret := []PodSetNodeSelector{}
+	ret := []PodSetInfo{}
 	if err := json.Unmarshal([]byte(str), &ret); err != nil {
 		return nil, err
+	}
+
+	if !hasCounts {
+		podSets := job.PodSets()
+		psMap := slices.ToRefMap(podSets, func(ps *kueue.PodSet) string { return ps.Name })
+		for i := range ret {
+			info := &ret[i]
+			ps, found := psMap[info.Name]
+			if !found {
+				return nil, fmt.Errorf("%w: %s", errUnknownPodSetName, info.Name)
+			}
+			info.Count = ps.Count
+		}
 	}
 	return ret, nil
 }
 
-// setNodeSelectorsInAnnotation - sets an annotation containing the provided node selectors into
+// setNodeSelectorsInAnnotation - sets an annotation containing the provided podSetsInfo into
 // a job object, even if very unlikely it could return an error related to json.marshaling
-func setNodeSelectorsInAnnotation(obj client.Object, nodeSelectors []PodSetNodeSelector) error {
-	nodeSelectorsBytes, err := json.Marshal(nodeSelectors)
+func setNodeSelectorsInAnnotation(obj client.Object, info []PodSetInfo) error {
+	nodeSelectorsBytes, err := json.Marshal(info)
 	if err != nil {
 		return err
 	}
 
 	annotations := obj.GetAnnotations()
 	if annotations == nil {
-		annotations = map[string]string{OriginalNodeSelectorsAnnotation: string(nodeSelectorsBytes)}
+		annotations = map[string]string{OriginalPodSetsInfoAnnotation: string(nodeSelectorsBytes)}
 	} else {
-		annotations[OriginalNodeSelectorsAnnotation] = string(nodeSelectorsBytes)
+		annotations[OriginalPodSetsInfoAnnotation] = string(nodeSelectorsBytes)
 	}
 	obj.SetAnnotations(annotations)
 	return nil

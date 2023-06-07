@@ -123,17 +123,17 @@ func (j *MPIJob) PodSets() []kueue.PodSet {
 	return podSets
 }
 
-func (j *MPIJob) RunWithNodeAffinity(nodeSelectors []jobframework.PodSetNodeSelector) {
+func (j *MPIJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
 	j.Spec.RunPolicy.Suspend = pointer.Bool(false)
-	if len(nodeSelectors) == 0 {
+	if len(podSetInfos) == 0 {
 		return
 	}
 	// The node selectors are provided in the same order as the generated list of
 	// podSets, use the same ordering logic to restore them.
 	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
-	for index := range nodeSelectors {
+	for index := range podSetInfos {
 		replicaType := orderedReplicaTypes[index]
-		nodeSelector := nodeSelectors[index]
+		nodeSelector := podSetInfos[index]
 		if len(nodeSelector.NodeSelector) != 0 {
 			if j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector == nil {
 				j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector = nodeSelector.NodeSelector
@@ -146,9 +146,9 @@ func (j *MPIJob) RunWithNodeAffinity(nodeSelectors []jobframework.PodSetNodeSele
 	}
 }
 
-func (j *MPIJob) RestoreNodeAffinity(nodeSelectors []jobframework.PodSetNodeSelector) {
+func (j *MPIJob) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
 	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
-	for index, nodeSelector := range nodeSelectors {
+	for index, nodeSelector := range podSetInfos {
 		replicaType := orderedReplicaTypes[index]
 		if !equality.Semantic.DeepEqual(j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector, nodeSelector) {
 			j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector = map[string]string{}

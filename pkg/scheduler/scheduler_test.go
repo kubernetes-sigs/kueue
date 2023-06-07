@@ -40,6 +40,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/util/routine"
@@ -192,6 +193,9 @@ func TestSchedule(t *testing.T) {
 		// additional*Queues can hold any extra queues needed by the tc
 		additionalClusterQueues []kueue.ClusterQueue
 		additionalLocalQueues   []kueue.LocalQueue
+
+		// enable partial admission
+		enablePartialAdmission bool
 	}{
 		"workload fits in single clusterQueue": {
 			workloads: []kueue.Workload{
@@ -716,9 +720,143 @@ func TestSchedule(t *testing.T) {
 				"eng-gamma": sets.New("eng-beta/new-gamma"),
 			},
 		},
+		"partial admission single variable pod set": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "sales").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 50).
+						SetMinimumCount(20).
+						Request(corev1.ResourceCPU, "2").
+						Obj()).
+					Obj(),
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"sales/new": {
+					ClusterQueue: "sales",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						{
+							Name: "one",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "default",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("50000m"),
+							},
+							Count: pointer.Int32(25),
+						},
+					},
+				},
+			},
+			wantScheduled:          []string{"sales/new"},
+			enablePartialAdmission: true,
+		},
+		"partial admission single variable pod set, preempt first": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "eng-beta").
+					Queue("main").
+					Priority(4).
+					PodSets(*utiltesting.MakePodSet("one", 20).
+						SetMinimumCount(10).
+						Request("example.com/gpu", "1").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("old", "eng-beta").
+					Priority(-4).
+					PodSets(*utiltesting.MakePodSet("one", 10).
+						Request("example.com/gpu", "1").
+						Obj()).
+					Admit(utiltesting.MakeAdmission("eng-beta", "one").Assignment("example.com/gpu", "model-a", "10").AssignmentPodCount(10).Obj()).
+					Obj(),
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"eng-beta/old": {
+					ClusterQueue: "eng-beta",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						{
+							Name: "one",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								"example.com/gpu": "model-a",
+							},
+							ResourceUsage: corev1.ResourceList{
+								"example.com/gpu": resource.MustParse("10"),
+							},
+							Count: pointer.Int32(10),
+						},
+					},
+				},
+			},
+			wantPreempted: sets.New("eng-beta/old"),
+			wantLeft: map[string]sets.Set[string]{
+				"eng-beta": sets.New("eng-beta/new"),
+			},
+			enablePartialAdmission: true,
+		},
+		"partial admission multiple variable pod sets": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "sales").
+					Queue("main").
+					PodSets(
+						*utiltesting.MakePodSet("one", 20).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltesting.MakePodSet("two", 30).
+							SetMinimumCount(10).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltesting.MakePodSet("three", 15).
+							SetMinimumCount(5).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Obj(),
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"sales/new": {
+					ClusterQueue: "sales",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						{
+							Name: "one",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "default",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("20000m"),
+							},
+							Count: pointer.Int32(20),
+						},
+						{
+							Name: "two",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "default",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("20000m"),
+							},
+							Count: pointer.Int32(20),
+						},
+						{
+							Name: "three",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "default",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("10000m"),
+							},
+							Count: pointer.Int32(10),
+						},
+					},
+				},
+			},
+			wantScheduled:          []string{"sales/new"},
+			enablePartialAdmission: true,
+		},
 	}
+
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			if tc.enablePartialAdmission {
+				defer features.SetFeatureGateDuringTest(t, features.PartialAdmission, true)()
+			}
 			log := testr.NewWithOptions(t, testr.Options{
 				Verbosity: 2,
 			})

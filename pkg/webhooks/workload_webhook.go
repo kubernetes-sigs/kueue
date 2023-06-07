@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -62,6 +63,13 @@ func (w *WorkloadWebhook) Default(ctx context.Context, obj runtime.Object) error
 		podSet := &wl.Spec.PodSets[0]
 		if len(podSet.Name) == 0 {
 			podSet.Name = kueue.DefaultPodSetName
+		}
+	}
+
+	// drop minCounts if PartialAdmission is not enabled
+	if !features.Enabled(features.PartialAdmission) {
+		for i := range wl.Spec.PodSets {
+			wl.Spec.PodSets[i].MinCount = nil
 		}
 	}
 	return nil
@@ -97,8 +105,17 @@ func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 	var allErrs field.ErrorList
 	specPath := field.NewPath("spec")
 
+	variableCountPosets := 0
 	for i := range obj.Spec.PodSets {
-		allErrs = append(allErrs, validatePodSet(&obj.Spec.PodSets[i], specPath.Child("podSets").Index(i))...)
+		ps := &obj.Spec.PodSets[i]
+		allErrs = append(allErrs, validatePodSet(ps, specPath.Child("podSets").Index(i))...)
+		if ps.MinCount != nil {
+			variableCountPosets++
+		}
+	}
+
+	if variableCountPosets > 1 {
+		allErrs = append(allErrs, field.Invalid(specPath.Child("podSets"), variableCountPosets, "at most one podSet can use minCount"))
 	}
 
 	if len(obj.Spec.PriorityClassName) > 0 {
@@ -145,6 +162,11 @@ func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 	for ci := range ps.Template.Spec.Containers {
 		allErrs = append(allErrs, validateContainer(&ps.Template.Spec.Containers[ci], cPath.Index(ci))...)
 	}
+
+	if min := pointer.Int32Deref(ps.MinCount, ps.Count); min > ps.Count || min < 0 {
+		allErrs = append(allErrs, field.Forbidden(path.Child("minCount"), fmt.Sprintf("%d should be positive and less or equal to %d", min, ps.Count)))
+	}
+
 	return allErrs
 }
 

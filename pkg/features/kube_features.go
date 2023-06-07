@@ -17,18 +17,22 @@ limitations under the License.
 package features
 
 import (
+	"fmt"
+	"testing"
+
 	"k8s.io/apimachinery/pkg/util/runtime"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/component-base/featuregate"
+	featuregatetesting "k8s.io/component-base/featuregate/testing"
 )
 
 const (
-	// owner: @kerthcet
-	// kep: <link to kep>
-	// alpha: v0.3.1
+	// owner: @trasc
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/420-partial-admission
+	// alpha: v0.4
 	//
-	// TODO: This is for reference. Remove it once we have real feature gates.
-	FeatureGateForTest featuregate.Feature = "FeatureGateForTest"
+	// Enables partial admission.
+	PartialAdmission featuregate.Feature = "PartialAdmission"
 )
 
 func init() {
@@ -42,5 +46,21 @@ func init() {
 // Entries are separated from each other with blank lines to avoid sweeping gofmt changes
 // when adding or removing one entry.
 var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
-	FeatureGateForTest: {Default: false, PreRelease: featuregate.Alpha},
+	PartialAdmission: {Default: false, PreRelease: featuregate.Alpha},
+}
+
+func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) func() {
+	return featuregatetesting.SetFeatureGateDuringTest(tb, utilfeature.DefaultFeatureGate, f, value)
+}
+
+// Helper for `utilfeature.DefaultFeatureGate.Enabled()`
+func Enabled(f featuregate.Feature) bool {
+	return utilfeature.DefaultFeatureGate.Enabled(f)
+}
+
+// SetEnable helper function that can be used to set the enabled value of a feature gate,
+// it should only be used in integration test pending the merge of
+// https://github.com/kubernetes/kubernetes/pull/118346
+func SetEnable(f featuregate.Feature, v bool) error {
+	return utilfeature.DefaultMutableFeatureGate.Set(fmt.Sprintf("%s=%v", f, v))
 }

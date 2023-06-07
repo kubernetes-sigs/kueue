@@ -227,15 +227,27 @@ type FlavorAssignment struct {
 // The result for each pod set is accompanied with reasons why the flavor can't
 // be assigned immediately. Each assigned flavor is accompanied with a
 // FlavorAssignmentMode.
-func AssignFlavors(log logr.Logger, wl *workload.Info, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, cq *cache.ClusterQueue) Assignment {
+func AssignFlavors(log logr.Logger, wl *workload.Info, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, cq *cache.ClusterQueue, counts []int32) Assignment {
+	if len(counts) == 0 {
+		return assignFlavors(log, wl.TotalRequests, wl.Obj.Spec.PodSets, resourceFlavors, cq)
+	}
+
+	currentResources := make([]workload.PodSetResources, len(wl.TotalRequests))
+	for i := range wl.TotalRequests {
+		currentResources[i] = *wl.TotalRequests[i].ScaledTo(counts[i])
+	}
+	return assignFlavors(log, currentResources, wl.Obj.Spec.PodSets, resourceFlavors, cq)
+}
+
+func assignFlavors(log logr.Logger, requests []workload.PodSetResources, podSets []kueue.PodSet, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, cq *cache.ClusterQueue) Assignment {
 	assignment := Assignment{
 		TotalBorrow: make(cache.FlavorResourceQuantities),
-		PodSets:     make([]PodSetAssignment, 0, len(wl.TotalRequests)),
+		PodSets:     make([]PodSetAssignment, 0, len(requests)),
 		usage:       make(cache.FlavorResourceQuantities),
 	}
-	for i, podSet := range wl.TotalRequests {
+	for i, podSet := range requests {
 		if _, found := cq.RGByResource[corev1.ResourcePods]; found {
-			podSet.Requests[corev1.ResourcePods] = int64(wl.Obj.Spec.PodSets[i].Count)
+			podSet.Requests[corev1.ResourcePods] = int64(podSet.Count)
 		}
 
 		psAssignment := PodSetAssignment{
@@ -259,7 +271,7 @@ func AssignFlavors(log logr.Logger, wl *workload.Info, resourceFlavors map[kueue
 				}
 				break
 			}
-			flavors, status := assignment.findFlavorForResourceGroup(log, rg, podSet.Requests, resourceFlavors, cq, &wl.Obj.Spec.PodSets[i].Template.Spec)
+			flavors, status := assignment.findFlavorForResourceGroup(log, rg, podSet.Requests, resourceFlavors, cq, &podSets[i].Template.Spec)
 			if status.IsError() || len(flavors) == 0 {
 				psAssignment.Flavors = nil
 				psAssignment.Status = status

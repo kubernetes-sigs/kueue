@@ -60,6 +60,15 @@ spec:
                       format: int32
                       minimum: 1
                       type: integer
+                    minCount:
+                      description: "minCount is the minimum number of pods for the
+                        spec acceptable if the workload supports partial admission.
+                        \n If not provided, partial admission for the current PodSet
+                        is not enabled. \n Only one podSet within the workload can
+                        use this. \n This is an alpha field and requires enabling
+                        PartialAdmission feature gate."
+                      format: int32
+                      type: integer
                     name:
                       description: name is the PodSet name.
                       type: string

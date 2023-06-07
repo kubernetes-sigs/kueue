@@ -35,6 +35,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -1080,4 +1081,83 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		})
 	})
 
+	ginkgo.It("Should schedule jobs when partial admission is enabled", func() {
+		origPartialAdmission := features.Enabled(features.PartialAdmission)
+		ginkgo.By("enable partial admission", func() {
+			gomega.Expect(features.SetEnable(features.PartialAdmission, true)).To(gomega.Succeed())
+		})
+
+		prodLocalQ = testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
+		job1 := testingjob.MakeJob("job1", ns.Name).
+			Queue(prodLocalQ.Name).
+			Parallelism(5).
+			Completions(6).
+			Request(corev1.ResourceCPU, "2").
+			Obj()
+		jobKey := types.NamespacedName{Name: job1.Name, Namespace: job1.Namespace}
+		wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job1.Name), Namespace: job1.Namespace}
+
+		ginkgo.By("creating localQueues")
+		gomega.Expect(k8sClient.Create(ctx, prodLocalQ)).Should(gomega.Succeed())
+
+		ginkgo.By("creating the job")
+		gomega.Expect(k8sClient.Create(ctx, job1)).Should(gomega.Succeed())
+
+		createdJob := &batchv1.Job{}
+		ginkgo.By("the job should stay suspended", func() {
+			gomega.Consistently(func() *bool {
+				gomega.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
+				return createdJob.Spec.Suspend
+			}, util.ConsistentDuration, util.Interval).Should(gomega.Equal(pointer.Bool(true)))
+		})
+
+		ginkgo.By("enable partial admission", func() {
+			gomega.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
+			if createdJob.Annotations == nil {
+				createdJob.Annotations = map[string]string{
+					workloadjob.JobMinParallelismAnnotation: "1",
+				}
+			} else {
+				createdJob.Annotations[workloadjob.JobMinParallelismAnnotation] = "1"
+			}
+
+			gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
+		})
+
+		wl := &kueue.Workload{}
+		ginkgo.By("the job should be unsuspended with a lower parallelism", func() {
+			gomega.Eventually(func() *bool {
+				gomega.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
+				return createdJob.Spec.Suspend
+			}, util.Timeout, util.Interval).Should(gomega.Equal(pointer.Bool(false)))
+			gomega.Expect(*createdJob.Spec.Parallelism).To(gomega.BeEquivalentTo(2))
+
+			gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+			gomega.Expect(wl.Spec.PodSets[0].MinCount).ToNot(gomega.BeNil())
+			gomega.Expect(*wl.Spec.PodSets[0].MinCount).To(gomega.BeEquivalentTo(1))
+		})
+
+		ginkgo.By("create another job to consume the queue and delete the original job workload", func() {
+			job2 := testingjob.MakeJob("job2", ns.Name).
+				Queue(prodLocalQ.Name).
+				Parallelism(5).
+				Completions(5).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, job2)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Delete(ctx, wl)).To(gomega.Succeed())
+		})
+
+		ginkgo.By("job should be suspended and its parallelism restored", func() {
+			gomega.Eventually(func() *bool {
+				gomega.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
+				return createdJob.Spec.Suspend
+			}, util.Timeout, util.Interval).Should(gomega.Equal(pointer.Bool(true)))
+			gomega.Expect(*createdJob.Spec.Parallelism).To(gomega.BeEquivalentTo(5))
+		})
+
+		ginkgo.By("restore partial admission", func() {
+			gomega.Expect(features.SetEnable(features.PartialAdmission, origPartialAdmission)).To(gomega.Succeed())
+		})
+	})
 })

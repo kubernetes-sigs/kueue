@@ -88,6 +88,7 @@ func (w *MPIJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runti
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.Info("Validating update", "job", klog.KObj(newJob))
 	allErrs := jobframework.ValidateUpdateForQueueName(oldGenJob, newGenJob)
+	allErrs = append(allErrs, jobframework.ValidateUpdateForOriginalPodSetsInfo(oldGenJob, newGenJob)...)
 	allErrs = append(allErrs, jobframework.ValidateUpdateForOriginalNodeSelectors(oldGenJob, newGenJob)...)
 	return allErrs.ToAggregate()
 }

@@ -197,6 +197,11 @@ func (p *PodSetWrapper) Request(r corev1.ResourceName, q string) *PodSetWrapper 
 	return p
 }
 
+func (p *PodSetWrapper) SetMinimumCount(mc int32) *PodSetWrapper {
+	p.MinCount = &mc
+	return p
+}
+
 func (p *PodSetWrapper) Toleration(t corev1.Toleration) *PodSetWrapper {
 	p.Template.Spec.Tolerations = append(p.Template.Spec.Tolerations, t)
 	return p
