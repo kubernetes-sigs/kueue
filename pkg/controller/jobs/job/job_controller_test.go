@@ -374,6 +374,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
 					Obj(),
@@ -413,6 +414,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).
 							SetMinimumCount(5).
@@ -638,7 +640,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantErr: jobframework.ErrExtraWorkloads,
 		},
-		"when workload is evicted, suspend, reset startTime and restore node affinity": {
+		"when workload is evicted, suspend, reset startTime, restore node affinity and remove the finalizer": {
 			job: *baseJobWrapper.Clone().
 				Queue("foo").
 				Suspend(false).
@@ -648,6 +650,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
 					Condition(metav1.Condition{
