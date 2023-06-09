@@ -170,14 +170,16 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
-	// 4. update reclaimable counts.
-	if rp := job.ReclaimablePods(); !workload.ReclaimablePodsAreEqual(rp, wl.Status.ReclaimablePods) {
-		err = workload.UpdateReclaimablePods(ctx, r.client, wl, rp)
-		if err != nil {
-			log.Error(err, "Updating reclaimable pods")
-			return ctrl.Result{}, err
+	// 4. update reclaimable counts if implemented by the job
+	if jobRecl, implementsReclaimable := job.(JobWithReclaimablePods); implementsReclaimable {
+		if rp := jobRecl.ReclaimablePods(); !workload.ReclaimablePodsAreEqual(rp, wl.Status.ReclaimablePods) {
+			err = workload.UpdateReclaimablePods(ctx, r.client, wl, rp)
+			if err != nil {
+				log.Error(err, "Updating reclaimable pods")
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, nil
 		}
-		return ctrl.Result{}, nil
 	}
 
 	// 5. handle WaitForPodsReady only for a standalone job.

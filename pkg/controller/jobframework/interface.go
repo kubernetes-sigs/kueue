@@ -22,6 +22,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
+// GenericJob if the interface which needs to be implemented by all jobs
+// managed by the kueue's jobframework.
 type GenericJob interface {
 	// Object returns the job instance.
 	Object() client.Object
@@ -51,6 +53,12 @@ type GenericJob interface {
 	PodsReady() bool
 	// GetGVK returns GVK (Group Version Kind) for the job.
 	GetGVK() schema.GroupVersionKind
+}
+
+// Optional interfaces, are meant to implemented by jobs to enable additional
+// features of the jobframework reconciler.
+
+type JobWithReclaimablePods interface {
 	// ReclaimablePods returns the list of reclaimable pods.
 	ReclaimablePods() []kueue.ReclaimablePod
 }
