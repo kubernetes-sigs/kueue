@@ -34,6 +34,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/util/maps"
 )
 
 var (
@@ -133,28 +134,19 @@ func (j *MPIJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
 	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
 	for index := range podSetInfos {
 		replicaType := orderedReplicaTypes[index]
-		nodeSelector := podSetInfos[index]
-		if len(nodeSelector.NodeSelector) != 0 {
-			if j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector == nil {
-				j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector = nodeSelector.NodeSelector
-			} else {
-				for k, v := range nodeSelector.NodeSelector {
-					j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector[k] = v
-				}
-			}
-		}
+		info := podSetInfos[index]
+		replicaSpec := &j.Spec.MPIReplicaSpecs[replicaType].Template.Spec
+		replicaSpec.NodeSelector = maps.MergeKeepFirst(info.NodeSelector, replicaSpec.NodeSelector)
 	}
 }
 
 func (j *MPIJob) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
 	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
-	for index, nodeSelector := range podSetInfos {
+	for index, info := range podSetInfos {
 		replicaType := orderedReplicaTypes[index]
-		if !equality.Semantic.DeepEqual(j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector, nodeSelector) {
-			j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector = map[string]string{}
-			for k, v := range nodeSelector.NodeSelector {
-				j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector[k] = v
-			}
+		replicaSpec := &j.Spec.MPIReplicaSpecs[replicaType].Template.Spec
+		if !equality.Semantic.DeepEqual(replicaSpec.NodeSelector, info.NodeSelector) {
+			replicaSpec.NodeSelector = maps.Clone(info.NodeSelector)
 		}
 	}
 }

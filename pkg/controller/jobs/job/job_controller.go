@@ -40,6 +40,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/util/maps"
 )
 
 var (
@@ -194,15 +195,11 @@ func (j *Job) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) {
 		return
 	}
 
-	if j.Spec.Template.Spec.NodeSelector == nil {
-		j.Spec.Template.Spec.NodeSelector = podSetsInfo[0].NodeSelector
-	} else {
-		for k, v := range podSetsInfo[0].NodeSelector {
-			j.Spec.Template.Spec.NodeSelector[k] = v
-		}
-	}
+	info := podSetsInfo[0]
+	j.Spec.Template.Spec.NodeSelector = maps.MergeKeepFirst(info.NodeSelector, j.Spec.Template.Spec.NodeSelector)
+
 	if j.minPodsCount() != nil {
-		j.Spec.Parallelism = pointer.Int32(podSetsInfo[0].Count)
+		j.Spec.Parallelism = pointer.Int32(info.Count)
 	}
 }
 
@@ -219,12 +216,7 @@ func (j *Job) RestorePodSetsInfo(podSetsInfo []jobframework.PodSetInfo) {
 	if equality.Semantic.DeepEqual(j.Spec.Template.Spec.NodeSelector, podSetsInfo[0].NodeSelector) {
 		return
 	}
-
-	j.Spec.Template.Spec.NodeSelector = map[string]string{}
-
-	for k, v := range podSetsInfo[0].NodeSelector {
-		j.Spec.Template.Spec.NodeSelector[k] = v
-	}
+	j.Spec.Template.Spec.NodeSelector = maps.Clone(podSetsInfo[0].NodeSelector)
 }
 
 func (j *Job) Finished() (metav1.Condition, bool) {

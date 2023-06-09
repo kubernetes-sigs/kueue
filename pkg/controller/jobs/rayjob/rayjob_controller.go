@@ -32,6 +32,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/util/maps"
 )
 
 var (
@@ -127,16 +128,6 @@ func (j *RayJob) PodSets() []kueue.PodSet {
 	return podSets
 }
 
-func applySelectors(dst, src map[string]string) map[string]string {
-	if len(dst) == 0 {
-		return src
-	}
-	for k, v := range src {
-		dst[k] = v
-	}
-	return dst
-}
-
 func (j *RayJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
 	j.Spec.Suspend = false
 	if len(podSetInfos) != len(j.Spec.RayClusterSpec.WorkerGroupSpecs)+1 {
@@ -145,21 +136,13 @@ func (j *RayJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
 
 	// head
 	headPodSpec := &j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec
-	headPodSpec.NodeSelector = applySelectors(headPodSpec.NodeSelector, podSetInfos[0].NodeSelector)
+	headPodSpec.NodeSelector = maps.MergeKeepFirst(podSetInfos[0].NodeSelector, headPodSpec.NodeSelector)
 
 	// workers
 	for index := range j.Spec.RayClusterSpec.WorkerGroupSpecs {
 		workerPodSpec := &j.Spec.RayClusterSpec.WorkerGroupSpecs[index].Template.Spec
-		workerPodSpec.NodeSelector = applySelectors(workerPodSpec.NodeSelector, podSetInfos[index+1].NodeSelector)
+		workerPodSpec.NodeSelector = maps.MergeKeepFirst(podSetInfos[index+1].NodeSelector, workerPodSpec.NodeSelector)
 	}
-}
-
-func cloneSelectors(src map[string]string) map[string]string {
-	dst := make(map[string]string, len(src))
-	for k, v := range src {
-		dst[k] = v
-	}
-	return dst
 }
 
 func (j *RayJob) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
@@ -170,14 +153,14 @@ func (j *RayJob) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
 	// head
 	headPodSpec := &j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec
 	if !equality.Semantic.DeepEqual(headPodSpec.NodeSelector, podSetInfos[0].NodeSelector) {
-		headPodSpec.NodeSelector = cloneSelectors(podSetInfos[0].NodeSelector)
+		headPodSpec.NodeSelector = maps.Clone(podSetInfos[0].NodeSelector)
 	}
 
 	// workers
 	for index := range j.Spec.RayClusterSpec.WorkerGroupSpecs {
 		workerPodSpec := &j.Spec.RayClusterSpec.WorkerGroupSpecs[index].Template.Spec
 		if !equality.Semantic.DeepEqual(workerPodSpec.NodeSelector, podSetInfos[index+1].NodeSelector) {
-			workerPodSpec.NodeSelector = cloneSelectors(podSetInfos[index+1].NodeSelector)
+			workerPodSpec.NodeSelector = maps.Clone(podSetInfos[index+1].NodeSelector)
 		}
 	}
 }
