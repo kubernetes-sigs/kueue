@@ -42,9 +42,9 @@ import (
 var (
 	errPodSetsInfoNotFound   = fmt.Errorf("annotation %s or %s not found", controllerconsts.OriginalNodeSelectorsAnnotation, controllerconsts.OriginalPodSetsInfoAnnotation)
 	errUnknownPodSetName     = errors.New("unknown podSet name")
-	errChildJobOwnerNotFound = fmt.Errorf("owner isn't set even though %s annotation is set", controllerconsts.ParentWorkloadAnnotation)
-	errUnknownWorkloadOwner  = errors.New("workload owner is unknown")
-	errWorkloadOwnerNotFound = errors.New("workload owner not found")
+	ErrChildJobOwnerNotFound = fmt.Errorf("owner isn't set even though %s annotation is set", controllerconsts.ParentWorkloadAnnotation)
+	ErrUnknownWorkloadOwner  = errors.New("workload owner is unknown")
+	ErrWorkloadOwnerNotFound = errors.New("workload owner not found")
 )
 
 // JobReconciler reconciles a GenericJob object
@@ -124,7 +124,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				"queueName", QueueName(job), "parentWorkload", ParentWorkloadName(job))
 			return ctrl.Result{}, nil
 		}
-		isParentJobManaged, err := r.isParentJobManaged(ctx, job.Object(), namespacedName.Namespace)
+		isParentJobManaged, err := r.IsParentJobManaged(ctx, job.Object(), namespacedName.Namespace)
 		if err != nil {
 			log.Error(err, "couldn't check whether the parent job is managed by kueue")
 			return ctrl.Result{}, err
@@ -258,18 +258,18 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{}, nil
 }
 
-// isParentJobManaged checks whether the parent job is managed by kueue.
-func (r *JobReconciler) isParentJobManaged(ctx context.Context, jobObj client.Object, namespace string) (bool, error) {
+// IsParentJobManaged checks whether the parent job is managed by kueue.
+func (r *JobReconciler) IsParentJobManaged(ctx context.Context, jobObj client.Object, namespace string) (bool, error) {
 	owner := metav1.GetControllerOf(jobObj)
 	if owner == nil {
-		return false, errChildJobOwnerNotFound
+		return false, ErrChildJobOwnerNotFound
 	}
-	parentJob := KnownWorkloadOwnerObject(owner)
+	parentJob := GetEmptyOwnerObject(owner)
 	if parentJob == nil {
-		return false, fmt.Errorf("workload owner %v: %w", owner, errUnknownWorkloadOwner)
+		return false, fmt.Errorf("workload owner %v: %w", owner, ErrUnknownWorkloadOwner)
 	}
 	if err := r.client.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: namespace}, parentJob); err != nil {
-		return false, errors.Join(errWorkloadOwnerNotFound, err)
+		return false, errors.Join(ErrWorkloadOwnerNotFound, err)
 	}
 	return QueueNameForObject(parentJob) != "", nil
 }

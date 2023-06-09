@@ -25,6 +25,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -250,6 +251,73 @@ func TestForEach(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantCalls, gotCalls); diff != "" {
 				t.Errorf("Unexpected calls list (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestGetCallbacksForOwner(t *testing.T) {
+
+	dontManage := IntegrationCallbacks{
+		NewReconciler: func(*runtime.Scheme, client.Client, record.EventRecorder, ...Option) JobReconcilerInterface {
+			panic("not implemented")
+		},
+		SetupWebhook: func(ctrl.Manager, ...Option) error { panic("not implemented") },
+		JobType:      nil,
+	}
+	manageK1 := func() IntegrationCallbacks {
+		ret := dontManage
+		ret.IsManagingObjectsOwner = func(owner *metav1.OwnerReference) bool { return owner.Kind == "K1" }
+		return ret
+	}()
+	manageK2 := func() IntegrationCallbacks {
+		ret := dontManage
+		ret.IsManagingObjectsOwner = func(owner *metav1.OwnerReference) bool { return owner.Kind == "K2" }
+		return ret
+	}()
+
+	mgr := integrationManager{
+		names: []string{"manageK1", "dontManage", "manageK2"},
+		integrations: map[string]IntegrationCallbacks{
+			"dontManage": dontManage,
+			"manageK1":   manageK1,
+			"manageK2":   manageK2,
+		},
+	}
+
+	cases := map[string]struct {
+		owner         *metav1.OwnerReference
+		wantCallbacks *IntegrationCallbacks
+	}{
+		"K1": {
+			owner:         &metav1.OwnerReference{Kind: "K1"},
+			wantCallbacks: &manageK1,
+		},
+		"K2": {
+			owner:         &metav1.OwnerReference{Kind: "K2"},
+			wantCallbacks: &manageK2,
+		},
+		"K3": {
+			owner:         &metav1.OwnerReference{Kind: "K3"},
+			wantCallbacks: nil,
+		},
+	}
+
+	for tcName, tc := range cases {
+		t.Run(tcName, func(t *testing.T) {
+			gotCallbacks := mgr.getCallbacksForOwner(tc.owner)
+			if tc.wantCallbacks == nil {
+				if gotCallbacks != nil {
+					t.Errorf("This owner should be unmanaged")
+				}
+			} else {
+				if gotCallbacks == nil {
+					t.Errorf("This owner should be managed")
+				} else {
+					if diff := cmp.Diff(*tc.wantCallbacks, *gotCallbacks, cmp.FilterValues(func(_, _ interface{}) bool { return true }, cmp.Comparer(compareCallbacks))); diff != "" {
+						t.Errorf("Unexpected callbacks (-want +got):\n%s", diff)
+					}
+				}
 			}
 		})
 	}
