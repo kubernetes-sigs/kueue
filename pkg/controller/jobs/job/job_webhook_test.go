@@ -29,6 +29,9 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+
+	// without this only the job framework is registered
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 )
 
 const (

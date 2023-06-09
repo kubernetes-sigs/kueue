@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package jobframework
+package jobframework_test
 
 import (
 	"context"
@@ -26,9 +26,12 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
+
+	. "sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
 func TestIsParentJobManaged(t *testing.T) {
@@ -47,7 +50,7 @@ func TestIsParentJobManaged(t *testing.T) {
 				Obj(),
 			job: testingjob.MakeJob(childJobName, jobNamespace).
 				Obj(),
-			wantErr: errChildJobOwnerNotFound,
+			wantErr: ErrChildJobOwnerNotFound,
 		},
 		"child job has ownerReference with unknown workload owner": {
 			parentJob: testingjob.MakeJob(parentJobName, jobNamespace).
@@ -56,13 +59,13 @@ func TestIsParentJobManaged(t *testing.T) {
 			job: testingjob.MakeJob(childJobName, jobNamespace).
 				OwnerReference(parentJobName, batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
-			wantErr: errUnknownWorkloadOwner,
+			wantErr: ErrUnknownWorkloadOwner,
 		},
 		"child job has ownerReference with known non-existing workload owner": {
 			job: testingjob.MakeJob(childJobName, jobNamespace).
 				OwnerReference(parentJobName, kubeflow.SchemeGroupVersionKind).
 				Obj(),
-			wantErr: errWorkloadOwnerNotFound,
+			wantErr: ErrWorkloadOwnerNotFound,
 		},
 		"child job has ownerReference with known existing workload owner, and the parent job has queue-name label": {
 			parentJob: testingmpijob.MakeMPIJob(parentJobName, jobNamespace).
@@ -90,8 +93,8 @@ func TestIsParentJobManaged(t *testing.T) {
 				builder = builder.WithObjects(tc.parentJob)
 			}
 			cl := builder.Build()
-			r := JobReconciler{client: cl}
-			got, gotErr := r.isParentJobManaged(context.Background(), tc.job, jobNamespace)
+			r := NewReconciler(nil, cl, nil)
+			got, gotErr := r.IsParentJobManaged(context.Background(), tc.job, jobNamespace)
 			if tc.wantManaged != got {
 				t.Errorf("Unexpected response from isParentManaged want: %v,got: %v", tc.wantManaged, got)
 			}

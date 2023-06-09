@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"sort"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -51,6 +52,10 @@ type IntegrationCallbacks struct {
 	// AddToScheme adds any additional types to the controllers manager's scheme
 	// (this callback is optional)
 	AddToScheme func(s *runtime.Scheme) error
+	// Returns true if the provided owner reference identifies an object
+	// managed by this integration
+	// (this callback is optional)
+	IsManagingObjectsOwner func(ref *metav1.OwnerReference) bool
 }
 
 type integrationManager struct {
@@ -107,6 +112,16 @@ func (m *integrationManager) getList() []string {
 	return ret
 }
 
+func (m *integrationManager) getCallbacksForOwner(ownerRef *metav1.OwnerReference) *IntegrationCallbacks {
+	for _, name := range m.names {
+		cbs := m.integrations[name]
+		if cbs.IsManagingObjectsOwner != nil && cbs.IsManagingObjectsOwner(ownerRef) {
+			return &cbs
+		}
+	}
+	return nil
+}
+
 // RegisterIntegration registers a new framework, returns an error when
 // attempting to register multiple frameworks with the same name of if a
 // mandatory callback is missing.
@@ -129,4 +144,19 @@ func GetIntegration(name string) (IntegrationCallbacks, bool) {
 // GetIntegrationsList returns the list of currently registered frameworks.
 func GetIntegrationsList() []string {
 	return manager.getList()
+}
+
+// IsOwnerManagebleByKueue returns true if the provided owner can be managed by
+// kueue.
+func IsOwnerManagebleByKueue(owner *metav1.OwnerReference) bool {
+	return manager.getCallbacksForOwner(owner) != nil
+}
+
+// GetEmptyOwnerObject returns an empty object of the owner's type,
+// returns nil if the owner is not manageable by kueue.
+func GetEmptyOwnerObject(owner *metav1.OwnerReference) client.Object {
+	if cbs := manager.getCallbacksForOwner(owner); cbs != nil {
+		return cbs.JobType.DeepCopyObject().(client.Object)
+	}
+	return nil
 }

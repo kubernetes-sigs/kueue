@@ -68,7 +68,7 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Applying defaults", "job", klog.KObj(job))
 
-	if owner := metav1.GetControllerOf(job); owner != nil && jobframework.KnownWorkloadOwner(owner) {
+	if owner := metav1.GetControllerOf(job); owner != nil && jobframework.IsOwnerManagebleByKueue(owner) {
 		if job.Annotations == nil {
 			job.Annotations = make(map[string]string)
 		}

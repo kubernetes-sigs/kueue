@@ -45,11 +45,12 @@ var (
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:  SetupIndexes,
-		NewReconciler: NewReconciler,
-		SetupWebhook:  SetupMPIJobWebhook,
-		JobType:       &kubeflow.MPIJob{},
-		AddToScheme:   kubeflow.AddToScheme,
+		SetupIndexes:           SetupIndexes,
+		NewReconciler:          NewReconciler,
+		SetupWebhook:           SetupMPIJobWebhook,
+		JobType:                &kubeflow.MPIJob{},
+		AddToScheme:            kubeflow.AddToScheme,
+		IsManagingObjectsOwner: isMPIJob,
 	}))
 }
 
@@ -66,6 +67,10 @@ func NewReconciler(
 		record,
 		opts...,
 	))
+}
+
+func isMPIJob(owner *metav1.OwnerReference) bool {
+	return owner.Kind == "MPIJob" && strings.HasPrefix(owner.APIVersion, "kubeflow.org/v2")
 }
 
 type MPIJob struct {
