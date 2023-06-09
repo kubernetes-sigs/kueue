@@ -217,6 +217,11 @@ func (p *PodSetWrapper) InitContainers(containers ...corev1.Container) *PodSetWr
 	return p
 }
 
+func (p *PodSetWrapper) NodeSelector(kv map[string]string) *PodSetWrapper {
+	p.Template.Spec.NodeSelector = kv
+	return p
+}
+
 // AdmissionWrapper wraps an Admission
 type AdmissionWrapper struct{ kueue.Admission }
 

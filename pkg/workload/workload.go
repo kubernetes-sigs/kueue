@@ -87,7 +87,11 @@ func (i *Info) Update(wl *kueue.Workload) {
 }
 
 func (i *Info) CanBePartiallyAdmitted() bool {
-	ps := i.Obj.Spec.PodSets
+	return CanBePartiallyAdmitted(i.Obj)
+}
+
+func CanBePartiallyAdmitted(wl *kueue.Workload) bool {
+	ps := wl.Spec.PodSets
 	for psi := range ps {
 		if ps[psi].Count > pointer.Int32Deref(ps[psi].MinCount, ps[psi].Count) {
 			return true

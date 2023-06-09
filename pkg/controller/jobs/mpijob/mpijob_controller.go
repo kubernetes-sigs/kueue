@@ -164,29 +164,6 @@ func (j *MPIJob) Finished() (metav1.Condition, bool) {
 	return condition, finished
 }
 
-func (j *MPIJob) EquivalentToWorkload(wl kueue.Workload) bool {
-	if len(wl.Spec.PodSets) != len(j.Spec.MPIReplicaSpecs) {
-		return false
-	}
-	for index, mpiReplicaType := range orderedReplicaTypes(&j.Spec) {
-		mpiReplicaSpec := j.Spec.MPIReplicaSpecs[mpiReplicaType]
-		if pointer.Int32Deref(mpiReplicaSpec.Replicas, 1) != wl.Spec.PodSets[index].Count {
-			return false
-		}
-		// nodeSelector may change, hence we are not checking for
-		// equality of the whole j.Spec.Template.Spec.
-		if !equality.Semantic.DeepEqual(mpiReplicaSpec.Template.Spec.InitContainers,
-			wl.Spec.PodSets[index].Template.Spec.InitContainers) {
-			return false
-		}
-		if !equality.Semantic.DeepEqual(mpiReplicaSpec.Template.Spec.Containers,
-			wl.Spec.PodSets[index].Template.Spec.Containers) {
-			return false
-		}
-	}
-	return true
-}
-
 // PriorityClass calculates the priorityClass name needed for workload according to the following priorities:
 //  1. .spec.runPolicy.schedulingPolicy.priorityClass
 //  2. .spec.mpiReplicaSpecs[Launcher].template.spec.priorityClassName

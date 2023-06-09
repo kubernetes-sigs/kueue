@@ -159,41 +159,6 @@ func (j *RayJob) Finished() (metav1.Condition, bool) {
 	return condition, rayjobapi.IsJobTerminal(j.Status.JobStatus)
 }
 
-func (j *RayJob) EquivalentToWorkload(wl kueue.Workload) bool {
-	if len(wl.Spec.PodSets) != (len(j.Spec.RayClusterSpec.WorkerGroupSpecs) + 1) {
-		return false
-	}
-
-	podSets := wl.Spec.PodSets
-	headPodSpec := &j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec
-	if podSets[0].Count != 1 {
-		return false
-	}
-	if !equality.Semantic.DeepEqual(headPodSpec.InitContainers, podSets[0].Template.Spec.InitContainers) {
-		return false
-	}
-	if !equality.Semantic.DeepEqual(headPodSpec.Containers, podSets[0].Template.Spec.Containers) {
-		return false
-	}
-
-	// workers
-	for index := range j.Spec.RayClusterSpec.WorkerGroupSpecs {
-		// MinReplicas and MaxReplicas should be taken into account for partial admission.
-		if podSets[index+1].Count != *j.Spec.RayClusterSpec.WorkerGroupSpecs[index].Replicas {
-			return false
-		}
-
-		workerPodSpec := &j.Spec.RayClusterSpec.WorkerGroupSpecs[index].Template.Spec
-		if !equality.Semantic.DeepEqual(workerPodSpec.InitContainers, podSets[index+1].Template.Spec.InitContainers) {
-			return false
-		}
-		if !equality.Semantic.DeepEqual(workerPodSpec.Containers, podSets[index+1].Template.Spec.Containers) {
-			return false
-		}
-	}
-	return true
-}
-
 func (j *RayJob) PriorityClass() string {
 	if j.Spec.RayClusterSpec != nil {
 		rcs := j.Spec.RayClusterSpec
