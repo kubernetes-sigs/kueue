@@ -371,7 +371,7 @@ func candidatesOrdering(candidates []*workload.Info, cq string, now time.Time) f
 		if pa != pb {
 			return pa < pb
 		}
-		return admisionTime(a.Obj, now).Before(admisionTime(b.Obj, now))
+		return admisionTime(b.Obj, now).Before(admisionTime(a.Obj, now))
 	}
 }
 
