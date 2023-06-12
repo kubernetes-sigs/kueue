@@ -705,17 +705,17 @@ func TestPreemption(t *testing.T) {
 					Creation(time.Now()).
 					Request(corev1.ResourceCPU, "2").
 					Admit(utiltesting.MakeAdmission("preventStarvation").Assignment(corev1.ResourceCPU, "default", "2").Obj()).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(time.Now().Add(time.Second)),
+					}).
 					Obj(),
 				*utiltesting.MakeWorkload("wl3", "").
 					Priority(1).
 					Creation(time.Now()).
 					Request(corev1.ResourceCPU, "2").
 					Admit(utiltesting.MakeAdmission("preventStarvation").Assignment(corev1.ResourceCPU, "default", "2").Obj()).
-					SetOrReplaceCondition(metav1.Condition{
-						Type:               kueue.WorkloadAdmitted,
-						Status:             metav1.ConditionTrue,
-						LastTransitionTime: metav1.NewTime(time.Now().Add(time.Second)),
-					}).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -812,14 +812,14 @@ func TestCandidatesOrdering(t *testing.T) {
 			Obj()),
 		workload.NewInfo(utiltesting.MakeWorkload("old", "").
 			Admit(utiltesting.MakeAdmission("self").Obj()).
+			Obj()),
+		workload.NewInfo(utiltesting.MakeWorkload("current", "").
+			Admit(utiltesting.MakeAdmission("self").Obj()).
 			SetOrReplaceCondition(metav1.Condition{
 				Type:               kueue.WorkloadAdmitted,
 				Status:             metav1.ConditionTrue,
 				LastTransitionTime: metav1.NewTime(now.Add(time.Second)),
 			}).
-			Obj()),
-		workload.NewInfo(utiltesting.MakeWorkload("current", "").
-			Admit(utiltesting.MakeAdmission("self").Obj()).
 			Obj()),
 	}
 	sort.Slice(candidates, candidatesOrdering(candidates, "self", now))
