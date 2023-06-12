@@ -753,14 +753,14 @@ func TestCandidatesOrdering(t *testing.T) {
 			Obj()),
 		workload.NewInfo(utiltesting.MakeWorkload("old", "").
 			Admit(utiltesting.MakeAdmission("self").Obj()).
+			Obj()),
+		workload.NewInfo(utiltesting.MakeWorkload("current", "").
+			Admit(utiltesting.MakeAdmission("self").Obj()).
 			Condition(metav1.Condition{
 				Type:               kueue.WorkloadAdmitted,
 				Status:             metav1.ConditionTrue,
 				LastTransitionTime: metav1.NewTime(now.Add(time.Second)),
 			}).
-			Obj()),
-		workload.NewInfo(utiltesting.MakeWorkload("current", "").
-			Admit(utiltesting.MakeAdmission("self").Obj()).
 			Obj()),
 	}
 	sort.Slice(candidates, candidatesOrdering(candidates, "self", now))
