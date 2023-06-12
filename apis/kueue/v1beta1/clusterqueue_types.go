@@ -243,6 +243,21 @@ const (
 	PreemptionPolicyLowerOrNewerEqualPriority PreemptionPolicy = "LowerOrNewerEqualPriority"
 )
 
+type FlavorFungibilityPolicy string
+
+const (
+	Borrow        FlavorFungibilityPolicy = "Borrow"
+	Preempt       FlavorFungibilityPolicy = "Preempt"
+	TryNextFlavor FlavorFungibilityPolicy = "TryNextFlavor"
+)
+
+type FlavorFungibility struct {
+	// +kubebuilder:validation:Enum="Borrow,TryNextFlavor"
+	WhenCanBorrow FlavorFungibilityPolicy `json:"whenCanBorrow"`
+	// +kubebuilder:validation:Enum="Preempt,TryNextFlavor"
+	WhenCanPreempt FlavorFungibilityPolicy `json:"whenCanPreempt"`
+}
+
 // ClusterQueuePreemption contains policies to preempt Workloads from this
 // ClusterQueue or the ClusterQueue's cohort.
 type ClusterQueuePreemption struct {
@@ -276,6 +291,8 @@ type ClusterQueuePreemption struct {
 	// +kubebuilder:default=Never
 	// +kubebuilder:validation:Enum=Never;LowerPriority;LowerOrNewerEqualPriority
 	WithinClusterQueue PreemptionPolicy `json:"withinClusterQueue,omitempty"`
+
+	FlavorFungibility FlavorFungibility `json:"flavorFungibility"`
 }
 
 //+kubebuilder:object:root=true
