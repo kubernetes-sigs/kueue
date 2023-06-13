@@ -32,10 +32,6 @@ tags, and then generate with `hack/update-toc.sh`.
       - [Plan A](#plan-a)
         - [Advantages](#advantages)
         - [Disadvantages](#disadvantages)
-      - [Plan B](#plan-b)
-        - [Advantages](#advantages-1)
-        - [Disadvantages](#disadvantages-1)
-    - [Preemptor](#preemptor)
     - [Implementation](#implementation)
     - [Test Plan](#test-plan)
         - [Prerequisite testing updates](#prerequisite-testing-updates)
@@ -169,8 +165,6 @@ We extend the Cluster Queue API to introduce the new fields: flavorFungibility t
 
 For each type of resource in each podSet, Kueue will traverse all resource groups and resource flavors to find a available flavor in present. When there are insufficient resources in the flavor, kueue will prioritize preemption or borrowing based on the configured policy. 
 
-Here are two candidate plans.
-
 #### Plan A
 
 ```
@@ -199,13 +193,13 @@ If flavorFungibility is nil in configuration, we will set the `WhenCanBorrow` to
 
 If flavorFungibility is not nil and `WhenCanBorrow` is `Borrow`, we calculate the total resource consumption in the flavor and current amount of borrowed resources to determine if the workload can fit the flavor by borrowing before try next flavor. We return `Fit` and the count of resources to be borrowed if there are enough unused resources in cohort.
 
-If flavorFungibility is not nil and `WhenCanPreempt` is `Preempt`, we will preempt in current flavor before try allocate in next flavor. We call the `GetTargets` function to determine if preempting can help the workload to get enough quota.  We call `IssuePreemptions` when try to admit the workload if preemption is successful. 
+If flavorFungibility is not nil and `WhenCanPreempt` is `Preempt`, we will preempt in current flavor before try allocate in next flavor. We return current assignment directly if `mode=Preempt` so that preemptor can do preemption in this flavor. If we preempt fail in the flavor, we put the worklaod back to the cluster queue and try from the first flavor next time.
 
 If flavorFungibility is not nil and `WhenCanBorrow` is `TryNextFlavor`, we will try to borrow after all flavors have been consiedered.
 
 If flavorFungibility is not nil and `WhenCanPreempt` is `TryNextFlavor`, we will try to preempt after all flavors have been consiedered.
 
-If both `WhenCanPreempt` and `WhenCanBorrow` are `true`, we will first try borrowing before preempting.
+If both `WhenCanPreempt` and `WhenCanBorrow` are `true`, both policy will be enabled, and we will return if any case above was hit.
 
 For example, if cluster queue has 2 resource groups and workload has 1 podSet as the following:
 
@@ -249,48 +243,61 @@ For example, if cluster queue has 2 resource groups and workload has 1 podSet as
             gpu: 1
 ```
 
-We will first try `default-flavor1` for cpu and memory resources. If `default-flavor1` doesn't fit, we try preempt in `default-flavor1`. If preemptor return preempt fail, we try to allocate resource in `default-flavor2`.
-
-We will pass preemptor to flavorAssigner and let flavorAssigner try to call public interface of preemptor to get candidate for certain podSet in current flavor if podSet can not find enough resources in current flavor.
+We will first try `default-flavor1` for cpu and memory resources. If `default-flavor1` doesn't fit, we try preempt in `default-flavor1`. And if we can not find enough candidates in `default-flavor1`, the workload will start from `default-flavor1` again next time.
 
 ##### Advantages
 
 ##### Disadvantages
-
-#### Plan B
-
-```
-type FlavorFungibility string
-
-const (
-  Borrow   FlavorFungibility = "Borrow"
-  Preempt  FlavorFungibility = "Preempt"
-  TryNextFlavor FlavorFungibility = "TryNextFlavor"
-)
-
-// ClusterQueuePreemption contains policies to preempt Workloads from this
-// ClusterQueue or the ClusterQueue's cohort.
-type ClusterQueuePreemption struct {
-	...
-  // +kubebuilder:validation:UniqueItems=true
-  // +kubebuilder:validation:Enum="Borrow,Preempt,TryNextFlavor"
-  FlavorFungibility []FlavorFungibility `json:"flavorFungibility"`
-}
-```
-
-Length of FlavorFungibility should be either 0 or 3, this means we don't allow users to omit any of these three actions. If FlavorFungibility is empty, we set FlavorFungibility as `Borrow,TryNextFlavor,Preempt`. Actions after `TryNextFlavor` will be executed after all flavors are considered, and actions before `TryNextFlavor` will be executed before next flavor be considered.
-
-##### Advantages
-
-##### Disadvantages
-
-### Preemptor
-
-We need a new parameter to tell preemptor to preempt in a certain flavor for a pod set,
 
 ### Implementation
 
-For each time a workload try to assign flavors, it will call `AssignFlavors()` to get a best assignment. We will check whether the current assignment matches FlavorFungibility and return the assignment is yes. The assignment will be handled by scheduler and preemptor. When the mode is `Fit`, scheduler will try to admit the workload and preemptor will try to find candidates when the mode is `Preempt`. If the preemptor can't find any candidates when the mode is `Preempt`, we record the 
+```
+func (a *Assignment) findFlavorForResourceGroup(...) (ResourceAssignment, *Status) {
+  ...
+	for _, flvQuotas := range rg.Flavors {
+		...
+
+		whetherNeedBorrowing := false
+		assignments := make(ResourceAssignment, len(requests))
+		// Calculate representativeMode for this assignment as the worst mode among all requests.
+		representativeMode := Fit
+		for rName, val := range requests {
+			...
+		}
+
+		if shouldTryNextFlavor(representativeMode, cq.FlavorFungibility, whetherNeedBorrowing) {
+			return assignments, nil
+		}
+		if representativeMode > bestAssignmentMode {
+			bestAssignment = assignments
+			bestAssignmentMode = representativeMode
+			// if bestAssignmentMode == Fit {
+			// 	// All the resources fit in the cohort, no need to check more flavors.
+			// 	return bestAssignment, nil
+			// }
+		}
+	}
+	return bestAssignment, status
+}
+
+func shouldTryNextFlavor(representativeMode FlavorAssignmentMode, flavorFungibility v1beta1.FlavorFungibility, whetherNeedBorrowing bool) bool {
+	policyPreempt := flavorFungibility.WhenCanPreempt
+	policyBorrow := flavorFungibility.WhenCanBorrow
+	if representativeMode == Preempt && policyPreempt == v1beta1.Preempt {
+		return true
+	}
+
+	if representativeMode == Fit && whetherNeedBorrowing && policyBorrow == v1beta1.Borrow {
+		return true
+	}
+
+	if representativeMode == Fit && !whetherNeedBorrowing {
+		return true
+	}
+
+	return false
+}
+```
 
 ### Test Plan
 
