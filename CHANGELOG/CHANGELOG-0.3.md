@@ -1,3 +1,15 @@
+## v0.3.2
+
+Changes since `v0.3.1`:
+
+### Bug or Regression
+
+- Add permission to update frameworkjob status. (#798, @tenzen-y)
+- Fix a bug where a child batch/job of an unmanaged parent (doesn't have queue name) was being suspended. (#839, @tenzen-y)
+- Fix panic in cluster queue if resources and coveredResources do not have the same length. (#799, @kannon92)
+- Fix: Potential over-admission within cohort when borrowing. (#822, @trasc)
+- Fixed preemption to prefer preempting workloads that were more recently admitted. (#845, @stuton)
+
 ## v0.3.1
 
 Changes since `v0.3.0`:
