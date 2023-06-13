@@ -32,6 +32,7 @@ import (
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
 	"k8s.io/utils/ptr"
 
+	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -364,6 +365,7 @@ func (a *Assignment) findFlavorForResourceGroup(
 			continue
 		}
 
+		whetherNeedBorrowing := false
 		assignments := make(ResourceAssignment, len(requests))
 		// Calculate representativeMode for this assignment as the worst mode among all requests.
 		representativeMode := Fit
@@ -377,6 +379,7 @@ func (a *Assignment) findFlavorForResourceGroup(
 			if mode < representativeMode {
 				representativeMode = mode
 			}
+			whetherNeedBorrowing = whetherNeedBorrowing || (mode == Fit && borrow > 0)
 			if representativeMode == NoFit {
 				// The flavor doesn't fit, no need to check other resources.
 				break
@@ -389,16 +392,37 @@ func (a *Assignment) findFlavorForResourceGroup(
 			}
 		}
 
+		if shouldTryNextFlavor(representativeMode, cq.FlavorFungibility, whetherNeedBorrowing) {
+			return assignments, nil
+		}
 		if representativeMode > bestAssignmentMode {
 			bestAssignment = assignments
 			bestAssignmentMode = representativeMode
-			if bestAssignmentMode == Fit {
-				// All the resources fit in the cohort, no need to check more flavors.
-				return bestAssignment, nil
-			}
+			// if bestAssignmentMode == Fit {
+			// 	// All the resources fit in the cohort, no need to check more flavors.
+			// 	return bestAssignment, nil
+			// }
 		}
 	}
 	return bestAssignment, status
+}
+
+func shouldTryNextFlavor(representativeMode FlavorAssignmentMode, flavorFungibility v1beta1.FlavorFungibility, whetherNeedBorrowing bool) bool {
+	policyPreempt := flavorFungibility.WhenCanPreempt
+	policyBorrow := flavorFungibility.WhenCanBorrow
+	if representativeMode == Preempt && policyPreempt == v1beta1.Preempt {
+		return true
+	}
+
+	if representativeMode == Fit && whetherNeedBorrowing && policyBorrow == v1beta1.Borrow {
+		return true
+	}
+
+	if representativeMode == Fit && !whetherNeedBorrowing {
+		return true
+	}
+
+	return false
 }
 
 func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.Set[string]) nodeaffinity.RequiredNodeAffinity {
