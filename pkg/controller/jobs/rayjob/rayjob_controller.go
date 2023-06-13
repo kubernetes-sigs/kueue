@@ -230,10 +230,6 @@ func (j *RayJob) PodsReady() bool {
 	return j.Status.RayClusterStatus.State == rayjobapi.Ready
 }
 
-func (j *RayJob) ReclaimablePods() []kueue.ReclaimablePod {
-	return nil
-}
-
 // SetupWithManager sets up the controller with the Manager. It indexes workloads
 // based on the owning jobs.
 func (r *RayJobReconciler) SetupWithManager(mgr ctrl.Manager) error {

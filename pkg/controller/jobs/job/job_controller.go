@@ -130,7 +130,8 @@ type Job struct {
 	*batchv1.Job
 }
 
-var _ jobframework.GenericJob = &Job{}
+var _ jobframework.GenericJob = (*Job)(nil)
+var _ jobframework.JobWithReclaimablePods = (*Job)(nil)
 
 func (j *Job) Object() client.Object {
 	return j.Job
