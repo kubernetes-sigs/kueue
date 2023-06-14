@@ -28,15 +28,14 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -63,20 +62,22 @@ func init() {
 	}))
 }
 
-// JobReconciler reconciles a Job object
-type JobReconciler jobframework.JobReconciler
+// +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
+// +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=batch,resources=jobs/status,verbs=get;update
+// +kubebuilder:rbac:groups=batch,resources=jobs/finalizers,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 
-func NewReconciler(
-	scheme *runtime.Scheme,
-	client client.Client,
-	record record.EventRecorder,
-	opts ...jobframework.Option) jobframework.JobReconcilerInterface {
-	return (*JobReconciler)(jobframework.NewReconciler(scheme,
-		client,
-		record,
-		opts...,
-	))
-}
+var NewReconciler = jobframework.NewGenericReconciler(
+	func() jobframework.GenericJob {
+		return &Job{}
+	}, func(c client.Client) handler.EventHandler {
+		return &parentWorkloadHandler{client: c}
+	})
 
 type parentWorkloadHandler struct {
 	client client.Client
@@ -304,17 +305,6 @@ func (j *Job) minPodsCount() *int32 {
 	return nil
 }
 
-// SetupWithManager sets up the controller with the Manager. It indexes workloads
-// based on the owning jobs.
-func (r *JobReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	wlHandler := parentWorkloadHandler{client: mgr.GetClient()}
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&batchv1.Job{}).
-		Watches(&source.Kind{Type: &kueue.Workload{}}, &wlHandler).
-		Owns(&kueue.Workload{}).
-		Complete(r)
-}
-
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &batchv1.Job{}, parentWorkloadKey, func(o client.Object) []string {
 		job := fromObject(o)
@@ -326,21 +316,6 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 		return err
 	}
 	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
-}
-
-//+kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
-//+kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
-//+kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;update;patch
-//+kubebuilder:rbac:groups=batch,resources=jobs/status,verbs=get;update
-//+kubebuilder:rbac:groups=batch,resources=jobs/finalizers,verbs=get;update;patch
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
-
-func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	fjr := (*jobframework.JobReconciler)(r)
-	return fjr.ReconcileGenericJob(ctx, req, &Job{})
 }
 
 func GetWorkloadNameForJob(jobName string) string {
