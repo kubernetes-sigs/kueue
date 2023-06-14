@@ -146,7 +146,7 @@ test: generate fmt vet gotestsum ## Run tests.
 .PHONY: test-integration
 test-integration: manifests generate fmt vet envtest ginkgo mpi-operator-crd ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
-	$(GINKGO) --junit-report=junit.xml --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
+	$(GINKGO) $(GINKGO_ARGS) --junit-report=junit.xml --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 
 CREATE_KIND_CLUSTER ?= true
 .PHONY: test-e2e

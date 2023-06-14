@@ -77,14 +77,14 @@ func (r *ResourceFlavorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(2).Info("Reconciling ResourceFlavor")
 
-	if flavor.ObjectMeta.DeletionTimestamp.IsZero() {
+	if flavor.DeletionTimestamp.IsZero() {
 		// Although we'll add the finalizer via webhook mutation now, this is still useful
 		// as a fallback.
-		if !controllerutil.ContainsFinalizer(&flavor, kueue.ResourceInUseFinalizerName) {
-			controllerutil.AddFinalizer(&flavor, kueue.ResourceInUseFinalizerName)
+		if controllerutil.AddFinalizer(&flavor, kueue.ResourceInUseFinalizerName) {
 			if err := r.client.Update(ctx, &flavor); err != nil {
 				return ctrl.Result{}, err
 			}
+			log.V(5).Info("Added finalizer")
 		}
 	} else {
 		if controllerutil.ContainsFinalizer(&flavor, kueue.ResourceInUseFinalizerName) {
@@ -100,6 +100,7 @@ func (r *ResourceFlavorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			if err := r.client.Update(ctx, &flavor); err != nil {
 				return ctrl.Result{}, err
 			}
+			log.V(5).Info("Removed finalizer")
 		}
 	}
 

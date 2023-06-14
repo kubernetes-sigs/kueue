@@ -20,6 +20,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -58,11 +59,25 @@ var _ = ginkgo.Describe("ResourceFlavor controller", func() {
 
 			gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).To(gomega.Succeed())
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+
+			ginkgo.By("Wait for the queue to become active", func() {
+				gomega.Eventually(func() bool {
+					var cq kueue.ClusterQueue
+					err := k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &cq)
+					if err != nil {
+						return false
+					}
+					return apimeta.IsStatusConditionTrue(cq.Status.Conditions, kueue.ClusterQueueActive)
+				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+			})
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 		})
 
 		ginkgo.It("Should delete the resourceFlavor when the corresponding clusterQueue no longer uses the resourceFlavor", func() {
-			defer func() { gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, clusterQueue)).To(gomega.Succeed()) }()
-
 			ginkgo.By("Try to delete resourceFlavor")
 			gomega.Expect(util.DeleteResourceFlavor(ctx, k8sClient, resourceFlavor)).To(gomega.Succeed())
 			var rf kueue.ResourceFlavor
