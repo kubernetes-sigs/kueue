@@ -55,11 +55,11 @@ var _ webhook.CustomDefaulter = &MPIJobWebhook{}
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
 func (w *MPIJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
-	job := obj.(*kubeflow.MPIJob)
+	job := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Applying defaults", "job", klog.KObj(job))
 
-	jobframework.ApplyDefaultForSuspend(&MPIJob{job}, w.manageJobsWithoutQueueName)
+	jobframework.ApplyDefaultForSuspend(job, w.manageJobsWithoutQueueName)
 	return nil
 }
 
@@ -69,10 +69,10 @@ var _ webhook.CustomValidator = &MPIJobWebhook{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *MPIJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
-	job := obj.(*kubeflow.MPIJob)
+	job := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.Info("Validating create", "job", klog.KObj(job))
-	return validateCreate(&MPIJob{job}).ToAggregate()
+	return validateCreate(job).ToAggregate()
 }
 
 func validateCreate(job jobframework.GenericJob) field.ErrorList {
@@ -81,15 +81,13 @@ func validateCreate(job jobframework.GenericJob) field.ErrorList {
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *MPIJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
-	oldJob := oldObj.(*kubeflow.MPIJob)
-	oldGenJob := &MPIJob{oldJob}
-	newJob := newObj.(*kubeflow.MPIJob)
-	newGenJob := &MPIJob{newJob}
+	oldJob := fromObject(oldObj)
+	newJob := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.Info("Validating update", "job", klog.KObj(newJob))
-	allErrs := jobframework.ValidateUpdateForQueueName(oldGenJob, newGenJob)
-	allErrs = append(allErrs, jobframework.ValidateUpdateForOriginalPodSetsInfo(oldGenJob, newGenJob)...)
-	allErrs = append(allErrs, jobframework.ValidateUpdateForOriginalNodeSelectors(oldGenJob, newGenJob)...)
+	allErrs := jobframework.ValidateUpdateForQueueName(oldJob, newJob)
+	allErrs = append(allErrs, jobframework.ValidateUpdateForOriginalPodSetsInfo(oldJob, newJob)...)
+	allErrs = append(allErrs, jobframework.ValidateUpdateForOriginalNodeSelectors(oldJob, newJob)...)
 	return allErrs.ToAggregate()
 }
 
