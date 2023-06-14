@@ -31,11 +31,11 @@ import (
 
 func TestPodsReady(t *testing.T) {
 	testcases := map[string]struct {
-		job  batchv1.Job
+		job  Job
 		want bool
 	}{
 		"parallelism = completions; no progress": {
-			job: batchv1.Job{
+			job: Job{
 				Spec: batchv1.JobSpec{
 					Parallelism: pointer.Int32(3),
 					Completions: pointer.Int32(3),
@@ -45,7 +45,7 @@ func TestPodsReady(t *testing.T) {
 			want: false,
 		},
 		"parallelism = completions; not enough progress": {
-			job: batchv1.Job{
+			job: Job{
 				Spec: batchv1.JobSpec{
 					Parallelism: pointer.Int32(3),
 					Completions: pointer.Int32(3),
@@ -58,7 +58,7 @@ func TestPodsReady(t *testing.T) {
 			want: false,
 		},
 		"parallelism = completions; all ready": {
-			job: batchv1.Job{
+			job: Job{
 				Spec: batchv1.JobSpec{
 					Parallelism: pointer.Int32(3),
 					Completions: pointer.Int32(3),
@@ -71,7 +71,7 @@ func TestPodsReady(t *testing.T) {
 			want: true,
 		},
 		"parallelism = completions; some ready, some succeeded": {
-			job: batchv1.Job{
+			job: Job{
 				Spec: batchv1.JobSpec{
 					Parallelism: pointer.Int32(3),
 					Completions: pointer.Int32(3),
@@ -84,7 +84,7 @@ func TestPodsReady(t *testing.T) {
 			want: true,
 		},
 		"parallelism = completions; all succeeded": {
-			job: batchv1.Job{
+			job: Job{
 				Spec: batchv1.JobSpec{
 					Parallelism: pointer.Int32(3),
 					Completions: pointer.Int32(3),
@@ -96,7 +96,7 @@ func TestPodsReady(t *testing.T) {
 			want: true,
 		},
 		"parallelism < completions; reaching parallelism is enough": {
-			job: batchv1.Job{
+			job: Job{
 				Spec: batchv1.JobSpec{
 					Parallelism: pointer.Int32(2),
 					Completions: pointer.Int32(3),
@@ -108,7 +108,7 @@ func TestPodsReady(t *testing.T) {
 			want: true,
 		},
 		"parallelism > completions; reaching completions is enough": {
-			job: batchv1.Job{
+			job: Job{
 				Spec: batchv1.JobSpec{
 					Parallelism: pointer.Int32(3),
 					Completions: pointer.Int32(2),
@@ -120,7 +120,7 @@ func TestPodsReady(t *testing.T) {
 			want: true,
 		},
 		"parallelism specified only; not enough progress": {
-			job: batchv1.Job{
+			job: Job{
 				Spec: batchv1.JobSpec{
 					Parallelism: pointer.Int32(3),
 				},
@@ -131,7 +131,7 @@ func TestPodsReady(t *testing.T) {
 			want: false,
 		},
 		"parallelism specified only; all ready": {
-			job: batchv1.Job{
+			job: Job{
 				Spec: batchv1.JobSpec{
 					Parallelism: pointer.Int32(3),
 				},
@@ -145,8 +145,7 @@ func TestPodsReady(t *testing.T) {
 
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
-			batchJob := &Job{&tc.job}
-			got := batchJob.PodsReady()
+			got := tc.job.PodsReady()
 			if tc.want != got {
 				t.Errorf("Unexpected response (want: %v, got: %v)", tc.want, got)
 			}
@@ -156,15 +155,15 @@ func TestPodsReady(t *testing.T) {
 
 func TestPodSetsInfo(t *testing.T) {
 	testcases := map[string]struct {
-		job                  *batchv1.Job
+		job                  *Job
 		runInfo, restoreInfo []jobframework.PodSetInfo
 		wantUnsuspended      *batchv1.Job
 	}{
 		"append": {
-			job: utiltestingjob.MakeJob("job", "ns").
+			job: (*Job)(utiltestingjob.MakeJob("job", "ns").
 				Parallelism(1).
 				NodeSelector("orig-key", "orig-val").
-				Obj(),
+				Obj()),
 			runInfo: []jobframework.PodSetInfo{
 				{
 					NodeSelector: map[string]string{
@@ -187,10 +186,10 @@ func TestPodSetsInfo(t *testing.T) {
 			},
 		},
 		"update": {
-			job: utiltestingjob.MakeJob("job", "ns").
+			job: (*Job)(utiltestingjob.MakeJob("job", "ns").
 				Parallelism(1).
 				NodeSelector("orig-key", "orig-val").
-				Obj(),
+				Obj()),
 			runInfo: []jobframework.PodSetInfo{
 				{
 					NodeSelector: map[string]string{
@@ -212,10 +211,10 @@ func TestPodSetsInfo(t *testing.T) {
 			},
 		},
 		"parallelism": {
-			job: utiltestingjob.MakeJob("job", "ns").
+			job: (*Job)(utiltestingjob.MakeJob("job", "ns").
 				Parallelism(5).
 				SetAnnotation(JobMinParallelismAnnotation, "2").
-				Obj(),
+				Obj()),
 			runInfo: []jobframework.PodSetInfo{
 				{
 					Count: 2,
@@ -236,16 +235,15 @@ func TestPodSetsInfo(t *testing.T) {
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			origSpec := *tc.job.Spec.DeepCopy()
-			job := Job{tc.job}
 
-			job.RunWithPodSetsInfo(tc.runInfo)
+			tc.job.RunWithPodSetsInfo(tc.runInfo)
 
-			if diff := cmp.Diff(job.Spec, tc.wantUnsuspended.Spec); diff != "" {
+			if diff := cmp.Diff(tc.job.Spec, tc.wantUnsuspended.Spec); diff != "" {
 				t.Errorf("node selectors mismatch (-want +got):\n%s", diff)
 			}
-			job.RestorePodSetsInfo(tc.restoreInfo)
-			job.Suspend()
-			if diff := cmp.Diff(job.Spec, origSpec); diff != "" {
+			tc.job.RestorePodSetsInfo(tc.restoreInfo)
+			tc.job.Suspend()
+			if diff := cmp.Diff(tc.job.Spec, origSpec); diff != "" {
 				t.Errorf("node selectors mismatch (-want +got):\n%s", diff)
 			}
 		})
@@ -253,13 +251,13 @@ func TestPodSetsInfo(t *testing.T) {
 }
 
 func TestEquivalentToWorkload(t *testing.T) {
-	baseJob := &Job{utiltestingjob.MakeJob("job", "ns").
+	baseJob := (*Job)(utiltestingjob.MakeJob("job", "ns").
 		Parallelism(2).
-		Obj()}
-	baseJobPartialAdmission := &Job{utiltestingjob.MakeJob("job", "ns").
+		Obj())
+	baseJobPartialAdmission := (*Job)(utiltestingjob.MakeJob("job", "ns").
 		SetAnnotation(JobMinParallelismAnnotation, "2").
 		Parallelism(2).
-		Obj()}
+		Obj())
 	podSets := []kueue.PodSet{
 		*utiltesting.MakePodSet("main", 2).
 			Containers(*baseJob.Spec.Template.Spec.Containers[0].DeepCopy()).
@@ -312,9 +310,9 @@ func TestEquivalentToWorkload(t *testing.T) {
 		},
 		"partial admission different count (unsuspended)": {
 			job: func() *Job {
-				j := &Job{baseJobPartialAdmission.DeepCopy()}
+				j := (*batchv1.Job)(baseJobPartialAdmission).DeepCopy()
 				j.Spec.Suspend = pointer.Bool(false)
-				return j
+				return (*Job)(j)
 			}(),
 			wl: func() *kueue.Workload {
 				wl := basWorkloadPartialAdmission.DeepCopy()
@@ -349,11 +347,11 @@ func TestEquivalentToWorkload(t *testing.T) {
 func TestPodSets(t *testing.T) {
 	podTemplate := utiltestingjob.MakeJob("job", "ns").Spec.Template.DeepCopy()
 	cases := map[string]struct {
-		job         *batchv1.Job
+		job         *Job
 		wantPodSets []kueue.PodSet
 	}{
 		"no partial admission": {
-			job: utiltestingjob.MakeJob("job", "ns").Parallelism(3).Obj(),
+			job: (*Job)(utiltestingjob.MakeJob("job", "ns").Parallelism(3).Obj()),
 			wantPodSets: []kueue.PodSet{
 				{
 					Name:     "main",
@@ -363,7 +361,7 @@ func TestPodSets(t *testing.T) {
 			},
 		},
 		"partial admission": {
-			job: utiltestingjob.MakeJob("job", "ns").Parallelism(3).SetAnnotation(JobMinParallelismAnnotation, "2").Obj(),
+			job: (*Job)(utiltestingjob.MakeJob("job", "ns").Parallelism(3).SetAnnotation(JobMinParallelismAnnotation, "2").Obj()),
 			wantPodSets: []kueue.PodSet{
 				{
 					Name:     "main",
@@ -376,7 +374,7 @@ func TestPodSets(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			gotPodSets := (&Job{tc.job}).PodSets()
+			gotPodSets := tc.job.PodSets()
 			if diff := cmp.Diff(tc.wantPodSets, gotPodSets); diff != "" {
 				t.Errorf("node selectors mismatch (-want +got):\n%s", diff)
 			}
