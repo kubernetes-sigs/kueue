@@ -20,11 +20,10 @@ import (
 	"context"
 
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
-	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
+	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
@@ -43,7 +42,7 @@ func SetupJobSetWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 	}
 	return ctrl.NewWebhookManagedBy(mgr).
-		For(&jobset.JobSet{}).
+		For(&jobsetapi.JobSet{}).
 		WithDefaulter(wh).
 		WithValidator(wh).
 		Complete()
@@ -55,11 +54,10 @@ var _ webhook.CustomDefaulter = &JobSetWebhook{}
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
 func (w *JobSetWebhook) Default(ctx context.Context, obj runtime.Object) error {
-	job := obj.(*jobset.JobSet)
-	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
-	log.V(5).Info("Applying defaults", "job", klog.KObj(job))
-
-	jobframework.ApplyDefaultForSuspend((*JobSet)(job), w.manageJobsWithoutQueueName)
+	jobSet := fromObject(obj)
+	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
+	log.V(5).Info("Applying defaults", "jobset", klog.KObj(jobSet))
+	jobframework.ApplyDefaultForSuspend(jobSet, w.manageJobsWithoutQueueName)
 	return nil
 }
 
@@ -69,27 +67,20 @@ var _ webhook.CustomValidator = &JobSetWebhook{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *JobSetWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
-	job := obj.(*jobset.JobSet)
-	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
-	log.Info("Validating create", "job", klog.KObj(job))
-	js := JobSet(*job)
-	return validateCreate(&js).ToAggregate()
-}
-
-func validateCreate(job jobframework.GenericJob) field.ErrorList {
-	return jobframework.ValidateCreateForQueueName(job)
+	jobSet := fromObject(obj)
+	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
+	log.Info("Validating create", "jobset", klog.KObj(jobSet))
+	return jobframework.ValidateCreateForQueueName(jobSet).ToAggregate()
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *JobSetWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
-	oldJob := oldObj.(*jobset.JobSet)
-	oldGenJob := JobSet(*oldJob)
-	newJob := newObj.(*jobset.JobSet)
-	newGenJob := JobSet(*newJob)
-	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
-	log.Info("Validating update", "job", klog.KObj(newJob))
-	allErrs := jobframework.ValidateUpdateForQueueName(&oldGenJob, &newGenJob)
-	allErrs = append(allErrs, jobframework.ValidateUpdateForOriginalNodeSelectors(&oldGenJob, &newGenJob)...)
+	oldJobSet := fromObject(oldObj)
+	newJobSet := fromObject(newObj)
+	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
+	log.Info("Validating update", "jobset", klog.KObj(newJobSet))
+	allErrs := jobframework.ValidateUpdateForQueueName(oldJobSet, newJobSet)
+	allErrs = append(allErrs, jobframework.ValidateCreateForQueueName(oldJobSet)...)
 	return allErrs.ToAggregate()
 }
 

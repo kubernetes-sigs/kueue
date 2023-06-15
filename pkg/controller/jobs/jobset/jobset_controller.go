@@ -30,7 +30,7 @@ import (
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
+	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -38,7 +38,7 @@ import (
 )
 
 var (
-	gvk           = jobset.GroupVersion.WithKind("JobSet")
+	gvk           = jobsetapi.GroupVersion.WithKind("JobSet")
 	FrameworkName = "jobset.x-k8s.io/jobset"
 )
 
@@ -47,8 +47,8 @@ func init() {
 		SetupIndexes:           SetupIndexes,
 		NewReconciler:          NewReconciler,
 		SetupWebhook:           SetupJobSetWebhook,
-		JobType:                &jobset.JobSet{},
-		AddToScheme:            jobset.AddToScheme,
+		JobType:                &jobsetapi.JobSet{},
+		AddToScheme:            jobsetapi.AddToScheme,
 		IsManagingObjectsOwner: isJobSet,
 	}))
 }
@@ -72,12 +72,16 @@ func isJobSet(owner *metav1.OwnerReference) bool {
 	return owner.Kind == "JobSet" && strings.HasPrefix(owner.APIVersion, "jobset.x-k8s.io/v1alpha2")
 }
 
-type JobSet jobset.JobSet
+type JobSet jobsetapi.JobSet
 
 var _ jobframework.GenericJob = (*JobSet)(nil)
 
+func fromObject(obj runtime.Object) *JobSet {
+	return (*JobSet)(obj.(*jobsetapi.JobSet))
+}
+
 func (j *JobSet) Object() client.Object {
-	return (*jobset.JobSet)(j)
+	return (*jobsetapi.JobSet)(j)
 }
 
 func (j *JobSet) IsSuspended() bool {
@@ -140,27 +144,25 @@ func (j *JobSet) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
 }
 
 func (j *JobSet) Finished() (metav1.Condition, bool) {
-	var finished bool
-	var condition metav1.Condition
-	if apimeta.IsStatusConditionTrue(j.Status.Conditions, string(jobset.JobSetCompleted)) {
-		condition = metav1.Condition{
+	if apimeta.IsStatusConditionTrue(j.Status.Conditions, string(jobsetapi.JobSetCompleted)) {
+		condition := metav1.Condition{
 			Type:    kueue.WorkloadFinished,
 			Status:  metav1.ConditionTrue,
 			Reason:  "JobSetFinished",
 			Message: "JobSet finished successfully",
 		}
-		finished = true
+		return condition, true
 	}
-	if apimeta.IsStatusConditionTrue(j.Status.Conditions, string(jobset.JobSetFailed)) {
-		condition = metav1.Condition{
+	if apimeta.IsStatusConditionTrue(j.Status.Conditions, string(jobsetapi.JobSetFailed)) {
+		condition := metav1.Condition{
 			Type:    kueue.WorkloadFinished,
 			Status:  metav1.ConditionTrue,
 			Reason:  "JobSetFinished",
 			Message: "JobSet failed",
 		}
-		finished = true
+		return condition, true
 	}
-	return condition, finished
+	return metav1.Condition{}, false
 }
 
 func (j *JobSet) EquivalentToWorkload(wl kueue.Workload) bool {
@@ -170,8 +172,7 @@ func (j *JobSet) EquivalentToWorkload(wl kueue.Workload) bool {
 	}
 
 	for index := range j.Spec.ReplicatedJobs {
-		replicas := int32(j.Spec.ReplicatedJobs[index].Replicas)
-		if wl.Spec.PodSets[index].Count != (pointer.Int32Deref(j.Spec.ReplicatedJobs[index].Template.Spec.Parallelism, 1) * replicas) {
+		if wl.Spec.PodSets[index].Count != podsCount(&j.Spec.ReplicatedJobs[index]) {
 			return false
 		}
 
@@ -207,7 +208,7 @@ func (j *JobSet) PodsReady() bool {
 	return replicas == jobsReady
 }
 
-func podsCount(rj *jobset.ReplicatedJob) int32 {
+func podsCount(rj *jobsetapi.ReplicatedJob) int32 {
 	replicas := rj.Replicas
 	job := rj.Template
 	// parallelism is always set as it is otherwise defaulted by k8s to 1
@@ -222,7 +223,7 @@ func podsCount(rj *jobset.ReplicatedJob) int32 {
 // based on the owning jobs.
 func (r *JobSetReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&jobset.JobSet{}).
+		For(&jobsetapi.JobSet{}).
 		Owns(&kueue.Workload{}).
 		Complete(r)
 }

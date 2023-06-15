@@ -49,8 +49,8 @@ type ReplicatedJobRequirements struct {
 	Completions int32
 }
 
-// MakeJob creates a wrapper for a suspended rayJob
-func MakeJob(name, ns string, replicatedJobs []ReplicatedJobRequirements) *JobWrapper {
+// MakeJobSet creates a wrapper for a suspended rayJob
+func MakeJobSet(name, ns string, replicatedJobs []ReplicatedJobRequirements) *JobWrapper {
 	jobSetWrapper := *jobsetutil.MakeJobSet(name, ns)
 	for index, replicatedJobRequirement := range replicatedJobs {
 		jt := jobsetutil.MakeJobTemplate(fmt.Sprintf("test-job-%d", index), ns).PodSpec(TestPodSpec).Obj()
