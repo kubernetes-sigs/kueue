@@ -152,7 +152,7 @@ test: generate gotestsum ## Run tests.
 	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/') -coverprofile $(ARTIFACTS)/cover.out
 
 .PHONY: test-integration
-test-integration: manifests generate envtest ginkgo mpi-operator-crd ray-operator-crd ## Run tests.
+test-integration: manifests generate envtest ginkgo mpi-operator-crd ray-operator-crd jobset-operator-crd ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	$(GINKGO) $(GINKGO_ARGS) --junit-report=junit.xml --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 
@@ -309,3 +309,10 @@ RAYROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" github.com/ray-project/kuberay
 ray-operator-crd:
 	mkdir -p $(shell pwd)/dep-crds/ray-operator/
 	cp -f $(RAYROOT)/config/crd/bases/* $(shell pwd)/dep-crds/ray-operator/
+
+JOBSETROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" sigs.k8s.io/jobset)
+.PHONY: jobset-operator-crd
+jobset-operator-crd:
+	mkdir -p $(shell pwd)/dep-crds/jobset-operator/
+	cp -f $(JOBSETROOT)/config/components/crd/bases/* $(shell pwd)/dep-crds/jobset-operator/
+
