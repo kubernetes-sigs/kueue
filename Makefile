@@ -145,7 +145,7 @@ vet: ## Run go vet against code.
 
 .PHONY: test
 test: generate gotestsum ## Run tests.
-	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) $(shell go list ./... | grep -v '/test/') -coverprofile $(ARTIFACTS)/cover.out
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/') -coverprofile $(ARTIFACTS)/cover.out
 
 .PHONY: test-integration
 test-integration: manifests generate envtest ginkgo mpi-operator-crd ray-operator-crd ## Run tests.
@@ -282,13 +282,13 @@ KIND = $(shell pwd)/bin/kind
 kind:
 	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kind@v0.16.0
 
-MPIROOT = $(shell go list -m -f "{{.Dir}}" github.com/kubeflow/mpi-operator)
+MPIROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" github.com/kubeflow/mpi-operator)
 .PHONY: mpi-operator-crd
 mpi-operator-crd:
 	mkdir -p $(shell pwd)/dep-crds/mpi-operator/
 	cp -f $(MPIROOT)/manifests/base/* $(shell pwd)/dep-crds/mpi-operator/
 
-RAYROOT = $(shell go list -m -f "{{.Dir}}" github.com/ray-project/kuberay/ray-operator)
+RAYROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" github.com/ray-project/kuberay/ray-operator)
 .PHONY: ray-operator-crd
 ray-operator-crd:
 	mkdir -p $(shell pwd)/dep-crds/ray-operator/
