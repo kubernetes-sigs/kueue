@@ -100,6 +100,7 @@ func validateCreate(job *Job) field.ErrorList {
 	allErrs = append(allErrs, jobframework.ValidateAnnotationAsCRDName(job, constants.ParentWorkloadAnnotation)...)
 	allErrs = append(allErrs, jobframework.ValidateCreateForQueueName(job)...)
 	allErrs = append(allErrs, validatePartialAdmissionCreate(job)...)
+	allErrs = append(allErrs, jobframework.ValidateCreateForParentWorkload(job)...)
 	return allErrs
 }
 

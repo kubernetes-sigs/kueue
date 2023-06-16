@@ -58,14 +58,32 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name:    "valid parent-workload annotation",
-			job:     testingutil.MakeJob("job", "default").ParentWorkload("parent-workload-name").Queue("queue").Obj(),
+			name: "valid parent-workload annotation",
+			job: testingutil.MakeJob("job", "default").
+				ParentWorkload("parent-workload-name").
+				Queue("queue").
+				OwnerReference("parent-workload-name", kubeflow.SchemeGroupVersionKind).
+				Obj(),
 			wantErr: nil,
 		},
 		{
-			name:    "invalid parent-workload annotation",
-			job:     testingutil.MakeJob("job", "default").ParentWorkload("parent workload name").Queue("queue").Obj(),
+			name: "invalid parent-workload annotation",
+			job: testingutil.MakeJob("job", "default").
+				ParentWorkload("parent workload name").
+				OwnerReference("parent workload name", kubeflow.SchemeGroupVersionKind).
+				Queue("queue").
+				Obj(),
 			wantErr: field.ErrorList{field.Invalid(parentWorkloadKeyPath, "parent workload name", invalidRFC1123Message)},
+		},
+		{
+			name: "invalid parent-workload annotation (owner is missing)",
+			job: testingutil.MakeJob("job", "default").
+				ParentWorkload("parent-workload").
+				Queue("queue").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(parentWorkloadKeyPath, "must not add a parent workload annotation to job without OwnerReference"),
+			},
 		},
 		{
 			name:    "invalid queue-name label",
@@ -79,7 +97,11 @@ func TestValidateCreate(t *testing.T) {
 		},
 		{
 			name: "invalid queue-name and parent-workload annotation",
-			job:  testingutil.MakeJob("job", "default").Queue("queue name").ParentWorkload("parent workload name").Obj(),
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue name").
+				ParentWorkload("parent workload name").
+				OwnerReference("parent workload name", kubeflow.SchemeGroupVersionKind).
+				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(parentWorkloadKeyPath, "parent workload name", invalidRFC1123Message),
 				field.Invalid(queueNameLabelPath, "queue name", invalidRFC1123Message),
@@ -173,9 +195,12 @@ func TestValidateUpdate(t *testing.T) {
 			wantErr: field.ErrorList{field.Invalid(queueNameLabelPath, "queue name", invalidRFC1123Message)},
 		},
 		{
-			name:    "update the nil parent workload to non-empty",
-			oldJob:  testingutil.MakeJob("job", "default").Obj(),
-			newJob:  testingutil.MakeJob("job", "default").ParentWorkload("parent").Obj(),
+			name:   "update the nil parent workload to non-empty",
+			oldJob: testingutil.MakeJob("job", "default").Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				ParentWorkload("parent").
+				OwnerReference("parent", kubeflow.SchemeGroupVersionKind).
+				Obj(),
 			wantErr: field.ErrorList{field.Forbidden(parentWorkloadKeyPath, "this annotation is immutable")},
 		},
 		{
@@ -187,7 +212,11 @@ func TestValidateUpdate(t *testing.T) {
 		{
 			name:   "invalid queue name and immutable parent",
 			oldJob: testingutil.MakeJob("job", "default").Obj(),
-			newJob: testingutil.MakeJob("job", "default").Queue("queue name").ParentWorkload("parent").Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Queue("queue name").
+				ParentWorkload("parent").
+				OwnerReference("parent", kubeflow.SchemeGroupVersionKind).
+				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(queueNameLabelPath, "queue name", invalidRFC1123Message),
 				field.Forbidden(parentWorkloadKeyPath, "this annotation is immutable"),
