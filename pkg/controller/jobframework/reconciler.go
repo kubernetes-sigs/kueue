@@ -30,6 +30,8 @@ import (
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -611,4 +613,37 @@ func setNodeSelectorsInAnnotation(obj client.Object, info []PodSetInfo) error {
 	}
 	obj.SetAnnotations(annotations)
 	return nil
+}
+
+// NewGenericReconciler creates a new reconciler factory for a concrete GenericJob type.
+// newJob should return a new empty job.
+// newWorkloadHandler it's optional, if added it should return a new workload event handler.
+func NewGenericReconciler(newJob func() GenericJob, newWorkloadHandler func(client.Client) handler.EventHandler) ReconcilerFactory {
+	return func(scheme *runtime.Scheme, client client.Client, record record.EventRecorder, opts ...Option) JobReconcilerInterface {
+		return &genericReconciler{
+			jr:                 NewReconciler(scheme, client, record, opts...),
+			newJob:             newJob,
+			newWorkloadHandler: newWorkloadHandler,
+		}
+	}
+}
+
+type genericReconciler struct {
+	jr                 *JobReconciler
+	newJob             func() GenericJob
+	newWorkloadHandler func(client.Client) handler.EventHandler
+}
+
+func (r *genericReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	return r.jr.ReconcileGenericJob(ctx, req, r.newJob())
+}
+
+func (r *genericReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	builder := ctrl.NewControllerManagedBy(mgr).
+		For(r.newJob().Object()).
+		Owns(&kueue.Workload{})
+	if r.newWorkloadHandler != nil {
+		builder = builder.Watches(&source.Kind{Type: &kueue.Workload{}}, r.newWorkloadHandler(mgr.GetClient()))
+	}
+	return builder.Complete(r)
 }
