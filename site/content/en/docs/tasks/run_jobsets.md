@@ -13,8 +13,13 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 ## Before you begin
 
 1. By default, the integration for `jobset.x-k8s.io/jobset` is not enabled.
-  Learn how to [install Kueue with a custom manager configuration](/docs/installation/#install-a-custom-configured-released-version)
-  and enable the `jobset.x-k8s.io/jobset` integration.
+  Learn how to [install Kueue with a custom manager configuration](/docs/installation/#install-a-custom-configured-released-version). `jobset.x-k8s.io/jobset` integration should be specified in the `integrations.frameworks` section of the custom manager configuration.
+
+```yaml
+integrations:
+  frameworks:
+  - "jobset.x-k8s.io/jobset"
+```
 
 2. Check [Administer cluster quotas](/docs/tasks/administer_cluster_quotas) for details on the initial Kueue setup.
 
