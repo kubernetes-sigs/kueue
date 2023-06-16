@@ -73,14 +73,16 @@ func isMPIJob(owner *metav1.OwnerReference) bool {
 	return owner.Kind == "MPIJob" && strings.HasPrefix(owner.APIVersion, "kubeflow.org/v2")
 }
 
-type MPIJob struct {
-	*kubeflow.MPIJob
-}
+type MPIJob kubeflow.MPIJob
 
-var _ jobframework.GenericJob = &MPIJob{}
+var _ jobframework.GenericJob = (*MPIJob)(nil)
 
 func (j *MPIJob) Object() client.Object {
-	return j.MPIJob
+	return (*kubeflow.MPIJob)(j)
+}
+
+func fromObject(o runtime.Object) *MPIJob {
+	return (*MPIJob)(o.(*kubeflow.MPIJob))
 }
 
 func (j *MPIJob) IsSuspended() bool {
@@ -250,7 +252,7 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 
 func (r *MPIJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	fjr := (*jobframework.JobReconciler)(r)
-	return fjr.ReconcileGenericJob(ctx, req, &MPIJob{&kubeflow.MPIJob{}})
+	return fjr.ReconcileGenericJob(ctx, req, &MPIJob{})
 }
 
 func orderedReplicaTypes(jobSpec *kubeflow.MPIJobSpec) []kubeflow.MPIReplicaType {

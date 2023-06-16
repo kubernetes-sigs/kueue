@@ -64,7 +64,7 @@ var _ webhook.CustomDefaulter = &JobWebhook{}
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
 func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
-	job := obj.(*batchv1.Job)
+	job := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Applying defaults", "job", klog.KObj(job))
 
@@ -79,7 +79,7 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		}
 	}
 
-	jobframework.ApplyDefaultForSuspend(&Job{job}, w.manageJobsWithoutQueueName)
+	jobframework.ApplyDefaultForSuspend(job, w.manageJobsWithoutQueueName)
 	return nil
 }
 
@@ -89,10 +89,10 @@ var _ webhook.CustomValidator = &JobWebhook{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *JobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
-	job := obj.(*batchv1.Job)
+	job := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Validating create", "job", klog.KObj(job))
-	return validateCreate(&Job{job}).ToAggregate()
+	return validateCreate(job).ToAggregate()
 }
 
 func validateCreate(job *Job) field.ErrorList {
@@ -120,11 +120,11 @@ func validatePartialAdmissionCreate(job *Job) field.ErrorList {
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *JobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
-	oldJob := oldObj.(*batchv1.Job)
-	newJob := newObj.(*batchv1.Job)
+	oldJob := fromObject(oldObj)
+	newJob := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Validating update", "job", klog.KObj(newJob))
-	return validateUpdate(&Job{oldJob}, &Job{newJob}).ToAggregate()
+	return validateUpdate(oldJob, newJob).ToAggregate()
 }
 
 func validateUpdate(oldJob, newJob *Job) field.ErrorList {
