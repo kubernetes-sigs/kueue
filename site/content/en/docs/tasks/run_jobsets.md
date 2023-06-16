@@ -6,7 +6,7 @@ description: >
   Run a Kueue scheduled JobSet.
 ---
 
-This page shows how to leverage Kueue's scheduling and resource management capabilities when running [JobSet Operator](https://github.com/kubernetes-sigs/jobset) [JobSets](https://github.com/kubernetes-sigs/jobset/blob/main/docs/concepts/README.md).
+This document explains how you can use Kueue’s scheduling and resource management functionality when running [JobSet Operator](https://github.com/kubernetes-sigs/jobset) [JobSets](https://github.com/kubernetes-sigs/jobset/blob/main/docs/concepts/README.md).
 
 This guide is for [batch users](/docs/tasks#batch-user) that have a basic understanding of Kueue. For more information, see [Kueue's overview](/docs/overview).
 
@@ -42,17 +42,32 @@ metadata:
 
 ### b. Configure the resource needs
 
-The resource needs of the workload can be configured in the `spec.replicatedJobs`.
+The resource needs of the workload can be configured in the `spec.replicatedJobs`. Should also be taken into account that number of replicas, [parallelism](https://kubernetes.io/docs/concepts/workloads/controllers/job/#parallel-jobs) and completions affect the resource calculations. 
 
 ```yaml
-      - template:
-          spec:
-            template:
-              spec:
-                containers:
-                  - resources:
-                      requests:
-                        cpu: 1
+    - replicas: 1
+      template:
+        spec:
+          completions: 2
+          parallelism: 2
+          template:
+            spec:
+              containers:
+                - resources:
+                    requests:
+                      cpu: 1
+```
+
+### c. Jobs prioritisation
+  
+The first [PriorityClassName](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/#priorityclass) of `spec.replicatedJobs` that is not empty will be used as the priority.
+
+```yaml
+    - template:
+        spec:
+          template:
+            spec:
+              priorityClassName: high-priority
 ```
 
 ## Example JobSet
@@ -64,12 +79,16 @@ The JobSet looks like the following:
 apiVersion: jobset.x-k8s.io/v1alpha2
 kind: JobSet
 metadata:
-  name: sleep
+  generateName: sleep-job-
   labels:
     kueue.x-k8s.io/queue-name: user-queue
 spec:
+  network:
+    enableDNSHostnames: false
+    subdomain: some-subdomain
   replicatedJobs:
     - name: workers
+      replicas: 2
       template:
         spec:
           parallelism: 4
@@ -112,9 +131,6 @@ spec:
 You can run this JobSet with the following commands:
 
 ```sh
-# Create the JobSet (once)
-kubectl apply -f jobset-sample.yaml
-# To observe the queueing and admission of the jobs you can clone this example with different metadata.name and apply them.
-kubectl apply -f jobset-job-sample-colone-1.yaml
-kubectl apply -f jobset-job-sample-colone-2.yaml
+# To monitor the queue and admission of the jobs, you can run this example multiple times:
+kubectl create -f jobset-sample.yaml
 ```
