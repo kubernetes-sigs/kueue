@@ -27,6 +27,7 @@ GO_VERSION := $(shell awk '/^go /{print $$2}' go.mod|head -n1)
 
 # Use go.mod go version as a single source of truth of Ginkgo version.
 GINKGO_VERSION ?= $(shell $(GO_CMD) list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)
+CODEGEN_VERSION := $(shell $(GO_CMD) list -m -f '{{.Version}}' k8s.io/api)
 
 GIT_TAG ?= $(shell git describe --tags --dirty --always)
 # Image URL to use all building/pushing image targets
@@ -111,8 +112,9 @@ update-helm-crd: manifests
 	./hack/update-helm-crd.sh
 
 .PHONY: generate
-generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
+generate: controller-gen code-generator ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations and client-go libraries.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+	./hack/update-codegen.sh $(GO_CMD) $(PROJECT_DIR)/bin
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -163,7 +165,7 @@ ci-lint: golangci-lint
 
 .PHONY: verify
 verify: gomod-verify vet ci-lint fmt-verify toc-verify manifests generate update-helm-crd
-	git --no-pager diff --exit-code config/components apis charts/kueue/templates/crd
+	git --no-pager diff --exit-code config/components apis charts/kueue/templates/crd client-go
 
 ##@ Build
 
@@ -277,10 +279,22 @@ GOTESTSUM = $(shell pwd)/bin/gotestsum
 .PHONY: gotestsum
 gotestsum: ## Download gotestsum locally if necessary.
 	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install gotest.tools/gotestsum@v1.8.2
+
 KIND = $(shell pwd)/bin/kind
 .PHONY: kind
 kind:
 	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kind@v0.16.0
+
+CODEGEN_ROOT = $(shell $(GO_CMD) env GOMODCACHE)/k8s.io/code-generator@$(CODEGEN_VERSION)
+.PHONY: code-generator
+code-generator:
+	@GO111MODULE=on $(GO_CMD) get \
+		k8s.io/code-generator/cmd/defaulter-gen@$(CODEGEN_VERSION) \
+		k8s.io/code-generator/cmd/client-gen@$(CODEGEN_VERSION) \
+		k8s.io/code-generator/cmd/lister-gen@$(CODEGEN_VERSION) \
+		k8s.io/code-generator/cmd/informer-gen@$(CODEGEN_VERSION) \
+		k8s.io/code-generator/cmd/deepcopy-gen@$(CODEGEN_VERSION)
+	cp -f $(CODEGEN_ROOT)/generate-groups.sh $(PROJECT_DIR)/bin/
 
 MPIROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" github.com/kubeflow/mpi-operator)
 .PHONY: mpi-operator-crd
@@ -293,4 +307,3 @@ RAYROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" github.com/ray-project/kuberay
 ray-operator-crd:
 	mkdir -p $(shell pwd)/dep-crds/ray-operator/
 	cp -f $(RAYROOT)/config/crd/bases/* $(shell pwd)/dep-crds/ray-operator/
-

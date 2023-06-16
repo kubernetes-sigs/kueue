@@ -83,6 +83,7 @@ type LocalQueueResourceUsage struct {
 	Total resource.Quantity `json:"total,omitempty"`
 }
 
+//+genclient
 //+kubebuilder:object:root=true
 //+kubebuilder:storageversion
 //+kubebuilder:subresource:status
