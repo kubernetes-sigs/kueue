@@ -148,9 +148,9 @@ func GetIntegrationsList() []string {
 	return manager.getList()
 }
 
-// IsOwnerManagebleByKueue returns true if the provided owner can be managed by
+// IsOwnerManagedByKueue returns true if the provided owner can be managed by
 // kueue.
-func IsOwnerManagebleByKueue(owner *metav1.OwnerReference) bool {
+func IsOwnerManagedByKueue(owner *metav1.OwnerReference) bool {
 	return manager.getCallbacksForOwner(owner) != nil
 }
 
