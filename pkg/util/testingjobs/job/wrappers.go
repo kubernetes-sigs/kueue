@@ -110,11 +110,6 @@ func (j *JobWrapper) ParentWorkload(parentWorkload string) *JobWrapper {
 	return j
 }
 
-func (j *JobWrapper) OriginalNodeSelectorsAnnotation(content string) *JobWrapper {
-	j.Annotations[constants.OriginalNodeSelectorsAnnotation] = content
-	return j
-}
-
 func (j *JobWrapper) SetAnnotation(key, content string) *JobWrapper {
 	j.Annotations[key] = content
 	return j

@@ -14,7 +14,6 @@ limitations under the License.
 package jobframework
 
 import (
-	"encoding/json"
 	"strings"
 
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
@@ -22,7 +21,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 var (
@@ -30,9 +28,6 @@ var (
 	labelsPath            = field.NewPath("metadata", "labels")
 	parentWorkloadKeyPath = annotationsPath.Key(constants.ParentWorkloadAnnotation)
 	queueNameLabelPath    = labelsPath.Key(constants.QueueLabel)
-
-	originalNodeSelectorsWorkloadKeyPath = annotationsPath.Key(controllerconsts.OriginalNodeSelectorsAnnotation)
-	originalPodSetsInfosWorkloadKeyPath  = annotationsPath.Key(controllerconsts.OriginalPodSetsInfoAnnotation)
 )
 
 func ValidateCreateForQueueName(job GenericJob) field.ErrorList {
@@ -75,38 +70,6 @@ func ValidateUpdateForParentWorkload(oldJob, newJob GenericJob) field.ErrorList 
 	if errList := apivalidation.ValidateImmutableField(ParentWorkloadName(newJob),
 		ParentWorkloadName(oldJob), parentWorkloadKeyPath); len(errList) > 0 {
 		allErrs = append(allErrs, field.Forbidden(parentWorkloadKeyPath, "this annotation is immutable"))
-	}
-	return allErrs
-}
-
-func ValidateUpdateForOriginalNodeSelectors(oldJob, newJob GenericJob) field.ErrorList {
-	var allErrs field.ErrorList
-	if oldJob.IsSuspended() == newJob.IsSuspended() {
-		if errList := apivalidation.ValidateImmutableField(oldJob.Object().GetAnnotations()[constants.OriginalNodeSelectorsAnnotation],
-			newJob.Object().GetAnnotations()[constants.OriginalNodeSelectorsAnnotation], originalNodeSelectorsWorkloadKeyPath); len(errList) > 0 {
-			allErrs = append(allErrs, field.Forbidden(originalNodeSelectorsWorkloadKeyPath, "this annotation is immutable while the job is not changing its suspended state"))
-		}
-	} else if av, found := newJob.Object().GetAnnotations()[controllerconsts.OriginalNodeSelectorsAnnotation]; found {
-		out := []PodSetInfo{}
-		if err := json.Unmarshal([]byte(av), &out); err != nil {
-			allErrs = append(allErrs, field.Invalid(originalNodeSelectorsWorkloadKeyPath, av, err.Error()))
-		}
-	}
-	return allErrs
-}
-
-func ValidateUpdateForOriginalPodSetsInfo(oldJob, newJob GenericJob) field.ErrorList {
-	var allErrs field.ErrorList
-	if oldJob.IsSuspended() == newJob.IsSuspended() {
-		if errList := apivalidation.ValidateImmutableField(oldJob.Object().GetAnnotations()[controllerconsts.OriginalPodSetsInfoAnnotation],
-			newJob.Object().GetAnnotations()[controllerconsts.OriginalPodSetsInfoAnnotation], originalPodSetsInfosWorkloadKeyPath); len(errList) > 0 {
-			allErrs = append(allErrs, field.Forbidden(originalPodSetsInfosWorkloadKeyPath, "this annotation is immutable while the job is not changing its suspended state"))
-		}
-	} else if av, found := newJob.Object().GetAnnotations()[controllerconsts.OriginalPodSetsInfoAnnotation]; found {
-		out := []PodSetInfo{}
-		if err := json.Unmarshal([]byte(av), &out); err != nil {
-			allErrs = append(allErrs, field.Invalid(originalPodSetsInfosWorkloadKeyPath, av, err.Error()))
-		}
 	}
 	return allErrs
 }

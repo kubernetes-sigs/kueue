@@ -939,7 +939,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		}, util.Timeout, util.Interval).Should(gomega.Equal(pointer.Bool(false)))
 	})
 
-	ginkgo.When("The workload is deleted while it's admitted", func() {
+	ginkgo.When("The workload's admission is removed", func() {
 		ginkgo.It("Should restore the original node selectors", func() {
 			localQueue := testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
 			job := testingjob.MakeJob(jobName, ns.Name).Queue(localQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
@@ -982,11 +982,11 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 				gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("delete the workload to stop the job", func() {
+			ginkgo.By("clear the workload's admission to stop the job", func() {
 				wl := &kueue.Workload{}
 				wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name), Namespace: job.Namespace}
 				gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-				gomega.Expect(util.DeleteWorkload(ctx, k8sClient, wl)).Should(gomega.Succeed())
+				gomega.Expect(util.SetAdmission(ctx, k8sClient, wl, nil)).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("the node selector should be restored", func() {
@@ -1122,15 +1122,12 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 			gomega.Expect(*wl.Spec.PodSets[0].MinCount).To(gomega.BeEquivalentTo(1))
 		})
 
-		ginkgo.By("create another job to consume the queue and delete the original job workload", func() {
-			job2 := testingjob.MakeJob("job2", ns.Name).
-				Queue(prodLocalQ.Name).
-				Parallelism(5).
-				Completions(5).
-				Request(corev1.ResourceCPU, "1").
-				Obj()
-			gomega.Expect(k8sClient.Create(ctx, job2)).To(gomega.Succeed())
-			gomega.Expect(k8sClient.Delete(ctx, wl)).To(gomega.Succeed())
+		ginkgo.By("delete the localQueue to prevent readmission", func() {
+			gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, prodLocalQ)).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("clear the workloads admission to stop the job", func() {
+			gomega.Expect(util.SetAdmission(ctx, k8sClient, wl, nil)).To(gomega.Succeed())
 		})
 
 		ginkgo.By("job should be suspended and its parallelism restored", func() {
