@@ -81,14 +81,6 @@ func (j *RayJob) Suspend() {
 	j.Spec.Suspend = true
 }
 
-func (j *RayJob) ResetStatus() bool {
-	if j.Status.StartTime == nil {
-		return false
-	}
-	j.Status.StartTime = nil
-	return true
-}
-
 func (j *RayJob) GetGVK() schema.GroupVersionKind {
 	return gvk
 }
