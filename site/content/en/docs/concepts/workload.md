@@ -54,7 +54,7 @@ enqueued, set the name of the LocalQueue in the `.spec.queueName` field.
 
 A Workload might be composed of multiple Pods with different pod specs.
 
-Each item of the `.spec.pods` list represents a set of homogeneous Pods and has
+Each item of the `.spec.podSets` list represents a set of homogeneous Pods and has
 the following fields:
 
 - `spec` describes the pods using a [`v1/core.PodSpec`](https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/pod-v1/#PodSpec).
