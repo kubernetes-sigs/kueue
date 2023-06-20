@@ -31,7 +31,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
-	runtimeconfig "sigs.k8s.io/controller-runtime/pkg/config/v1alpha1"
+	runtimeconfig "sigs.k8s.io/controller-runtime/pkg/config"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
@@ -222,11 +223,15 @@ integrations:
 	}
 
 	defaultControlOptions := ctrl.Options{
-		Port:                   configapi.DefaultWebhookPort,
 		HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
 		MetricsBindAddress:     configapi.DefaultMetricsBindAddress,
 		LeaderElectionID:       configapi.DefaultLeaderElectionID,
 		LeaderElection:         true,
+		WebhookServer: &webhook.DefaultServer{
+			Options: webhook.Options{
+				Port: configapi.DefaultWebhookPort,
+			},
+		},
 	}
 
 	enableDefaultInternalCertManagement := &configapi.InternalCertManagement{
@@ -237,6 +242,7 @@ integrations:
 
 	ctrlOptsCmpOpts := []cmp.Option{
 		cmpopts.IgnoreUnexported(ctrl.Options{}),
+		cmpopts.IgnoreUnexported(webhook.DefaultServer{}),
 		cmpopts.IgnoreFields(ctrl.Options{}, "Scheme", "Logger"),
 	}
 
@@ -272,11 +278,15 @@ integrations:
 				Integrations:           defaultIntegrations,
 			},
 			wantOptions: ctrl.Options{
-				Port:                   configapi.DefaultWebhookPort,
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
 				MetricsBindAddress:     configapi.DefaultMetricsBindAddress,
 				LeaderElectionID:       "",
 				LeaderElection:         false,
+				WebhookServer: &webhook.DefaultServer{
+					Options: webhook.Options{
+						Port: configapi.DefaultWebhookPort,
+					},
+				},
 			},
 		},
 		{
@@ -321,9 +331,13 @@ integrations:
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: ":38081",
 				MetricsBindAddress:     ":38080",
-				Port:                   9444,
 				LeaderElection:         true,
 				LeaderElectionID:       "test-id",
+				WebhookServer: &webhook.DefaultServer{
+					Options: webhook.Options{
+						Port: 9444,
+					},
+				},
 			},
 		},
 		{
@@ -379,11 +393,15 @@ integrations:
 				Integrations:               defaultIntegrations,
 			},
 			wantOptions: ctrl.Options{
-				Port:                   configapi.DefaultWebhookPort,
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
 				MetricsBindAddress:     configapi.DefaultMetricsBindAddress,
 				LeaderElectionID:       "",
 				LeaderElection:         false,
+				WebhookServer: &webhook.DefaultServer{
+					Options: webhook.Options{
+						Port: configapi.DefaultWebhookPort,
+					},
+				},
 			},
 		},
 		{
@@ -406,9 +424,13 @@ integrations:
 				Integrations:     defaultIntegrations,
 			},
 			wantOptions: ctrl.Options{
-				Port:                   configapi.DefaultWebhookPort,
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
 				MetricsBindAddress:     configapi.DefaultMetricsBindAddress,
+				WebhookServer: &webhook.DefaultServer{
+					Options: webhook.Options{
+						Port: configapi.DefaultWebhookPort,
+					},
+				},
 			},
 		},
 		{
@@ -448,25 +470,29 @@ integrations:
 				Integrations: defaultIntegrations,
 			},
 			wantOptions: ctrl.Options{
-				Port:                       configapi.DefaultWebhookPort,
 				HealthProbeBindAddress:     configapi.DefaultHealthProbeBindAddress,
 				ReadinessEndpointName:      "ready",
 				LivenessEndpointName:       "live",
 				MetricsBindAddress:         configapi.DefaultMetricsBindAddress,
 				LeaderElection:             true,
-				CertDir:                    "certDir",
-				Host:                       "host",
 				LeaderElectionID:           configapi.DefaultLeaderElectionID,
 				LeaderElectionNamespace:    "namespace",
 				LeaderElectionResourceLock: "lock",
 				LeaseDuration:              pointer.Duration(time.Second * 100),
 				RenewDeadline:              pointer.Duration(time.Second * 15),
 				RetryPeriod:                pointer.Duration(time.Second * 30),
-				Controller: runtimeconfig.ControllerConfigurationSpec{
+				Controller: runtimeconfig.Controller{
 					GroupKindConcurrency: map[string]int{
 						"workload": 5,
 					},
-					CacheSyncTimeout: pointer.Duration(3),
+					CacheSyncTimeout: 3,
+				},
+				WebhookServer: &webhook.DefaultServer{
+					Options: webhook.Options{
+						Port:    configapi.DefaultWebhookPort,
+						Host:    "host",
+						CertDir: "certDir",
+					},
 				},
 			},
 		},
@@ -489,9 +515,13 @@ integrations:
 				},
 			},
 			wantOptions: ctrl.Options{
-				Port:                   configapi.DefaultWebhookPort,
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
 				MetricsBindAddress:     configapi.DefaultMetricsBindAddress,
+				WebhookServer: &webhook.DefaultServer{
+					Options: webhook.Options{
+						Port: configapi.DefaultWebhookPort,
+					},
+				},
 			},
 		},
 	}

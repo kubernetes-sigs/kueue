@@ -19,6 +19,8 @@ package v1beta1
 
 import (
 	"context"
+	json "encoding/json"
+	"fmt"
 	"time"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,6 +28,7 @@ import (
 	watch "k8s.io/apimachinery/pkg/watch"
 	rest "k8s.io/client-go/rest"
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueuev1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta1"
 	scheme "sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 )
 
@@ -46,6 +49,8 @@ type ClusterQueueInterface interface {
 	List(ctx context.Context, opts v1.ListOptions) (*v1beta1.ClusterQueueList, error)
 	Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error)
 	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.ClusterQueue, err error)
+	Apply(ctx context.Context, clusterQueue *kueuev1beta1.ClusterQueueApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.ClusterQueue, err error)
+	ApplyStatus(ctx context.Context, clusterQueue *kueuev1beta1.ClusterQueueApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.ClusterQueue, err error)
 	ClusterQueueExpansion
 }
 
@@ -187,6 +192,62 @@ func (c *clusterQueues) Patch(ctx context.Context, name string, pt types.PatchTy
 		Name(name).
 		SubResource(subresources...).
 		VersionedParams(&opts, scheme.ParameterCodec).
+		Body(data).
+		Do(ctx).
+		Into(result)
+	return
+}
+
+// Apply takes the given apply declarative configuration, applies it and returns the applied clusterQueue.
+func (c *clusterQueues) Apply(ctx context.Context, clusterQueue *kueuev1beta1.ClusterQueueApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.ClusterQueue, err error) {
+	if clusterQueue == nil {
+		return nil, fmt.Errorf("clusterQueue provided to Apply must not be nil")
+	}
+	patchOpts := opts.ToPatchOptions()
+	data, err := json.Marshal(clusterQueue)
+	if err != nil {
+		return nil, err
+	}
+	name := clusterQueue.Name
+	if name == nil {
+		return nil, fmt.Errorf("clusterQueue.Name must be provided to Apply")
+	}
+	result = &v1beta1.ClusterQueue{}
+	err = c.client.Patch(types.ApplyPatchType).
+		Namespace(c.ns).
+		Resource("clusterqueues").
+		Name(*name).
+		VersionedParams(&patchOpts, scheme.ParameterCodec).
+		Body(data).
+		Do(ctx).
+		Into(result)
+	return
+}
+
+// ApplyStatus was generated because the type contains a Status member.
+// Add a +genclient:noStatus comment above the type to avoid generating ApplyStatus().
+func (c *clusterQueues) ApplyStatus(ctx context.Context, clusterQueue *kueuev1beta1.ClusterQueueApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.ClusterQueue, err error) {
+	if clusterQueue == nil {
+		return nil, fmt.Errorf("clusterQueue provided to Apply must not be nil")
+	}
+	patchOpts := opts.ToPatchOptions()
+	data, err := json.Marshal(clusterQueue)
+	if err != nil {
+		return nil, err
+	}
+
+	name := clusterQueue.Name
+	if name == nil {
+		return nil, fmt.Errorf("clusterQueue.Name must be provided to Apply")
+	}
+
+	result = &v1beta1.ClusterQueue{}
+	err = c.client.Patch(types.ApplyPatchType).
+		Namespace(c.ns).
+		Resource("clusterqueues").
+		Name(*name).
+		SubResource("status").
+		VersionedParams(&patchOpts, scheme.ParameterCodec).
 		Body(data).
 		Do(ctx).
 		Into(result)

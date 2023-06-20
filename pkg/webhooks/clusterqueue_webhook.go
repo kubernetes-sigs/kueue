@@ -30,6 +30,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
@@ -74,28 +75,28 @@ func (w *ClusterQueueWebhook) Default(ctx context.Context, obj runtime.Object) e
 var _ webhook.CustomValidator = &ClusterQueueWebhook{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *ClusterQueueWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
+func (w *ClusterQueueWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	cq := obj.(*kueue.ClusterQueue)
 	log := ctrl.LoggerFrom(ctx).WithName("clusterqueue-webhook")
 	log.V(5).Info("Validating create", "clusterQueue", klog.KObj(cq))
 	allErrs := ValidateClusterQueue(cq)
-	return allErrs.ToAggregate()
+	return nil, allErrs.ToAggregate()
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *ClusterQueueWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
+func (w *ClusterQueueWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	newCQ := newObj.(*kueue.ClusterQueue)
 	oldCQ := oldObj.(*kueue.ClusterQueue)
 
 	log := ctrl.LoggerFrom(ctx).WithName("clusterqueue-webhook")
 	log.V(5).Info("Validating update", "clusterQueue", klog.KObj(newCQ))
 	allErrs := ValidateClusterQueueUpdate(newCQ, oldCQ)
-	return allErrs.ToAggregate()
+	return nil, allErrs.ToAggregate()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *ClusterQueueWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) error {
-	return nil
+func (w *ClusterQueueWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+	return nil, nil
 }
 
 func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {

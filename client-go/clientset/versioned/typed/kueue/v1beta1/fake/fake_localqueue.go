@@ -19,14 +19,16 @@ package fake
 
 import (
 	"context"
+	json "encoding/json"
+	"fmt"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	labels "k8s.io/apimachinery/pkg/labels"
-	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
 	testing "k8s.io/client-go/testing"
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueuev1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta1"
 )
 
 // FakeLocalQueues implements LocalQueueInterface
@@ -35,9 +37,9 @@ type FakeLocalQueues struct {
 	ns   string
 }
 
-var localqueuesResource = schema.GroupVersionResource{Group: "kueue.x-k8s.io", Version: "v1beta1", Resource: "localqueues"}
+var localqueuesResource = v1beta1.SchemeGroupVersion.WithResource("localqueues")
 
-var localqueuesKind = schema.GroupVersionKind{Group: "kueue.x-k8s.io", Version: "v1beta1", Kind: "LocalQueue"}
+var localqueuesKind = v1beta1.SchemeGroupVersion.WithKind("LocalQueue")
 
 // Get takes name of the localQueue, and returns the corresponding localQueue object, and an error if there is any.
 func (c *FakeLocalQueues) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1beta1.LocalQueue, err error) {
@@ -133,6 +135,51 @@ func (c *FakeLocalQueues) DeleteCollection(ctx context.Context, opts v1.DeleteOp
 func (c *FakeLocalQueues) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.LocalQueue, err error) {
 	obj, err := c.Fake.
 		Invokes(testing.NewPatchSubresourceAction(localqueuesResource, c.ns, name, pt, data, subresources...), &v1beta1.LocalQueue{})
+
+	if obj == nil {
+		return nil, err
+	}
+	return obj.(*v1beta1.LocalQueue), err
+}
+
+// Apply takes the given apply declarative configuration, applies it and returns the applied localQueue.
+func (c *FakeLocalQueues) Apply(ctx context.Context, localQueue *kueuev1beta1.LocalQueueApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.LocalQueue, err error) {
+	if localQueue == nil {
+		return nil, fmt.Errorf("localQueue provided to Apply must not be nil")
+	}
+	data, err := json.Marshal(localQueue)
+	if err != nil {
+		return nil, err
+	}
+	name := localQueue.Name
+	if name == nil {
+		return nil, fmt.Errorf("localQueue.Name must be provided to Apply")
+	}
+	obj, err := c.Fake.
+		Invokes(testing.NewPatchSubresourceAction(localqueuesResource, c.ns, *name, types.ApplyPatchType, data), &v1beta1.LocalQueue{})
+
+	if obj == nil {
+		return nil, err
+	}
+	return obj.(*v1beta1.LocalQueue), err
+}
+
+// ApplyStatus was generated because the type contains a Status member.
+// Add a +genclient:noStatus comment above the type to avoid generating ApplyStatus().
+func (c *FakeLocalQueues) ApplyStatus(ctx context.Context, localQueue *kueuev1beta1.LocalQueueApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.LocalQueue, err error) {
+	if localQueue == nil {
+		return nil, fmt.Errorf("localQueue provided to Apply must not be nil")
+	}
+	data, err := json.Marshal(localQueue)
+	if err != nil {
+		return nil, err
+	}
+	name := localQueue.Name
+	if name == nil {
+		return nil, fmt.Errorf("localQueue.Name must be provided to Apply")
+	}
+	obj, err := c.Fake.
+		Invokes(testing.NewPatchSubresourceAction(localqueuesResource, c.ns, *name, types.ApplyPatchType, data, "status"), &v1beta1.LocalQueue{})
 
 	if obj == nil {
 		return nil, err

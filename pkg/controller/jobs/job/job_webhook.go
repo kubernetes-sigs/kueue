@@ -29,6 +29,7 @@ import (
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -88,11 +89,11 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 var _ webhook.CustomValidator = &JobWebhook{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *JobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
+func (w *JobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	job := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Validating create", "job", klog.KObj(job))
-	return validateCreate(job).ToAggregate()
+	return nil, validateCreate(job).ToAggregate()
 }
 
 func validateCreate(job *Job) field.ErrorList {
@@ -120,12 +121,12 @@ func validatePartialAdmissionCreate(job *Job) field.ErrorList {
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *JobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
+func (w *JobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	oldJob := fromObject(oldObj)
 	newJob := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Validating update", "job", klog.KObj(newJob))
-	return validateUpdate(oldJob, newJob).ToAggregate()
+	return nil, validateUpdate(oldJob, newJob).ToAggregate()
 }
 
 func validateUpdate(oldJob, newJob *Job) field.ErrorList {
@@ -147,6 +148,6 @@ func validatePartialAdmissionUpdate(oldJob, newJob *Job) field.ErrorList {
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *JobWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) error {
-	return nil
+func (w *JobWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+	return nil, nil
 }

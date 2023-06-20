@@ -172,7 +172,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			})
 			ctx := ctrl.LoggerInto(context.Background(), log)
 
-			cl := utiltesting.NewClientBuilder().WithLists(defaultWls).WithObjects(lq, cq).
+			cl := utiltesting.NewClientBuilder().WithLists(defaultWls).WithObjects(lq, cq).WithStatusSubresource(lq, cq).
 				Build()
 			cqCache := cache.New(cl)
 			qManager := queue.NewManager(cl, cqCache)

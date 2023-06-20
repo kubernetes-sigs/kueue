@@ -19,6 +19,8 @@ package v1beta1
 
 import (
 	"context"
+	json "encoding/json"
+	"fmt"
 	"time"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,6 +28,7 @@ import (
 	watch "k8s.io/apimachinery/pkg/watch"
 	rest "k8s.io/client-go/rest"
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueuev1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta1"
 	scheme "sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 )
 
@@ -45,6 +48,7 @@ type ResourceFlavorInterface interface {
 	List(ctx context.Context, opts v1.ListOptions) (*v1beta1.ResourceFlavorList, error)
 	Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error)
 	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.ResourceFlavor, err error)
+	Apply(ctx context.Context, resourceFlavor *kueuev1beta1.ResourceFlavorApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.ResourceFlavor, err error)
 	ResourceFlavorExpansion
 }
 
@@ -170,6 +174,32 @@ func (c *resourceFlavors) Patch(ctx context.Context, name string, pt types.Patch
 		Name(name).
 		SubResource(subresources...).
 		VersionedParams(&opts, scheme.ParameterCodec).
+		Body(data).
+		Do(ctx).
+		Into(result)
+	return
+}
+
+// Apply takes the given apply declarative configuration, applies it and returns the applied resourceFlavor.
+func (c *resourceFlavors) Apply(ctx context.Context, resourceFlavor *kueuev1beta1.ResourceFlavorApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.ResourceFlavor, err error) {
+	if resourceFlavor == nil {
+		return nil, fmt.Errorf("resourceFlavor provided to Apply must not be nil")
+	}
+	patchOpts := opts.ToPatchOptions()
+	data, err := json.Marshal(resourceFlavor)
+	if err != nil {
+		return nil, err
+	}
+	name := resourceFlavor.Name
+	if name == nil {
+		return nil, fmt.Errorf("resourceFlavor.Name must be provided to Apply")
+	}
+	result = &v1beta1.ResourceFlavor{}
+	err = c.client.Patch(types.ApplyPatchType).
+		Namespace(c.ns).
+		Resource("resourceflavors").
+		Name(*name).
+		VersionedParams(&patchOpts, scheme.ParameterCodec).
 		Body(data).
 		Do(ctx).
 		Into(result)
