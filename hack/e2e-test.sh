@@ -27,6 +27,9 @@ export KIND=$ROOT_DIR/bin/kind
 function cleanup {
     if [ $CREATE_KIND_CLUSTER == 'true' ]
     then
+	if [ ! -d "$ARTIFACTS" ]; then
+		mkdir -p "$ARTIFACTS"
+	fi
         kubectl logs -n kube-system kube-scheduler-kind-control-plane > $ARTIFACTS/kube-scheduler.log
         kubectl logs -n kube-system kube-controller-manager-kind-control-plane > $ARTIFACTS/kube-controller-manager.log
         kubectl logs -n kueue-system deployment/kueue-controller-manager > $ARTIFACTS/kueue-controller-manager.log
