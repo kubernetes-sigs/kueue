@@ -392,16 +392,12 @@ func (a *Assignment) findFlavorForResourceGroup(
 			}
 		}
 
-		if shouldTryNextFlavor(representativeMode, cq.FlavorFungibility, whetherNeedBorrowing) {
+		if !shouldTryNextFlavor(representativeMode, cq.Preemption.FlavorFungibility, whetherNeedBorrowing) {
 			return assignments, nil
 		}
 		if representativeMode > bestAssignmentMode {
 			bestAssignment = assignments
 			bestAssignmentMode = representativeMode
-			// if bestAssignmentMode == Fit {
-			// 	// All the resources fit in the cohort, no need to check more flavors.
-			// 	return bestAssignment, nil
-			// }
 		}
 	}
 	return bestAssignment, status
@@ -411,18 +407,18 @@ func shouldTryNextFlavor(representativeMode FlavorAssignmentMode, flavorFungibil
 	policyPreempt := flavorFungibility.WhenCanPreempt
 	policyBorrow := flavorFungibility.WhenCanBorrow
 	if representativeMode == Preempt && policyPreempt == v1beta1.Preempt {
-		return true
+		return false
 	}
 
 	if representativeMode == Fit && whetherNeedBorrowing && policyBorrow == v1beta1.Borrow {
-		return true
+		return false
 	}
 
 	if representativeMode == Fit && !whetherNeedBorrowing {
-		return true
+		return false
 	}
 
-	return false
+	return true
 }
 
 func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.Set[string]) nodeaffinity.RequiredNodeAffinity {

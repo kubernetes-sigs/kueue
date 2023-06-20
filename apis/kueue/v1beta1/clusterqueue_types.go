@@ -284,8 +284,10 @@ const (
 
 type FlavorFungibility struct {
 	// +kubebuilder:validation:Enum="Borrow,TryNextFlavor"
+	// +kubebuilder:default="Borrow"
 	WhenCanBorrow FlavorFungibilityPolicy `json:"whenCanBorrow"`
 	// +kubebuilder:validation:Enum="Preempt,TryNextFlavor"
+	// +kubebuilder:default="TryNextFlavor"
 	WhenCanPreempt FlavorFungibilityPolicy `json:"whenCanPreempt"`
 }
 
@@ -323,6 +325,15 @@ type ClusterQueuePreemption struct {
 	// +kubebuilder:validation:Enum=Never;LowerPriority;LowerOrNewerEqualPriority
 	WithinClusterQueue PreemptionPolicy `json:"withinClusterQueue,omitempty"`
 
+	// flagorFungibility determines whether a workload should try the next flavor
+	// before borrowing or preempting in current flavor. The possible values are:
+	//
+	// - `Borrow` (default for WhenCanBorrow): allocate in current flavor if borrowing
+	//   can help. only effective for WhenCanBorrow
+	// - `Preempt`: allocate in current flavor if preempt might help. only effective
+	//   for WhenCanPreempt
+	// - `TryNextFlavor` (default for WhenCanPreempt): try next flavor if the current
+	//   flavor has no enough resource. effective for WhenCanBorrow and WhenCanPreempt.
 	FlavorFungibility FlavorFungibility `json:"flavorFungibility"`
 }
 

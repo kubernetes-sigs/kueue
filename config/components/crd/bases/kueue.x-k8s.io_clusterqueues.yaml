@@ -134,6 +134,20 @@ spec:
                   of Workloads to preempt to accomomdate the pending Workload, preempting
                   Workloads with lower priority first."
                 properties:
+                  flavorFungibility:
+                    properties:
+                      whenCanBorrow:
+                        enum:
+                        - Borrow,TryNextFlavor
+                        type: string
+                      whenCanPreempt:
+                        enum:
+                        - Preempt,TryNextFlavor
+                        type: string
+                    required:
+                    - whenCanBorrow
+                    - whenCanPreempt
+                    type: object
                   reclaimWithinCohort:
                     default: Never
                     description: "reclaimWithinCohort determines whether a pending
@@ -168,6 +182,8 @@ spec:
                     - LowerPriority
                     - LowerOrNewerEqualPriority
                     type: string
+                required:
+                - flavorFungibility
                 type: object
               queueingStrategy:
                 default: BestEffortFIFO
