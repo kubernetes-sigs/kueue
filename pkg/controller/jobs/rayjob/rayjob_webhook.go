@@ -27,6 +27,7 @@ import (
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
@@ -69,11 +70,11 @@ func (w *RayJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 var _ webhook.CustomValidator = &RayJobWebhook{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *RayJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
+func (w *RayJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	job := obj.(*rayjobapi.RayJob)
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
 	log.Info("Validating create", "job", klog.KObj(job))
-	return w.validateCreate(job).ToAggregate()
+	return nil, w.validateCreate(job).ToAggregate()
 }
 
 func (w *RayJobWebhook) validateCreate(job *rayjobapi.RayJob) field.ErrorList {
@@ -120,7 +121,7 @@ func (w *RayJobWebhook) validateCreate(job *rayjobapi.RayJob) field.ErrorList {
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *RayJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
+func (w *RayJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	oldJob := oldObj.(*rayjobapi.RayJob)
 	newJob := newObj.(*rayjobapi.RayJob)
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
@@ -128,12 +129,12 @@ func (w *RayJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runti
 		log.Info("Validating update", "job", klog.KObj(newJob))
 		allErrors := jobframework.ValidateUpdateForQueueName((*RayJob)(oldJob), (*RayJob)(newJob))
 		allErrors = append(allErrors, w.validateCreate(newJob)...)
-		return allErrors.ToAggregate()
+		return nil, allErrors.ToAggregate()
 	}
-	return nil
+	return nil, nil
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *RayJobWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) error {
-	return nil
+func (w *RayJobWebhook) ValidateDelete(context.Context, runtime.Object) (admission.Warnings, error) {
+	return nil, nil
 }

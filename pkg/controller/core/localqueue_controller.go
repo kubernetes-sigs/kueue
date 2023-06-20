@@ -167,16 +167,16 @@ func (r *LocalQueueReconciler) Generic(e event.GenericEvent) bool {
 // receive events.
 type qWorkloadHandler struct{}
 
-func (h *qWorkloadHandler) Create(event.CreateEvent, workqueue.RateLimitingInterface) {
+func (h *qWorkloadHandler) Create(context.Context, event.CreateEvent, workqueue.RateLimitingInterface) {
 }
 
-func (h *qWorkloadHandler) Update(event.UpdateEvent, workqueue.RateLimitingInterface) {
+func (h *qWorkloadHandler) Update(context.Context, event.UpdateEvent, workqueue.RateLimitingInterface) {
 }
 
-func (h *qWorkloadHandler) Delete(event.DeleteEvent, workqueue.RateLimitingInterface) {
+func (h *qWorkloadHandler) Delete(context.Context, event.DeleteEvent, workqueue.RateLimitingInterface) {
 }
 
-func (h *qWorkloadHandler) Generic(e event.GenericEvent, q workqueue.RateLimitingInterface) {
+func (h *qWorkloadHandler) Generic(ctx context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
 	w := e.Object.(*kueue.Workload)
 	if w.Name == "" {
 		return
@@ -196,15 +196,15 @@ type qCQHandler struct {
 	client client.Client
 }
 
-func (h *qCQHandler) Create(e event.CreateEvent, wq workqueue.RateLimitingInterface) {
+func (h *qCQHandler) Create(ctx context.Context, e event.CreateEvent, wq workqueue.RateLimitingInterface) {
 	cq, ok := e.Object.(*kueue.ClusterQueue)
 	if !ok {
 		return
 	}
-	h.addLocalQueueToWorkQueue(cq, wq)
+	h.addLocalQueueToWorkQueue(ctx, cq, wq)
 }
 
-func (h *qCQHandler) Update(e event.UpdateEvent, wq workqueue.RateLimitingInterface) {
+func (h *qCQHandler) Update(ctx context.Context, e event.UpdateEvent, wq workqueue.RateLimitingInterface) {
 	newCq, ok := e.ObjectNew.(*kueue.ClusterQueue)
 	if !ok {
 		return
@@ -218,22 +218,21 @@ func (h *qCQHandler) Update(e event.UpdateEvent, wq workqueue.RateLimitingInterf
 	if equality.Semantic.DeepEqual(oldCq.Status.Conditions, newCq.Status.Conditions) {
 		return
 	}
-	h.addLocalQueueToWorkQueue(newCq, wq)
+	h.addLocalQueueToWorkQueue(ctx, newCq, wq)
 }
 
-func (h *qCQHandler) Delete(e event.DeleteEvent, wq workqueue.RateLimitingInterface) {
+func (h *qCQHandler) Delete(ctx context.Context, e event.DeleteEvent, wq workqueue.RateLimitingInterface) {
 	cq, ok := e.Object.(*kueue.ClusterQueue)
 	if !ok {
 		return
 	}
-	h.addLocalQueueToWorkQueue(cq, wq)
+	h.addLocalQueueToWorkQueue(ctx, cq, wq)
 }
 
-func (h *qCQHandler) Generic(event.GenericEvent, workqueue.RateLimitingInterface) {
+func (h *qCQHandler) Generic(context.Context, event.GenericEvent, workqueue.RateLimitingInterface) {
 }
 
-func (h *qCQHandler) addLocalQueueToWorkQueue(cq *kueue.ClusterQueue, wq workqueue.RateLimitingInterface) {
-	ctx := context.TODO()
+func (h *qCQHandler) addLocalQueueToWorkQueue(ctx context.Context, cq *kueue.ClusterQueue, wq workqueue.RateLimitingInterface) {
 	log := ctrl.LoggerFrom(ctx).WithValues("clusterQueue", klog.KObj(cq))
 	ctx = ctrl.LoggerInto(ctx, log)
 
@@ -255,8 +254,8 @@ func (r *LocalQueueReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.LocalQueue{}).
-		Watches(&source.Channel{Source: r.wlUpdateCh}, &qWorkloadHandler{}).
-		Watches(&source.Kind{Type: &kueue.ClusterQueue{}}, &queueCQHandler).
+		WatchesRawSource(&source.Channel{Source: r.wlUpdateCh}, &qWorkloadHandler{}).
+		Watches(&kueue.ClusterQueue{}, &queueCQHandler).
 		WithEventFilter(r).
 		Complete(r)
 }

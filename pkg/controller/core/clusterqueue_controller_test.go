@@ -35,10 +35,11 @@ import (
 func TestUpdateCqStatusIfChanged(t *testing.T) {
 	cqName := "test-cq"
 	lqName := "test-lq"
+	defaultNamespace := "default"
 	defaultWls := &kueue.WorkloadList{
 		Items: []kueue.Workload{
-			*utiltesting.MakeWorkload("alpha", "").Queue(lqName).Obj(),
-			*utiltesting.MakeWorkload("beta", "").Queue(lqName).Obj(),
+			*utiltesting.MakeWorkload("alpha", defaultNamespace).Queue(lqName).Obj(),
+			*utiltesting.MakeWorkload("beta", defaultNamespace).Queue(lqName).Obj(),
 		},
 	}
 
@@ -144,7 +145,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					Message: "Can admit new workloads",
 				}},
 			},
-			newWl:              utiltesting.MakeWorkload("gamma", "").Queue(lqName).Obj(),
+			newWl:              utiltesting.MakeWorkload("gamma", defaultNamespace).Queue(lqName).Obj(),
 			newConditionStatus: metav1.ConditionTrue,
 			newReason:          "Ready",
 			newMessage:         "Can admit new workloads",
@@ -165,7 +166,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			cq := utiltesting.MakeClusterQueue(cqName).
 				QueueingStrategy(kueue.StrictFIFO).Obj()
 			cq.Status = tc.cqStatus
-			lq := utiltesting.MakeLocalQueue(lqName, "").
+			lq := utiltesting.MakeLocalQueue(lqName, defaultNamespace).
 				ClusterQueue(cqName).Obj()
 			log := testr.NewWithOptions(t, testr.Options{
 				Verbosity: 2,
@@ -173,7 +174,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			ctx := ctrl.LoggerInto(context.Background(), log)
 
 			cl := utiltesting.NewClientBuilder().WithLists(defaultWls).WithObjects(lq, cq).
-				Build()
+				WithStatusSubresource(lq, cq).Build()
 			cqCache := cache.New(cl)
 			qManager := queue.NewManager(cl, cqCache)
 			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {

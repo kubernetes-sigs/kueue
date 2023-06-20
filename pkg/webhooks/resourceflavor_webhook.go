@@ -18,6 +18,7 @@ package webhooks
 
 import (
 	"context"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -65,24 +66,24 @@ func (w *ResourceFlavorWebhook) Default(ctx context.Context, obj runtime.Object)
 var _ webhook.CustomValidator = &ResourceFlavorWebhook{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *ResourceFlavorWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
+func (w *ResourceFlavorWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	rf := obj.(*kueue.ResourceFlavor)
 	log := ctrl.LoggerFrom(ctx).WithName("resourceflavor-webhook")
 	log.V(5).Info("Validating create", "resourceFlavor", klog.KObj(rf))
-	return ValidateResourceFlavor(rf).ToAggregate()
+	return nil, ValidateResourceFlavor(rf).ToAggregate()
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *ResourceFlavorWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
+func (w *ResourceFlavorWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	newRF := newObj.(*kueue.ResourceFlavor)
 	log := ctrl.LoggerFrom(ctx).WithName("resourceflavor-webhook")
 	log.V(5).Info("Validating update", "resourceFlavor", klog.KObj(newRF))
-	return ValidateResourceFlavor(newRF).ToAggregate()
+	return nil, ValidateResourceFlavor(newRF).ToAggregate()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *ResourceFlavorWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) error {
-	return nil
+func (w *ResourceFlavorWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+	return nil, nil
 }
 
 func ValidateResourceFlavor(rf *kueue.ResourceFlavor) field.ErrorList {

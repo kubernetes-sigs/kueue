@@ -31,7 +31,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -574,7 +573,7 @@ func (r *genericReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(r.newJob().Object()).
 		Owns(&kueue.Workload{})
 	if r.newWorkloadHandler != nil {
-		builder = builder.Watches(&source.Kind{Type: &kueue.Workload{}}, r.newWorkloadHandler(mgr.GetClient()))
+		builder = builder.Watches(&kueue.Workload{}, r.newWorkloadHandler(mgr.GetClient()))
 	}
 	return builder.Complete(r)
 }

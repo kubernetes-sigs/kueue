@@ -19,6 +19,7 @@ package webhooks
 import (
 	"context"
 	"fmt"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
@@ -80,25 +81,25 @@ func (w *WorkloadWebhook) Default(ctx context.Context, obj runtime.Object) error
 var _ webhook.CustomValidator = &WorkloadWebhook{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *WorkloadWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
+func (w *WorkloadWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	wl := obj.(*kueue.Workload)
 	log := ctrl.LoggerFrom(ctx).WithName("workload-webhook")
 	log.V(5).Info("Validating create", "workload", klog.KObj(wl))
-	return ValidateWorkload(wl).ToAggregate()
+	return nil, ValidateWorkload(wl).ToAggregate()
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *WorkloadWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
+func (w *WorkloadWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	newWL := newObj.(*kueue.Workload)
 	oldWL := oldObj.(*kueue.Workload)
 	log := ctrl.LoggerFrom(ctx).WithName("workload-webhook")
 	log.V(5).Info("Validating update", "workload", klog.KObj(newWL))
-	return ValidateWorkloadUpdate(newWL, oldWL).ToAggregate()
+	return nil, ValidateWorkloadUpdate(newWL, oldWL).ToAggregate()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *WorkloadWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) error {
-	return nil
+func (w *WorkloadWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+	return nil, nil
 }
 
 func ValidateWorkload(obj *kueue.Workload) field.ErrorList {

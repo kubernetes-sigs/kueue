@@ -19,6 +19,8 @@ package v1beta1
 
 import (
 	"context"
+	json "encoding/json"
+	"fmt"
 	"time"
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,6 +28,7 @@ import (
 	watch "k8s.io/apimachinery/pkg/watch"
 	rest "k8s.io/client-go/rest"
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueuev1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta1"
 	scheme "sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 )
 
@@ -46,6 +49,8 @@ type LocalQueueInterface interface {
 	List(ctx context.Context, opts v1.ListOptions) (*v1beta1.LocalQueueList, error)
 	Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error)
 	Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.LocalQueue, err error)
+	Apply(ctx context.Context, localQueue *kueuev1beta1.LocalQueueApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.LocalQueue, err error)
+	ApplyStatus(ctx context.Context, localQueue *kueuev1beta1.LocalQueueApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.LocalQueue, err error)
 	LocalQueueExpansion
 }
 
@@ -187,6 +192,62 @@ func (c *localQueues) Patch(ctx context.Context, name string, pt types.PatchType
 		Name(name).
 		SubResource(subresources...).
 		VersionedParams(&opts, scheme.ParameterCodec).
+		Body(data).
+		Do(ctx).
+		Into(result)
+	return
+}
+
+// Apply takes the given apply declarative configuration, applies it and returns the applied localQueue.
+func (c *localQueues) Apply(ctx context.Context, localQueue *kueuev1beta1.LocalQueueApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.LocalQueue, err error) {
+	if localQueue == nil {
+		return nil, fmt.Errorf("localQueue provided to Apply must not be nil")
+	}
+	patchOpts := opts.ToPatchOptions()
+	data, err := json.Marshal(localQueue)
+	if err != nil {
+		return nil, err
+	}
+	name := localQueue.Name
+	if name == nil {
+		return nil, fmt.Errorf("localQueue.Name must be provided to Apply")
+	}
+	result = &v1beta1.LocalQueue{}
+	err = c.client.Patch(types.ApplyPatchType).
+		Namespace(c.ns).
+		Resource("localqueues").
+		Name(*name).
+		VersionedParams(&patchOpts, scheme.ParameterCodec).
+		Body(data).
+		Do(ctx).
+		Into(result)
+	return
+}
+
+// ApplyStatus was generated because the type contains a Status member.
+// Add a +genclient:noStatus comment above the type to avoid generating ApplyStatus().
+func (c *localQueues) ApplyStatus(ctx context.Context, localQueue *kueuev1beta1.LocalQueueApplyConfiguration, opts v1.ApplyOptions) (result *v1beta1.LocalQueue, err error) {
+	if localQueue == nil {
+		return nil, fmt.Errorf("localQueue provided to Apply must not be nil")
+	}
+	patchOpts := opts.ToPatchOptions()
+	data, err := json.Marshal(localQueue)
+	if err != nil {
+		return nil, err
+	}
+
+	name := localQueue.Name
+	if name == nil {
+		return nil, fmt.Errorf("localQueue.Name must be provided to Apply")
+	}
+
+	result = &v1beta1.LocalQueue{}
+	err = c.client.Patch(types.ApplyPatchType).
+		Namespace(c.ns).
+		Resource("localqueues").
+		Name(*name).
+		SubResource("status").
+		VersionedParams(&patchOpts, scheme.ParameterCodec).
 		Body(data).
 		Do(ctx).
 		Into(result)
