@@ -197,6 +197,12 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			return len(createdWorkload.Status.Conditions) == 1
 		}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
 
+		// We need to set startTime to the job since the kube-controller-manager doesn't exist in envtest.
+		ginkgo.By("setting startTime to the job")
+		now := metav1.Now()
+		createdJob.Status.StartTime = &now
+		gomega.Expect(k8sClient.Status().Update(ctx, createdJob)).Should(gomega.Succeed())
+
 		ginkgo.By("checking the job gets suspended when parallelism changes and the added node selectors are removed")
 		newParallelism := int32(parallelism + 1)
 		createdJob.Spec.Parallelism = &newParallelism
@@ -205,7 +211,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {
 				return false
 			}
-			return createdJob.Spec.Suspend != nil && *createdJob.Spec.Suspend &&
+			return createdJob.Spec.Suspend != nil && *createdJob.Spec.Suspend && createdJob.Status.StartTime == nil &&
 				len(createdJob.Spec.Template.Spec.NodeSelector) == 0
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 		gomega.Eventually(func() bool {
