@@ -96,14 +96,6 @@ func (j *MPIJob) Suspend() {
 	j.Spec.RunPolicy.Suspend = pointer.Bool(true)
 }
 
-func (j *MPIJob) ResetStatus() bool {
-	if j.Status.StartTime == nil {
-		return false
-	}
-	j.Status.StartTime = nil
-	return true
-}
-
 func (j *MPIJob) GetGVK() schema.GroupVersionKind {
 	return gvk
 }

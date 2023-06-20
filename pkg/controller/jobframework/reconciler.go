@@ -19,7 +19,6 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -391,34 +390,21 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 
 // stopJob will suspend the job, and also restore node affinity, reset job status if needed.
 func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload, eventMsg string) error {
-	log := ctrl.LoggerFrom(ctx)
+	info := getPodSetsInfoFromWorkload(wl)
 
-	// Suspend the job at first then we're able to update the scheduling directives.
+	if jws, implements := job.(JobWithCustomStop); implements {
+		return jws.Stop(ctx, r.client, info)
+	}
+
 	job.Suspend()
+	if info != nil {
+		job.RestorePodSetsInfo(info)
+	}
 	if err := r.client.Update(ctx, object); err != nil {
 		return err
 	}
 
 	r.record.Eventf(object, corev1.EventTypeNormal, "Stopped", eventMsg)
-
-	if job.ResetStatus() {
-		if err := r.client.Status().Update(ctx, object); err != nil {
-			return err
-		}
-	}
-
-	if wl != nil {
-		log.V(3).Info("Restored job spec")
-		info := getPodSetsInfoFromWorkload(wl)
-		oldPS := job.PodSets()
-		job.RestorePodSetsInfo(info)
-		if !equality.Semantic.DeepEqual(oldPS, job.PodSets) {
-			err := r.client.Update(ctx, object)
-			if err != nil {
-				return err
-			}
-		}
-	}
 	return nil
 }
 
@@ -537,6 +523,10 @@ func generatePodsReadyCondition(job GenericJob, wl *kueue.Workload) metav1.Condi
 // getPodSetsInfoFromWorkload retrieve the podSetsInfo slice from the
 // provided workload's spec
 func getPodSetsInfoFromWorkload(wl *kueue.Workload) []PodSetInfo {
+	if wl == nil {
+		return nil
+	}
+
 	return slices.Map(wl.Spec.PodSets, func(ps *kueue.PodSet) PodSetInfo {
 		return PodSetInfo{
 			Name:         ps.Name,

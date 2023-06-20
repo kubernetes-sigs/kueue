@@ -14,6 +14,8 @@ limitations under the License.
 package jobframework
 
 import (
+	"context"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -31,9 +33,6 @@ type GenericJob interface {
 	IsSuspended() bool
 	// Suspend will suspend the job.
 	Suspend()
-	// ResetStatus will reset the job status to the original state.
-	// If true, status is modified, if not, status is as it was.
-	ResetStatus() bool
 	// RunWithPodSetsInfo will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
 	RunWithPodSetsInfo(nodeSelectors []PodSetInfo)
 	// RestorePodSetsInfo will restore the original node affinity and podSet counts of the job.
@@ -61,6 +60,11 @@ type GenericJob interface {
 type JobWithReclaimablePods interface {
 	// ReclaimablePods returns the list of reclaimable pods.
 	ReclaimablePods() []kueue.ReclaimablePod
+}
+
+type JobWithCustomStop interface {
+	// Stop implements a custom stop procedure
+	Stop(ctx context.Context, c client.Client, podSetsInfo []PodSetInfo) error
 }
 
 func ParentWorkloadName(job GenericJob) string {

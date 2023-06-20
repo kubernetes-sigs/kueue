@@ -18,6 +18,7 @@ package job
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -131,6 +132,7 @@ type Job batchv1.Job
 
 var _ jobframework.GenericJob = (*Job)(nil)
 var _ jobframework.JobWithReclaimablePods = (*Job)(nil)
+var _ jobframework.JobWithCustomStop = (*Job)(nil)
 
 func (j *Job) Object() client.Object {
 	return (*batchv1.Job)(j)
@@ -152,13 +154,29 @@ func (j *Job) Suspend() {
 	j.Spec.Suspend = pointer.Bool(true)
 }
 
-func (j *Job) ResetStatus() bool {
-	// Reset start time so we can update the scheduling directives later when unsuspending.
-	if j.Status.StartTime == nil {
-		return false
+func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []jobframework.PodSetInfo) error {
+	if !j.IsSuspended() {
+		j.Suspend()
+		if err := c.Update(ctx, j.Object()); err != nil {
+			return fmt.Errorf("suspend: %w", err)
+		}
 	}
-	j.Status.StartTime = nil
-	return true
+
+	// Reset start time, if necessary so we can update the scheduling directives.
+	if j.Status.StartTime != nil {
+		j.Status.StartTime = nil
+		if err := c.Status().Update(ctx, j.Object()); err != nil {
+			return fmt.Errorf("reset status: %w", err)
+		}
+	}
+
+	if len(podSetsInfo) > 0 {
+		j.RestorePodSetsInfo(podSetsInfo)
+		if err := c.Update(ctx, j.Object()); err != nil {
+			return fmt.Errorf("restore info: %w", err)
+		}
+	}
+	return nil
 }
 
 func (j *Job) GetGVK() schema.GroupVersionKind {
