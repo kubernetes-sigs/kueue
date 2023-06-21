@@ -27,7 +27,6 @@ GO_VERSION := $(shell awk '/^go /{print $$2}' go.mod|head -n1)
 
 # Use go.mod go version as a single source of truth of Ginkgo version.
 GINKGO_VERSION ?= $(shell $(GO_CMD) list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)
-CODEGEN_VERSION := $(shell $(GO_CMD) list -m -f '{{.Version}}' k8s.io/api)
 
 GIT_TAG ?= $(shell git describe --tags --dirty --always)
 # Image URL to use all building/pushing image targets
@@ -112,9 +111,9 @@ update-helm-crd: manifests
 	./hack/update-helm-crd.sh
 
 .PHONY: generate
-generate: controller-gen code-generator ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations and client-go libraries.
+generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations and client-go libraries.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
-	./hack/update-codegen.sh $(GO_CMD) $(PROJECT_DIR)/bin
+	./hack/update-codegen.sh $(GO_CMD)
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -285,16 +284,6 @@ KIND = $(shell pwd)/bin/kind
 kind:
 	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kind@v0.16.0
 
-CODEGEN_ROOT = $(shell $(GO_CMD) env GOMODCACHE)/k8s.io/code-generator@$(CODEGEN_VERSION)
-.PHONY: code-generator
-code-generator:
-	@GO111MODULE=on $(GO_CMD) get \
-		k8s.io/code-generator/cmd/defaulter-gen@$(CODEGEN_VERSION) \
-		k8s.io/code-generator/cmd/client-gen@$(CODEGEN_VERSION) \
-		k8s.io/code-generator/cmd/lister-gen@$(CODEGEN_VERSION) \
-		k8s.io/code-generator/cmd/informer-gen@$(CODEGEN_VERSION) \
-		k8s.io/code-generator/cmd/deepcopy-gen@$(CODEGEN_VERSION)
-	cp -f $(CODEGEN_ROOT)/generate-groups.sh $(PROJECT_DIR)/bin/
 
 MPIROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" github.com/kubeflow/mpi-operator)
 .PHONY: mpi-operator-crd
