@@ -17,11 +17,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -140,12 +137,6 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	log.V(2).Info("Reconciling Job")
-
-	if !r.manageJobsWithoutQueueName && QueueName(job) != "" {
-		if err := r.ensureIntegrationIsEnabled(ctx, job, object); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
 
 	// 1. make sure there is only a single existing instance of the workload.
 	// If there's no workload exists and job is unsuspended, we'll stop it immediately.
@@ -399,34 +390,21 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 
 // stopJob will suspend the job, and also restore node affinity, reset job status if needed.
 func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload, eventMsg string) error {
-	log := ctrl.LoggerFrom(ctx)
+	info := getPodSetsInfoFromWorkload(wl)
 
-	// Suspend the job at first then we're able to update the scheduling directives.
+	if jws, implements := job.(JobWithCustomStop); implements {
+		return jws.Stop(ctx, r.client, info)
+	}
+
 	job.Suspend()
+	if info != nil {
+		job.RestorePodSetsInfo(info)
+	}
 	if err := r.client.Update(ctx, object); err != nil {
 		return err
 	}
 
 	r.record.Eventf(object, corev1.EventTypeNormal, "Stopped", eventMsg)
-
-	if job.ResetStatus() {
-		if err := r.client.Status().Update(ctx, object); err != nil {
-			return err
-		}
-	}
-
-	if wl != nil {
-		log.V(3).Info("Restored job spec")
-		info := getPodSetsInfoFromWorkload(wl)
-		oldPS := job.PodSets()
-		job.RestorePodSetsInfo(info)
-		if !equality.Semantic.DeepEqual(oldPS, job.PodSets) {
-			err := r.client.Update(ctx, object)
-			if err != nil {
-				return err
-			}
-		}
-	}
 	return nil
 }
 
@@ -522,26 +500,6 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	return nil
 }
 
-func (r *JobReconciler) ensureIntegrationIsEnabled(ctx context.Context, job GenericJob, object client.Object) error {
-	log := ctrl.LoggerFrom(ctx)
-	var crds = apiextensionsv1.CustomResourceDefinitionList{}
-	if err := r.client.List(ctx, &crds); err != nil {
-		log.Error(err, "couldn't get crd list")
-		return client.IgnoreNotFound(err)
-	}
-	for _, crd := range crds.Items {
-		if crd.Spec.Names.Kind == object.GetObjectKind().GroupVersionKind().Kind {
-			integrationName := strings.Join([]string{crd.Spec.Group, crd.Spec.Names.Singular}, "/")
-			if _, exist := GetIntegration(integrationName); !exist {
-				log.V(3).Info("job does have a queue-name label, but intergation is disabled, ignoring the job",
-					"job", object.GetName())
-				return fmt.Errorf("no matching integration was found, tried to enable %s in configuration", integrationName)
-			}
-		}
-	}
-	return nil
-}
-
 func generatePodsReadyCondition(job GenericJob, wl *kueue.Workload) metav1.Condition {
 	conditionStatus := metav1.ConditionFalse
 	message := "Not all pods are ready or succeeded"
@@ -565,6 +523,10 @@ func generatePodsReadyCondition(job GenericJob, wl *kueue.Workload) metav1.Condi
 // getPodSetsInfoFromWorkload retrieve the podSetsInfo slice from the
 // provided workload's spec
 func getPodSetsInfoFromWorkload(wl *kueue.Workload) []PodSetInfo {
+	if wl == nil {
+		return nil
+	}
+
 	return slices.Map(wl.Spec.PodSets, func(ps *kueue.PodSet) PodSetInfo {
 		return PodSetInfo{
 			Name:         ps.Name,

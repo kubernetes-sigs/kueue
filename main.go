@@ -22,6 +22,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -34,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -48,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/noop"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
@@ -152,7 +155,7 @@ func main() {
 	// Cert won't be ready until manager starts, so start a goroutine here which
 	// will block until the cert is ready before setting up the controllers.
 	// Controllers who register after manager starts will start directly.
-	go setupControllers(mgr, cCache, queues, certsReady, &cfg)
+	go setupControllers(ctx, mgr, cCache, queues, certsReady, &cfg)
 
 	go func() {
 		queues.CleanUpOnContext(ctx)
@@ -189,7 +192,7 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *config.Configurati
 	}
 }
 
-func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, cfg *config.Configuration) {
+func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, cfg *config.Configuration) {
 	// The controllers won't work until the webhooks are operating, and the webhook won't work until the
 	// certs are all in place.
 	setupLog.Info("Waiting for certificate generation to complete")
@@ -207,6 +210,8 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 		os.Exit(1)
 	}
 
+	crds := findCustomResources(ctx, mgr)
+
 	opts := []jobframework.Option{
 		jobframework.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName),
 		jobframework.WithWaitForPodsReady(waitForPodsReady(cfg)),
@@ -214,17 +219,19 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 	err := jobframework.ForEachIntegration(func(name string, cb jobframework.IntegrationCallbacks) error {
 		log := setupLog.WithValues("jobFrameworkName", name)
 		if isFrameworkEnabled(cfg, name) {
-			if err := cb.NewReconciler(mgr.GetScheme(),
-				mgr.GetClient(),
-				mgr.GetEventRecorderFor(fmt.Sprintf("%s-%s-controller", name, constants.KueueName)),
-				opts...,
-			).SetupWithManager(mgr); err != nil {
-				log.Error(err, "unable to create controller")
-				return err
-			}
-			if err := cb.SetupWebhook(mgr, opts...); err != nil {
-				log.Error(err, "Unable to create webhook")
-				return err
+			if crds.Has(name) {
+				if err := cb.NewReconciler(mgr.GetScheme(),
+					mgr.GetClient(),
+					mgr.GetEventRecorderFor(fmt.Sprintf("%s-%s-controller", name, constants.KueueName)),
+					opts...,
+				).SetupWithManager(mgr); err != nil {
+					log.Error(err, "unable to create controller")
+					return err
+				}
+				if err := cb.SetupWebhook(mgr, opts...); err != nil {
+					log.Error(err, "Unable to create webhook")
+					return err
+				}
 			}
 		} else {
 			if err := noop.SetupWebhook(mgr, cb.JobType); err != nil {
@@ -339,4 +346,19 @@ func isFrameworkEnabled(cfg *config.Configuration, name string) bool {
 		}
 	}
 	return false
+}
+
+// +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=list;watch
+
+func findCustomResources(ctx context.Context, mgr ctrl.Manager) sets.Set[string] {
+	var crds = apiextensionsv1.CustomResourceDefinitionList{}
+	if err := mgr.GetClient().List(ctx, &crds); err != nil {
+		setupLog.Error(err, "Unable to get crd list")
+		os.Exit(1)
+	}
+	customResources := sets.New[string](job.FrameworkName)
+	for _, crd := range crds.Items {
+		customResources.Insert(strings.Join([]string{crd.Spec.Group, crd.Spec.Names.Singular}, "/"))
+	}
+	return customResources
 }
