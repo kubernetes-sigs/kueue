@@ -65,6 +65,7 @@ func init() {
 // +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=list;watch
 // +kubebuilder:rbac:groups=batch,resources=jobs/status,verbs=get;update
 // +kubebuilder:rbac:groups=batch,resources=jobs/finalizers,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete

@@ -17,8 +17,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -138,6 +140,12 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	log.V(2).Info("Reconciling Job")
+
+	if !r.manageJobsWithoutQueueName && QueueName(job) != "" {
+		if err := r.ensureIntegrationIsEnabled(ctx, job, object); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
 
 	// 1. make sure there is only a single existing instance of the workload.
 	// If there's no workload exists and job is unsuspended, we'll stop it immediately.
@@ -511,6 +519,26 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	}
 	r.record.Eventf(object, corev1.EventTypeNormal, "CreatedWorkload",
 		"Created Workload: %v", workload.Key(wl))
+	return nil
+}
+
+func (r *JobReconciler) ensureIntegrationIsEnabled(ctx context.Context, job GenericJob, object client.Object) error {
+	log := ctrl.LoggerFrom(ctx)
+	var crds = apiextensionsv1.CustomResourceDefinitionList{}
+	if err := r.client.List(ctx, &crds); err != nil {
+		log.Error(err, "couldn't get crd list")
+		return client.IgnoreNotFound(err)
+	}
+	for _, crd := range crds.Items {
+		if crd.Spec.Names.Kind == object.GetObjectKind().GroupVersionKind().Kind {
+			integrationName := strings.Join([]string{crd.Spec.Group, crd.Spec.Names.Singular}, "/")
+			if _, exist := GetIntegration(integrationName); !exist {
+				log.V(3).Info("job does have a queue-name label, but intergation is disabled, ignoring the job",
+					"job", object.GetName())
+				return fmt.Errorf("no matching integration was found, tried to enable %s in configuration", integrationName)
+			}
+		}
+	}
 	return nil
 }
 

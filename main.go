@@ -30,6 +30,7 @@ import (
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	schedulingv1 "k8s.io/api/scheduling/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -72,6 +73,7 @@ func init() {
 
 	utilruntime.Must(kueue.AddToScheme(scheme))
 	utilruntime.Must(config.AddToScheme(scheme))
+	utilruntime.Must(apiextensionsv1.AddToScheme(scheme))
 	// Add any additional framework integration types.
 	utilruntime.Must(
 		jobframework.ForEachIntegration(func(_ string, cb jobframework.IntegrationCallbacks) error {
