@@ -830,6 +830,9 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 				*testing.MakeFlavorQuotas("spot-untainted").Resource(corev1.ResourceCPU, "5").Obj(),
 				*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
 			).
+			Preemption(kueue.ClusterQueuePreemption{
+				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+			}).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, devClusterQ)).Should(gomega.Succeed())
 	})
@@ -1072,6 +1075,50 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		})
 	})
 
+	ginkgo.It("Should readmit preempted Job in alternative flavor", func() {
+		devLocalQ = testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devClusterQ.Name).Obj()
+		gomega.Expect(k8sClient.Create(ctx, devLocalQ)).Should(gomega.Succeed())
+
+		highPriorityClass := testing.MakePriorityClass("high").PriorityValue(100).Obj()
+		gomega.Expect(k8sClient.Create(ctx, highPriorityClass))
+
+		lowJobKey := types.NamespacedName{Name: "low", Namespace: ns.Name}
+		ginkgo.By("Low priority job is unsuspended and has nodeSelector", func() {
+			job := testingjob.MakeJob("low", ns.Name).
+				Queue(devLocalQ.Name).
+				Parallelism(5).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+
+			expectJobUnsuspendedWithNodeSelectors(lowJobKey, map[string]string{
+				instanceKey: "spot-untainted",
+			})
+		})
+
+		ginkgo.By("High priority job preemtps low priority job", func() {
+			job := testingjob.MakeJob("high", ns.Name).
+				Queue(devLocalQ.Name).
+				PriorityClass("high").
+				Parallelism(5).
+				Request(corev1.ResourceCPU, "1").
+				NodeSelector(instanceKey, "spot-untainted"). // target the same flavor to cause preemption
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+
+			highJobKey := types.NamespacedName{Name: "high", Namespace: ns.Name}
+			expectJobUnsuspendedWithNodeSelectors(highJobKey, map[string]string{
+				instanceKey: "spot-untainted",
+			})
+		})
+
+		ginkgo.By("Preempted job should be admitted on second flavor", func() {
+			expectJobUnsuspendedWithNodeSelectors(lowJobKey, map[string]string{
+				instanceKey: "on-demand",
+			})
+		})
+	})
+
 	ginkgo.It("Should schedule jobs when partial admission is enabled", func() {
 		origPartialAdmission := features.Enabled(features.PartialAdmission)
 		ginkgo.By("enable partial admission", func() {
@@ -1149,3 +1196,11 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		})
 	})
 })
+
+func expectJobUnsuspendedWithNodeSelectors(key types.NamespacedName, ns map[string]string) {
+	job := &batchv1.Job{}
+	gomega.EventuallyWithOffset(1, func() []any {
+		gomega.Expect(k8sClient.Get(ctx, key, job)).To(gomega.Succeed())
+		return []any{*job.Spec.Suspend, job.Spec.Template.Spec.NodeSelector}
+	}, util.Timeout, util.Interval).Should(gomega.Equal([]any{false, ns}))
+}
