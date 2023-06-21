@@ -33,7 +33,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -65,7 +64,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 		}
 		ctx, cfg, k8sClient = fwk.Setup()
 
-		defaultFlavor = utiltesting.MakeResourceFlavor("default").Obj()
+		defaultFlavor = testing.MakeResourceFlavor("default").Obj()
 		gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).To(gomega.Succeed())
 
 		ns = &corev1.Namespace{
@@ -378,7 +377,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 		}
 		ctx, cfg, k8sClient = fwk.Setup()
 
-		defaultFlavor = utiltesting.MakeResourceFlavor("default").Obj()
+		defaultFlavor = testing.MakeResourceFlavor("default").Obj()
 		gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).To(gomega.Succeed())
 
 		ns = &corev1.Namespace{

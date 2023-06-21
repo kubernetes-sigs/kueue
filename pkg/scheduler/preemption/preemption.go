@@ -23,7 +23,6 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -376,7 +375,7 @@ func candidatesOrdering(candidates []*workload.Info, cq string, now time.Time) f
 }
 
 func admisionTime(wl *kueue.Workload, now time.Time) time.Time {
-	cond := meta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
 	if cond == nil || cond.Status != metav1.ConditionTrue {
 		// The condition wasn't populated yet, use the current time.
 		return now
