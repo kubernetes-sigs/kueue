@@ -37,7 +37,7 @@ import (
 )
 
 type ResourceFlavorUpdateWatcher interface {
-	NotifyResourceFlavorUpdate(*kueue.ResourceFlavor)
+	NotifyResourceFlavorUpdate(oldRF, newRF *kueue.ResourceFlavor)
 }
 
 // ResourceFlavorReconciler reconciles a ResourceFlavor object
@@ -111,9 +111,9 @@ func (r *ResourceFlavorReconciler) AddUpdateWatcher(watchers ...ResourceFlavorUp
 	r.watchers = watchers
 }
 
-func (r *ResourceFlavorReconciler) notifyWatchers(rf *kueue.ResourceFlavor) {
+func (r *ResourceFlavorReconciler) notifyWatchers(oldRF, newRF *kueue.ResourceFlavor) {
 	for _, w := range r.watchers {
-		w.NotifyResourceFlavorUpdate(rf)
+		w.NotifyResourceFlavorUpdate(oldRF, newRF)
 	}
 }
 
@@ -122,7 +122,7 @@ func (r *ResourceFlavorReconciler) Create(e event.CreateEvent) bool {
 	if !match {
 		return false
 	}
-	defer r.notifyWatchers(flv)
+	defer r.notifyWatchers(nil, flv)
 
 	log := r.log.WithValues("resourceFlavor", klog.KObj(flv))
 	log.V(2).Info("ResourceFlavor create event")
@@ -144,7 +144,7 @@ func (r *ResourceFlavorReconciler) Delete(e event.DeleteEvent) bool {
 	if !match {
 		return false
 	}
-	defer r.notifyWatchers(flv)
+	defer r.notifyWatchers(flv, nil)
 
 	log := r.log.WithValues("resourceFlavor", klog.KObj(flv))
 	log.V(2).Info("ResourceFlavor delete event")
@@ -156,20 +156,24 @@ func (r *ResourceFlavorReconciler) Delete(e event.DeleteEvent) bool {
 }
 
 func (r *ResourceFlavorReconciler) Update(e event.UpdateEvent) bool {
-	flv, match := e.ObjectNew.(*kueue.ResourceFlavor)
+	oldFlv, match := e.ObjectOld.(*kueue.ResourceFlavor)
 	if !match {
 		return false
 	}
-	defer r.notifyWatchers(flv)
+	newFlv, match := e.ObjectNew.(*kueue.ResourceFlavor)
+	if !match {
+		return false
+	}
+	defer r.notifyWatchers(oldFlv, newFlv)
 
-	log := r.log.WithValues("resourceFlavor", klog.KObj(flv))
+	log := r.log.WithValues("resourceFlavor", klog.KObj(newFlv))
 	log.V(2).Info("ResourceFlavor update event")
 
-	if flv.DeletionTimestamp != nil {
+	if newFlv.DeletionTimestamp != nil {
 		return true
 	}
 
-	if cqNames := r.cache.AddOrUpdateResourceFlavor(flv.DeepCopy()); len(cqNames) > 0 {
+	if cqNames := r.cache.AddOrUpdateResourceFlavor(newFlv.DeepCopy()); len(cqNames) > 0 {
 		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
 	}
 	return false

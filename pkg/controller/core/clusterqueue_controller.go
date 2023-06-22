@@ -157,8 +157,19 @@ func (r *ClusterQueueReconciler) notifyWatchers(oldCQ, newCQ *kueue.ClusterQueue
 	}
 }
 
-func (r *ClusterQueueReconciler) NotifyResourceFlavorUpdate(rf *kueue.ResourceFlavor) {
-	r.rfUpdateCh <- event.GenericEvent{Object: rf}
+// Updates are ignored since they have no impact on the ClusterQueue's readiness.
+func (r *ClusterQueueReconciler) NotifyResourceFlavorUpdate(oldRF, newRF *kueue.ResourceFlavor) {
+	// if oldRF is nil, it's a create event.
+	if oldRF == nil {
+		r.rfUpdateCh <- event.GenericEvent{Object: newRF}
+		return
+	}
+
+	// if newRF is nil, it's a delete event.
+	if newRF == nil {
+		r.rfUpdateCh <- event.GenericEvent{Object: oldRF}
+		return
+	}
 }
 
 // Event handlers return true to signal the controller to reconcile the
