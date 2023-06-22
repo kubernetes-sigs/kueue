@@ -13,3 +13,8 @@ nodes:
       extraArgs:
         v: "2"
 - role: worker
+  labels:
+    instance-type: on-demand
+- role: worker
+  labels:
+    instance-type: spot
