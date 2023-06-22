@@ -18,13 +18,18 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-export KUSTOMIZE=$PWD/bin/kustomize
-export GINKGO=$PWD/bin/ginkgo
-export KIND=$PWD/bin/kind
+SOURCE_DIR="$(cd "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+ROOT_DIR=$SOURCE_DIR/..
+export KUSTOMIZE=$ROOT_DIR/bin/kustomize
+export GINKGO=$ROOT_DIR/bin/ginkgo
+export KIND=$ROOT_DIR/bin/kind
 
 function cleanup {
     if [ $CREATE_KIND_CLUSTER == 'true' ]
     then
+        kubectl logs -n kube-system kube-scheduler-kind-control-plane > $ARTIFACTS/kube-scheduler.log
+        kubectl logs -n kube-system kube-controller-manager-kind-control-plane > $ARTIFACTS/kube-controller-manager.log
+        kubectl logs -n kueue-system deployment/kueue-controller-manager > $ARTIFACTS/kueue-controller-manager.log
         $KIND delete cluster --name $KIND_CLUSTER_NAME || { echo "You need to run make kind-image-build before this script"; exit -1; }
     fi
     (cd config/components/manager && $KUSTOMIZE edit set image controller=gcr.io/k8s-staging-kueue/kueue:main)
@@ -33,7 +38,7 @@ function cleanup {
 function startup {
     if [ $CREATE_KIND_CLUSTER == 'true' ]
     then
-        $KIND create cluster --name $KIND_CLUSTER_NAME --image $E2E_KIND_VERSION
+        $KIND create cluster --name $KIND_CLUSTER_NAME --image $E2E_KIND_VERSION --config $SOURCE_DIR/kind-cluster.yaml
     fi
 }
 
