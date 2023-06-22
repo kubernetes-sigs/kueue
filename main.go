@@ -17,7 +17,6 @@ limitations under the License.
 package main
 
 import (
-	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -33,7 +32,6 @@ import (
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/serializer"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -43,9 +41,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/config"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -75,7 +74,7 @@ func init() {
 	utilruntime.Must(schedulingv1.AddToScheme(scheme))
 
 	utilruntime.Must(kueue.AddToScheme(scheme))
-	utilruntime.Must(config.AddToScheme(scheme))
+	utilruntime.Must(configapi.AddToScheme(scheme))
 	utilruntime.Must(apiextensionsv1.AddToScheme(scheme))
 	// Add any additional framework integration types.
 	utilruntime.Must(
@@ -173,7 +172,7 @@ func main() {
 	}
 }
 
-func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *config.Configuration) {
+func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configuration) {
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	if err != nil {
 		setupLog.Error(err, "Unable to setup core api indexes")
@@ -192,7 +191,7 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *config.Configurati
 	}
 }
 
-func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, cfg *config.Configuration) {
+func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, cfg *configapi.Configuration) {
 	// The controllers won't work until the webhooks are operating, and the webhook won't work until the
 	// certs are all in place.
 	setupLog.Info("Waiting for certificate generation to complete")
@@ -259,7 +258,7 @@ func setupProbeEndpoints(mgr ctrl.Manager) {
 	}
 }
 
-func setupScheduler(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, cfg *config.Configuration) {
+func setupScheduler(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, cfg *configapi.Configuration) {
 	sched := scheduler.New(
 		queues,
 		cCache,
@@ -272,43 +271,16 @@ func setupScheduler(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager
 	}
 }
 
-func blockForPodsReady(cfg *config.Configuration) bool {
+func blockForPodsReady(cfg *configapi.Configuration) bool {
 	return waitForPodsReady(cfg) && cfg.WaitForPodsReady.BlockAdmission != nil && *cfg.WaitForPodsReady.BlockAdmission
 }
 
-func waitForPodsReady(cfg *config.Configuration) bool {
+func waitForPodsReady(cfg *configapi.Configuration) bool {
 	return cfg.WaitForPodsReady != nil && cfg.WaitForPodsReady.Enable
 }
 
-func encodeConfig(cfg *config.Configuration) (string, error) {
-	codecs := serializer.NewCodecFactory(scheme)
-	const mediaType = runtime.ContentTypeYAML
-	info, ok := runtime.SerializerInfoForMediaType(codecs.SupportedMediaTypes(), mediaType)
-	if !ok {
-		return "", fmt.Errorf("unable to locate encoder -- %q is not a supported media type", mediaType)
-	}
-
-	encoder := codecs.EncoderForVersion(info.Serializer, config.GroupVersion)
-	buf := new(bytes.Buffer)
-	if err := encoder.Encode(cfg, buf); err != nil {
-		return "", err
-	}
-	return buf.String(), nil
-}
-
-func apply(configFile string) (ctrl.Options, config.Configuration, error) {
-	var err error
-	options := ctrl.Options{
-		Scheme: scheme,
-	}
-	cfg := config.Configuration{}
-
-	if configFile == "" {
-		scheme.Default(&cfg)
-		options, err = options.AndFrom(&cfg)
-	} else {
-		options, err = options.AndFrom(ctrl.ConfigFile().AtPath(configFile).OfKind(&cfg))
-	}
+func apply(configFile string) (ctrl.Options, configapi.Configuration, error) {
+	options, cfg, err := config.Load(scheme, configFile)
 	if err != nil {
 		return options, cfg, err
 	}
@@ -328,7 +300,7 @@ func apply(configFile string) (ctrl.Options, config.Configuration, error) {
 		}
 	}
 
-	cfgStr, err := encodeConfig(&cfg)
+	cfgStr, err := config.Encode(scheme, &cfg)
 	if err != nil {
 		return options, cfg, err
 	}
@@ -337,7 +309,7 @@ func apply(configFile string) (ctrl.Options, config.Configuration, error) {
 	return options, cfg, nil
 }
 
-func isFrameworkEnabled(cfg *config.Configuration, name string) bool {
+func isFrameworkEnabled(cfg *configapi.Configuration, name string) bool {
 	for _, framework := range cfg.Integrations.Frameworks {
 		if framework == name {
 			return true
