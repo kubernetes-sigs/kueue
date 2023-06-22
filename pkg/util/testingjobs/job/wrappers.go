@@ -128,12 +128,9 @@ func (j *JobWrapper) Request(r corev1.ResourceName, v string) *JobWrapper {
 }
 
 func (j *JobWrapper) Image(name string, image string, args []string) *JobWrapper {
-	j.Spec.Template.Spec.Containers[0] = corev1.Container{
-		Name:      name,
-		Image:     image,
-		Args:      args,
-		Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
-	}
+	j.Spec.Template.Spec.Containers[0].Name = name
+	j.Spec.Template.Spec.Containers[0].Image = image
+	j.Spec.Template.Spec.Containers[0].Args = args
 	return j
 }
 

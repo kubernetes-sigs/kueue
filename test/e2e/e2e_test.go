@@ -45,14 +45,19 @@ var _ = ginkgo.Describe("Kueue", func() {
 			},
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-		sampleJob = testingjob.MakeJob("test-job", ns.Name).Queue("main").Request("cpu", "1").Request("memory", "20Mi").
-			Image("sleep", "gcr.io/k8s-staging-perf-tests/sleep:v0.0.3", []string{"5s"}).Obj()
+		sampleJob = testingjob.MakeJob("test-job", ns.Name).
+			Queue("main").
+			Request("cpu", "1").
+			Request("memory", "20Mi").
+			Image("sleep", "gcr.io/k8s-staging-perf-tests/sleep:v0.0.3", []string{"5s"}).
+			Obj()
 
 		gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
+
 	ginkgo.When("Creating a Job without a matching LocalQueue", func() {
 		ginkgo.It("Should stay in suspended", func() {
 			lookupKey := types.NamespacedName{Name: "test-job", Namespace: ns.Name}
@@ -75,43 +80,41 @@ var _ = ginkgo.Describe("Kueue", func() {
 			gomega.Expect(k8sClient.Delete(ctx, sampleJob)).Should(gomega.Succeed())
 		})
 	})
+
 	ginkgo.When("Creating a Job With Queueing", func() {
 		var (
-			resourceKueue *kueue.ResourceFlavor
-			localQueue    *kueue.LocalQueue
-			clusterQueue  *kueue.ClusterQueue
+			onDemandRF   *kueue.ResourceFlavor
+			localQueue   *kueue.LocalQueue
+			clusterQueue *kueue.ClusterQueue
 		)
 		ginkgo.BeforeEach(func() {
-			resourceKueue = testing.MakeResourceFlavor("default").Obj()
-			gomega.Expect(k8sClient.Create(ctx, resourceKueue)).Should(gomega.Succeed())
-			localQueue = testing.MakeLocalQueue("main", ns.Name).Obj()
+			onDemandRF = testing.MakeResourceFlavor("on-demand").
+				Label("instance-type", "on-demand").Obj()
+			gomega.Expect(k8sClient.Create(ctx, onDemandRF)).Should(gomega.Succeed())
 			clusterQueue = testing.MakeClusterQueue("cluster-queue").
-				ResourceGroup(*testing.MakeFlavorQuotas("default").
-					Resource(corev1.ResourceCPU, "1").
-					Resource(corev1.ResourceMemory, "36Gi").
-					Obj(),
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceCPU, "1").
+						Resource(corev1.ResourceMemory, "1Gi").
+						Obj(),
 				).
 				Obj()
-			localQueue.Spec.ClusterQueue = "cluster-queue"
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
+			localQueue = testing.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
 			gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, resourceKueue, true)
+			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandRF, true)
 		})
-		ginkgo.It("Should unsuspend a job", func() {
-			createdJob := &batchv1.Job{}
+
+		ginkgo.It("Should unsuspend a job and set nodeSelectors", func() {
 			createdWorkload := &kueue.Workload{}
 			lookupKey := types.NamespacedName{Name: "test-job", Namespace: ns.Name}
-
-			gomega.Eventually(func() bool {
-				if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {
-					return false
-				}
-				return !*createdJob.Spec.Suspend && createdJob.Status.Succeeded > 0
-			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+			expectJobUnsuspendedWithNodeSelectors(lookupKey, map[string]string{
+				"instance-type": "on-demand",
+			})
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(lookupKey.Name), Namespace: ns.Name}
 			gomega.Eventually(func() bool {
 				if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
@@ -124,3 +127,11 @@ var _ = ginkgo.Describe("Kueue", func() {
 		})
 	})
 })
+
+func expectJobUnsuspendedWithNodeSelectors(key types.NamespacedName, ns map[string]string) {
+	job := &batchv1.Job{}
+	gomega.EventuallyWithOffset(1, func() []any {
+		gomega.Expect(k8sClient.Get(ctx, key, job)).To(gomega.Succeed())
+		return []any{*job.Spec.Suspend, job.Spec.Template.Spec.NodeSelector}
+	}, util.Timeout, util.Interval).Should(gomega.Equal([]any{false, ns}))
+}
