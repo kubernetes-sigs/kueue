@@ -218,20 +218,18 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 	}
 	err := jobframework.ForEachIntegration(func(name string, cb jobframework.IntegrationCallbacks) error {
 		log := setupLog.WithValues("jobFrameworkName", name)
-		if isFrameworkEnabled(cfg, name) {
-			if crds.Has(name) {
-				if err := cb.NewReconciler(mgr.GetScheme(),
-					mgr.GetClient(),
-					mgr.GetEventRecorderFor(fmt.Sprintf("%s-%s-controller", name, constants.KueueName)),
-					opts...,
-				).SetupWithManager(mgr); err != nil {
-					log.Error(err, "unable to create controller")
-					return err
-				}
-				if err := cb.SetupWebhook(mgr, opts...); err != nil {
-					log.Error(err, "Unable to create webhook")
-					return err
-				}
+		if isFrameworkEnabled(cfg, name) && crds.Has(name) {
+			if err := cb.NewReconciler(mgr.GetScheme(),
+				mgr.GetClient(),
+				mgr.GetEventRecorderFor(fmt.Sprintf("%s-%s-controller", name, constants.KueueName)),
+				opts...,
+			).SetupWithManager(mgr); err != nil {
+				log.Error(err, "unable to create controller")
+				return err
+			}
+			if err := cb.SetupWebhook(mgr, opts...); err != nil {
+				log.Error(err, "Unable to create webhook")
+				return err
 			}
 		} else {
 			if err := noop.SetupWebhook(mgr, cb.JobType); err != nil {

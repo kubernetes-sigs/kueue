@@ -30,5 +30,5 @@ clientConnection:
 integrations:
   frameworks:
   - "batch/job"
-# - "kubeflow.org/mpijob"
-# - "ray.io/rayjob"
+  - "kubeflow.org/mpijob"
+  - "ray.io/rayjob"
