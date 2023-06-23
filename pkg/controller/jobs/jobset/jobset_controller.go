@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright 2023 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -63,7 +63,7 @@ func init() {
 var NewReconciler = jobframework.NewGenericReconciler(func() jobframework.GenericJob { return &JobSet{} }, nil)
 
 func isJobSet(owner *metav1.OwnerReference) bool {
-	return owner.Kind == "JobSet" && strings.HasPrefix(owner.APIVersion, "jobset.x-k8s.io/v1alpha2")
+	return owner.Kind == "JobSet" && strings.HasPrefix(owner.APIVersion, "jobset.x-k8s.io/v1")
 }
 
 type JobSet jobsetapi.JobSet
@@ -83,16 +83,16 @@ func (j *JobSet) IsSuspended() bool {
 }
 
 func (j *JobSet) IsActive() bool {
-	// ToDo implement from jobset side jobset.status.Active != 0
-	return !j.IsSuspended()
+	for i := range j.Status.ReplicatedJobsStatus {
+		if j.Status.ReplicatedJobsStatus[i].Active > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (j *JobSet) Suspend() {
 	j.Spec.Suspend = pointer.Bool(true)
-}
-
-func (j *JobSet) ResetStatus() bool {
-	return false
 }
 
 func (j *JobSet) GetGVK() schema.GroupVersionKind {
@@ -113,12 +113,14 @@ func (j *JobSet) PodSets() []kueue.PodSet {
 
 func (j *JobSet) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
 	j.Spec.Suspend = pointer.Bool(false)
-	if len(podSetInfos) == 0 {
+	if len(podSetInfos) != len(j.Spec.ReplicatedJobs) {
+		// this is very unlikely, however in order to avoid any potential
+		// out of bounds access
 		return
 	}
 
-	// for initially unsuspend, this should be enough however if the jobs are already created
-	// the node selectors should be updated on each of them
+	// If there are Jobs already created by the JobSet, their node selectors will be updated by the JobSet controller
+	// before unsuspending the individual Jobs.
 	for index := range j.Spec.ReplicatedJobs {
 		templateSpec := &j.Spec.ReplicatedJobs[index].Template.Spec.Template.Spec
 		templateSpec.NodeSelector = maps.MergeKeepFirst(podSetInfos[index].NodeSelector, templateSpec.NodeSelector)
@@ -195,11 +197,11 @@ func (j *JobSet) PodsReady() bool {
 	for _, replicatedJob := range j.Spec.ReplicatedJobs {
 		replicas += int32(replicatedJob.Replicas)
 	}
-	var jobsReady int32
+	var readyReplicas int32
 	for _, replicatedJobStatus := range j.Status.ReplicatedJobsStatus {
-		jobsReady += replicatedJobStatus.Ready + replicatedJobStatus.Succeeded
+		readyReplicas += replicatedJobStatus.Ready + replicatedJobStatus.Succeeded
 	}
-	return replicas == jobsReady
+	return replicas == readyReplicas
 }
 
 func podsCount(rj *jobsetapi.ReplicatedJob) int32 {
@@ -210,6 +212,7 @@ func podsCount(rj *jobsetapi.ReplicatedJob) int32 {
 	if comp := pointer.Int32Deref(job.Spec.Completions, jobPodsCount); comp < jobPodsCount {
 		jobPodsCount = comp
 	}
+	// The JobSet's operator validates that this will not overflow.
 	return int32(replicas) * jobPodsCount
 }
 

@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright 2023 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ import (
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -66,25 +67,25 @@ func (w *JobSetWebhook) Default(ctx context.Context, obj runtime.Object) error {
 var _ webhook.CustomValidator = &JobSetWebhook{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *JobSetWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
+func (w *JobSetWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	jobSet := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
 	log.Info("Validating create", "jobset", klog.KObj(jobSet))
-	return jobframework.ValidateCreateForQueueName(jobSet).ToAggregate()
+	return nil, jobframework.ValidateCreateForQueueName(jobSet).ToAggregate()
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *JobSetWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
+func (w *JobSetWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	oldJobSet := fromObject(oldObj)
 	newJobSet := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
 	log.Info("Validating update", "jobset", klog.KObj(newJobSet))
 	allErrs := jobframework.ValidateUpdateForQueueName(oldJobSet, newJobSet)
-	allErrs = append(allErrs, jobframework.ValidateCreateForQueueName(oldJobSet)...)
-	return allErrs.ToAggregate()
+	allErrs = append(allErrs, jobframework.ValidateCreateForQueueName(newJobSet)...)
+	return nil, allErrs.ToAggregate()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *JobSetWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) error {
-	return nil
+func (w *JobSetWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+	return nil, nil
 }

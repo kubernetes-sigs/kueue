@@ -1,3 +1,19 @@
+/*
+Copyright 2023 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package jobset
 
 import (
@@ -162,58 +178,58 @@ func TestEquivalentToWorkload(t *testing.T) {
 			Containers(testContainer, testContainer, testContainer).
 			Obj(),
 	}
-	basWorkload := utiltesting.MakeWorkload("wl", "ns").PodSets(podSets...).Obj()
+	baseWorkload := utiltesting.MakeWorkload("wl", "ns").PodSets(podSets...).Obj()
 	cases := map[string]struct {
 		wl         kueue.Workload
 		wantResult bool
 	}{
 		"wrong podsets number": {
-			wl: *(&utiltesting.WorkloadWrapper{Workload: *basWorkload.DeepCopy()}).PodSets(podSets[:1]...).Obj(),
+			wl: *(&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).PodSets(podSets[:1]...).Obj(),
 		},
 		"bad single podSet count": {
 			wl: func() kueue.Workload {
-				wl := *basWorkload.DeepCopy()
+				wl := *baseWorkload.DeepCopy()
 				wl.Spec.PodSets[0].Count = 3
 				return wl
 			}(),
 		},
 		"bad single podSet init container": {
 			wl: func() kueue.Workload {
-				wl := *basWorkload.DeepCopy()
+				wl := *baseWorkload.DeepCopy()
 				wl.Spec.PodSets[0].Template.Spec.InitContainers[0].Image = "another-image"
 				return wl
 			}(),
 		},
 		"bad single podSet container": {
 			wl: func() kueue.Workload {
-				wl := *basWorkload.DeepCopy()
+				wl := *baseWorkload.DeepCopy()
 				wl.Spec.PodSets[0].Template.Spec.Containers[0].Image = "another-image"
 				return wl
 			}(),
 		},
 		"bad group podSet count": {
 			wl: func() kueue.Workload {
-				wl := *basWorkload.DeepCopy()
+				wl := *baseWorkload.DeepCopy()
 				wl.Spec.PodSets[1].Count = 3
 				return wl
 			}(),
 		},
 		"bad group podSet init container": {
 			wl: func() kueue.Workload {
-				wl := *basWorkload.DeepCopy()
+				wl := *baseWorkload.DeepCopy()
 				wl.Spec.PodSets[1].Template.Spec.InitContainers[0].Image = "another-image"
 				return wl
 			}(),
 		},
 		"bad group podSet container": {
 			wl: func() kueue.Workload {
-				wl := *basWorkload.DeepCopy()
+				wl := *baseWorkload.DeepCopy()
 				wl.Spec.PodSets[1].Template.Spec.Containers[0].Image = "another-image"
 				return wl
 			}(),
 		},
 		"equivalent": {
-			wl:         *basWorkload.DeepCopy(),
+			wl:         *baseWorkload.DeepCopy(),
 			wantResult: true,
 		},
 	}

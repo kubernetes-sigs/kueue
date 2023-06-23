@@ -14,11 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package rayjob
+package jobset
 
 import (
-	"fmt"
-
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/utils/pointer"
@@ -28,8 +26,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
-// JobWrapper wraps a RayJob.
-type JobWrapper struct{ jobsetapi.JobSet }
+// JobSetWrapper wraps a JobSet.
+type JobSetWrapper struct{ jobsetapi.JobSet }
 
 // TestPodSpec is the default pod spec used for testing.
 var TestPodSpec = corev1.PodSpec{
@@ -49,40 +47,37 @@ type ReplicatedJobRequirements struct {
 	Completions int32
 }
 
-// MakeJobSet creates a wrapper for a suspended rayJob
-func MakeJobSet(name, ns string, replicatedJobs []ReplicatedJobRequirements) *JobWrapper {
+// MakeJobSet creates a wrapper for a suspended JobSet
+func MakeJobSet(name, ns string) *JobSetWrapper {
 	jobSetWrapper := *jobsetutil.MakeJobSet(name, ns)
-	for index, replicatedJobRequirement := range replicatedJobs {
-		jt := jobsetutil.MakeJobTemplate(fmt.Sprintf("test-job-%d", index), ns).PodSpec(TestPodSpec).Obj()
-		jt.Spec.Parallelism = pointer.Int32(replicatedJobRequirement.Parallelism)
-		jt.Spec.Completions = pointer.Int32(replicatedJobRequirement.Completions)
-		jobSetWrapper.ReplicatedJob(jobsetutil.MakeReplicatedJob(replicatedJobRequirement.Name).
-			Job(jt).
-			Replicas(replicatedJobRequirement.Replicas).
-			Obj())
-	}
-	jt1 := jobsetutil.MakeJobTemplate("test-job-1", ns).PodSpec(TestPodSpec).Obj()
-	jt1.Spec.Parallelism = pointer.Int32(1)
-	jt1.Spec.Completions = pointer.Int32(1)
-	jt2 := jobsetutil.MakeJobTemplate("test-job-2", ns).PodSpec(TestPodSpec).Obj()
-	jt2.Spec.Parallelism = pointer.Int32(1)
-	jt2.Spec.Completions = pointer.Int32(1)
-	return &JobWrapper{*jobSetWrapper.Suspend(true).Obj()}
+	return &JobSetWrapper{*jobSetWrapper.Suspend(true).Obj()}
 }
 
-// Obj returns the inner Job.
-func (j *JobWrapper) Obj() *jobsetapi.JobSet {
+// Obj returns the inner JobSet.
+func (j *JobSetWrapper) Obj() *jobsetapi.JobSet {
 	return &j.JobSet
 }
 
-// Suspend updates the suspend status of the job
-func (j *JobWrapper) Suspend(s bool) *JobWrapper {
+// ReplicatedJobs sets a new set of ReplicatedJobs in the inner JobSet.
+func (j *JobSetWrapper) ReplicatedJobs(replicatedJobs ...ReplicatedJobRequirements) *JobSetWrapper {
+	j.Spec.ReplicatedJobs = make([]jobsetapi.ReplicatedJob, len(replicatedJobs))
+	for index, req := range replicatedJobs {
+		jt := jobsetutil.MakeJobTemplate("", "").PodSpec(TestPodSpec).Obj()
+		jt.Spec.Parallelism = pointer.Int32(req.Parallelism)
+		jt.Spec.Completions = pointer.Int32(req.Completions)
+		j.Spec.ReplicatedJobs[index] = jobsetutil.MakeReplicatedJob(req.Name).Job(jt).Replicas(req.Replicas).Obj()
+	}
+	return j
+}
+
+// Suspend updates the suspend status of the JobSet.
+func (j *JobSetWrapper) Suspend(s bool) *JobSetWrapper {
 	j.Spec.Suspend = pointer.Bool(s)
 	return j
 }
 
-// Queue updates the queue name of the job
-func (j *JobWrapper) Queue(queue string) *JobWrapper {
+// Queue updates the queue name of the JobSet.
+func (j *JobSetWrapper) Queue(queue string) *JobSetWrapper {
 	if j.Labels == nil {
 		j.Labels = make(map[string]string)
 	}
@@ -90,8 +85,8 @@ func (j *JobWrapper) Queue(queue string) *JobWrapper {
 	return j
 }
 
-// Request adds a resource request to the default container.
-func (j *JobWrapper) Request(replicatedJobName string, r corev1.ResourceName, v string) *JobWrapper {
+// Request adds a resource request to the first container of the target replicatedJob.
+func (j *JobSetWrapper) Request(replicatedJobName string, r corev1.ResourceName, v string) *JobSetWrapper {
 	for i, replicatedJob := range j.Spec.ReplicatedJobs {
 		if replicatedJob.Name == replicatedJobName {
 			_, ok := j.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.Containers[0].Resources.Requests[r]
@@ -104,8 +99,8 @@ func (j *JobWrapper) Request(replicatedJobName string, r corev1.ResourceName, v 
 	return j
 }
 
-// PriorityClass updates job priorityclass.
-func (j *JobWrapper) PriorityClass(pc string) *JobWrapper {
+// PriorityClass updates JobSet priorityclass.
+func (j *JobSetWrapper) PriorityClass(pc string) *JobSetWrapper {
 	for i := range j.Spec.ReplicatedJobs {
 		j.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.PriorityClassName = pc
 	}
