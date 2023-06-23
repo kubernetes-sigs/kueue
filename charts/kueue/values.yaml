@@ -68,6 +68,11 @@ managerConfig:
     #  enable: false
     #  webhookServiceName: ""
     #  webhookSecretName: ""
+    integrations:
+      frameworks:
+      - "batch/job"
+      - "kubeflow.org/mpijob"
+      - "ray.io/rayjob"
 
 # ports definition for metricsService and webhookService.
 metricsService:
