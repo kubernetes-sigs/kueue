@@ -25,17 +25,17 @@
 
 ## Summary
 
-This proposal allows job priorities to be dynamically adjusted based on time.
+This proposal allows job priorities to be dynamically adjusted based on time.  
 This functionality aims to prioritize the execution of jobs that have been waiting 
-for an extended period, even if they have a lower initial priority.
+for an extended period, even if they have a lower initial priority.  
 By introducing time-dependent priority adjustments, the system can ensure that jobs 
-that have been deferred receive the attention they require.
+that have been deferred receive the attention they require.  
 This KEP outlines the necessary changes and considerations to incorporate this 
 time-based priority mechanism.
 
 ## Motivation
 
-Lower-priority jobs sometimes get postponed for long time than expected.
+Lower-priority jobs sometimes get postponed for long time than expected.  
 To address situations where jobs remain unexecuted even after a certain period of time,
 we implementate this KEP.
 
@@ -51,9 +51,9 @@ the priority.
 
 ## Proposal
 
-Replace the priority of Jobs with a calculation that takes into account the time since the Job was created.
-This replacement will modify the calculation methods for Preemption and Queueing strategy.
-The priority of Jobs that do not consider time will remain unchanged.
+Replace the priority of Jobs with a calculation that takes into account the time since the Job was created.  
+This replacement will modify the calculation methods for Preemption and Queueing strategy.  
+The priority of Job that don't have `WorkloadPriorityClass` will remain unchanged.
 
 <!--
 This is where we get down to the specifics of what the proposal actually is.
@@ -68,12 +68,13 @@ nitty-gritty.
 
 #### Story 1
 
-The job does not have a high priority but is intended for production, so it needs to start execution within three hours.
+The job doesn't have a high priority but is intended for production, so it needs to start execution within three hours.
 
 
 ### Risks and Mitigations
 
-The priority of job should be updated so that the running job isn't preempted.
+If the job is just popped out for scheduling, the running job would be preempted easily by other Jobs.  
+That's why this mechanism should be based on priority of job.
 
 ## Design Details
 
@@ -107,8 +108,8 @@ type WorkloadPrioritySpec struct {
 ```
 
 ### How to use WorkloadPriorityClass on Job
-The `WorkloadPriorityClass` for a Job is defined using labels instead of `PriorityClass`.
-We do not use the `spec.PriorityClass` field for `Job` as `Kueue` wouldn't manage regular `spec.PriorityClass`.
+The `WorkloadPriorityClass` for a Job is defined using labels instead of `PriorityClass`.  
+We do not use the `spec.PriorityClass` field for `Job` because `Kueue` wouldn't manage `spec.PriorityClass`.
 
 ```yaml
 # sample-job.yaml
@@ -153,7 +154,7 @@ Priority after n hour: min(100+400*n, 1000)=1000
 ```
 
 ### Other points
-If a Job has both the regular Priority and WorkloadPriorityClass defined, the regular Priority is ignored.  
+If a Job has both the `spec.PriorityClass` and WorkloadPriorityClass defined, `spec.PriorityClass` is ignored.  
 Since the `creationTimeStamp` of the Job is always available, the calculation can be performed every time
 without updating the values of Job and Workload Priority.
 
