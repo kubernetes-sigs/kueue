@@ -92,17 +92,25 @@ type WorkloadPriorityClass struct {
 }
 
 type WorkloadPrioritySpec struct {
-  // basePriority is initial priority of workload
-	BasePriority int32 `json:"basePriority,omitempty"`
+  // initial priority of workload
+	Priority int32 `json:"priority,omitempty"`
 
-  // stepPriority is a value that is added to the basePriority every time the duration defined by delayForStep elapses. 
-  StepPriority int32 `json:"stepPriority,omitempty"`
+  // +optional
+  DynamicPriorityPolicy DynamicPriorityPolicy `json:"dynamicPriorityPolicy,omitempty"`
 
-  // maxPriority defines the maximum number of Priority. We don't want it to go to infinity.
-  maxPriority int32 `json:"maxPriority,omitempty"`
+}
+
+type DynamicPriorityPolicy struct {
+
+  // step is a value that is added to the basePriority every time the duration defined by delayForStep elapses. 
+  Step int32 `json:"step,omitempty"`
+
+  // max defines the maximum number of Priority. We don't want it to go to infinity.
+  Max int32 `json:"max,omitempty"`
 
   // delayForStep indicates the time to wait before changing the priority after a timeout
   DeleyForStep time.Duration `json:"delayForStep,omitempty"`
+
 }
 
 ```
@@ -126,7 +134,7 @@ metadata:
 
 Priority is calculated based on the following equation:
 ```
-Priority = min(basePriority + int(ceil(elapsedTime / delayForStep)) * stepPriority, maxPriority)
+Priority = min(priority + int(ceil(elapsedTime / delayForStep)) * step, max)
 ```
 
 Let's calculate the priority for the following example:
@@ -136,10 +144,11 @@ kind: WorkloadPriorityClass
 metadata:
   name: sample-priority
 Spec:
-  basePriority: 100
-  stepPriority: 400
-  maxPriority: 1000
-  delayForStep: 1h
+  priority: 100
+  dynamicPriorityPolicy:
+    step: 400
+    max: 1000
+    delayForStep: 1h
 ```
 
 Calculation:
