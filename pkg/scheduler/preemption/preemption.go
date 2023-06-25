@@ -22,7 +22,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
+	"k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -133,7 +133,7 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, targets []*workload.In
 				origin = "cohort"
 			}
 			log.V(3).Info("Preempted", "targetWorkload", klog.KObj(target.Obj))
-			p.recorder.Eventf(target.Obj, corev1.EventTypeNormal, "Preempted", "Preempted by another workload in the %s", origin)
+			p.recorder.Eventf(target.Obj, v1.EventTypeNormal, "Preempted", "Preempted by another workload in the %s", origin)
 		} else {
 			log.V(3).Info("Preemption ongoing", "targetWorkload", klog.KObj(target.Obj))
 		}
@@ -199,7 +199,7 @@ func minimalPreemptions(wl *workload.Info, assignment flavorassigner.Assignment,
 	return targets
 }
 
-type resourcesPerFlavor map[kueue.ResourceFlavorReference]sets.Set[corev1.ResourceName]
+type resourcesPerFlavor map[kueue.ResourceFlavorReference]sets.Set[v1.ResourceName]
 
 func resourcesRequiringPreemption(assignment flavorassigner.Assignment) resourcesPerFlavor {
 	resPerFlavor := make(resourcesPerFlavor)
@@ -308,7 +308,7 @@ func totalRequestsForAssignment(wl *workload.Info, assignment flavorassigner.Ass
 			flv := assignment.PodSets[i].Flavors[res].Name
 			resUsage := usage[flv]
 			if resUsage == nil {
-				resUsage = make(map[corev1.ResourceName]int64)
+				resUsage = make(map[v1.ResourceName]int64)
 				usage[flv] = resUsage
 			}
 			resUsage[res] += q
@@ -329,7 +329,7 @@ func workloadFits(wlReq cache.FlavorResourceQuantities, cq *cache.ClusterQueue, 
 				continue
 			}
 			cqResUsage := cq.Usage[flvQuotas.Name]
-			var cohortResUsage, cohortResRequestable map[corev1.ResourceName]int64
+			var cohortResUsage, cohortResRequestable map[v1.ResourceName]int64
 			if cq.Cohort != nil {
 				cohortResUsage = cq.Cohort.Usage[flvQuotas.Name]
 				cohortResRequestable = cq.Cohort.RequestableResources[flvQuotas.Name]
