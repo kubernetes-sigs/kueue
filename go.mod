@@ -14,9 +14,9 @@ require (
 	github.com/ray-project/kuberay/ray-operator v0.0.0-20230516192117-9bc5d854bd31
 	go.uber.org/zap v1.24.0
 	k8s.io/api v0.26.6
-	k8s.io/apiextensions-apiserver v0.26.3
+	k8s.io/apiextensions-apiserver v0.26.6
 	k8s.io/apimachinery v0.26.6
-	k8s.io/apiserver v0.26.5
+	k8s.io/apiserver v0.26.6
 	k8s.io/client-go v0.26.6
 	k8s.io/code-generator v0.26.6
 	k8s.io/component-base v0.26.6
