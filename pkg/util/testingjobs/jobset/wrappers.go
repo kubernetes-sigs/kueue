@@ -58,6 +58,11 @@ func (j *JobSetWrapper) Obj() *jobsetapi.JobSet {
 	return &j.JobSet
 }
 
+// Returns a DeepCopy of j.
+func (j *JobSetWrapper) DeepCopy() *JobSetWrapper {
+	return &JobSetWrapper{JobSet: *j.JobSet.DeepCopy()}
+}
+
 // ReplicatedJobs sets a new set of ReplicatedJobs in the inner JobSet.
 func (j *JobSetWrapper) ReplicatedJobs(replicatedJobs ...ReplicatedJobRequirements) *JobSetWrapper {
 	j.Spec.ReplicatedJobs = make([]jobsetapi.ReplicatedJob, len(replicatedJobs))
@@ -104,5 +109,11 @@ func (j *JobSetWrapper) PriorityClass(pc string) *JobSetWrapper {
 	for i := range j.Spec.ReplicatedJobs {
 		j.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.PriorityClassName = pc
 	}
+	return j
+}
+
+// PriorityClass updates JobSet priorityclass.
+func (j *JobSetWrapper) JobsStatus(statuses ...jobsetapi.ReplicatedJobStatus) *JobSetWrapper {
+	j.Status.ReplicatedJobsStatus = statuses
 	return j
 }

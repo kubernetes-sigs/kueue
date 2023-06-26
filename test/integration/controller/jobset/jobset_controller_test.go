@@ -672,4 +672,111 @@ var _ = ginkgo.Describe("JobSet controller interacting with scheduler", ginkgo.O
 		util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 1)
 
 	})
+
+	ginkgo.It("Should allow reclaim of resources that are no longer needed", func() {
+		ginkgo.By("creating localQueue", func() {
+			localQueue = testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
+		})
+
+		jobSet1 := testingjobset.MakeJobSet("dev-jobset1", ns.Name).ReplicatedJobs(
+			testingjobset.ReplicatedJobRequirements{
+				Name:        "replicated-job-1",
+				Replicas:    2,
+				Parallelism: 4,
+				Completions: 8,
+			}, testingjobset.ReplicatedJobRequirements{
+				Name:        "replicated-job-2",
+				Replicas:    3,
+				Parallelism: 4,
+				Completions: 4,
+			},
+		).Queue(localQueue.Name).
+			Request("replicated-job-1", corev1.ResourceCPU, "250m").
+			Request("replicated-job-2", corev1.ResourceCPU, "250m").
+			Obj()
+		lookupKey1 := types.NamespacedName{Name: jobSet1.Name, Namespace: jobSet1.Namespace}
+
+		ginkgo.By("checking the first jobset starts", func() {
+			gomega.Expect(k8sClient.Create(ctx, jobSet1)).Should(gomega.Succeed())
+			createdJobSet1 := &jobsetapi.JobSet{}
+			gomega.Eventually(func() *bool {
+				gomega.Expect(k8sClient.Get(ctx, lookupKey1, createdJobSet1)).Should(gomega.Succeed())
+				return createdJobSet1.Spec.Suspend
+			}, util.Timeout, util.Interval).Should(gomega.Equal(pointer.Bool(false)))
+			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
+			util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 1)
+		})
+
+		jobSet2 := testingjobset.MakeJobSet("dev-jobset2", ns.Name).ReplicatedJobs(
+			testingjobset.ReplicatedJobRequirements{
+				Name:        "replicated-job-1",
+				Replicas:    2,
+				Parallelism: 1,
+				Completions: 1,
+			}, testingjobset.ReplicatedJobRequirements{
+				Name:        "replicated-job-2",
+				Replicas:    1,
+				Parallelism: 1,
+				Completions: 1,
+			},
+		).Queue(localQueue.Name).
+			Request("replicated-job-1", corev1.ResourceCPU, "1").
+			Request("replicated-job-2", corev1.ResourceCPU, "1").
+			Obj()
+
+		lookupKey2 := types.NamespacedName{Name: jobSet2.Name, Namespace: jobSet2.Namespace}
+
+		ginkgo.By("checking a second no-fit jobset does not start", func() {
+			gomega.Expect(k8sClient.Create(ctx, jobSet2)).Should(gomega.Succeed())
+			createdJobSet2 := &jobsetapi.JobSet{}
+			gomega.Consistently(func() *bool {
+				gomega.Expect(k8sClient.Get(ctx, lookupKey2, createdJobSet2)).Should(gomega.Succeed())
+				return createdJobSet2.Spec.Suspend
+			}, util.ConsistentDuration, util.Interval).Should(gomega.Equal(pointer.Bool(true)))
+			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
+			util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 1)
+		})
+
+		ginkgo.By("checking the second job starts when the first one needs less then two cpus", func() {
+			createdJobSet1 := &jobsetapi.JobSet{}
+			gomega.Expect(k8sClient.Get(ctx, lookupKey1, createdJobSet1)).Should(gomega.Succeed())
+			createdJobSet1 = (&testingjobset.JobSetWrapper{JobSet: *createdJobSet1}).JobsStatus(
+				jobsetapi.ReplicatedJobStatus{
+					Name:      "replicated-job-1",
+					Succeeded: 2,
+				},
+				jobsetapi.ReplicatedJobStatus{
+					Name:      "replicated-job-2",
+					Succeeded: 1,
+				},
+			).Obj()
+			gomega.Expect(k8sClient.Status().Update(ctx, createdJobSet1)).Should(gomega.Succeed())
+
+			wl := &kueue.Workload{}
+			wlKey := types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet1.Name), Namespace: jobSet1.Namespace}
+			gomega.Eventually(func() []kueue.ReclaimablePod {
+				gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				return wl.Status.ReclaimablePods
+
+			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]kueue.ReclaimablePod{
+				{
+					Name:  "replicated-job-1",
+					Count: 8,
+				},
+				{
+					Name:  "replicated-job-2",
+					Count: 4,
+				},
+			}))
+
+			createdJobSet2 := &jobsetapi.JobSet{}
+			gomega.Eventually(func() *bool {
+				gomega.Expect(k8sClient.Get(ctx, lookupKey2, createdJobSet2)).Should(gomega.Succeed())
+				return createdJobSet2.Spec.Suspend
+			}, util.Timeout, util.Interval).Should(gomega.Equal(pointer.Bool(false)))
+			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
+			util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 2)
+		})
+	})
 })

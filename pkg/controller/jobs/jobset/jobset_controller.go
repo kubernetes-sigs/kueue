@@ -33,6 +33,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/maps"
+	"sigs.k8s.io/kueue/pkg/util/slices"
 )
 
 var (
@@ -69,6 +70,7 @@ func isJobSet(owner *metav1.OwnerReference) bool {
 type JobSet jobsetapi.JobSet
 
 var _ jobframework.GenericJob = (*JobSet)(nil)
+var _ jobframework.JobWithReclaimablePods = (*JobSet)(nil)
 
 func fromObject(obj runtime.Object) *JobSet {
 	return (*JobSet)(obj.(*jobsetapi.JobSet))
@@ -182,16 +184,41 @@ func (j *JobSet) PodsReady() bool {
 	return replicas == readyReplicas
 }
 
-func podsCount(rj *jobsetapi.ReplicatedJob) int32 {
-	replicas := rj.Replicas
-	job := rj.Template
+func (j *JobSet) ReclaimablePods() []kueue.ReclaimablePod {
+	if len(j.Status.ReplicatedJobsStatus) == 0 {
+		return nil
+	}
+
+	ret := make([]kueue.ReclaimablePod, 0, len(j.Spec.ReplicatedJobs))
+	statuses := slices.ToRefMap(j.Status.ReplicatedJobsStatus, func(js *jobsetapi.ReplicatedJobStatus) string { return js.Name })
+
+	for i := range j.Spec.ReplicatedJobs {
+		spec := &j.Spec.ReplicatedJobs[i]
+		if status, found := statuses[spec.Name]; found && status.Succeeded > 0 {
+			if status.Succeeded > 0 && status.Succeeded <= int32(spec.Replicas) {
+				ret = append(ret, kueue.ReclaimablePod{
+					Name:  spec.Name,
+					Count: status.Succeeded * podsCountPerReplica(spec),
+				})
+			}
+		}
+	}
+	return ret
+}
+
+func podsCountPerReplica(rj *jobsetapi.ReplicatedJob) int32 {
+	spec := &rj.Template.Spec
 	// parallelism is always set as it is otherwise defaulted by k8s to 1
-	jobPodsCount := pointer.Int32Deref(job.Spec.Parallelism, 1)
-	if comp := pointer.Int32Deref(job.Spec.Completions, jobPodsCount); comp < jobPodsCount {
+	jobPodsCount := pointer.Int32Deref(spec.Parallelism, 1)
+	if comp := pointer.Int32Deref(spec.Completions, jobPodsCount); comp < jobPodsCount {
 		jobPodsCount = comp
 	}
+	return jobPodsCount
+}
+
+func podsCount(rj *jobsetapi.ReplicatedJob) int32 {
 	// The JobSet's operator validates that this will not overflow.
-	return int32(replicas) * jobPodsCount
+	return int32(rj.Replicas) * podsCountPerReplica(rj)
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
