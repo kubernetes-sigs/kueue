@@ -102,6 +102,9 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		priorityClass := testing.MakePriorityClass(priorityClassName).
 			PriorityValue(int32(priorityValue)).Obj()
 		gomega.Expect(k8sClient.Create(ctx, priorityClass)).Should(gomega.Succeed())
+		ginkgo.DeferCleanup(func() {
+			gomega.Expect(k8sClient.Delete(ctx, priorityClass)).To(gomega.Succeed())
+		})
 		job := testingjob.MakeJob(jobName, ns.Name).PriorityClass(priorityClassName).Obj()
 		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 		lookupKey := types.NamespacedName{Name: jobName, Namespace: ns.Name}
@@ -1081,6 +1084,9 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 
 		highPriorityClass := testing.MakePriorityClass("high").PriorityValue(100).Obj()
 		gomega.Expect(k8sClient.Create(ctx, highPriorityClass))
+		ginkgo.DeferCleanup(func() {
+			gomega.Expect(k8sClient.Delete(ctx, highPriorityClass)).To(gomega.Succeed())
+		})
 
 		lowJobKey := types.NamespacedName{Name: "low", Namespace: ns.Name}
 		ginkgo.By("Low priority job is unsuspended and has nodeSelector", func() {
