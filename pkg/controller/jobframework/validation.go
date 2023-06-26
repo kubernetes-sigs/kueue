@@ -57,6 +57,16 @@ func validateLabelAsCRDName(job GenericJob, crdNameLabel string) field.ErrorList
 	return allErrs
 }
 
+func ValidateCreateForParentWorkload(job GenericJob) field.ErrorList {
+	var allErrs field.ErrorList
+	if _, exists := job.Object().GetAnnotations()[constants.ParentWorkloadAnnotation]; exists {
+		if job.Object().GetOwnerReferences() == nil {
+			allErrs = append(allErrs, field.Forbidden(parentWorkloadKeyPath, "must not add a parent workload annotation to job without OwnerReference"))
+		}
+	}
+	return allErrs
+}
+
 func ValidateUpdateForQueueName(oldJob, newJob GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
 	if !newJob.IsSuspended() && (QueueName(oldJob) != QueueName(newJob)) {
