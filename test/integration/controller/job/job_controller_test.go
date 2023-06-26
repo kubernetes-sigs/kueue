@@ -782,6 +782,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		spotUntaintedFlavor *kueue.ResourceFlavor
 		prodClusterQ        *kueue.ClusterQueue
 		devClusterQ         *kueue.ClusterQueue
+		podsCountClusterQ   *kueue.ClusterQueue
 		prodLocalQ          *kueue.LocalQueue
 		devLocalQ           *kueue.LocalQueue
 	)
@@ -838,12 +839,19 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 			}).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, devClusterQ)).Should(gomega.Succeed())
+		podsCountClusterQ = testing.MakeClusterQueue("pods-clusterqueue").
+			ResourceGroup(
+				*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourcePods, "5").Obj(),
+			).
+			Obj()
+		gomega.Expect(k8sClient.Create(ctx, podsCountClusterQ)).Should(gomega.Succeed())
 	})
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, prodClusterQ, true)
 		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, devClusterQ, true)
+		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, podsCountClusterQ, true)
 		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		gomega.Expect(util.DeleteResourceFlavor(ctx, k8sClient, spotTaintedFlavor)).To(gomega.Succeed())
 		gomega.Expect(util.DeleteResourceFlavor(ctx, k8sClient, spotUntaintedFlavor)).To(gomega.Succeed())
@@ -1199,6 +1207,21 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 
 		ginkgo.By("restore partial admission", func() {
 			gomega.Expect(features.SetEnable(features.PartialAdmission, origPartialAdmission)).To(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should set the flavor's node selectors if the job is admitted by pods count only", func() {
+		localQ := testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(podsCountClusterQ.Name).Obj()
+		gomega.Expect(k8sClient.Create(ctx, localQ)).Should(gomega.Succeed())
+		ginkgo.By("Creating a job with no requests, will set the resource flavors selectors when admitted ", func() {
+			job := testingjob.MakeJob("job", ns.Name).
+				Queue(localQ.Name).
+				Parallelism(2).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+			expectJobUnsuspendedWithNodeSelectors(client.ObjectKeyFromObject(job), map[string]string{
+				instanceKey: "on-demand",
+			})
 		})
 	})
 })
