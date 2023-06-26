@@ -397,7 +397,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 			waitTime := time.Since(e.Obj.CreationTimestamp.Time)
 			s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time was %.0fs", admission.ClusterQueue, waitTime.Seconds())
 			metrics.AdmittedWorkload(admission.ClusterQueue, waitTime)
-			log.V(2).Info("Workload successfully admitted and assigned flavors")
+			log.V(2).Info("Workload successfully admitted and assigned flavors", "assignments", admission.PodSetAssignments)
 			return
 		}
 		// Ignore errors because the workload or clusterQueue could have been deleted
