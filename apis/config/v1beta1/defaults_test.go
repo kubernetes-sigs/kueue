@@ -24,7 +24,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	componentconfigv1alpha1 "k8s.io/component-base/config/v1alpha1"
 	"k8s.io/utils/pointer"
-	ctrlconfigv1alpha1 "sigs.k8s.io/controller-runtime/pkg/config/v1alpha1"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 )
@@ -38,14 +37,14 @@ const (
 )
 
 func TestSetDefaults_Configuration(t *testing.T) {
-	defaultCtrlManagerConfigurationSpec := ctrlconfigv1alpha1.ControllerManagerConfigurationSpec{
-		Webhook: ctrlconfigv1alpha1.ControllerWebhook{
+	defaultCtrlManagerConfigurationSpec := ControllerManager{
+		Webhook: ControllerWebhook{
 			Port: pointer.Int(DefaultWebhookPort),
 		},
-		Metrics: ctrlconfigv1alpha1.ControllerMetrics{
+		Metrics: ControllerMetrics{
 			BindAddress: DefaultMetricsBindAddress,
 		},
-		Health: ctrlconfigv1alpha1.ControllerHealth{
+		Health: ControllerHealth{
 			HealthProbeBindAddress: DefaultHealthProbeBindAddress,
 		},
 	}
@@ -70,8 +69,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				Namespace:                          pointer.String(DefaultNamespace),
-				ControllerManagerConfigurationSpec: defaultCtrlManagerConfigurationSpec,
+				Namespace:         pointer.String(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
 					Enable: pointer.Bool(false),
 				},
@@ -79,9 +78,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				Integrations:     defaultIntegrations,
 			},
 		},
-		"defaulting ControllerManagerConfigurationSpec": {
+		"defaulting ControllerManager": {
 			original: &Configuration{
-				ControllerManagerConfigurationSpec: ctrlconfigv1alpha1.ControllerManagerConfigurationSpec{
+				ControllerManager: ControllerManager{
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
 						LeaderElect: pointer.Bool(true),
 					},
@@ -92,14 +91,14 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			want: &Configuration{
 				Namespace: pointer.String(DefaultNamespace),
-				ControllerManagerConfigurationSpec: ctrlconfigv1alpha1.ControllerManagerConfigurationSpec{
-					Webhook: ctrlconfigv1alpha1.ControllerWebhook{
+				ControllerManager: ControllerManager{
+					Webhook: ControllerWebhook{
 						Port: pointer.Int(DefaultWebhookPort),
 					},
-					Metrics: ctrlconfigv1alpha1.ControllerMetrics{
+					Metrics: ControllerMetrics{
 						BindAddress: DefaultMetricsBindAddress,
 					},
-					Health: ctrlconfigv1alpha1.ControllerHealth{
+					Health: ControllerHealth{
 						HealthProbeBindAddress: DefaultHealthProbeBindAddress,
 					},
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
@@ -114,16 +113,16 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				Integrations:     defaultIntegrations,
 			},
 		},
-		"should not default ControllerManagerConfigurationSpec": {
+		"should not default ControllerManager": {
 			original: &Configuration{
-				ControllerManagerConfigurationSpec: ctrlconfigv1alpha1.ControllerManagerConfigurationSpec{
-					Webhook: ctrlconfigv1alpha1.ControllerWebhook{
+				ControllerManager: ControllerManager{
+					Webhook: ControllerWebhook{
 						Port: pointer.Int(overwriteWebhookPort),
 					},
-					Metrics: ctrlconfigv1alpha1.ControllerMetrics{
+					Metrics: ControllerMetrics{
 						BindAddress: overwriteMetricBindAddress,
 					},
-					Health: ctrlconfigv1alpha1.ControllerHealth{
+					Health: ControllerHealth{
 						HealthProbeBindAddress: overwriteHealthProbeBindAddress,
 					},
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
@@ -138,14 +137,14 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			want: &Configuration{
 				Namespace: pointer.String(DefaultNamespace),
-				ControllerManagerConfigurationSpec: ctrlconfigv1alpha1.ControllerManagerConfigurationSpec{
-					Webhook: ctrlconfigv1alpha1.ControllerWebhook{
+				ControllerManager: ControllerManager{
+					Webhook: ControllerWebhook{
 						Port: pointer.Int(overwriteWebhookPort),
 					},
-					Metrics: ctrlconfigv1alpha1.ControllerMetrics{
+					Metrics: ControllerMetrics{
 						BindAddress: overwriteMetricBindAddress,
 					},
-					Health: ctrlconfigv1alpha1.ControllerHealth{
+					Health: ControllerHealth{
 						HealthProbeBindAddress: overwriteHealthProbeBindAddress,
 					},
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
@@ -162,7 +161,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		},
 		"should not set LeaderElectionID": {
 			original: &Configuration{
-				ControllerManagerConfigurationSpec: ctrlconfigv1alpha1.ControllerManagerConfigurationSpec{
+				ControllerManager: ControllerManager{
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
 						LeaderElect: pointer.Bool(false),
 					},
@@ -173,14 +172,14 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			want: &Configuration{
 				Namespace: pointer.String(DefaultNamespace),
-				ControllerManagerConfigurationSpec: ctrlconfigv1alpha1.ControllerManagerConfigurationSpec{
-					Webhook: ctrlconfigv1alpha1.ControllerWebhook{
+				ControllerManager: ControllerManager{
+					Webhook: ControllerWebhook{
 						Port: pointer.Int(DefaultWebhookPort),
 					},
-					Metrics: ctrlconfigv1alpha1.ControllerMetrics{
+					Metrics: ControllerMetrics{
 						BindAddress: DefaultMetricsBindAddress,
 					},
-					Health: ctrlconfigv1alpha1.ControllerHealth{
+					Health: ControllerHealth{
 						HealthProbeBindAddress: DefaultHealthProbeBindAddress,
 					},
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
@@ -199,8 +198,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				Namespace: pointer.String(overwriteNamespace),
 			},
 			want: &Configuration{
-				Namespace:                          pointer.String(overwriteNamespace),
-				ControllerManagerConfigurationSpec: defaultCtrlManagerConfigurationSpec,
+				Namespace:         pointer.String(overwriteNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
 					Enable:             pointer.Bool(true),
 					WebhookServiceName: pointer.String(DefaultWebhookServiceName),
@@ -218,8 +217,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				Namespace:                          pointer.String(overwriteNamespace),
-				ControllerManagerConfigurationSpec: defaultCtrlManagerConfigurationSpec,
+				Namespace:         pointer.String(overwriteNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
 					Enable: pointer.Bool(false),
 				},
@@ -239,8 +238,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				Namespace:                          pointer.String(overwriteNamespace),
-				ControllerManagerConfigurationSpec: defaultCtrlManagerConfigurationSpec,
+				Namespace:         pointer.String(overwriteNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
 					Enable: pointer.Bool(false),
 				},
@@ -260,8 +259,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: &ClientConnection{},
 			},
 			want: &Configuration{
-				Namespace:                          pointer.String(overwriteNamespace),
-				ControllerManagerConfigurationSpec: defaultCtrlManagerConfigurationSpec,
+				Namespace:         pointer.String(overwriteNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
 					Enable: pointer.Bool(false),
 				},
@@ -284,8 +283,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					BlockAdmission: pointer.Bool(true),
 					Timeout:        &podsReadyTimeoutTimeout,
 				},
-				Namespace:                          pointer.String(DefaultNamespace),
-				ControllerManagerConfigurationSpec: defaultCtrlManagerConfigurationSpec,
+				Namespace:         pointer.String(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
 					Enable: pointer.Bool(false),
 				},
@@ -308,8 +307,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					BlockAdmission: pointer.Bool(false),
 					Timeout:        &podsReadyTimeoutTimeout,
 				},
-				Namespace:                          pointer.String(DefaultNamespace),
-				ControllerManagerConfigurationSpec: defaultCtrlManagerConfigurationSpec,
+				Namespace:         pointer.String(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
 					Enable: pointer.Bool(false),
 				},
@@ -333,8 +332,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					BlockAdmission: pointer.Bool(true),
 					Timeout:        &podsReadyTimeoutOverwrite,
 				},
-				Namespace:                          pointer.String(DefaultNamespace),
-				ControllerManagerConfigurationSpec: defaultCtrlManagerConfigurationSpec,
+				Namespace:         pointer.String(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
 					Enable: pointer.Bool(false),
 				},
@@ -352,8 +351,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				Namespace:                          pointer.String(DefaultNamespace),
-				ControllerManagerConfigurationSpec: defaultCtrlManagerConfigurationSpec,
+				Namespace:         pointer.String(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
 					Enable: pointer.Bool(false),
 				},
