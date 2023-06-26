@@ -24,7 +24,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
@@ -122,7 +121,7 @@ func (p *Preemptor) IssuePreemptions(ctx context.Context, targets []*workload.In
 	defer cancel()
 	workqueue.ParallelizeUntil(ctx, parallelPreemptions, len(targets), func(i int) {
 		target := targets[i]
-		if !apimeta.IsStatusConditionTrue(target.Obj.Status.Conditions, kueue.WorkloadEvicted) {
+		if !meta.IsStatusConditionTrue(target.Obj.Status.Conditions, kueue.WorkloadEvicted) {
 			err := p.applyPreemption(ctx, target.Obj)
 			if err != nil {
 				errCh.SendErrorWithCancel(err, cancel)
