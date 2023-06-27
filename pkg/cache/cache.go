@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
@@ -830,6 +831,10 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) ([]kueue.FlavorUsage, int, erro
 				}
 				outFlvUsage.Resources = append(outFlvUsage.Resources, rUsage)
 			}
+			// The resourceUsages should be in a stable order to avoid endless creation of update events.
+			sort.Slice(outFlvUsage.Resources, func(i, j int) bool {
+				return outFlvUsage.Resources[i].Name < outFlvUsage.Resources[j].Name
+			})
 			usage = append(usage, outFlvUsage)
 		}
 	}
