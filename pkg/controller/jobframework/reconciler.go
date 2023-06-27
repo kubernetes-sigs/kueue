@@ -135,6 +135,26 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 	}
 
+	// if this is a non-standalone job, suspend the job if its parent workload is not found and admitted.
+	if !isStandaloneJob {
+		_, finshed := job.Finished()
+		if !finshed && !job.IsSuspended() {
+			if parentWorkload, err := r.getParentWorkload(ctx, job, object); err != nil {
+				log.Error(err, "couldn't get the parent job workload")
+				return ctrl.Result{}, err
+			} else if parentWorkload == nil || !workload.IsAdmitted(parentWorkload) {
+				// suspend it
+				job.Suspend()
+				if err := r.client.Update(ctx, object); err != nil {
+					log.Error(err, "suspending child job failed")
+					return ctrl.Result{}, err
+				}
+				r.record.Eventf(object, corev1.EventTypeNormal, "Suspended", "Kueue managed child job suspended")
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
 	log.V(2).Info("Reconciling Job")
 
 	// 1. make sure there is only a single existing instance of the workload.
@@ -159,9 +179,6 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// 3. handle workload is nil.
 	if wl == nil {
-		if !isStandaloneJob {
-			return ctrl.Result{}, nil
-		}
 		err := r.handleJobWithNoWorkload(ctx, job, object)
 		if err != nil {
 			log.Error(err, "Handling job with no workload")
@@ -182,19 +199,17 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	// 5. handle WaitForPodsReady only for a standalone job.
-	if isStandaloneJob {
-		// handle a job when waitForPodsReady is enabled, and it is the main job
-		if r.waitForPodsReady {
-			log.V(5).Info("Handling a job when waitForPodsReady is enabled")
-			condition := generatePodsReadyCondition(job, wl)
-			// optimization to avoid sending the update request if the status didn't change
-			if !apimeta.IsStatusConditionPresentAndEqual(wl.Status.Conditions, condition.Type, condition.Status) {
-				log.V(3).Info(fmt.Sprintf("Updating the PodsReady condition with status: %v", condition.Status))
-				apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
-				err := workload.UpdateStatus(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName)
-				if err != nil {
-					log.Error(err, "Updating workload status")
-				}
+	// handle a job when waitForPodsReady is enabled, and it is the main job
+	if r.waitForPodsReady {
+		log.V(5).Info("Handling a job when waitForPodsReady is enabled")
+		condition := generatePodsReadyCondition(job, wl)
+		// optimization to avoid sending the update request if the status didn't change
+		if !apimeta.IsStatusConditionPresentAndEqual(wl.Status.Conditions, condition.Type, condition.Status) {
+			log.V(3).Info(fmt.Sprintf("Updating the PodsReady condition with status: %v", condition.Status))
+			apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
+			err := workload.UpdateStatus(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName)
+			if err != nil {
+				log.Error(err, "Updating workload status")
 			}
 		}
 	}
@@ -230,7 +245,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 		// update queue name if changed.
 		q := QueueName(job)
-		if wl.Spec.QueueName != q && isStandaloneJob {
+		if wl.Spec.QueueName != q {
 			log.V(2).Info("Job changed queues, updating workload")
 			wl.Spec.QueueName = q
 			err := r.client.Update(ctx, wl)
@@ -275,6 +290,19 @@ func (r *JobReconciler) IsParentJobManaged(ctx context.Context, jobObj client.Ob
 	return QueueNameForObject(parentJob) != "", nil
 }
 
+func (r *JobReconciler) getParentWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
+	pw := kueue.Workload{}
+	namespacedName := types.NamespacedName{
+		Name:      ParentWorkloadName(job),
+		Namespace: object.GetNamespace(),
+	}
+	if err := r.client.Get(ctx, namespacedName, &pw); err != nil {
+		return nil, client.IgnoreNotFound(err)
+	} else {
+		return &pw, nil
+	}
+}
+
 // ensureOneWorkload will query for the single matched workload corresponding to job and return it.
 // If there're more than one workload, we should delete the excess ones.
 // The returned workload could be nil.
@@ -284,23 +312,6 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 	// Find a matching workload first if there is one.
 	var toDelete []*kueue.Workload
 	var match *kueue.Workload
-
-	if pwName := ParentWorkloadName(job); pwName != "" {
-		pw := kueue.Workload{}
-		namespacedName := types.NamespacedName{
-			Name:      pwName,
-			Namespace: object.GetNamespace(),
-		}
-		if err := r.client.Get(ctx, namespacedName, &pw); err != nil {
-			if !apierrors.IsNotFound(err) {
-				return nil, err
-			}
-			log.V(2).Info("job with no matching parent workload", "parentWorkload", pwName)
-		} else {
-			match = &pw
-		}
-	}
-
 	var workloads kueue.WorkloadList
 	if err := r.client.List(ctx, &workloads, client.InNamespace(object.GetNamespace()),
 		client.MatchingFields{getOwnerKey(job.GetGVK()): object.GetName()}); err != nil {
