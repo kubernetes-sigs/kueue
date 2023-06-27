@@ -62,6 +62,9 @@ E2E_TARGET ?= ./test/e2e/...
 
 E2E_KIND_VERSION ?= kindest/node:v1.24.7
 
+# E2E_K8S_VERSIONS sets the list of k8s versions included in test-e2e-all
+E2E_K8S_VERSIONS ?= 1.24.7 1.25.3 1.26.2 1.27.2
+
 # For local testing, we should allow user to use different kind cluster name
 # Default will delete default kind cluster
 KIND_CLUSTER_NAME ?= kind
@@ -150,8 +153,18 @@ test-integration: manifests generate fmt vet envtest ginkgo mpi-operator-crd ## 
 
 CREATE_KIND_CLUSTER ?= true
 .PHONY: test-e2e
-test-e2e: kustomize manifests generate fmt vet envtest ginkgo
-	E2E_KIND_VERSION=$(E2E_KIND_VERSION) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) ARTIFACTS=$(ARTIFACTS) IMAGE_TAG=$(IMAGE_TAG) ./hack/e2e-test.sh
+test-e2e: kustomize manifests generate ginkgo run-test-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+E2E_TARGETS := $(addprefix run-test-e2e-,${E2E_K8S_VERSIONS})
+.PHONY: test-e2e-all
+test-e2e-all: kustomize manifests generate envtest ginkgo $(E2E_TARGETS)
+
+FORCE:
+
+run-test-e2e-%: K8S_VERSION = $(@:run-test-e2e-%=%)
+run-test-e2e-%: FORCE
+	@echo Running e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) ./hack/e2e-test.sh
 
 .PHONY: ci-lint
 ci-lint: golangci-lint
