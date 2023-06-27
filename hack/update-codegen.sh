@@ -43,3 +43,6 @@ then
   fi
   mv sigs.k8s.io/kueue/client-go ${KUEUE_ROOT}/client-go
 fi
+
+# We need to clean up the go.mod file since code-generator adds temporary library to the go.mod file.
+"${GO_CMD}" mod tidy
