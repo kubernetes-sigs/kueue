@@ -84,31 +84,27 @@ type parentWorkloadHandler struct {
 	client client.Client
 }
 
-func (h *parentWorkloadHandler) Create(e event.CreateEvent, q workqueue.RateLimitingInterface) {
-	h.queueReconcileForChildJob(e.Object, q)
+func (h *parentWorkloadHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.RateLimitingInterface) {
+	h.queueReconcileForChildJob(ctx, e.Object, q)
 }
 
-func (h *parentWorkloadHandler) Update(e event.UpdateEvent, q workqueue.RateLimitingInterface) {
-	h.queueReconcileForChildJob(e.ObjectNew, q)
+func (h *parentWorkloadHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.RateLimitingInterface) {
+	h.queueReconcileForChildJob(ctx, e.ObjectNew, q)
 }
 
-func (h *parentWorkloadHandler) Delete(event.DeleteEvent, workqueue.RateLimitingInterface) {
+func (h *parentWorkloadHandler) Delete(context.Context, event.DeleteEvent, workqueue.RateLimitingInterface) {
 }
 
-func (h *parentWorkloadHandler) Generic(e event.GenericEvent, q workqueue.RateLimitingInterface) {
+func (h *parentWorkloadHandler) Generic(ctx context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
 }
 
 // queueReconcileForChildJob queues reconciliation of the child jobs (jobs with the
 // parent-workload annotation) in reaction to the parent-workload events.
-// TODO: replace the TODO context with the one passed to the event handler's functions
-// when a new version of controller-runtime is used. See in master:
-// https://github.com/kubernetes-sigs/controller-runtime/blob/master/pkg/handler/eventhandler.go
-func (h *parentWorkloadHandler) queueReconcileForChildJob(object client.Object, q workqueue.RateLimitingInterface) {
+func (h *parentWorkloadHandler) queueReconcileForChildJob(ctx context.Context, object client.Object, q workqueue.RateLimitingInterface) {
 	w, ok := object.(*kueue.Workload)
 	if !ok {
 		return
 	}
-	ctx := context.TODO()
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(w))
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(5).Info("Queueing reconcile for child jobs")

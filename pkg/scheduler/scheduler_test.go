@@ -1148,7 +1148,8 @@ func TestRequeueAndUpdate(t *testing.T) {
 			ctx := ctrl.LoggerInto(context.Background(), log)
 			scheme := runtime.NewScheme()
 
-			clientBuilder := utiltesting.NewClientBuilder().WithObjects(w1, q1, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns1"}})
+			objs := []client.Object{w1, q1, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns1"}}}
+			clientBuilder := utiltesting.NewClientBuilder().WithObjects(objs...).WithStatusSubresource(objs...)
 			cl := clientBuilder.Build()
 			broadcaster := record.NewBroadcaster()
 			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})

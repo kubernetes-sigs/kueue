@@ -156,7 +156,7 @@ func TestValidateCreate(t *testing.T) {
 			wh := &RayJobWebhook{
 				manageJobsWithoutQueueName: tc.manageAll,
 			}
-			result := wh.ValidateCreate(context.Background(), tc.job)
+			_, result := wh.ValidateCreate(context.Background(), tc.job)
 			if diff := cmp.Diff(tc.wantErr, result); diff != "" {
 				t.Errorf("ValidateCreate() mismatch (-want +got):\n%s", diff)
 			}
@@ -240,7 +240,7 @@ func TestValidateUpdate(t *testing.T) {
 			wh := &RayJobWebhook{
 				manageJobsWithoutQueueName: tc.manageAll,
 			}
-			result := wh.ValidateUpdate(context.Background(), tc.oldJob, tc.newJob)
+			_, result := wh.ValidateUpdate(context.Background(), tc.oldJob, tc.newJob)
 			if diff := cmp.Diff(tc.wantErr, result); diff != "" {
 				t.Errorf("ValidateUpdate() mismatch (-want +got):\n%s", diff)
 			}

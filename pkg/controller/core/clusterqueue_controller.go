@@ -241,16 +241,16 @@ type cqWorkloadHandler struct {
 	qManager *queue.Manager
 }
 
-func (h *cqWorkloadHandler) Create(event.CreateEvent, workqueue.RateLimitingInterface) {
+func (h *cqWorkloadHandler) Create(context.Context, event.CreateEvent, workqueue.RateLimitingInterface) {
 }
 
-func (h *cqWorkloadHandler) Update(event.UpdateEvent, workqueue.RateLimitingInterface) {
+func (h *cqWorkloadHandler) Update(context.Context, event.UpdateEvent, workqueue.RateLimitingInterface) {
 }
 
-func (h *cqWorkloadHandler) Delete(event.DeleteEvent, workqueue.RateLimitingInterface) {
+func (h *cqWorkloadHandler) Delete(context.Context, event.DeleteEvent, workqueue.RateLimitingInterface) {
 }
 
-func (h *cqWorkloadHandler) Generic(e event.GenericEvent, q workqueue.RateLimitingInterface) {
+func (h *cqWorkloadHandler) Generic(_ context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
 	w := e.Object.(*kueue.Workload)
 	req := h.requestForWorkloadClusterQueue(w)
 	if req != nil {
@@ -282,10 +282,10 @@ type cqNamespaceHandler struct {
 	cache    *cache.Cache
 }
 
-func (h *cqNamespaceHandler) Create(e event.CreateEvent, q workqueue.RateLimitingInterface) {
+func (h *cqNamespaceHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.RateLimitingInterface) {
 }
 
-func (h *cqNamespaceHandler) Update(e event.UpdateEvent, q workqueue.RateLimitingInterface) {
+func (h *cqNamespaceHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.RateLimitingInterface) {
 	oldNs := e.ObjectOld.(*corev1.Namespace)
 	oldMatchingCqs := h.cache.MatchingClusterQueues(oldNs.Labels)
 	newNs := e.ObjectNew.(*corev1.Namespace)
@@ -296,29 +296,29 @@ func (h *cqNamespaceHandler) Update(e event.UpdateEvent, q workqueue.RateLimitin
 			cqs.Insert(cq)
 		}
 	}
-	h.qManager.QueueInadmissibleWorkloads(context.Background(), cqs)
+	h.qManager.QueueInadmissibleWorkloads(ctx, cqs)
 }
 
-func (h *cqNamespaceHandler) Delete(event.DeleteEvent, workqueue.RateLimitingInterface) {
+func (h *cqNamespaceHandler) Delete(context.Context, event.DeleteEvent, workqueue.RateLimitingInterface) {
 }
 
-func (h *cqNamespaceHandler) Generic(event.GenericEvent, workqueue.RateLimitingInterface) {
+func (h *cqNamespaceHandler) Generic(context.Context, event.GenericEvent, workqueue.RateLimitingInterface) {
 }
 
 type cqResourceFlavorHandler struct {
 	cache *cache.Cache
 }
 
-func (h *cqResourceFlavorHandler) Create(event.CreateEvent, workqueue.RateLimitingInterface) {
+func (h *cqResourceFlavorHandler) Create(context.Context, event.CreateEvent, workqueue.RateLimitingInterface) {
 }
 
-func (h *cqResourceFlavorHandler) Update(event.UpdateEvent, workqueue.RateLimitingInterface) {
+func (h *cqResourceFlavorHandler) Update(context.Context, event.UpdateEvent, workqueue.RateLimitingInterface) {
 }
 
-func (h *cqResourceFlavorHandler) Delete(event.DeleteEvent, workqueue.RateLimitingInterface) {
+func (h *cqResourceFlavorHandler) Delete(context.Context, event.DeleteEvent, workqueue.RateLimitingInterface) {
 }
 
-func (h *cqResourceFlavorHandler) Generic(e event.GenericEvent, q workqueue.RateLimitingInterface) {
+func (h *cqResourceFlavorHandler) Generic(_ context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
 	rf, ok := e.Object.(*kueue.ResourceFlavor)
 	if !ok {
 		return
@@ -349,9 +349,9 @@ func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.ClusterQueue{}).
-		Watches(&source.Kind{Type: &corev1.Namespace{}}, &nsHandler).
-		Watches(&source.Channel{Source: r.wlUpdateCh}, &wHandler).
-		Watches(&source.Channel{Source: r.rfUpdateCh}, &rfHandler).
+		Watches(&corev1.Namespace{}, &nsHandler).
+		WatchesRawSource(&source.Channel{Source: r.wlUpdateCh}, &wHandler).
+		WatchesRawSource(&source.Channel{Source: r.rfUpdateCh}, &rfHandler).
 		WithEventFilter(r).
 		Complete(r)
 }

@@ -27,7 +27,7 @@ import (
 )
 
 func NewFakeClient(objs ...client.Object) client.Client {
-	return NewClientBuilder().WithObjects(objs...).Build()
+	return NewClientBuilder().WithObjects(objs...).WithStatusSubresource(objs...).Build()
 }
 
 func NewClientBuilder(addToSchemes ...func(s *runtime.Scheme) error) *fake.ClientBuilder {

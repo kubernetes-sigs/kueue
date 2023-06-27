@@ -25,6 +25,7 @@ import (
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
@@ -68,11 +69,11 @@ func (w *MPIJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 var _ webhook.CustomValidator = &MPIJobWebhook{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *MPIJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
+func (w *MPIJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	job := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.Info("Validating create", "job", klog.KObj(job))
-	return validateCreate(job).ToAggregate()
+	return nil, validateCreate(job).ToAggregate()
 }
 
 func validateCreate(job jobframework.GenericJob) field.ErrorList {
@@ -80,16 +81,16 @@ func validateCreate(job jobframework.GenericJob) field.ErrorList {
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *MPIJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
+func (w *MPIJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	oldJob := fromObject(oldObj)
 	newJob := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.Info("Validating update", "job", klog.KObj(newJob))
 	allErrs := jobframework.ValidateUpdateForQueueName(oldJob, newJob)
-	return allErrs.ToAggregate()
+	return nil, allErrs.ToAggregate()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *MPIJobWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) error {
-	return nil
+func (w *MPIJobWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+	return nil, nil
 }

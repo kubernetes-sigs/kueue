@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 )
@@ -63,21 +64,24 @@ func addTo(o *ctrl.Options, cfg *configapi.Configuration) {
 		o.LivenessEndpointName = cfg.Health.LivenessEndpointName
 	}
 
-	if o.Port == 0 && cfg.Webhook.Port != nil {
-		o.Port = *cfg.Webhook.Port
-	}
+	if o.WebhookServer == nil && cfg.Webhook.Port != nil {
+		wo := webhook.Options{}
+		if cfg.Webhook.Port != nil {
+			wo.Port = *cfg.Webhook.Port
+		}
+		if cfg.Webhook.Host != "" {
+			wo.Host = cfg.Webhook.Host
+		}
 
-	if o.Host == "" && cfg.Webhook.Host != "" {
-		o.Host = cfg.Webhook.Host
-	}
-
-	if o.CertDir == "" && cfg.Webhook.CertDir != "" {
-		o.CertDir = cfg.Webhook.CertDir
+		if cfg.Webhook.CertDir != "" {
+			wo.CertDir = cfg.Webhook.CertDir
+		}
+		o.WebhookServer = webhook.NewServer(wo)
 	}
 
 	if cfg.Controller != nil {
-		if o.Controller.CacheSyncTimeout == nil && cfg.Controller.CacheSyncTimeout != nil {
-			o.Controller.CacheSyncTimeout = cfg.Controller.CacheSyncTimeout
+		if o.Controller.CacheSyncTimeout == 0 && cfg.Controller.CacheSyncTimeout != nil {
+			o.Controller.CacheSyncTimeout = *cfg.Controller.CacheSyncTimeout
 		}
 
 		if len(o.Controller.GroupKindConcurrency) == 0 && len(cfg.Controller.GroupKindConcurrency) > 0 {

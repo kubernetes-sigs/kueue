@@ -25,6 +25,7 @@ import (
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
@@ -43,25 +44,25 @@ func setupWebhookForLocalQueue(mgr ctrl.Manager) error {
 var _ webhook.CustomValidator = &LocalQueueWebhook{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *LocalQueueWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
+func (w *LocalQueueWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	q := obj.(*kueue.LocalQueue)
 	log := ctrl.LoggerFrom(ctx).WithName("localqueue-webhook")
 	log.V(5).Info("Validating create", "localQueue", klog.KObj(q))
-	return ValidateLocalQueue(q).ToAggregate()
+	return nil, ValidateLocalQueue(q).ToAggregate()
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *LocalQueueWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
+func (w *LocalQueueWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	newQ := newObj.(*kueue.LocalQueue)
 	oldQ := oldObj.(*kueue.LocalQueue)
 	log := ctrl.LoggerFrom(ctx).WithName("localqueue-webhook")
 	log.V(5).Info("Validating update", "localQueue", klog.KObj(newQ))
-	return ValidateLocalQueueUpdate(newQ, oldQ).ToAggregate()
+	return nil, ValidateLocalQueueUpdate(newQ, oldQ).ToAggregate()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *LocalQueueWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) error {
-	return nil
+func (w *LocalQueueWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+	return nil, nil
 }
 
 func ValidateLocalQueue(q *kueue.LocalQueue) field.ErrorList {
