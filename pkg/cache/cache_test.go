@@ -1327,7 +1327,15 @@ func TestClusterQueueUsage(t *testing.T) {
 			*utiltesting.MakeFlavorQuotas("model_b").
 				Resource("example.com/gpu", "5").
 				Obj(),
-		).Cohort("one").Obj()
+		).
+		ResourceGroup(
+			*utiltesting.MakeFlavorQuotas("interconnect_a").
+				Resource("example.com/vf-0", "5", "5").
+				Resource("example.com/vf-1", "5", "5").
+				Resource("example.com/vf-2", "5", "5").
+				Obj(),
+		).
+		Cohort("one").Obj()
 	cqWithOutCohort := cq.DeepCopy()
 	cqWithOutCohort.Spec.Cohort = ""
 	workloads := []kueue.Workload{
@@ -1372,6 +1380,14 @@ func TestClusterQueueUsage(t *testing.T) {
 						Name: "example.com/gpu",
 					}},
 				},
+				{
+					Name: "interconnect_a",
+					Resources: []kueue.ResourceUsage{
+						{Name: "example.com/vf-0"},
+						{Name: "example.com/vf-1"},
+						{Name: "example.com/vf-2"},
+					},
+				},
 			},
 			wantWorkloads: 1,
 		},
@@ -1402,6 +1418,14 @@ func TestClusterQueueUsage(t *testing.T) {
 						Borrowed: resource.MustParse("1"),
 					}},
 				},
+				{
+					Name: "interconnect_a",
+					Resources: []kueue.ResourceUsage{
+						{Name: "example.com/vf-0"},
+						{Name: "example.com/vf-1"},
+						{Name: "example.com/vf-2"},
+					},
+				},
 			},
 			wantWorkloads: 2,
 		},
@@ -1431,6 +1455,14 @@ func TestClusterQueueUsage(t *testing.T) {
 						Total:    resource.MustParse("6"),
 						Borrowed: resource.MustParse("0"),
 					}},
+				},
+				{
+					Name: "interconnect_a",
+					Resources: []kueue.ResourceUsage{
+						{Name: "example.com/vf-0"},
+						{Name: "example.com/vf-1"},
+						{Name: "example.com/vf-2"},
+					},
 				},
 			},
 			wantWorkloads: 2,
