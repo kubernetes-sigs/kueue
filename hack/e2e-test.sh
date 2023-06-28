@@ -36,7 +36,7 @@ function cleanup {
         kubectl describe pods -n kueue-system > $ARTIFACTS/kueue-system-pods.log || true
         $KIND delete cluster --name $KIND_CLUSTER_NAME || { echo "You need to run make kind-image-build before this script"; exit -1; }
     fi
-    (cd config/components/manager && $KUSTOMIZE edit set image controller=gcr.io/k8s-staging-kueue/kueue:main)
+    (cd config/components/manager && $KUSTOMIZE edit set image controller=gcr.io/k8s-staging-kueue/kueue:release-0.3)
 }
 
 function startup {
