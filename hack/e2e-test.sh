@@ -34,7 +34,7 @@ function cleanup {
         kubectl logs -n kube-system kube-controller-manager-kind-control-plane > $ARTIFACTS/kube-controller-manager.log || true
         kubectl logs -n kueue-system deployment/kueue-controller-manager > $ARTIFACTS/kueue-controller-manager.log || true
         kubectl describe pods -n kueue-system > $ARTIFACTS/kueue-system-pods.log || true
-        $KIND delete cluster --name $KIND_CLUSTER_NAME || { echo "You need to run make kind-image-build before this script"; exit -1; }
+        $KIND delete cluster --name $KIND_CLUSTER_NAME
     fi
     (cd config/components/manager && $KUSTOMIZE edit set image controller=gcr.io/k8s-staging-kueue/kueue:main)
 }
@@ -42,7 +42,11 @@ function cleanup {
 function startup {
     if [ $CREATE_KIND_CLUSTER == 'true' ]
     then
-        $KIND create cluster --name $KIND_CLUSTER_NAME --image $E2E_KIND_VERSION --config $SOURCE_DIR/kind-cluster.yaml --wait 1m
+        if [ ! -d "$ARTIFACTS" ]; then
+            mkdir -p "$ARTIFACTS"
+        fi
+        $KIND create cluster --name $KIND_CLUSTER_NAME --image $E2E_KIND_VERSION --config $SOURCE_DIR/kind-cluster.yaml --wait 1m -v 5  > $ARTIFACTS/kind-create.log 2>&1 \
+		||  { echo "unable to start the kind cluster "; cat $ARTIFACTS/kind-create.log ; }
         kubectl get nodes > $ARTIFACTS/kind-nodes.log || true
         kubectl describe pods -n kube-system > $ARTIFACTS/kube-system-pods.log || true
     fi
