@@ -262,36 +262,6 @@ func (j *Job) Finished() (metav1.Condition, bool) {
 	return condition, finished
 }
 
-func (j *Job) EquivalentToWorkload(wl kueue.Workload) bool {
-	if len(wl.Spec.PodSets) != 1 {
-		return false
-	}
-
-	ps0 := &wl.Spec.PodSets[0]
-
-	// if the job accepts partial admission
-	if mpc := j.minPodsCount(); mpc != nil {
-		if pointer.Int32Deref(ps0.MinCount, -1) != *mpc {
-			return false
-		}
-
-		if j.IsSuspended() && j.podsCount() != ps0.Count {
-			return false
-		}
-	} else if j.podsCount() != ps0.Count {
-		return false
-	}
-
-	// nodeSelector may change, hence we are not checking for
-	// equality of the whole j.Spec.Template.Spec.
-	if !equality.Semantic.DeepEqual(j.Spec.Template.Spec.InitContainers,
-		wl.Spec.PodSets[0].Template.Spec.InitContainers) {
-		return false
-	}
-	return equality.Semantic.DeepEqual(j.Spec.Template.Spec.Containers,
-		wl.Spec.PodSets[0].Template.Spec.Containers)
-}
-
 func (j *Job) PriorityClass() string {
 	return j.Spec.Template.Spec.PriorityClassName
 }

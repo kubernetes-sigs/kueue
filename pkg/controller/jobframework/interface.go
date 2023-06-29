@@ -42,8 +42,6 @@ type GenericJob interface {
 	Finished() (condition metav1.Condition, finished bool)
 	// PodSets will build workload podSets corresponding to the job.
 	PodSets() []kueue.PodSet
-	// EquivalentToWorkload validates whether the workload is semantically equal to the job.
-	EquivalentToWorkload(wl kueue.Workload) bool
 	// PriorityClass returns the job's priority class name.
 	PriorityClass() string
 	// IsActive returns true if there are any running pods.

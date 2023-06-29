@@ -34,6 +34,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/maps"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/slices"
@@ -377,7 +378,29 @@ func (r *JobReconciler) equivalentToWorkload(job GenericJob, object client.Objec
 	if owner.Name != object.GetName() {
 		return false
 	}
-	return job.EquivalentToWorkload(*wl)
+
+	jobPodSets := job.PodSets()
+
+	if !workload.CanBePartiallyAdmitted(wl) || job.IsSuspended() {
+		// the two sets should fully match.
+		return equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets, true)
+	}
+
+	// If the job is not suspended, the podSet counts of the job could be lower that
+	// the initial values, in case of partial admission.
+	if !equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets, false) {
+		return false
+	}
+
+	// Make sure the job podSets don't have higher counts, and use more resources that it originally
+	// requested.
+	// the ComparePodSetSlices fails if the lengths are not equal, don't check it once more
+	for i := range jobPodSets {
+		if jobPodSets[i].Count > wl.Spec.PodSets[i].Count || jobPodSets[i].Count < pointer.Int32Deref(wl.Spec.PodSets[i].MinCount, wl.Spec.PodSets[i].Count) {
+			return false
+		}
+	}
+	return true
 }
 
 // startJob will unsuspend the job, and also inject the node affinity.

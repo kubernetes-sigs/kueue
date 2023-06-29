@@ -25,7 +25,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 )
 
@@ -245,100 +244,6 @@ func TestPodSetsInfo(t *testing.T) {
 			tc.job.Suspend()
 			if diff := cmp.Diff(tc.job.Spec, origSpec); diff != "" {
 				t.Errorf("node selectors mismatch (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestEquivalentToWorkload(t *testing.T) {
-	baseJob := (*Job)(utiltestingjob.MakeJob("job", "ns").
-		Parallelism(2).
-		Obj())
-	baseJobPartialAdmission := (*Job)(utiltestingjob.MakeJob("job", "ns").
-		SetAnnotation(JobMinParallelismAnnotation, "2").
-		Parallelism(2).
-		Obj())
-	podSets := []kueue.PodSet{
-		*utiltesting.MakePodSet("main", 2).
-			Containers(*baseJob.Spec.Template.Spec.Containers[0].DeepCopy()).
-			Obj(),
-	}
-	basWorkload := utiltesting.MakeWorkload("wl", "ns").PodSets(podSets...).Obj()
-	basWorkloadPartialAdmission := basWorkload.DeepCopy()
-	basWorkloadPartialAdmission.Spec.PodSets[0].MinCount = pointer.Int32(2)
-	cases := map[string]struct {
-		wl         *kueue.Workload
-		job        *Job
-		wantResult bool
-	}{
-		"wrong podsets number": {
-			job: baseJob,
-			wl: func() *kueue.Workload {
-				wl := basWorkload.DeepCopy()
-				wl.Spec.PodSets = append(wl.Spec.PodSets, wl.Spec.PodSets...)
-				return wl
-			}(),
-		},
-		"different pods count": {
-			job: baseJob,
-			wl: func() *kueue.Workload {
-				wl := basWorkload.DeepCopy()
-				wl.Spec.PodSets[0].Count = 3
-				return wl
-			}(),
-		},
-		"different container": {
-			job: baseJob,
-			wl: func() *kueue.Workload {
-				wl := basWorkload.DeepCopy()
-				wl.Spec.PodSets[0].Template.Spec.Containers[0].Image = "other-image"
-				return wl
-			}(),
-		},
-		"equivalent": {
-			job:        baseJob,
-			wl:         basWorkload.DeepCopy(),
-			wantResult: true,
-		},
-		"partial admission bad count (suspended)": {
-			job: baseJobPartialAdmission,
-			wl: func() *kueue.Workload {
-				wl := basWorkloadPartialAdmission.DeepCopy()
-				wl.Spec.PodSets[0].Count = 3
-				return wl
-			}(),
-		},
-		"partial admission different count (unsuspended)": {
-			job: func() *Job {
-				j := (*batchv1.Job)(baseJobPartialAdmission).DeepCopy()
-				j.Spec.Suspend = pointer.Bool(false)
-				return (*Job)(j)
-			}(),
-			wl: func() *kueue.Workload {
-				wl := basWorkloadPartialAdmission.DeepCopy()
-				wl.Spec.PodSets[0].Count = 3
-				return wl
-			}(),
-			wantResult: true,
-		},
-		"partial admission bad minCount": {
-			job: baseJobPartialAdmission,
-			wl: func() *kueue.Workload {
-				wl := basWorkloadPartialAdmission.DeepCopy()
-				wl.Spec.PodSets[0].MinCount = pointer.Int32(3)
-				return wl
-			}(),
-		},
-		"equivalent partial admission": {
-			job:        baseJobPartialAdmission,
-			wl:         basWorkloadPartialAdmission.DeepCopy(),
-			wantResult: true,
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			if tc.job.EquivalentToWorkload(*tc.wl) != tc.wantResult {
-				t.Fatalf("Unexpected result, wanted: %v", tc.wantResult)
 			}
 		})
 	}
