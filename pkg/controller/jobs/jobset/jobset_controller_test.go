@@ -20,14 +20,11 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/utils/pointer"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 	testingjobsetutil "sigs.k8s.io/jobset/pkg/util/testing"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func TestPodsReady(t *testing.T) {
@@ -140,105 +137,6 @@ func TestPodSets(t *testing.T) {
 
 	if diff := cmp.Diff(wantPodSets, result); diff != "" {
 		t.Errorf("PodSets() mismatch (-want +got):\n%s", diff)
-	}
-}
-
-func TestEquivalentToWorkload(t *testing.T) {
-	testContainer := corev1.Container{
-		Name:  "ic1",
-		Image: "image1",
-		Resources: corev1.ResourceRequirements{
-			Requests: corev1.ResourceList{
-				corev1.ResourceCPU: resource.MustParse("1"),
-			},
-		},
-	}
-
-	job := (*JobSet)(testingjobsetutil.MakeJobSet("jobset", "ns").
-		ReplicatedJob(testingjobsetutil.MakeReplicatedJob("replicated-job-1").
-			Job(setParallelismAndCompletions(testingjobsetutil.MakeJobTemplate("test-job-1", "ns").PodSpec(corev1.PodSpec{
-				InitContainers: []corev1.Container{testContainer, testContainer},
-				Containers:     []corev1.Container{testContainer},
-			}), 1, 1).Obj()).
-			Replicas(1).Obj()).
-		ReplicatedJob(testingjobsetutil.MakeReplicatedJob("replicated-job-2").
-			Job(setParallelismAndCompletions(testingjobsetutil.MakeJobTemplate("test-job-2", "ns").PodSpec(corev1.PodSpec{
-				InitContainers: []corev1.Container{testContainer},
-				Containers:     []corev1.Container{testContainer, testContainer, testContainer},
-			}), 2, 2).Obj()).
-			Replicas(2).Obj()).Obj())
-
-	podSets := []kueue.PodSet{
-		*utiltesting.MakePodSet("single", 1).
-			InitContainers(testContainer, testContainer).
-			Containers(testContainer).
-			Obj(),
-		*utiltesting.MakePodSet("group", 4).
-			InitContainers(testContainer).
-			Containers(testContainer, testContainer, testContainer).
-			Obj(),
-	}
-	baseWorkload := utiltesting.MakeWorkload("wl", "ns").PodSets(podSets...).Obj()
-	cases := map[string]struct {
-		wl         kueue.Workload
-		wantResult bool
-	}{
-		"wrong podsets number": {
-			wl: *(&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).PodSets(podSets[:1]...).Obj(),
-		},
-		"bad single podSet count": {
-			wl: func() kueue.Workload {
-				wl := *baseWorkload.DeepCopy()
-				wl.Spec.PodSets[0].Count = 3
-				return wl
-			}(),
-		},
-		"bad single podSet init container": {
-			wl: func() kueue.Workload {
-				wl := *baseWorkload.DeepCopy()
-				wl.Spec.PodSets[0].Template.Spec.InitContainers[0].Image = "another-image"
-				return wl
-			}(),
-		},
-		"bad single podSet container": {
-			wl: func() kueue.Workload {
-				wl := *baseWorkload.DeepCopy()
-				wl.Spec.PodSets[0].Template.Spec.Containers[0].Image = "another-image"
-				return wl
-			}(),
-		},
-		"bad group podSet count": {
-			wl: func() kueue.Workload {
-				wl := *baseWorkload.DeepCopy()
-				wl.Spec.PodSets[1].Count = 3
-				return wl
-			}(),
-		},
-		"bad group podSet init container": {
-			wl: func() kueue.Workload {
-				wl := *baseWorkload.DeepCopy()
-				wl.Spec.PodSets[1].Template.Spec.InitContainers[0].Image = "another-image"
-				return wl
-			}(),
-		},
-		"bad group podSet container": {
-			wl: func() kueue.Workload {
-				wl := *baseWorkload.DeepCopy()
-				wl.Spec.PodSets[1].Template.Spec.Containers[0].Image = "another-image"
-				return wl
-			}(),
-		},
-		"equivalent": {
-			wl:         *baseWorkload.DeepCopy(),
-			wantResult: true,
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			if job.EquivalentToWorkload(tc.wl) != tc.wantResult {
-				t.Fatalf("Unexpected result, wanted: %v", tc.wantResult)
-			}
-		})
 	}
 }
 

@@ -161,28 +161,6 @@ func (j *JobSet) Finished() (metav1.Condition, bool) {
 	return metav1.Condition{}, false
 }
 
-func (j *JobSet) EquivalentToWorkload(wl kueue.Workload) bool {
-	podSets := wl.Spec.PodSets
-	if len(podSets) != len(j.Spec.ReplicatedJobs) {
-		return false
-	}
-
-	for index := range j.Spec.ReplicatedJobs {
-		if wl.Spec.PodSets[index].Count != podsCount(&j.Spec.ReplicatedJobs[index]) {
-			return false
-		}
-
-		jobPodSpec := &j.Spec.ReplicatedJobs[index].Template.Spec.Template.Spec
-		if !equality.Semantic.DeepEqual(jobPodSpec.InitContainers, podSets[index].Template.Spec.InitContainers) {
-			return false
-		}
-		if !equality.Semantic.DeepEqual(jobPodSpec.Containers, podSets[index].Template.Spec.Containers) {
-			return false
-		}
-	}
-	return true
-}
-
 func (j *JobSet) PriorityClass() string {
 	for _, replicatedJob := range j.Spec.ReplicatedJobs {
 		if len(replicatedJob.Template.Spec.Template.Spec.PriorityClassName) != 0 {
