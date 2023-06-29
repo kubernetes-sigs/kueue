@@ -33,16 +33,17 @@ spec:
   podSets:
   - count: 3
     name: main
-    spec:
-      containers:
-      - image: gcr.io/k8s-staging-perf-tests/sleep:latest
-        imagePullPolicy: Always
-        name: container
-        resources:
-          requests:
-            cpu: "1"
-            memory: 200Mi
-      restartPolicy: Never
+    template:
+      spec:
+        containers:
+        - image: gcr.io/k8s-staging-perf-tests/sleep:latest
+          imagePullPolicy: Always
+          name: container
+          resources:
+            requests:
+              cpu: "1"
+              memory: 200Mi
+        restartPolicy: Never
 ```
 
 ## Queue name
