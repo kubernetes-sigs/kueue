@@ -29,6 +29,25 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
+      path: /mutate-jobset-x-k8s-io-v1alpha1-jobset
+  failurePolicy: Fail
+  name: mjobset.kb.io
+  rules:
+  - apiGroups:
+    - jobset.x-k8s.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    resources:
+    - jobsets
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
       path: /mutate-kubeflow-org-v2beta1-mpijob
   failurePolicy: Fail
   name: mmpijob.kb.io
@@ -143,6 +162,25 @@ webhooks:
     - UPDATE
     resources:
     - jobs
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-jobset-x-k8s-io-v1alpha1-jobset
+  failurePolicy: Fail
+  name: vjobset.kb.io
+  rules:
+  - apiGroups:
+    - jobset.x-k8s.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - UPDATE
+    resources:
+    - jobsets
   sideEffects: None
 - admissionReviewVersions:
   - v1

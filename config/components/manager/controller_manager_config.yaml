@@ -32,3 +32,4 @@ integrations:
   - "batch/job"
   - "kubeflow.org/mpijob"
   - "ray.io/rayjob"
+  - "jobset.x-k8s.io/jobset"

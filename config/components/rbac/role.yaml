@@ -89,6 +89,23 @@ rules:
   - get
   - update
 - apiGroups:
+  - jobset.x-k8s.io
+  resources:
+  - jobsets
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - jobset.x-k8s.io
+  resources:
+  - jobsets/status
+  verbs:
+  - get
+  - update
+- apiGroups:
   - kubeflow.org
   resources:
   - mpijobs
