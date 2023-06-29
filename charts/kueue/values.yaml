@@ -6,7 +6,9 @@ fullnameOverride: ""
 
 # Enable each function, like kustomize https://github.com/kubernetes-sigs/kueue/blob/main/config/default/kustomization.yaml
 enablePrometheus: false
-enableCertManager: true
+
+# Enable x509 automated certificate management using cert-manager (cert-manager.io)
+enableCertManager: false
 
 # Customize controlerManager
 controllerManager:
@@ -63,7 +65,6 @@ managerConfig:
     #waitForPodsReady:
     #  enable: true
     #manageJobsWithoutQueueName: true
-    #namespace: ""
     #internalCertManagement:
     #  enable: false
     #  webhookServiceName: ""

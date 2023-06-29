@@ -18,6 +18,7 @@ Quick start instructions for the setup and configuration of kueue using Helm.
 #### Prerequisites
 
 - [Helm](https://helm.sh/docs/intro/quickstart/#install-helm)
+- (Optional) [Cert-manager](https://cert-manager.io/docs/installation/)
 
 #### Installing the chart
 

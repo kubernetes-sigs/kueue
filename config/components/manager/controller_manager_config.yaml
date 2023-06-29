@@ -22,7 +22,6 @@ clientConnection:
 #waitForPodsReady:
 #  enable: true
 #manageJobsWithoutQueueName: true
-#namespace: ""
 #internalCertManagement:
 #  enable: false
 #  webhookServiceName: ""
