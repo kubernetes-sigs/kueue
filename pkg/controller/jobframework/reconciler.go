@@ -378,22 +378,29 @@ func (r *JobReconciler) equivalentToWorkload(job GenericJob, object client.Objec
 
 	jobPodSets := resetMinCounts(job.PodSets())
 
-	if !workload.CanBePartiallyAdmitted(wl) || job.IsSuspended() {
+	if !workload.CanBePartiallyAdmitted(wl) || !workload.IsAdmitted(wl) {
 		// the two sets should fully match.
 		return equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets, true)
 	}
 
-	// If the job is not suspended, the podSet counts of the job could be lower that
-	// the initial values, in case of partial admission.
+	// Check everything but the pod counts.
 	if !equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets, false) {
 		return false
 	}
 
-	// Make sure the job podSets don't have higher counts, and use more resources that it originally
-	// requested.
-	// the ComparePodSetSlices fails if the lengths are not equal, don't check it once more
-	for i := range jobPodSets {
-		if jobPodSets[i].Count > wl.Spec.PodSets[i].Count || jobPodSets[i].Count < pointer.Int32Deref(wl.Spec.PodSets[i].MinCount, wl.Spec.PodSets[i].Count) {
+	// If the workload is admitted but the job is suspended, ignore counts.
+	// This might allow some violating jobs to pass equivalency checks, but their
+	// workloads would be invalidated in the next sync after unsuspending.
+	if job.IsSuspended() {
+		return true
+	}
+
+	for i, psAssigment := range wl.Status.Admission.PodSetAssignments {
+		assignedCount := wl.Spec.PodSets[i].Count
+		if jobPodSets[i].MinCount != nil {
+			assignedCount = pointer.Int32Deref(psAssigment.Count, assignedCount)
+		}
+		if jobPodSets[i].Count != assignedCount {
 			return false
 		}
 	}
