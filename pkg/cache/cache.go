@@ -149,13 +149,13 @@ type ClusterQueue struct {
 	podsReadyTracking bool
 }
 
-func (cq *ClusterQueue) IsBorrowing() bool {
-	if cq.Cohort == nil || len(cq.Usage) == 0 {
+func (c *ClusterQueue) IsBorrowing() bool {
+	if c.Cohort == nil || len(c.Usage) == 0 {
 		return false
 	}
-	for _, rg := range cq.ResourceGroups {
+	for _, rg := range c.ResourceGroups {
 		for _, flvQuotas := range rg.Flavors {
-			if flvUsage, isUsing := cq.Usage[flvQuotas.Name]; isUsing {
+			if flvUsage, isUsing := c.Usage[flvQuotas.Name]; isUsing {
 				for rName, rQuota := range flvQuotas.Resources {
 					used := flvUsage[rName]
 					if used > rQuota.Nominal {
