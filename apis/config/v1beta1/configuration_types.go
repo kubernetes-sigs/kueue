@@ -30,7 +30,8 @@ type Configuration struct {
 	metav1.TypeMeta `json:",inline"`
 
 	// Namespace is the namespace in which kueue is deployed. It is used as part of DNSName of the webhook Service.
-	// Defaults to kueue-system.
+	// If not set, the value is set from the file /var/run/secrets/kubernetes.io/serviceaccount/namespace
+	// If the file doesn't exist, default value is kueue-system.
 	Namespace *string `json:"namespace,omitempty"`
 
 	// ControllerManager returns the configurations for controllers
