@@ -34,6 +34,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/maps"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
@@ -379,7 +380,7 @@ func (r *JobReconciler) equivalentToWorkload(job GenericJob, object client.Objec
 		return false
 	}
 
-	jobPodSets := job.PodSets()
+	jobPodSets := resetMinCounts(job.PodSets())
 
 	if !workload.CanBePartiallyAdmitted(wl) || job.IsSuspended() {
 		// the two sets should fully match.
@@ -449,7 +450,7 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 			Namespace: object.GetNamespace(),
 		},
 		Spec: kueue.WorkloadSpec{
-			PodSets:   job.PodSets(),
+			PodSets:   resetMinCounts(job.PodSets()),
 			QueueName: QueueName(job),
 		},
 	}
@@ -600,4 +601,15 @@ func (r *genericReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		builder = builder.Watches(&kueue.Workload{}, r.newWorkloadHandler(mgr.GetClient()))
 	}
 	return builder.Complete(r)
+}
+
+// resets the minCount for all podSets if the PartialAdmission feature is not enabled
+func resetMinCounts(in []kueue.PodSet) []kueue.PodSet {
+	if features.Enabled(features.PartialAdmission) || len(in) == 0 {
+		return in
+	}
+	for i := range in {
+		in[i].MinCount = nil
+	}
+	return in
 }
