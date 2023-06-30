@@ -20,11 +20,11 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"k8s.io/utils/pointer"
+	corev1 "k8s.io/api/core/v1"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
-	testingjobsetutil "sigs.k8s.io/jobset/pkg/util/testing"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 )
 
 func TestPodsReady(t *testing.T) {
@@ -33,69 +33,59 @@ func TestPodsReady(t *testing.T) {
 		want   bool
 	}{
 		"all jobs are ready": {
-			jobSet: jobset.JobSet{
-				Spec: jobset.JobSetSpec{
-					ReplicatedJobs: []jobset.ReplicatedJob{
-						{
-							Name:     "Test1",
-							Replicas: 2,
-						},
-						{
-							Name:     "Test2",
-							Replicas: 3,
-						},
-					},
+			jobSet: *testingjobset.MakeJobSet("jobset", "ns").ReplicatedJobs(
+				testingjobset.ReplicatedJobRequirements{
+					Name:        "replicated-job-1",
+					Replicas:    2,
+					Parallelism: 1,
+					Completions: 1,
 				},
-				Status: jobset.JobSetStatus{
-					Conditions: nil,
-					Restarts:   0,
-					ReplicatedJobsStatus: []jobset.ReplicatedJobStatus{
-						{
-							Name:      "Test",
-							Ready:     1,
-							Succeeded: 1,
-						},
-						{
-							Name:      "Test",
-							Ready:     3,
-							Succeeded: 0,
-						},
-					},
+				testingjobset.ReplicatedJobRequirements{
+					Name:        "replicated-job-2",
+					Replicas:    3,
+					Parallelism: 1,
+					Completions: 1,
 				},
-			},
+			).JobsStatus(
+				jobset.ReplicatedJobStatus{
+					Name:      "replicated-job-1",
+					Ready:     1,
+					Succeeded: 1,
+				},
+				jobset.ReplicatedJobStatus{
+					Name:      "replicated-job-2",
+					Ready:     3,
+					Succeeded: 0,
+				},
+			).Obj(),
 			want: true,
 		},
 		"not all jobs are ready": {
-			jobSet: jobset.JobSet{
-				Spec: jobset.JobSetSpec{
-					ReplicatedJobs: []jobset.ReplicatedJob{
-						{
-							Name:     "Test1",
-							Replicas: 2,
-						},
-						{
-							Name:     "Test2",
-							Replicas: 3,
-						},
-					},
+			jobSet: *testingjobset.MakeJobSet("jobset", "ns").ReplicatedJobs(
+				testingjobset.ReplicatedJobRequirements{
+					Name:        "replicated-job-1",
+					Replicas:    2,
+					Parallelism: 1,
+					Completions: 1,
 				},
-				Status: jobset.JobSetStatus{
-					Conditions: nil,
-					Restarts:   0,
-					ReplicatedJobsStatus: []jobset.ReplicatedJobStatus{
-						{
-							Name:      "Test",
-							Ready:     1,
-							Succeeded: 0,
-						},
-						{
-							Name:      "Test",
-							Ready:     1,
-							Succeeded: 2,
-						},
-					},
+				testingjobset.ReplicatedJobRequirements{
+					Name:        "replicated-job-2",
+					Replicas:    3,
+					Parallelism: 1,
+					Completions: 1,
 				},
-			},
+			).JobsStatus(
+				jobset.ReplicatedJobStatus{
+					Name:      "replicated-job-1",
+					Ready:     1,
+					Succeeded: 0,
+				},
+				jobset.ReplicatedJobStatus{
+					Name:      "replicated-job-2",
+					Ready:     1,
+					Succeeded: 2,
+				},
+			).Obj(),
 			want: false,
 		},
 	}
@@ -112,36 +102,123 @@ func TestPodsReady(t *testing.T) {
 }
 
 func TestPodSets(t *testing.T) {
-	job := testingjobsetutil.MakeJobSet("jobset", "ns").
-		ReplicatedJob(testingjobsetutil.MakeReplicatedJob("replicated-job-1").
-			Job(setParallelismAndCompletions(testingjobsetutil.MakeJobTemplate("test-job-1", "ns"), 1, 1).Obj()).
-			Replicas(1).
-			Obj()).
-		ReplicatedJob(testingjobsetutil.MakeReplicatedJob("replicated-job-2").
-			Job(setParallelismAndCompletions(testingjobsetutil.MakeJobTemplate("test-job-2", "ns"), 2, 2).Obj()).
-			Replicas(2).
-			Obj()).Obj()
-
+	jobset := testingjobset.MakeJobSet("jobset", "ns").ReplicatedJobs(
+		testingjobset.ReplicatedJobRequirements{
+			Name:        "replicated-job-1",
+			Replicas:    1,
+			Parallelism: 1,
+			Completions: 1,
+		},
+		testingjobset.ReplicatedJobRequirements{
+			Name:        "replicated-job-2",
+			Replicas:    2,
+			Parallelism: 2,
+			Completions: 2,
+		},
+	).Obj()
 	wantPodSets := []kueue.PodSet{
 		{
 			Name:  "replicated-job-1",
 			Count: 1,
+			Template: corev1.PodTemplateSpec{
+				Spec: *testingjobset.TestPodSpec.DeepCopy(),
+			},
 		},
 		{
 			Name:  "replicated-job-2",
 			Count: 4,
+			Template: corev1.PodTemplateSpec{
+				Spec: *testingjobset.TestPodSpec.DeepCopy(),
+			},
 		},
 	}
 
-	result := ((*JobSet)(job)).PodSets()
+	result := ((*JobSet)(jobset)).PodSets()
 
 	if diff := cmp.Diff(wantPodSets, result); diff != "" {
 		t.Errorf("PodSets() mismatch (-want +got):\n%s", diff)
 	}
 }
 
-func setParallelismAndCompletions(wrapper *testingjobsetutil.JobTemplateWrapper, parallelism int32, completions int32) *testingjobsetutil.JobTemplateWrapper {
-	wrapper.Spec.Parallelism = pointer.Int32(parallelism)
-	wrapper.Spec.Completions = pointer.Int32(completions)
-	return wrapper
+func TestReclaimablePods(t *testing.T) {
+	baseWrapper := testingjobset.MakeJobSet("jobset", "ns").ReplicatedJobs(
+		testingjobset.ReplicatedJobRequirements{
+			Name:        "replicated-job-1",
+			Replicas:    1,
+			Parallelism: 2,
+			Completions: 2,
+		},
+		testingjobset.ReplicatedJobRequirements{
+			Name:        "replicated-job-2",
+			Replicas:    2,
+			Parallelism: 3,
+			Completions: 6,
+		},
+	)
+
+	testcases := map[string]struct {
+		jobSet *jobset.JobSet
+		want   []kueue.ReclaimablePod
+	}{
+		"no status": {
+			jobSet: baseWrapper.DeepCopy().Obj(),
+			want:   nil,
+		},
+		"empty jobs status": {
+			jobSet: baseWrapper.DeepCopy().JobsStatus().Obj(),
+			want:   nil,
+		},
+		"single job done": {
+			jobSet: baseWrapper.DeepCopy().JobsStatus(jobset.ReplicatedJobStatus{
+				Name:      "replicated-job-1",
+				Succeeded: 1,
+			}).Obj(),
+			want: []kueue.ReclaimablePod{{
+				Name:  "replicated-job-1",
+				Count: 2,
+			}},
+		},
+		"single job partial done": {
+			jobSet: baseWrapper.DeepCopy().JobsStatus(jobset.ReplicatedJobStatus{
+				Name:      "replicated-job-2",
+				Succeeded: 1,
+			}).Obj(),
+			want: []kueue.ReclaimablePod{{
+				Name:  "replicated-job-2",
+				Count: 3,
+			}},
+		},
+		"all done": {
+			jobSet: baseWrapper.DeepCopy().JobsStatus(
+				jobset.ReplicatedJobStatus{
+					Name:      "replicated-job-1",
+					Succeeded: 1,
+				},
+				jobset.ReplicatedJobStatus{
+					Name:      "replicated-job-2",
+					Succeeded: 2,
+				},
+			).Obj(),
+			want: []kueue.ReclaimablePod{
+				{
+					Name:  "replicated-job-1",
+					Count: 2,
+				},
+				{
+					Name:  "replicated-job-2",
+					Count: 6,
+				},
+			},
+		},
+	}
+
+	for name, tc := range testcases {
+		t.Run(name, func(t *testing.T) {
+			jobSet := (*JobSet)(tc.jobSet)
+			got := jobSet.ReclaimablePods()
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Unexpected Reclaimable pods (-want +got):\n%s", diff)
+			}
+		})
+	}
 }
