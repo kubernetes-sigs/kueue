@@ -36,7 +36,8 @@ type GenericJob interface {
 	// RunWithPodSetsInfo will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
 	RunWithPodSetsInfo(nodeSelectors []PodSetInfo)
 	// RestorePodSetsInfo will restore the original node affinity and podSet counts of the job.
-	RestorePodSetsInfo(nodeSelectors []PodSetInfo)
+	// Returns whether any change was done.
+	RestorePodSetsInfo(nodeSelectors []PodSetInfo) bool
 	// Finished means whether the job is completed/failed or not,
 	// condition represents the workload finished condition.
 	Finished() (condition metav1.Condition, finished bool)
@@ -59,8 +60,10 @@ type JobWithReclaimablePods interface {
 }
 
 type JobWithCustomStop interface {
-	// Stop implements a custom stop procedure
-	Stop(ctx context.Context, c client.Client, podSetsInfo []PodSetInfo) error
+	// Stop implements a custom stop procedure.
+	// The function should be idempotent: not do any API calls if the job is already stopped.
+	// Returns whether the Job stopped with this call or an error
+	Stop(ctx context.Context, c client.Client, podSetsInfo []PodSetInfo) (bool, error)
 }
 
 type JobWithPriorityClass interface {

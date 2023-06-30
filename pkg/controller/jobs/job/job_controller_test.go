@@ -18,6 +18,7 @@ package job
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -321,6 +322,7 @@ func TestReconciler(t *testing.T) {
 		Image("", nil)
 
 	cases := map[string]struct {
+		focus             bool
 		reconcilerOptions []jobframework.Option
 		job               batchv1.Job
 		wantJob           batchv1.Job
@@ -582,6 +584,107 @@ func TestReconciler(t *testing.T) {
 			},
 			wantErr: jobframework.ErrExtraWorkloads,
 		},
+		"when workload is evicted, suspend, reset startTime and restore node affinity": {
+			job: *baseJobWrapper.Clone().
+				Queue("foo").
+				Suspend(false).
+				StartTime(time.Now()).
+				NodeSelector("provisioning", "spot").
+				Active(10).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").
+					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadEvicted,
+						Status: metav1.ConditionTrue,
+					}).
+					Obj(),
+			},
+			wantJob: *baseJobWrapper.Clone().
+				Queue("foo").
+				Suspend(true).
+				Active(10).
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").
+					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadEvicted,
+						Status: metav1.ConditionTrue,
+					}).
+					Obj(),
+			},
+		},
+		"when workload is evicted but suspended, reset startTime and restore node affinity": {
+			job: *baseJobWrapper.Clone().
+				Queue("foo").
+				Suspend(true).
+				StartTime(time.Now()).
+				NodeSelector("provisioning", "spot").
+				Active(10).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").
+					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadEvicted,
+						Status: metav1.ConditionTrue,
+					}).
+					Obj(),
+			},
+			wantJob: *baseJobWrapper.Clone().
+				Queue("foo").
+				Suspend(true).
+				Active(10).
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").
+					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadEvicted,
+						Status: metav1.ConditionTrue,
+					}).
+					Obj(),
+			},
+		},
+		"when workload is evicted, suspended and startTime is reset, restore node affinity": {
+			job: *baseJobWrapper.Clone().
+				Queue("foo").
+				Suspend(true).
+				NodeSelector("provisioning", "spot").
+				Active(10).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").
+					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadEvicted,
+						Status: metav1.ConditionTrue,
+					}).
+					Obj(),
+			},
+			wantJob: *baseJobWrapper.Clone().
+				Queue("foo").
+				Suspend(true).
+				Active(10).
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").
+					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadEvicted,
+						Status: metav1.ConditionTrue,
+					}).
+					Obj(),
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -590,9 +693,12 @@ func TestReconciler(t *testing.T) {
 			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
 			}
-			kClient := clientBuilder.
-				WithObjects(&tc.job).
-				Build()
+			kcBuilder := clientBuilder.
+				WithObjects(&tc.job)
+			for i := range tc.workloads {
+				kcBuilder = kcBuilder.WithStatusSubresource(&tc.workloads[i])
+			}
+			kClient := kcBuilder.Build()
 			for i := range tc.workloads {
 				if err := ctrl.SetControllerReference(&tc.job, &tc.workloads[i], kClient.Scheme()); err != nil {
 					t.Fatalf("Could not setup owner reference in Workloads: %v", err)
