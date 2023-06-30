@@ -1,5 +1,8 @@
 resources:
 - manager.yaml
+# Comment this line if you want to disable the service for auth proxy (https://github.com/brancz/kube-rbac-proxy)
+# which protects your /metrics endpoint.
+- auth_proxy_service.yaml
 
 generatorOptions:
   disableNameSuffixHash: true

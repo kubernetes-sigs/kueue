@@ -1,9 +1,9 @@
+# permissions for end users to manage all kueue objects.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "kueue.fullname" . }}-batch-admin-role
+  name: '{{ include "kueue.fullname" . }}-batch-admin-role'
 aggregationRule:
   clusterRoleSelectors:
-  - matchLabels:
-      rbac.kueue.x-k8s.io/batch-admin: "true"
-rules: null
+    - matchLabels:
+        rbac.kueue.x-k8s.io/batch-admin: "true"

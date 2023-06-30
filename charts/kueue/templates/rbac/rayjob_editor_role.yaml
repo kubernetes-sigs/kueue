@@ -2,15 +2,15 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: '{{ include "kueue.fullname" . }}-job-editor-role'
+  name: '{{ include "kueue.fullname" . }}-rayjob-editor-role'
   labels:
     rbac.kueue.x-k8s.io/batch-admin: "true"
     rbac.kueue.x-k8s.io/batch-user: "true"
 rules:
   - apiGroups:
-      - batch
+      - ray.io
     resources:
-      - jobs
+      - rayjobs
     verbs:
       - create
       - delete
@@ -20,8 +20,8 @@ rules:
       - update
       - watch
   - apiGroups:
-      - batch
+      - ray.io
     resources:
-      - jobs/status
+      - rayjobs/status
     verbs:
       - get

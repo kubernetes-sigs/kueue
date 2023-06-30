@@ -109,9 +109,9 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 		webhook output:webhook:artifacts:config=config/components/webhook\
 		paths="./..."
 
-.PHONY: update-helm-crd
-update-helm-crd: manifests
-	./hack/update-helm-crd.sh
+.PHONY: update-helm
+update-helm: manifests
+	./hack/update-helm.sh
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations and client-go libraries.
@@ -176,7 +176,7 @@ ci-lint: golangci-lint
 	$(GOLANGCI_LINT) run --timeout 15m0s
 
 .PHONY: verify
-verify: gomod-verify vet ci-lint fmt-verify toc-verify manifests generate update-helm-crd
+verify: gomod-verify vet ci-lint fmt-verify toc-verify manifests generate update-helm
 	git --no-pager diff --exit-code config/components apis charts/kueue/templates/crd client-go
 
 ##@ Build
