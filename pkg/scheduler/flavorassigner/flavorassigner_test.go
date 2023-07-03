@@ -53,10 +53,11 @@ func TestAssignFlavors(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		wlPods         []kueue.PodSet
-		clusterQueue   cache.ClusterQueue
-		wantRepMode    FlavorAssignmentMode
-		wantAssignment Assignment
+		wlPods            []kueue.PodSet
+		wlReclaimablePods []kueue.ReclaimablePod
+		clusterQueue      cache.ClusterQueue
+		wantRepMode       FlavorAssignmentMode
+		wantAssignment    Assignment
 	}{
 		"single flavor, fits": {
 			wlPods: []kueue.PodSet{
@@ -1398,6 +1399,47 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 			},
 		},
+		"with reclaimable pods": {
+			wlPods: []kueue.PodSet{
+				*utiltesting.MakePodSet("main", 5).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			wlReclaimablePods: []kueue.ReclaimablePod{
+				{
+					Name:  "main",
+					Count: 2,
+				},
+			},
+			clusterQueue: cache.ClusterQueue{
+				ResourceGroups: []cache.ResourceGroup{{
+					CoveredResources: sets.New(corev1.ResourceCPU, corev1.ResourcePods),
+					Flavors: []cache.FlavorQuotas{{
+						Name: "default",
+						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
+							corev1.ResourcePods: {Nominal: 3},
+							corev1.ResourceCPU:  {Nominal: 10000},
+						},
+					}},
+				}},
+			},
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: "main",
+					Flavors: ResourceAssignment{
+
+						corev1.ResourceCPU:  &FlavorAssignment{Name: "default", Mode: Fit},
+						corev1.ResourcePods: &FlavorAssignment{Name: "default", Mode: Fit},
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3000m"),
+						corev1.ResourcePods: resource.MustParse("3"),
+					},
+					Count: 3,
+				}},
+			},
+			wantRepMode: Fit,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -1407,6 +1449,9 @@ func TestAssignFlavors(t *testing.T) {
 			wlInfo := workload.NewInfo(&kueue.Workload{
 				Spec: kueue.WorkloadSpec{
 					PodSets: tc.wlPods,
+				},
+				Status: kueue.WorkloadStatus{
+					ReclaimablePods: tc.wlReclaimablePods,
 				},
 			})
 			tc.clusterQueue.UpdateWithFlavors(resourceFlavors)
