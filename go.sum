@@ -148,8 +148,8 @@ github.com/prometheus/common v0.44.0 h1:+5BrQJwiBB9xsMygAB3TNvpQKOwlkc25LbISbrdO
 github.com/prometheus/common v0.44.0/go.mod h1:ofAIvZbQ1e/nugmZGz4/qCb9Ap1VoSTIO7x0VV9VvuY=
 github.com/prometheus/procfs v0.10.1 h1:kYK1Va/YMlutzCGazswoHKo//tZVlFpKYh+PymziUAg=
 github.com/prometheus/procfs v0.10.1/go.mod h1:nwNm2aOCAYw8uTR/9bWRREkZFxAUcWzPHWJq+XBB/FM=
-github.com/ray-project/kuberay/ray-operator v0.0.0-20230516192117-9bc5d854bd31 h1:woOHNL7j9hvORGfyPEBrXZwIbSbs4Ghen7ccEerhU2I=
-github.com/ray-project/kuberay/ray-operator v0.0.0-20230516192117-9bc5d854bd31/go.mod h1:2auArgwD9dXXJz1oc7SqQ4U/rHdpwnrBwG98kr8OWXA=
+github.com/ray-project/kuberay/ray-operator v0.0.0-20230613204710-aeed3cdcbdcc h1:CnnZaXpwO5kYXet1K06sHzU+exg0g4wjW0gIKxCUlp0=
+github.com/ray-project/kuberay/ray-operator v0.0.0-20230613204710-aeed3cdcbdcc/go.mod h1:2auArgwD9dXXJz1oc7SqQ4U/rHdpwnrBwG98kr8OWXA=
 github.com/rogpeppe/fastuuid v1.2.0/go.mod h1:jVj6XXZzXRy/MSR5jhDC/2q6DgLz+nrA6LYCDYWNEvQ=
 github.com/rogpeppe/go-internal v1.10.0 h1:TMyTOH3F/DB16zRVcYyreMH6GnZZrwQVAoYjRBZyWFQ=
 github.com/spaolacci/murmur3 v0.0.0-20180118202830-f09979ecbc72/go.mod h1:JwIasOWyU6f++ZhiEuf87xNszmSA2myDM2Kzu9HwQUA=

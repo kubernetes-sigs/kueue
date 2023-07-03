@@ -11,7 +11,7 @@ require (
 	github.com/onsi/gomega v1.27.8
 	github.com/open-policy-agent/cert-controller v0.7.1-0.20230527042005-3b09cd39622f
 	github.com/prometheus/client_golang v1.16.0
-	github.com/ray-project/kuberay/ray-operator v0.0.0-20230516192117-9bc5d854bd31
+	github.com/ray-project/kuberay/ray-operator v0.0.0-20230613204710-aeed3cdcbdcc
 	go.uber.org/zap v1.24.0
 	k8s.io/api v0.27.3
 	k8s.io/apiextensions-apiserver v0.27.3
