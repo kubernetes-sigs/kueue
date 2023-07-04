@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: low-prio-1m-sleep
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  containers:
+  - name: sleep
+    image: busybox
+    command:
+      - sleep
+    args:
+      - 1m
+    resources:
+      requests:
+        cpu: 9
+  restartPolicy: OnFailure
+  priorityClassName: low-prio
+

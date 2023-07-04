@@ -91,6 +91,7 @@ managerConfig:
       - "kubeflow.org/pytorchjob"
       - "kubeflow.org/tfjob"
       - "kubeflow.org/xgboostjob"
+    # - "pod"
 # ports definition for metricsService and webhookService.
 metricsService:
   ports:
