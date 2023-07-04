@@ -359,6 +359,14 @@ func MakeClusterQueue(name string) *ClusterQueueWrapper {
 		Spec: kueue.ClusterQueueSpec{
 			NamespaceSelector: &metav1.LabelSelector{},
 			QueueingStrategy:  kueue.BestEffortFIFO,
+			Preemption: &kueue.ClusterQueuePreemption{
+				ReclaimWithinCohort: kueue.PreemptionPolicyNever,
+				WithinClusterQueue:  kueue.PreemptionPolicyNever,
+				FlavorFungibility: kueue.FlavorFungibility{
+					WhenCanBorrow:  kueue.Borrow,
+					WhenCanPreempt: kueue.TryNextFlavor,
+				},
+			},
 		},
 	}}
 }

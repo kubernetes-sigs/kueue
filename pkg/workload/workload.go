@@ -53,7 +53,7 @@ func (s *LastScheduleClusterQueueState) Equal(resourceFlavors map[kueue.Resource
 	return reflect.DeepEqual(s.ResourceFlavors, resourceFlavors) && reflect.DeepEqual(s.ClusterQueueUsage, clusterQueueUsage) && reflect.DeepEqual(s.CohortUsage, cohortUsage)
 }
 
-func (s *LastScheduleClusterQueueState) Clone() LastScheduleClusterQueueState {
+func (s *LastScheduleClusterQueueState) Clone() *LastScheduleClusterQueueState {
 	c := LastScheduleClusterQueueState{
 		LastScheduledFlavorIdx: make(map[string]map[corev1.ResourceName]int),
 		ResourceFlavors:        make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
@@ -72,7 +72,7 @@ func (s *LastScheduleClusterQueueState) Clone() LastScheduleClusterQueueState {
 	for flavor, flavorusage := range s.CohortUsage {
 		c.CohortUsage[flavor] = maps.Clone(flavorusage)
 	}
-	return c
+	return &c
 }
 
 // Info holds a Workload object and some pre-processing.

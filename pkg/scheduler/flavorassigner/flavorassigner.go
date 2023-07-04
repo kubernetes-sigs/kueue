@@ -231,7 +231,7 @@ type FlavorAssignment struct {
 // be assigned immediately. Each assigned flavor is accompanied with a
 // FlavorAssignmentMode.
 func AssignFlavors(log logr.Logger, wl *workload.Info, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, cq *cache.ClusterQueue, counts []int32) Assignment {
-	if !wl.LastSchedule.Equal(resourceFlavors, workload.FlavorResourceQuantities(cq.Usage), workload.FlavorResourceQuantities(cq.Cohort.Usage)) {
+	if wl.LastSchedule != nil && !wl.LastSchedule.Equal(resourceFlavors, workload.FlavorResourceQuantities(cq.Usage), workload.FlavorResourceQuantities(cq.Cohort.Usage)) {
 		wl.LastSchedule = nil
 	}
 
@@ -252,9 +252,10 @@ func assignFlavors(log logr.Logger, requests []workload.PodSetResources, podSets
 		PodSets:     make([]PodSetAssignment, 0, len(requests)),
 		Usage:       make(cache.FlavorResourceQuantities),
 		ScheduleState: workload.LastScheduleClusterQueueState{
-			ResourceFlavors:   make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
-			ClusterQueueUsage: make(workload.FlavorResourceQuantities),
-			CohortUsage:       make(workload.FlavorResourceQuantities),
+			LastScheduledFlavorIdx: make(map[string]map[corev1.ResourceName]int),
+			ResourceFlavors:        make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
+			ClusterQueueUsage:      make(workload.FlavorResourceQuantities),
+			CohortUsage:            make(workload.FlavorResourceQuantities),
 		},
 	}
 	for res, flavor := range resourceFlavors {
@@ -266,10 +267,12 @@ func assignFlavors(log logr.Logger, requests []workload.PodSetResources, podSets
 			assignment.ScheduleState.ClusterQueueUsage[flavor][res] = usage
 		}
 	}
-	for flavor, flavorusage := range cq.Cohort.Usage {
-		assignment.ScheduleState.CohortUsage[flavor] = make(map[corev1.ResourceName]int64)
-		for res, usage := range flavorusage {
-			assignment.ScheduleState.CohortUsage[flavor][res] = usage
+	if cq.Cohort != nil {
+		for flavor, flavorusage := range cq.Cohort.Usage {
+			assignment.ScheduleState.CohortUsage[flavor] = make(map[corev1.ResourceName]int64)
+			for res, usage := range flavorusage {
+				assignment.ScheduleState.CohortUsage[flavor][res] = usage
+			}
 		}
 	}
 
@@ -299,7 +302,11 @@ func assignFlavors(log logr.Logger, requests []workload.PodSetResources, podSets
 				}
 				break
 			}
-			flavors, status := assignment.findFlavorForResourceGroup(log, rg, podSet.Requests, resourceFlavors, cq, &podSets[i].Template.Spec, lastSchedule.LastScheduledFlavorIdx[podSet.Name])
+			var lastScheduleFlavorInfo map[corev1.ResourceName]int
+			if lastSchedule != nil {
+				lastScheduleFlavorInfo = lastSchedule.LastScheduledFlavorIdx[podSet.Name]
+			}
+			flavors, status := assignment.findFlavorForResourceGroup(log, rg, podSet.Requests, resourceFlavors, cq, &podSets[i].Template.Spec, lastScheduleFlavorInfo)
 			if status.IsError() || len(flavors) == 0 {
 				psAssignment.Flavors = nil
 				psAssignment.Status = status
@@ -436,6 +443,7 @@ func (a *Assignment) findFlavorForResourceGroup(
 
 		if !shouldTryNextFlavor(representativeMode, cq.Preemption.FlavorFungibility, whetherNeedBorrowing) {
 			bestAssignment = assignments
+			bestAssignmentMode = representativeMode
 			break
 		}
 		if representativeMode > bestAssignmentMode {
@@ -450,6 +458,9 @@ func (a *Assignment) findFlavorForResourceGroup(
 		} else {
 			assignment.LastScheduleFlavorIndex = lastScheduledFlavorIdx
 		}
+	}
+	if bestAssignmentMode == Fit {
+		return bestAssignment, nil
 	}
 	return bestAssignment, status
 }

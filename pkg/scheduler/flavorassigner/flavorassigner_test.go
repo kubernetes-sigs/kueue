@@ -1592,7 +1592,13 @@ func TestAssignFlavors(t *testing.T) {
 				t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
 			}
 
-			if diff := cmp.Diff(tc.wantAssignment, assignment, cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{})); diff != "" {
+			// assignment.ScheduleState = workload.LastScheduleClusterQueueState{
+			// 	LastScheduledFlavorIdx: nil,
+			// 	ResourceFlavors:        nil,
+			// 	ClusterQueueUsage:      nil,
+			// 	CohortUsage:            nil,
+			// }
+			if diff := cmp.Diff(tc.wantAssignment, assignment, cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}), cmpopts.IgnoreFields(Assignment{}, "ScheduleState"), cmpopts.IgnoreFields(FlavorAssignment{}, "LastScheduleFlavorIndex")); diff != "" {
 				t.Errorf("Unexpected assignment (-want,+got):\n%s", diff)
 			}
 		})

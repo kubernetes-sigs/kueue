@@ -765,6 +765,10 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 			).
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+				FlavorFungibility: kueue.FlavorFungibility{
+					WhenCanBorrow:  kueue.Borrow,
+					WhenCanPreempt: kueue.TryNextFlavor,
+				},
 			}).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, devClusterQ)).Should(gomega.Succeed())

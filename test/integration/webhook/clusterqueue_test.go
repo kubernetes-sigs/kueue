@@ -83,6 +83,10 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 						Preemption: &kueue.ClusterQueuePreemption{
 							WithinClusterQueue:  kueue.PreemptionPolicyNever,
 							ReclaimWithinCohort: kueue.PreemptionPolicyNever,
+							FlavorFungibility: kueue.FlavorFungibility{
+								WhenCanBorrow:  kueue.Borrow,
+								WhenCanPreempt: kueue.TryNextFlavor,
+							},
 						},
 					},
 				},
@@ -96,6 +100,10 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 						Preemption: &kueue.ClusterQueuePreemption{
 							WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 							ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+							FlavorFungibility: kueue.FlavorFungibility{
+								WhenCanBorrow:  kueue.Borrow,
+								WhenCanPreempt: kueue.TryNextFlavor,
+							},
 						},
 					},
 				},
@@ -109,6 +117,10 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 						Preemption: &kueue.ClusterQueuePreemption{
 							WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 							ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+							FlavorFungibility: kueue.FlavorFungibility{
+								WhenCanBorrow:  kueue.Borrow,
+								WhenCanPreempt: kueue.TryNextFlavor,
+							},
 						},
 					},
 				},
@@ -225,6 +237,10 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				testing.MakeClusterQueue("cluster-queue").Preemption(kueue.ClusterQueuePreemption{
 					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					FlavorFungibility: kueue.FlavorFungibility{
+						WhenCanBorrow:  kueue.Borrow,
+						WhenCanPreempt: kueue.TryNextFlavor,
+					},
 				}).Obj(),
 				isValid),
 			ginkgo.Entry("Should forbid to create clusterQueue with unknown preemption.withinCohort",

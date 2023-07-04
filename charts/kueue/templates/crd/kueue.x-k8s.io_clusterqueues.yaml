@@ -161,16 +161,15 @@ spec:
                       whenCanBorrow:
                         default: Borrow
                         enum:
-                        - Borrow,TryNextFlavor
+                        - Borrow
+                        - TryNextFlavor
                         type: string
                       whenCanPreempt:
                         default: TryNextFlavor
                         enum:
-                        - Preempt,TryNextFlavor
+                        - Preempt
+                        - TryNextFlavor
                         type: string
-                    required:
-                    - whenCanBorrow
-                    - whenCanPreempt
                     type: object
                   reclaimWithinCohort:
                     default: Never
@@ -206,8 +205,6 @@ spec:
                     - LowerPriority
                     - LowerOrNewerEqualPriority
                     type: string
-                required:
-                - flavorFungibility
                 type: object
               queueingStrategy:
                 default: BestEffortFIFO

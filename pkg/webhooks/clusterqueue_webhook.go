@@ -65,7 +65,17 @@ func (w *ClusterQueueWebhook) Default(ctx context.Context, obj runtime.Object) e
 		cq.Spec.Preemption = &kueue.ClusterQueuePreemption{
 			WithinClusterQueue:  kueue.PreemptionPolicyNever,
 			ReclaimWithinCohort: kueue.PreemptionPolicyNever,
+			FlavorFungibility: kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.Borrow,
+				WhenCanPreempt: kueue.TryNextFlavor,
+			},
 		}
+	}
+	if cq.Spec.Preemption.FlavorFungibility.WhenCanBorrow == "" {
+		cq.Spec.Preemption.FlavorFungibility.WhenCanBorrow = kueue.Borrow
+	}
+	if cq.Spec.Preemption.FlavorFungibility.WhenCanPreempt == "" {
+		cq.Spec.Preemption.FlavorFungibility.WhenCanPreempt = kueue.TryNextFlavor
 	}
 	return nil
 }
