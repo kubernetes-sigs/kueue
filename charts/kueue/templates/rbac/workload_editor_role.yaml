@@ -1,25 +1,26 @@
+# permissions for end users to edit workloads.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "kueue.fullname" . }}-workload-editor-role
+  name: '{{ include "kueue.fullname" . }}-workload-editor-role'
   labels:
     rbac.kueue.x-k8s.io/batch-admin: "true"
 rules:
-- apiGroups:
-  - kueue.x-k8s.io
-  resources:
-  - workloads
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - kueue.x-k8s.io
-  resources:
-  - workloads/status
-  verbs:
-  - get
+  - apiGroups:
+      - kueue.x-k8s.io
+    resources:
+      - workloads
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - kueue.x-k8s.io
+    resources:
+      - workloads/status
+    verbs:
+      - get

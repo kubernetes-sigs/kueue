@@ -1,22 +1,23 @@
+# permissions for end users to view queues.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "kueue.fullname" . }}-localqueue-viewer-role
+  name: '{{ include "kueue.fullname" . }}-localqueue-viewer-role'
   labels:
     rbac.kueue.x-k8s.io/batch-admin: "true"
     rbac.kueue.x-k8s.io/batch-user: "true"
 rules:
-- apiGroups:
-  - kueue.x-k8s.io
-  resources:
-  - localqueues
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - kueue.x-k8s.io
-  resources:
-  - localqueues/status
-  verbs:
-  - get
+  - apiGroups:
+      - kueue.x-k8s.io
+    resources:
+      - localqueues
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - kueue.x-k8s.io
+    resources:
+      - localqueues/status
+    verbs:
+      - get
