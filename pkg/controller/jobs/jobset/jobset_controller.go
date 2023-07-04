@@ -163,15 +163,6 @@ func (j *JobSet) Finished() (metav1.Condition, bool) {
 	return metav1.Condition{}, false
 }
 
-func (j *JobSet) PriorityClass() string {
-	for _, replicatedJob := range j.Spec.ReplicatedJobs {
-		if len(replicatedJob.Template.Spec.Template.Spec.PriorityClassName) != 0 {
-			return replicatedJob.Template.Spec.Template.Spec.PriorityClassName
-		}
-	}
-	return ""
-}
-
 func (j *JobSet) PodsReady() bool {
 	var replicas int32
 	for _, replicatedJob := range j.Spec.ReplicatedJobs {

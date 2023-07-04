@@ -42,8 +42,6 @@ type GenericJob interface {
 	Finished() (condition metav1.Condition, finished bool)
 	// PodSets will build workload podSets corresponding to the job.
 	PodSets() []kueue.PodSet
-	// PriorityClass returns the job's priority class name.
-	PriorityClass() string
 	// IsActive returns true if there are any running pods.
 	IsActive() bool
 	// PodsReady instructs whether job derived pods are all ready now.
@@ -63,6 +61,11 @@ type JobWithReclaimablePods interface {
 type JobWithCustomStop interface {
 	// Stop implements a custom stop procedure
 	Stop(ctx context.Context, c client.Client, podSetsInfo []PodSetInfo) error
+}
+
+type JobWithPriorityClass interface {
+	// PriorityClass returns the job's priority class name.
+	PriorityClass() string
 }
 
 func ParentWorkloadName(job GenericJob) string {

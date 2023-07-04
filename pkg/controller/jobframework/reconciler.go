@@ -444,19 +444,20 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, object clie
 
 // constructWorkload will derive a workload from the corresponding job.
 func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
+	podSets := job.PodSets()
+
 	wl := &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      GetWorkloadNameForOwnerWithGVK(object.GetName(), job.GetGVK()),
 			Namespace: object.GetNamespace(),
 		},
 		Spec: kueue.WorkloadSpec{
-			PodSets:   resetMinCounts(job.PodSets()),
+			PodSets:   resetMinCounts(podSets),
 			QueueName: QueueName(job),
 		},
 	}
 
-	priorityClassName, p, err := utilpriority.GetPriorityFromPriorityClass(
-		ctx, r.client, job.PriorityClass())
+	priorityClassName, p, err := r.extractPriority(ctx, podSets, job)
 	if err != nil {
 		return nil, err
 	}
@@ -468,6 +469,24 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 		return nil, err
 	}
 	return wl, nil
+}
+
+func (r *JobReconciler) extractPriority(ctx context.Context, podSets []kueue.PodSet, job GenericJob) (string, int32, error) {
+	if jobWithPriorityClass, isImplemented := job.(JobWithPriorityClass); isImplemented {
+		return utilpriority.GetPriorityFromPriorityClass(
+			ctx, r.client, jobWithPriorityClass.PriorityClass())
+	}
+	return utilpriority.GetPriorityFromPriorityClass(
+		ctx, r.client, extractPriorityFromPodSets(podSets))
+}
+
+func extractPriorityFromPodSets(podSets []kueue.PodSet) string {
+	for _, podSet := range podSets {
+		if len(podSet.Template.Spec.PriorityClassName) > 0 {
+			return podSet.Template.Spec.PriorityClassName
+		}
+	}
+	return ""
 }
 
 type PodSetInfo struct {

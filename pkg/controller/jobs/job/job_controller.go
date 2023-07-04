@@ -262,10 +262,6 @@ func (j *Job) Finished() (metav1.Condition, bool) {
 	return condition, finished
 }
 
-func (j *Job) PriorityClass() string {
-	return j.Spec.Template.Spec.PriorityClassName
-}
-
 func (j *Job) PodsReady() bool {
 	ready := pointer.Int32Deref(j.Status.Ready, 0)
 	return j.Status.Succeeded+ready >= j.podsCount()

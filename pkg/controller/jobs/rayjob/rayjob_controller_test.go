@@ -122,33 +122,6 @@ func TestPodSets(t *testing.T) {
 	}
 }
 
-func TestPriorityClass(t *testing.T) {
-	cases := map[string]struct {
-		job           *rayjobapi.RayJob
-		wantClassName string
-	}{
-		"none": {
-			job: testingrayutil.MakeJob("job", "ns").Obj(),
-		},
-		"from head": {
-			job:           testingrayutil.MakeJob("job", "ns").WithPriorityClassName("head-prio-class").WithWorkerPriorityClassName("worker-prio-class").Obj(),
-			wantClassName: "head-prio-class",
-		},
-		"from worker": {
-			job:           testingrayutil.MakeJob("job", "ns").WithWorkerPriorityClassName("worker-prio-class").Obj(),
-			wantClassName: "worker-prio-class",
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			got := ((*RayJob)(tc.job)).PriorityClass()
-			if diff := cmp.Diff(tc.wantClassName, got); diff != "" {
-				t.Errorf("PriorityClass() mismatch (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
 func TestNodeSelectors(t *testing.T) {
 
 	job := (*RayJob)(testingrayutil.MakeJob("job", "ns").
