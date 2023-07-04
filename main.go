@@ -53,6 +53,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/noop"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
@@ -349,7 +350,7 @@ func findCustomResources(ctx context.Context, mgr ctrl.Manager) sets.Set[string]
 		setupLog.Error(err, "Unable to get crd list")
 		os.Exit(1)
 	}
-	customResources := sets.New[string](job.FrameworkName)
+	customResources := sets.New[string](job.FrameworkName, pod.FrameworkName)
 	for _, crd := range crds.Items {
 		customResources.Insert(strings.Join([]string{crd.Spec.Group, crd.Spec.Names.Singular}, "/"))
 	}

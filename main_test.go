@@ -17,7 +17,6 @@ limitations under the License.
 package main
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -25,9 +24,11 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/pointer"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 )
 
@@ -104,7 +105,7 @@ integrations:
 		{
 			name:       "bad integrations config",
 			configFile: badIntegrationsConfig,
-			wantError:  fmt.Errorf("integrations.frameworks: Unsupported value: \"unregistered/jobframework\": supported values: \"batch/job\", \"jobset.x-k8s.io/jobset\", \"kubeflow.org/mpijob\", \"ray.io/rayjob\""),
+			wantError:  field.NotSupported(field.NewPath("integrations", "frameworks"), "unregistered/jobframework", jobframework.GetIntegrationsList()),
 		},
 	}
 

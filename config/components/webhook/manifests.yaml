@@ -67,6 +67,25 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
+      path: /mutate--v1-pod
+  failurePolicy: Ignore
+  name: mpod.kb.io
+  rules:
+  - apiGroups:
+    - ""
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    resources:
+    - pods
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
       path: /mutate-ray-io-v1alpha1-rayjob
   failurePolicy: Fail
   name: mrayjob.kb.io
@@ -203,6 +222,26 @@ webhooks:
     - UPDATE
     resources:
     - mpijobs
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate--v1-pod
+  failurePolicy: Ignore
+  name: vpod.kb.io
+  rules:
+  - apiGroups:
+    - ""
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - pods
   sideEffects: None
 - admissionReviewVersions:
   - v1
