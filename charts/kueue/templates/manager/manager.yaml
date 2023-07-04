@@ -47,7 +47,7 @@ spec:
         resources: {{- toYaml .Values.controllerManager.manager.resources | nindent 10
           }}
         securityContext:
-          allowPrivilegeEscalation: false
+          {{- toYaml .Values.controllerManager.manager.containerSecurityContext | nindent 10 }}
         volumeMounts:
         - mountPath: /tmp/k8s-webhook-server/serving-certs
           name: cert
@@ -69,7 +69,7 @@ spec:
           protocol: TCP
         resources: {}
       securityContext:
-        runAsNonRoot: true
+        {{- toYaml .Values.controllerManager.manager.podSecurityContext | nindent 8 }}
       serviceAccountName: {{ include "kueue.fullname" . }}-controller-manager
       {{- with .Values.controllerManager.imagePullSecrets  }}
       imagePullSecrets:

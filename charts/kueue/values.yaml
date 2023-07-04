@@ -33,6 +33,10 @@ controllerManager:
       requests:
         cpu: 500m
         memory: 512Mi
+    podSecurityContext:
+      runAsNonRoot: true
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
   replicas: 1
   imagePullSecrets: []
 
