@@ -148,12 +148,23 @@ spec:
                   Workloads with lower priority first."
                 properties:
                   flavorFungibility:
+                    description: "flagorFungibility determines whether a workload
+                      should try the next flavor before borrowing or preempting in
+                      current flavor. The possible values are: \n - `Borrow` (default
+                      for WhenCanBorrow): allocate in current flavor if borrowing
+                      can help. only effective for WhenCanBorrow - `Preempt`: allocate
+                      in current flavor if preempt might help. only effective for
+                      WhenCanPreempt - `TryNextFlavor` (default for WhenCanPreempt):
+                      try next flavor if the current flavor has no enough resource.
+                      effective for WhenCanBorrow and WhenCanPreempt."
                     properties:
                       whenCanBorrow:
+                        default: Borrow
                         enum:
                         - Borrow,TryNextFlavor
                         type: string
                       whenCanPreempt:
+                        default: TryNextFlavor
                         enum:
                         - Preempt,TryNextFlavor
                         type: string
