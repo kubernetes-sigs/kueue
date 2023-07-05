@@ -126,7 +126,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 
 		ginkgo.It("Should unsuspend a job and set nodeSelectors", func() {
 			// Use a binary that ends.
-			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).Image("sleep", "gcr.io/k8s-staging-perf-tests/sleep:v0.0.3", []string{"5s"}).Obj()
+			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).Image("gcr.io/k8s-staging-perf-tests/sleep:v0.0.3", []string{"5s"}).Obj()
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
 			createdWorkload := &kueue.Workload{}
