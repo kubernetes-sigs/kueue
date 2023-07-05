@@ -441,6 +441,30 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 2)
 			})
 		})
+
+		ginkgo.It("Reclaimed resources are not accounted during admission", func() {
+			wl := testing.MakeWorkload("first-wl", ns.Name).Queue(prodQueue.Name).
+				PodSets(*testing.MakePodSet("main", 2).Request(corev1.ResourceCPU, "3").Obj()).
+				Obj()
+			ginkgo.By("Creating first workload", func() {
+				gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
+
+				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
+				util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 0)
+			})
+			ginkgo.By("Mark one pod as reclaimable", func() {
+				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "main", Count: 1}})).To(gomega.Succeed())
+
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, wl)
+				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
+				util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
+
+				createWl := &kueue.Workload{}
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), createWl)).To(gomega.Succeed())
+				gomega.Expect(*createWl.Status.Admission.PodSetAssignments[0].Count).To(gomega.Equal(int32(1)))
+
+			})
+		})
 	})
 
 	ginkgo.When("Handling workloads events", func() {
