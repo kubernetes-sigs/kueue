@@ -60,7 +60,6 @@ func TestAPIs(t *testing.T) {
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	return func(mgr manager.Manager, ctx context.Context) {
 		reconciler := jobset.NewReconciler(
-			mgr.GetScheme(),
 			mgr.GetClient(),
 			mgr.GetEventRecorderFor(constants.JobControllerName),
 			opts...)
@@ -86,7 +85,7 @@ func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetu
 
 		err = jobset.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = jobset.NewReconciler(mgr.GetScheme(), mgr.GetClient(),
+		err = jobset.NewReconciler(mgr.GetClient(),
 			mgr.GetEventRecorderFor(constants.JobControllerName), opts...).SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = jobset.SetupJobSetWebhook(mgr, opts...)

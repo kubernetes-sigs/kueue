@@ -93,7 +93,7 @@ func TestIsParentJobManaged(t *testing.T) {
 				builder = builder.WithObjects(tc.parentJob)
 			}
 			cl := builder.Build()
-			r := NewReconciler(nil, cl, nil)
+			r := NewReconciler(cl, nil)
 			got, gotErr := r.IsParentJobManaged(context.Background(), tc.job, jobNamespace)
 			if tc.wantManaged != got {
 				t.Errorf("Unexpected response from isParentManaged want: %v,got: %v", tc.wantManaged, got)
