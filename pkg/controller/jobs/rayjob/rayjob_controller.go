@@ -159,22 +159,6 @@ func (j *RayJob) Finished() (metav1.Condition, bool) {
 	return condition, rayjobapi.IsJobTerminal(j.Status.JobStatus)
 }
 
-func (j *RayJob) PriorityClass() string {
-	if j.Spec.RayClusterSpec != nil {
-		rcs := j.Spec.RayClusterSpec
-		if len(rcs.HeadGroupSpec.Template.Spec.PriorityClassName) != 0 {
-			return rcs.HeadGroupSpec.Template.Spec.PriorityClassName
-		}
-		for wi := range rcs.WorkerGroupSpecs {
-			w := &rcs.WorkerGroupSpecs[wi]
-			if len(w.Template.Spec.PriorityClassName) != 0 {
-				return w.Template.Spec.PriorityClassName
-			}
-		}
-	}
-	return ""
-}
-
 func (j *RayJob) PodsReady() bool {
 	return j.Status.RayClusterStatus.State == rayjobapi.Ready
 }

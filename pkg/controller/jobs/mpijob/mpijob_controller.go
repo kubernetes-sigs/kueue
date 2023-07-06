@@ -70,6 +70,7 @@ func isMPIJob(owner *metav1.OwnerReference) bool {
 type MPIJob kubeflow.MPIJob
 
 var _ jobframework.GenericJob = (*MPIJob)(nil)
+var _ jobframework.JobWithPriorityClass = (*MPIJob)(nil)
 
 func (j *MPIJob) Object() client.Object {
 	return (*kubeflow.MPIJob)(j)
