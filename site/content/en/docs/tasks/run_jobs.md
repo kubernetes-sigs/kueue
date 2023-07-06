@@ -222,3 +222,43 @@ Events:
 
 Since events have a timestamp with a resolution of seconds, the events might
 be listed in a slightly different order from which they actually occurred.
+
+## Partial admission
+
+From version v0.4.0, Kueue provides the ability for a batch user to create Jobs that ideally will run with a parallelism `P0` but can accept a smaller parallelism, `Pn`, if the Job dose not fit within the available quota.
+
+Kueue will only attempt to decrease the parallelism after both _borrowing_ and _preemption_ was taken into account in the admission process, and none of them are feasible.
+
+To allow partial admission you can provide the minimum acceptable parallelism `Pmin` in `kueue.x-k8s.io/job-min-parallelism` annotation of the Job, `Pn` should be grater that 0 and less that `P0`. When a Job is partially admitted its parallelism will be set to `Pn`, `Pn` will be set to the maximum acceptable value between `Pmin` and `P0`. The Job's completions count will not be changed.
+
+For example, a Job defined by the following manifest:
+
+```yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sample-job-partial-admission
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+  annotations:
+    kueue.x-k8s.io/job-min-parallelism: "5"
+spec:
+  parallelism: 20
+  completions: 20
+  suspend: true
+  template:
+    spec:
+      containers:
+      - name: dummy-job
+        image: gcr.io/k8s-staging-perf-tests/sleep:v0.0.3
+        args: ["30s"]
+        resources:
+          requests:
+            cpu: 1
+            memory: "200Mi"
+      restartPolicy: Never
+```
+When queued in a ClusterQueue with only 9 CPUs available, it will be admitted with `parallelism=9`. Note that the number of completions doesn't change.
+
+**NOTE:** PartialAdmission is an `Alpha` feature disabled by default, check the [Change the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration) section of the [Installation](/docs/installation/) for details.
