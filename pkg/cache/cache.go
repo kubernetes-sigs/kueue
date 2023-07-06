@@ -23,6 +23,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
@@ -122,7 +123,7 @@ func (c *Cache) WaitForPodsReady(ctx context.Context) {
 
 	log := ctrl.LoggerFrom(ctx)
 	for {
-		if c.podsReadyForAllAdmittedWorkloads(ctx) {
+		if c.podsReadyForAllAdmittedWorkloads(log) {
 			return
 		}
 		log.V(3).Info("Blocking admission as not all workloads are in the PodsReady condition")
@@ -137,18 +138,16 @@ func (c *Cache) WaitForPodsReady(ctx context.Context) {
 	}
 }
 
-func (c *Cache) PodsReadyForAllAdmittedWorkloads(ctx context.Context) bool {
+func (c *Cache) PodsReadyForAllAdmittedWorkloads(log logr.Logger) bool {
 	if !c.podsReadyTracking {
 		return true
 	}
-
 	c.Lock()
 	defer c.Unlock()
-	return c.podsReadyForAllAdmittedWorkloads(ctx)
+	return c.podsReadyForAllAdmittedWorkloads(log)
 }
 
-func (c *Cache) podsReadyForAllAdmittedWorkloads(ctx context.Context) bool {
-	log := ctrl.LoggerFrom(ctx)
+func (c *Cache) podsReadyForAllAdmittedWorkloads(log logr.Logger) bool {
 	for _, cq := range c.clusterQueues {
 		if len(cq.WorkloadsNotReady) > 0 {
 			log.V(3).Info("There is a ClusterQueue with not ready workloads", "clusterQueue", klog.KRef("", cq.Name))
@@ -164,6 +163,8 @@ func (c *Cache) podsReadyForAllAdmittedWorkloads(ctx context.Context) bool {
 // cache.WaitForPodsReady.
 func (c *Cache) CleanUpOnContext(ctx context.Context) {
 	<-ctx.Done()
+	c.Lock()
+	defer c.Unlock()
 	c.podsReadyCond.Broadcast()
 }
 

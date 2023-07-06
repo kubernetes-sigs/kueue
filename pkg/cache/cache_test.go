@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -2148,6 +2149,7 @@ func TestMatchingClusterQueues(t *testing.T) {
 func TestWaitForPodsReadyCancelled(t *testing.T) {
 	cache := New(utiltesting.NewFakeClient(), WithPodsReadyTracking(true))
 	ctx, cancel := context.WithCancel(context.Background())
+	log := ctrl.LoggerFrom(ctx)
 
 	go cache.CleanUpOnContext(ctx)
 
@@ -2165,7 +2167,7 @@ func TestWaitForPodsReadyCancelled(t *testing.T) {
 		t.Fatalf("Failed assuming the workload to block the further admission: %v", err)
 	}
 
-	if cache.PodsReadyForAllAdmittedWorkloads(ctx) {
+	if cache.PodsReadyForAllAdmittedWorkloads(log) {
 		t.Fatalf("Unexpected that all admitted workloads are in PodsReady condition")
 	}
 
@@ -2404,6 +2406,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cache := New(cl, WithPodsReadyTracking(true))
 			ctx := context.Background()
+			log := ctrl.LoggerFrom(ctx)
 
 			for _, c := range clusterQueues {
 				if err := cache.AddClusterQueue(ctx, &c); err != nil {
@@ -2418,7 +2421,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 			if err := tc.operation(cache); err != nil {
 				t.Errorf("Unexpected error during operation: %q", err)
 			}
-			gotReady := cache.PodsReadyForAllAdmittedWorkloads(ctx)
+			gotReady := cache.PodsReadyForAllAdmittedWorkloads(log)
 			if diff := cmp.Diff(tc.wantReady, gotReady); diff != "" {
 				t.Errorf("Unexpected response about workloads without pods ready (-want,+got):\n%s", diff)
 			}
