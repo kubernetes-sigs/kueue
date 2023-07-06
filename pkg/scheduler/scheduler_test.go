@@ -24,7 +24,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr/testr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -34,7 +33,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/pointer"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -857,10 +855,7 @@ func TestSchedule(t *testing.T) {
 			if tc.enablePartialAdmission {
 				defer features.SetFeatureGateDuringTest(t, features.PartialAdmission, true)()
 			}
-			log := testr.NewWithOptions(t, testr.Options{
-				Verbosity: 2,
-			})
-			ctx := ctrl.LoggerInto(context.Background(), log)
+			ctx, _ := utiltesting.ContextWithLog(t)
 			scheme := runtime.NewScheme()
 
 			allQueues := append(queues, tc.additionalLocalQueues...)
@@ -1142,10 +1137,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			log := testr.NewWithOptions(t, testr.Options{
-				Verbosity: 2,
-			})
-			ctx := ctrl.LoggerInto(context.Background(), log)
+			ctx, log := utiltesting.ContextWithLog(t)
 			scheme := runtime.NewScheme()
 
 			objs := []client.Object{w1, q1, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns1"}}}

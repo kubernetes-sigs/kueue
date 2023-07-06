@@ -22,7 +22,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
@@ -51,7 +50,6 @@ var (
 // JobReconciler reconciles a GenericJob object
 type JobReconciler struct {
 	client                     client.Client
-	scheme                     *runtime.Scheme
 	record                     record.EventRecorder
 	manageJobsWithoutQueueName bool
 	waitForPodsReady           bool
@@ -85,7 +83,6 @@ func WithWaitForPodsReady(f bool) Option {
 var DefaultOptions = Options{}
 
 func NewReconciler(
-	scheme *runtime.Scheme,
 	client client.Client,
 	record record.EventRecorder,
 	opts ...Option) *JobReconciler {
@@ -95,7 +92,6 @@ func NewReconciler(
 	}
 
 	return &JobReconciler{
-		scheme:                     scheme,
 		client:                     client,
 		record:                     record,
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
@@ -465,7 +461,7 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 	wl.Spec.PriorityClassName = priorityClassName
 	wl.Spec.Priority = &p
 
-	if err := ctrl.SetControllerReference(object, wl, r.scheme); err != nil {
+	if err := ctrl.SetControllerReference(object, wl, r.client.Scheme()); err != nil {
 		return nil, err
 	}
 	return wl, nil
@@ -593,9 +589,9 @@ func getPodSetsInfoFromWorkload(wl *kueue.Workload) []PodSetInfo {
 // newJob should return a new empty job.
 // newWorkloadHandler it's optional, if added it should return a new workload event handler.
 func NewGenericReconciler(newJob func() GenericJob, newWorkloadHandler func(client.Client) handler.EventHandler) ReconcilerFactory {
-	return func(scheme *runtime.Scheme, client client.Client, record record.EventRecorder, opts ...Option) JobReconcilerInterface {
+	return func(client client.Client, record record.EventRecorder, opts ...Option) JobReconcilerInterface {
 		return &genericReconciler{
-			jr:                 NewReconciler(scheme, client, record, opts...),
+			jr:                 NewReconciler(client, record, opts...),
 			newJob:             newJob,
 			newWorkloadHandler: newWorkloadHandler,
 		}

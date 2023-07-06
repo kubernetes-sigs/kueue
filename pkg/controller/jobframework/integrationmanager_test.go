@@ -32,7 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func testNewReconciler(*runtime.Scheme, client.Client, record.EventRecorder, ...Option) JobReconcilerInterface {
+func testNewReconciler(client.Client, record.EventRecorder, ...Option) JobReconcilerInterface {
 	return nil
 }
 
@@ -257,9 +257,8 @@ func TestForEach(t *testing.T) {
 }
 
 func TestGetCallbacksForOwner(t *testing.T) {
-
 	dontManage := IntegrationCallbacks{
-		NewReconciler: func(*runtime.Scheme, client.Client, record.EventRecorder, ...Option) JobReconcilerInterface {
+		NewReconciler: func(client.Client, record.EventRecorder, ...Option) JobReconcilerInterface {
 			panic("not implemented")
 		},
 		SetupWebhook: func(ctrl.Manager, ...Option) error { panic("not implemented") },

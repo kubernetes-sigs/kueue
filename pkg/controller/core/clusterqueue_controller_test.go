@@ -17,14 +17,11 @@ limitations under the License.
 package core
 
 import (
-	"context"
 	"testing"
 
-	"github.com/go-logr/logr/testr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	ctrl "sigs.k8s.io/controller-runtime"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
@@ -167,10 +164,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			cq.Status = tc.cqStatus
 			lq := utiltesting.MakeLocalQueue(lqName, "").
 				ClusterQueue(cqName).Obj()
-			log := testr.NewWithOptions(t, testr.Options{
-				Verbosity: 2,
-			})
-			ctx := ctrl.LoggerInto(context.Background(), log)
+			ctx, log := utiltesting.ContextWithLog(t)
 
 			cl := utiltesting.NewClientBuilder().WithLists(defaultWls).WithObjects(lq, cq).WithStatusSubresource(lq, cq).
 				Build()

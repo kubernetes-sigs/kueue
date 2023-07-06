@@ -218,7 +218,7 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 	err := jobframework.ForEachIntegration(func(name string, cb jobframework.IntegrationCallbacks) error {
 		log := setupLog.WithValues("jobFrameworkName", name)
 		if isFrameworkEnabled(cfg, name) && crds.Has(name) {
-			if err := cb.NewReconciler(mgr.GetScheme(),
+			if err := cb.NewReconciler(
 				mgr.GetClient(),
 				mgr.GetEventRecorderFor(fmt.Sprintf("%s-%s-controller", name, constants.KueueName)),
 				opts...,
