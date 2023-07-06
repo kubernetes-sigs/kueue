@@ -17,7 +17,6 @@ limitations under the License.
 package job
 
 import (
-	"sort"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -298,12 +297,15 @@ func TestPodSets(t *testing.T) {
 }
 
 var (
-	ignoredJobFields = []cmp.Option{
+	jobCmpOpts = []cmp.Option{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(batchv1.Job{}, "TypeMeta", "ObjectMeta"),
 	}
-	ignoredWorkloadFields = []cmp.Option{
+	workloadCmpOpts = []cmp.Option{
 		cmpopts.EquateEmpty(),
+		cmpopts.SortSlices(func(a, b kueue.Workload) bool {
+			return a.Name < b.Name
+		}),
 		cmpopts.IgnoreFields(kueue.Workload{}, "TypeMeta", "ObjectMeta"),
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 	}
@@ -312,9 +314,9 @@ var (
 func TestReconciler(t *testing.T) {
 	defer features.SetFeatureGateDuringTest(t, features.PartialAdmission, true)()
 	cases := map[string]struct {
-		focus         bool
 		job           batchv1.Job
 		workloads     []kueue.Workload
+		wantErr       error
 		wantJob       batchv1.Job
 		wantWorkloads []kueue.Workload
 	}{
@@ -357,6 +359,7 @@ func TestReconciler(t *testing.T) {
 					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
 					Obj(),
 			},
+			wantErr: jobframework.ErrNoMatchingWorkloads,
 			wantJob: *utiltestingjob.MakeJob("job", "ns").
 				Suspend(true).
 				Parallelism(10).
@@ -406,6 +409,7 @@ func TestReconciler(t *testing.T) {
 					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(8).Obj()).
 					Obj(),
 			},
+			wantErr: jobframework.ErrNoMatchingWorkloads,
 			wantJob: *utiltestingjob.MakeJob("job", "ns").
 				SetAnnotation(JobMinParallelismAnnotation, "5").
 				Suspend(true).
@@ -441,25 +445,22 @@ func TestReconciler(t *testing.T) {
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: jobKey,
 			})
-			if err != nil {
-				t.Fatalf("Failed to reconcile: %v", err)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
 			}
 
 			var gotJob batchv1.Job
 			if err := kClient.Get(ctx, jobKey, &gotJob); err != nil {
 				t.Fatalf("Could not get Job after reconcile: %v", err)
 			}
-			if diff := cmp.Diff(tc.wantJob, gotJob, ignoredJobFields...); diff != "" {
+			if diff := cmp.Diff(tc.wantJob, gotJob, jobCmpOpts...); diff != "" {
 				t.Errorf("Job after reconcile (-want,+got):\n%s", diff)
 			}
 			var gotWorkloads kueue.WorkloadList
 			if err := kClient.List(ctx, &gotWorkloads); err != nil {
 				t.Fatalf("Could not get Workloads after reconcile: %v", err)
 			}
-			sort.Slice(gotWorkloads.Items, func(i, j int) bool {
-				return gotWorkloads.Items[i].Name < gotWorkloads.Items[j].Name
-			})
-			if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, ignoredWorkloadFields...); diff != "" {
+			if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, workloadCmpOpts...); diff != "" {
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
 			}
 		})
