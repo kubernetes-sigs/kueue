@@ -295,7 +295,7 @@ gotestsum: ## Download gotestsum locally if necessary.
 KIND = $(PROJECT_DIR)/bin/kind
 .PHONY: kind
 kind:
-	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kind@v0.16.0
+	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kind@v0.18.0
 
 
 MPIROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" github.com/kubeflow/mpi-operator)
