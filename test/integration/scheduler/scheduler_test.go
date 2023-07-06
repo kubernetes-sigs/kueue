@@ -446,10 +446,11 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			wl := testing.MakeWorkload("first-wl", ns.Name).Queue(prodQueue.Name).
 				PodSets(*testing.MakePodSet("main", 2).Request(corev1.ResourceCPU, "3").Obj()).
 				Obj()
-			ginkgo.By("Creating first workload", func() {
+			ginkgo.By("Creating the workload", func() {
 				gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
 
-				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 1)
 				util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 0)
 			})
 			ginkgo.By("Mark one pod as reclaimable", func() {
