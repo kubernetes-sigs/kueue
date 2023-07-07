@@ -17,4 +17,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: gcr.io/k8s-staging-kueue/kueue
-  newTag: v0.4.0
+  newTag: release-0.4
