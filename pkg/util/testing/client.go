@@ -17,6 +17,8 @@ limitations under the License.
 package testing
 
 import (
+	"context"
+
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -48,4 +50,17 @@ func NewClientBuilder(addToSchemes ...func(s *runtime.Scheme) error) *fake.Clien
 		WithIndex(&kueue.LocalQueue{}, indexer.QueueClusterQueueKey, indexer.IndexQueueClusterQueue).
 		WithIndex(&kueue.Workload{}, indexer.WorkloadQueueKey, indexer.IndexWorkloadQueue).
 		WithIndex(&kueue.Workload{}, indexer.WorkloadClusterQueueKey, indexer.IndexWorkloadClusterQueue)
+}
+
+type builderIndexer struct {
+	*fake.ClientBuilder
+}
+
+func (b *builderIndexer) IndexField(ctx context.Context, obj client.Object, field string, extractValue client.IndexerFunc) error {
+	b.ClientBuilder = b.ClientBuilder.WithIndex(obj, field, extractValue)
+	return nil
+}
+
+func AsIndexer(builder *fake.ClientBuilder) client.FieldIndexer {
+	return &builderIndexer{ClientBuilder: builder}
 }

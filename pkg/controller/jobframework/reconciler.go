@@ -45,6 +45,8 @@ var (
 	ErrChildJobOwnerNotFound = fmt.Errorf("owner isn't set even though %s annotation is set", controllerconsts.ParentWorkloadAnnotation)
 	ErrUnknownWorkloadOwner  = errors.New("workload owner is unknown")
 	ErrWorkloadOwnerNotFound = errors.New("workload owner not found")
+	ErrNoMatchingWorkloads   = errors.New("no matching workloads")
+	ErrExtraWorkloads        = errors.New("extra workloads")
 )
 
 // JobReconciler reconciles a GenericJob object
@@ -159,7 +161,6 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// If there's no workload exists and job is unsuspended, we'll stop it immediately.
 	wl, err := r.ensureOneWorkload(ctx, job, object)
 	if err != nil {
-		log.Error(err, "Getting existing workloads")
 		return ctrl.Result{}, err
 	}
 
@@ -337,7 +338,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			w = &workloads.Items[0]
 		}
 		if err := r.stopJob(ctx, job, object, w, "No matching Workload"); err != nil {
-			log.Error(err, "stopping job")
+			return nil, fmt.Errorf("stopping job with no matching workload: %w", err)
 		}
 	}
 
@@ -345,13 +346,11 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 	existedWls := 0
 	for i := range toDelete {
 		err := r.client.Delete(ctx, toDelete[i])
-		if err == nil || !apierrors.IsNotFound(err) {
-			existedWls++
-		}
 		if err != nil && !apierrors.IsNotFound(err) {
-			log.Error(err, "Failed to delete workload")
+			return nil, fmt.Errorf("deleting not matching workload: %w", err)
 		}
 		if err == nil {
+			existedWls++
 			r.record.Eventf(object, corev1.EventTypeNormal, "DeletedWorkload",
 				"Deleted not matching Workload: %v", workload.Key(toDelete[i]))
 		}
@@ -359,9 +358,9 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 
 	if existedWls != 0 {
 		if match == nil {
-			return nil, fmt.Errorf("no matching workload was found, tried deleting %d existing workload(s)", existedWls)
+			return nil, fmt.Errorf("%w: deleted %d workloads", ErrNoMatchingWorkloads, len(workloads.Items))
 		}
-		return nil, fmt.Errorf("only one workload should exist, found %d", len(workloads.Items))
+		return nil, fmt.Errorf("%w: deleted %d workloads", ErrExtraWorkloads, len(workloads.Items))
 	}
 
 	return match, nil
@@ -378,22 +377,29 @@ func (r *JobReconciler) equivalentToWorkload(job GenericJob, object client.Objec
 
 	jobPodSets := resetMinCounts(job.PodSets())
 
-	if !workload.CanBePartiallyAdmitted(wl) || job.IsSuspended() {
+	if !workload.CanBePartiallyAdmitted(wl) || !workload.IsAdmitted(wl) {
 		// the two sets should fully match.
 		return equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets, true)
 	}
 
-	// If the job is not suspended, the podSet counts of the job could be lower that
-	// the initial values, in case of partial admission.
+	// Check everything but the pod counts.
 	if !equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets, false) {
 		return false
 	}
 
-	// Make sure the job podSets don't have higher counts, and use more resources that it originally
-	// requested.
-	// the ComparePodSetSlices fails if the lengths are not equal, don't check it once more
-	for i := range jobPodSets {
-		if jobPodSets[i].Count > wl.Spec.PodSets[i].Count || jobPodSets[i].Count < pointer.Int32Deref(wl.Spec.PodSets[i].MinCount, wl.Spec.PodSets[i].Count) {
+	// If the workload is admitted but the job is suspended, ignore counts.
+	// This might allow some violating jobs to pass equivalency checks, but their
+	// workloads would be invalidated in the next sync after unsuspending.
+	if job.IsSuspended() {
+		return true
+	}
+
+	for i, psAssigment := range wl.Status.Admission.PodSetAssignments {
+		assignedCount := wl.Spec.PodSets[i].Count
+		if jobPodSets[i].MinCount != nil {
+			assignedCount = pointer.Int32Deref(psAssigment.Count, assignedCount)
+		}
+		if jobPodSets[i].Count != assignedCount {
 			return false
 		}
 	}
