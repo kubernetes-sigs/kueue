@@ -41,7 +41,8 @@ import (
 )
 
 const (
-	queueIsInactiveMsg = "Can't submit new workloads to clusterQueue"
+	queueIsInactiveMsg      = "Can't submit new workloads to clusterQueue"
+	failedUpdateLqStatusMsg = "Failed to retrieve localQueue status"
 )
 
 // LocalQueueReconciler reconciles a LocalQueue object
@@ -166,16 +167,16 @@ func (r *LocalQueueReconciler) Generic(e event.GenericEvent) bool {
 // receive events.
 type qWorkloadHandler struct{}
 
-func (h *qWorkloadHandler) Create(event.CreateEvent, workqueue.RateLimitingInterface) {
+func (h *qWorkloadHandler) Create(context.Context, event.CreateEvent, workqueue.RateLimitingInterface) {
 }
 
-func (h *qWorkloadHandler) Update(event.UpdateEvent, workqueue.RateLimitingInterface) {
+func (h *qWorkloadHandler) Update(context.Context, event.UpdateEvent, workqueue.RateLimitingInterface) {
 }
 
-func (h *qWorkloadHandler) Delete(event.DeleteEvent, workqueue.RateLimitingInterface) {
+func (h *qWorkloadHandler) Delete(context.Context, event.DeleteEvent, workqueue.RateLimitingInterface) {
 }
 
-func (h *qWorkloadHandler) Generic(e event.GenericEvent, q workqueue.RateLimitingInterface) {
+func (h *qWorkloadHandler) Generic(_ context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
 	w := e.Object.(*kueue.Workload)
 	if w.Name == "" {
 		return
@@ -195,15 +196,15 @@ type qCQHandler struct {
 	client client.Client
 }
 
-func (h *qCQHandler) Create(e event.CreateEvent, wq workqueue.RateLimitingInterface) {
+func (h *qCQHandler) Create(ctx context.Context, e event.CreateEvent, wq workqueue.RateLimitingInterface) {
 	cq, ok := e.Object.(*kueue.ClusterQueue)
 	if !ok {
 		return
 	}
-	h.addLocalQueueToWorkQueue(cq, wq)
+	h.addLocalQueueToWorkQueue(ctx, cq, wq)
 }
 
-func (h *qCQHandler) Update(e event.UpdateEvent, wq workqueue.RateLimitingInterface) {
+func (h *qCQHandler) Update(ctx context.Context, e event.UpdateEvent, wq workqueue.RateLimitingInterface) {
 	newCq, ok := e.ObjectNew.(*kueue.ClusterQueue)
 	if !ok {
 		return
@@ -217,22 +218,21 @@ func (h *qCQHandler) Update(e event.UpdateEvent, wq workqueue.RateLimitingInterf
 	if equality.Semantic.DeepEqual(oldCq.Status.Conditions, newCq.Status.Conditions) {
 		return
 	}
-	h.addLocalQueueToWorkQueue(newCq, wq)
+	h.addLocalQueueToWorkQueue(ctx, newCq, wq)
 }
 
-func (h *qCQHandler) Delete(e event.DeleteEvent, wq workqueue.RateLimitingInterface) {
+func (h *qCQHandler) Delete(ctx context.Context, e event.DeleteEvent, wq workqueue.RateLimitingInterface) {
 	cq, ok := e.Object.(*kueue.ClusterQueue)
 	if !ok {
 		return
 	}
-	h.addLocalQueueToWorkQueue(cq, wq)
+	h.addLocalQueueToWorkQueue(ctx, cq, wq)
 }
 
-func (h *qCQHandler) Generic(event.GenericEvent, workqueue.RateLimitingInterface) {
+func (h *qCQHandler) Generic(context.Context, event.GenericEvent, workqueue.RateLimitingInterface) {
 }
 
-func (h *qCQHandler) addLocalQueueToWorkQueue(cq *kueue.ClusterQueue, wq workqueue.RateLimitingInterface) {
-	ctx := context.TODO()
+func (h *qCQHandler) addLocalQueueToWorkQueue(ctx context.Context, cq *kueue.ClusterQueue, wq workqueue.RateLimitingInterface) {
 	log := ctrl.LoggerFrom(ctx).WithValues("clusterQueue", klog.KObj(cq))
 	ctx = ctrl.LoggerInto(ctx, log)
 
@@ -254,8 +254,8 @@ func (r *LocalQueueReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.LocalQueue{}).
-		Watches(&source.Channel{Source: r.wlUpdateCh}, &qWorkloadHandler{}).
-		Watches(&source.Kind{Type: &kueue.ClusterQueue{}}, &queueCQHandler).
+		WatchesRawSource(&source.Channel{Source: r.wlUpdateCh}, &qWorkloadHandler{}).
+		Watches(&kueue.ClusterQueue{}, &queueCQHandler).
 		WithEventFilter(r).
 		Complete(r)
 }
@@ -269,11 +269,17 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 	oldStatus := queue.Status.DeepCopy()
 	pendingWls, err := r.queues.PendingWorkloads(queue)
 	if err != nil {
-		r.log.Error(err, "Failed to retrieve localQueue status")
+		r.log.Error(err, failedUpdateLqStatusMsg)
+		return err
+	}
+	usage, err := r.cache.LocalQueueUsage(queue)
+	if err != nil {
+		r.log.Error(err, failedUpdateLqStatusMsg)
 		return err
 	}
 	queue.Status.PendingWorkloads = pendingWls
 	queue.Status.AdmittedWorkloads = r.cache.AdmittedWorkloadsInLocalQueue(queue)
+	queue.Status.FlavorUsage = usage
 	if len(conditionStatus) != 0 && len(reason) != 0 && len(msg) != 0 {
 		meta.SetStatusCondition(&queue.Status.Conditions, metav1.Condition{
 			Type:    kueue.LocalQueueActive,

@@ -14,27 +14,26 @@ limitations under the License.
 package jobframework
 
 import (
-	"encoding/json"
 	"strings"
 
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 var (
 	annotationsPath       = field.NewPath("metadata", "annotations")
 	labelsPath            = field.NewPath("metadata", "labels")
-	parentWorkloadKeyPath = annotationsPath.Key(ParentWorkloadAnnotation)
-	queueNameLabelPath    = labelsPath.Key(QueueLabel)
-
-	originalNodeSelectorsWorkloadKeyPath = annotationsPath.Key(OriginalNodeSelectorsAnnotation)
+	parentWorkloadKeyPath = annotationsPath.Key(constants.ParentWorkloadAnnotation)
+	queueNameLabelPath    = labelsPath.Key(constants.QueueLabel)
 )
 
 func ValidateCreateForQueueName(job GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
-	allErrs = append(allErrs, validateLabelAsCRDName(job, QueueLabel)...)
-	allErrs = append(allErrs, ValidateAnnotationAsCRDName(job, QueueAnnotation)...)
+	allErrs = append(allErrs, validateLabelAsCRDName(job, constants.QueueLabel)...)
+	allErrs = append(allErrs, ValidateAnnotationAsCRDName(job, constants.QueueAnnotation)...)
 	return allErrs
 }
 
@@ -58,6 +57,16 @@ func validateLabelAsCRDName(job GenericJob, crdNameLabel string) field.ErrorList
 	return allErrs
 }
 
+func ValidateCreateForParentWorkload(job GenericJob) field.ErrorList {
+	var allErrs field.ErrorList
+	if _, exists := job.Object().GetAnnotations()[constants.ParentWorkloadAnnotation]; exists {
+		if job.Object().GetOwnerReferences() == nil {
+			allErrs = append(allErrs, field.Forbidden(parentWorkloadKeyPath, "must not add a parent workload annotation to job without OwnerReference"))
+		}
+	}
+	return allErrs
+}
+
 func ValidateUpdateForQueueName(oldJob, newJob GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
 	if !newJob.IsSuspended() && (QueueName(oldJob) != QueueName(newJob)) {
@@ -71,22 +80,6 @@ func ValidateUpdateForParentWorkload(oldJob, newJob GenericJob) field.ErrorList 
 	if errList := apivalidation.ValidateImmutableField(ParentWorkloadName(newJob),
 		ParentWorkloadName(oldJob), parentWorkloadKeyPath); len(errList) > 0 {
 		allErrs = append(allErrs, field.Forbidden(parentWorkloadKeyPath, "this annotation is immutable"))
-	}
-	return allErrs
-}
-
-func ValidateUpdateForOriginalNodeSelectors(oldJob, newJob GenericJob) field.ErrorList {
-	var allErrs field.ErrorList
-	if oldJob.IsSuspended() == newJob.IsSuspended() {
-		if errList := apivalidation.ValidateImmutableField(oldJob.Object().GetAnnotations()[OriginalNodeSelectorsAnnotation],
-			newJob.Object().GetAnnotations()[OriginalNodeSelectorsAnnotation], originalNodeSelectorsWorkloadKeyPath); len(errList) > 0 {
-			allErrs = append(allErrs, field.Forbidden(originalNodeSelectorsWorkloadKeyPath, "this annotation is immutable while the job is not changing its suspended state"))
-		}
-	} else if av, found := newJob.Object().GetAnnotations()[OriginalNodeSelectorsAnnotation]; found {
-		out := []PodSetNodeSelector{}
-		if err := json.Unmarshal([]byte(av), &out); err != nil {
-			allErrs = append(allErrs, field.Invalid(originalNodeSelectorsWorkloadKeyPath, av, err.Error()))
-		}
 	}
 	return allErrs
 }

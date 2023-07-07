@@ -1,0 +1,26 @@
+# permissions for end users to edit localqueues.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: '{{ include "kueue.fullname" . }}-localqueue-editor-role'
+  labels:
+    rbac.kueue.x-k8s.io/batch-admin: "true"
+rules:
+  - apiGroups:
+      - kueue.x-k8s.io
+    resources:
+      - localqueues
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - kueue.x-k8s.io
+    resources:
+      - localqueues/status
+    verbs:
+      - get

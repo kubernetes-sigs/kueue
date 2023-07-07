@@ -25,12 +25,14 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
+	"sigs.k8s.io/kueue/pkg/util/maps"
 )
 
 var (
@@ -50,7 +52,21 @@ type Info struct {
 type PodSetResources struct {
 	Name     string
 	Requests Requests
+	Count    int32
 	Flavors  map[corev1.ResourceName]kueue.ResourceFlavorReference
+}
+
+func (psr *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
+	ret := &PodSetResources{
+		Name:     psr.Name,
+		Requests: maps.Clone(psr.Requests),
+		Count:    psr.Count,
+		Flavors:  maps.Clone(psr.Flavors),
+	}
+	ret.Requests.scaleDown(int64(ret.Count))
+	ret.Requests.scaleUp(int64(newCount))
+	ret.Count = newCount
+	return ret
 }
 
 func NewInfo(w *kueue.Workload) *Info {
@@ -70,6 +86,20 @@ func (i *Info) Update(wl *kueue.Workload) {
 	i.Obj = wl
 }
 
+func (i *Info) CanBePartiallyAdmitted() bool {
+	return CanBePartiallyAdmitted(i.Obj)
+}
+
+func CanBePartiallyAdmitted(wl *kueue.Workload) bool {
+	ps := wl.Spec.PodSets
+	for psi := range ps {
+		if ps[psi].Count > pointer.Int32Deref(ps[psi].MinCount, ps[psi].Count) {
+			return true
+		}
+	}
+	return false
+}
+
 func Key(w *kueue.Workload) string {
 	return fmt.Sprintf("%s/%s", w.Namespace, w.Name)
 }
@@ -78,18 +108,50 @@ func QueueKey(w *kueue.Workload) string {
 	return fmt.Sprintf("%s/%s", w.Namespace, w.Spec.QueueName)
 }
 
+func reclaimableCounts(wl *kueue.Workload) map[string]int32 {
+	ret := make(map[string]int32, len(wl.Status.ReclaimablePods))
+	for i := range wl.Status.ReclaimablePods {
+		reclaimInfo := &wl.Status.ReclaimablePods[i]
+		ret[reclaimInfo.Name] = reclaimInfo.Count
+	}
+	return ret
+}
+
+func podSetsCounts(wl *kueue.Workload) map[string]int32 {
+
+	ret := make(map[string]int32, len(wl.Spec.PodSets))
+	for i := range wl.Spec.PodSets {
+		ps := &wl.Spec.PodSets[i]
+		ret[ps.Name] = ps.Count
+	}
+	return ret
+}
+
+func podSetsCountsAfterReclaim(wl *kueue.Workload) map[string]int32 {
+	totalCounts := podSetsCounts(wl)
+	reclaimCounts := reclaimableCounts(wl)
+	for podSetName := range totalCounts {
+		if rc, found := reclaimCounts[podSetName]; found {
+			totalCounts[podSetName] -= rc
+		}
+	}
+	return totalCounts
+}
+
 func totalRequestsFromPodSets(wl *kueue.Workload) []PodSetResources {
 	if len(wl.Spec.PodSets) == 0 {
 		return nil
 	}
 	res := make([]PodSetResources, 0, len(wl.Spec.PodSets))
-
+	currentCounts := podSetsCountsAfterReclaim(wl)
 	for _, ps := range wl.Spec.PodSets {
+		count := currentCounts[ps.Name]
 		setRes := PodSetResources{
-			Name: ps.Name,
+			Name:  ps.Name,
+			Count: count,
 		}
 		setRes.Requests = newRequests(limitrange.TotalRequests(&ps.Template.Spec))
-		setRes.Requests.scale(int64(ps.Count))
+		setRes.Requests.scaleUp(int64(count))
 		res = append(res, setRes)
 	}
 	return res
@@ -100,12 +162,22 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 		return nil
 	}
 	res := make([]PodSetResources, 0, len(wl.Spec.PodSets))
-	for _, ps := range wl.Status.Admission.PodSetAssignments {
+	currentCounts := podSetsCountsAfterReclaim(wl)
+	totalCounts := podSetsCounts(wl)
+	for _, psa := range wl.Status.Admission.PodSetAssignments {
 		setRes := PodSetResources{
-			Name: ps.Name,
+			Name:     psa.Name,
+			Flavors:  psa.Flavors,
+			Count:    pointer.Int32Deref(psa.Count, totalCounts[psa.Name]),
+			Requests: newRequests(psa.ResourceUsage),
 		}
-		setRes.Flavors = ps.Flavors
-		setRes.Requests = newRequests(ps.ResourceUsage)
+
+		if count := currentCounts[psa.Name]; count != setRes.Count {
+			setRes.Requests.scaleDown(int64(setRes.Count))
+			setRes.Requests.scaleUp(int64(count))
+			setRes.Count = count
+		}
+
 		res = append(res, setRes)
 	}
 	return res
@@ -156,9 +228,15 @@ func ResourceQuantity(name corev1.ResourceName, v int64) resource.Quantity {
 	}
 }
 
-func (r Requests) scale(f int64) {
+func (r Requests) scaleUp(f int64) {
 	for name := range r {
 		r[name] *= f
+	}
+}
+
+func (r Requests) scaleDown(f int64) {
+	for name := range r {
+		r[name] /= f
 	}
 }
 
@@ -287,4 +365,31 @@ func GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
 // IsAdmitted checks if workload is admitted based on conditions
 func IsAdmitted(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadAdmitted)
+}
+
+// UpdateReclaimablePods updates the ReclaimablePods list for the workload wit SSA.
+func UpdateReclaimablePods(ctx context.Context, c client.Client, w *kueue.Workload, reclaimablePods []kueue.ReclaimablePod) error {
+	patch := BaseSSAWorkload(w)
+	patch.Status.ReclaimablePods = reclaimablePods
+	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.ReclaimablePodsMgr))
+}
+
+// ReclaimablePodsAreEqual checks if two Reclaimable pods are semantically equal
+// having the same length and all keys have the same value.
+func ReclaimablePodsAreEqual(a, b []kueue.ReclaimablePod) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	mb := make(map[string]int32, len(b))
+	for i := range b {
+		mb[b[i].Name] = b[i].Count
+	}
+
+	for i := range a {
+		if bCount, found := mb[a[i].Name]; !found || bCount != a[i].Count {
+			return false
+		}
+	}
+	return true
 }

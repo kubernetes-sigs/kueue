@@ -80,8 +80,7 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 	if ns == nil {
 		return nil
 	}
-	err := c.DeleteAllOf(ctx, &batchv1.Job{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
-	if err != nil && !apierrors.IsNotFound(err) {
+	if err := DeleteAllJobsInNamespace(ctx, c, ns); err != nil {
 		return err
 	}
 	if err := c.DeleteAllOf(ctx, &kueue.LocalQueue{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
@@ -90,11 +89,19 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 	if err := DeleteWorkloadsInNamespace(ctx, c, ns); err != nil {
 		return err
 	}
-	err = c.DeleteAllOf(ctx, &corev1.LimitRange{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
+	err := c.DeleteAllOf(ctx, &corev1.LimitRange{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
 	if err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
 	if err := c.Delete(ctx, ns); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	return nil
+}
+
+func DeleteAllJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	err := c.DeleteAllOf(ctx, &batchv1.Job{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
+	if err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
 	return nil
@@ -148,6 +155,18 @@ func ExpectWorkloadsToBeAdmitted(ctx context.Context, k8sClient client.Client, c
 	}, Timeout, Interval).Should(gomega.Equal(len(wls)), "Not enough workloads were admitted")
 }
 
+func FilterAdmittedWorkloads(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) []*kueue.Workload {
+	ret := make([]*kueue.Workload, 0, len(wls))
+	var updatedWorkload kueue.Workload
+	for _, wl := range wls {
+		err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)
+		if err == nil && workload.IsAdmitted(&updatedWorkload) {
+			ret = append(ret, wl)
+		}
+	}
+	return ret
+}
+
 func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
 	gomega.EventuallyWithOffset(1, func() int {
 		pending := 0
@@ -184,21 +203,6 @@ func ExpectWorkloadsToBeWaiting(ctx context.Context, k8sClient client.Client, wl
 	}, Timeout, Interval).Should(gomega.Equal(len(wls)), "Not enough workloads are waiting")
 }
 
-func ExpectWorkloadsToBeEvicted(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
-	gomega.EventuallyWithOffset(1, func() int {
-		count := 0
-		var updatedWorkload kueue.Workload
-		for _, wl := range wls {
-			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-			cond := apimeta.FindStatusCondition(updatedWorkload.Status.Conditions, kueue.WorkloadAdmitted)
-			if cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == "Evicted" {
-				count++
-			}
-		}
-		return count
-	}, Timeout, Interval).Should(gomega.Equal(len(wls)), "Not enough workloads are evicted")
-}
-
 func ExpectWorkloadsToBeFrozen(ctx context.Context, k8sClient client.Client, cq string, wls ...*kueue.Workload) {
 	gomega.EventuallyWithOffset(1, func() int {
 		frozen := 0
@@ -220,7 +224,7 @@ func ExpectWorkloadsToBeFrozen(ctx context.Context, k8sClient client.Client, cq 
 
 func ExpectWorkloadToBeAdmittedAs(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, admission *kueue.Admission) {
 	var updatedWorkload kueue.Workload
-	gomega.Eventually(func() *kueue.Admission {
+	gomega.EventuallyWithOffset(1, func() *kueue.Admission {
 		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
 		return updatedWorkload.Status.Admission
 	}, Timeout, Interval).Should(gomega.BeComparableTo(admission))
@@ -297,24 +301,38 @@ func ExpectResourceFlavorToBeDeleted(ctx context.Context, k8sClient client.Clien
 }
 
 func SetAdmission(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, admission *kueue.Admission) error {
+	wl = wl.DeepCopy()
 	if admission == nil {
-		wl.Status.Admission = nil
-		apimeta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
-			Type:               kueue.WorkloadAdmitted,
-			Status:             metav1.ConditionFalse,
-			LastTransitionTime: metav1.Now(),
-			Reason:             "EvictedByTest",
-			Message:            "Evicted by test",
-		})
+		workload.UnsetAdmissionWithCondition(wl, "EvictedByTest", "Evicted By Test")
 	} else {
-		wl.Status.Admission = admission
-		apimeta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
-			Type:               kueue.WorkloadAdmitted,
-			Status:             metav1.ConditionTrue,
-			LastTransitionTime: metav1.Now(),
-			Reason:             "AdmittedByTest",
-			Message:            fmt.Sprintf("Admitted by ClusterQueue %s", wl.Status.Admission.ClusterQueue),
-		})
+		workload.SetAdmission(wl, admission)
 	}
-	return k8sClient.Status().Update(ctx, wl)
+	return workload.ApplyAdmissionStatus(ctx, k8sClient, wl, false)
+}
+
+func FinishEvictionForWorkloads(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
+	gomega.EventuallyWithOffset(1, func() int {
+		evicting := 0
+		var updatedWorkload kueue.Workload
+		for _, wl := range wls {
+			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
+			if cond := apimeta.FindStatusCondition(updatedWorkload.Status.Conditions, kueue.WorkloadEvicted); cond != nil && cond.Status == metav1.ConditionTrue {
+				evicting++
+			}
+		}
+		return evicting
+	}, Timeout, Interval).Should(gomega.Equal(len(wls)), "Not enough workloads were marked for eviction")
+	// unset the admission
+	for i := range wls {
+		key := client.ObjectKeyFromObject(wls[i])
+		gomega.EventuallyWithOffset(1, func() error {
+			var updatedWorkload kueue.Workload
+			if err := k8sClient.Get(ctx, key, &updatedWorkload); err != nil {
+				return err
+			}
+			workload.UnsetAdmissionWithCondition(&updatedWorkload, "Pending", "By test")
+			return workload.ApplyAdmissionStatus(ctx, k8sClient, &updatedWorkload, true)
+		}, Timeout, Interval).Should(gomega.Succeed(), fmt.Sprintf("Unable to unset admission for %q", key))
+	}
+
 }

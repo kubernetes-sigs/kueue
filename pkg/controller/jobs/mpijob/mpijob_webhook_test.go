@@ -22,65 +22,34 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
-	"k8s.io/apimachinery/pkg/util/validation/field"
 
-	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 )
 
-var (
-	originalNodeSelectorsKeyPath = field.NewPath("metadata", "annotations").Key(jobframework.OriginalNodeSelectorsAnnotation)
-)
-
-func TestUpdate(t *testing.T) {
-	validPodSelectors := `
-[
-  {
-    "name": "podSetName",
-    "nodeSelector": {
-      "l1": "v1"
-    }
-  }
-]
-`
+func TestDefault(t *testing.T) {
 	testcases := map[string]struct {
-		oldJob  *kubeflow.MPIJob
-		newJob  *kubeflow.MPIJob
-		wantErr error
+		job                        *kubeflow.MPIJob
+		manageJobsWithoutQueueName bool
+		want                       *kubeflow.MPIJob
 	}{
-		"original node selectors can be set while unsuspending": {
-			oldJob:  testingutil.MakeMPIJob("job", "default").Suspend(true).Obj(),
-			newJob:  testingutil.MakeMPIJob("job", "default").Suspend(false).OriginalNodeSelectorsAnnotation(validPodSelectors).Obj(),
-			wantErr: nil,
+		"update the suspend field with 'manageJobsWithoutQueueName=false'": {
+			job:  testingutil.MakeMPIJob("job", "default").Queue("queue").Suspend(false).Obj(),
+			want: testingutil.MakeMPIJob("job", "default").Queue("queue").Obj(),
 		},
-		"original node selectors can be set while suspending": {
-			oldJob:  testingutil.MakeMPIJob("job", "default").Suspend(false).Obj(),
-			newJob:  testingutil.MakeMPIJob("job", "default").Suspend(true).OriginalNodeSelectorsAnnotation(validPodSelectors).Obj(),
-			wantErr: nil,
-		},
-		"immutable original node selectors while not suspended": {
-			oldJob: testingutil.MakeMPIJob("job", "default").Suspend(false).OriginalNodeSelectorsAnnotation(validPodSelectors).Obj(),
-			newJob: testingutil.MakeMPIJob("job", "default").Suspend(false).OriginalNodeSelectorsAnnotation("").Obj(),
-			wantErr: field.ErrorList{
-				field.Forbidden(originalNodeSelectorsKeyPath, "this annotation is immutable while the job is not changing its suspended state"),
-			}.ToAggregate(),
-		},
-		"immutable original node selectors while suspended": {
-			oldJob: testingutil.MakeMPIJob("job", "default").Suspend(true).OriginalNodeSelectorsAnnotation(validPodSelectors).Obj(),
-			newJob: testingutil.MakeMPIJob("job", "default").Suspend(true).OriginalNodeSelectorsAnnotation("").Obj(),
-			wantErr: field.ErrorList{
-				field.Forbidden(originalNodeSelectorsKeyPath, "this annotation is immutable while the job is not changing its suspended state"),
-			}.ToAggregate(),
+		"update the suspend field 'manageJobsWithoutQueueName=true'": {
+			job:                        testingutil.MakeMPIJob("job", "default").Suspend(false).Obj(),
+			manageJobsWithoutQueueName: true,
+			want:                       testingutil.MakeMPIJob("job", "default").Obj(),
 		},
 	}
-
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
-			wh := &MPIJobWebhook{}
-			result := wh.ValidateUpdate(context.Background(), tc.oldJob, tc.newJob)
-
-			if diff := cmp.Diff(tc.wantErr, result); diff != "" {
-				t.Errorf("ValidateUpdate() mismatch (-want +got):\n%s", diff)
+			w := &MPIJobWebhook{manageJobsWithoutQueueName: tc.manageJobsWithoutQueueName}
+			if err := w.Default(context.Background(), tc.job); err != nil {
+				t.Errorf("set defaults to a kubeflow/mpijob by a Defaulter")
+			}
+			if diff := cmp.Diff(tc.want, tc.job); len(diff) != 0 {
+				t.Errorf("Default() mismatch (-want,+got):\n%s", diff)
 			}
 		})
 	}

@@ -38,6 +38,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
@@ -60,25 +61,15 @@ type Scheduler struct {
 	recorder                record.EventRecorder
 	admissionRoutineWrapper routine.Wrapper
 	preemptor               *preemption.Preemptor
-	waitForPodsReady        bool
 	// Stubs.
 	applyAdmission func(context.Context, *kueue.Workload) error
 }
 
 type options struct {
-	waitForPodsReady bool
 }
 
 // Option configures the reconciler.
 type Option func(*options)
-
-// WithWaitForPodsReady indicates if the controller should wait for the
-// PodsReady condition for all admitted workloads before admitting a new one.
-func WithWaitForPodsReady(f bool) Option {
-	return func(o *options) {
-		o.waitForPodsReady = f
-	}
-}
 
 var defaultOptions = options{}
 
@@ -94,7 +85,6 @@ func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder r
 		recorder:                recorder,
 		preemptor:               preemption.New(cl, recorder),
 		admissionRoutineWrapper: routine.DefaultWrapper,
-		waitForPodsReady:        options.waitForPodsReady,
 	}
 	s.applyAdmission = s.applyAdmissionWithSSA
 	return s
@@ -151,40 +141,50 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			continue
 		}
 		cq := snapshot.ClusterQueues[e.ClusterQueue]
-		if e.assignment.Borrows() && cq.Cohort != nil && usedCohorts.Has(cq.Cohort.Name) {
-			e.status = skipped
-			e.inadmissibleMsg = "workloads in the cohort that don't require borrowing were prioritized and admitted first"
-			continue
-		}
-		// Even if there was a failure, we shouldn't admit other workloads to this
-		// cohort.
 		if cq.Cohort != nil {
+			// Having more than one workloads from the same cohort admitted in the same scheduling cycle can lead
+			// to over admission if:
+			//   1. One of the workloads is borrowing, since during the nomination the usage of the other workloads
+			//      evaluated in the same cycle is not taken into account.
+			//   2. An already admitted workload from a different cluster queue is borrowing, since all workloads
+			//      evaluated in the current cycle will compete for the resources that are not borrowed.
+			if usedCohorts.Has(cq.Cohort.Name) && (e.assignment.Borrows() || cq.Cohort.HasBorrowingQueues()) {
+				e.status = skipped
+				e.inadmissibleMsg = "other workloads in the cohort were prioritized"
+				continue
+			}
+			// Even if there was a failure, we shouldn't admit other workloads to this
+			// cohort.
 			usedCohorts.Insert(cq.Cohort.Name)
 		}
 		log := log.WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue))
 		ctx := ctrl.LoggerInto(ctx, log)
 		if e.assignment.RepresentativeMode() != flavorassigner.Fit {
-			preempted, err := s.preemptor.Do(ctx, e.Info, e.assignment, &snapshot)
-			if err != nil {
-				log.Error(err, "Failed to preempt workloads")
-			}
-			if preempted != 0 {
-				e.inadmissibleMsg += fmt.Sprintf(". Preempted %d workload(s)", preempted)
+			if len(e.preemptionTargets) != 0 {
+				preempted, err := s.preemptor.IssuePreemptions(ctx, e.preemptionTargets, cq)
+				if err != nil {
+					log.Error(err, "Failed to preempt workloads")
+				}
+				if preempted != 0 {
+					e.inadmissibleMsg += fmt.Sprintf(". Pending the preemption of %d workload(s)", preempted)
+					e.requeueReason = queue.RequeueReasonPendingPreemption
+				}
+			} else {
+				log.V(2).Info("Workload requires preemption, but there are no candidate workloads allowed for preemption", "preemptionReclaimWithinCohort", cq.Preemption.ReclaimWithinCohort, "preemptionWithinClusterQueue", cq.Preemption.WithinClusterQueue)
 			}
 			continue
 		}
-		if s.waitForPodsReady {
-			if !s.cache.PodsReadyForAllAdmittedWorkloads(ctx) {
-				log.V(5).Info("Waiting for all admitted workloads to be in the PodsReady condition")
-				// Block admission until all currently admitted workloads are in
-				// PodsReady condition if the waitForPodsReady is enabled
-				workload.UnsetAdmissionWithCondition(e.Obj, "Waiting", "waiting for all admitted workloads to be in PodsReady condition")
-				if err := workload.ApplyAdmissionStatus(ctx, s.client, e.Obj, true); err != nil {
-					log.Error(err, "Could not update Workload status")
-				}
-				s.cache.WaitForPodsReady(ctx)
-				log.V(5).Info("Finished waiting for all admitted workloads to be in the PodsReady condition")
+		if !s.cache.PodsReadyForAllAdmittedWorkloads(log) {
+			log.V(5).Info("Waiting for all admitted workloads to be in the PodsReady condition")
+			// If WaitForPodsReady is enabled and WaitForPodsReady.BlockAdmission is true
+			// Block admission until all currently admitted workloads are in
+			// PodsReady condition if the waitForPodsReady is enabled
+			workload.UnsetAdmissionWithCondition(e.Obj, "Waiting", "waiting for all admitted workloads to be in PodsReady condition")
+			if err := workload.ApplyAdmissionStatus(ctx, s.client, e.Obj, true); err != nil {
+				log.Error(err, "Could not update Workload status")
 			}
+			s.cache.WaitForPodsReady(ctx)
+			log.V(5).Info("Finished waiting for all admitted workloads to be in the PodsReady condition")
 		}
 		e.status = nominated
 		if err := s.admit(ctx, e); err != nil {
@@ -227,10 +227,11 @@ type entry struct {
 	// workload.Info holds the workload from the API as well as resource usage
 	// and flavors assigned.
 	workload.Info
-	assignment      flavorassigner.Assignment
-	status          entryStatus
-	inadmissibleMsg string
-	requeueReason   queue.RequeueReason
+	assignment        flavorassigner.Assignment
+	status            entryStatus
+	inadmissibleMsg   string
+	requeueReason     queue.RequeueReason
+	preemptionTargets []*workload.Info
 }
 
 // nominate returns the workloads with their requirements (resource flavors, borrowing) if
@@ -260,12 +261,57 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		} else if err := s.validateLimitRange(ctx, &w); err != nil {
 			e.inadmissibleMsg = err.Error()
 		} else {
-			e.assignment = flavorassigner.AssignFlavors(log, &e.Info, snap.ResourceFlavors, cq)
+			e.assignment, e.preemptionTargets = s.getAssignments(log, &e.Info, &snap)
 			e.inadmissibleMsg = e.assignment.Message()
 		}
 		entries = append(entries, e)
 	}
 	return entries
+}
+
+type partialAssignment struct {
+	assignment        flavorassigner.Assignment
+	preemptionTargets []*workload.Info
+}
+
+func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cache.Snapshot) (flavorassigner.Assignment, []*workload.Info) {
+	cq := snap.ClusterQueues[wl.ClusterQueue]
+	fullAssignment := flavorassigner.AssignFlavors(log, wl, snap.ResourceFlavors, cq, nil)
+	var fullAssignmentTargets []*workload.Info
+
+	arm := fullAssignment.RepresentativeMode()
+	if arm == flavorassigner.Fit {
+		return fullAssignment, nil
+	}
+
+	if arm == flavorassigner.Preempt {
+		fullAssignmentTargets = s.preemptor.GetTargets(*wl, fullAssignment, snap)
+	}
+
+	// if the feature gate is not enabled or we can preempt
+	if !features.Enabled(features.PartialAdmission) || len(fullAssignmentTargets) > 0 {
+		return fullAssignment, fullAssignmentTargets
+	}
+
+	if wl.CanBePartiallyAdmitted() {
+		reducer := flavorassigner.NewPodSetReducer(wl.Obj.Spec.PodSets, func(nextCounts []int32) (*partialAssignment, bool) {
+			assignment := flavorassigner.AssignFlavors(log, wl, snap.ResourceFlavors, cq, nextCounts)
+			if assignment.RepresentativeMode() == flavorassigner.Fit {
+				return &partialAssignment{assignment: assignment}, true
+			}
+			preemptionTargets := s.preemptor.GetTargets(*wl, assignment, snap)
+			if len(preemptionTargets) > 0 {
+
+				return &partialAssignment{assignment: assignment, preemptionTargets: preemptionTargets}, true
+			}
+			return nil, false
+
+		})
+		if pa, found := reducer.Search(); found {
+			return pa.assignment, pa.preemptionTargets
+		}
+	}
+	return fullAssignment, nil
 }
 
 // validateResources validates that requested resources are less or equal
@@ -351,7 +397,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 			waitTime := time.Since(e.Obj.CreationTimestamp.Time)
 			s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time was %.0fs", admission.ClusterQueue, waitTime.Seconds())
 			metrics.AdmittedWorkload(admission.ClusterQueue, waitTime)
-			log.V(2).Info("Workload successfully admitted and assigned flavors")
+			log.V(2).Info("Workload successfully admitted and assigned flavors", "assignments", admission.PodSetAssignments)
 			return
 		}
 		// Ignore errors because the workload or clusterQueue could have been deleted

@@ -25,8 +25,8 @@ GO_TEST_FLAGS ?= -race
 # Use go.mod go version as a single source of truth of GO version.
 GO_VERSION := $(shell awk '/^go /{print $$2}' go.mod|head -n1)
 
-# Use go.mod go version as a single source of truth of MPI version.
-MPI_VERSION := $(shell awk '/mpi-operator/{print $$2}' go.mod|head -n1)
+# Use go.mod go version as a single source of truth of Ginkgo version.
+GINKGO_VERSION ?= $(shell $(GO_CMD) list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)
 
 GIT_TAG ?= $(shell git describe --tags --dirty --always)
 # Image URL to use all building/pushing image targets
@@ -54,13 +54,16 @@ BASE_IMAGE ?= gcr.io/distroless/static:nonroot
 BUILDER_IMAGE ?= golang:$(GO_VERSION)
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.26
+ENVTEST_K8S_VERSION ?= 1.27
 
 INTEGRATION_TARGET ?= ./test/integration/...
 
 E2E_TARGET ?= ./test/e2e/...
 
-E2E_KIND_VERSION ?= kindest/node:v1.24.7
+E2E_KIND_VERSION ?= kindest/node:v1.27.3
+
+# E2E_K8S_VERSIONS sets the list of k8s versions included in test-e2e-all
+E2E_K8S_VERSIONS ?= 1.24.15 1.25.11 1.26.6 1.27.3
 
 # For local testing, we should allow user to use different kind cluster name
 # Default will delete default kind cluster
@@ -106,9 +109,14 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 		webhook output:webhook:artifacts:config=config/components/webhook\
 		paths="./..."
 
+.PHONY: update-helm
+update-helm: manifests
+	./hack/update-helm.sh
+
 .PHONY: generate
-generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
+generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations and client-go libraries.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+	./hack/update-codegen.sh $(GO_CMD)
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
@@ -140,26 +148,36 @@ vet: ## Run go vet against code.
 	$(GO_CMD) vet ./...
 
 .PHONY: test
-test: generate fmt vet gotestsum ## Run tests.
-	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) $(shell go list ./... | grep -v '/test/') -coverprofile $(ARTIFACTS)/cover.out
+test: generate gotestsum ## Run tests.
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/') -coverprofile $(ARTIFACTS)/cover.out
 
 .PHONY: test-integration
-test-integration: manifests generate fmt vet envtest ginkgo mpi-operator-crd ## Run tests.
+test-integration: manifests generate envtest ginkgo mpi-operator-crd ray-operator-crd jobset-operator-crd ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
-	$(GINKGO) --junit-report=junit.xml --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
+	$(GINKGO) $(GINKGO_ARGS) --junit-report=junit.xml --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 
 CREATE_KIND_CLUSTER ?= true
 .PHONY: test-e2e
-test-e2e: kustomize manifests generate fmt vet envtest ginkgo
-	E2E_KIND_VERSION=$(E2E_KIND_VERSION) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) ARTIFACTS=$(ARTIFACTS) IMAGE_TAG=$(IMAGE_TAG) ./hack/e2e-test.sh
+test-e2e: kustomize manifests generate ginkgo run-test-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+E2E_TARGETS := $(addprefix run-test-e2e-,${E2E_K8S_VERSIONS})
+.PHONY: test-e2e-all
+test-e2e-all: kustomize manifests generate envtest ginkgo $(E2E_TARGETS)
+
+FORCE:
+
+run-test-e2e-%: K8S_VERSION = $(@:run-test-e2e-%=%)
+run-test-e2e-%: FORCE
+	@echo Running e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) ./hack/e2e-test.sh
 
 .PHONY: ci-lint
 ci-lint: golangci-lint
-	$(GOLANGCI_LINT) run --timeout 7m0s
+	$(GOLANGCI_LINT) run --timeout 15m0s
 
 .PHONY: verify
-verify: gomod-verify vet ci-lint fmt-verify toc-verify manifests generate
-	git --no-pager diff --exit-code config/components apis
+verify: gomod-verify vet ci-lint fmt-verify toc-verify manifests generate update-helm
+	git --no-pager diff --exit-code config/components apis charts/kueue/templates/crd client-go
 
 ##@ Build
 
@@ -240,44 +258,61 @@ artifacts: kustomize
 	$(KUSTOMIZE) build config/dev -o artifacts/manifests-dev.yaml
 	$(KUSTOMIZE) build config/prometheus -o artifacts/prometheus.yaml
 	@$(call clean-manifests)
+	cp -r charts artifacts/charts
 
 ##@ Tools
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
-GOLANGCI_LINT = $(shell pwd)/bin/golangci-lint
+GOLANGCI_LINT = $(PROJECT_DIR)/bin/golangci-lint
 .PHONY: golangci-lint
 golangci-lint: ## Download golangci-lint locally if necessary.
 	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.52.2
 
-CONTROLLER_GEN = $(shell pwd)/bin/controller-gen
+CONTROLLER_GEN = $(PROJECT_DIR)/bin/controller-gen
 .PHONY: controller-gen
 controller-gen: ## Download controller-gen locally if necessary.
-	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.9.2
+	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.12.0
 
-KUSTOMIZE = $(shell pwd)/bin/kustomize
+KUSTOMIZE = $(PROJECT_DIR)/bin/kustomize
 .PHONY: kustomize
 kustomize: ## Download kustomize locally if necessary.
 	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kustomize/kustomize/v4@v4.5.7
 
-ENVTEST = $(shell pwd)/bin/setup-envtest
+ENVTEST = $(PROJECT_DIR)/bin/setup-envtest
 .PHONY: envtest
 envtest: ## Download envtest-setup locally if necessary.
 	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
 
-GINKGO = $(shell pwd)/bin/ginkgo
+GINKGO = $(PROJECT_DIR)/bin/ginkgo
 .PHONY: ginkgo
 ginkgo: ## Download ginkgo locally if necessary.
-	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install github.com/onsi/ginkgo/v2/ginkgo@v2.1.4
+	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install github.com/onsi/ginkgo/v2/ginkgo@$(GINKGO_VERSION)
 
-GOTESTSUM = $(shell pwd)/bin/gotestsum
+GOTESTSUM = $(PROJECT_DIR)/bin/gotestsum
 .PHONY: gotestsum
 gotestsum: ## Download gotestsum locally if necessary.
 	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install gotest.tools/gotestsum@v1.8.2
-KIND = $(shell pwd)/bin/kind
+
+KIND = $(PROJECT_DIR)/bin/kind
 .PHONY: kind
 kind:
-	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kind@v0.16.0
+	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kind@v0.18.0
+
+
+MPIROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" github.com/kubeflow/mpi-operator)
 .PHONY: mpi-operator-crd
 mpi-operator-crd:
-	GOPATH=/tmp GO111MODULE=on $(GO_CMD) install github.com/kubeflow/mpi-operator/cmd/mpi-operator@$(MPI_VERSION)
-	mkdir -p $(shell pwd)/dep-crds/mpi-operator/
-	cp -f /tmp/pkg/mod/github.com/kubeflow/mpi-operator@$(MPI_VERSION)/manifests/base/* $(shell pwd)/dep-crds/mpi-operator/
+	mkdir -p $(PROJECT_DIR)/dep-crds/mpi-operator/
+	cp -f $(MPIROOT)/manifests/base/* $(PROJECT_DIR)/dep-crds/mpi-operator/
+
+RAYROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" github.com/ray-project/kuberay/ray-operator)
+.PHONY: ray-operator-crd
+ray-operator-crd:
+	mkdir -p $(PROJECT_DIR)/dep-crds/ray-operator/
+	cp -f $(RAYROOT)/config/crd/bases/* $(PROJECT_DIR)/dep-crds/ray-operator/
+
+JOBSETROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" sigs.k8s.io/jobset)
+.PHONY: jobset-operator-crd
+jobset-operator-crd:
+	mkdir -p $(PROJECT_DIR)/dep-crds/jobset-operator/
+	cp -f $(JOBSETROOT)/config/components/crd/bases/* $(PROJECT_DIR)/dep-crds/jobset-operator/
+

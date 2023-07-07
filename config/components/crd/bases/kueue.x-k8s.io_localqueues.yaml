@@ -3,8 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.9.2
-  creationTimestamp: null
+    controller-gen.kubebuilder.io/version: v0.12.0
   name: localqueues.kueue.x-k8s.io
 spec:
   group: kueue.x-k8s.io
@@ -137,6 +136,46 @@ spec:
                 type: array
                 x-kubernetes-list-map-keys:
                 - type
+                x-kubernetes-list-type: map
+              flavorUsage:
+                description: flavorUsage are the used quotas, by flavor currently
+                  in use by the workloads assigned to this LocalQueue.
+                items:
+                  properties:
+                    name:
+                      description: name of the flavor.
+                      type: string
+                    resources:
+                      description: resources lists the quota usage for the resources
+                        in this flavor.
+                      items:
+                        properties:
+                          name:
+                            description: name of the resource.
+                            type: string
+                          total:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            description: total is the total quantity of used quota.
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                        required:
+                        - name
+                        type: object
+                      maxItems: 16
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - name
+                      x-kubernetes-list-type: map
+                  required:
+                  - name
+                  - resources
+                  type: object
+                maxItems: 16
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
                 x-kubernetes-list-type: map
               pendingWorkloads:
                 description: PendingWorkloads is the number of Workloads in the LocalQueue

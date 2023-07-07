@@ -20,6 +20,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -196,6 +197,26 @@ var _ = ginkgo.Describe("Queue controller", func() {
 					Message: "Can submit new workloads to clusterQueue",
 				},
 			},
+			FlavorUsage: []kueue.LocalQueueFlavorUsage{
+				{
+					Name: flavorModelC,
+					Resources: []kueue.LocalQueueResourceUsage{
+						{
+							Name:  resourceGPU,
+							Total: resource.MustParse("0"),
+						},
+					},
+				},
+				{
+					Name: flavorModelD,
+					Resources: []kueue.LocalQueueResourceUsage{
+						{
+							Name:  resourceGPU,
+							Total: resource.MustParse("0"),
+						},
+					},
+				},
+			},
 		}, ignoreConditionTimestamps))
 
 		ginkgo.By("Admitting workloads")
@@ -221,6 +242,26 @@ var _ = ginkgo.Describe("Queue controller", func() {
 					Message: "Can submit new workloads to clusterQueue",
 				},
 			},
+			FlavorUsage: []kueue.LocalQueueFlavorUsage{
+				{
+					Name: flavorModelC,
+					Resources: []kueue.LocalQueueResourceUsage{
+						{
+							Name:  resourceGPU,
+							Total: resource.MustParse("5"),
+						},
+					},
+				},
+				{
+					Name: flavorModelD,
+					Resources: []kueue.LocalQueueResourceUsage{
+						{
+							Name:  resourceGPU,
+							Total: resource.MustParse("1"),
+						},
+					},
+				},
+			},
 		}, ignoreConditionTimestamps))
 
 		ginkgo.By("Finishing workloads")
@@ -236,6 +277,26 @@ var _ = ginkgo.Describe("Queue controller", func() {
 					Status:  metav1.ConditionTrue,
 					Reason:  "Ready",
 					Message: "Can submit new workloads to clusterQueue",
+				},
+			},
+			FlavorUsage: []kueue.LocalQueueFlavorUsage{
+				{
+					Name: flavorModelC,
+					Resources: []kueue.LocalQueueResourceUsage{
+						{
+							Name:  resourceGPU,
+							Total: resource.MustParse("0"),
+						},
+					},
+				},
+				{
+					Name: flavorModelD,
+					Resources: []kueue.LocalQueueResourceUsage{
+						{
+							Name:  resourceGPU,
+							Total: resource.MustParse("0"),
+						},
+					},
 				},
 			},
 		}, ignoreConditionTimestamps))

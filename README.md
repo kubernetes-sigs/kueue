@@ -1,5 +1,13 @@
 # Kueue
 
+[![GoReport Widget]][GoReport Status]
+[![Latest Release](https://img.shields.io/github/v/release/kubernetes-sigs/kueue?include_prereleases)](https://github.com/kubernetes-sigs/kueue/releases/latest)
+
+[GoReport Widget]: https://goreportcard.com/badge/github.com/kubernetes-sigs/kueue
+[GoReport Status]: https://goreportcard.com/report/github.com/kubernetes-sigs/kueue
+
+<img src="https://github.com/kubernetes-sigs/kueue/blob/main/site/static/images/logo.svg" width="100" alt="kueue logo">
+
 Kueue is a set of APIs and controller for [job](https://kueue.sigs.k8s.io/docs/concepts/workload)
 [queueing](https://kueue.sigs.k8s.io/docs/concepts#queueing). It is a job-level manager that decides when
 a job should be [admitted](https://kueue.sigs.k8s.io/docs/concepts#admission) to start (as in pods can be
@@ -30,7 +38,7 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) to learn more.
 To install the latest release of Kueue in your cluster, run the following command:
 
 ```shell
-kubectl apply -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.3.0/manifests.yaml
+kubectl apply -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.3.2/manifests.yaml
 ```
 
 The controller runs in the `kueue-system` namespace.
@@ -39,16 +47,16 @@ Read the [installation guide](https://kueue.sigs.k8s.io/docs/installation/) to l
 
 ## Usage
 
-A minimal configuration can be set by running the [samples](config/samples):
+A minimal configuration can be set by running the [examples](examples):
 
 ```shell
-kubectl apply -f config/samples/single-clusterqueue-setup.yaml
+kubectl apply -f examples/single-clusterqueue-setup.yaml
 ```
 
 Then you can run a job with:
 
 ```shell
-kubectl create -f config/samples/sample-job.yaml
+kubectl create -f examples/sample-job.yaml
 ```
 
 Learn more about:

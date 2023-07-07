@@ -17,6 +17,8 @@ limitations under the License.
 package v1beta1
 
 import (
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -46,6 +48,14 @@ type LocalQueueStatus struct {
 	// +listType=map
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions:omitempty"`
+
+	// flavorUsage are the used quotas, by flavor currently in use by the
+	// workloads assigned to this LocalQueue.
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=16
+	// +optional
+	FlavorUsage []LocalQueueFlavorUsage `json:"flavorUsage"`
 }
 
 const (
@@ -54,6 +64,26 @@ const (
 	LocalQueueActive string = "Active"
 )
 
+type LocalQueueFlavorUsage struct {
+	// name of the flavor.
+	Name ResourceFlavorReference `json:"name"`
+
+	// resources lists the quota usage for the resources in this flavor.
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=16
+	Resources []LocalQueueResourceUsage `json:"resources"`
+}
+
+type LocalQueueResourceUsage struct {
+	// name of the resource.
+	Name corev1.ResourceName `json:"name"`
+
+	// total is the total quantity of used quota.
+	Total resource.Quantity `json:"total,omitempty"`
+}
+
+//+genclient
 //+kubebuilder:object:root=true
 //+kubebuilder:storageversion
 //+kubebuilder:subresource:status

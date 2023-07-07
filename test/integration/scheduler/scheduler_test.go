@@ -79,10 +79,14 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 	ginkgo.When("Scheduling workloads on clusterQueues", func() {
 		var (
-			prodClusterQ *kueue.ClusterQueue
-			devClusterQ  *kueue.ClusterQueue
-			prodQueue    *kueue.LocalQueue
-			devQueue     *kueue.LocalQueue
+			prodClusterQ          *kueue.ClusterQueue
+			devClusterQ           *kueue.ClusterQueue
+			podsCountClusterQ     *kueue.ClusterQueue
+			podsCountOnlyClusterQ *kueue.ClusterQueue
+			prodQueue             *kueue.LocalQueue
+			devQueue              *kueue.LocalQueue
+			podsCountQueue        *kueue.LocalQueue
+			podsCountOnlyQueue    *kueue.LocalQueue
 		)
 
 		ginkgo.BeforeEach(func() {
@@ -106,17 +110,44 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, devClusterQ)).Should(gomega.Succeed())
 
+			podsCountClusterQ = testing.MakeClusterQueue("pods-count-cq").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceCPU, "100").
+						Resource(corev1.ResourcePods, "5").
+						Obj(),
+				).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, podsCountClusterQ)).Should(gomega.Succeed())
+
+			podsCountOnlyClusterQ = testing.MakeClusterQueue("pods-count-only-cq").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourcePods, "5").
+						Obj(),
+				).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, podsCountOnlyClusterQ)).Should(gomega.Succeed())
+
 			prodQueue = testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, prodQueue)).Should(gomega.Succeed())
 
 			devQueue = testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devClusterQ.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, devQueue)).Should(gomega.Succeed())
+
+			podsCountQueue = testing.MakeLocalQueue("pods-count-queue", ns.Name).ClusterQueue(podsCountClusterQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, podsCountQueue)).Should(gomega.Succeed())
+
+			podsCountOnlyQueue = testing.MakeLocalQueue("pods-count-only-queue", ns.Name).ClusterQueue(podsCountOnlyClusterQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, podsCountOnlyQueue)).Should(gomega.Succeed())
 		})
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, prodClusterQ, true)
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, devClusterQ, true)
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, podsCountClusterQ, true)
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, podsCountOnlyClusterQ, true)
 			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, spotTaintedFlavor, true)
 			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, spotUntaintedFlavor, true)
@@ -154,6 +185,122 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
 			util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 2)
+		})
+
+		ginkgo.It("Should admit workloads as number of pods allows it", func() {
+			wl1 := testing.MakeWorkload("wl1", ns.Name).
+				Queue(podsCountQueue.Name).
+				PodSets(*testing.MakePodSet("main", 3).
+					Request(corev1.ResourceCPU, "2").
+					Obj()).
+				Obj()
+
+			ginkgo.By("checking the first workload gets created and admitted", func() {
+				gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
+				wl1Admission := testing.MakeAdmission(podsCountClusterQ.Name).
+					Assignment(corev1.ResourceCPU, "on-demand", "6").
+					Assignment(corev1.ResourcePods, "on-demand", "3").
+					AssignmentPodCount(3).
+					Obj()
+				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1, wl1Admission)
+				util.ExpectPendingWorkloadsMetric(podsCountClusterQ, 0, 0)
+				util.ExpectAdmittedActiveWorkloadsMetric(podsCountClusterQ, 1)
+				util.ExpectAdmittedWorkloadsTotalMetric(podsCountClusterQ, 1)
+			})
+
+			wl2 := testing.MakeWorkload("wl2", ns.Name).
+				Queue(podsCountQueue.Name).
+				PodSets(*testing.MakePodSet("main", 3).
+					Request(corev1.ResourceCPU, "2").
+					Obj()).
+				Obj()
+
+			wl3 := testing.MakeWorkload("wl3", ns.Name).
+				Queue(podsCountQueue.Name).
+				PodSets(*testing.MakePodSet("main", 2).
+					Request(corev1.ResourceCPU, "2").
+					Obj()).
+				Obj()
+
+			ginkgo.By("creating the next two workloads", func() {
+				gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
+				gomega.Expect(k8sClient.Create(ctx, wl3)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking the second workload is pending and the third admitted", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, podsCountClusterQ.Name, wl1, wl3)
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
+				util.ExpectPendingWorkloadsMetric(podsCountClusterQ, 0, 1)
+				util.ExpectAdmittedActiveWorkloadsMetric(podsCountClusterQ, 2)
+				util.ExpectAdmittedWorkloadsTotalMetric(podsCountClusterQ, 2)
+			})
+
+			ginkgo.By("finishing the first workload", func() {
+				util.FinishWorkloads(ctx, k8sClient, wl1)
+			})
+
+			ginkgo.By("checking the second workload is also admitted", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, podsCountClusterQ.Name, wl2, wl3)
+				util.ExpectPendingWorkloadsMetric(podsCountClusterQ, 0, 0)
+				util.ExpectAdmittedActiveWorkloadsMetric(podsCountClusterQ, 2)
+				util.ExpectAdmittedWorkloadsTotalMetric(podsCountClusterQ, 3)
+			})
+		})
+
+		ginkgo.It("Should admit workloads as the number of pods (only) allows it", func() {
+			wl1 := testing.MakeWorkload("wl1", ns.Name).
+				Queue(podsCountOnlyQueue.Name).
+				PodSets(*testing.MakePodSet("main", 3).
+					Obj()).
+				Obj()
+
+			ginkgo.By("checking the first workload gets created and admitted", func() {
+				gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
+				wl1Admission := testing.MakeAdmission(podsCountOnlyClusterQ.Name).
+					Assignment(corev1.ResourcePods, "on-demand", "3").
+					AssignmentPodCount(3).
+					Obj()
+				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1, wl1Admission)
+				util.ExpectPendingWorkloadsMetric(podsCountOnlyClusterQ, 0, 0)
+				util.ExpectAdmittedActiveWorkloadsMetric(podsCountOnlyClusterQ, 1)
+				util.ExpectAdmittedWorkloadsTotalMetric(podsCountOnlyClusterQ, 1)
+			})
+
+			wl2 := testing.MakeWorkload("wl2", ns.Name).
+				Queue(podsCountOnlyQueue.Name).
+				PodSets(*testing.MakePodSet("main", 3).
+					Obj()).
+				Obj()
+
+			wl3 := testing.MakeWorkload("wl3", ns.Name).
+				Queue(podsCountOnlyQueue.Name).
+				PodSets(*testing.MakePodSet("main", 2).
+					Obj()).
+				Obj()
+
+			ginkgo.By("creating the next two workloads", func() {
+				gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
+				gomega.Expect(k8sClient.Create(ctx, wl3)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking the second workload is pending and the third admitted", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, podsCountOnlyClusterQ.Name, wl1, wl3)
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
+				util.ExpectPendingWorkloadsMetric(podsCountOnlyClusterQ, 0, 1)
+				util.ExpectAdmittedActiveWorkloadsMetric(podsCountOnlyClusterQ, 2)
+				util.ExpectAdmittedWorkloadsTotalMetric(podsCountOnlyClusterQ, 2)
+			})
+
+			ginkgo.By("finishing the first workload", func() {
+				util.FinishWorkloads(ctx, k8sClient, wl1)
+			})
+
+			ginkgo.By("checking the second workload is also admitted", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, podsCountOnlyClusterQ.Name, wl2, wl3)
+				util.ExpectPendingWorkloadsMetric(podsCountOnlyClusterQ, 0, 0)
+				util.ExpectAdmittedActiveWorkloadsMetric(podsCountOnlyClusterQ, 2)
+				util.ExpectAdmittedWorkloadsTotalMetric(podsCountOnlyClusterQ, 3)
+			})
 		})
 
 		ginkgo.It("Should admit workloads according to their priorities", func() {
@@ -223,6 +370,101 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
 			util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 2)
 			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 3)
+		})
+
+		ginkgo.It("Should admit workloads when resources are dynamically reclaimed", func() {
+			firstWl := testing.MakeWorkload("first-wl", ns.Name).Queue(prodQueue.Name).
+				PodSets(*testing.MakePodSet("main", 1).Request(corev1.ResourceCPU, "3").Obj()).
+				Obj()
+			ginkgo.By("Creating first workload", func() {
+				gomega.Expect(k8sClient.Create(ctx, firstWl)).Should(gomega.Succeed())
+
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, firstWl)
+				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
+				util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
+			})
+
+			secondWl := testing.MakeWorkload("second-wl", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "3").Obj()
+			ginkgo.By("Creating the second workload", func() {
+				gomega.Expect(k8sClient.Create(ctx, secondWl)).Should(gomega.Succeed())
+
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, secondWl)
+				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 1)
+				util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
+			})
+
+			ginkgo.By("Reclaim one pod from the first workload", func() {
+				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, firstWl, []kueue.ReclaimablePod{{Name: "main", Count: 1}})).To(gomega.Succeed())
+
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, firstWl, secondWl)
+				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
+				util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 2)
+			})
+		})
+
+		ginkgo.It("Should admit workloads with 0 count for podSets due to reclaim", func() {
+			firstWl := testing.MakeWorkload("first-wl", ns.Name).Queue(prodQueue.Name).
+				PodSets(*testing.MakePodSet("main", 1).Request(corev1.ResourceCPU, "3").Obj()).
+				Obj()
+			ginkgo.By("Creating first workload", func() {
+				gomega.Expect(k8sClient.Create(ctx, firstWl)).Should(gomega.Succeed())
+
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, firstWl)
+				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
+				util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
+			})
+
+			secondWl := testing.MakeWorkload("second-wl", ns.Name).Queue(prodQueue.Name).
+				Request(corev1.ResourceCPU, "3").
+				PodSets(
+					*testing.MakePodSet("main", 2).
+						Request(corev1.ResourceCPU, "1").
+						Obj(),
+					*testing.MakePodSet("secondary", 2).
+						Request(corev1.ResourceCPU, "3").
+						Obj(),
+				).
+				Obj()
+			ginkgo.By("Creating the second workload", func() {
+				gomega.Expect(k8sClient.Create(ctx, secondWl)).Should(gomega.Succeed())
+
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, secondWl)
+				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 1)
+				util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
+			})
+
+			ginkgo.By("Reclaim all the pods from the second PodSet", func() {
+				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, secondWl, []kueue.ReclaimablePod{{Name: "secondary", Count: 2}})).To(gomega.Succeed())
+
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, firstWl, secondWl)
+				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
+				util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 2)
+			})
+		})
+
+		ginkgo.It("Reclaimed resources are not accounted during admission", func() {
+			wl := testing.MakeWorkload("first-wl", ns.Name).Queue(prodQueue.Name).
+				PodSets(*testing.MakePodSet("main", 2).Request(corev1.ResourceCPU, "3").Obj()).
+				Obj()
+			ginkgo.By("Creating the workload", func() {
+				gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
+
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 1)
+				util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 0)
+			})
+			ginkgo.By("Mark one pod as reclaimable", func() {
+				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "main", Count: 1}})).To(gomega.Succeed())
+
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodClusterQ.Name, wl)
+				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
+				util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
+
+				createWl := &kueue.Workload{}
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), createWl)).To(gomega.Succeed())
+				gomega.Expect(*createWl.Status.Admission.PodSetAssignments[0].Count).To(gomega.Equal(int32(1)))
+
+			})
 		})
 	})
 

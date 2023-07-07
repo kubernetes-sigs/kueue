@@ -24,6 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -34,16 +35,17 @@ import (
 var _ = ginkgo.Describe("Job Webhook", func() {
 	var ns *corev1.Namespace
 
-	ginkgo.When("With manageJobsWithoutQueueName enabled", func() {
+	ginkgo.When("With manageJobsWithoutQueueName enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 
-		ginkgo.BeforeEach(func() {
+		ginkgo.BeforeAll(func() {
 			fwk = &framework.Framework{
 				ManagerSetup: managerSetup(jobframework.WithManageJobsWithoutQueueName(true)),
 				CRDPath:      crdPath,
 				WebhookPath:  webhookPath,
 			}
 			ctx, cfg, k8sClient = fwk.Setup()
-
+		})
+		ginkgo.BeforeEach(func() {
 			ns = &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
 					GenerateName: "job-",
@@ -51,8 +53,11 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 			}
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 		})
+
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		})
+		ginkgo.AfterAll(func() {
 			fwk.Teardown()
 		})
 
@@ -78,22 +83,22 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 			createdJob := &batchv1.Job{}
 			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
-			createdJob.Annotations = map[string]string{jobframework.QueueAnnotation: "queue"}
+			createdJob.Annotations = map[string]string{constants.QueueAnnotation: "queue"}
 			createdJob.Spec.Suspend = pointer.Bool(false)
 			gomega.Expect(k8sClient.Update(ctx, createdJob)).ShouldNot(gomega.Succeed())
 		})
 	})
 
-	ginkgo.When("with manageJobsWithoutQueueName disabled", func() {
-
-		ginkgo.BeforeEach(func() {
+	ginkgo.When("with manageJobsWithoutQueueName disabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+		ginkgo.BeforeAll(func() {
 			fwk = &framework.Framework{
 				ManagerSetup: managerSetup(jobframework.WithManageJobsWithoutQueueName(false)),
 				CRDPath:      crdPath,
 				WebhookPath:  webhookPath,
 			}
 			ctx, cfg, k8sClient = fwk.Setup()
-
+		})
+		ginkgo.BeforeEach(func() {
 			ns = &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
 					GenerateName: "job-",
@@ -103,6 +108,8 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		})
+		ginkgo.AfterAll(func() {
 			fwk.Teardown()
 		})
 
@@ -142,7 +149,7 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 			createdJob := &batchv1.Job{}
 			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
-			createdJob.Labels[jobframework.QueueLabel] = "queue2"
+			createdJob.Labels[constants.QueueLabel] = "queue2"
 			createdJob.Spec.Suspend = pointer.Bool(false)
 			gomega.Expect(k8sClient.Update(ctx, createdJob)).ShouldNot(gomega.Succeed())
 		})

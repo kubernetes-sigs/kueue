@@ -1,0 +1,20 @@
+{{- if .Values.enablePrometheus }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "kueue.fullname" . }}-controller-manager-metrics-monitor
+  labels:
+    control-plane: controller-manager
+  namespace: '{{ .Release.Namespace }}'
+spec:
+  endpoints:
+  - bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+    path: /metrics
+    port: https
+    scheme: https
+    tlsConfig:
+      insecureSkipVerify: true
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+{{- end }}

@@ -160,6 +160,11 @@ func (w *WorkloadWrapper) SetOrReplaceCondition(condition metav1.Condition) *Wor
 	return w
 }
 
+func (w *WorkloadWrapper) ReclaimablePods(rps ...kueue.ReclaimablePod) *WorkloadWrapper {
+	w.Status.ReclaimablePods = rps
+	return w
+}
+
 type PodSetWrapper struct{ kueue.PodSet }
 
 func MakePodSet(name string, count int) *PodSetWrapper {
@@ -192,8 +197,28 @@ func (p *PodSetWrapper) Request(r corev1.ResourceName, q string) *PodSetWrapper 
 	return p
 }
 
+func (p *PodSetWrapper) SetMinimumCount(mc int32) *PodSetWrapper {
+	p.MinCount = &mc
+	return p
+}
+
 func (p *PodSetWrapper) Toleration(t corev1.Toleration) *PodSetWrapper {
 	p.Template.Spec.Tolerations = append(p.Template.Spec.Tolerations, t)
+	return p
+}
+
+func (p *PodSetWrapper) Containers(containers ...corev1.Container) *PodSetWrapper {
+	p.Template.Spec.Containers = containers
+	return p
+}
+
+func (p *PodSetWrapper) InitContainers(containers ...corev1.Container) *PodSetWrapper {
+	p.Template.Spec.InitContainers = containers
+	return p
+}
+
+func (p *PodSetWrapper) NodeSelector(kv map[string]string) *PodSetWrapper {
+	p.Template.Spec.NodeSelector = kv
 	return p
 }
 
@@ -211,6 +236,7 @@ func MakeAdmission(cq string, podSetNames ...string) *AdmissionWrapper {
 				Name:          kueue.DefaultPodSetName,
 				Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
 				ResourceUsage: make(corev1.ResourceList),
+				Count:         pointer.Int32(1),
 			},
 		}
 		return wrap
@@ -222,6 +248,7 @@ func MakeAdmission(cq string, podSetNames ...string) *AdmissionWrapper {
 			Name:          name,
 			Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
 			ResourceUsage: make(corev1.ResourceList),
+			Count:         pointer.Int32(1),
 		})
 	}
 	wrap.PodSetAssignments = psFlavors
@@ -235,6 +262,11 @@ func (w *AdmissionWrapper) Obj() *kueue.Admission {
 func (w *AdmissionWrapper) Assignment(r corev1.ResourceName, f kueue.ResourceFlavorReference, value string) *AdmissionWrapper {
 	w.PodSetAssignments[0].Flavors[r] = f
 	w.PodSetAssignments[0].ResourceUsage[r] = resource.MustParse(value)
+	return w
+}
+
+func (w *AdmissionWrapper) AssignmentPodCount(value int32) *AdmissionWrapper {
+	w.PodSetAssignments[0].Count = pointer.Int32(value)
 	return w
 }
 

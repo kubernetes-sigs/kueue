@@ -25,13 +25,14 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func testNewReconciler(*runtime.Scheme, client.Client, record.EventRecorder, ...Option) JobReconcilerInterface {
+func testNewReconciler(client.Client, record.EventRecorder, ...Option) JobReconcilerInterface {
 	return nil
 }
 
@@ -208,29 +209,29 @@ func compareCallbacks(x, y interface{}) bool {
 func TestForEach(t *testing.T) {
 	foeEachError := errors.New("test error")
 	cases := map[string]struct {
-		registerd []string
-		errorOn   string
-		wantCalls []string
-		wantError error
+		registered []string
+		errorOn    string
+		wantCalls  []string
+		wantError  error
 	}{
 		"all": {
-			registerd: []string{"a", "b", "c", "d", "e"},
-			errorOn:   "",
-			wantCalls: []string{"a", "b", "c", "d", "e"},
-			wantError: nil,
+			registered: []string{"a", "b", "c", "d", "e"},
+			errorOn:    "",
+			wantCalls:  []string{"a", "b", "c", "d", "e"},
+			wantError:  nil,
 		},
 		"partial": {
-			registerd: []string{"a", "b", "c", "d", "e"},
-			errorOn:   "c",
-			wantCalls: []string{"a", "b", "c"},
-			wantError: foeEachError,
+			registered: []string{"a", "b", "c", "d", "e"},
+			errorOn:    "c",
+			wantCalls:  []string{"a", "b", "c"},
+			wantError:  foeEachError,
 		},
 	}
 
 	for tcName, tc := range cases {
 		t.Run(tcName, func(t *testing.T) {
 			manager := integrationManager{}
-			for _, name := range tc.registerd {
+			for _, name := range tc.registered {
 				if err := manager.register(name, testIntegrationCallbacks); err != nil {
 					t.Fatalf("unable to register %s, %s", name, err.Error())
 				}
@@ -250,6 +251,72 @@ func TestForEach(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantCalls, gotCalls); diff != "" {
 				t.Errorf("Unexpected calls list (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestGetCallbacksForOwner(t *testing.T) {
+	dontManage := IntegrationCallbacks{
+		NewReconciler: func(client.Client, record.EventRecorder, ...Option) JobReconcilerInterface {
+			panic("not implemented")
+		},
+		SetupWebhook: func(ctrl.Manager, ...Option) error { panic("not implemented") },
+		JobType:      nil,
+	}
+	manageK1 := func() IntegrationCallbacks {
+		ret := dontManage
+		ret.IsManagingObjectsOwner = func(owner *metav1.OwnerReference) bool { return owner.Kind == "K1" }
+		return ret
+	}()
+	manageK2 := func() IntegrationCallbacks {
+		ret := dontManage
+		ret.IsManagingObjectsOwner = func(owner *metav1.OwnerReference) bool { return owner.Kind == "K2" }
+		return ret
+	}()
+
+	mgr := integrationManager{
+		names: []string{"manageK1", "dontManage", "manageK2"},
+		integrations: map[string]IntegrationCallbacks{
+			"dontManage": dontManage,
+			"manageK1":   manageK1,
+			"manageK2":   manageK2,
+		},
+	}
+
+	cases := map[string]struct {
+		owner         *metav1.OwnerReference
+		wantCallbacks *IntegrationCallbacks
+	}{
+		"K1": {
+			owner:         &metav1.OwnerReference{Kind: "K1"},
+			wantCallbacks: &manageK1,
+		},
+		"K2": {
+			owner:         &metav1.OwnerReference{Kind: "K2"},
+			wantCallbacks: &manageK2,
+		},
+		"K3": {
+			owner:         &metav1.OwnerReference{Kind: "K3"},
+			wantCallbacks: nil,
+		},
+	}
+
+	for tcName, tc := range cases {
+		t.Run(tcName, func(t *testing.T) {
+			gotCallbacks := mgr.getCallbacksForOwner(tc.owner)
+			if tc.wantCallbacks == nil {
+				if gotCallbacks != nil {
+					t.Errorf("This owner should be unmanaged")
+				}
+			} else {
+				if gotCallbacks == nil {
+					t.Errorf("This owner should be managed")
+				} else {
+					if diff := cmp.Diff(*tc.wantCallbacks, *gotCallbacks, cmp.FilterValues(func(_, _ interface{}) bool { return true }, cmp.Comparer(compareCallbacks))); diff != "" {
+						t.Errorf("Unexpected callbacks (-want +got):\n%s", diff)
+					}
+				}
 			}
 		})
 	}

@@ -76,7 +76,17 @@ type PodSetAssignment struct {
 	//
 	// Beside what is provided in podSet's specs, this calculation takes into account
 	// the LimitRange defaults and RuntimeClass overheads at the moment of admission.
+	// This field will not change in case of quota reclaim.
 	ResourceUsage corev1.ResourceList `json:"resourceUsage,omitempty"`
+
+	// count is the number of pods taken into account at admission time.
+	// This field will not change in case of quota reclaim.
+	// Value could be missing for Workloads created before this field was added,
+	// in that case spec.podSets[*].count value will be used.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Count *int32 `json:"count,omitempty"`
 }
 
 type PodSet struct {
@@ -101,6 +111,19 @@ type PodSet struct {
 	// count is the number of pods for the spec.
 	// +kubebuilder:validation:Minimum=1
 	Count int32 `json:"count"`
+
+	// minCount is the minimum number of pods for the spec acceptable
+	// if the workload supports partial admission.
+	//
+	// If not provided, partial admission for the current PodSet is not
+	// enabled.
+	//
+	// Only one podSet within the workload can use this.
+	//
+	// This is an alpha field and requires enabling PartialAdmission feature gate.
+	//
+	// +optional
+	MinCount *int32 `json:"minCount,omitempty"`
 }
 
 // WorkloadStatus defines the observed state of Workload
@@ -124,6 +147,22 @@ type WorkloadStatus struct {
 	// +listType=map
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// reclaimablePods keeps track of the number pods within a podset for which
+	// the resource reservation is no longer needed.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	ReclaimablePods []ReclaimablePod `json:"reclaimablePods,omitempty"`
+}
+
+type ReclaimablePod struct {
+	// name is the PodSet name.
+	Name string `json:"name"`
+
+	// count is the number of pods for which the requested resources are no longer needed.
+	// +kubebuilder:validation:Minimum=0
+	Count int32 `json:"count"`
 }
 
 const (
@@ -152,6 +191,7 @@ const (
 	WorkloadEvictedByPodsReadyTimeout = "PodsReadyTimeout"
 )
 
+// +genclient
 // +kubebuilder:object:root=true
 // +kubebuilder:storageversion
 // +kubebuilder:subresource:status

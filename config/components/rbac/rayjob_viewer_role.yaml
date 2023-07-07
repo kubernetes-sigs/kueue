@@ -1,0 +1,23 @@
+# permissions for end users to view jobs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: rayjob-viewer-role
+  labels:
+    rbac.kueue.x-k8s.io/batch-admin: "true"
+    rbac.kueue.x-k8s.io/batch-user: "true"
+rules:
+- apiGroups:
+  - ray.io
+  resources:
+  - rayjobs
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ray.io
+  resources:
+  - rayjobs/status
+  verbs:
+  - get

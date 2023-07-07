@@ -17,8 +17,10 @@ limitations under the License.
 package v1beta1
 
 import (
+	"time"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	cfg "sigs.k8s.io/controller-runtime/pkg/config/v1alpha1"
+	configv1alpha1 "k8s.io/component-base/config/v1alpha1"
 )
 
 //+kubebuilder:object:root=true
@@ -28,11 +30,12 @@ type Configuration struct {
 	metav1.TypeMeta `json:",inline"`
 
 	// Namespace is the namespace in which kueue is deployed. It is used as part of DNSName of the webhook Service.
-	// Defaults to kueue-system.
+	// If not set, the value is set from the file /var/run/secrets/kubernetes.io/serviceaccount/namespace
+	// If the file doesn't exist, default value is kueue-system.
 	Namespace *string `json:"namespace,omitempty"`
 
-	// ControllerManagerConfigurationSpec returns the configurations for controllers
-	cfg.ControllerManagerConfigurationSpec `json:",inline"`
+	// ControllerManager returns the configurations for controllers
+	ControllerManager `json:",inline"`
 
 	// ManageJobsWithoutQueueName controls whether or not Kueue reconciles
 	// batch/v1.Jobs that don't set the annotation kueue.x-k8s.io/queue-name.
@@ -61,6 +64,99 @@ type Configuration struct {
 	Integrations *Integrations `json:"integrations,omitempty"`
 }
 
+type ControllerManager struct {
+	// Webhook contains the controllers webhook configuration
+	// +optional
+	Webhook ControllerWebhook `json:"webhook,omitempty"`
+
+	// LeaderElection is the LeaderElection config to be used when configuring
+	// the manager.Manager leader election
+	// +optional
+	LeaderElection *configv1alpha1.LeaderElectionConfiguration `json:"leaderElection,omitempty"`
+
+	// Metrics contains thw controller metrics configuration
+	// +optional
+	Metrics ControllerMetrics `json:"metrics,omitempty"`
+
+	// Health contains the controller health configuration
+	// +optional
+	Health ControllerHealth `json:"health,omitempty"`
+
+	// Controller contains global configuration options for controllers
+	// registered within this manager.
+	// +optional
+	Controller *ControllerConfigurationSpec `json:"controller,omitempty"`
+}
+
+// ControllerWebhook defines the webhook server for the controller.
+type ControllerWebhook struct {
+	// Port is the port that the webhook server serves at.
+	// It is used to set webhook.Server.Port.
+	// +optional
+	Port *int `json:"port,omitempty"`
+
+	// Host is the hostname that the webhook server binds to.
+	// It is used to set webhook.Server.Host.
+	// +optional
+	Host string `json:"host,omitempty"`
+
+	// CertDir is the directory that contains the server key and certificate.
+	// if not set, webhook server would look up the server key and certificate in
+	// {TempDir}/k8s-webhook-server/serving-certs. The server key and certificate
+	// must be named tls.key and tls.crt, respectively.
+	// +optional
+	CertDir string `json:"certDir,omitempty"`
+}
+
+// ControllerMetrics defines the metrics configs.
+type ControllerMetrics struct {
+	// BindAddress is the TCP address that the controller should bind to
+	// for serving prometheus metrics.
+	// It can be set to "0" to disable the metrics serving.
+	// +optional
+	BindAddress string `json:"bindAddress,omitempty"`
+}
+
+// ControllerHealth defines the health configs.
+type ControllerHealth struct {
+	// HealthProbeBindAddress is the TCP address that the controller should bind to
+	// for serving health probes
+	// It can be set to "0" or "" to disable serving the health probe.
+	// +optional
+	HealthProbeBindAddress string `json:"healthProbeBindAddress,omitempty"`
+
+	// ReadinessEndpointName, defaults to "readyz"
+	// +optional
+	ReadinessEndpointName string `json:"readinessEndpointName,omitempty"`
+
+	// LivenessEndpointName, defaults to "healthz"
+	// +optional
+	LivenessEndpointName string `json:"livenessEndpointName,omitempty"`
+}
+
+// ControllerConfigurationSpec defines the global configuration for
+// controllers registered with the manager.
+type ControllerConfigurationSpec struct {
+	// GroupKindConcurrency is a map from a Kind to the number of concurrent reconciliation
+	// allowed for that controller.
+	//
+	// When a controller is registered within this manager using the builder utilities,
+	// users have to specify the type the controller reconciles in the For(...) call.
+	// If the object's kind passed matches one of the keys in this map, the concurrency
+	// for that controller is set to the number specified.
+	//
+	// The key is expected to be consistent in form with GroupKind.String(),
+	// e.g. ReplicaSet in apps group (regardless of version) would be `ReplicaSet.apps`.
+	//
+	// +optional
+	GroupKindConcurrency map[string]int `json:"groupKindConcurrency,omitempty"`
+
+	// CacheSyncTimeout refers to the time limit set to wait for syncing caches.
+	// Defaults to 2 minutes if not set.
+	// +optional
+	CacheSyncTimeout *time.Duration `json:"cacheSyncTimeout,omitempty"`
+}
+
 type WaitForPodsReady struct {
 	// Enable when true, indicates that each admitted workload
 	// blocks the admission of all other workloads from all queues until it is in the
@@ -74,6 +170,11 @@ type WaitForPodsReady struct {
 	// is cancelled and requeued in the same cluster queue. Defaults to 5min.
 	// +optional
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
+
+	// BlockAdmission when true, cluster queue will block admissions for all subsequent jobs
+	// until the jobs reach the PodsReady=true condition. It defaults to false if Enable is false
+	// and defaults to true otherwise.
+	BlockAdmission *bool `json:"blockAdmission,omitempty"`
 }
 
 type InternalCertManagement struct {
@@ -106,5 +207,7 @@ type Integrations struct {
 	// Possible options:
 	//  - "batch/job"
 	//  - "kubeflow.org/mpijob"
+	//  - "ray.io/rayjob"
+	//  - "jobset.x-k8s.io/jobset"
 	Frameworks []string `json:"frameworks,omitempty"`
 }

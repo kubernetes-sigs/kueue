@@ -14,13 +14,18 @@ limitations under the License.
 package jobframework
 
 import (
+	"context"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
+// GenericJob if the interface which needs to be implemented by all jobs
+// managed by the kueue's jobframework.
 type GenericJob interface {
 	// Object returns the job instance.
 	Object() client.Object
@@ -28,22 +33,15 @@ type GenericJob interface {
 	IsSuspended() bool
 	// Suspend will suspend the job.
 	Suspend()
-	// ResetStatus will reset the job status to the original state.
-	// If true, status is modified, if not, status is as it was.
-	ResetStatus() bool
-	// RunWithNodeAffinity will inject the node affinity extracting from workload to job and unsuspend the job.
-	RunWithNodeAffinity(nodeSelectors []PodSetNodeSelector)
-	// RestoreNodeAffinity will restore the original node affinity of job.
-	RestoreNodeAffinity(nodeSelectors []PodSetNodeSelector)
+	// RunWithPodSetsInfo will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
+	RunWithPodSetsInfo(nodeSelectors []PodSetInfo)
+	// RestorePodSetsInfo will restore the original node affinity and podSet counts of the job.
+	RestorePodSetsInfo(nodeSelectors []PodSetInfo)
 	// Finished means whether the job is completed/failed or not,
 	// condition represents the workload finished condition.
 	Finished() (condition metav1.Condition, finished bool)
 	// PodSets will build workload podSets corresponding to the job.
 	PodSets() []kueue.PodSet
-	// EquivalentToWorkload validates whether the workload is semantically equal to the job.
-	EquivalentToWorkload(wl kueue.Workload) bool
-	// PriorityClass returns the job's priority class name.
-	PriorityClass() string
 	// IsActive returns true if there are any running pods.
 	IsActive() bool
 	// PodsReady instructs whether job derived pods are all ready now.
@@ -52,14 +50,36 @@ type GenericJob interface {
 	GetGVK() schema.GroupVersionKind
 }
 
+// Optional interfaces, are meant to implemented by jobs to enable additional
+// features of the jobframework reconciler.
+
+type JobWithReclaimablePods interface {
+	// ReclaimablePods returns the list of reclaimable pods.
+	ReclaimablePods() []kueue.ReclaimablePod
+}
+
+type JobWithCustomStop interface {
+	// Stop implements a custom stop procedure
+	Stop(ctx context.Context, c client.Client, podSetsInfo []PodSetInfo) error
+}
+
+type JobWithPriorityClass interface {
+	// PriorityClass returns the job's priority class name.
+	PriorityClass() string
+}
+
 func ParentWorkloadName(job GenericJob) string {
-	return job.Object().GetAnnotations()[ParentWorkloadAnnotation]
+	return job.Object().GetAnnotations()[constants.ParentWorkloadAnnotation]
 }
 
 func QueueName(job GenericJob) string {
-	if queueLabel := job.Object().GetLabels()[QueueLabel]; queueLabel != "" {
+	return QueueNameForObject(job.Object())
+}
+
+func QueueNameForObject(object client.Object) string {
+	if queueLabel := object.GetLabels()[constants.QueueLabel]; queueLabel != "" {
 		return queueLabel
 	}
 	// fallback to the annotation (deprecated)
-	return job.Object().GetAnnotations()[QueueAnnotation]
+	return object.GetAnnotations()[constants.QueueAnnotation]
 }

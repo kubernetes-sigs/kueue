@@ -2,7 +2,6 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  creationTimestamp: null
   name: manager-role
 rules:
 - apiGroups:
@@ -58,6 +57,13 @@ rules:
   - update
   - watch
 - apiGroups:
+  - apiextensions.k8s.io
+  resources:
+  - customresourcedefinitions
+  verbs:
+  - list
+  - watch
+- apiGroups:
   - batch
   resources:
   - jobs
@@ -81,6 +87,24 @@ rules:
   - jobs/status
   verbs:
   - get
+  - update
+- apiGroups:
+  - jobset.x-k8s.io
+  resources:
+  - jobsets
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - jobset.x-k8s.io
+  resources:
+  - jobsets/status
+  verbs:
+  - get
+  - update
 - apiGroups:
   - kubeflow.org
   resources:
@@ -97,6 +121,7 @@ rules:
   - mpijobs/status
   verbs:
   - get
+  - update
 - apiGroups:
   - kueue.x-k8s.io
   resources:
@@ -199,6 +224,23 @@ rules:
   - get
   - list
   - watch
+- apiGroups:
+  - ray.io
+  resources:
+  - rayjobs
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ray.io
+  resources:
+  - rayjobs/status
+  verbs:
+  - get
+  - update
 - apiGroups:
   - scheduling.k8s.io
   resources:

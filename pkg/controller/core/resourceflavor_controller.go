@@ -37,7 +37,7 @@ import (
 )
 
 type ResourceFlavorUpdateWatcher interface {
-	NotifyResourceFlavorUpdate(*kueue.ResourceFlavor)
+	NotifyResourceFlavorUpdate(oldRF, newRF *kueue.ResourceFlavor)
 }
 
 // ResourceFlavorReconciler reconciles a ResourceFlavor object
@@ -77,14 +77,14 @@ func (r *ResourceFlavorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(2).Info("Reconciling ResourceFlavor")
 
-	if flavor.ObjectMeta.DeletionTimestamp.IsZero() {
+	if flavor.DeletionTimestamp.IsZero() {
 		// Although we'll add the finalizer via webhook mutation now, this is still useful
 		// as a fallback.
-		if !controllerutil.ContainsFinalizer(&flavor, kueue.ResourceInUseFinalizerName) {
-			controllerutil.AddFinalizer(&flavor, kueue.ResourceInUseFinalizerName)
+		if controllerutil.AddFinalizer(&flavor, kueue.ResourceInUseFinalizerName) {
 			if err := r.client.Update(ctx, &flavor); err != nil {
 				return ctrl.Result{}, err
 			}
+			log.V(5).Info("Added finalizer")
 		}
 	} else {
 		if controllerutil.ContainsFinalizer(&flavor, kueue.ResourceInUseFinalizerName) {
@@ -100,6 +100,7 @@ func (r *ResourceFlavorReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			if err := r.client.Update(ctx, &flavor); err != nil {
 				return ctrl.Result{}, err
 			}
+			log.V(5).Info("Removed finalizer")
 		}
 	}
 
@@ -110,9 +111,9 @@ func (r *ResourceFlavorReconciler) AddUpdateWatcher(watchers ...ResourceFlavorUp
 	r.watchers = watchers
 }
 
-func (r *ResourceFlavorReconciler) notifyWatchers(rf *kueue.ResourceFlavor) {
+func (r *ResourceFlavorReconciler) notifyWatchers(oldRF, newRF *kueue.ResourceFlavor) {
 	for _, w := range r.watchers {
-		w.NotifyResourceFlavorUpdate(rf)
+		w.NotifyResourceFlavorUpdate(oldRF, newRF)
 	}
 }
 
@@ -121,7 +122,7 @@ func (r *ResourceFlavorReconciler) Create(e event.CreateEvent) bool {
 	if !match {
 		return false
 	}
-	defer r.notifyWatchers(flv)
+	defer r.notifyWatchers(nil, flv)
 
 	log := r.log.WithValues("resourceFlavor", klog.KObj(flv))
 	log.V(2).Info("ResourceFlavor create event")
@@ -143,7 +144,7 @@ func (r *ResourceFlavorReconciler) Delete(e event.DeleteEvent) bool {
 	if !match {
 		return false
 	}
-	defer r.notifyWatchers(flv)
+	defer r.notifyWatchers(flv, nil)
 
 	log := r.log.WithValues("resourceFlavor", klog.KObj(flv))
 	log.V(2).Info("ResourceFlavor delete event")
@@ -155,20 +156,24 @@ func (r *ResourceFlavorReconciler) Delete(e event.DeleteEvent) bool {
 }
 
 func (r *ResourceFlavorReconciler) Update(e event.UpdateEvent) bool {
-	flv, match := e.ObjectNew.(*kueue.ResourceFlavor)
+	oldFlv, match := e.ObjectOld.(*kueue.ResourceFlavor)
 	if !match {
 		return false
 	}
-	defer r.notifyWatchers(flv)
+	newFlv, match := e.ObjectNew.(*kueue.ResourceFlavor)
+	if !match {
+		return false
+	}
+	defer r.notifyWatchers(oldFlv, newFlv)
 
-	log := r.log.WithValues("resourceFlavor", klog.KObj(flv))
+	log := r.log.WithValues("resourceFlavor", klog.KObj(newFlv))
 	log.V(2).Info("ResourceFlavor update event")
 
-	if flv.DeletionTimestamp != nil {
+	if newFlv.DeletionTimestamp != nil {
 		return true
 	}
 
-	if cqNames := r.cache.AddOrUpdateResourceFlavor(flv.DeepCopy()); len(cqNames) > 0 {
+	if cqNames := r.cache.AddOrUpdateResourceFlavor(newFlv.DeepCopy()); len(cqNames) > 0 {
 		r.qManager.QueueInadmissibleWorkloads(context.Background(), cqNames)
 	}
 	return false
@@ -210,20 +215,20 @@ type cqHandler struct {
 	cache *cache.Cache
 }
 
-func (h *cqHandler) Create(event.CreateEvent, workqueue.RateLimitingInterface) {
+func (h *cqHandler) Create(context.Context, event.CreateEvent, workqueue.RateLimitingInterface) {
 }
 
-func (h *cqHandler) Update(event.UpdateEvent, workqueue.RateLimitingInterface) {
+func (h *cqHandler) Update(context.Context, event.UpdateEvent, workqueue.RateLimitingInterface) {
 }
 
-func (h *cqHandler) Delete(event.DeleteEvent, workqueue.RateLimitingInterface) {
+func (h *cqHandler) Delete(context.Context, event.DeleteEvent, workqueue.RateLimitingInterface) {
 }
 
 // Generic accepts update/delete events from clusterQueue via channel.
 // For update events, we only check the old obj to see whether old resourceFlavors
 // are still in use since new resourceFlavors are always in use.
 // For delete events, we check the original obj since new obj is nil.
-func (h *cqHandler) Generic(e event.GenericEvent, q workqueue.RateLimitingInterface) {
+func (h *cqHandler) Generic(_ context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
 	cq := e.Object.(*kueue.ClusterQueue)
 	if cq.Name == "" {
 		return
@@ -250,7 +255,7 @@ func (r *ResourceFlavorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.ResourceFlavor{}).
-		Watches(&source.Channel{Source: r.cqUpdateCh}, &handler).
+		WatchesRawSource(&source.Channel{Source: r.cqUpdateCh}, &handler).
 		WithEventFilter(r).
 		Complete(r)
 }

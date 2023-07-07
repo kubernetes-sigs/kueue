@@ -35,7 +35,7 @@ The webhook server in kueue uses an internal cert management for provisioning ce
 To install a released version of Kueue in your cluster, run the following command:
 
 ```shell
-VERSION=v0.3.0
+VERSION={{< param "version" >}}
 kubectl apply -f https://github.com/kubernetes-sigs/kueue/releases/download/$VERSION/manifests.yaml
 ```
 
@@ -55,7 +55,7 @@ kubectl apply -f https://github.com/kubernetes-sigs/kueue/releases/download/$VER
 To uninstall a released version of Kueue from your cluster, run the following command:
 
 ```shell
-VERSION=v0.3.0
+VERSION={{< param "version" >}}
 kubectl delete -f https://github.com/kubernetes-sigs/kueue/releases/download/$VERSION/manifests.yaml
 ```
 
@@ -72,7 +72,7 @@ To install a custom-configured released version of Kueue in your cluster, execut
 1. Download the release's `manifests.yaml` file:
 
     ```shell
-    VERSION=v0.3.0
+    VERSION={{< param "version" >}}
     wget https://github.com/kubernetes-sigs/kueue/releases/download/$VERSION/manifests.yaml
     ```
 

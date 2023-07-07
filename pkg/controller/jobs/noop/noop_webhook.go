@@ -21,6 +21,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 type webhook struct {
@@ -42,16 +43,16 @@ func (w *webhook) Default(ctx context.Context, obj runtime.Object) error {
 }
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *webhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
-	return nil
+func (w *webhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+	return nil, nil
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
-	return nil
+func (w *webhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
+	return nil, nil
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *webhook) ValidateDelete(ctx context.Context, obj runtime.Object) error {
-	return nil
+func (w *webhook) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+	return nil, nil
 }

@@ -237,9 +237,10 @@ const (
 type PreemptionPolicy string
 
 const (
-	PreemptionPolicyNever         PreemptionPolicy = "Never"
-	PreemptionPolicyAny           PreemptionPolicy = "Any"
-	PreemptionPolicyLowerPriority PreemptionPolicy = "LowerPriority"
+	PreemptionPolicyNever                     PreemptionPolicy = "Never"
+	PreemptionPolicyAny                       PreemptionPolicy = "Any"
+	PreemptionPolicyLowerPriority             PreemptionPolicy = "LowerPriority"
+	PreemptionPolicyLowerOrNewerEqualPriority PreemptionPolicy = "LowerOrNewerEqualPriority"
 )
 
 // ClusterQueuePreemption contains policies to preempt Workloads from this
@@ -268,12 +269,16 @@ type ClusterQueuePreemption struct {
 	// - `Never` (default): do not preempt Workloads in the ClusterQueue.
 	// - `LowerPriority`: only preempt Workloads in the ClusterQueue that have
 	//   lower priority than the pending Workload.
+	// - `LowerOrNewerEqualPriority`: only preempt Workloads in the ClusterQueue that
+	//   either have a lower priority than the pending workload or equal priority
+	//   and are newer than the pending workload.
 	//
 	// +kubebuilder:default=Never
-	// +kubebuilder:validation:Enum=Never;LowerPriority
+	// +kubebuilder:validation:Enum=Never;LowerPriority;LowerOrNewerEqualPriority
 	WithinClusterQueue PreemptionPolicy `json:"withinClusterQueue,omitempty"`
 }
 
+//+genclient
 //+kubebuilder:object:root=true
 //+kubebuilder:storageversion
 //+kubebuilder:resource:scope=Cluster

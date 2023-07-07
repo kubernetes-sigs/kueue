@@ -17,6 +17,8 @@ limitations under the License.
 package scheduler
 
 import (
+	"time"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -65,7 +67,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			cq = testing.MakeClusterQueue("cq").
 				ResourceGroup(*testing.MakeFlavorQuotas("alpha").Resource(corev1.ResourceCPU, "4").Obj()).
 				Preemption(kueue.ClusterQueuePreemption{
-					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					WithinClusterQueue: kueue.PreemptionPolicyLowerOrNewerEqualPriority,
 				}).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
@@ -126,15 +128,65 @@ var _ = ginkgo.Describe("Preemption", func() {
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, highWl2)).To(gomega.Succeed())
 
+			util.FinishEvictionForWorkloads(ctx, k8sClient, lowWl1, lowWl2)
+
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, cq.Name, highWl2)
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, lowWl1, lowWl2)
+		})
+
+		ginkgo.It("Should preempt newer Workloads with the same priority when there is not enough quota", func() {
+			ginkgo.By("Creating initial Workloads")
+			wl1 := testing.MakeWorkload("wl-1", ns.Name).
+				Queue(q.Name).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			wl2 := testing.MakeWorkload("wl-2", ns.Name).
+				Queue(q.Name).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			wl3 := testing.MakeWorkload("wl-3", ns.Name).
+				Queue(q.Name).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "3").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl1)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, cq.Name, wl1, wl2)
+
+			gomega.Expect(k8sClient.Create(ctx, wl3)).To(gomega.Succeed())
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl3)
+
+			ginkgo.By("Waiting one second, to ensure that the new workload has a later creation time")
+			time.Sleep(time.Second)
+
+			ginkgo.By("Creating a new Workload")
+			wl4 := testing.MakeWorkload("wl-4", ns.Name).
+				Queue(q.Name).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl4)).To(gomega.Succeed())
+
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, cq.Name, wl1, wl2, wl4)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl3)
+
+			ginkgo.By("Finishing the first workload")
+			util.FinishWorkloads(ctx, k8sClient, wl1)
+
+			ginkgo.By("Finishing eviction for wl4")
+			util.FinishEvictionForWorkloads(ctx, k8sClient, wl4)
+
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, cq.Name, wl3)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl4)
 		})
 	})
 
 	ginkgo.Context("In a ClusterQueue that is part of a cohort", func() {
 		var (
-			alphaCQ, betaCQ *kueue.ClusterQueue
-			alphaQ, betaQ   *kueue.LocalQueue
+			alphaCQ, betaCQ, gammaCQ *kueue.ClusterQueue
+			alphaQ, betaQ, gammaQ    *kueue.LocalQueue
 		)
 
 		ginkgo.BeforeEach(func() {
@@ -157,12 +209,25 @@ var _ = ginkgo.Describe("Preemption", func() {
 			gomega.Expect(k8sClient.Create(ctx, betaCQ)).To(gomega.Succeed())
 			betaQ = testing.MakeLocalQueue("beta-q", ns.Name).ClusterQueue(betaCQ.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, betaQ)).To(gomega.Succeed())
+
+			gammaCQ = testing.MakeClusterQueue("gamma-cq").
+				Cohort("all").
+				ResourceGroup(*testing.MakeFlavorQuotas("alpha").Resource(corev1.ResourceCPU, "2").Obj()).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, gammaCQ)).To(gomega.Succeed())
+			gammaQ = testing.MakeLocalQueue("gamma-q", ns.Name).ClusterQueue(gammaCQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, gammaQ)).To(gomega.Succeed())
 		})
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, alphaCQ, true)
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, betaCQ, true)
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, gammaCQ, true)
 		})
 
 		ginkgo.It("Should preempt Workloads in the cohort borrowing quota, when the ClusterQueue is using less than nominal quota", func() {
@@ -184,7 +249,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			betaHighWl := testing.MakeWorkload("beta-high", ns.Name).
 				Queue(betaQ.Name).
 				Priority(highPriority).
-				Request(corev1.ResourceCPU, "2").
+				Request(corev1.ResourceCPU, "4").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, betaHighWl)).To(gomega.Succeed())
 
@@ -198,6 +263,8 @@ var _ = ginkgo.Describe("Preemption", func() {
 				Request(corev1.ResourceCPU, "2").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, alphaMidWl)).To(gomega.Succeed())
+
+			util.FinishEvictionForWorkloads(ctx, k8sClient, alphaLowWl, betaMidWl)
 
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, alphaCQ.Name, alphaMidWl)
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, alphaLowWl, betaMidWl)
@@ -215,7 +282,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			betaLowWl := testing.MakeWorkload("beta-low", ns.Name).
 				Queue(betaQ.Name).
 				Priority(lowPriority).
-				Request(corev1.ResourceCPU, "2").
+				Request(corev1.ResourceCPU, "4").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, betaLowWl)).To(gomega.Succeed())
 
@@ -234,6 +301,57 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, alphaHighWl2)
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, alphaCQ.Name, alphaHighWl1)
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, betaCQ.Name, betaLowWl)
+		})
+
+		ginkgo.It("Should preempt all necessary workloads in concurrent scheduling", func() {
+			ginkgo.By("Creating workloads in beta-cq that borrow quota")
+
+			betaMidWl := testing.MakeWorkload("beta-mid", ns.Name).
+				Queue(betaQ.Name).
+				Priority(midPriority).
+				Request(corev1.ResourceCPU, "3").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, betaMidWl)).To(gomega.Succeed())
+			betaHighWl := testing.MakeWorkload("beta-high", ns.Name).
+				Queue(betaQ.Name).
+				Priority(highPriority).
+				Request(corev1.ResourceCPU, "3").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, betaHighWl)).To(gomega.Succeed())
+
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, betaCQ.Name, betaMidWl, betaHighWl)
+
+			ginkgo.By("Creating workload in alpha-cq and gamma-cq that need to preempt")
+			alphaMidWl := testing.MakeWorkload("alpha-mid", ns.Name).
+				Queue(alphaQ.Name).
+				Priority(midPriority).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+
+			gammaMidWl := testing.MakeWorkload("gamma-mid", ns.Name).
+				Queue(gammaQ.Name).
+				Priority(midPriority).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+
+			gomega.Expect(k8sClient.Create(ctx, alphaMidWl)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, gammaMidWl)).To(gomega.Succeed())
+
+			// since the two pending workloads are not aware of each other both of them
+			// will request the eviction of betaMidWl only
+			util.FinishEvictionForWorkloads(ctx, k8sClient, betaMidWl)
+
+			// one of alpha-mid and gamma-mid should be admitted
+			gomega.Eventually(func() []*kueue.Workload { return util.FilterAdmittedWorkloads(ctx, k8sClient, alphaMidWl, gammaMidWl) }, util.Interval*4, util.Interval).Should(gomega.HaveLen(1))
+
+			// betaHighWl remains admitted
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, betaCQ.Name, betaHighWl)
+
+			// the last one should request the preemption of betaHighWl
+			util.FinishEvictionForWorkloads(ctx, k8sClient, betaHighWl)
+
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, alphaCQ.Name, alphaMidWl)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, gammaCQ.Name, gammaMidWl)
 		})
 	})
 

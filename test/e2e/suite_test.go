@@ -18,6 +18,8 @@ package e2e
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -44,9 +46,13 @@ const (
 )
 
 func TestAPIs(t *testing.T) {
+	suiteName := "End To End Suite"
+	if ver, found := os.LookupEnv("E2E_KIND_VERSION"); found {
+		suiteName = fmt.Sprintf("%s: %s", suiteName, ver)
+	}
 	gomega.RegisterFailHandler(ginkgo.Fail)
 	ginkgo.RunSpecs(t,
-		"End To End Suite",
+		suiteName,
 	)
 }
 

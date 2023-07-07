@@ -20,11 +20,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 
-	corev1 "k8s.io/api/core/v1"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
@@ -34,14 +33,19 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/util/pointer"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var (
-	errQueueAlreadyExists  = errors.New("queue already exists")
 	errCqNotFound          = errors.New("cluster queue not found")
+	errQNotFound           = errors.New("queue not found")
 	errWorkloadNotAdmitted = errors.New("workload not admitted by a ClusterQueue")
+)
+
+const (
+	pending     = metrics.CQStatusPending
+	active      = metrics.CQStatusActive
+	terminating = metrics.CQStatusTerminating
 )
 
 type options struct {
@@ -92,78 +96,13 @@ func New(client client.Client, opts ...Option) *Cache {
 	return c
 }
 
-type FlavorResourceQuantities map[kueue.ResourceFlavorReference]map[corev1.ResourceName]int64
-
-// Cohort is a set of ClusterQueues that can borrow resources from each other.
-type Cohort struct {
-	Name    string
-	Members sets.Set[*ClusterQueue]
-
-	// These fields are only populated for a snapshot.
-	RequestableResources FlavorResourceQuantities
-	Usage                FlavorResourceQuantities
-}
-
-func newCohort(name string, size int) *Cohort {
-	return &Cohort{
-		Name:    name,
-		Members: make(sets.Set[*ClusterQueue], size),
-	}
-}
-
-const (
-	pending     = metrics.CQStatusPending
-	active      = metrics.CQStatusActive
-	terminating = metrics.CQStatusTerminating
-)
-
-// ClusterQueue is the internal implementation of kueue.ClusterQueue that
-// holds admitted workloads.
-type ClusterQueue struct {
-	Name              string
-	Cohort            *Cohort
-	ResourceGroups    []ResourceGroup
-	RGByResource      map[corev1.ResourceName]*ResourceGroup
-	Usage             FlavorResourceQuantities
-	Workloads         map[string]*workload.Info
-	WorkloadsNotReady sets.Set[string]
-	NamespaceSelector labels.Selector
-	Preemption        kueue.ClusterQueuePreemption
-	Status            metrics.ClusterQueueStatus
-
-	// The following fields are not populated in a snapshot.
-
-	admittedWorkloadsPerQueue map[string]int
-	podsReadyTracking         bool
-}
-
-type ResourceGroup struct {
-	CoveredResources sets.Set[corev1.ResourceName]
-	Flavors          []FlavorQuotas
-	// The set of key labels from all flavors.
-	// Those keys define the affinity terms of a workload
-	// that can be matched against the flavors.
-	LabelKeys sets.Set[string]
-}
-
-// FlavorQuotas holds a processed ClusterQueue flavor quota.
-type FlavorQuotas struct {
-	Name      kueue.ResourceFlavorReference
-	Resources map[corev1.ResourceName]*ResourceQuota
-}
-
-type ResourceQuota struct {
-	Nominal        int64
-	BorrowingLimit *int64
-}
-
 func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*ClusterQueue, error) {
 	cqImpl := &ClusterQueue{
-		Name:                      cq.Name,
-		Workloads:                 make(map[string]*workload.Info),
-		WorkloadsNotReady:         sets.New[string](),
-		admittedWorkloadsPerQueue: make(map[string]int),
-		podsReadyTracking:         c.podsReadyTracking,
+		Name:              cq.Name,
+		Workloads:         make(map[string]*workload.Info),
+		WorkloadsNotReady: sets.New[string](),
+		localQueues:       make(map[string]*queue),
+		podsReadyTracking: c.podsReadyTracking,
 	}
 	if err := cqImpl.update(cq, c.resourceFlavors); err != nil {
 		return nil, err
@@ -184,7 +123,7 @@ func (c *Cache) WaitForPodsReady(ctx context.Context) {
 
 	log := ctrl.LoggerFrom(ctx)
 	for {
-		if c.podsReadyForAllAdmittedWorkloads(ctx) {
+		if c.podsReadyForAllAdmittedWorkloads(log) {
 			return
 		}
 		log.V(3).Info("Blocking admission as not all workloads are in the PodsReady condition")
@@ -199,14 +138,16 @@ func (c *Cache) WaitForPodsReady(ctx context.Context) {
 	}
 }
 
-func (c *Cache) PodsReadyForAllAdmittedWorkloads(ctx context.Context) bool {
+func (c *Cache) PodsReadyForAllAdmittedWorkloads(log logr.Logger) bool {
+	if !c.podsReadyTracking {
+		return true
+	}
 	c.Lock()
 	defer c.Unlock()
-	return c.podsReadyForAllAdmittedWorkloads(ctx)
+	return c.podsReadyForAllAdmittedWorkloads(log)
 }
 
-func (c *Cache) podsReadyForAllAdmittedWorkloads(ctx context.Context) bool {
-	log := ctrl.LoggerFrom(ctx)
+func (c *Cache) podsReadyForAllAdmittedWorkloads(log logr.Logger) bool {
 	for _, cq := range c.clusterQueues {
 		if len(cq.WorkloadsNotReady) > 0 {
 			log.V(3).Info("There is a ClusterQueue with not ready workloads", "clusterQueue", klog.KRef("", cq.Name))
@@ -222,6 +163,8 @@ func (c *Cache) podsReadyForAllAdmittedWorkloads(ctx context.Context) bool {
 // cache.WaitForPodsReady.
 func (c *Cache) CleanUpOnContext(ctx context.Context) {
 	<-ctx.Done()
+	c.Lock()
+	defer c.Unlock()
 	c.podsReadyCond.Broadcast()
 }
 
@@ -232,215 +175,11 @@ func (c *Cache) AdmittedWorkloadsInLocalQueue(localQueue *kueue.LocalQueue) int3
 	if !ok {
 		return 0
 	}
-	qKey := queueKey(localQueue)
-	return int32(cq.admittedWorkloadsPerQueue[qKey])
-}
-
-func (c *ClusterQueue) Active() bool {
-	return c.Status == active
-}
-
-var defaultPreemption = kueue.ClusterQueuePreemption{
-	ReclaimWithinCohort: kueue.PreemptionPolicyNever,
-	WithinClusterQueue:  kueue.PreemptionPolicyNever,
-}
-
-func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) error {
-	c.updateResourceGroups(in.Spec.ResourceGroups)
-	nsSelector, err := metav1.LabelSelectorAsSelector(in.Spec.NamespaceSelector)
-	if err != nil {
-		return err
+	qImpl, ok := cq.localQueues[queueKey(localQueue)]
+	if !ok {
+		return 0
 	}
-	c.NamespaceSelector = nsSelector
-
-	// Cleanup removed flavors or resources.
-	usedFlavorResources := make(FlavorResourceQuantities)
-	for _, rg := range in.Spec.ResourceGroups {
-		for _, f := range rg.Flavors {
-			existingUsedResources := c.Usage[f.Name]
-			usedResources := make(map[corev1.ResourceName]int64, len(f.Resources))
-			for _, r := range f.Resources {
-				usedResources[r.Name] = existingUsedResources[r.Name]
-			}
-			usedFlavorResources[f.Name] = usedResources
-		}
-	}
-	c.Usage = usedFlavorResources
-	c.UpdateWithFlavors(resourceFlavors)
-
-	if in.Spec.Preemption != nil {
-		c.Preemption = *in.Spec.Preemption
-	} else {
-		c.Preemption = defaultPreemption
-	}
-
-	return nil
-}
-
-func (c *ClusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
-	c.ResourceGroups = make([]ResourceGroup, len(in))
-	for i, rgIn := range in {
-		rg := &c.ResourceGroups[i]
-		*rg = ResourceGroup{
-			CoveredResources: sets.New(rgIn.CoveredResources...),
-			Flavors:          make([]FlavorQuotas, 0, len(rgIn.Flavors)),
-		}
-		for i := range rgIn.Flavors {
-			fIn := &rgIn.Flavors[i]
-			fQuotas := FlavorQuotas{
-				Name:      fIn.Name,
-				Resources: make(map[corev1.ResourceName]*ResourceQuota, len(fIn.Resources)),
-			}
-			for _, rIn := range fIn.Resources {
-				rQuota := ResourceQuota{
-					Nominal: workload.ResourceValue(rIn.Name, rIn.NominalQuota),
-				}
-				if rIn.BorrowingLimit != nil {
-					rQuota.BorrowingLimit = pointer.Int64(workload.ResourceValue(rIn.Name, *rIn.BorrowingLimit))
-				}
-				fQuotas.Resources[rIn.Name] = &rQuota
-			}
-			rg.Flavors = append(rg.Flavors, fQuotas)
-		}
-	}
-	c.UpdateRGByResource()
-}
-
-func (c *ClusterQueue) UpdateRGByResource() {
-	c.RGByResource = make(map[corev1.ResourceName]*ResourceGroup)
-	for i := range c.ResourceGroups {
-		rg := &c.ResourceGroups[i]
-		for rName := range rg.CoveredResources {
-			c.RGByResource[rName] = rg
-		}
-	}
-}
-
-// UpdateWithFlavors updates a ClusterQueue based on the passed ResourceFlavors set.
-// Exported only for testing.
-func (c *ClusterQueue) UpdateWithFlavors(flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) {
-	status := active
-	if flavorNotFound := c.updateLabelKeys(flavors); flavorNotFound {
-		status = pending
-	}
-
-	if c.Status != terminating {
-		c.Status = status
-	}
-	metrics.ReportClusterQueueStatus(c.Name, c.Status)
-}
-
-func (c *ClusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) bool {
-	var flavorNotFound bool
-	for i := range c.ResourceGroups {
-		rg := &c.ResourceGroups[i]
-		if len(rg.Flavors) == 0 {
-			rg.LabelKeys = nil
-			continue
-		}
-		keys := sets.New[string]()
-		for _, rf := range rg.Flavors {
-			if flv, exist := flavors[rf.Name]; exist {
-				for k := range flv.Spec.NodeLabels {
-					keys.Insert(k)
-				}
-			} else {
-				flavorNotFound = true
-			}
-		}
-
-		if keys.Len() > 0 {
-			rg.LabelKeys = keys
-		}
-	}
-
-	return flavorNotFound
-}
-
-func (c *ClusterQueue) addWorkload(w *kueue.Workload) error {
-	k := workload.Key(w)
-	if _, exist := c.Workloads[k]; exist {
-		return fmt.Errorf("workload already exists in ClusterQueue")
-	}
-	wi := workload.NewInfo(w)
-	c.Workloads[k] = wi
-	c.updateWorkloadUsage(wi, 1)
-	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
-		c.WorkloadsNotReady.Insert(k)
-	}
-	reportAdmittedActiveWorkloads(wi.ClusterQueue, len(c.Workloads))
-	return nil
-}
-
-func (c *ClusterQueue) deleteWorkload(w *kueue.Workload) {
-	k := workload.Key(w)
-	wi, exist := c.Workloads[k]
-	if !exist {
-		return
-	}
-	c.updateWorkloadUsage(wi, -1)
-	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
-		c.WorkloadsNotReady.Delete(k)
-	}
-	delete(c.Workloads, k)
-	reportAdmittedActiveWorkloads(wi.ClusterQueue, len(c.Workloads))
-}
-
-// updateWorkloadUsage updates the usage of the ClusterQueue for the workload
-// and the number of admitted workloads for local queues.
-func (c *ClusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
-	updateUsage(wi, c.Usage, m)
-	qKey := workload.QueueKey(wi.Obj)
-	if _, ok := c.admittedWorkloadsPerQueue[qKey]; ok {
-		c.admittedWorkloadsPerQueue[qKey] += int(m)
-	}
-}
-
-func updateUsage(wi *workload.Info, cqUsage FlavorResourceQuantities, m int64) {
-	for _, ps := range wi.TotalRequests {
-		for wlRes, wlResFlv := range ps.Flavors {
-			v, wlResExist := ps.Requests[wlRes]
-			cqFlv, cqFlvExist := cqUsage[wlResFlv]
-			if cqFlvExist && wlResExist {
-				if _, exists := cqFlv[wlRes]; exists {
-					cqFlv[wlRes] += v * m
-				}
-			}
-		}
-	}
-}
-
-func (c *ClusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
-	qKey := queueKey(q)
-	if _, ok := c.admittedWorkloadsPerQueue[qKey]; ok {
-		return errQueueAlreadyExists
-	}
-	// We need to count the workloads, because they could have been added before
-	// receiving the queue add event.
-	workloads := 0
-	for _, wl := range c.Workloads {
-		if workloadBelongsToLocalQueue(wl.Obj, q) {
-			workloads++
-		}
-	}
-	c.admittedWorkloadsPerQueue[qKey] = workloads
-	return nil
-}
-
-func (c *ClusterQueue) deleteLocalQueue(q *kueue.LocalQueue) {
-	qKey := queueKey(q)
-	delete(c.admittedWorkloadsPerQueue, qKey)
-}
-
-func (c *ClusterQueue) flavorInUse(flavor string) bool {
-	for _, rg := range c.ResourceGroups {
-		for _, f := range rg.Flavors {
-			if kueue.ResourceFlavorReference(flavor) == f.Name {
-				return true
-			}
-		}
-	}
-	return false
+	return int32(qImpl.admittedWorkloads)
 }
 
 func (c *Cache) updateClusterQueues() sets.Set[string] {
@@ -537,18 +276,23 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 		return fmt.Errorf("listing queues that match the clusterQueue: %w", err)
 	}
 	for _, q := range queues.Items {
-		// Checking ClusterQueue name again because the field index is not available in tests.
-		if string(q.Spec.ClusterQueue) == cq.Name {
-			cqImpl.admittedWorkloadsPerQueue[queueKey(&q)] = 0
+		qKey := queueKey(&q)
+		qImpl := &queue{
+			key:               qKey,
+			admittedWorkloads: 0,
+			usage:             make(FlavorResourceQuantities),
 		}
+		if err = qImpl.resetFlavorsAndResources(cqImpl.Usage); err != nil {
+			return err
+		}
+		cqImpl.localQueues[qKey] = qImpl
 	}
 	var workloads kueue.WorkloadList
 	if err := c.client.List(ctx, &workloads, client.MatchingFields{utilindexer.WorkloadClusterQueueKey: cq.Name}); err != nil {
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
 	for i, w := range workloads.Items {
-		// Checking ClusterQueue name again because the field index is not available in tests.
-		if !workload.IsAdmitted(&w) || string(w.Status.Admission.ClusterQueue) != cq.Name {
+		if !workload.IsAdmitted(&w) {
 			continue
 		}
 		c.addOrUpdateWorkload(&workloads.Items[i])
@@ -566,6 +310,14 @@ func (c *Cache) UpdateClusterQueue(cq *kueue.ClusterQueue) error {
 	}
 	if err := cqImpl.update(cq, c.resourceFlavors); err != nil {
 		return err
+	}
+	for _, qImpl := range cqImpl.localQueues {
+		if qImpl == nil {
+			return errQNotFound
+		}
+		if err := qImpl.resetFlavorsAndResources(cqImpl.Usage); err != nil {
+			return err
+		}
 	}
 
 	if cqImpl.Cohort == nil {
@@ -790,16 +542,60 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) ([]kueue.FlavorUsage, int, erro
 					Name:  rName,
 					Total: workload.ResourceQuantity(rName, used),
 				}
-				borrowed := used - rQuota.Nominal
-				if borrowed > 0 {
-					rUsage.Borrowed = workload.ResourceQuantity(rName, borrowed)
+				// Enforce `borrowed=0` if the clusterQueue doesn't belong to a cohort.
+				if cq.Cohort != nil {
+					borrowed := used - rQuota.Nominal
+					if borrowed > 0 {
+						rUsage.Borrowed = workload.ResourceQuantity(rName, borrowed)
+					}
 				}
 				outFlvUsage.Resources = append(outFlvUsage.Resources, rUsage)
 			}
+			// The resourceUsages should be in a stable order to avoid endless creation of update events.
+			sort.Slice(outFlvUsage.Resources, func(i, j int) bool {
+				return outFlvUsage.Resources[i].Name < outFlvUsage.Resources[j].Name
+			})
 			usage = append(usage, outFlvUsage)
 		}
 	}
 	return usage, len(cq.Workloads), nil
+}
+
+func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) ([]kueue.LocalQueueFlavorUsage, error) {
+	c.RLock()
+	defer c.RUnlock()
+
+	cqImpl, ok := c.clusterQueues[string(qObj.Spec.ClusterQueue)]
+	if !ok {
+		return nil, nil
+	}
+	qImpl, ok := cqImpl.localQueues[queueKey(qObj)]
+	if !ok {
+		return nil, errQNotFound
+	}
+
+	qFlvUsages := make([]kueue.LocalQueueFlavorUsage, 0, len(qImpl.usage))
+	for _, rg := range cqImpl.ResourceGroups {
+		for _, flvQuotas := range rg.Flavors {
+			flvUsage := qImpl.usage[flvQuotas.Name]
+			outFlvUsage := kueue.LocalQueueFlavorUsage{
+				Name:      flvQuotas.Name,
+				Resources: make([]kueue.LocalQueueResourceUsage, 0, len(flvQuotas.Resources)),
+			}
+			for rName := range flvQuotas.Resources {
+				outFlvUsage.Resources = append(outFlvUsage.Resources, kueue.LocalQueueResourceUsage{
+					Name:  rName,
+					Total: workload.ResourceQuantity(rName, flvUsage[rName]),
+				})
+			}
+			// The resourceUsages should be in a stable order to avoid endless creation of update events.
+			sort.Slice(outFlvUsage.Resources, func(i, j int) bool {
+				return outFlvUsage.Resources[i].Name < outFlvUsage.Resources[j].Name
+			})
+			qFlvUsages = append(qFlvUsages, outFlvUsage)
+		}
+	}
+	return qFlvUsages, nil
 }
 
 func (c *Cache) cleanupAssumedState(w *kueue.Workload) {
@@ -877,19 +673,10 @@ func (c *Cache) MatchingClusterQueues(nsLabels map[string]string) sets.Set[strin
 			cqs.Insert(cq.Name)
 		}
 	}
-
 	return cqs
-}
-
-func workloadBelongsToLocalQueue(wl *kueue.Workload, q *kueue.LocalQueue) bool {
-	return wl.Namespace == q.Namespace && wl.Spec.QueueName == q.Name
 }
 
 // Key is the key used to index the queue.
 func queueKey(q *kueue.LocalQueue) string {
 	return fmt.Sprintf("%s/%s", q.Namespace, q.Name)
-}
-
-func reportAdmittedActiveWorkloads(cqName string, val int) {
-	metrics.AdmittedActiveWorkloads.WithLabelValues(cqName).Set(float64(val))
 }

@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kueue.fullname" . }}-controller-manager
+  namespace: '{{ .Release.Namespace }}'
+  labels:
+    control-plane: controller-manager
+spec:
+  replicas: {{ .Values.controllerManager.replicas }}
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+    {{- include "kueue.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        control-plane: controller-manager
+      {{- include "kueue.selectorLabels" . | nindent 8 }}
+      annotations:
+        kubectl.kubernetes.io/default-container: manager
+    spec:
+      containers:
+      - args:
+        - --config=controller_manager_config.yaml
+        - --zap-log-level=2
+        command:
+        - /manager
+        image: "{{ .Values.controllerManager.manager.image.repository }}:{{ .Values.controllerManager.manager.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.controllerManager.manager.image.pullPolicy }}
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        name: manager
+        ports:
+        - containerPort: 9443
+          name: webhook-server
+          protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources: {{- toYaml .Values.controllerManager.manager.resources | nindent 10
+          }}
+        securityContext:
+          {{- toYaml .Values.controllerManager.manager.containerSecurityContext | nindent 10 }}
+        volumeMounts:
+        - mountPath: /tmp/k8s-webhook-server/serving-certs
+          name: cert
+          readOnly: true
+        - mountPath: /controller_manager_config.yaml
+          name: manager-config
+          subPath: controller_manager_config.yaml
+      - args:
+        - --secure-listen-address=0.0.0.0:8443
+        - --upstream=http://127.0.0.1:8080/
+        - --logtostderr=true
+        - --v=10
+        image: "{{ .Values.controllerManager.kubeRbacProxy.image.repository }}:{{ .Values.controllerManager.kubeRbacProxy.image.tag }}"
+        imagePullPolicy: {{ .Values.controllerManager.kubeRbacProxy.image.pullPolicy }}
+        name: kube-rbac-proxy
+        ports:
+        - containerPort: 8443
+          name: https
+          protocol: TCP
+        resources: {}
+      securityContext:
+        {{- toYaml .Values.controllerManager.manager.podSecurityContext | nindent 8 }}
+      serviceAccountName: {{ include "kueue.fullname" . }}-controller-manager
+      {{- with .Values.controllerManager.imagePullSecrets  }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 10
+      volumes:
+      - name: cert
+        secret:
+          defaultMode: 420
+          secretName: {{ include "kueue.fullname" . }}-webhook-server-cert
+      - configMap:
+          name: {{ include "kueue.fullname" . }}-manager-config
+        name: manager-config

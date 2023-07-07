@@ -18,6 +18,8 @@ package job
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -27,18 +29,18 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/util/maps"
 )
 
 var (
@@ -46,6 +48,10 @@ var (
 	gvk               = batchv1.SchemeGroupVersion.WithKind("Job")
 
 	FrameworkName = "batch/job"
+)
+
+const (
+	JobMinParallelismAnnotation = "kueue.x-k8s.io/job-min-parallelism"
 )
 
 func init() {
@@ -57,50 +63,48 @@ func init() {
 	}))
 }
 
-// JobReconciler reconciles a Job object
-type JobReconciler jobframework.JobReconciler
+// +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
+// +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=batch,resources=jobs/status,verbs=get;update
+// +kubebuilder:rbac:groups=batch,resources=jobs/finalizers,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 
-func NewReconciler(
-	scheme *runtime.Scheme,
-	client client.Client,
-	record record.EventRecorder,
-	opts ...jobframework.Option) jobframework.JobReconcilerInterface {
-	return (*JobReconciler)(jobframework.NewReconciler(scheme,
-		client,
-		record,
-		opts...,
-	))
-}
+var NewReconciler = jobframework.NewGenericReconciler(
+	func() jobframework.GenericJob {
+		return &Job{}
+	}, func(c client.Client) handler.EventHandler {
+		return &parentWorkloadHandler{client: c}
+	})
 
 type parentWorkloadHandler struct {
 	client client.Client
 }
 
-func (h *parentWorkloadHandler) Create(e event.CreateEvent, q workqueue.RateLimitingInterface) {
-	h.queueReconcileForChildJob(e.Object, q)
+func (h *parentWorkloadHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.RateLimitingInterface) {
+	h.queueReconcileForChildJob(ctx, e.Object, q)
 }
 
-func (h *parentWorkloadHandler) Update(e event.UpdateEvent, q workqueue.RateLimitingInterface) {
-	h.queueReconcileForChildJob(e.ObjectNew, q)
+func (h *parentWorkloadHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.RateLimitingInterface) {
+	h.queueReconcileForChildJob(ctx, e.ObjectNew, q)
 }
 
-func (h *parentWorkloadHandler) Delete(event.DeleteEvent, workqueue.RateLimitingInterface) {
+func (h *parentWorkloadHandler) Delete(context.Context, event.DeleteEvent, workqueue.RateLimitingInterface) {
 }
 
-func (h *parentWorkloadHandler) Generic(e event.GenericEvent, q workqueue.RateLimitingInterface) {
+func (h *parentWorkloadHandler) Generic(ctx context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
 }
 
 // queueReconcileForChildJob queues reconciliation of the child jobs (jobs with the
 // parent-workload annotation) in reaction to the parent-workload events.
-// TODO: replace the TODO context with the one passed to the event handler's functions
-// when a new version of controller-runtime is used. See in master:
-// https://github.com/kubernetes-sigs/controller-runtime/blob/master/pkg/handler/eventhandler.go
-func (h *parentWorkloadHandler) queueReconcileForChildJob(object client.Object, q workqueue.RateLimitingInterface) {
+func (h *parentWorkloadHandler) queueReconcileForChildJob(ctx context.Context, object client.Object, q workqueue.RateLimitingInterface) {
 	w, ok := object.(*kueue.Workload)
 	if !ok {
 		return
 	}
-	ctx := context.TODO()
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(w))
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(5).Info("Queueing reconcile for child jobs")
@@ -120,12 +124,18 @@ func (h *parentWorkloadHandler) queueReconcileForChildJob(object client.Object, 
 	}
 }
 
-type Job struct {
-	batchv1.Job
-}
+type Job batchv1.Job
+
+var _ jobframework.GenericJob = (*Job)(nil)
+var _ jobframework.JobWithReclaimablePods = (*Job)(nil)
+var _ jobframework.JobWithCustomStop = (*Job)(nil)
 
 func (j *Job) Object() client.Object {
-	return &j.Job
+	return (*batchv1.Job)(j)
+}
+
+func fromObject(o runtime.Object) *Job {
+	return (*Job)(o.(*batchv1.Job))
 }
 
 func (j *Job) IsSuspended() bool {
@@ -140,53 +150,91 @@ func (j *Job) Suspend() {
 	j.Spec.Suspend = pointer.Bool(true)
 }
 
-func (j *Job) ResetStatus() bool {
-	// Reset start time so we can update the scheduling directives later when unsuspending.
-	if j.Status.StartTime == nil {
-		return false
+func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []jobframework.PodSetInfo) error {
+	if !j.IsSuspended() {
+		j.Suspend()
+		if err := c.Update(ctx, j.Object()); err != nil {
+			return fmt.Errorf("suspend: %w", err)
+		}
 	}
-	j.Status.StartTime = nil
-	return true
+
+	// Reset start time, if necessary so we can update the scheduling directives.
+	if j.Status.StartTime != nil {
+		j.Status.StartTime = nil
+		if err := c.Status().Update(ctx, j.Object()); err != nil {
+			return fmt.Errorf("reset status: %w", err)
+		}
+	}
+
+	if len(podSetsInfo) > 0 {
+		j.RestorePodSetsInfo(podSetsInfo)
+		if err := c.Update(ctx, j.Object()); err != nil {
+			return fmt.Errorf("restore info: %w", err)
+		}
+	}
+	return nil
 }
 
 func (j *Job) GetGVK() schema.GroupVersionKind {
 	return gvk
 }
 
+func (j *Job) ReclaimablePods() []kueue.ReclaimablePod {
+	parallelism := pointer.Int32Deref(j.Spec.Parallelism, 1)
+	if parallelism == 1 || j.Status.Succeeded == 0 {
+		return nil
+	}
+
+	remaining := pointer.Int32Deref(j.Spec.Completions, parallelism) - j.Status.Succeeded
+	if remaining >= parallelism {
+		return nil
+	}
+
+	return []kueue.ReclaimablePod{{
+		Name:  kueue.DefaultPodSetName,
+		Count: parallelism - remaining,
+	}}
+}
+
 func (j *Job) PodSets() []kueue.PodSet {
 	return []kueue.PodSet{
 		{
+			Name:     kueue.DefaultPodSetName,
 			Template: *j.Spec.Template.DeepCopy(),
 			Count:    j.podsCount(),
+			MinCount: j.minPodsCount(),
 		},
 	}
 }
 
-func (j *Job) RunWithNodeAffinity(nodeSelectors []jobframework.PodSetNodeSelector) {
+func (j *Job) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) {
 	j.Spec.Suspend = pointer.Bool(false)
-	if len(nodeSelectors) == 0 {
+	if len(podSetsInfo) == 0 {
 		return
 	}
 
-	if j.Spec.Template.Spec.NodeSelector == nil {
-		j.Spec.Template.Spec.NodeSelector = nodeSelectors[0].NodeSelector
-	} else {
-		for k, v := range nodeSelectors[0].NodeSelector {
-			j.Spec.Template.Spec.NodeSelector[k] = v
-		}
+	info := podSetsInfo[0]
+	j.Spec.Template.Spec.NodeSelector = maps.MergeKeepFirst(info.NodeSelector, j.Spec.Template.Spec.NodeSelector)
+
+	if j.minPodsCount() != nil {
+		j.Spec.Parallelism = pointer.Int32(info.Count)
 	}
 }
 
-func (j *Job) RestoreNodeAffinity(nodeSelectors []jobframework.PodSetNodeSelector) {
-	if len(nodeSelectors) == 0 || equality.Semantic.DeepEqual(j.Spec.Template.Spec.NodeSelector, nodeSelectors[0].NodeSelector) {
+func (j *Job) RestorePodSetsInfo(podSetsInfo []jobframework.PodSetInfo) {
+	if len(podSetsInfo) == 0 {
 		return
 	}
 
-	j.Spec.Template.Spec.NodeSelector = map[string]string{}
-
-	for k, v := range nodeSelectors[0].NodeSelector {
-		j.Spec.Template.Spec.NodeSelector[k] = v
+	// if the job accepts partial admission
+	if j.minPodsCount() != nil {
+		j.Spec.Parallelism = pointer.Int32(podSetsInfo[0].Count)
 	}
+
+	if equality.Semantic.DeepEqual(j.Spec.Template.Spec.NodeSelector, podSetsInfo[0].NodeSelector) {
+		return
+	}
+	j.Spec.Template.Spec.NodeSelector = maps.Clone(podSetsInfo[0].NodeSelector)
 }
 
 func (j *Job) Finished() (metav1.Condition, bool) {
@@ -214,29 +262,6 @@ func (j *Job) Finished() (metav1.Condition, bool) {
 	return condition, finished
 }
 
-func (j *Job) EquivalentToWorkload(wl kueue.Workload) bool {
-	if len(wl.Spec.PodSets) != 1 {
-		return false
-	}
-
-	if *j.Spec.Parallelism != wl.Spec.PodSets[0].Count {
-		return false
-	}
-
-	// nodeSelector may change, hence we are not checking for
-	// equality of the whole j.Spec.Template.Spec.
-	if !equality.Semantic.DeepEqual(j.Spec.Template.Spec.InitContainers,
-		wl.Spec.PodSets[0].Template.Spec.InitContainers) {
-		return false
-	}
-	return equality.Semantic.DeepEqual(j.Spec.Template.Spec.Containers,
-		wl.Spec.PodSets[0].Template.Spec.Containers)
-}
-
-func (j *Job) PriorityClass() string {
-	return j.Spec.Template.Spec.PriorityClassName
-}
-
 func (j *Job) PodsReady() bool {
 	ready := pointer.Int32Deref(j.Status.Ready, 0)
 	return j.Status.Succeeded+ready >= j.podsCount()
@@ -251,21 +276,19 @@ func (j *Job) podsCount() int32 {
 	return podsCount
 }
 
-// SetupWithManager sets up the controller with the Manager. It indexes workloads
-// based on the owning jobs.
-func (r *JobReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	wlHandler := parentWorkloadHandler{client: mgr.GetClient()}
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&batchv1.Job{}).
-		Watches(&source.Kind{Type: &kueue.Workload{}}, &wlHandler).
-		Owns(&kueue.Workload{}).
-		Complete(r)
+func (j *Job) minPodsCount() *int32 {
+	if strVal, found := j.GetAnnotations()[JobMinParallelismAnnotation]; found {
+		if iVal, err := strconv.Atoi(strVal); err == nil {
+			return pointer.Int32(int32(iVal))
+		}
+	}
+	return nil
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &batchv1.Job{}, parentWorkloadKey, func(o client.Object) []string {
-		job := o.(*batchv1.Job)
-		if pwName := jobframework.ParentWorkloadName(&Job{*job}); pwName != "" {
+		job := fromObject(o)
+		if pwName := jobframework.ParentWorkloadName(job); pwName != "" {
 			return []string{pwName}
 		}
 		return nil
@@ -273,21 +296,6 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 		return err
 	}
 	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
-}
-
-//+kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
-//+kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
-//+kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;update;patch
-//+kubebuilder:rbac:groups=batch,resources=jobs/status,verbs=get
-//+kubebuilder:rbac:groups=batch,resources=jobs/finalizers,verbs=get;update;patch
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
-
-func (r *JobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	fjr := (*jobframework.JobReconciler)(r)
-	return fjr.ReconcileGenericJob(ctx, req, &Job{})
 }
 
 func GetWorkloadNameForJob(jobName string) string {

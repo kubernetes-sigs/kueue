@@ -27,13 +27,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/pointer"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/util/maps"
 )
 
 var (
@@ -44,35 +43,41 @@ var (
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:  SetupIndexes,
-		NewReconciler: NewReconciler,
-		SetupWebhook:  SetupMPIJobWebhook,
-		JobType:       &kubeflow.MPIJob{},
-		AddToScheme:   kubeflow.AddToScheme,
+		SetupIndexes:           SetupIndexes,
+		NewReconciler:          NewReconciler,
+		SetupWebhook:           SetupMPIJobWebhook,
+		JobType:                &kubeflow.MPIJob{},
+		AddToScheme:            kubeflow.AddToScheme,
+		IsManagingObjectsOwner: isMPIJob,
 	}))
 }
 
-// MPIJobReconciler reconciles a Job object
-type MPIJobReconciler jobframework.JobReconciler
+// +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
+// +kubebuilder:rbac:groups=kubeflow.org,resources=mpijobs,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=kubeflow.org,resources=mpijobs/status,verbs=get;update
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 
-func NewReconciler(
-	scheme *runtime.Scheme,
-	client client.Client,
-	record record.EventRecorder,
-	opts ...jobframework.Option) jobframework.JobReconcilerInterface {
-	return (*MPIJobReconciler)(jobframework.NewReconciler(scheme,
-		client,
-		record,
-		opts...,
-	))
+var NewReconciler = jobframework.NewGenericReconciler(func() jobframework.GenericJob { return &MPIJob{} }, nil)
+
+func isMPIJob(owner *metav1.OwnerReference) bool {
+	return owner.Kind == "MPIJob" && strings.HasPrefix(owner.APIVersion, "kubeflow.org/v2")
 }
 
-type MPIJob struct {
-	kubeflow.MPIJob
-}
+type MPIJob kubeflow.MPIJob
+
+var _ jobframework.GenericJob = (*MPIJob)(nil)
+var _ jobframework.JobWithPriorityClass = (*MPIJob)(nil)
 
 func (j *MPIJob) Object() client.Object {
-	return &j.MPIJob
+	return (*kubeflow.MPIJob)(j)
+}
+
+func fromObject(o runtime.Object) *MPIJob {
+	return (*MPIJob)(o.(*kubeflow.MPIJob))
 }
 
 func (j *MPIJob) IsSuspended() bool {
@@ -92,14 +97,6 @@ func (j *MPIJob) Suspend() {
 	j.Spec.RunPolicy.Suspend = pointer.Bool(true)
 }
 
-func (j *MPIJob) ResetStatus() bool {
-	if j.Status.StartTime == nil {
-		return false
-	}
-	j.Status.StartTime = nil
-	return true
-}
-
 func (j *MPIJob) GetGVK() schema.GroupVersionKind {
 	return gvk
 }
@@ -117,38 +114,29 @@ func (j *MPIJob) PodSets() []kueue.PodSet {
 	return podSets
 }
 
-func (j *MPIJob) RunWithNodeAffinity(nodeSelectors []jobframework.PodSetNodeSelector) {
+func (j *MPIJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
 	j.Spec.RunPolicy.Suspend = pointer.Bool(false)
-	if len(nodeSelectors) == 0 {
+	if len(podSetInfos) == 0 {
 		return
 	}
 	// The node selectors are provided in the same order as the generated list of
 	// podSets, use the same ordering logic to restore them.
 	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
-	for index := range nodeSelectors {
+	for index := range podSetInfos {
 		replicaType := orderedReplicaTypes[index]
-		nodeSelector := nodeSelectors[index]
-		if len(nodeSelector.NodeSelector) != 0 {
-			if j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector == nil {
-				j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector = nodeSelector.NodeSelector
-			} else {
-				for k, v := range nodeSelector.NodeSelector {
-					j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector[k] = v
-				}
-			}
-		}
+		info := podSetInfos[index]
+		replicaSpec := &j.Spec.MPIReplicaSpecs[replicaType].Template.Spec
+		replicaSpec.NodeSelector = maps.MergeKeepFirst(info.NodeSelector, replicaSpec.NodeSelector)
 	}
 }
 
-func (j *MPIJob) RestoreNodeAffinity(nodeSelectors []jobframework.PodSetNodeSelector) {
+func (j *MPIJob) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
 	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
-	for index, nodeSelector := range nodeSelectors {
+	for index, info := range podSetInfos {
 		replicaType := orderedReplicaTypes[index]
-		if !equality.Semantic.DeepEqual(j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector, nodeSelector) {
-			j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector = map[string]string{}
-			for k, v := range nodeSelector.NodeSelector {
-				j.Spec.MPIReplicaSpecs[replicaType].Template.Spec.NodeSelector[k] = v
-			}
+		replicaSpec := &j.Spec.MPIReplicaSpecs[replicaType].Template.Spec
+		if !equality.Semantic.DeepEqual(replicaSpec.NodeSelector, info.NodeSelector) {
+			replicaSpec.NodeSelector = maps.Clone(info.NodeSelector)
 		}
 	}
 }
@@ -175,29 +163,6 @@ func (j *MPIJob) Finished() (metav1.Condition, bool) {
 		Message: message,
 	}
 	return condition, finished
-}
-
-func (j *MPIJob) EquivalentToWorkload(wl kueue.Workload) bool {
-	if len(wl.Spec.PodSets) != len(j.Spec.MPIReplicaSpecs) {
-		return false
-	}
-	for index, mpiReplicaType := range orderedReplicaTypes(&j.Spec) {
-		mpiReplicaSpec := j.Spec.MPIReplicaSpecs[mpiReplicaType]
-		if pointer.Int32Deref(mpiReplicaSpec.Replicas, 1) != wl.Spec.PodSets[index].Count {
-			return false
-		}
-		// nodeSelector may change, hence we are not checking for
-		// equality of the whole j.Spec.Template.Spec.
-		if !equality.Semantic.DeepEqual(mpiReplicaSpec.Template.Spec.InitContainers,
-			wl.Spec.PodSets[index].Template.Spec.InitContainers) {
-			return false
-		}
-		if !equality.Semantic.DeepEqual(mpiReplicaSpec.Template.Spec.Containers,
-			wl.Spec.PodSets[index].Template.Spec.Containers) {
-			return false
-		}
-	}
-	return true
 }
 
 // PriorityClass calculates the priorityClass name needed for workload according to the following priorities:
@@ -227,31 +192,8 @@ func (j *MPIJob) PodsReady() bool {
 	return false
 }
 
-// SetupWithManager sets up the controller with the Manager. It indexes workloads
-// based on the owning jobs.
-func (r *MPIJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
-		For(&kubeflow.MPIJob{}).
-		Owns(&kueue.Workload{}).
-		Complete(r)
-}
-
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
-}
-
-//+kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
-//+kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
-//+kubebuilder:rbac:groups=kubeflow.org,resources=mpijobs,verbs=get;list;watch;update;patch
-//+kubebuilder:rbac:groups=kubeflow.org,resources=mpijobs/status,verbs=get
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
-
-func (r *MPIJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	fjr := (*jobframework.JobReconciler)(r)
-	return fjr.ReconcileGenericJob(ctx, req, &MPIJob{})
 }
 
 func orderedReplicaTypes(jobSpec *kubeflow.MPIJobSpec) []kubeflow.MPIReplicaType {

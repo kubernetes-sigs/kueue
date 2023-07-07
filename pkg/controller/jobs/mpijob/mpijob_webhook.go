@@ -25,6 +25,7 @@ import (
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
@@ -55,11 +56,11 @@ var _ webhook.CustomDefaulter = &MPIJobWebhook{}
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
 func (w *MPIJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
-	job := obj.(*kubeflow.MPIJob)
+	job := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Applying defaults", "job", klog.KObj(job))
 
-	jobframework.ApplyDefaultForSuspend(&MPIJob{*job}, w.manageJobsWithoutQueueName)
+	jobframework.ApplyDefaultForSuspend(job, w.manageJobsWithoutQueueName)
 	return nil
 }
 
@@ -68,11 +69,11 @@ func (w *MPIJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 var _ webhook.CustomValidator = &MPIJobWebhook{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *MPIJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) error {
-	job := obj.(*kubeflow.MPIJob)
+func (w *MPIJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+	job := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.Info("Validating create", "job", klog.KObj(job))
-	return validateCreate(&MPIJob{*job}).ToAggregate()
+	return nil, validateCreate(job).ToAggregate()
 }
 
 func validateCreate(job jobframework.GenericJob) field.ErrorList {
@@ -80,19 +81,16 @@ func validateCreate(job jobframework.GenericJob) field.ErrorList {
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *MPIJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) error {
-	oldJob := oldObj.(*kubeflow.MPIJob)
-	oldGenJob := &MPIJob{*oldJob}
-	newJob := newObj.(*kubeflow.MPIJob)
-	newGenJob := &MPIJob{*newJob}
+func (w *MPIJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
+	oldJob := fromObject(oldObj)
+	newJob := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.Info("Validating update", "job", klog.KObj(newJob))
-	allErrs := jobframework.ValidateUpdateForQueueName(oldGenJob, newGenJob)
-	allErrs = append(allErrs, jobframework.ValidateUpdateForOriginalNodeSelectors(oldGenJob, newGenJob)...)
-	return allErrs.ToAggregate()
+	allErrs := jobframework.ValidateUpdateForQueueName(oldJob, newJob)
+	return nil, allErrs.ToAggregate()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *MPIJobWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) error {
-	return nil
+func (w *MPIJobWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+	return nil, nil
 }

@@ -17,11 +17,11 @@ limitations under the License.
 package main
 
 import (
-	"bytes"
 	"context"
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -30,23 +30,26 @@ import (
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	schedulingv1 "k8s.io/api/scheduling/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/serializer"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/apis/kueue/webhooks"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/config"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/noop"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
@@ -54,6 +57,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/cert"
 	"sigs.k8s.io/kueue/pkg/util/useragent"
 	"sigs.k8s.io/kueue/pkg/version"
+	"sigs.k8s.io/kueue/pkg/webhooks"
 
 	// Ensure linking of the job controllers.
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
@@ -70,7 +74,8 @@ func init() {
 	utilruntime.Must(schedulingv1.AddToScheme(scheme))
 
 	utilruntime.Must(kueue.AddToScheme(scheme))
-	utilruntime.Must(config.AddToScheme(scheme))
+	utilruntime.Must(configapi.AddToScheme(scheme))
+	utilruntime.Must(apiextensionsv1.AddToScheme(scheme))
 	// Add any additional framework integration types.
 	utilruntime.Must(
 		jobframework.ForEachIntegration(func(_ string, cb jobframework.IntegrationCallbacks) error {
@@ -89,6 +94,9 @@ func main() {
 		"The controller will load its initial configuration from this file. "+
 			"Omit this flag to use the default configuration values. ")
 
+	var featureGates string
+	flag.StringVar(&featureGates, "feature-gates", "", "A set of key=value pairs that describe feature gates for alpha/experimental features.")
+
 	opts := zap.Options{
 		TimeEncoder: zapcore.RFC3339NanoTimeEncoder,
 		ZapOpts:     []zaplog.Option{zaplog.AddCaller()},
@@ -96,11 +104,17 @@ func main() {
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
+	if err := utilfeature.DefaultMutableFeatureGate.Set(featureGates); err != nil {
+		setupLog.Error(err, "Unable to set flag gates for known features")
+		os.Exit(1)
+	}
+
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	setupLog.Info("Initializing", "gitVersion", version.GitVersion, "gitCommit", version.GitCommit)
 
 	options, cfg, err := apply(configFile)
 	if err != nil {
+		setupLog.Error(err, "Unable to load the configuration")
 		os.Exit(1)
 	}
 
@@ -130,7 +144,7 @@ func main() {
 		close(certsReady)
 	}
 
-	cCache := cache.New(mgr.GetClient(), cache.WithPodsReadyTracking(waitForPodsReady(&cfg)))
+	cCache := cache.New(mgr.GetClient(), cache.WithPodsReadyTracking(blockForPodsReady(&cfg)))
 	queues := queue.NewManager(mgr.GetClient(), cCache)
 
 	ctx := ctrl.SetupSignalHandler()
@@ -140,7 +154,7 @@ func main() {
 	// Cert won't be ready until manager starts, so start a goroutine here which
 	// will block until the cert is ready before setting up the controllers.
 	// Controllers who register after manager starts will start directly.
-	go setupControllers(mgr, cCache, queues, certsReady, &cfg)
+	go setupControllers(ctx, mgr, cCache, queues, certsReady, &cfg)
 
 	go func() {
 		queues.CleanUpOnContext(ctx)
@@ -158,7 +172,7 @@ func main() {
 	}
 }
 
-func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *config.Configuration) {
+func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configuration) {
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	if err != nil {
 		setupLog.Error(err, "Unable to setup core api indexes")
@@ -177,7 +191,7 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *config.Configurati
 	}
 }
 
-func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, cfg *config.Configuration) {
+func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, cfg *configapi.Configuration) {
 	// The controllers won't work until the webhooks are operating, and the webhook won't work until the
 	// certs are all in place.
 	setupLog.Info("Waiting for certificate generation to complete")
@@ -195,14 +209,16 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 		os.Exit(1)
 	}
 
+	crds := findCustomResources(ctx, mgr)
+
 	opts := []jobframework.Option{
 		jobframework.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName),
 		jobframework.WithWaitForPodsReady(waitForPodsReady(cfg)),
 	}
 	err := jobframework.ForEachIntegration(func(name string, cb jobframework.IntegrationCallbacks) error {
 		log := setupLog.WithValues("jobFrameworkName", name)
-		if isFrameworkEnabled(cfg, name) {
-			if err := cb.NewReconciler(mgr.GetScheme(),
+		if isFrameworkEnabled(cfg, name) && crds.Has(name) {
+			if err := cb.NewReconciler(
 				mgr.GetClient(),
 				mgr.GetEventRecorderFor(fmt.Sprintf("%s-%s-controller", name, constants.KueueName)),
 				opts...,
@@ -242,13 +258,12 @@ func setupProbeEndpoints(mgr ctrl.Manager) {
 	}
 }
 
-func setupScheduler(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, cfg *config.Configuration) {
+func setupScheduler(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, cfg *configapi.Configuration) {
 	sched := scheduler.New(
 		queues,
 		cCache,
 		mgr.GetClient(),
 		mgr.GetEventRecorderFor(constants.AdmissionName),
-		scheduler.WithWaitForPodsReady(waitForPodsReady(cfg)),
 	)
 	if err := mgr.Add(sched); err != nil {
 		setupLog.Error(err, "Unable to add scheduler to manager")
@@ -256,41 +271,17 @@ func setupScheduler(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager
 	}
 }
 
-func waitForPodsReady(cfg *config.Configuration) bool {
+func blockForPodsReady(cfg *configapi.Configuration) bool {
+	return waitForPodsReady(cfg) && cfg.WaitForPodsReady.BlockAdmission != nil && *cfg.WaitForPodsReady.BlockAdmission
+}
+
+func waitForPodsReady(cfg *configapi.Configuration) bool {
 	return cfg.WaitForPodsReady != nil && cfg.WaitForPodsReady.Enable
 }
 
-func encodeConfig(cfg *config.Configuration) (string, error) {
-	codecs := serializer.NewCodecFactory(scheme)
-	const mediaType = runtime.ContentTypeYAML
-	info, ok := runtime.SerializerInfoForMediaType(codecs.SupportedMediaTypes(), mediaType)
-	if !ok {
-		return "", fmt.Errorf("unable to locate encoder -- %q is not a supported media type", mediaType)
-	}
-
-	encoder := codecs.EncoderForVersion(info.Serializer, config.GroupVersion)
-	buf := new(bytes.Buffer)
-	if err := encoder.Encode(cfg, buf); err != nil {
-		return "", err
-	}
-	return buf.String(), nil
-}
-
-func apply(configFile string) (ctrl.Options, config.Configuration, error) {
-	var err error
-	options := ctrl.Options{
-		Scheme: scheme,
-	}
-	cfg := config.Configuration{}
-
-	if configFile == "" {
-		scheme.Default(&cfg)
-		options, err = options.AndFrom(&cfg)
-	} else {
-		options, err = options.AndFrom(ctrl.ConfigFile().AtPath(configFile).OfKind(&cfg))
-	}
+func apply(configFile string) (ctrl.Options, configapi.Configuration, error) {
+	options, cfg, err := config.Load(scheme, configFile)
 	if err != nil {
-		setupLog.Error(err, "unable to load the config")
 		return options, cfg, err
 	}
 
@@ -305,14 +296,12 @@ func apply(configFile string) (ctrl.Options, config.Configuration, error) {
 		}
 		if len(errorlist) > 0 {
 			err := errorlist.ToAggregate()
-			setupLog.Error(err, "unknown framework", "available", jobframework.GetIntegrationsList())
 			return options, cfg, err
 		}
 	}
 
-	cfgStr, err := encodeConfig(&cfg)
+	cfgStr, err := config.Encode(scheme, &cfg)
 	if err != nil {
-		setupLog.Error(err, "unable to encode the config")
 		return options, cfg, err
 	}
 	setupLog.Info("Successfully loaded configuration", "config", cfgStr)
@@ -320,11 +309,26 @@ func apply(configFile string) (ctrl.Options, config.Configuration, error) {
 	return options, cfg, nil
 }
 
-func isFrameworkEnabled(cfg *config.Configuration, name string) bool {
+func isFrameworkEnabled(cfg *configapi.Configuration, name string) bool {
 	for _, framework := range cfg.Integrations.Frameworks {
 		if framework == name {
 			return true
 		}
 	}
 	return false
+}
+
+// +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=list;watch
+
+func findCustomResources(ctx context.Context, mgr ctrl.Manager) sets.Set[string] {
+	var crds = apiextensionsv1.CustomResourceDefinitionList{}
+	if err := mgr.GetClient().List(ctx, &crds); err != nil {
+		setupLog.Error(err, "Unable to get crd list")
+		os.Exit(1)
+	}
+	customResources := sets.New[string](job.FrameworkName)
+	for _, crd := range crds.Items {
+		customResources.Insert(strings.Join([]string{crd.Spec.Group, crd.Spec.Names.Singular}, "/"))
+	}
+	return customResources
 }

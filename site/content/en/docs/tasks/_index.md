@@ -30,4 +30,7 @@ A _batch user_ runs [workloads](/docs/concepts/workload). A typical
 batch user is a researcher, AI/ML engineer, data scientist, among others.
 
 - As a batch user, you can learn how to [run a Kueue managed batch/Job](/docs/tasks/run_jobs).
+- As a batch user, you can learn how to [run a Kueue managed Flux MiniCluster](/docs/tasks/run_flux_minicluster).
+- As a batch user, you can learn how to [run a Kueue managed Kubeflow MPIJob](/docs/tasks/run_mpi_jobs).
 - As a batch user, you can learn how to [run a Kueue managed KubeRay RayJob](/docs/tasks/run_rayjobs).
+- As a batch developer user, you can learn how to [submit Kueue jobs from Python](/docs/tasks/run_python_jobs).

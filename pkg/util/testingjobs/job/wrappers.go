@@ -21,8 +21,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 
-	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 )
 
@@ -47,7 +49,6 @@ func MakeJob(name, ns string) *JobWrapper {
 						{
 							Name:      "c",
 							Image:     "pause",
-							Command:   []string{},
 							Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
 						},
 					},
@@ -75,6 +76,12 @@ func (j *JobWrapper) Parallelism(p int32) *JobWrapper {
 	return j
 }
 
+// Completions updates job completions.
+func (j *JobWrapper) Completions(p int32) *JobWrapper {
+	j.Spec.Completions = pointer.Int32(p)
+	return j
+}
+
 // PriorityClass updates job priorityclass.
 func (j *JobWrapper) PriorityClass(pc string) *JobWrapper {
 	j.Spec.Template.Spec.PriorityClassName = pc
@@ -86,24 +93,24 @@ func (j *JobWrapper) Queue(queue string) *JobWrapper {
 	if j.Labels == nil {
 		j.Labels = make(map[string]string)
 	}
-	j.Labels[jobframework.QueueLabel] = queue
+	j.Labels[constants.QueueLabel] = queue
 	return j
 }
 
 // QueueNameAnnotation updates the queue name of the job by annotation (deprecated)
 func (j *JobWrapper) QueueNameAnnotation(queue string) *JobWrapper {
-	j.Annotations[jobframework.QueueAnnotation] = queue
+	j.Annotations[constants.QueueAnnotation] = queue
 	return j
 }
 
 // ParentWorkload sets the parent-workload annotation
 func (j *JobWrapper) ParentWorkload(parentWorkload string) *JobWrapper {
-	j.Annotations[jobframework.ParentWorkloadAnnotation] = parentWorkload
+	j.Annotations[constants.ParentWorkloadAnnotation] = parentWorkload
 	return j
 }
 
-func (j *JobWrapper) OriginalNodeSelectorsAnnotation(content string) *JobWrapper {
-	j.Annotations[jobframework.OriginalNodeSelectorsAnnotation] = content
+func (j *JobWrapper) SetAnnotation(key, content string) *JobWrapper {
+	j.Annotations[key] = content
 	return j
 }
 
@@ -125,12 +132,28 @@ func (j *JobWrapper) Request(r corev1.ResourceName, v string) *JobWrapper {
 	return j
 }
 
-func (j *JobWrapper) Image(name string, image string, args []string) *JobWrapper {
-	j.Spec.Template.Spec.Containers[0] = corev1.Container{
-		Name:      name,
-		Image:     image,
-		Args:      args,
-		Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{}},
+func (j *JobWrapper) Image(image string, args []string) *JobWrapper {
+	j.Spec.Template.Spec.Containers[0].Image = image
+	j.Spec.Template.Spec.Containers[0].Args = args
+	return j
+}
+
+// OwnerReference adds a ownerReference to the default container.
+func (j *JobWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *JobWrapper {
+	j.ObjectMeta.OwnerReferences = []metav1.OwnerReference{
+		{
+			APIVersion: ownerGVK.GroupVersion().String(),
+			Kind:       ownerGVK.Kind,
+			Name:       ownerName,
+			UID:        types.UID(ownerName),
+			Controller: pointer.Bool(true),
+		},
 	}
+	return j
+}
+
+// UID updates the uid of the job.
+func (j *JobWrapper) UID(uid string) *JobWrapper {
+	j.ObjectMeta.UID = types.UID(uid)
 	return j
 }

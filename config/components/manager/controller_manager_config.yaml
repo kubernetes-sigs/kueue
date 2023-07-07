@@ -22,7 +22,6 @@ clientConnection:
 #waitForPodsReady:
 #  enable: true
 #manageJobsWithoutQueueName: true
-#namespace: ""
 #internalCertManagement:
 #  enable: false
 #  webhookServiceName: ""
@@ -30,4 +29,6 @@ clientConnection:
 integrations:
   frameworks:
   - "batch/job"
-# - "kubeflow.org/mpijob"
+  - "kubeflow.org/mpijob"
+  - "ray.io/rayjob"
+  - "jobset.x-k8s.io/jobset"

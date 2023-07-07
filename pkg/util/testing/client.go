@@ -17,8 +17,10 @@ limitations under the License.
 package testing
 
 import (
-	corev1 "k8s.io/api/core/v1"
+	"context"
+
 	"k8s.io/apimachinery/pkg/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -27,20 +29,38 @@ import (
 )
 
 func NewFakeClient(objs ...client.Object) client.Client {
-	return NewClientBuilder().WithObjects(objs...).Build()
+	return NewClientBuilder().WithObjects(objs...).WithStatusSubresource(objs...).Build()
 }
 
-func NewClientBuilder() *fake.ClientBuilder {
+func NewClientBuilder(addToSchemes ...func(s *runtime.Scheme) error) *fake.ClientBuilder {
 	scheme := runtime.NewScheme()
-	if err := corev1.AddToScheme(scheme); err != nil {
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
 		panic(err)
 	}
 	if err := kueue.AddToScheme(scheme); err != nil {
 		panic(err)
+	}
+	for i := range addToSchemes {
+		if err := addToSchemes[i](scheme); err != nil {
+			panic(err)
+		}
 	}
 
 	return fake.NewClientBuilder().WithScheme(scheme).
 		WithIndex(&kueue.LocalQueue{}, indexer.QueueClusterQueueKey, indexer.IndexQueueClusterQueue).
 		WithIndex(&kueue.Workload{}, indexer.WorkloadQueueKey, indexer.IndexWorkloadQueue).
 		WithIndex(&kueue.Workload{}, indexer.WorkloadClusterQueueKey, indexer.IndexWorkloadClusterQueue)
+}
+
+type builderIndexer struct {
+	*fake.ClientBuilder
+}
+
+func (b *builderIndexer) IndexField(ctx context.Context, obj client.Object, field string, extractValue client.IndexerFunc) error {
+	b.ClientBuilder = b.ClientBuilder.WithIndex(obj, field, extractValue)
+	return nil
+}
+
+func AsIndexer(builder *fake.ClientBuilder) client.FieldIndexer {
+	return &builderIndexer{ClientBuilder: builder}
 }

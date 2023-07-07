@@ -24,7 +24,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr/testr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -33,12 +32,13 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
-	ctrl "sigs.k8s.io/controller-runtime"
+	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/util/routine"
@@ -187,6 +187,13 @@ func TestSchedule(t *testing.T) {
 		wantInadmissibleLeft map[string]sets.Set[string]
 		// wantPreempted is the keys of the workloads that get preempted in the scheduling cycle.
 		wantPreempted sets.Set[string]
+
+		// additional*Queues can hold any extra queues needed by the tc
+		additionalClusterQueues []kueue.ClusterQueue
+		additionalLocalQueues   []kueue.LocalQueue
+
+		// enable partial admission
+		enablePartialAdmission bool
 	}{
 		"workload fits in single clusterQueue": {
 			workloads: []kueue.Workload{
@@ -209,6 +216,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("10000m"),
 							},
+							Count: pointer.Int32(10),
 						},
 					},
 				},
@@ -241,7 +249,7 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("one", 40).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					Admit(utiltesting.MakeAdmission("sales", "one").Assignment(corev1.ResourceCPU, "default", "40000m").Obj()).
+					Admit(utiltesting.MakeAdmission("sales", "one").Assignment(corev1.ResourceCPU, "default", "40000m").AssignmentPodCount(40).Obj()).
 					Obj(),
 			},
 			wantAssignments: map[string]kueue.Admission{
@@ -256,6 +264,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
+							Count: pointer.Int32(40),
 						},
 					},
 				},
@@ -304,6 +313,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("1000m"),
 							},
+							Count: pointer.Int32(1),
 						},
 					},
 				},
@@ -318,6 +328,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("51000m"),
 							},
+							Count: pointer.Int32(51),
 						},
 					},
 				},
@@ -351,6 +362,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
+							Count: pointer.Int32(40),
 						},
 					},
 				},
@@ -365,6 +377,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
+							Count: pointer.Int32(40),
 						},
 					},
 				},
@@ -400,6 +413,7 @@ func TestSchedule(t *testing.T) {
 								corev1.ResourceCPU: resource.MustParse("60000m"),
 								"example.com/gpu":  resource.MustParse("10"),
 							},
+							Count: pointer.Int32(10),
 						},
 						{
 							Name: "two",
@@ -409,6 +423,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
+							Count: pointer.Int32(40),
 						},
 					},
 				},
@@ -442,6 +457,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
+							Count: pointer.Int32(40),
 						},
 					},
 				},
@@ -540,7 +556,7 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("one", 45).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					Admit(utiltesting.MakeAdmission("eng-beta", "one").Assignment(corev1.ResourceCPU, "on-demand", "45000m").Obj()).
+					Admit(utiltesting.MakeAdmission("eng-beta", "one").Assignment(corev1.ResourceCPU, "on-demand", "45000m").AssignmentPodCount(45).Obj()).
 					Obj(),
 			},
 			wantAssignments: map[string]kueue.Admission{
@@ -555,6 +571,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("60000m"),
 							},
+							Count: pointer.Int32(60),
 						},
 					},
 				},
@@ -569,6 +586,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("45000m"),
 							},
+							Count: pointer.Int32(45),
 						},
 					},
 				},
@@ -594,16 +612,257 @@ func TestSchedule(t *testing.T) {
 				"flavor-nonexistent-cq": sets.New("sales/foo"),
 			},
 		},
+		"only one workload is admitted in a cohort while borrowing": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "eng-beta").
+					Queue("main").
+					Creation(time.Now().Add(-time.Second)).
+					PodSets(*utiltesting.MakePodSet("one", 50).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("new-gamma", "eng-beta").
+					Queue("gamma").
+					Creation(time.Now()).
+					PodSets(*utiltesting.MakePodSet("one", 50).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("existing", "eng-alpha").
+					PodSets(
+						*utiltesting.MakePodSet("borrow-on-demand", 51).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltesting.MakePodSet("use-all-spot", 100).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Admit(utiltesting.MakeAdmission("eng-alpha").
+						PodSets(
+							kueue.PodSetAssignment{
+								Name: "borrow-on-demand",
+								Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+									corev1.ResourceCPU: "on-demand",
+								},
+								ResourceUsage: corev1.ResourceList{
+									corev1.ResourceCPU: resource.MustParse("51"),
+								},
+								Count: pointer.Int32(51),
+							},
+							kueue.PodSetAssignment{
+								Name: "use-all-spot",
+								Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+									corev1.ResourceCPU: "spot",
+								},
+								ResourceUsage: corev1.ResourceList{
+									corev1.ResourceCPU: resource.MustParse("100"),
+								},
+								Count: pointer.Int32(100),
+							},
+						).
+						Obj()).
+					Obj(),
+			},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("eng-gamma").
+					Cohort("eng").
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "50", "10").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "eng-beta",
+						Name:      "gamma",
+					},
+					Spec: kueue.LocalQueueSpec{
+						ClusterQueue: "eng-gamma",
+					},
+				},
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"eng-alpha/existing": *utiltesting.MakeAdmission("eng-alpha").
+					PodSets(
+						kueue.PodSetAssignment{
+							Name: "borrow-on-demand",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "on-demand",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("51"),
+							},
+							Count: pointer.Int32(51),
+						},
+						kueue.PodSetAssignment{
+							Name: "use-all-spot",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "spot",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("100"),
+							},
+							Count: pointer.Int32(100),
+						},
+					).Obj(),
+				"eng-beta/new": *utiltesting.MakeAdmission("eng-beta", "one").Assignment(corev1.ResourceCPU, "on-demand", "50").AssignmentPodCount(50).Obj(),
+			},
+			wantScheduled: []string{"eng-beta/new"},
+			wantLeft: map[string]sets.Set[string]{
+				"eng-gamma": sets.New("eng-beta/new-gamma"),
+			},
+		},
+		"partial admission single variable pod set": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "sales").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 50).
+						SetMinimumCount(20).
+						Request(corev1.ResourceCPU, "2").
+						Obj()).
+					Obj(),
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"sales/new": {
+					ClusterQueue: "sales",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						{
+							Name: "one",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "default",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("50000m"),
+							},
+							Count: pointer.Int32(25),
+						},
+					},
+				},
+			},
+			wantScheduled:          []string{"sales/new"},
+			enablePartialAdmission: true,
+		},
+		"partial admission single variable pod set, preempt first": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "eng-beta").
+					Queue("main").
+					Priority(4).
+					PodSets(*utiltesting.MakePodSet("one", 20).
+						SetMinimumCount(10).
+						Request("example.com/gpu", "1").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("old", "eng-beta").
+					Priority(-4).
+					PodSets(*utiltesting.MakePodSet("one", 10).
+						Request("example.com/gpu", "1").
+						Obj()).
+					Admit(utiltesting.MakeAdmission("eng-beta", "one").Assignment("example.com/gpu", "model-a", "10").AssignmentPodCount(10).Obj()).
+					Obj(),
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"eng-beta/old": {
+					ClusterQueue: "eng-beta",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						{
+							Name: "one",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								"example.com/gpu": "model-a",
+							},
+							ResourceUsage: corev1.ResourceList{
+								"example.com/gpu": resource.MustParse("10"),
+							},
+							Count: pointer.Int32(10),
+						},
+					},
+				},
+			},
+			wantPreempted: sets.New("eng-beta/old"),
+			wantLeft: map[string]sets.Set[string]{
+				"eng-beta": sets.New("eng-beta/new"),
+			},
+			enablePartialAdmission: true,
+		},
+		"partial admission multiple variable pod sets": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "sales").
+					Queue("main").
+					PodSets(
+						*utiltesting.MakePodSet("one", 20).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltesting.MakePodSet("two", 30).
+							SetMinimumCount(10).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltesting.MakePodSet("three", 15).
+							SetMinimumCount(5).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Obj(),
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"sales/new": {
+					ClusterQueue: "sales",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						{
+							Name: "one",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "default",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("20000m"),
+							},
+							Count: pointer.Int32(20),
+						},
+						{
+							Name: "two",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "default",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("20000m"),
+							},
+							Count: pointer.Int32(20),
+						},
+						{
+							Name: "three",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "default",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("10000m"),
+							},
+							Count: pointer.Int32(10),
+						},
+					},
+				},
+			},
+			wantScheduled:          []string{"sales/new"},
+			enablePartialAdmission: true,
+		},
 	}
+
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			log := testr.NewWithOptions(t, testr.Options{
-				Verbosity: 2,
-			})
-			ctx := ctrl.LoggerInto(context.Background(), log)
+			if tc.enablePartialAdmission {
+				defer features.SetFeatureGateDuringTest(t, features.PartialAdmission, true)()
+			}
+			ctx, _ := utiltesting.ContextWithLog(t)
 			scheme := runtime.NewScheme()
+
+			allQueues := append(queues, tc.additionalLocalQueues...)
+			allClusterQueues := append(clusterQueues, tc.additionalClusterQueues...)
+
 			clientBuilder := utiltesting.NewClientBuilder().
-				WithLists(&kueue.WorkloadList{Items: tc.workloads}, &kueue.LocalQueueList{Items: queues}).
+				WithLists(&kueue.WorkloadList{Items: tc.workloads}, &kueue.LocalQueueList{Items: allQueues}).
 				WithObjects(
 					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-alpha", Labels: map[string]string{"dep": "eng"}}},
 					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-beta", Labels: map[string]string{"dep": "eng"}}},
@@ -616,7 +875,7 @@ func TestSchedule(t *testing.T) {
 			cqCache := cache.New(cl)
 			qManager := queue.NewManager(cl, cqCache)
 			// Workloads are loaded into queues or clusterQueues as we add them.
-			for _, q := range queues {
+			for _, q := range allQueues {
 				if err := qManager.AddLocalQueue(ctx, &q); err != nil {
 					t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
 				}
@@ -624,7 +883,7 @@ func TestSchedule(t *testing.T) {
 			for i := range resourceFlavors {
 				cqCache.AddOrUpdateResourceFlavor(resourceFlavors[i])
 			}
-			for _, cq := range clusterQueues {
+			for _, cq := range allClusterQueues {
 				if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
 					t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
 				}
@@ -878,13 +1137,11 @@ func TestRequeueAndUpdate(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			log := testr.NewWithOptions(t, testr.Options{
-				Verbosity: 2,
-			})
-			ctx := ctrl.LoggerInto(context.Background(), log)
+			ctx, log := utiltesting.ContextWithLog(t)
 			scheme := runtime.NewScheme()
 
-			clientBuilder := utiltesting.NewClientBuilder().WithObjects(w1, q1, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns1"}})
+			objs := []client.Object{w1, q1, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns1"}}}
+			clientBuilder := utiltesting.NewClientBuilder().WithObjects(objs...).WithStatusSubresource(objs...)
 			cl := clientBuilder.Build()
 			broadcaster := record.NewBroadcaster()
 			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})

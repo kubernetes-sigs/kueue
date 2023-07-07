@@ -26,6 +26,7 @@ import (
 	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	rayjobapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -35,6 +36,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
@@ -82,6 +85,12 @@ func (f *Framework) Setup() (context.Context, *rest.Config, client.Client) {
 	err = kubeflow.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
+	err = rayjobapi.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = jobsetapi.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
 	// +kubebuilder:scaffold:scheme
 
 	k8sClient, err := client.New(cfg, client.Options{Scheme: scheme.Scheme})
@@ -92,9 +101,12 @@ func (f *Framework) Setup() (context.Context, *rest.Config, client.Client) {
 	mgrOpts := manager.Options{
 		Scheme:             scheme.Scheme,
 		MetricsBindAddress: "0", // disable metrics to avoid conflicts between packages.
-		Host:               webhookInstallOptions.LocalServingHost,
-		Port:               webhookInstallOptions.LocalServingPort,
-		CertDir:            webhookInstallOptions.LocalServingCertDir,
+		WebhookServer: webhook.NewServer(
+			webhook.Options{
+				Host:    webhookInstallOptions.LocalServingHost,
+				Port:    webhookInstallOptions.LocalServingPort,
+				CertDir: webhookInstallOptions.LocalServingCertDir,
+			}),
 	}
 	mgr, err := ctrl.NewManager(cfg, mgrOpts)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "failed to create manager")

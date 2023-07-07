@@ -1,3 +1,26 @@
+## v0.3.2
+
+Changes since `v0.3.1`:
+
+### Bug or Regression
+
+- Add permission to update frameworkjob status. (#798, @tenzen-y)
+- Fix a bug where a child batch/job of an unmanaged parent (doesn't have queue name) was being suspended. (#839, @tenzen-y)
+- Fix panic in cluster queue if resources and coveredResources do not have the same length. (#799, @kannon92)
+- Fix: Potential over-admission within cohort when borrowing. (#822, @trasc)
+- Fixed preemption to prefer preempting workloads that were more recently admitted. (#845, @stuton)
+
+## v0.3.1
+
+Changes since `v0.3.0`:
+
+### Bug fixes
+
+- Fix a bug that the validation webhook doesn't validate the queue name set as a label when creating MPIJob. #711
+- Fix a bug that updates a queue name in workloads with an empty value when using framework jobs that use batch/job internally, such as MPIJob. #713
+- Fix a bug in which borrowed values are set to a non-zero value even though the ClusterQueue doesn't belong to a cohort. #761
+- Fixed adding suspend=true job/mpijob by the default webhook. #765
+
 ## v0.3.0
 
 Changes since `v0.2.1`:

@@ -23,7 +23,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr/testr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -31,7 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
-	ctrl "sigs.k8s.io/controller-runtime"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
@@ -99,6 +97,15 @@ func TestPreemption(t *testing.T) {
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 				ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+			}).
+			Obj(),
+		utiltesting.MakeClusterQueue("preventStarvation").
+			ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "6").
+				Obj(),
+			).
+			Preemption(kueue.ClusterQueuePreemption{
+				WithinClusterQueue: kueue.PreemptionPolicyLowerOrNewerEqualPriority,
 			}).
 			Obj(),
 	}
@@ -684,13 +691,59 @@ func TestPreemption(t *testing.T) {
 			},
 			wantPreempted: sets.New("/low-alpha", "/low-beta"),
 		},
+		"preempt newer workloads with the same priority": {
+			admitted: []kueue.Workload{
+				*utiltesting.MakeWorkload("wl1", "").
+					Priority(2).
+					Request(corev1.ResourceCPU, "2").
+					Admit(utiltesting.MakeAdmission("preventStarvation").Assignment(corev1.ResourceCPU, "default", "2").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("wl2", "").
+					Priority(1).
+					Creation(time.Now()).
+					Request(corev1.ResourceCPU, "2").
+					Admit(utiltesting.MakeAdmission("preventStarvation").Assignment(corev1.ResourceCPU, "default", "2").Obj()).
+					SetOrReplaceCondition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(time.Now().Add(time.Second)),
+					}).
+					Obj(),
+				*utiltesting.MakeWorkload("wl3", "").
+					Priority(1).
+					Creation(time.Now()).
+					Request(corev1.ResourceCPU, "2").
+					Admit(utiltesting.MakeAdmission("preventStarvation").Assignment(corev1.ResourceCPU, "default", "2").Obj()).
+					Obj(),
+			},
+			incoming: utiltesting.MakeWorkload("in", "").
+				Priority(1).
+				Creation(time.Now().Add(-15 * time.Second)).
+				PodSets(
+					*utiltesting.MakePodSet("launcher", 1).
+						Request(corev1.ResourceCPU, "2").Obj(),
+				).
+				Obj(),
+			targetCQ: "preventStarvation",
+			assignment: flavorassigner.Assignment{
+				PodSets: []flavorassigner.PodSetAssignment{
+					{
+						Name: "launcher",
+						Flavors: flavorassigner.ResourceAssignment{
+							corev1.ResourceCPU: {
+								Name: "default",
+								Mode: flavorassigner.Preempt,
+							},
+						},
+					},
+				},
+			},
+			wantPreempted: sets.New("/wl2"),
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			log := testr.NewWithOptions(t, testr.Options{
-				Verbosity: 2,
-			})
-			ctx := ctrl.LoggerInto(context.Background(), log)
+			ctx, _ := utiltesting.ContextWithLog(t)
 			cl := utiltesting.NewClientBuilder().
 				WithLists(&kueue.WorkloadList{Items: tc.admitted}).
 				Build()
@@ -721,7 +774,8 @@ func TestPreemption(t *testing.T) {
 			snapshot := cqCache.Snapshot()
 			wlInfo := workload.NewInfo(tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
-			preempted, err := preemptor.Do(ctx, *wlInfo, tc.assignment, &snapshot)
+			targets := preemptor.GetTargets(*wlInfo, tc.assignment, &snapshot)
+			preempted, err := preemptor.IssuePreemptions(ctx, targets, snapshot.ClusterQueues[wlInfo.ClusterQueue])
 			if err != nil {
 				t.Fatalf("Failed doing preemption")
 			}
@@ -753,14 +807,14 @@ func TestCandidatesOrdering(t *testing.T) {
 			Obj()),
 		workload.NewInfo(utiltesting.MakeWorkload("old", "").
 			Admit(utiltesting.MakeAdmission("self").Obj()).
+			Obj()),
+		workload.NewInfo(utiltesting.MakeWorkload("current", "").
+			Admit(utiltesting.MakeAdmission("self").Obj()).
 			SetOrReplaceCondition(metav1.Condition{
 				Type:               kueue.WorkloadAdmitted,
 				Status:             metav1.ConditionTrue,
 				LastTransitionTime: metav1.NewTime(now.Add(time.Second)),
 			}).
-			Obj()),
-		workload.NewInfo(utiltesting.MakeWorkload("current", "").
-			Admit(utiltesting.MakeAdmission("self").Obj()).
 			Obj()),
 	}
 	sort.Slice(candidates, candidatesOrdering(candidates, "self", now))

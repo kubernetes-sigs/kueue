@@ -1,0 +1,26 @@
+# permissions for end users to edit clusterqueues.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: '{{ include "kueue.fullname" . }}-clusterqueue-editor-role'
+  labels:
+    rbac.kueue.x-k8s.io/batch-admin: "true"
+rules:
+  - apiGroups:
+      - kueue.x-k8s.io
+    resources:
+      - clusterqueues
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - kueue.x-k8s.io
+    resources:
+      - clusterqueues/status
+    verbs:
+      - get

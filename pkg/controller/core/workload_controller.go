@@ -33,7 +33,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
@@ -126,17 +125,6 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(&wl))
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(2).Info("Reconciling Workload")
-
-	// if a pods ready timeout eviction is ongoing.
-	if evictionCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted); evictionCond != nil && evictionCond.Status == metav1.ConditionTrue &&
-		evictionCond.Reason == kueue.WorkloadEvictedByPodsReadyTimeout &&
-		apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadAdmitted) {
-
-		log.V(2).Info("Cancelling admission of the workload due to exceeding the PodsReady timeout")
-		workload.UnsetAdmissionWithCondition(&wl, "Evicted", evictionCond.Message)
-		err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
 
 	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
 		return ctrl.Result{}, nil
@@ -358,8 +346,8 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.Workload{}).
-		Watches(&source.Kind{Type: &corev1.LimitRange{}}, ruh).
-		Watches(&source.Kind{Type: &nodev1.RuntimeClass{}}, ruh).
+		Watches(&corev1.LimitRange{}, ruh).
+		Watches(&nodev1.RuntimeClass{}, ruh).
 		WithEventFilter(r).
 		Complete(r)
 }
@@ -485,33 +473,28 @@ type resourceUpdatesHandler struct {
 	r *WorkloadReconciler
 }
 
-func (h *resourceUpdatesHandler) Create(e event.CreateEvent, q workqueue.RateLimitingInterface) {
-	//TODO: the eventHandler should get a context soon, and this could be dropped
-	// https://github.com/kubernetes-sigs/controller-runtime/blob/master/pkg/handler/eventhandler.go
-	ctx := context.TODO()
+func (h *resourceUpdatesHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.RateLimitingInterface) {
 	log := ctrl.LoggerFrom(ctx).WithValues("kind", e.Object.GetObjectKind())
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(5).Info("Create event")
 	h.handle(ctx, e.Object, q)
 }
 
-func (h *resourceUpdatesHandler) Update(e event.UpdateEvent, q workqueue.RateLimitingInterface) {
-	ctx := context.TODO()
+func (h *resourceUpdatesHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.RateLimitingInterface) {
 	log := ctrl.LoggerFrom(ctx).WithValues("kind", e.ObjectNew.GetObjectKind())
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(5).Info("Update event")
 	h.handle(ctx, e.ObjectNew, q)
 }
 
-func (h *resourceUpdatesHandler) Delete(e event.DeleteEvent, q workqueue.RateLimitingInterface) {
-	ctx := context.TODO()
+func (h *resourceUpdatesHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.RateLimitingInterface) {
 	log := ctrl.LoggerFrom(ctx).WithValues("kind", e.Object.GetObjectKind())
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(5).Info("Delete event")
 	h.handle(ctx, e.Object, q)
 }
 
-func (h *resourceUpdatesHandler) Generic(_ event.GenericEvent, _ workqueue.RateLimitingInterface) {
+func (h *resourceUpdatesHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.RateLimitingInterface) {
 }
 
 func (h *resourceUpdatesHandler) handle(ctx context.Context, obj client.Object, q workqueue.RateLimitingInterface) {

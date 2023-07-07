@@ -17,15 +17,21 @@ limitations under the License.
 package job
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+
+	// without this only the job framework is registered
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 )
 
 const (
@@ -35,11 +41,9 @@ const (
 var (
 	annotationsPath          = field.NewPath("metadata", "annotations")
 	labelsPath               = field.NewPath("metadata", "labels")
-	parentWorkloadKeyPath    = annotationsPath.Key(jobframework.ParentWorkloadAnnotation)
-	queueNameLabelPath       = labelsPath.Key(jobframework.QueueLabel)
-	queueNameAnnotationsPath = annotationsPath.Key(jobframework.QueueAnnotation)
-
-	originalNodeSelectorsKeyPath = annotationsPath.Key(jobframework.OriginalNodeSelectorsAnnotation)
+	parentWorkloadKeyPath    = annotationsPath.Key(constants.ParentWorkloadAnnotation)
+	queueNameLabelPath       = labelsPath.Key(constants.QueueLabel)
+	queueNameAnnotationsPath = annotationsPath.Key(constants.QueueAnnotation)
 )
 
 func TestValidateCreate(t *testing.T) {
@@ -54,14 +58,32 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name:    "valid parent-workload annotation",
-			job:     testingutil.MakeJob("job", "default").ParentWorkload("parent-workload-name").Queue("queue").Obj(),
+			name: "valid parent-workload annotation",
+			job: testingutil.MakeJob("job", "default").
+				ParentWorkload("parent-workload-name").
+				Queue("queue").
+				OwnerReference("parent-workload-name", kubeflow.SchemeGroupVersionKind).
+				Obj(),
 			wantErr: nil,
 		},
 		{
-			name:    "invalid parent-workload annotation",
-			job:     testingutil.MakeJob("job", "default").ParentWorkload("parent workload name").Queue("queue").Obj(),
+			name: "invalid parent-workload annotation",
+			job: testingutil.MakeJob("job", "default").
+				ParentWorkload("parent workload name").
+				OwnerReference("parent workload name", kubeflow.SchemeGroupVersionKind).
+				Queue("queue").
+				Obj(),
 			wantErr: field.ErrorList{field.Invalid(parentWorkloadKeyPath, "parent workload name", invalidRFC1123Message)},
+		},
+		{
+			name: "invalid parent-workload annotation (owner is missing)",
+			job: testingutil.MakeJob("job", "default").
+				ParentWorkload("parent-workload").
+				Queue("queue").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(parentWorkloadKeyPath, "must not add a parent workload annotation to job without OwnerReference"),
+			},
 		},
 		{
 			name:    "invalid queue-name label",
@@ -75,17 +97,52 @@ func TestValidateCreate(t *testing.T) {
 		},
 		{
 			name: "invalid queue-name and parent-workload annotation",
-			job:  testingutil.MakeJob("job", "default").Queue("queue name").ParentWorkload("parent workload name").Obj(),
+			job: testingutil.MakeJob("job", "default").
+				Queue("queue name").
+				ParentWorkload("parent workload name").
+				OwnerReference("parent workload name", kubeflow.SchemeGroupVersionKind).
+				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(parentWorkloadKeyPath, "parent workload name", invalidRFC1123Message),
 				field.Invalid(queueNameLabelPath, "queue name", invalidRFC1123Message),
 			},
 		},
+		{
+			name: "invalid partial admission annotation (format)",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "NaN").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(minPodsCountAnnotationsPath, "NaN", "strconv.Atoi: parsing \"NaN\": invalid syntax"),
+			},
+		},
+		{
+			name: "invalid partial admission annotation (badValue)",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "5").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(minPodsCountAnnotationsPath, 5, "should be between 0 and 3"),
+			},
+		},
+		{
+			name: "valid partial admission annotation",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			wantErr: nil,
+		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			gotErr := validateCreate(&Job{*tc.job})
+			gotErr := validateCreate((*Job)(tc.job))
 
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validateCreate() mismatch (-want +got):\n%s", diff)
@@ -95,17 +152,6 @@ func TestValidateCreate(t *testing.T) {
 }
 
 func TestValidateUpdate(t *testing.T) {
-
-	validPodSelectors := `
-[
-  {
-    "name": "podSetName",
-    "nodeSelector": {
-      "l1": "v1"
-    }
-  }
-]
-	`
 	testcases := []struct {
 		name    string
 		oldJob  *batchv1.Job
@@ -149,9 +195,12 @@ func TestValidateUpdate(t *testing.T) {
 			wantErr: field.ErrorList{field.Invalid(queueNameLabelPath, "queue name", invalidRFC1123Message)},
 		},
 		{
-			name:    "update the nil parent workload to non-empty",
-			oldJob:  testingutil.MakeJob("job", "default").Obj(),
-			newJob:  testingutil.MakeJob("job", "default").ParentWorkload("parent").Obj(),
+			name:   "update the nil parent workload to non-empty",
+			oldJob: testingutil.MakeJob("job", "default").Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				ParentWorkload("parent").
+				OwnerReference("parent", kubeflow.SchemeGroupVersionKind).
+				Obj(),
 			wantErr: field.ErrorList{field.Forbidden(parentWorkloadKeyPath, "this annotation is immutable")},
 		},
 		{
@@ -163,48 +212,94 @@ func TestValidateUpdate(t *testing.T) {
 		{
 			name:   "invalid queue name and immutable parent",
 			oldJob: testingutil.MakeJob("job", "default").Obj(),
-			newJob: testingutil.MakeJob("job", "default").Queue("queue name").ParentWorkload("parent").Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Queue("queue name").
+				ParentWorkload("parent").
+				OwnerReference("parent", kubeflow.SchemeGroupVersionKind).
+				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(queueNameLabelPath, "queue name", invalidRFC1123Message),
 				field.Forbidden(parentWorkloadKeyPath, "this annotation is immutable"),
 			},
 		},
 		{
-			name:    "original node selectors can be set while unsuspending",
-			oldJob:  testingutil.MakeJob("job", "default").Suspend(true).Obj(),
-			newJob:  testingutil.MakeJob("job", "default").Suspend(false).OriginalNodeSelectorsAnnotation(validPodSelectors).Obj(),
-			wantErr: nil,
-		},
-		{
-			name:    "original node selectors can be set while suspending",
-			oldJob:  testingutil.MakeJob("job", "default").Suspend(false).Obj(),
-			newJob:  testingutil.MakeJob("job", "default").Suspend(true).OriginalNodeSelectorsAnnotation(validPodSelectors).Obj(),
-			wantErr: nil,
-		},
-		{
-			name:   "immutable original node selectors while not suspended",
-			oldJob: testingutil.MakeJob("job", "default").Suspend(false).OriginalNodeSelectorsAnnotation(validPodSelectors).Obj(),
-			newJob: testingutil.MakeJob("job", "default").Suspend(false).OriginalNodeSelectorsAnnotation("").Obj(),
+			name: "immutable parallelism while unsuspended with partial admission enabled",
+			oldJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				Parallelism(5).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
 			wantErr: field.ErrorList{
-				field.Forbidden(originalNodeSelectorsKeyPath, "this annotation is immutable while the job is not changing its suspended state"),
+				field.Forbidden(field.NewPath("spec", "parallelism"), "cannot change when partial admission is enabled and the job is not suspended"),
 			},
 		},
 		{
-			name:   "immutable original node selectors while suspended",
-			oldJob: testingutil.MakeJob("job", "default").Suspend(true).OriginalNodeSelectorsAnnotation(validPodSelectors).Obj(),
-			newJob: testingutil.MakeJob("job", "default").Suspend(true).OriginalNodeSelectorsAnnotation("").Obj(),
-			wantErr: field.ErrorList{
-				field.Forbidden(originalNodeSelectorsKeyPath, "this annotation is immutable while the job is not changing its suspended state"),
-			},
+			name: "mutable parallelism while suspended with partial admission enabled",
+			oldJob: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Parallelism(5).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			wantErr: nil,
 		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			gotErr := validateUpdate(&Job{*tc.oldJob}, &Job{*tc.newJob})
+			gotErr := validateUpdate((*Job)(tc.oldJob), (*Job)(tc.newJob))
 
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{})); diff != "" {
 				t.Errorf("validateUpdate() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestDefault(t *testing.T) {
+	testcases := map[string]struct {
+		job                        *batchv1.Job
+		manageJobsWithoutQueueName bool
+		want                       *batchv1.Job
+	}{
+		"add a parent job name to annotations": {
+			job: testingutil.MakeJob("child-job", "default").
+				OwnerReference("parent-job", kubeflow.SchemeGroupVersionKind).
+				Obj(),
+			want: testingutil.MakeJob("child-job", "default").
+				OwnerReference("parent-job", kubeflow.SchemeGroupVersionKind).
+				ParentWorkload(jobframework.GetWorkloadNameForOwnerWithGVK("parent-job", kubeflow.SchemeGroupVersionKind)).
+				Obj(),
+		},
+		"update the suspend field with 'manageJobsWithoutQueueName=false'": {
+			job:  testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
+			want: testingutil.MakeJob("job", "default").Queue("queue").Obj(),
+		},
+		"update the suspend field 'manageJobsWithoutQueueName=true'": {
+			job:                        testingutil.MakeJob("job", "default").Suspend(false).Obj(),
+			manageJobsWithoutQueueName: true,
+			want:                       testingutil.MakeJob("job", "default").Obj(),
+		},
+	}
+	for name, tc := range testcases {
+		t.Run(name, func(t *testing.T) {
+			w := &JobWebhook{manageJobsWithoutQueueName: tc.manageJobsWithoutQueueName}
+			if err := w.Default(context.Background(), tc.job); err != nil {
+				t.Errorf("set defaults to a batch/job by a Defaulter")
+			}
+			if diff := cmp.Diff(tc.want, tc.job); len(diff) != 0 {
+				t.Errorf("Default() mismatch (-want,+got):\n%s", diff)
 			}
 		})
 	}

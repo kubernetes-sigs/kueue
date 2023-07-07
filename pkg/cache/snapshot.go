@@ -86,7 +86,7 @@ func (c *Cache) Snapshot() Snapshot {
 	return snap
 }
 
-// Snapshot creates a copy of ClusterQueue that includes references to immutable
+// snapshot creates a copy of ClusterQueue that includes references to immutable
 // objects and deep copies of changing ones. A reference to the cohort is not included.
 func (c *ClusterQueue) snapshot() *ClusterQueue {
 	cc := &ClusterQueue{

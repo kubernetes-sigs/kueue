@@ -17,6 +17,8 @@ limitations under the License.
 package v1beta1
 
 import (
+	"os"
+	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -46,10 +48,19 @@ func addDefaultingFuncs(scheme *runtime.Scheme) error {
 	return nil
 }
 
+func getOperatorNamespace() string {
+	if data, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err == nil {
+		if ns := strings.TrimSpace(string(data)); len(ns) > 0 {
+			return ns
+		}
+	}
+	return DefaultNamespace
+}
+
 // SetDefaults_Configuration sets default values for ComponentConfig.
 func SetDefaults_Configuration(cfg *Configuration) {
 	if cfg.Namespace == nil {
-		cfg.Namespace = pointer.String(DefaultNamespace)
+		cfg.Namespace = pointer.String(getOperatorNamespace())
 	}
 	if cfg.Webhook.Port == nil {
 		cfg.Webhook.Port = pointer.Int(DefaultWebhookPort)
@@ -87,8 +98,17 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	if cfg.ClientConnection.Burst == nil {
 		cfg.ClientConnection.Burst = pointer.Int32(DefaultClientConnectionBurst)
 	}
-	if cfg.WaitForPodsReady != nil && cfg.WaitForPodsReady.Timeout == nil {
-		cfg.WaitForPodsReady.Timeout = &metav1.Duration{Duration: defaultPodsReadyTimeout}
+	if cfg.WaitForPodsReady != nil {
+		if cfg.WaitForPodsReady.Timeout == nil {
+			cfg.WaitForPodsReady.Timeout = &metav1.Duration{Duration: defaultPodsReadyTimeout}
+		}
+		if cfg.WaitForPodsReady.BlockAdmission == nil {
+			defaultBlockAdmission := true
+			if !cfg.WaitForPodsReady.Enable {
+				defaultBlockAdmission = false
+			}
+			cfg.WaitForPodsReady.BlockAdmission = &defaultBlockAdmission
+		}
 	}
 	if cfg.Integrations == nil {
 		cfg.Integrations = &Integrations{}
