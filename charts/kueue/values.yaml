@@ -3,17 +3,14 @@
 # Declare variables to be passed into your templates.
 nameOverride: ""
 fullnameOverride: ""
-
 # Enable each function, like kustomize https://github.com/kubernetes-sigs/kueue/blob/main/config/default/kustomization.yaml
 enablePrometheus: false
-
 # Enable x509 automated certificate management using cert-manager (cert-manager.io)
 enableCertManager: false
-
 # Customize controlerManager
 controllerManager:
   kubeRbacProxy:
-    image: 
+    image:
       repository: gcr.io/kubebuilder/kube-rbac-proxy
       # tag
       tag: v0.8.0
@@ -39,9 +36,7 @@ controllerManager:
       allowPrivilegeEscalation: false
   replicas: 1
   imagePullSecrets: []
-
 kubernetesClusterDomain: cluster.local
-
 # controller_manager_config.yaml. controllerManager utilizes this yaml via manager-config Configmap.
 managerConfig:
   controllerManagerConfigYaml: |-
@@ -78,18 +73,17 @@ managerConfig:
       - "batch/job"
       - "kubeflow.org/mpijob"
       - "ray.io/rayjob"
-
 # ports definition for metricsService and webhookService.
 metricsService:
   ports:
-  - name: https
-    port: 8443
-    protocol: TCP
-    targetPort: https
+    - name: https
+      port: 8443
+      protocol: TCP
+      targetPort: https
   type: ClusterIP
 webhookService:
   ports:
-  - port: 443
-    protocol: TCP
-    targetPort: 9443
+    - port: 443
+      protocol: TCP
+      targetPort: 9443
   type: ClusterIP
