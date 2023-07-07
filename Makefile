@@ -35,7 +35,8 @@ DOCKER_BUILDX_CMD ?= docker buildx
 IMAGE_BUILD_CMD ?= $(DOCKER_BUILDX_CMD) build
 IMAGE_BUILD_EXTRA_OPTS ?=
 # TODO(#52): Add kueue to k8s gcr registry
-IMAGE_REGISTRY ?= gcr.io/k8s-staging-kueue
+STAGING_IMAGE_REGISTRY := gcr.io/k8s-staging-kueue
+IMAGE_REGISTRY ?= $(STAGING_IMAGE_REGISTRY)
 IMAGE_NAME := kueue
 IMAGE_REPO ?= $(IMAGE_REGISTRY)/$(IMAGE_NAME)
 IMAGE_TAG ?= $(IMAGE_REPO):$(GIT_TAG)
@@ -258,7 +259,12 @@ artifacts: kustomize
 	$(KUSTOMIZE) build config/dev -o artifacts/manifests-dev.yaml
 	$(KUSTOMIZE) build config/prometheus -o artifacts/prometheus.yaml
 	@$(call clean-manifests)
-	cp -r charts artifacts/charts
+	# Update the image tag and policy
+	yq  e  '.controllerManager.manager.image.repository = "$(IMAGE_REPO)" | .controllerManager.manager.image.tag = "$(GIT_TAG)" | .controllerManager.manager.image.pullPolicy = "IfNotPresent"' -i charts/kueue/values.yaml
+	# create the package. TODO: consider signing it
+	helm package --version $(GIT_TAG) --app-version $(GIT_TAG) charts/kueue -d artifacts/
+	# Revert the image changes
+	yq  e  '.controllerManager.manager.image.repository = "$(STAGING_IMAGE_REGISTRY)/$(IMAGE_NAME)" | .controllerManager.manager.image.tag = "main" | .controllerManager.manager.image.pullPolicy = "Always"' -i charts/kueue/values.yaml
 
 ##@ Tools
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
