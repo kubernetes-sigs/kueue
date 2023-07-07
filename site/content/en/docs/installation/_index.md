@@ -129,6 +129,40 @@ more about using `waitForPodsReady` for Kueue.
 kubectl apply -f manifests.yaml
 ```
 
+## Change the feature gates configuration
+
+Kueue uses a similar mechanism to configure features as described in [Kubernetes Feature Gates](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates).
+
+In order to change the default of a feature, you need to edit the `kueue-controller-manager` deployment within the kueue installation namespace and change the `manager` container arguments to include 
+
+```
+--feature-gates=...,<FeatureName>=<true|false>
+```
+
+For example, to enable `PartialAdmission`, you should change the manager deployment as follows:
+
+```diff
+kind: Deployment
+...
+spec:
+  ...
+  template:
+    ...
+    spec:
+      containers:
+      - name: manager
+        args:
+        - --config=controller_manager_config.yaml
+        - --zap-log-level=2
++       - --feature-gates=PartialAdmission=true
+```
+
+The currently supported features are:
+
+| Feature | Default | Stage | Since | Until |
+|---------|---------|-------|-------|-------|
+| `PartialAdmission` | `false` | Alpha | 0.4 |  |
+
 ## Install the latest development version
 
 To install the latest development version of Kueue in your cluster, run the
