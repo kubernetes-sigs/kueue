@@ -21,6 +21,8 @@ SRC_RBAC_DIR=config/components/rbac
 DEST_CRD_DIR=charts/kueue/templates/crd
 DEST_RBAC_DIR=charts/kueue/templates/rbac
 
+YQ=./bin/yq
+
 # Create the destination directory if it doesn't exist
 mkdir -p ${DEST_CRD_DIR} ${DEST_RBAC_DIR}
 
@@ -74,19 +76,19 @@ done
 
 # Add RBAC files, replace names, namespaces in helm format, remove document separators (---)
 for output_file in ${DEST_RBAC_DIR}/*.yaml; do
-  if [ "$(cat $output_file | yq '.metadata | has("name")')" = "true" ]; then
-    yq -N -i '.metadata.name |= "{{ include \"kueue.fullname\" . }}-" + .' $output_file
+  if [ "$(cat $output_file | $YQ '.metadata | has("name")')" = "true" ]; then
+    $YQ -N -i '.metadata.name |= "{{ include \"kueue.fullname\" . }}-" + .' $output_file
   fi
-  if [ "$(cat $output_file | yq '.metadata | has("namespace")')" = "true" ]; then
-    yq -N -i '.metadata.namespace = "{{ .Release.Namespace }}"' $output_file
+  if [ "$(cat $output_file | $YQ '.metadata | has("namespace")')" = "true" ]; then
+    $YQ -N -i '.metadata.namespace = "{{ .Release.Namespace }}"' $output_file
   fi
-  if [ "$(cat $output_file | yq '.roleRef | has("name")')" = "true" ]; then
-    yq -N -i '.roleRef.name |= "{{ include \"kueue.fullname\" . }}-" + .' $output_file
+  if [ "$(cat $output_file | $YQ '.roleRef | has("name")')" = "true" ]; then
+    $YQ -N -i '.roleRef.name |= "{{ include \"kueue.fullname\" . }}-" + .' $output_file
   fi
-  if [ "$(cat $output_file | yq '.subjects.[] | has("name")')" = "true" ]; then
-    yq -N -i '.subjects.[].name |= "{{ include \"kueue.fullname\" . }}-" + .' $output_file
+  if [ "$(cat $output_file | $YQ '.subjects.[] | has("name")')" = "true" ]; then
+    $YQ -N -i '.subjects.[].name |= "{{ include \"kueue.fullname\" . }}-" + .' $output_file
   fi
-  if [ "$(cat $output_file | yq '.subjects.[] | has("namespace")')" = "true" ]; then
-    yq -N -i '.subjects.[].namespace = "{{ .Release.Namespace }}"' $output_file
+  if [ "$(cat $output_file | $YQ '.subjects.[] | has("namespace")')" = "true" ]; then
+    $YQ -N -i '.subjects.[].namespace = "{{ .Release.Namespace }}"' $output_file
   fi
 done
