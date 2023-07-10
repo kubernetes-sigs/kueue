@@ -14,3 +14,4 @@ If you are using Kueue, feel free to open a pull request to add your organizatio
 |                     Organization                     |   Type   |      Description       |            Integrations            |                 Contact                  |
 |:----------------------------------------------------:|:--------:|:----------------------:|:----------------------------------:|:----------------------------------------:|
 | [CyberAgent, Inc.](https://www.cyberagent.co.jp/en/) | End User | On-premise ML Platform | batch/job <br> kubeflow.org/mpijob | [@tenzen-y](https://github.com/tenzen-y) |
+| [WattIQ, Inc.](https://wattiq.io) | End User | SaaS/IoT product | batch/job <br> RayJob | [@madsenwattiq](https://github.com/madsenwattiq) |
