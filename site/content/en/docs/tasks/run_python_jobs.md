@@ -98,3 +98,64 @@ Use:
 
 You can also change the container image with `--image` and args with `--args`.
 For more customization, you can edit the example script.
+
+### Interact with Queues and Jobs
+
+If you are developing an application that submits jobs and needs to interact
+with and check on them, you likely want to interact with queues or jobs directly.
+After running the example above, you can test the following example to interact
+with the results. Write the following to a script called `sample-queue-control.py`.
+
+{{% include "python/install-kueue-queues.py" "python" %}}
+
+To make the output more interesting, we can run a few random jobs first:
+
+```bash
+python sample-job.py
+python sample-job.py
+python sample-job.py --job-name tacos
+```
+
+And then run the script to see your queue and sample job that you submit previously.
+
+```bash
+python sample-queue-control.py
+```
+```console
+⛑️  Local Queues
+Found queue user-queue
+  Admitted workloads: 3
+  Pending workloads: 0
+  Flavor default-flavor has resources [{'name': 'cpu', 'total': '3'}, {'name': 'memory', 'total': '600Mi'}]
+
+💼️ Jobs
+Found job sample-job-8n5sb
+  Succeeded: 3
+  Ready: 0
+Found job sample-job-gnxtl
+  Succeeded: 1
+  Ready: 0
+Found job tacos46bqw
+  Succeeded: 1
+  Ready: 1
+```
+
+If you wanted to filter jobs to a specific queue, you can do this via the job labels
+under `job["metadata"]["labels"]["kueue.x-k8s.io/queue-name"]'. To list a specific job by
+name, you can do:
+
+```python
+from kubernetes import client, config
+
+# Interact with batch
+config.load_kube_config()
+batch_api = client.BatchV1Api()
+
+# This is providing the name, and namespace
+job = batch_api.read_namespaced_job("tacos46bqw", "default")
+print(job)
+```
+
+See the [BatchV1](https://github.com/kubernetes-client/python/blob/master/kubernetes/docs/BatchV1Api.md)
+API documentation for more calls.
+
