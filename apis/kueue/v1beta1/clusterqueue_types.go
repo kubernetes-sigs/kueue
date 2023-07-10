@@ -241,6 +241,7 @@ const (
 	PreemptionPolicyAny                       PreemptionPolicy = "Any"
 	PreemptionPolicyLowerPriority             PreemptionPolicy = "LowerPriority"
 	PreemptionPolicyLowerOrNewerEqualPriority PreemptionPolicy = "LowerOrNewerEqualPriority"
+	PreemptionPolicyOverWeight                PreemptionPolicy = "OverWeight"
 )
 
 // ClusterQueuePreemption contains policies to preempt Workloads from this

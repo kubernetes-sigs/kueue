@@ -6,7 +6,7 @@ status:
 creation-date: 2023-06-13
 reviewers:
   - "@alculquicondor"
-  - "@ kerthcet"
+  - "@kerthcet"
 approvers:
 
 # The target maturity stage in the current dev cycle for this KEP.

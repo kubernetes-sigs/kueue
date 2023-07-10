@@ -29,7 +29,7 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Risks and Mitigations](#risks-and-mitigations)
   - [Design Details](#design-details)
     - [API](#api)
-    - [Local Queue's Behavior with Weight](#local-queues-behavior-with-weight)
+    - [Support Weight in localQueue](#support-weight-in-localqueue)
     - [Local Queue Filtering and Sorting Policy Interface](#local-queue-filtering-and-sorting-policy-interface)
     - [Extension Points in Cluster Queue](#extension-points-in-cluster-queue)
     - [Test Plan](#test-plan)
@@ -167,11 +167,40 @@ type LocalQueueSpec struct {
 }
 ```
 
-### Local Queue's Behavior with Weight
+We add a knob in cluster queue to allow users choose local queue sort and filter plugin.
+```golang
+type Plugin string
+const Fairness Plugin = "fairness"
+const None Plugin = "none"
+
+type PluginConfig struct {
+  Name string
+  Args map[string]interface{}
+}
+
+// ClusterQueueSpec defines the desired state of ClusterQueue
+type ClusterQueueSpec struct {
+  ...
+  LocalQueueFilterPlugin Plugin
+  LocalQueueSortPlugin Plugin
+  PluginConfig PluginConfig
+}
+```
+
+We add an option in `ClusterQueuePreemption` to allow users set preemption policy when
+local queue use too much resources. When we set `WithinClusterQueue` to `PreemptionPolicyExceedWeight`,
+we will preempt from those local queues whose usage exceed their weight.
+
+```golang
+const PreemptionPolicyExceedWeight PreemptionPolicy = "ExceedWeight"
+```
+
+### Support Weight in localQueue
 
 We maintain current weight for each queue. We will reject the head workload 
 in a local queue whose current weight is greater than desired weight and then 
 sort local queues in a cluster queue based on their current weights.
+We use the dominant resource to calculate the current weight.
 
 We calculate current weight for each queue based on the following method:
 ```
