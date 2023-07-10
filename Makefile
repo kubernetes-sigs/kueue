@@ -149,7 +149,7 @@ vet: ## Run go vet against code.
 
 .PHONY: test
 test: generate gotestsum ## Run tests.
-	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/') -coverprofile $(ARTIFACTS)/cover.out
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/') -coverpkg=./... -coverprofile $(ARTIFACTS)/cover.out
 
 .PHONY: test-integration
 test-integration: manifests generate envtest ginkgo mpi-operator-crd ray-operator-crd jobset-operator-crd ## Run tests.

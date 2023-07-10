@@ -314,13 +314,17 @@ var (
 func TestReconciler(t *testing.T) {
 	defer features.SetFeatureGateDuringTest(t, features.PartialAdmission, true)()
 	cases := map[string]struct {
-		job           batchv1.Job
-		workloads     []kueue.Workload
-		wantErr       error
-		wantJob       batchv1.Job
-		wantWorkloads []kueue.Workload
+		reconcilerOptions []jobframework.Option
+		job               batchv1.Job
+		wantJob           batchv1.Job
+		workloads         []kueue.Workload
+		wantWorkloads     []kueue.Workload
+		wantErr           error
 	}{
 		"suspended job with matching admitted workload is unsuspended": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+			},
 			job: *utiltestingjob.MakeJob("job", "ns").
 				Suspend(true).
 				Parallelism(10).
@@ -347,6 +351,9 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"non-matching admitted workload is deleted": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+			},
 			job: *utiltestingjob.MakeJob("job", "ns").
 				Suspend(true).
 				Parallelism(10).
@@ -368,6 +375,9 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 		},
 		"suspended job with partial admission and admitted workload is unsuspended": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+			},
 			job: *utiltestingjob.MakeJob("job", "ns").
 				SetAnnotation(JobMinParallelismAnnotation, "5").
 				Suspend(true).
@@ -396,6 +406,9 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"unsuspended job with partial admission and non-matching admitted workload is suspended and workload is deleted": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+			},
 			job: *utiltestingjob.MakeJob("job", "ns").
 				SetAnnotation(JobMinParallelismAnnotation, "5").
 				Suspend(false).
@@ -418,6 +431,55 @@ func TestReconciler(t *testing.T) {
 				Image("", nil).
 				Obj(),
 		},
+		"the workload is created when queue name is set": {
+			job: *utiltestingjob.MakeJob("job", "ns").
+				Suspend(false).
+				Image("", nil).
+				Queue("test-queue").
+				Obj(),
+			wantJob: *utiltestingjob.MakeJob("job", "ns").
+				Suspend(true).
+				Image("", nil).
+				Queue("test-queue").
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("job", "ns").
+					PodSets(*utiltesting.MakePodSet("main", 1).Obj()).
+					Queue("test-queue").
+					Priority(0).
+					Obj(),
+			},
+		},
+		"the workload is not created when queue name is not set": {
+			job: *utiltestingjob.MakeJob("job", "ns").
+				Suspend(false).
+				Parallelism(1).
+				Request(corev1.ResourceCPU, "1").
+				Image("", nil).
+				Obj(),
+			wantJob: *utiltestingjob.MakeJob("job", "ns").
+				SetAnnotation(JobMinParallelismAnnotation, "5").
+				Suspend(false).
+				Parallelism(1).
+				Request(corev1.ResourceCPU, "1").
+				Image("", nil).
+				Obj(),
+		},
+		"should get error if child job owner not found": {
+			job: *utiltestingjob.MakeJob("job", "ns").
+				ParentWorkload("non-existing-parent-workload").
+				Obj(),
+			wantJob: *utiltestingjob.MakeJob("job", "ns").Obj(),
+			wantErr: jobframework.ErrChildJobOwnerNotFound,
+		},
+		"should get error if workload owner is unknown": {
+			job: *utiltestingjob.MakeJob("job", "ns").
+				ParentWorkload("non-existing-parent-workload").
+				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
+				Obj(),
+			wantJob: *utiltestingjob.MakeJob("job", "ns").Obj(),
+			wantErr: jobframework.ErrUnknownWorkloadOwner,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -437,9 +499,8 @@ func TestReconciler(t *testing.T) {
 					t.Fatalf("Could not create workload: %v", err)
 				}
 			}
-			broadcaster := record.NewBroadcaster()
-			recorder := broadcaster.NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
-			reconciler := NewReconciler(kClient, recorder, jobframework.WithManageJobsWithoutQueueName(true))
+			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
+			reconciler := NewReconciler(kClient, recorder, tc.reconcilerOptions...)
 
 			jobKey := client.ObjectKeyFromObject(&tc.job)
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{
