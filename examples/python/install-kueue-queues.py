@@ -23,7 +23,7 @@ def get_parser():
     parser.add_argument(
         "--version",
         help="Version of Kueue to install",
-        default="0.3.2",
+        default="0.4.0",
     )
     return parser
 
