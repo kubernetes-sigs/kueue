@@ -1,2 +1,6 @@
 {{ $file := .Get 0 }}
-{{ (printf "%s%s" .Page.File.Dir $file) | readFile | replaceRE "^---[\\s\\S]+?---" "" | safeHTML }}
+[{{$file}}]({{printf "/examples/%s" $file}})
+{{ $path := (printf "../../static/examples/%s" $file)}}
+```{{ .Get 1 }}
+{{ (printf "%s%s" .Page.File.Dir $path) | readFile | replaceRE "^---[\\s\\S]+?---" "" | safeHTML }}
+```
