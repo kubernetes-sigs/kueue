@@ -52,6 +52,10 @@ func addTo(o *ctrl.Options, cfg *configapi.Configuration) {
 		o.MetricsBindAddress = cfg.Metrics.BindAddress
 	}
 
+	if o.PprofBindAddress == "" && cfg.PprofBindAddress != "" {
+		o.PprofBindAddress = cfg.PprofBindAddress
+	}
+
 	if o.HealthProbeBindAddress == "" && cfg.Health.HealthProbeBindAddress != "" {
 		o.HealthProbeBindAddress = cfg.Health.HealthProbeBindAddress
 	}
