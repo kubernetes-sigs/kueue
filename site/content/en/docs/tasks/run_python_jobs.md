@@ -43,7 +43,7 @@ The following examples demonstrate different use cases for using Kueue in Python
 This example demonstrates installing Kueue to an existing cluster. You can save this
 script to your local machine as `install-kueue-queues.py`. 
 
-{{% include "python/sample-job.py" "python"%}}
+{{% include "python/sample-job.py" "python" %}}
 
 And then run as follows:
 
@@ -59,7 +59,7 @@ python install-kueue-queues.py
 You can also target a specific version:
 
 ```bash
-python install-kueue-queues.py --version 0.4.0
+python install-kueue-queues.py --version {{< param "version" >}}
 ```
 
 ### Sample Job
