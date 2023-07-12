@@ -480,6 +480,46 @@ func TestReconciler(t *testing.T) {
 			wantJob: *utiltestingjob.MakeJob("job", "ns").Obj(),
 			wantErr: jobframework.ErrUnknownWorkloadOwner,
 		},
+		"non-standalone job is suspended if its parent workload is not found": {
+			job: *utiltestingjob.MakeJob("job", "ns").
+				Suspend(false).
+				Request(corev1.ResourceCPU, "1").
+				Image("", nil).
+				ParentWorkload("unit-test").
+				Obj(),
+			wantJob: *utiltestingjob.MakeJob("job", "ns").
+				Suspend(true).
+				Request(corev1.ResourceCPU, "1").
+				Image("", nil).
+				ParentWorkload("unit-test").
+				Obj(),
+		},
+		"non-standalone job is suspended if its parent workload is admitted": {
+			job: *utiltestingjob.MakeJob("job", "ns").
+				Suspend(false).
+				Request(corev1.ResourceCPU, "1").
+				Image("", nil).
+				ParentWorkload("unit-test").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").
+					PodSets(*utiltesting.MakePodSet("main", 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Obj(),
+			},
+			wantJob: *utiltestingjob.MakeJob("job", "ns").
+				Suspend(true).
+				Request(corev1.ResourceCPU, "1").
+				Image("", nil).
+				ParentWorkload("unit-test").
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").
+					PodSets(*utiltesting.MakePodSet("main", 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Obj(),
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

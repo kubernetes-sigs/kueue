@@ -135,7 +135,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	// if this is a non-standalone job, suspend the job if its parent workload is not found and admitted.
+	// if this is a non-standalone job, suspend the job if its parent workload is not found or admitted.
 	if !isStandaloneJob {
 		_, finshed := job.Finished()
 		if !finshed && !job.IsSuspended() {
