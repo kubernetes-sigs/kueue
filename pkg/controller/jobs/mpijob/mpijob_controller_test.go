@@ -28,6 +28,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -201,7 +202,7 @@ func TestReconciler(t *testing.T) {
 		wantWorkloads     []kueue.Workload
 		wantErr           error
 	}{
-		"pod sets": {
+		"workload is created with podsets": {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
 			},

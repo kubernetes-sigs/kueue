@@ -268,7 +268,7 @@ func TestPodSets(t *testing.T) {
 			job: (*Job)(utiltestingjob.MakeJob("job", "ns").Parallelism(3).Obj()),
 			wantPodSets: []kueue.PodSet{
 				{
-					Name:     "main",
+					Name:     kueue.DefaultPodSetName,
 					Template: *podTemplate.DeepCopy(),
 					Count:    3,
 				},
@@ -278,7 +278,7 @@ func TestPodSets(t *testing.T) {
 			job: (*Job)(utiltestingjob.MakeJob("job", "ns").Parallelism(3).SetAnnotation(JobMinParallelismAnnotation, "2").Obj()),
 			wantPodSets: []kueue.PodSet{
 				{
-					Name:     "main",
+					Name:     kueue.DefaultPodSetName,
 					Template: *podTemplate.DeepCopy(),
 					Count:    3,
 					MinCount: pointer.Int32(2),
@@ -313,6 +313,13 @@ var (
 
 func TestReconciler(t *testing.T) {
 	defer features.SetFeatureGateDuringTest(t, features.PartialAdmission, true)()
+
+	baseJobWrapper := utiltestingjob.MakeJob("job", "ns").
+		Suspend(true).
+		Parallelism(10).
+		Request(corev1.ResourceCPU, "1").
+		Image("", nil)
+
 	cases := map[string]struct {
 		reconcilerOptions []jobframework.Option
 		job               batchv1.Job
@@ -325,27 +332,19 @@ func TestReconciler(t *testing.T) {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
 			},
-			job: *utiltestingjob.MakeJob("job", "ns").
-				Suspend(true).
-				Parallelism(10).
-				Request(corev1.ResourceCPU, "1").
-				Image("", nil).
+			job: *baseJobWrapper.DeepCopy(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(false).
 				Obj(),
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "ns").
-					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
 					Obj(),
 			},
-			wantJob: *utiltestingjob.MakeJob("job", "ns").
-				Suspend(false).
-				Parallelism(10).
-				Request(corev1.ResourceCPU, "1").
-				Image("", nil).
-				Obj(),
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "ns").
-					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
 					Obj(),
 			},
@@ -354,53 +353,42 @@ func TestReconciler(t *testing.T) {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
 			},
-			job: *utiltestingjob.MakeJob("job", "ns").
-				Suspend(true).
-				Parallelism(10).
-				Request(corev1.ResourceCPU, "1").
-				Image("", nil).
-				Obj(),
+			job:     *baseJobWrapper.DeepCopy(),
+			wantJob: *baseJobWrapper.DeepCopy(),
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "ns").
-					PodSets(*utiltesting.MakePodSet("main", 5).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
 					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
 					Obj(),
 			},
 			wantErr: jobframework.ErrNoMatchingWorkloads,
-			wantJob: *utiltestingjob.MakeJob("job", "ns").
-				Suspend(true).
-				Parallelism(10).
-				Request(corev1.ResourceCPU, "1").
-				Image("", nil).
-				Obj(),
 		},
 		"suspended job with partial admission and admitted workload is unsuspended": {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
 			},
-			job: *utiltestingjob.MakeJob("job", "ns").
+			job: *baseJobWrapper.Clone().
 				SetAnnotation(JobMinParallelismAnnotation, "5").
-				Suspend(true).
-				Parallelism(10).
-				Request(corev1.ResourceCPU, "1").
-				Image("", nil).
 				Obj(),
-			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").
-					PodSets(*utiltesting.MakePodSet("main", 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(8).Obj()).
-					Obj(),
-			},
-			wantJob: *utiltestingjob.MakeJob("job", "ns").
+			wantJob: *baseJobWrapper.Clone().
 				SetAnnotation(JobMinParallelismAnnotation, "5").
 				Suspend(false).
 				Parallelism(8).
-				Request(corev1.ResourceCPU, "1").
-				Image("", nil).
 				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(8).Obj()).
+					Obj(),
+			},
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "ns").
-					PodSets(*utiltesting.MakePodSet("main", 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(
+						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).
+							SetMinimumCount(5).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
 					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(8).Obj()).
 					Obj(),
 			},
@@ -409,60 +397,52 @@ func TestReconciler(t *testing.T) {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
 			},
-			job: *utiltestingjob.MakeJob("job", "ns").
+			job: *baseJobWrapper.Clone().
 				SetAnnotation(JobMinParallelismAnnotation, "5").
 				Suspend(false).
-				Parallelism(10).
-				Request(corev1.ResourceCPU, "1").
-				Image("", nil).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				SetAnnotation(JobMinParallelismAnnotation, "5").
 				Obj(),
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "ns").
-					PodSets(*utiltesting.MakePodSet("main", 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(
+						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).
+							SetMinimumCount(5).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
 					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(8).Obj()).
 					Obj(),
 			},
 			wantErr: jobframework.ErrNoMatchingWorkloads,
-			wantJob: *utiltestingjob.MakeJob("job", "ns").
-				SetAnnotation(JobMinParallelismAnnotation, "5").
-				Suspend(true).
-				Parallelism(10).
-				Request(corev1.ResourceCPU, "1").
-				Image("", nil).
-				Obj(),
 		},
 		"the workload is created when queue name is set": {
-			job: *utiltestingjob.MakeJob("job", "ns").
+			job: *baseJobWrapper.
+				Clone().
 				Suspend(false).
-				Image("", nil).
 				Queue("test-queue").
 				Obj(),
-			wantJob: *utiltestingjob.MakeJob("job", "ns").
-				Suspend(true).
-				Image("", nil).
+			wantJob: *baseJobWrapper.
+				Clone().
 				Queue("test-queue").
 				Obj(),
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("job", "ns").
-					PodSets(*utiltesting.MakePodSet("main", 1).Obj()).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					Priority(0).
 					Obj(),
 			},
 		},
 		"the workload is not created when queue name is not set": {
-			job: *utiltestingjob.MakeJob("job", "ns").
+			job: *baseJobWrapper.
+				Clone().
 				Suspend(false).
-				Parallelism(1).
-				Request(corev1.ResourceCPU, "1").
-				Image("", nil).
 				Obj(),
-			wantJob: *utiltestingjob.MakeJob("job", "ns").
-				SetAnnotation(JobMinParallelismAnnotation, "5").
+			wantJob: *baseJobWrapper.
+				Clone().
 				Suspend(false).
-				Parallelism(1).
-				Request(corev1.ResourceCPU, "1").
-				Image("", nil).
 				Obj(),
 		},
 		"should get error if child job owner not found": {
@@ -479,6 +459,128 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			wantJob: *utiltestingjob.MakeJob("job", "ns").Obj(),
 			wantErr: jobframework.ErrUnknownWorkloadOwner,
+		},
+		"non-standalone job is suspended if its parent workload is not found": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+			},
+			job: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				ParentWorkload("unit-test").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				ParentWorkload("unit-test").
+				Obj(),
+		},
+		"non-standalone job is not suspended if its parent workload is admitted": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+			},
+			job: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				ParentWorkload("unit-test").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				ParentWorkload("unit-test").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("unit-test", "ns").
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("unit-test", "ns").
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Obj(),
+			},
+		},
+		"non-standalone job is suspended if its parent workload is found and not admitted": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+			},
+			job: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				ParentWorkload("parent-workload").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				ParentWorkload("unit-test").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("parent-workload", "ns").
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("parent-workload", "ns").
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					Obj(),
+			},
+		},
+		"non-standalone job is not suspended if its parent workload is admitted and queue name is set": {
+			job: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				ParentWorkload("parent-workload").
+				Queue("test-queue").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				ParentWorkload("parent-workload").
+				Queue("test-queue").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("parent-workload", "ns").
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("parent-workload", "ns").
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Obj(),
+			},
+		},
+		"checking a second non-matching workload is deleted": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+			},
+			job: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				Parallelism(5).
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				Parallelism(5).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("first-workload", "ns").
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
+					Admit(utiltesting.MakeAdmission("cq").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("second-workload", "ns").
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("first-workload", "ns").
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
+					Admit(utiltesting.MakeAdmission("cq").Obj()).
+					Obj(),
+			},
+			wantErr: jobframework.ErrExtraWorkloads,
 		},
 	}
 	for name, tc := range cases {

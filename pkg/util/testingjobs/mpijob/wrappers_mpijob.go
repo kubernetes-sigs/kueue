@@ -48,7 +48,7 @@ func MakeMPIJob(name, ns string) *MPIJobWrapper {
 					Replicas: pointer.Int32(1),
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
-							RestartPolicy: "Never",
+							RestartPolicy: corev1.RestartPolicyNever,
 							Containers: []corev1.Container{
 								{
 									Name:      "c",
@@ -65,7 +65,7 @@ func MakeMPIJob(name, ns string) *MPIJobWrapper {
 					Replicas: pointer.Int32(1),
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
-							RestartPolicy: "Never",
+							RestartPolicy: corev1.RestartPolicyNever,
 							Containers: []corev1.Container{
 								{
 									Name:      "c",

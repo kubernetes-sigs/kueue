@@ -213,7 +213,7 @@ func TestReconciler(t *testing.T) {
 		wantWorkloads     []kueue.Workload
 		wantErr           error
 	}{
-		"pod sets": {
+		"workload is created with podsets": {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
 			},

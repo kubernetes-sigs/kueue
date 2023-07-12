@@ -135,10 +135,10 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	// if this is a non-standalone job, suspend the job if its parent workload is not found and admitted.
+	// if this is a non-standalone job, suspend the job if its parent workload is not found or it is not admitted.
 	if !isStandaloneJob {
-		_, finshed := job.Finished()
-		if !finshed && !job.IsSuspended() {
+		_, finished := job.Finished()
+		if !finished && !job.IsSuspended() {
 			if parentWorkload, err := r.getParentWorkload(ctx, job, object); err != nil {
 				log.Error(err, "couldn't get the parent job workload")
 				return ctrl.Result{}, err
@@ -358,9 +358,9 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 
 	if existedWls != 0 {
 		if match == nil {
-			return nil, fmt.Errorf("%w: deleted %d workloads", ErrNoMatchingWorkloads, len(workloads.Items))
+			return nil, fmt.Errorf("%w: deleted %d workloads", ErrNoMatchingWorkloads, len(toDelete))
 		}
-		return nil, fmt.Errorf("%w: deleted %d workloads", ErrExtraWorkloads, len(workloads.Items))
+		return nil, fmt.Errorf("%w: deleted %d workloads", ErrExtraWorkloads, len(toDelete))
 	}
 
 	return match, nil
