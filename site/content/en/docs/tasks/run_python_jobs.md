@@ -106,7 +106,7 @@ with and check on them, you likely want to interact with queues or jobs directly
 After running the example above, you can test the following example to interact
 with the results. Write the following to a script called `sample-queue-control.py`.
 
-{{% include "python/install-kueue-queues.py" "python" %}}
+{{% include "python/sample-queue-control.py" "python" %}}
 
 To make the output more interesting, we can run a few random jobs first:
 
