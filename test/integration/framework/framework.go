@@ -24,6 +24,7 @@ import (
 	"time"
 
 	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	rayjobapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
@@ -91,6 +92,9 @@ func (f *Framework) RunManager(cfg *rest.Config, managerSetup ManagerSetup) (con
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = jobsetapi.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = kftraining.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme

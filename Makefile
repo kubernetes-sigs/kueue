@@ -153,7 +153,7 @@ test: generate gotestsum ## Run tests.
 	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/') -coverpkg=./... -coverprofile $(ARTIFACTS)/cover.out
 
 .PHONY: test-integration
-test-integration: manifests generate envtest ginkgo mpi-operator-crd ray-operator-crd jobset-operator-crd ## Run tests.
+test-integration: manifests generate envtest ginkgo mpi-operator-crd ray-operator-crd jobset-operator-crd kf-training-operator-crd ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	$(GINKGO) $(GINKGO_ARGS) --junit-report=junit.xml --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 
@@ -320,6 +320,12 @@ mpi-operator-crd:
 	mkdir -p $(PROJECT_DIR)/dep-crds/mpi-operator/
 	cp -f $(MPIROOT)/manifests/base/* $(PROJECT_DIR)/dep-crds/mpi-operator/
 
+KFTRAININGROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" github.com/kubeflow/training-operator)
+.PHONY: kf-training-operator-crd
+kf-training-operator-crd:
+	mkdir -p $(PROJECT_DIR)/dep-crds/training-operator/
+	cp -f $(KFTRAININGROOT)/manifests/base/crds/* $(PROJECT_DIR)/dep-crds/training-operator/
+
 RAYROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" github.com/ray-project/kuberay/ray-operator)
 .PHONY: ray-operator-crd
 ray-operator-crd:
@@ -331,4 +337,3 @@ JOBSETROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" sigs.k8s.io/jobset)
 jobset-operator-crd:
 	mkdir -p $(PROJECT_DIR)/dep-crds/jobset-operator/
 	cp -f $(JOBSETROOT)/config/components/crd/bases/* $(PROJECT_DIR)/dep-crds/jobset-operator/
-
