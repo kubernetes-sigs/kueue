@@ -6,7 +6,7 @@ import requests
 import argparse
 
 # install-kueue-queues.py will:
-# 1. install queue from the latest on GitHub
+# 1. install queue from the latest or a specific version on GitHub
 # This example will demonstrate installing Kueue and applying a YAML file (local) to install Kueue
 
 # Make sure your cluster is running!
@@ -22,8 +22,8 @@ def get_parser():
     )
     parser.add_argument(
         "--version",
-        help="Version of Kueue to install",
-        default="0.4.0",
+        help="Version of Kueue to install (if undefined, will install from master branch)",
+        default=None,
     )
     return parser
 
@@ -39,12 +39,24 @@ def main():
     install_kueue(args.version)
 
 
+def get_install_url(version):
+    """
+    Get the install version.
+
+    If a version is specified, use it. Otherwise install
+    from the main branch.
+    """
+    if version is not None:
+        return f"https://github.com/kubernetes-sigs/kueue/releases/download/v{version}/manifests.yaml"
+    return "https://github.com/kubernetes-sigs/kueue/config/default?ref=main"
+
+
 def install_kueue(version):
     """
     Install Kueue of a particular version.
     """
     print("⭐️ Installing Kueue...")
-    url = f"https://github.com/kubernetes-sigs/kueue/releases/download/v{version}/manifests.yaml"
+    url = get_install_url(version)
     with tempfile.NamedTemporaryFile(delete=True) as install_yaml:
         res = requests.get(url)
         assert res.status_code == 200
