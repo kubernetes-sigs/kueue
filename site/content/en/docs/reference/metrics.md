@@ -29,3 +29,13 @@ Use the following metrics to monitor the status of your ClusterQueues:
 | `kueue_admission_wait_time_seconds` | Histogram | The time between a Workload was created until it was admitted. | `cluster_queue`: the name of the ClusterQueue |
 | `kueue_admitted_active_workloads` | Gauge | The number of admitted Workloads that are active (unsuspended and not finished) | `cluster_queue`: the name of the ClusterQueue |
 | `kueue_cluster_queue_status` | Gauge | Reports the status of the ClusterQueue | `cluster_queue`: The name of the ClusterQueue<br> `status`: Possible values are `pending`, `active` or `terminated`. For a ClusterQueue, the metric only reports a value of 1 for one of the statuses. |
+
+### Optional metrics
+
+The following metrics are available only if `metrics.enableClusterQueueResources` is enabled in the [manager's configuration](/docs/installation/#install-a-custom-configured-released-version).
+
+| Metric name | Type | Description | Labels |
+| ----------- | ---- | ----------- | ------ |
+| `kueue_cluster_queue_resource_usage` | Gauge | Reports the ClusterQueue's total resource usage |`cohort`: The cohort in which the queue belongs<br> `cluster_queue`: The name of the ClusterQueue<br> `flavor`: referenced flavor<br> `resource`: The resource name|
+| `kueue_cluster_queue_nominal_quota` | Gauge | Reports the ClusterQueue's resource quota |`cohort`: The cohort in which the queue belongs<br> `cluster_queue`: The name of the ClusterQueue<br> `flavor`: referenced flavor<br> `resource`: The resource name|
+| `kueue_cluster_queue_borrowing_limit` | Gauge | Reports the ClusterQueue's resource borrowing limit |`cohort`: The cohort in which the queue belongs<br> `cluster_queue`: The name of the ClusterQueue<br> `flavor`: referenced flavor<br> `resource`: The resource name|
