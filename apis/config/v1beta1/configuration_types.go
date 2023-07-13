@@ -82,6 +82,14 @@ type ControllerManager struct {
 	// +optional
 	Health ControllerHealth `json:"health,omitempty"`
 
+	// PprofBindAddress is the TCP address that the controller should bind to
+	// for serving pprof.
+	// It can be set to "" or "0" to disable the pprof serving.
+	// Since pprof may contain sensitive information, make sure to protect it
+	// before exposing it to public.
+	// +optional
+	PprofBindAddress string `json:"pprofBindAddress,omitempty"`
+
 	// Controller contains global configuration options for controllers
 	// registered within this manager.
 	// +optional
