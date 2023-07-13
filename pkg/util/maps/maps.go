@@ -57,3 +57,26 @@ func Merge[K comparable, V any, S ~map[K]V](a, b S, resolveConflict func(a, b V)
 func MergeKeepFirst[K comparable, V any, S ~map[K]V](a, b S) S {
 	return Merge(a, b, func(v, _ V) V { return v })
 }
+
+// Contains returns true if a contains all the keys in b with the same value
+func Contains[K, V comparable, A ~map[K]V, B ~map[K]V](a A, b B) bool {
+	for k, bv := range b {
+		if av, found := a[k]; !found || av != bv {
+			return false
+		}
+	}
+	return true
+}
+
+// Keys returns a a slice containing the m keys
+func Keys[K comparable, V any, M ~map[K]V](m M) []K {
+	if m == nil {
+		return nil
+	}
+	ret := make([]K, 0, len((m)))
+
+	for k := range m {
+		ret = append(ret, k)
+	}
+	return ret
+}

@@ -300,6 +300,33 @@ func ExpectResourceFlavorToBeDeleted(ctx context.Context, k8sClient client.Clien
 	}, Timeout, Interval).Should(testing.BeNotFoundError())
 }
 
+func ExpectCQResourceNominalQuota(cq *kueue.ClusterQueue, flavor, resource string, v float64) {
+	metric := metrics.ClusterQueueResourceNominalQuota.WithLabelValues(cq.Spec.Cohort, cq.Name, flavor, resource)
+	gomega.EventuallyWithOffset(1, func() float64 {
+		v, err := testutil.GetGaugeMetricValue(metric)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred())
+		return v
+	}, Timeout, Interval).Should(gomega.Equal(v))
+}
+
+func ExpectCQResourceBorrowingQuota(cq *kueue.ClusterQueue, flavor, resource string, v float64) {
+	metric := metrics.ClusterQueueResourceBorrowingLimit.WithLabelValues(cq.Spec.Cohort, cq.Name, flavor, resource)
+	gomega.EventuallyWithOffset(1, func() float64 {
+		v, err := testutil.GetGaugeMetricValue(metric)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred())
+		return v
+	}, Timeout, Interval).Should(gomega.Equal(v))
+}
+
+func ExpectCQResourceUsage(cq *kueue.ClusterQueue, flavor, resource string, v float64) {
+	metric := metrics.ClusterQueueResourceUsage.WithLabelValues(cq.Spec.Cohort, cq.Name, flavor, resource)
+	gomega.EventuallyWithOffset(1, func() float64 {
+		v, err := testutil.GetGaugeMetricValue(metric)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred())
+		return v
+	}, Timeout, Interval).Should(gomega.Equal(v))
+}
+
 func SetAdmission(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, admission *kueue.Admission) error {
 	wl = wl.DeepCopy()
 	if admission == nil {

@@ -16,12 +16,12 @@ limitations under the License.
 
 package slices
 
-// ToMap creates a map[K]V out of the provided slice s using key() to create the map keys and
-// val() to create the values.
+// ToMap creates a map[K]V out of the provided slice s using mf() to get the key and value
+// for a given index i.
 //
 // The caller can compare the length of the map to the one of the slice in order to detect
 // potential key conflicts.
-func ToMap[K comparable, V any, S ~[]E, E any](s S, key func(int) K, val func(int) V) map[K]V {
+func ToMap[K comparable, V any, S ~[]E, E any](s S, mf func(int) (K, V)) map[K]V {
 	if s == nil {
 		return nil
 	}
@@ -32,7 +32,8 @@ func ToMap[K comparable, V any, S ~[]E, E any](s S, key func(int) K, val func(in
 
 	ret := make(map[K]V, len(s))
 	for i := range s {
-		ret[key(i)] = val(i)
+		k, v := mf(i)
+		ret[k] = v
 	}
 	return ret
 }
@@ -43,11 +44,8 @@ func ToMap[K comparable, V any, S ~[]E, E any](s S, key func(int) K, val func(in
 // potential key conflicts.
 func ToRefMap[K comparable, S ~[]E, E any](s S, key func(*E) K) map[K]*E {
 	return ToMap(s,
-		func(i int) K {
-			return key(&s[i])
-		},
-		func(i int) *E {
-			return &s[i]
+		func(i int) (K, *E) {
+			return key(&s[i]), &s[i]
 		})
 }
 

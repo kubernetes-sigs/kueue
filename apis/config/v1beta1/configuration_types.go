@@ -74,7 +74,7 @@ type ControllerManager struct {
 	// +optional
 	LeaderElection *configv1alpha1.LeaderElectionConfiguration `json:"leaderElection,omitempty"`
 
-	// Metrics contains thw controller metrics configuration
+	// Metrics contains the controller metrics configuration
 	// +optional
 	Metrics ControllerMetrics `json:"metrics,omitempty"`
 
@@ -123,6 +123,11 @@ type ControllerMetrics struct {
 	// It can be set to "0" to disable the metrics serving.
 	// +optional
 	BindAddress string `json:"bindAddress,omitempty"`
+
+	// EnableClusterQueueResources, if true the cluster queue resource usage and quotas
+	// metrics will be reported.
+	// +optional
+	EnableClusterQueueResources bool `json:"enableClusterQueueResources,omitempty"`
 }
 
 // ControllerHealth defines the health configs.

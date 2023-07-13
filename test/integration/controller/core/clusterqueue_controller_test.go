@@ -131,7 +131,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, modelBFlavor, true)
 		})
 
-		ginkgo.It("Should update status when workloads are assigned and finish", func() {
+		ginkgo.It("Should update status and report metrics when workloads are assigned and finish", func() {
 			workloads := []*kueue.Workload{
 				testing.MakeWorkload("one", ns.Name).Queue(localQueue.Name).
 					Request(corev1.ResourceCPU, "2").Request(resourceGPU, "2").Obj(),
@@ -146,6 +146,23 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 				testing.MakeWorkload("six", ns.Name).Queue(localQueue.Name).
 					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
 			}
+
+			ginkgo.By("Checking that the resource metrics are published", func() {
+				util.ExpectCQResourceNominalQuota(clusterQueue, flavorOnDemand, string(corev1.ResourceCPU), 5)
+				util.ExpectCQResourceNominalQuota(clusterQueue, flavorSpot, string(corev1.ResourceCPU), 5)
+				util.ExpectCQResourceNominalQuota(clusterQueue, flavorModelA, string(resourceGPU), 5)
+				util.ExpectCQResourceNominalQuota(clusterQueue, flavorModelB, string(resourceGPU), 5)
+
+				util.ExpectCQResourceBorrowingQuota(clusterQueue, flavorOnDemand, string(corev1.ResourceCPU), 5)
+				util.ExpectCQResourceBorrowingQuota(clusterQueue, flavorSpot, string(corev1.ResourceCPU), 5)
+				util.ExpectCQResourceBorrowingQuota(clusterQueue, flavorModelA, string(resourceGPU), 5)
+				util.ExpectCQResourceBorrowingQuota(clusterQueue, flavorModelB, string(resourceGPU), 5)
+
+				util.ExpectCQResourceUsage(clusterQueue, flavorOnDemand, string(corev1.ResourceCPU), 0)
+				util.ExpectCQResourceUsage(clusterQueue, flavorSpot, string(corev1.ResourceCPU), 0)
+				util.ExpectCQResourceUsage(clusterQueue, flavorModelA, string(resourceGPU), 0)
+				util.ExpectCQResourceUsage(clusterQueue, flavorModelB, string(resourceGPU), 0)
+			})
 
 			ginkgo.By("Creating workloads")
 			for _, w := range workloads {
@@ -256,6 +273,13 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 1, 0)
 			util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 4)
 
+			ginkgo.By("Checking the resource usage metrics are updated", func() {
+				util.ExpectCQResourceUsage(clusterQueue, flavorOnDemand, string(corev1.ResourceCPU), 6)
+				util.ExpectCQResourceUsage(clusterQueue, flavorSpot, string(corev1.ResourceCPU), 1)
+				util.ExpectCQResourceUsage(clusterQueue, flavorModelA, string(resourceGPU), 5)
+				util.ExpectCQResourceUsage(clusterQueue, flavorModelB, string(resourceGPU), 2)
+			})
+
 			ginkgo.By("Finishing workloads")
 			util.FinishWorkloads(ctx, k8sClient, workloads...)
 			gomega.Eventually(func() kueue.ClusterQueueStatus {
@@ -276,6 +300,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 			util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 0)
 		})
+
 		ginkgo.It("Should update status when workloads have reclaimable pods", func() {
 
 			ginkgo.By("Creating ResourceFlavors", func() {
