@@ -1571,6 +1571,226 @@ func TestAssignFlavors(t *testing.T) {
 			},
 			wantRepMode: Fit,
 		},
+		"preempt before try next flavor": {
+			wlPods: []kueue.PodSet{
+				*utiltesting.MakePodSet("main", 1).
+					Request(corev1.ResourceCPU, "9").
+					Obj(),
+			},
+			clusterQueue: cache.ClusterQueue{
+				Preemption: kueue.ClusterQueuePreemption{
+					FlavorFungibility: kueue.FlavorFungibility{
+						WhenCanBorrow:  kueue.Borrow,
+						WhenCanPreempt: kueue.Preempt,
+					},
+				},
+				ResourceGroups: []cache.ResourceGroup{{
+					CoveredResources: sets.New(corev1.ResourceCPU, corev1.ResourcePods),
+					Flavors: []cache.FlavorQuotas{{
+						Name: "one",
+						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
+							corev1.ResourcePods: {Nominal: 10},
+							corev1.ResourceCPU:  {Nominal: 10000},
+						},
+					}, {
+						Name: "two",
+						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
+							corev1.ResourcePods: {Nominal: 10},
+							corev1.ResourceCPU:  {Nominal: 10000},
+						},
+					}},
+				}},
+				Usage: cache.FlavorResourceQuantities{
+					"one": {corev1.ResourceCPU: 2000},
+				},
+			},
+			wantRepMode: Preempt,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: "main",
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU:  {Name: "one", Mode: Preempt},
+						corev1.ResourcePods: {Name: "one", Mode: Fit},
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("9000m"),
+						corev1.ResourcePods: resource.MustParse("1"),
+					},
+					Status: &Status{
+						reasons: []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
+					},
+					Count: 1,
+				}},
+			},
+		},
+		"preempt try next flavor": {
+			wlPods: []kueue.PodSet{
+				*utiltesting.MakePodSet("main", 1).
+					Request(corev1.ResourceCPU, "9").
+					Obj(),
+			},
+			clusterQueue: cache.ClusterQueue{
+				Preemption: kueue.ClusterQueuePreemption{
+					FlavorFungibility: kueue.FlavorFungibility{
+						WhenCanBorrow:  kueue.Borrow,
+						WhenCanPreempt: kueue.TryNextFlavor,
+					},
+				},
+				ResourceGroups: []cache.ResourceGroup{{
+					CoveredResources: sets.New(corev1.ResourceCPU, corev1.ResourcePods),
+					Flavors: []cache.FlavorQuotas{{
+						Name: "one",
+						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
+							corev1.ResourcePods: {Nominal: 10},
+							corev1.ResourceCPU:  {Nominal: 10000},
+						},
+					}, {
+						Name: "two",
+						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
+							corev1.ResourcePods: {Nominal: 10},
+							corev1.ResourceCPU:  {Nominal: 10000},
+						},
+					}},
+				}},
+				Usage: cache.FlavorResourceQuantities{
+					"one": {corev1.ResourceCPU: 2000},
+				},
+			},
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: "main",
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU:  {Name: "two", Mode: Fit},
+						corev1.ResourcePods: {Name: "two", Mode: Fit},
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("9000m"),
+						corev1.ResourcePods: resource.MustParse("1"),
+					},
+					Count: 1,
+				}},
+			},
+		},
+		"borrow try next flavor": {
+			wlPods: []kueue.PodSet{
+				*utiltesting.MakePodSet("main", 1).
+					Request(corev1.ResourceCPU, "9").
+					Obj(),
+			},
+			clusterQueue: cache.ClusterQueue{
+				Cohort: &cache.Cohort{
+					Usage: cache.FlavorResourceQuantities{
+						"one": {corev1.ResourceCPU: 2000},
+					},
+					RequestableResources: cache.FlavorResourceQuantities{
+						"one": {corev1.ResourceCPU: 11000, corev1.ResourcePods: 10},
+						"two": {corev1.ResourceCPU: 10000, corev1.ResourcePods: 10},
+					},
+				},
+				Preemption: kueue.ClusterQueuePreemption{
+					FlavorFungibility: kueue.FlavorFungibility{
+						WhenCanBorrow:  kueue.TryNextFlavor,
+						WhenCanPreempt: kueue.TryNextFlavor,
+					},
+				},
+				ResourceGroups: []cache.ResourceGroup{{
+					CoveredResources: sets.New(corev1.ResourceCPU, corev1.ResourcePods),
+					Flavors: []cache.FlavorQuotas{{
+						Name: "one",
+						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
+							corev1.ResourcePods: {Nominal: 10},
+							corev1.ResourceCPU:  {Nominal: 10000, BorrowingLimit: pointer.Int64(1000)},
+						},
+					}, {
+						Name: "two",
+						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
+							corev1.ResourcePods: {Nominal: 10},
+							corev1.ResourceCPU:  {Nominal: 10000},
+						},
+					}},
+				}},
+				Usage: cache.FlavorResourceQuantities{
+					"one": {corev1.ResourceCPU: 2000},
+				},
+			},
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: "main",
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU:  {Name: "two", Mode: Fit},
+						corev1.ResourcePods: {Name: "two", Mode: Fit},
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("9000m"),
+						corev1.ResourcePods: resource.MustParse("1"),
+					},
+					Count: 1,
+				}},
+			},
+		},
+		"borrow before try next flavor": {
+			wlPods: []kueue.PodSet{
+				*utiltesting.MakePodSet("main", 1).
+					Request(corev1.ResourceCPU, "9").
+					Obj(),
+			},
+			clusterQueue: cache.ClusterQueue{
+				Cohort: &cache.Cohort{
+					Usage: cache.FlavorResourceQuantities{
+						"one": {corev1.ResourceCPU: 2000},
+					},
+					RequestableResources: cache.FlavorResourceQuantities{
+						"one": {corev1.ResourceCPU: 11000, corev1.ResourcePods: 10},
+						"two": {corev1.ResourceCPU: 10000, corev1.ResourcePods: 10},
+					},
+				},
+				Preemption: kueue.ClusterQueuePreemption{
+					FlavorFungibility: kueue.FlavorFungibility{
+						WhenCanBorrow:  kueue.Borrow,
+						WhenCanPreempt: kueue.TryNextFlavor,
+					},
+				},
+				ResourceGroups: []cache.ResourceGroup{{
+					CoveredResources: sets.New(corev1.ResourceCPU, corev1.ResourcePods),
+					Flavors: []cache.FlavorQuotas{{
+						Name: "one",
+						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
+							corev1.ResourcePods: {Nominal: 10},
+							corev1.ResourceCPU:  {Nominal: 10000, BorrowingLimit: pointer.Int64(1000)},
+						},
+					}, {
+						Name: "two",
+						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
+							corev1.ResourcePods: {Nominal: 10},
+							corev1.ResourceCPU:  {Nominal: 10000},
+						},
+					}},
+				}},
+				Usage: cache.FlavorResourceQuantities{
+					"one": {corev1.ResourceCPU: 2000},
+				},
+			},
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
+				TotalBorrow: cache.FlavorResourceQuantities{
+					"one": {corev1.ResourceCPU: 1000},
+				},
+				PodSets: []PodSetAssignment{{
+					Name: "main",
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU:  {Name: "one", Mode: Fit},
+						corev1.ResourcePods: {Name: "one", Mode: Fit},
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("9000m"),
+						corev1.ResourcePods: resource.MustParse("1"),
+					},
+					Count: 1,
+				}},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

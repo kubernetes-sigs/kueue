@@ -1075,6 +1075,43 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.FinishWorkloads(ctx, k8sClient, pWl3)
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, devCQ.Name, dWl1)
 		})
+
+		ginkgo.It("Should schedule when fungibility is set", func() {
+			prodCQ = testing.MakeClusterQueue("prod-cq").
+				Cohort("all").
+				ResourceGroup(*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "10", "10").Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, prodCQ)).Should(gomega.Succeed())
+
+			devCQ = testing.MakeClusterQueue("dev-cq").
+				Cohort("all").
+				Preemption(kueue.ClusterQueuePreemption{FlavorFungibility: kueue.FlavorFungibility{WhenCanBorrow: kueue.TryNextFlavor}}).
+				ResourceGroup(*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "10", "10").Obj(), *testing.MakeFlavorQuotas("spot-tainted").Resource(corev1.ResourceCPU, "10").Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, devCQ)).Should(gomega.Succeed())
+
+			prodQueue := testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodCQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, prodQueue)).Should(gomega.Succeed())
+
+			podQueue := testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devCQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, podQueue)).Should(gomega.Succeed())
+
+			ginkgo.By("Creating one workload")
+			wl1 := testing.MakeWorkload("wl-1", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "9").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodCQ.Name, wl1)
+			util.ExpectPendingWorkloadsMetric(prodCQ, 0, 0)
+			util.ExpectAdmittedActiveWorkloadsMetric(prodCQ, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(prodCQ, 1)
+
+			ginkgo.By("Creating another workload")
+			wl2 := testing.MakeWorkload("wl-2", ns.Name).Queue(podQueue.Name).Request(corev1.ResourceCPU, "9").Toleration(spotToleration).Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, devCQ.Name, wl2)
+			util.ExpectPendingWorkloadsMetric(devCQ, 0, 0)
+			util.ExpectAdmittedActiveWorkloadsMetric(devCQ, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(devCQ, 1)
+		})
 	})
 
 	ginkgo.When("Queueing with StrictFIFO", func() {
