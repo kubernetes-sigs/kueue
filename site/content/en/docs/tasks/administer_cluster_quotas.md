@@ -115,7 +115,7 @@ metadata:
   namespace: "default"
   name: "user-queue"
 spec:
-  clusterQueue: "cluster-total"
+  clusterQueue: "cluster-queue"
 ```
 
 To create the LocalQueue, run the following command:
