@@ -104,6 +104,7 @@ data:
     waitForPodsReady:
       enable: true
       timeout: 10m
+    # pprofBindAddress: :8082
     integrations:
       frameworks:
       - "batch/job"
@@ -205,3 +206,26 @@ To uninstall Kueue, run the following command:
 ```sh
 make undeploy
 ```
+
+## Enabling pprof endpoints
+
+> _Available in Kueue v0.4.0 and later_
+
+It's available only if `pprofBindAddress` is set in the [manager's configuration](/docs/installation/#install-a-custom-configured-released-version).
+
+The easiest way to reach pprof port in kubernetes it's to use `port-forward` command:
+
+```shell
+kubectl port-forward kueue-controller-manager-769f96b5dc-87sf2 -n kueue-system 8082:8082
+Forwarding from 127.0.0.1:8082 -> 8082
+Forwarding from [::1]:8082 -> 8082
+```
+
+The HTTP endpoint will now be available as a local port.
+For example, you can now generate the file for the CPU profile with curl and pipe the data to a file (600 seconds is 10 minutes)
+
+```shell
+curl "http://localhost:8082/debug/pprof/profile?seconds=600" > cpu.pprof
+```
+
+For more details please follow [the pprof documentation](https://github.com/google/pprof#building-pprof)
