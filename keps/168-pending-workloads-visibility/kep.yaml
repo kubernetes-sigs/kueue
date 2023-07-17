@@ -1,0 +1,20 @@
+title: Pending workloads visibility
+kep-number: 168
+authors:
+  - "@mimowo"
+status: provisional
+creation-date: 2023-07-14
+reviewers:
+  - "@ahg-g"
+  - "@alculquicondor"
+  - "@mwielgus"
+approvers:
+  - "@ahg-g"
+  - "@alculquicondor"
+
+stage: stable
+
+latest-milestone: "v0.5"
+milestone:
+  stable: "v0.5"
+disable-supported: false
