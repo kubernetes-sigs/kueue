@@ -42,18 +42,28 @@ kueue-controller-manager       1/1     1            1           7s
 
 The following table lists the configurable parameters of the kueue chart and their default values.
 
-| Parameter                                   | Description                             |Default                                      |
-|---------------------------------------------|-----------------------------------------|---------------------------------------------|
-| `nameOverride`                              | override the resource name              | ``                                          |
-| `fullnameOverride`                          | override the resource name              | ``                                          |
-| `enablePrometheus`                          | enable Prometheus                       | `false`                                     |
-| `enableCertManager`                         | enable CertManager                      | `false`                                     |
-| `controllerManager.kubeRbacProxy.image`     | controllerManager.kubeRbacProxy's image | `gcr.io/kubebuilder/kube-rbac-proxy:v0.8.0` |
-| `controllerManager.manager.image`           | controllerManager.manager's image       | `gcr.io/k8s-staging-kueue/kueue:main`       |
-| `controllerManager.manager.resources`       | controllerManager.manager's resources   | abbr.                                       |
-| `controllerManager.replicas`                | ControllerManager's replicaCount        | `1`                                         |
-| `controllerManager.imagePullSecrets`        | ControllerManager's imagePullSecrets    | `[]`                                        |
-| `kubernetesClusterDomain`                   | kubernetesCluster's Domain              | `cluster.local`                             |
-| `managerConfig.controllerManagerConfigYaml` | controllerManagerConfigYaml             | abbr.                                       |
-| `metricsService`                            | metricsService's ports                  | abbr.                                       |
-| `webhookService`                            | webhookService's ports                  | abbr.                                       |
+| Parameter                                              | Description                                            | Default                                     |
+|--------------------------------------------------------|--------------------------------------------------------|---------------------------------------------|
+| `nameOverride`                                         | override the resource name                             | ``                                          |
+| `fullnameOverride`                                     | override the resource name                             | ``                                          |
+| `enablePrometheus`                                     | enable Prometheus                                      | `false`                                     |
+| `enableCertManager`                                    | enable CertManager                                     | `false`                                     |
+| `controllerManager.kubeRbacProxy.image`                | controllerManager.kubeRbacProxy's image                | `gcr.io/kubebuilder/kube-rbac-proxy:v0.8.0` |
+| `controllerManager.manager.image`                      | controllerManager.manager's image                      | `gcr.io/k8s-staging-kueue/kueue:main`       |
+| `controllerManager.manager.resources`                  | controllerManager.manager's resources                  | abbr.                                       |
+| `controllerManager.replicas`                           | ControllerManager's replicaCount                       | `1`                                         |
+| `controllerManager.imagePullSecrets`                   | ControllerManager's imagePullSecrets                   | `[]`                                        |
+| `controllerManager.readinessProbe.initialDelaySeconds` | ControllerManager's readinessProbe initialDelaySeconds | `5`                                         |
+| `controllerManager.readinessProbe.periodSeconds`       | ControllerManager's readinessProbe periodSeconds       | `10`                                        |
+| `controllerManager.readinessProbe.timeoutSeconds`      | ControllerManager's readinessProbe timeoutSeconds      | `1`                                         |
+| `controllerManager.readinessProbe.failureThreshold`    | ControllerManager's readinessProbe failureThreshold    | `3`                                         |
+| `controllerManager.readinessProbe.successThreshold`    | ControllerManager's readinessProbe successThreshold    | `1`                                         |
+| `controllerManager.livenessProbe.initialDelaySeconds`  | ControllerManager's livenessProbe initialDelaySeconds  | `15`                                        |
+| `controllerManager.livenessProbe.periodSeconds`        | ControllerManager's livenessProbe periodSeconds        | `20`                                        |
+| `controllerManager.livenessProbe.timeoutSeconds`       | ControllerManager's livenessProbe timeoutSeconds       | `1`                                         |
+| `controllerManager.livenessProbe.failureThreshold`     | ControllerManager's livenessProbe failureThreshold     | `3`                                         |
+| `controllerManager.livenessProbe.successThreshold`     | ControllerManager's livenessProbe successThreshold     | `1`                                         |
+| `kubernetesClusterDomain`                              | kubernetesCluster's Domain                             | `cluster.local`                             |
+| `managerConfig.controllerManagerConfigYaml`            | controllerManagerConfigYaml                            | abbr.                                       |
+| `metricsService`                                       | metricsService's ports                                 | abbr.                                       |
+| `webhookService`                                       | webhookService's ports                                 | abbr.                                       |

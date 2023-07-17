@@ -36,6 +36,18 @@ controllerManager:
       allowPrivilegeEscalation: false
   replicas: 1
   imagePullSecrets: []
+  readinessProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 1
+    failureThreshold: 3
+    successThreshold: 1
+  livenessProbe:
+    initialDelaySeconds: 15
+    periodSeconds: 20
+    timeoutSeconds: 1
+    failureThreshold: 3
+    successThreshold: 1
 kubernetesClusterDomain: cluster.local
 # controller_manager_config.yaml. controllerManager utilizes this yaml via manager-config Configmap.
 managerConfig:
