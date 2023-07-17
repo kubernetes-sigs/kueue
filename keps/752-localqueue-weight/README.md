@@ -241,6 +241,8 @@ type LocalQueueFilteringPlugin interface {
 We will modify `entryOrdering` to support local queue sort plugins and modify `Manager.Heads` to support local queue 
 filter plugins.
 
+Besides, we will modify `preemptor` to preempt workloads if local queue's usage exceed its weight.
+
 ### Test Plan
 
 <!--
