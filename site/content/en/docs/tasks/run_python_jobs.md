@@ -159,3 +159,121 @@ print(job)
 See the [BatchV1](https://github.com/kubernetes-client/python/blob/master/kubernetes/docs/BatchV1Api.md)
 API documentation for more calls.
 
+
+### Flux Operator Job
+
+For this example, we will be using the [Flux Operator](https://github.com/flux-framework/flux-operator)
+to submit a job, and specifically using the [Python SDK](https://github.com/flux-framework/flux-operator/tree/main/sdk/python/v1alpha1) to do this easily. Given our Python environment created in the [setup](#before-you-begin), we can install this Python SDK directly to it as follows:
+
+```bash
+pip install fluxoperator
+```
+
+We will also need to [install the Flux operator](https://flux-framework.org/flux-operator/getting_started/user-guide.html#quick-install). 
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/flux-framework/flux-operator/main/examples/dist/flux-operator.yaml
+```
+
+Write the following script to `sample-flux-operator-job.py`:
+
+{{% include "python/sample-flux-operator-job.py" "python" %}}
+
+Now try running the example:
+
+```bash
+python sample-flux-operator-job.py
+```
+```console
+📦️ Container image selected is ghcr.io/flux-framework/flux-restful-api...
+⭐️ Creating sample job with prefix hello-world...
+Use:
+"kubectl get queue" to see queue assignment
+"kubectl get pods" to see pods
+```
+
+You'll be able to almost immediately see the MiniCluster job admitted to the local queue:
+
+```bash
+kubectl get queue
+```
+```console
+NAME         CLUSTERQUEUE    PENDING WORKLOADS   ADMITTED WORKLOADS
+user-queue   cluster-queue   0                   1
+```
+
+And the 4 pods running (we are creating a networked cluster with 4 nodes):
+
+```bash
+kubectl get pods
+```
+```console
+NAME                       READY   STATUS      RESTARTS   AGE
+hello-world7qgqd-0-wp596   1/1     Running     0          7s
+hello-world7qgqd-1-d7r87   1/1     Running     0          7s
+hello-world7qgqd-2-rfn4t   1/1     Running     0          7s
+hello-world7qgqd-3-blvtn   1/1     Running     0          7s
+```
+
+If you look at logs of the main broker pod (index 0 of the job above), there is a lot of
+output for debugging, and you can see "hello world" running at the end:
+
+```bash
+kubectl logs hello-world7qgqd-0-wp596 
+```
+
+<details>
+
+<summary>Flux Operator Lead Broker Output</summary>
+
+```console
+🌀 Submit Mode: flux start -o --config /etc/flux/config -Scron.directory=/etc/flux/system/cron.d   -Stbon.fanout=256   -Srundir=/run/flux    -Sstatedir=/var/lib/flux   -Slocal-uri=local:///run/flux/local     -Slog-stderr-level=6    -Slog-stderr-mode=local  flux submit  -n 1 --quiet  --watch echo hello world
+broker.info[0]: start: none->join 0.399725ms
+broker.info[0]: parent-none: join->init 0.030894ms
+cron.info[0]: synchronizing cron tasks to event heartbeat.pulse
+job-manager.info[0]: restart: 0 jobs
+job-manager.info[0]: restart: 0 running jobs
+job-manager.info[0]: restart: checkpoint.job-manager not found
+broker.info[0]: rc1.0: running /etc/flux/rc1.d/01-sched-fluxion
+sched-fluxion-resource.info[0]: version 0.27.0-15-gc90fbcc2
+sched-fluxion-resource.warning[0]: create_reader: allowlist unsupported
+sched-fluxion-resource.info[0]: populate_resource_db: loaded resources from core's resource.acquire
+sched-fluxion-qmanager.info[0]: version 0.27.0-15-gc90fbcc2
+broker.info[0]: rc1.0: running /etc/flux/rc1.d/02-cron
+broker.info[0]: rc1.0: /etc/flux/rc1 Exited (rc=0) 0.5s
+broker.info[0]: rc1-success: init->quorum 0.485239s
+broker.info[0]: online: hello-world7qgqd-0 (ranks 0)
+broker.info[0]: online: hello-world7qgqd-[0-3] (ranks 0-3)
+broker.info[0]: quorum-full: quorum->run 0.354587s
+hello world
+broker.info[0]: rc2.0: flux submit -n 1 --quiet --watch echo hello world Exited (rc=0) 0.3s
+broker.info[0]: rc2-success: run->cleanup 0.308392s
+broker.info[0]: cleanup.0: flux queue stop --quiet --all --nocheckpoint Exited (rc=0) 0.1s
+broker.info[0]: cleanup.1: flux cancel --user=all --quiet --states RUN Exited (rc=0) 0.1s
+broker.info[0]: cleanup.2: flux queue idle --quiet Exited (rc=0) 0.1s
+broker.info[0]: cleanup-success: cleanup->shutdown 0.252899s
+broker.info[0]: children-complete: shutdown->finalize 47.6699ms
+broker.info[0]: rc3.0: running /etc/flux/rc3.d/01-sched-fluxion
+broker.info[0]: rc3.0: /etc/flux/rc3 Exited (rc=0) 0.2s
+broker.info[0]: rc3-success: finalize->goodbye 0.212425s
+broker.info[0]: goodbye: goodbye->exit 0.06917ms
+```
+
+</details>
+
+If you submit and ask for four tasks, you'll see "hello world" four times:
+
+```bash
+python sample-flux-operator-job.py --tasks 4
+```
+```console
+...
+broker.info[0]: quorum-full: quorum->run 23.5812s
+hello world
+hello world
+hello world
+hello world
+```
+
+You can further customize the job, and can ask questions on the [Flux Operator issues board](https://github.com/flux-framework/flux-operator/issues).
+Finally, for instructions for how to do this with YAML outside of Python, see [Run A Flux MiniCluster](/docs/tasks/run_flux_minicluster/).
