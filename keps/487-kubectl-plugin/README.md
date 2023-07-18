@@ -230,11 +230,11 @@ The most likely thing a user wants to do is see "all" workloads. We will need to
 kuctl workloads <queue-name>
 ```
 
-| Name | Namespace | Command | Pods | Time | State |
-|------|-----------|---------|------|------|-------|
-| taco-345 | default | python | 3 | 2.322s | Running | 
-| taco-123 | default | python | 2 |  | Pending | 
-| ant-123 | insects | echo | 2 | 4.323s | Completed | 
+| Name     | API Group         | Kind        | Namespace | Command | Pods | Time   |     State |
+|----------|-------------------|-------------|-----------|---------|------|--------|-----------|
+| taco-345 | flux-framework.org| MiniCluster | default   | python  | 3    | 2.322s |   Running | 
+| taco-123 | flux-framework.org| MiniCluster | default   | python  | 2    |        |   Pending | 
+| ant-123  |  kubeflow.org     | MPIJob      | insects   | echo    | 2    | 4.323s | Completed | 
 
 Or allow it to be generic, and then include the Queue as a field:
 
@@ -242,11 +242,11 @@ Or allow it to be generic, and then include the Queue as a field:
 kuctl workloads
 ```
 
-| Name | Namespace | Command | Pods | Time | State | Queue |
-|------|-----------|---------|------|------|-------|-------|
-| taco-345 | default | python | 3 | 2.322s | Running | user-queue | 
-| taco-123 | default | python | 2 |  | Pending | user-queue |
-| ant-123 | insects | echo | 2 | 4.323s | Completed | user-queue |
+| Name     | API Group         | Kind        | Namespace | Command | Pods | Time   |     State | Queue |
+|----------|-------------------|-------------|-----------|---------|------|--------|-----------|-------|
+| taco-345 | flux-framework.org| MiniCluster | default   | python  | 3    | 2.322s |   Running | user-queue |
+| taco-123 | flux-framework.org| MiniCluster | default   | python  | 2    |        |   Pending | user-queue | 
+| ant-123  |  kubeflow.org     | MPIJob      | insects   | echo    | 2    | 4.323s | Completed | user-queue |
 
 We could likely support both, depending on how we think the average user interacts with queues (always using one, or wanting to interact with more than one). In HPC, people usually are submitting to a default queue and they don't ask for anything extra or special, but only ask for `--queue` to submit to another one.
 
@@ -256,9 +256,10 @@ With respect to the question about namespaces - whether "default" should be the 
 kuctl workloads --namespace insects
 ```
 
-| Name | Namespace | Command | Pods | Time | State |
-|------|-----------|---------|------|------|-------|
-| ant-123 | insects | echo | 2 | 4.323s | Completed |
+| Name     | API Group         | Kind        | Namespace | Command | Pods | Time   |     State | Queue |
+|----------|-------------------|-------------|-----------|---------|------|--------|-----------|-------|
+| ant-123  |  kubeflow.org     | MPIJob      | insects   | echo    | 2    | 4.323s | Completed | user-queue |
+
 
 We can also ask for a specific workload. E.g., if I just submit a workload and know the name, this would be intuitive to type.
 
@@ -267,9 +268,9 @@ We can also ask for a specific workload. E.g., if I just submit a workload and k
 kuctl workloads taco-123
 ```
 
-| Name | Namespace | Command | Pods | Time | State |
-|------|-----------|---------|------|------|-------|
-| taco-123 | default | python | 2 |  | Pending |
+| Name     | API Group         | Kind        | Namespace | Command | Pods | Time   |     State | Queue |
+|----------|-------------------|-------------|-----------|---------|------|--------|-----------|-------|
+| taco-123 | flux-framework.org| MiniCluster | default   | python  | 2    |        |   Pending | user-queue | 
 
 I think pattern matching should work to. This is something I've always wanted to work in `kubectl` and the closest I can get is tab completion.
 
@@ -278,10 +279,10 @@ I think pattern matching should work to. This is something I've always wanted to
 kuctl workloads taco-*
 ```
 
-| Name | Namespace | Command | Pods | Time | State |
-|------|-----------|---------|------|------|-------|
-| taco-345 | default | python | 3 | 2.322s | Runningg |
-| taco-123 | default | python | 2 |  | Pending |
+| Name     | API Group         | Kind        | Namespace | Command | Pods | Time   |     State | Queue |
+|----------|-------------------|-------------|-----------|---------|------|--------|-----------|-------|
+| taco-345 | flux-framework.org| MiniCluster | default   | python  | 3    | 2.322s |   Running | user-queue |
+| taco-123 | flux-framework.org| MiniCluster | default   | python  | 2    |        |   Pending | user-queue | 
 
 We likely want to also filter by state (or other attributes, TBA which others?)
 
@@ -289,9 +290,9 @@ We likely want to also filter by state (or other attributes, TBA which others?)
 kuctl workloads --state Pending
 ```
 
-| Name | Namespace | Command | Pods | Time | State |
-|------|-----------|---------|------|------|-------|
-| taco-123 | default | python | 2 |  | Pending |
+| Name     | API Group         | Kind        | Namespace | Command | Pods | Time   |     State | Queue |
+|----------|-------------------|-------------|-----------|---------|------|--------|-----------|-------|
+| taco-123 | flux-framework.org| MiniCluster | default   | python  | 2    |        |   Pending | user-queue | 
 
 
 ### Describe Workloads
