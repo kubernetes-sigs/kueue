@@ -88,7 +88,7 @@ def generate_minicluster_crd(job_name, image, command, args, quiet=False, tasks=
 
 def main():
     """
-    Run an MPI job. This requires the MPI Operator to be installed.
+    Run an example job using the Flux Operator.
     """
     parser = get_parser()
     args, _ = parser.parse_known_args()
