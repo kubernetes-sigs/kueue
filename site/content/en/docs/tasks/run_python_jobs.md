@@ -192,7 +192,7 @@ Use:
 "kubectl get pods" to see pods
 ```
 
-You'll be able to almost immediately see the MiniCluster job admitted to the queue:
+You'll be able to almost immediately see the MiniCluster job admitted to the local queue:
 
 ```bash
 kubectl get queue
@@ -275,4 +275,5 @@ hello world
 hello world
 ```
 
-You can further customize the job, and can ask questions on the [Flux Operator issues board](https://github.com/flux-framework/flux-operator/issues) if you have any.
+You can further customize the job, and can ask questions on the [Flux Operator issues board](https://github.com/flux-framework/flux-operator/issues).
+Finally, for instructions for how to do this with YAML outside of Python, see [Run A Flux MiniCluster](/docs/tasks/run_flux_minicluster/).
