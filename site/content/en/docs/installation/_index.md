@@ -94,6 +94,7 @@ data:
       healthProbeBindAddress: :8081
     metrics:
       bindAddress: :8080
+      # enableClusterQueueResources: true
     webhook:
       port: 9443
     manageJobsWithoutQueueName: true
