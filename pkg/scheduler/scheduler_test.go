@@ -1263,6 +1263,177 @@ func TestEntryOrdering(t *testing.T) {
 	}
 }
 
+func TestLastSchedulingContext(t *testing.T) {
+	resourceFlavors := []*kueue.ResourceFlavor{
+		{ObjectMeta: metav1.ObjectMeta{Name: "on-demand"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "spot"}},
+	}
+	clusterQueue := []kueue.ClusterQueue{
+		*utiltesting.MakeClusterQueue("eng-alpha").
+			QueueingStrategy(kueue.StrictFIFO).
+			Preemption(kueue.ClusterQueuePreemption{
+				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+				FlavorFungibility: kueue.FlavorFungibility{
+					WhenCanPreempt: kueue.Preempt,
+				},
+			}).
+			ResourceGroup(
+				*utiltesting.MakeFlavorQuotas("on-demand").
+					Resource(corev1.ResourceCPU, "50", "50").Obj(),
+				*utiltesting.MakeFlavorQuotas("spot").
+					Resource(corev1.ResourceCPU, "100", "0").Obj(),
+			).Obj(),
+	}
+
+	queues := []kueue.LocalQueue{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "default",
+				Name:      "main",
+			},
+			Spec: kueue.LocalQueueSpec{
+				ClusterQueue: "eng-alpha",
+			},
+		},
+	}
+	cases := []struct {
+		name              string
+		admittedWorkloads []kueue.Workload
+		workloads         []kueue.Workload
+		wantPreempted     sets.Set[string]
+		wantAdmissions    map[string]kueue.Admission
+	}{
+		{
+			name: "",
+			admittedWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("low-1", "default").
+					Request(corev1.ResourceCPU, "50").
+					Admit(utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj()).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("preemptor", "default").
+					Queue("main").
+					Request(corev1.ResourceCPU, "20").
+					Obj(),
+			},
+			wantPreempted: sets.Set[string]{},
+			wantAdmissions: map[string]kueue.Admission{
+				"default/preemptor": *utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "spot", "20").Obj(),
+				"default/low-1":     *utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj(),
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			scheme := runtime.NewScheme()
+
+			clientBuilder := utiltesting.NewClientBuilder().
+				WithLists(&kueue.WorkloadList{Items: tc.admittedWorkloads},
+					&kueue.WorkloadList{Items: tc.workloads},
+					&kueue.ClusterQueueList{Items: clusterQueue},
+					&kueue.LocalQueueList{Items: queues}).
+				WithObjects(
+					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
+				)
+			cl := clientBuilder.Build()
+			broadcaster := record.NewBroadcaster()
+			recorder := broadcaster.NewRecorder(scheme,
+				corev1.EventSource{Component: constants.AdmissionName})
+			cqCache := cache.New(cl)
+			qManager := queue.NewManager(cl, cqCache)
+			// Workloads are loaded into queues or clusterQueues as we add them.
+			for _, q := range queues {
+				if err := qManager.AddLocalQueue(ctx, &q); err != nil {
+					t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
+				}
+			}
+			for i := range resourceFlavors {
+				cqCache.AddOrUpdateResourceFlavor(resourceFlavors[i])
+			}
+			for _, cq := range clusterQueue {
+				if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
+					t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+				}
+				if err := qManager.AddClusterQueue(ctx, &cq); err != nil {
+					t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+				}
+			}
+			scheduler := New(qManager, cqCache, cl, recorder)
+			gotScheduled := make(map[string]kueue.Admission)
+			var mu sync.Mutex
+			scheduler.applyAdmission = func(ctx context.Context, w *kueue.Workload) error {
+				mu.Lock()
+				gotScheduled[workload.Key(w)] = *w.Status.Admission
+				mu.Unlock()
+				return nil
+			}
+			wg := sync.WaitGroup{}
+			scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+				func() { wg.Add(1) },
+				func() { wg.Done() },
+			))
+			gotPreempted := sets.New[string]()
+			scheduler.preemptor.OverrideApply(func(_ context.Context, w *kueue.Workload) error {
+				mu.Lock()
+				gotPreempted.Insert(workload.Key(w))
+				mu.Unlock()
+				return nil
+			})
+
+			ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+			go qManager.CleanUpOnContext(ctx)
+			defer cancel()
+
+			scheduler.schedule(ctx)
+			wg.Wait()
+
+			if diff := cmp.Diff(tc.wantPreempted, gotPreempted); diff != "" {
+				t.Errorf("Unexpected preemptions (-want,+got):\n%s", diff)
+			}
+			wantAdmissions := map[string]kueue.Admission{}
+			if diff := cmp.Diff(wantAdmissions, gotScheduled); diff != "" {
+				t.Errorf("Unexpected scheduled workloads (-want,+got):\n%s", diff)
+			}
+
+			// should schedule from where preempting failed last time
+			ctx, cancel = context.WithTimeout(ctx, queueingTimeout)
+			go qManager.CleanUpOnContext(ctx)
+			defer cancel()
+
+			scheduler.schedule(ctx)
+			wg.Wait()
+
+			if diff := cmp.Diff(tc.wantPreempted, gotPreempted); diff != "" {
+				t.Errorf("Unexpected preemptions (-want,+got):\n%s", diff)
+			}
+			// Verify assignments in cache.
+			gotAssignments := make(map[string]kueue.Admission)
+			snapshot := cqCache.Snapshot()
+			for cqName, c := range snapshot.ClusterQueues {
+				for name, w := range c.Workloads {
+					if !workload.IsAdmitted(w.Obj) {
+						t.Errorf("Workload %s is not admitted by a clusterQueue, but it is found as member of clusterQueue %s in the cache", name, cqName)
+					} else if string(w.Obj.Status.Admission.ClusterQueue) != cqName {
+						t.Errorf("Workload %s is admitted by clusterQueue %s, but it is found as member of clusterQueue %s in the cache", name, w.Obj.Status.Admission.ClusterQueue, cqName)
+					} else {
+						gotAssignments[name] = *w.Obj.Status.Admission
+					}
+				}
+			}
+			if len(gotAssignments) == 0 {
+				gotAssignments = nil
+			}
+			if diff := cmp.Diff(tc.wantAdmissions, gotAssignments); diff != "" {
+				t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
+			}
+		})
+	}
+
+}
+
 var ignoreConditionTimestamps = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
 
 func TestRequeueAndUpdate(t *testing.T) {
