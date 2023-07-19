@@ -13,6 +13,7 @@
   - [Jobframework](#jobframework)
   - [batch/Job controller](#batchjob-controller)
   - [kubeflow/MPIJob controller](#kubeflowmpijob-controller)
+  - [kubernetes-sigs/jobset](#kubernetes-sigsjobset)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
@@ -70,6 +71,14 @@ type PodSet struct {
     // enabled.
     // +optional
     MinCount *int32 `json:"minCount,omitempty"`
+
+    // partialAdmissionDecrementStep is the step in which partialadmission will decremet the admission count.
+    //
+    // If this is provided, both minCount and count should be a multiple of it.
+    // If not provided and partial admission for the current PodSet is enabled this will be considered 1.
+    // This field is ignored if partial admission is not enabled (minCount == nil)
+    // +optional
+    PartialAdmissionDecrementStep *int32 `json:"partialAdmissionDecrementStep,omitempty"`
 }
 
 ```
@@ -79,6 +88,8 @@ type PodSet struct {
 In case the workload proposed for the current scheduling cycle, does not fit, with or without preemption, in the current available quota and any of its PodSets allow partial admission, try to find to find a lower counts combination that fits the available quota with or without borrowing.
 
 The search should be optimized (binary search) and preserve the proportion of pods lost across the variable count PodSets.
+
+If `partialAdmissionDecrementStep` is provided, the returned acceptable count will be rounded down to the closest multiple of `partialAdmissionDecrementStep`.
 
 The accepted number of pods in each PodSet are recorded in `workload.Status.Admission.PodSetAssignments[*].ResourceUsage.Count`
 
@@ -143,6 +154,21 @@ In case of MPIJob `j.Spec.RunPolicy.SchedulingPolicy.MinAvailable` can be used t
 
 Whether an MPIJob supports partial admission or not can be deduced based on `MinAvailable` without the need of a dedicated annotation.
 Additional research is needed into the potential usage of multiple variable count PodSets.
+
+### kubernetes-sigs/jobset
+
+Besides adapting `RunWithPodSetsInfo` and `RestorePodSetsInfo` it should also:
+
+- rework `PodSets()` to populate `MinCount` and `PartialAdmissionDecrementStep` if the jobset is marked to support partial admission.
+  * jobsets supporting partial admission should have a dedicated annotation. eg. `kueue.x-k8s.io/jobset-min-replicas`, indicating the index of the replicated job that supports partial admission as well as the minimum `replicas` acceptable.
+
+```
+MinCount = minimumReplicas * replicatedJobParallelism
+PartialAdmissionDecrementStep = replicatedJobParallelism
+```
+
+NOTE: Currently jobset is not supporting `replicas` updates, this needs to be implemented on the jobset side.
+
 
 ### Test Plan
 
