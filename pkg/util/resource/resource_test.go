@@ -259,3 +259,44 @@ func TestGetGraterKeys(t *testing.T) {
 		})
 	}
 }
+
+func TestQuantityToFloat(t *testing.T) {
+	cases := map[string]struct {
+		q          resource.Quantity
+		wantResult float64
+	}{
+		"decimal zero exponent": {
+			q:          resource.MustParse("5"),
+			wantResult: 5,
+		},
+		"float zero exponent": {
+			q:          resource.MustParse("5.5"),
+			wantResult: 5.5,
+		},
+		"decimal positive exponent": {
+			q:          resource.MustParse("5k"),
+			wantResult: 5000,
+		},
+		"float positive exponent": {
+			q:          resource.MustParse("5.5k"),
+			wantResult: 5500,
+		},
+		"decimal negative exponent": {
+			q:          resource.MustParse("5m"),
+			wantResult: 0.005,
+		},
+		"float negative exponent": {
+			q:          resource.MustParse("5.5m"),
+			wantResult: 0.006, // 1/1000 is the maximum precision, the value will be rounded
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := QuantityToFloat(&tc.q)
+			if got != tc.wantResult {
+				t.Errorf("Unexpected result, expecting %f got %f", tc.wantResult, got)
+			}
+		})
+	}
+}

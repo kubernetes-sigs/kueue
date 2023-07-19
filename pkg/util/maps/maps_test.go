@@ -63,3 +63,66 @@ func TestToRefMap(t *testing.T) {
 
 	}
 }
+
+func TestContains(t *testing.T) {
+	cases := map[string]struct {
+		a          map[string]int
+		b          map[string]int
+		wantResult bool
+	}{
+		"nil a": {
+			a: nil,
+			b: map[string]int{
+				"v1": 1,
+			},
+			wantResult: false,
+		},
+		"nil b": {
+			a: map[string]int{
+				"v1": 1,
+			},
+			b:          nil,
+			wantResult: true,
+		},
+		"extra in b": {
+			a: map[string]int{
+				"v1": 1,
+			},
+			b: map[string]int{
+				"v1": 1,
+				"v2": 2,
+			},
+			wantResult: false,
+		},
+		"extra in a": {
+			a: map[string]int{
+				"v1": 1,
+				"v2": 2,
+			},
+			b: map[string]int{
+				"v1": 1,
+			},
+			wantResult: true,
+		},
+		"missmatch": {
+			a: map[string]int{
+				"v1": 1,
+				"v2": 3,
+			},
+			b: map[string]int{
+				"v1": 1,
+				"v2": 2,
+			},
+			wantResult: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := Contains(tc.a, tc.b)
+			if got != tc.wantResult {
+				t.Errorf("Unexpected result, expecting %v", tc.wantResult)
+			}
+		})
+	}
+}

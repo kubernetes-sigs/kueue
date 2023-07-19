@@ -75,6 +75,9 @@ func managerSetup(mgr manager.Manager, ctx context.Context) {
 	cCache := cache.New(mgr.GetClient())
 	queues := queue.NewManager(mgr.GetClient(), cCache)
 
-	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &config.Configuration{})
+	controllersCfg := &config.Configuration{}
+	controllersCfg.Metrics.EnableClusterQueueResources = true
+
+	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 }
