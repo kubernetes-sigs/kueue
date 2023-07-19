@@ -231,8 +231,13 @@ type FlavorAssignment struct {
 // be assigned immediately. Each assigned flavor is accompanied with a
 // FlavorAssignmentMode.
 func AssignFlavors(log logr.Logger, wl *workload.Info, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, cq *cache.ClusterQueue, counts []int32) Assignment {
-	if wl.LastSchedule != nil && !wl.LastSchedule.Equal(resourceFlavors, workload.FlavorResourceQuantities(cq.Usage), workload.FlavorResourceQuantities(cq.Cohort.Usage)) {
-		wl.LastSchedule = nil
+	if wl.LastSchedule != nil {
+		if cq.Cohort == nil && !wl.LastSchedule.Equal(resourceFlavors, workload.FlavorResourceQuantities(cq.Usage), make(workload.FlavorResourceQuantities)) {
+			wl.LastSchedule = nil
+		}
+		if cq.Cohort != nil && !wl.LastSchedule.Equal(resourceFlavors, workload.FlavorResourceQuantities(cq.Usage), workload.FlavorResourceQuantities(cq.Cohort.Usage)) {
+			wl.LastSchedule = nil
+		}
 	}
 
 	if len(counts) == 0 {

@@ -308,7 +308,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		} else {
 			e.assignment, e.preemptionTargets = s.getAssignments(log, &e.Info, &snap)
 			e.inadmissibleMsg = e.assignment.Message()
-			w.LastSchedule = e.assignment.ScheduleState.Clone()
+			e.Info.LastSchedule = e.assignment.ScheduleState.Clone()
 		}
 		entries = append(entries, e)
 	}
