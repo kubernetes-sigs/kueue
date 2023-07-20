@@ -23,6 +23,8 @@ quotas and queues.
   [administer cluster quotas](/docs/tasks/administer_cluster_quotas) with ClusterQueues and LocalQueues.
 - As a batch administrator, you can learn how to setup
   [Sequential Admission with Ready Pods](/docs/tasks/setup_sequential_admission).
+- As a batch administrator, you can learn how to enable
+  [pprof endpoints](/docs/tasks/enabling_pprof_endpoints).
 
 ### Batch user
 

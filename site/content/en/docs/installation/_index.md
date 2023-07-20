@@ -105,6 +105,7 @@ data:
     waitForPodsReady:
       enable: true
       timeout: 10m
+    # pprofBindAddress: :8082
     integrations:
       frameworks:
       - "batch/job"
