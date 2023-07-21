@@ -6,6 +6,22 @@ description: >
   Installing Kueue to a Kubernetes Cluster
 ---
 
+<!-- toc -->
+- [Before you begin](#before-you-begin)
+- [Install a released version](#install-a-released-version)
+  - [Add metrics scraping for prometheus-operator](#add-metrics-scraping-for-prometheus-operator)
+  - [Uninstall](#uninstall)
+- [Install a custom-configured released version](#install-a-custom-configured-released-version)
+- [Install the latest development version](#install-the-latest-development-version)
+  - [Uninstall](#uninstall-1)
+- [Build and install from source](#build-and-install-from-source)
+  - [Add metrics scraping for prometheus-operator](#add-metrics-scraping-for-prometheus-operator-1)
+  - [Uninstall](#uninstall-2)
+- [Install via Helm](#install-via-helm)
+- [Change the feature gates configuration](#change-the-feature-gates-configuration)
+
+<!-- /toc -->
+
 ## Before you begin
 
 Make sure the following conditions are met:
@@ -123,40 +139,6 @@ more about using `waitForPodsReady` for Kueue.
 kubectl apply -f manifests.yaml
 ```
 
-## Change the feature gates configuration
-
-Kueue uses a similar mechanism to configure features as described in [Kubernetes Feature Gates](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates).
-
-In order to change the default of a feature, you need to edit the `kueue-controller-manager` deployment within the kueue installation namespace and change the `manager` container arguments to include 
-
-```
---feature-gates=...,<FeatureName>=<true|false>
-```
-
-For example, to enable `PartialAdmission`, you should change the manager deployment as follows:
-
-```diff
-kind: Deployment
-...
-spec:
-  ...
-  template:
-    ...
-    spec:
-      containers:
-      - name: manager
-        args:
-        - --config=controller_manager_config.yaml
-        - --zap-log-level=2
-+       - --feature-gates=PartialAdmission=true
-```
-
-The currently supported features are:
-
-| Feature | Default | Stage | Since | Until |
-|---------|---------|-------|-------|-------|
-| `PartialAdmission` | `false` | Alpha | 0.4 |  |
-
 ## Install the latest development version
 
 To install the latest development version of Kueue in your cluster, run the
@@ -205,3 +187,40 @@ To uninstall Kueue, run the following command:
 ```sh
 make undeploy
 ```
+## Install via [Helm](https://helm.sh/)
+
+To install and configure Kueue with Helm, follow the [instructions](https://github.com/kubernetes-sigs/kueue/blob/main/charts/kueue/README.md).
+
+## Change the feature gates configuration
+
+Kueue uses a similar mechanism to configure features as described in [Kubernetes Feature Gates](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates).
+
+In order to change the default of a feature, you need to edit the `kueue-controller-manager` deployment within the kueue installation namespace and change the `manager` container arguments to include 
+
+```
+--feature-gates=...,<FeatureName>=<true|false>
+```
+
+For example, to enable `PartialAdmission`, you should change the manager deployment as follows:
+
+```diff
+kind: Deployment
+...
+spec:
+  ...
+  template:
+    ...
+    spec:
+      containers:
+      - name: manager
+        args:
+        - --config=controller_manager_config.yaml
+        - --zap-log-level=2
++       - --feature-gates=PartialAdmission=true
+```
+
+The currently supported features are:
+
+| Feature | Default | Stage | Since | Until |
+|---------|---------|-------|-------|-------|
+| `PartialAdmission` | `false` | Alpha | 0.4 |  |
