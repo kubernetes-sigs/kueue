@@ -82,6 +82,16 @@ func (j *JobWrapper) Completions(p int32) *JobWrapper {
 	return j
 }
 
+// Indexed sets the job's completion to Indexed of NonIndexed
+func (j *JobWrapper) Indexed(indexed bool) *JobWrapper {
+	mode := batchv1.NonIndexedCompletion
+	if indexed {
+		mode = batchv1.IndexedCompletion
+	}
+	j.Spec.CompletionMode = &mode
+	return j
+}
+
 // PriorityClass updates job priorityclass.
 func (j *JobWrapper) PriorityClass(pc string) *JobWrapper {
 	j.Spec.Template.Spec.PriorityClassName = pc

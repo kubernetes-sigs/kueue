@@ -51,7 +51,8 @@ var (
 )
 
 const (
-	JobMinParallelismAnnotation = "kueue.x-k8s.io/job-min-parallelism"
+	JobMinParallelismAnnotation              = "kueue.x-k8s.io/job-min-parallelism"
+	JobCompletionsEqualParallelismAnnotation = "kueue.x-k8s.io/job-completions-equal-parallelism"
 )
 
 func init() {
@@ -218,6 +219,9 @@ func (j *Job) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) {
 
 	if j.minPodsCount() != nil {
 		j.Spec.Parallelism = pointer.Int32(info.Count)
+		if j.syncCompletionWithParallelism() {
+			j.Spec.Completions = j.Spec.Parallelism
+		}
 	}
 }
 
@@ -229,6 +233,9 @@ func (j *Job) RestorePodSetsInfo(podSetsInfo []jobframework.PodSetInfo) {
 	// if the job accepts partial admission
 	if j.minPodsCount() != nil {
 		j.Spec.Parallelism = pointer.Int32(podSetsInfo[0].Count)
+		if j.syncCompletionWithParallelism() {
+			j.Spec.Completions = j.Spec.Parallelism
+		}
 	}
 
 	if equality.Semantic.DeepEqual(j.Spec.Template.Spec.NodeSelector, podSetsInfo[0].NodeSelector) {
@@ -283,6 +290,15 @@ func (j *Job) minPodsCount() *int32 {
 		}
 	}
 	return nil
+}
+
+func (j *Job) syncCompletionWithParallelism() bool {
+	if strVal, found := j.GetAnnotations()[JobCompletionsEqualParallelismAnnotation]; found {
+		if bVal, err := strconv.ParseBool(strVal); err == nil {
+			return bVal
+		}
+	}
+	return false
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
