@@ -35,6 +35,7 @@ import (
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/equality"
+	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/pkg/util/maps"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/slices"
@@ -60,6 +61,7 @@ type JobReconciler struct {
 type Options struct {
 	ManageJobsWithoutQueueName bool
 	WaitForPodsReady           bool
+	KubeServerVersion          *kubeversion.ServerVersionFetcher
 }
 
 // Option configures the reconciler.
@@ -79,6 +81,12 @@ func WithManageJobsWithoutQueueName(f bool) Option {
 func WithWaitForPodsReady(f bool) Option {
 	return func(o *Options) {
 		o.WaitForPodsReady = f
+	}
+}
+
+func WithKubeServerVersion(v *kubeversion.ServerVersionFetcher) Option {
+	return func(o *Options) {
+		o.KubeServerVersion = v
 	}
 }
 
