@@ -187,9 +187,9 @@ To uninstall Kueue, run the following command:
 ```sh
 make undeploy
 ```
-## Install via [Helm](https://helm.sh/)
+## Install via Helm
 
-To install and configure Kueue with Helm, follow the [instructions](https://github.com/kubernetes-sigs/kueue/blob/main/charts/kueue/README.md).
+To install and configure Kueue with [Helm](https://helm.sh/), follow the [instructions](https://github.com/kubernetes-sigs/kueue/blob/main/charts/kueue/README.md).
 
 ## Change the feature gates configuration
 
