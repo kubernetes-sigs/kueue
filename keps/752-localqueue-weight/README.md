@@ -178,7 +178,12 @@ allow submitting workloads to leaf cluster queues.
 
 And we will add a weight property in local queue to allow setting weights.
 We will allow users to change the property, and use `XValidation` to prevent
-from users to change cluster queue field.
+from users to change cluster queue field. 
+
+Weight will be effective for all local queues point to same cluster queue.
+If someone only need to fine tune resource sharing between his/her workloads, admins
+will create a cluster queue for his/her namespace, and create multi local queue 
+for him/her. So that he/she can meet the goal.
 ```golang
 // LocalQueueSpec defines the desired state of LocalQueue
 type LocalQueueSpec struct {
