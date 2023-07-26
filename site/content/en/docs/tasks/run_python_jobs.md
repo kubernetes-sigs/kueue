@@ -277,3 +277,104 @@ hello world
 
 You can further customize the job, and can ask questions on the [Flux Operator issues board](https://github.com/flux-framework/flux-operator/issues).
 Finally, for instructions for how to do this with YAML outside of Python, see [Run A Flux MiniCluster](/docs/tasks/run_flux_minicluster/).
+
+### MPI Operator Job
+
+For this example, we will be using the [MPI Operator](https://www.kubeflow.org/docs/components/training/mpi/)
+to submit a job, and specifically using the [Python SDK](https://github.com/kubeflow/mpi-operator/tree/master/sdk/python/v2beta1) to do this easily. Given our Python environment created in the [setup](#before-you-begin), we can install this Python SDK directly to it as follows:
+
+```bash
+git clone --depth 1 https://github.com/kubeflow/mpi-operator /tmp/mpijob
+cd /tmp/mpijob/sdk/python/v2beta1
+python setup.py install
+cd -
+```
+
+Importantly, the MPI Operator *must be installed before Kueue* for this to work! Let's start from scratch with a new Kind cluster.
+We will also need to [install the MPI operator](https://github.com/kubeflow/mpi-operator/tree/master#installation) and Kueue. Here we install
+the exact versions tested with this example:
+
+```bash
+kubectl apply -f https://github.com/kubeflow/mpi-operator/releases/download/v0.4.0/mpi-operator.yaml
+kubectl apply -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.4.0/manifests.yaml
+```
+
+Check the [mpi-operator release page](https://github.com/kubeflow/mpi-operator/releases) and [Kueue release page](https://github.com/kubernetes-sigs/kueue/releases) for alternate versions.
+You need to wait until Kueue is ready. You can determine this as follows:
+
+```bash
+# Wait until you see all pods in the kueue-system are Running
+kubectl get pods -n kueue-system
+```
+
+When Kueue is ready:
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/kueue/main/site/static/examples/single-clusterqueue-setup.yaml
+```
+
+Now try running the example MPI job.
+
+```bash
+python sample-mpijob.py
+```
+```console
+📦️ Container image selected is mpioperator/mpi-pi:openmpi...
+⭐️ Creating sample job with prefix pi...
+Use:
+"kubectl get queue" to see queue assignment
+"kubectl get jobs" to see jobs
+```
+
+{{% include "python/sample-mpijob.py" "python" %}}
+
+After submit, you can see that the queue has an admitted workload!
+
+```bash
+$ kubectl get queue
+```
+```console
+NAME         CLUSTERQUEUE    PENDING WORKLOADS   ADMITTED WORKLOADS
+user-queue   cluster-queue   0                   1
+```
+
+And that the job "pi-launcher" has started:
+
+```bash
+$ kubectl get jobs
+NAME          COMPLETIONS   DURATION   AGE
+pi-launcher   0/1           9s         9s
+```
+
+The MPI Operator works by way of a central launcher interacting with nodes via ssh. We can inspect
+a worker and the launcher to get a glimpse of how both work:
+
+```bash
+$ kubectl logs pods/pi-worker-1 
+```
+```console
+Server listening on 0.0.0.0 port 22.
+Server listening on :: port 22.
+Accepted publickey for mpiuser from 10.244.0.8 port 51694 ssh2: ECDSA SHA256:rgZdwufXolOkUPA1w0bf780BNJC8e4/FivJb1/F7OOI
+Received disconnect from 10.244.0.8 port 51694:11: disconnected by user
+Disconnected from user mpiuser 10.244.0.8 port 51694
+Received signal 15; terminating.
+```
+
+The job is fairly quick, and we can see the output of pi in the launcher:
+
+```bash
+$ kubectl logs pods/pi-launcher-f4gqv 
+```
+```console
+Warning: Permanently added 'pi-worker-0.pi-worker.default.svc,10.244.0.7' (ECDSA) to the list of known hosts.
+Warning: Permanently added 'pi-worker-1.pi-worker.default.svc,10.244.0.9' (ECDSA) to the list of known hosts.
+Rank 1 on host pi-worker-1
+Workers: 2
+Rank 0 on host pi-worker-0
+pi is approximately 3.1410376000000002
+```
+
+That looks like pi! 🎉️🥧️
+If you are interested in running this same example with YAML outside of Python, see [Run an MPIJob](/docs/tasks/run_mpi_jobs/).
+
