@@ -158,14 +158,38 @@ proposal will be implemented, this is the place to discuss them.
 
 ### API
 
-We add a weight property in local queue to allow setting weights.
+We add a new CRD named `CoHort` to define the details about a `cohort`.
+```golang
+type CoHortSpec struct {
+  Name string
+  ParentCQ string
+}
+type CoHortStatus struct {
+  Usage []FlavorUsage
+}
+```
+
+If a `CoHort` belongs to any ClusterQueue, sum of the nominal resources 
+for CQs with `CQ.cohort=CoHort.name` must less or equal than the nominal 
+resources of the parent cluster queue.
+
+We will prevent any local queue point to a parent cluster queue to only
+allow submitting workloads to leaf cluster queues.
+
+And we will add a weight property in local queue to allow setting weights.
+We will allow users to change the property, and use `XValidation` to prevent
+from users to change cluster queue field.
 ```golang
 // LocalQueueSpec defines the desired state of LocalQueue
 type LocalQueueSpec struct {
-	...
+  // +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
+	ClusterQueue ClusterQueueReference `json:"clusterQueue,omitempty"`
   weight *int
 }
 ```
+
+In this way, our users can fine tune resource sharing between their workloads, and admins
+can offer multi-level hierarchy for their users.
 
 We add a knob in cluster queue to allow users choose local queue sort and filter plugin.
 ```golang
