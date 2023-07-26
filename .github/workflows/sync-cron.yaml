@@ -13,14 +13,6 @@ jobs:
       status: open
     secrets:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
-  mcariatm:
-    uses: epam/kubernetes-kueue/.github/workflows/add-issues-by-user.yaml@main
-    with:
-      gh_repo: kubernetes-sigs/kueue
-      gh_user: mcariatm
-      status: open      
-    secrets:
-      GH_TOKEN: ${{ secrets.GH_TOKEN }}      
   akranga:
     uses: epam/kubernetes-kueue/.github/workflows/add-issues-by-user.yaml@main
     with:
@@ -42,6 +34,14 @@ jobs:
     with:
       gh_repo: kubernetes-sigs/kueue
       gh_user: stuton
+      status: open
+    secrets:
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
+  achernevskii:
+    uses: epam/kubernetes-kueue/.github/workflows/add-issues-by-user.yaml@main
+    with:
+      gh_repo: kubernetes-sigs/kueue
+      gh_user: achernevskii
       status: open
     secrets:
       GH_TOKEN: ${{ secrets.GH_TOKEN }}
