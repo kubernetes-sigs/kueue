@@ -39,6 +39,18 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
+var snapCmpOpts = []cmp.Option{
+	cmpopts.EquateEmpty(),
+	cmpopts.IgnoreUnexported(cache.ClusterQueue{}),
+	cmp.Transformer("Cohort.Members", func(s sets.Set[*cache.ClusterQueue]) sets.Set[string] {
+		result := make(sets.Set[string], len(s))
+		for cq := range s {
+			result.Insert(cq.Name)
+		}
+		return result
+	}), // avoid recursion.
+}
+
 func TestPreemption(t *testing.T) {
 	flavors := []*kueue.ResourceFlavor{
 		utiltesting.MakeResourceFlavor("default").Obj(),
@@ -771,6 +783,8 @@ func TestPreemption(t *testing.T) {
 				return nil
 			}
 
+			startingSnapshot := cqCache.Snapshot()
+			// make a working copy of the snapshot than preemption can temporarily modify
 			snapshot := cqCache.Snapshot()
 			wlInfo := workload.NewInfo(tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
@@ -784,6 +798,9 @@ func TestPreemption(t *testing.T) {
 			}
 			if preempted != tc.wantPreempted.Len() {
 				t.Errorf("Reported %d preemptions, want %d", preempted, tc.wantPreempted.Len())
+			}
+			if diff := cmp.Diff(startingSnapshot, snapshot, snapCmpOpts...); diff != "" {
+				t.Errorf("Snapshot was modified (-initial,+end):\n%s", diff)
 			}
 		})
 	}
