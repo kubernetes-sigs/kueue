@@ -174,6 +174,7 @@ func MakePodSet(name string, count int) *PodSetWrapper {
 			Count: int32(count),
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
+					RestartPolicy: corev1.RestartPolicyNever,
 					Containers: []corev1.Container{
 						{
 							Name: "c",

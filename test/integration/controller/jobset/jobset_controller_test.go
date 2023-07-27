@@ -350,9 +350,7 @@ var _ = ginkgo.Describe("JobSet controller for workloads when only jobs with que
 		}
 		gomega.Expect(k8sClient.Update(ctx, createdJobSet)).Should(gomega.Succeed())
 		gomega.Eventually(func() error {
-			err := k8sClient.Get(ctx, wlLookupKey, createdWorkload)
-			fmt.Println(err)
-			return err
+			return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 })

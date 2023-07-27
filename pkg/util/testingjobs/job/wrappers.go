@@ -44,7 +44,7 @@ func MakeJob(name, ns string) *JobWrapper {
 			Suspend:     pointer.Bool(true),
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
-					RestartPolicy: "Never",
+					RestartPolicy: corev1.RestartPolicyNever,
 					Containers: []corev1.Container{
 						{
 							Name:      "c",
@@ -62,6 +62,11 @@ func MakeJob(name, ns string) *JobWrapper {
 // Obj returns the inner Job.
 func (j *JobWrapper) Obj() *batchv1.Job {
 	return &j.Job
+}
+
+// Clone returns deep copy of the Job.
+func (j *JobWrapper) Clone() *JobWrapper {
+	return &JobWrapper{Job: *j.DeepCopy()}
 }
 
 // Suspend updates the suspend status of the job
