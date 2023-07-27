@@ -141,6 +141,10 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			continue
 		}
 		cq := snapshot.ClusterQueues[e.ClusterQueue]
+		if e.assignment.RepresentativeMode() == flavorassigner.Preempt && len(e.preemptionTargets) == 0 {
+			log.V(2).Info("Workload requires preemption, but there are no candidate workloads allowed for preemption", "preemptionReclaimWithinCohort", cq.Preemption.ReclaimWithinCohort, "preemptionWithinClusterQueue", cq.Preemption.WithinClusterQueue)
+			continue
+		}
 		if cq.Cohort != nil {
 			// Having more than one workloads from the same cohort admitted in the same scheduling cycle can lead
 			// to over admission if:
@@ -159,18 +163,14 @@ func (s *Scheduler) schedule(ctx context.Context) {
 		}
 		log := log.WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue))
 		ctx := ctrl.LoggerInto(ctx, log)
-		if e.assignment.RepresentativeMode() != flavorassigner.Fit {
-			if len(e.preemptionTargets) != 0 {
-				preempted, err := s.preemptor.IssuePreemptions(ctx, e.preemptionTargets, cq)
-				if err != nil {
-					log.Error(err, "Failed to preempt workloads")
-				}
-				if preempted != 0 {
-					e.inadmissibleMsg += fmt.Sprintf(". Pending the preemption of %d workload(s)", preempted)
-					e.requeueReason = queue.RequeueReasonPendingPreemption
-				}
-			} else {
-				log.V(2).Info("Workload requires preemption, but there are no candidate workloads allowed for preemption", "preemptionReclaimWithinCohort", cq.Preemption.ReclaimWithinCohort, "preemptionWithinClusterQueue", cq.Preemption.WithinClusterQueue)
+		if e.assignment.RepresentativeMode() == flavorassigner.Preempt {
+			preempted, err := s.preemptor.IssuePreemptions(ctx, e.preemptionTargets, cq)
+			if err != nil {
+				log.Error(err, "Failed to preempt workloads")
+			}
+			if preempted != 0 {
+				e.inadmissibleMsg += fmt.Sprintf(". Pending the preemption of %d workload(s)", preempted)
+				e.requeueReason = queue.RequeueReasonPendingPreemption
 			}
 			continue
 		}
