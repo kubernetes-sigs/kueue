@@ -248,7 +248,7 @@ func findCandidates(wl *kueue.Workload, cq *cache.ClusterQueue, resPerFlv resour
 	}
 
 	if cq.Cohort != nil && cq.Preemption.ReclaimWithinCohort != kueue.PreemptionPolicyNever {
-		cqs := cq.Cohort.Members
+		cqs := cq.Cohort.Members.Clone()
 		cqs.Delete(cq)
 		for cohortCQ := range cqs {
 			if !cqIsBorrowing(cohortCQ, resPerFlv) {
