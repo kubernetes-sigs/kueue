@@ -1,6 +1,6 @@
 ---
 title: "Integrate a custom Job"
-date: 2022-07-25
+date: 2023-07-25
 weight: 8
 description: >
   Integrate a custom Job with Kueue.
@@ -9,39 +9,50 @@ description: >
 
 This page shows how to integrate a custom Job with Kueue. 
 
-## What we need to build
+## What you need to specify
 
-1. Configration
+1. Configuration
 2. Controller
 3. Webhook
+4. Test files
+5. Adjust build system
 
 ## Configure your custom Job
 
-Add your framework name to `.integrations.frameworks` in `config/components/manager/controller_manager_config.yaml`
+Add your framework name to `.integrations.frameworks` in [controller_manager_config.yaml](https://github.com/kubernetes-sigs/kueue/blob/main/config/components/manager/controller_manager_config.yaml)
 
 ## Build controller
 
-You can create the controller in `./pkg/controller/jobs/$YOUR_CUSTOM_JOB`.
+Provide your code of the controller under a dedicated directory. This directory need to under the `./pkg/controller/jobs/` folder.
 
 1. Register a new framework
 2. Add RBAC Authorization
     - Add RBAC Authorization for priorityclasses, events, workloads, resourceflavors and any resources you want.
 3. Implement interfaces
-    - `Object()`: returns the job instance.
-    - `IsSuspended()`: returns whether the job is suspended or not.
-    - `Suspend()`: will suspend the job.
-    - `RunWithPodSetsInfo(nodeSelectors []PodSetInfo)`: will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
-    - `RestorePodSetsInfo(nodeSelectors []PodSetInfo)`: will restore the original node affinity and podSet counts of the job.
-    - `Finished()`: means whether the job is completed/failed or not, condition represents the workload finished condition.
-    - `PodSets()`: will build workload podSets corresponding to the job.
-    - `IsActive()`: returns true if there are any running pods.
-    - `PodsReady()`: instructs whether job derived pods are all ready now.
-    - `GetGVK()`: returns GVK (Group Version Kind) for the job.
+    - You can click this [link](https://github.com/kubernetes-sigs/kueue/blob/main/pkg/controller/jobframework/interface.go) to check which interfaces you need to implement.
+
 
 ## Build webhook
 
-You can create the webhook in `./pkg/controller/jobs/$YOUR_CUSTOM_JOB`.
+Create your webhook file in your dedicated director.
 
-You can learn how to create webhook in this [page](https://book.kubebuilder.io/cronjob-tutorial/webhook-implementation.html). Also, you can see webhook [example](https://github.com/kubernetes-sigs/kueue/blob/main/pkg/controller/jobs/rayjob/rayjob_webhook.go) of RayJob with Kueue.
+You can learn how to create webhook in this [page](https://book.kubebuilder.io/cronjob-tutorial/webhook-implementation.html).
 
-Make sure that your custom job has **suspend** abilities. Kueue will only schedules suspended job.
+Make sure that your custom job has **suspend** abilities. Kueue will only schedule suspended job.
+
+## Add test files
+Create test files which help test your custom job's controller and webhook.
+
+You can check the sample test files in [completed integrations](#completed-integrations) to learn how to implement them.
+
+## Adjust build system
+Update [Makefile](https://github.com/kubernetes-sigs/kueue/blob/main/Makefile) for testing.
+   - Add commands which copy the crd of your custom job to the Kueue project.
+   - Add your custom job operator crd dependencies into `test-integration`.
+
+## Completed integrations
+Here are 4 completed integrations. You can learn them as examples:
+   - [BatchJob](https://github.com/kubernetes-sigs/kueue/tree/main/pkg/controller/jobs/job)
+   - [JobSet](https://github.com/kubernetes-sigs/kueue/tree/main/pkg/controller/jobs/jobset)
+   - [MPIJob](https://github.com/kubernetes-sigs/kueue/tree/main/pkg/controller/jobs/mpijob)
+   - [RayJob](https://github.com/kubernetes-sigs/kueue/tree/main/pkg/controller/jobs/rayjob)
