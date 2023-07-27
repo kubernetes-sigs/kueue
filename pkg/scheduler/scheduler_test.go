@@ -616,19 +616,26 @@ func TestSchedule(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("new", "eng-beta").
 					Queue("main").
-					Creation(time.Now().Add(-time.Second)).
+					Creation(time.Now().Add(-2 * time.Second)).
 					PodSets(*utiltesting.MakePodSet("one", 50).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					Obj(),
-				*utiltesting.MakeWorkload("new-gamma", "eng-beta").
-					Queue("gamma").
+				*utiltesting.MakeWorkload("new-alpha", "eng-alpha").
+					Queue("main").
+					Creation(time.Now().Add(-time.Second)).
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("new-gamma", "eng-gamma").
+					Queue("main").
 					Creation(time.Now()).
 					PodSets(*utiltesting.MakePodSet("one", 50).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					Obj(),
-				*utiltesting.MakeWorkload("existing", "eng-alpha").
+				*utiltesting.MakeWorkload("existing", "eng-gamma").
 					PodSets(
 						*utiltesting.MakePodSet("borrow-on-demand", 51).
 							Request(corev1.ResourceCPU, "1").
@@ -637,7 +644,7 @@ func TestSchedule(t *testing.T) {
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
-					Admit(utiltesting.MakeAdmission("eng-alpha").
+					Admit(utiltesting.MakeAdmission("eng-gamma").
 						PodSets(
 							kueue.PodSetAssignment{
 								Name: "borrow-on-demand",
@@ -673,14 +680,16 @@ func TestSchedule(t *testing.T) {
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").
 							Resource(corev1.ResourceCPU, "50", "10").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").
+							Resource(corev1.ResourceCPU, "0", "100").Obj(),
 					).
 					Obj(),
 			},
 			additionalLocalQueues: []kueue.LocalQueue{
 				{
 					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "eng-beta",
-						Name:      "gamma",
+						Namespace: "eng-gamma",
+						Name:      "main",
 					},
 					Spec: kueue.LocalQueueSpec{
 						ClusterQueue: "eng-gamma",
@@ -688,7 +697,7 @@ func TestSchedule(t *testing.T) {
 				},
 			},
 			wantAssignments: map[string]kueue.Admission{
-				"eng-alpha/existing": *utiltesting.MakeAdmission("eng-alpha").
+				"eng-gamma/existing": *utiltesting.MakeAdmission("eng-gamma").
 					PodSets(
 						kueue.PodSetAssignment{
 							Name: "borrow-on-demand",
@@ -715,7 +724,8 @@ func TestSchedule(t *testing.T) {
 			},
 			wantScheduled: []string{"eng-beta/new"},
 			wantLeft: map[string]sets.Set[string]{
-				"eng-gamma": sets.New("eng-beta/new-gamma"),
+				"eng-alpha": sets.New("eng-alpha/new-alpha"),
+				"eng-gamma": sets.New("eng-gamma/new-gamma"),
 			},
 		},
 		"partial admission single variable pod set": {
@@ -866,6 +876,7 @@ func TestSchedule(t *testing.T) {
 				WithObjects(
 					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-alpha", Labels: map[string]string{"dep": "eng"}}},
 					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-beta", Labels: map[string]string{"dep": "eng"}}},
+					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-gamma", Labels: map[string]string{"dep": "eng"}}},
 					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "sales", Labels: map[string]string{"dep": "sales"}}},
 				)
 			cl := clientBuilder.Build()
