@@ -151,29 +151,31 @@ func (j *Job) Suspend() {
 	j.Spec.Suspend = pointer.Bool(true)
 }
 
-func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []jobframework.PodSetInfo) error {
+func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []jobframework.PodSetInfo) (bool, error) {
+	stoppedNow := false
 	if !j.IsSuspended() {
 		j.Suspend()
 		if err := c.Update(ctx, j.Object()); err != nil {
-			return fmt.Errorf("suspend: %w", err)
+			return false, fmt.Errorf("suspend: %w", err)
 		}
+		stoppedNow = true
 	}
 
 	// Reset start time, if necessary so we can update the scheduling directives.
 	if j.Status.StartTime != nil {
 		j.Status.StartTime = nil
 		if err := c.Status().Update(ctx, j.Object()); err != nil {
-			return fmt.Errorf("reset status: %w", err)
+			return stoppedNow, fmt.Errorf("reset status: %w", err)
 		}
 	}
 
-	if len(podSetsInfo) > 0 {
-		j.RestorePodSetsInfo(podSetsInfo)
-		if err := c.Update(ctx, j.Object()); err != nil {
-			return fmt.Errorf("restore info: %w", err)
-		}
+	if changed := j.RestorePodSetsInfo(podSetsInfo); !changed {
+		return stoppedNow, nil
 	}
-	return nil
+	if err := c.Update(ctx, j.Object()); err != nil {
+		return false, fmt.Errorf("restore info: %w", err)
+	}
+	return stoppedNow, nil
 }
 
 func (j *Job) GetGVK() schema.GroupVersionKind {
@@ -225,13 +227,15 @@ func (j *Job) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) {
 	}
 }
 
-func (j *Job) RestorePodSetsInfo(podSetsInfo []jobframework.PodSetInfo) {
+func (j *Job) RestorePodSetsInfo(podSetsInfo []jobframework.PodSetInfo) bool {
 	if len(podSetsInfo) == 0 {
-		return
+		return false
 	}
 
+	changed := false
 	// if the job accepts partial admission
-	if j.minPodsCount() != nil {
+	if j.minPodsCount() != nil && pointer.Int32Deref(j.Spec.Parallelism, 0) != podSetsInfo[0].Count {
+		changed = true
 		j.Spec.Parallelism = pointer.Int32(podSetsInfo[0].Count)
 		if j.syncCompletionWithParallelism() {
 			j.Spec.Completions = j.Spec.Parallelism
@@ -239,9 +243,10 @@ func (j *Job) RestorePodSetsInfo(podSetsInfo []jobframework.PodSetInfo) {
 	}
 
 	if equality.Semantic.DeepEqual(j.Spec.Template.Spec.NodeSelector, podSetsInfo[0].NodeSelector) {
-		return
+		return changed
 	}
 	j.Spec.Template.Spec.NodeSelector = maps.Clone(podSetsInfo[0].NodeSelector)
+	return true
 }
 
 func (j *Job) Finished() (metav1.Condition, bool) {

@@ -130,15 +130,18 @@ func (j *MPIJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
 	}
 }
 
-func (j *MPIJob) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
+func (j *MPIJob) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) bool {
 	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
+	changed := false
 	for index, info := range podSetInfos {
 		replicaType := orderedReplicaTypes[index]
 		replicaSpec := &j.Spec.MPIReplicaSpecs[replicaType].Template.Spec
 		if !equality.Semantic.DeepEqual(replicaSpec.NodeSelector, info.NodeSelector) {
+			changed = true
 			replicaSpec.NodeSelector = maps.Clone(info.NodeSelector)
 		}
 	}
+	return changed
 }
 
 func (j *MPIJob) Finished() (metav1.Condition, bool) {

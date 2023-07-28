@@ -215,17 +215,18 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// 6. handle eviction
 	if evCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted); evCond != nil && evCond.Status == metav1.ConditionTrue {
-		if !job.IsSuspended() {
-			log.V(6).Info("The job is not suspended, stop")
-			return ctrl.Result{}, r.stopJob(ctx, job, object, wl, evCond.Message)
+		if err := r.stopJob(ctx, job, object, wl, evCond.Message); err != nil {
+			return ctrl.Result{}, err
 		}
 		if workload.IsAdmitted(wl) {
 			if !job.IsActive() {
 				log.V(6).Info("The job is no longer active, clear the workloads admission")
 				workload.UnsetAdmissionWithCondition(wl, "Pending", evCond.Message)
-				return ctrl.Result{}, workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
+				err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
+				if err != nil {
+					return ctrl.Result{}, fmt.Errorf("clearing admission: %w", err)
+				}
 			}
-			// The job is suspended but active, nothing to do now.
 			return ctrl.Result{}, nil
 		}
 	}
@@ -425,11 +426,20 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 }
 
 // stopJob will suspend the job, and also restore node affinity, reset job status if needed.
+// Returns whether any operation was done to stop the job or an error.
 func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload, eventMsg string) error {
 	info := getPodSetsInfoFromWorkload(wl)
 
 	if jws, implements := job.(JobWithCustomStop); implements {
-		return jws.Stop(ctx, r.client, info)
+		stoppedNow, err := jws.Stop(ctx, r.client, info)
+		if stoppedNow {
+			r.record.Eventf(object, corev1.EventTypeNormal, "Stopped", eventMsg)
+		}
+		return err
+	}
+
+	if job.IsSuspended() {
+		return nil
 	}
 
 	job.Suspend()
