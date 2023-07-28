@@ -27,10 +27,10 @@ Add your framework name to `.integrations.frameworks` in [controller_manager_con
 
 Provide your code of the controller under a dedicated directory. This directory need to under the `./pkg/controller/jobs/` folder.
 
-1. Register a new framework
-2. Add RBAC Authorization
+1. Register the new framework
+2. Add RBAC Authorization using [kubebuilder marker comments](https://book.kubebuilder.io/reference/markers/rbac.html)
     - Add RBAC Authorization for priorityclasses, events, workloads, resourceflavors and any resources you want.
-3. Implement interfaces
+3. Implement the `GenericJob` interface, and potentially other interfaces in [here](https://github.com/kubernetes-sigs/kueue/blob/main/pkg/controller/jobframework/interface.go).
     - You can click this [link](https://github.com/kubernetes-sigs/kueue/blob/main/pkg/controller/jobframework/interface.go) to check which interfaces you need to implement.
 
 
@@ -40,7 +40,6 @@ Create your webhook file in your dedicated director.
 
 You can learn how to create webhook in this [page](https://book.kubebuilder.io/cronjob-tutorial/webhook-implementation.html).
 
-Make sure that your custom job has **suspend** abilities. Kueue will only schedule suspended job.
 
 ## Adjust build system
 1. Add required dependencies to compile the controller and webhook code. For example, using `go get github.com/kubeflow/mpi-operator@0.4.0`.
