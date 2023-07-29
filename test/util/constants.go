@@ -21,7 +21,10 @@ import (
 )
 
 const (
-	Timeout            = time.Second * 30
+	Timeout = time.Second * 30
+	// LongTimeout is meant for E2E tests when waiting for complex operations
+	// such as running pods to completion.
+	LongTimeout        = time.Second * 45
 	ConsistentDuration = time.Second * 3
 	Interval           = time.Millisecond * 250
 )
