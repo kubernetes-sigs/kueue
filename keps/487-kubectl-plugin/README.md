@@ -30,12 +30,13 @@ tags, and then generate with `hack/update-toc.sh`.
 - [Design Details](#design-details)
   - [Summary](#summary-1)
   - [Version](#version)
+  - [Listing Jobs](#listing-jobs)
   - [Listing Workloads](#listing-workloads)
   - [Describe Workloads](#describe-workloads)
-  - [Cancel Workloads](#cancel-workloads)
   - [Watch Workload](#watch-workload)
   - [Queues](#queues)
-  - [Future Commands](#future-commands)
+  - [Possible command extensions](#possible-command-extensions)
+    - [Cancel Workloads](#cancel-workloads)
     - [Submit](#submit)
     - [Update](#update)
   - [Resources](#resources)
@@ -96,13 +97,13 @@ demonstrate the interest in a KEP within the wider Kubernetes community.
 
 A successful plugin should be able to answer the following questions:
 
-1. What workloads are there in the user-queue? (`workloads/describe`)
-1. What workloads are there in this specific namespace? (`workloads/describe`)
-2. What workloads are there in this specific state? (`workloads/describe`)
-3. Why is my workload pending? (`describe`)
-4. Was there an error admitting my workload? (`describe`) 
-5. Is a ClusterQueue misconfigured or some other issue? (this is more of an admin command?) (`queues` or `describe-queues`)
-6. All of the above, but instead of a table I want json/yaml (add `-o yaml/json`)
+1. What workloads are there in the user-queue?
+2. What workloads are there in this specific namespace?
+3. What workloads are there in this specific state?
+4. Why is my workload pending?
+5. Was there an error admitting my workload?
+6. Is a ClusterQueue misconfigured or some other issue? (this is more of an admin command?)
+7. All of the above, but instead of a table I want json/yaml
 
 And for this scoped work, the plugin should be added to the [krew plugins package manager](https://krew.sigs.k8s.io/plugins/).
 
@@ -114,6 +115,7 @@ know that this has succeeded?
 ### Non-Goals
 
 - Serve as a duplicate implementation of information available via kubectl already
+- Streaming logs
 
 <!--
 What is out of scope for this KEP? Listing non-goals helps to focus discussion
@@ -129,7 +131,7 @@ We propose creating a command-line tool that can serve as a Kubectl plugin that 
 kubectl kueue <options> <command< <args>
 
 # As a standalone command-line tool
-kuctl <options> <command> <args>
+kueue <options> <command> <args>
 ```
 
 For comparison, the Armada team developed a [general client](https://github.com/armadaproject/armada/tree/master/cmd/armadactl) that uses this strategy to be renamed and fold into kubectl. This is an ideal approach because it presents an interface to kueue to make it feel more like a standalone job manager (and not force folks to live in Kubernetes abstractions, at least entirely). 
@@ -158,11 +160,36 @@ bogged down.
 As a user submitting workloads, I want to easily see the status of an entire Workload,
 or check on why my workload is not being admitted. I can do this with the new proposed plugin.
 
+```bash
+kueue describe taco-123
+```
+
 #### Story 2
 
-As a user coming from High Performance Computing, I am not comfortable with using
+As a user coming from High Performance Computing (HPC), I am not comfortable with using
 `kubectl` and don't want to learn an entirely new means to interact with workloads.
-The proposed plugin makes the transition much easier for me.
+The proposed plugin makes the transition much easier for me. The example below
+compares the proposed list command for this plugin against popular HPC resource
+managers.
+
+```bash
+# Kubernetes Kueue
+kueue workloads <queue-name>
+
+# SLURM
+squeue --partition <queue-name>
+
+# Flux Framework
+flux jobs -a --queue=<queue-name>
+
+# HTCondor
+condor_q
+```
+
+While this is just a sampling, the high level idea is that high performance users
+are comfortable and accustomed to having command line tools to list and otherwise
+interact with jobs. Having a similar tool for Kubernetes, and specifically
+submitting jobs, will help to span the space.
 
 ### Notes/Constraints/Caveats (Optional)
 
@@ -201,10 +228,10 @@ proposal will be implemented, this is the place to discuss them.
 
 ### Summary
 
-Kueuectl is a command-line tool for interacting with Kueue, and can serve as a standalone tool or be renamed/installed to act as a kubectl plugin. Using `kueuectl` a user can manage workloads. An alternative (shorter and easier to type name) might also be `kuctl`, which I'll use for the remainder of this document. Thus, the main client takes the following format:
+Kueuectl is a command-line tool for interacting with Kueue, and can serve as a standalone tool or be renamed/installed to act as a kubectl plugin. Using `kueuectl` a user can manage workloads. An alternative (shorter and easier to type name) might also be `kueue`, which I'll use for the remainder of this document. Thus, the main client takes the following format:
 
 ```bash
-kuctl [subcommand] [flags]
+kueue [subcommand] [flags]
 ```
 
 As a kubectl plugin, we would install it named as `kubectl-kueue` and then the interaction would be:
@@ -219,80 +246,95 @@ We can start with basic query of workload metadata and status, and move toward a
 ### Version
 
 ```bash
-kuctl version
+kueue version
 ```
+
+### Listing Jobs
+
+A user may be interested to list workloads based on job name. For this need, an API group and kind would be needed.
+The following should both work to produce the same result:
+
+```bash
+kueue jobs --kind MPIJob <name>
+kueue jobs --kind kubeflow.org/MPIJob <name>
+```
+
+| Namespace | Name     | API Group         | Kind        | Command  | Pods | Time   |     State |
+|-----------|----------|-------------------|-------------|----------|------|--------|-----------|
+| insects   | ant-123  | kubeflow.org      | MPIJob      | echo     | 2    | 4.323s | Completed | 
+
 
 ### Listing Workloads
 
-The most likely thing a user wants to do is see "all" workloads. We will need to decide if "all" means all namespaces, or (akin to `kubectl` just those in default.  I think likely this set of attributes needs a queue too. I'm undecided if we should enforce the user to provide the queue as the first argument, e.g,
+A user might also want to see "all" workloads. We will need to decide if "all" means all namespaces, or (akin to `kubectl` just those in default. 
 
 ```bash
-kuctl workloads <queue-name>
+kueue workloads
 ```
 
-| Name     | API Group         | Kind        | Namespace | Command | Pods | Time   |     State |
-|----------|-------------------|-------------|-----------|---------|------|--------|-----------|
-| taco-345 | flux-framework.org| MiniCluster | default   | python  | 3    | 2.322s |   Running | 
-| taco-123 | flux-framework.org| MiniCluster | default   | python  | 2    |        |   Pending | 
-| ant-123  |  kubeflow.org     | MPIJob      | insects   | echo    | 2    | 4.323s | Completed | 
+| Namespace | Name     | API Group         | Kind        | Pods | Time   |     State | Queue      |
+|---------- |------------------------------|-------------|------|--------|-----------|------------|
+| default   | taco-345 | flux-framework.org| MiniCluster | 3    | 2.322s |   Running | user-queue |
+| default   | taco-123 | flux-framework.org| MiniCluster | 2    |        |   Pending | user-queue | 
+| insects   | ant-123  | kubeflow.org      | MPIJob      | 2    | 4.323s | Completed | user-queue |
 
-Or allow it to be generic, and then include the Queue as a field:
+Adding the name of q queue will filter down to it:
 
 ```bash
-kuctl workloads
+# Generic command
+kueue workloads -q <queue-name>
+
+# As an example
+kueue workloads -q user-queue
 ```
 
-| Name     | API Group         | Kind        | Namespace | Command | Pods | Time   |     State | Queue |
-|----------|-------------------|-------------|-----------|---------|------|--------|-----------|-------|
-| taco-345 | flux-framework.org| MiniCluster | default   | python  | 3    | 2.322s |   Running | user-queue |
-| taco-123 | flux-framework.org| MiniCluster | default   | python  | 2    |        |   Pending | user-queue | 
-| ant-123  |  kubeflow.org     | MPIJob      | insects   | echo    | 2    | 4.323s | Completed | user-queue |
+| Namespace | Name     | API Group         | Kind        | Pods | Time   |     State |
+|-----------|----------|-------------------|-------------|------|--------|-----------|
+|   default | taco-345 | flux-framework.org| MiniCluster | 3    | 2.322s |   Running | 
+|   default | taco-123 | flux-framework.org| MiniCluster | 2    |        |   Pending | 
+|   insects | ant-123  | kubeflow.org      | MPIJob      | 2    | 4.323s | Completed | 
 
-We could likely support both, depending on how we think the average user interacts with queues (always using one, or wanting to interact with more than one). In HPC, people usually are submitting to a default queue and they don't ask for anything extra or special, but only ask for `--queue` to submit to another one.
-
-With respect to the question about namespaces - whether "default" should be the default or not, my gut likes the idea of using `--all-namespaces` as default, but only if it makes sense for the user case. I think it's annoying to have to add custom namespaces when you want to see everything, and filtering (to any namespace, including default) might only be done if it's asked for. But if most people are going to be using default, it wouldn't hurt to use the same convention as kubectl.
+For namespaces, kueue will use the same practices as kubectl, using "default" for a default, and otherwise
+expecting a `-n` or `--namepsace` argument for a custom namespace.
 
 ```bash
-kuctl workloads --namespace insects
+kueue workloads --namespace insects
 ```
-
-| Name     | API Group         | Kind        | Namespace | Command | Pods | Time   |     State | Queue |
-|----------|-------------------|-------------|-----------|---------|------|--------|-----------|-------|
-| ant-123  |  kubeflow.org     | MPIJob      | insects   | echo    | 2    | 4.323s | Completed | user-queue |
-
-
-We can also ask for a specific workload. E.g., if I just submit a workload and know the name, this would be intuitive to type.
+If a user wants to set a default namespace, 
+this [should be supported akin to kubectl](https://www.cloudytuts.com/tutorials/kubernetes/how-to-set-default-kubernetes-namespace/):
 
 ```bash
-# kuctl workloads <name>
-kuctl workloads taco-123
+kueue set default-namespace <namespace>
+kueue set default-namespace insects
+kueue workloads
 ```
 
-| Name     | API Group         | Kind        | Namespace | Command | Pods | Time   |     State | Queue |
-|----------|-------------------|-------------|-----------|---------|------|--------|-----------|-------|
-| taco-123 | flux-framework.org| MiniCluster | default   | python  | 2    |        |   Pending | user-queue | 
+| Namespace | Name     | API Group         | Kind        | Pods | Time   |     State | Queue |
+|-----------|----------|-------------------|-------------|------|--------|-----------|-------|
+| inspects  | ant-123  | kubeflow.org      | MPIJob      | 2    | 4.323s | Completed | user-queue |
 
-I think pattern matching should work to. This is something I've always wanted to work in `kubectl` and the closest I can get is tab completion.
+
+We can also ask for a specific workload based on a job name. E.g., if I just submit a job and know the name, this would be intuitive to type.
 
 ```bash
-# kuctl workloads <name>
-kuctl workloads taco-*
+# kueue workloads <name>
+kueue workloads job/taco-123
 ```
 
-| Name     | API Group         | Kind        | Namespace | Command | Pods | Time   |     State | Queue |
-|----------|-------------------|-------------|-----------|---------|------|--------|-----------|-------|
-| taco-345 | flux-framework.org| MiniCluster | default   | python  | 3    | 2.322s |   Running | user-queue |
-| taco-123 | flux-framework.org| MiniCluster | default   | python  | 2    |        |   Pending | user-queue | 
+| Namespace| Name      | API Group         | Kind        | Pods | Time   |     State | Queue |
+|----------|-----------|-------------------|-------------|------|--------|-----------|-------|
+| default  | taco-123  | flux-framework.org| MiniCluster | 2    |        |   Pending | user-queue | 
+
 
 We likely want to also filter by state (or other attributes, TBA which others?)
 
 ```bash
-kuctl workloads --state Pending
+kueue workloads --state Pending
 ```
 
-| Name     | API Group         | Kind        | Namespace | Command | Pods | Time   |     State | Queue |
-|----------|-------------------|-------------|-----------|---------|------|--------|-----------|-------|
-| taco-123 | flux-framework.org| MiniCluster | default   | python  | 2    |        |   Pending | user-queue | 
+| Namespace | Name     | API Group         | Kind        | Pods  | Time   |     State | Queue |
+|-----------|----------|-------------------|-------------|-------|--------|-----------|-------|
+| default   | taco-123 | flux-framework.org| MiniCluster |  2    |        |   Pending | user-queue | 
 
 
 ### Describe Workloads
@@ -300,8 +342,8 @@ kuctl workloads --state Pending
 Describe is intended to show more detailed information about one or more workloads. Akin to kubectl describe, we would stack them on top of the other. Unlike kubectl, I think we should have the -o json/yaml options here (it never made sense to me that kubectl uses describe for more rich metadata, but those output variables are available with "get" !
 
 ```bash
-kuctl describe taco-123
-kuctl describe taco-123 taco-345
+kueue describe taco-123
+kueue describe taco-123 taco-345
 ```
 ```console
 Feature Set A:
@@ -315,52 +357,22 @@ Events:
   Normal     Starting             Pancakes.
 ```
 
+While the describe tables do not include images or commands, the detailed view should.
 Note that I likely will develop this when I dig into working on the tool itself, and get a sense of all the attributes available to see about workloads. Right now I'm providing a generic template anticipating that. The above will include all metadata that the workload offers, and the additional features requested in the original prompt for reasons for pending or misconfiguration.
 
 The above should also provide different output formats:
 
 ```bash
-kuctl describe taco-123 -o json
-kuctl describe taco-123 -o yaml
+kueue describe taco-123 -o json
+kueue describe taco-123 -o yaml
 ```
-
-### Cancel Workloads
-
-A request to cancel would be akin to deleting the CRD. A "cancel" is more intuitive / natural than a delete request for this use case.
-This implementation will be tricky because we need to make the request to the underlying controller.
-
-
-```bash
-kuctl cancel taco-123
-```
-
-It might also be useful to request a cancel all, limited to the permission that the user has, a namespace, or other filter. This likely needs a confirmation.
-
-```bash
-kuctl cancel --all
-> Are you sure you want to cancel all workloads y/n?
-```
-
-Or without the prompt:
-
-```bash
-kuctl cancel --all --force
-```
-
-Or within a specific filter:
-
-```bash
-kuctl cancel --all --namespace insects
-```
-
-To support the multi-tenancy use case, filters for each of local-queue, cluster-queue and cohort will be allowed.
 
 ### Watch Workload
 
 After submitting a workload, it's nice to be able to watch / stream logs. That should be easy to do.
 
 ```bash
-kuctl watch taco-123
+kueue watch taco-123
 ```
 ```console
 ... makin' tacos!
@@ -370,7 +382,7 @@ kuctl watch taco-123
 
 Or a user may want to watch or stream events:
 
-kuctl watch taco-123 --events
+kueue watch taco-123 --events
 ```
 ```console
 <timestamp> <event1>
@@ -384,7 +396,7 @@ kuctl watch taco-123 --events
 I haven't used queues extensively so this likely needs to be expanded, but akin to listing workloads, we probably want to list kueues. For all queues, this could be:
 
 ```bash
-kuctl queues
+kueue queues
 ```
 
 | Name | Admitted | Pending | State |
@@ -394,30 +406,62 @@ kuctl queues
 To filter to a specific queue:
 
 ```bash
-kuctl queues user-queue
+kueue queues user-queue
 ```
 
 We likely want to be able to provide more metadata, and either we could add a `describe-queue` subcommand, or have the above second example show the more verbose information. I think I like the first idea. We also likely want to expand these subcommands to include details that the original prompt warranted. I'm not familiar enough with Kueue yet to add them. This command should also support yaml/json.
 
 ```bash
-kuctl queues -o json
+kueue queues -o json
 ```
 
 
-### Future Commands
+### Possible command extensions
 
 In the future, if we can make this a full fledged client for interaction with workloads, we could consider the following commands.
 Note that these are not proposed to be in the first stage of this design document.
+
+#### Cancel Workloads
+
+A request to cancel would be akin to deleting the CRD. A "cancel" is more intuitive / natural than a delete request for this use case.
+This implementation will be tricky because we need to make the request to the underlying controller.
+
+
+```bash
+kueue cancel taco-123
+```
+
+It might also be useful to request a cancel all, limited to the permission that the user has, a namespace, or other filter. This likely needs a confirmation.
+
+```bash
+kueue cancel --all
+> Are you sure you want to cancel all workloads y/n?
+```
+
+Or without the prompt:
+
+```bash
+kueue cancel --all --force
+```
+
+Or within a specific filter:
+
+```bash
+kueue cancel --all --namespace insects
+```
+
+To support the multi-tenancy use case, filters for each of local-queue, cluster-queue and cohort will be allowed.
+
 
 #### Submit
 
 ```
 # Submit, either a yaml as is
-kuctl submit workload.yaml
+kueue submit workload.yaml
 
 # or a simpler abstraction that uses some kind of default or template
 # This would actually be really cool if we could map a community develoepd job or workload spec (that works for other tools) into kueue
-kuctl submit <something else>
+kueue submit <something else>
 ```
 
 #### Update
@@ -427,24 +471,24 @@ As an example, here is what updated an attribute on a workload pod might look li
 
 ```bash
 # Note this format follows how helm sets variables
-kuctl update set path.to.attribute=thing
+kueue update set path.to.attribute=thing
 
 # This does not, but it could be wanted to remove an attribute entirely (instead of trying to set the default null type)
-kuctl update remove path.to.attribute
+kueue update remove path.to.attribute
 ```
 
 Different kinds of updates will need to be defined. To allow for an update namespace, we could take either of the following
 client approaches:
 
 ```bash
-kuctl update pods path.to.attribute=thing
-kuctl update-pods path.to.attribute=thing
+kueue update pods path.to.attribute=thing
+kueue update-pods path.to.attribute=thing
 
-kuctl update cohort ...
-kuctl update-cohort 
+kueue update cohort ...
+kueue update-cohort 
 
-kuctl update cluster-queue
-kuctl update-cluster-queue
+kueue update cluster-queue
+kueue update-cluster-queue
 ```
 
 ### Resources
@@ -452,7 +496,7 @@ kuctl update-cluster-queue
 Get resources requested or allocated for a workload (can be used to debug)
 
 ```bash
-kuctl resource taco-123
+kueue resource taco-123
 ```
 
 | Name | Quantity |
@@ -461,7 +505,7 @@ kuctl resource taco-123
 | memory | 2Gi |
 
 ```bash
-kuctl resource taco-123 -o yaml
+kueue resource taco-123 -o yaml
 ```
 
 This subcommand could provide other types of resources - we should consider this!
