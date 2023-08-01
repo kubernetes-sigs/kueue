@@ -248,11 +248,9 @@ func findCandidates(wl *kueue.Workload, cq *cache.ClusterQueue, resPerFlv resour
 	}
 
 	if cq.Cohort != nil && cq.Preemption.ReclaimWithinCohort != kueue.PreemptionPolicyNever {
-		cqs := cq.Cohort.Members
-		cqs.Delete(cq)
-		for cohortCQ := range cqs {
-			if !cqIsBorrowing(cohortCQ, resPerFlv) {
-				// Can't reclaim quota from ClusterQueues that are not borrowing.
+		for cohortCQ := range cq.Cohort.Members {
+			if cq == cohortCQ || !cqIsBorrowing(cohortCQ, resPerFlv) {
+				// Can't reclaim quota from itself or ClusterQueues that are not borrowing.
 				continue
 			}
 			onlyLowerPrio := true
