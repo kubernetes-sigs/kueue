@@ -19,6 +19,7 @@ testbin/*
 # editor and IDE paraphernalia
 .idea
 .vscode
+*.nix
 *.swp
 *.swo
 *~
