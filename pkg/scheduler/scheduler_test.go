@@ -985,7 +985,7 @@ func TestEntryOrdering(t *testing.T) {
 		{
 			Info: workload.Info{
 				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "alpha",
+					Name:              "old_borrowing",
 					CreationTimestamp: metav1.NewTime(now),
 				}},
 			},
@@ -998,7 +998,7 @@ func TestEntryOrdering(t *testing.T) {
 		{
 			Info: workload.Info{
 				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "beta",
+					Name:              "old",
 					CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
 				}},
 			},
@@ -1006,7 +1006,7 @@ func TestEntryOrdering(t *testing.T) {
 		{
 			Info: workload.Info{
 				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "gamma",
+					Name:              "new",
 					CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
 				}},
 			},
@@ -1014,7 +1014,32 @@ func TestEntryOrdering(t *testing.T) {
 		{
 			Info: workload.Info{
 				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "delta",
+					Name:              "high_pri_borrowing",
+					CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
+				}, Spec: kueue.WorkloadSpec{
+					Priority: pointer.Int32(1),
+				}},
+			},
+			assignment: flavorassigner.Assignment{
+				TotalBorrow: cache.FlavorResourceQuantities{
+					"flavor": {},
+				},
+			},
+		},
+		{
+			Info: workload.Info{
+				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+					Name:              "new_high_pri",
+					CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
+				}, Spec: kueue.WorkloadSpec{
+					Priority: pointer.Int32(1),
+				}},
+			},
+		},
+		{
+			Info: workload.Info{
+				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+					Name:              "new_borrowing",
 					CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
 				}},
 			},
@@ -1028,7 +1053,7 @@ func TestEntryOrdering(t *testing.T) {
 			Info: workload.Info{
 				Obj: &kueue.Workload{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:              "epsilon",
+						Name:              "evicted_borrowing",
 						CreationTimestamp: metav1.NewTime(now),
 					},
 					Status: kueue.WorkloadStatus{
@@ -1053,8 +1078,8 @@ func TestEntryOrdering(t *testing.T) {
 			Info: workload.Info{
 				Obj: &kueue.Workload{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:              "zeta",
-						CreationTimestamp: metav1.NewTime(now.Add(2 * time.Second)),
+						Name:              "recently_evicted",
+						CreationTimestamp: metav1.NewTime(now),
 					},
 					Status: kueue.WorkloadStatus{
 						Conditions: []metav1.Condition{
@@ -1075,7 +1100,7 @@ func TestEntryOrdering(t *testing.T) {
 	for i, e := range input {
 		order[i] = e.Obj.Name
 	}
-	wantOrder := []string{"beta", "zeta", "gamma", "alpha", "epsilon", "delta"}
+	wantOrder := []string{"new_high_pri", "old", "recently_evicted", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing"}
 	if diff := cmp.Diff(wantOrder, order); diff != "" {
 		t.Errorf("Unexpected order (-want,+got):\n%s", diff)
 	}

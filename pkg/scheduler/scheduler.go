@@ -45,6 +45,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
+	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -430,17 +431,27 @@ func (e entryOrdering) Swap(i, j int) {
 }
 
 // Less is the ordering criteria:
-// 1. request under min quota before borrowing.
-// 2. FIFO on creation timestamp.
+// 1. request under nominal quota before borrowing.
+// 2. higher priority first.
+// 3. FIFO on eviction or creation timestamp.
 func (e entryOrdering) Less(i, j int) bool {
 	a := e[i]
 	b := e[j]
-	// 1. Request under min quota.
+
+	// 1. Request under nominal quota.
 	aBorrows := a.assignment.Borrows()
 	bBorrows := b.assignment.Borrows()
 	if aBorrows != bBorrows {
 		return !aBorrows
 	}
+
+	// 2. Higher priority first.
+	p1 := priority.Priority(a.Obj)
+	p2 := priority.Priority(b.Obj)
+	if p1 != p2 {
+		return p1 > p2
+	}
+
 	// 2. FIFO.
 	aComparisonTimestamp := workload.GetQueueOrderTimestamp(a.Obj)
 	bComparisonTimestamp := workload.GetQueueOrderTimestamp(b.Obj)
