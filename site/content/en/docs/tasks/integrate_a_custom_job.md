@@ -7,7 +7,7 @@ description: >
 ---
 # Integrate a custom Job with Kueue
 
-Kueue integrates with a couple of jobs, including batch Job, MPI Job, Ray Job or JobSet. 
+Kueue integrates with a couple of jobs, including Kubernetes batch Job, MPIJob, RayJob or JobSet.  
 If there is another Job, which you would like supported, please consider contributing. 
 This page shows how to integrate a custom Job with Kueue.
 
@@ -17,9 +17,8 @@ This page shows how to integrate a custom Job with Kueue.
 2. Controller
 3. Webhook
 4. Adjust build system
-5. Test files
 
-## Configure your custom Job
+## Configuration
 
 Add your framework name to `.integrations.frameworks` in [controller_manager_config.yaml](https://github.com/kubernetes-sigs/kueue/blob/main/config/components/manager/controller_manager_config.yaml)
 
@@ -40,6 +39,8 @@ Create your webhook file in your dedicated director.
 
 You can learn how to create webhook in this [page](https://book.kubebuilder.io/cronjob-tutorial/webhook-implementation.html).
 
+Your webhook should have ability to suspend jobs.
+
 
 ## Adjust build system
 1. Add required dependencies to compile the controller and webhook code. For example, using `go get github.com/kubeflow/mpi-operator@0.4.0`.
@@ -47,10 +48,7 @@ You can learn how to create webhook in this [page](https://book.kubebuilder.io/c
    - Add commands which copy the crd of your custom job to the Kueue project.
    - Add your custom job operator crd dependencies into `test-integration`.
 
-## Add test files
-Create test files which help test your custom job's controller and webhook.
-
-You can check the sample test files in [completed integrations](#completed-integrations) to learn how to implement them.
+   For testing files, you can check the sample test files in [completed integrations](#completed-integrations) to learn how to implement them.
 
 ## Completed integrations
 Here are completed integrations you can learn from:
