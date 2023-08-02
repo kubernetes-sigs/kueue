@@ -65,7 +65,7 @@ func (w *RayJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	return nil
 }
 
-// +kubebuilder:webhook:path=/validate-ray-io-v1alpha1-rayjob,mutating=false,failurePolicy=fail,sideEffects=None,groups=ray.io,resources=rayjobs,verbs=update,versions=v1alpha1,name=vrayjob.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-ray-io-v1alpha1-rayjob,mutating=false,failurePolicy=fail,sideEffects=None,groups=ray.io,resources=rayjobs,verbs=create;update,versions=v1alpha1,name=vrayjob.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomValidator = &RayJobWebhook{}
 
