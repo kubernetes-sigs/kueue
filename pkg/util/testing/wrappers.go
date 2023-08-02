@@ -165,6 +165,11 @@ func (w *WorkloadWrapper) ReclaimablePods(rps ...kueue.ReclaimablePod) *Workload
 	return w
 }
 
+func (w *WorkloadWrapper) SetLabels(l map[string]string) *WorkloadWrapper {
+	w.Labels = l
+	return w
+}
+
 type PodSetWrapper struct{ kueue.PodSet }
 
 func MakePodSet(name string, count int) *PodSetWrapper {

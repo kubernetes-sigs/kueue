@@ -17,6 +17,8 @@ limitations under the License.
 package job
 
 import (
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	"strings"
 	"testing"
 	"time"
 
@@ -307,7 +309,10 @@ var (
 		cmpopts.SortSlices(func(a, b kueue.Workload) bool {
 			return a.Name < b.Name
 		}),
-		cmpopts.IgnoreFields(kueue.Workload{}, "TypeMeta", "ObjectMeta"),
+		cmpopts.IgnoreFields(
+			kueue.Workload{}, "TypeMeta", "ObjectMeta.OwnerReferences",
+			"ObjectMeta.Name", "ObjectMeta.ResourceVersion",
+		),
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 	}
 )
@@ -434,6 +439,36 @@ func TestReconciler(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					Priority(0).
+					SetLabels(map[string]string{
+						controllerconsts.ParentGroupKindLabel: "Job.batch",
+						controllerconsts.ParentNameLabel:      "job",
+					}).
+					Obj(),
+			},
+		},
+		"the workload without parent name label is created when job's name is longer than 63 characters": {
+			job: *utiltestingjob.MakeJob(strings.Repeat("long-name", 8), "ns").
+				Suspend(false).
+				Parallelism(10).
+				Request(corev1.ResourceCPU, "1").
+				Image("", nil).
+				Queue("test-queue").
+				Obj(),
+			wantJob: *utiltestingjob.MakeJob(strings.Repeat("long-name", 8), "ns").
+				Suspend(true).
+				Parallelism(10).
+				Request(corev1.ResourceCPU, "1").
+				Image("", nil).
+				Queue("test-queue").
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("job", "ns").
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue("test-queue").
+					Priority(0).
+					SetLabels(map[string]string{
+						controllerconsts.ParentGroupKindLabel: "Job.batch",
+					}).
 					Obj(),
 			},
 		},

@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"unicode/utf8"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -458,15 +459,26 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, object clie
 func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
 	podSets := job.PodSets()
 
+	jobGVK := job.GetGVK()
+
 	wl := &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      GetWorkloadNameForOwnerWithGVK(object.GetName(), job.GetGVK()),
+			Name:      GetWorkloadNameForOwnerWithGVK(object.GetName(), jobGVK),
 			Namespace: object.GetNamespace(),
+			Labels:    map[string]string{},
 		},
 		Spec: kueue.WorkloadSpec{
 			PodSets:   resetMinCounts(podSets),
 			QueueName: QueueName(job),
 		},
+	}
+
+	if utf8.RuneCountInString(job.Object().GetName()) < 64 {
+		wl.Labels[controllerconsts.ParentNameLabel] = job.Object().GetName()
+	}
+
+	if utf8.RuneCountInString(jobGVK.GroupKind().String()) < 64 {
+		wl.Labels[controllerconsts.ParentGroupKindLabel] = jobGVK.GroupKind().String()
 	}
 
 	priorityClassName, p, err := r.extractPriority(ctx, podSets, job)
