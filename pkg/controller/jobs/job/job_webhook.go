@@ -84,7 +84,7 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	return nil
 }
 
-// +kubebuilder:webhook:path=/validate-batch-v1-job,mutating=false,failurePolicy=fail,sideEffects=None,groups=batch,resources=jobs,verbs=update,versions=v1,name=vjob.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-batch-v1-job,mutating=false,failurePolicy=fail,sideEffects=None,groups=batch,resources=jobs,verbs=create;update,versions=v1,name=vjob.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomValidator = &JobWebhook{}
 

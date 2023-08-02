@@ -21,11 +21,13 @@ import (
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -59,6 +61,13 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 		})
 		ginkgo.AfterAll(func() {
 			fwk.Teardown()
+		})
+
+		ginkgo.It("checking the workload is not created when JobMinParallelismAnnotation is invalid", func() {
+			job := testingjob.MakeJob("job-with-queue-name", ns.Name).Queue("foo").SetAnnotation(job.JobMinParallelismAnnotation, "a").Obj()
+			err := k8sClient.Create(ctx, job)
+			gomega.Expect(err).Should(gomega.HaveOccurred())
+			gomega.Expect(apierrors.IsForbidden(err)).Should(gomega.BeTrue(), "error: %v", err)
 		})
 
 		ginkgo.It("Should suspend a Job even no queue name specified", func() {
