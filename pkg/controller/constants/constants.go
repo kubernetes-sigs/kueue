@@ -33,10 +33,7 @@ const (
 	// status based on the admission status of the parent workload.
 	ParentWorkloadAnnotation = "kueue.x-k8s.io/parent-workload"
 
-	// ParentGroupKindLabel is the label key in the workload that holds the Kind
-	// and Group of a parent.
-	ParentGroupKindLabel = "kueue.x-k8s.io/parent-group-kind"
-	// ParentNameLabel is the label key in the workload that holds the Name of a
-	// parent.
-	ParentNameLabel = "kueue.x-k8s.io/parent-name"
+	// ParentUIDLabel is the label key in the workload resource, that holds the UID of
+	// a parent.
+	ParentUIDLabel = "kueue.x-k8s.io/parent-uid"
 )

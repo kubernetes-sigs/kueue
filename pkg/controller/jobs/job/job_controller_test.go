@@ -17,7 +17,6 @@ limitations under the License.
 package job
 
 import (
-	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
@@ -429,10 +429,12 @@ func TestReconciler(t *testing.T) {
 				Clone().
 				Suspend(false).
 				Queue("test-queue").
+				UID("test-uid").
 				Obj(),
 			wantJob: *baseJobWrapper.
 				Clone().
 				Queue("test-queue").
+				UID("test-uid").
 				Obj(),
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("job", "ns").
@@ -440,35 +442,29 @@ func TestReconciler(t *testing.T) {
 					Queue("test-queue").
 					Priority(0).
 					SetLabels(map[string]string{
-						controllerconsts.ParentGroupKindLabel: "Job.batch",
-						controllerconsts.ParentNameLabel:      "job",
+						controllerconsts.ParentUIDLabel: "test-uid",
 					}).
 					Obj(),
 			},
 		},
-		"the workload without parent name label is created when job's name is longer than 63 characters": {
-			job: *utiltestingjob.MakeJob(strings.Repeat("long-name", 8), "ns").
+		"the workload without uid label is created when job's uid is longer than 63 characters": {
+			job: *baseJobWrapper.
+				Clone().
 				Suspend(false).
-				Parallelism(10).
-				Request(corev1.ResourceCPU, "1").
-				Image("", nil).
 				Queue("test-queue").
+				UID(strings.Repeat("long-uid", 8)).
 				Obj(),
-			wantJob: *utiltestingjob.MakeJob(strings.Repeat("long-name", 8), "ns").
-				Suspend(true).
-				Parallelism(10).
-				Request(corev1.ResourceCPU, "1").
-				Image("", nil).
+			wantJob: *baseJobWrapper.
+				Clone().
 				Queue("test-queue").
+				UID(strings.Repeat("long-uid", 8)).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("job", "ns").
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					Priority(0).
-					SetLabels(map[string]string{
-						controllerconsts.ParentGroupKindLabel: "Job.batch",
-					}).
+					SetLabels(map[string]string{}).
 					Obj(),
 			},
 		},

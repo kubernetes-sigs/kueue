@@ -459,11 +459,9 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, object clie
 func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
 	podSets := job.PodSets()
 
-	jobGVK := job.GetGVK()
-
 	wl := &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      GetWorkloadNameForOwnerWithGVK(object.GetName(), jobGVK),
+			Name:      GetWorkloadNameForOwnerWithGVK(object.GetName(), job.GetGVK()),
 			Namespace: object.GetNamespace(),
 			Labels:    map[string]string{},
 		},
@@ -473,12 +471,8 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 		},
 	}
 
-	if utf8.RuneCountInString(job.Object().GetName()) < 64 {
-		wl.Labels[controllerconsts.ParentNameLabel] = job.Object().GetName()
-	}
-
-	if utf8.RuneCountInString(jobGVK.GroupKind().String()) < 64 {
-		wl.Labels[controllerconsts.ParentGroupKindLabel] = jobGVK.GroupKind().String()
+	if uid := string(job.Object().GetUID()); utf8.RuneCountInString(uid) < 64 && uid != "" {
+		wl.Labels[controllerconsts.ParentUIDLabel] = uid
 	}
 
 	priorityClassName, p, err := r.extractPriority(ctx, podSets, job)
