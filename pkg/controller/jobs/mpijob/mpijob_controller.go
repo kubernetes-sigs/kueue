@@ -114,20 +114,23 @@ func (j *MPIJob) PodSets() []kueue.PodSet {
 	return podSets
 }
 
-func (j *MPIJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
+func (j *MPIJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) error {
 	j.Spec.RunPolicy.Suspend = pointer.Bool(false)
-	if len(podSetInfos) == 0 {
-		return
+	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
+
+	if len(podSetInfos) != len(orderedReplicaTypes) {
+		return jobframework.BadPodSetsInfoLenError(len(orderedReplicaTypes), len(podSetInfos))
 	}
+
 	// The node selectors are provided in the same order as the generated list of
 	// podSets, use the same ordering logic to restore them.
-	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
 	for index := range podSetInfos {
 		replicaType := orderedReplicaTypes[index]
 		info := podSetInfos[index]
 		replicaSpec := &j.Spec.MPIReplicaSpecs[replicaType].Template.Spec
 		replicaSpec.NodeSelector = maps.MergeKeepFirst(info.NodeSelector, replicaSpec.NodeSelector)
 	}
+	return nil
 }
 
 func (j *MPIJob) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) bool {

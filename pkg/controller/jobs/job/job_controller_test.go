@@ -169,6 +169,7 @@ func TestPodSetsInfo(t *testing.T) {
 		job                  *Job
 		runInfo, restoreInfo []jobframework.PodSetInfo
 		wantUnsuspended      *batchv1.Job
+		wantRunError         error
 	}{
 		"append": {
 			job: (*Job)(utiltestingjob.MakeJob("job", "ns").
@@ -242,12 +243,34 @@ func TestPodSetsInfo(t *testing.T) {
 				},
 			},
 		},
+		"noInfoOnRun": {
+			job: (*Job)(utiltestingjob.MakeJob("job", "ns").
+				Parallelism(5).
+				SetAnnotation(JobMinParallelismAnnotation, "2").
+				Obj()),
+			runInfo: []jobframework.PodSetInfo{},
+			wantUnsuspended: utiltestingjob.MakeJob("job", "ns").
+				Parallelism(5).
+				SetAnnotation(JobMinParallelismAnnotation, "2").
+				Suspend(false).
+				Obj(),
+			restoreInfo: []jobframework.PodSetInfo{
+				{
+					Count: 5,
+				},
+			},
+			wantRunError: jobframework.ErrInvalidPodsetInfo,
+		},
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			origSpec := *tc.job.Spec.DeepCopy()
 
-			tc.job.RunWithPodSetsInfo(tc.runInfo)
+			gotErr := tc.job.RunWithPodSetsInfo(tc.runInfo)
+
+			if diff := cmp.Diff(tc.wantRunError, gotErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("node selectors mismatch (-want +got):\n%s", diff)
+			}
 
 			if diff := cmp.Diff(tc.job.Spec, tc.wantUnsuspended.Spec); diff != "" {
 				t.Errorf("node selectors mismatch (-want +got):\n%s", diff)

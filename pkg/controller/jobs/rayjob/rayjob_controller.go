@@ -112,10 +112,11 @@ func (j *RayJob) PodSets() []kueue.PodSet {
 	return podSets
 }
 
-func (j *RayJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
+func (j *RayJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) error {
 	j.Spec.Suspend = false
-	if len(podSetInfos) != len(j.Spec.RayClusterSpec.WorkerGroupSpecs)+1 {
-		return
+	expectedLen := len(j.Spec.RayClusterSpec.WorkerGroupSpecs) + 1
+	if len(podSetInfos) != expectedLen {
+		return jobframework.BadPodSetsInfoLenError(expectedLen, len(podSetInfos))
 	}
 
 	// head
@@ -127,6 +128,7 @@ func (j *RayJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
 		workerPodSpec := &j.Spec.RayClusterSpec.WorkerGroupSpecs[index].Template.Spec
 		workerPodSpec.NodeSelector = maps.MergeKeepFirst(podSetInfos[index+1].NodeSelector, workerPodSpec.NodeSelector)
 	}
+	return nil
 }
 
 func (j *RayJob) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) bool {

@@ -113,12 +113,10 @@ func (j *JobSet) PodSets() []kueue.PodSet {
 	return podSets
 }
 
-func (j *JobSet) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
+func (j *JobSet) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) error {
 	j.Spec.Suspend = pointer.Bool(false)
 	if len(podSetInfos) != len(j.Spec.ReplicatedJobs) {
-		// this is very unlikely, however in order to avoid any potential
-		// out of bounds access
-		return
+		return jobframework.BadPodSetsInfoLenError(len(j.Spec.ReplicatedJobs), len(podSetInfos))
 	}
 
 	// If there are Jobs already created by the JobSet, their node selectors will be updated by the JobSet controller
@@ -127,6 +125,7 @@ func (j *JobSet) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
 		templateSpec := &j.Spec.ReplicatedJobs[index].Template.Spec.Template.Spec
 		templateSpec.NodeSelector = maps.MergeKeepFirst(podSetInfos[index].NodeSelector, templateSpec.NodeSelector)
 	}
+	return nil
 }
 
 func (j *JobSet) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) bool {
