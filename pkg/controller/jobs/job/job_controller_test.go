@@ -17,6 +17,7 @@ limitations under the License.
 package job
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -31,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/pointer"
@@ -307,7 +309,10 @@ var (
 		cmpopts.SortSlices(func(a, b kueue.Workload) bool {
 			return a.Name < b.Name
 		}),
-		cmpopts.IgnoreFields(kueue.Workload{}, "TypeMeta", "ObjectMeta"),
+		cmpopts.IgnoreFields(
+			kueue.Workload{}, "TypeMeta", "ObjectMeta.OwnerReferences",
+			"ObjectMeta.Name", "ObjectMeta.ResourceVersion",
+		),
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 	}
 )
@@ -424,16 +429,42 @@ func TestReconciler(t *testing.T) {
 				Clone().
 				Suspend(false).
 				Queue("test-queue").
+				UID("test-uid").
 				Obj(),
 			wantJob: *baseJobWrapper.
 				Clone().
 				Queue("test-queue").
+				UID("test-uid").
 				Obj(),
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("job", "ns").
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					Priority(0).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+		},
+		"the workload without uid label is created when job's uid is longer than 63 characters": {
+			job: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				Queue("test-queue").
+				UID(strings.Repeat("long-uid", 8)).
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Queue("test-queue").
+				UID(strings.Repeat("long-uid", 8)).
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("job", "ns").
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue("test-queue").
+					Priority(0).
+					Labels(map[string]string{}).
 					Obj(),
 			},
 		},

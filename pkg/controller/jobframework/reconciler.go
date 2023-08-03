@@ -24,6 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/pointer"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -464,17 +465,31 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, object clie
 
 // constructWorkload will derive a workload from the corresponding job.
 func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
+	log := ctrl.LoggerFrom(ctx)
+
 	podSets := job.PodSets()
 
 	wl := &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      GetWorkloadNameForOwnerWithGVK(object.GetName(), job.GetGVK()),
 			Namespace: object.GetNamespace(),
+			Labels:    map[string]string{},
 		},
 		Spec: kueue.WorkloadSpec{
 			PodSets:   resetMinCounts(podSets),
 			QueueName: QueueName(job),
 		},
+	}
+
+	jobUid := string(job.Object().GetUID())
+	if errs := validation.IsValidLabelValue(jobUid); len(errs) == 0 {
+		wl.Labels[controllerconsts.JobUIDLabel] = jobUid
+	} else {
+		log.V(2).Info(
+			"Validation of the owner job UID label has failed. Creating workload without the label.",
+			"ValidationErrors", errs,
+			"LabelValue", jobUid,
+		)
 	}
 
 	priorityClassName, p, err := r.extractPriority(ctx, podSets, job)
