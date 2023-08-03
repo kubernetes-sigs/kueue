@@ -60,12 +60,12 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 	ginkgo.BeforeAll(func() {
 		fwk = &framework.Framework{
-			ManagerSetup: managerSetup(false, jobframework.WithManageJobsWithoutQueueName(true)),
-			CRDPath:      crdPath,
-			DepCRDPaths:  []string{mpiCrdPath},
+			CRDPath:     crdPath,
+			DepCRDPaths: []string{mpiCrdPath},
 		}
 
-		ctx, cfg, k8sClient = fwk.Setup()
+		cfg = fwk.Init()
+		ctx, k8sClient = fwk.RunManager(cfg, managerSetup(false, jobframework.WithManageJobsWithoutQueueName(true)))
 	})
 	ginkgo.AfterAll(func() {
 		fwk.Teardown()
@@ -288,11 +288,11 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue are managed", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	ginkgo.BeforeAll(func() {
 		fwk = &framework.Framework{
-			ManagerSetup: managerSetup(true),
-			CRDPath:      crdPath,
-			DepCRDPaths:  []string{mpiCrdPath},
+			CRDPath:     crdPath,
+			DepCRDPaths: []string{mpiCrdPath},
 		}
-		ctx, cfg, k8sClient = fwk.Setup()
+		cfg = fwk.Init()
+		ctx, k8sClient = fwk.RunManager(cfg, managerSetup(true))
 	})
 	ginkgo.AfterAll(func() {
 		fwk.Teardown()
@@ -405,11 +405,11 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 
 	ginkgo.BeforeAll(func() {
 		fwk = &framework.Framework{
-			ManagerSetup: managerSetup(false, jobframework.WithWaitForPodsReady(true)),
-			CRDPath:      crdPath,
-			DepCRDPaths:  []string{mpiCrdPath},
+			CRDPath:     crdPath,
+			DepCRDPaths: []string{mpiCrdPath},
 		}
-		ctx, cfg, k8sClient = fwk.Setup()
+		cfg = fwk.Init()
+		ctx, k8sClient = fwk.RunManager(cfg, managerSetup(false, jobframework.WithWaitForPodsReady(true)))
 
 		ginkgo.By("Create a resource flavor")
 		gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).Should(gomega.Succeed())
@@ -614,11 +614,11 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 
 	ginkgo.BeforeAll(func() {
 		fwk = &framework.Framework{
-			ManagerSetup: managerAndSchedulerSetup(),
-			CRDPath:      crdPath,
-			DepCRDPaths:  []string{mpiCrdPath},
+			CRDPath:     crdPath,
+			DepCRDPaths: []string{mpiCrdPath},
 		}
-		ctx, cfg, k8sClient = fwk.Setup()
+		cfg = fwk.Init()
+		ctx, k8sClient = fwk.RunManager(cfg, managerAndSchedulerSetup())
 	})
 	ginkgo.AfterAll(func() {
 		fwk.Teardown()

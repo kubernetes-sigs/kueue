@@ -45,15 +45,14 @@ import (
 type ManagerSetup func(manager.Manager, context.Context)
 
 type Framework struct {
-	CRDPath      string
-	DepCRDPaths  []string
-	WebhookPath  string
-	ManagerSetup ManagerSetup
-	testEnv      *envtest.Environment
-	cancel       context.CancelFunc
+	CRDPath     string
+	DepCRDPaths []string
+	WebhookPath string
+	testEnv     *envtest.Environment
+	cancel      context.CancelFunc
 }
 
-func (f *Framework) Setup() (context.Context, *rest.Config, client.Client) {
+func (f *Framework) Init() *rest.Config {
 	opts := func(o *zap.Options) {
 		o.TimeEncoder = zapcore.RFC3339NanoTimeEncoder
 		o.ZapOpts = []zaplog.Option{zaplog.AddCaller()}
@@ -70,8 +69,7 @@ func (f *Framework) Setup() (context.Context, *rest.Config, client.Client) {
 		CRDDirectoryPaths:     append(f.DepCRDPaths, f.CRDPath),
 		ErrorIfCRDPathMissing: true,
 	}
-	webhookEnabled := len(f.WebhookPath) > 0
-	if webhookEnabled {
+	if len(f.WebhookPath) > 0 {
 		f.testEnv.WebhookInstallOptions.Paths = []string{f.WebhookPath}
 	}
 
@@ -79,7 +77,11 @@ func (f *Framework) Setup() (context.Context, *rest.Config, client.Client) {
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 	gomega.ExpectWithOffset(1, cfg).NotTo(gomega.BeNil())
 
-	err = kueue.AddToScheme(scheme.Scheme)
+	return cfg
+}
+
+func (f *Framework) RunManager(cfg *rest.Config, managerSetup ManagerSetup) (context.Context, client.Client) {
+	err := kueue.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = kubeflow.AddToScheme(scheme.Scheme)
@@ -113,7 +115,7 @@ func (f *Framework) Setup() (context.Context, *rest.Config, client.Client) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	f.cancel = cancel
-	f.ManagerSetup(mgr, ctx)
+	managerSetup(mgr, ctx)
 
 	go func() {
 		defer ginkgo.GinkgoRecover()
@@ -121,7 +123,7 @@ func (f *Framework) Setup() (context.Context, *rest.Config, client.Client) {
 		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "failed to run manager")
 	}()
 
-	if webhookEnabled {
+	if len(f.WebhookPath) > 0 {
 		// wait for the webhook server to get ready
 		dialer := &net.Dialer{Timeout: time.Second}
 		addrPort := fmt.Sprintf("%s:%d", webhookInstallOptions.LocalServingHost, webhookInstallOptions.LocalServingPort)
@@ -135,7 +137,7 @@ func (f *Framework) Setup() (context.Context, *rest.Config, client.Client) {
 		}).Should(gomega.Succeed())
 	}
 
-	return ctx, cfg, k8sClient
+	return ctx, k8sClient
 }
 
 func (f *Framework) Teardown() {

@@ -34,12 +34,12 @@ var _ = ginkgo.Describe("JobSet Webhook", func() {
 	ginkgo.When("with manageJobsWithoutQueueName disabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 		ginkgo.BeforeAll(func() {
 			fwk = &framework.Framework{
-				ManagerSetup: managerSetup(),
-				CRDPath:      crdPath,
-				DepCRDPaths:  []string{jobsetCrdPath},
-				WebhookPath:  webhookPath,
+				CRDPath:     crdPath,
+				DepCRDPaths: []string{jobsetCrdPath},
+				WebhookPath: webhookPath,
 			}
-			ctx, cfg, k8sClient = fwk.Setup()
+			cfg = fwk.Init()
+			ctx, k8sClient = fwk.RunManager(cfg, managerSetup())
 		})
 		ginkgo.BeforeEach(func() {
 			ns = &corev1.Namespace{

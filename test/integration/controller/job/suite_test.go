@@ -36,17 +36,19 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
+	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	//+kubebuilder:scaffold:imports
 )
 
 var (
-	cfg         *rest.Config
-	k8sClient   client.Client
-	ctx         context.Context
-	fwk         *framework.Framework
-	crdPath     = filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases")
-	webhookPath = filepath.Join("..", "..", "..", "..", "config", "components", "webhook")
+	cfg                  *rest.Config
+	k8sClient            client.Client
+	serverVersionFetcher *kubeversion.ServerVersionFetcher
+	ctx                  context.Context
+	fwk                  *framework.Framework
+	crdPath              = filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases")
+	webhookPath          = filepath.Join("..", "..", "..", "..", "config", "components", "webhook")
 )
 
 func TestAPIs(t *testing.T) {

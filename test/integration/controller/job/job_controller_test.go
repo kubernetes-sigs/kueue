@@ -65,10 +65,12 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 	ginkgo.BeforeAll(func() {
 		fwk = &framework.Framework{
-			ManagerSetup: managerSetup(jobframework.WithManageJobsWithoutQueueName(true)),
-			CRDPath:      crdPath,
+			CRDPath: crdPath,
 		}
-		ctx, cfg, k8sClient = fwk.Setup()
+		cfg = fwk.Init()
+		ctx, k8sClient = fwk.RunManager(cfg, managerSetup(
+			jobframework.WithManageJobsWithoutQueueName(true),
+		))
 	})
 	ginkgo.AfterAll(func() {
 		fwk.Teardown()
@@ -451,10 +453,10 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 
 	ginkgo.BeforeAll(func() {
 		fwk = &framework.Framework{
-			ManagerSetup: managerSetup(jobframework.WithWaitForPodsReady(true)),
-			CRDPath:      crdPath,
+			CRDPath: crdPath,
 		}
-		ctx, cfg, k8sClient = fwk.Setup()
+		cfg = fwk.Init()
+		ctx, k8sClient = fwk.RunManager(cfg, managerSetup(jobframework.WithWaitForPodsReady(true)))
 		ginkgo.By("Create a resource flavor")
 		gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).Should(gomega.Succeed())
 	})
@@ -714,10 +716,10 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 
 	ginkgo.BeforeAll(func() {
 		fwk = &framework.Framework{
-			ManagerSetup: managerAndSchedulerSetup(),
-			CRDPath:      crdPath,
+			CRDPath: crdPath,
 		}
-		ctx, cfg, k8sClient = fwk.Setup()
+		cfg = fwk.Init()
+		ctx, k8sClient = fwk.RunManager(cfg, managerAndSchedulerSetup())
 	})
 	ginkgo.AfterAll(func() {
 		fwk.Teardown()
