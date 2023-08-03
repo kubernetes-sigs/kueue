@@ -36,7 +36,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+	"k8s.io/client-go/discovery"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -55,6 +57,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	"sigs.k8s.io/kueue/pkg/util/cert"
+	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/pkg/util/useragent"
 	"sigs.k8s.io/kueue/pkg/version"
 	"sigs.k8s.io/kueue/pkg/webhooks"
@@ -150,11 +153,13 @@ func main() {
 	ctx := ctrl.SetupSignalHandler()
 	setupIndexes(ctx, mgr, &cfg)
 
+	serverVersionFetcher := setupServerVersionFetcher(mgr, kubeConfig)
+
 	setupProbeEndpoints(mgr)
 	// Cert won't be ready until manager starts, so start a goroutine here which
 	// will block until the cert is ready before setting up the controllers.
 	// Controllers who register after manager starts will start directly.
-	go setupControllers(ctx, mgr, cCache, queues, certsReady, &cfg)
+	go setupControllers(ctx, mgr, cCache, queues, certsReady, &cfg, serverVersionFetcher)
 
 	go func() {
 		queues.CleanUpOnContext(ctx)
@@ -191,7 +196,7 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 	}
 }
 
-func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, cfg *configapi.Configuration) {
+func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher) {
 	// The controllers won't work until the webhooks are operating, and the webhook won't work until the
 	// certs are all in place.
 	setupLog.Info("Waiting for certificate generation to complete")
@@ -214,6 +219,7 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 	opts := []jobframework.Option{
 		jobframework.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName),
 		jobframework.WithWaitForPodsReady(waitForPodsReady(cfg)),
+		jobframework.WithKubeServerVersion(serverVersionFetcher),
 	}
 	err := jobframework.ForEachIntegration(func(name string, cb jobframework.IntegrationCallbacks) error {
 		log := setupLog.WithValues("jobFrameworkName", name)
@@ -269,6 +275,23 @@ func setupScheduler(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager
 		setupLog.Error(err, "Unable to add scheduler to manager")
 		os.Exit(1)
 	}
+}
+
+func setupServerVersionFetcher(mgr ctrl.Manager, kubeConfig *rest.Config) *kubeversion.ServerVersionFetcher {
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(kubeConfig)
+	if err != nil {
+		setupLog.Error(err, "Unable to create the discovery client")
+		os.Exit(1)
+	}
+
+	serverVersionFetcher := kubeversion.NewServerVersionFetcher(discoveryClient)
+
+	if err := mgr.Add(serverVersionFetcher); err != nil {
+		setupLog.Error(err, "Unable to add server version fetcher to manager")
+		os.Exit(1)
+	}
+
+	return serverVersionFetcher
 }
 
 func blockForPodsReady(cfg *configapi.Configuration) bool {
