@@ -165,8 +165,8 @@ func (w *WorkloadWrapper) ReclaimablePods(rps ...kueue.ReclaimablePod) *Workload
 	return w
 }
 
-func (w *WorkloadWrapper) SetLabels(l map[string]string) *WorkloadWrapper {
-	w.Labels = l
+func (w *WorkloadWrapper) Labels(l map[string]string) *WorkloadWrapper {
+	w.ObjectMeta.Labels = l
 	return w
 }
 

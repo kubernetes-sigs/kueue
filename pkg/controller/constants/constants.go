@@ -34,6 +34,6 @@ const (
 	ParentWorkloadAnnotation = "kueue.x-k8s.io/parent-workload"
 
 	// JobUIDLabel is the label key in the workload resource, that holds the UID of
-	// a parent job.
+	// the owner job.
 	JobUIDLabel = "kueue.x-k8s.io/job-uid"
 )

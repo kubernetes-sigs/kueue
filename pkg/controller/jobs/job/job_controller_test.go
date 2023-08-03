@@ -441,7 +441,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					Priority(0).
-					SetLabels(map[string]string{
+					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
 					Obj(),
@@ -464,7 +464,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					Priority(0).
-					SetLabels(map[string]string{}).
+					Labels(map[string]string{}).
 					Obj(),
 			},
 		},
