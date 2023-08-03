@@ -17,7 +17,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"unicode/utf8"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -471,8 +470,8 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 		},
 	}
 
-	if uid := string(job.Object().GetUID()); utf8.RuneCountInString(uid) < 64 && uid != "" {
-		wl.Labels[controllerconsts.ParentUIDLabel] = uid
+	if uid := string(job.Object().GetUID()); len(uid) < 64 && uid != "" {
+		wl.Labels[controllerconsts.JobUIDLabel] = uid
 	}
 
 	priorityClassName, p, err := r.extractPriority(ctx, podSets, job)

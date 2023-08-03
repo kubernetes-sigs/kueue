@@ -442,7 +442,7 @@ func TestReconciler(t *testing.T) {
 					Queue("test-queue").
 					Priority(0).
 					SetLabels(map[string]string{
-						controllerconsts.ParentUIDLabel: "test-uid",
+						controllerconsts.JobUIDLabel: "test-uid",
 					}).
 					Obj(),
 			},
