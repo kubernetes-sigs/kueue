@@ -95,10 +95,6 @@ nitty-gritty.
 As an platform developer, I can queue plain Pods. I just add a queue name to the Pods through a
 label.
 
-<<[UNRESOLVED configurable labels ]>>
-The label key name is configurable and it can also be an annotation.
-<<[/UNRESOLVED]>>
-
 ```yaml
 apiVersion: v1
 kind: Pod
@@ -124,10 +120,6 @@ In addition to the queue name, I can specify how many Pods belong to the group.
 <<[UNRESOLVED usability of labels and annotations ]>>
 Could the split among labels and annotations cause user mistakes?
 Note that integers cannot be used as label values.
-<<[/UNRESOLVED]>>
-
-<<[UNRESOLVED configurable labels ]>>
-The label keys are configurable and can also be annotations.
 <<[/UNRESOLVED]>>
 
 The pods of a job with a single spec (similar to Pods in an Indexed Job), look like follows:
@@ -270,6 +262,16 @@ Pods owned by jobs managed by Kueue should not be subject to extra management.
 These Pods can be identified based on the ownerReference. For these pods:
 - the webhook should not add a scheduling gate
 - the pod reconciler should not create a corresponding Workload object.
+
+#### Pods replaced on failure
+
+It is possible that users of plain Pods have a controller for them to handle failures and
+re-creations.
+
+Because Kueue can't know if Pods will be recreated or not, it will hold the entirety of the
+quota until it can determine that the whole Workload finished (all pods are terminated).
+In other words, Kueue won't support [dynamically reclaiming quota](https://github.com/kubernetes-sigs/kueue/issues/78)
+for plain Pods.
 
 ### Risks and Mitigations
 
@@ -510,19 +512,17 @@ spec:
 ### Tracking admitted and finished Pods
 
 Pods need to have finalizers so that we can reliably track how many of them run to completion and be
-able to:
-- Communicate reclaimable quota [#78](https://github.com/kubernetes-sigs/kueue/issues/78)
-- Determine when the Workload is Finished.
+able to determine when the Workload is Finished.
 
-#### On Admission
-
-When a Workload is admitted, a new Pod reconciler would keep an in-memory cache of expected
-admissions: the number of admitted pods that are not reflected in the informers yet.
+When a Workload is admitted, the Workload reconciler would keep an in-memory cache of expected
+admissions: the number of admitted pods that are not reflected in the informers yet, per Workload.
 
 In the Pod event handler, we decrement the counter when we see a transition from having
 the scheduling gate `kueue.x-k8s.io/admission` to not having it.
 
 In the Workload reconciler:
+1. admitted_pods_informer: the number of non-terminated pods in the informer that are admitted.
+   We only look at non-terminated pods to allow for terminated pods to be replaced.
 1. admitted_pods = admitted_pods_in_informer + expected_admissions. Note that this might temporarily
    lead to double counting.
 2. For gated pods:
@@ -532,7 +532,8 @@ In the Workload reconciler:
       overbooking, but requeue this Pod for retry.
     - Else, remove finalizer and delete the Pod, as it's beyond the allowed admission.
 3. If the number of terminated pods with a finalizer is greater than or equal to the admission
-  count, mark the Workload as Finished and remove the finalizers from the Pods.
+  count, and there are no non-terminated Pods, mark the Workload as Finished and remove the
+  finalizers from the Pods.
 
 In the Pod reconciler:
 0. If the Pod is not terminated,
@@ -542,7 +543,7 @@ In the Pod reconciler:
 
 Note that we are only removing Pod finalizers once the Workload is finished. This is a simple way
 of managing finalizers, but it might lead to too many Pods lingering in etcd for a long time after
-terminated. In a future version, we can consider a better scheme similar to Pod tracking in Jobs.
+terminated. In a future version, we can consider a better scheme similar to [Pod tracking in Jobs](https://kubernetes.io/blog/2022/12/29/scalable-job-tracking-ga/).
 
 ### Test Plan
 
