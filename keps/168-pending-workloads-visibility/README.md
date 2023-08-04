@@ -210,6 +210,8 @@ Second, we introduce the `MaxPosition` parameter configuration parameter. With
 this parameter, the number of LocalQueues requiring an update can be controlled,
 because only LocalQueues with workloads at the top positions require an update.
 
+Finally, setting the `MaxCount` parameter for LocalQueues to 0 allows to stop
+visibility updates to LocalQueues.
 
 <!--
 What are the risks of this proposal, and how do we mitigate? Think broadly.
@@ -332,7 +334,9 @@ type QueueVisibility struct {
 
 type LocalQueueVisibility struct {
 	// MaxCount indicates the maximal number of pending workloads exposed in the
-	// local queue status. The maximal value is 4000.
+	// local queue status. When the value is set to 0, then LocalQueue visibility
+	// updates are disabled.
+	// The maximal value is 4000.
 	// Defaults to 10.
 	MaxCount int32
 
@@ -343,7 +347,9 @@ type LocalQueueVisibility struct {
 
 type ClusterQueueVisibility struct {
 	// MaxCount indicates the maximal number of pending workloads exposed in the
-	// cluster queue status. The maximal value is 4000.
+	// cluster queue status.  When the value is set to 0, then LocalQueue
+	// visibility updates are disabled.
+	// The maximal value is 4000.
 	// Defaults to 10.
 	MaxCount int32
 }
@@ -361,6 +367,9 @@ do lookup into the cached structure.
 The snapshot is taken periodically in intervals configured in
 `QueueVisibility.UpdateInterval`. The snapshot also contains an in-memory
 timestamp of when it was taken.
+
+When `MaxCount` for both LocalQueues and ClusterQueues is 0, then the feature
+is disabled, and the snapshot is not computed.
 
 ### Throttling of status updates
 
