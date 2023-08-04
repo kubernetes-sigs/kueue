@@ -43,12 +43,17 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
+const (
+	FailedToStartFinisedReason = "FailedToStart"
+)
+
 var (
 	ErrChildJobOwnerNotFound = fmt.Errorf("owner isn't set even though %s annotation is set", controllerconsts.ParentWorkloadAnnotation)
 	ErrUnknownWorkloadOwner  = errors.New("workload owner is unknown")
 	ErrWorkloadOwnerNotFound = errors.New("workload owner not found")
 	ErrNoMatchingWorkloads   = errors.New("no matching workloads")
 	ErrExtraWorkloads        = errors.New("extra workloads")
+	ErrInvalidPodsetInfo     = errors.New("invalid podset infos")
 )
 
 // JobReconciler reconciles a GenericJob object
@@ -173,11 +178,12 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
+	if wl != nil && apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
+		return ctrl.Result{}, nil
+	}
+
 	// 2. handle job is finished.
-	if condition, finished := job.Finished(); finished {
-		if wl == nil || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
-			return ctrl.Result{}, nil
-		}
+	if condition, finished := job.Finished(); finished && wl != nil {
 		err := workload.UpdateStatus(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName)
 		if err != nil {
 			log.Error(err, "Updating workload status")
@@ -248,6 +254,14 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			err := r.startJob(ctx, job, object, wl)
 			if err != nil {
 				log.Error(err, "Unsuspending job")
+				if isPermanent(err) {
+					// Mark the workload as finished with failure since the is no point to retry.
+					errUpdateStatus := workload.UpdateStatus(ctx, r.client, wl, kueue.WorkloadFinished, metav1.ConditionTrue, FailedToStartFinisedReason, err.Error(), constants.JobControllerName)
+					if errUpdateStatus != nil {
+						log.Error(errUpdateStatus, "Updating workload status, on start failure %s", err.Error())
+					}
+					return ctrl.Result{}, errUpdateStatus
+				}
 			}
 			return ctrl.Result{}, err
 		}
@@ -281,6 +295,10 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// workload is admitted and job is running, nothing to do.
 	log.V(3).Info("Job running with admitted workload, nothing to do")
 	return ctrl.Result{}, nil
+}
+
+func isPermanent(e error) bool {
+	return errors.Is(e, ErrInvalidPodsetInfo)
 }
 
 // IsParentJobManaged checks whether the parent job is managed by kueue.
@@ -422,7 +440,9 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 	if err != nil {
 		return err
 	}
-	job.RunWithPodSetsInfo(info)
+	if runErr := job.RunWithPodSetsInfo(info); runErr != nil {
+		return runErr
+	}
 
 	if err := r.client.Update(ctx, object); err != nil {
 		return err
@@ -666,4 +686,8 @@ func resetMinCounts(in []kueue.PodSet) []kueue.PodSet {
 		in[i].MinCount = nil
 	}
 	return in
+}
+
+func BadPodSetsInfoLenError(want, got int) error {
+	return fmt.Errorf("%w: expecting %d podset, got %d", ErrInvalidPodsetInfo, got, want)
 }

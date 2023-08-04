@@ -17,6 +17,7 @@ limitations under the License.
 package rayjob
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -151,8 +152,26 @@ func TestNodeSelectors(t *testing.T) {
 		}).
 		Obj())
 
+	// RunWithPodSetsInfo with invalid info should fail
+	runErr := job.RunWithPodSetsInfo([]jobframework.PodSetInfo{
+		{
+			NodeSelector: map[string]string{
+				"newKey": "newValue",
+			},
+		},
+		{
+			NodeSelector: map[string]string{
+				"key-wg1": "updated-value-wg1",
+			},
+		},
+	})
+
+	if !errors.Is(runErr, jobframework.ErrInvalidPodsetInfo) {
+		t.Errorf("expecting error for bad PodSetsInfo on RunWithPodSetsInfo")
+	}
+
 	// RunWithPodSetsInfo should append or update the node selectors
-	job.RunWithPodSetsInfo([]jobframework.PodSetInfo{
+	runErr = job.RunWithPodSetsInfo([]jobframework.PodSetInfo{
 		{
 			NodeSelector: map[string]string{
 				"newKey": "newValue",
@@ -169,6 +188,10 @@ func TestNodeSelectors(t *testing.T) {
 			},
 		},
 	})
+
+	if runErr != nil {
+		t.Errorf("unexpected error on RunWithPodSetsInfo: %s", runErr.Error())
+	}
 
 	if diff := cmp.Diff(
 		map[string]string{
