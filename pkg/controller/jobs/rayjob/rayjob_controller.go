@@ -113,11 +113,12 @@ func (j *RayJob) PodSets() []kueue.PodSet {
 }
 
 func (j *RayJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) error {
-	j.Spec.Suspend = false
 	expectedLen := len(j.Spec.RayClusterSpec.WorkerGroupSpecs) + 1
 	if len(podSetInfos) != expectedLen {
 		return jobframework.BadPodSetsInfoLenError(expectedLen, len(podSetInfos))
 	}
+
+	j.Spec.Suspend = false
 
 	// head
 	headPodSpec := &j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec
