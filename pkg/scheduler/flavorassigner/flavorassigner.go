@@ -41,9 +41,9 @@ type Assignment struct {
 	PodSets     []PodSetAssignment
 	TotalBorrow cache.FlavorResourceQuantities
 
-	// usedResources is the accumulated usage of resources as pod sets get
+	// Usage is the accumulated Usage of resources as pod sets get
 	// flavors assigned.
-	usage cache.FlavorResourceQuantities
+	Usage cache.FlavorResourceQuantities
 
 	// representativeMode is the cached representative mode for this assignment.
 	representativeMode *FlavorAssignmentMode
@@ -243,7 +243,7 @@ func assignFlavors(log logr.Logger, requests []workload.PodSetResources, podSets
 	assignment := Assignment{
 		TotalBorrow: make(cache.FlavorResourceQuantities),
 		PodSets:     make([]PodSetAssignment, 0, len(requests)),
-		usage:       make(cache.FlavorResourceQuantities),
+		Usage:       make(cache.FlavorResourceQuantities),
 	}
 	for i, podSet := range requests {
 		if _, found := cq.RGByResource[corev1.ResourcePods]; found {
@@ -315,10 +315,10 @@ func (a *Assignment) append(requests workload.Requests, psAssignment *PodSetAssi
 			// usage from previous pod sets.
 			a.TotalBorrow[flvAssignment.Name][resource] = flvAssignment.borrow
 		}
-		if a.usage[flvAssignment.Name] == nil {
-			a.usage[flvAssignment.Name] = make(map[corev1.ResourceName]int64)
+		if a.Usage[flvAssignment.Name] == nil {
+			a.Usage[flvAssignment.Name] = make(map[corev1.ResourceName]int64)
 		}
-		a.usage[flvAssignment.Name][resource] += requests[resource]
+		a.Usage[flvAssignment.Name][resource] += requests[resource]
 	}
 }
 
@@ -370,7 +370,7 @@ func (a *Assignment) findFlavorForResourceGroup(
 		for rName, val := range requests {
 			resQuota := flvQuotas.Resources[rName]
 			// Check considering the flavor usage by previous pod sets.
-			mode, borrow, s := fitsResourceQuota(flvQuotas.Name, rName, val+a.usage[flvQuotas.Name][rName], cq, resQuota)
+			mode, borrow, s := fitsResourceQuota(flvQuotas.Name, rName, val+a.Usage[flvQuotas.Name][rName], cq, resQuota)
 			if s != nil {
 				status.reasons = append(status.reasons, s.reasons...)
 			}
