@@ -105,3 +105,5 @@ spec:
                 cpu: 1
                 memory: 1Gi
 ```
+
+For equivalent instructions for doing this in Python, see [Run Python Jobs](/docs/tasks/run_python_jobs/#mpi-operator-job).

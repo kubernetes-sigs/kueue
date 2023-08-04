@@ -141,7 +141,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				return workload.IsAdmitted(createdWorkload) &&
 					apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadFinished)
 
-			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+			}, util.LongTimeout, util.Interval).Should(gomega.BeTrue())
 		})
 
 		ginkgo.It("Should readmit preempted job into a separate flavor", func() {

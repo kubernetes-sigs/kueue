@@ -31,7 +31,7 @@ type JobSetWrapper struct{ jobsetapi.JobSet }
 
 // TestPodSpec is the default pod spec used for testing.
 var TestPodSpec = corev1.PodSpec{
-	RestartPolicy: "Never",
+	RestartPolicy: corev1.RestartPolicyNever,
 	Containers: []corev1.Container{
 		{
 			Name:  "test-container",

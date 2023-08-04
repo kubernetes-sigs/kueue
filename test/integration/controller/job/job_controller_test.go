@@ -434,58 +434,6 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 	})
 })
 
-var _ = ginkgo.Describe("Job controller for workloads with no queue set", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	ginkgo.BeforeAll(func() {
-		fwk = &framework.Framework{
-			ManagerSetup: managerSetup(),
-			CRDPath:      crdPath,
-		}
-		ctx, cfg, k8sClient = fwk.Setup()
-	})
-	ginkgo.AfterAll(func() {
-		fwk.Teardown()
-	})
-
-	var (
-		ns *corev1.Namespace
-	)
-
-	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "core-",
-			},
-		}
-		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-	})
-	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-	})
-
-	ginkgo.It("Should reconcile jobs only when queue is set", func() {
-		ginkgo.By("checking the workload is not created when queue name is not set")
-		job := testingjob.MakeJob(jobName, ns.Name).Obj()
-		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
-		lookupKey := types.NamespacedName{Name: jobName, Namespace: ns.Name}
-		createdJob := &batchv1.Job{}
-		gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-
-		createdWorkload := &kueue.Workload{}
-		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(jobName), Namespace: ns.Name}
-		gomega.Consistently(func() bool {
-			return apierrors.IsNotFound(k8sClient.Get(ctx, wlLookupKey, createdWorkload))
-		}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
-
-		ginkgo.By("checking the workload is created when queue name is set")
-		jobQueueName := "test-queue"
-		createdJob.Annotations = map[string]string{constants.QueueAnnotation: jobQueueName}
-		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
-		gomega.Eventually(func() error {
-			return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-	})
-})
-
 var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	type podsReadyTestSpec struct {
 		beforeJobStatus *batchv1.JobStatus

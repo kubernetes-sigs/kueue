@@ -129,16 +129,19 @@ func (j *JobSet) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
 	}
 }
 
-func (j *JobSet) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
+func (j *JobSet) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) bool {
 	if len(podSetInfos) == 0 {
-		return
+		return false
 	}
+	changed := false
 	for index := range j.Spec.ReplicatedJobs {
 		if equality.Semantic.DeepEqual(j.Spec.ReplicatedJobs[index].Template.Spec.Template.Spec.NodeSelector, podSetInfos[index].NodeSelector) {
 			continue
 		}
+		changed = true
 		j.Spec.ReplicatedJobs[index].Template.Spec.Template.Spec.NodeSelector = maps.Clone(podSetInfos[index].NodeSelector)
 	}
+	return changed
 }
 
 func (j *JobSet) Finished() (metav1.Condition, bool) {

@@ -616,19 +616,26 @@ func TestSchedule(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("new", "eng-beta").
 					Queue("main").
-					Creation(time.Now().Add(-time.Second)).
+					Creation(time.Now().Add(-2 * time.Second)).
 					PodSets(*utiltesting.MakePodSet("one", 50).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					Obj(),
-				*utiltesting.MakeWorkload("new-gamma", "eng-beta").
-					Queue("gamma").
+				*utiltesting.MakeWorkload("new-alpha", "eng-alpha").
+					Queue("main").
+					Creation(time.Now().Add(-time.Second)).
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("new-gamma", "eng-gamma").
+					Queue("main").
 					Creation(time.Now()).
 					PodSets(*utiltesting.MakePodSet("one", 50).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					Obj(),
-				*utiltesting.MakeWorkload("existing", "eng-alpha").
+				*utiltesting.MakeWorkload("existing", "eng-gamma").
 					PodSets(
 						*utiltesting.MakePodSet("borrow-on-demand", 51).
 							Request(corev1.ResourceCPU, "1").
@@ -637,7 +644,7 @@ func TestSchedule(t *testing.T) {
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
-					Admit(utiltesting.MakeAdmission("eng-alpha").
+					Admit(utiltesting.MakeAdmission("eng-gamma").
 						PodSets(
 							kueue.PodSetAssignment{
 								Name: "borrow-on-demand",
@@ -673,14 +680,16 @@ func TestSchedule(t *testing.T) {
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").
 							Resource(corev1.ResourceCPU, "50", "10").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").
+							Resource(corev1.ResourceCPU, "0", "100").Obj(),
 					).
 					Obj(),
 			},
 			additionalLocalQueues: []kueue.LocalQueue{
 				{
 					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "eng-beta",
-						Name:      "gamma",
+						Namespace: "eng-gamma",
+						Name:      "main",
 					},
 					Spec: kueue.LocalQueueSpec{
 						ClusterQueue: "eng-gamma",
@@ -688,7 +697,7 @@ func TestSchedule(t *testing.T) {
 				},
 			},
 			wantAssignments: map[string]kueue.Admission{
-				"eng-alpha/existing": *utiltesting.MakeAdmission("eng-alpha").
+				"eng-gamma/existing": *utiltesting.MakeAdmission("eng-gamma").
 					PodSets(
 						kueue.PodSetAssignment{
 							Name: "borrow-on-demand",
@@ -715,7 +724,8 @@ func TestSchedule(t *testing.T) {
 			},
 			wantScheduled: []string{"eng-beta/new"},
 			wantLeft: map[string]sets.Set[string]{
-				"eng-gamma": sets.New("eng-beta/new-gamma"),
+				"eng-alpha": sets.New("eng-alpha/new-alpha"),
+				"eng-gamma": sets.New("eng-gamma/new-gamma"),
 			},
 		},
 		"partial admission single variable pod set": {
@@ -866,6 +876,7 @@ func TestSchedule(t *testing.T) {
 				WithObjects(
 					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-alpha", Labels: map[string]string{"dep": "eng"}}},
 					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-beta", Labels: map[string]string{"dep": "eng"}}},
+					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-gamma", Labels: map[string]string{"dep": "eng"}}},
 					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "sales", Labels: map[string]string{"dep": "sales"}}},
 				)
 			cl := clientBuilder.Build()
@@ -974,7 +985,7 @@ func TestEntryOrdering(t *testing.T) {
 		{
 			Info: workload.Info{
 				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "alpha",
+					Name:              "old_borrowing",
 					CreationTimestamp: metav1.NewTime(now),
 				}},
 			},
@@ -987,7 +998,7 @@ func TestEntryOrdering(t *testing.T) {
 		{
 			Info: workload.Info{
 				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "beta",
+					Name:              "old",
 					CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
 				}},
 			},
@@ -995,7 +1006,7 @@ func TestEntryOrdering(t *testing.T) {
 		{
 			Info: workload.Info{
 				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "gamma",
+					Name:              "new",
 					CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
 				}},
 			},
@@ -1003,7 +1014,32 @@ func TestEntryOrdering(t *testing.T) {
 		{
 			Info: workload.Info{
 				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "delta",
+					Name:              "high_pri_borrowing",
+					CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
+				}, Spec: kueue.WorkloadSpec{
+					Priority: pointer.Int32(1),
+				}},
+			},
+			assignment: flavorassigner.Assignment{
+				TotalBorrow: cache.FlavorResourceQuantities{
+					"flavor": {},
+				},
+			},
+		},
+		{
+			Info: workload.Info{
+				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+					Name:              "new_high_pri",
+					CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
+				}, Spec: kueue.WorkloadSpec{
+					Priority: pointer.Int32(1),
+				}},
+			},
+		},
+		{
+			Info: workload.Info{
+				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+					Name:              "new_borrowing",
 					CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
 				}},
 			},
@@ -1017,7 +1053,7 @@ func TestEntryOrdering(t *testing.T) {
 			Info: workload.Info{
 				Obj: &kueue.Workload{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:              "epsilon",
+						Name:              "evicted_borrowing",
 						CreationTimestamp: metav1.NewTime(now),
 					},
 					Status: kueue.WorkloadStatus{
@@ -1042,8 +1078,8 @@ func TestEntryOrdering(t *testing.T) {
 			Info: workload.Info{
 				Obj: &kueue.Workload{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:              "zeta",
-						CreationTimestamp: metav1.NewTime(now.Add(2 * time.Second)),
+						Name:              "recently_evicted",
+						CreationTimestamp: metav1.NewTime(now),
 					},
 					Status: kueue.WorkloadStatus{
 						Conditions: []metav1.Condition{
@@ -1064,7 +1100,7 @@ func TestEntryOrdering(t *testing.T) {
 	for i, e := range input {
 		order[i] = e.Obj.Name
 	}
-	wantOrder := []string{"beta", "zeta", "gamma", "alpha", "epsilon", "delta"}
+	wantOrder := []string{"new_high_pri", "old", "recently_evicted", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing"}
 	if diff := cmp.Diff(wantOrder, order); diff != "" {
 		t.Errorf("Unexpected order (-want,+got):\n%s", diff)
 	}

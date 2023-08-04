@@ -17,6 +17,8 @@ limitations under the License.
 package testing
 
 import (
+	"time"
+
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -44,7 +46,7 @@ func MakeJob(name, ns string) *JobWrapper {
 			Suspend:     pointer.Bool(true),
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
-					RestartPolicy: "Never",
+					RestartPolicy: corev1.RestartPolicyNever,
 					Containers: []corev1.Container{
 						{
 							Name:      "c",
@@ -62,6 +64,11 @@ func MakeJob(name, ns string) *JobWrapper {
 // Obj returns the inner Job.
 func (j *JobWrapper) Obj() *batchv1.Job {
 	return &j.Job
+}
+
+// Clone returns deep copy of the Job.
+func (j *JobWrapper) Clone() *JobWrapper {
+	return &JobWrapper{Job: *j.DeepCopy()}
 }
 
 // Suspend updates the suspend status of the job
@@ -165,5 +172,17 @@ func (j *JobWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersi
 // UID updates the uid of the job.
 func (j *JobWrapper) UID(uid string) *JobWrapper {
 	j.ObjectMeta.UID = types.UID(uid)
+	return j
+}
+
+// StartTime sets the .status.startTime
+func (j *JobWrapper) StartTime(t time.Time) *JobWrapper {
+	j.Status.StartTime = &metav1.Time{Time: t}
+	return j
+}
+
+// Active sets the .status.active
+func (j *JobWrapper) Active(c int32) *JobWrapper {
+	j.Status.Active = c
 	return j
 }
