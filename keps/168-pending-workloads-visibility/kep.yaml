@@ -12,9 +12,16 @@ approvers:
   - "@ahg-g"
   - "@alculquicondor"
 
-stage: stable
+stage: beta
 
 latest-milestone: "v0.5"
+
 milestone:
-  stable: "v0.5"
-disable-supported: false
+  beta: "v0.5"
+  stable: "v0.8"
+
+disable-supported: true
+
+feature-gates:
+  - name: QueueVisibility
+

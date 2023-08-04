@@ -43,6 +43,8 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
   - [Graduation Criteria](#graduation-criteria)
+    - [Beta](#beta)
+    - [Stable](#stable)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
@@ -512,6 +514,25 @@ After the implementation PR is merged, add the names of the tests here.
 -->
 
 ### Graduation Criteria
+
+#### Beta
+
+First iteration (0.5):
+
+- support visibility for ClusterQueues
+
+Second iteration (0.6):
+
+- support visibility for LocalQueues, but without positions,
+  to avoid the complication of avoiding the risk [Large number of API requests triggered after workload admissions](#large-number-of-api-requests-triggered-after-workload-admissions)
+
+Third iteration (0.7):
+
+- reevaluate the need for exposing positions and support if needed
+
+#### Stable
+
+- drop the feature gate
 
 <!--
 
