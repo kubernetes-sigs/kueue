@@ -21,6 +21,10 @@
     - [Pods subject to queueing](#pods-subject-to-queueing)
   - [Constructing Workload objects](#constructing-workload-objects)
     - [Single Pods](#single-pods)
+    - [Groups of Pods with the same shape](#groups-of-pods-with-the-same-shape)
+    - [Groups of pods with multiple shapes](#groups-of-pods-with-multiple-shapes)
+    - [Groups of pods where driver generates workers](#groups-of-pods-where-driver-generates-workers)
+  - [Tracking admitted and finished Pods](#tracking-admitted-and-finished-pods)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
@@ -99,7 +103,8 @@ The label key name is configurable and it can also be an annotation.
 apiVersion: v1
 kind: Pod
 metadata:
-  name: pod-job
+  name: foo
+  namespace: pod-namespace
   labels:
     kueue.x-k8s.io/queue-name: user-queue
 spec:
@@ -132,6 +137,7 @@ apiVersion: v1
 kind: Pod
 metadata:
   name: pod-index-0
+  namespace: pod-namespace
   labels:
     kueue.x-k8s.io/queue-name: user-queue
     kueue.x-k8s.io/pod-group-name: pod-group
@@ -177,7 +183,7 @@ spec:
 apiVersion: v1
 kind: Pod
 metadata:
-  name: job-worker-1
+  name: job-worker-0
   labels:
     kueue.x-k8s.io/queue-name: user-queue
     kueue.x-k8s.io/pod-group-name: pod-group
@@ -212,6 +218,7 @@ metadata:
     kueue.x-k8s.io/pod-group-name: pod-group
     kueue.x-k8s.io/pod-group-role: driver
   annotations:
+    kueue.x-k8s.io/pod-group-role-count: "1" # optional
     # The template in the driver group can be left empty. Kueue will populate it from the Pod.
     kueue.x-k8s.io/pod-group-sets: |-
       [
@@ -314,15 +321,16 @@ specific flavor.
 Kubernetes 1.27 and newer provide the mechanism of [scheduling readiness](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-scheduling-readiness/)
 to prevent kube-scheduler from assigning Nodes to Pods.
 
-A Kueue webhook will inject to Pods subject to queueing:
+A Kueue webhook will inject to [Pods subject to queueing](#pods-subject-to-queueing):
 - A scheduling gate `kueue.x-k8s.io/admission` to prevent the Pod from scheduling.
 - A label `kueue.x-k8s.io/managed: true` so that users can easily identify pods that are/were
   managed by Kueue.
+- A finalizer `kueue.x-k8s.io/managed` in order to reliably track pod terminations.
 
 #### Pods subject to queueing
 
-Not all Pods in a cluster should be subject to queueing. In particular the following pods should
-be excluded from getting the scheduling gate or label.
+Not all Pods in a cluster should be subject to queueing.
+In particular the following pods should be excluded from getting the scheduling gate or label.
 
 1. Pods owned by other job APIs managed by kueue.
 
@@ -343,7 +351,7 @@ type PodIntegrationOptions struct {
 }
 ```
 
-When empty, the default NamespaceSelector is:
+When empty, Kueue uses the following NamespaceSelector internally:
 
 ```yaml
 matchExpressions:
@@ -357,31 +365,184 @@ matchExpressions:
 Once the webhook has marked Pods subject to queuing with the `kueue.x-k8s.io/managed: true` label,
 the Pod reconciler can create the corresponding Workload object to feed the Kueue admission logic.
 
+Note that the Workload cannot be owned by the Pod. Otherwise any cascade deletion of the Pod would
+delete the Workload object, even before the Pod terminates (if it has a grace period).
+This means that we need to manually delete the Workload object once we have determined that all pods
+have finished.
+
 #### Single Pods
 
 The simplest case we want to support is single Pod jobs. These Pods only have the label
 `kueue.x-k8s.io/queue-name`, indicating the local queue where they will be queued.
 
 When constructing the Workload object, kueue only populates a single podset using the podRef field.
+The Workload for the Pod in [story 1](#story-1) would look as follows:
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: Workload
 metadata:
-  name: workload-name
+  name: pod-foo
   namespace: pod-namespace
-  ownerReferences:
-  - apiVersion: v1
-    kind: Pod
-    name: pod-name
 spec:
   queueName: queue-name
   podSets:
   - count: 1
-    name: main
-    podRef: pod-name
+    name: main # this name is irrelevant.
+    podRef: foo
 ```
 
+<<[UNRESOLVED creating a Workload beforehand]>>
+Could users create a Workload object before hand for groups of Pods?
+This way, Pods would only need to have a label for the group name and the role. This would
+simplify validation.
+Should we make this a supported mode in addition to pure labels/annotations?
+<<[/UNRESOLVED]>>
+
+#### Groups of Pods with the same shape
+
+When multiple pods belong to the same group and have the same shape, we need to know how many pods
+belong to the group.
+
+These groups of Pods can be identified when they have:
+- the label `kueue.x-k8s.io/pod-group-name`, as a unique identifier for the group.
+- the annotation `kueue.x-k8s.io/pod-group-count`, the number of pods to expect in the group
+
+<<[UNRESOLVED expectations]>>
+
+1. Can we assume that when a Pod fails it won't be recreated?
+2. Alternatively, is there be a pod controller that handles recreation? If so, how do we know
+   if the job finished, so that there wouldn't be more recreations?
+
+Most likely, we should assume that the Pods are just plain Pods not controlled by a custom resource.
+Otherwise, users should prefer to integrate directly with the Workload API, which is not a
+significant effort, but would be more reliable.
+
+3. Can we assume that the workloads are thrustworthy (no more pods are sent than the annotation states).
+
+Annotations across multiple objects cannot easily be validated, as such, we should probably guard
+against misuse.
+
+<<[/UNRESOLVED]>>
+
+<<[UNRESOLVED finalizers and Job API]>>
+
+As pods terminate (success or failure), we need to free quota.
+In order to reliably track terminated Pods, we need to add finalizers to pods. When the pods finish,
+we increment a counter in the Workload status and remove the finalizer.
+
+This problem is already solved by the Job API, so the natural question is: why not just use a Job?
+
+<<[/UNRESOLVED]>>
+
+The Workload object can be generated after observing the first Pod.
+The Workload for the Pod in [story 2](#story-2) would look as follows:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: Workload
+metadata:
+  name: pod-group
+  namespace: pod-namespace
+spec:
+  queueName: queue-name
+  podSets:
+  - count: 10
+    name: main # this name is irrelevant.
+    podRef: pod-index-0 # any pod would do.
+```
+
+#### Groups of pods with multiple shapes or roles
+
+When a group has multiple shapes, sometimes known as roles, we need to know how many shapes there
+are. The Pods declare their role with the label `kueue.x-k8s.io/pod-group-role`. The annotation
+`kueue.k8s.io/pod-group-role-count` contains how many pods belong to the role.
+
+We can only build the Workload object once we observe at least one Pod per role.
+
+The Workload for the Pod in [story 3](#story-3) would look as follows:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: Workload
+metadata:
+  name: pod-group
+  namespace: pod-namespace
+spec:
+  queueName: queue-name
+  podSets:
+  - count: 1
+    name: driver 
+    podRef: job-driver
+  - count: 10
+    name: worker
+    podRef: job-worker-0 # any pod of the role would do
+```
+
+#### Groups of pods where driver generates workers
+
+When most Pods of a group are only created after a subset of them start running, users need to
+provide the shapes of the following pods before hand.
+
+Users can provide the shapes of the remaining roles in an annotation
+`kueue.x-k8s.io/pod-group-sets`, taking a yaml/json with the same structure as the Workload PodSets.
+The template for the initial pods can be left empty, as it can be populated by Kueue.
+
+The Workload for the Pod in [story 4](#story-4) would look as follows:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: Workload
+metadata:
+  name: pod-group
+  namespace: pod-namespace
+spec:
+  queueName: queue-name
+  podSets:
+  - count: 1
+    name: driver 
+    podRef: job-driver
+  - count: 10
+    name: worker
+    podRef: job-worker-0 # any pod of the role would do
+```
+
+### Tracking admitted and finished Pods
+
+Pods need to have finalizers so that we can reliably track how many of them run to completion and be
+able to:
+- Communicate reclaimable quota [#78](https://github.com/kubernetes-sigs/kueue/issues/78)
+- Determine when the Workload is Finished.
+
+#### On Admission
+
+When a Workload is admitted, a new Pod reconciler would keep an in-memory cache of expected
+admissions: the number of admitted pods that are not reflected in the informers yet.
+
+In the Pod event handler, we decrement the counter when we see a transition from having
+the scheduling gate `kueue.x-k8s.io/admission` to not having it.
+
+In the Workload reconciler:
+1. admitted_pods = admitted_pods_in_informer + expected_admissions. Note that this might temporarily
+   lead to double counting.
+2. For gated pods:
+  - If admitted_pods < admission.count, remove the gate, set nodeSelector, an increase expected_admissions
+  - Else,
+    - If admitted_pods_in_informer < admission.count, we can't admit this Pod now to prevent
+      overbooking, but requeue this Pod for retry.
+    - Else, remove finalizer and delete the Pod, as it's beyond the allowed admission.
+3. If the number of terminated pods with a finalizer is greater than or equal to the admission
+  count, mark the Workload as Finished and remove the finalizers from the Pods.
+
+In the Pod reconciler:
+0. If the Pod is not terminated,
+  create a Workload for the pod group if one does not exist.
+1. If the Pod is terminated,
+   - If the Workloald doesn't exist or the workload is finished, remove the finalizer.
+
+Note that we are only removing Pod finalizers once the Workload is finished. This is a simple way
+of managing finalizers, but it might lead to too many Pods lingering in etcd for a long time after
+terminated. In a future version, we can consider a better scheme similar to Pod tracking in Jobs.
 
 ### Test Plan
 
