@@ -364,9 +364,17 @@ from the LocalQueue to the list of workloads belonging to the ClusterQueue,
 along with their positions. Then, the LocalQueue and ClusterQueue controllers
 do lookup into the cached structure.
 
-The snapshot is taken periodically in intervals configured in
-`QueueVisibility.UpdateInterval`. The snapshot also contains an in-memory
-timestamp of when it was taken.
+The snapshots are taken periodically, per ClusterQueue, by multiple workers
+processing a queue of snapshot-taking tasks. The tasks are re-enqueued to the
+queue with `QueueVisibility.UpdateInterval` delay just after taking the previous
+snapshot for as long as a given ClusterQueue exists.
+
+The model of using snapshot workers allows to control the number of snapshot
+updates after Kueue startup, and thus cascading ClusterQueues updates. The
+number of workers is 5.
+
+Note that taking the snapshot requires taking the ClusterQueue read lock
+only for the duration of copying the underlying heap data
 
 When `MaxCount` for both LocalQueues and ClusterQueues is 0, then the feature
 is disabled, and the snapshot is not computed.
