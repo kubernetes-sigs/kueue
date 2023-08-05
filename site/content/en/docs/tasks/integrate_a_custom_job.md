@@ -11,6 +11,10 @@ Kueue integrates with a couple of jobs, including Kubernetes batch Job, MPIJob, 
 If there is another Job, which you would like supported, please consider contributing. 
 This page shows how to integrate a custom Job with Kueue.
 
+## Pre-requisites
+
+1. The custom Job CRD should have a suspend-like field. You can check this [page](https://kubernetes.io/docs/concepts/workloads/controllers/job/#suspending-a-job) for suspending a job.
+
 ## What you need to specify
 
 1. Configuration
@@ -24,25 +28,27 @@ Add your framework name to `.integrations.frameworks` in [controller_manager_con
 
 ## Controller
 
-Provide your code of the controller under a dedicated directory. This directory need to under the `./pkg/controller/jobs/` folder.
+Add a new folder in `./pkg/controller/jobs/` to host the implementation of the integration.
 
-1. Register the new framework
+1. Register the new framework in `func Init()`
 2. Add RBAC Authorization using [kubebuilder marker comments](https://book.kubebuilder.io/reference/markers/rbac.html)
     - Add RBAC Authorization for priorityclasses, events, workloads, resourceflavors and any resources you want.
-3. Implement the `GenericJob` interface, and potentially other interfaces in [here](https://github.com/kubernetes-sigs/kueue/blob/main/pkg/controller/jobframework/interface.go).
-    - You can click this [link](https://github.com/kubernetes-sigs/kueue/blob/main/pkg/controller/jobframework/interface.go) to check which interfaces you need to implement.
-
+3. Implement the `GenericJob` interface, and other optional [interfaces defined by the framework](https://github.com/kubernetes-sigs/kueue/blob/main/pkg/controller/jobframework/interface.go).
 
 ## Webhook
 
-Create your webhook file in your dedicated director.
+Create a webhook file in the dedicated directory for the integration.
 
 You can learn how to create webhook in this [page](https://book.kubebuilder.io/cronjob-tutorial/webhook-implementation.html).
+
+The framework provides some validation functions for common labels and annotations.
 
 Your webhook should have ability to suspend jobs.
 
 
 ## Adjust build system
+Integrations can also live in an external repo, while still using the same integration framework.
+
 1. Add required dependencies to compile the controller and webhook code. For example, using `go get github.com/kubeflow/mpi-operator@0.4.0`.
 2. Update [Makefile](https://github.com/kubernetes-sigs/kueue/blob/main/Makefile) for testing.
    - Add commands which copy the crd of your custom job to the Kueue project.
