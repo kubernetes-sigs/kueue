@@ -493,7 +493,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, cq)).To(gomega.Succeed())
 			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
-			gomega.Expect(util.DeleteResourceFlavor(ctx, k8sClient, spotTaintedFlavor)).To(gomega.Succeed())
+			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, spotTaintedFlavor, true)
 		})
 
 		ginkgo.It("Should re-enqueue by the delete event of workload belonging to the same ClusterQueue", func() {
@@ -928,7 +928,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, prodCQ, true)
 			gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, devCQ)).ToNot(gomega.HaveOccurred())
 			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
-			gomega.Expect(util.DeleteResourceFlavor(ctx, k8sClient, spotTaintedFlavor)).To(gomega.Succeed())
+			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, spotTaintedFlavor, true)
 		})
 
 		ginkgo.It("Should admit workloads using borrowed ClusterQueue", func() {
