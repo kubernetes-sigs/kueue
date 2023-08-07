@@ -2,7 +2,7 @@ title: workload priority
 kep-number: 973
 authors:
   - "@Gekko0114"
-status:implementable
+status: implementable
 creation-date: 2023-08-05
 reviewers:
   - "@alculquicondor"
