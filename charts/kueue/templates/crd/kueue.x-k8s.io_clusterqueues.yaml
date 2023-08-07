@@ -66,6 +66,12 @@ spec:
           spec:
             description: ClusterQueueSpec defines the desired state of ClusterQueue
             properties:
+              admissionChecks:
+                description: admissionChecks lists the AdmissionChecks required by
+                  this ClusterQueue
+                items:
+                  type: string
+                type: array
               cohort:
                 description: "cohort that this ClusterQueue belongs to. CQs that belong
                   to the same cohort can borrow unused resources from each other.

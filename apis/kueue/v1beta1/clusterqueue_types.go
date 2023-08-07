@@ -88,6 +88,10 @@ type ClusterQueueSpec struct {
 	// preempt to accomomdate the pending Workload, preempting Workloads with
 	// lower priority first.
 	Preemption *ClusterQueuePreemption `json:"preemption,omitempty"`
+
+	// admissionChecks lists the AdmissionChecks required by this ClusterQueue
+	// +optional
+	AdmissionChecks []string `json:"admissionChecks,omitempty"`
 }
 
 type QueueingStrategy string
