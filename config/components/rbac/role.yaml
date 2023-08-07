@@ -152,6 +152,32 @@ rules:
 - apiGroups:
   - kueue.x-k8s.io
   resources:
+  - admissionchecks
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kueue.x-k8s.io
+  resources:
+  - admissionchecks/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - kueue.x-k8s.io
+  resources:
+  - admissionchecks/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - kueue.x-k8s.io
+  resources:
   - clusterqueues
   verbs:
   - create

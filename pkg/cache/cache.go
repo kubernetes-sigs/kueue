@@ -77,6 +77,7 @@ type Cache struct {
 	assumedWorkloads  map[string]string
 	resourceFlavors   map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	podsReadyTracking bool
+	admissioChecks    sets.Set[string]
 }
 
 func New(client client.Client, opts ...Option) *Cache {
@@ -90,6 +91,7 @@ func New(client client.Client, opts ...Option) *Cache {
 		cohorts:           make(map[string]*Cohort),
 		assumedWorkloads:  make(map[string]string),
 		resourceFlavors:   make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
+		admissioChecks:    sets.New[string](),
 		podsReadyTracking: options.podsReadyTracking,
 	}
 	c.podsReadyCond.L = &c.RWMutex
@@ -104,7 +106,7 @@ func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*ClusterQueue, error) {
 		localQueues:       make(map[string]*queue),
 		podsReadyTracking: c.podsReadyTracking,
 	}
-	if err := cqImpl.update(cq, c.resourceFlavors); err != nil {
+	if err := cqImpl.update(cq, c.resourceFlavors, c.admissioChecks); err != nil {
 		return nil, err
 	}
 
@@ -191,6 +193,7 @@ func (c *Cache) updateClusterQueues() sets.Set[string] {
 		// because it is not expensive to do so, and is not worth tracking which ClusterQueues use
 		// which flavors.
 		cq.UpdateWithFlavors(c.resourceFlavors)
+		cq.UpdateWithAdmissionChecks(c.admissioChecks)
 		curStatus := cq.Status
 		if prevStatus == pending && curStatus == active {
 			cqs.Insert(cq.Name)
@@ -213,12 +216,36 @@ func (c *Cache) DeleteResourceFlavor(rf *kueue.ResourceFlavor) sets.Set[string] 
 	return c.updateClusterQueues()
 }
 
+func (c *Cache) AddOrUpdateAdmissionCheck(ac *kueue.AdmissionCheck) sets.Set[string] {
+	c.Lock()
+	defer c.Unlock()
+	c.admissioChecks.Insert(ac.Name)
+	return c.updateClusterQueues()
+}
+
+func (c *Cache) DeleteAdmissionCheck(ac *kueue.AdmissionCheck) sets.Set[string] {
+	c.Lock()
+	defer c.Unlock()
+	c.admissioChecks.Delete(ac.Name)
+	return c.updateClusterQueues()
+}
+
 func (c *Cache) ClusterQueueActive(name string) bool {
 	return c.clusterQueueInStatus(name, active)
 }
 
 func (c *Cache) ClusterQueueTerminating(name string) bool {
 	return c.clusterQueueInStatus(name, terminating)
+}
+
+func (c *Cache) ClusterQueueInactiveReason(name string) (string, string) {
+	c.RLock()
+	defer c.RUnlock()
+	cq, exists := c.clusterQueues[name]
+	if !exists {
+		return "NotFound", "Cluster queue not found"
+	}
+	return cq.inactiveReason()
 }
 
 func (c *Cache) clusterQueueInStatus(name string, status metrics.ClusterQueueStatus) bool {
@@ -308,7 +335,7 @@ func (c *Cache) UpdateClusterQueue(cq *kueue.ClusterQueue) error {
 	if !ok {
 		return errCqNotFound
 	}
-	if err := cqImpl.update(cq, c.resourceFlavors); err != nil {
+	if err := cqImpl.update(cq, c.resourceFlavors, c.admissioChecks); err != nil {
 		return err
 	}
 	for _, qImpl := range cqImpl.localQueues {
@@ -657,6 +684,19 @@ func (c *Cache) ClusterQueuesUsingFlavor(flavor string) []string {
 
 	for _, cq := range c.clusterQueues {
 		if cq.flavorInUse(flavor) {
+			cqs = append(cqs, cq.Name)
+		}
+	}
+	return cqs
+}
+
+func (c *Cache) ClusterQueuesUsingAdmissionCheck(ac string) []string {
+	c.RLock()
+	defer c.RUnlock()
+	var cqs []string
+
+	for _, cq := range c.clusterQueues {
+		if cq.admissionChecks.Has(ac) {
 			cqs = append(cqs, cq.Name)
 		}
 	}

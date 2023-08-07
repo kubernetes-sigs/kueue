@@ -656,6 +656,76 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "add cluster queue with missing check",
+			operation: func(cache *Cache) {
+				err := cache.AddClusterQueue(context.Background(),
+					utiltesting.MakeClusterQueue("foo").
+						AdmissionChecks("check1", "check2").
+						Obj())
+				if err != nil {
+					t.Fatalf("Adding ClusterQueue: %v", err)
+				}
+			},
+			wantClusterQueues: map[string]*ClusterQueue{
+				"foo": {
+					Name:              "foo",
+					NamespaceSelector: labels.Everything(),
+					Status:            pending,
+					Preemption:        defaultPreemption,
+				},
+			},
+			wantCohorts: map[string]sets.Set[string]{},
+		},
+		{
+			name: "add check after queue creation",
+			operation: func(cache *Cache) {
+				err := cache.AddClusterQueue(context.Background(),
+					utiltesting.MakeClusterQueue("foo").
+						AdmissionChecks("check1", "check2").
+						Obj())
+				if err != nil {
+					t.Fatalf("Adding ClusterQueue: %v", err)
+				}
+
+				cache.AddOrUpdateAdmissionCheck(utiltesting.MakeAdmissionCheck("check1").Obj())
+				cache.AddOrUpdateAdmissionCheck(utiltesting.MakeAdmissionCheck("check2").Obj())
+			},
+			wantClusterQueues: map[string]*ClusterQueue{
+				"foo": {
+					Name:              "foo",
+					NamespaceSelector: labels.Everything(),
+					Status:            active,
+					Preemption:        defaultPreemption,
+				},
+			},
+			wantCohorts: map[string]sets.Set[string]{},
+		},
+		{
+			name: "remove check after queue creation",
+			operation: func(cache *Cache) {
+				cache.AddOrUpdateAdmissionCheck(utiltesting.MakeAdmissionCheck("check1").Obj())
+				cache.AddOrUpdateAdmissionCheck(utiltesting.MakeAdmissionCheck("check2").Obj())
+				err := cache.AddClusterQueue(context.Background(),
+					utiltesting.MakeClusterQueue("foo").
+						AdmissionChecks("check1", "check2").
+						Obj())
+				if err != nil {
+					t.Fatalf("Adding ClusterQueue: %v", err)
+				}
+
+				cache.DeleteAdmissionCheck(utiltesting.MakeAdmissionCheck("check2").Obj())
+			},
+			wantClusterQueues: map[string]*ClusterQueue{
+				"foo": {
+					Name:              "foo",
+					NamespaceSelector: labels.Everything(),
+					Status:            pending,
+					Preemption:        defaultPreemption,
+				},
+			},
+			wantCohorts: map[string]sets.Set[string]{},
+		},
 	}
 
 	for _, tc := range cases {
