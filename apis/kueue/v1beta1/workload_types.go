@@ -154,6 +154,12 @@ type WorkloadStatus struct {
 	// +listType=map
 	// +listMapKey=name
 	ReclaimablePods []ReclaimablePod `json:"reclaimablePods,omitempty"`
+
+	// admissionChecks list all the admission checks required by the workload and the current status
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	AdmissionChecks []metav1.Condition `json:"admissionChecks,omitempty"`
 }
 
 type ReclaimablePod struct {
@@ -189,6 +195,10 @@ const (
 	// WorkloadEvictedByPodsReadyTimeout indicates that the eviction took
 	// place due to a PodsReady timeout.
 	WorkloadEvictedByPodsReadyTimeout = "PodsReadyTimeout"
+
+	// WorkloadEvictedByAdmissionCheck indicates that the workload was evicted
+	// beacuse at least one admission check transitioned to false.
+	WorkloadEvictedByAdmissionCheck = "AdmissionCheck"
 )
 
 // +genclient
