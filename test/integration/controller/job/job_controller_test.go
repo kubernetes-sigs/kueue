@@ -845,7 +845,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
 	})
 
-	ginkgo.It("Should unsuspend job if localQueue is in the same namespace", func() {
+	ginkgo.It("Should unsuspend job iff localQueue is in the same namespace", func() {
 		ginkgo.By("create another namespace")
 		ns2 := &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
