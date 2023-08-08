@@ -57,21 +57,21 @@ var _ webhook.CustomDefaulter = &MPIJobWebhook{}
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
 func (w *MPIJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	job := fromObject(obj)
-	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
+	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
 	log.V(5).Info("Applying defaults", "job", klog.KObj(job))
 
 	jobframework.ApplyDefaultForSuspend(job, w.manageJobsWithoutQueueName)
 	return nil
 }
 
-// +kubebuilder:webhook:path=/validate-kubeflow-org-v2beta1-mpijob,mutating=false,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=mpijobs,verbs=update,versions=v2beta1,name=vmpijob.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-kubeflow-org-v2beta1-mpijob,mutating=false,failurePolicy=fail,sideEffects=None,groups=kubeflow.org,resources=mpijobs,verbs=create;update,versions=v2beta1,name=vmpijob.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomValidator = &MPIJobWebhook{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *MPIJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	job := fromObject(obj)
-	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
+	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
 	log.Info("Validating create", "job", klog.KObj(job))
 	return nil, validateCreate(job).ToAggregate()
 }
@@ -84,7 +84,7 @@ func validateCreate(job jobframework.GenericJob) field.ErrorList {
 func (w *MPIJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	oldJob := fromObject(oldObj)
 	newJob := fromObject(newObj)
-	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
+	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
 	log.Info("Validating update", "job", klog.KObj(newJob))
 	allErrs := jobframework.ValidateUpdateForQueueName(oldJob, newJob)
 	return nil, allErrs.ToAggregate()

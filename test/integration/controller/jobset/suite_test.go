@@ -47,6 +47,7 @@ var (
 	fwk           *framework.Framework
 	crdPath       = filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases")
 	jobsetCrdPath = filepath.Join("..", "..", "..", "..", "dep-crds", "jobset-operator")
+	webhookPath   = filepath.Join("..", "..", "..", "..", "config", "components", "webhook")
 )
 
 func TestAPIs(t *testing.T) {
