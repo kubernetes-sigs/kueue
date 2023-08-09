@@ -624,7 +624,7 @@ func TestAssignFlavors(t *testing.T) {
 				{
 					Count: 1,
 					Name:  "main",
-					Template: corev1.PodTemplateSpec{
+					Template: &corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
 							Containers: utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "1",
@@ -702,7 +702,7 @@ func TestAssignFlavors(t *testing.T) {
 				{
 					Count: 1,
 					Name:  "main",
-					Template: corev1.PodTemplateSpec{
+					Template: &corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
 							Containers: utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
 								corev1.ResourceCPU:    "1",
@@ -778,7 +778,7 @@ func TestAssignFlavors(t *testing.T) {
 				{
 					Count: 1,
 					Name:  "main",
-					Template: corev1.PodTemplateSpec{
+					Template: &corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
 							Containers: utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "1",
@@ -860,7 +860,7 @@ func TestAssignFlavors(t *testing.T) {
 				{
 					Count: 1,
 					Name:  "main",
-					Template: corev1.PodTemplateSpec{
+					Template: &corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
 							Containers: utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "1",
@@ -1246,7 +1246,7 @@ func TestAssignFlavors(t *testing.T) {
 				{
 					Count: 1,
 					Name:  "main",
-					Template: corev1.PodTemplateSpec{
+					Template: &corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
 							Containers: utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
 								corev1.ResourceCPU: "2",
@@ -1577,7 +1577,7 @@ func TestAssignFlavors(t *testing.T) {
 			log := testr.NewWithOptions(t, testr.Options{
 				Verbosity: 2,
 			})
-			wlInfo := workload.NewInfo(&kueue.Workload{
+			wlInfo := workload.NewInfo(utiltesting.NewFakeClient(), &kueue.Workload{
 				Spec: kueue.WorkloadSpec{
 					PodSets: tc.wlPods,
 				},

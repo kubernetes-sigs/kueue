@@ -295,7 +295,7 @@ func TestPodSets(t *testing.T) {
 			wantPodSets: []kueue.PodSet{
 				{
 					Name:     kueue.DefaultPodSetName,
-					Template: *podTemplate.DeepCopy(),
+					Template: podTemplate.DeepCopy(),
 					Count:    3,
 				},
 			},
@@ -305,7 +305,7 @@ func TestPodSets(t *testing.T) {
 			wantPodSets: []kueue.PodSet{
 				{
 					Name:     kueue.DefaultPodSetName,
-					Template: *podTemplate.DeepCopy(),
+					Template: podTemplate.DeepCopy(),
 					Count:    3,
 					MinCount: ptr.To[int32](2),
 				},
@@ -337,6 +337,7 @@ var (
 			"ObjectMeta.Name", "ObjectMeta.ResourceVersion",
 		),
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
+		cmpopts.IgnoreFields(kueue.PodSet{}, "PodTemplateName"),
 	}
 )
 

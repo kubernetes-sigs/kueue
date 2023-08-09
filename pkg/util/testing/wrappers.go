@@ -177,7 +177,7 @@ func MakePodSet(name string, count int) *PodSetWrapper {
 		kueue.PodSet{
 			Name:  name,
 			Count: int32(count),
-			Template: corev1.PodTemplateSpec{
+			Template: &corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					RestartPolicy: corev1.RestartPolicyNever,
 					Containers: []corev1.Container{
@@ -523,4 +523,46 @@ func (lr *LimitRangeWrapper) WithValue(member string, t corev1.ResourceName, q s
 
 func (lr *LimitRangeWrapper) Obj() *corev1.LimitRange {
 	return &lr.LimitRange
+}
+
+type PodTemplateWrapper struct{ corev1.PodTemplate }
+
+// MakePodTemplate creates a wrapper for a PodTemplate with a single
+// pod with a single container.
+func MakePodTemplate(name, ns string) *PodTemplateWrapper {
+	return &PodTemplateWrapper{corev1.PodTemplate{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+		Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				RestartPolicy: corev1.RestartPolicyNever,
+				Containers: []corev1.Container{
+					{
+						Name: "c",
+						Resources: corev1.ResourceRequirements{
+							Requests: make(corev1.ResourceList),
+						},
+					},
+				},
+			},
+		},
+	}}
+}
+
+func (w *PodTemplateWrapper) PriorityClass(priorityClassName string) *PodTemplateWrapper {
+	w.Template.Spec.PriorityClassName = priorityClassName
+	return w
+}
+
+func (w *PodTemplateWrapper) RuntimeClass(name string) *PodTemplateWrapper {
+	w.Template.Spec.RuntimeClassName = &name
+	return w
+}
+
+func (w *PodTemplateWrapper) Priority(priority int32) *PodTemplateWrapper {
+	w.Template.Spec.Priority = &priority
+	return w
+}
+
+func (w *PodTemplateWrapper) Obj() *corev1.PodTemplate {
+	return &w.PodTemplate
 }

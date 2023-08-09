@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -243,13 +244,13 @@ func (c *ClusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference
 	return flavorNotFound
 }
 
-func (c *ClusterQueue) addWorkload(w *kueue.Workload) error {
+func (c *ClusterQueue) addWorkload(client client.Client, w *kueue.Workload) error {
 	k := workload.Key(w)
 	if _, exist := c.Workloads[k]; exist {
 		return fmt.Errorf("workload already exists in ClusterQueue")
 	}
-	wi := workload.NewInfo(w)
-	c.Workloads[k] = wi
+	wi := workload.NewInfo(client, w)
+	c.Workloads[k] = workload.NewInfo(client, w)
 	c.updateWorkloadUsage(wi, 1)
 	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
 		c.WorkloadsNotReady.Insert(k)

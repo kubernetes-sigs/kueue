@@ -786,7 +786,7 @@ func TestPreemption(t *testing.T) {
 			startingSnapshot := cqCache.Snapshot()
 			// make a working copy of the snapshot than preemption can temporarily modify
 			snapshot := cqCache.Snapshot()
-			wlInfo := workload.NewInfo(tc.incoming)
+			wlInfo := workload.NewInfo(cl, tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
 			targets := preemptor.GetTargets(*wlInfo, tc.assignment, &snapshot)
 			preempted, err := preemptor.IssuePreemptions(ctx, targets, snapshot.ClusterQueues[wlInfo.ClusterQueue])
@@ -808,24 +808,25 @@ func TestPreemption(t *testing.T) {
 
 func TestCandidatesOrdering(t *testing.T) {
 	now := time.Now()
+	client := utiltesting.NewFakeClient()
 	candidates := []*workload.Info{
-		workload.NewInfo(utiltesting.MakeWorkload("high", "").
+		workload.NewInfo(client, utiltesting.MakeWorkload("high", "").
 			Admit(utiltesting.MakeAdmission("self").Obj()).
 			Priority(10).
 			Obj()),
-		workload.NewInfo(utiltesting.MakeWorkload("low", "").
+		workload.NewInfo(client, utiltesting.MakeWorkload("low", "").
 			Admit(utiltesting.MakeAdmission("self").Obj()).
 			Priority(10).
 			Priority(-10).
 			Obj()),
-		workload.NewInfo(utiltesting.MakeWorkload("other", "").
+		workload.NewInfo(client, utiltesting.MakeWorkload("other", "").
 			Admit(utiltesting.MakeAdmission("other").Obj()).
 			Priority(10).
 			Obj()),
-		workload.NewInfo(utiltesting.MakeWorkload("old", "").
+		workload.NewInfo(client, utiltesting.MakeWorkload("old", "").
 			Admit(utiltesting.MakeAdmission("self").Obj()).
 			Obj()),
-		workload.NewInfo(utiltesting.MakeWorkload("current", "").
+		workload.NewInfo(client, utiltesting.MakeWorkload("current", "").
 			Admit(utiltesting.MakeAdmission("self").Obj()).
 			SetOrReplaceCondition(metav1.Condition{
 				Type:               kueue.WorkloadAdmitted,

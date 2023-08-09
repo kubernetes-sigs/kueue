@@ -155,7 +155,7 @@ func TestUpdateClusterQueue(t *testing.T) {
 		if err := cl.Create(ctx, w); err != nil {
 			t.Fatalf("Failed adding workload to client: %v", err)
 		}
-		manager.RequeueWorkload(ctx, workload.NewInfo(w), RequeueReasonGeneric)
+		manager.RequeueWorkload(ctx, workload.NewInfo(cl, w), RequeueReasonGeneric)
 	}
 
 	// Put cq2 in the same cohort as cq1.
@@ -520,7 +520,7 @@ func TestRequeueWorkloadStrictFIFO(t *testing.T) {
 			if tc.inQueue {
 				_ = manager.AddOrUpdateWorkload(tc.workload)
 			}
-			info := workload.NewInfo(tc.workload)
+			info := workload.NewInfo(cl, tc.workload)
 			if requeued := manager.RequeueWorkload(ctx, info, RequeueReasonGeneric); requeued != tc.wantRequeued {
 				t.Errorf("RequeueWorkload returned %t, want %t", requeued, tc.wantRequeued)
 			}
@@ -854,8 +854,9 @@ func TestHeadsAsync(t *testing.T) {
 			},
 			wantHeads: []workload.Info{
 				{
-					Obj:          &wl,
-					ClusterQueue: "fooCq",
+					Obj:               &wl,
+					ClusterQueue:      "fooCq",
+					TotalPodTemplates: map[string]corev1.PodTemplateSpec{},
 				},
 			},
 		},
@@ -873,8 +874,9 @@ func TestHeadsAsync(t *testing.T) {
 			},
 			wantHeads: []workload.Info{
 				{
-					Obj:          &wl,
-					ClusterQueue: "fooCq",
+					Obj:               &wl,
+					ClusterQueue:      "fooCq",
+					TotalPodTemplates: map[string]corev1.PodTemplateSpec{},
 				},
 			},
 		},
@@ -892,8 +894,9 @@ func TestHeadsAsync(t *testing.T) {
 			},
 			wantHeads: []workload.Info{
 				{
-					Obj:          &wl,
-					ClusterQueue: "fooCq",
+					Obj:               &wl,
+					ClusterQueue:      "fooCq",
+					TotalPodTemplates: map[string]corev1.PodTemplateSpec{},
 				},
 			},
 		},
@@ -913,8 +916,9 @@ func TestHeadsAsync(t *testing.T) {
 			},
 			wantHeads: []workload.Info{
 				{
-					Obj:          &wl,
-					ClusterQueue: "fooCq",
+					Obj:               &wl,
+					ClusterQueue:      "fooCq",
+					TotalPodTemplates: map[string]corev1.PodTemplateSpec{},
 				},
 			},
 		},
@@ -930,13 +934,14 @@ func TestHeadsAsync(t *testing.T) {
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
 				go func() {
-					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
+					mgr.RequeueWorkload(ctx, workload.NewInfo(utiltesting.NewFakeClient(), &wl), RequeueReasonFailedAfterNomination)
 				}()
 			},
 			wantHeads: []workload.Info{
 				{
-					Obj:          &wl,
-					ClusterQueue: "fooCq",
+					Obj:               &wl,
+					ClusterQueue:      "fooCq",
+					TotalPodTemplates: map[string]corev1.PodTemplateSpec{},
 				},
 			},
 		},
@@ -958,13 +963,14 @@ func TestHeadsAsync(t *testing.T) {
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
 				go func() {
-					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
+					mgr.RequeueWorkload(ctx, workload.NewInfo(utiltesting.NewFakeClient(), &wl), RequeueReasonFailedAfterNomination)
 				}()
 			},
 			wantHeads: []workload.Info{
 				{
-					Obj:          &newWl,
-					ClusterQueue: "fooCq",
+					Obj:               &newWl,
+					ClusterQueue:      "fooCq",
+					TotalPodTemplates: map[string]corev1.PodTemplateSpec{},
 				},
 			},
 		},
@@ -990,13 +996,14 @@ func TestHeadsAsync(t *testing.T) {
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
 				go func() {
-					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
+					mgr.RequeueWorkload(ctx, workload.NewInfo(utiltesting.NewFakeClient(), &wl), RequeueReasonFailedAfterNomination)
 				}()
 			},
 			wantHeads: []workload.Info{
 				{
-					Obj:          &newWl,
-					ClusterQueue: "barCq",
+					Obj:               &newWl,
+					ClusterQueue:      "barCq",
+					TotalPodTemplates: map[string]corev1.PodTemplateSpec{},
 				},
 			},
 		},

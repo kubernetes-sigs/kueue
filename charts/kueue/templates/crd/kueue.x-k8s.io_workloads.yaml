@@ -85,6 +85,10 @@ spec:
                     name:
                       description: name is the PodSet name.
                       type: string
+                    podTemplateName:
+                      description: PodTemplateName is the name of the PodTemplate
+                        the Workload is associated with.
+                      type: string
                     template:
                       description: "template is the Pod template. \n The only allowed
                         fields in template.metadata are labels and annotations. \n

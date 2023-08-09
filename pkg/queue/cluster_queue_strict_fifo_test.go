@@ -34,6 +34,7 @@ const (
 )
 
 func TestFIFOClusterQueue(t *testing.T) {
+	cl := utiltesting.NewFakeClient()
 	q, err := newClusterQueue(&kueue.ClusterQueue{
 		Spec: kueue.ClusterQueueSpec{
 			QueueingStrategy: kueue.StrictFIFO,
@@ -64,7 +65,7 @@ func TestFIFOClusterQueue(t *testing.T) {
 		},
 	}
 	for _, w := range ws {
-		q.PushOrUpdate(workload.NewInfo(w))
+		q.PushOrUpdate(workload.NewInfo(cl, w))
 	}
 	got := q.Pop()
 	if got == nil {
@@ -73,7 +74,7 @@ func TestFIFOClusterQueue(t *testing.T) {
 	if got.Obj.Name != "before" {
 		t.Errorf("Popped workload %q want %q", got.Obj.Name, "before")
 	}
-	wlInfo := workload.NewInfo(&kueue.Workload{
+	wlInfo := workload.NewInfo(cl, &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:              "after",
 			CreationTimestamp: metav1.NewTime(now.Add(-time.Minute)),
@@ -200,6 +201,7 @@ func TestStrictFIFO(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			cl := utiltesting.NewFakeClient()
 			q, err := newClusterQueue(&kueue.ClusterQueue{
 				Spec: kueue.ClusterQueueSpec{
 					QueueingStrategy: kueue.StrictFIFO,
@@ -209,8 +211,8 @@ func TestStrictFIFO(t *testing.T) {
 				t.Fatalf("Failed creating ClusterQueue %v", err)
 			}
 
-			q.PushOrUpdate(workload.NewInfo(tt.w1))
-			q.PushOrUpdate(workload.NewInfo(tt.w2))
+			q.PushOrUpdate(workload.NewInfo(cl, tt.w1))
+			q.PushOrUpdate(workload.NewInfo(cl, tt.w2))
 
 			got := q.Pop()
 			if got == nil {
@@ -240,13 +242,14 @@ func TestStrictFIFORequeueIfNotPresent(t *testing.T) {
 
 	for reason, test := range tests {
 		t.Run(string(reason), func(t *testing.T) {
+			cl := utiltesting.NewFakeClient()
 			cq, _ := newClusterQueueStrictFIFO(&kueue.ClusterQueue{
 				Spec: kueue.ClusterQueueSpec{
 					QueueingStrategy: kueue.StrictFIFO,
 				},
 			})
 			wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
-			if ok := cq.RequeueIfNotPresent(workload.NewInfo(wl), reason); !ok {
+			if ok := cq.RequeueIfNotPresent(workload.NewInfo(cl, wl), reason); !ok {
 				t.Error("failed to requeue nonexistent workload")
 			}
 
@@ -255,7 +258,7 @@ func TestStrictFIFORequeueIfNotPresent(t *testing.T) {
 				t.Errorf("Got inadmissible after requeue %t, want %t", gotInadmissible, test.wantInadmissible)
 			}
 
-			if ok := cq.RequeueIfNotPresent(workload.NewInfo(wl), reason); ok {
+			if ok := cq.RequeueIfNotPresent(workload.NewInfo(cl, wl), reason); ok {
 				t.Error("Re-queued a workload that was already present")
 			}
 		})

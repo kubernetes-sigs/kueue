@@ -54,6 +54,7 @@ func TestNewInfo(t *testing.T) {
 						Count: 1,
 					},
 				},
+				TotalPodTemplates: map[string]corev1.PodTemplateSpec{},
 			},
 		},
 		"pending with reclaim": {
@@ -82,6 +83,7 @@ func TestNewInfo(t *testing.T) {
 						Count: 3,
 					},
 				},
+				TotalPodTemplates: map[string]corev1.PodTemplateSpec{},
 			},
 		},
 		"admitted": {
@@ -146,6 +148,7 @@ func TestNewInfo(t *testing.T) {
 						Count: 3,
 					},
 				},
+				TotalPodTemplates: map[string]corev1.PodTemplateSpec{},
 			},
 		},
 		"admitted with reclaim": {
@@ -185,12 +188,13 @@ func TestNewInfo(t *testing.T) {
 						Count: 3,
 					},
 				},
+				TotalPodTemplates: map[string]corev1.PodTemplateSpec{},
 			},
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			info := NewInfo(&tc.workload)
+			info := NewInfo(utiltesting.NewFakeClient(), &tc.workload)
 			if diff := cmp.Diff(info, &tc.wantInfo, cmpopts.IgnoreFields(Info{}, "Obj")); diff != "" {
 				t.Errorf("NewInfo(_) = (-want,+got):\n%s", diff)
 			}

@@ -202,7 +202,7 @@ func TestValidateWorkload(t *testing.T) {
 				PodSets(kueue.PodSet{
 					Name:  "bad",
 					Count: 1,
-					Template: corev1.PodTemplateSpec{
+					Template: &corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
 							InitContainers: []corev1.Container{
 								{
@@ -308,7 +308,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				kueue.PodSet{
 					Name:  "main",
 					Count: 1,
-					Template: corev1.PodTemplateSpec{
+					Template: &corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
 								{

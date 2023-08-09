@@ -47,6 +47,8 @@ type Info struct {
 	// Populated from the queue during admission or from the admission field if
 	// already admitted.
 	ClusterQueue string
+	// list of total podtemplates.
+	TotalPodTemplates map[string]corev1.PodTemplateSpec
 }
 
 type PodSetResources struct {
@@ -69,17 +71,37 @@ func (psr *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
 	return ret
 }
 
-func NewInfo(w *kueue.Workload) *Info {
+func NewInfo(cl client.Client, w *kueue.Workload) *Info {
 	info := &Info{
 		Obj: w,
 	}
+	info.TotalPodTemplates = podTemplateSpecs(cl, w)
 	if w.Status.Admission != nil {
 		info.ClusterQueue = string(w.Status.Admission.ClusterQueue)
 		info.TotalRequests = totalRequestsFromAdmission(w)
 	} else {
-		info.TotalRequests = totalRequestsFromPodSets(w)
+		info.TotalRequests = totalRequestsFromPodSets(w, info.TotalPodTemplates)
 	}
 	return info
+}
+
+func podTemplateSpecs(cl client.Client, wl *kueue.Workload) map[string]corev1.PodTemplateSpec {
+	podTempateRefs := make(map[string]struct{}, 0)
+	for _, p := range wl.Spec.PodSets {
+		if p.PodTemplateName == "" {
+			continue
+		}
+		podTempateRefs[p.PodTemplateName] = struct{}{}
+	}
+	podTemplateSpecs := make(map[string]corev1.PodTemplateSpec, 0)
+	for name := range podTempateRefs {
+		var podTemplate corev1.PodTemplate
+		if err := cl.Get(context.Background(), client.ObjectKey{Name: name}, &podTemplate); err != nil {
+			return podTemplateSpecs //, fmt.Errorf("listing workloads that match the queue: %w", err)
+		}
+		podTemplateSpecs[podTemplate.Name] = podTemplate.Template
+	}
+	return podTemplateSpecs
 }
 
 func (i *Info) Update(wl *kueue.Workload) {
@@ -138,7 +160,7 @@ func podSetsCountsAfterReclaim(wl *kueue.Workload) map[string]int32 {
 	return totalCounts
 }
 
-func totalRequestsFromPodSets(wl *kueue.Workload) []PodSetResources {
+func totalRequestsFromPodSets(wl *kueue.Workload, podTemplateSpecs map[string]corev1.PodTemplateSpec) []PodSetResources {
 	if len(wl.Spec.PodSets) == 0 {
 		return nil
 	}
@@ -150,7 +172,14 @@ func totalRequestsFromPodSets(wl *kueue.Workload) []PodSetResources {
 			Name:  ps.Name,
 			Count: count,
 		}
-		setRes.Requests = newRequests(limitrange.TotalRequests(&ps.Template.Spec))
+		if ps.Template != nil {
+			setRes.Requests = newRequests(limitrange.TotalRequests(&ps.Template.Spec))
+		}
+		if ps.PodTemplateName != "" {
+			if podTemplateSpec, ok := podTemplateSpecs[ps.PodTemplateName]; ok {
+				setRes.Requests = newRequests(limitrange.TotalRequests(&podTemplateSpec.Spec))
+			}
+		}
 		setRes.Requests.scaleUp(int64(count))
 		res = append(res, setRes)
 	}

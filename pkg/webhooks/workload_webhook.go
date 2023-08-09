@@ -155,13 +155,15 @@ func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 
 	// validate initContainers
 	icPath := path.Child("template", "spec", "initContainers")
-	for ci := range ps.Template.Spec.InitContainers {
-		allErrs = append(allErrs, validateContainer(&ps.Template.Spec.InitContainers[ci], icPath.Index(ci))...)
-	}
-	// validate containers
-	cPath := path.Child("template", "spec", "containers")
-	for ci := range ps.Template.Spec.Containers {
-		allErrs = append(allErrs, validateContainer(&ps.Template.Spec.Containers[ci], cPath.Index(ci))...)
+	if ps.Template != nil {
+		for ci := range ps.Template.Spec.InitContainers {
+			allErrs = append(allErrs, validatePodSetContainer(&ps.Template.Spec.InitContainers[ci], icPath.Index(ci))...)
+		}
+		// validate containers
+		cPath := path.Child("template", "spec", "containers")
+		for ci := range ps.Template.Spec.Containers {
+			allErrs = append(allErrs, validatePodSetContainer(&ps.Template.Spec.Containers[ci], cPath.Index(ci))...)
+		}
 	}
 
 	if min := ptr.Deref(ps.MinCount, ps.Count); min > ps.Count || min < 0 {
@@ -171,7 +173,7 @@ func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 	return allErrs
 }
 
-func validateContainer(c *corev1.Container, path *field.Path) field.ErrorList {
+func validatePodSetContainer(c *corev1.Container, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 	rPath := path.Child("resources", "requests")
 	for name := range c.Resources.Requests {

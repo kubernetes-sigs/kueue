@@ -41,6 +41,7 @@ var snapCmpOpts = []cmp.Option{
 }
 
 func TestSnapshot(t *testing.T) {
+	cl := utiltesting.NewFakeClient()
 	testCases := map[string]struct {
 		cqs          []*kueue.ClusterQueue
 		rfs          []*kueue.ResourceFlavor
@@ -67,6 +68,7 @@ func TestSnapshot(t *testing.T) {
 						Status:            active,
 						Workloads: map[string]*workload.Info{
 							"/alpha": workload.NewInfo(
+								cl,
 								utiltesting.MakeWorkload("alpha", "").
 									Admit(&kueue.Admission{ClusterQueue: "a"}).Obj()),
 						},
@@ -78,6 +80,7 @@ func TestSnapshot(t *testing.T) {
 						Status:            active,
 						Workloads: map[string]*workload.Info{
 							"/beta": workload.NewInfo(
+								cl,
 								utiltesting.MakeWorkload("beta", "").
 									Admit(&kueue.Admission{ClusterQueue: "b"}).Obj()),
 						},
@@ -246,7 +249,7 @@ func TestSnapshot(t *testing.T) {
 								"spot":   {corev1.ResourceCPU: 0},
 							},
 							Workloads: map[string]*workload.Info{
-								"/alpha": workload.NewInfo(utiltesting.MakeWorkload("alpha", "").
+								"/alpha": workload.NewInfo(utiltesting.NewFakeClient(), utiltesting.MakeWorkload("alpha", "").
 									PodSets(*utiltesting.MakePodSet("main", 5).
 										Request(corev1.ResourceCPU, "2").Obj()).
 									Admit(utiltesting.MakeAdmission("a", "main").
@@ -292,7 +295,7 @@ func TestSnapshot(t *testing.T) {
 								},
 							},
 							Workloads: map[string]*workload.Info{
-								"/beta": workload.NewInfo(utiltesting.MakeWorkload("beta", "").
+								"/beta": workload.NewInfo(utiltesting.NewFakeClient(), utiltesting.MakeWorkload("beta", "").
 									PodSets(*utiltesting.MakePodSet("main", 5).
 										Request(corev1.ResourceCPU, "1").
 										Request("example.com/gpu", "2").
@@ -303,7 +306,7 @@ func TestSnapshot(t *testing.T) {
 										AssignmentPodCount(5).
 										Obj()).
 									Obj()),
-								"/gamma": workload.NewInfo(utiltesting.MakeWorkload("gamma", "").
+								"/gamma": workload.NewInfo(cl, utiltesting.MakeWorkload("gamma", "").
 									PodSets(*utiltesting.MakePodSet("main", 5).
 										Request(corev1.ResourceCPU, "1").
 										Request("example.com/gpu", "1").

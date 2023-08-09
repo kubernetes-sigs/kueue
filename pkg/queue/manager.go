@@ -168,7 +168,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		if workload.IsAdmitted(&w) {
 			continue
 		}
-		qImpl.AddOrUpdate(workload.NewInfo(&w))
+		qImpl.AddOrUpdate(workload.NewInfo(m.client, &w))
 	}
 	cq := m.clusterQueues[qImpl.ClusterQueue]
 	if cq != nil && cq.AddFromLocalQueue(qImpl) {
@@ -266,7 +266,7 @@ func (m *Manager) addOrUpdateWorkload(w *kueue.Workload) bool {
 	if q == nil {
 		return false
 	}
-	wInfo := workload.NewInfo(w)
+	wInfo := workload.NewInfo(m.client, w)
 	q.AddOrUpdate(wInfo)
 	cq := m.clusterQueues[q.ClusterQueue]
 	if cq == nil {

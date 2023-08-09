@@ -33,9 +33,12 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
@@ -88,6 +91,7 @@ type WorkloadReconciler struct {
 	log              logr.Logger
 	queues           *queue.Manager
 	cache            *cache.Cache
+	ptUpdateCh       chan event.GenericEvent
 	client           client.Client
 	watchers         []WorkloadUpdateWatcher
 	podsReadyTimeout *time.Duration
@@ -104,6 +108,7 @@ func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *c
 		client:           client,
 		queues:           queues,
 		cache:            cache,
+		ptUpdateCh:       make(chan event.GenericEvent, updateChBuffer),
 		watchers:         options.watchers,
 		podsReadyTimeout: options.podsReadyTimeout,
 	}
@@ -175,6 +180,7 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 }
 
 func (r *WorkloadReconciler) Create(e event.CreateEvent) bool {
+	ctx := context.Background()
 	wl, isWorkload := e.Object.(*kueue.Workload)
 	if !isWorkload {
 		// this event will be handled by the LimitRange/RuntimeClass handle
@@ -190,7 +196,7 @@ func (r *WorkloadReconciler) Create(e event.CreateEvent) bool {
 	}
 
 	wlCopy := wl.DeepCopy()
-	r.adjustResources(log, wlCopy)
+	r.adjustResources(ctx, wlCopy)
 
 	if !workload.IsAdmitted(wl) {
 		if !r.queues.AddOrUpdateWorkload(wlCopy) {
@@ -275,8 +281,17 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 	log.V(2).Info("Workload update event")
 
 	wlCopy := wl.DeepCopy()
+
+	for i := range wlCopy.Spec.PodSets {
+		var pt corev1.PodTemplate
+		if err := r.client.Get(ctx, types.NamespacedName{Name: wlCopy.Name}, &pt); err != nil {
+			log.Error(err, "Could not get PodTemplate")
+		}
+		wlCopy.Spec.PodSets[i].PodTemplateName = pt.Name
+	}
+
 	// We do not handle old workload here as it will be deleted or replaced by new one anyway.
-	r.adjustResources(log, wlCopy)
+	r.adjustResources(ctx, wlCopy)
 
 	switch {
 	case status == finished:
@@ -333,6 +348,19 @@ func (r *WorkloadReconciler) Generic(e event.GenericEvent) bool {
 	return false
 }
 
+func (r *WorkloadReconciler) NotifyPodTemplateUpdate(oldPt, newPt *corev1.PodTemplate) {
+	if oldPt != nil {
+		r.ptUpdateCh <- event.GenericEvent{Object: oldPt}
+		if newPt != nil {
+			r.ptUpdateCh <- event.GenericEvent{Object: newPt}
+		}
+		return
+	}
+	if newPt != nil {
+		r.ptUpdateCh <- event.GenericEvent{Object: newPt}
+	}
+}
+
 func (r *WorkloadReconciler) notifyWatchers(oldWl, newWl *kueue.Workload) {
 	for _, w := range r.watchers {
 		w.NotifyWorkloadUpdate(oldWl, newWl)
@@ -344,10 +372,12 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	ruh := &resourceUpdatesHandler{
 		r: r,
 	}
+	ptHandler := podTemplateHandler{}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.Workload{}).
 		Watches(&corev1.LimitRange{}, ruh).
 		Watches(&nodev1.RuntimeClass{}, ruh).
+		WatchesRawSource(&source.Channel{Source: r.ptUpdateCh}, &ptHandler).
 		WithEventFilter(r).
 		Complete(r)
 }
@@ -398,10 +428,12 @@ func workloadStatus(w *kueue.Workload) string {
 // As a result, the pod's Overhead is not always correct. E.g. if we set a non-existent runtime class name to
 // `pod.Spec.RuntimeClassName` and we also set the `pod.Spec.Overhead`, in real world, the pod creation will be
 // rejected due to the mismatch with RuntimeClass. However, in the future we assume that they are correct.
-func (r *WorkloadReconciler) handlePodOverhead(log logr.Logger, wl *kueue.Workload) {
-	ctx := context.Background()
-
-	for i := range wl.Spec.PodSets {
+func (r *WorkloadReconciler) handlePodOverhead(ctx context.Context, wl *kueue.Workload) {
+	log := ctrl.LoggerFrom(ctx)
+	for i, ps := range wl.Spec.PodSets {
+		if ps.Template == nil {
+			continue
+		}
 		podSpec := &wl.Spec.PodSets[i].Template.Spec
 		if podSpec.RuntimeClassName != nil && len(podSpec.Overhead) == 0 {
 			var runtimeClass nodev1.RuntimeClass
@@ -416,8 +448,8 @@ func (r *WorkloadReconciler) handlePodOverhead(log logr.Logger, wl *kueue.Worklo
 	}
 }
 
-func (r *WorkloadReconciler) handlePodLimitRange(log logr.Logger, wl *kueue.Workload) {
-	ctx := context.TODO()
+func (r *WorkloadReconciler) handlePodLimitRange(ctx context.Context, wl *kueue.Workload) {
+	log := ctrl.LoggerFrom(ctx)
 	// get the list of limit ranges
 	var list corev1.LimitRangeList
 	if err := r.client.List(ctx, &list, &client.ListOptions{Namespace: wl.Namespace}, client.MatchingFields{indexer.LimitRangeHasContainerType: "true"}); err != nil {
@@ -463,9 +495,9 @@ func (r *WorkloadReconciler) handleLimitsToRequests(wl *kueue.Workload) {
 	}
 }
 
-func (r *WorkloadReconciler) adjustResources(log logr.Logger, wl *kueue.Workload) {
-	r.handlePodOverhead(log, wl)
-	r.handlePodLimitRange(log, wl)
+func (r *WorkloadReconciler) adjustResources(ctx context.Context, wl *kueue.Workload) {
+	r.handlePodOverhead(ctx, wl)
+	r.handlePodLimitRange(ctx, wl)
 	r.handleLimitsToRequests(wl)
 }
 
@@ -525,9 +557,38 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, _
 		wlCopy := w.DeepCopy()
 		log := log.WithValues("workload", klog.KObj(wlCopy))
 		log.V(5).Info("Queue reconcile for")
-		h.r.adjustResources(log, wlCopy)
+		h.r.adjustResources(ctx, wlCopy)
 		if !h.r.queues.AddOrUpdateWorkload(wlCopy) {
 			log.V(2).Info("Queue for workload didn't exist")
 		}
 	}
+}
+
+// podTemplateHandler signals the controller to reconcile the Workload associated
+// to the podtemplate in the event.
+// Since the events come from a channel Source, only the Generic handler will
+// receive events.
+type podTemplateHandler struct{}
+
+func (h *podTemplateHandler) Create(context.Context, event.CreateEvent, workqueue.RateLimitingInterface) {
+}
+
+func (h *podTemplateHandler) Update(_ context.Context, e event.UpdateEvent, q workqueue.RateLimitingInterface) {
+	w := e.ObjectNew.(*kueue.Workload)
+	if w.Name == "" {
+		return
+	}
+	req := reconcile.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      w.Spec.QueueName,
+			Namespace: w.Namespace,
+		},
+	}
+	q.AddAfter(req, constants.UpdatesBatchPeriod)
+}
+
+func (h *podTemplateHandler) Delete(context.Context, event.DeleteEvent, workqueue.RateLimitingInterface) {
+}
+
+func (h *podTemplateHandler) Generic(context.Context, event.GenericEvent, workqueue.RateLimitingInterface) {
 }

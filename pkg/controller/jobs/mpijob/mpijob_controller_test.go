@@ -190,7 +190,7 @@ var (
 		cmpopts.IgnoreFields(kueue.Workload{}, "TypeMeta", "ObjectMeta"),
 		cmpopts.IgnoreFields(kueue.WorkloadSpec{}, "Priority"),
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
-		cmpopts.IgnoreFields(kueue.PodSet{}, "Template"),
+		cmpopts.IgnoreFields(kueue.PodSet{}, "Template", "PodTemplateName"),
 	}
 )
 

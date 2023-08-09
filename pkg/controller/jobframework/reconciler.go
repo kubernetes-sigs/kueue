@@ -200,6 +200,12 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
+	// Create PodTemplate object
+	if err = r.createPodTemplate(ctx, job, object); err != nil {
+		log.Error(err, "Creating pod template")
+		return ctrl.Result{}, err
+	}
+
 	// 4. update reclaimable counts if implemented by the job
 	if jobRecl, implementsReclaimable := job.(JobWithReclaimablePods); implementsReclaimable {
 		if rp := jobRecl.ReclaimablePods(); !workload.ReclaimablePodsAreEqual(rp, wl.Status.ReclaimablePods) {
@@ -537,7 +543,7 @@ func (r *JobReconciler) extractPriority(ctx context.Context, podSets []kueue.Pod
 
 func extractPriorityFromPodSets(podSets []kueue.PodSet) string {
 	for _, podSet := range podSets {
-		if len(podSet.Template.Spec.PriorityClassName) > 0 {
+		if podSet.Template != nil && len(podSet.Template.Spec.PriorityClassName) > 0 {
 			return podSet.Template.Spec.PriorityClassName
 		}
 	}
@@ -600,11 +606,36 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	if err != nil {
 		return err
 	}
+
 	if err = r.client.Create(ctx, wl); err != nil {
 		return err
 	}
 	r.record.Eventf(object, corev1.EventTypeNormal, "CreatedWorkload",
 		"Created Workload: %v", workload.Key(wl))
+	return nil
+}
+
+func (r *JobReconciler) createPodTemplate(ctx context.Context, job GenericJob, object client.Object) error {
+	name := GetWorkloadNameForOwnerWithGVK(object.GetName(), job.GetGVK())
+	for _, ps := range job.PodSets() {
+		podTemplate := &corev1.PodTemplate{
+			Template: *ps.Template.DeepCopy(),
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      name,
+				Namespace: object.GetNamespace(),
+			},
+		}
+		if err := ctrl.SetControllerReference(object, podTemplate, r.client.Scheme()); err != nil {
+			return err
+		}
+		if err := r.client.Create(ctx, podTemplate); err != nil {
+			return client.IgnoreAlreadyExists(err)
+		}
+	}
+
+	r.record.Eventf(object, corev1.EventTypeNormal, "CreatedPodTemplate",
+		"Created PodTemplate: %v", fmt.Sprintf("%s/%s", object.GetNamespace(), name))
+
 	return nil
 }
 

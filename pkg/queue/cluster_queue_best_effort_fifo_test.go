@@ -49,7 +49,8 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 				},
 			})
 			wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
-			if ok := cq.RequeueIfNotPresent(workload.NewInfo(wl), reason); !ok {
+			cl := utiltesting.NewFakeClient()
+			if ok := cq.RequeueIfNotPresent(workload.NewInfo(cl, wl), reason); !ok {
 				t.Error("failed to requeue nonexistent workload")
 			}
 
@@ -58,7 +59,7 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 				t.Errorf("Unexpected inadmissible status (-want,+got):\n%s", diff)
 			}
 
-			if ok := cq.RequeueIfNotPresent(workload.NewInfo(wl), reason); ok {
+			if ok := cq.RequeueIfNotPresent(workload.NewInfo(cl, wl), reason); ok {
 				t.Error("Re-queued a workload that was already present")
 			}
 		})

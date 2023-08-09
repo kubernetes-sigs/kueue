@@ -94,15 +94,13 @@ func IndexWorkloadAdmitted(obj client.Object) []string {
 }
 
 func IndexWorkloadRuntimeClass(obj client.Object) []string {
-	wl, ok := obj.(*kueue.Workload)
+	pt, ok := obj.(*corev1.PodTemplate)
 	if !ok {
 		return nil
 	}
 	set := sets.New[string]()
-	for _, ps := range wl.Spec.PodSets {
-		if ps.Template.Spec.RuntimeClassName != nil {
-			set.Insert(*ps.Template.Spec.RuntimeClassName)
-		}
+	if pt.Template.Spec.RuntimeClassName != nil {
+		set.Insert(*pt.Template.Spec.RuntimeClassName)
 	}
 	if set.Len() > 0 {
 		return set.UnsortedList()
