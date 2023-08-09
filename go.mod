@@ -13,7 +13,7 @@ require (
 	github.com/prometheus/client_golang v1.16.0
 	github.com/prometheus/client_model v0.4.0
 	github.com/ray-project/kuberay/ray-operator v0.0.0-20230613204710-aeed3cdcbdcc
-	go.uber.org/zap v1.24.0
+	go.uber.org/zap v1.25.0
 	k8s.io/api v0.27.4
 	k8s.io/apiextensions-apiserver v0.27.4
 	k8s.io/apimachinery v0.27.4
