@@ -393,3 +393,34 @@ func ReclaimablePodsAreEqual(a, b []kueue.ReclaimablePod) bool {
 	}
 	return true
 }
+
+// Validates the check conditions of the workload returning two bools:
+// the first indicates if all the checks passed
+// the second one if the check is retryable
+func ValidateCheckConditions(wl *kueue.Workload) (bool, bool) {
+	// A workload is successfully checked if all its checks are set to kueue.CheckStateAccepted
+	acceptedCount := 0
+	rejectedCount := 0
+
+	for i := range wl.Status.AdmissionChecks {
+		ac := &wl.Status.AdmissionChecks[i]
+		switch ac.Status {
+		case metav1.ConditionTrue:
+			acceptedCount++
+		case metav1.ConditionFalse:
+			if ac.Reason == string(kueue.CheckStateRejected) {
+				rejectedCount++
+			}
+		}
+	}
+	return acceptedCount == len(wl.Status.AdmissionChecks), rejectedCount == 0
+}
+
+// IsAdmitted checks if workload is admitted based on conditions
+func IsAdmittedAndChecked(w *kueue.Workload) bool {
+	if !IsAdmitted(w) {
+		return false
+	}
+	checked, _ := ValidateCheckConditions(w)
+	return checked
+}

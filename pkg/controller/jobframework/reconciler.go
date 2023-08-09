@@ -174,7 +174,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			if parentWorkload, err := r.getParentWorkload(ctx, job, object); err != nil {
 				log.Error(err, "couldn't get the parent job workload")
 				return ctrl.Result{}, err
-			} else if parentWorkload == nil || !workload.IsAdmitted(parentWorkload) {
+			} else if parentWorkload == nil || !workload.IsAdmittedAndChecked(parentWorkload) {
 				// suspend it
 				job.Suspend()
 				if err := r.client.Update(ctx, object); err != nil {
@@ -282,7 +282,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// 7. handle job is suspended.
 	if job.IsSuspended() {
 		// start the job if the workload has been admitted, and the job is still suspended
-		if workload.IsAdmitted(wl) {
+		if workload.IsAdmittedAndChecked(wl) {
 			log.V(2).Info("Job admitted, unsuspending")
 			err := r.startJob(ctx, job, object, wl)
 			if err != nil {
@@ -315,7 +315,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	// 8. handle job is unsuspended.
-	if !workload.IsAdmitted(wl) {
+	if !workload.IsAdmittedAndChecked(wl) {
 		// the job must be suspended if the workload is not yet admitted.
 		log.V(2).Info("Running job is not admitted by a cluster queue, suspending")
 		err := r.stopJob(ctx, job, object, wl, "Not admitted by cluster queue")
