@@ -168,7 +168,7 @@ func main() {
 		cCache.CleanUpOnContext(ctx)
 	}()
 
-	setupScheduler(mgr, cCache, queues, &cfg)
+	setupScheduler(mgr, cCache, queues)
 
 	setupLog.Info("Starting manager")
 	if err := mgr.Start(ctx); err != nil {
@@ -264,7 +264,7 @@ func setupProbeEndpoints(mgr ctrl.Manager) {
 	}
 }
 
-func setupScheduler(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, cfg *configapi.Configuration) {
+func setupScheduler(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager) {
 	sched := scheduler.New(
 		queues,
 		cCache,
