@@ -9,7 +9,10 @@ description: >
 no_list: true
 ---
 
-The below show you how to run a Kueue managed Kubeflow Jobs.
+The tasks below show you how to run Kueue managed Kubeflow Jobs.
 
 ### [MPI Operator](https://github.com/kubeflow/mpi-operator) Integration
 - [Run a Kueue managed Kubeflow MPIJob](run_mpijobs).
+
+### [Training Operator](https://github.com/kubeflow/training-operator) Integration
+- [Run a Kueue managed Kubeflow PyTorchJob](run_pytorchjobs).
