@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	rayjobapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 
@@ -123,8 +124,7 @@ func TestPodSets(t *testing.T) {
 }
 
 func TestNodeSelectors(t *testing.T) {
-
-	job := (*RayJob)(testingrayutil.MakeJob("job", "ns").
+	baseJob := testingrayutil.MakeJob("job", "ns").
 		WithHeadGroupSpec(rayjobapi.HeadGroupSpec{
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
@@ -149,89 +149,122 @@ func TestNodeSelectors(t *testing.T) {
 				},
 			},
 		}).
-		Obj())
+		Obj()
 
-	// RunWithPodSetsInfo should append or update the node selectors
-	job.RunWithPodSetsInfo([]jobframework.PodSetInfo{
-		{
-			NodeSelector: map[string]string{
-				"newKey": "newValue",
+	cases := map[string]struct {
+		job          *rayjobapi.RayJob
+		runInfo      []jobframework.PodSetInfo
+		restoreInfo  []jobframework.PodSetInfo
+		wantRunError error
+		wantAfterRun *rayjobapi.RayJob
+		wantFinal    *rayjobapi.RayJob
+	}{
+		"valid configuration": {
+			job: baseJob.DeepCopy(),
+			runInfo: []jobframework.PodSetInfo{
+				{
+					NodeSelector: map[string]string{
+						"newKey": "newValue",
+					},
+				},
+				{
+					NodeSelector: map[string]string{
+						"key-wg1": "updated-value-wg1",
+					},
+				},
+				{
+					NodeSelector: map[string]string{
+						// don't add anything
+					},
+				},
 			},
-		},
-		{
-			NodeSelector: map[string]string{
-				"key-wg1": "updated-value-wg1",
+			restoreInfo: []jobframework.PodSetInfo{
+				{
+					NodeSelector: map[string]string{
+						// clean it all
+					},
+				},
+				{
+					NodeSelector: map[string]string{
+						"key-wg1": "value-wg1",
+					},
+				},
+				{
+					NodeSelector: map[string]string{
+						"key-wg2": "value-wg2",
+					},
+				},
 			},
-		},
-		{
-			NodeSelector: map[string]string{
-				// don't add anything
-			},
-		},
-	})
+			wantAfterRun: testingrayutil.MakeJob("job", "ns").
+				Suspend(false).
+				WithHeadGroupSpec(rayjobapi.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							NodeSelector: map[string]string{
+								"newKey": "newValue",
+							},
+						},
+					},
+				}).
+				WithWorkerGroups(rayjobapi.WorkerGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							NodeSelector: map[string]string{
+								"key-wg1": "updated-value-wg1",
+							},
+						},
+					},
+				}, rayjobapi.WorkerGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							NodeSelector: map[string]string{
+								"key-wg2": "value-wg2",
+							},
+						},
+					},
+				}).
+				Obj(),
 
-	if diff := cmp.Diff(
-		map[string]string{
-			"newKey": "newValue",
+			wantFinal: baseJob.DeepCopy(),
 		},
-		job.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.NodeSelector); diff != "" {
-		t.Errorf("head node selectors mismatch (-want +got):\n%s", diff)
+		"invalid runInfo": {
+			job: baseJob.DeepCopy(),
+			runInfo: []jobframework.PodSetInfo{
+				{
+					NodeSelector: map[string]string{
+						"newKey": "newValue",
+					},
+				},
+				{
+					NodeSelector: map[string]string{
+						"key-wg1": "updated-value-wg1",
+					},
+				},
+			},
+			wantRunError: jobframework.ErrInvalidPodsetInfo,
+			wantAfterRun: baseJob.DeepCopy(),
+		},
 	}
 
-	if diff := cmp.Diff(
-		map[string]string{
-			"key-wg1": "updated-value-wg1",
-		},
-		job.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.NodeSelector); diff != "" {
-		t.Errorf("wg1 node selectors mismatch (-want +got):\n%s", diff)
-	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			genJob := (*RayJob)(tc.job)
+			gotRunError := genJob.RunWithPodSetsInfo(tc.runInfo)
 
-	if diff := cmp.Diff(
-		map[string]string{
-			"key-wg2": "value-wg2",
-		},
-		job.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Spec.NodeSelector); diff != "" {
-		t.Errorf("wg2 node selectors mismatch (-want +got):\n%s", diff)
-	}
+			if diff := cmp.Diff(tc.wantRunError, gotRunError, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Unexpected run error (-want/+got): %s", diff)
+			}
+			if diff := cmp.Diff(tc.wantAfterRun, tc.job); diff != "" {
+				t.Errorf("Unexpected job after run (-want/+got): %s", diff)
+			}
 
-	// restore should replace node selectors
-	job.RestorePodSetsInfo([]jobframework.PodSetInfo{
-		{
-			NodeSelector: map[string]string{
-				// clean it all
-			},
-		},
-		{
-			NodeSelector: map[string]string{
-				"key-wg1": "restored-value-wg1",
-			},
-		},
-		{
-			NodeSelector: map[string]string{
-				"key-wg2-2": "value-wg2-2",
-			},
-		},
-	})
-
-	if diff := cmp.Diff(
-		map[string]string{},
-		job.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.NodeSelector); diff != "" {
-		t.Errorf("head node selectors mismatch (-want +got):\n%s", diff)
-	}
-
-	if diff := cmp.Diff(
-		map[string]string{
-			"key-wg1": "restored-value-wg1",
-		},
-		job.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.NodeSelector); diff != "" {
-		t.Errorf("wg1 node selectors mismatch (-want +got):\n%s", diff)
-	}
-
-	if diff := cmp.Diff(
-		map[string]string{
-			"key-wg2-2": "value-wg2-2",
-		},
-		job.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Spec.NodeSelector); diff != "" {
-		t.Errorf("wg2 node selectors mismatch (-want +got):\n%s", diff)
+			if tc.wantRunError == nil {
+				genJob.Suspend()
+				genJob.RestorePodSetsInfo(tc.restoreInfo)
+				if diff := cmp.Diff(tc.wantFinal, tc.job); diff != "" {
+					t.Errorf("Unexpected job after restore (-want/+got): %s", diff)
+				}
+			}
+		})
 	}
 }

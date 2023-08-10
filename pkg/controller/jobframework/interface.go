@@ -34,7 +34,7 @@ type GenericJob interface {
 	// Suspend will suspend the job.
 	Suspend()
 	// RunWithPodSetsInfo will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
-	RunWithPodSetsInfo(nodeSelectors []PodSetInfo)
+	RunWithPodSetsInfo(nodeSelectors []PodSetInfo) error
 	// RestorePodSetsInfo will restore the original node affinity and podSet counts of the job.
 	// Returns whether any change was done.
 	RestorePodSetsInfo(nodeSelectors []PodSetInfo) bool

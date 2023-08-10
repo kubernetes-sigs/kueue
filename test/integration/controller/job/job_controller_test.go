@@ -778,8 +778,8 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, devClusterQ, true)
 		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, podsCountClusterQ, true)
 		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
-		gomega.Expect(util.DeleteResourceFlavor(ctx, k8sClient, spotTaintedFlavor)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteResourceFlavor(ctx, k8sClient, spotUntaintedFlavor)).To(gomega.Succeed())
+		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, spotTaintedFlavor, true)
+		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, spotUntaintedFlavor, true)
 	})
 
 	ginkgo.It("Should schedule jobs as they fit in their ClusterQueue", func() {

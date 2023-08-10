@@ -210,10 +210,10 @@ func (j *Job) PodSets() []kueue.PodSet {
 	}
 }
 
-func (j *Job) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) {
+func (j *Job) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) error {
 	j.Spec.Suspend = pointer.Bool(false)
-	if len(podSetsInfo) == 0 {
-		return
+	if len(podSetsInfo) != 1 {
+		return jobframework.BadPodSetsInfoLenError(1, len(podSetsInfo))
 	}
 
 	info := podSetsInfo[0]
@@ -225,6 +225,7 @@ func (j *Job) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) {
 			j.Spec.Completions = j.Spec.Parallelism
 		}
 	}
+	return nil
 }
 
 func (j *Job) RestorePodSetsInfo(podSetsInfo []jobframework.PodSetInfo) bool {

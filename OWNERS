@@ -1,26 +1,15 @@
 # See the OWNERS docs at https://go.k8s.io/owners
 
-filters:
-  ".*":
-    approvers:
-    - ahg-g
-    - alculquicondor
-    - denkensk
+approvers:
+- ahg-g
+- alculquicondor
+- tenzen-y
 
-    reviewers:
-    - ahg-g
-    - alculquicondor
-    - ArangoGutierrez
-    - denkensk
-    - kerthcet
-    - tenzen-y
-    - trasc
-  "^go\\.(mod|sum)$":
-    approvers:
-    - kerthcet
-  "^(Make|Docker)file$":
-    approvers:
-    - tenzen-y
-  "^cloudbuild\\.yaml$":
-    approvers:
-    - tenzen-y
+reviewers:
+- ahg-g
+- alculquicondor
+- ArangoGutierrez
+- denkensk
+- kerthcet
+- tenzen-y
+- trasc

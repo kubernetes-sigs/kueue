@@ -631,7 +631,7 @@ var _ = ginkgo.Describe("JobSet controller interacting with scheduler", ginkgo.O
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
-		gomega.Expect(util.DeleteResourceFlavor(ctx, k8sClient, spotUntaintedFlavor)).To(gomega.Succeed())
+		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, spotUntaintedFlavor, true)
 	})
 
 	ginkgo.It("Should schedule JobSets as they fit in their ClusterQueue", func() {
