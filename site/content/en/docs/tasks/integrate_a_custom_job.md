@@ -1,13 +1,12 @@
 ---
-title: "Integrate a custom Job"
+title: "Integrate a custom Job with Kueue"
 date: 2023-07-25
 weight: 8
 description: >
   Integrate a custom Job with Kueue.
 ---
-# Integrate a custom Job with Kueue
 
-Kueue integrates with a couple of jobs, including Kubernetes batch Job, MPIJob, RayJob or JobSet.  
+Kueue integrates with a couple of Jobs, including Kubernetes batch Job, MPIJob, RayJob or JobSet.  
 If there is another Job, which you would like supported, please consider contributing. 
 This page shows how to integrate a custom Job with Kueue.
 
