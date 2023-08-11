@@ -28,4 +28,6 @@ disable-supported: true
 
 # The following PRR answers are required at beta release
 metrics:
-  - my_feature_metric
+  - pods_gated_total
+  - pods_ungated_total
+  - pods_rejected_total

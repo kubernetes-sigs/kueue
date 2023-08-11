@@ -306,6 +306,18 @@ We can use the following mitigations:
 2. Filter out terminal Pods from informers, as they no longer influence quota usage
    https://github.com/kubernetes/kubernetes/blob/99190634ab252604a4496882912ac328542d649d/pkg/scheduler/scheduler.go#L496
 
+#### Limited size for annotation values
+
+[Story4](#story-4) can be limited by the annotation size limit (256kB across all annotation values).
+There isn't much we can do other than documenting the limitation. We can also suggest users to
+only list the fields relevant to scheduling, which for a vanilla scheduler are:
+- node affinity and selectors
+- pod affinity
+- tolerations
+- topology spread constraints
+- container requests
+- pod overhead
+
 ## Design Details
 
 ### Gating Pod Scheduling
@@ -345,7 +357,7 @@ For a Pod to qualify for queueing by Kueue, it needs to satisfy both the namespa
 ```golang
 type Integrations struct {
   Frameworks []string
-  PodOptions *PodIntegrationPolicy
+  PodOptions *PodIntegrationOptions
 }
 
 type PodIntegrationOptions struct {
@@ -573,6 +585,16 @@ Note that we are only removing Pod finalizers once the Workload is finished. Thi
 of managing finalizers, but it might lead to too many Pods lingering in etcd for a long time after
 terminated. In a future version, we can consider a better scheme similar to [Pod tracking in Jobs](https://kubernetes.io/blog/2022/12/29/scalable-job-tracking-ga/).
 
+### Metrics
+
+In addition to the existing metrics for workloads, it could be beneficial to track gated and
+unsuspended pods.
+
+- `pods_gated_total`: Tracks the number of pods that get the scheduling gate.
+- `pods_ungated_total`: Tracks the number of pods that get the scheduling gate removed.
+- `pods_rejected_total`: Tracks the number of pods that were rejected because there was an excess
+  number of pods compared to the annotations.
+
 ### Test Plan
 
 <!--
@@ -586,7 +608,7 @@ when drafting this test plan.
 [testing-guidelines]: https://git.k8s.io/community/contributors/devel/sig-testing/testing.md
 -->
 
-[ ] I/we understand the owners of the involved components may require updates to
+[x] I/we understand the owners of the involved components may require updates to
 existing tests to make this code solid enough prior to committing the changes necessary
 to implement this enhancement.
 
