@@ -18,10 +18,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
-	"strings"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -30,16 +30,16 @@ import (
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	schedulingv1 "k8s.io/api/scheduling/v1"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/client-go/discovery"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
@@ -51,7 +51,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/noop"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
@@ -78,7 +77,6 @@ func init() {
 
 	utilruntime.Must(kueue.AddToScheme(scheme))
 	utilruntime.Must(configapi.AddToScheme(scheme))
-	utilruntime.Must(apiextensionsv1.AddToScheme(scheme))
 	// Add any additional framework integration types.
 	utilruntime.Must(
 		jobframework.ForEachIntegration(func(_ string, cb jobframework.IntegrationCallbacks) error {
@@ -159,7 +157,7 @@ func main() {
 	// Cert won't be ready until manager starts, so start a goroutine here which
 	// will block until the cert is ready before setting up the controllers.
 	// Controllers who register after manager starts will start directly.
-	go setupControllers(ctx, mgr, cCache, queues, certsReady, &cfg, serverVersionFetcher)
+	go setupControllers(mgr, cCache, queues, certsReady, &cfg, serverVersionFetcher)
 
 	go func() {
 		queues.CleanUpOnContext(ctx)
@@ -196,7 +194,7 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 	}
 }
 
-func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher) {
+func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher) {
 	// The controllers won't work until the webhooks are operating, and the webhook won't work until the
 	// certs are all in place.
 	setupLog.Info("Waiting for certificate generation to complete")
@@ -214,8 +212,6 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 		os.Exit(1)
 	}
 
-	crds := findCustomResources(ctx, mgr)
-
 	opts := []jobframework.Option{
 		jobframework.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName),
 		jobframework.WithWaitForPodsReady(waitForPodsReady(cfg)),
@@ -223,24 +219,42 @@ func setupControllers(ctx context.Context, mgr ctrl.Manager, cCache *cache.Cache
 	}
 	err := jobframework.ForEachIntegration(func(name string, cb jobframework.IntegrationCallbacks) error {
 		log := setupLog.WithValues("jobFrameworkName", name)
-		if isFrameworkEnabled(cfg, name) && crds.Has(name) {
-			if err := cb.NewReconciler(
-				mgr.GetClient(),
-				mgr.GetEventRecorderFor(fmt.Sprintf("%s-%s-controller", name, constants.KueueName)),
-				opts...,
-			).SetupWithManager(mgr); err != nil {
-				log.Error(err, "unable to create controller")
+
+		if isFrameworkEnabled(cfg, name) {
+			gvk, err := apiutil.GVKForObject(cb.JobType, mgr.GetScheme())
+			if err != nil {
 				return err
 			}
-			if err := cb.SetupWebhook(mgr, opts...); err != nil {
-				log.Error(err, "Unable to create webhook")
-				return err
+			if _, err = mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version); err != nil {
+				// TODO: If the below PR is released, we need to change a way to check if the GVK is registered.
+				// REF: https://github.com/kubernetes-sigs/controller-runtime/pull/2425
+				// if !meta.IsNoMatchError(err) {
+				//   return err
+				// }
+				var NoMatchingErr *discovery.ErrGroupDiscoveryFailed
+				if !meta.IsNoMatchError(err) && !errors.As(err, &NoMatchingErr) {
+					return err
+				}
+				log.Info("No matching API server for job framework, skip to create controller and webhook")
+			} else {
+				if err = cb.NewReconciler(
+					mgr.GetClient(),
+					mgr.GetEventRecorderFor(fmt.Sprintf("%s-%s-controller", name, constants.KueueName)),
+					opts...,
+				).SetupWithManager(mgr); err != nil {
+					log.Error(err, "Unable to create controller")
+					return err
+				}
+				if err = cb.SetupWebhook(mgr, opts...); err != nil {
+					log.Error(err, "Unable to create webhook")
+					return err
+				}
+				return nil
 			}
-		} else {
-			if err := noop.SetupWebhook(mgr, cb.JobType); err != nil {
-				log.Error(err, "Unable to create noop webhook")
-				return err
-			}
+		}
+		if err := noop.SetupWebhook(mgr, cb.JobType); err != nil {
+			log.Error(err, "Unable to create noop webhook")
+			return err
 		}
 		return nil
 	})
@@ -339,19 +353,4 @@ func isFrameworkEnabled(cfg *configapi.Configuration, name string) bool {
 		}
 	}
 	return false
-}
-
-// +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=list;watch
-
-func findCustomResources(ctx context.Context, mgr ctrl.Manager) sets.Set[string] {
-	var crds = apiextensionsv1.CustomResourceDefinitionList{}
-	if err := mgr.GetClient().List(ctx, &crds); err != nil {
-		setupLog.Error(err, "Unable to get crd list")
-		os.Exit(1)
-	}
-	customResources := sets.New[string](job.FrameworkName)
-	for _, crd := range crds.Items {
-		customResources.Insert(strings.Join([]string{crd.Spec.Group, crd.Spec.Names.Singular}, "/"))
-	}
-	return customResources
 }
