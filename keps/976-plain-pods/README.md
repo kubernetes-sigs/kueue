@@ -13,16 +13,16 @@
   - [Story 4](#story-4)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
     - [Skipping Pods belonging to queued objects](#skipping-pods-belonging-to-queued-objects)
+    - [Pods replaced on failure](#pods-replaced-on-failure)
   - [Risks and Mitigations](#risks-and-mitigations)
     - [Increased memory usage](#increased-memory-usage)
 - [Design Details](#design-details)
-  - [Simplifying the Workload object](#simplifying-the-workload-object)
   - [Gating Pod Scheduling](#gating-pod-scheduling)
     - [Pods subject to queueing](#pods-subject-to-queueing)
   - [Constructing Workload objects](#constructing-workload-objects)
     - [Single Pods](#single-pods)
     - [Groups of Pods with the same shape](#groups-of-pods-with-the-same-shape)
-    - [Groups of pods with multiple shapes](#groups-of-pods-with-multiple-shapes)
+    - [Groups of pods with multiple shapes or roles](#groups-of-pods-with-multiple-shapes-or-roles)
     - [Groups of pods where driver generates workers](#groups-of-pods-where-driver-generates-workers)
   - [Tracking admitted and finished Pods](#tracking-admitted-and-finished-pods)
   - [Test Plan](#test-plan)
@@ -33,6 +33,7 @@
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
+  - [Users create a Workload object beforehand](#users-create-a-workload-object-beforehand)
 <!-- /toc -->
 
 ## Summary
@@ -60,11 +61,16 @@ use of this API to implement queuing semantics for Pods.
 
 ### Goals
 
-- Support queueing of individual Pods
+- Support queueing of individual Pods.
 - Support queueing of groups of Pods of fixed size, identified by a common label or annotation.
 - Opt-in or opt-out Pods from specific namespaces from queuing.
 
 ### Non-Goals
+
+- Support for [dynamic reclaiming quota](https://github.com/kubernetes-sigs/kueue/issues/78)
+
+  This feature is incompatible with supporting Pod replacements without knowing the behavior of a
+  parent controller for the Pods.
 
 - Support for partial-admission.
 
@@ -260,13 +266,25 @@ spec:
 
 Pods owned by jobs managed by Kueue should not be subject to extra management.
 These Pods can be identified based on the ownerReference. For these pods:
-- the webhook should not add a scheduling gate
-- the pod reconciler should not create a corresponding Workload object.
+- The webhook should not add a scheduling gate.
+- The pod reconciler should not create a corresponding Workload object.
+
+Note that sometimes the Pods might not be directly owned by a known job object. Here are some
+special cases:
+- MPIJob: The launcher Pod is created through a batch/Job, which is also an known to Kueue, so
+  it's not an issue.
+- JobSet: Also creates Jobs, so not problematic.
+- RayJob: Pods are owned by a RayCluster object, which we don't currently support. This could be
+  hardcoded a known parent, or we could use label selectors for:
+  ```yaml
+  app.kubernetes.io/created-by: kuberay-operator
+  app.kubernetes.io/name: kuberay
+  ```
 
 #### Pods replaced on failure
 
 It is possible that users of plain Pods have a controller for them to handle failures and
-re-creations.
+re-creations. These Pods should be able to use the quota that was already assigned to the Workload.
 
 Because Kueue can't know if Pods will be recreated or not, it will hold the entirety of the
 quota until it can determine that the whole Workload finished (all pods are terminated).
@@ -290,31 +308,6 @@ We can use the following mitigations:
 
 ## Design Details
 
-### Simplifying the Workload object
-
-When a Workload just represents a single Pod, it's wasteful to duplicate the pod spec on the
-Workload.
-Instead, the Workload podset can refer back to the Pod itself.
-
-Note that, for other objects, such as Job, the spec in the Workload serves as a snapshot of the
-original Job, so that it is possible to modify a Job during admission (to inject affinities) and
-revert the change on preemption. This is not a concern for Pods, because Pods can't be suspended.
-They terminate as Failed if preempted. As a result, there is no need for a snapshot of the
-original spec.
-
-The Workload's PodSet will look as follows:
-
-```golang
-type PodSet struct {
-  Name string
-  Count int32
-  Template *corev1.PodTemplateSpec
-  PodRef *string
-}
-```
-
-The value of PodRef is the name of the Pod object, in the same namespace.
-
 ### Gating Pod Scheduling
 
 Pods subject to queueing should be prevented from scheduling until Kueue has admitted them in a
@@ -329,6 +322,9 @@ A Kueue webhook will inject to [Pods subject to queueing](#pods-subject-to-queue
   managed by Kueue.
 - A finalizer `kueue.x-k8s.io/managed` in order to reliably track pod terminations.
 
+A Pod reconciler will be responsible for removing the `kueue.x-k8s.io/admission` gate. If the Pods
+have other gates, they will remain Pending, but would be considered active from Kueue's perspective.
+
 #### Pods subject to queueing
 
 Not all Pods in a cluster should be subject to queueing.
@@ -338,9 +334,13 @@ In particular the following pods should be excluded from getting the scheduling 
 
 They can be identified by the ownerReference, based on the list of enabled integrations.
 
-2. Pods belonging to specific namespaces (such as kube-system).
+In some scenarios, users might have custom job objects that own Pods through an indirect object.
+In these cases, it might be simpler to identify the pods through a label selector.
 
-The set of namespaces is defined in Configuration.Integrations
+2. Pods belonging to specific namespaces (such as kube-system or kueue-system).
+
+The namespaces and pod selectors are defined in Configuration.Integrations.
+For a Pod to qualify for queueing by Kueue, it needs to satisfy both the namespace and pod selector.
 
 ```golang
 type Integrations struct {
@@ -350,6 +350,7 @@ type Integrations struct {
 
 type PodIntegrationOptions struct {
   NamespaceSelector *metav1.LabelSelector
+  PodSelector *metav1Selector
 }
 ```
 
@@ -359,7 +360,7 @@ When empty, Kueue uses the following NamespaceSelector internally:
 matchExpressions:
 - key: kubernetes.io/metadata.name
   operator: NotIn
-  values: [kube-system]
+  values: [kube-system, kueue-system]
 ```
 
 ### Constructing Workload objects
@@ -369,8 +370,12 @@ the Pod reconciler can create the corresponding Workload object to feed the Kueu
 
 Note that the Workload cannot be owned by the Pod. Otherwise any cascade deletion of the Pod would
 delete the Workload object, even before the Pod terminates (if it has a grace period).
-This means that we need to manually delete the Workload object once we have determined that all pods
-have finished.
+This means that the controller needs to manually delete the Workload object once it has the
+Finished condition (after we have determined that all pods have finished).
+
+<<[UNRESOLVED TTL after finished]>>
+A possible extension here is to add a TTL, but we will get user feedback first.
+<<[/UNRESOLVED]>>
 
 #### Single Pods
 
@@ -409,33 +414,6 @@ belong to the group.
 These groups of Pods can be identified when they have:
 - the label `kueue.x-k8s.io/pod-group-name`, as a unique identifier for the group.
 - the annotation `kueue.x-k8s.io/pod-group-count`, the number of pods to expect in the group
-
-<<[UNRESOLVED expectations]>>
-
-1. Can we assume that when a Pod fails it won't be recreated?
-2. Alternatively, is there be a pod controller that handles recreation? If so, how do we know
-   if the job finished, so that there wouldn't be more recreations?
-
-Most likely, we should assume that the Pods are just plain Pods not controlled by a custom resource.
-Otherwise, users should prefer to integrate directly with the Workload API, which is not a
-significant effort, but would be more reliable.
-
-3. Can we assume that the workloads are thrustworthy (no more pods are sent than the annotation states).
-
-Annotations across multiple objects cannot easily be validated, as such, we should probably guard
-against misuse.
-
-<<[/UNRESOLVED]>>
-
-<<[UNRESOLVED finalizers and Job API]>>
-
-As pods terminate (success or failure), we need to free quota.
-In order to reliably track terminated Pods, we need to add finalizers to pods. When the pods finish,
-we increment a counter in the Workload status and remove the finalizer.
-
-This problem is already solved by the Job API, so the natural question is: why not just use a Job?
-
-<<[/UNRESOLVED]>>
 
 The Workload object can be generated after observing the first Pod.
 The Workload for the Pod in [story 2](#story-2) would look as follows:
@@ -521,7 +499,7 @@ In the Pod event handler, we decrement the counter when we see a transition from
 the scheduling gate `kueue.x-k8s.io/admission` to not having it.
 
 In the Workload reconciler:
-1. admitted_pods_informer: the number of non-terminated pods in the informer that are admitted.
+1. admitted_pods_in_informer: the number of non-terminated pods in the informer that are admitted.
    We only look at non-terminated pods to allow for terminated pods to be replaced.
 1. admitted_pods = admitted_pods_in_informer + expected_admissions. Note that this might temporarily
    lead to double counting.
@@ -637,8 +615,14 @@ Why should this KEP _not_ be implemented?
 
 ## Alternatives
 
-<!--
-What other approaches did you consider, and why did you rule them out? These do
-not need to be as detailed as the proposal, but should include enough
-information to express the idea and why it was not acceptable.
--->
+### Users create a Workload object beforehand
+
+An alternative to the multiple annotations in the Pods would be for users to create a Workload
+object before creating the Pods. The Pods would just have one annotation referencing the Workload
+name.
+
+While this would be a clean approach, this proposal is targetting users that don't have a CRD
+wrapping their Pods, and adding one would be a bigger effort than adding annotations. Such amount
+of effort could be similar to migrating from plain Pods to the Job API, which is already supported.
+
+We could reconsider this based on user feedback.
