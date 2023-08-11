@@ -382,7 +382,6 @@ A possible extension here is to add a TTL, but we will get user feedback first.
 The simplest case we want to support is single Pod jobs. These Pods only have the label
 `kueue.x-k8s.io/queue-name`, indicating the local queue where they will be queued.
 
-When constructing the Workload object, kueue only populates a single podset using the podRef field.
 The Workload for the Pod in [story 1](#story-1) would look as follows:
 
 ```yaml
@@ -396,7 +395,14 @@ spec:
   podSets:
   - count: 1
     name: main # this name is irrelevant.
-    podRef: foo
+    template:
+      spec:
+        containers:
+        - name: job
+          image: hello-world
+          resources:
+            requests:
+              cpu: 1m
 ```
 
 <<[UNRESOLVED creating a Workload beforehand]>>
@@ -429,7 +435,14 @@ spec:
   podSets:
   - count: 10
     name: main # this name is irrelevant.
-    podRef: pod-index-0 # any pod would do.
+    template:
+      spec:
+        containers:
+        - name: job
+          image: hello-world
+          resources:
+            requests:
+              cpu: 1m
 ```
 
 #### Groups of pods with multiple shapes or roles
@@ -453,10 +466,24 @@ spec:
   podSets:
   - count: 1
     name: driver 
-    podRef: job-driver
+    template:
+      spec:
+        containers:
+        - name: job
+          image: hello-world
+          resources:
+            requests:
+              cpu: 1m
   - count: 10
     name: worker
-    podRef: job-worker-0 # any pod of the role would do
+    template:
+      spec:
+        containers:
+        - name: job
+          image: hello-world
+          resources:
+            requests:
+              cpu: 1m
 ```
 
 #### Groups of pods where driver generates workers
@@ -481,10 +508,24 @@ spec:
   podSets:
   - count: 1
     name: driver 
-    podRef: job-driver
+    template:
+      spec:
+        containers:
+        - name: job
+          image: hello-world
+          resources:
+            requests:
+              cpu: 1m
   - count: 10
     name: worker
-    podRef: job-worker-0 # any pod of the role would do
+    template:
+      spec:
+        containers:
+        - name: job
+          image: hello-world
+          resources:
+            requests:
+              cpu: 1m
 ```
 
 ### Tracking admitted and finished Pods
