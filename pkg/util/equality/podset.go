@@ -19,7 +19,7 @@ package equality
 import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
@@ -37,7 +37,7 @@ func ComparePodSets(a, b *kueue.PodSet, checkCount bool) bool {
 	if checkCount && a.Count != b.Count {
 		return false
 	}
-	if pointer.Int32Deref(a.MinCount, -1) != pointer.Int32Deref(b.MinCount, -1) {
+	if ptr.Deref(a.MinCount, -1) != ptr.Deref(b.MinCount, -1) {
 		return false
 	}
 

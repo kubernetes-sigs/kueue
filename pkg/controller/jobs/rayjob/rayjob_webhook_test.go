@@ -24,9 +24,9 @@ import (
 	"github.com/google/go-cmp/cmp"
 	rayjobapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	"sigs.k8s.io/kueue/pkg/util/pointer"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 )
 
@@ -125,10 +125,10 @@ func TestValidateCreate(t *testing.T) {
 		},
 		"invalid managed - has auto scaler": {
 			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
-				WithEnableAutoscaling(pointer.Bool(true)).
+				WithEnableAutoscaling(ptr.To(true)).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "rayClusterSpec", "enableInTreeAutoscaling"), pointer.Bool(true), "a kueue managed job should not use autoscaling"),
+				field.Invalid(field.NewPath("spec", "rayClusterSpec", "enableInTreeAutoscaling"), ptr.To(true), "a kueue managed job should not use autoscaling"),
 			}.ToAggregate(),
 		},
 		"invalid managed - too many worker groups": {

@@ -22,7 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -127,7 +127,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			gomega.Eventually(func() error {
 				var newWL kueue.Workload
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
-				newWL.Spec.Priority = pointer.Int32(10)
+				newWL.Spec.Priority = ptr.To[int32](10)
 				return k8sClient.Update(ctx, &newWL)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
