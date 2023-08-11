@@ -922,7 +922,7 @@ func TestAssignFlavors(t *testing.T) {
 					Flavors: []cache.FlavorQuotas{{
 						Name: "default",
 						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourceCPU:    {Nominal: 2000, BorrowingLimit: ptr.To(int64(98_000))},
+							corev1.ResourceCPU:    {Nominal: 2000, BorrowingLimit: ptr.To[int64](98_000)},
 							corev1.ResourceMemory: {Nominal: 2 * utiltesting.Gi},
 						},
 					}},
@@ -1022,7 +1022,7 @@ func TestAssignFlavors(t *testing.T) {
 					Flavors: []cache.FlavorQuotas{{
 						Name: "one",
 						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
-							corev1.ResourceCPU: {Nominal: 2000, BorrowingLimit: ptr.To(int64(8_000))},
+							corev1.ResourceCPU: {Nominal: 2000, BorrowingLimit: ptr.To[int64](8_000)},
 						},
 					}},
 				}},

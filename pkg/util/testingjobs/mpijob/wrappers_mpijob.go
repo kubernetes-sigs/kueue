@@ -33,7 +33,6 @@ type MPIJobWrapper struct{ kubeflow.MPIJob }
 
 // MakeMPIJob creates a wrapper for a suspended job with a single container and parallelism=1.
 func MakeMPIJob(name, ns string) *MPIJobWrapper {
-	const replica int32 = 1
 	return &MPIJobWrapper{kubeflow.MPIJob{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
@@ -46,7 +45,7 @@ func MakeMPIJob(name, ns string) *MPIJobWrapper {
 			},
 			MPIReplicaSpecs: map[kubeflow.MPIReplicaType]*common.ReplicaSpec{
 				kubeflow.MPIReplicaTypeLauncher: {
-					Replicas: ptr.To(replica),
+					Replicas: ptr.To[int32](1),
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
 							RestartPolicy: corev1.RestartPolicyNever,
@@ -63,7 +62,7 @@ func MakeMPIJob(name, ns string) *MPIJobWrapper {
 					},
 				},
 				kubeflow.MPIReplicaTypeWorker: {
-					Replicas: ptr.To(replica),
+					Replicas: ptr.To[int32](1),
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
 							RestartPolicy: corev1.RestartPolicyNever,

@@ -244,7 +244,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable: ptr.To(false),
 				},
 				ClientConnection: &ClientConnection{
-					QPS:   ptr.To(float32(123.0)),
+					QPS:   ptr.To[float32](123.0),
 					Burst: ptr.To[int32](456),
 				},
 				Integrations: defaultIntegrations,

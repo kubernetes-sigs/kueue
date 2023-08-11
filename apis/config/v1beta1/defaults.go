@@ -32,7 +32,7 @@ const (
 	DefaultNamespace                      = "kueue-system"
 	DefaultWebhookServiceName             = "kueue-webhook-service"
 	DefaultWebhookSecretName              = "kueue-webhook-server-cert"
-	DefaultWebhookPort            int     = 9443
+	DefaultWebhookPort                    = 9443
 	DefaultHealthProbeBindAddress         = ":8081"
 	DefaultMetricsBindAddress             = ":8080"
 	DefaultLeaderElectionID               = "c1f6bfd2.kueue.x-k8s.io"

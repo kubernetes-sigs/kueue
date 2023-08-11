@@ -101,7 +101,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							Resources: map[corev1.ResourceName]*ResourceQuota{
 								corev1.ResourceCPU: {
 									Nominal:        10_000,
-									BorrowingLimit: ptr.To(int64(10_000)),
+									BorrowingLimit: ptr.To[int64](10_000),
 								},
 							},
 						}},
@@ -223,7 +223,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							Resources: map[corev1.ResourceName]*ResourceQuota{
 								corev1.ResourceCPU: {
 									Nominal:        10_000,
-									BorrowingLimit: ptr.To(int64(10_000)),
+									BorrowingLimit: ptr.To[int64](10_000),
 								},
 							},
 						}},
@@ -344,7 +344,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							Resources: map[corev1.ResourceName]*ResourceQuota{
 								corev1.ResourceCPU: {
 									Nominal:        5_000,
-									BorrowingLimit: ptr.To(int64(5_000)),
+									BorrowingLimit: ptr.To[int64](5_000),
 								},
 							},
 						}},
@@ -390,7 +390,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							Resources: map[corev1.ResourceName]*ResourceQuota{
 								corev1.ResourceCPU: {
 									Nominal:        5_000,
-									BorrowingLimit: ptr.To(int64(5_000)),
+									BorrowingLimit: ptr.To[int64](5_000),
 								},
 							}},
 						},
@@ -495,7 +495,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							Resources: map[corev1.ResourceName]*ResourceQuota{
 								corev1.ResourceCPU: {
 									Nominal:        10_000,
-									BorrowingLimit: ptr.To(int64(10_000)),
+									BorrowingLimit: ptr.To[int64](10_000),
 								},
 							},
 						}},

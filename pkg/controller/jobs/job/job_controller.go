@@ -292,7 +292,7 @@ func (j *Job) podsCount() int32 {
 func (j *Job) minPodsCount() *int32 {
 	if strVal, found := j.GetAnnotations()[JobMinParallelismAnnotation]; found {
 		if iVal, err := strconv.Atoi(strVal); err == nil {
-			return ptr.To(int32(iVal))
+			return ptr.To[int32](int32(iVal))
 		}
 	}
 	return nil
