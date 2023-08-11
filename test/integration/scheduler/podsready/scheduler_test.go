@@ -56,13 +56,13 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 
 	ginkgo.JustBeforeEach(func() {
 		fwk = &framework.Framework{
-			ManagerSetup: func(mgr manager.Manager, ctx context.Context) {
-				managerAndSchedulerSetupWithTimeoutAdmission(mgr, ctx, podsReadyTimeout, true)
-			},
 			CRDPath:     filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases"),
 			WebhookPath: filepath.Join("..", "..", "..", "..", "config", "components", "webhook"),
 		}
-		ctx, cfg, k8sClient = fwk.Setup()
+		cfg = fwk.Init()
+		ctx, k8sClient = fwk.RunManager(cfg, func(mgr manager.Manager, ctx context.Context) {
+			managerAndSchedulerSetupWithTimeoutAdmission(mgr, ctx, podsReadyTimeout, true)
+		})
 
 		defaultFlavor = testing.MakeResourceFlavor("default").Obj()
 		gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).To(gomega.Succeed())
@@ -369,13 +369,13 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 
 	ginkgo.JustBeforeEach(func() {
 		fwk = &framework.Framework{
-			ManagerSetup: func(mgr manager.Manager, ctx context.Context) {
-				managerAndSchedulerSetupWithTimeoutAdmission(mgr, ctx, podsReadyTimeout, false)
-			},
 			CRDPath:     filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases"),
 			WebhookPath: filepath.Join("..", "..", "..", "..", "config", "components", "webhook"),
 		}
-		ctx, cfg, k8sClient = fwk.Setup()
+		cfg = fwk.Init()
+		ctx, k8sClient = fwk.RunManager(cfg, func(mgr manager.Manager, ctx context.Context) {
+			managerAndSchedulerSetupWithTimeoutAdmission(mgr, ctx, podsReadyTimeout, false)
+		})
 
 		defaultFlavor = testing.MakeResourceFlavor("default").Obj()
 		gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).To(gomega.Succeed())

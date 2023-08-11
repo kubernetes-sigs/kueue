@@ -35,12 +35,12 @@ var _ = ginkgo.Describe("RayJob Webhook", func() {
 
 		ginkgo.BeforeAll(func() {
 			fwk = &framework.Framework{
-				ManagerSetup: managerSetup(),
-				CRDPath:      crdPath,
-				DepCRDPaths:  []string{rayCrdPath},
-				WebhookPath:  webhookPath,
+				CRDPath:     crdPath,
+				DepCRDPaths: []string{rayCrdPath},
+				WebhookPath: webhookPath,
 			}
-			ctx, cfg, k8sClient = fwk.Setup()
+			cfg = fwk.Init()
+			ctx, k8sClient = fwk.RunManager(cfg, managerSetup())
 		})
 		ginkgo.BeforeEach(func() {
 			ns = &corev1.Namespace{
