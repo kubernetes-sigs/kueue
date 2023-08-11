@@ -19,7 +19,7 @@ package flavorassigner
 import (
 	"sort"
 
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
@@ -46,7 +46,7 @@ func NewPodSetReducer[R any](podSets []kueue.PodSet, fits func([]int32) (R, bool
 		ps := &psr.podSets[i]
 		psr.fullCounts[i] = ps.Count
 
-		d := ps.Count - pointer.Int32Deref(ps.MinCount, ps.Count)
+		d := ps.Count - ptr.Deref(ps.MinCount, ps.Count)
 		psr.deltas[i] = d
 		psr.totalDelta += d
 	}

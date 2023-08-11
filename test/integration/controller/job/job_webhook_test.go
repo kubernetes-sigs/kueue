@@ -25,8 +25,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/discovery"
+	"k8s.io/utils/ptr"
 
-	"k8s.io/utils/pointer"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
@@ -105,7 +105,7 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
 			createdJob.Annotations = map[string]string{constants.QueueAnnotation: "queue"}
-			createdJob.Spec.Suspend = pointer.Bool(false)
+			createdJob.Spec.Suspend = ptr.To(false)
 			gomega.Expect(k8sClient.Update(ctx, createdJob)).ShouldNot(gomega.Succeed())
 		})
 
@@ -184,7 +184,7 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
 			createdJob.Labels[constants.QueueLabel] = "queue2"
-			createdJob.Spec.Suspend = pointer.Bool(false)
+			createdJob.Spec.Suspend = ptr.To(false)
 			gomega.Expect(k8sClient.Update(ctx, createdJob)).ShouldNot(gomega.Succeed())
 		})
 	})

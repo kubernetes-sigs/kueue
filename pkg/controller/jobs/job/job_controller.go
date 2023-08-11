@@ -31,7 +31,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -148,7 +148,7 @@ func (j *Job) IsActive() bool {
 }
 
 func (j *Job) Suspend() {
-	j.Spec.Suspend = pointer.Bool(true)
+	j.Spec.Suspend = ptr.To(true)
 }
 
 func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []jobframework.PodSetInfo) (bool, error) {
@@ -183,12 +183,12 @@ func (j *Job) GetGVK() schema.GroupVersionKind {
 }
 
 func (j *Job) ReclaimablePods() []kueue.ReclaimablePod {
-	parallelism := pointer.Int32Deref(j.Spec.Parallelism, 1)
+	parallelism := ptr.Deref(j.Spec.Parallelism, 1)
 	if parallelism == 1 || j.Status.Succeeded == 0 {
 		return nil
 	}
 
-	remaining := pointer.Int32Deref(j.Spec.Completions, parallelism) - j.Status.Succeeded
+	remaining := ptr.Deref(j.Spec.Completions, parallelism) - j.Status.Succeeded
 	if remaining >= parallelism {
 		return nil
 	}
@@ -211,7 +211,7 @@ func (j *Job) PodSets() []kueue.PodSet {
 }
 
 func (j *Job) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) error {
-	j.Spec.Suspend = pointer.Bool(false)
+	j.Spec.Suspend = ptr.To(false)
 	if len(podSetsInfo) != 1 {
 		return jobframework.BadPodSetsInfoLenError(1, len(podSetsInfo))
 	}
@@ -220,7 +220,7 @@ func (j *Job) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) error {
 	j.Spec.Template.Spec.NodeSelector = maps.MergeKeepFirst(info.NodeSelector, j.Spec.Template.Spec.NodeSelector)
 
 	if j.minPodsCount() != nil {
-		j.Spec.Parallelism = pointer.Int32(info.Count)
+		j.Spec.Parallelism = ptr.To(info.Count)
 		if j.syncCompletionWithParallelism() {
 			j.Spec.Completions = j.Spec.Parallelism
 		}
@@ -235,9 +235,9 @@ func (j *Job) RestorePodSetsInfo(podSetsInfo []jobframework.PodSetInfo) bool {
 
 	changed := false
 	// if the job accepts partial admission
-	if j.minPodsCount() != nil && pointer.Int32Deref(j.Spec.Parallelism, 0) != podSetsInfo[0].Count {
+	if j.minPodsCount() != nil && ptr.Deref(j.Spec.Parallelism, 0) != podSetsInfo[0].Count {
 		changed = true
-		j.Spec.Parallelism = pointer.Int32(podSetsInfo[0].Count)
+		j.Spec.Parallelism = ptr.To(podSetsInfo[0].Count)
 		if j.syncCompletionWithParallelism() {
 			j.Spec.Completions = j.Spec.Parallelism
 		}
@@ -276,7 +276,7 @@ func (j *Job) Finished() (metav1.Condition, bool) {
 }
 
 func (j *Job) PodsReady() bool {
-	ready := pointer.Int32Deref(j.Status.Ready, 0)
+	ready := ptr.Deref(j.Status.Ready, 0)
 	return j.Status.Succeeded+ready >= j.podsCount()
 }
 
@@ -292,7 +292,7 @@ func (j *Job) podsCount() int32 {
 func (j *Job) minPodsCount() *int32 {
 	if strVal, found := j.GetAnnotations()[JobMinParallelismAnnotation]; found {
 		if iVal, err := strconv.Atoi(strVal); err == nil {
-			return pointer.Int32(int32(iVal))
+			return ptr.To(int32(iVal))
 		}
 	}
 	return nil

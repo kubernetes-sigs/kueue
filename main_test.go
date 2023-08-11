@@ -25,7 +25,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
@@ -62,9 +62,9 @@ integrations:
 	}
 
 	enableDefaultInternalCertManagement := &config.InternalCertManagement{
-		Enable:             pointer.Bool(true),
-		WebhookServiceName: pointer.String(config.DefaultWebhookServiceName),
-		WebhookSecretName:  pointer.String(config.DefaultWebhookSecretName),
+		Enable:             ptr.To(true),
+		WebhookServiceName: ptr.To(config.DefaultWebhookServiceName),
+		WebhookSecretName:  ptr.To(config.DefaultWebhookSecretName),
 	}
 
 	configCmpOpts := []cmp.Option{
@@ -72,8 +72,8 @@ integrations:
 	}
 
 	defaultClientConnection := &config.ClientConnection{
-		QPS:   pointer.Float32(config.DefaultClientConnectionQPS),
-		Burst: pointer.Int32(config.DefaultClientConnectionBurst),
+		QPS:   ptr.To(config.DefaultClientConnectionQPS),
+		Burst: ptr.To(config.DefaultClientConnectionBurst),
 	}
 
 	testcases := []struct {
@@ -90,7 +90,7 @@ integrations:
 					APIVersion: config.GroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  pointer.String(config.DefaultNamespace),
+				Namespace:                  ptr.To(config.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection:           defaultClientConnection,

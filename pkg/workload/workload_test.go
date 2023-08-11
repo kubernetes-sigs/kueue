@@ -26,7 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -108,7 +108,7 @@ func TestNewInfo(t *testing.T) {
 								corev1.ResourceCPU:    resource.MustParse("10m"),
 								corev1.ResourceMemory: resource.MustParse("512Ki"),
 							},
-							Count: pointer.Int32(1),
+							Count: ptr.To[int32](1),
 						},
 						kueue.PodSetAssignment{
 							Name: "workers",
@@ -117,7 +117,7 @@ func TestNewInfo(t *testing.T) {
 								corev1.ResourceMemory: resource.MustParse("3Mi"),
 								"ex.com/gpu":          resource.MustParse("3"),
 							},
-							Count: pointer.Int32(3),
+							Count: ptr.To[int32](3),
 						},
 					).
 					Obj()).

@@ -22,7 +22,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
@@ -54,7 +54,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			podsReadyTimeout:           pointer.Duration(5 * time.Minute),
+			podsReadyTimeout:           ptr.To(5 * time.Minute),
 			wantCountingTowardsTimeout: true,
 			wantRecheckAfter:           4 * time.Minute,
 		},
@@ -85,7 +85,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			podsReadyTimeout:           pointer.Duration(5 * time.Minute),
+			podsReadyTimeout:           ptr.To(5 * time.Minute),
 			wantCountingTowardsTimeout: true,
 		},
 		"workload with Admitted=True, PodsReady=False; counting since PodsReady.LastTransitionTime": {
@@ -106,7 +106,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			podsReadyTimeout:           pointer.Duration(5 * time.Minute),
+			podsReadyTimeout:           ptr.To(5 * time.Minute),
 			wantCountingTowardsTimeout: true,
 			wantRecheckAfter:           5 * time.Minute,
 		},
@@ -123,7 +123,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			podsReadyTimeout: pointer.Duration(5 * time.Minute),
+			podsReadyTimeout: ptr.To(5 * time.Minute),
 		},
 		"workload with Admitted=False, not counting": {
 			workload: kueue.Workload{
@@ -138,7 +138,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			podsReadyTimeout: pointer.Duration(5 * time.Minute),
+			podsReadyTimeout: ptr.To(5 * time.Minute),
 		},
 		"workload with Admitted=True, PodsReady=True; not counting": {
 			workload: kueue.Workload{
@@ -158,7 +158,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			podsReadyTimeout: pointer.Duration(5 * time.Minute),
+			podsReadyTimeout: ptr.To(5 * time.Minute),
 		},
 	}
 

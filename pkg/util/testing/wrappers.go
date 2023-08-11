@@ -27,8 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"k8s.io/utils/pointer"
-	ptr "k8s.io/utils/ptr"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
@@ -244,7 +243,7 @@ func MakeAdmission(cq string, podSetNames ...string) *AdmissionWrapper {
 				Name:          kueue.DefaultPodSetName,
 				Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
 				ResourceUsage: make(corev1.ResourceList),
-				Count:         pointer.Int32(1),
+				Count:         ptr.To[int32](1),
 			},
 		}
 		return wrap
@@ -256,7 +255,7 @@ func MakeAdmission(cq string, podSetNames ...string) *AdmissionWrapper {
 			Name:          name,
 			Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
 			ResourceUsage: make(corev1.ResourceList),
-			Count:         pointer.Int32(1),
+			Count:         ptr.To[int32](1),
 		})
 	}
 	wrap.PodSetAssignments = psFlavors
@@ -274,7 +273,7 @@ func (w *AdmissionWrapper) Assignment(r corev1.ResourceName, f kueue.ResourceFla
 }
 
 func (w *AdmissionWrapper) AssignmentPodCount(value int32) *AdmissionWrapper {
-	w.PodSetAssignments[0].Count = pointer.Int32(value)
+	w.PodSetAssignments[0].Count = ptr.To(value)
 	return w
 }
 

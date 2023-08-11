@@ -29,7 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -101,7 +101,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							Resources: map[corev1.ResourceName]*ResourceQuota{
 								corev1.ResourceCPU: {
 									Nominal:        10_000,
-									BorrowingLimit: pointer.Int64(10_000),
+									BorrowingLimit: ptr.To(int64(10_000)),
 								},
 							},
 						}},
@@ -223,7 +223,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							Resources: map[corev1.ResourceName]*ResourceQuota{
 								corev1.ResourceCPU: {
 									Nominal:        10_000,
-									BorrowingLimit: pointer.Int64(10_000),
+									BorrowingLimit: ptr.To(int64(10_000)),
 								},
 							},
 						}},
@@ -344,7 +344,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							Resources: map[corev1.ResourceName]*ResourceQuota{
 								corev1.ResourceCPU: {
 									Nominal:        5_000,
-									BorrowingLimit: pointer.Int64(5_000),
+									BorrowingLimit: ptr.To(int64(5_000)),
 								},
 							},
 						}},
@@ -390,7 +390,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							Resources: map[corev1.ResourceName]*ResourceQuota{
 								corev1.ResourceCPU: {
 									Nominal:        5_000,
-									BorrowingLimit: pointer.Int64(5_000),
+									BorrowingLimit: ptr.To(int64(5_000)),
 								},
 							}},
 						},
@@ -495,7 +495,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							Resources: map[corev1.ResourceName]*ResourceQuota{
 								corev1.ResourceCPU: {
 									Nominal:        10_000,
-									BorrowingLimit: pointer.Int64(10_000),
+									BorrowingLimit: ptr.To(int64(10_000)),
 								},
 							},
 						}},

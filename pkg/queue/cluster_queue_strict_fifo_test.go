@@ -21,7 +21,7 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -29,8 +29,8 @@ import (
 )
 
 const (
-	lowPriority  = 0
-	highPriority = 1000
+	lowPriority  int32 = 0
+	highPriority int32 = 1000
 )
 
 func TestFIFOClusterQueue(t *testing.T) {
@@ -116,7 +116,7 @@ func TestStrictFIFO(t *testing.T) {
 				},
 				Spec: kueue.WorkloadSpec{
 					PriorityClassName: "highPriority",
-					Priority:          pointer.Int32(highPriority),
+					Priority:          ptr.To(highPriority),
 				},
 			},
 			w2: &kueue.Workload{
@@ -126,7 +126,7 @@ func TestStrictFIFO(t *testing.T) {
 				},
 				Spec: kueue.WorkloadSpec{
 					PriorityClassName: "lowPriority",
-					Priority:          pointer.Int32(lowPriority),
+					Priority:          ptr.To(lowPriority),
 				},
 			},
 			expected: "w1",
@@ -183,7 +183,7 @@ func TestStrictFIFO(t *testing.T) {
 				},
 				Spec: kueue.WorkloadSpec{
 					PriorityClassName: "lowPriority",
-					Priority:          pointer.Int32(lowPriority),
+					Priority:          ptr.To(lowPriority),
 				},
 			},
 			w2: &kueue.Workload{
@@ -193,7 +193,7 @@ func TestStrictFIFO(t *testing.T) {
 				},
 				Spec: kueue.WorkloadSpec{
 					PriorityClassName: "highPriority",
-					Priority:          pointer.Int32(highPriority),
+					Priority:          ptr.To(highPriority),
 				},
 			},
 			expected: "w2",

@@ -26,7 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -81,7 +81,7 @@ func (j *JobSet) Object() client.Object {
 }
 
 func (j *JobSet) IsSuspended() bool {
-	return pointer.BoolDeref(j.Spec.Suspend, false)
+	return ptr.Deref(j.Spec.Suspend, false)
 }
 
 func (j *JobSet) IsActive() bool {
@@ -94,7 +94,7 @@ func (j *JobSet) IsActive() bool {
 }
 
 func (j *JobSet) Suspend() {
-	j.Spec.Suspend = pointer.Bool(true)
+	j.Spec.Suspend = ptr.To(true)
 }
 
 func (j *JobSet) GetGVK() schema.GroupVersionKind {
@@ -114,7 +114,7 @@ func (j *JobSet) PodSets() []kueue.PodSet {
 }
 
 func (j *JobSet) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) error {
-	j.Spec.Suspend = pointer.Bool(false)
+	j.Spec.Suspend = ptr.To(false)
 	if len(podSetInfos) != len(j.Spec.ReplicatedJobs) {
 		return jobframework.BadPodSetsInfoLenError(len(j.Spec.ReplicatedJobs), len(podSetInfos))
 	}
@@ -202,8 +202,8 @@ func (j *JobSet) ReclaimablePods() []kueue.ReclaimablePod {
 func podsCountPerReplica(rj *jobsetapi.ReplicatedJob) int32 {
 	spec := &rj.Template.Spec
 	// parallelism is always set as it is otherwise defaulted by k8s to 1
-	jobPodsCount := pointer.Int32Deref(spec.Parallelism, 1)
-	if comp := pointer.Int32Deref(spec.Completions, jobPodsCount); comp < jobPodsCount {
+	jobPodsCount := ptr.Deref(spec.Parallelism, 1)
+	if comp := ptr.Deref(spec.Completions, jobPodsCount); comp < jobPodsCount {
 		jobPodsCount = comp
 	}
 	return jobPodsCount
