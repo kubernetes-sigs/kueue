@@ -72,7 +72,7 @@ use of this API to implement queuing semantics for Pods.
   This feature is incompatible with supporting Pod replacements without knowing the behavior of a
   parent controller for the Pods.
 
-- Support for partial-admission.
+- Support for [partial-admission](https://github.com/kubernetes-sigs/kueue/issues/420).
 
   Since all pods are already created, an implementation of partial admission would imply the
   deletion of some pods. It is not clear if this matches users expectations, as opposed to support
@@ -416,13 +416,6 @@ spec:
             requests:
               cpu: 1m
 ```
-
-<<[UNRESOLVED creating a Workload beforehand]>>
-Could users create a Workload object before hand for groups of Pods?
-This way, Pods would only need to have a label for the group name and the role. This would
-simplify validation.
-Should we make this a supported mode in addition to pure labels/annotations?
-<<[/UNRESOLVED]>>
 
 #### Groups of Pods with the same shape
 
