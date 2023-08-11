@@ -350,7 +350,7 @@ type Integrations struct {
 
 type PodIntegrationOptions struct {
   NamespaceSelector *metav1.LabelSelector
-  PodSelector *metav1Selector
+  PodSelector *metav1.LabelSelector
 }
 ```
 
@@ -418,8 +418,10 @@ When multiple pods belong to the same group and have the same shape, we need to 
 belong to the group.
 
 These groups of Pods can be identified when they have:
-- the label `kueue.x-k8s.io/pod-group-name`, as a unique identifier for the group.
-- the annotation `kueue.x-k8s.io/pod-group-count`, the number of pods to expect in the group
+- the label `kueue.x-k8s.io/pod-group-name`, as a unique identifier for the group. This should
+  be a valid CRD name.
+- the annotation `kueue.x-k8s.io/pod-group-count`, the number of pods to expect in the group.
+  This number is interpreted as int32.
 
 The Workload object can be generated after observing the first Pod.
 The Workload for the Pod in [story 2](#story-2) would look as follows:
@@ -448,8 +450,15 @@ spec:
 #### Groups of pods with multiple shapes or roles
 
 When a group has multiple shapes, sometimes known as roles, we need to know how many shapes there
-are. The Pods declare their role with the label `kueue.x-k8s.io/pod-group-role`. The annotation
-`kueue.k8s.io/pod-group-role-count` contains how many pods belong to the role.
+are. To fully identify the group, the pods need the following:
+- the label `kueue.x-k8s.io/pod-group-name`, as a unique identifier for the group. This should
+  be a valid CRD name.
+- The annotation `kueue.x-k8s.io/pod-group-roles` to indicate how many roles or shapes there are
+  in the group. This value can be up to 8.
+- The label `kueue.x-k8s.io/pod-group-role` uniquely identifying the group or shape. This value
+  should be a DNS label (RFC 1123).
+- The annotation `kueue.k8s.io/pod-group-role-count` indicates how many pods belong to the role,
+  If it doesn't exist, kueue assumes 1.
 
 We can only build the Workload object once we observe at least one Pod per role.
 
