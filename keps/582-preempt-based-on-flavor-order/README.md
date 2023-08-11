@@ -29,7 +29,7 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Risks and Mitigations](#risks-and-mitigations)
   - [Design Details](#design-details)
     - [Cluster Queue API](#cluster-queue-api)
-      - [Plan A](#plan-a)
+    - [Behavior Changes](#behavior-changes)
         - [Advantages](#advantages)
         - [Disadvantages](#disadvantages)
     - [Implementation](#implementation)
@@ -92,6 +92,8 @@ know that this has succeeded?
 
 ### Non-Goals
 
+- change the behavior to judge whether a podset can get enough resource in certain resource flavor. 
+- change the preemption and admission precess.
 <!--
 What is out of scope for this KEP? Listing non-goals helps to focus discussion
 and make progress.
@@ -165,8 +167,6 @@ We extend the Cluster Queue API to introduce the new fields: flavorFungibility t
 
 For each type of resource in each podSet, Kueue will traverse all resource groups and resource flavors to find a available flavor in present. When there are insufficient resources in the flavor, kueue will prioritize preemption or borrowing based on the configured policy. 
 
-#### Plan A
-
 ```
 const (
 	Borrow FlavorFungibilityPolicy = "Borrow"
@@ -191,15 +191,32 @@ type ClusterQueuePreemption struct {
 
 If flavorFungibility is nil in configuration, we will set the `WhenCanBorrow` to `true` and set `WhenCanPreempt` to `false` to maintain consistency with the current behavior.
 
-If flavorFungibility is not nil and `WhenCanBorrow` is `Borrow`, we calculate the total resource consumption in the flavor and current amount of borrowed resources to determine if the workload can fit the flavor by borrowing before try next flavor. We return `Fit` and the count of resources to be borrowed if there are enough unused resources in cohort.
+### Behavior Changes
 
-If flavorFungibility is not nil and `WhenCanPreempt` is `Preempt`, we will preempt in current flavor before try allocate in next flavor. We return current assignment directly if `mode=Preempt` so that preemptor can do preemption in this flavor. If we preempt fail in the flavor, we put the worklaod back to the cluster queue and try from the first flavor next time.
+We will not change the behavior to judge whether a podset can get enough resource in certain resource flavor. Preemption and admission will not be influenced also. We only change the order these flavors were considered.
 
-If flavorFungibility is not nil and `WhenCanBorrow` is `TryNextFlavor`, we will try to borrow after all flavors have been consiedered.
+After we try to schedule a podset in a resource flavor, we decide whether to traverse to the next flavor base on the `flavorFungibility` like the follows. This turn run to end if `shouldTryNextFlavor` return false, otherwise we try next flavor to find the best one. 
+```
+func shouldTryNextFlavor(representativeMode FlavorAssignmentMode, flavorFungibility v1beta1.FlavorFungibility, whetherNeedBorrowing bool) bool {
+	policyPreempt := flavorFungibility.WhenCanPreempt
+	policyBorrow := flavorFungibility.WhenCanBorrow
+	if representativeMode == Preempt && policyPreempt == v1beta1.Preempt {
+		return false
+	}
 
-If flavorFungibility is not nil and `WhenCanPreempt` is `TryNextFlavor`, we will try to preempt after all flavors have been consiedered.
+	if representativeMode == Fit && whetherNeedBorrowing && policyBorrow == v1beta1.Borrow {
+		return false
+	}
 
-If both `WhenCanPreempt` and `WhenCanBorrow` are `true`, both policy will be enabled, and we will return if any case above was hit.
+	if representativeMode == Fit && !whetherNeedBorrowing {
+		return false
+	}
+
+	return true
+}
+```
+
+We will store the scheduling context in workload info so that we can start from where we stop in previous scheduling attempts. This will be useful to avoid to waste time in one flavor all the time if we try to preempt in a flavor and failed. Scheduling context will contain the `LastScheduledFlavorIdx`, `ResourceFlavors` attached to the CQ, `ClusterQueueUsage` of the CQ and `CohortUsage`. Any changes to these properties will lead to a scheduling from the first flavor.
 
 For example, if cluster queue has 2 resource groups and workload has 1 podSet as the following:
 
@@ -243,7 +260,7 @@ For example, if cluster queue has 2 resource groups and workload has 1 podSet as
             gpu: 1
 ```
 
-We will first try `default-flavor1` for cpu and memory resources. If `default-flavor1` doesn't fit, we try preempt in `default-flavor1`. And if we can not find enough candidates in `default-flavor1`, the workload will start from `default-flavor1` again next time.
+We will first try `default-flavor1` for cpu and memory resources. If `default-flavor1` doesn't fit, we try preempt in `default-flavor1`. And if we can not find enough candidates in `default-flavor1`, the workload will start from `default-flavor2` in the next time.
 
 ##### Advantages
 
@@ -252,50 +269,54 @@ We will first try `default-flavor1` for cpu and memory resources. If `default-fl
 ### Implementation
 
 ```
-func (a *Assignment) findFlavorForResourceGroup(...) (ResourceAssignment, *Status) {
-  ...
-	for _, flvQuotas := range rg.Flavors {
-		...
-
-		whetherNeedBorrowing := false
-		assignments := make(ResourceAssignment, len(requests))
-		// Calculate representativeMode for this assignment as the worst mode among all requests.
-		representativeMode := Fit
-		for rName, val := range requests {
-			...
-		}
-
-		if shouldTryNextFlavor(representativeMode, cq.FlavorFungibility, whetherNeedBorrowing) {
-			return assignments, nil
-		}
-		if representativeMode > bestAssignmentMode {
-			bestAssignment = assignments
-			bestAssignmentMode = representativeMode
-			// if bestAssignmentMode == Fit {
-			// 	// All the resources fit in the cohort, no need to check more flavors.
-			// 	return bestAssignment, nil
-			// }
+func assignFlavors(log logr.Logger, requests []workload.PodSetResources, podSets []kueue.PodSet, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, cq *cache.ClusterQueue, lastSchedule *workload.LastScheduleClusterQueueState) Assignment {
+	assignment := Assignment{
+		TotalBorrow: make(cache.FlavorResourceQuantities),
+		PodSets:     make([]PodSetAssignment, 0, len(requests)),
+		ScheduleState: workload.LastScheduleClusterQueueState{
+			LastScheduledFlavorIdx: make(map[string]map[corev1.ResourceName]int),
+			ResourceFlavors:        make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
+			ClusterQueueUsage:      make(workload.FlavorResourceQuantities),
+			CohortUsage:            make(workload.FlavorResourceQuantities),
+		},
+		usage: make(cache.FlavorResourceQuantities),
+	}
+	for res, flavor := range resourceFlavors {
+		assignment.ScheduleState.ResourceFlavors[res] = flavor
+	}
+	for flavor, flavorusage := range cq.Usage {
+		assignment.ScheduleState.ClusterQueueUsage[flavor] = make(map[corev1.ResourceName]int64)
+		for res, usage := range flavorusage {
+			assignment.ScheduleState.ClusterQueueUsage[flavor][res] = usage
 		}
 	}
-	return bestAssignment, status
+	if cq.Cohort != nil {
+		for flavor, flavorusage := range cq.Cohort.Usage {
+			assignment.ScheduleState.CohortUsage[flavor] = make(map[corev1.ResourceName]int64)
+			for res, usage := range flavorusage {
+				assignment.ScheduleState.CohortUsage[flavor][res] = usage
+			}
+		}
+	}
+  ...
 }
 
 func shouldTryNextFlavor(representativeMode FlavorAssignmentMode, flavorFungibility v1beta1.FlavorFungibility, whetherNeedBorrowing bool) bool {
 	policyPreempt := flavorFungibility.WhenCanPreempt
 	policyBorrow := flavorFungibility.WhenCanBorrow
 	if representativeMode == Preempt && policyPreempt == v1beta1.Preempt {
-		return true
+		return false
 	}
 
 	if representativeMode == Fit && whetherNeedBorrowing && policyBorrow == v1beta1.Borrow {
-		return true
+		return false
 	}
 
 	if representativeMode == Fit && !whetherNeedBorrowing {
-		return true
+		return false
 	}
 
-	return false
+	return true
 }
 ```
 
