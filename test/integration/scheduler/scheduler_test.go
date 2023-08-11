@@ -24,11 +24,11 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/util/pointer"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
@@ -622,7 +622,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				updatedCq.Spec.ResourceGroups[0].Flavors[0].Resources[0] = kueue.ResourceQuota{
 					Name:           corev1.ResourceCPU,
 					NominalQuota:   resource.MustParse("6"),
-					BorrowingLimit: pointer.Quantity(resource.MustParse("0")),
+					BorrowingLimit: ptr.To(resource.MustParse("0")),
 				}
 				return k8sClient.Update(ctx, updatedCq)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())

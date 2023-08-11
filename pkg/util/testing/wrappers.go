@@ -27,8 +27,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"k8s.io/utils/pointer"
+	ptr "k8s.io/utils/ptr"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/util/pointer"
 )
 
 // PriorityClassWrapper wraps a PriorityClass.
@@ -406,7 +408,7 @@ func (f *FlavorQuotasWrapper) Resource(name corev1.ResourceName, qs ...string) *
 		rq.NominalQuota = resource.MustParse(qs[0])
 	}
 	if len(qs) > 1 {
-		rq.BorrowingLimit = pointer.Quantity(resource.MustParse(qs[1]))
+		rq.BorrowingLimit = ptr.To(resource.MustParse(qs[1]))
 	}
 	if len(qs) > 2 {
 		panic("Must have at most 2 quantities for nominalquota and borrowingLimit")

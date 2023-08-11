@@ -23,10 +23,10 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	rayjobapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/utils/pointer"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/util/pointer"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 )
 

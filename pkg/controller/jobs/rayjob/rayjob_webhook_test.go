@@ -25,8 +25,8 @@ import (
 	rayjobapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
+	"k8s.io/utils/pointer"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	"sigs.k8s.io/kueue/pkg/util/pointer"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 )
 
