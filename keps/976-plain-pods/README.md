@@ -16,6 +16,7 @@
     - [Pods replaced on failure](#pods-replaced-on-failure)
   - [Risks and Mitigations](#risks-and-mitigations)
     - [Increased memory usage](#increased-memory-usage)
+    - [Limited size for annotation values](#limited-size-for-annotation-values)
 - [Design Details](#design-details)
   - [Gating Pod Scheduling](#gating-pod-scheduling)
     - [Pods subject to queueing](#pods-subject-to-queueing)
@@ -25,6 +26,7 @@
     - [Groups of pods with multiple shapes or roles](#groups-of-pods-with-multiple-shapes-or-roles)
     - [Groups of pods where driver generates workers](#groups-of-pods-where-driver-generates-workers)
   - [Tracking admitted and finished Pods](#tracking-admitted-and-finished-pods)
+  - [Metrics](#metrics)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
@@ -82,6 +84,10 @@ use of this API to implement queuing semantics for Pods.
 
   While these jobs are one of the motivations for this KEP, the current proposal doesn't support
   them. These jobs can be addressed in follow up KEPs.
+
+- Support for advanced Pod retry policies
+
+  Kueue shouldn't re-implement core functionalities that are already available in the Job API.
 
 ## Proposal
 
