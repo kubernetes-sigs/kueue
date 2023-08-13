@@ -8,10 +8,20 @@
 - [Proposal](#proposal)
   - [User Stories](#user-stories)
     - [Story 1](#story-1)
+    - [Story 2](#story-2)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [Kueue WorkloadPriorityClass API](#kueue-workloadpriorityclass-api)
-  - [How to use WorkloadPriorityClass on Workload](#how-to-use-workloadpriorityclass-on-workload)
+  - [How to use WorkloadPriorityClass on Job](#how-to-use-workloadpriorityclass-on-job)
+  - [How to use WorkloadPriorityCLass on MPIJob](#how-to-use-workloadpriorityclass-on-mpijob)
+  - [How workloads are created from Jobs](#how-workloads-are-created-from-jobs)
+    - [1. A job specifies both <code>workload's priority</code> and <code>pod's priority</code>](#1-a-job-specifies-both--and-)
+    - [2. A job specifies only <code>workload's priority</code>](#2-a-job-specifies-only-)
+    - [3. A job specifies only <code>pod's priority</code>](#3-a-job-specifies-only-)
+  - [How to expand Priority utility](#how-to-expand-priority-utility)
+  - [Where workload's Priority is used](#where-workloads-priority-is-used)
+  - [Role of workloadPriorityClass controller](#role-of-workloadpriorityclass-controller)
+  - [When workloadPriorityClass's priority is modified](#when-workloadpriorityclasss-priority-is-modified)
   - [Future works](#future-works)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
@@ -24,10 +34,15 @@
 
 ## Summary
 
-In this proposal, a `WorkloadPriorityClass` will be created.
-The `Workload` will be able to utilize this `WorkloadPriorityClass`.
+In this proposal, a `WorkloadPriorityClass` is created.
+The `Workload` is able to utilize `WorkloadPriorityClass`.
 `WorkloadPriorityClass` is independent from pod's priority.
-The priority value will be a part of the workload spec and be mutable.
+The priority value is a part of the workload spec and is mutable.  
+In this document, the term "workload Priority" is used to refer
+to the priority utilized by Kueue controller for managing the queueing
+and preemption of workloads.  
+The term "pod Priority" is used to denote the priority utilized by the
+kube-controller for preempting pods and jobs.
 
 ## Motivation
 
@@ -38,18 +53,21 @@ By defining `WorkloadPriorityClass`, we aim to enable various cutomizations only
 
 Implement `WorkloadPriorityClass`.
 `Workload` can utilize `WorkloadPriorityClass`.
+CRDs like Job, MPIJob etc specify the `WorkloadPriorityClass` through labels.
 
 ### Non-Goals
 
-Using existing k8s `PriorityClass` for `Workload` is not recommended.
-`WorkloadPriorityClass` doesn't implement all the features of the k8s `PriorityClass` because some fields on the k8s `PriorityClass` are not relevant to Kueue.
+Using existing k8s `PriorityClass` for Workload's Priority is not recommended.
+`WorkloadPriorityClass` doesn't implement all the features of the k8s `PriorityClass`
+because some fields on the k8s `PriorityClass` are not relevant to Kueue.
 
 ## Proposal
 
-In this proposal, a `WorkloadPriorityClass` will be created.
-The `Workload` will be able to utilize this `WorkloadPriorityClass`.
+In this proposal, `WorkloadPriorityClass` is defined.
+The `Workload` is able to utilize this `WorkloadPriorityClass`.
 `WorkloadPriorityClass` is independent from pod's priority.
 The priority value will be part of the workload spec and be mutable.
+CRDs like Job, MPIJob etc specify the `WorkloadPriorityClass` through labels.
 
 <!--
 This is where we get down to the specifics of what the proposal actually is.
@@ -69,77 +87,19 @@ Kueue issue [973](https://github.com/kubernetes-sigs/kueue/issues/973) provides 
 In an organization, admins want to set a lower priority for development workloads and a higher priority for production workloads.
 In such cases, they create two `WorkloadPriorityClass` and apply each one to the respective workloads.
 
-```yaml
-apiVersion: kueue.x-k8s.io/v1alpha1
-kind: WorkloadPriorityClass
-metadata:
-  name: dev-workload-class
-value: 100
-description: "Dev's priority class"
----
-apiVersion: kueue.x-k8s.io/v1alpha1
-kind: WorkloadPriorityClass
-metadata:
-  name: prod-workload-class
-value: 10000
-description: "Prod's priority class"
----
-# dev-workload-a.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: Workload
-metadata:
-  name: dev-job-a
-spec:
-  priorityClassName: dev-workload-class
-  queueName: team-a-queue
-  podSets:
-  - count: 3
-    name: main
-    template:
-      spec:
-        containers:
-        - image: gcr.io/k8s-staging-perf-tests/sleep:latest
----        
-# dev-workload-b.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: Workload
-metadata:
-  name: dev-job-b
-spec:
-  priorityClassName: dev-workload-class
-  queueName: team-b-queue
-  podSets:
-  - count: 3
-    name: main
-    template:
-      spec:
-        containers:
-        - image: gcr.io/k8s-staging-perf-tests/sleep:latest
-# prod-workload-a.yaml
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: Workload
-metadata:
-  name: prod-job-b
-spec:
-  priorityClassName: prod-workload-class
-  queueName: team-b-queue
-  podSets:
-  - count: 3
-    name: main
-    template:
-      spec:
-        containers:
-        - image: gcr.io/k8s-staging-perf-tests/sleep:latest        
-```
+#### Story 2
 
-
+An organization desires to modify the priority of workloads that remain inactive for a specific duration.
+By developing a custom controller to manage Priority value of `WorkloadPriorityClass`, this expectation can be met.
 
 ### Risks and Mitigations
 
 It's possible that the pod's priority conflicts with the workload's priority.
-For example, a high-priority job with low-priority pods may never run to completion because it may always be preempted.
+For example, a high-priority job with low-priority pods may never run to completion because it may always be preempted by kube-scheduler.
 We should document the risks of pod preemption to uses.
 We can also point users to create `PriorityClass` for their pods that are [non-preempting](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/#non-preempting-priority-class).
+If a workload's priority is high and pod's priority is low and the kube-scheduler initiates preemption, the pod's priority is prioritized. To prevent this behavior, non-preempting setting is needed.
+
 
 ## Design Details
 
@@ -158,9 +118,9 @@ type WorkloadPriorityClass struct {
 
 ```
 
-### How to use WorkloadPriorityClass on Workload
+### How to use WorkloadPriorityClass on Job
 
-The `WorkloadPriorityClass` is defined using `PriorityClassName` field.
+The `workloadPriorityClass` is specified through a label `kueue.x-k8s.io/workload-priority-class`.
 
 ```yaml
 # sample-priority-class.yaml
@@ -171,27 +131,173 @@ metadata:
 value: 10000
 description: "Sample priority"
 ---
+# sample-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: sample-job-
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+    kueue.x-k8s.io/workload-priority-class: sample-priority
+spec:
+  parallelism: 3
+  completions: 3
+  suspend: true
+  template:
+    spec:
+      containers:
+      - name: dummy-job
+        image: gcr.io/k8s-staging-perf-tests/sleep:latest
+      restartPolicy: Never
+```
+
+The following workload is generated by the yaml above.
+The `PriorityClass` field can accept both k8s `PriorityClass` and `workloadPriorityClass` as values.
+To distinguish, when using `workloadPriorityClass`, a prefix "kueue.x-k8s.io/workload-priority-class/" is added.
+
+```yaml
 # sample-workload.yaml
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: Workload
 metadata:
-  name: sample-job
+  name: job-sample-job-jf5fb-f5982
 spec:
-  priorityClassName: sample-priority
-  queueName: team-a-queue
+  priorityClassName: kueue.x-k8s.io/workload-priority-class/sample-priority
+  priority: 10000
+  queueName: user-queue
   podSets:
   - count: 3
-    name: main
+    name: dummy-job
     template:
       spec:
         containers:
         - image: gcr.io/k8s-staging-perf-tests/sleep:latest
-          imagePullPolicy: Always
-          name: container
+          name: dummy-job
 ```
 
 In this example, since the `WorkloadPriorityClassName` of `sample-job` is set to `sample-priority`, the `priority` of the `sample-job` will be set to 10,000.
 During queuing and preemption of the workload, this priority value will be used in the calculations.
+
+### How to use WorkloadPriorityCLass on MPIJob
+
+The `workloadPriorityClass` is specified through a label `kueue.x-k8s.io/workload-priority-class`.
+This is same as other CRDs like `RayJob`.
+
+```yaml
+apiVersion: kubeflow.org/v2beta1
+kind: MPIJob
+metadata:
+  name: pi
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+    kueue.x-k8s.io/workload-priority-class: sample-priority
+spec:
+.....
+```
+
+### How workloads are created from Jobs
+
+There are three scenarios for creating a workload from a job.
+The same applies to CRDs other than `Job` (such as `RayJob`).
+
+1. A job specifies both `workload's priority` and `pod's priority`
+2. A job specifies only `workload's priority`
+3. A job specifies only `pod's priority`
+
+#### 1. A job specifies both `workload's priority` and `pod's priority`
+
+When creating this yaml, the `workloadPriorityClass` sample-priority is used for the `workload's priority`.
+On the other hand, the `priorityClass` high-priority is used for the `pod's priority`.
+```yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: sample-job-
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+    kueue.x-k8s.io/workload-priority-class: sample-priority
+spec:
+  priorityClassName: high-priority
+  parallelism: 3
+  completions: 3
+  suspend: true
+  template:
+    spec:
+      containers:
+      - name: dummy-job
+        image: gcr.io/k8s-staging-perf-tests/sleep:latest
+      restartPolicy: Never
+```
+
+#### 2. A job specifies only `workload's priority`
+
+When creating this yaml, the `workloadPriorityClass` sample-priority is used for the `workload's priority`.
+
+```yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: sample-job-
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+    kueue.x-k8s.io/workload-priority-class: sample-priority
+spec:
+  parallelism: 3
+  completions: 3
+  suspend: true
+  template:
+    spec:
+      containers:
+      - name: dummy-job
+        image: gcr.io/k8s-staging-perf-tests/sleep:latest
+      restartPolicy: Never
+```
+
+#### 3. A job specifies only `pod's priority`
+
+When creating this yaml, the `PriorityClass` high-priority is used for the `workload's priority`.
+This is basically same as current implementation of workload.
+
+```yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: sample-job-
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  priorityClassName: high-priority
+  parallelism: 3
+  completions: 3
+  suspend: true
+  template:
+    spec:
+      containers:
+      - name: dummy-job
+        image: gcr.io/k8s-staging-perf-tests/sleep:latest
+      restartPolicy: Never
+```
+
+### How to expand Priority utility
+
+When referencing the `priorityClass` in the [Priority utility](https://github.com/kubernetes-sigs/kueue/blob/ba404ad282c35cf1d6b15d07643935fffbcc1835/pkg/util/priority/priority.go) function, `workloadPriorityClass` is checked first.
+If `workloadPriorityClass` is not present, the k8s `priorityClass` is referred to.
+
+### Where workload's Priority is used
+
+The priority of workloads is utilized in queuing, preemption, and other scheduling processes in Kueue.
+With the introduction of `workloadPriorityClass`, there is no change in the places where priority is used in Kueue.
+It just enables the usage of `workloadPriorityClass` as the priority.
+
+### Role of workloadPriorityClass controller
+
+The workloadPriorityClass Controller only reconcile the `workloadPriorityClass`.
+
+### When workloadPriorityClass's priority is modified
+
+The workload controller updates the value of `workloadPriorityClass` through reconcilation.
+As a result, the most recent value can be obtained.
+The priority of workloads that are utilizing the `workloadPriorityClass` is not immidiately altered.
 
 ### Future works
 
