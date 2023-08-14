@@ -9,7 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -174,7 +174,7 @@ func (c *ClusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
 					Nominal: workload.ResourceValue(rIn.Name, rIn.NominalQuota),
 				}
 				if rIn.BorrowingLimit != nil {
-					rQuota.BorrowingLimit = pointer.Int64(workload.ResourceValue(rIn.Name, *rIn.BorrowingLimit))
+					rQuota.BorrowingLimit = ptr.To(workload.ResourceValue(rIn.Name, *rIn.BorrowingLimit))
 				}
 				fQuotas.Resources[rIn.Name] = &rQuota
 			}

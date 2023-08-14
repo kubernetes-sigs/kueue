@@ -54,11 +54,11 @@ func TestAPIs(t *testing.T) {
 
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
-		ManagerSetup: managerSetup,
-		CRDPath:      filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases"),
-		WebhookPath:  filepath.Join("..", "..", "..", "..", "config", "components", "webhook"),
+		CRDPath:     filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases"),
+		WebhookPath: filepath.Join("..", "..", "..", "..", "config", "components", "webhook"),
 	}
-	ctx, cfg, k8sClient = fwk.Setup()
+	cfg = fwk.Init()
+	ctx, k8sClient = fwk.RunManager(cfg, managerSetup)
 })
 
 var _ = ginkgo.AfterSuite(func() {

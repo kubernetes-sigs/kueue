@@ -25,7 +25,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -93,7 +93,7 @@ func (i *Info) CanBePartiallyAdmitted() bool {
 func CanBePartiallyAdmitted(wl *kueue.Workload) bool {
 	ps := wl.Spec.PodSets
 	for psi := range ps {
-		if ps[psi].Count > pointer.Int32Deref(ps[psi].MinCount, ps[psi].Count) {
+		if ps[psi].Count > ptr.Deref(ps[psi].MinCount, ps[psi].Count) {
 			return true
 		}
 	}
@@ -168,7 +168,7 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 		setRes := PodSetResources{
 			Name:     psa.Name,
 			Flavors:  psa.Flavors,
-			Count:    pointer.Int32Deref(psa.Count, totalCounts[psa.Name]),
+			Count:    ptr.Deref(psa.Count, totalCounts[psa.Name]),
 			Requests: newRequests(psa.ResourceUsage),
 		}
 

@@ -28,7 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -164,7 +164,7 @@ func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 		allErrs = append(allErrs, validateContainer(&ps.Template.Spec.Containers[ci], cPath.Index(ci))...)
 	}
 
-	if min := pointer.Int32Deref(ps.MinCount, ps.Count); min > ps.Count || min < 0 {
+	if min := ptr.Deref(ps.MinCount, ps.Count); min > ps.Count || min < 0 {
 		allErrs = append(allErrs, field.Forbidden(path.Child("minCount"), fmt.Sprintf("%d should be positive and less or equal to %d", min, ps.Count)))
 	}
 
@@ -201,7 +201,7 @@ func validateAdmission(obj *kueue.Workload, path *field.Path) field.ErrorList {
 		if !names.Has(ps.Name) {
 			allErrs = append(allErrs, field.NotFound(psaPath.Child("name"), ps.Name))
 		}
-		if count := pointer.Int32Deref(ps.Count, 0); count > 0 {
+		if count := ptr.Deref(ps.Count, 0); count > 0 {
 			for k, v := range ps.ResourceUsage {
 				if (workload.ResourceValue(k, v) % int64(count)) != 0 {
 					allErrs = append(allErrs, field.Invalid(psaPath.Child("resourceUsage").Key(string(k)), v, fmt.Sprintf("is not a multiple of %d", ps.Count)))

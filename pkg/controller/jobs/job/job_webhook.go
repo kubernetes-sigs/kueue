@@ -27,7 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -138,7 +138,7 @@ func (w *JobWebhook) validatePartialAdmissionCreate(job *Job) field.ErrorList {
 					allErrs = append(allErrs, field.Invalid(syncCompletionAnnotationsPath, job.Annotations[JobCompletionsEqualParallelismAnnotation], "only supported in Kubernetes 1.27 or newer"))
 				}
 			}
-			if pointer.Int32Deref(job.Spec.Parallelism, 1) != pointer.Int32Deref(job.Spec.Completions, 1) {
+			if ptr.Deref(job.Spec.Parallelism, 1) != ptr.Deref(job.Spec.Completions, 1) {
 				allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "completions"), job.Spec.Completions, fmt.Sprintf("should be equal to parallelism when %s is annotation is true", JobCompletionsEqualParallelismAnnotation)))
 			}
 		}
@@ -166,7 +166,7 @@ func (w *JobWebhook) validateUpdate(oldJob, newJob *Job) field.ErrorList {
 func validatePartialAdmissionUpdate(oldJob, newJob *Job) field.ErrorList {
 	var allErrs field.ErrorList
 	if _, found := oldJob.Annotations[JobMinParallelismAnnotation]; found {
-		if !oldJob.IsSuspended() && pointer.Int32Deref(oldJob.Spec.Parallelism, 1) != pointer.Int32Deref(newJob.Spec.Parallelism, 1) {
+		if !oldJob.IsSuspended() && ptr.Deref(oldJob.Spec.Parallelism, 1) != ptr.Deref(newJob.Spec.Parallelism, 1) {
 			allErrs = append(allErrs, field.Forbidden(field.NewPath("spec", "parallelism"), "cannot change when partial admission is enabled and the job is not suspended"))
 		}
 	}

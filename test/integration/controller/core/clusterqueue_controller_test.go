@@ -23,7 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -340,7 +340,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 						ResourceUsage: corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("2"),
 						},
-						Count: pointer.Int32(2),
+						Count: ptr.To[int32](2),
 					},
 					kueue.PodSetAssignment{
 						Name: "workers",
@@ -350,7 +350,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 						ResourceUsage: corev1.ResourceList{
 							resourceGPU: resource.MustParse("5"),
 						},
-						Count: pointer.Int32(5),
+						Count: ptr.To[int32](5),
 					},
 				).Obj()
 

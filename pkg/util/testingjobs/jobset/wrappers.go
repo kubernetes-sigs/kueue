@@ -19,7 +19,7 @@ package jobset
 import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 	jobsetutil "sigs.k8s.io/jobset/pkg/util/testing"
 
@@ -68,8 +68,8 @@ func (j *JobSetWrapper) ReplicatedJobs(replicatedJobs ...ReplicatedJobRequiremen
 	j.Spec.ReplicatedJobs = make([]jobsetapi.ReplicatedJob, len(replicatedJobs))
 	for index, req := range replicatedJobs {
 		jt := jobsetutil.MakeJobTemplate("", "").PodSpec(TestPodSpec).Obj()
-		jt.Spec.Parallelism = pointer.Int32(req.Parallelism)
-		jt.Spec.Completions = pointer.Int32(req.Completions)
+		jt.Spec.Parallelism = ptr.To(req.Parallelism)
+		jt.Spec.Completions = ptr.To(req.Completions)
 		j.Spec.ReplicatedJobs[index] = jobsetutil.MakeReplicatedJob(req.Name).Job(jt).Replicas(req.Replicas).Obj()
 	}
 	return j
@@ -77,7 +77,7 @@ func (j *JobSetWrapper) ReplicatedJobs(replicatedJobs ...ReplicatedJobRequiremen
 
 // Suspend updates the suspend status of the JobSet.
 func (j *JobSetWrapper) Suspend(s bool) *JobSetWrapper {
-	j.Spec.Suspend = pointer.Bool(s)
+	j.Spec.Suspend = ptr.To(s)
 	return j
 }
 

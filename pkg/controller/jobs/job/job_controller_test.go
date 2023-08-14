@@ -27,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -35,7 +36,6 @@ import (
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/util/pointer"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 )
@@ -48,8 +48,8 @@ func TestPodsReady(t *testing.T) {
 		"parallelism = completions; no progress": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: pointer.Int32(3),
-					Completions: pointer.Int32(3),
+					Parallelism: ptr.To[int32](3),
+					Completions: ptr.To[int32](3),
 				},
 				Status: batchv1.JobStatus{},
 			},
@@ -58,11 +58,11 @@ func TestPodsReady(t *testing.T) {
 		"parallelism = completions; not enough progress": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: pointer.Int32(3),
-					Completions: pointer.Int32(3),
+					Parallelism: ptr.To[int32](3),
+					Completions: ptr.To[int32](3),
 				},
 				Status: batchv1.JobStatus{
-					Ready:     pointer.Int32(1),
+					Ready:     ptr.To[int32](1),
 					Succeeded: 1,
 				},
 			},
@@ -71,11 +71,11 @@ func TestPodsReady(t *testing.T) {
 		"parallelism = completions; all ready": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: pointer.Int32(3),
-					Completions: pointer.Int32(3),
+					Parallelism: ptr.To[int32](3),
+					Completions: ptr.To[int32](3),
 				},
 				Status: batchv1.JobStatus{
-					Ready:     pointer.Int32(3),
+					Ready:     ptr.To[int32](3),
 					Succeeded: 0,
 				},
 			},
@@ -84,11 +84,11 @@ func TestPodsReady(t *testing.T) {
 		"parallelism = completions; some ready, some succeeded": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: pointer.Int32(3),
-					Completions: pointer.Int32(3),
+					Parallelism: ptr.To[int32](3),
+					Completions: ptr.To[int32](3),
 				},
 				Status: batchv1.JobStatus{
-					Ready:     pointer.Int32(2),
+					Ready:     ptr.To[int32](2),
 					Succeeded: 1,
 				},
 			},
@@ -97,8 +97,8 @@ func TestPodsReady(t *testing.T) {
 		"parallelism = completions; all succeeded": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: pointer.Int32(3),
-					Completions: pointer.Int32(3),
+					Parallelism: ptr.To[int32](3),
+					Completions: ptr.To[int32](3),
 				},
 				Status: batchv1.JobStatus{
 					Succeeded: 3,
@@ -109,11 +109,11 @@ func TestPodsReady(t *testing.T) {
 		"parallelism < completions; reaching parallelism is enough": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: pointer.Int32(2),
-					Completions: pointer.Int32(3),
+					Parallelism: ptr.To[int32](2),
+					Completions: ptr.To[int32](3),
 				},
 				Status: batchv1.JobStatus{
-					Ready: pointer.Int32(2),
+					Ready: ptr.To[int32](2),
 				},
 			},
 			want: true,
@@ -121,11 +121,11 @@ func TestPodsReady(t *testing.T) {
 		"parallelism > completions; reaching completions is enough": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: pointer.Int32(3),
-					Completions: pointer.Int32(2),
+					Parallelism: ptr.To[int32](3),
+					Completions: ptr.To[int32](2),
 				},
 				Status: batchv1.JobStatus{
-					Ready: pointer.Int32(2),
+					Ready: ptr.To[int32](2),
 				},
 			},
 			want: true,
@@ -133,10 +133,10 @@ func TestPodsReady(t *testing.T) {
 		"parallelism specified only; not enough progress": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: pointer.Int32(3),
+					Parallelism: ptr.To[int32](3),
 				},
 				Status: batchv1.JobStatus{
-					Ready: pointer.Int32(2),
+					Ready: ptr.To[int32](2),
 				},
 			},
 			want: false,
@@ -144,10 +144,10 @@ func TestPodsReady(t *testing.T) {
 		"parallelism specified only; all ready": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: pointer.Int32(3),
+					Parallelism: ptr.To[int32](3),
 				},
 				Status: batchv1.JobStatus{
-					Ready: pointer.Int32(3),
+					Ready: ptr.To[int32](3),
 				},
 			},
 			want: true,
@@ -307,7 +307,7 @@ func TestPodSets(t *testing.T) {
 					Name:     kueue.DefaultPodSetName,
 					Template: *podTemplate.DeepCopy(),
 					Count:    3,
-					MinCount: pointer.Int32(2),
+					MinCount: ptr.To[int32](2),
 				},
 			},
 		},

@@ -26,7 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -425,7 +425,7 @@ func (r *JobReconciler) equivalentToWorkload(job GenericJob, object client.Objec
 	for i, psAssigment := range wl.Status.Admission.PodSetAssignments {
 		assignedCount := wl.Spec.PodSets[i].Count
 		if jobPodSets[i].MinCount != nil {
-			assignedCount = pointer.Int32Deref(psAssigment.Count, assignedCount)
+			assignedCount = ptr.Deref(psAssigment.Count, assignedCount)
 		}
 		if jobPodSets[i].Count != assignedCount {
 			return false
@@ -563,7 +563,7 @@ func (r *JobReconciler) getPodSetsInfoFromAdmission(ctx context.Context, w *kueu
 		nodeSelector := PodSetInfo{
 			Name:         podSetFlavor.Name,
 			NodeSelector: make(map[string]string),
-			Count:        pointer.Int32Deref(podSetFlavor.Count, w.Spec.PodSets[i].Count),
+			Count:        ptr.Deref(podSetFlavor.Count, w.Spec.PodSets[i].Count),
 		}
 		for _, flvRef := range podSetFlavor.Flavors {
 			flvName := string(flvRef)

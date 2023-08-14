@@ -24,11 +24,13 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/discovery"
+	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
-	"sigs.k8s.io/kueue/pkg/util/pointer"
+	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -41,11 +43,21 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 
 		ginkgo.BeforeAll(func() {
 			fwk = &framework.Framework{
-				ManagerSetup: managerSetup(jobframework.WithManageJobsWithoutQueueName(true)),
-				CRDPath:      crdPath,
-				WebhookPath:  webhookPath,
+				CRDPath:     crdPath,
+				WebhookPath: webhookPath,
 			}
-			ctx, cfg, k8sClient = fwk.Setup()
+			cfg = fwk.Init()
+
+			discoveryClient, err := discovery.NewDiscoveryClientForConfig(cfg)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			serverVersionFetcher = kubeversion.NewServerVersionFetcher(discoveryClient)
+			err = serverVersionFetcher.FetchServerVersion()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ctx, k8sClient = fwk.RunManager(cfg, managerSetup(
+				jobframework.WithManageJobsWithoutQueueName(true),
+				jobframework.WithKubeServerVersion(serverVersionFetcher),
+			))
 		})
 		ginkgo.BeforeEach(func() {
 			ns = &corev1.Namespace{
@@ -93,19 +105,32 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
 			createdJob.Annotations = map[string]string{constants.QueueAnnotation: "queue"}
-			createdJob.Spec.Suspend = pointer.Bool(false)
+			createdJob.Spec.Suspend = ptr.To(false)
 			gomega.Expect(k8sClient.Update(ctx, createdJob)).ShouldNot(gomega.Succeed())
+		})
+
+		ginkgo.It("Should not succeed Job when kubernetes less than 1.27 and sync completions annotation is enabled for indexed jobs", func() {
+			if v := serverVersionFetcher.GetServerVersion(); v.AtLeast(kubeversion.KubeVersion1_27) {
+				ginkgo.Skip("Kubernetes version is less then 1.27. Skip test...")
+			}
+			j := testingjob.MakeJob("job-without-queue-name", ns.Name).
+				Parallelism(5).
+				Completions(5).
+				SetAnnotation(job.JobCompletionsEqualParallelismAnnotation, "true").
+				Indexed(true).
+				Obj()
+			gomega.Expect(apierrors.IsForbidden(k8sClient.Create(ctx, j))).Should(gomega.BeTrue())
 		})
 	})
 
 	ginkgo.When("with manageJobsWithoutQueueName disabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 		ginkgo.BeforeAll(func() {
 			fwk = &framework.Framework{
-				ManagerSetup: managerSetup(jobframework.WithManageJobsWithoutQueueName(false)),
-				CRDPath:      crdPath,
-				WebhookPath:  webhookPath,
+				CRDPath:     crdPath,
+				WebhookPath: webhookPath,
 			}
-			ctx, cfg, k8sClient = fwk.Setup()
+			cfg = fwk.Init()
+			ctx, k8sClient = fwk.RunManager(cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(false)))
 		})
 		ginkgo.BeforeEach(func() {
 			ns = &corev1.Namespace{
@@ -159,7 +184,7 @@ var _ = ginkgo.Describe("Job Webhook", func() {
 			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
 			createdJob.Labels[constants.QueueLabel] = "queue2"
-			createdJob.Spec.Suspend = pointer.Bool(false)
+			createdJob.Spec.Suspend = ptr.To(false)
 			gomega.Expect(k8sClient.Update(ctx, createdJob)).ShouldNot(gomega.Succeed())
 		})
 	})

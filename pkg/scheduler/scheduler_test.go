@@ -32,7 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -216,7 +216,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("10000m"),
 							},
-							Count: pointer.Int32(10),
+							Count: ptr.To[int32](10),
 						},
 					},
 				},
@@ -264,7 +264,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
-							Count: pointer.Int32(40),
+							Count: ptr.To[int32](40),
 						},
 					},
 				},
@@ -313,7 +313,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("1000m"),
 							},
-							Count: pointer.Int32(1),
+							Count: ptr.To[int32](1),
 						},
 					},
 				},
@@ -328,7 +328,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("51000m"),
 							},
-							Count: pointer.Int32(51),
+							Count: ptr.To[int32](51),
 						},
 					},
 				},
@@ -362,7 +362,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
-							Count: pointer.Int32(40),
+							Count: ptr.To[int32](40),
 						},
 					},
 				},
@@ -377,7 +377,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
-							Count: pointer.Int32(40),
+							Count: ptr.To[int32](40),
 						},
 					},
 				},
@@ -413,7 +413,7 @@ func TestSchedule(t *testing.T) {
 								corev1.ResourceCPU: resource.MustParse("60000m"),
 								"example.com/gpu":  resource.MustParse("10"),
 							},
-							Count: pointer.Int32(10),
+							Count: ptr.To[int32](10),
 						},
 						{
 							Name: "two",
@@ -423,7 +423,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
-							Count: pointer.Int32(40),
+							Count: ptr.To[int32](40),
 						},
 					},
 				},
@@ -457,7 +457,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
-							Count: pointer.Int32(40),
+							Count: ptr.To[int32](40),
 						},
 					},
 				},
@@ -571,7 +571,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("60000m"),
 							},
-							Count: pointer.Int32(60),
+							Count: ptr.To[int32](60),
 						},
 					},
 				},
@@ -586,7 +586,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("45000m"),
 							},
-							Count: pointer.Int32(45),
+							Count: ptr.To[int32](45),
 						},
 					},
 				},
@@ -654,7 +654,7 @@ func TestSchedule(t *testing.T) {
 								ResourceUsage: corev1.ResourceList{
 									corev1.ResourceCPU: resource.MustParse("51"),
 								},
-								Count: pointer.Int32(51),
+								Count: ptr.To[int32](51),
 							},
 							kueue.PodSetAssignment{
 								Name: "use-all-spot",
@@ -664,7 +664,7 @@ func TestSchedule(t *testing.T) {
 								ResourceUsage: corev1.ResourceList{
 									corev1.ResourceCPU: resource.MustParse("100"),
 								},
-								Count: pointer.Int32(100),
+								Count: ptr.To[int32](100),
 							},
 						).
 						Obj()).
@@ -707,7 +707,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("51"),
 							},
-							Count: pointer.Int32(51),
+							Count: ptr.To[int32](51),
 						},
 						kueue.PodSetAssignment{
 							Name: "use-all-spot",
@@ -717,7 +717,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("100"),
 							},
-							Count: pointer.Int32(100),
+							Count: ptr.To[int32](100),
 						},
 					).Obj(),
 				"eng-beta/new": *utiltesting.MakeAdmission("eng-beta", "one").Assignment(corev1.ResourceCPU, "on-demand", "50").AssignmentPodCount(50).Obj(),
@@ -750,7 +750,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("50000m"),
 							},
-							Count: pointer.Int32(25),
+							Count: ptr.To[int32](25),
 						},
 					},
 				},
@@ -788,7 +788,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								"example.com/gpu": resource.MustParse("10"),
 							},
-							Count: pointer.Int32(10),
+							Count: ptr.To[int32](10),
 						},
 					},
 				},
@@ -830,7 +830,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("20000m"),
 							},
-							Count: pointer.Int32(20),
+							Count: ptr.To[int32](20),
 						},
 						{
 							Name: "two",
@@ -840,7 +840,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("20000m"),
 							},
-							Count: pointer.Int32(20),
+							Count: ptr.To[int32](20),
 						},
 						{
 							Name: "three",
@@ -850,7 +850,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("10000m"),
 							},
-							Count: pointer.Int32(10),
+							Count: ptr.To[int32](10),
 						},
 					},
 				},
@@ -1017,7 +1017,7 @@ func TestEntryOrdering(t *testing.T) {
 					Name:              "high_pri_borrowing",
 					CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
 				}, Spec: kueue.WorkloadSpec{
-					Priority: pointer.Int32(1),
+					Priority: ptr.To[int32](1),
 				}},
 			},
 			assignment: flavorassigner.Assignment{
@@ -1032,7 +1032,7 @@ func TestEntryOrdering(t *testing.T) {
 					Name:              "new_high_pri",
 					CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
 				}, Spec: kueue.WorkloadSpec{
-					Priority: pointer.Int32(1),
+					Priority: ptr.To[int32](1),
 				}},
 			},
 		},

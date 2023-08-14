@@ -29,7 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -60,12 +60,12 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 	ginkgo.BeforeAll(func() {
 		fwk = &framework.Framework{
-			ManagerSetup: managerSetup(false, jobframework.WithManageJobsWithoutQueueName(true)),
-			CRDPath:      crdPath,
-			DepCRDPaths:  []string{mpiCrdPath},
+			CRDPath:     crdPath,
+			DepCRDPaths: []string{mpiCrdPath},
 		}
 
-		ctx, cfg, k8sClient = fwk.Setup()
+		cfg = fwk.Init()
+		ctx, k8sClient = fwk.RunManager(cfg, managerSetup(false, jobframework.WithManageJobsWithoutQueueName(true)))
 	})
 	ginkgo.AfterAll(func() {
 		fwk.Teardown()
@@ -169,14 +169,14 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 						corev1.ResourceCPU: "on-demand",
 					},
-					Count: pointer.Int32(createdWorkload.Spec.PodSets[0].Count),
+					Count: ptr.To(createdWorkload.Spec.PodSets[0].Count),
 				},
 				kueue.PodSetAssignment{
 					Name: "Worker",
 					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 						corev1.ResourceCPU: "spot",
 					},
-					Count: pointer.Int32(createdWorkload.Spec.PodSets[1].Count),
+					Count: ptr.To(createdWorkload.Spec.PodSets[1].Count),
 				},
 			).
 			Obj()
@@ -204,7 +204,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking the job gets suspended when parallelism changes and the added node selectors are removed")
-		parallelism := pointer.Int32Deref(job.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeWorker].Replicas, 1)
+		parallelism := ptr.Deref(job.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeWorker].Replicas, 1)
 		newParallelism := int32(parallelism + 1)
 		createdJob.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeWorker].Replicas = &newParallelism
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
@@ -237,14 +237,14 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 						corev1.ResourceCPU: "on-demand",
 					},
-					Count: pointer.Int32(createdWorkload.Spec.PodSets[0].Count),
+					Count: ptr.To(createdWorkload.Spec.PodSets[0].Count),
 				},
 				kueue.PodSetAssignment{
 					Name: "Worker",
 					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 						corev1.ResourceCPU: "spot",
 					},
-					Count: pointer.Int32(createdWorkload.Spec.PodSets[1].Count),
+					Count: ptr.To(createdWorkload.Spec.PodSets[1].Count),
 				},
 			).
 			Obj()
@@ -288,11 +288,11 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue are managed", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	ginkgo.BeforeAll(func() {
 		fwk = &framework.Framework{
-			ManagerSetup: managerSetup(true),
-			CRDPath:      crdPath,
-			DepCRDPaths:  []string{mpiCrdPath},
+			CRDPath:     crdPath,
+			DepCRDPaths: []string{mpiCrdPath},
 		}
-		ctx, cfg, k8sClient = fwk.Setup()
+		cfg = fwk.Init()
+		ctx, k8sClient = fwk.RunManager(cfg, managerSetup(true))
 	})
 	ginkgo.AfterAll(func() {
 		fwk.Teardown()
@@ -361,7 +361,7 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 		gomega.Eventually(func() *bool {
 			gomega.Expect(k8sClient.Get(ctx, childLookupKey, childJob)).Should(gomega.Succeed())
 			return childJob.Spec.Suspend
-		}, util.Timeout, util.Interval).Should(gomega.Equal(pointer.Bool(true)))
+		}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(true)))
 	})
 
 	ginkgo.It("Should not suspend a child job if the parent job doesn't have a queue name", func() {
@@ -384,7 +384,7 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 		gomega.Consistently(func() *bool {
 			gomega.Expect(k8sClient.Get(ctx, childLookupKey, childJob))
 			return childJob.Spec.Suspend
-		}, util.ConsistentDuration, util.Interval).Should(gomega.Equal(pointer.Bool(false)))
+		}, util.ConsistentDuration, util.Interval).Should(gomega.Equal(ptr.To(false)))
 	})
 })
 
@@ -405,11 +405,11 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 
 	ginkgo.BeforeAll(func() {
 		fwk = &framework.Framework{
-			ManagerSetup: managerSetup(false, jobframework.WithWaitForPodsReady(true)),
-			CRDPath:      crdPath,
-			DepCRDPaths:  []string{mpiCrdPath},
+			CRDPath:     crdPath,
+			DepCRDPaths: []string{mpiCrdPath},
 		}
-		ctx, cfg, k8sClient = fwk.Setup()
+		cfg = fwk.Init()
+		ctx, k8sClient = fwk.RunManager(cfg, managerSetup(false, jobframework.WithWaitForPodsReady(true)))
 
 		ginkgo.By("Create a resource flavor")
 		gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).Should(gomega.Succeed())
@@ -457,14 +457,14 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "default",
 						},
-						Count: pointer.Int32(createdWorkload.Spec.PodSets[0].Count),
+						Count: ptr.To(createdWorkload.Spec.PodSets[0].Count),
 					},
 					kueue.PodSetAssignment{
 						Name: "Worker",
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "default",
 						},
-						Count: pointer.Int32(createdWorkload.Spec.PodSets[1].Count),
+						Count: ptr.To(createdWorkload.Spec.PodSets[1].Count),
 					},
 				).
 				Obj()
@@ -475,7 +475,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 			gomega.Eventually(func() *bool {
 				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 				return createdJob.Spec.RunPolicy.Suspend
-			}, util.Timeout, util.Interval).Should(gomega.Equal(pointer.Bool(false)))
+			}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(false)))
 
 			if podsReadyTestSpec.beforeJobStatus != nil {
 				ginkgo.By("Update the job status to simulate its initial progress towards completion")
@@ -614,11 +614,11 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 
 	ginkgo.BeforeAll(func() {
 		fwk = &framework.Framework{
-			ManagerSetup: managerAndSchedulerSetup(),
-			CRDPath:      crdPath,
-			DepCRDPaths:  []string{mpiCrdPath},
+			CRDPath:     crdPath,
+			DepCRDPaths: []string{mpiCrdPath},
 		}
-		ctx, cfg, k8sClient = fwk.Setup()
+		cfg = fwk.Init()
+		ctx, k8sClient = fwk.RunManager(cfg, managerAndSchedulerSetup())
 	})
 	ginkgo.AfterAll(func() {
 		fwk.Teardown()
@@ -668,7 +668,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: job.Name, Namespace: job.Namespace}, createdJob)).
 				Should(gomega.Succeed())
 			return createdJob.Spec.RunPolicy.Suspend
-		}, util.Timeout, util.Interval).Should(gomega.Equal(pointer.Bool(false)))
+		}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(false)))
 		gomega.Expect(createdJob.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeLauncher].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
 		gomega.Expect(createdJob.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeWorker].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
@@ -703,7 +703,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 				gomega.Eventually(func() *bool {
 					gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 					return createdJob.Spec.RunPolicy.Suspend
-				}, util.Timeout, util.Interval).Should(gomega.Equal(pointer.Bool(true)))
+				}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(true)))
 			})
 
 			// backup the the node selectors
@@ -717,7 +717,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 				gomega.Eventually(func() *bool {
 					gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 					return createdJob.Spec.RunPolicy.Suspend
-				}, util.Timeout, util.Interval).Should(gomega.Equal(pointer.Bool(false)))
+				}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(false)))
 			})
 
 			ginkgo.By("the node selectors should be updated", func() {

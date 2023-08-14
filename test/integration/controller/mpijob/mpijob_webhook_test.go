@@ -35,12 +35,12 @@ var _ = ginkgo.Describe("MPIJob Webhook", func() {
 
 		ginkgo.BeforeAll(func() {
 			fwk = &framework.Framework{
-				ManagerSetup: managerSetup(false),
-				CRDPath:      crdPath,
-				DepCRDPaths:  []string{mpiCrdPath},
-				WebhookPath:  webhookPath,
+				CRDPath:     crdPath,
+				DepCRDPaths: []string{mpiCrdPath},
+				WebhookPath: webhookPath,
 			}
-			ctx, cfg, k8sClient = fwk.Setup()
+			cfg = fwk.Init()
+			ctx, k8sClient = fwk.RunManager(cfg, managerSetup(false))
 		})
 		ginkgo.BeforeEach(func() {
 			ns = &corev1.Namespace{

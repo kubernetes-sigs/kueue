@@ -23,22 +23,22 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 )
 
 const (
-	DefaultNamespace              = "kueue-system"
-	DefaultWebhookServiceName     = "kueue-webhook-service"
-	DefaultWebhookSecretName      = "kueue-webhook-server-cert"
-	DefaultWebhookPort            = 9443
-	DefaultHealthProbeBindAddress = ":8081"
-	DefaultMetricsBindAddress     = ":8080"
-	DefaultLeaderElectionID       = "c1f6bfd2.kueue.x-k8s.io"
-	DefaultClientConnectionQPS    = 20.0
-	DefaultClientConnectionBurst  = 30
-	defaultPodsReadyTimeout       = 5 * time.Minute
+	DefaultNamespace                      = "kueue-system"
+	DefaultWebhookServiceName             = "kueue-webhook-service"
+	DefaultWebhookSecretName              = "kueue-webhook-server-cert"
+	DefaultWebhookPort                    = 9443
+	DefaultHealthProbeBindAddress         = ":8081"
+	DefaultMetricsBindAddress             = ":8080"
+	DefaultLeaderElectionID               = "c1f6bfd2.kueue.x-k8s.io"
+	DefaultClientConnectionQPS    float32 = 20.0
+	DefaultClientConnectionBurst  int32   = 30
+	defaultPodsReadyTimeout               = 5 * time.Minute
 )
 
 func addDefaultingFuncs(scheme *runtime.Scheme) error {
@@ -60,10 +60,10 @@ func getOperatorNamespace() string {
 // SetDefaults_Configuration sets default values for ComponentConfig.
 func SetDefaults_Configuration(cfg *Configuration) {
 	if cfg.Namespace == nil {
-		cfg.Namespace = pointer.String(getOperatorNamespace())
+		cfg.Namespace = ptr.To(getOperatorNamespace())
 	}
 	if cfg.Webhook.Port == nil {
-		cfg.Webhook.Port = pointer.Int(DefaultWebhookPort)
+		cfg.Webhook.Port = ptr.To(DefaultWebhookPort)
 	}
 	if len(cfg.Metrics.BindAddress) == 0 {
 		cfg.Metrics.BindAddress = DefaultMetricsBindAddress
@@ -79,24 +79,24 @@ func SetDefaults_Configuration(cfg *Configuration) {
 		cfg.InternalCertManagement = &InternalCertManagement{}
 	}
 	if cfg.InternalCertManagement.Enable == nil {
-		cfg.InternalCertManagement.Enable = pointer.Bool(true)
+		cfg.InternalCertManagement.Enable = ptr.To(true)
 	}
 	if *cfg.InternalCertManagement.Enable {
 		if cfg.InternalCertManagement.WebhookServiceName == nil {
-			cfg.InternalCertManagement.WebhookServiceName = pointer.String(DefaultWebhookServiceName)
+			cfg.InternalCertManagement.WebhookServiceName = ptr.To(DefaultWebhookServiceName)
 		}
 		if cfg.InternalCertManagement.WebhookSecretName == nil {
-			cfg.InternalCertManagement.WebhookSecretName = pointer.String(DefaultWebhookSecretName)
+			cfg.InternalCertManagement.WebhookSecretName = ptr.To(DefaultWebhookSecretName)
 		}
 	}
 	if cfg.ClientConnection == nil {
 		cfg.ClientConnection = &ClientConnection{}
 	}
 	if cfg.ClientConnection.QPS == nil {
-		cfg.ClientConnection.QPS = pointer.Float32(DefaultClientConnectionQPS)
+		cfg.ClientConnection.QPS = ptr.To(DefaultClientConnectionQPS)
 	}
 	if cfg.ClientConnection.Burst == nil {
-		cfg.ClientConnection.Burst = pointer.Int32(DefaultClientConnectionBurst)
+		cfg.ClientConnection.Burst = ptr.To(DefaultClientConnectionBurst)
 	}
 	if cfg.WaitForPodsReady != nil {
 		if cfg.WaitForPodsReady.Timeout == nil {

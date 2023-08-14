@@ -25,9 +25,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	"sigs.k8s.io/kueue/pkg/util/pointer"
 )
 
 // JobWrapper wraps a Job.
@@ -42,8 +42,8 @@ func MakeJob(name, ns string) *JobWrapper {
 			Annotations: make(map[string]string, 1),
 		},
 		Spec: batchv1.JobSpec{
-			Parallelism: pointer.Int32(1),
-			Suspend:     pointer.Bool(true),
+			Parallelism: ptr.To[int32](1),
+			Suspend:     ptr.To(true),
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					RestartPolicy: corev1.RestartPolicyNever,
@@ -73,19 +73,19 @@ func (j *JobWrapper) Clone() *JobWrapper {
 
 // Suspend updates the suspend status of the job
 func (j *JobWrapper) Suspend(s bool) *JobWrapper {
-	j.Spec.Suspend = pointer.Bool(s)
+	j.Spec.Suspend = ptr.To(s)
 	return j
 }
 
 // Parallelism updates job parallelism.
 func (j *JobWrapper) Parallelism(p int32) *JobWrapper {
-	j.Spec.Parallelism = pointer.Int32(p)
+	j.Spec.Parallelism = ptr.To(p)
 	return j
 }
 
 // Completions updates job completions.
 func (j *JobWrapper) Completions(p int32) *JobWrapper {
-	j.Spec.Completions = pointer.Int32(p)
+	j.Spec.Completions = ptr.To(p)
 	return j
 }
 
@@ -163,7 +163,7 @@ func (j *JobWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersi
 			Kind:       ownerGVK.Kind,
 			Name:       ownerName,
 			UID:        types.UID(ownerName),
-			Controller: pointer.Bool(true),
+			Controller: ptr.To(true),
 		},
 	}
 	return j
