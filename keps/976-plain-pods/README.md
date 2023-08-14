@@ -32,6 +32,8 @@
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
   - [Graduation Criteria](#graduation-criteria)
+    - [Beta](#beta)
+    - [GA](#ga)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
@@ -615,57 +617,44 @@ to implement this enhancement.
 
 ##### Prerequisite testing updates
 
-<!--
-Based on reviewers feedback describe what additional tests need to be added prior
-implementing this enhancement to ensure the enhancements have also solid foundations.
--->
+The unit coverage of `workload_controller.go` needs significant improvement.
 
 #### Unit Tests
 
-<!--
-In principle every added code should have complete unit test coverage, so providing
-the exact set of tests will not bring additional value.
-However, if complete unit test coverage is not possible, explain the reason of it
-together with explanation why this is acceptable.
--->
+Current coverage of packages that will be affected
 
-<!--
-Additionally, try to enumerate the core package you will be touching
-to implement this enhancement and provide the current unit coverage for those
-in the form of:
-- <package>: <date> - <current test coverage>
-
-This can inform certain test coverage improvements that we want to do before
-extending the production code to implement this enhancement.
--->
-
-- `<package>`: `<date>` - `<test coverage>`
+- `pkg/controller/jobframework/reconciler.go`: `2023-08-14` - `60.9%`
+- `pkg/controller/core/workload_controller.go`: `2023-08-14` - `7%`
+- `pkg/metrics`: `2023-08-14` - `97%`
+- `main.go`: `2023-08-14` - `16.4%`
 
 #### Integration tests
 
-<!--
-Describe what tests will be added to ensure proper quality of the enhancement.
+The integration tests should cover the following scenarios:
 
-After the implementation PR is merged, add the names of the tests here.
--->
+- Basic webhook test
+- Single Pod queued, admitted and finished.
+- Multiple Pods with one shape:
+  - queued and admitted
+  - failed pods recreated can use the same quota
+  - Workload finished when all pods finish (failed or succeeded)
+- Driver Pod creates workers:
+  - queued and admitted.
+  - worker pods beyond the count are rejected (deleted)
+  - workload finished when all pods finish
+- Preemption deletes all pods for the workload.
 
 ### Graduation Criteria
 
-<!--
+#### Beta
 
-Clearly define what it means for the feature to be implemented and
-considered stable.
+The feature will be first released with a Beta maturity level. The feature will not be guarded by a
+feature gate. However, as opposed to the rest of the integrations, it will not be enabled by
+default: users have to explicitly enable Pod integration through the configuration API.
 
-If the feature you are introducing has high complexity, consider adding graduation
-milestones with these graduation criteria:
-- [Maturity levels (`alpha`, `beta`, `stable`)][maturity-levels]
-- [Feature gate][feature gate] lifecycle
-- [Deprecation policy][deprecation-policy]
+#### GA
 
-[feature gate]: https://git.k8s.io/community/contributors/devel/sig-architecture/feature-gates.md
-[maturity-levels]: https://git.k8s.io/community/contributors/devel/sig-architecture/api_changes.md#alpha-beta-and-stable-versions
-[deprecation-policy]: https://kubernetes.io/docs/reference/using-api/deprecation-policy/
--->
+The feature can graduate to GA after addressing feedback for at least 3 consecutive releases.
 
 ## Implementation History
 
@@ -682,9 +671,11 @@ Major milestones might include:
 
 ## Drawbacks
 
-<!--
-Why should this KEP _not_ be implemented?
--->
+The proposed labels and annotations for groups of pods can be complex to build manually.
+However, we expect that a job dispatcher or client would create the Pods, not end-users directly.
+
+For more complex scenarios, users should consider using a CRD to manage their Pods and integrate
+the CRD with Kueue.
 
 ## Alternatives
 
