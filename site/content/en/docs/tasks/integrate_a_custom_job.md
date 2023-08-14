@@ -7,12 +7,18 @@ description: >
 ---
 
 Kueue integrates with a couple of Jobs, including Kubernetes batch Job, MPIJob, RayJob or JobSet.  
-If there is another Job, which you would like supported, please consider contributing. 
+
+There are two options for integrating a Job-like CRD with Kueue:
+- As part of the Kueue repository
+- Writing an external controller
+
+This guide focuses on the first approach.
+If there is a widely used Job which you would like supported in Kueue, please consider contributing.
 This page shows how to integrate a custom Job with Kueue.
 
 ## Pre-requisites
 
-1. The custom Job CRD should have a suspend-like field. You can check this [page](https://kubernetes.io/docs/concepts/workloads/controllers/job/#suspending-a-job) for suspending a job.
+1. The custom Job CRD should have a suspend-like field, with semantics similar to the [`suspend` field in a Kubernetes Job](https://kubernetes.io/docs/concepts/workloads/controllers/job/#suspending-a-job).
 
 ## What you need to specify
 
@@ -46,7 +52,6 @@ Your webhook should have ability to suspend jobs.
 
 
 ## Adjust build system
-Integrations can also live in an external repo, while still using the same integration framework.
 
 1. Add required dependencies to compile the controller and webhook code. For example, using `go get github.com/kubeflow/mpi-operator@0.4.0`.
 2. Update [Makefile](https://github.com/kubernetes-sigs/kueue/blob/main/Makefile) for testing.
