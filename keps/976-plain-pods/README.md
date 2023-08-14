@@ -89,6 +89,8 @@ use of this API to implement queuing semantics for Pods.
 
   Kueue shouldn't re-implement core functionalities that are already available in the Job API.
 
+- Tracking usage of Pods that were not queued through Kueue.
+
 ## Proposal
 
 <!--
