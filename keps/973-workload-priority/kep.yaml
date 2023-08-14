@@ -24,8 +24,3 @@ milestone:
   alpha: "v0.5"
   beta: "v0.6"
   stable: "v0.7"
-
-# The following PRR answers are required at alpha release
-# List the feature gate name and the components for which it must be enabled
-feature-gates:
-  - name: WorkloadPriority
