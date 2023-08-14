@@ -21,7 +21,7 @@
   - [How to expand Priority utility](#how-to-expand-priority-utility)
   - [Where workload's Priority is used](#where-workloads-priority-is-used)
   - [Role of workloadPriorityClass controller](#role-of-workloadpriorityclass-controller)
-  - [When workloadPriorityClass's priority is modified](#when-workloadpriorityclasss-priority-is-modified)
+  - [What happens when a user changes the priority of <code>workloadPriorityClass</code>?](#what-happens-when-a-user-changes-the-priority-of-)
   - [Future works](#future-works)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
