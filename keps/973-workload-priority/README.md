@@ -119,6 +119,9 @@ type WorkloadPriorityClass struct {
 ```
 
 Also `priorityClassSource` field is added to `WorkloadSpec`.
+The `PriorityClass` field can accept both k8s `PriorityClass` and `workloadPriorityClass` as values.
+To distinguish, when using `workloadPriorityClass`, a `priorityClassSource` field has the "kueue.x-k8s.io/WorkloadPriorityClass" value.
+When using k8s `PriorityClass`, a `priorityClassSource` field has the "scheduling.k8s.io/PriorityClass" value.
 
 ```golang
 type WorkloadSpec struct {
@@ -330,7 +333,10 @@ This change should be covered by unit tests.
 
 #### Integration tests
 
-This change should be covered by integration tests.
+The following scenarios will be covered with integration tests where `WorkloadPriorityClass` is used:
+- Controller tests related to job interfaces such as job_controller, mpi_job_controller, etc
+- Integration tests for scheduler and webhook where the existing integration tests already cover `PriorityClass`
+- Integration tests for workloadPriorityClass_controller
 
 ### Graduation Criteria
 
