@@ -1,3 +1,13 @@
+## v0.4.1
+
+Changes since `v0.4.0`:
+
+### Bug or Regression
+
+- Fixed missing create verb for webhook (#1053, @stuton)
+- Fixed scheduler to only allow one admission or preemption per cycle within a cohort that has ClusterQueues borrowing quota (#1029, @alculquicondor)
+- Prevent workloads in ClusterQueue with StrictFIFO from blocking higher priority workloads in other ClusterQueues in the same cohort that require preemption (#1030, @alculquicondor)
+
 ## v0.4.0
 
 Changes since `v0.3.0`:
