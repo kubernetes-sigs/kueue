@@ -2,7 +2,7 @@
 name: New Release
 about: Propose a new release
 title: Release v0.x.0
-assignees: ahg-g, alculquicondor, ArangoGutierrez, denkensk
+assignees: ahg-g, alculquicondor, tenzen-y
 
 ---
 
