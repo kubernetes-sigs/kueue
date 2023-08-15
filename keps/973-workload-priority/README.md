@@ -51,14 +51,13 @@ However, under the current implementation, the priority of the `Workload` is tie
 
 ### Goals
 
-Implement `WorkloadPriorityClass`.
-`Workload` can utilize `WorkloadPriorityClass`.
-CRDs like Job, MPIJob etc specify the `WorkloadPriorityClass` through labels.
+Implement `WorkloadPriorityClass`. `Workload` can utilize `WorkloadPriorityClass`.  
+CRDs like Job, MPIJob etc specify the `WorkloadPriorityClass` through labels.  
 Users can modify the priority of a `Workload` by changing `Workload`'s priority directly.
 
 ### Non-Goals
 
-Using existing k8s `PriorityClass` for Workload's Priority is not recommended.
+Using existing k8s `PriorityClass` for Workload's Priority is not recommended.  
 `WorkloadPriorityClass` doesn't implement all the features of the k8s `PriorityClass`
 because some fields on the k8s `PriorityClass` are not relevant to Kueue.
 
@@ -118,7 +117,7 @@ type WorkloadPriorityClass struct {
 }
 ```
 
-Also `priorityClassSource` field is added to `WorkloadSpec`.
+Also `priorityClassSource` field is added to `WorkloadSpec`.  
 The `PriorityClass` field can accept both k8s `PriorityClass` and `workloadPriorityClass` as values.
 To distinguish, when using `workloadPriorityClass`, a `priorityClassSource` field has the "kueue.x-k8s.io/WorkloadPriorityClass" value.
 When using k8s `PriorityClass`, a `priorityClassSource` field has the "scheduling.k8s.io/PriorityClass" value.
