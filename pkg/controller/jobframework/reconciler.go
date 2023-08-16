@@ -341,7 +341,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 	var match *kueue.Workload
 	var workloads kueue.WorkloadList
 	if err := r.client.List(ctx, &workloads, client.InNamespace(object.GetNamespace()),
-		client.MatchingFields{getOwnerKey(job.GetGVK()): object.GetName()}); err != nil {
+		client.MatchingFields{getOwnerKey(job.GVK()): object.GetName()}); err != nil {
 		log.Error(err, "Unable to list child workloads")
 		return nil, err
 	}
@@ -491,7 +491,7 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 
 	wl := &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      GetWorkloadNameForOwnerWithGVK(object.GetName(), job.GetGVK()),
+			Name:      GetWorkloadNameForOwnerWithGVK(object.GetName(), job.GVK()),
 			Namespace: object.GetNamespace(),
 			Labels:    map[string]string{},
 		},

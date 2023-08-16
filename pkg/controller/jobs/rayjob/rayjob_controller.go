@@ -81,7 +81,7 @@ func (j *RayJob) Suspend() {
 	j.Spec.Suspend = true
 }
 
-func (j *RayJob) GetGVK() schema.GroupVersionKind {
+func (j *RayJob) GVK() schema.GroupVersionKind {
 	return gvk
 }
 

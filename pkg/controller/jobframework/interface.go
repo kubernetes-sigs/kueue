@@ -47,8 +47,8 @@ type GenericJob interface {
 	IsActive() bool
 	// PodsReady instructs whether job derived pods are all ready now.
 	PodsReady() bool
-	// GetGVK returns GVK (Group Version Kind) for the job.
-	GetGVK() schema.GroupVersionKind
+	// GVK returns GVK (Group Version Kind) for the job.
+	GVK() schema.GroupVersionKind
 }
 
 // Optional interfaces, are meant to implemented by jobs to enable additional
