@@ -116,6 +116,8 @@ github.com/kubeflow/common v0.4.7 h1:zz6QS4k2u2FY838M/FjOtwjJq39MRZVZcvPahRYL97M
 github.com/kubeflow/common v0.4.7/go.mod h1:43MAof/uhpJA2C0urynqatE3oKFQc7m2HLmJty7waqY=
 github.com/kubeflow/mpi-operator v0.4.0 h1:PS4jLoMuRyrk/DHuYkI0D46sQQYpQt375HjOV4KVMFs=
 github.com/kubeflow/mpi-operator v0.4.0/go.mod h1:/A4mTy/RYh2UIgaGUiXUaW70eThjsogu80WbbcZpuMg=
+github.com/kubeflow/training-operator v1.7.0-rc.0 h1:FsOxEKg23XyGD2rgO06rIobdDOqtsP6R6o9ust8Jwi8=
+github.com/kubeflow/training-operator v1.7.0-rc.0/go.mod h1:BZCLX1h06wY3YSeSZZcGYAqI9/nVi7isVCRkfgZe9nE=
 github.com/mailru/easyjson v0.7.7 h1:UGYAvKxe3sBsEDzO8ZeWOSlIQfWFlxbzLZe7hwFURr0=
 github.com/mailru/easyjson v0.7.7/go.mod h1:xzfreul335JAWq5oZzymOObrkdz5UnU4kGfJJLY9Nlc=
 github.com/matttproud/golang_protobuf_extensions v1.0.4 h1:mmDVorXM7PCGKw94cs5zkfA9PSy5pEvNWRP0ET0TIVo=
@@ -152,6 +154,8 @@ github.com/ray-project/kuberay/ray-operator v0.0.0-20230613204710-aeed3cdcbdcc h
 github.com/ray-project/kuberay/ray-operator v0.0.0-20230613204710-aeed3cdcbdcc/go.mod h1:2auArgwD9dXXJz1oc7SqQ4U/rHdpwnrBwG98kr8OWXA=
 github.com/rogpeppe/fastuuid v1.2.0/go.mod h1:jVj6XXZzXRy/MSR5jhDC/2q6DgLz+nrA6LYCDYWNEvQ=
 github.com/rogpeppe/go-internal v1.11.0 h1:cWPaGQEPrBb5/AsnsZesgZZ9yb1OQ+GOISoDNXVBh4M=
+github.com/sirupsen/logrus v1.9.0 h1:trlNQbNUG3OdDrDil03MCb1H2o9nJ1x4/5LYw7byDE0=
+github.com/sirupsen/logrus v1.9.0/go.mod h1:naHLuLoDiP4jHNo9R0sCBMtWGeIprob74mVsIT4qYEQ=
 github.com/spaolacci/murmur3 v0.0.0-20180118202830-f09979ecbc72/go.mod h1:JwIasOWyU6f++ZhiEuf87xNszmSA2myDM2Kzu9HwQUA=
 github.com/spf13/pflag v1.0.5 h1:iy+VFUOCP1a+8yFto/drg2CJ5u0yRoB7fZw3DKv/JXA=
 github.com/spf13/pflag v1.0.5/go.mod h1:McXfInJRrz4CZXVZOBLb0bTZqETkiAhM9Iw0y3An2Bg=
@@ -233,6 +237,7 @@ golang.org/x/sys v0.0.0-20201119102817-f84b799fce68/go.mod h1:h1NjWce9XRLGQEsW7w
 golang.org/x/sys v0.0.0-20210330210617-4fbd30eecc44/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
 golang.org/x/sys v0.0.0-20210423082822-04245dca01da/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
 golang.org/x/sys v0.0.0-20210510120138-977fb7262007/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+golang.org/x/sys v0.0.0-20220715151400-c0bba94af5f8/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
 golang.org/x/sys v0.0.0-20220908164124-27713097b956/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
 golang.org/x/sys v0.10.0 h1:SqMFp9UcQJZa+pmYuAKjd9xq1f0j5rLcDIk0mj4qAsA=
 golang.org/x/sys v0.10.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=

@@ -48,6 +48,25 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
+      path: /mutate-kubeflow-org-v1-pytorchjob
+  failurePolicy: Fail
+  name: mpytorchjob.kb.io
+  rules:
+  - apiGroups:
+    - kubeflow.org
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    resources:
+    - pytorchjobs
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
       path: /mutate-kubeflow-org-v2beta1-mpijob
   failurePolicy: Fail
   name: mmpijob.kb.io
@@ -183,6 +202,26 @@ webhooks:
     - UPDATE
     resources:
     - jobsets
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-kubeflow-org-v1-pytorchjob
+  failurePolicy: Fail
+  name: vpytorchjob.kb.io
+  rules:
+  - apiGroups:
+    - kubeflow.org
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - pytorchjobs
   sideEffects: None
 - admissionReviewVersions:
   - v1

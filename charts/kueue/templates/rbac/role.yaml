@@ -115,6 +115,23 @@ rules:
       - get
       - update
   - apiGroups:
+      - kubeflow.org
+    resources:
+      - pytorchjobs
+    verbs:
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - kubeflow.org
+    resources:
+      - pytorchjobs/status
+    verbs:
+      - get
+      - update
+  - apiGroups:
       - kueue.x-k8s.io
     resources:
       - clusterqueues

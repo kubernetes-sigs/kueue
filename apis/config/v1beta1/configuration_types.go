@@ -222,5 +222,6 @@ type Integrations struct {
 	//  - "kubeflow.org/mpijob"
 	//  - "ray.io/rayjob"
 	//  - "jobset.x-k8s.io/jobset"
+	//  - "kubeflow.org/pytorchjob"
 	Frameworks []string `json:"frameworks,omitempty"`
 }

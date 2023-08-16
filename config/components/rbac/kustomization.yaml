@@ -36,3 +36,5 @@ resources:
 - mpijob_viewer_role.yaml
 - rayjob_editor_role.yaml
 - rayjob_viewer_role.yaml
+- pytorchjob_editor_role.yaml
+- pytorchjob_viewer_role.yaml
