@@ -69,7 +69,7 @@ func fromObject(o runtime.Object) *kubeflowjob.KubeflowJob {
 	return &kubeflowjob.KubeflowJob{KFJobControl: (*JobControl)(o.(*kftraining.PyTorchJob))}
 }
 
-func (j *JobControl) GetGVK() schema.GroupVersionKind {
+func (j *JobControl) GVK() schema.GroupVersionKind {
 	return gvk
 }
 

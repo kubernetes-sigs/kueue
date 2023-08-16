@@ -97,7 +97,7 @@ func (j *JobSet) Suspend() {
 	j.Spec.Suspend = ptr.To(true)
 }
 
-func (j *JobSet) GetGVK() schema.GroupVersionKind {
+func (j *JobSet) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
