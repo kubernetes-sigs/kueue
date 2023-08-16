@@ -20,7 +20,7 @@
     - [3. A job specifies only <code>pod's priority</code>](#3-a-job-specifies-only-)
   - [How to expand Priority utility](#how-to-expand-priority-utility)
   - [Where workload's Priority is used](#where-workloads-priority-is-used)
-  - [Role of workloadPriorityClass controller](#role-of-workloadpriorityclass-controller)
+  - [Not Implementing the workloadPriorityClass Controller](#not-implementing-the-workloadpriorityclass-controller)
   - [What happens when a user changes the priority of <code>workloadPriorityClass</code>?](#what-happens-when-a-user-changes-the-priority-of-)
   - [Future works](#future-works)
   - [Test Plan](#test-plan)
@@ -304,9 +304,10 @@ The priority of workloads is utilized in queuing, preemption, and other scheduli
 With the introduction of `workloadPriorityClass`, there is no change in the places where priority is used in Kueue.
 It just enables the usage of `workloadPriorityClass` as the priority.
 
-### Role of workloadPriorityClass controller
+### Not Implementing the workloadPriorityClass Controller
 
-The workloadPriorityClass Controller only reconcile the `workloadPriorityClass`.
+When creating a workloadPriorityClass, there is no need to create other CRDs. Therefore, the reconcile functionality is unnecessary.  
+The workloadPriorityClass controller will not be implemented for now.
 
 ### What happens when a user changes the priority of `workloadPriorityClass`?
 
@@ -335,7 +336,6 @@ This change should be covered by unit tests.
 The following scenarios will be covered with integration tests where `WorkloadPriorityClass` is used:
 - Controller tests related to job interfaces such as job_controller, mpi_job_controller, etc
 - Integration tests for scheduler and webhook where the existing integration tests already cover `PriorityClass`
-- Integration tests for workloadPriorityClass_controller
 
 ### Graduation Criteria
 
