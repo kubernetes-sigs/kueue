@@ -97,7 +97,7 @@ func (j *MPIJob) Suspend() {
 	j.Spec.RunPolicy.Suspend = ptr.To(true)
 }
 
-func (j *MPIJob) GetGVK() schema.GroupVersionKind {
+func (j *MPIJob) GVK() schema.GroupVersionKind {
 	return gvk
 }
 

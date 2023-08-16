@@ -25,8 +25,8 @@ import (
 type KFJobControl interface {
 	// Object returns the KFJob interface.
 	Object() client.Object
-	// GetGVK returns the GroupVersionKind for the KFJob.
-	GetGVK() schema.GroupVersionKind
+	// GVK returns the GroupVersionKind for the KFJob.
+	GVK() schema.GroupVersionKind
 	// RunPolicy returns the RunPolicy for the KFJob.
 	RunPolicy() *kftraining.RunPolicy
 	// ReplicaSpecs returns the ReplicaSpecs for the KFJob.

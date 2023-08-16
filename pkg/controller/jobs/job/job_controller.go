@@ -178,7 +178,7 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []jobframew
 	return stoppedNow, nil
 }
 
-func (j *Job) GetGVK() schema.GroupVersionKind {
+func (j *Job) GVK() schema.GroupVersionKind {
 	return gvk
 }
 

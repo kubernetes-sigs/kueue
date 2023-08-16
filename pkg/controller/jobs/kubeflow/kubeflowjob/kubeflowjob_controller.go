@@ -137,8 +137,8 @@ func (j *KubeflowJob) PodsReady() bool {
 	return false
 }
 
-func (j *KubeflowJob) GetGVK() schema.GroupVersionKind {
-	return j.KFJobControl.GetGVK()
+func (j *KubeflowJob) GVK() schema.GroupVersionKind {
+	return j.KFJobControl.GVK()
 }
 
 func (j *KubeflowJob) PriorityClass() string {
