@@ -99,6 +99,9 @@ integrations:
 					// therefore the batch/framework should be registered
 					Frameworks: []string{job.FrameworkName},
 				},
+				QueueVisibility: &config.QueueVisibility{
+					UpdateInterval: &metav1.Duration{Duration: config.DefaultQueueVisibilityUpdateInterval},
+				},
 			},
 		},
 		{

@@ -55,6 +55,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 	defaultIntegrations := &Integrations{
 		Frameworks: []string{job.FrameworkName},
 	}
+	defaultQueueVisibility := &QueueVisibility{
+		UpdateInterval: &metav1.Duration{Duration: DefaultQueueVisibilityUpdateInterval},
+	}
 	podsReadyTimeoutTimeout := metav1.Duration{Duration: defaultPodsReadyTimeout}
 	podsReadyTimeoutOverwrite := metav1.Duration{Duration: time.Minute}
 
@@ -76,6 +79,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
 			},
 		},
 		"defaulting ControllerManager": {
@@ -111,6 +115,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
 			},
 		},
 		"should not default ControllerManager": {
@@ -133,7 +138,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				InternalCertManagement: &InternalCertManagement{
 					Enable: ptr.To(false),
 				},
-				Integrations: defaultIntegrations,
+				Integrations:    defaultIntegrations,
+				QueueVisibility: defaultQueueVisibility,
 			},
 			want: &Configuration{
 				Namespace: ptr.To(DefaultNamespace),
@@ -157,6 +163,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
 			},
 		},
 		"should not set LeaderElectionID": {
@@ -191,6 +198,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
 			},
 		},
 		"defaulting InternalCertManagement": {
@@ -207,6 +215,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
 			},
 		},
 		"should not default InternalCertManagement": {
@@ -224,6 +233,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
 			},
 		},
 		"should not default values in custom ClientConnection": {
@@ -247,7 +257,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					QPS:   ptr.To[float32](123.0),
 					Burst: ptr.To[int32](456),
 				},
-				Integrations: defaultIntegrations,
+				Integrations:    defaultIntegrations,
+				QueueVisibility: defaultQueueVisibility,
 			},
 		},
 		"should default empty custom ClientConnection": {
@@ -266,6 +277,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
 			},
 		},
 		"defaulting waitForPodsReady.timeout": {
@@ -290,6 +302,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
 			},
 		},
 		"set waitForPodsReady.blockAdmission to false when enable is false": {
@@ -314,6 +327,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
 			},
 		},
 		"respecting provided waitForPodsReady.timeout": {
@@ -339,6 +353,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
 			},
 		},
 		"integrations": {
@@ -359,6 +374,29 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations: &Integrations{
 					Frameworks: []string{"a", "b"},
+				},
+				QueueVisibility: defaultQueueVisibility,
+			},
+		},
+		"queue visibility": {
+			original: &Configuration{
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				QueueVisibility: &QueueVisibility{
+					UpdateInterval: &metav1.Duration{Duration: 10 * time.Second},
+				},
+			},
+			want: &Configuration{
+				Namespace:         ptr.To(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				ClientConnection: defaultClientConnection,
+				Integrations:     defaultIntegrations,
+				QueueVisibility: &QueueVisibility{
+					UpdateInterval: &metav1.Duration{Duration: 10 * time.Second},
 				},
 			},
 		},

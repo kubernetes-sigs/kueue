@@ -62,6 +62,10 @@ type Configuration struct {
 	// Integrations provide configuration options for AI/ML/Batch frameworks
 	// integrations (including K8S job).
 	Integrations *Integrations `json:"integrations,omitempty"`
+
+	// QueueVisibility is configuration to expose the information about the top
+	// pending workloads.
+	QueueVisibility *QueueVisibility `json:"queueVisibility,omitempty"`
 }
 
 type ControllerManager struct {
@@ -225,4 +229,42 @@ type Integrations struct {
 	//  - "kubeflow.org/pytorchjob"
 	//  - "kubeflow.org/tfjob"
 	Frameworks []string `json:"frameworks,omitempty"`
+}
+
+type QueueVisibility struct {
+	// LocalQueues is configuration to expose the information
+	// about the top pending workloads in the local queue.
+	LocalQueues *LocalQueueVisibility `json:"localQueues,omitempty"`
+
+	// ClusterQueues is configuration to expose the information
+	// about the top pending workloads in the cluster queue.
+	ClusterQueues *ClusterQueueVisibility `json:"clusterQueues,omitempty"`
+
+	// UpdateInterval specifies the time interval for updates to the structure
+	// of the top pending workloads in the queues.
+	// Defaults to 5s.
+	// +optional
+	UpdateInterval *metav1.Duration `json:"updateInterval,omitempty"`
+}
+
+type LocalQueueVisibility struct {
+	// MaxCount indicates the maximal number of pending workloads exposed in the
+	// local queue status. When the value is set to 0, then LocalQueue visibility
+	// updates are disabled.
+	// The maximal value is 4000.
+	// Defaults to 10.
+	MaxCount int32 `json:"maxCount,omitempty"`
+
+	// MaxPosition indicates the maximal position of the workload in the cluster
+	// queue returned in the head.
+	MaxPosition *int32 `json:"maxPosition,omitempty"`
+}
+
+type ClusterQueueVisibility struct {
+	// MaxCount indicates the maximal number of pending workloads exposed in the
+	// cluster queue status.  When the value is set to 0, then LocalQueue
+	// visibility updates are disabled.
+	// The maximal value is 4000.
+	// Defaults to 10.
+	MaxCount int32 `json:"maxCount,omitempty"`
 }
