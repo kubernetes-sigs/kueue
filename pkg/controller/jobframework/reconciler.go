@@ -118,7 +118,7 @@ func NewReconciler(
 
 func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Request, job GenericJob) (ctrl.Result, error) {
 	object := job.Object()
-	log := ctrl.LoggerFrom(ctx).WithValues("job", req.String())
+	log := ctrl.LoggerFrom(ctx).WithValues("job", req.String(), "gvk", job.GVK())
 	ctx = ctrl.LoggerInto(ctx, log)
 
 	err := r.client.Get(ctx, req.NamespacedName, object)
@@ -126,7 +126,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	if apierrors.IsNotFound(err) || !object.GetDeletionTimestamp().IsZero() {
 		workloads := kueue.WorkloadList{}
 		if err := r.client.List(ctx, &workloads, client.InNamespace(req.Namespace),
-			client.MatchingFields{getOwnerKey(job.GetGVK()): req.Name}); err != nil {
+			client.MatchingFields{getOwnerKey(job.GVK()): req.Name}); err != nil {
 			log.Error(err, "Unable to list child workloads")
 			return ctrl.Result{}, err
 		}
@@ -197,7 +197,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	if wl != nil && apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, r.removeFinalizer(ctx, wl)
 	}
 
 	// 1.1 If the workload is pending deletion, suspend the job if needed
@@ -207,6 +207,10 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		err := r.stopJob(ctx, job, object, wl, "Workload is deleted")
 		if err != nil {
 			log.Error(err, "Suspending job with deleted workload")
+		}
+
+		if err == nil && wl != nil {
+			err = r.removeFinalizer(ctx, wl)
 		}
 		return ctrl.Result{}, err
 	}
@@ -405,7 +409,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		wlKey := workload.Key(toDelete[i])
 		err := r.removeFinalizer(ctx, toDelete[i])
 		if err != nil && !apierrors.IsNotFound(err) {
-			log.Error(err, "Failed to remove workload finalizer", "wl", wlKey)
+			return nil, fmt.Errorf("failed to remove workload finalizer for: %w ", err)
 		}
 
 		err = r.client.Delete(ctx, toDelete[i])
@@ -471,11 +475,6 @@ func (r *JobReconciler) equivalentToWorkload(job GenericJob, object client.Objec
 
 // startJob will unsuspend the job, and also inject the node affinity.
 func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
-	err := r.addFinalizer(ctx, wl)
-	if err != nil {
-		return err
-	}
-
 	info, err := r.getPodSetsInfoFromAdmission(ctx, wl)
 	if err != nil {
 		return err
@@ -504,30 +503,22 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, object clie
 		if stoppedNow {
 			r.record.Eventf(object, corev1.EventTypeNormal, "Stopped", eventMsg)
 		}
-		if err != nil {
-			return err
-		}
-	} else if !job.IsSuspended() {
-		job.Suspend()
-		if info != nil {
-			job.RestorePodSetsInfo(info)
-		}
-		if err := r.client.Update(ctx, object); err != nil {
-			return err
-		}
-		r.record.Eventf(object, corev1.EventTypeNormal, "Stopped", eventMsg)
+		return err
 	}
 
-	if wl != nil {
-		return r.removeFinalizer(ctx, wl)
+	if job.IsSuspended() {
+		return nil
 	}
-	return nil
-}
 
-func (r *JobReconciler) addFinalizer(ctx context.Context, wl *kueue.Workload) error {
-	if controllerutil.AddFinalizer(wl, kueue.ResourceInUseFinalizerName) {
-		return r.client.Update(ctx, wl)
+	job.Suspend()
+	if info != nil {
+		job.RestorePodSetsInfo(info)
 	}
+	if err := r.client.Update(ctx, object); err != nil {
+		return err
+	}
+
+	r.record.Eventf(object, corev1.EventTypeNormal, "Stopped", eventMsg)
 	return nil
 }
 
@@ -546,9 +537,10 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 
 	wl := &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      GetWorkloadNameForOwnerWithGVK(object.GetName(), job.GVK()),
-			Namespace: object.GetNamespace(),
-			Labels:    map[string]string{},
+			Name:       GetWorkloadNameForOwnerWithGVK(object.GetName(), job.GVK()),
+			Namespace:  object.GetNamespace(),
+			Labels:     map[string]string{},
+			Finalizers: []string{kueue.ResourceInUseFinalizerName},
 		},
 		Spec: kueue.WorkloadSpec{
 			PodSets:   resetMinCounts(podSets),

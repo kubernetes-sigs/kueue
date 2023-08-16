@@ -39,7 +39,6 @@ import (
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/maps"
-	"sigs.k8s.io/kueue/pkg/util/pointer"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -977,7 +976,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 				gomega.Eventually(func() *bool {
 					gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 					return createdJob.Spec.Suspend
-				}, util.Timeout, util.Interval).Should(gomega.Equal(pointer.Bool(true)))
+				}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To[bool](true)))
 			})
 
 			// backup the podSet's node selector
@@ -991,7 +990,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 				gomega.Eventually(func() *bool {
 					gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 					return createdJob.Spec.Suspend
-				}, util.Timeout, util.Interval).Should(gomega.Equal(pointer.Bool(false)))
+				}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To[bool](false)))
 			})
 
 			ginkgo.By("the node selector should be updated", func() {
@@ -1036,7 +1035,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 				gomega.Eventually(func() *bool {
 					gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 					return createdJob.Spec.Suspend
-				}, util.Timeout, util.Interval).Should(gomega.Equal(pointer.Bool(true)))
+				}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To[bool](true)))
 			})
 
 			ginkgo.By("create a localQueue", func() {
@@ -1047,7 +1046,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 				gomega.Eventually(func() *bool {
 					gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 					return createdJob.Spec.Suspend
-				}, util.Timeout, util.Interval).Should(gomega.Equal(pointer.Bool(false)))
+				}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To[bool](false)))
 			})
 
 			wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name), Namespace: job.Namespace}
