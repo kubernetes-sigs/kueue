@@ -178,7 +178,7 @@ ci-lint: golangci-lint
 
 .PHONY: verify
 verify: gomod-verify vet ci-lint fmt-verify toc-verify manifests generate update-helm
-	git --no-pager diff --exit-code config/components apis charts/kueue/templates/crd client-go
+	git --no-pager diff --exit-code config/components apis charts/kueue/templates client-go
 
 ##@ Build
 
