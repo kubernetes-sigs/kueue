@@ -3,6 +3,8 @@ package cache
 import (
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -65,4 +67,201 @@ func TestClusterQueueUpdateWithFlavors(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCohortCanFit(t *testing.T) {
+	cases := map[string]struct {
+		c       *Cohort
+		request FlavorResourceQuantities
+		wantFit bool
+	}{
+		"full cohort, empty request": {
+			c: &Cohort{
+				Name: "C",
+				RequestableResources: FlavorResourceQuantities{
+					"f1": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:    5,
+						corev1.ResourceMemory: 5,
+					},
+					"f2": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:    5,
+						corev1.ResourceMemory: 5,
+					},
+				},
+				Usage: FlavorResourceQuantities{
+					"f1": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:    5,
+						corev1.ResourceMemory: 5,
+					},
+					"f2": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:    5,
+						corev1.ResourceMemory: 5,
+					},
+				},
+			},
+			request: FlavorResourceQuantities{},
+			wantFit: true,
+		},
+		"can fit": {
+			c: &Cohort{
+				Name: "C",
+				RequestableResources: FlavorResourceQuantities{
+					"f1": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:    5,
+						corev1.ResourceMemory: 5,
+					},
+					"f2": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:    5,
+						corev1.ResourceMemory: 5,
+					},
+				},
+				Usage: FlavorResourceQuantities{
+					"f1": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:    5,
+						corev1.ResourceMemory: 5,
+					},
+					"f2": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:    4,
+						corev1.ResourceMemory: 4,
+					},
+				},
+			},
+			request: FlavorResourceQuantities{
+				"f2": map[corev1.ResourceName]int64{
+					corev1.ResourceCPU:    1,
+					corev1.ResourceMemory: 1,
+				},
+			},
+			wantFit: true,
+		},
+		"full cohort, none fit": {
+			c: &Cohort{
+				Name: "C",
+				RequestableResources: FlavorResourceQuantities{
+					"f1": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:    5,
+						corev1.ResourceMemory: 5,
+					},
+					"f2": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:    5,
+						corev1.ResourceMemory: 5,
+					},
+				},
+				Usage: FlavorResourceQuantities{
+					"f1": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:    5,
+						corev1.ResourceMemory: 5,
+					},
+					"f2": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:    5,
+						corev1.ResourceMemory: 5,
+					},
+				},
+			},
+			request: FlavorResourceQuantities{
+				"f1": map[corev1.ResourceName]int64{
+					corev1.ResourceCPU:    1,
+					corev1.ResourceMemory: 1,
+				},
+				"f2": map[corev1.ResourceName]int64{
+					corev1.ResourceCPU:    1,
+					corev1.ResourceMemory: 1,
+				},
+			},
+			wantFit: false,
+		},
+		"one cannot fit": {
+			c: &Cohort{
+				Name: "C",
+				RequestableResources: FlavorResourceQuantities{
+					"f1": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:    5,
+						corev1.ResourceMemory: 5,
+					},
+					"f2": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:    5,
+						corev1.ResourceMemory: 5,
+					},
+				},
+				Usage: FlavorResourceQuantities{
+					"f1": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:    4,
+						corev1.ResourceMemory: 4,
+					},
+					"f2": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:    4,
+						corev1.ResourceMemory: 4,
+					},
+				},
+			},
+			request: FlavorResourceQuantities{
+				"f1": map[corev1.ResourceName]int64{
+					corev1.ResourceCPU:    1,
+					corev1.ResourceMemory: 1,
+				},
+				"f2": map[corev1.ResourceName]int64{
+					corev1.ResourceCPU:    2,
+					corev1.ResourceMemory: 1,
+				},
+			},
+			wantFit: false,
+		},
+		"missing flavor": {
+			c: &Cohort{
+				Name: "C",
+				RequestableResources: FlavorResourceQuantities{
+					"f1": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:    5,
+						corev1.ResourceMemory: 5,
+					},
+				},
+				Usage: FlavorResourceQuantities{
+					"f1": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:    5,
+						corev1.ResourceMemory: 5,
+					},
+				},
+			},
+			request: FlavorResourceQuantities{
+				"f2": map[corev1.ResourceName]int64{
+					corev1.ResourceCPU:    1,
+					corev1.ResourceMemory: 1,
+				},
+			},
+			wantFit: false,
+		},
+		"missing resource": {
+			c: &Cohort{
+				Name: "C",
+				RequestableResources: FlavorResourceQuantities{
+					"f1": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 5,
+					},
+				},
+				Usage: FlavorResourceQuantities{
+					"f1": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 3,
+					},
+				},
+			},
+			request: FlavorResourceQuantities{
+				"f1": map[corev1.ResourceName]int64{
+					corev1.ResourceCPU:    1,
+					corev1.ResourceMemory: 1,
+				},
+			},
+			wantFit: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := tc.c.CanFit(tc.request)
+			if got != tc.wantFit {
+				t.Errorf("Unexpected result, %v", got)
+			}
+
+		})
+	}
+
 }

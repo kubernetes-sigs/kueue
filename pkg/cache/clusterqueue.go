@@ -86,13 +86,21 @@ func newCohort(name string, size int) *Cohort {
 	}
 }
 
-func (c *Cohort) HasBorrowingQueues() bool {
-	for cq := range c.Members {
-		if cq.IsBorrowing() {
-			return true
+func (c *Cohort) CanFit(q FlavorResourceQuantities) bool {
+	for flavor, qResources := range q {
+		if cohortResources, flavorFound := c.RequestableResources[flavor]; flavorFound {
+			cohortUsage := c.Usage[flavor]
+			for resource, value := range qResources {
+				available := cohortResources[resource] - cohortUsage[resource]
+				if available < value {
+					return false
+				}
+			}
+		} else {
+			return false
 		}
 	}
-	return false
+	return true
 }
 
 func (c *ClusterQueue) IsBorrowing() bool {

@@ -430,17 +430,17 @@ func TestSchedule(t *testing.T) {
 			},
 			wantScheduled: []string{"eng-beta/new"},
 		},
-		"cannot borrow if cohort was assigned": {
+		"cannot borrow if cohort was assigned and would result in overadmission": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("new", "eng-alpha").
 					Queue("main").
-					PodSets(*utiltesting.MakePodSet("one", 40).
+					PodSets(*utiltesting.MakePodSet("one", 45).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("new", "eng-beta").
 					Queue("main").
-					PodSets(*utiltesting.MakePodSet("one", 51).
+					PodSets(*utiltesting.MakePodSet("one", 56).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					Obj(),
@@ -455,9 +455,9 @@ func TestSchedule(t *testing.T) {
 								corev1.ResourceCPU: "on-demand",
 							},
 							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("40000m"),
+								corev1.ResourceCPU: resource.MustParse("45000m"),
 							},
-							Count: ptr.To[int32](40),
+							Count: ptr.To[int32](45),
 						},
 					},
 				},
@@ -467,7 +467,56 @@ func TestSchedule(t *testing.T) {
 				"eng-beta": sets.New("eng-beta/new"),
 			},
 		},
-		"cannot borrow if needs reclaim from cohort": {
+		"can borrow if cohort was assigned and will not result in overadmission": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "eng-alpha").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 45).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("new", "eng-beta").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 55).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"eng-alpha/new": {
+					ClusterQueue: "eng-alpha",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						{
+							Name: "one",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "on-demand",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("45000m"),
+							},
+							Count: ptr.To[int32](45),
+						},
+					},
+				},
+				"eng-beta/new": {
+					ClusterQueue: "eng-beta",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						{
+							Name: "one",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "on-demand",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("55000m"),
+							},
+							Count: ptr.To[int32](55),
+						},
+					},
+				},
+			},
+			wantScheduled: []string{"eng-alpha/new", "eng-beta/new"},
+		},
+		"can borrow if needs reclaim from cohort in different flavor": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("can-reclaim", "eng-alpha").
 					Queue("main").
@@ -488,11 +537,14 @@ func TestSchedule(t *testing.T) {
 			},
 			wantLeft: map[string]sets.Set[string]{
 				"eng-alpha": sets.New("eng-alpha/can-reclaim"),
-				"eng-beta":  sets.New("eng-beta/needs-to-borrow"),
 			},
 			wantAssignments: map[string]kueue.Admission{
-				"eng-beta/user-spot":      *utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "spot", "1000m").Obj(),
-				"eng-beta/user-on-demand": *utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "on-demand", "50000m").Obj(),
+				"eng-beta/user-spot":       *utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "spot", "1000m").Obj(),
+				"eng-beta/user-on-demand":  *utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "on-demand", "50000m").Obj(),
+				"eng-beta/needs-to-borrow": *utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj(),
+			},
+			wantScheduled: []string{
+				"eng-beta/needs-to-borrow",
 			},
 		},
 		"preempt workloads in ClusterQueue and cohort": {
@@ -612,7 +664,7 @@ func TestSchedule(t *testing.T) {
 				"flavor-nonexistent-cq": sets.New("sales/foo"),
 			},
 		},
-		"only one workload is admitted in a cohort while borrowing": {
+		"no overadmission while borrowing": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("new", "eng-beta").
 					Queue("main").
@@ -720,11 +772,11 @@ func TestSchedule(t *testing.T) {
 							Count: ptr.To[int32](100),
 						},
 					).Obj(),
-				"eng-beta/new": *utiltesting.MakeAdmission("eng-beta", "one").Assignment(corev1.ResourceCPU, "on-demand", "50").AssignmentPodCount(50).Obj(),
+				"eng-beta/new":        *utiltesting.MakeAdmission("eng-beta", "one").Assignment(corev1.ResourceCPU, "on-demand", "50").AssignmentPodCount(50).Obj(),
+				"eng-alpha/new-alpha": *utiltesting.MakeAdmission("eng-alpha", "one").Assignment(corev1.ResourceCPU, "on-demand", "1").AssignmentPodCount(1).Obj(),
 			},
-			wantScheduled: []string{"eng-beta/new"},
+			wantScheduled: []string{"eng-beta/new", "eng-alpha/new-alpha"},
 			wantLeft: map[string]sets.Set[string]{
-				"eng-alpha": sets.New("eng-alpha/new-alpha"),
 				"eng-gamma": sets.New("eng-gamma/new-gamma"),
 			},
 		},
@@ -857,6 +909,111 @@ func TestSchedule(t *testing.T) {
 			},
 			wantScheduled:          []string{"sales/new"},
 			enablePartialAdmission: true,
+		},
+		"two workloads can borrow different resources from the same flavor in the same cycle": {
+			additionalClusterQueues: func() []kueue.ClusterQueue {
+				preemption := kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				}
+				rg := *utiltesting.MakeFlavorQuotas("default").Resource("r1", "10", "10").Resource("r2", "10", "10").Obj()
+				cq1 := *utiltesting.MakeClusterQueue("cq1").Cohort("co").Preemption(preemption).ResourceGroup(rg).Obj()
+				cq2 := *utiltesting.MakeClusterQueue("cq2").Cohort("co").Preemption(preemption).ResourceGroup(rg).Obj()
+				cq3 := *utiltesting.MakeClusterQueue("cq3").Cohort("co").Preemption(preemption).ResourceGroup(rg).Obj()
+				return []kueue.ClusterQueue{cq1, cq2, cq3}
+			}(),
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("lq1", "sales").ClusterQueue("cq1").Obj(),
+				*utiltesting.MakeLocalQueue("lq2", "sales").ClusterQueue("cq2").Obj(),
+				*utiltesting.MakeLocalQueue("lq3", "sales").ClusterQueue("cq3").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("wl1", "sales").Queue("lq1").Priority(-1).PodSets(
+					*utiltesting.MakePodSet("main", 1).Request("r1", "16").Obj(),
+				).Obj(),
+				*utiltesting.MakeWorkload("wl2", "sales").Queue("lq2").Priority(-2).PodSets(
+					*utiltesting.MakePodSet("main", 1).Request("r2", "16").Obj(),
+				).Obj(),
+			},
+			wantScheduled: []string{"sales/wl1", "sales/wl2"},
+			wantAssignments: map[string]kueue.Admission{
+				"sales/wl1": *utiltesting.MakeAdmission("cq1", "main").
+					Assignment("r1", "default", "16").AssignmentPodCount(1).
+					Obj(),
+				"sales/wl2": *utiltesting.MakeAdmission("cq2", "main").
+					Assignment("r2", "default", "16").AssignmentPodCount(1).
+					Obj(),
+			},
+		},
+		"two workloads can borrow the same resources from the same flavor in the same cycle if fits in the cohort quota": {
+			additionalClusterQueues: func() []kueue.ClusterQueue {
+				preemption := kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				}
+				rg := *utiltesting.MakeFlavorQuotas("default").Resource("r1", "10", "10").Resource("r2", "10", "10").Obj()
+				cq1 := *utiltesting.MakeClusterQueue("cq1").Cohort("co").Preemption(preemption).ResourceGroup(rg).Obj()
+				cq2 := *utiltesting.MakeClusterQueue("cq2").Cohort("co").Preemption(preemption).ResourceGroup(rg).Obj()
+				cq3 := *utiltesting.MakeClusterQueue("cq3").Cohort("co").Preemption(preemption).ResourceGroup(rg).Obj()
+				return []kueue.ClusterQueue{cq1, cq2, cq3}
+			}(),
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("lq1", "sales").ClusterQueue("cq1").Obj(),
+				*utiltesting.MakeLocalQueue("lq2", "sales").ClusterQueue("cq2").Obj(),
+				*utiltesting.MakeLocalQueue("lq3", "sales").ClusterQueue("cq3").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("wl1", "sales").Queue("lq1").Priority(-1).PodSets(
+					*utiltesting.MakePodSet("main", 1).Request("r1", "16").Obj(),
+				).Obj(),
+				*utiltesting.MakeWorkload("wl2", "sales").Queue("lq2").Priority(-2).PodSets(
+					*utiltesting.MakePodSet("main", 1).Request("r1", "14").Obj(),
+				).Obj(),
+			},
+			wantScheduled: []string{"sales/wl1", "sales/wl2"},
+			wantAssignments: map[string]kueue.Admission{
+				"sales/wl1": *utiltesting.MakeAdmission("cq1", "main").
+					Assignment("r1", "default", "16").AssignmentPodCount(1).
+					Obj(),
+				"sales/wl2": *utiltesting.MakeAdmission("cq2", "main").
+					Assignment("r1", "default", "14").AssignmentPodCount(1).
+					Obj(),
+			},
+		},
+		"only one workload can borrow one resources from the same flavor in the same cycle if cohort quota cannot fit": {
+			additionalClusterQueues: func() []kueue.ClusterQueue {
+				preemption := kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				}
+				rg := *utiltesting.MakeFlavorQuotas("default").Resource("r1", "10", "10").Resource("r2", "10", "10").Obj()
+				cq1 := *utiltesting.MakeClusterQueue("cq1").Cohort("co").Preemption(preemption).ResourceGroup(rg).Obj()
+				cq2 := *utiltesting.MakeClusterQueue("cq2").Cohort("co").Preemption(preemption).ResourceGroup(rg).Obj()
+				cq3 := *utiltesting.MakeClusterQueue("cq3").Cohort("co").Preemption(preemption).ResourceGroup(rg).Obj()
+				return []kueue.ClusterQueue{cq1, cq2, cq3}
+			}(),
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("lq1", "sales").ClusterQueue("cq1").Obj(),
+				*utiltesting.MakeLocalQueue("lq2", "sales").ClusterQueue("cq2").Obj(),
+				*utiltesting.MakeLocalQueue("lq3", "sales").ClusterQueue("cq3").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("wl1", "sales").Queue("lq1").Priority(-1).PodSets(
+					*utiltesting.MakePodSet("main", 1).Request("r1", "16").Obj(),
+				).Obj(),
+				*utiltesting.MakeWorkload("wl2", "sales").Queue("lq2").Priority(-2).PodSets(
+					*utiltesting.MakePodSet("main", 1).Request("r1", "16").Obj(),
+				).Obj(),
+			},
+			wantScheduled: []string{"sales/wl1"},
+			wantAssignments: map[string]kueue.Admission{
+				"sales/wl1": *utiltesting.MakeAdmission("cq1", "main").
+					Assignment("r1", "default", "16").AssignmentPodCount(1).
+					Obj(),
+			},
+			wantLeft: map[string]sets.Set[string]{
+				"cq2": sets.New("sales/wl2"),
+			},
 		},
 	}
 

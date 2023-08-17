@@ -80,18 +80,26 @@ func TestAssignFlavors(t *testing.T) {
 			},
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
-				PodSets: []PodSetAssignment{{
-					Name: "main",
-					Flavors: ResourceAssignment{
-						corev1.ResourceCPU:    {Name: "default", Mode: Fit},
-						corev1.ResourceMemory: {Name: "default", Mode: Fit},
+				PodSets: []PodSetAssignment{
+					{
+						Name: "main",
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU:    {Name: "default", Mode: Fit},
+							corev1.ResourceMemory: {Name: "default", Mode: Fit},
+						},
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("1000m"),
+							corev1.ResourceMemory: resource.MustParse("1Mi"),
+						},
+						Count: 1,
 					},
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU:    resource.MustParse("1000m"),
-						corev1.ResourceMemory: resource.MustParse("1Mi"),
+				},
+				Usage: cache.FlavorResourceQuantities{
+					"default": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:    1000,
+						corev1.ResourceMemory: 1 * 1024 * 1024,
 					},
-					Count: 1,
-				}},
+				},
 			},
 		},
 		"single flavor, fits tainted flavor": {
@@ -129,6 +137,11 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
+				Usage: cache.FlavorResourceQuantities{
+					"tainted": {
+						corev1.ResourceCPU: 1000,
+					},
+				},
 			},
 		},
 		"single flavor, used resources, doesn't fit": {
@@ -166,6 +179,11 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
+				Usage: cache.FlavorResourceQuantities{
+					"default": {
+						corev1.ResourceCPU: 2000,
+					},
+				},
 			},
 		},
 		"multiple resource groups, fits": {
@@ -227,6 +245,14 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
+				Usage: cache.FlavorResourceQuantities{
+					"two": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 3000,
+					},
+					"b_one": map[corev1.ResourceName]int64{
+						corev1.ResourceMemory: 10 * 1024 * 1024,
+					},
+				},
 			},
 		},
 		"multiple resource groups, one could fit with preemption, other doesn't fit": {
@@ -275,6 +301,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
+				Usage: cache.FlavorResourceQuantities{},
 			},
 		},
 		"multiple resource groups with multiple resources, fits": {
@@ -341,6 +368,15 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
+				Usage: cache.FlavorResourceQuantities{
+					"two": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:    3000,
+						corev1.ResourceMemory: 10 * 1024 * 1024,
+					},
+					"b_one": map[corev1.ResourceName]int64{
+						"example.com/gpu": 3,
+					},
+				},
 			},
 		},
 		"multiple resource groups with multiple resources, fits with different modes": {
@@ -432,6 +468,15 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
+				Usage: cache.FlavorResourceQuantities{
+					"two": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:    3000,
+						corev1.ResourceMemory: 10 * 1024 * 1024,
+					},
+					"b_one": map[corev1.ResourceName]int64{
+						"example.com/gpu": 3,
+					},
+				},
 			},
 		},
 		"multiple resources in a group, doesn't fit": {
@@ -479,6 +524,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
+				Usage: cache.FlavorResourceQuantities{},
 			},
 		},
 		"multiple flavors, fits while skipping tainted flavor": {
@@ -520,6 +566,11 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
+				Usage: cache.FlavorResourceQuantities{
+					"two": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 3000,
+					},
+				},
 			},
 		},
 		"multiple flavors, skip missing ResourceFlavor": {
@@ -561,6 +612,11 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
+				Usage: cache.FlavorResourceQuantities{
+					"two": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 3000,
+					},
+				},
 			},
 		},
 		"multiple flavors, fits a node selector": {
@@ -634,6 +690,11 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
+				Usage: cache.FlavorResourceQuantities{
+					"two": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 1000,
+					},
+				},
 			},
 		},
 		"multiple flavors, fits with node affinity": {
@@ -704,6 +765,12 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
+				Usage: cache.FlavorResourceQuantities{
+					"two": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:    1000,
+						corev1.ResourceMemory: 1 * 1024 * 1024,
+					},
+				},
 			},
 		},
 		"multiple flavors, node affinity fits any flavor": {
@@ -781,6 +848,11 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
+				Usage: cache.FlavorResourceQuantities{
+					"one": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 1000,
+					},
+				},
 			},
 		},
 		"multiple flavors, doesn't fit node affinity": {
@@ -847,6 +919,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
+				Usage: cache.FlavorResourceQuantities{},
 			},
 		},
 		"multiple specs, fit different flavors": {
@@ -901,6 +974,14 @@ func TestAssignFlavors(t *testing.T) {
 							corev1.ResourceCPU: resource.MustParse("3000m"),
 						},
 						Count: 1,
+					},
+				},
+				Usage: cache.FlavorResourceQuantities{
+					"one": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 3000,
+					},
+					"two": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 5000,
 					},
 				},
 			},
@@ -970,6 +1051,12 @@ func TestAssignFlavors(t *testing.T) {
 						corev1.ResourceMemory: 3 * utiltesting.Gi,
 					},
 				},
+				Usage: cache.FlavorResourceQuantities{
+					"default": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:    10000,
+						corev1.ResourceMemory: 5 * 1024 * 1024 * 1024,
+					},
+				},
 			},
 		},
 		"not enough space to borrow": {
@@ -1008,6 +1095,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
+				Usage: cache.FlavorResourceQuantities{},
 			},
 		},
 		"past max, but can preempt in ClusterQueue": {
@@ -1054,6 +1142,11 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
+				Usage: cache.FlavorResourceQuantities{
+					"one": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 2000,
+					},
+				},
 			},
 		},
 		"past min, but can preempt in ClusterQueue": {
@@ -1091,6 +1184,11 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
+				Usage: cache.FlavorResourceQuantities{
+					"one": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 2000,
+					},
+				},
 			},
 		},
 		"past min, but can preempt in cohort and ClusterQueue": {
@@ -1136,6 +1234,11 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
+				Usage: cache.FlavorResourceQuantities{
+					"one": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 2000,
+					},
+				},
 			},
 		},
 		"can only preempt flavors that match affinity": {
@@ -1194,6 +1297,11 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
+				Usage: cache.FlavorResourceQuantities{
+					"two": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 2000,
+					},
+				},
 			},
 		},
 		"each podset requires preemption on a different flavor": {
@@ -1270,6 +1378,14 @@ func TestAssignFlavors(t *testing.T) {
 						Count: 10,
 					},
 				},
+				Usage: cache.FlavorResourceQuantities{
+					"one": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 2000,
+					},
+					"tainted": map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 10000,
+					},
+				},
 			},
 		},
 		"resource not listed in clusterQueue": {
@@ -1300,6 +1416,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
+				Usage: cache.FlavorResourceQuantities{},
 			},
 		},
 		"flavor not found": {
@@ -1330,6 +1447,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
+				Usage: cache.FlavorResourceQuantities{},
 			},
 		},
 		"num pods fit": {
@@ -1364,6 +1482,12 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 3,
 				}},
+				Usage: cache.FlavorResourceQuantities{
+					"default": map[corev1.ResourceName]int64{
+						corev1.ResourcePods: 3,
+						corev1.ResourceCPU:  3000,
+					},
+				},
 			},
 			wantRepMode: Fit,
 		},
@@ -1397,6 +1521,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 3,
 				}},
+				Usage: cache.FlavorResourceQuantities{},
 			},
 		},
 		"with reclaimable pods": {
@@ -1437,6 +1562,12 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 3,
 				}},
+				Usage: cache.FlavorResourceQuantities{
+					"default": map[corev1.ResourceName]int64{
+						corev1.ResourcePods: 3,
+						corev1.ResourceCPU:  3000,
+					},
+				},
 			},
 			wantRepMode: Fit,
 		},

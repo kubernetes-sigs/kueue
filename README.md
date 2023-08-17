@@ -97,7 +97,8 @@ These are features that we aim to have in the long-term, in no particular order:
 
 ## Community, discussion, contribution, and support
 
-Learn how to engage with the Kubernetes community on the [community page](http://kubernetes.io/community/).
+Learn how to engage with the Kubernetes community on the [community page](http://kubernetes.io/community/)
+and the [contributor's guide](CONTRIBUTING.md).
 
 You can reach the maintainers of this project at:
 

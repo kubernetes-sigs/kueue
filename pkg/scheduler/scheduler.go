@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
@@ -45,6 +44,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
+	"sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/routine"
@@ -109,6 +109,47 @@ func (s *Scheduler) setAdmissionRoutineWrapper(wrapper routine.Wrapper) {
 	s.admissionRoutineWrapper = wrapper
 }
 
+type cohortsUsage map[string]cache.FlavorResourceQuantities
+
+func (cu *cohortsUsage) add(cohort string, assigment cache.FlavorResourceQuantities) {
+	cohortUsage := (*cu)[cohort]
+	if cohortUsage == nil {
+		cohortUsage = make(cache.FlavorResourceQuantities, len(assigment))
+	}
+
+	for flavor, resources := range assigment {
+		if _, found := cohortUsage[flavor]; found {
+			cohortUsage[flavor] = maps.Merge(cohortUsage[flavor], resources, func(a, b int64) int64 { return a + b })
+		} else {
+			cohortUsage[flavor] = maps.Clone(resources)
+		}
+	}
+	(*cu)[cohort] = cohortUsage
+}
+
+func (cu *cohortsUsage) totalUsageForCommonFlavorResources(cohort string, assigment cache.FlavorResourceQuantities) cache.FlavorResourceQuantities {
+	return maps.Intersect((*cu)[cohort], assigment, func(a, b map[corev1.ResourceName]int64) map[corev1.ResourceName]int64 {
+		return maps.Intersect(a, b, func(a, b int64) int64 { return a + b })
+	})
+}
+
+func (cu *cohortsUsage) hasCommonFlavorResources(cohort string, assigment cache.FlavorResourceQuantities) bool {
+	cohortUsage, cohortFound := (*cu)[cohort]
+	if !cohortFound {
+		return false
+	}
+	for flavor, assigmentResources := range assigment {
+		if cohortResources, found := cohortUsage[flavor]; found {
+			for resName := range assigmentResources {
+				if _, found := cohortResources[resName]; found {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 func (s *Scheduler) schedule(ctx context.Context) {
 	log := ctrl.LoggerFrom(ctx)
 
@@ -135,28 +176,27 @@ func (s *Scheduler) schedule(ctx context.Context) {
 	// This is because there can be other workloads deeper in a clusterQueue whose
 	// head got admitted that should be scheduled in the cohort before the heads
 	// of other clusterQueues.
-	usedCohorts := sets.New[string]()
+	cycleCohortsUsage := cohortsUsage{}
 	for i := range entries {
 		e := &entries[i]
 		if e.assignment.RepresentativeMode() == flavorassigner.NoFit {
 			continue
 		}
+
 		cq := snapshot.ClusterQueues[e.ClusterQueue]
 		if cq.Cohort != nil {
-			// Having more than one workloads from the same cohort admitted in the same scheduling cycle can lead
-			// to over admission if:
-			//   1. One of the workloads is borrowing, since during the nomination the usage of the other workloads
-			//      evaluated in the same cycle is not taken into account.
-			//   2. An already admitted workload from a different cluster queue is borrowing, since all workloads
-			//      evaluated in the current cycle will compete for the resources that are not borrowed.
-			if usedCohorts.Has(cq.Cohort.Name) && (e.assignment.Borrows() || cq.Cohort.HasBorrowingQueues()) {
+			sum := cycleCohortsUsage.totalUsageForCommonFlavorResources(cq.Cohort.Name, e.assignment.Usage)
+			// If the workload uses resources that were potentially assumed in this cycle and will no longer fit in the
+			// cohort. If a resource of a flavor is used only once or for the first time in the cycle the checks done by
+			// the flavorassigner are still valid.
+			if cycleCohortsUsage.hasCommonFlavorResources(cq.Cohort.Name, e.assignment.Usage) && !cq.Cohort.CanFit(sum) {
 				e.status = skipped
 				e.inadmissibleMsg = "other workloads in the cohort were prioritized"
 				continue
 			}
-			// Even if there was a failure, we shouldn't admit other workloads to this
-			// cohort.
-			usedCohorts.Insert(cq.Cohort.Name)
+			// Even if the workload will not be admitted after this point, due to preemption pending or other failures,
+			// we should still account for its usage.
+			cycleCohortsUsage.add(cq.Cohort.Name, e.assignment.Usage)
 		}
 		log := log.WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue))
 		ctx := ctrl.LoggerInto(ctx, log)
