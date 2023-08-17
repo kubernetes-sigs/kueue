@@ -18,6 +18,9 @@
     - [1. A job specifies both <code>workload's priority</code> and <code>pod's priority</code>](#1-a-job-specifies-both--and-)
     - [2. A job specifies only <code>workload's priority</code>](#2-a-job-specifies-only-)
     - [3. A job specifies only <code>pod's priority</code>](#3-a-job-specifies-only-)
+    - [4. A jobFramework specifies both <code>workload's priority</code> and <code>priorityClass</code>](#4-a-jobframework-specifies-both--and-)
+    - [5. A jobFramework specifies only <code>workload's priority</code>](#5-a-jobframework-specifies-only-)
+    - [6. A jobFramework specifies only <code>priorityClass</code>](#6-a-jobframework-specifies-only-)
   - [How to expand Priority utility](#how-to-expand-priority-utility)
   - [Where workload's Priority is used](#where-workloads-priority-is-used)
   - [What happens when a user changes the priority of <code>workloadPriorityClass</code>?](#what-happens-when-a-user-changes-the-priority-of-)
@@ -66,7 +69,7 @@ When creating a workloadPriorityClass, there is no need to create other CRDs. Th
 In this proposal, `WorkloadPriorityClass` is defined.
 The `Workload` is able to utilize this `WorkloadPriorityClass`.
 `WorkloadPriorityClass` is independent from pod's priority.
-The priority value will be part of the workload spec and be mutable.
+`Priority`, `PriorityClassName` and `PriorityClassSource` fields will be part of the workload spec and be mutable when `workload` is not admitted by `ClusterQueue`.
 CRDs like Job, MPIJob etc specify the `WorkloadPriorityClass` through labels.
 
 <!--
@@ -133,6 +136,7 @@ type WorkloadSpec struct {
 ### How to use WorkloadPriorityClass on Job
 
 The `workloadPriorityClass` is specified through a label `kueue.x-k8s.io/priority-class`.
+This label is mutable only when the Job isn't yet admitted by `ClusterQueue`.
 
 ```yaml
 # sample-priority-class.yaml
@@ -212,11 +216,16 @@ spec:
 ### How workloads are created from Jobs
 
 There are three scenarios for creating a workload from a job.
-The same applies to CRDs other than `Job` (such as `RayJob`).
 
 1. A job specifies both `workload's priority` and `pod's priority`
 2. A job specifies only `workload's priority`
 3. A job specifies only `pod's priority`
+
+In the case of jobFrameworks, the following scenarios are considered. For jobFrameworks, the `priorityClass` is intended to reflect the `pod's priority`. Therefore, `workloadPriorityClass` is used for the `workload's priority` if jobFramework has both `workloadPriorityClass` and `priorityClass`.
+
+4. A jobFramework specifies both `workload's priority` and `priorityClass`
+5. A jobFramework specifies only `workload's priority`
+6. A jobFramework specifies only `priorityClass`
 
 #### 1. A job specifies both `workload's priority` and `pod's priority`
 
@@ -291,6 +300,130 @@ spec:
       - name: dummy-job
         image: gcr.io/k8s-staging-perf-tests/sleep:latest
       restartPolicy: Never
+```
+
+#### 4. A jobFramework specifies both `workload's priority` and `priorityClass`
+
+When creating this yaml, the `workloadPriorityClass` sample-priority is used for the `workload's priority`.
+
+```yaml
+apiVersion: kubeflow.org/v2beta1
+kind: MPIJob
+metadata:
+  name: pi
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+    kueue.x-k8s.io/priority-class: sample-priority
+spec:
+  slotsPerWorker: 1
+  runPolicy:
+    cleanPodPolicy: Running
+    ttlSecondsAfterFinished: 60
+    schedulingPolicy:
+      priorityClass: high-priority
+  sshAuthMountPath: /home/mpiuser/.ssh
+  mpiReplicaSpecs:
+    Launcher:
+      replicas: 1
+      template:
+        spec:
+          containers:
+          - image: mpioperator/mpi-pi:openmpi
+            name: mpi-launcher
+            securityContext:
+              runAsUser: 1000
+            command:
+            - mpirun
+            args:
+            - -n
+            - "2"
+            - /home/mpiuser/pi
+            resources:
+              limits:
+                cpu: 1
+                memory: 1Gi
+```
+
+#### 5. A jobFramework specifies only `workload's priority`
+
+When creating this yaml, the `workloadPriorityClass` sample-priority is used for the `workload's priority`.
+
+```yaml
+apiVersion: kubeflow.org/v2beta1
+kind: MPIJob
+metadata:
+  name: pi
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+    kueue.x-k8s.io/priority-class: sample-priority
+spec:
+  slotsPerWorker: 1
+  runPolicy:
+    cleanPodPolicy: Running
+    ttlSecondsAfterFinished: 60
+  sshAuthMountPath: /home/mpiuser/.ssh
+  mpiReplicaSpecs:
+    Launcher:
+      replicas: 1
+      template:
+        spec:
+          containers:
+          - image: mpioperator/mpi-pi:openmpi
+            name: mpi-launcher
+            securityContext:
+              runAsUser: 1000
+            command:
+            - mpirun
+            args:
+            - -n
+            - "2"
+            - /home/mpiuser/pi
+            resources:
+              limits:
+                cpu: 1
+                memory: 1Gi
+```
+
+#### 6. A jobFramework specifies only `priorityClass`
+
+When creating this yaml, the `PriorityClass` high-priority is used for the `workload's priority`.
+This is basically same as current implementation of workload.
+
+```yaml
+apiVersion: kubeflow.org/v2beta1
+kind: MPIJob
+metadata:
+  name: pi
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  slotsPerWorker: 1
+  runPolicy:
+    cleanPodPolicy: Running
+    ttlSecondsAfterFinished: 60
+    schedulingPolicy:
+      priorityClass: high-priority
+  sshAuthMountPath: /home/mpiuser/.ssh
+  mpiReplicaSpecs:
+    Launcher:
+      replicas: 1
+      template:
+        spec:
+          containers:
+          - image: mpioperator/mpi-pi:openmpi
+            name: mpi-launcher
+            securityContext:
+              runAsUser: 1000
+            command:
+            - mpirun
+            args:
+            - -n
+            - "2"
+            - /home/mpiuser/pi
+            resources:
+              limits:
+                cpu: 1
+                memory: 1Gi
 ```
 
 ### How to expand Priority utility
