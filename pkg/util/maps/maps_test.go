@@ -126,3 +126,79 @@ func TestContains(t *testing.T) {
 		})
 	}
 }
+
+func TestMergeIntersect(t *testing.T) {
+	cases := map[string]struct {
+		a             map[string]int
+		b             map[string]int
+		wantMerge     map[string]int
+		wantIntersect map[string]int
+	}{
+		"nil a": {
+			a: nil,
+			b: map[string]int{
+				"v1": 1,
+			},
+			wantMerge: map[string]int{
+				"v1": 1,
+			},
+			wantIntersect: nil,
+		},
+		"nil b": {
+			a: map[string]int{
+				"v1": 1,
+			},
+			b: nil,
+			wantMerge: map[string]int{
+				"v1": 1,
+			},
+			wantIntersect: nil,
+		},
+		"extra in b": {
+			a: map[string]int{
+				"v1": 1,
+			},
+			b: map[string]int{
+				"v1": 1,
+				"v2": 2,
+			},
+			wantMerge: map[string]int{
+				"v1": 2,
+				"v2": 2,
+			},
+			wantIntersect: map[string]int{
+				"v1": 2,
+			},
+		},
+		"extra in a": {
+			a: map[string]int{
+				"v1": 1,
+				"v2": 2,
+			},
+			b: map[string]int{
+				"v1": 1,
+			},
+			wantMerge: map[string]int{
+				"v1": 2,
+				"v2": 2,
+			},
+			wantIntersect: map[string]int{
+				"v1": 2,
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			gotMerge := Merge(tc.a, tc.b, func(a, b int) int { return a + b })
+			if diff := cmp.Diff(tc.wantMerge, gotMerge); diff != "" {
+				t.Errorf("Unexpected Merge result(-want/+got): %s", diff)
+			}
+
+			gotIntersect := Intersect(tc.a, tc.b, func(a, b int) int { return a + b })
+			if diff := cmp.Diff(tc.wantIntersect, gotIntersect); diff != "" {
+				t.Errorf("Unexpected Intersect result(-want/+got): %s", diff)
+			}
+		})
+	}
+}
