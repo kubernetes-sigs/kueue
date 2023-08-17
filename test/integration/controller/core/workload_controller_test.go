@@ -22,10 +22,12 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -127,6 +129,84 @@ var _ = ginkgo.Describe("Workload controller", func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, flavor, true)
+		})
+	})
+
+	ginkgo.When("the queue has admission checks", func() {
+		var flavor *kueue.ResourceFlavor
+
+		ginkgo.BeforeEach(func() {
+			flavor = testing.MakeResourceFlavor(flavorOnDemand).Obj()
+			gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())
+			clusterQueue = testing.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*testing.MakeFlavorQuotas(flavorOnDemand).
+					Resource(resourceGPU, "5", "5").Obj()).
+				AdditionalChecks("check1", "check2").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, flavor, true)
+		})
+
+		ginkgo.It("the workload should get the AdditionalChecks added", func() {
+			wl := testing.MakeWorkload("wl", ns.Name).Queue("queue").Obj()
+			wlKey := client.ObjectKeyFromObject(wl)
+			createdWl := kueue.Workload{}
+			ginkgo.By("creating the workload, the check conditions should be added", func() {
+				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+				gomega.Eventually(func() []string {
+					gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					return slices.Map(createdWl.Status.AdmissionChecks, func(c *metav1.Condition) string { return c.Type })
+				}, util.Timeout, util.Interval).Should(gomega.ConsistOf("check1", "check2"))
+			})
+
+			ginkgo.By("setting the check conditions", func() {
+				gomega.Eventually(func() error {
+					gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					apimeta.SetStatusCondition(&createdWl.Status.AdmissionChecks, metav1.Condition{
+						Type:    "check1",
+						Status:  metav1.ConditionTrue,
+						Reason:  string(kueue.CheckStateAccepted),
+						Message: "check successfully passed",
+					})
+					apimeta.SetStatusCondition(&createdWl.Status.AdmissionChecks, metav1.Condition{
+						Type:    "check2",
+						Status:  metav1.ConditionFalse,
+						Reason:  string(kueue.CheckStateRejected),
+						Message: "check rejected",
+					})
+					return k8sClient.Status().Update(ctx, &createdWl)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			// save check2 condition
+			oldCheck2Cond := apimeta.FindStatusCondition(createdWl.Status.AdmissionChecks, "check2")
+			gomega.Expect(oldCheck2Cond).NotTo(gomega.BeNil())
+
+			ginkgo.By("updating the queue checks, the changes should propagate to the workload", func() {
+				createdQueue := kueue.ClusterQueue{}
+				queueKey := client.ObjectKeyFromObject(clusterQueue)
+				gomega.Eventually(func() error {
+					gomega.Expect(k8sClient.Get(ctx, queueKey, &createdQueue)).To(gomega.Succeed())
+					createdQueue.Spec.AdmissionChecks = []string{"check2", "check3"}
+					return k8sClient.Update(ctx, &createdQueue)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				createdWl := kueue.Workload{}
+				gomega.Eventually(func() []string {
+					gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					return slices.Map(createdWl.Status.AdmissionChecks, func(c *metav1.Condition) string { return c.Type })
+				}, util.Timeout, util.Interval).Should(gomega.ConsistOf("check2", "check3"))
+
+				check2Cond := apimeta.FindStatusCondition(createdWl.Status.AdmissionChecks, "check2")
+				gomega.Expect(check2Cond).To(gomega.Equal(oldCheck2Cond))
+			})
 		})
 	})
 })

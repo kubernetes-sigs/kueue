@@ -370,6 +370,12 @@ func (c *ClusterQueueWrapper) ResourceGroup(flavors ...kueue.FlavorQuotas) *Clus
 	return c
 }
 
+// AdditionalChecks replaces the queue additional checks
+func (c *ClusterQueueWrapper) AdditionalChecks(checks ...string) *ClusterQueueWrapper {
+	c.Spec.AdmissionChecks = checks
+	return c
+}
+
 // QueueingStrategy sets the queueing strategy in this ClusterQueue.
 func (c *ClusterQueueWrapper) QueueingStrategy(strategy kueue.QueueingStrategy) *ClusterQueueWrapper {
 	c.Spec.QueueingStrategy = strategy
