@@ -13,7 +13,7 @@
 - [Design Details](#design-details)
   - [Kueue WorkloadPriorityClass API](#kueue-workloadpriorityclass-api)
   - [How to use WorkloadPriorityClass on Job](#how-to-use-workloadpriorityclass-on-job)
-  - [How to use WorkloadPriorityCLass on MPIJob](#how-to-use-workloadpriorityclass-on-mpijob)
+  - [How to use WorkloadPriorityClass on MPIJob](#how-to-use-workloadpriorityclass-on-mpijob)
   - [How workloads are created from Jobs](#how-workloads-are-created-from-jobs)
     - [1. A job specifies both <code>workload's priority</code> and <code>pod's priority</code>](#1-a-job-specifies-both--and-)
     - [2. A job specifies only <code>workload's priority</code>](#2-a-job-specifies-only-)
@@ -40,10 +40,10 @@ In this proposal, a `WorkloadPriorityClass` is created.
 The `Workload` is able to utilize `WorkloadPriorityClass`.
 `WorkloadPriorityClass` is independent from pod's priority.
 The priority value is a part of the workload spec and is mutable.  
-In this document, the term "workload Priority" is used to refer
+In this document, the term `workload Priority` is used to refer
 to the priority utilized by Kueue controller for managing the queueing
 and preemption of workloads.  
-The term "pod Priority" is used to denote the priority utilized by the
+The term `pod Priority` is used to denote the priority utilized by the
 kube-scheduler for preempting pods.
 
 ## Motivation
@@ -66,10 +66,10 @@ When creating a workloadPriorityClass, there is no need to create other CRDs. Th
 
 ## Proposal
 
-In this proposal, `WorkloadPriorityClass` is defined.
-The `Workload` is able to utilize this `WorkloadPriorityClass`.
-`WorkloadPriorityClass` is independent from pod's priority.
-`Priority`, `PriorityClassName` and `PriorityClassSource` fields will be part of the workload spec and be mutable when `workload` is not admitted by `ClusterQueue`.
+In this proposal, `WorkloadPriorityClass` is defined.  
+The `Workload` is able to utilize this `WorkloadPriorityClass`.  
+`WorkloadPriorityClass` is independent from pod's priority.  
+`Priority`, `PriorityClassName` and `PriorityClassSource` fields will be part of the workload spec and be mutable when `workload` is not admitted by `ClusterQueue`.  
 CRDs like Job, MPIJob etc specify the `WorkloadPriorityClass` through labels.
 
 <!--
@@ -196,7 +196,7 @@ spec:
 In this example, since the `WorkloadPriorityClassName` of `sample-job` is set to `sample-priority`, the `priority` of the `sample-job` will be set to 10,000.
 During queuing and preemption of the workload, this priority value will be used in the calculations.
 
-### How to use WorkloadPriorityCLass on MPIJob
+### How to use WorkloadPriorityClass on MPIJob
 
 The `workloadPriorityClass` is specified through a label `kueue.x-k8s.io/priority-class`.
 This is same as other CRDs like `RayJob`.
