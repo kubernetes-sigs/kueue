@@ -1,8 +1,8 @@
-# permissions for end users to view pytorchjobs.
+# permissions for end users to edit tfjobs.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: '{{ include "kueue.fullname" . }}-pytorchjob-viewer-role'
+  name: '{{ include "kueue.fullname" . }}-tfjob-editor-role'
   labels:
     rbac.kueue.x-k8s.io/batch-admin: "true"
     rbac.kueue.x-k8s.io/batch-user: "true"
@@ -10,14 +10,18 @@ rules:
   - apiGroups:
       - kubeflow.org
     resources:
-      - pytorchjobs
+      - tfjobs
     verbs:
+      - create
+      - delete
       - get
       - list
+      - patch
+      - update
       - watch
   - apiGroups:
       - kubeflow.org
     resources:
-      - pytorchjobs/status
+      - tfjobs/status
     verbs:
       - get

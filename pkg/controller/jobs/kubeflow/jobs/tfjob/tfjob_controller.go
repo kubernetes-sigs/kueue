@@ -1,0 +1,141 @@
+/*
+Copyright 2023 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package tfjob
+
+import (
+	"context"
+
+	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
+)
+
+var (
+	gvk           = kftraining.SchemeGroupVersion.WithKind(kftraining.TFJobKind)
+	FrameworkName = "kubeflow.org/tfjob"
+)
+
+func init() {
+	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
+		SetupIndexes:  SetupIndexes,
+		NewReconciler: NewReconciler,
+		SetupWebhook:  SetupTFJobWebhook,
+		JobType:       &kftraining.TFJob{},
+		AddToScheme:   kftraining.AddToScheme,
+	}))
+}
+
+// +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
+// +kubebuilder:rbac:groups=kubeflow.org,resources=tfjobs,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=kubeflow.org,resources=tfjobs/status,verbs=get;update
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
+
+var NewReconciler = jobframework.NewGenericReconciler(func() jobframework.GenericJob {
+	return &kubeflowjob.KubeflowJob{KFJobControl: (*JobControl)(&kftraining.TFJob{})}
+}, nil)
+
+type JobControl kftraining.TFJob
+
+var _ kubeflowjob.KFJobControl = (*JobControl)(nil)
+
+func (j *JobControl) Object() client.Object {
+	return (*kftraining.TFJob)(j)
+}
+
+func fromObject(o runtime.Object) *kubeflowjob.KubeflowJob {
+	return &kubeflowjob.KubeflowJob{KFJobControl: (*JobControl)(o.(*kftraining.TFJob))}
+}
+
+func (j *JobControl) GVK() schema.GroupVersionKind {
+	return gvk
+}
+
+func (j *JobControl) RunPolicy() *kftraining.RunPolicy {
+	return &j.Spec.RunPolicy
+}
+
+func (j *JobControl) ReplicaSpecs() map[kftraining.ReplicaType]*kftraining.ReplicaSpec {
+	return j.Spec.TFReplicaSpecs
+}
+
+func (j *JobControl) JobStatus() kftraining.JobStatus {
+	return j.Status
+}
+
+func (j *JobControl) OrderedReplicaTypes(replicaSpecs map[kftraining.ReplicaType]*kftraining.ReplicaSpec) []kftraining.ReplicaType {
+	result := make([]kftraining.ReplicaType, 0, 5)
+	if _, ok := replicaSpecs[kftraining.TFJobReplicaTypeChief]; ok {
+		result = append(result, kftraining.TFJobReplicaTypeChief)
+	}
+	if _, ok := replicaSpecs[kftraining.TFJobReplicaTypeMaster]; ok {
+		result = append(result, kftraining.TFJobReplicaTypeMaster)
+	}
+	if _, ok := replicaSpecs[kftraining.TFJobReplicaTypePS]; ok {
+		result = append(result, kftraining.TFJobReplicaTypePS)
+	}
+	if _, ok := replicaSpecs[kftraining.TFJobReplicaTypeWorker]; ok {
+		result = append(result, kftraining.TFJobReplicaTypeWorker)
+	}
+	if _, ok := replicaSpecs[kftraining.TFJobReplicaTypeEval]; ok {
+		result = append(result, kftraining.TFJobReplicaTypeEval)
+	}
+	return result
+}
+
+// PriorityClass calculates the priorityClass name needed for workload according to the following priorities:
+//  1. .spec.runPolicy.schedulingPolicy.priorityClass
+//  2. .spec.replicaSpecs[Chief].template.spec.priorityClassName
+//  3. .spec.replicaSpecs[Master].template.spec.priorityClassName
+//  4. .spec.replicaSpecs[ParameterServer].template.spec.priorityClassName
+//  5. .spec.replicaSpecs[Worker].template.spec.priorityClassName
+//  6. .spec.replicaSpecs[Evaluator].template.spec.priorityClassName
+//
+// This function is inspired by an analogous one in mpi-controller:
+// https://github.com/kubeflow/mpi-operator/blob/5946ef4157599a474ab82ff80e780d5c2546c9ee/pkg/controller/podgroup.go#L69-L72
+func (j *JobControl) PriorityClass() string {
+	if j.Spec.RunPolicy.SchedulingPolicy != nil && len(j.Spec.RunPolicy.SchedulingPolicy.PriorityClass) != 0 {
+		return j.Spec.RunPolicy.SchedulingPolicy.PriorityClass
+	} else if m := j.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeChief]; m != nil && len(m.Template.Spec.PriorityClassName) != 0 {
+		return m.Template.Spec.PriorityClassName
+	} else if m = j.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeMaster]; m != nil && len(m.Template.Spec.PriorityClassName) != 0 {
+		return m.Template.Spec.PriorityClassName
+	} else if m = j.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypePS]; m != nil && len(m.Template.Spec.PriorityClassName) != 0 {
+		return m.Template.Spec.PriorityClassName
+	} else if m = j.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeWorker]; m != nil && len(m.Template.Spec.PriorityClassName) != 0 {
+		return m.Template.Spec.PriorityClassName
+	} else if m = j.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeEval]; m != nil && len(m.Template.Spec.PriorityClassName) != 0 {
+		return m.Template.Spec.PriorityClassName
+	}
+	return ""
+}
+
+func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
+	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
+}
+
+func GetWorkloadNameForTFJob(jobName string) string {
+	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, gvk)
+}
