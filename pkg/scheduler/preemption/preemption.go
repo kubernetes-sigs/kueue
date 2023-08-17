@@ -353,7 +353,7 @@ func workloadFits(wlReq cache.FlavorResourceQuantities, cq *cache.ClusterQueue, 
 // 1. Workloads from other ClusterQueues in the cohort before the ones in the
 // same ClusterQueue as the preemptor.
 // 2. Workloads with lower priority first.
-// 3. Workloads admited more recently first.
+// 3. Workloads admitted more recently first.
 func candidatesOrdering(candidates []*workload.Info, cq string, now time.Time) func(int, int) bool {
 	return func(i, j int) bool {
 		a := candidates[i]
@@ -368,11 +368,11 @@ func candidatesOrdering(candidates []*workload.Info, cq string, now time.Time) f
 		if pa != pb {
 			return pa < pb
 		}
-		return admisionTime(b.Obj, now).Before(admisionTime(a.Obj, now))
+		return admissionTime(b.Obj, now).Before(admissionTime(a.Obj, now))
 	}
 }
 
-func admisionTime(wl *kueue.Workload, now time.Time) time.Time {
+func admissionTime(wl *kueue.Workload, now time.Time) time.Time {
 	cond := meta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
 	if cond == nil || cond.Status != metav1.ConditionTrue {
 		// The condition wasn't populated yet, use the current time.
