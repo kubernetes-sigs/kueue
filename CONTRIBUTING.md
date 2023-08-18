@@ -15,6 +15,7 @@ If your repo has certain guidelines for contribution, put them here ahead of the
 - [Contributor License Agreement](https://git.k8s.io/community/CLA.md) Kubernetes projects require that you sign a Contributor License Agreement (CLA) before we can accept your pull requests
 - [Kubernetes Contributor Guide](https://git.k8s.io/community/contributors/guide) - Main contributor documentation, or you can just jump directly to the [contributing section](https://git.k8s.io/community/contributors/guide#contributing)
 - [Contributor Cheat Sheet](https://git.k8s.io/community/contributors/guide/contributor-cheatsheet) - Common resources for existing developers
+- [SIG Scheduling Contributor's Guide](https://git.k8s.io/community/sig-scheduling/CONTRIBUTING.md) - Guidelines specific to SIG Scheudling.
 
 ## Mentorship
 
