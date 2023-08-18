@@ -121,7 +121,7 @@ func (j *JobSetWrapper) WorkloadPriorityClass(wpc string) *JobSetWrapper {
 	return j
 }
 
-// PriorityClass updates JobSet priorityclass.
+// JobsStatus updates JobSet status.
 func (j *JobSetWrapper) JobsStatus(statuses ...jobsetapi.ReplicatedJobStatus) *JobSetWrapper {
 	j.Status.ReplicatedJobsStatus = statuses
 	return j

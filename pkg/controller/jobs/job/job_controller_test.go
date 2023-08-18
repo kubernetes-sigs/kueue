@@ -529,7 +529,7 @@ func TestReconciler(t *testing.T) {
 		"should get error if workload owner is unknown": {
 			job: *utiltestingjob.MakeJob("job", "ns").
 				ParentWorkload("non-existing-parent-workload").
-				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
+				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("CronJob")).
 				Obj(),
 			wantJob: *utiltestingjob.MakeJob("job", "ns").Obj(),
 			wantErr: jobframework.ErrUnknownWorkloadOwner,

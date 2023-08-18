@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -36,10 +37,10 @@ import (
 )
 
 const (
-	SchedulingGateName = "kueue.x-k8s.io/admission"
-	FrameworkName      = "pod"
-
-	gateNotFound = -1
+	SchedulingGateName             = "kueue.x-k8s.io/admission"
+	FrameworkName                  = "pod"
+	gateNotFound                   = -1
+	ConditionTypeTerminationTarget = "TerminationTarget"
 )
 
 var (
@@ -73,10 +74,11 @@ type Pod corev1.Pod
 
 var _ jobframework.GenericJob = (*Pod)(nil)
 var _ jobframework.JobWithCustomStop = (*Pod)(nil)
+var _ jobframework.JobWithFinalize = (*Pod)(nil)
 
 // Object returns the job instance.
-func (j *Pod) Object() client.Object {
-	return (*corev1.Pod)(j)
+func (p *Pod) Object() client.Object {
+	return (*corev1.Pod)(p)
 }
 
 func (p *Pod) gateIndex() int {
@@ -96,10 +98,7 @@ func (p *Pod) IsSuspended() bool {
 
 // Suspend will suspend the job.
 func (p *Pod) Suspend() {
-	// TODO: maybe change the framework so this can provide feedback,
-	// the pod can only be "suspended" by the mutation hook if it's not
-	// done the only way to potentialy stop its execution is the eviction
-	// which will also terminate the pod.
+	// Not implemented because this is not called when JobWithCustomStop is implemented.
 }
 
 // RunWithPodSetsInfo will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
@@ -112,37 +111,15 @@ func (p *Pod) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) error {
 		p.Spec.SchedulingGates = append(p.Spec.SchedulingGates[:idx], p.Spec.SchedulingGates[idx+1:]...)
 	}
 
-	// TODO: manage the node selector
-	// NOTE: it's only possible to add and only if k8s > 1.27 is used, case in which, since if the provided
-	// selectors are changing a existing key will fail we should be able to "refuse" the assignment
+	p.Spec.NodeSelector = maps.MergeKeepFirst(podSetsInfo[0].NodeSelector, p.Spec.NodeSelector)
 
-	// if k8s < 1.27 TODO: wait for Version check patch
-	info := podSetsInfo[0]
-	if false {
-		if len(info.NodeSelector) > 0 {
-			return fmt.Errorf("%w: node selectors cannot be changed in k8s < 1.27", jobframework.ErrInvalidPodsetInfo)
-		}
-	} else {
-		ns := p.Spec.NodeSelector
-		if len(ns) > 0 {
-			overrideNS := make([]string, 0, len(ns))
-			for k, val := range ns {
-				if newVal, found := info.NodeSelector[k]; found && newVal != val {
-					overrideNS = append(overrideNS, k)
-				}
-			}
-			if len(overrideNS) > 0 {
-				return fmt.Errorf("%w: node selectors %s cannot be changed", jobframework.ErrInvalidPodsetInfo, strings.Join(overrideNS, ","))
-			}
-		}
-		p.Spec.NodeSelector = maps.MergeKeepFirst(podSetsInfo[0].NodeSelector, p.Spec.NodeSelector)
-	}
 	return nil
 
 }
 
 // RestorePodSetsInfo will restore the original node affinity and podSet counts of the job.
 func (p *Pod) RestorePodSetsInfo(nodeSelectors []jobframework.PodSetInfo) bool {
+	// Not implemented since Pods cannot be updated, they can only be terminated.
 	return false
 }
 
@@ -198,18 +175,13 @@ func (p *Pod) PodsReady() bool {
 	return false
 }
 
-// GetGVK returns GVK (Group Version Kind) for the job.
-func (p *Pod) GetGVK() schema.GroupVersionKind {
+// GVK returns GVK (Group Version Kind) for the job.
+func (p *Pod) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
-func (p *Pod) Stop(ctx context.Context, c client.Client, _ []jobframework.PodSetInfo) (bool, error) {
+func (p *Pod) Stop(ctx context.Context, c client.Client, _ []jobframework.PodSetInfo, eventMsg string) (bool, error) {
 	// The podset info is not relevant here, since this should mark the pod's end of life
-
-	// The only alternative to pod deletion looks to be the usage of Eviction API which can
-	// take into account PodDisruptionBudget and the end result will be the same (the pod gets deleted)
-	// For now just deleting the pod make better sense in a kueue context.
-
 	pCopy := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			UID:       p.UID,
@@ -220,13 +192,13 @@ func (p *Pod) Stop(ctx context.Context, c client.Client, _ []jobframework.PodSet
 		Status: corev1.PodStatus{
 			Conditions: []corev1.PodCondition{
 				{
-					Type:   corev1.DisruptionTarget,
+					Type:   ConditionTypeTerminationTarget,
 					Status: corev1.ConditionTrue,
 					LastTransitionTime: metav1.Time{
 						Time: time.Time{},
 					},
 					Reason:  "StoppedByKueue",
-					Message: "stopped by kueue",
+					Message: eventMsg,
 				},
 			},
 		},
@@ -243,4 +215,40 @@ func (p *Pod) Stop(ctx context.Context, c client.Client, _ []jobframework.PodSet
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
+}
+
+func (p *Pod) Finalize(ctx context.Context, c client.Client) error {
+	pod := (*corev1.Pod)(p)
+
+	if controllerutil.RemoveFinalizer(pod, PodFinalizer) {
+		if err := c.Update(ctx, pod); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (p *Pod) Skip() (bool, error) {
+	// Skip pod reconciliation, if managed label is not set
+	if v, ok := p.GetLabels()[ManagedLabelKey]; !ok || v != ManagedLabelValue {
+		return true, nil
+	}
+
+	if IsPodOwnerManagedByQueue(p) {
+		return true, nil
+	}
+
+	return false, nil
+}
+
+func IsPodOwnerManagedByQueue(p *Pod) bool {
+	if owner := metav1.GetControllerOf(p); owner != nil {
+		return jobframework.IsOwnerManagedByKueue(owner) || (owner.Kind == "RayCluster" && strings.HasPrefix(owner.APIVersion, "ray.io/v1alpha1"))
+	}
+	return false
+}
+
+func GetWorkloadNameForPod(podName string) string {
+	return jobframework.GetWorkloadNameForOwnerWithGVK(podName, gvk)
 }

@@ -69,6 +69,8 @@ type Options struct {
 	ManageJobsWithoutQueueName bool
 	WaitForPodsReady           bool
 	KubeServerVersion          *kubeversion.ServerVersionFetcher
+	PodNamespaceSelector       *metav1.LabelSelector
+	PodSelector                *metav1.LabelSelector
 }
 
 // Option configures the reconciler.
@@ -97,6 +99,22 @@ func WithKubeServerVersion(v *kubeversion.ServerVersionFetcher) Option {
 	}
 }
 
+// WithPodNamespaceSelector adds rules to reconcile pods only in particular
+// namespaces.
+func WithPodNamespaceSelector(s *metav1.LabelSelector) Option {
+	return func(o *Options) {
+		o.PodNamespaceSelector = s
+	}
+}
+
+// WithPodSelector adds rules to reconcile pods only with particular
+// labels.
+func WithPodSelector(s *metav1.LabelSelector) Option {
+	return func(o *Options) {
+		o.PodSelector = s
+	}
+}
+
 var DefaultOptions = Options{}
 
 func NewReconciler(
@@ -122,6 +140,12 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	ctx = ctrl.LoggerInto(ctx, log)
 
 	err := r.client.Get(ctx, req.NamespacedName, object)
+
+	if jws, implements := job.(JobWithSkip); implements {
+		if skip, skipErr := jws.Skip(); skip || skipErr != nil {
+			return ctrl.Result{}, nil
+		}
+	}
 
 	if apierrors.IsNotFound(err) || !object.GetDeletionTimestamp().IsZero() {
 		workloads := kueue.WorkloadList{}
@@ -220,6 +244,10 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		err := workload.UpdateStatus(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName)
 		if err != nil {
 			log.Error(err, "Updating workload status")
+		}
+		// Execute job finalization logic
+		if err := r.finalizeJob(ctx, job); err != nil {
+			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
 	}
@@ -500,7 +528,7 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, object clie
 	info := getPodSetsInfoFromWorkload(wl)
 
 	if jws, implements := job.(JobWithCustomStop); implements {
-		stoppedNow, err := jws.Stop(ctx, r.client, info)
+		stoppedNow, err := jws.Stop(ctx, r.client, info, eventMsg)
 		if stoppedNow {
 			r.record.Eventf(object, corev1.EventTypeNormal, "Stopped", eventMsg)
 		}
@@ -520,6 +548,16 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, object clie
 	}
 
 	r.record.Eventf(object, corev1.EventTypeNormal, "Stopped", eventMsg)
+	return nil
+}
+
+func (r *JobReconciler) finalizeJob(ctx context.Context, job GenericJob) error {
+	if jwf, implements := job.(JobWithFinalize); implements {
+		if err := jwf.Finalize(ctx, r.client); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 

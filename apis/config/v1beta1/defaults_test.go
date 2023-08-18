@@ -54,6 +54,18 @@ func TestSetDefaults_Configuration(t *testing.T) {
 	}
 	defaultIntegrations := &Integrations{
 		Frameworks: []string{job.FrameworkName},
+		PodOptions: &PodIntegrationOptions{
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{
+						Key:      "kubernetes.io/metadata.name",
+						Operator: metav1.LabelSelectorOpNotIn,
+						Values:   []string{"kube-system", "kueue-system"},
+					},
+				},
+			},
+			PodSelector: &metav1.LabelSelector{},
+		},
 	}
 	defaultQueueVisibility := &QueueVisibility{
 		UpdateIntervalSeconds: DefaultQueueVisibilityUpdateIntervalSeconds,
@@ -61,6 +73,23 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			MaxCount: 10,
 		},
 	}
+
+	overwriteNamespaceIntegrations := &Integrations{
+		Frameworks: []string{job.FrameworkName},
+		PodOptions: &PodIntegrationOptions{
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{
+						Key:      "kubernetes.io/metadata.name",
+						Operator: metav1.LabelSelectorOpNotIn,
+						Values:   []string{"kube-system", overwriteNamespace},
+					},
+				},
+			},
+			PodSelector: &metav1.LabelSelector{},
+		},
+	}
+
 	podsReadyTimeoutTimeout := metav1.Duration{Duration: defaultPodsReadyTimeout}
 	podsReadyTimeoutOverwrite := metav1.Duration{Duration: time.Minute}
 
@@ -217,7 +246,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					WebhookSecretName:  ptr.To(DefaultWebhookSecretName),
 				},
 				ClientConnection: defaultClientConnection,
-				Integrations:     defaultIntegrations,
+				Integrations:     overwriteNamespaceIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
 			},
 		},
@@ -235,7 +264,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable: ptr.To(false),
 				},
 				ClientConnection: defaultClientConnection,
-				Integrations:     defaultIntegrations,
+				Integrations:     overwriteNamespaceIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
 			},
 		},
@@ -260,7 +289,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					QPS:   ptr.To[float32](123.0),
 					Burst: ptr.To[int32](456),
 				},
-				Integrations:    defaultIntegrations,
+				Integrations:    overwriteNamespaceIntegrations,
 				QueueVisibility: defaultQueueVisibility,
 			},
 		},
@@ -279,7 +308,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable: ptr.To(false),
 				},
 				ClientConnection: defaultClientConnection,
-				Integrations:     defaultIntegrations,
+				Integrations:     overwriteNamespaceIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
 			},
 		},
@@ -377,6 +406,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations: &Integrations{
 					Frameworks: []string{"a", "b"},
+					PodOptions: defaultIntegrations.PodOptions,
 				},
 				QueueVisibility: defaultQueueVisibility,
 			},

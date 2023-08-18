@@ -276,6 +276,18 @@ queueVisibility:
 
 	defaultIntegrations := &configapi.Integrations{
 		Frameworks: []string{job.FrameworkName},
+		PodOptions: &configapi.PodIntegrationOptions{
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{
+						Key:      "kubernetes.io/metadata.name",
+						Operator: metav1.LabelSelectorOpNotIn,
+						Values:   []string{"kube-system", "kueue-system"},
+					},
+				},
+			},
+			PodSelector: &metav1.LabelSelector{},
+		},
 	}
 
 	defaultQueueVisibility := &configapi.QueueVisibility{
@@ -337,8 +349,22 @@ queueVisibility:
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection:           defaultClientConnection,
-				Integrations:               defaultIntegrations,
-				QueueVisibility:            defaultQueueVisibility,
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{job.FrameworkName},
+					PodOptions: &configapi.PodIntegrationOptions{
+						NamespaceSelector: &metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{
+									Key:      "kubernetes.io/metadata.name",
+									Operator: metav1.LabelSelectorOpNotIn,
+									Values:   []string{"kube-system", "kueue-tenant-a"},
+								},
+							},
+						},
+						PodSelector: &metav1.LabelSelector{},
+					},
+				},
+				QueueVisibility: defaultQueueVisibility,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -556,6 +582,18 @@ queueVisibility:
 					// referencing job.FrameworkName ensures the link of job package
 					// therefore the batch/framework should be registered
 					Frameworks: []string{job.FrameworkName},
+					PodOptions: &configapi.PodIntegrationOptions{
+						NamespaceSelector: &metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{
+									Key:      "kubernetes.io/metadata.name",
+									Operator: metav1.LabelSelectorOpNotIn,
+									Values:   []string{"kube-system", "kueue-system"},
+								},
+							},
+						},
+						PodSelector: &metav1.LabelSelector{},
+					},
 				},
 				QueueVisibility: defaultQueueVisibility,
 			},
@@ -686,6 +724,16 @@ func TestEncode(t *testing.T) {
 				"manageJobsWithoutQueueName": false,
 				"integrations": map[string]any{
 					"frameworks": []any{"batch/job"},
+					"podOptions": map[string]any{
+						"namespaceSelector": map[string]any{
+							"matchExpressions": []any{map[string]any{
+								"key":      "kubernetes.io/metadata.name",
+								"operator": "NotIn",
+								"values":   []any{"kube-system", "kueue-system"},
+							}},
+						},
+						"podSelector": map[string]any{},
+					},
 				},
 				"queueVisibility": map[string]any{
 					"updateIntervalSeconds": int64(configapi.DefaultQueueVisibilityUpdateIntervalSeconds),

@@ -18,22 +18,47 @@ package pod
 
 import (
 	"context"
+	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
-type PodWebhook struct{}
+const (
+	ManagedLabelKey   = "kueue.x-k8s.io/managed"
+	ManagedLabelValue = "true"
+	PodFinalizer      = ManagedLabelKey
+)
+
+type PodWebhook struct {
+	client                     client.Client
+	manageJobsWithoutQueueName bool
+	namespaceSelector          *metav1.LabelSelector
+	podSelector                *metav1.LabelSelector
+}
 
 // SetupWebhook configures the webhook for pods.
-func SetupWebhook(mgr ctrl.Manager, _ ...jobframework.Option) error {
-	wh := &PodWebhook{}
+func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
+	options := jobframework.DefaultOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+	wh := &PodWebhook{
+		client:                     mgr.GetClient(),
+		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
+		namespaceSelector:          options.PodNamespaceSelector,
+		podSelector:                options.PodSelector,
+	}
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&corev1.Pod{}).
 		WithDefaulter(wh).
@@ -46,8 +71,7 @@ func fromObject(o runtime.Object) *Pod {
 }
 
 // +kubebuilder:webhook:path=/mutate--v1-pod,mutating=true,failurePolicy=ignore,sideEffects=None,groups="",resources=pods,verbs=create,versions=v1,name=mpod.kb.io,admissionReviewVersions=v1
-
-//TODO: check if we can use namespace/object selectors to skip this webhook
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 
 var _ webhook.CustomDefaulter = &PodWebhook{}
 
@@ -56,7 +80,46 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook").WithValues("pod", klog.KObj(pod))
 	log.V(5).Info("Applying defaults")
 
-	if jobframework.QueueName(pod) != "" {
+	if IsPodOwnerManagedByQueue(pod) {
+		log.V(5).Info("Pod owner is managed by queue, skipping")
+		return nil
+	}
+
+	// Check for pod label selector match
+	podSelector, err := metav1.LabelSelectorAsSelector(w.podSelector)
+	if err != nil {
+		return fmt.Errorf("failed to parse pod selector: %w", err)
+	}
+	if !podSelector.Matches(labels.Set(pod.GetLabels())) {
+		return nil
+	}
+
+	// Get pod namespace and check for namespace label selector match
+	ns := corev1.Namespace{}
+	err = w.client.Get(ctx, client.ObjectKey{Name: pod.GetNamespace()}, &ns)
+	if err != nil {
+		return fmt.Errorf("failed to run mutating webhook on pod %s, error while getting namespace: %w",
+			pod.GetName(),
+			err,
+		)
+	}
+	log.V(5).Info("Found pod namespace", "Namespace.Name", ns.GetName())
+	nsSelector, err := metav1.LabelSelectorAsSelector(w.namespaceSelector)
+	if err != nil {
+		return fmt.Errorf("failed to parse namespace selector: %w", err)
+	}
+	if !nsSelector.Matches(labels.Set(ns.GetLabels())) {
+		return nil
+	}
+
+	if jobframework.QueueName(pod) != "" || w.manageJobsWithoutQueueName {
+		controllerutil.AddFinalizer(obj.(*corev1.Pod), PodFinalizer)
+
+		if pod.Labels == nil {
+			pod.Labels = make(map[string]string)
+		}
+		pod.Labels[ManagedLabelKey] = ManagedLabelValue
+
 		if pod.gateIndex() == gateNotFound {
 			log.V(5).Info("Adding gate")
 			pod.Spec.SchedulingGates = append(pod.Spec.SchedulingGates, corev1.PodSchedulingGate{Name: SchedulingGateName})

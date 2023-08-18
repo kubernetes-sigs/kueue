@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -57,10 +58,11 @@ const (
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:  SetupIndexes,
-		NewReconciler: NewReconciler,
-		SetupWebhook:  SetupWebhook,
-		JobType:       &batchv1.Job{},
+		SetupIndexes:           SetupIndexes,
+		NewReconciler:          NewReconciler,
+		SetupWebhook:           SetupWebhook,
+		JobType:                &batchv1.Job{},
+		IsManagingObjectsOwner: isJob,
 	}))
 }
 
@@ -80,7 +82,12 @@ var NewReconciler = jobframework.NewGenericReconciler(
 		return &Job{}
 	}, func(c client.Client) handler.EventHandler {
 		return &parentWorkloadHandler{client: c}
-	})
+	},
+)
+
+func isJob(owner *metav1.OwnerReference) bool {
+	return owner.Kind == "Job" && strings.HasPrefix(owner.APIVersion, "batch/v1")
+}
 
 type parentWorkloadHandler struct {
 	client client.Client
@@ -152,7 +159,7 @@ func (j *Job) Suspend() {
 	j.Spec.Suspend = ptr.To(true)
 }
 
-func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []jobframework.PodSetInfo) (bool, error) {
+func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []jobframework.PodSetInfo, eventMsg string) (bool, error) {
 	stoppedNow := false
 	if !j.IsSuspended() {
 		j.Suspend()
