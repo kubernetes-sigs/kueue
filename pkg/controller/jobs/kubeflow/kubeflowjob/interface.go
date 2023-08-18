@@ -34,7 +34,5 @@ type KFJobControl interface {
 	// JobStatus returns the JobStatus for the KFJob.
 	JobStatus() kftraining.JobStatus
 	// OrderedReplicaTypes returns the ordered list of ReplicaTypes for the KFJob.
-	OrderedReplicaTypes(replicaSpecs map[kftraining.ReplicaType]*kftraining.ReplicaSpec) []kftraining.ReplicaType
-	// PriorityClass returns the KFJob's priority class name.
-	PriorityClass() string
+	OrderedReplicaTypes() []kftraining.ReplicaType
 }

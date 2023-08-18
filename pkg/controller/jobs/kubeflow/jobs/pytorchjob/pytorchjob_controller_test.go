@@ -19,6 +19,7 @@ package pytorchjob
 import (
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	v1 "k8s.io/api/core/v1"
 )
@@ -163,6 +164,53 @@ func TestCalcPriorityClassName(t *testing.T) {
 			gotPriorityClassName := pytorchJob.PriorityClass()
 			if tc.wantPriorityClassName != gotPriorityClassName {
 				t.Errorf("Unexpected response (want: %v, got: %v)", tc.wantPriorityClassName, gotPriorityClassName)
+			}
+		})
+	}
+}
+
+func TestOrderedReplicaTypes(t *testing.T) {
+	testcases := map[string]struct {
+		job              kftraining.PyTorchJob
+		wantReplicaTypes []kftraining.ReplicaType
+	}{
+		"job has no replicas": {
+			job:              kftraining.PyTorchJob{},
+			wantReplicaTypes: []kftraining.ReplicaType{},
+		},
+		"job has all replicas": {
+			job: kftraining.PyTorchJob{
+				Spec: kftraining.PyTorchJobSpec{
+					PyTorchReplicaSpecs: map[kftraining.ReplicaType]*kftraining.ReplicaSpec{
+						kftraining.PyTorchJobReplicaTypeMaster: {},
+						kftraining.PyTorchJobReplicaTypeWorker: {},
+					},
+				},
+			},
+			wantReplicaTypes: []kftraining.ReplicaType{
+				kftraining.PyTorchJobReplicaTypeMaster,
+				kftraining.PyTorchJobReplicaTypeWorker,
+			},
+		},
+		"job only has the worker replica": {
+			job: kftraining.PyTorchJob{
+				Spec: kftraining.PyTorchJobSpec{
+					PyTorchReplicaSpecs: map[kftraining.ReplicaType]*kftraining.ReplicaSpec{
+						kftraining.PyTorchJobReplicaTypeWorker: {},
+					},
+				},
+			},
+			wantReplicaTypes: []kftraining.ReplicaType{
+				kftraining.PyTorchJobReplicaTypeWorker,
+			},
+		},
+	}
+	for name, tc := range testcases {
+		t.Run(name, func(t *testing.T) {
+			pytorchJob := fromObject(&tc.job)
+			gotReplicaTypes := pytorchJob.OrderedReplicaTypes()
+			if diff := cmp.Diff(tc.wantReplicaTypes, gotReplicaTypes); len(diff) != 0 {
+				t.Errorf("Unexpected response (-want, +got): %v", diff)
 			}
 		})
 	}
