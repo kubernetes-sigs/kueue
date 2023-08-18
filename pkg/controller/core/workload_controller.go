@@ -150,6 +150,15 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if workload.IsAdmitted(&wl) {
+		if !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
+			// if any of the checks are false, evict
+			if _, hasFailed := workload.ValidateCheckConditions(&wl); hasFailed {
+				log.V(3).Info("Workload is evicted due to admission checks", "localQueue")
+				workload.SetEvictedCondition(&wl, kueue.WorkloadEvictedByAdmissionCheck, "At least one admission check is false")
+				err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
+				return ctrl.Result{}, client.IgnoreNotFound(err)
+			}
+		}
 		return r.reconcileNotReadyTimeout(ctx, req, &wl)
 	}
 
