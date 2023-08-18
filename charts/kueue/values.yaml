@@ -88,6 +88,7 @@ managerConfig:
       - "kubeflow.org/mpijob"
       - "ray.io/rayjob"
       - "kubeflow.org/pytorchjob"
+      - "kubeflow.org/tfjob"
 # ports definition for metricsService and webhookService.
 metricsService:
   ports:

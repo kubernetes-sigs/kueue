@@ -19,4 +19,5 @@ package jobs
 // Reference the job framework integration packages to ensure linking.
 import (
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/pytorchjob"
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/tfjob"
 )

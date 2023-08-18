@@ -132,6 +132,23 @@ rules:
       - get
       - update
   - apiGroups:
+      - kubeflow.org
+    resources:
+      - tfjobs
+    verbs:
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - kubeflow.org
+    resources:
+      - tfjobs/status
+    verbs:
+      - get
+      - update
+  - apiGroups:
       - kueue.x-k8s.io
     resources:
       - clusterqueues
