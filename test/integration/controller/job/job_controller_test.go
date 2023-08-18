@@ -876,8 +876,6 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 			return createdProdJob.Spec.Suspend
 		}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(true)))
 
-		originalSelector := maps.Clone(createdProdJob.Spec.Template.Spec.NodeSelector)
-
 		ginkgo.By("creating another localQueue of the same name and in the same namespace as the job")
 		prodLocalQ = testing.MakeLocalQueue(localQueue.Name, ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
 		gomega.Expect(k8sClient.Create(ctx, prodLocalQ)).Should(gomega.Succeed())
@@ -889,17 +887,8 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(false)))
 
 		runningSelector := maps.Clone(createdProdJob.Spec.Template.Spec.NodeSelector)
-		gomega.Expect(runningSelector).NotTo(gomega.Equal(originalSelector))
 
-		expectedSelector := maps.Clone(originalSelector)
-		if expectedSelector == nil {
-			expectedSelector = onDemandFlavor.Spec.NodeLabels
-		} else {
-			for k, v := range onDemandFlavor.Spec.NodeLabels {
-				expectedSelector[k] = v
-			}
-		}
-		gomega.Expect(runningSelector).To(gomega.Equal(expectedSelector))
+		gomega.Expect(runningSelector).To(gomega.Equal(map[string]string{labelKey: "on-demand"}))
 	})
 
 	ginkgo.When("The workload's admission is removed", func() {
@@ -1021,7 +1010,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 	})
 
 	ginkgo.When("The job is deleted while admitted", func() {
-		ginkgo.It("Its workload should also be deleted", func() {
+		ginkgo.It("Its workload finalizer should be removed", func() {
 			localQueue := testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
 			job := testingjob.MakeJob(jobName, ns.Name).Queue(localQueue.Name).Request(corev1.ResourceCPU, "2").Suspend(false).Obj()
 			lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
@@ -1062,7 +1051,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 				gomega.Expect(k8sClient.Delete(ctx, job)).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("checking the workload is removed or the finalizer is no longer set", func() {
+			ginkgo.By("checking that its workloads finalizer is removed", func() {
 				gomega.Eventually(func() []string {
 					wl := &kueue.Workload{}
 					err := k8sClient.Get(ctx, wlKey, wl)
