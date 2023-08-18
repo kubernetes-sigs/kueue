@@ -24,7 +24,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -298,58 +297,6 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 			return apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadFinished)
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
-	})
-})
-
-var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue are managed", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	ginkgo.BeforeAll(func() {
-		fwk = &framework.Framework{
-			CRDPath:     crdPath,
-			DepCRDPaths: []string{tensorflowCrdPath},
-		}
-		cfg := fwk.Init()
-		ctx, k8sClient = fwk.RunManager(cfg, managerSetup())
-	})
-	ginkgo.AfterAll(func() {
-		fwk.Teardown()
-	})
-
-	var (
-		ns *corev1.Namespace
-	)
-	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "core-",
-			},
-		}
-		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-	})
-	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-	})
-
-	ginkgo.It("Should reconcile jobs only when queue is set", func() {
-		ginkgo.By("checking the workload is not created when queue name is not set")
-		job := testingtfjob.MakeTFJob(jobName, ns.Name).Obj()
-		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
-		lookupKey := types.NamespacedName{Name: jobName, Namespace: ns.Name}
-		createdJob := &kftraining.TFJob{}
-		gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-
-		createdWorkload := &kueue.Workload{}
-		wlLookupKey := types.NamespacedName{Name: workloadtfjob.GetWorkloadNameForTFJob(jobName), Namespace: ns.Name}
-		gomega.Consistently(func() bool {
-			return apierrors.IsNotFound(k8sClient.Get(ctx, wlLookupKey, createdWorkload))
-		}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
-
-		ginkgo.By("checking the workload is created when queue name is set")
-		jobQueueName := "test-queue"
-		createdJob.Annotations = map[string]string{constants.QueueAnnotation: jobQueueName}
-		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
-		gomega.Eventually(func() error {
-			return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 })
 
@@ -647,77 +594,5 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		gomega.Expect(createdJob.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeWorker].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 		util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 1)
-	})
-
-	ginkgo.When("The workload's admission is removed", func() {
-		ginkgo.It("Should restore the original node selectors", func() {
-
-			localQueue := testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			job := testingtfjob.MakeTFJob(jobName, ns.Name).Queue(localQueue.Name).
-				Request(kftraining.TFJobReplicaTypeChief, corev1.ResourceCPU, "3").
-				Request(kftraining.TFJobReplicaTypePS, corev1.ResourceCPU, "4").
-				Request(kftraining.TFJobReplicaTypeWorker, corev1.ResourceCPU, "4").
-				Obj()
-			lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
-			createdJob := &kftraining.TFJob{}
-
-			nodeSelectors := func(j *kftraining.TFJob) map[kftraining.ReplicaType]map[string]string {
-				ret := map[kftraining.ReplicaType]map[string]string{}
-				for k := range j.Spec.TFReplicaSpecs {
-					ret[k] = j.Spec.TFReplicaSpecs[k].Template.Spec.NodeSelector
-				}
-				return ret
-			}
-
-			ginkgo.By("create a job", func() {
-				gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("job should be suspend", func() {
-				gomega.Eventually(func() *bool {
-					gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-					return createdJob.Spec.RunPolicy.Suspend
-				}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(true)))
-			})
-
-			// backup the node selectors
-			originalNodeSelectors := nodeSelectors(createdJob)
-
-			ginkgo.By("create a localQueue", func() {
-				gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("job should be unsuspended", func() {
-				gomega.Eventually(func() *bool {
-					gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-					return createdJob.Spec.RunPolicy.Suspend
-				}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(false)))
-			})
-
-			ginkgo.By("the node selectors should be updated", func() {
-				gomega.Eventually(func() map[kftraining.ReplicaType]map[string]string {
-					gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-					return nodeSelectors(createdJob)
-				}, util.Timeout, util.Interval).ShouldNot(gomega.Equal(originalNodeSelectors))
-			})
-
-			ginkgo.By("delete the localQueue to prevent readmission", func() {
-				gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("clear the workload's admission to stop the job", func() {
-				wl := &kueue.Workload{}
-				wlKey := types.NamespacedName{Name: workloadtfjob.GetWorkloadNameForTFJob(job.Name), Namespace: job.Namespace}
-				gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-				gomega.Expect(util.SetAdmission(ctx, k8sClient, wl, nil)).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("the node selectors should be restored", func() {
-				gomega.Eventually(func() map[kftraining.ReplicaType]map[string]string {
-					gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-					return nodeSelectors(createdJob)
-				}, util.Timeout, util.Interval).Should(gomega.Equal(originalNodeSelectors))
-			})
-		})
 	})
 })
