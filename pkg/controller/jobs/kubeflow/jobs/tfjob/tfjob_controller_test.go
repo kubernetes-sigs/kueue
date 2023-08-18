@@ -19,6 +19,7 @@ package tfjob
 import (
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	v1 "k8s.io/api/core/v1"
 )
@@ -97,6 +98,20 @@ func TestCalcPriorityClassName(t *testing.T) {
 								},
 							},
 						},
+						kftraining.TFJobReplicaTypeWorker: {
+							Template: v1.PodTemplateSpec{
+								Spec: v1.PodSpec{
+									PriorityClassName: "worker-priority",
+								},
+							},
+						},
+						kftraining.TFJobReplicaTypeEval: {
+							Template: v1.PodTemplateSpec{
+								Spec: v1.PodSpec{
+									PriorityClassName: "eval-priority",
+								},
+							},
+						},
 					},
 				},
 			},
@@ -163,6 +178,57 @@ func TestCalcPriorityClassName(t *testing.T) {
 			gotPriorityClassName := tfJob.PriorityClass()
 			if tc.wantPriorityClassName != gotPriorityClassName {
 				t.Errorf("Unexpected response (want: %v, got: %v)", tc.wantPriorityClassName, gotPriorityClassName)
+			}
+		})
+	}
+}
+
+func TestOrderedReplicaType(t *testing.T) {
+	testcases := map[string]struct {
+		job              kftraining.TFJob
+		wantReplicaTypes []kftraining.ReplicaType
+	}{
+		"job has no replicas": {
+			job:              kftraining.TFJob{},
+			wantReplicaTypes: []kftraining.ReplicaType{},
+		},
+		"job has all replicas": {
+			job: kftraining.TFJob{
+				Spec: kftraining.TFJobSpec{
+					TFReplicaSpecs: map[kftraining.ReplicaType]*kftraining.ReplicaSpec{
+						kftraining.TFJobReplicaTypePS:     {},
+						kftraining.TFJobReplicaTypeEval:   {},
+						kftraining.TFJobReplicaTypeWorker: {},
+						kftraining.TFJobReplicaTypeChief:  {},
+						kftraining.TFJobReplicaTypeMaster: {},
+					},
+				},
+			},
+			wantReplicaTypes: []kftraining.ReplicaType{
+				kftraining.TFJobReplicaTypeChief,
+				kftraining.TFJobReplicaTypeMaster,
+				kftraining.TFJobReplicaTypePS,
+				kftraining.TFJobReplicaTypeWorker,
+				kftraining.TFJobReplicaTypeEval,
+			},
+		},
+		"job has only worker replicas": {
+			job: kftraining.TFJob{
+				Spec: kftraining.TFJobSpec{
+					TFReplicaSpecs: map[kftraining.ReplicaType]*kftraining.ReplicaSpec{
+						kftraining.TFJobReplicaTypeWorker: {},
+					},
+				},
+			},
+			wantReplicaTypes: []kftraining.ReplicaType{kftraining.PyTorchJobReplicaTypeWorker},
+		},
+	}
+	for name, tc := range testcases {
+		t.Run(name, func(t *testing.T) {
+			tfJob := fromObject(&tc.job)
+			gotReplicaTypes := tfJob.OrderedReplicaTypes()
+			if diff := cmp.Diff(tc.wantReplicaTypes, gotReplicaTypes); len(diff) != 0 {
+				t.Errorf("Unexpected response (want: %v, got: %v)", tc.wantReplicaTypes, gotReplicaTypes)
 			}
 		})
 	}

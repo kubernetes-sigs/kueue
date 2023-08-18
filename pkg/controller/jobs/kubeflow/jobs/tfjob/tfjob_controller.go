@@ -85,51 +85,14 @@ func (j *JobControl) JobStatus() kftraining.JobStatus {
 	return j.Status
 }
 
-func (j *JobControl) OrderedReplicaTypes(replicaSpecs map[kftraining.ReplicaType]*kftraining.ReplicaSpec) []kftraining.ReplicaType {
-	result := make([]kftraining.ReplicaType, 0, 5)
-	if _, ok := replicaSpecs[kftraining.TFJobReplicaTypeChief]; ok {
-		result = append(result, kftraining.TFJobReplicaTypeChief)
+func (j *JobControl) OrderedReplicaTypes() []kftraining.ReplicaType {
+	return []kftraining.ReplicaType{
+		kftraining.TFJobReplicaTypeChief,
+		kftraining.TFJobReplicaTypeMaster,
+		kftraining.TFJobReplicaTypePS,
+		kftraining.TFJobReplicaTypeWorker,
+		kftraining.TFJobReplicaTypeEval,
 	}
-	if _, ok := replicaSpecs[kftraining.TFJobReplicaTypeMaster]; ok {
-		result = append(result, kftraining.TFJobReplicaTypeMaster)
-	}
-	if _, ok := replicaSpecs[kftraining.TFJobReplicaTypePS]; ok {
-		result = append(result, kftraining.TFJobReplicaTypePS)
-	}
-	if _, ok := replicaSpecs[kftraining.TFJobReplicaTypeWorker]; ok {
-		result = append(result, kftraining.TFJobReplicaTypeWorker)
-	}
-	if _, ok := replicaSpecs[kftraining.TFJobReplicaTypeEval]; ok {
-		result = append(result, kftraining.TFJobReplicaTypeEval)
-	}
-	return result
-}
-
-// PriorityClass calculates the priorityClass name needed for workload according to the following priorities:
-//  1. .spec.runPolicy.schedulingPolicy.priorityClass
-//  2. .spec.replicaSpecs[Chief].template.spec.priorityClassName
-//  3. .spec.replicaSpecs[Master].template.spec.priorityClassName
-//  4. .spec.replicaSpecs[ParameterServer].template.spec.priorityClassName
-//  5. .spec.replicaSpecs[Worker].template.spec.priorityClassName
-//  6. .spec.replicaSpecs[Evaluator].template.spec.priorityClassName
-//
-// This function is inspired by an analogous one in mpi-controller:
-// https://github.com/kubeflow/mpi-operator/blob/5946ef4157599a474ab82ff80e780d5c2546c9ee/pkg/controller/podgroup.go#L69-L72
-func (j *JobControl) PriorityClass() string {
-	if j.Spec.RunPolicy.SchedulingPolicy != nil && len(j.Spec.RunPolicy.SchedulingPolicy.PriorityClass) != 0 {
-		return j.Spec.RunPolicy.SchedulingPolicy.PriorityClass
-	} else if m := j.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeChief]; m != nil && len(m.Template.Spec.PriorityClassName) != 0 {
-		return m.Template.Spec.PriorityClassName
-	} else if m = j.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeMaster]; m != nil && len(m.Template.Spec.PriorityClassName) != 0 {
-		return m.Template.Spec.PriorityClassName
-	} else if m = j.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypePS]; m != nil && len(m.Template.Spec.PriorityClassName) != 0 {
-		return m.Template.Spec.PriorityClassName
-	} else if m = j.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeWorker]; m != nil && len(m.Template.Spec.PriorityClassName) != 0 {
-		return m.Template.Spec.PriorityClassName
-	} else if m = j.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeEval]; m != nil && len(m.Template.Spec.PriorityClassName) != 0 {
-		return m.Template.Spec.PriorityClassName
-	}
-	return ""
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
