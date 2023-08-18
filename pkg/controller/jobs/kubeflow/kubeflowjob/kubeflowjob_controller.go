@@ -53,7 +53,7 @@ func (j *KubeflowJob) Suspend() {
 
 func (j *KubeflowJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) error {
 	j.KFJobControl.RunPolicy().Suspend = ptr.To(false)
-	orderedReplicaTypes := j.KFJobControl.OrderedReplicaTypes(j.KFJobControl.ReplicaSpecs())
+	orderedReplicaTypes := j.OrderedReplicaTypes()
 
 	if len(podSetInfos) != len(orderedReplicaTypes) {
 		return jobframework.BadPodSetsInfoLenError(len(orderedReplicaTypes), len(podSetInfos))
@@ -70,7 +70,7 @@ func (j *KubeflowJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) 
 }
 
 func (j *KubeflowJob) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) bool {
-	orderedReplicaTypes := j.KFJobControl.OrderedReplicaTypes(j.KFJobControl.ReplicaSpecs())
+	orderedReplicaTypes := j.OrderedReplicaTypes()
 	changed := false
 	for index, info := range podSetInfos {
 		replicaType := orderedReplicaTypes[index]
@@ -107,7 +107,7 @@ func (j *KubeflowJob) Finished() (metav1.Condition, bool) {
 }
 
 func (j *KubeflowJob) PodSets() []kueue.PodSet {
-	replicaTypes := j.KFJobControl.OrderedReplicaTypes(j.KFJobControl.ReplicaSpecs())
+	replicaTypes := j.OrderedReplicaTypes()
 	podSets := make([]kueue.PodSet, len(replicaTypes))
 	for index, replicaType := range replicaTypes {
 		podSets[index] = kueue.PodSet{
@@ -141,8 +141,36 @@ func (j *KubeflowJob) GVK() schema.GroupVersionKind {
 	return j.KFJobControl.GVK()
 }
 
+// PriorityClass calculates the priorityClass name needed for workload according to the following priorities:
+//  1. .spec.runPolicy.schedulingPolicy.priorityClass
+//  2. .spec.replicaSpecs[OrderedReplicaTypes[0]].template.spec.priorityClassName
+//  3. .spec.replicaSpecs[OrderedReplicaTypes[1]].template.spec.priorityClassName
+//  4. ...
+//
+// This function is inspired by an analogous one in mpi-controller:
+// https://github.com/kubeflow/mpi-operator/blob/5946ef4157599a474ab82ff80e780d5c2546c9ee/pkg/controller/podgroup.go#L69-L72
 func (j *KubeflowJob) PriorityClass() string {
-	return j.KFJobControl.PriorityClass()
+	if j.KFJobControl.RunPolicy().SchedulingPolicy != nil && len(j.KFJobControl.RunPolicy().SchedulingPolicy.PriorityClass) != 0 {
+		return j.KFJobControl.RunPolicy().SchedulingPolicy.PriorityClass
+	}
+	replicaTypes := j.OrderedReplicaTypes()
+	for _, replicaType := range replicaTypes {
+		if m := j.KFJobControl.ReplicaSpecs()[replicaType]; m != nil && len(m.Template.Spec.PriorityClassName) != 0 {
+			return m.Template.Spec.PriorityClassName
+		}
+	}
+	return ""
+}
+
+func (j *KubeflowJob) OrderedReplicaTypes() []kftraining.ReplicaType {
+	replicaTypes := j.KFJobControl.OrderedReplicaTypes()
+	result := make([]kftraining.ReplicaType, 0, len(replicaTypes))
+	for _, replicaType := range replicaTypes {
+		if j.KFJobControl.ReplicaSpecs()[replicaType] != nil {
+			result = append(result, replicaType)
+		}
+	}
+	return result
 }
 
 func podsCount(replicaSpecs map[kftraining.ReplicaType]*kftraining.ReplicaSpec, replicaType kftraining.ReplicaType) int32 {
