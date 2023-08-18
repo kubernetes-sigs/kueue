@@ -23,6 +23,7 @@
     - [6. A jobFramework specifies only <code>priorityClass</code>](#6-a-jobframework-specifies-only-)
   - [How to expand Priority utility](#how-to-expand-priority-utility)
   - [Where workload's Priority is used](#where-workloads-priority-is-used)
+  - [Workload's priority values is always mutable](#workloads-priority-values-is-always-mutable)
   - [What happens when a user changes the priority of <code>workloadPriorityClass</code>?](#what-happens-when-a-user-changes-the-priority-of-)
   - [Future works](#future-works)
   - [Test Plan](#test-plan)
@@ -54,23 +55,23 @@ However, under the current implementation, the priority of the `Workload` is tie
 ### Goals
 
 Implement `WorkloadPriorityClass`. `Workload` can utilize `WorkloadPriorityClass`.  
-CRDs like Job, MPIJob etc specify the `WorkloadPriorityClass` through labels.  
+JobFrameworks like Job, MPIJob etc specify the `WorkloadPriorityClass` through labels.  
 Users can modify the priority of a `Workload` by changing `Workload`'s priority directly.
 
 ### Non-Goals
 
-Using existing k8s `PriorityClass` for Workload's Priority is not recommended.  
+Using existing k8s `PriorityClass` for Workload's priority is not recommended.  
 `WorkloadPriorityClass` doesn't implement all the features of the k8s `PriorityClass`
 because some fields on the k8s `PriorityClass` are not relevant to Kueue.  
-When creating a workloadPriorityClass, there is no need to create other CRDs. Therefore, the reconcile functionality is unnecessary. The workloadPriorityClass controller will not be implemented for now.
+When creating a new `WorkloadPriorityClass`, there is no need to create other CRDs owned by `WorkloadPriorityClass`. Therefore, the reconcile functionality is unnecessary. The `WorkloadPriorityClass` controller will not be implemented for now.
 
 ## Proposal
 
 In this proposal, `WorkloadPriorityClass` is defined.  
 The `Workload` is able to utilize this `WorkloadPriorityClass`.  
 `WorkloadPriorityClass` is independent from pod's priority.  
-`Priority`, `PriorityClassName` and `PriorityClassSource` fields will be part of the workload spec and be mutable when `workload` is not admitted by `ClusterQueue`.  
-CRDs like Job, MPIJob etc specify the `WorkloadPriorityClass` through labels.
+`Priority`, `PriorityClassName` and `PriorityClassSource` fields will be part of the workload spec and always be mutable.
+JobFrameworks like Job, MPIJob etc specify the `WorkloadPriorityClass` through labels.
 
 <!--
 This is where we get down to the specifics of what the proposal actually is.
@@ -99,8 +100,8 @@ By developing a custom controller to manage Priority value of `Workload` spec, t
 
 It's possible that the pod's priority conflicts with the workload's priority.
 For example, a high-priority job with low-priority pods may never run to completion because it may always be preempted by kube-scheduler.
-We should document the risks of pod preemption to uses.
-We can also point users to create `PriorityClass` for their pods that are [non-preempting](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/#non-preempting-priority-class).
+We should document the risks of pod preemption to uses.  
+We can also point users to create `PriorityClass` for their pods that are [non-preempting](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/#non-preempting-priority-class).  
 If a workload's priority is high and pod's priority is low and the kube-scheduler initiates preemption, the pod's priority is prioritized. To prevent this behavior, non-preempting setting is needed.
 
 
@@ -120,10 +121,10 @@ type WorkloadPriorityClass struct {
 }
 ```
 
-Also `priorityClassSource` field is added to `WorkloadSpec`.  
-The `PriorityClass` field can accept both k8s `PriorityClass` and `workloadPriorityClass` names as values.
-To distinguish, when using `workloadPriorityClass`, a `priorityClassSource` field has the "kueue.x-k8s.io/workloadpriorityclass" value.
-When using k8s `PriorityClass`, a `priorityClassSource` field has the "scheduling.k8s.io/priorityclass" value.
+Also `PriorityClassSource` field is added to `WorkloadSpec`.  
+The `PriorityClass` field can accept both k8s `PriorityClass` and `WorkloadPriorityClass` names as values.
+To distinguish, when using `WorkloadPriorityClass`, a `PriorityClassSource` field has the `kueue.x-k8s.io/workloadpriorityclass` value.
+When using k8s `PriorityClass`, a `priorityClassSource` field has the `scheduling.k8s.io/priorityclass` value.
 
 ```golang
 type WorkloadSpec struct {
@@ -136,7 +137,7 @@ type WorkloadSpec struct {
 ### How to use WorkloadPriorityClass on Job
 
 The `workloadPriorityClass` is specified through a label `kueue.x-k8s.io/priority-class`.
-This label is mutable only when the Job isn't yet admitted by `ClusterQueue`.
+This label is always mutable because it might be useful for the preemption.
 
 ```yaml
 # sample-priority-class.yaml
@@ -437,6 +438,10 @@ If `PriorityClassSource` has the value `scheduling.k8s.io/priorityclass`, `prior
 The priority of workloads is utilized in queuing, preemption, and other scheduling processes in Kueue.
 With the introduction of `workloadPriorityClass`, there is no change in the places where priority is used in Kueue.
 It just enables the usage of `workloadPriorityClass` as the priority.
+
+### Workload's priority values is always mutable
+
+`Priority`, `PriorityClassName` and `PriorityClassSource` fields is part of the workload spec and always mutable because it might be useful for the preemption.
 
 ### What happens when a user changes the priority of `workloadPriorityClass`?
 
