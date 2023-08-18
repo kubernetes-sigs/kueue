@@ -441,7 +441,7 @@ It just enables the usage of `workloadPriorityClass` as the priority.
 
 ### Workload's priority values are always mutable
 
-`Priority`, `PriorityClassName` and `PriorityClassSource` fields is part of the workload spec and always mutable because it might be useful for the preemption.  
+`Priority`, `PriorityClassName`, and `PriorityClassSource` fields are part of the workload spec and always mutable because it might be useful for the preemption.  
 Also there is an [open KEP](https://github.com/kubernetes/enhancements/pull/4129) to make `PriorityClass` mutable in k8s. This `workload`'s design aligns with the direction of k8s `PriorityClass`.
 
 ### What happens when a user changes the priority of `workloadPriorityClass`?
