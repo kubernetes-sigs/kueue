@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright 2021 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package mpijob
+package job
 
 import (
 	"context"
@@ -34,56 +34,43 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
+	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	//+kubebuilder:scaffold:imports
 )
 
 var (
-	cfg         *rest.Config
-	k8sClient   client.Client
-	ctx         context.Context
-	fwk         *framework.Framework
-	crdPath     = filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases")
-	mpiCrdPath  = filepath.Join("..", "..", "..", "..", "dep-crds", "mpi-operator")
-	webhookPath = filepath.Join("..", "..", "..", "..", "config", "components", "webhook")
+	cfg                  *rest.Config
+	k8sClient            client.Client
+	serverVersionFetcher *kubeversion.ServerVersionFetcher
+	ctx                  context.Context
+	fwk                  *framework.Framework
+	crdPath              = filepath.Join("..", "..", "..", "..", "..", "config", "components", "crd", "bases")
+	webhookPath          = filepath.Join("..", "..", "..", "..", "..", "config", "components", "webhook")
 )
 
 func TestAPIs(t *testing.T) {
 	gomega.RegisterFailHandler(ginkgo.Fail)
 
 	ginkgo.RunSpecs(t,
-		"MPIJob Controller Suite",
+		"Job Controller Suite",
 	)
 }
 
-func managerSetup(setupJobManager bool, opts ...jobframework.Option) framework.ManagerSetup {
+func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	return func(mgr manager.Manager, ctx context.Context) {
-		reconciler := mpijob.NewReconciler(
+		reconciler := job.NewReconciler(
 			mgr.GetClient(),
 			mgr.GetEventRecorderFor(constants.JobControllerName),
 			opts...)
-		err := mpijob.SetupIndexes(ctx, mgr.GetFieldIndexer())
+		err := job.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = reconciler.SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = mpijob.SetupMPIJobWebhook(mgr, opts...)
+		err = job.SetupWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		if setupJobManager {
-			jobReconciler := job.NewReconciler(
-				mgr.GetClient(),
-				mgr.GetEventRecorderFor(constants.JobControllerName),
-				opts...)
-			err = job.SetupIndexes(ctx, mgr.GetFieldIndexer())
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = jobReconciler.SetupWithManager(mgr)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = job.SetupWebhook(mgr, opts...)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		}
 	}
 }
 
@@ -98,12 +85,12 @@ func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetu
 		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &config.Configuration{})
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
-		err = mpijob.SetupIndexes(ctx, mgr.GetFieldIndexer())
+		err = job.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = mpijob.NewReconciler(mgr.GetClient(),
+		err = job.NewReconciler(mgr.GetClient(),
 			mgr.GetEventRecorderFor(constants.JobControllerName), opts...).SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = mpijob.SetupMPIJobWebhook(mgr, opts...)
+		err = job.SetupWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))
