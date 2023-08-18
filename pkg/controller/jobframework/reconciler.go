@@ -29,6 +29,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -117,14 +118,31 @@ func NewReconciler(
 
 func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Request, job GenericJob) (ctrl.Result, error) {
 	object := job.Object()
-	if err := r.client.Get(ctx, req.NamespacedName, object); err != nil {
-		// we'll ignore not-found errors, since there is nothing to do.
+	log := ctrl.LoggerFrom(ctx).WithValues("job", req.String(), "gvk", job.GVK())
+	ctx = ctrl.LoggerInto(ctx, log)
+
+	err := r.client.Get(ctx, req.NamespacedName, object)
+
+	if apierrors.IsNotFound(err) || !object.GetDeletionTimestamp().IsZero() {
+		workloads := kueue.WorkloadList{}
+		if err := r.client.List(ctx, &workloads, client.InNamespace(req.Namespace),
+			client.MatchingFields{getOwnerKey(job.GVK()): req.Name}); err != nil {
+			log.Error(err, "Unable to list child workloads")
+			return ctrl.Result{}, err
+		}
+		for i := range workloads.Items {
+			err := r.removeFinalizer(ctx, &workloads.Items[i])
+			if client.IgnoreNotFound(err) != nil {
+				log.Error(err, "Removing finalizer")
+				return ctrl.Result{}, err
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
+	if err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	namespacedName := types.NamespacedName{Name: object.GetName(), Namespace: object.GetNamespace()}
-
-	log := ctrl.LoggerFrom(ctx).WithValues("job", namespacedName.String())
-	ctx = ctrl.LoggerInto(ctx, log)
 
 	isStandaloneJob := ParentWorkloadName(job) == ""
 
@@ -137,7 +155,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				"queueName", QueueName(job), "parentWorkload", ParentWorkloadName(job))
 			return ctrl.Result{}, nil
 		}
-		isParentJobManaged, err := r.IsParentJobManaged(ctx, job.Object(), namespacedName.Namespace)
+		isParentJobManaged, err := r.IsParentJobManaged(ctx, job.Object(), req.Namespace)
 		if err != nil {
 			log.Error(err, "couldn't check whether the parent job is managed by kueue")
 			return ctrl.Result{}, err
@@ -179,7 +197,22 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	if wl != nil && apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, r.removeFinalizer(ctx, wl)
+	}
+
+	// 1.1 If the workload is pending deletion, suspend the job if needed
+	// and drop the finalizer.
+	if wl != nil && !wl.DeletionTimestamp.IsZero() {
+		log.V(2).Info("The workload is marked for deletion")
+		err := r.stopJob(ctx, job, object, wl, "Workload is deleted")
+		if err != nil {
+			log.Error(err, "Suspending job with deleted workload")
+		}
+
+		if err == nil && wl != nil {
+			err = r.removeFinalizer(ctx, wl)
+		}
+		return ctrl.Result{}, err
 	}
 
 	// 2. handle job is finished.
@@ -373,14 +406,20 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 	// Delete duplicate workload instances.
 	existedWls := 0
 	for i := range toDelete {
-		err := r.client.Delete(ctx, toDelete[i])
+		wlKey := workload.Key(toDelete[i])
+		err := r.removeFinalizer(ctx, toDelete[i])
+		if err != nil && !apierrors.IsNotFound(err) {
+			return nil, fmt.Errorf("failed to remove workload finalizer for: %w ", err)
+		}
+
+		err = r.client.Delete(ctx, toDelete[i])
 		if err != nil && !apierrors.IsNotFound(err) {
 			return nil, fmt.Errorf("deleting not matching workload: %w", err)
 		}
 		if err == nil {
 			existedWls++
 			r.record.Eventf(object, corev1.EventTypeNormal, "DeletedWorkload",
-				"Deleted not matching Workload: %v", workload.Key(toDelete[i]))
+				"Deleted not matching Workload: %v", wlKey)
 		}
 	}
 
@@ -483,6 +522,13 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, object clie
 	return nil
 }
 
+func (r *JobReconciler) removeFinalizer(ctx context.Context, wl *kueue.Workload) error {
+	if controllerutil.RemoveFinalizer(wl, kueue.ResourceInUseFinalizerName) {
+		return r.client.Update(ctx, wl)
+	}
+	return nil
+}
+
 // constructWorkload will derive a workload from the corresponding job.
 func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
@@ -491,9 +537,10 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 
 	wl := &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      GetWorkloadNameForOwnerWithGVK(object.GetName(), job.GVK()),
-			Namespace: object.GetNamespace(),
-			Labels:    map[string]string{},
+			Name:       GetWorkloadNameForOwnerWithGVK(object.GetName(), job.GVK()),
+			Namespace:  object.GetNamespace(),
+			Labels:     map[string]string{},
+			Finalizers: []string{kueue.ResourceInUseFinalizerName},
 		},
 		Spec: kueue.WorkloadSpec{
 			PodSets:   resetMinCounts(podSets),

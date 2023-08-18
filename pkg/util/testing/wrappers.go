@@ -75,6 +75,11 @@ func (w *WorkloadWrapper) Obj() *kueue.Workload {
 	return &w.Workload
 }
 
+func (w *WorkloadWrapper) Finalizers(fin ...string) *WorkloadWrapper {
+	w.ObjectMeta.Finalizers = fin
+	return w
+}
+
 func (w *WorkloadWrapper) Request(r corev1.ResourceName, q string) *WorkloadWrapper {
 	w.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(q)
 	return w
