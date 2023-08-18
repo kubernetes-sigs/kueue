@@ -23,7 +23,7 @@
     - [6. A jobFramework specifies only <code>priorityClass</code>](#6-a-jobframework-specifies-only-)
   - [How to expand Priority utility](#how-to-expand-priority-utility)
   - [Where workload's Priority is used](#where-workloads-priority-is-used)
-  - [Workload's priority values is always mutable](#workloads-priority-values-is-always-mutable)
+  - [Workload's priority values are always mutable](#workloads-priority-values-are-always-mutable)
   - [What happens when a user changes the priority of <code>workloadPriorityClass</code>?](#what-happens-when-a-user-changes-the-priority-of-)
   - [Future works](#future-works)
   - [Test Plan](#test-plan)
@@ -439,7 +439,7 @@ The priority of workloads is utilized in queuing, preemption, and other scheduli
 With the introduction of `workloadPriorityClass`, there is no change in the places where priority is used in Kueue.
 It just enables the usage of `workloadPriorityClass` as the priority.
 
-### Workload's priority values is always mutable
+### Workload's priority values are always mutable
 
 `Priority`, `PriorityClassName` and `PriorityClassSource` fields is part of the workload spec and always mutable because it might be useful for the preemption.  
 Also there is an [open KEP](https://github.com/kubernetes/enhancements/pull/4129) to make `PriorityClass` mutable in k8s. This `workload`'s design aligns with the direction of k8s `PriorityClass`.
