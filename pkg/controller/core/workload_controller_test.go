@@ -196,12 +196,12 @@ func TestSyncCheckConditions(t *testing.T) {
 				{
 					Type:   "ac1",
 					Status: metav1.ConditionUnknown,
-					Reason: string(kueue.CheckStateUnknown),
+					Reason: string(kueue.CheckStatePending),
 				},
 				{
 					Type:   "ac2",
 					Status: metav1.ConditionUnknown,
-					Reason: string(kueue.CheckStateUnknown),
+					Reason: string(kueue.CheckStatePending),
 				},
 			},
 			ignoreTransitionTime: true,
@@ -211,12 +211,12 @@ func TestSyncCheckConditions(t *testing.T) {
 				{
 					Type:   "ac0",
 					Status: metav1.ConditionUnknown,
-					Reason: string(kueue.CheckStateUnknown),
+					Reason: string(kueue.CheckStatePending),
 				},
 				{
 					Type:   "ac1",
 					Status: metav1.ConditionUnknown,
-					Reason: string(kueue.CheckStateUnknown),
+					Reason: string(kueue.CheckStatePending),
 				},
 			},
 			list:       []string{"ac1", "ac2"},
@@ -225,12 +225,12 @@ func TestSyncCheckConditions(t *testing.T) {
 				{
 					Type:   "ac1",
 					Status: metav1.ConditionUnknown,
-					Reason: string(kueue.CheckStateUnknown),
+					Reason: string(kueue.CheckStatePending),
 				},
 				{
 					Type:   "ac2",
 					Status: metav1.ConditionUnknown,
-					Reason: string(kueue.CheckStateUnknown),
+					Reason: string(kueue.CheckStatePending),
 				},
 			},
 			ignoreTransitionTime: true,
@@ -240,12 +240,12 @@ func TestSyncCheckConditions(t *testing.T) {
 				{
 					Type:   "ac0",
 					Status: metav1.ConditionUnknown,
-					Reason: string(kueue.CheckStateUnknown),
+					Reason: string(kueue.CheckStatePending),
 				},
 				{
 					Type:   "ac1",
 					Status: metav1.ConditionUnknown,
-					Reason: string(kueue.CheckStateUnknown),
+					Reason: string(kueue.CheckStatePending),
 				},
 			},
 			wantChange: true,
@@ -262,7 +262,7 @@ func TestSyncCheckConditions(t *testing.T) {
 				{
 					Type:   "ac1",
 					Status: metav1.ConditionFalse,
-					Reason: string(kueue.CheckStateUnknown),
+					Reason: string(kueue.CheckStatePending),
 				},
 			},
 			list:       []string{"ac0", "ac1"},
@@ -278,7 +278,7 @@ func TestSyncCheckConditions(t *testing.T) {
 				{
 					Type:   "ac1",
 					Status: metav1.ConditionFalse,
-					Reason: string(kueue.CheckStateUnknown),
+					Reason: string(kueue.CheckStatePending),
 				},
 			},
 		},

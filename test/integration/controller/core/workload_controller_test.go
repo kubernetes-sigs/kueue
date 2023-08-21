@@ -172,7 +172,7 @@ var _ = ginkgo.Describe("Workload controller", func() {
 					apimeta.SetStatusCondition(&createdWl.Status.AdmissionChecks, metav1.Condition{
 						Type:    "check1",
 						Status:  metav1.ConditionTrue,
-						Reason:  string(kueue.CheckStateAccepted),
+						Reason:  string(kueue.CheckStateReady),
 						Message: "check successfully passed",
 					})
 					apimeta.SetStatusCondition(&createdWl.Status.AdmissionChecks, metav1.Condition{

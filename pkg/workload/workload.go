@@ -394,31 +394,27 @@ func ReclaimablePodsAreEqual(a, b []kueue.ReclaimablePod) bool {
 	return true
 }
 
-// Validates the check conditions of the workload returning two bools:
-// the first indicates if all the checks passed
-// the second one if any of the checks failed
-func ValidateCheckConditions(wl *kueue.Workload) (bool, bool) {
-	// A workload is successfully checked if all its checks are set to kueue.CheckStateAccepted
-	acceptedCount := 0
-	rejectedCount := 0
-
+// Returns true if all the checks of the workload are ready.
+func HasAllChecksReady(wl *kueue.Workload) bool {
 	for i := range wl.Status.AdmissionChecks {
-		ac := &wl.Status.AdmissionChecks[i]
-		switch ac.Status {
-		case metav1.ConditionTrue:
-			acceptedCount++
-		case metav1.ConditionFalse:
-			rejectedCount++
+		if wl.Status.AdmissionChecks[i].Status != metav1.ConditionTrue {
+			return false
 		}
 	}
-	return acceptedCount == len(wl.Status.AdmissionChecks), rejectedCount > 0
+	return true
 }
 
-// IsAdmitted checks if workload is admitted based on conditions
-func IsAdmittedAndChecked(w *kueue.Workload) bool {
-	if !IsAdmitted(w) {
-		return false
+// Returns true if any of the workloads checks are Retry or Rejected
+func HasRertyOrRejectedChecks(wl *kueue.Workload) bool {
+	for i := range wl.Status.AdmissionChecks {
+		if wl.Status.AdmissionChecks[i].Status == metav1.ConditionFalse {
+			return true
+		}
 	}
-	checked, _ := ValidateCheckConditions(w)
-	return checked
+	return false
+}
+
+// Returns true if the workload should can execution.
+func IsAdmittedAndChecked(w *kueue.Workload) bool {
+	return IsAdmitted(w) && HasAllChecksReady(w)
 }
