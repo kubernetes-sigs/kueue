@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package tfjob
+package pytorchjob
 
 import (
 	"context"
@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/tfjob"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/pytorchjob"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -41,33 +41,33 @@ import (
 )
 
 var (
-	cfg               *rest.Config
-	k8sClient         client.Client
-	ctx               context.Context
-	fwk               *framework.Framework
-	crdPath           = filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases")
-	tensorflowCrdPath = filepath.Join("..", "..", "..", "..", "dep-crds", "training-operator")
+	cfg            *rest.Config
+	k8sClient      client.Client
+	ctx            context.Context
+	fwk            *framework.Framework
+	crdPath        = filepath.Join("..", "..", "..", "..", "..", "config", "components", "crd", "bases")
+	pytorchCrdPath = filepath.Join("..", "..", "..", "..", "..", "dep-crds", "training-operator")
 )
 
 func TestAPIs(t *testing.T) {
 	gomega.RegisterFailHandler(ginkgo.Fail)
 
 	ginkgo.RunSpecs(t,
-		"TFJob Controller Suite",
+		"PyTorchJob Controller Suite",
 	)
 }
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	return func(mgr manager.Manager, ctx context.Context) {
-		reconciler := tfjob.NewReconciler(
+		reconciler := pytorchjob.NewReconciler(
 			mgr.GetClient(),
 			mgr.GetEventRecorderFor(constants.JobControllerName),
 			opts...)
-		err := tfjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
+		err := pytorchjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = reconciler.SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = tfjob.SetupTFJobWebhook(mgr, opts...)
+		err = pytorchjob.SetupPyTorchJobWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
@@ -83,12 +83,12 @@ func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetu
 		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &config.Configuration{})
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
-		err = tfjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
+		err = pytorchjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = tfjob.NewReconciler(mgr.GetClient(),
+		err = pytorchjob.NewReconciler(mgr.GetClient(),
 			mgr.GetEventRecorderFor(constants.JobControllerName), opts...).SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = tfjob.SetupTFJobWebhook(mgr, opts...)
+		err = pytorchjob.SetupPyTorchJobWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))
