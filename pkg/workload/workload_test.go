@@ -97,7 +97,7 @@ func TestNewInfo(t *testing.T) {
 						Request("ex.com/gpu", "1").
 						Obj(),
 				).
-				Admit(utiltesting.MakeAdmission("foo").
+				ReserveQuota(utiltesting.MakeAdmission("foo").
 					PodSets(
 						kueue.PodSetAssignment{
 							Name: "driver",
@@ -156,7 +156,7 @@ func TestNewInfo(t *testing.T) {
 						Request(corev1.ResourceMemory, "10Ki").
 						Obj(),
 				).
-				Admit(
+				ReserveQuota(
 					utiltesting.MakeAdmission("").
 						Assignment(corev1.ResourceCPU, "f1", "30m").
 						Assignment(corev1.ResourceMemory, "f1", "30Ki").

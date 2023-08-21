@@ -102,7 +102,7 @@ func (w *WorkloadWrapper) Queue(q string) *WorkloadWrapper {
 	return w
 }
 
-func (w *WorkloadWrapper) Admit(a *kueue.Admission) *WorkloadWrapper {
+func (w *WorkloadWrapper) ReserveQuota(a *kueue.Admission) *WorkloadWrapper {
 	w.Status.Admission = a
 	w.Status.Conditions = []metav1.Condition{{
 		Type:               kueue.WorkloadQuotaReserved,
