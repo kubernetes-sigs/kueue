@@ -557,32 +557,35 @@ spec:
 Pods need to have finalizers so that we can reliably track how many of them run to completion and be
 able to determine when the Workload is Finished.
 
-When a Workload is admitted, the Workload reconciler would keep an in-memory cache of expected
-admissions: the number of admitted pods that are not reflected in the informers yet, per Workload.
+A Pod-group reconciler would keep track of the groups of Pods and their respective Workload object,
+based on the `jobframework.Reconciler`.
+After a Workload is admitted, as the Pod-group reconciler ungates pods, it would keep an in-memory
+cache of expected ungated pods: the number of ungated pods that are not reflected in the informers
+yet, per Pod-group. This number decreases as the event handler observes Pods transition from being
+gated to ungated.
 
 In the Pod event handler, we decrement the counter when we see a transition from having
 the scheduling gate `kueue.x-k8s.io/admission` to not having it.
 
-In the Workload reconciler:
-1. admitted_pods_in_informer: the number of non-terminated pods in the informer that are admitted.
+In the Pod-group reconciler:
+1. If the Pod is not terminated,
+  create a Workload for the pod group if one does not exist.
+2. If the Pod is terminated,
+   - If the Workloald doesn't exist or the workload is finished, remove the finalizer.
+3. ungated_pods_in_client: the number of non-terminated pods in the client that are admitted.
    We only look at non-terminated pods to allow for terminated pods to be replaced.
-1. admitted_pods = admitted_pods_in_informer + expected_admissions. Note that this might temporarily
+4. ungated_pods = ungated_pods_in_client + expected_ungated_pods. Note that this might temporarily
    lead to double counting.
 2. For gated pods:
-  - If admitted_pods < admission.count, remove the gate, set nodeSelector, an increase expected_admissions
+  - If ungated_pods < admission.count, remove the gate, set nodeSelector, an increase
+    expected_ungated_pods
   - Else,
-    - If admitted_pods_in_informer < admission.count, we can't admit this Pod now to prevent
+    - If ungated_pods_in_informer < admission.count, we can't admit this Pod now to prevent
       overbooking, but requeue this Pod for retry.
     - Else, remove finalizer and delete the Pod, as it's beyond the allowed admission.
-3. If the number of terminated pods with a finalizer is greater than or equal to the admission
+5. If the number of terminated pods with a finalizer is greater than or equal to the admission
   count, and there are no non-terminated Pods, mark the Workload as Finished and remove the
   finalizers from the Pods.
-
-In the Pod reconciler:
-0. If the Pod is not terminated,
-  create a Workload for the pod group if one does not exist.
-1. If the Pod is terminated,
-   - If the Workloald doesn't exist or the workload is finished, remove the finalizer.
 
 Note that we are only removing Pod finalizers once the Workload is finished. This is a simple way
 of managing finalizers, but it might lead to too many Pods lingering in etcd for a long time after
