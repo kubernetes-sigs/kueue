@@ -141,7 +141,7 @@ func FinishWorkloads(ctx context.Context, k8sClient client.Client, workloads ...
 	}
 }
 
-func ExpectWorkloadsToBeAdmitted(ctx context.Context, k8sClient client.Client, cqName string, wls ...*kueue.Workload) {
+func ExpectWorkloadsToHaveQuotaReservation(ctx context.Context, k8sClient client.Client, cqName string, wls ...*kueue.Workload) {
 	gomega.EventuallyWithOffset(1, func() int {
 		admitted := 0
 		var updatedWorkload kueue.Workload
