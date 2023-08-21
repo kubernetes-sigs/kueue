@@ -327,7 +327,7 @@ func ExpectCQResourceUsage(cq *kueue.ClusterQueue, flavor, resource string, v fl
 	}, Timeout, Interval).Should(gomega.Equal(v))
 }
 
-func SetAdmission(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, admission *kueue.Admission) error {
+func SetQuotaReservation(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, admission *kueue.Admission) error {
 	wl = wl.DeepCopy()
 	if admission == nil {
 		workload.UnsetQuotaReservationWithCondition(wl, "EvictedByTest", "Evicted By Test")
