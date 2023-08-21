@@ -414,7 +414,7 @@ func HasRetryOrRejectedChecks(wl *kueue.Workload) bool {
 	return false
 }
 
-// Returns true if the workload should can execution.
-func IsAdmittedAndChecked(w *kueue.Workload) bool {
-	return HasQuotaReservation(w) && HasAllChecksReady(w)
+// Returns true if the workload is admitted.
+func IsAdmitted(w *kueue.Workload) bool {
+	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadAdmitted)
 }

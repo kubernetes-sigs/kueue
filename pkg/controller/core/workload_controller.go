@@ -141,6 +141,27 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 
+	hasReservation := workload.HasQuotaReservation(&wl)
+	hasAllChecksReady := workload.HasAllChecksReady(&wl)
+	isAdmitted := workload.IsAdmitted(&wl)
+	if isAdmitted != (hasReservation && hasAllChecksReady) {
+		newStatus := metav1.ConditionTrue
+		newReason := "Admitted"
+		if isAdmitted {
+			newStatus = metav1.ConditionFalse
+			switch {
+			case !hasReservation && !hasAllChecksReady:
+				newReason = "NoReservatioNoChecks"
+			case !hasReservation:
+				newReason = "NoReservatio"
+			case !hasAllChecksReady:
+				newReason = "NoChecks"
+
+			}
+		}
+		return ctrl.Result{}, workload.UpdateStatus(ctx, r.client, &wl, kueue.WorkloadAdmitted, newStatus, newReason, "", "workload")
+	}
+
 	if workload.HasQuotaReservation(&wl) {
 		if evictionTriggered, err := r.reconcileCheckBasedEviction(ctx, &wl); evictionTriggered || err != nil {
 			return ctrl.Result{}, err

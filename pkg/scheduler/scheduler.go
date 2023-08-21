@@ -221,7 +221,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			// Block admission until all currently admitted workloads are in
 			// PodsReady condition if the waitForPodsReady is enabled
 			workload.UnsetQuotaReservationWithCondition(e.Obj, "Waiting", "waiting for all admitted workloads to be in PodsReady condition")
-			if err := workload.ApplyAdmissionStatus(ctx, s.client, e.Obj, true); err != nil {
+			if err := workload.ApplyAdmissionStatus(ctx, s.client, e.Obj, false); err != nil {
 				log.Error(err, "Could not update Workload status")
 			}
 			s.cache.WaitForPodsReady(ctx)
