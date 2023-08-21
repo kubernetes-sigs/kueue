@@ -150,21 +150,21 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	if !r.queues.QueueForWorkloadExists(&wl) {
 		log.V(3).Info("Workload is inadmissible because of missing LocalQueue", "localQueue", klog.KRef(wl.Namespace, wl.Spec.QueueName))
-		workload.UnsetAdmissionWithCondition(&wl, "Inadmissible", fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName))
+		workload.UnsetQuotaReservationWithCondition(&wl, "Inadmissible", fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName))
 		err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	if !cqOk {
 		log.V(3).Info("Workload is inadmissible because of missing ClusterQueue", "clusterQueue", klog.KRef("", cqName))
-		workload.UnsetAdmissionWithCondition(&wl, "Inadmissible", fmt.Sprintf("ClusterQueue %s doesn't exist", cqName))
+		workload.UnsetQuotaReservationWithCondition(&wl, "Inadmissible", fmt.Sprintf("ClusterQueue %s doesn't exist", cqName))
 		err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	if !r.cache.ClusterQueueActive(cqName) {
 		log.V(3).Info("Workload is inadmissible because ClusterQueue is inactive", "clusterQueue", klog.KRef("", cqName))
-		workload.UnsetAdmissionWithCondition(&wl, "Inadmissible", fmt.Sprintf("ClusterQueue %s is inactive", cqName))
+		workload.UnsetQuotaReservationWithCondition(&wl, "Inadmissible", fmt.Sprintf("ClusterQueue %s is inactive", cqName))
 		err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}

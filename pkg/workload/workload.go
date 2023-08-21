@@ -263,7 +263,7 @@ func UpdateStatus(ctx context.Context,
 	return c.Status().Patch(ctx, newWl, client.Apply, client.FieldOwner(managerPrefix+"-"+condition.Type))
 }
 
-func UnsetAdmissionWithCondition(wl *kueue.Workload, reason, message string) {
+func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message string) {
 	condition := metav1.Condition{
 		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionFalse,

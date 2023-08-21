@@ -330,7 +330,7 @@ func ExpectCQResourceUsage(cq *kueue.ClusterQueue, flavor, resource string, v fl
 func SetAdmission(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, admission *kueue.Admission) error {
 	wl = wl.DeepCopy()
 	if admission == nil {
-		workload.UnsetAdmissionWithCondition(wl, "EvictedByTest", "Evicted By Test")
+		workload.UnsetQuotaReservationWithCondition(wl, "EvictedByTest", "Evicted By Test")
 	} else {
 		workload.SetAdmission(wl, admission)
 	}
@@ -357,7 +357,7 @@ func FinishEvictionForWorkloads(ctx context.Context, k8sClient client.Client, wl
 			if err := k8sClient.Get(ctx, key, &updatedWorkload); err != nil {
 				return err
 			}
-			workload.UnsetAdmissionWithCondition(&updatedWorkload, "Pending", "By test")
+			workload.UnsetQuotaReservationWithCondition(&updatedWorkload, "Pending", "By test")
 			return workload.ApplyAdmissionStatus(ctx, k8sClient, &updatedWorkload, true)
 		}, Timeout, Interval).Should(gomega.Succeed(), fmt.Sprintf("Unable to unset admission for %q", key))
 	}
