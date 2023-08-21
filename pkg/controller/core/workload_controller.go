@@ -595,7 +595,7 @@ func (h *resourceUpdatesHandler) handle(ctx context.Context, obj client.Object, 
 func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, _ workqueue.RateLimitingInterface, opts ...client.ListOption) {
 	log := ctrl.LoggerFrom(ctx)
 	lst := kueue.WorkloadList{}
-	opts = append(opts, client.MatchingFields{indexer.WorkloadAdmittedKey: string(metav1.ConditionFalse)})
+	opts = append(opts, client.MatchingFields{indexer.WorkloadQuotaReservedKey: string(metav1.ConditionFalse)})
 	err := h.r.client.List(ctx, &lst, opts...)
 	if err != nil {
 		log.Error(err, "Could not list pending workloads")
