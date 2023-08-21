@@ -167,7 +167,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			wRec := WorkloadReconciler{podsReadyTimeout: tc.podsReadyTimeout}
-			countingTowardsTimeout, recheckAfter := wRec.admittedNotReadyWorkload(&tc.workload, fakeClock)
+			countingTowardsTimeout, recheckAfter := wRec.quotaReservedNotReadyWorkload(&tc.workload, fakeClock)
 
 			if tc.wantCountingTowardsTimeout != countingTowardsTimeout {
 				t.Errorf("Unexpected countingTowardsTimeout, want=%v, got=%v", tc.wantCountingTowardsTimeout, countingTowardsTimeout)
