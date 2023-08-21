@@ -34,3 +34,9 @@ batch user is a researcher, AI/ML engineer, data scientist, among others.
 - As a batch user, you can learn how to [run a Kueue managed Kubeflow MPIJob](/docs/tasks/run_mpi_jobs).
 - As a batch user, you can learn how to [run a Kueue managed KubeRay RayJob](/docs/tasks/run_rayjobs).
 - As a batch developer user, you can learn how to [submit Kueue jobs from Python](/docs/tasks/run_python_jobs).
+
+### Platform Developer
+
+A _Platform Developer_ contributes to Kueue, including code, documentation and etc..
+
+- As a platform developer, you can learn how to [integrate a custom Job with Kueue](/docs/tasks/integrate_a_custom_job).

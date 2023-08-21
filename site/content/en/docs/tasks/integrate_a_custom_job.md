@@ -12,7 +12,7 @@ There are two options for integrating a Job-like CRD with Kueue:
 - As part of the Kueue repository
 - Writing an external controller
 
-This guide focuses on the first approach.
+This guide is for [platform developer](/docs/tasks#platform-developer) and focuses on the first approach.
 If there is a widely used Job which you would like supported in Kueue, please consider contributing.
 This page shows how to integrate a custom Job with Kueue.
 
