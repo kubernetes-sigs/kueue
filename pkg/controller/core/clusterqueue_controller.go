@@ -372,7 +372,7 @@ func (h *cqWorkloadHandler) Generic(_ context.Context, e event.GenericEvent, q w
 
 func (h *cqWorkloadHandler) requestForWorkloadClusterQueue(w *kueue.Workload) *reconcile.Request {
 	var name string
-	if workload.IsAdmitted(w) {
+	if workload.HasQuotaReservation(w) {
 		name = string(w.Status.Admission.ClusterQueue)
 	} else {
 		var ok bool

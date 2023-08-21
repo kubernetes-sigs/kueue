@@ -103,7 +103,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -158,7 +158,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -212,7 +212,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -254,7 +254,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -315,7 +315,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -380,7 +380,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -398,7 +398,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.ConsistentDuration, util.Interval).Should(gomega.BeFalse())
 			})
 
@@ -415,7 +415,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -472,7 +472,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -488,7 +488,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.ConsistentDuration, util.Interval).Should(gomega.BeFalse())
 			})
 
@@ -505,7 +505,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 

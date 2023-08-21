@@ -362,8 +362,8 @@ func GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
 	return &w.CreationTimestamp
 }
 
-// IsAdmitted checks if workload is admitted based on conditions
-func IsAdmitted(w *kueue.Workload) bool {
+// HasQuotaReservation checks if workload is admitted based on conditions
+func HasQuotaReservation(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadQuotaReserved)
 }
 
@@ -416,5 +416,5 @@ func HasRetryOrRejectedChecks(wl *kueue.Workload) bool {
 
 // Returns true if the workload should can execution.
 func IsAdmittedAndChecked(w *kueue.Workload) bool {
-	return IsAdmitted(w) && HasAllChecksReady(w)
+	return HasQuotaReservation(w) && HasAllChecksReady(w)
 }

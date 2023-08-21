@@ -1108,7 +1108,7 @@ func TestSchedule(t *testing.T) {
 			snapshot := cqCache.Snapshot()
 			for cqName, c := range snapshot.ClusterQueues {
 				for name, w := range c.Workloads {
-					if !workload.IsAdmitted(w.Obj) {
+					if !workload.HasQuotaReservation(w.Obj) {
 						t.Errorf("Workload %s is not admitted by a clusterQueue, but it is found as member of clusterQueue %s in the cache", name, cqName)
 					} else if string(w.Obj.Status.Admission.ClusterQueue) != cqName {
 						t.Errorf("Workload %s is admitted by clusterQueue %s, but it is found as member of clusterQueue %s in the cache", name, w.Obj.Status.Admission.ClusterQueue, cqName)

@@ -147,7 +147,7 @@ func ExpectWorkloadsToBeAdmitted(ctx context.Context, k8sClient client.Client, c
 		var updatedWorkload kueue.Workload
 		for _, wl := range wls {
 			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-			if workload.IsAdmitted(&updatedWorkload) && string(updatedWorkload.Status.Admission.ClusterQueue) == cqName {
+			if workload.HasQuotaReservation(&updatedWorkload) && string(updatedWorkload.Status.Admission.ClusterQueue) == cqName {
 				admitted++
 			}
 		}
@@ -160,7 +160,7 @@ func FilterAdmittedWorkloads(ctx context.Context, k8sClient client.Client, wls .
 	var updatedWorkload kueue.Workload
 	for _, wl := range wls {
 		err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)
-		if err == nil && workload.IsAdmitted(&updatedWorkload) {
+		if err == nil && workload.HasQuotaReservation(&updatedWorkload) {
 			ret = append(ret, wl)
 		}
 	}
