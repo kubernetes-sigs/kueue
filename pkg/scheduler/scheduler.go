@@ -427,7 +427,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 		PodSetAssignments: e.assignment.ToAPI(),
 	}
 
-	workload.SetAdmission(newWorkload, admission)
+	workload.SetQuotaReservation(newWorkload, admission)
 	if err := s.cache.AssumeWorkload(newWorkload); err != nil {
 		return err
 	}

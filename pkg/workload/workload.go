@@ -297,9 +297,9 @@ func BaseSSAWorkload(w *kueue.Workload) *kueue.Workload {
 	return wlCopy
 }
 
-// SetAdmission applies the provided admission to the workload.
+// SetQuotaReservation applies the provided admission to the workload.
 // The WorkloadAdmitted and WorkloadEvicted are added or updated if necessary.
-func SetAdmission(w *kueue.Workload, admission *kueue.Admission) {
+func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission) {
 	w.Status.Admission = admission
 	admittedCond := metav1.Condition{
 		Type:               kueue.WorkloadQuotaReserved,

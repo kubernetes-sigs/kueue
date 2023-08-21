@@ -332,7 +332,7 @@ func SetQuotaReservation(ctx context.Context, k8sClient client.Client, wl *kueue
 	if admission == nil {
 		workload.UnsetQuotaReservationWithCondition(wl, "EvictedByTest", "Evicted By Test")
 	} else {
-		workload.SetAdmission(wl, admission)
+		workload.SetQuotaReservation(wl, admission)
 	}
 	return workload.ApplyAdmissionStatus(ctx, k8sClient, wl, false)
 }
