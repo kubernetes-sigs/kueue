@@ -29,8 +29,6 @@ clientConnection:
 #  webhookServiceName: ""
 #  webhookSecretName: ""
 queueVisibility:
-  localQueues:
-    maxCount: 10
   clusterQueues:
     maxCount: 10
 integrations:

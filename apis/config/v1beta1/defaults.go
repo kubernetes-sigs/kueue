@@ -29,17 +29,17 @@ import (
 )
 
 const (
-	DefaultNamespace                             = "kueue-system"
-	DefaultWebhookServiceName                    = "kueue-webhook-service"
-	DefaultWebhookSecretName                     = "kueue-webhook-server-cert"
-	DefaultWebhookPort                           = 9443
-	DefaultHealthProbeBindAddress                = ":8081"
-	DefaultMetricsBindAddress                    = ":8080"
-	DefaultLeaderElectionID                      = "c1f6bfd2.kueue.x-k8s.io"
-	DefaultClientConnectionQPS           float32 = 20.0
-	DefaultClientConnectionBurst         int32   = 30
-	defaultPodsReadyTimeout                      = 5 * time.Minute
-	DefaultQueueVisibilityUpdateInterval         = 5 * time.Second
+	DefaultNamespace                                    = "kueue-system"
+	DefaultWebhookServiceName                           = "kueue-webhook-service"
+	DefaultWebhookSecretName                            = "kueue-webhook-server-cert"
+	DefaultWebhookPort                                  = 9443
+	DefaultHealthProbeBindAddress                       = ":8081"
+	DefaultMetricsBindAddress                           = ":8080"
+	DefaultLeaderElectionID                             = "c1f6bfd2.kueue.x-k8s.io"
+	DefaultClientConnectionQPS                  float32 = 20.0
+	DefaultClientConnectionBurst                int32   = 30
+	defaultPodsReadyTimeout                             = 5 * time.Minute
+	DefaultQueueVisibilityUpdateIntervalSeconds         = 5
 )
 
 func addDefaultingFuncs(scheme *runtime.Scheme) error {
@@ -120,7 +120,7 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	if cfg.QueueVisibility == nil {
 		cfg.QueueVisibility = &QueueVisibility{}
 	}
-	if cfg.QueueVisibility.UpdateInterval == nil {
-		cfg.QueueVisibility.UpdateInterval = &metav1.Duration{Duration: DefaultQueueVisibilityUpdateInterval}
+	if cfg.QueueVisibility.UpdateIntervalSeconds == 0 {
+		cfg.QueueVisibility.UpdateIntervalSeconds = DefaultQueueVisibilityUpdateIntervalSeconds
 	}
 }

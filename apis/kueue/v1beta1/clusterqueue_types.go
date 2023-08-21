@@ -192,9 +192,7 @@ type ClusterQueuePendingWorkload struct {
 
 type ClusterQueuePendingWorkloadsStatus struct {
 	// Head contains the list of top pending workloads.
-	// +listType=map
-	// +listMapKey=name
-	// +listMapKey=namespace
+	// +listType=atomic
 	// +optional
 	Head []ClusterQueuePendingWorkload `json:"clusterQueuePendingWorkload"`
 

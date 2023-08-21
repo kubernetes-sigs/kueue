@@ -100,7 +100,7 @@ integrations:
 					Frameworks: []string{job.FrameworkName},
 				},
 				QueueVisibility: &config.QueueVisibility{
-					UpdateInterval: &metav1.Duration{Duration: config.DefaultQueueVisibilityUpdateInterval},
+					UpdateIntervalSeconds: config.DefaultQueueVisibilityUpdateIntervalSeconds,
 				},
 			},
 		},

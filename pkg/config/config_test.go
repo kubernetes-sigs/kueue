@@ -227,9 +227,7 @@ integrations:
 apiVersion: config.kueue.x-k8s.io/v1beta1
 kind: Configuration
 queueVisibility:
-  updateInterval: 10s
-  localQueues:
-    maxCount: 10
+  updateIntervalSeconds: 10
   clusterQueues:
     maxCount: 10
 `), os.FileMode(0600)); err != nil {
@@ -276,7 +274,7 @@ queueVisibility:
 	}
 
 	defaultQueueVisibility := &configapi.QueueVisibility{
-		UpdateInterval: &metav1.Duration{Duration: configapi.DefaultQueueVisibilityUpdateInterval},
+		UpdateIntervalSeconds: configapi.DefaultQueueVisibilityUpdateIntervalSeconds,
 	}
 
 	testcases := []struct {
@@ -567,10 +565,7 @@ queueVisibility:
 				ClientConnection:           defaultClientConnection,
 				Integrations:               defaultIntegrations,
 				QueueVisibility: &configapi.QueueVisibility{
-					UpdateInterval: &metav1.Duration{Duration: 10 * time.Second},
-					LocalQueues: &configapi.LocalQueueVisibility{
-						MaxCount: 10,
-					},
+					UpdateIntervalSeconds: 10,
 					ClusterQueues: &configapi.ClusterQueueVisibility{
 						MaxCount: 10,
 					},
@@ -671,7 +666,7 @@ func TestEncode(t *testing.T) {
 					"frameworks": []any{"batch/job"},
 				},
 				"queueVisibility": map[string]any{
-					"updateInterval": string("5s"),
+					"updateIntervalSeconds": int64(configapi.DefaultQueueVisibilityUpdateIntervalSeconds),
 				},
 			},
 		},

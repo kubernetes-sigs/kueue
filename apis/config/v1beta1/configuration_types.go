@@ -232,32 +232,15 @@ type Integrations struct {
 }
 
 type QueueVisibility struct {
-	// LocalQueues is configuration to expose the information
-	// about the top pending workloads in the local queue.
-	LocalQueues *LocalQueueVisibility `json:"localQueues,omitempty"`
-
 	// ClusterQueues is configuration to expose the information
 	// about the top pending workloads in the cluster queue.
 	ClusterQueues *ClusterQueueVisibility `json:"clusterQueues,omitempty"`
 
-	// UpdateInterval specifies the time interval for updates to the structure
+	// UpdateIntervalSeconds specifies the time interval for updates to the structure
 	// of the top pending workloads in the queues.
+	// The minimum value is 1.
 	// Defaults to 5s.
-	// +optional
-	UpdateInterval *metav1.Duration `json:"updateInterval,omitempty"`
-}
-
-type LocalQueueVisibility struct {
-	// MaxCount indicates the maximal number of pending workloads exposed in the
-	// local queue status. When the value is set to 0, then LocalQueue visibility
-	// updates are disabled.
-	// The maximal value is 4000.
-	// Defaults to 10.
-	MaxCount int32 `json:"maxCount,omitempty"`
-
-	// MaxPosition indicates the maximal position of the workload in the cluster
-	// queue returned in the head.
-	MaxPosition *int32 `json:"maxPosition,omitempty"`
+	UpdateIntervalSeconds int32 `json:"updateIntervalSeconds,omitempty"`
 }
 
 type ClusterQueueVisibility struct {
