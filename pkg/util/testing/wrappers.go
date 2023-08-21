@@ -105,7 +105,7 @@ func (w *WorkloadWrapper) Queue(q string) *WorkloadWrapper {
 func (w *WorkloadWrapper) Admit(a *kueue.Admission) *WorkloadWrapper {
 	w.Status.Admission = a
 	w.Status.Conditions = []metav1.Condition{{
-		Type:               kueue.WorkloadAdmitted,
+		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionTrue,
 		LastTransitionTime: metav1.Now(),
 		Reason:             "AdmittedByTest",

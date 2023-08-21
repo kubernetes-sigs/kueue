@@ -36,7 +36,7 @@ import (
 )
 
 var (
-	admissionManagedConditions = []string{kueue.WorkloadAdmitted, kueue.WorkloadEvicted}
+	admissionManagedConditions = []string{kueue.WorkloadQuotaReserved, kueue.WorkloadEvicted}
 )
 
 // Info holds a Workload object and some pre-processing.
@@ -265,7 +265,7 @@ func UpdateStatus(ctx context.Context,
 
 func UnsetAdmissionWithCondition(wl *kueue.Workload, reason, message string) {
 	condition := metav1.Condition{
-		Type:               kueue.WorkloadAdmitted,
+		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionFalse,
 		LastTransitionTime: metav1.Now(),
 		Reason:             reason,
@@ -302,7 +302,7 @@ func BaseSSAWorkload(w *kueue.Workload) *kueue.Workload {
 func SetAdmission(w *kueue.Workload, admission *kueue.Admission) {
 	w.Status.Admission = admission
 	admittedCond := metav1.Condition{
-		Type:               kueue.WorkloadAdmitted,
+		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionTrue,
 		LastTransitionTime: metav1.Now(),
 		Reason:             "Admitted",
@@ -364,7 +364,7 @@ func GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
 
 // IsAdmitted checks if workload is admitted based on conditions
 func IsAdmitted(w *kueue.Workload) bool {
-	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadAdmitted)
+	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadQuotaReserved)
 }
 
 // UpdateReclaimablePods updates the ReclaimablePods list for the workload wit SSA.

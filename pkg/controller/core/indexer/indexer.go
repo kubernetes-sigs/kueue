@@ -85,7 +85,7 @@ func IndexWorkloadAdmitted(obj client.Object) []string {
 		return nil
 	}
 
-	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 	if cond == nil {
 		return []string{string(metav1.ConditionFalse)}
 	}

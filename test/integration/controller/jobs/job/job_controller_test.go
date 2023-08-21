@@ -419,7 +419,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		ginkgo.By("the workload should stay admitted", func() {
 			gomega.Consistently(func() bool {
 				gomega.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).To(gomega.Succeed())
-				return apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadAdmitted)
+				return apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 			}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
 		})
 

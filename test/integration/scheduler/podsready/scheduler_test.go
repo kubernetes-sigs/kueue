@@ -201,7 +201,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 
 			ginkgo.By("determining the time of admission as LastTransitionTime for the Admitted condition")
-			admittedAt := apimeta.FindStatusCondition(prodWl1.Status.Conditions, kueue.WorkloadAdmitted).LastTransitionTime.Time
+			admittedAt := apimeta.FindStatusCondition(prodWl1.Status.Conditions, kueue.WorkloadQuotaReserved).LastTransitionTime.Time
 
 			ginkgo.By("wait for the 'prod1' workload to be evicted")
 			gomega.Eventually(func() bool {

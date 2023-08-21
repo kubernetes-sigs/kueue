@@ -373,7 +373,7 @@ func candidatesOrdering(candidates []*workload.Info, cq string, now time.Time) f
 }
 
 func admissionTime(wl *kueue.Workload, now time.Time) time.Time {
-	cond := meta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+	cond := meta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 	if cond == nil || cond.Status != metav1.ConditionTrue {
 		// The condition wasn't populated yet, use the current time.
 		return now

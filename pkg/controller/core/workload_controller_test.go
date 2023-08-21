@@ -49,7 +49,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					Admission: &kueue.Admission{},
 					Conditions: []metav1.Condition{
 						{
-							Type:               kueue.WorkloadAdmitted,
+							Type:               kueue.WorkloadQuotaReserved,
 							Status:             metav1.ConditionTrue,
 							LastTransitionTime: metav1.NewTime(minuteAgo),
 						},
@@ -66,7 +66,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					Admission: &kueue.Admission{},
 					Conditions: []metav1.Condition{
 						{
-							Type:               kueue.WorkloadAdmitted,
+							Type:               kueue.WorkloadQuotaReserved,
 							Status:             metav1.ConditionTrue,
 							LastTransitionTime: metav1.NewTime(minuteAgo),
 						},
@@ -80,7 +80,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					Admission: &kueue.Admission{},
 					Conditions: []metav1.Condition{
 						{
-							Type:               kueue.WorkloadAdmitted,
+							Type:               kueue.WorkloadQuotaReserved,
 							Status:             metav1.ConditionTrue,
 							LastTransitionTime: metav1.NewTime(now.Add(-7 * time.Minute)),
 						},
@@ -96,7 +96,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					Admission: &kueue.Admission{},
 					Conditions: []metav1.Condition{
 						{
-							Type:               kueue.WorkloadAdmitted,
+							Type:               kueue.WorkloadQuotaReserved,
 							Status:             metav1.ConditionTrue,
 							LastTransitionTime: metav1.NewTime(minuteAgo),
 						},
@@ -118,7 +118,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					Admission: &kueue.Admission{},
 					Conditions: []metav1.Condition{
 						{
-							Type:               kueue.WorkloadAdmitted,
+							Type:               kueue.WorkloadQuotaReserved,
 							Status:             metav1.ConditionUnknown,
 							LastTransitionTime: metav1.NewTime(minuteAgo),
 						},
@@ -133,7 +133,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					Admission: &kueue.Admission{},
 					Conditions: []metav1.Condition{
 						{
-							Type:               kueue.WorkloadAdmitted,
+							Type:               kueue.WorkloadQuotaReserved,
 							Status:             metav1.ConditionUnknown,
 							LastTransitionTime: metav1.NewTime(minuteAgo),
 						},
@@ -148,7 +148,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					Admission: &kueue.Admission{},
 					Conditions: []metav1.Condition{
 						{
-							Type:               kueue.WorkloadAdmitted,
+							Type:               kueue.WorkloadQuotaReserved,
 							Status:             metav1.ConditionTrue,
 							LastTransitionTime: metav1.NewTime(minuteAgo),
 						},

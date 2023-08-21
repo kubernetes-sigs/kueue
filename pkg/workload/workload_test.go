@@ -210,14 +210,14 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 		wantStatus kueue.WorkloadStatus
 	}{
 		"initial empty": {
-			condType:   kueue.WorkloadAdmitted,
+			condType:   kueue.WorkloadQuotaReserved,
 			condStatus: metav1.ConditionFalse,
 			reason:     "Pending",
 			message:    "didn't fit",
 			wantStatus: kueue.WorkloadStatus{
 				Conditions: []metav1.Condition{
 					{
-						Type:    kueue.WorkloadAdmitted,
+						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
 						Reason:  "Pending",
 						Message: "didn't fit",
@@ -229,20 +229,20 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 			oldStatus: kueue.WorkloadStatus{
 				Conditions: []metav1.Condition{
 					{
-						Type:    kueue.WorkloadAdmitted,
+						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
 						Reason:  "Pending",
 						Message: "didn't fit",
 					},
 				},
 			},
-			condType:   kueue.WorkloadAdmitted,
+			condType:   kueue.WorkloadQuotaReserved,
 			condStatus: metav1.ConditionTrue,
 			reason:     "Admitted",
 			wantStatus: kueue.WorkloadStatus{
 				Conditions: []metav1.Condition{
 					{
-						Type:   kueue.WorkloadAdmitted,
+						Type:   kueue.WorkloadQuotaReserved,
 						Status: metav1.ConditionTrue,
 						Reason: "Admitted",
 					},

@@ -235,7 +235,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 					if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 						return false
 					}
-					return apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)
+					return apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)
 
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})

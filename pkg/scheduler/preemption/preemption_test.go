@@ -716,7 +716,7 @@ func TestPreemption(t *testing.T) {
 					Request(corev1.ResourceCPU, "2").
 					Admit(utiltesting.MakeAdmission("preventStarvation").Assignment(corev1.ResourceCPU, "default", "2").Obj()).
 					SetOrReplaceCondition(metav1.Condition{
-						Type:               kueue.WorkloadAdmitted,
+						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionTrue,
 						LastTransitionTime: metav1.NewTime(time.Now().Add(time.Second)),
 					}).
@@ -828,7 +828,7 @@ func TestCandidatesOrdering(t *testing.T) {
 		workload.NewInfo(utiltesting.MakeWorkload("current", "").
 			Admit(utiltesting.MakeAdmission("self").Obj()).
 			SetOrReplaceCondition(metav1.Condition{
-				Type:               kueue.WorkloadAdmitted,
+				Type:               kueue.WorkloadQuotaReserved,
 				Status:             metav1.ConditionTrue,
 				LastTransitionTime: metav1.NewTime(now.Add(time.Second)),
 			}).

@@ -1285,7 +1285,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 			wantStatus: kueue.WorkloadStatus{
 				Conditions: []metav1.Condition{
 					{
-						Type:    kueue.WorkloadAdmitted,
+						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
 						Reason:  "Pending",
 						Message: "didn't fit",

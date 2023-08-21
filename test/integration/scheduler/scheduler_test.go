@@ -1288,7 +1288,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 						return ""
 					}
 
-					cond := meta.FindStatusCondition(rwl.Status.Conditions, kueue.WorkloadAdmitted)
+					cond := meta.FindStatusCondition(rwl.Status.Conditions, kueue.WorkloadQuotaReserved)
 					if cond == nil {
 						return ""
 					}

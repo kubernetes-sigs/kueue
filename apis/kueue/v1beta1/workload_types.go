@@ -172,8 +172,8 @@ type ReclaimablePod struct {
 }
 
 const (
-	// WorkloadAdmitted means that the Workload was admitted by a ClusterQueue.
-	WorkloadAdmitted = "Admitted"
+	// WorkloadQuotaReserved means that the Workload was admitted by a ClusterQueue.
+	WorkloadQuotaReserved = "QuotaReserved"
 
 	// WorkloadFinished means that the workload associated to the
 	// ResourceClaim finished running (failed or succeeded).
