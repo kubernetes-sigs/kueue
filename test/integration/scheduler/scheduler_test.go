@@ -1085,7 +1085,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			devCQ = testing.MakeClusterQueue("dev-cq").
 				Cohort("all").
-				Preemption(kueue.ClusterQueuePreemption{FlavorFungibility: kueue.FlavorFungibility{WhenCanBorrow: kueue.TryNextFlavor}}).
+				FlavorFungibility(kueue.FlavorFungibility{WhenCanBorrow: kueue.TryNextFlavor}).
 				ResourceGroup(*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "10", "10").Obj(), *testing.MakeFlavorQuotas("spot-tainted").Resource(corev1.ResourceCPU, "10").Obj()).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, devCQ)).Should(gomega.Succeed())

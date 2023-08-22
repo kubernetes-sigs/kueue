@@ -1147,7 +1147,7 @@ func TestEntryOrdering(t *testing.T) {
 				}},
 			},
 			assignment: flavorassigner.Assignment{
-				TotalBorrow: cache.FlavorResourceQuantities{
+				TotalBorrow: workload.FlavorResourceQuantities{
 					"flavor": {},
 				},
 			},
@@ -1178,7 +1178,7 @@ func TestEntryOrdering(t *testing.T) {
 				}},
 			},
 			assignment: flavorassigner.Assignment{
-				TotalBorrow: cache.FlavorResourceQuantities{
+				TotalBorrow: workload.FlavorResourceQuantities{
 					"flavor": {},
 				},
 			},
@@ -1201,7 +1201,7 @@ func TestEntryOrdering(t *testing.T) {
 				}},
 			},
 			assignment: flavorassigner.Assignment{
-				TotalBorrow: cache.FlavorResourceQuantities{
+				TotalBorrow: workload.FlavorResourceQuantities{
 					"flavor": {},
 				},
 			},
@@ -1226,7 +1226,7 @@ func TestEntryOrdering(t *testing.T) {
 				},
 			},
 			assignment: flavorassigner.Assignment{
-				TotalBorrow: cache.FlavorResourceQuantities{
+				TotalBorrow: workload.FlavorResourceQuantities{
 					"flavor": {},
 				},
 			},
@@ -1273,9 +1273,9 @@ func TestLastSchedulingContext(t *testing.T) {
 			QueueingStrategy(kueue.StrictFIFO).
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
-				FlavorFungibility: kueue.FlavorFungibility{
-					WhenCanPreempt: kueue.Preempt,
-				},
+			}).
+			FlavorFungibility(kueue.FlavorFungibility{
+				WhenCanPreempt: kueue.Preempt,
 			}).
 			ResourceGroup(
 				*utiltesting.MakeFlavorQuotas("on-demand").
@@ -1291,10 +1291,10 @@ func TestLastSchedulingContext(t *testing.T) {
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue:  kueue.PreemptionPolicyNever,
 				ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
-				FlavorFungibility: kueue.FlavorFungibility{
-					WhenCanPreempt: kueue.Preempt,
-					WhenCanBorrow:  kueue.Borrow,
-				},
+			}).
+			FlavorFungibility(kueue.FlavorFungibility{
+				WhenCanPreempt: kueue.Preempt,
+				WhenCanBorrow:  kueue.Borrow,
 			}).
 			ResourceGroup(
 				*utiltesting.MakeFlavorQuotas("on-demand").
@@ -1308,10 +1308,10 @@ func TestLastSchedulingContext(t *testing.T) {
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue:  kueue.PreemptionPolicyNever,
 				ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
-				FlavorFungibility: kueue.FlavorFungibility{
-					WhenCanPreempt: kueue.Preempt,
-					WhenCanBorrow:  kueue.Borrow,
-				},
+			}).
+			FlavorFungibility(kueue.FlavorFungibility{
+				WhenCanPreempt: kueue.Preempt,
+				WhenCanBorrow:  kueue.Borrow,
 			}).
 			ResourceGroup(
 				*utiltesting.MakeFlavorQuotas("on-demand").
@@ -1325,10 +1325,10 @@ func TestLastSchedulingContext(t *testing.T) {
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue:  kueue.PreemptionPolicyNever,
 				ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
-				FlavorFungibility: kueue.FlavorFungibility{
-					WhenCanPreempt: kueue.TryNextFlavor,
-					WhenCanBorrow:  kueue.TryNextFlavor,
-				},
+			}).
+			FlavorFungibility(kueue.FlavorFungibility{
+				WhenCanPreempt: kueue.TryNextFlavor,
+				WhenCanBorrow:  kueue.TryNextFlavor,
 			}).
 			ResourceGroup(
 				*utiltesting.MakeFlavorQuotas("on-demand").

@@ -359,13 +359,13 @@ func MakeClusterQueue(name string) *ClusterQueueWrapper {
 		Spec: kueue.ClusterQueueSpec{
 			NamespaceSelector: &metav1.LabelSelector{},
 			QueueingStrategy:  kueue.BestEffortFIFO,
+			FlavorFungibility: &kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.Borrow,
+				WhenCanPreempt: kueue.TryNextFlavor,
+			},
 			Preemption: &kueue.ClusterQueuePreemption{
 				ReclaimWithinCohort: kueue.PreemptionPolicyNever,
 				WithinClusterQueue:  kueue.PreemptionPolicyNever,
-				FlavorFungibility: kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.Borrow,
-					WhenCanPreempt: kueue.TryNextFlavor,
-				},
 			},
 		},
 	}}
@@ -429,6 +429,12 @@ func (c *ClusterQueueWrapper) NamespaceSelector(s *metav1.LabelSelector) *Cluste
 // Preemption sets the preeemption policies.
 func (c *ClusterQueueWrapper) Preemption(p kueue.ClusterQueuePreemption) *ClusterQueueWrapper {
 	c.Spec.Preemption = &p
+	return c
+}
+
+// Preemption sets the preeemption policies.
+func (c *ClusterQueueWrapper) FlavorFungibility(p kueue.FlavorFungibility) *ClusterQueueWrapper {
+	c.Spec.FlavorFungibility = &p
 	return c
 }
 

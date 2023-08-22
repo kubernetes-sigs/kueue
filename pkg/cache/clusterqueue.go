@@ -3,6 +3,7 @@ package cache
 import (
 	"errors"
 	"fmt"
+	"sync/atomic"
 
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -28,11 +29,13 @@ type ClusterQueue struct {
 	Cohort            *Cohort
 	ResourceGroups    []ResourceGroup
 	RGByResource      map[corev1.ResourceName]*ResourceGroup
-	Usage             FlavorResourceQuantities
+	Usage             workload.FlavorResourceQuantities
+	Generation        int64
 	Workloads         map[string]*workload.Info
 	WorkloadsNotReady sets.Set[string]
 	NamespaceSelector labels.Selector
 	Preemption        kueue.ClusterQueuePreemption
+	FlavorFungibility kueue.FlavorFungibility
 	Status            metrics.ClusterQueueStatus
 	AdmissionChecks   sets.Set[string]
 	FlavorFungibility v1beta1.FlavorFungibility
@@ -52,8 +55,9 @@ type Cohort struct {
 	Members sets.Set[*ClusterQueue]
 
 	// These fields are only populated for a snapshot.
-	RequestableResources FlavorResourceQuantities
-	Usage                FlavorResourceQuantities
+	RequestableResources workload.FlavorResourceQuantities
+	Usage                workload.FlavorResourceQuantities
+	Generation           int64
 }
 
 type ResourceGroup struct {
@@ -76,12 +80,12 @@ type ResourceQuota struct {
 	BorrowingLimit *int64
 }
 
-type FlavorResourceQuantities map[kueue.ResourceFlavorReference]map[corev1.ResourceName]int64
+// type FlavorResourceQuantities map[kueue.ResourceFlavorReference]map[corev1.ResourceName]int64
 
 type queue struct {
 	key               string
 	admittedWorkloads int
-	usage             FlavorResourceQuantities
+	usage             workload.FlavorResourceQuantities
 }
 
 func newCohort(name string, size int) *Cohort {
@@ -91,7 +95,7 @@ func newCohort(name string, size int) *Cohort {
 	}
 }
 
-func (c *Cohort) CanFit(q FlavorResourceQuantities) bool {
+func (c *Cohort) CanFit(q workload.FlavorResourceQuantities) bool {
 	for flavor, qResources := range q {
 		if cohortResources, flavorFound := c.RequestableResources[flavor]; flavorFound {
 			cohortUsage := c.Usage[flavor]
@@ -134,8 +138,9 @@ func (c *ClusterQueue) Active() bool {
 var defaultPreemption = kueue.ClusterQueuePreemption{
 	ReclaimWithinCohort: kueue.PreemptionPolicyNever,
 	WithinClusterQueue:  kueue.PreemptionPolicyNever,
-	FlavorFungibility:   kueue.FlavorFungibility{WhenCanBorrow: kueue.Borrow, WhenCanPreempt: kueue.TryNextFlavor},
 }
+
+var defaultFlavorFungibility = kueue.FlavorFungibility{WhenCanBorrow: kueue.Borrow, WhenCanPreempt: kueue.TryNextFlavor}
 
 func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks sets.Set[string]) error {
 	c.updateResourceGroups(in.Spec.ResourceGroups)
@@ -146,7 +151,7 @@ func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.
 	c.NamespaceSelector = nsSelector
 
 	// Cleanup removed flavors or resources.
-	usedFlavorResources := make(FlavorResourceQuantities)
+	usedFlavorResources := make(workload.FlavorResourceQuantities)
 	for _, rg := range in.Spec.ResourceGroups {
 		for _, f := range rg.Flavors {
 			existingUsedResources := c.Usage[f.Name]
@@ -168,6 +173,18 @@ func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.
 		c.Preemption = *in.Spec.Preemption
 	} else {
 		c.Preemption = defaultPreemption
+	}
+
+	if in.Spec.FlavorFungibility != nil {
+		c.FlavorFungibility = *in.Spec.FlavorFungibility
+		if c.FlavorFungibility.WhenCanBorrow == "" {
+			c.FlavorFungibility.WhenCanBorrow = kueue.Borrow
+		}
+		if c.FlavorFungibility.WhenCanPreempt == "" {
+			c.FlavorFungibility.WhenCanPreempt = kueue.TryNextFlavor
+		}
+	} else {
+		c.FlavorFungibility = defaultFlavorFungibility
 	}
 
 	return nil
@@ -199,6 +216,7 @@ func (c *ClusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
 			rg.Flavors = append(rg.Flavors, fQuotas)
 		}
 	}
+	atomic.AddInt64(&c.Generation, 1)
 	c.UpdateRGByResource()
 }
 
@@ -332,9 +350,12 @@ func (c *ClusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 		updateUsage(wi, c.localQueues[qKey].usage, m)
 		c.localQueues[qKey].admittedWorkloads += int(m)
 	}
+	if m < 0 {
+		atomic.AddInt64(&c.Generation, 1)
+	}
 }
 
-func updateUsage(wi *workload.Info, flvUsage FlavorResourceQuantities, m int64) {
+func updateUsage(wi *workload.Info, flvUsage workload.FlavorResourceQuantities, m int64) {
 	for _, ps := range wi.TotalRequests {
 		for wlRes, wlResFlv := range ps.Flavors {
 			v, wlResExist := ps.Requests[wlRes]
@@ -358,7 +379,7 @@ func (c *ClusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	qImpl := &queue{
 		key:               qKey,
 		admittedWorkloads: 0,
-		usage:             make(FlavorResourceQuantities),
+		usage:             make(workload.FlavorResourceQuantities),
 	}
 	if err := qImpl.resetFlavorsAndResources(c.Usage); err != nil {
 		return err
@@ -389,9 +410,9 @@ func (c *ClusterQueue) flavorInUse(flavor string) bool {
 	return false
 }
 
-func (q *queue) resetFlavorsAndResources(cqUsage FlavorResourceQuantities) error {
+func (q *queue) resetFlavorsAndResources(cqUsage workload.FlavorResourceQuantities) error {
 	// Clean up removed flavors or resources.
-	usedFlavorResources := make(FlavorResourceQuantities)
+	usedFlavorResources := make(workload.FlavorResourceQuantities)
 	for cqFlv, cqRes := range cqUsage {
 		existingUsedResources := q.usage[cqFlv]
 		usedResources := make(map[corev1.ResourceName]int64, len(cqRes))

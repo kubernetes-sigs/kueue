@@ -111,12 +111,12 @@ func (s *Scheduler) setAdmissionRoutineWrapper(wrapper routine.Wrapper) {
 	s.admissionRoutineWrapper = wrapper
 }
 
-type cohortsUsage map[string]cache.FlavorResourceQuantities
+type cohortsUsage map[string]workload.FlavorResourceQuantities
 
-func (cu *cohortsUsage) add(cohort string, assigment cache.FlavorResourceQuantities) {
+func (cu *cohortsUsage) add(cohort string, assigment workload.FlavorResourceQuantities) {
 	cohortUsage := (*cu)[cohort]
 	if cohortUsage == nil {
-		cohortUsage = make(cache.FlavorResourceQuantities, len(assigment))
+		cohortUsage = make(workload.FlavorResourceQuantities, len(assigment))
 	}
 
 	for flavor, resources := range assigment {
@@ -129,13 +129,13 @@ func (cu *cohortsUsage) add(cohort string, assigment cache.FlavorResourceQuantit
 	(*cu)[cohort] = cohortUsage
 }
 
-func (cu *cohortsUsage) totalUsageForCommonFlavorResources(cohort string, assigment cache.FlavorResourceQuantities) cache.FlavorResourceQuantities {
+func (cu *cohortsUsage) totalUsageForCommonFlavorResources(cohort string, assigment workload.FlavorResourceQuantities) workload.FlavorResourceQuantities {
 	return utilmaps.Intersect((*cu)[cohort], assigment, func(a, b map[corev1.ResourceName]int64) map[corev1.ResourceName]int64 {
 		return utilmaps.Intersect(a, b, func(a, b int64) int64 { return a + b })
 	})
 }
 
-func (cu *cohortsUsage) hasCommonFlavorResources(cohort string, assigment cache.FlavorResourceQuantities) bool {
+func (cu *cohortsUsage) hasCommonFlavorResources(cohort string, assigment workload.FlavorResourceQuantities) bool {
 	cohortUsage, cohortFound := (*cu)[cohort]
 	if !cohortFound {
 		return false
@@ -308,7 +308,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		} else {
 			e.assignment, e.preemptionTargets = s.getAssignments(log, &e.Info, &snap)
 			e.inadmissibleMsg = e.assignment.Message()
-			e.Info.LastSchedule = e.assignment.ScheduleState.Clone()
+			e.Info.LastAssignment = &e.assignment.LastState
 		}
 		entries = append(entries, e)
 	}

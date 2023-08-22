@@ -148,7 +148,7 @@ spec:
                   Workloads with lower priority first."
                 properties:
                   flavorFungibility:
-                    description: "flagorFungibility determines whether a workload
+                    description: "flavorFungibility determines whether a workload
                       should try the next flavor before borrowing or preempting in
                       current flavor. The possible values are: \n - `Borrow` (default
                       for WhenCanBorrow): allocate in current flavor if borrowing

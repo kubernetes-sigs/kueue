@@ -17,6 +17,8 @@ limitations under the License.
 package cache
 
 import (
+	"sync/atomic"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 
@@ -36,8 +38,10 @@ func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 	cq := s.ClusterQueues[wl.ClusterQueue]
 	delete(cq.Workloads, workload.Key(wl.Obj))
 	updateUsage(wl, cq.Usage, -1)
+	atomic.AddInt64(&cq.Generation, 1)
 	if cq.Cohort != nil {
 		updateUsage(wl, cq.Cohort.Usage, -1)
+		atomic.AddInt64(&cq.Cohort.Generation, 1)
 	}
 }
 
@@ -74,6 +78,7 @@ func (c *Cache) Snapshot() Snapshot {
 	}
 	for _, cohort := range c.cohorts {
 		cohortCopy := newCohort(cohort.Name, cohort.Members.Len())
+		cohortCopy.Generation = cohort.Generation
 		for cq := range cohort.Members {
 			if cq.Active() {
 				cqCopy := snap.ClusterQueues[cq.Name]
@@ -93,7 +98,9 @@ func (c *ClusterQueue) snapshot() *ClusterQueue {
 		Name:              c.Name,
 		ResourceGroups:    c.ResourceGroups, // Shallow copy is enough.
 		RGByResource:      c.RGByResource,   // Shallow copy is enough.
-		Usage:             make(FlavorResourceQuantities, len(c.Usage)),
+		FlavorFungibility: c.FlavorFungibility,
+		Generation:        c.Generation,
+		Usage:             make(workload.FlavorResourceQuantities, len(c.Usage)),
 		Workloads:         make(map[string]*workload.Info, len(c.Workloads)),
 		Preemption:        c.Preemption,
 		NamespaceSelector: c.NamespaceSelector,
@@ -116,7 +123,7 @@ func (c *ClusterQueue) snapshot() *ClusterQueue {
 
 func (c *ClusterQueue) accumulateResources(cohort *Cohort) {
 	if cohort.RequestableResources == nil {
-		cohort.RequestableResources = make(FlavorResourceQuantities, len(c.ResourceGroups))
+		cohort.RequestableResources = make(workload.FlavorResourceQuantities, len(c.ResourceGroups))
 	}
 	for _, rg := range c.ResourceGroups {
 		for _, flvQuotas := range rg.Flavors {
@@ -131,7 +138,7 @@ func (c *ClusterQueue) accumulateResources(cohort *Cohort) {
 		}
 	}
 	if cohort.Usage == nil {
-		cohort.Usage = make(FlavorResourceQuantities, len(c.Usage))
+		cohort.Usage = make(workload.FlavorResourceQuantities, len(c.Usage))
 	}
 	for fName, resUsages := range c.Usage {
 		used := cohort.Usage[fName]

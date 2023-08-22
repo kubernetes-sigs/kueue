@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"reflect"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -42,35 +41,21 @@ var (
 )
 
 type FlavorResourceQuantities map[kueue.ResourceFlavorReference]map[corev1.ResourceName]int64
-type LastScheduleClusterQueueState struct {
-	LastScheduledFlavorIdx map[string]map[corev1.ResourceName]int
-	ResourceFlavors        map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
-	ClusterQueueUsage      FlavorResourceQuantities
-	CohortUsage            FlavorResourceQuantities
+
+type AssigmentClusterQueueState struct {
+	LastAssignedFlavorIdx  []map[corev1.ResourceName]int
+	CohortGeneration       int64
+	ClusterQueueGeneration int64
 }
 
-func (s *LastScheduleClusterQueueState) Equal(resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, clusterQueueUsage, cohortUsage FlavorResourceQuantities) bool {
-	return reflect.DeepEqual(s.ResourceFlavors, resourceFlavors) && reflect.DeepEqual(s.ClusterQueueUsage, clusterQueueUsage) && reflect.DeepEqual(s.CohortUsage, cohortUsage)
-}
-
-func (s *LastScheduleClusterQueueState) Clone() *LastScheduleClusterQueueState {
-	c := LastScheduleClusterQueueState{
-		LastScheduledFlavorIdx: make(map[string]map[corev1.ResourceName]int),
-		ResourceFlavors:        make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
-		ClusterQueueUsage:      make(FlavorResourceQuantities),
-		CohortUsage:            make(FlavorResourceQuantities),
+func (s *AssigmentClusterQueueState) Clone() *AssigmentClusterQueueState {
+	c := AssigmentClusterQueueState{
+		LastAssignedFlavorIdx:  make([]map[corev1.ResourceName]int, len(s.LastAssignedFlavorIdx)),
+		CohortGeneration:       s.CohortGeneration,
+		ClusterQueueGeneration: s.ClusterQueueGeneration,
 	}
-	for ps, flavorIdx := range s.LastScheduledFlavorIdx {
-		c.LastScheduledFlavorIdx[ps] = maps.Clone(flavorIdx)
-	}
-	for res, flavor := range s.ResourceFlavors {
-		c.ResourceFlavors[res] = flavor
-	}
-	for flavor, flavorusage := range s.ClusterQueueUsage {
-		c.ClusterQueueUsage[flavor] = maps.Clone(flavorusage)
-	}
-	for flavor, flavorusage := range s.CohortUsage {
-		c.CohortUsage[flavor] = maps.Clone(flavorusage)
+	for ps, flavorIdx := range s.LastAssignedFlavorIdx {
+		c.LastAssignedFlavorIdx[ps] = maps.Clone(flavorIdx)
 	}
 	return &c
 }
@@ -82,8 +67,8 @@ type Info struct {
 	TotalRequests []PodSetResources
 	// Populated from the queue during admission or from the admission field if
 	// already admitted.
-	ClusterQueue string
-	LastSchedule *LastScheduleClusterQueueState
+	ClusterQueue   string
+	LastAssignment *AssigmentClusterQueueState
 }
 
 type PodSetResources struct {
