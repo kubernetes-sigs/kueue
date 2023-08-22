@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -383,7 +384,7 @@ func (a *Assignment) findFlavorForResourceGroup(
 	selector := flavorSelector(spec, rg.LabelKeys)
 	flavorIdx := -1
 	for idx, flvQuotas := range rg.Flavors {
-		if idx <= lastAssignment {
+		if features.Enabled(features.FlavorFungibility) && idx <= lastAssignment {
 			continue
 		}
 		flavor, exist := resourceFlavors[flvQuotas.Name]
@@ -436,14 +437,25 @@ func (a *Assignment) findFlavorForResourceGroup(
 			}
 		}
 
-		if !shouldTryNextFlavor(representativeMode, cq.FlavorFungibility, needsBorrowing) {
-			bestAssignment = assignments
-			bestAssignmentMode = representativeMode
-			break
-		}
-		if representativeMode > bestAssignmentMode {
-			bestAssignment = assignments
-			bestAssignmentMode = representativeMode
+		if features.Enabled(features.FlavorFungibility) {
+			if !shouldTryNextFlavor(representativeMode, cq.FlavorFungibility, needsBorrowing) {
+				bestAssignment = assignments
+				bestAssignmentMode = representativeMode
+				break
+			}
+			if representativeMode > bestAssignmentMode {
+				bestAssignment = assignments
+				bestAssignmentMode = representativeMode
+			}
+		} else {
+			if representativeMode > bestAssignmentMode {
+				bestAssignment = assignments
+				bestAssignmentMode = representativeMode
+				if bestAssignmentMode == Fit {
+					// All the resources fit in the cohort, no need to check more flavors.
+					return bestAssignment, nil
+				}
+			}
 		}
 	}
 
