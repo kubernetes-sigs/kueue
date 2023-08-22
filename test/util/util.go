@@ -337,6 +337,18 @@ func SetQuotaReservation(ctx context.Context, k8sClient client.Client, wl *kueue
 	return workload.ApplyAdmissionStatus(ctx, k8sClient, wl, false)
 }
 
+func SyncAdmissionFofWorkloads(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
+	var updatedWorkload kueue.Workload
+	for _, wl := range wls {
+		gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
+		status := metav1.ConditionFalse
+		if workload.HasQuotaReservation(&updatedWorkload) && workload.HasAllChecksReady(&updatedWorkload) {
+			status = metav1.ConditionTrue
+		}
+		gomega.ExpectWithOffset(1, workload.UpdateStatus(ctx, k8sClient, &updatedWorkload, kueue.WorkloadAdmitted, status, "ByTest", "Admission updated by test", "workload")).To(gomega.Succeed())
+	}
+}
+
 func FinishEvictionForWorkloads(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
 	gomega.EventuallyWithOffset(1, func() int {
 		evicting := 0
@@ -349,7 +361,7 @@ func FinishEvictionForWorkloads(ctx context.Context, k8sClient client.Client, wl
 		}
 		return evicting
 	}, Timeout, Interval).Should(gomega.Equal(len(wls)), "Not enough workloads were marked for eviction")
-	// unset the admission
+	// unset the quota reservation
 	for i := range wls {
 		key := client.ObjectKeyFromObject(wls[i])
 		gomega.EventuallyWithOffset(1, func() error {
@@ -357,9 +369,13 @@ func FinishEvictionForWorkloads(ctx context.Context, k8sClient client.Client, wl
 			if err := k8sClient.Get(ctx, key, &updatedWorkload); err != nil {
 				return err
 			}
-			workload.UnsetQuotaReservationWithCondition(&updatedWorkload, "Pending", "By test")
-			return workload.ApplyAdmissionStatus(ctx, k8sClient, &updatedWorkload, true)
-		}, Timeout, Interval).Should(gomega.Succeed(), fmt.Sprintf("Unable to unset admission for %q", key))
+
+			if apimeta.IsStatusConditionTrue(updatedWorkload.Status.Conditions, kueue.WorkloadQuotaReserved) {
+				workload.UnsetQuotaReservationWithCondition(&updatedWorkload, "Pending", "By test")
+				return workload.ApplyAdmissionStatus(ctx, k8sClient, &updatedWorkload, true)
+			}
+			return nil
+		}, Timeout, Interval).Should(gomega.Succeed(), fmt.Sprintf("Unable to unset quota reservation for %q", key))
 	}
 
 }

@@ -114,6 +114,21 @@ func (w *WorkloadWrapper) ReserveQuota(a *kueue.Admission) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) Admitted(a bool) *WorkloadWrapper {
+	cond := metav1.Condition{
+		Type:               kueue.WorkloadAdmitted,
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "AdmittedByTest",
+		Message:            fmt.Sprintf("Admitted by ClusterQueue %s", w.Status.Admission.ClusterQueue),
+	}
+	if !a {
+		cond.Status = metav1.ConditionFalse
+	}
+	apimeta.SetStatusCondition(&w.Status.Conditions, cond)
+	return w
+}
+
 func (w *WorkloadWrapper) Creation(t time.Time) *WorkloadWrapper {
 	w.CreationTimestamp = metav1.NewTime(t)
 	return w

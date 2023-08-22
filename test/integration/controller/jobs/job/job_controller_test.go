@@ -184,6 +184,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			AssignmentPodCount(createdWorkload.Spec.PodSets[0].Count).
 			Obj()
 		gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+		util.SyncAdmissionFofWorkloads(ctx, k8sClient, createdWorkload)
 		gomega.Eventually(func() bool {
 			if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {
 				return false
@@ -200,7 +201,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 				return false
 			}
-			return len(createdWorkload.Status.Conditions) == 1
+			return len(createdWorkload.Status.Conditions) == 2
 		}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
 
 		// We need to set startTime to the job since the kube-controller-manager doesn't exist in envtest.
@@ -240,6 +241,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			AssignmentPodCount(createdWorkload.Spec.PodSets[0].Count).
 			Obj()
 		gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+		util.SyncAdmissionFofWorkloads(ctx, k8sClient, createdWorkload)
 		gomega.Eventually(func() bool {
 			if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {
 				return false
@@ -252,7 +254,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 				return false
 			}
-			return len(createdWorkload.Status.Conditions) == 1
+			return len(createdWorkload.Status.Conditions) == 2
 		}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking the workload is finished when job is completed")
@@ -385,6 +387,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			gomega.Eventually(func() error { return k8sClient.Get(ctx, wlLookupKey, wl) }, util.Timeout, util.Interval).Should(gomega.Succeed())
 			admission := testing.MakeAdmission("q", job.Spec.Template.Spec.Containers[0].Name).Obj()
 			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, admission)).To(gomega.Succeed())
+			util.SyncAdmissionFofWorkloads(ctx, k8sClient, wl)
 		})
 
 		ginkgo.By("wait for the job to be unsuspended", func() {
@@ -503,6 +506,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 				AssignmentPodCount(createdWorkload.Spec.PodSets[0].Count).
 				Obj()
 			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+			util.SyncAdmissionFofWorkloads(ctx, k8sClient, createdWorkload)
 			gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 
 			ginkgo.By("Await for the job to be unsuspended")
@@ -541,6 +545,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 					}
 					return util.SetQuotaReservation(ctx, k8sClient, createdWorkload, nil)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.SyncAdmissionFofWorkloads(ctx, k8sClient, createdWorkload)
 			}
 
 			ginkgo.By("Verify the PodsReady condition is added")
@@ -939,6 +944,8 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 				wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name), Namespace: job.Namespace}
 				gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
 				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, nil)).Should(gomega.Succeed())
+				util.SyncAdmissionFofWorkloads(ctx, k8sClient, wl)
+
 			})
 
 			ginkgo.By("the node selector should be restored", func() {
@@ -1244,6 +1251,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 
 		ginkgo.By("clear the workloads admission to stop the job", func() {
 			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, nil)).To(gomega.Succeed())
+			util.SyncAdmissionFofWorkloads(ctx, k8sClient, wl)
 		})
 
 		ginkgo.By("job should be suspended and its parallelism restored", func() {
