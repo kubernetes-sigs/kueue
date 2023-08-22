@@ -370,8 +370,8 @@ func (c *ClusterQueueWrapper) ResourceGroup(flavors ...kueue.FlavorQuotas) *Clus
 	return c
 }
 
-// AdditionalChecks replaces the queue additional checks
-func (c *ClusterQueueWrapper) AdditionalChecks(checks ...string) *ClusterQueueWrapper {
+// AdmissionChecks replaces the queue additional checks
+func (c *ClusterQueueWrapper) AdmissionChecks(checks ...string) *ClusterQueueWrapper {
 	c.Spec.AdmissionChecks = checks
 	return c
 }

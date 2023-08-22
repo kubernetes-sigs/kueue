@@ -58,7 +58,7 @@ spec:
                 type: object
               retryDelayMinutes:
                 description: RetryDelayMinutes specifies the duration in minutes between
-                  tow checks for the same workload.
+                  two checks for the same workload.
                 format: int64
                 type: integer
             type: object

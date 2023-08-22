@@ -136,27 +136,14 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)
 	if cqOk {
-		// because we need to react to API cluster queue events, the list of checks from a cache can lead to race conditions
-		queueAdmissionChecks, err := r.getClusterQueueAdmissionChecks(ctx, cqName)
-		if err == nil {
-			newChecks, shouldUpdate := syncAdmissionCheckConditions(wl.Status.AdmissionChecks, queueAdmissionChecks)
-			if shouldUpdate {
-				log.V(3).Info("The workload needs admission checks updates", "clusterQueue", klog.KRef("", cqName), "queueChecks", queueAdmissionChecks)
-				wl.Status.AdmissionChecks = newChecks
-				err := r.client.Status().Update(ctx, &wl)
-				return ctrl.Result{}, client.IgnoreNotFound(err)
-			}
+		if updated, err := r.reconcileSyncAdmissionChecks(ctx, &wl, cqName); updated || err != nil {
+			return ctrl.Result{}, err
 		}
 	}
 
 	if workload.IsAdmitted(&wl) {
-		if !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
-			if workload.HasRertyOrRejectedChecks(&wl) {
-				log.V(3).Info("Workload is evicted due to admission checks", "localQueue")
-				workload.SetEvictedCondition(&wl, kueue.WorkloadEvictedByAdmissionCheck, "At least one admission check is false")
-				err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
-				return ctrl.Result{}, client.IgnoreNotFound(err)
-			}
+		if evictionTriggered, err := r.reconcileCheckBasedEviction(ctx, &wl); evictionTriggered || err != nil {
+			return ctrl.Result{}, err
 		}
 		return r.reconcileNotReadyTimeout(ctx, req, &wl)
 	}
@@ -185,49 +172,66 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	return ctrl.Result{}, nil
 }
 
-func (r *WorkloadReconciler) getClusterQueueAdmissionChecks(ctx context.Context, name string) ([]string, error) {
-	queue := kueue.ClusterQueue{}
-	if err := r.client.Get(ctx, types.NamespacedName{Name: name}, &queue); err != nil {
-		return nil, err
+func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl *kueue.Workload) (bool, error) {
+	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) || !workload.HasRetryOrRejectedChecks(wl) {
+		return false, nil
 	}
-	return queue.Spec.AdmissionChecks, nil
+	log := ctrl.LoggerFrom(ctx)
+	log.V(3).Info("Workload is evicted due to admission checks")
+	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByAdmissionCheck, "At least one admission check is false")
+	err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
+	return true, client.IgnoreNotFound(err)
+}
+
+func (r *WorkloadReconciler) reconcileSyncAdmissionChecks(ctx context.Context, wl *kueue.Workload, cqName string) (bool, error) {
+	// because we need to react to API cluster queue events, the list of checks from a cache can lead to race conditions
+	queue := kueue.ClusterQueue{}
+	if err := r.client.Get(ctx, types.NamespacedName{Name: cqName}, &queue); err != nil {
+		return false, err
+	}
+
+	queueAdmissionChecks := queue.Spec.AdmissionChecks
+	newChecks, shouldUpdate := syncAdmissionCheckConditions(wl.Status.AdmissionChecks, queueAdmissionChecks)
+	if shouldUpdate {
+		log := ctrl.LoggerFrom(ctx)
+		log.V(3).Info("The workload needs admission checks updates", "clusterQueue", klog.KRef("", cqName), "admissionChecks", queueAdmissionChecks)
+		wl.Status.AdmissionChecks = newChecks
+		err := r.client.Status().Update(ctx, wl)
+		return true, client.IgnoreNotFound(err)
+	}
+	return false, nil
 }
 
 func syncAdmissionCheckConditions(conds []metav1.Condition, queueChecks []string) ([]metav1.Condition, bool) {
-	shouldUpdate := false
 	if len(queueChecks) == 0 {
-		if len(conds) > 0 {
-			conds = nil
+		return nil, len(conds) > 0
+	}
+
+	shouldUpdate := false
+	currentChecks := slices.ToRefMap(conds, func(c *metav1.Condition) string { return c.Type })
+	for _, t := range queueChecks {
+		if _, found := currentChecks[t]; !found {
+			apimeta.SetStatusCondition(&conds, metav1.Condition{
+				Type:   t,
+				Status: metav1.ConditionUnknown,
+				Reason: kueue.CheckStatePending,
+			})
 			shouldUpdate = true
 		}
-	} else {
-		currentChecks := slices.ToRefMap(conds, func(c *metav1.Condition) string { return c.Type })
-		for _, t := range queueChecks {
-			if _, found := currentChecks[t]; !found {
-				apimeta.SetStatusCondition(&conds, metav1.Condition{
-					Type:   t,
-					Status: metav1.ConditionUnknown,
-					Reason: string(kueue.CheckStatePending),
-				})
-				shouldUpdate = true
-			}
-		}
+	}
 
-		// if the workload conditions length is bigger then some cleanup should be done
-		if len(conds) > len(queueChecks) {
-			toRemove := make([]string, 0, len(conds)-len(queueChecks))
-			queueChecksSet := sets.New(queueChecks...)
-			for i := range conds {
-				c := &conds[i]
-				if !queueChecksSet.Has(c.Type) {
-					toRemove = append(toRemove, c.Type)
-				}
-			}
-			shouldUpdate = len(toRemove) > 0
-			for _, t := range toRemove {
-				apimeta.RemoveStatusCondition(&conds, t)
+	// if the workload conditions length is bigger, then some cleanup should be done
+	if len(conds) > len(queueChecks) {
+		newConds := make([]metav1.Condition, 0, len(queueChecks))
+		queueChecksSet := sets.New(queueChecks...)
+		shouldUpdate = true
+		for i := range conds {
+			c := &conds[i]
+			if queueChecksSet.Has(c.Type) {
+				newConds = append(newConds, *c)
 			}
 		}
+		conds = newConds
 	}
 	return conds, shouldUpdate
 }
@@ -614,14 +618,14 @@ type workloadCqHandler struct {
 
 var _ handler.EventHandler = (*workloadCqHandler)(nil)
 
-// Create is called in response to an create event - e.g. Pod Creation.
+// Create is called in response to an create event.
 func (w *workloadCqHandler) Create(ctx context.Context, ev event.CreateEvent, wq workqueue.RateLimitingInterface) {
 	if cq, isQueue := ev.Object.(*kueue.ClusterQueue); isQueue {
 		w.queueReconcileForWorkloads(ctx, cq.Name, wq)
 	}
 }
 
-// Update is called in response to an update event -  e.g. Pod Updated.
+// Update is called in response to an update event.
 func (w *workloadCqHandler) Update(ctx context.Context, ev event.UpdateEvent, wq workqueue.RateLimitingInterface) {
 	log := ctrl.LoggerFrom(ctx).WithValues("clusterQueue", klog.KObj(ev.ObjectNew))
 	ctx = ctrl.LoggerInto(ctx, log)
@@ -633,7 +637,7 @@ func (w *workloadCqHandler) Update(ctx context.Context, ev event.UpdateEvent, wq
 	}
 }
 
-// Delete is called in response to a delete event - e.g. Pod Deleted.
+// Delete is called in response to a delete event.
 func (w *workloadCqHandler) Delete(ctx context.Context, ev event.DeleteEvent, wq workqueue.RateLimitingInterface) {
 	if cq, isQueue := ev.Object.(*kueue.ClusterQueue); isQueue {
 		w.queueReconcileForWorkloads(ctx, cq.Name, wq)
@@ -641,7 +645,7 @@ func (w *workloadCqHandler) Delete(ctx context.Context, ev event.DeleteEvent, wq
 }
 
 // Generic is called in response to an event of an unknown type or a synthetic event triggered as a cron or
-// external trigger request - e.g. reconcile Autoscaling, or a Webhook.
+// external trigger request.
 func (w *workloadCqHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.RateLimitingInterface) {
 	// nothing to do here
 }

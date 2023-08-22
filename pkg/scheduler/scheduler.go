@@ -288,7 +288,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		if s.cache.IsAssumedOrAdmittedWorkload(w) {
 			log.Info("Workload skipped from admission because it's already assumed or admitted", "workload", klog.KObj(w.Obj))
 			continue
-		} else if workload.HasRertyOrRejectedChecks(w.Obj) {
+		} else if workload.HasRetryOrRejectedChecks(w.Obj) {
 			e.inadmissibleMsg = "The workload has failed admission checks"
 		} else if snap.InactiveClusterQueueSets.Has(w.ClusterQueue) {
 			e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s is inactive", w.ClusterQueue)

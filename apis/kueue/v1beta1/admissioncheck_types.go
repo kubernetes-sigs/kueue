@@ -20,31 +20,29 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type AdmissionCheckState string
-
 const (
 	// The check cannot pass at this moment, back off (possibly
 	// allowing other to try, unblock quota) and retry.
 	// A workload having at least one check in the state,
 	// will be evicted if admitted will not be considered
-	//for admission.
-	CheckStateRetry AdmissionCheckState = "Retry"
+	// for admission.
+	CheckStateRetry = "Retry"
 
 	// The check will not pass in the near future. It is not worth
 	// to retry.
 	//NOTE: The admission behaviour is currently the same as for retry,
 	// we can consider marking the workload as "Finished" with a failure
 	// description.
-	CheckStateRejected AdmissionCheckState = "Rejected"
+	CheckStateRejected = "Rejected"
 
 	// The state can be
 	// 1. Unknown, the condition was added by kueue and its controller was not able to evaluate it.
 	// 2. Set by its controller and reevaluated after quota is reserved.
-	CheckStatePending AdmissionCheckState = "Pending"
+	CheckStatePending = "Pending"
 
 	// The check has passed.
 	// A workload having all its checks ready, and quota reserved can begin execution.
-	CheckStateReady AdmissionCheckState = "Ready"
+	CheckStateReady = "Ready"
 )
 
 // AdmissionCheckSpec defines the desired state of AdmissionCheck
@@ -53,7 +51,7 @@ type AdmissionCheckSpec struct {
 	// +optional
 	ControllerName string `json:"controllerName"`
 
-	// RetryDelayMinutes specifies the duration in minutes between tow checks for the same
+	// RetryDelayMinutes specifies the duration in minutes between two checks for the same
 	// workload.
 	// +optional
 	RetryDelayMinutes *int64 `json:"retryDelayMinutes,omitempty"`

@@ -199,7 +199,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 						Resource(corev1.ResourceMemory, "1Gi").
 						Obj(),
 				).
-				AdditionalChecks("check1").
+				AdmissionChecks("check1").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
 			localQueue = testing.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
@@ -257,13 +257,13 @@ var _ = ginkgo.Describe("Kueue", func() {
 					if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 						return err
 					}
-					apimeta.SetStatusCondition(&createdWorkload.Status.AdmissionChecks, metav1.Condition{
+					patch := workload.BaseSSAWorkload(createdWorkload)
+					apimeta.SetStatusCondition(&patch.Status.AdmissionChecks, metav1.Condition{
 						Type:   "check1",
 						Status: metav1.ConditionTrue,
-						Reason: "ByTest",
+						Reason: kueue.CheckStateReady,
 					})
-					return k8sClient.Status().Update(ctx, createdWorkload)
-
+					return k8sClient.Status().Patch(ctx, patch, client.Apply, client.FieldOwner("test-admission-check-controller"), client.ForceOwnership)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -303,13 +303,13 @@ var _ = ginkgo.Describe("Kueue", func() {
 					if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 						return err
 					}
-					apimeta.SetStatusCondition(&createdWorkload.Status.AdmissionChecks, metav1.Condition{
+					patch := workload.BaseSSAWorkload(createdWorkload)
+					apimeta.SetStatusCondition(&patch.Status.AdmissionChecks, metav1.Condition{
 						Type:   "check1",
 						Status: metav1.ConditionTrue,
-						Reason: "ByTest",
+						Reason: kueue.CheckStateReady,
 					})
-					return k8sClient.Status().Update(ctx, createdWorkload)
-
+					return k8sClient.Status().Patch(ctx, patch, client.Apply, client.FieldOwner("test-admission-check-controller"), client.ForceOwnership)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -317,18 +317,18 @@ var _ = ginkgo.Describe("Kueue", func() {
 				"instance-type": "on-demand",
 			})
 
-			ginkgo.By("setting the check as successful", func() {
+			ginkgo.By("setting the check as failed (Retry)", func() {
 				gomega.Eventually(func() error {
 					if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 						return err
 					}
-					apimeta.SetStatusCondition(&createdWorkload.Status.AdmissionChecks, metav1.Condition{
+					patch := workload.BaseSSAWorkload(createdWorkload)
+					apimeta.SetStatusCondition(&patch.Status.AdmissionChecks, metav1.Condition{
 						Type:   "check1",
 						Status: metav1.ConditionFalse,
-						Reason: "ByTest",
+						Reason: kueue.CheckStateRetry,
 					})
-					return k8sClient.Status().Update(ctx, createdWorkload)
-
+					return k8sClient.Status().Patch(ctx, patch, client.Apply, client.FieldOwner("test-admission-check-controller"), client.ForceOwnership)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 

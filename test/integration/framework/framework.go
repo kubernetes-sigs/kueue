@@ -61,7 +61,7 @@ func (f *Framework) Init() *rest.Config {
 	ctrl.SetLogger(zap.New(
 		zap.WriteTo(ginkgo.GinkgoWriter),
 		zap.UseDevMode(true),
-		zap.Level(zapcore.Level(-5)),
+		zap.Level(zapcore.Level(-3)),
 		opts),
 	)
 

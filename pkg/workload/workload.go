@@ -405,7 +405,7 @@ func HasAllChecksReady(wl *kueue.Workload) bool {
 }
 
 // Returns true if any of the workloads checks are Retry or Rejected
-func HasRertyOrRejectedChecks(wl *kueue.Workload) bool {
+func HasRetryOrRejectedChecks(wl *kueue.Workload) bool {
 	for i := range wl.Status.AdmissionChecks {
 		if wl.Status.AdmissionChecks[i].Status == metav1.ConditionFalse {
 			return true

@@ -180,7 +180,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 }
 
 func TestSyncCheckConditions(t *testing.T) {
-	testStartTime := metav1.NewTime(time.Now())
+	now := metav1.NewTime(time.Now())
 	cases := map[string]struct {
 		conds                []metav1.Condition
 		list                 []string
@@ -196,12 +196,12 @@ func TestSyncCheckConditions(t *testing.T) {
 				{
 					Type:   "ac1",
 					Status: metav1.ConditionUnknown,
-					Reason: string(kueue.CheckStatePending),
+					Reason: kueue.CheckStatePending,
 				},
 				{
 					Type:   "ac2",
 					Status: metav1.ConditionUnknown,
-					Reason: string(kueue.CheckStatePending),
+					Reason: kueue.CheckStatePending,
 				},
 			},
 			ignoreTransitionTime: true,
@@ -211,12 +211,12 @@ func TestSyncCheckConditions(t *testing.T) {
 				{
 					Type:   "ac0",
 					Status: metav1.ConditionUnknown,
-					Reason: string(kueue.CheckStatePending),
+					Reason: kueue.CheckStatePending,
 				},
 				{
 					Type:   "ac1",
 					Status: metav1.ConditionUnknown,
-					Reason: string(kueue.CheckStatePending),
+					Reason: kueue.CheckStatePending,
 				},
 			},
 			list:       []string{"ac1", "ac2"},
@@ -225,12 +225,12 @@ func TestSyncCheckConditions(t *testing.T) {
 				{
 					Type:   "ac1",
 					Status: metav1.ConditionUnknown,
-					Reason: string(kueue.CheckStatePending),
+					Reason: kueue.CheckStatePending,
 				},
 				{
 					Type:   "ac2",
 					Status: metav1.ConditionUnknown,
-					Reason: string(kueue.CheckStatePending),
+					Reason: kueue.CheckStatePending,
 				},
 			},
 			ignoreTransitionTime: true,
@@ -240,12 +240,12 @@ func TestSyncCheckConditions(t *testing.T) {
 				{
 					Type:   "ac0",
 					Status: metav1.ConditionUnknown,
-					Reason: string(kueue.CheckStatePending),
+					Reason: kueue.CheckStatePending,
 				},
 				{
 					Type:   "ac1",
 					Status: metav1.ConditionUnknown,
-					Reason: string(kueue.CheckStatePending),
+					Reason: kueue.CheckStatePending,
 				},
 			},
 			wantChange: true,
@@ -257,12 +257,12 @@ func TestSyncCheckConditions(t *testing.T) {
 					Status:             metav1.ConditionTrue,
 					Reason:             "ReasonOne",
 					Message:            "Message one",
-					LastTransitionTime: *testStartTime.DeepCopy(),
+					LastTransitionTime: *now.DeepCopy(),
 				},
 				{
 					Type:   "ac1",
 					Status: metav1.ConditionFalse,
-					Reason: string(kueue.CheckStatePending),
+					Reason: kueue.CheckStatePending,
 				},
 			},
 			list:       []string{"ac0", "ac1"},
@@ -273,12 +273,12 @@ func TestSyncCheckConditions(t *testing.T) {
 					Status:             metav1.ConditionTrue,
 					Reason:             "ReasonOne",
 					Message:            "Message one",
-					LastTransitionTime: *testStartTime.DeepCopy(),
+					LastTransitionTime: *now.DeepCopy(),
 				},
 				{
 					Type:   "ac1",
 					Status: metav1.ConditionFalse,
-					Reason: string(kueue.CheckStatePending),
+					Reason: kueue.CheckStatePending,
 				},
 			},
 		},

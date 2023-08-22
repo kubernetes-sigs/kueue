@@ -197,7 +197,7 @@ const (
 	WorkloadEvictedByPodsReadyTimeout = "PodsReadyTimeout"
 
 	// WorkloadEvictedByAdmissionCheck indicates that the workload was evicted
-	// beacuse at least one admission check transitioned to false.
+	// beacuse at least one admission check transitioned to False.
 	WorkloadEvictedByAdmissionCheck = "AdmissionCheck"
 )
 

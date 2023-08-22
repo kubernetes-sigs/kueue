@@ -141,7 +141,7 @@ var _ = ginkgo.Describe("Workload controller", func() {
 			clusterQueue = testing.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*testing.MakeFlavorQuotas(flavorOnDemand).
 					Resource(resourceGPU, "5", "5").Obj()).
-				AdditionalChecks("check1", "check2").
+				AdmissionChecks("check1", "check2").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
@@ -172,13 +172,13 @@ var _ = ginkgo.Describe("Workload controller", func() {
 					apimeta.SetStatusCondition(&createdWl.Status.AdmissionChecks, metav1.Condition{
 						Type:    "check1",
 						Status:  metav1.ConditionTrue,
-						Reason:  string(kueue.CheckStateReady),
+						Reason:  kueue.CheckStateReady,
 						Message: "check successfully passed",
 					})
 					apimeta.SetStatusCondition(&createdWl.Status.AdmissionChecks, metav1.Condition{
 						Type:    "check2",
 						Status:  metav1.ConditionFalse,
-						Reason:  string(kueue.CheckStateRejected),
+						Reason:  kueue.CheckStateRejected,
 						Message: "check rejected",
 					})
 					return k8sClient.Status().Update(ctx, &createdWl)
