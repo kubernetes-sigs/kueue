@@ -1019,6 +1019,7 @@ func TestSchedule(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			defer features.SetFeatureGateDuringTest(t, features.FlavorFungibility, true)()
 			if tc.enablePartialAdmission {
 				defer features.SetFeatureGateDuringTest(t, features.PartialAdmission, true)()
 			}
@@ -1264,6 +1265,7 @@ func TestEntryOrdering(t *testing.T) {
 }
 
 func TestLastSchedulingContext(t *testing.T) {
+	defer features.SetFeatureGateDuringTest(t, features.FlavorFungibility, true)()
 	resourceFlavors := []*kueue.ResourceFlavor{
 		{ObjectMeta: metav1.ObjectMeta{Name: "on-demand"}},
 		{ObjectMeta: metav1.ObjectMeta{Name: "spot"}},
@@ -1454,6 +1456,7 @@ func TestLastSchedulingContext(t *testing.T) {
 			wantPreempted:    sets.Set[string]{},
 			wantAdmissionsOnceSchedule: map[string]kueue.Admission{
 				"default/workload1": *utiltesting.MakeAdmission("eng-cohort-beta").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
+				"default/borrower":  *utiltesting.MakeAdmission("eng-cohort-alpha").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
 			},
 			wantAdmissionsTwiceSchedule: map[string]kueue.Admission{
 				"default/placeholder": *utiltesting.MakeAdmission("eng-cohort-alpha").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj(),

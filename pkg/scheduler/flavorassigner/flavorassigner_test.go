@@ -31,11 +31,13 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestAssignFlavors(t *testing.T) {
+	defer features.SetFeatureGateDuringTest(t, features.FlavorFungibility, true)()
 	resourceFlavors := map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
 		"default": {
 			ObjectMeta: metav1.ObjectMeta{Name: "default"},
@@ -1619,6 +1621,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
+				Usage: workload.FlavorResourceQuantities{"one": {"cpu": 9000, "pods": 1}},
 			},
 		},
 		"preempt try next flavor": {
@@ -1666,6 +1669,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
+				Usage: workload.FlavorResourceQuantities{"two": {"cpu": 9000, "pods": 1}},
 			},
 		},
 		"borrow try next flavor": {
@@ -1722,6 +1726,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
+				Usage: workload.FlavorResourceQuantities{
+					"two": {corev1.ResourceCPU: 9000, corev1.ResourcePods: 1},
+				},
 			},
 		},
 		"borrow before try next flavor": {
@@ -1781,6 +1788,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
+				Usage: workload.FlavorResourceQuantities{"one": {"cpu": 9000, "pods": 1}},
 			},
 		},
 	}

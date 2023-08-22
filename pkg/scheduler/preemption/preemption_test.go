@@ -34,6 +34,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -42,6 +43,8 @@ import (
 var snapCmpOpts = []cmp.Option{
 	cmpopts.EquateEmpty(),
 	cmpopts.IgnoreUnexported(cache.ClusterQueue{}),
+	cmpopts.IgnoreFields(cache.Cohort{}, "Generation"),
+	cmpopts.IgnoreFields(cache.ClusterQueue{}, "Generation"),
 	cmp.Transformer("Cohort.Members", func(s sets.Set[*cache.ClusterQueue]) sets.Set[string] {
 		result := make(sets.Set[string], len(s))
 		for cq := range s {
@@ -52,6 +55,7 @@ var snapCmpOpts = []cmp.Option{
 }
 
 func TestPreemption(t *testing.T) {
+	defer features.SetFeatureGateDuringTest(t, features.FlavorFungibility, true)()
 	flavors := []*kueue.ResourceFlavor{
 		utiltesting.MakeResourceFlavor("default").Obj(),
 		utiltesting.MakeResourceFlavor("alpha").Obj(),
