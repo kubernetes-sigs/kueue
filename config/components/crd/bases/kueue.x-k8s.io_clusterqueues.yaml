@@ -71,6 +71,37 @@ spec:
                   Validation of a cohort name is equivalent to that of object names:
                   subdomain in DNS (RFC 1123)."
                 type: string
+              flavorFungibility:
+                description: flavorFungibility defaines whether a workload should
+                  try the next flavor before borrowing in current flavor.
+                properties:
+                  whenCanBorrow:
+                    default: Borrow
+                    description: "whenCanBorrow determines whether a workload should
+                      try the next flavor before borrowing in current flavor. The
+                      possible values are: \n - `Borrow` (default for WhenCanBorrow):
+                      allocate in current flavor if borrowing can help. only effective
+                      for WhenCanBorrow - `TryNextFlavor` (default for WhenCanPreempt):
+                      try next flavor if the current flavor has no enough resource.
+                      effective for WhenCanBorrow and WhenCanPreempt."
+                    enum:
+                    - Borrow
+                    - TryNextFlavor
+                    type: string
+                  whenCanPreempt:
+                    default: TryNextFlavor
+                    description: "whenCanPreempt determines whether a workload should
+                      try the next flavor before borrowing in current flavor. The
+                      possible values are: \n - `Preempt`: allocate in current flavor
+                      if preempt might help. only effective for WhenCanPreempt - `TryNextFlavor`
+                      (default for WhenCanPreempt): try next flavor if the current
+                      flavor has no enough resource. effective for WhenCanBorrow and
+                      WhenCanPreempt."
+                    enum:
+                    - Preempt
+                    - TryNextFlavor
+                    type: string
+                type: object
               namespaceSelector:
                 description: namespaceSelector defines which namespaces are allowed
                   to submit workloads to this clusterQueue. Beyond this basic support
@@ -134,30 +165,6 @@ spec:
                   of Workloads to preempt to accomomdate the pending Workload, preempting
                   Workloads with lower priority first."
                 properties:
-                  flavorFungibility:
-                    description: "flavorFungibility determines whether a workload
-                      should try the next flavor before borrowing or preempting in
-                      current flavor. The possible values are: \n - `Borrow` (default
-                      for WhenCanBorrow): allocate in current flavor if borrowing
-                      can help. only effective for WhenCanBorrow - `Preempt`: allocate
-                      in current flavor if preempt might help. only effective for
-                      WhenCanPreempt - `TryNextFlavor` (default for WhenCanPreempt):
-                      try next flavor if the current flavor has no enough resource.
-                      effective for WhenCanBorrow and WhenCanPreempt."
-                    properties:
-                      whenCanBorrow:
-                        default: Borrow
-                        enum:
-                        - Borrow
-                        - TryNextFlavor
-                        type: string
-                      whenCanPreempt:
-                        default: TryNextFlavor
-                        enum:
-                        - Preempt
-                        - TryNextFlavor
-                        type: string
-                    type: object
                   reclaimWithinCohort:
                     default: Never
                     description: "reclaimWithinCohort determines whether a pending
