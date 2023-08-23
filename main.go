@@ -149,7 +149,10 @@ func main() {
 	queues := queue.NewManager(mgr.GetClient(), cCache)
 
 	ctx := ctrl.SetupSignalHandler()
-	setupIndexes(ctx, mgr, &cfg)
+	if err := setupIndexes(ctx, mgr, &cfg); err != nil {
+		setupLog.Error(err, "Unable to setup indexes")
+		os.Exit(1)
+	}
 
 	serverVersionFetcher := setupServerVersionFetcher(mgr, kubeConfig)
 
@@ -175,10 +178,10 @@ func main() {
 	}
 }
 
-func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configuration) {
+func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configuration) error {
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	if err != nil {
-		setupLog.Error(err, "Unable to setup core api indexes")
+		return err
 	}
 
 	err = jobframework.ForEachIntegration(func(name string, cb jobframework.IntegrationCallbacks) error {
@@ -189,9 +192,7 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 		}
 		return nil
 	})
-	if err != nil {
-		setupLog.Error(err, "Unable to setup jobs indexes")
-	}
+	return err
 }
 
 func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher) {
