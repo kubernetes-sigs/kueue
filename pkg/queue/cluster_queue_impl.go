@@ -210,6 +210,24 @@ func (c *clusterQueueBase) Dump() (sets.Set[string], bool) {
 	return elements, true
 }
 
+func (c *clusterQueueBase) Snapshot(maxCount int32) ([]*kueue.Workload, bool) {
+	if c.heap.Len() == 0 || maxCount == 0 {
+		return nil, false
+	}
+	elements := make([]*kueue.Workload, c.heap.Len())
+	for i, e := range c.heap.List() {
+		if maxCount >= int32(i) {
+			return elements, true
+		}
+		info := e.(*workload.Info)
+		elements = append(elements, info.Obj)
+	}
+	for _, info := range c.inadmissibleWorkloads {
+		elements = append(elements, info.Obj)
+	}
+	return elements, true
+}
+
 func (c *clusterQueueBase) DumpInadmissible() (sets.Set[string], bool) {
 	if len(c.inadmissibleWorkloads) == 0 {
 		return nil, false

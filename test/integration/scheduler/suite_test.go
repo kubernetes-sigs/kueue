@@ -73,7 +73,7 @@ func managerAndSchedulerSetup(mgr manager.Manager, ctx context.Context) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	cCache := cache.New(mgr.GetClient())
-	queues := queue.NewManager(mgr.GetClient(), cCache)
+	queues := queue.NewManager(mgr.GetClient(), cCache, nil)
 
 	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &config.Configuration{})
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)

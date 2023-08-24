@@ -486,6 +486,7 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 	cq.Status.FlavorsUsage = usage
 	cq.Status.AdmittedWorkloads = int32(workloads)
 	cq.Status.PendingWorkloads = int32(pendingWorkloads)
+	cq.Status.PendingWorkloadsStatus = r.qManager.GetWorkloadsStatus()
 	meta.SetStatusCondition(&cq.Status.Conditions, metav1.Condition{
 		Type:    kueue.ClusterQueueActive,
 		Status:  conditionStatus,

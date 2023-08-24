@@ -92,6 +92,7 @@ type ClusterQueue interface {
 	// Otherwise returns true.
 	Dump() (sets.Set[string], bool)
 	DumpInadmissible() (sets.Set[string], bool)
+	Snapshot(maxCount int32) ([]*kueue.Workload, bool)
 	// Info returns workload.Info for the workload key.
 	// Users of this method should not modify the returned object.
 	Info(string) *workload.Info

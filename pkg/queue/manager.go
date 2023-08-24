@@ -21,12 +21,15 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -48,14 +51,18 @@ type Manager struct {
 	clusterQueues map[string]ClusterQueue
 	localQueues   map[string]*LocalQueue
 
+	workloadsStatus *kueue.ClusterQueuePendingWorkloadsStatus
+	cfg             *configapi.Configuration
+
 	// Key is cohort's name. Value is a set of associated ClusterQueue names.
 	cohorts map[string]sets.Set[string]
 }
 
-func NewManager(client client.Client, checker StatusChecker) *Manager {
+func NewManager(client client.Client, checker StatusChecker, cfg *configapi.Configuration) *Manager {
 	m := &Manager{
 		client:        client,
 		statusChecker: checker,
+		cfg:           cfg,
 		localQueues:   make(map[string]*LocalQueue),
 		clusterQueues: make(map[string]ClusterQueue),
 		cohorts:       make(map[string]sets.Set[string]),
@@ -469,6 +476,22 @@ func (m *Manager) Dump() map[string]sets.Set[string] {
 	return dump
 }
 
+// Snapshot is a copy of the queues elements and inadmissible workloads list.
+func (m *Manager) Snapshot() []*kueue.Workload {
+	m.Lock()
+	defer m.Unlock()
+	if len(m.clusterQueues) == 0 {
+		return nil
+	}
+	snapshot := make([]*kueue.Workload, 0)
+	for _, cq := range m.clusterQueues {
+		if elements, ok := cq.Snapshot(m.cfg.QueueVisibility.ClusterQueues.MaxCount); ok {
+			snapshot = append(snapshot, elements...)
+		}
+	}
+	return snapshot
+}
+
 // DumpInadmissible is a dump of the inadmissible workloads list.
 // Only use for testing purposes.
 func (m *Manager) DumpInadmissible() map[string]sets.Set[string] {
@@ -546,4 +569,37 @@ func (m *Manager) reportPendingWorkloads(cqName string, cq ClusterQueue) {
 		active = 0
 	}
 	metrics.ReportPendingWorkloads(cqName, active, inadmissible)
+}
+
+func (m *Manager) Start(ctx context.Context) error {
+	log := ctrl.LoggerFrom(ctx).WithName("clusterQueueSnapshot")
+	ctx = ctrl.LoggerInto(ctx, log)
+
+	ticker := time.NewTicker(
+		time.Duration(m.cfg.QueueVisibility.UpdateIntervalSeconds) * time.Second,
+	)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.V(2).Info("Context cancelled; stop doing snapshot of cluster queue")
+			return nil
+		case t := <-ticker.C:
+			m.workloadsStatus = &kueue.ClusterQueuePendingWorkloadsStatus{
+				Head:           make([]kueue.ClusterQueuePendingWorkload, 0),
+				LastChangeTime: metav1.Time{Time: t},
+			}
+			for _, wl := range m.Snapshot() {
+				m.workloadsStatus.Head = append(m.workloadsStatus.Head, kueue.ClusterQueuePendingWorkload{
+					Name:      wl.Name,
+					Namespace: wl.Namespace,
+				})
+			}
+		}
+	}
+}
+
+func (m *Manager) GetWorkloadsStatus() *kueue.ClusterQueuePendingWorkloadsStatus {
+	return m.workloadsStatus
 }

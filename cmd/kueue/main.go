@@ -25,6 +25,7 @@ import (
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
+
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	zaplog "go.uber.org/zap"
@@ -146,7 +147,7 @@ func main() {
 	}
 
 	cCache := cache.New(mgr.GetClient(), cache.WithPodsReadyTracking(blockForPodsReady(&cfg)))
-	queues := queue.NewManager(mgr.GetClient(), cCache)
+	queues := setupManager(mgr, cCache, &cfg)
 
 	ctx := ctrl.SetupSignalHandler()
 	if err := setupIndexes(ctx, mgr, &cfg); err != nil {
@@ -178,6 +179,15 @@ func main() {
 	}
 }
 
+func setupManager(mgr ctrl.Manager, cCache *cache.Cache, cfg *configapi.Configuration) *queue.Manager {
+	queues := queue.NewManager(mgr.GetClient(), cCache, cfg)
+	if err := mgr.Add(queues); err != nil {
+		setupLog.Error(err, "Unable to add queue manager to manager")
+		os.Exit(1)
+	}
+	return queues
+}
+
 func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configuration) error {
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	if err != nil {
@@ -195,7 +205,13 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 	return err
 }
 
-func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher) {
+func setupControllers(
+	mgr ctrl.Manager,
+	cCache *cache.Cache,
+	queues *queue.Manager,
+	certsReady chan struct{},
+	cfg *configapi.Configuration,
+	serverVersionFetcher *kubeversion.ServerVersionFetcher) {
 	// The controllers won't work until the webhooks are operating, and the webhook won't work until the
 	// certs are all in place.
 	setupLog.Info("Waiting for certificate generation to complete")

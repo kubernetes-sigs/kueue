@@ -688,3 +688,45 @@ func TestEncode(t *testing.T) {
 		})
 	}
 }
+
+func TestValidate(t *testing.T) {
+	testcases := []struct {
+		name    string
+		cfg     *configapi.Configuration
+		wantErr error
+	}{
+
+		{
+			name:    "empty",
+			cfg:     &configapi.Configuration{},
+			wantErr: nil,
+		},
+		{
+			name: "invalid queue visibility UpdateIntervalSeconds",
+			cfg: &configapi.Configuration{
+				QueueVisibility: &configapi.QueueVisibility{
+					UpdateIntervalSeconds: 0,
+				},
+			},
+			wantErr: errInvalidUpdateIntervalSeconds,
+		},
+		{
+			name: "invalid queue visibility cluster queue max count",
+			cfg: &configapi.Configuration{
+				QueueVisibility: &configapi.QueueVisibility{
+					ClusterQueues: &configapi.ClusterQueueVisibility{
+						MaxCount: 4001,
+					},
+				},
+			},
+			wantErr: errInvalidMaxValue,
+		},
+	}
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			if diff := cmp.Diff(tc.wantErr, validate(tc.cfg), cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Unexpected returned error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}

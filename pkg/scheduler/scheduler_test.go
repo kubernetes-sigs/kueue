@@ -1041,7 +1041,7 @@ func TestSchedule(t *testing.T) {
 			recorder := broadcaster.NewRecorder(scheme,
 				corev1.EventSource{Component: constants.AdmissionName})
 			cqCache := cache.New(cl)
-			qManager := queue.NewManager(cl, cqCache)
+			qManager := queue.NewManager(cl, cqCache, nil)
 			// Workloads are loaded into queues or clusterQueues as we add them.
 			for _, q := range allQueues {
 				if err := qManager.AddLocalQueue(ctx, &q); err != nil {
@@ -1339,7 +1339,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 			broadcaster := record.NewBroadcaster()
 			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
 			cqCache := cache.New(cl)
-			qManager := queue.NewManager(cl, cqCache)
+			qManager := queue.NewManager(cl, cqCache, nil)
 			scheduler := New(qManager, cqCache, cl, recorder)
 			if err := qManager.AddLocalQueue(ctx, q1); err != nil {
 				t.Fatalf("Inserting queue %s/%s in manager: %v", q1.Namespace, q1.Name, err)
