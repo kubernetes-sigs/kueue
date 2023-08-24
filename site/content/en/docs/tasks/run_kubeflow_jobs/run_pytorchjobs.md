@@ -6,7 +6,7 @@ description: >
   Run a Kueue scheduled PyTorchJob
 ---
 
-This page shows how to leverage Kueue's scheduling and resource management capabilities when running [Training Operator](https://github.com/kubeflow/training-operator) MPIJobs.
+This page shows how to leverage Kueue's scheduling and resource management capabilities when running [Training Operator](https://github.com/kubeflow/training-operator) PyTorchJobs.
 
 This guide is for [batch users](/docs/tasks#batch-user) that have a basic understanding of Kueue. For more information, see [Kueue's overview](/docs/overview).
 

@@ -34,6 +34,6 @@ batch user is a researcher, AI/ML engineer, data scientist, among others.
 - As a batch user, you can learn how to [run a Kueue managed batch/Job](/docs/tasks/run_jobs).
 - As a batch user, you can learn how to [run a Kueue managed Flux MiniCluster](/docs/tasks/run_flux_minicluster).
 - As a batch user, you can learn how to [run a Kueue managed Kubeflow Job](/docs/tasks/run_kubeflow_jobs).
-  Kueue supports MPIJob v2beta1 and PyTorchJob.
+  Kueue supports MPIJob v2beta1, PyTorchJob, and TFJob.
 - As a batch user, you can learn how to [run a Kueue managed KubeRay RayJob](/docs/tasks/run_rayjobs).
 - As a batch developer user, you can learn how to [submit Kueue jobs from Python](/docs/tasks/run_python_jobs).
