@@ -393,3 +393,28 @@ func ReclaimablePodsAreEqual(a, b []kueue.ReclaimablePod) bool {
 	}
 	return true
 }
+
+// Returns true if all the checks of the workload are ready.
+func HasAllChecksReady(wl *kueue.Workload) bool {
+	for i := range wl.Status.AdmissionChecks {
+		if wl.Status.AdmissionChecks[i].Status != metav1.ConditionTrue {
+			return false
+		}
+	}
+	return true
+}
+
+// Returns true if any of the workloads checks are Retry or Rejected
+func HasRetryOrRejectedChecks(wl *kueue.Workload) bool {
+	for i := range wl.Status.AdmissionChecks {
+		if wl.Status.AdmissionChecks[i].Status == metav1.ConditionFalse {
+			return true
+		}
+	}
+	return false
+}
+
+// Returns true if the workload should can execution.
+func IsAdmittedAndChecked(w *kueue.Workload) bool {
+	return IsAdmitted(w) && HasAllChecksReady(w)
+}
