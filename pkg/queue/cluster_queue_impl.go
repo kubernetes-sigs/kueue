@@ -210,8 +210,19 @@ func (c *clusterQueueBase) Dump() (sets.Set[string], bool) {
 	return elements, true
 }
 
+func (c *clusterQueueBase) DumpInadmissible() (sets.Set[string], bool) {
+	if len(c.inadmissibleWorkloads) == 0 {
+		return nil, false
+	}
+	elements := make(sets.Set[string], len(c.inadmissibleWorkloads))
+	for _, info := range c.inadmissibleWorkloads {
+		elements.Insert(workload.Key(info.Obj))
+	}
+	return elements, true
+}
+
 func (c *clusterQueueBase) Snapshot(maxCount int32) ([]*kueue.Workload, bool) {
-	if c.heap.Len() == 0 || maxCount == 0 {
+	if c.heap.Len() == 0 {
 		return nil, false
 	}
 	elements := make([]*kueue.Workload, c.heap.Len())
@@ -224,17 +235,6 @@ func (c *clusterQueueBase) Snapshot(maxCount int32) ([]*kueue.Workload, bool) {
 	}
 	for _, info := range c.inadmissibleWorkloads {
 		elements = append(elements, info.Obj)
-	}
-	return elements, true
-}
-
-func (c *clusterQueueBase) DumpInadmissible() (sets.Set[string], bool) {
-	if len(c.inadmissibleWorkloads) == 0 {
-		return nil, false
-	}
-	elements := make(sets.Set[string], len(c.inadmissibleWorkloads))
-	for _, info := range c.inadmissibleWorkloads {
-		elements.Insert(workload.Key(info.Obj))
 	}
 	return elements, true
 }

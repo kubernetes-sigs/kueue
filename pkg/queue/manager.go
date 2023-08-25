@@ -50,6 +50,7 @@ type Manager struct {
 	clusterQueues map[string]ClusterQueue
 	localQueues   map[string]*LocalQueue
 
+	wm              sync.RWMutex
 	workloadsStatus *kueue.ClusterQueuePendingWorkloadsStatus
 
 	queueVisibilityUpdateInterval        int32
@@ -91,11 +92,14 @@ func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Ma
 		opt(&options)
 	}
 	m := &Manager{
-		client:        client,
-		statusChecker: checker,
-		localQueues:   make(map[string]*LocalQueue),
-		clusterQueues: make(map[string]ClusterQueue),
-		cohorts:       make(map[string]sets.Set[string]),
+		client:                               client,
+		statusChecker:                        checker,
+		localQueues:                          make(map[string]*LocalQueue),
+		clusterQueues:                        make(map[string]ClusterQueue),
+		cohorts:                              make(map[string]sets.Set[string]),
+		wm:                                   sync.RWMutex{},
+		queueVisibilityUpdateInterval:        options.QueueVisibilityUpdateInterval,
+		queueVisibilityClusterQueuesMaxCount: options.QueueVisibilityClusterQueuesMaxCount,
 	}
 	m.cond.L = &m.RWMutex
 	return m
@@ -486,7 +490,7 @@ func (m *Manager) Heads(ctx context.Context) []workload.Info {
 	}
 }
 
-// Dump is a dump of the queues and it's elements (unordered).
+// Dump is a dump of the queues and it's elements (ordered).
 // Only use for testing purposes.
 func (m *Manager) Dump() map[string]sets.Set[string] {
 	m.Lock()
@@ -497,6 +501,26 @@ func (m *Manager) Dump() map[string]sets.Set[string] {
 	dump := make(map[string]sets.Set[string], len(m.clusterQueues))
 	for key, cq := range m.clusterQueues {
 		if elements, ok := cq.Dump(); ok {
+			dump[key] = elements
+		}
+	}
+	if len(dump) == 0 {
+		return nil
+	}
+	return dump
+}
+
+// DumpInadmissible is a dump of the inadmissible workloads list.
+// Only use for testing purposes.
+func (m *Manager) DumpInadmissible() map[string]sets.Set[string] {
+	m.Lock()
+	defer m.Unlock()
+	if len(m.clusterQueues) == 0 {
+		return nil
+	}
+	dump := make(map[string]sets.Set[string], len(m.clusterQueues))
+	for key, cq := range m.clusterQueues {
+		if elements, ok := cq.DumpInadmissible(); ok {
 			dump[key] = elements
 		}
 	}
@@ -520,26 +544,6 @@ func (m *Manager) Snapshot() []*kueue.Workload {
 		}
 	}
 	return snapshot
-}
-
-// DumpInadmissible is a dump of the inadmissible workloads list.
-// Only use for testing purposes.
-func (m *Manager) DumpInadmissible() map[string]sets.Set[string] {
-	m.Lock()
-	defer m.Unlock()
-	if len(m.clusterQueues) == 0 {
-		return nil
-	}
-	dump := make(map[string]sets.Set[string], len(m.clusterQueues))
-	for key, cq := range m.clusterQueues {
-		if elements, ok := cq.DumpInadmissible(); ok {
-			dump[key] = elements
-		}
-	}
-	if len(dump) == 0 {
-		return nil
-	}
-	return dump
 }
 
 func (m *Manager) heads() []workload.Info {
@@ -616,22 +620,37 @@ func (m *Manager) Start(ctx context.Context) error {
 			log.V(2).Info("Context cancelled; stop doing snapshot of cluster queue")
 			return nil
 		case t := <-ticker.C:
-			m.workloadsStatus = &kueue.ClusterQueuePendingWorkloadsStatus{
-				Head:           make([]kueue.ClusterQueuePendingWorkload, 0),
-				LastChangeTime: metav1.Time{Time: t},
-			}
-			for _, wl := range m.Snapshot() {
-				m.workloadsStatus.Head = append(m.workloadsStatus.Head, kueue.ClusterQueuePendingWorkload{
-					Name:      wl.Name,
-					Namespace: wl.Namespace,
-				})
-			}
+			m.wm.Lock()
+			m.workloadsStatus = m.takeSnapshot(t)
+			m.wm.Unlock()
 		}
 	}
 }
 
+func (m *Manager) takeSnapshot(t time.Time) *kueue.ClusterQueuePendingWorkloadsStatus {
+	snapshot := m.Snapshot()
+	snapshotLen := len(snapshot)
+	if snapshotLen == 0 {
+		return nil
+	}
+	workloads := make([]kueue.ClusterQueuePendingWorkload, 0, snapshotLen)
+	for _, wl := range snapshot {
+		if wl == nil {
+			continue
+		}
+		workloads = append(workloads, kueue.ClusterQueuePendingWorkload{
+			Name:      wl.Name,
+			Namespace: wl.Namespace,
+		})
+	}
+	return &kueue.ClusterQueuePendingWorkloadsStatus{
+		Head:           workloads,
+		LastChangeTime: metav1.Time{Time: t},
+	}
+}
+
 func (m *Manager) GetWorkloadsStatus() *kueue.ClusterQueuePendingWorkloadsStatus {
-	m.RLock()
-	defer m.RUnlock()
+	m.wm.RLock()
+	defer m.wm.RUnlock()
 	return m.workloadsStatus
 }
