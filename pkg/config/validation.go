@@ -3,12 +3,9 @@ package config
 import (
 	"fmt"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
-)
+	"k8s.io/apimachinery/pkg/util/validation/field"
 
-var (
-	errInvalidMaxValue              = fmt.Errorf("maximum value for QueueVisibility.ClusterQueues.MaxCount must be %d", queueVisibilityClusterQueuesMaxValue)
-	errInvalidUpdateIntervalSeconds = fmt.Errorf("minimum value for QueueVisibility.UpdateIntervalSeconds must be %d", queueVisibilityClusterQueuesUpdateIntervalSeconds)
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 )
 
 const (
@@ -16,16 +13,19 @@ const (
 	queueVisibilityClusterQueuesUpdateIntervalSeconds = 1
 )
 
-func validate(cfg *configapi.Configuration) error {
+func validate(cfg *configapi.Configuration) field.ErrorList {
+	var allErrs field.ErrorList
 	if cfg.QueueVisibility != nil {
+		queueVisibilityPath := field.NewPath("queueVisibility")
 		if cfg.QueueVisibility.ClusterQueues != nil {
+			clusterQueues := queueVisibilityPath.Child("clusterQueues")
 			if cfg.QueueVisibility.ClusterQueues.MaxCount > queueVisibilityClusterQueuesMaxValue {
-				return errInvalidMaxValue
+				allErrs = append(allErrs, field.Invalid(clusterQueues.Child("maxCount"), int(cfg.QueueVisibility.ClusterQueues.MaxCount), fmt.Sprintf("must be less than %d", queueVisibilityClusterQueuesMaxValue)))
 			}
 		}
 		if cfg.QueueVisibility.UpdateIntervalSeconds < queueVisibilityClusterQueuesUpdateIntervalSeconds {
-			return errInvalidUpdateIntervalSeconds
+			allErrs = append(allErrs, field.Invalid(queueVisibilityPath.Child("updateIntervalSeconds"), cfg.QueueVisibility.UpdateIntervalSeconds, fmt.Sprintf("must be more or equal %d", queueVisibilityClusterQueuesUpdateIntervalSeconds)))
 		}
 	}
-	return nil
+	return allErrs
 }

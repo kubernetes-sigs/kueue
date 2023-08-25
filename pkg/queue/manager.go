@@ -29,7 +29,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -52,17 +51,48 @@ type Manager struct {
 	localQueues   map[string]*LocalQueue
 
 	workloadsStatus *kueue.ClusterQueuePendingWorkloadsStatus
-	cfg             *configapi.Configuration
+
+	queueVisibilityUpdateInterval        int32
+	queueVisibilityClusterQueuesMaxCount int32
 
 	// Key is cohort's name. Value is a set of associated ClusterQueue names.
 	cohorts map[string]sets.Set[string]
 }
 
-func NewManager(client client.Client, checker StatusChecker, cfg *configapi.Configuration) *Manager {
+type Options struct {
+	QueueVisibilityUpdateInterval        int32
+	QueueVisibilityClusterQueuesMaxCount int32
+}
+
+// Option configures the reconciler.
+type Option func(*Options)
+
+// WithQueueVisibilityUpdateInterval indicates if the controller should reconcile
+// jobs that don't set the queue name annotation.
+func WithQueueVisibilityUpdateInterval(interval int32) Option {
+	return func(o *Options) {
+		o.QueueVisibilityUpdateInterval = interval
+	}
+}
+
+// WithQueueVisibilityClusterQueuesMaxCount indicates if the controller should reconcile
+// jobs that don't set the queue name annotation.
+func WithQueueVisibilityClusterQueuesMaxCount(value int32) Option {
+	return func(o *Options) {
+		o.QueueVisibilityClusterQueuesMaxCount = value
+	}
+}
+
+var DefaultOptions = Options{}
+
+func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Manager {
+	options := DefaultOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
 	m := &Manager{
 		client:        client,
 		statusChecker: checker,
-		cfg:           cfg,
 		localQueues:   make(map[string]*LocalQueue),
 		clusterQueues: make(map[string]ClusterQueue),
 		cohorts:       make(map[string]sets.Set[string]),
@@ -483,9 +513,9 @@ func (m *Manager) Snapshot() []*kueue.Workload {
 	if len(m.clusterQueues) == 0 {
 		return nil
 	}
-	snapshot := make([]*kueue.Workload, 0)
+	snapshot := make([]*kueue.Workload, 0, len(m.clusterQueues))
 	for _, cq := range m.clusterQueues {
-		if elements, ok := cq.Snapshot(m.cfg.QueueVisibility.ClusterQueues.MaxCount); ok {
+		if elements, ok := cq.Snapshot(m.queueVisibilityClusterQueuesMaxCount); ok {
 			snapshot = append(snapshot, elements...)
 		}
 	}
@@ -576,7 +606,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	ctx = ctrl.LoggerInto(ctx, log)
 
 	ticker := time.NewTicker(
-		time.Duration(m.cfg.QueueVisibility.UpdateIntervalSeconds) * time.Second,
+		time.Duration(m.queueVisibilityUpdateInterval) * time.Second,
 	)
 	defer ticker.Stop()
 
@@ -601,5 +631,7 @@ func (m *Manager) Start(ctx context.Context) error {
 }
 
 func (m *Manager) GetWorkloadsStatus() *kueue.ClusterQueuePendingWorkloadsStatus {
+	m.RLock()
+	defer m.RUnlock()
 	return m.workloadsStatus
 }

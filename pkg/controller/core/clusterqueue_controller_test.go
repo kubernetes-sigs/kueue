@@ -174,7 +174,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().WithLists(defaultWls).WithObjects(lq, cq).WithStatusSubresource(lq, cq).
 				Build()
 			cqCache := cache.New(cl)
-			qManager := queue.NewManager(cl, cqCache, nil)
+			qManager := queue.NewManager(cl, cqCache)
 			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
 				t.Fatalf("Inserting clusterQueue in cache: %v", err)
 			}

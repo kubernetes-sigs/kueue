@@ -49,7 +49,7 @@ func TestAddLocalQueueOrphans(t *testing.T) {
 			ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).Obj(),
 		utiltesting.MakeWorkload("a", "moon").Queue("foo").Obj(),
 	)
-	manager := NewManager(kClient, nil, nil)
+	manager := NewManager(kClient, nil)
 	q := utiltesting.MakeLocalQueue("foo", "earth").Obj()
 	if err := manager.AddLocalQueue(context.Background(), q); err != nil {
 		t.Fatalf("Failed adding queue: %v", err)
@@ -83,7 +83,7 @@ func TestAddClusterQueueOrphans(t *testing.T) {
 		queues[1],
 	)
 	ctx := context.Background()
-	manager := NewManager(kClient, nil, nil)
+	manager := NewManager(kClient, nil)
 	cq := utiltesting.MakeClusterQueue("cq").Obj()
 	if err := manager.AddClusterQueue(ctx, cq); err != nil {
 		t.Fatalf("Failed adding cluster queue %s: %v", cq.Name, err)
@@ -139,7 +139,7 @@ func TestUpdateClusterQueue(t *testing.T) {
 	cl := utiltesting.NewFakeClient(
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: defaultNamespace}},
 	)
-	manager := NewManager(cl, nil, nil)
+	manager := NewManager(cl, nil)
 	for _, cq := range clusterQueues {
 		if err := manager.AddClusterQueue(ctx, cq); err != nil {
 			t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
@@ -204,7 +204,7 @@ func TestUpdateLocalQueue(t *testing.T) {
 		t.Fatalf("Failed adding kueue scheme: %s", err)
 	}
 	ctx := context.Background()
-	manager := NewManager(utiltesting.NewFakeClient(), nil, nil)
+	manager := NewManager(utiltesting.NewFakeClient(), nil)
 	for _, cq := range clusterQueues {
 		if err := manager.AddClusterQueue(ctx, cq); err != nil {
 			t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
@@ -248,7 +248,7 @@ func TestDeleteLocalQueue(t *testing.T) {
 
 	ctx := context.Background()
 	cl := utiltesting.NewFakeClient(wl)
-	manager := NewManager(cl, nil, nil)
+	manager := NewManager(cl, nil)
 
 	if err := manager.AddClusterQueue(ctx, cq); err != nil {
 		t.Fatalf("Could not create ClusterQueue: %v", err)
@@ -272,7 +272,7 @@ func TestDeleteLocalQueue(t *testing.T) {
 }
 
 func TestAddWorkload(t *testing.T) {
-	manager := NewManager(utiltesting.NewFakeClient(), nil, nil)
+	manager := NewManager(utiltesting.NewFakeClient(), nil)
 	cq := utiltesting.MakeClusterQueue("cq").Obj()
 	if err := manager.AddClusterQueue(context.Background(), cq); err != nil {
 		t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
@@ -390,7 +390,7 @@ func TestStatus(t *testing.T) {
 		},
 	}
 
-	manager := NewManager(utiltesting.NewFakeClient(), nil, nil)
+	manager := NewManager(utiltesting.NewFakeClient(), nil)
 	for _, q := range queues {
 		if err := manager.AddLocalQueue(ctx, &q); err != nil {
 			t.Errorf("Failed adding queue: %s", err)
@@ -500,7 +500,7 @@ func TestRequeueWorkloadStrictFIFO(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.workload.Name, func(t *testing.T) {
 			cl := utiltesting.NewFakeClient()
-			manager := NewManager(cl, nil, nil)
+			manager := NewManager(cl, nil)
 			ctx := context.Background()
 			if err := manager.AddClusterQueue(ctx, cq); err != nil {
 				t.Fatalf("Failed adding cluster queue %s: %v", cq.Name, err)
@@ -657,7 +657,7 @@ func TestUpdateWorkload(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			manager := NewManager(utiltesting.NewFakeClient(), nil, nil)
+			manager := NewManager(utiltesting.NewFakeClient(), nil)
 			ctx := context.Background()
 			for _, cq := range tc.clusterQueues {
 				if err := manager.AddClusterQueue(ctx, cq); err != nil {
@@ -773,7 +773,7 @@ func TestHeads(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), headsTimeout)
 			defer cancel()
 			fakeC := &fakeStatusChecker{}
-			manager := NewManager(utiltesting.NewFakeClient(), fakeC, nil)
+			manager := NewManager(utiltesting.NewFakeClient(), fakeC)
 			for _, cq := range clusterQueues {
 				if err := manager.AddClusterQueue(ctx, cq); err != nil {
 					t.Fatalf("Failed adding clusterQueue %s to manager: %v", cq.Name, err)
@@ -1006,7 +1006,7 @@ func TestHeadsAsync(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), headsTimeout)
 			defer cancel()
 			client := utiltesting.NewFakeClient(tc.initialObjs...)
-			manager := NewManager(client, nil, nil)
+			manager := NewManager(client, nil)
 			go manager.CleanUpOnContext(ctx)
 			tc.op(ctx, manager)
 			heads := manager.Heads(ctx)
@@ -1019,7 +1019,7 @@ func TestHeadsAsync(t *testing.T) {
 
 // TestHeadsCancelled ensures that the Heads call returns when the context is closed.
 func TestHeadsCancelled(t *testing.T) {
-	manager := NewManager(utiltesting.NewFakeClient(), nil, nil)
+	manager := NewManager(utiltesting.NewFakeClient(), nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		cancel()

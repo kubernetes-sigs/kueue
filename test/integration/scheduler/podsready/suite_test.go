@@ -69,7 +69,7 @@ func managerAndSchedulerSetupWithTimeoutAdmission(mgr manager.Manager, ctx conte
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	cCache := cache.New(mgr.GetClient(), cache.WithPodsReadyTracking(cfg.WaitForPodsReady.Enable && cfg.WaitForPodsReady.BlockAdmission != nil && *cfg.WaitForPodsReady.BlockAdmission))
-	queues := queue.NewManager(mgr.GetClient(), cCache, nil)
+	queues := queue.NewManager(mgr.GetClient(), cCache)
 
 	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &cfg)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)

@@ -65,7 +65,7 @@ var _ = ginkgo.BeforeSuite(func() {
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 		cCache := cache.New(mgr.GetClient())
-		queues := queue.NewManager(mgr.GetClient(), cCache, nil)
+		queues := queue.NewManager(mgr.GetClient(), cCache)
 		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &config.Configuration{})
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 	})

@@ -39,7 +39,7 @@ const (
 	DefaultClientConnectionQPS                  float32 = 20.0
 	DefaultClientConnectionBurst                int32   = 30
 	defaultPodsReadyTimeout                             = 5 * time.Minute
-	DefaultQueueVisibilityUpdateIntervalSeconds         = 5
+	DefaultQueueVisibilityUpdateIntervalSeconds int32   = 5
 )
 
 func addDefaultingFuncs(scheme *runtime.Scheme) error {
