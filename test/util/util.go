@@ -337,15 +337,17 @@ func SetQuotaReservation(ctx context.Context, k8sClient client.Client, wl *kueue
 	return workload.ApplyAdmissionStatus(ctx, k8sClient, wl, false)
 }
 
-func SyncAdmissionFofWorkloads(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
+// SyncAdmittedConditionForWorkloads sets the Admission condition of the provided workloads based on
+// the state of quota reservation and admission checks. It should be use in tests that are not running
+// the workload controller.
+func SyncAdmittedConditionForWorkloads(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
 	var updatedWorkload kueue.Workload
 	for _, wl := range wls {
 		gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-		status := metav1.ConditionFalse
-		if workload.HasQuotaReservation(&updatedWorkload) && workload.HasAllChecksReady(&updatedWorkload) {
-			status = metav1.ConditionTrue
+		if inSync, newCond := workload.IsAdmittedInSync(&updatedWorkload); !inSync {
+			apimeta.SetStatusCondition(&updatedWorkload.Status.Conditions, *newCond)
+			gomega.ExpectWithOffset(1, workload.ApplyAdmissionStatus(ctx, k8sClient, &updatedWorkload, false)).To(gomega.Succeed())
 		}
-		gomega.ExpectWithOffset(1, workload.UpdateStatus(ctx, k8sClient, &updatedWorkload, kueue.WorkloadAdmitted, status, "ByTest", "Admission updated by test", "workload")).To(gomega.Succeed())
 	}
 }
 

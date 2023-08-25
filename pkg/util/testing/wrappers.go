@@ -119,7 +119,7 @@ func (w *WorkloadWrapper) Admitted(a bool) *WorkloadWrapper {
 		Type:               kueue.WorkloadAdmitted,
 		Status:             metav1.ConditionTrue,
 		LastTransitionTime: metav1.Now(),
-		Reason:             "AdmittedByTest",
+		Reason:             "ByTest",
 		Message:            fmt.Sprintf("Admitted by ClusterQueue %s", w.Status.Admission.ClusterQueue),
 	}
 	if !a {

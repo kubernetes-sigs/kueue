@@ -36,7 +36,7 @@ import (
 )
 
 var (
-	admissionManagedConditions = []string{kueue.WorkloadQuotaReserved, kueue.WorkloadEvicted}
+	admissionManagedConditions = []string{kueue.WorkloadQuotaReserved, kueue.WorkloadEvicted, kueue.WorkloadAdmitted}
 )
 
 // Info holds a Workload object and some pre-processing.
@@ -305,8 +305,8 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission) {
 		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionTrue,
 		LastTransitionTime: metav1.Now(),
-		Reason:             "Admitted",
-		Message:            fmt.Sprintf("Admitted by ClusterQueue %s", w.Status.Admission.ClusterQueue),
+		Reason:             "QuoataReserved",
+		Message:            fmt.Sprintf("Quota reserved in ClusterQueue %s", w.Status.Admission.ClusterQueue),
 	}
 	apimeta.SetStatusCondition(&w.Status.Conditions, admittedCond)
 
@@ -314,6 +314,11 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission) {
 	if evictedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted); evictedCond != nil {
 		evictedCond.Status = metav1.ConditionFalse
 		evictedCond.LastTransitionTime = metav1.Now()
+	}
+
+	// sync Admitted
+	if inSync, newCond := IsAdmittedInSync(w); !inSync {
+		apimeta.SetStatusCondition(&w.Status.Conditions, *newCond)
 	}
 }
 
@@ -365,6 +370,39 @@ func GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
 // HasQuotaReservation checks if workload is admitted based on conditions
 func HasQuotaReservation(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadQuotaReserved)
+}
+
+func IsAdmittedInSync(w *kueue.Workload) (bool, *metav1.Condition) {
+	hasReservation := HasQuotaReservation(w)
+	hasAllChecksReady := HasAllChecksReady(w)
+	isAdmitted := IsAdmitted(w)
+
+	if isAdmitted == (hasReservation && hasAllChecksReady) {
+		return true, nil
+
+	}
+
+	cond := &metav1.Condition{
+		Type:    kueue.WorkloadAdmitted,
+		Status:  metav1.ConditionTrue,
+		Reason:  "Admitted",
+		Message: "The workload is admitted",
+	}
+	switch {
+	case !hasReservation && !hasAllChecksReady:
+		cond.Status = metav1.ConditionFalse
+		cond.Reason = "NoReservationNoChecks"
+		cond.Message = "The workload has no reservation and not all checks ready"
+	case !hasReservation:
+		cond.Status = metav1.ConditionFalse
+		cond.Reason = "NoReservation"
+		cond.Message = "The workload has no reservation"
+	case !hasAllChecksReady:
+		cond.Status = metav1.ConditionFalse
+		cond.Reason = "NoChecks"
+		cond.Message = "The workload has not all checks ready"
+	}
+	return false, cond
 }
 
 // UpdateReclaimablePods updates the ReclaimablePods list for the workload wit SSA.

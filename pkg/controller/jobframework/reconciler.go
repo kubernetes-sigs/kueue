@@ -270,6 +270,9 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			if !job.IsActive() {
 				log.V(6).Info("The job is no longer active, clear the workloads admission")
 				workload.UnsetQuotaReservationWithCondition(wl, "Pending", evCond.Message)
+				if inSync, admittedCond := workload.IsAdmittedInSync(wl); !inSync {
+					apimeta.SetStatusCondition(&wl.Status.Conditions, *admittedCond)
+				}
 				err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
 				if err != nil {
 					return ctrl.Result{}, fmt.Errorf("clearing admission: %w", err)
@@ -599,11 +602,6 @@ type PodSetInfo struct {
 
 // getPodSetsInfoFromAdmission will extract podSetsInfo and podSets count from admitted workloads.
 func (r *JobReconciler) getPodSetsInfoFromAdmission(ctx context.Context, w *kueue.Workload) ([]PodSetInfo, error) {
-	// this chan happen when the eviction finished and the workload controller did not yet changed the admitted condition
-	if w.Status.Admission == nil {
-		return nil, errMissingMadatoryField
-	}
-
 	if len(w.Status.Admission.PodSetAssignments) == 0 {
 		return nil, nil
 	}
@@ -668,7 +666,7 @@ func generatePodsReadyCondition(job GenericJob, wl *kueue.Workload) metav1.Condi
 	// Ready to Completed. As pods finish, they transition first into the
 	// uncountedTerminatedPods staging area, before passing to the
 	// succeeded/failed counters.
-	if workload.HasQuotaReservation(wl) && (job.PodsReady() || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPodsReady)) {
+	if workload.IsAdmitted(wl) && (job.PodsReady() || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPodsReady)) {
 		conditionStatus = metav1.ConditionTrue
 		message = "All pods were ready or succeeded since the workload admission"
 	}

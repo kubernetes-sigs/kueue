@@ -187,7 +187,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 			},
 		).Obj()
 		gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
-		util.SyncAdmissionFofWorkloads(ctx, k8sClient, createdWorkload)
+		util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 		lookupKey := types.NamespacedName{Name: jobSetName, Namespace: ns.Name}
 		gomega.Eventually(func() bool {
 			if err := k8sClient.Get(ctx, lookupKey, createdJobSet); err != nil {
@@ -254,7 +254,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 			).
 			Obj()
 		gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
-		util.SyncAdmissionFofWorkloads(ctx, k8sClient, createdWorkload)
+		util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 		gomega.Eventually(func() bool {
 			if err := k8sClient.Get(ctx, lookupKey, createdJobSet); err != nil {
 				return false
@@ -446,7 +446,7 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 				},
 			).Obj()
 			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
-			util.SyncAdmissionFofWorkloads(ctx, k8sClient, createdWorkload)
+			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 
 			ginkgo.By("Await for the JobSet to be unsuspended")
@@ -485,7 +485,7 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 					}
 					return util.SetQuotaReservation(ctx, k8sClient, createdWorkload, nil)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				util.SyncAdmissionFofWorkloads(ctx, k8sClient, createdWorkload)
+				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			}
 
 			ginkgo.By("Verify the PodsReady condition is added")

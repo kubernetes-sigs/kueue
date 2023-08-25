@@ -141,25 +141,9 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 
-	hasReservation := workload.HasQuotaReservation(&wl)
-	hasAllChecksReady := workload.HasAllChecksReady(&wl)
-	isAdmitted := workload.IsAdmitted(&wl)
-	if isAdmitted != (hasReservation && hasAllChecksReady) {
-		newStatus := metav1.ConditionTrue
-		newReason := "Admitted"
-		if isAdmitted {
-			newStatus = metav1.ConditionFalse
-			switch {
-			case !hasReservation && !hasAllChecksReady:
-				newReason = "NoReservatioNoChecks"
-			case !hasReservation:
-				newReason = "NoReservatio"
-			case !hasAllChecksReady:
-				newReason = "NoChecks"
-
-			}
-		}
-		return ctrl.Result{}, workload.UpdateStatus(ctx, r.client, &wl, kueue.WorkloadAdmitted, newStatus, newReason, "", "workload")
+	if inSync, newCond := workload.IsAdmittedInSync(&wl); !inSync {
+		apimeta.SetStatusCondition(&wl.Status.Conditions, *newCond)
+		return ctrl.Result{}, workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
 	}
 
 	if workload.HasQuotaReservation(&wl) {
@@ -259,7 +243,7 @@ func syncAdmissionCheckConditions(conds []metav1.Condition, queueChecks []string
 
 func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req ctrl.Request, wl *kueue.Workload) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
-	countingTowardsTimeout, recheckAfter := r.quotaReservedNotReadyWorkload(wl, realClock)
+	countingTowardsTimeout, recheckAfter := r.admittedNotReadyWorkload(wl, realClock)
 	if !countingTowardsTimeout {
 		return ctrl.Result{}, nil
 	}
@@ -453,18 +437,18 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-// quotaReservedNotReadyWorkload returns as pair of values. The first boolean determines
+// admittedNotReadyWorkload returns as pair of values. The first boolean determines
 // if the workload is currently counting towards the timeout for PodsReady, i.e.
 // it has the Admitted condition True and the PodsReady condition not equal
 // True (False or not set). The second value is the remaining time to exceed the
 // specified timeout counted since max of the LastTransitionTime's for the
 // Admitted and PodsReady conditions.
-func (r *WorkloadReconciler) quotaReservedNotReadyWorkload(wl *kueue.Workload, clock clock.Clock) (bool, time.Duration) {
+func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload, clock clock.Clock) (bool, time.Duration) {
 	if r.podsReadyTimeout == nil {
 		// the timeout is not configured for the workload controller
 		return false, 0
 	}
-	if !workload.HasQuotaReservation(wl) {
+	if !workload.IsAdmitted(wl) {
 		// the workload is not admitted so there is no need to time it out
 		return false, 0
 	}
@@ -473,9 +457,9 @@ func (r *WorkloadReconciler) quotaReservedNotReadyWorkload(wl *kueue.Workload, c
 	if podsReadyCond != nil && podsReadyCond.Status == metav1.ConditionTrue {
 		return false, 0
 	}
-	reservationCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-	elapsedTime := clock.Since(reservationCond.LastTransitionTime.Time)
-	if podsReadyCond != nil && podsReadyCond.Status == metav1.ConditionFalse && podsReadyCond.LastTransitionTime.After(reservationCond.LastTransitionTime.Time) {
+	admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+	elapsedTime := clock.Since(admittedCond.LastTransitionTime.Time)
+	if podsReadyCond != nil && podsReadyCond.Status == metav1.ConditionFalse && podsReadyCond.LastTransitionTime.After(admittedCond.LastTransitionTime.Time) {
 		elapsedTime = clock.Since(podsReadyCond.LastTransitionTime.Time)
 	}
 	waitFor := *r.podsReadyTimeout - elapsedTime
