@@ -78,7 +78,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 					return false
 				}
-				return workload.IsAdmitted(createdWorkload)
+				return workload.HasQuotaReservation(createdWorkload)
 
 			}, util.Timeout, util.Interval).Should(gomega.BeFalse())
 			gomega.Expect(k8sClient.Delete(ctx, sampleJob)).Should(gomega.Succeed())
@@ -140,7 +140,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 					return false
 				}
-				return workload.IsAdmitted(createdWorkload) &&
+				return workload.HasQuotaReservation(createdWorkload) &&
 					apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadFinished)
 
 			}, util.LongTimeout, util.Interval).Should(gomega.BeTrue())
@@ -235,7 +235,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 					if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 						return false
 					}
-					return apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)
+					return apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)
 
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
@@ -274,7 +274,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 					return false
 				}
-				return workload.IsAdmitted(createdWorkload) &&
+				return workload.HasQuotaReservation(createdWorkload) &&
 					apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadFinished)
 
 			}, util.LongTimeout, util.Interval).Should(gomega.BeTrue())

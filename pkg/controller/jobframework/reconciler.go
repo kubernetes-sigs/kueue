@@ -174,7 +174,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			if parentWorkload, err := r.getParentWorkload(ctx, job, object); err != nil {
 				log.Error(err, "couldn't get the parent job workload")
 				return ctrl.Result{}, err
-			} else if parentWorkload == nil || !workload.IsAdmittedAndChecked(parentWorkload) {
+			} else if parentWorkload == nil || !workload.IsAdmitted(parentWorkload) {
 				// suspend it
 				job.Suspend()
 				if err := r.client.Update(ctx, object); err != nil {
@@ -266,10 +266,11 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		if err := r.stopJob(ctx, job, object, wl, evCond.Message); err != nil {
 			return ctrl.Result{}, err
 		}
-		if workload.IsAdmitted(wl) {
+		if workload.HasQuotaReservation(wl) {
 			if !job.IsActive() {
 				log.V(6).Info("The job is no longer active, clear the workloads admission")
-				workload.UnsetAdmissionWithCondition(wl, "Pending", evCond.Message)
+				workload.UnsetQuotaReservationWithCondition(wl, "Pending", evCond.Message)
+				_ = workload.SyncAdmittedCondition(wl)
 				err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
 				if err != nil {
 					return ctrl.Result{}, fmt.Errorf("clearing admission: %w", err)
@@ -282,7 +283,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// 7. handle job is suspended.
 	if job.IsSuspended() {
 		// start the job if the workload has been admitted, and the job is still suspended
-		if workload.IsAdmittedAndChecked(wl) {
+		if workload.IsAdmitted(wl) {
 			log.V(2).Info("Job admitted, unsuspending")
 			err := r.startJob(ctx, job, object, wl)
 			if err != nil {
@@ -315,7 +316,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	// 8. handle job is unsuspended.
-	if !workload.IsAdmittedAndChecked(wl) {
+	if !workload.IsAdmitted(wl) {
 		// the job must be suspended if the workload is not yet admitted.
 		log.V(2).Info("Running job is not admitted by a cluster queue, suspending")
 		err := r.stopJob(ctx, job, object, wl, "Not admitted by cluster queue")
@@ -444,7 +445,7 @@ func (r *JobReconciler) equivalentToWorkload(job GenericJob, object client.Objec
 
 	jobPodSets := resetMinCounts(job.PodSets())
 
-	if !workload.CanBePartiallyAdmitted(wl) || !workload.IsAdmitted(wl) {
+	if !workload.CanBePartiallyAdmitted(wl) || !workload.HasQuotaReservation(wl) {
 		// the two sets should fully match.
 		return equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets, true)
 	}

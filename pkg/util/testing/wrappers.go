@@ -102,15 +102,30 @@ func (w *WorkloadWrapper) Queue(q string) *WorkloadWrapper {
 	return w
 }
 
-func (w *WorkloadWrapper) Admit(a *kueue.Admission) *WorkloadWrapper {
+func (w *WorkloadWrapper) ReserveQuota(a *kueue.Admission) *WorkloadWrapper {
 	w.Status.Admission = a
 	w.Status.Conditions = []metav1.Condition{{
-		Type:               kueue.WorkloadAdmitted,
+		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionTrue,
 		LastTransitionTime: metav1.Now(),
 		Reason:             "AdmittedByTest",
 		Message:            fmt.Sprintf("Admitted by ClusterQueue %s", w.Status.Admission.ClusterQueue),
 	}}
+	return w
+}
+
+func (w *WorkloadWrapper) Admitted(a bool) *WorkloadWrapper {
+	cond := metav1.Condition{
+		Type:               kueue.WorkloadAdmitted,
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "ByTest",
+		Message:            fmt.Sprintf("Admitted by ClusterQueue %s", w.Status.Admission.ClusterQueue),
+	}
+	if !a {
+		cond.Status = metav1.ConditionFalse
+	}
+	apimeta.SetStatusCondition(&w.Status.Conditions, cond)
 	return w
 }
 

@@ -224,7 +224,7 @@ var _ = ginkgo.Describe("Queue controller", func() {
 			gomega.Eventually(func() error {
 				var newWL kueue.Workload
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
-				return util.SetAdmission(ctx, k8sClient, &newWL, admissions[i])
+				return util.SetQuotaReservation(ctx, k8sClient, &newWL, admissions[i])
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		}
 		gomega.Eventually(func() kueue.LocalQueueStatus {

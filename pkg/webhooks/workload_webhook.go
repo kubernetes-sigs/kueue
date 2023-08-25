@@ -136,7 +136,7 @@ func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 	}
 
 	statusPath := field.NewPath("status")
-	if workload.IsAdmitted(obj) {
+	if workload.HasQuotaReservation(obj) {
 		allErrs = append(allErrs, validateAdmission(obj, statusPath.Child("admission"))...)
 	}
 
@@ -244,7 +244,7 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 	specPath := field.NewPath("spec")
 	allErrs = append(allErrs, ValidateWorkload(newObj)...)
 	allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"))...)
-	if workload.IsAdmitted(newObj) && workload.IsAdmitted(oldObj) {
+	if workload.HasQuotaReservation(newObj) && workload.HasQuotaReservation(oldObj) {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.QueueName, oldObj.Spec.QueueName, specPath.Child("queueName"))...)
 		allErrs = append(allErrs, validateReclaimablePodsUpdate(newObj, oldObj, field.NewPath("status", "reclaimablePods"))...)
 	}

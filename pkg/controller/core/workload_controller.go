@@ -141,7 +141,11 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 
-	if workload.IsAdmitted(&wl) {
+	if workload.SyncAdmittedCondition(&wl) {
+		return ctrl.Result{}, workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
+	}
+
+	if workload.HasQuotaReservation(&wl) {
 		if evictionTriggered, err := r.reconcileCheckBasedEviction(ctx, &wl); evictionTriggered || err != nil {
 			return ctrl.Result{}, err
 		}
@@ -150,21 +154,21 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	if !r.queues.QueueForWorkloadExists(&wl) {
 		log.V(3).Info("Workload is inadmissible because of missing LocalQueue", "localQueue", klog.KRef(wl.Namespace, wl.Spec.QueueName))
-		workload.UnsetAdmissionWithCondition(&wl, "Inadmissible", fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName))
+		workload.UnsetQuotaReservationWithCondition(&wl, "Inadmissible", fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName))
 		err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	if !cqOk {
 		log.V(3).Info("Workload is inadmissible because of missing ClusterQueue", "clusterQueue", klog.KRef("", cqName))
-		workload.UnsetAdmissionWithCondition(&wl, "Inadmissible", fmt.Sprintf("ClusterQueue %s doesn't exist", cqName))
+		workload.UnsetQuotaReservationWithCondition(&wl, "Inadmissible", fmt.Sprintf("ClusterQueue %s doesn't exist", cqName))
 		err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	if !r.cache.ClusterQueueActive(cqName) {
 		log.V(3).Info("Workload is inadmissible because ClusterQueue is inactive", "clusterQueue", klog.KRef("", cqName))
-		workload.UnsetAdmissionWithCondition(&wl, "Inadmissible", fmt.Sprintf("ClusterQueue %s is inactive", cqName))
+		workload.UnsetQuotaReservationWithCondition(&wl, "Inadmissible", fmt.Sprintf("ClusterQueue %s is inactive", cqName))
 		err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -271,7 +275,7 @@ func (r *WorkloadReconciler) Create(e event.CreateEvent) bool {
 	wlCopy := wl.DeepCopy()
 	r.adjustResources(log, wlCopy)
 
-	if !workload.IsAdmitted(wl) {
+	if !workload.HasQuotaReservation(wl) {
 		if !r.queues.AddOrUpdateWorkload(wlCopy) {
 			log.V(2).Info("Queue for workload didn't exist; ignored for now")
 		}
@@ -302,7 +306,7 @@ func (r *WorkloadReconciler) Delete(e event.DeleteEvent) bool {
 	// When assigning a clusterQueue to a workload, we assume it in the cache. If
 	// the state is unknown, the workload could have been assumed and we need
 	// to clear it from the cache.
-	if workload.IsAdmitted(wl) || e.DeleteStateUnknown {
+	if workload.HasQuotaReservation(wl) || e.DeleteStateUnknown {
 		// trigger the move of associated inadmissibleWorkloads if required.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wl, func() {
 			// Delete the workload from cache while holding the queues lock
@@ -318,7 +322,7 @@ func (r *WorkloadReconciler) Delete(e event.DeleteEvent) bool {
 
 	// Even if the state is unknown, the last cached state tells us whether the
 	// workload was in the queues and should be cleared from them.
-	if workload.IsAdmitted(wl) {
+	if workload.HasQuotaReservation(wl) {
 		r.queues.DeleteWorkload(wl)
 	}
 	return true
@@ -345,10 +349,10 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 	if prevStatus != status {
 		log = log.WithValues("prevStatus", prevStatus)
 	}
-	if workload.IsAdmitted(wl) {
+	if workload.HasQuotaReservation(wl) {
 		log = log.WithValues("clusterQueue", wl.Status.Admission.ClusterQueue)
 	}
-	if workload.IsAdmitted(oldWl) && (!workload.IsAdmitted(wl) || wl.Status.Admission.ClusterQueue != oldWl.Status.Admission.ClusterQueue) {
+	if workload.HasQuotaReservation(oldWl) && (!workload.HasQuotaReservation(wl) || wl.Status.Admission.ClusterQueue != oldWl.Status.Admission.ClusterQueue) {
 		log = log.WithValues("prevClusterQueue", oldWl.Status.Admission.ClusterQueue)
 	}
 	log.V(2).Info("Workload update event")
@@ -468,7 +472,7 @@ func workloadStatus(w *kueue.Workload) string {
 	if apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished) {
 		return finished
 	}
-	if workload.IsAdmitted(w) {
+	if workload.HasQuotaReservation(w) {
 		return admitted
 	}
 	return pending
@@ -595,7 +599,7 @@ func (h *resourceUpdatesHandler) handle(ctx context.Context, obj client.Object, 
 func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, _ workqueue.RateLimitingInterface, opts ...client.ListOption) {
 	log := ctrl.LoggerFrom(ctx)
 	lst := kueue.WorkloadList{}
-	opts = append(opts, client.MatchingFields{indexer.WorkloadAdmittedKey: string(metav1.ConditionFalse)})
+	opts = append(opts, client.MatchingFields{indexer.WorkloadQuotaReservedKey: string(metav1.ConditionFalse)})
 	err := h.r.client.List(ctx, &lst, opts...)
 	if err != nil {
 		log.Error(err, "Could not list pending workloads")
