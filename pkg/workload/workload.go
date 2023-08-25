@@ -316,10 +316,8 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission) {
 		evictedCond.LastTransitionTime = metav1.Now()
 	}
 
-	// sync Admitted
-	if inSync, newCond := IsAdmittedInSync(w); !inSync {
-		apimeta.SetStatusCondition(&w.Status.Conditions, *newCond)
-	}
+	// sync Admitted, ignore the result since an API update is always done.
+	_ = SyncAdmittedCondition(w)
 }
 
 func SetEvictedCondition(w *kueue.Workload, reason string, message string) {
@@ -372,17 +370,19 @@ func HasQuotaReservation(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadQuotaReserved)
 }
 
-func IsAdmittedInSync(w *kueue.Workload) (bool, *metav1.Condition) {
+// SyncAdmittedCondition sync the state of the Admitted condition
+// with the state of QuoataReserved and AdmissionChecks.
+// Return true if any change was done.
+func SyncAdmittedCondition(w *kueue.Workload) bool {
 	hasReservation := HasQuotaReservation(w)
 	hasAllChecksReady := HasAllChecksReady(w)
 	isAdmitted := IsAdmitted(w)
 
 	if isAdmitted == (hasReservation && hasAllChecksReady) {
-		return true, nil
+		return false
 
 	}
-
-	cond := &metav1.Condition{
+	newCondition := metav1.Condition{
 		Type:    kueue.WorkloadAdmitted,
 		Status:  metav1.ConditionTrue,
 		Reason:  "Admitted",
@@ -390,19 +390,21 @@ func IsAdmittedInSync(w *kueue.Workload) (bool, *metav1.Condition) {
 	}
 	switch {
 	case !hasReservation && !hasAllChecksReady:
-		cond.Status = metav1.ConditionFalse
-		cond.Reason = "NoReservationNoChecks"
-		cond.Message = "The workload has no reservation and not all checks ready"
+		newCondition.Status = metav1.ConditionFalse
+		newCondition.Reason = "NoReservationNoChecks"
+		newCondition.Message = "The workload has no reservation and not all checks ready"
 	case !hasReservation:
-		cond.Status = metav1.ConditionFalse
-		cond.Reason = "NoReservation"
-		cond.Message = "The workload has no reservation"
+		newCondition.Status = metav1.ConditionFalse
+		newCondition.Reason = "NoReservation"
+		newCondition.Message = "The workload has no reservation"
 	case !hasAllChecksReady:
-		cond.Status = metav1.ConditionFalse
-		cond.Reason = "NoChecks"
-		cond.Message = "The workload has not all checks ready"
+		newCondition.Status = metav1.ConditionFalse
+		newCondition.Reason = "NoChecks"
+		newCondition.Message = "The workload has not all checks ready"
 	}
-	return false, cond
+
+	apimeta.SetStatusCondition(&w.Status.Conditions, newCondition)
+	return true
 }
 
 // UpdateReclaimablePods updates the ReclaimablePods list for the workload wit SSA.

@@ -141,8 +141,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 
-	if inSync, newCond := workload.IsAdmittedInSync(&wl); !inSync {
-		apimeta.SetStatusCondition(&wl.Status.Conditions, *newCond)
+	if workload.SyncAdmittedCondition(&wl) {
 		return ctrl.Result{}, workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
 	}
 

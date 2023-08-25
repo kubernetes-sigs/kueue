@@ -270,9 +270,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			if !job.IsActive() {
 				log.V(6).Info("The job is no longer active, clear the workloads admission")
 				workload.UnsetQuotaReservationWithCondition(wl, "Pending", evCond.Message)
-				if inSync, admittedCond := workload.IsAdmittedInSync(wl); !inSync {
-					apimeta.SetStatusCondition(&wl.Status.Conditions, *admittedCond)
-				}
+				_ = workload.SyncAdmittedCondition(wl)
 				err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
 				if err != nil {
 					return ctrl.Result{}, fmt.Errorf("clearing admission: %w", err)

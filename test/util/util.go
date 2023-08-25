@@ -344,8 +344,7 @@ func SyncAdmittedConditionForWorkloads(ctx context.Context, k8sClient client.Cli
 	var updatedWorkload kueue.Workload
 	for _, wl := range wls {
 		gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-		if inSync, newCond := workload.IsAdmittedInSync(&updatedWorkload); !inSync {
-			apimeta.SetStatusCondition(&updatedWorkload.Status.Conditions, *newCond)
+		if workload.SyncAdmittedCondition(&updatedWorkload) {
 			gomega.ExpectWithOffset(1, workload.ApplyAdmissionStatus(ctx, k8sClient, &updatedWorkload, false)).To(gomega.Succeed())
 		}
 	}
