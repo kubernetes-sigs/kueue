@@ -29,6 +29,7 @@ import (
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
@@ -206,9 +207,15 @@ var (
 )
 
 func TestReconciler(t *testing.T) {
+	baseWPCWrapper := utiltesting.MakeWorkloadPriorityClass("test-wpc").
+		PriorityValue(100)
+	basePCWrapper := utiltesting.MakePriorityClass("test-pc").
+		PriorityValue(200)
+
 	cases := map[string]struct {
 		reconcilerOptions []jobframework.Option
 		job               *jobset.JobSet
+		priorityClasses   []client.Object
 		wantJob           *jobset.JobSet
 		wantWorkloads     []kueue.Workload
 		wantErr           error
@@ -254,6 +261,108 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		"workload is created with podsets and workloadPriorityClass": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+			},
+			job: testingjobset.MakeJobSet("jobset", "ns").ReplicatedJobs(
+				testingjobset.ReplicatedJobRequirements{
+					Name:        "replicated-job-1",
+					Replicas:    1,
+					Completions: 1,
+					Parallelism: 1,
+				},
+			).WorkloadPriorityClass("test-wpc").Obj(),
+			priorityClasses: []client.Object{
+				baseWPCWrapper.Obj(),
+			},
+			wantJob: testingjobset.MakeJobSet("jobset", "ns").ReplicatedJobs(
+				testingjobset.ReplicatedJobRequirements{
+					Name:        "replicated-job-1",
+					Replicas:    1,
+					Completions: 1,
+					Parallelism: 1,
+				},
+			).WorkloadPriorityClass("test-wpc").Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("jobset", "ns").
+					PriorityClass("test-wpc").
+					Priority(100).
+					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					PodSets(
+						*utiltesting.MakePodSet("replicated-job-1", 1).Obj(),
+					).
+					Obj(),
+			},
+		},
+		"workload is created with podsets and PriorityClass": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+			},
+			job: testingjobset.MakeJobSet("jobset", "ns").ReplicatedJobs(
+				testingjobset.ReplicatedJobRequirements{
+					Name:        "replicated-job-1",
+					Replicas:    1,
+					Completions: 1,
+					Parallelism: 1,
+				},
+			).PriorityClass("test-pc").Obj(),
+			priorityClasses: []client.Object{
+				basePCWrapper.Obj(),
+			},
+			wantJob: testingjobset.MakeJobSet("jobset", "ns").ReplicatedJobs(
+				testingjobset.ReplicatedJobRequirements{
+					Name:        "replicated-job-1",
+					Replicas:    1,
+					Completions: 1,
+					Parallelism: 1,
+				},
+			).PriorityClass("test-pc").Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("jobset", "ns").
+					PriorityClass("test-pc").
+					Priority(200).
+					PriorityClassSource(constants.PodPriorityClassSource).
+					PodSets(
+						*utiltesting.MakePodSet("replicated-job-1", 1).Obj(),
+					).
+					Obj(),
+			},
+		},
+		"workload is created with podsets, workloadPriorityClass and PriorityClass": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+			},
+			job: testingjobset.MakeJobSet("jobset", "ns").ReplicatedJobs(
+				testingjobset.ReplicatedJobRequirements{
+					Name:        "replicated-job-1",
+					Replicas:    1,
+					Completions: 1,
+					Parallelism: 1,
+				},
+			).PriorityClass("test-pc").WorkloadPriorityClass("test-wpc").Obj(),
+			priorityClasses: []client.Object{
+				basePCWrapper.Obj(), baseWPCWrapper.Obj(),
+			},
+			wantJob: testingjobset.MakeJobSet("jobset", "ns").ReplicatedJobs(
+				testingjobset.ReplicatedJobRequirements{
+					Name:        "replicated-job-1",
+					Replicas:    1,
+					Completions: 1,
+					Parallelism: 1,
+				},
+			).PriorityClass("test-pc").WorkloadPriorityClass("test-wpc").Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("jobset", "ns").
+					PriorityClass("test-wpc").
+					Priority(100).
+					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					PodSets(
+						*utiltesting.MakePodSet("replicated-job-1", 1).Obj(),
+					).
+					Obj(),
+			},
+		},
 	}
 
 	for name, tc := range cases {
@@ -263,7 +372,8 @@ func TestReconciler(t *testing.T) {
 			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
 			}
-			kClient := clientBuilder.WithObjects(tc.job).Build()
+			objs := append(tc.priorityClasses, tc.job)
+			kClient := clientBuilder.WithObjects(objs...).Build()
 			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
 			reconciler := NewReconciler(kClient, recorder, tc.reconcilerOptions...)
 

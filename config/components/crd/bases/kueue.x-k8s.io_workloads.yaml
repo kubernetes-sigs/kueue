@@ -8206,6 +8206,18 @@ spec:
                   with that name. If not specified, the workload priority will be
                   default or zero if there is no default.
                 type: string
+              priorityClassSource:
+                default: ""
+                description: priorityClassSource determines whether the priorityClass
+                  field refers to a pod PriorityClass or kueue.x-k8s.io/workloadpriorityclass.
+                  Workload's PriorityClass can accept the name of a pod priorityClass
+                  or a workloadPriorityClass. When using pod PriorityClass, a priorityClassSource
+                  field has the scheduling.k8s.io/priorityclass value.
+                enum:
+                - kueue.x-k8s.io/workloadpriorityclass
+                - scheduling.k8s.io/priorityclass
+                - ""
+                type: string
               queueName:
                 description: queueName is the name of the LocalQueue the Workload
                   is associated with. queueName cannot be changed while .status.admission

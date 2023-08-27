@@ -33,6 +33,8 @@ type Interface interface {
 	ResourceFlavors() ResourceFlavorInformer
 	// Workloads returns a WorkloadInformer.
 	Workloads() WorkloadInformer
+	// WorkloadPriorityClasses returns a WorkloadPriorityClassInformer.
+	WorkloadPriorityClasses() WorkloadPriorityClassInformer
 }
 
 type version struct {
@@ -69,4 +71,9 @@ func (v *version) ResourceFlavors() ResourceFlavorInformer {
 // Workloads returns a WorkloadInformer.
 func (v *version) Workloads() WorkloadInformer {
 	return &workloadInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// WorkloadPriorityClasses returns a WorkloadPriorityClassInformer.
+func (v *version) WorkloadPriorityClasses() WorkloadPriorityClassInformer {
+	return &workloadPriorityClassInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }

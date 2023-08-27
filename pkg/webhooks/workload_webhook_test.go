@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -441,6 +442,28 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("status", "reclaimablePods").Key("ps1").Child("count"), nil, ""),
 				field.Required(field.NewPath("status", "reclaimablePods").Key("ps2"), ""),
+			},
+		},
+		"priorityClassSource should not be updated": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q").
+				PriorityClass("test-class").PriorityClassSource(constants.PodPriorityClassSource).
+				Priority(10).Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q").
+				PriorityClass("test-class").PriorityClassSource(constants.WorkloadPriorityClassSource).
+				Priority(10).Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec").Child("priorityClassSource"), nil, ""),
+			},
+		},
+		"priorityClassName should not be updated": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q").
+				PriorityClass("test-class-1").PriorityClassSource(constants.PodPriorityClassSource).
+				Priority(10).Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q").
+				PriorityClass("test-class-2").PriorityClassSource(constants.PodPriorityClassSource).
+				Priority(10).Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec").Child("priorityClassName"), nil, ""),
 			},
 		},
 	}

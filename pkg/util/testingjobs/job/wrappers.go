@@ -105,6 +105,15 @@ func (j *JobWrapper) PriorityClass(pc string) *JobWrapper {
 	return j
 }
 
+// WorkloadPriorityClass updates job workloadpriorityclass.
+func (j *JobWrapper) WorkloadPriorityClass(wpc string) *JobWrapper {
+	if j.Labels == nil {
+		j.Labels = make(map[string]string)
+	}
+	j.Labels[constants.WorkloadPriorityClassLabel] = wpc
+	return j
+}
+
 // Queue updates the queue name of the job
 func (j *JobWrapper) Queue(queue string) *JobWrapper {
 	if j.Labels == nil {

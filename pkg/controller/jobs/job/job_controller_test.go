@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -352,11 +353,18 @@ func TestReconciler(t *testing.T) {
 		Request(corev1.ResourceCPU, "1").
 		Image("", nil)
 
+	baseWPCWrapper := utiltesting.MakeWorkloadPriorityClass("test-wpc").
+		PriorityValue(100)
+
+	basePCWrapper := utiltesting.MakePriorityClass("test-pc").
+		PriorityValue(200)
+
 	cases := map[string]struct {
 		reconcilerOptions []jobframework.Option
 		job               batchv1.Job
-		wantJob           batchv1.Job
 		workloads         []kueue.Workload
+		priorityClasses   []client.Object
+		wantJob           batchv1.Job
 		wantWorkloads     []kueue.Workload
 		wantErr           error
 	}{
@@ -817,6 +825,98 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		"the workload is created when queue name is set, with workloadPriorityClass": {
+			job: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				Queue("test-queue").
+				UID("test-uid").
+				WorkloadPriorityClass("test-wpc").
+				Obj(),
+			priorityClasses: []client.Object{
+				baseWPCWrapper.Obj(),
+			},
+			wantJob: *baseJobWrapper.
+				Clone().
+				Queue("test-queue").
+				UID("test-uid").
+				WorkloadPriorityClass("test-wpc").
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("job", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue("test-queue").
+					PriorityClass("test-wpc").
+					Priority(100).
+					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+		},
+		"the workload is created when queue name is set, with PriorityClass": {
+			job: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				Queue("test-queue").
+				UID("test-uid").
+				PriorityClass("test-pc").
+				Obj(),
+			priorityClasses: []client.Object{
+				basePCWrapper.Obj(),
+			},
+			wantJob: *baseJobWrapper.
+				Clone().
+				Queue("test-queue").
+				UID("test-uid").
+				PriorityClass("test-pc").
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("job", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					Queue("test-queue").
+					PriorityClass("test-pc").
+					Priority(200).
+					PriorityClassSource(constants.PodPriorityClassSource).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+		},
+		"the workload is created when queue name is set, with workloadPriorityClass and PriorityClass": {
+			job: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				Queue("test-queue").
+				UID("test-uid").
+				WorkloadPriorityClass("test-wpc").
+				PriorityClass("test-pc").
+				Obj(),
+			priorityClasses: []client.Object{
+				basePCWrapper.Obj(), baseWPCWrapper.Obj(),
+			},
+			wantJob: *baseJobWrapper.
+				Clone().
+				Queue("test-queue").
+				UID("test-uid").
+				WorkloadPriorityClass("test-wpc").
+				PriorityClass("test-pc").
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("job", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					Queue("test-queue").
+					PriorityClass("test-wpc").
+					Priority(100).
+					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -825,8 +925,9 @@ func TestReconciler(t *testing.T) {
 			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
 			}
+			objs := append(tc.priorityClasses, &tc.job)
 			kcBuilder := clientBuilder.
-				WithObjects(&tc.job)
+				WithObjects(objs...)
 
 			for i := range tc.workloads {
 				kcBuilder = kcBuilder.WithStatusSubresource(&tc.workloads[i])

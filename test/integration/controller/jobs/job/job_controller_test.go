@@ -1138,7 +1138,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		})
 	})
 
-	ginkgo.It("Should readmit preempted Job in alternative flavor", func() {
+	ginkgo.It("Should readmit preempted Job with priorityClass in alternative flavor", func() {
 		devLocalQ = testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devClusterQ.Name).Obj()
 		gomega.Expect(k8sClient.Create(ctx, devLocalQ)).Should(gomega.Succeed())
 
@@ -1166,6 +1166,53 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 			job := testingjob.MakeJob("high", ns.Name).
 				Queue(devLocalQ.Name).
 				PriorityClass("high").
+				Parallelism(5).
+				Request(corev1.ResourceCPU, "1").
+				NodeSelector(instanceKey, "spot-untainted"). // target the same flavor to cause preemption
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+
+			highJobKey := types.NamespacedName{Name: "high", Namespace: ns.Name}
+			expectJobUnsuspendedWithNodeSelectors(highJobKey, map[string]string{
+				instanceKey: "spot-untainted",
+			})
+		})
+
+		ginkgo.By("Preempted job should be admitted on second flavor", func() {
+			expectJobUnsuspendedWithNodeSelectors(lowJobKey, map[string]string{
+				instanceKey: "on-demand",
+			})
+		})
+	})
+
+	ginkgo.It("Should readmit preempted Job with workloadPriorityClass in alternative flavor", func() {
+		devLocalQ = testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devClusterQ.Name).Obj()
+		gomega.Expect(k8sClient.Create(ctx, devLocalQ)).Should(gomega.Succeed())
+
+		highWorkloadPriorityClass := testing.MakeWorkloadPriorityClass("high-workload").PriorityValue(100).Obj()
+		gomega.Expect(k8sClient.Create(ctx, highWorkloadPriorityClass))
+		ginkgo.DeferCleanup(func() {
+			gomega.Expect(k8sClient.Delete(ctx, highWorkloadPriorityClass)).To(gomega.Succeed())
+		})
+
+		lowJobKey := types.NamespacedName{Name: "low", Namespace: ns.Name}
+		ginkgo.By("Low priority job is unsuspended and has nodeSelector", func() {
+			job := testingjob.MakeJob("low", ns.Name).
+				Queue(devLocalQ.Name).
+				Parallelism(5).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+
+			expectJobUnsuspendedWithNodeSelectors(lowJobKey, map[string]string{
+				instanceKey: "spot-untainted",
+			})
+		})
+
+		ginkgo.By("High priority job preemtps low priority job", func() {
+			job := testingjob.MakeJob("high", ns.Name).
+				Queue(devLocalQ.Name).
+				WorkloadPriorityClass("high-workload").
 				Parallelism(5).
 				Request(corev1.ResourceCPU, "1").
 				NodeSelector(instanceKey, "spot-untainted"). // target the same flavor to cause preemption

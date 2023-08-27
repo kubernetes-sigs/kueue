@@ -52,6 +52,13 @@ type WorkloadSpec struct {
 	// The higher the value, the higher the priority.
 	// If priorityClassName is specified, priority must not be null.
 	Priority *int32 `json:"priority,omitempty"`
+
+	// priorityClassSource determines whether the priorityClass field refers to a pod PriorityClass or kueue.x-k8s.io/workloadpriorityclass.
+	// Workload's PriorityClass can accept the name of a pod priorityClass or a workloadPriorityClass.
+	// When using pod PriorityClass, a priorityClassSource field has the scheduling.k8s.io/priorityclass value.
+	// +kubebuilder:default=""
+	// +kubebuilder:validation:Enum=kueue.x-k8s.io/workloadpriorityclass;scheduling.k8s.io/priorityclass;""
+	PriorityClassSource string `json:"priorityClassSource,omitempty"`
 }
 
 type Admission struct {

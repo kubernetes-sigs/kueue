@@ -151,6 +151,11 @@ func (w *WorkloadWrapper) Priority(priority int32) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) PriorityClassSource(source string) *WorkloadWrapper {
+	w.Spec.PriorityClassSource = source
+	return w
+}
+
 func (w *WorkloadWrapper) PodSets(podSets ...kueue.PodSet) *WorkloadWrapper {
 	w.Spec.PodSets = podSets
 	return w
@@ -212,6 +217,11 @@ func MakePodSet(name string, count int) *PodSetWrapper {
 			},
 		},
 	}
+}
+
+func (p *PodSetWrapper) PriorityClass(pc string) *PodSetWrapper {
+	p.Template.Spec.PriorityClassName = pc
+	return p
 }
 
 func (p *PodSetWrapper) Obj() *kueue.PodSet {
@@ -565,4 +575,29 @@ func MakeAdmissionCheck(name string) *AdmissionCheckWrapper {
 
 func (ac *AdmissionCheckWrapper) Obj() *kueue.AdmissionCheck {
 	return &ac.AdmissionCheck
+}
+
+// WorkloadPriorityClassWrapper wraps a WorkloadPriorityClass.
+type WorkloadPriorityClassWrapper struct {
+	kueue.WorkloadPriorityClass
+}
+
+// MakeWorkloadPriorityClass creates a wrapper for a WorkloadPriorityClass.
+func MakeWorkloadPriorityClass(name string) *WorkloadPriorityClassWrapper {
+	return &WorkloadPriorityClassWrapper{kueue.WorkloadPriorityClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		}},
+	}
+}
+
+// PriorityValue updates value of WorkloadPriorityClass.
+func (p *WorkloadPriorityClassWrapper) PriorityValue(v int32) *WorkloadPriorityClassWrapper {
+	p.Value = v
+	return p
+}
+
+// Obj returns the inner WorkloadPriorityClass.
+func (p *WorkloadPriorityClassWrapper) Obj() *kueue.WorkloadPriorityClass {
+	return &p.WorkloadPriorityClass
 }

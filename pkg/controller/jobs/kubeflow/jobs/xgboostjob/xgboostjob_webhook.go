@@ -85,6 +85,7 @@ func (w *XGBoostJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj r
 	log := ctrl.LoggerFrom(ctx).WithName("xgboostjob-webhook")
 	log.Info("Validating update", "xgboostjob", klog.KObj(newJob.Object()))
 	allErrs := jobframework.ValidateUpdateForQueueName(oldJob, newJob)
+	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(oldJob, newJob)...)
 	return nil, allErrs.ToAggregate()
 }
 

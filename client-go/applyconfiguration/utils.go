@@ -80,6 +80,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.ResourceUsageApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("Workload"):
 		return &kueuev1beta1.WorkloadApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("WorkloadPriorityClass"):
+		return &kueuev1beta1.WorkloadPriorityClassApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("WorkloadSpec"):
 		return &kueuev1beta1.WorkloadSpecApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("WorkloadStatus"):

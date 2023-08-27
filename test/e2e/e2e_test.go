@@ -146,7 +146,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			}, util.LongTimeout, util.Interval).Should(gomega.BeTrue())
 		})
 
-		ginkgo.It("Should readmit preempted job into a separate flavor", func() {
+		ginkgo.It("Should readmit preempted job with priorityClass into a separate flavor", func() {
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
 			highPriorityClass := testing.MakePriorityClass("high").PriorityValue(100).Obj()
@@ -181,7 +181,44 @@ var _ = ginkgo.Describe("Kueue", func() {
 				})
 			})
 		})
+
+		ginkgo.It("Should readmit preempted job with workloadPriorityClass into a separate flavor", func() {
+			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
+
+			highWorkloadPriorityClass := testing.MakeWorkloadPriorityClass("high-workload").PriorityValue(300).Obj()
+			gomega.Expect(k8sClient.Create(ctx, highWorkloadPriorityClass)).Should(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, highWorkloadPriorityClass)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Job is admitted using the first flavor", func() {
+				expectJobUnsuspendedWithNodeSelectors(jobKey, map[string]string{
+					"instance-type": "on-demand",
+				})
+			})
+
+			ginkgo.By("Job is preempted by higher priority job", func() {
+				job := testingjob.MakeJob("high-with-wpc", ns.Name).
+					Queue("main").
+					WorkloadPriorityClass("high-workload").
+					Request(corev1.ResourceCPU, "1").
+					NodeSelector("instance-type", "on-demand"). // target the same flavor to cause preemption
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+
+				expectJobUnsuspendedWithNodeSelectors(client.ObjectKeyFromObject(job), map[string]string{
+					"instance-type": "on-demand",
+				})
+			})
+
+			ginkgo.By("Job is re-admitted using the second flavor", func() {
+				expectJobUnsuspendedWithNodeSelectors(jobKey, map[string]string{
+					"instance-type": "spot",
+				})
+			})
+		})
 	})
+
 	ginkgo.When("Creating a Job In a Twostepadmission Queue", func() {
 		var (
 			onDemandRF   *kueue.ResourceFlavor

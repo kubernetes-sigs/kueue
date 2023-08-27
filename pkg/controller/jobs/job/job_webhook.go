@@ -160,6 +160,7 @@ func (w *JobWebhook) validateUpdate(oldJob, newJob *Job) field.ErrorList {
 	allErrs = append(allErrs, jobframework.ValidateUpdateForParentWorkload(oldJob, newJob)...)
 	allErrs = append(allErrs, jobframework.ValidateUpdateForQueueName(oldJob, newJob)...)
 	allErrs = append(allErrs, validatePartialAdmissionUpdate(oldJob, newJob)...)
+	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(oldJob, newJob)...)
 	return allErrs
 }
 

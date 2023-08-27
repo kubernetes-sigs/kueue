@@ -56,3 +56,11 @@ type WorkloadListerExpansion interface{}
 // WorkloadNamespaceListerExpansion allows custom methods to be added to
 // WorkloadNamespaceLister.
 type WorkloadNamespaceListerExpansion interface{}
+
+// WorkloadPriorityClassListerExpansion allows custom methods to be added to
+// WorkloadPriorityClassLister.
+type WorkloadPriorityClassListerExpansion interface{}
+
+// WorkloadPriorityClassNamespaceListerExpansion allows custom methods to be added to
+// WorkloadPriorityClassNamespaceLister.
+type WorkloadPriorityClassNamespaceListerExpansion interface{}
