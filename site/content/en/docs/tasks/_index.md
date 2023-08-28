@@ -38,7 +38,7 @@ As a batch user, you can learn how to:
 
 ### Platform developer
 
-A _Platform developer_ integrates Kueue with other software and/or contributes to Kueue.
+A _platform developer_ integrates Kueue with other software and/or contributes to Kueue.
 
 As a platform developer, you can learn how to:
 - [Integrate a custom Job with Kueue](/docs/tasks/integrate_a_custom_job).
