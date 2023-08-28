@@ -225,15 +225,12 @@ func (c *clusterQueueBase) Snapshot(maxCount int32) ([]*kueue.Workload, bool) {
 	if c.heap.Len() == 0 {
 		return nil, false
 	}
-	elements := make([]*kueue.Workload, c.heap.Len())
+	elements := make([]*kueue.Workload, 0, c.heap.Len())
 	for i, e := range c.heap.List() {
-		if maxCount >= int32(i) {
+		if int32(i) > maxCount {
 			return elements, true
 		}
 		info := e.(*workload.Info)
-		elements = append(elements, info.Obj)
-	}
-	for _, info := range c.inadmissibleWorkloads {
 		elements = append(elements, info.Obj)
 	}
 	return elements, true

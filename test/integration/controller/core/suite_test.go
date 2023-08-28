@@ -73,7 +73,14 @@ func managerSetup(mgr manager.Manager, ctx context.Context) {
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 	cCache := cache.New(mgr.GetClient())
-	queues := queue.NewManager(mgr.GetClient(), cCache)
+	queues := queue.NewManager(
+		mgr.GetClient(),
+		cCache,
+		queue.WithQueueVisibilityUpdateInterval(1),
+		queue.WithQueueVisibilityClusterQueuesMaxCount(10),
+	)
+	err = mgr.Add(queues)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	controllersCfg := &config.Configuration{}
 	controllersCfg.Metrics.EnableClusterQueueResources = true

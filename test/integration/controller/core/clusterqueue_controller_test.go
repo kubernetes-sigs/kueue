@@ -47,6 +47,8 @@ const (
 )
 
 var ignoreConditionTimestamps = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
+var ignoreLastChangeTime = cmpopts.IgnoreFields(kueue.ClusterQueuePendingWorkloadsStatus{}, "LastChangeTime")
+var ignorePendingWorkloadsStatus = cmpopts.IgnoreFields(kueue.ClusterQueueStatus{}, "PendingWorkloadsStatus")
 
 var _ = ginkgo.Describe("ClusterQueue controller", func() {
 	var (
@@ -183,7 +185,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 						Message: "Can't admit new workloads; some flavors are not found",
 					},
 				},
-			}, ignoreConditionTimestamps))
+			}, ignoreConditionTimestamps, ignorePendingWorkloadsStatus))
 			// Workloads are inadmissible because ResourceFlavors don't exist here yet.
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 5)
 			util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 0)
@@ -269,7 +271,15 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 						Message: "Can admit new workloads",
 					},
 				},
-			}, ignoreConditionTimestamps))
+				PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{
+					Head: []kueue.ClusterQueuePendingWorkload{
+						{
+							Name:      "six",
+							Namespace: ns.Name,
+						},
+					},
+				},
+			}, ignoreConditionTimestamps, ignoreLastChangeTime))
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 1, 0)
 			util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 4)
 

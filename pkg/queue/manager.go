@@ -620,14 +620,14 @@ func (m *Manager) Start(ctx context.Context) error {
 			log.V(2).Info("Context cancelled; stop doing snapshot of cluster queue")
 			return nil
 		case t := <-ticker.C:
-			m.wm.Lock()
 			m.workloadsStatus = m.takeSnapshot(t)
-			m.wm.Unlock()
 		}
 	}
 }
 
 func (m *Manager) takeSnapshot(t time.Time) *kueue.ClusterQueuePendingWorkloadsStatus {
+	m.wm.Lock()
+	defer m.wm.Unlock()
 	snapshot := m.Snapshot()
 	snapshotLen := len(snapshot)
 	if snapshotLen == 0 {
