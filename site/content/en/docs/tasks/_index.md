@@ -17,20 +17,30 @@ personas such as _batch administrators_ and _batch users_.
 A _batch administrator_ manages the cluster infrastructure and establishes
 quotas and queues.
 
-- As a batch administrator, you can learn how to [setup role-based access control](/docs/tasks/rbac)
+As a batch administrator, you can learn how to:
+
+- [Setup role-based access control](/docs/tasks/rbac)
   to Kueue objects.
-- As a batch administrator, you can learn how to
-  [administer cluster quotas](/docs/tasks/administer_cluster_quotas) with ClusterQueues and LocalQueues.
-- As a batch administrator, you can learn how to setup
-  [Sequential Admission with Ready Pods](/docs/tasks/setup_sequential_admission).
+- [Administer cluster quotas](/docs/tasks/administer_cluster_quotas) with ClusterQueues and LocalQueues.
+- Setup [Sequential Admission with Ready Pods](/docs/tasks/setup_sequential_admission).
 
 ### Batch user
 
 A _batch user_ runs [workloads](/docs/concepts/workload). A typical
 batch user is a researcher, AI/ML engineer, data scientist, among others.
 
-- As a batch user, you can learn how to [run a Kueue managed batch/Job](/docs/tasks/run_jobs).
-- As a batch user, you can learn how to [run a Kueue managed Flux MiniCluster](/docs/tasks/run_flux_minicluster).
-- As a batch user, you can learn how to [run a Kueue managed Kubeflow MPIJob](/docs/tasks/run_mpi_jobs).
-- As a batch user, you can learn how to [run a Kueue managed KubeRay RayJob](/docs/tasks/run_rayjobs).
-- As a batch developer user, you can learn how to [submit Kueue jobs from Python](/docs/tasks/run_python_jobs).
+As a batch user, you can learn how to:
+- [Run a Kueue managed batch/Job](/docs/tasks/run_jobs).
+- [Run a Kueue managed Flux MiniCluster](/docs/tasks/run_flux_minicluster).
+- [Run a Kueue managed Kubeflow MPIJob](/docs/tasks/run_mpi_jobs).
+- [Run a Kueue managed KubeRay RayJob](/docs/tasks/run_rayjobs).
+- [Submit Kueue jobs from Python](/docs/tasks/run_python_jobs).
+
+### Platform developer
+
+A _platform developer_ integrates Kueue with other software and/or contributes to Kueue.
+
+As a platform developer, you can learn how to:
+- [Integrate a custom Job with Kueue](/docs/tasks/integrate_a_custom_job).
+- [Submit Kueue jobs from Python](/docs/tasks/run_python_jobs).
+
