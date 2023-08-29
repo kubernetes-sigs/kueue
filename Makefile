@@ -184,7 +184,7 @@ verify: gomod-verify vet ci-lint fmt-verify toc-verify manifests generate update
 
 .PHONY: build
 build:
-	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o bin/manager main.go
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o bin/manager cmd/kueue/main.go
 
 .PHONY: run
 run: manifests generate fmt vet ## Run a controller from your host.
