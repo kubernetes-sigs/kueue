@@ -9,8 +9,7 @@
   - [User Stories (Optional)](#user-stories-optional)
     - [Story 1](#story-1)
     - [Story 2](#story-2)
-    - [Story 3](#story-3)
-  - [Story 4](#story-4)
+  - [Story 3](#story-3)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
     - [Skipping Pods belonging to queued objects](#skipping-pods-belonging-to-queued-objects)
     - [Pods replaced on failure](#pods-replaced-on-failure)
@@ -22,8 +21,7 @@
     - [Pods subject to queueing](#pods-subject-to-queueing)
   - [Constructing Workload objects](#constructing-workload-objects)
     - [Single Pods](#single-pods)
-    - [Groups of Pods with the same shape](#groups-of-pods-with-the-same-shape)
-    - [Groups of pods with multiple shapes or roles](#groups-of-pods-with-multiple-shapes-or-roles)
+    - [Groups of Pods created beforehand](#groups-of-pods-created-beforehand)
     - [Groups of pods where driver generates workers](#groups-of-pods-where-driver-generates-workers)
   - [Tracking admitted and finished Pods](#tracking-admitted-and-finished-pods)
   - [Metrics](#metrics)
@@ -130,43 +128,11 @@ spec:
 
 #### Story 2
 
-As a platform developer, I can queue groups of Pods that share the same shape (Pod specs).
+As a platform developer, I can queue groups of Pods that might or might not have the same shape
+(Pod specs).
 In addition to the queue name, I can specify how many Pods belong to the group.
 
-<<[UNRESOLVED usability of labels and annotations ]>>
-Could the split among labels and annotations cause user mistakes?
-Note that integers cannot be used as label values.
-<<[/UNRESOLVED]>>
-
-The pods of a job with a single spec (similar to Pods in an Indexed Job), look like follows:
-
-```yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: pod-index-0
-  namespace: pod-namespace
-  labels:
-    kueue.x-k8s.io/queue-name: user-queue
-    kueue.x-k8s.io/pod-group-name: pod-group
-  annotations:
-    kueue.x-k8s.io/pod-group-count: "10"
-spec:
-  containers:
-  - name: job
-    image: hello-world
-    resources:
-      requests:
-        cpu: 1m
-```
-
-#### Story 3
-
-As a platform developer, I can queue groups of Pods that have multiple shapes.
-In addition to the queue name, I can specify how many shapes to expect for the group and how
-many Pods are expected for the shape.
-
-The pods of a job following a driver-workers paradigm look like follows:
+The pods of a job following a driver-workers paradigm would look like follows:
 
 ```yaml
 apiVersion: v1
@@ -176,14 +142,12 @@ metadata:
   labels:
     kueue.x-k8s.io/queue-name: user-queue
     kueue.x-k8s.io/pod-group-name: pod-group
-    kueue.x-k8s.io/pod-group-role: driver
   annotations:
-    kueue.x-k8s.io/pod-group-roles: "2"
-    kueue.x-k8s.io/pod-group-role-count: "1"
+    kueue.x-k8s.io/pod-group-total-count: "3"
 spec:
   containers:
   - name: job
-    image: hello-world
+    image: driver
     resources:
       requests:
         cpu: 1m
@@ -195,20 +159,39 @@ metadata:
   labels:
     kueue.x-k8s.io/queue-name: user-queue
     kueue.x-k8s.io/pod-group-name: pod-group
-    kueue.x-k8s.io/pod-group-role: worker
   annotations:
-    kueue.x-k8s.io/pod-group-roles: "2"
-    kueue.x-k8s.io/pod-group-role-count: "10"
+    kueue.x-k8s.io/pod-group-total-count: "3"
 spec:
   containers:
   - name: job
-    image: hello-world
+    image: worker
+    args: ["--index", "0"]
     resources:
       requests:
         cpu: 1m
+        vendor.com/gpu: 1
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: job-worker-1
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+    kueue.x-k8s.io/pod-group-name: pod-group
+  annotations:
+    kueue.x-k8s.io/pod-group-total-count: "3"
+spec:
+  containers:
+  - name: job
+    image: worker
+    args: ["--index", "1"]
+    resources:
+      requests:
+        cpu: 1m
+        vendor.com/gpu: 1
 ```
 
-### Story 4
+### Story 3
 
 Motivation: In frameworks like Spark, worker Pods are only created after by the driver Pod. As
 such, the worker Pods specs cannot be predicted beforehand. Even though the job could be considered
@@ -224,10 +207,8 @@ metadata:
   labels:
     kueue.x-k8s.io/queue-name: user-queue
     kueue.x-k8s.io/pod-group-name: pod-group
-    kueue.x-k8s.io/pod-group-role: driver
   annotations:
-    kueue.x-k8s.io/pod-group-role-count: "1" # optional
-    # The template in the driver group can be left empty. Kueue will populate it from the Pod.
+    # If the template is left empty, it means that it will match the spec of this pod.
     kueue.x-k8s.io/pod-group-sets: |-
       [
         {
@@ -318,9 +299,9 @@ We can use the following mitigations:
 
 #### Limited size for annotation values
 
-[Story4](#story-4) can be limited by the annotation size limit (256kB across all annotation values).
+[Story 3](#story-3) can be limited by the annotation size limit (256kB across all annotation values).
 There isn't much we can do other than documenting the limitation. We can also suggest users to
-only list the fields relevant to scheduling, which for a vanilla scheduler are:
+only list the fields relevant to scheduling, as documented for [Groups of Pods created beforehand](#groups-of-pods-created-beforehand).
 - node affinity and selectors
 - pod affinity
 - tolerations
@@ -395,9 +376,7 @@ delete the Workload object, even before the Pod terminates (if it has a grace pe
 This means that the controller needs to manually delete the Workload object once it has the
 Finished condition (after we have determined that all pods have finished).
 
-<<[UNRESOLVED TTL after finished]>>
-A possible extension here is to add a TTL, but we will get user feedback first.
-<<[/UNRESOLVED]>>
+A possible extension here is to add a TTL, which we can consider based on user feedback.
 
 #### Single Pods
 
@@ -427,57 +406,45 @@ spec:
               cpu: 1m
 ```
 
-#### Groups of Pods with the same shape
+#### Groups of Pods created beforehand
 
-When multiple pods belong to the same group and have the same shape, we need to know how many pods
-belong to the group.
+When a group of pods have different shapes, we need to group them into buckets of similar specs in
+order to create a Workload object.
 
-These groups of Pods can be identified when they have:
+To fully identify the group of pods, the pods need the following:
 - the label `kueue.x-k8s.io/pod-group-name`, as a unique identifier for the group. This should
   be a valid CRD name.
-- the annotation `kueue.x-k8s.io/pod-group-count`, the number of pods to expect in the group.
-  This number is interpreted as int32.
+- The annotation `kueue.x-k8s.io/pod-group-total-count` to indicate how many pods to expect in
+  the group.
 
-The Workload object can be generated after observing the first Pod.
+The Pod reconciler would group the pods into similar buckets by only looking at the fields that are
+relevant to admission, scheduling and/or autoscaling.
+This list might need to be updated for Kubernetes versions that add new fields relevant to 
+scheduling. The list of fields to keep are:
+- In `metadata`: `labels` (ignoring labels with the `kueue.x-k8s.io/` prefix)
+- In `spec`:
+  - In `initContainers` and `containers`: `image`, `requests` and `ports`.
+  - `nodeSelector`
+  - `affinity`
+  - `tolerations`
+  - `runtimeClassName`
+  - `priority`
+  - `preemptionPolicy`
+  - `topologySpreadConstraints`
+  - `overhead`
+  - `volumes`
+
+A sha256 of the reamining Pod spec will be used as a name for a Workload podSet. The count for the
+podSet will be the number of Pods that match the same sha256.
+
+We can only build the Workload object once we observe the number of Pods defined by the
+`kueue.x-k8s.io/pod-group-total-count` annotation.
+
+If Pods with the same `pod-group-name` have different values for the `pod-group-total-count`
+annotation, or if Kueue observes a different amount of Pods than the count, it will not create a
+Workload object and it will emit an event for the Pod indicating the reason.
+
 The Workload for the Pod in [story 2](#story-2) would look as follows:
-
-```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: Workload
-metadata:
-  name: pod-group
-  namespace: pod-namespace
-spec:
-  queueName: queue-name
-  podSets:
-  - count: 10
-    name: main # this name is irrelevant.
-    template:
-      spec:
-        containers:
-        - name: job
-          image: hello-world
-          resources:
-            requests:
-              cpu: 1m
-```
-
-#### Groups of pods with multiple shapes or roles
-
-When a group has multiple shapes, sometimes known as roles, we need to know how many shapes there
-are. To fully identify the group, the pods need the following:
-- the label `kueue.x-k8s.io/pod-group-name`, as a unique identifier for the group. This should
-  be a valid CRD name.
-- The annotation `kueue.x-k8s.io/pod-group-roles` to indicate how many roles or shapes there are
-  in the group. This value can be up to 8.
-- The label `kueue.x-k8s.io/pod-group-role` uniquely identifying the group or shape. This value
-  should be a DNS label (RFC 1123).
-- The annotation `kueue.k8s.io/pod-group-role-count` indicates how many pods belong to the role,
-  If it doesn't exist, kueue assumes 1.
-
-We can only build the Workload object once we observe at least one Pod per role.
-
-The Workload for the Pod in [story 3](#story-3) would look as follows:
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -494,21 +461,31 @@ spec:
       spec:
         containers:
         - name: job
-          image: hello-world
+          image: driver
           resources:
             requests:
               cpu: 1m
-  - count: 10
+  - count: 2
     name: worker
     template:
       spec:
         containers:
         - name: job
-          image: hello-world
+          image: worker
           resources:
             requests:
               cpu: 1m
+              vendor.com/gpu: 1
 ```
+
+**Caveats:**
+
+If the number of different sha256s obtained from the groups of Pods, Workload creation will fail.
+This generally shouldn't be a problem, unless multiple Pods (that should be considered the same
+from an admission perspective) have different label values or reference different volume claims.
+
+Based on user feedback, we can consider excluding certaing labels and volumes, or make it
+configurable.
 
 #### Groups of pods where driver generates workers
 
@@ -519,7 +496,7 @@ Users can provide the shapes of the remaining roles in an annotation
 `kueue.x-k8s.io/pod-group-sets`, taking a yaml/json with the same structure as the Workload PodSets.
 The template for the initial pods can be left empty, as it can be populated by Kueue.
 
-The Workload for the Pod in [story 4](#story-4) would look as follows:
+The Workload for the Pod in [story 3](#story-3) would look as follows:
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
