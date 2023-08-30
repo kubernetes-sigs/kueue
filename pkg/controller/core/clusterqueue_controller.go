@@ -18,6 +18,7 @@ package core
 
 import (
 	"context"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -486,7 +487,7 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 	cq.Status.FlavorsUsage = usage
 	cq.Status.AdmittedWorkloads = int32(workloads)
 	cq.Status.PendingWorkloads = int32(pendingWorkloads)
-	cq.Status.PendingWorkloadsStatus = r.qManager.GetWorkloadsStatus()
+	cq.Status.PendingWorkloadsStatus = r.getWorkloadsStatus()
 	meta.SetStatusCondition(&cq.Status.Conditions, metav1.Condition{
 		Type:    kueue.ClusterQueueActive,
 		Status:  conditionStatus,
@@ -497,4 +498,18 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 		return r.client.Status().Update(ctx, cq)
 	}
 	return nil
+}
+
+func (r *ClusterQueueReconciler) getWorkloadsStatus() *kueue.ClusterQueuePendingWorkloadsStatus {
+	pendingWorkloads := make([]kueue.ClusterQueuePendingWorkload, 0)
+	for _, workloads := range r.qManager.GetSnapshots() {
+		pendingWorkloads = append(pendingWorkloads, workloads...)
+	}
+	if len(pendingWorkloads) == 0 {
+		return nil
+	}
+	return &kueue.ClusterQueuePendingWorkloadsStatus{
+		Head:           pendingWorkloads,
+		LastChangeTime: metav1.Time{Time: time.Now()},
+	}
 }
