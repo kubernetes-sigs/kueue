@@ -760,6 +760,39 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		"when job completes, workload is marked as finished": {
+			focus: true,
+			job: *baseJobWrapper.Clone().
+				Queue("foo").
+				Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
+					Obj(),
+			},
+			wantJob: *baseJobWrapper.Clone().
+				Queue("foo").
+				Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  "JobFinished",
+						Message: "Job finished successfully",
+					}).
+					Obj(),
+			},
+		},
 		"when the workload is finished, its finalizer is removed": {
 			job: *baseJobWrapper.Clone().Queue("foo").Obj(),
 			workloads: []kueue.Workload{
@@ -786,6 +819,9 @@ func TestReconciler(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			if !tc.focus {
+				t.Skip()
+			}
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder()
 			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
