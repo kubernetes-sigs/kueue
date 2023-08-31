@@ -625,9 +625,6 @@ func (m *Manager) takeSnapshot(ctx context.Context) {
 }
 
 func (m *Manager) processNextSnapshot(ctx context.Context) bool {
-	m.wm.Lock()
-	defer m.wm.Unlock()
-
 	log := ctrl.LoggerFrom(ctx).WithName("processNextSnapshot")
 
 	key, quit := m.queue.Get()
@@ -656,7 +653,7 @@ func (m *Manager) processNextSnapshot(ctx context.Context) bool {
 			})
 		}
 	}
-	m.snapshots[key.(string)] = workloads
+	m.SetSnapshot(key.(string), workloads)
 
 	return true
 }
@@ -676,8 +673,26 @@ func (m *Manager) extractClusterQueue(key interface{}) ClusterQueue {
 	return nil
 }
 
+func (m *Manager) SetSnapshot(cqName string, workloads []kueue.ClusterQueuePendingWorkload) {
+	m.wm.Lock()
+	defer m.wm.Unlock()
+	m.snapshots[cqName] = workloads
+}
+
 func (m *Manager) GetSnapshots() map[string][]kueue.ClusterQueuePendingWorkload {
 	m.wm.RLock()
 	defer m.wm.RUnlock()
 	return m.snapshots
+}
+
+func (m *Manager) DeleteSnapshot(cq *kueue.ClusterQueue) {
+	m.Lock()
+	defer m.Unlock()
+	cqImpl := m.clusterQueues[cq.Name]
+	if cqImpl == nil {
+		return
+	}
+	m.wm.Lock()
+	defer m.wm.Unlock()
+	delete(m.snapshots, cq.Name)
 }

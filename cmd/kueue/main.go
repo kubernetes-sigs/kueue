@@ -25,7 +25,6 @@ import (
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
-
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	zaplog "go.uber.org/zap"
@@ -212,13 +211,7 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 	return err
 }
 
-func setupControllers(
-	mgr ctrl.Manager,
-	cCache *cache.Cache,
-	queues *queue.Manager,
-	certsReady chan struct{},
-	cfg *configapi.Configuration,
-	serverVersionFetcher *kubeversion.ServerVersionFetcher) {
+func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher) {
 	// The controllers won't work until the webhooks are operating, and the webhook won't work until the
 	// certs are all in place.
 	setupLog.Info("Waiting for certificate generation to complete")

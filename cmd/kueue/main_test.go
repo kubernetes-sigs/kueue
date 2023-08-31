@@ -101,6 +101,9 @@ integrations:
 				},
 				QueueVisibility: &config.QueueVisibility{
 					UpdateIntervalSeconds: config.DefaultQueueVisibilityUpdateIntervalSeconds,
+					ClusterQueues: &config.ClusterQueueVisibility{
+						MaxCount: config.DefaultClusterQueuesMaxCount,
+					},
 				},
 			},
 		},

@@ -57,6 +57,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 	}
 	defaultQueueVisibility := &QueueVisibility{
 		UpdateIntervalSeconds: DefaultQueueVisibilityUpdateIntervalSeconds,
+		ClusterQueues: &ClusterQueueVisibility{
+			MaxCount: 10,
+		},
 	}
 	podsReadyTimeoutTimeout := metav1.Duration{Duration: defaultPodsReadyTimeout}
 	podsReadyTimeoutOverwrite := metav1.Duration{Duration: time.Minute}
@@ -385,6 +388,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				QueueVisibility: &QueueVisibility{
 					UpdateIntervalSeconds: 10,
+					ClusterQueues: &ClusterQueueVisibility{
+						MaxCount: 0,
+					},
 				},
 			},
 			want: &Configuration{
@@ -397,6 +403,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				Integrations:     defaultIntegrations,
 				QueueVisibility: &QueueVisibility{
 					UpdateIntervalSeconds: 10,
+					ClusterQueues: &ClusterQueueVisibility{
+						MaxCount: 0,
+					},
 				},
 			},
 		},

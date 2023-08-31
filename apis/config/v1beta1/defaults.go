@@ -40,6 +40,7 @@ const (
 	DefaultClientConnectionBurst                int32   = 30
 	defaultPodsReadyTimeout                             = 5 * time.Minute
 	DefaultQueueVisibilityUpdateIntervalSeconds int32   = 5
+	DefaultClusterQueuesMaxCount                int32   = 10
 )
 
 func addDefaultingFuncs(scheme *runtime.Scheme) error {
@@ -122,5 +123,10 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	}
 	if cfg.QueueVisibility.UpdateIntervalSeconds == 0 {
 		cfg.QueueVisibility.UpdateIntervalSeconds = DefaultQueueVisibilityUpdateIntervalSeconds
+	}
+	if cfg.QueueVisibility.ClusterQueues == nil {
+		cfg.QueueVisibility.ClusterQueues = &ClusterQueueVisibility{
+			MaxCount: DefaultClusterQueuesMaxCount,
+		}
 	}
 }

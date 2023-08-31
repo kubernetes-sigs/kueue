@@ -82,9 +82,6 @@ managerConfig:
     #  enable: false
     #  webhookServiceName: ""
     #  webhookSecretName: ""
-    queueVisibility:
-      clusterQueues:
-        maxCount: 10
     integrations:
       frameworks:
       - "batch/job"
