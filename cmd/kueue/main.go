@@ -185,6 +185,7 @@ func setupQueueManager(mgr ctrl.Manager, cCache *cache.Cache, cfg *configapi.Con
 		queue.WithQueueVisibilityUpdateInterval(cfg.QueueVisibility.UpdateIntervalSeconds),
 		queue.WithQueueVisibilityClusterQueuesMaxCount(cfg.QueueVisibility.ClusterQueues.MaxCount),
 	)
+	// Taking snapshot of cluster queue is enabled when maxcount non-zero
 	if cfg.QueueVisibility.ClusterQueues.MaxCount != 0 {
 		if err := mgr.Add(queues); err != nil {
 			setupLog.Error(err, "Unable to add queue manager to manager")

@@ -306,7 +306,10 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 						Message: "Can admit new workloads",
 					},
 				},
-			}, ignoreConditionTimestamps))
+				PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{
+					Head: []kueue.ClusterQueuePendingWorkload{},
+				},
+			}, ignoreConditionTimestamps, ignoreLastChangeTime))
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 			util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 0)
 		})

@@ -679,10 +679,10 @@ func (m *Manager) SetSnapshot(cqName string, workloads []kueue.ClusterQueuePendi
 	m.snapshots[cqName] = workloads
 }
 
-func (m *Manager) GetSnapshots() map[string][]kueue.ClusterQueuePendingWorkload {
+func (m *Manager) GetSnapshot(cqName string) []kueue.ClusterQueuePendingWorkload {
 	m.wm.RLock()
 	defer m.wm.RUnlock()
-	return m.snapshots
+	return m.snapshots[cqName]
 }
 
 func (m *Manager) DeleteSnapshot(cq *kueue.ClusterQueue) {

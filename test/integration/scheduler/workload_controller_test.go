@@ -36,6 +36,7 @@ import (
 // +kubebuilder:docs-gen:collapse=Imports
 
 var ignoreCqCondition = cmpopts.IgnoreFields(kueue.ClusterQueueStatus{}, "Conditions")
+var ignoreLastChangeTime = cmpopts.IgnoreFields(kueue.ClusterQueuePendingWorkloadsStatus{}, "LastChangeTime")
 
 var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 	var (
@@ -121,7 +122,8 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							Total: resource.MustParse("2"),
 						}},
 					}},
-				}, ignoreCqCondition))
+					PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{},
+				}, ignoreCqCondition, ignoreLastChangeTime))
 			})
 		})
 	})
@@ -176,7 +178,8 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							Total: resource.MustParse("1"),
 						}},
 					}},
-				}, ignoreCqCondition))
+					PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{},
+				}, ignoreCqCondition, ignoreLastChangeTime))
 			})
 		})
 	})
@@ -232,7 +235,8 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							},
 						},
 					}},
-				}, ignoreCqCondition))
+					PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{},
+				}, ignoreCqCondition, ignoreLastChangeTime))
 			})
 
 			ginkgo.By("Check podSets spec", func() {
@@ -274,7 +278,8 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							},
 						},
 					}},
-				}, ignoreCqCondition))
+					PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{},
+				}, ignoreCqCondition, ignoreLastChangeTime))
 			})
 
 			ginkgo.By("Check podSets spec", func() {
@@ -333,7 +338,8 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							Total: resource.MustParse("1"),
 						}},
 					}},
-				}, ignoreCqCondition))
+					PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{},
+				}, ignoreCqCondition, ignoreLastChangeTime))
 			})
 
 			ginkgo.By("Check podSets spec", func() {
@@ -436,7 +442,8 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							Total: resource.MustParse("5"),
 						}},
 					}},
-				}, ignoreCqCondition))
+					PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{},
+				}, ignoreCqCondition, ignoreLastChangeTime))
 			})
 		})
 	})
@@ -526,7 +533,8 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							Total: resource.MustParse("5"),
 						}},
 					}},
-				}, ignoreCqCondition))
+					PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{},
+				}, ignoreCqCondition, ignoreLastChangeTime))
 			})
 		})
 	})
@@ -560,7 +568,8 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							Total: resource.MustParse("0"),
 						}},
 					}},
-				}, ignoreCqCondition))
+					PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{},
+				}, ignoreCqCondition, ignoreLastChangeTime))
 			})
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)

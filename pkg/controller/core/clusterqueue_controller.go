@@ -488,7 +488,7 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 	cq.Status.FlavorsUsage = usage
 	cq.Status.AdmittedWorkloads = int32(workloads)
 	cq.Status.PendingWorkloads = int32(pendingWorkloads)
-	cq.Status.PendingWorkloadsStatus = r.getWorkloadsStatus()
+	cq.Status.PendingWorkloadsStatus = r.getWorkloadsStatus(cq)
 	meta.SetStatusCondition(&cq.Status.Conditions, metav1.Condition{
 		Type:    kueue.ClusterQueueActive,
 		Status:  conditionStatus,
@@ -501,16 +501,17 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 	return nil
 }
 
-func (r *ClusterQueueReconciler) getWorkloadsStatus() *kueue.ClusterQueuePendingWorkloadsStatus {
-	pendingWorkloads := make([]kueue.ClusterQueuePendingWorkload, 0)
-	for _, workloads := range r.qManager.GetSnapshots() {
-		pendingWorkloads = append(pendingWorkloads, workloads...)
+func (r *ClusterQueueReconciler) getWorkloadsStatus(cq *kueue.ClusterQueue) *kueue.ClusterQueuePendingWorkloadsStatus {
+	pendingWorkloadsStatus := cq.Status.DeepCopy().PendingWorkloadsStatus
+	if pendingWorkloadsStatus == nil {
+		return &kueue.ClusterQueuePendingWorkloadsStatus{
+			LastChangeTime: metav1.Time{Time: time.Now()},
+		}
 	}
-	if len(pendingWorkloads) == 0 {
-		return nil
+	pendingWorkloads := r.qManager.GetSnapshot(cq.Name)
+	if !equality.Semantic.DeepEqual(pendingWorkloadsStatus.Head, pendingWorkloads) {
+		pendingWorkloadsStatus.Head = pendingWorkloads
+		pendingWorkloadsStatus.LastChangeTime = metav1.Time{Time: time.Now()}
 	}
-	return &kueue.ClusterQueuePendingWorkloadsStatus{
-		Head:           pendingWorkloads,
-		LastChangeTime: metav1.Time{Time: time.Now()},
-	}
+	return pendingWorkloadsStatus
 }

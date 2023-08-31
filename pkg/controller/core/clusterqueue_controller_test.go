@@ -65,6 +65,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					Reason:  "FlavorNotFound",
 					Message: "Can't admit new workloads; some flavors are not found",
 				}},
+				PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{},
 			},
 		},
 		"same condition status": {
@@ -76,6 +77,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					Reason:  "Ready",
 					Message: "Can admit new workloads",
 				}},
+				PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{},
 			},
 			newConditionStatus: metav1.ConditionTrue,
 			newReason:          "Ready",
@@ -88,6 +90,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					Reason:  "Ready",
 					Message: "Can admit new workloads",
 				}},
+				PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{},
 			},
 		},
 		"same condition status with different reason and message": {
@@ -99,6 +102,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					Reason:  "FlavorNotFound",
 					Message: "Can't admit new workloads; Can't admit new workloads; some flavors are not found",
 				}},
+				PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{},
 			},
 			newConditionStatus: metav1.ConditionFalse,
 			newReason:          "Terminating",
@@ -111,6 +115,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					Reason:  "Terminating",
 					Message: "Can't admit new workloads; clusterQueue is terminating",
 				}},
+				PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{},
 			},
 		},
 		"different condition status": {
@@ -122,6 +127,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					Reason:  "FlavorNotFound",
 					Message: "Can't admit new workloads; some flavors are not found",
 				}},
+				PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{},
 			},
 			newConditionStatus: metav1.ConditionTrue,
 			newReason:          "Ready",
@@ -134,6 +140,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					Reason:  "Ready",
 					Message: "Can admit new workloads",
 				}},
+				PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{},
 			},
 		},
 		"different pendingWorkloads with same condition status": {
@@ -158,6 +165,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					Reason:  "Ready",
 					Message: "Can admit new workloads",
 				}},
+				PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{},
 			},
 		},
 	}
@@ -200,9 +208,12 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			if err != nil {
 				t.Errorf("Updating ClusterQueueStatus: %v", err)
 			}
-			if diff := cmp.Diff(tc.wantCqStatus, cq.Status,
+			configCmpOpts := []cmp.Option{
 				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
-				cmpopts.EquateEmpty()); len(diff) != 0 {
+				cmpopts.IgnoreFields(kueue.ClusterQueuePendingWorkloadsStatus{}, "LastChangeTime"),
+				cmpopts.EquateEmpty(),
+			}
+			if diff := cmp.Diff(tc.wantCqStatus, cq.Status, configCmpOpts...); len(diff) != 0 {
 				t.Errorf("unexpected ClusterQueueStatus (-want,+got):\n%s", diff)
 			}
 		})
