@@ -216,7 +216,9 @@ func shouldTryNextFlavor(representativeMode FlavorAssignmentMode, flavorFungibil
 }
 ```
 
-We will store the scheduling context in workload info so that we can start from where we stop in previous scheduling attempts. This will be useful to avoid to waste time in one flavor all the time if we try to preempt in a flavor and failed. Scheduling context will contain the `LastScheduledFlavorIdx`, `ResourceFlavors` attached to the CQ, `ClusterQueueUsage` of the CQ and `CohortUsage`. Any changes to these properties will lead to a scheduling from the first flavor.
+We will store the scheduling context in workload info so that we can start from where we stop in previous scheduling attempts. This will be useful to avoid to waste time in one flavor all the time if we try to preempt in a flavor and failed. Scheduling context will contain the `LastScheduledFlavorIdx`, `ClusterQueueGeneration` attached to the CQ and `CohortGeneration`. Any changes to these properties will lead to a scheduling from the first flavor.
+
+`ClusterQueueGeneration` and `CohortGeneration` mark record the resource consumption of the CQs and Cohort. Any time the available resources of the CQs or Cohort increase, we will increase the genreation. So that if the Generation in scheduling context is lower, we should retry from the first flavor. Note that increasing after decreasing of the available resource will also make the generation increased, but I think this is acceptable since we can save the memory by just storing the generation instead of the usage state for each scheduling attempt.
 
 For example, if cluster queue has 2 resource groups and workload has 1 podSet as the following:
 
@@ -269,33 +271,28 @@ We will first try `default-flavor1` for cpu and memory resources. If `default-fl
 ### Implementation
 
 ```
-func assignFlavors(log logr.Logger, requests []workload.PodSetResources, podSets []kueue.PodSet, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, cq *cache.ClusterQueue, lastSchedule *workload.LastScheduleClusterQueueState) Assignment {
-	assignment := Assignment{
-		TotalBorrow: make(cache.FlavorResourceQuantities),
-		PodSets:     make([]PodSetAssignment, 0, len(requests)),
-		ScheduleState: workload.LastScheduleClusterQueueState{
-			LastScheduledFlavorIdx: make(map[string]map[corev1.ResourceName]int),
-			ResourceFlavors:        make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
-			ClusterQueueUsage:      make(workload.FlavorResourceQuantities),
-			CohortUsage:            make(workload.FlavorResourceQuantities),
-		},
-		usage: make(cache.FlavorResourceQuantities),
-	}
-	for res, flavor := range resourceFlavors {
-		assignment.ScheduleState.ResourceFlavors[res] = flavor
-	}
-	for flavor, flavorusage := range cq.Usage {
-		assignment.ScheduleState.ClusterQueueUsage[flavor] = make(map[corev1.ResourceName]int64)
-		for res, usage := range flavorusage {
-			assignment.ScheduleState.ClusterQueueUsage[flavor][res] = usage
+func assignFlavors(log logr.Logger, requests []workload.PodSetResources, podSets []kueue.PodSet, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, cq *cache.ClusterQueue, lastAssignment *workload.AssigmentClusterQueueState) Assignment {
+	var assignment Assignment
+	if lastAssignment != nil {
+		assignment = Assignment{
+			TotalBorrow: make(workload.FlavorResourceQuantities),
+			PodSets:     make([]PodSetAssignment, 0, len(requests)),
+			LastState:   *lastAssignment,
+			Usage:       make(workload.FlavorResourceQuantities),
 		}
-	}
-	if cq.Cohort != nil {
-		for flavor, flavorusage := range cq.Cohort.Usage {
-			assignment.ScheduleState.CohortUsage[flavor] = make(map[corev1.ResourceName]int64)
-			for res, usage := range flavorusage {
-				assignment.ScheduleState.CohortUsage[flavor][res] = usage
-			}
+	} else {
+		assignment = Assignment{
+			TotalBorrow: make(workload.FlavorResourceQuantities),
+			PodSets:     make([]PodSetAssignment, 0, len(requests)),
+			LastState: workload.AssigmentClusterQueueState{
+				LastAssignedFlavorIdx:  make([]map[corev1.ResourceName]int, 0),
+				CohortGeneration:       0,
+				ClusterQueueGeneration: cq.Generation,
+			},
+			Usage: make(workload.FlavorResourceQuantities),
+		}
+		if cq.Cohort != nil {
+			assignment.LastState.CohortGeneration = cq.Cohort.Generation
 		}
 	}
   ...
