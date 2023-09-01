@@ -84,6 +84,9 @@ func managerSetup(mgr manager.Manager, ctx context.Context) {
 
 	controllersCfg := &config.Configuration{}
 	controllersCfg.Metrics.EnableClusterQueueResources = true
+	controllersCfg.QueueVisibility = &config.QueueVisibility{
+		UpdateIntervalSeconds: 2,
+	}
 
 	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)

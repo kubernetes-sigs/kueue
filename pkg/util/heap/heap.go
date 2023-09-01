@@ -20,7 +20,6 @@ package heap
 
 import (
 	"container/heap"
-	"sort"
 )
 
 // lessFunc is a function that receives two items and returns true if the first
@@ -170,9 +169,8 @@ func (h *Heap) Len() int {
 	return h.data.Len()
 }
 
-// List returns a sorted list of all the items.
+// List returns a list of all the items.
 func (h *Heap) List() []interface{} {
-	sort.Sort(&h.data)
 	list := make([]interface{}, 0, h.Len())
 	for _, item := range h.data.items {
 		list = append(list, item.obj)

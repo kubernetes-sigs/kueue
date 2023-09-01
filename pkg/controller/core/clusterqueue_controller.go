@@ -52,32 +52,70 @@ type ClusterQueueUpdateWatcher interface {
 
 // ClusterQueueReconciler reconciles a ClusterQueue object
 type ClusterQueueReconciler struct {
-	client                client.Client
-	log                   logr.Logger
-	qManager              *queue.Manager
-	cache                 *cache.Cache
-	wlUpdateCh            chan event.GenericEvent
-	rfUpdateCh            chan event.GenericEvent
-	watchers              []ClusterQueueUpdateWatcher
-	reportResourceMetrics bool
+	client                        client.Client
+	log                           logr.Logger
+	qManager                      *queue.Manager
+	cache                         *cache.Cache
+	wlUpdateCh                    chan event.GenericEvent
+	rfUpdateCh                    chan event.GenericEvent
+	watchers                      []ClusterQueueUpdateWatcher
+	reportResourceMetrics         bool
+	queueVisibilityUpdateInterval time.Duration
 }
+
+type ClusterQueueReconcilerOptions struct {
+	Watchers                      []ClusterQueueUpdateWatcher
+	ReportResourceMetrics         bool
+	QueueVisibilityUpdateInterval time.Duration
+}
+
+// Option configures the reconciler.
+type ClusterQueueReconcilerOption func(*ClusterQueueReconcilerOptions)
+
+func WithWatchers(watchers ...ClusterQueueUpdateWatcher) ClusterQueueReconcilerOption {
+	return func(o *ClusterQueueReconcilerOptions) {
+		o.Watchers = watchers
+	}
+}
+
+// WithReportResourceMetrics indicates if the controller should reconcile
+// jobs that don't set the queue name annotation.
+func WithReportResourceMetrics(report bool) ClusterQueueReconcilerOption {
+	return func(o *ClusterQueueReconcilerOptions) {
+		o.ReportResourceMetrics = report
+	}
+}
+
+// WithQueueVisibilityMaxCount indicates if the controller should reconcile
+// jobs that don't set the queue name annotation.
+func WithQueueVisibilityUpdateInterval(interval int32) ClusterQueueReconcilerOption {
+	return func(o *ClusterQueueReconcilerOptions) {
+		o.QueueVisibilityUpdateInterval = time.Duration(interval) * time.Second
+	}
+}
+
+var DefaultOptions = ClusterQueueReconcilerOptions{}
 
 func NewClusterQueueReconciler(
 	client client.Client,
 	qMgr *queue.Manager,
 	cache *cache.Cache,
-	resourceMetrics bool,
-	watchers ...ClusterQueueUpdateWatcher,
+	opts ...ClusterQueueReconcilerOption,
 ) *ClusterQueueReconciler {
+	options := DefaultOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
 	return &ClusterQueueReconciler{
-		client:                client,
-		log:                   ctrl.Log.WithName("cluster-queue-reconciler"),
-		qManager:              qMgr,
-		cache:                 cache,
-		wlUpdateCh:            make(chan event.GenericEvent, updateChBuffer),
-		rfUpdateCh:            make(chan event.GenericEvent, updateChBuffer),
-		watchers:              watchers,
-		reportResourceMetrics: resourceMetrics,
+		client:                        client,
+		log:                           ctrl.Log.WithName("cluster-queue-reconciler"),
+		qManager:                      qMgr,
+		cache:                         cache,
+		wlUpdateCh:                    make(chan event.GenericEvent, updateChBuffer),
+		rfUpdateCh:                    make(chan event.GenericEvent, updateChBuffer),
+		watchers:                      options.Watchers,
+		reportResourceMetrics:         options.ReportResourceMetrics,
+		queueVisibilityUpdateInterval: options.QueueVisibilityUpdateInterval,
 	}
 }
 
@@ -502,16 +540,20 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 }
 
 func (r *ClusterQueueReconciler) getWorkloadsStatus(cq *kueue.ClusterQueue) *kueue.ClusterQueuePendingWorkloadsStatus {
-	pendingWorkloadsStatus := cq.Status.DeepCopy().PendingWorkloadsStatus
-	if pendingWorkloadsStatus == nil {
+	if cq.Status.PendingWorkloadsStatus == nil {
 		return &kueue.ClusterQueuePendingWorkloadsStatus{
+			Head:           r.qManager.GetSnapshot(cq.Name),
 			LastChangeTime: metav1.Time{Time: time.Now()},
 		}
 	}
-	pendingWorkloads := r.qManager.GetSnapshot(cq.Name)
-	if !equality.Semantic.DeepEqual(pendingWorkloadsStatus.Head, pendingWorkloads) {
-		pendingWorkloadsStatus.Head = pendingWorkloads
-		pendingWorkloadsStatus.LastChangeTime = metav1.Time{Time: time.Now()}
+	if time.Since(cq.Status.PendingWorkloadsStatus.LastChangeTime.Time) >= r.queueVisibilityUpdateInterval {
+		pendingWorkloads := r.qManager.GetSnapshot(cq.Name)
+		if !equality.Semantic.DeepEqual(cq.Status.PendingWorkloadsStatus.Head, pendingWorkloads) {
+			return &kueue.ClusterQueuePendingWorkloadsStatus{
+				Head:           pendingWorkloads,
+				LastChangeTime: metav1.Time{Time: time.Now()},
+			}
+		}
 	}
-	return pendingWorkloadsStatus
+	return cq.Status.PendingWorkloadsStatus
 }

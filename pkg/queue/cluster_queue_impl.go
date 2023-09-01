@@ -18,6 +18,8 @@ package queue
 
 import (
 	"context"
+	"sort"
+	"sync"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -39,6 +41,7 @@ type clusterQueueBase struct {
 	heap              heap.Heap
 	cohort            string
 	namespaceSelector labels.Selector
+	rw                sync.RWMutex
 
 	// inadmissibleWorkloads are workloads that have been tried at least once and couldn't be admitted.
 	inadmissibleWorkloads map[string]*workload.Info
@@ -58,6 +61,7 @@ func newClusterQueueImpl(keyFunc func(obj interface{}) string, lessFunc func(a, 
 		heap:                   heap.New(keyFunc, lessFunc),
 		inadmissibleWorkloads:  make(map[string]*workload.Info),
 		queueInadmissibleCycle: -1,
+		rw:                     sync.RWMutex{},
 	}
 }
 
@@ -221,18 +225,24 @@ func (c *clusterQueueBase) DumpInadmissible() (sets.Set[string], bool) {
 	return elements, true
 }
 
-func (c *clusterQueueBase) Snapshot(maxCount int32) ([]*kueue.Workload, bool) {
-	if c.heap.Len() == 0 {
+func (c *clusterQueueBase) Snapshot() ([]*workload.Info, bool) {
+	c.rw.RLock()
+	defer c.rw.RUnlock()
+	totalLen := c.heap.Len() + len(c.inadmissibleWorkloads)
+	if totalLen == 0 {
 		return nil, false
 	}
-	elements := make([]*kueue.Workload, 0, c.heap.Len())
-	for i, e := range c.heap.List() {
-		if int32(i) > maxCount {
-			return elements, true
-		}
+	elements := make([]*workload.Info, 0, totalLen)
+	for _, e := range c.heap.List() {
 		info := e.(*workload.Info)
-		elements = append(elements, info.Obj)
+		elements = append(elements, info)
 	}
+	for _, e := range c.inadmissibleWorkloads {
+		elements = append(elements, e)
+	}
+	sort.Slice(elements, func(i, j int) bool {
+		return queueOrdering(elements[i], elements[j])
+	})
 	return elements, true
 }
 

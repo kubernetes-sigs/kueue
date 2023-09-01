@@ -53,11 +53,11 @@ type Manager struct {
 	clusterQueues map[string]ClusterQueue
 	localQueues   map[string]*LocalQueue
 
-	wm        sync.RWMutex
-	queue     workqueue.Interface
-	snapshots map[string][]kueue.ClusterQueuePendingWorkload
+	snapshotsMutex sync.RWMutex
+	snapshotsQueue workqueue.Interface
+	snapshots      map[string][]kueue.ClusterQueuePendingWorkload
 
-	queueVisibilityUpdateInterval        int32
+	queueVisibilityUpdateInterval        time.Duration
 	queueVisibilityClusterQueuesMaxCount int32
 
 	// Key is cohort's name. Value is a set of associated ClusterQueue names.
@@ -65,7 +65,7 @@ type Manager struct {
 }
 
 type Options struct {
-	QueueVisibilityUpdateInterval        int32
+	QueueVisibilityUpdateInterval        time.Duration
 	QueueVisibilityClusterQueuesMaxCount int32
 }
 
@@ -76,7 +76,7 @@ type Option func(*Options)
 // jobs that don't set the queue name annotation.
 func WithQueueVisibilityUpdateInterval(interval int32) Option {
 	return func(o *Options) {
-		o.QueueVisibilityUpdateInterval = interval
+		o.QueueVisibilityUpdateInterval = time.Duration(interval) * time.Second
 	}
 }
 
@@ -101,8 +101,8 @@ func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Ma
 		localQueues:                          make(map[string]*LocalQueue),
 		clusterQueues:                        make(map[string]ClusterQueue),
 		cohorts:                              make(map[string]sets.Set[string]),
-		wm:                                   sync.RWMutex{},
-		queue:                                workqueue.New(),
+		snapshotsMutex:                       sync.RWMutex{},
+		snapshotsQueue:                       workqueue.New(),
 		snapshots:                            make(map[string][]kueue.ClusterQueuePendingWorkload, 0),
 		queueVisibilityUpdateInterval:        options.QueueVisibilityUpdateInterval,
 		queueVisibilityClusterQueuesMaxCount: options.QueueVisibilityClusterQueuesMaxCount,
@@ -496,7 +496,7 @@ func (m *Manager) Heads(ctx context.Context) []workload.Info {
 	}
 }
 
-// Dump is a dump of the queues and it's elements (ordered).
+// Dump is a dump of the queues and it's elements (unordered).
 // Only use for testing purposes.
 func (m *Manager) Dump() map[string]sets.Set[string] {
 	m.Lock()
@@ -596,26 +596,24 @@ func (m *Manager) reportPendingWorkloads(cqName string, cq ClusterQueue) {
 }
 
 func (m *Manager) Start(ctx context.Context) error {
-	defer m.queue.ShutDown()
-
-	queueVisibilityUpdateInterval := time.Duration(m.queueVisibilityUpdateInterval) * time.Second
+	defer m.snapshotsQueue.ShutDown()
 
 	for i := 0; i < snapshotWorkers; i++ {
-		go wait.UntilWithContext(ctx, m.takeSnapshot, queueVisibilityUpdateInterval)
+		go wait.UntilWithContext(ctx, m.takeSnapshot, m.queueVisibilityUpdateInterval)
 	}
 
-	go wait.UntilWithContext(ctx, m.enqueueSnapshotDelayed, queueVisibilityUpdateInterval)
+	go wait.UntilWithContext(ctx, m.enqueueTakeSnapshot, m.queueVisibilityUpdateInterval)
 
 	<-ctx.Done()
 
 	return nil
 }
 
-func (m *Manager) enqueueSnapshotDelayed(ctx context.Context) {
+func (m *Manager) enqueueTakeSnapshot(ctx context.Context) {
 	m.RLock()
 	defer m.RUnlock()
 	for cq := range m.clusterQueues {
-		m.queue.Add(cq)
+		m.snapshotsQueue.Add(cq)
 	}
 }
 
@@ -627,14 +625,14 @@ func (m *Manager) takeSnapshot(ctx context.Context) {
 func (m *Manager) processNextSnapshot(ctx context.Context) bool {
 	log := ctrl.LoggerFrom(ctx).WithName("processNextSnapshot")
 
-	key, quit := m.queue.Get()
+	key, quit := m.snapshotsQueue.Get()
 	if quit {
 		return false
 	}
 
 	startTime := time.Now()
 	defer func() {
-		log.V(4).Info("Finished snapshot job", "key", key, "elapsed", time.Since(startTime))
+		log.V(2).Info("Finished snapshot job", "key", key, "elapsed", time.Since(startTime))
 	}()
 
 	cq := m.extractClusterQueue(key)
@@ -642,14 +640,17 @@ func (m *Manager) processNextSnapshot(ctx context.Context) bool {
 		return false
 	}
 
-	defer m.queue.Done(key)
+	defer m.snapshotsQueue.Done(key)
 
 	workloads := make([]kueue.ClusterQueuePendingWorkload, 0)
-	if elements, ok := cq.Snapshot(m.queueVisibilityClusterQueuesMaxCount); ok {
-		for _, wl := range elements {
+	if elements, ok := cq.Snapshot(); ok {
+		for index, info := range elements {
+			if int32(index) > m.queueVisibilityClusterQueuesMaxCount || info == nil {
+				continue
+			}
 			workloads = append(workloads, kueue.ClusterQueuePendingWorkload{
-				Name:      wl.Name,
-				Namespace: wl.Namespace,
+				Name:      info.Obj.Name,
+				Namespace: info.Obj.Namespace,
 			})
 		}
 	}
@@ -661,38 +662,29 @@ func (m *Manager) processNextSnapshot(ctx context.Context) bool {
 func (m *Manager) extractClusterQueue(key interface{}) ClusterQueue {
 	m.RLock()
 	defer m.RUnlock()
-
 	if len(m.clusterQueues) == 0 {
 		return nil
 	}
-
 	if cq := m.clusterQueues[key.(string)]; cq != nil {
 		return cq
 	}
-
 	return nil
 }
 
 func (m *Manager) SetSnapshot(cqName string, workloads []kueue.ClusterQueuePendingWorkload) {
-	m.wm.Lock()
-	defer m.wm.Unlock()
+	m.snapshotsMutex.Lock()
+	defer m.snapshotsMutex.Unlock()
 	m.snapshots[cqName] = workloads
 }
 
 func (m *Manager) GetSnapshot(cqName string) []kueue.ClusterQueuePendingWorkload {
-	m.wm.RLock()
-	defer m.wm.RUnlock()
+	m.snapshotsMutex.RLock()
+	defer m.snapshotsMutex.RUnlock()
 	return m.snapshots[cqName]
 }
 
 func (m *Manager) DeleteSnapshot(cq *kueue.ClusterQueue) {
-	m.Lock()
-	defer m.Unlock()
-	cqImpl := m.clusterQueues[cq.Name]
-	if cqImpl == nil {
-		return
-	}
-	m.wm.Lock()
-	defer m.wm.Unlock()
+	m.snapshotsMutex.Lock()
+	defer m.snapshotsMutex.Unlock()
 	delete(m.snapshots, cq.Name)
 }
