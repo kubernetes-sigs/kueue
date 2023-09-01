@@ -77,7 +77,7 @@ spec:
                   yet.
                 format: int32
                 type: integer
-              conditions:omitempty:
+              conditions:
                 description: Conditions hold the latest available observations of
                   the LocalQueue current state.
                 items:

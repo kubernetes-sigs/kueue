@@ -26,7 +26,7 @@ import (
 type LocalQueueStatusApplyConfiguration struct {
 	PendingWorkloads  *int32                                    `json:"pendingWorkloads,omitempty"`
 	AdmittedWorkloads *int32                                    `json:"admittedWorkloads,omitempty"`
-	Conditions        []v1.Condition                            `json:"conditions:omitempty,omitempty"`
+	Conditions        []v1.Condition                            `json:"conditions,omitempty"`
 	FlavorUsage       []LocalQueueFlavorUsageApplyConfiguration `json:"flavorUsage,omitempty"`
 }
 

@@ -332,6 +332,9 @@ var (
 		cmpopts.SortSlices(func(a, b kueue.Workload) bool {
 			return a.Name < b.Name
 		}),
+		cmpopts.SortSlices(func(a, b metav1.Condition) bool {
+			return a.Type < b.Type
+		}),
 		cmpopts.IgnoreFields(
 			kueue.Workload{}, "TypeMeta", "ObjectMeta.OwnerReferences",
 			"ObjectMeta.Name", "ObjectMeta.ResourceVersion",
@@ -350,7 +353,6 @@ func TestReconciler(t *testing.T) {
 		Image("", nil)
 
 	cases := map[string]struct {
-		focus             bool
 		reconcilerOptions []jobframework.Option
 		job               batchv1.Job
 		wantJob           batchv1.Job
@@ -761,7 +763,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when job completes, workload is marked as finished": {
-			focus: true,
 			job: *baseJobWrapper.Clone().
 				Queue("foo").
 				Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
@@ -819,9 +820,6 @@ func TestReconciler(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if !tc.focus {
-				t.Skip()
-			}
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder()
 			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
