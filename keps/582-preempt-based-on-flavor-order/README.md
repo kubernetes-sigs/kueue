@@ -30,8 +30,6 @@ tags, and then generate with `hack/update-toc.sh`.
   - [Design Details](#design-details)
     - [Cluster Queue API](#cluster-queue-api)
     - [Behavior Changes](#behavior-changes)
-        - [Advantages](#advantages)
-        - [Disadvantages](#disadvantages)
     - [Implementation](#implementation)
     - [Test Plan](#test-plan)
         - [Prerequisite testing updates](#prerequisite-testing-updates)
@@ -39,8 +37,6 @@ tags, and then generate with `hack/update-toc.sh`.
       - [Integration tests](#integration-tests)
     - [Graduation Criteria](#graduation-criteria)
   - [Implementation History](#implementation-history)
-  - [Drawbacks](#drawbacks)
-  - [Alternatives](#alternatives)
 <!-- /toc -->
 
 ## Summary
@@ -63,8 +59,8 @@ updates.
 
 [documentation style guide]: https://github.com/kubernetes/community/blob/master/contributors/guide/style-guide.md
 -->
-This proposal introduces an opt-in mechanism to preempt workloads based on the 
-order of flavors defined in cluster queue.
+This proposal introduces an opt-in mechanism to borrow quota or preempt workloads in a flavor
+before trying the next flavors in the ClusterQueue.
 
 ## Motivation
 
@@ -87,7 +83,7 @@ in preferred ResourceFlavors.
 List the specific goals of the KEP. What is it trying to achieve? How will we
 know that this has succeeded?
 -->
-- a mechanism to enable high priority jobs preempt low priority jobs using a flavor before considering the
+- a mechanism to enable high priority jobs preempt low priority jobs using a flavor or borrow before considering the
   next resource flavor when scheduling
 
 ### Non-Goals
@@ -127,7 +123,7 @@ in my cluster. In this case I prefer my high priority jobs not running on spot
 instances. If high priority jobs can preempt jobs in standard instances before trying spot instances,
 stability can be achieved.
 
-My use case can be supported by setting `flavorFungibility` to `BeforeNextFlavor`  in the Kueue configuration.
+My use case can be supported by setting `.Spec.FlavorFungibility.WhenCanPreempt` to `Preempt`  in the ClusterQueue's spec.
 
 ### Notes/Constraints/Caveats (Optional)
 
@@ -181,40 +177,20 @@ type FlavorFungibility struct {
   WhenCanPreempt FlavorFungibilityPolicy `json:"whenCanPreempt"`
 }
 
-// ClusterQueuePreemption contains policies to preempt Workloads from this
-// ClusterQueue or the ClusterQueue's cohort.
-type ClusterQueuePreemption struct {
+// ClusterQueueSpec defines the desired state of ClusterQueue
+type ClusterQueueSpec struct {
 	...
 	FlavorFungibility FlavorFungibility `json:"flavorFungibility"`
 }
 ```
 
-If flavorFungibility is nil in configuration, we will set the `WhenCanBorrow` to `true` and set `WhenCanPreempt` to `false` to maintain consistency with the current behavior.
+If flavorFungibility is nil in configuration, we will set the `WhenCanBorrow` to `Borrow` and set `WhenCanPreempt` to `TryNextFlavor` to maintain consistency with the current behavior.
 
 ### Behavior Changes
 
 We will not change the behavior to judge whether a podset can get enough resource in certain resource flavor. Preemption and admission will not be influenced also. We only change the order these flavors were considered.
 
-After we try to schedule a podset in a resource flavor, we decide whether to traverse to the next flavor base on the `flavorFungibility` like the follows. This turn run to end if `shouldTryNextFlavor` return false, otherwise we try next flavor to find the best one. 
-```
-func shouldTryNextFlavor(representativeMode FlavorAssignmentMode, flavorFungibility v1beta1.FlavorFungibility, whetherNeedBorrowing bool) bool {
-	policyPreempt := flavorFungibility.WhenCanPreempt
-	policyBorrow := flavorFungibility.WhenCanBorrow
-	if representativeMode == Preempt && policyPreempt == v1beta1.Preempt {
-		return false
-	}
-
-	if representativeMode == Fit && whetherNeedBorrowing && policyBorrow == v1beta1.Borrow {
-		return false
-	}
-
-	if representativeMode == Fit && !whetherNeedBorrowing {
-		return false
-	}
-
-	return true
-}
-```
+After we try to schedule a podset in a resource flavor, we decide whether to traverse to the next flavor base on the `flavorFungibility`. If the assignment mode is `NoFit`, we will always try the next flavor until the last one. When the assignment mode is `Preempt`, we can return the currenty assignment if `WhenCanPreempt` is `Preempt`. Otherwise if the assignment mode is `Fit`, we try the next flavor only when we need borrowing in the current flavor and `WhenCanBorrow` is `TryNextFlavor`.
 
 We will store the scheduling context in workload info so that we can start from where we stop in previous scheduling attempts. This will be useful to avoid to waste time in one flavor all the time if we try to preempt in a flavor and failed. Scheduling context will contain the `LastScheduledFlavorIdx`, `ClusterQueueGeneration` attached to the CQ and `CohortGeneration`. Any changes to these properties will lead to a scheduling from the first flavor.
 
@@ -263,10 +239,6 @@ For example, if cluster queue has 2 resource groups and workload has 1 podSet as
 ```
 
 We will first try `default-flavor1` for cpu and memory resources. If `default-flavor1` doesn't fit, we try preempt in `default-flavor1`. And if we can not find enough candidates in `default-flavor1`, the workload will start from `default-flavor2` in the next time.
-
-##### Advantages
-
-##### Disadvantages
 
 ### Implementation
 
@@ -360,7 +332,10 @@ This can inform certain test coverage improvements that we want to do before
 extending the production code to implement this enhancement.
 -->
 
-- `<package>`: `<date>` - `<test coverage>`
+- `pkg/cache`: `2023-8-22` - `82.9%`
+- `pkg/scheduler`: `2023-8-22` - `80.7%`
+- `pkg/webhook`: `2023-8-22` - `71.2%`
+- `pkg/workload`: `2023-8-22` - `54.9%`
 
 #### Integration tests
 
@@ -369,6 +344,7 @@ Describe what tests will be added to ensure proper quality of the enhancement.
 
 After the implementation PR is merged, add the names of the tests here.
 -->
+Should_Schedule_When_Fungibility_Is_Set
 
 ### Graduation Criteria
 
@@ -399,18 +375,4 @@ Major milestones might include:
 - the first Kubernetes release where an initial version of the KEP was available
 - the version of Kubernetes where the KEP graduated to general availability
 - when the KEP was retired or superseded
--->
-
-## Drawbacks
-
-<!--
-Why should this KEP _not_ be implemented?
--->
-
-## Alternatives
-
-<!--
-What other approaches did you consider, and why did you rule them out? These do
-not need to be as detailed as the proposal, but should include enough
-information to express the idea and why it was not acceptable.
 -->
