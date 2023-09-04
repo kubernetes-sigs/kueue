@@ -19,7 +19,6 @@ package queue
 import (
 	"context"
 	"sort"
-	"sync"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -41,7 +40,6 @@ type clusterQueueBase struct {
 	heap              heap.Heap
 	cohort            string
 	namespaceSelector labels.Selector
-	rw                sync.RWMutex
 
 	// inadmissibleWorkloads are workloads that have been tried at least once and couldn't be admitted.
 	inadmissibleWorkloads map[string]*workload.Info
@@ -61,7 +59,6 @@ func newClusterQueueImpl(keyFunc func(obj interface{}) string, lessFunc func(a, 
 		heap:                   heap.New(keyFunc, lessFunc),
 		inadmissibleWorkloads:  make(map[string]*workload.Info),
 		queueInadmissibleCycle: -1,
-		rw:                     sync.RWMutex{},
 	}
 }
 
@@ -226,8 +223,6 @@ func (c *clusterQueueBase) DumpInadmissible() (sets.Set[string], bool) {
 }
 
 func (c *clusterQueueBase) Snapshot() ([]*workload.Info, bool) {
-	c.rw.RLock()
-	defer c.rw.RUnlock()
 	totalLen := c.heap.Len() + len(c.inadmissibleWorkloads)
 	if totalLen == 0 {
 		return nil, false

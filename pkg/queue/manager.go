@@ -635,17 +635,15 @@ func (m *Manager) processNextSnapshot(ctx context.Context) bool {
 		log.V(2).Info("Finished snapshot job", "key", key, "elapsed", time.Since(startTime))
 	}()
 
-	cq := m.extractClusterQueue(key)
-	if cq == nil {
-		return false
-	}
-
 	defer m.snapshotsQueue.Done(key)
 
 	workloads := make([]kueue.ClusterQueuePendingWorkload, 0)
-	if elements, ok := cq.Snapshot(); ok {
+	if elements, ok := m.getSnapshotFromClusterQueue(key); ok {
 		for index, info := range elements {
-			if int32(index) > m.queueVisibilityClusterQueuesMaxCount || info == nil {
+			if int32(index) >= m.queueVisibilityClusterQueuesMaxCount {
+				break
+			}
+			if info == nil {
 				continue
 			}
 			workloads = append(workloads, kueue.ClusterQueuePendingWorkload{
@@ -659,16 +657,16 @@ func (m *Manager) processNextSnapshot(ctx context.Context) bool {
 	return true
 }
 
-func (m *Manager) extractClusterQueue(key interface{}) ClusterQueue {
+func (m *Manager) getSnapshotFromClusterQueue(key interface{}) ([]*workload.Info, bool) {
 	m.RLock()
 	defer m.RUnlock()
 	if len(m.clusterQueues) == 0 {
-		return nil
+		return nil, false
 	}
 	if cq := m.clusterQueues[key.(string)]; cq != nil {
-		return cq
+		return cq.Snapshot()
 	}
-	return nil
+	return nil, false
 }
 
 func (m *Manager) SetSnapshot(cqName string, workloads []kueue.ClusterQueuePendingWorkload) {
