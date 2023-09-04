@@ -19,7 +19,7 @@ require (
 	k8s.io/apimachinery v0.27.5
 	k8s.io/apiserver v0.27.5
 	k8s.io/client-go v0.27.5
-	k8s.io/code-generator v0.27.4
+	k8s.io/code-generator v0.27.5
 	k8s.io/component-base v0.27.5
 	k8s.io/component-helpers v0.27.5
 	k8s.io/klog/v2 v2.100.1
