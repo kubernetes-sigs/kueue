@@ -721,7 +721,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 					var newWL kueue.Workload
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
 					if admissions[i] != nil {
-						return util.SetAdmission(ctx, k8sClient, &newWL, admissions[i])
+						return util.SetQuotaReservation(ctx, k8sClient, &newWL, admissions[i])
 					}
 					return k8sClient.Status().Update(ctx, &newWL)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
