@@ -44,7 +44,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 		mgr.GetClient(),
 		qManager,
 		cc,
-		WithQueueVisibilityUpdateInterval(cfg.QueueVisibility.UpdateIntervalSeconds),
+		WithQueueVisibilityUpdateInterval(updateIntervalSeconds(cfg)),
 		WithReportResourceMetrics(cfg.Metrics.EnableClusterQueueResources),
 		WithWatchers(rfRec),
 	)
@@ -63,4 +63,11 @@ func podsReadyTimeout(cfg *config.Configuration) *time.Duration {
 		return &cfg.WaitForPodsReady.Timeout.Duration
 	}
 	return nil
+}
+
+func updateIntervalSeconds(cfg *config.Configuration) int32 {
+	if cfg.QueueVisibility != nil {
+		return cfg.QueueVisibility.UpdateIntervalSeconds
+	}
+	return 0
 }
