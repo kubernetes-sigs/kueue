@@ -1380,7 +1380,8 @@ func TestLastSchedulingContext(t *testing.T) {
 	}
 	wl := utiltesting.MakeWorkload("low-1", "default").
 		Request(corev1.ResourceCPU, "50").
-		Admit(utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj()).
+		ReserveQuota(utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj()).
+		Admitted(true).
 		Obj()
 	cases := []struct {
 		name                        string
@@ -1439,7 +1440,8 @@ func TestLastSchedulingContext(t *testing.T) {
 			admittedWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("placeholder", "default").
 					Request(corev1.ResourceCPU, "50").
-					Admit(utiltesting.MakeAdmission("eng-cohort-alpha").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-cohort-alpha").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj()).
+					Admitted(true).
 					Obj(),
 			},
 			workloads: []kueue.Workload{
@@ -1470,11 +1472,13 @@ func TestLastSchedulingContext(t *testing.T) {
 			admittedWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("placeholder", "default").
 					Request(corev1.ResourceCPU, "50").
-					Admit(utiltesting.MakeAdmission("eng-cohort-alpha").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-cohort-alpha").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj()).
+					Admitted(true).
 					Obj(),
 				*utiltesting.MakeWorkload("placeholder1", "default").
 					Request(corev1.ResourceCPU, "50").
-					Admit(utiltesting.MakeAdmission("eng-cohort-theta").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-cohort-theta").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj()).
+					Admitted(true).
 					Obj(),
 			},
 			workloads: []kueue.Workload{

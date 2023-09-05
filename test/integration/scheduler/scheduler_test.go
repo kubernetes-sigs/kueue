@@ -56,7 +56,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				GenerateName: "core-",
 			},
 		}
-		features.SetEnable(features.FlavorFungibility, true)
+		_ = features.SetEnable(features.FlavorFungibility, true)
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
 		onDemandFlavor = testing.MakeResourceFlavor("on-demand").Label(instanceKey, "on-demand").Obj()
@@ -1101,7 +1101,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.By("Creating one workload")
 			wl1 := testing.MakeWorkload("wl-1", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "9").Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, prodCQ.Name, wl1)
+			prodWl1Admission := testing.MakeAdmission(prodCQ.Name).Assignment(corev1.ResourceCPU, "on-demand", "9").Obj()
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1, prodWl1Admission)
 			util.ExpectPendingWorkloadsMetric(prodCQ, 0, 0)
 			util.ExpectAdmittedActiveWorkloadsMetric(prodCQ, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(prodCQ, 1)
@@ -1145,7 +1146,6 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			wl2 := testing.MakeWorkload("wl-2", ns.Name).Queue(podQueue.Name).Request(corev1.ResourceCPU, "9").Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
 			gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, devCQ.Name, wl1, wl2)
 			util.ExpectPendingWorkloadsMetric(devCQ, 0, 0)
 			util.ExpectAdmittedActiveWorkloadsMetric(devCQ, 2)
 			util.ExpectAdmittedWorkloadsTotalMetric(devCQ, 2)
