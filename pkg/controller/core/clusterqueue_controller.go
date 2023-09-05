@@ -84,24 +84,22 @@ func WithWatchers(watchers ...ClusterQueueUpdateWatcher) ClusterQueueReconcilerO
 	}
 }
 
-// WithReportResourceMetrics indicates if the controller should reconcile
-// jobs that don't set the queue name annotation.
 func WithReportResourceMetrics(report bool) ClusterQueueReconcilerOption {
 	return func(o *ClusterQueueReconcilerOptions) {
 		o.ReportResourceMetrics = report
 	}
 }
 
-// WithQueueVisibilityMaxCount indicates if the controller should reconcile
-// jobs that don't set the queue name annotation.
+// WithQueueVisibilityUpdateInterval specifies the time interval for updates to the structure
+// of the top pending workloads in the queues.
 func WithQueueVisibilityUpdateInterval(interval int32) ClusterQueueReconcilerOption {
 	return func(o *ClusterQueueReconcilerOptions) {
 		o.QueueVisibilityUpdateInterval = time.Duration(interval) * time.Second
 	}
 }
 
-// WithQueueVisibilityClusterQueuesMaxCount indicates if the controller should reconcile
-// jobs that don't set the queue name annotation.
+// WithQueueVisibilityClusterQueuesMaxCount indicates the maximal number of pending workloads exposed in the
+// cluster queue status
 func WithQueueVisibilityClusterQueuesMaxCount(value int32) ClusterQueueReconcilerOption {
 	return func(o *ClusterQueueReconcilerOptions) {
 		o.QueueVisibilityClusterQueuesMaxCount = value
