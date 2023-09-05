@@ -72,18 +72,17 @@ spec:
                   subdomain in DNS (RFC 1123)."
                 type: string
               flavorFungibility:
-                description: flavorFungibility defaines whether a workload should
-                  try the next flavor before borrowing in current flavor.
+                description: flavorFungibility defines whether a workload should try
+                  the next flavor before borrowing or preempting in the flavor being
+                  evaluated.
                 properties:
                   whenCanBorrow:
                     default: Borrow
                     description: "whenCanBorrow determines whether a workload should
                       try the next flavor before borrowing in current flavor. The
-                      possible values are: \n - `Borrow` (default for WhenCanBorrow):
-                      allocate in current flavor if borrowing can help. only effective
-                      for WhenCanBorrow - `TryNextFlavor` (default for WhenCanPreempt):
-                      try next flavor if the current flavor has no enough resource.
-                      effective for WhenCanBorrow and WhenCanPreempt."
+                      possible values are: \n - `Borrow` (default): allocate in current
+                      flavor if borrowing is possible. - `TryNextFlavor`: try next
+                      flavor if the current flavor has not enough resources to borrow."
                     enum:
                     - Borrow
                     - TryNextFlavor
@@ -93,10 +92,9 @@ spec:
                     description: "whenCanPreempt determines whether a workload should
                       try the next flavor before borrowing in current flavor. The
                       possible values are: \n - `Preempt`: allocate in current flavor
-                      if preempt might help. only effective for WhenCanPreempt - `TryNextFlavor`
-                      (default for WhenCanPreempt): try next flavor if the current
-                      flavor has no enough resource. effective for WhenCanBorrow and
-                      WhenCanPreempt."
+                      if it's possible to preempt some workloads. - `TryNextFlavor`
+                      (default): try next flavor if the current flavor has not enough
+                      resources and there not enough candidates for preemption."
                     enum:
                     - Preempt
                     - TryNextFlavor
