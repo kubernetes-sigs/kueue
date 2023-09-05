@@ -95,7 +95,7 @@ type ClusterQueue interface {
 	// Snapshot returns a copy of the current workloads in the heap of
 	// this ClusterQueue. It returns false if the queue is empty.
 	// Otherwise returns true.
-	Snapshot() ([]*workload.Info, bool)
+	Snapshot() []*workload.Info
 	// Info returns workload.Info for the workload key.
 	// Users of this method should not modify the returned object.
 	Info(string) *workload.Info

@@ -244,7 +244,7 @@ func (c *clusterQueueBase) DumpInadmissible() (sets.Set[string], bool) {
 	return elements, true
 }
 
-func (c *clusterQueueBase) Snapshot() ([]*workload.Info, bool) {
+func (c *clusterQueueBase) Snapshot() []*workload.Info {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
 	totalLen := c.heap.Len() + len(c.inadmissibleWorkloads)
@@ -259,7 +259,7 @@ func (c *clusterQueueBase) Snapshot() ([]*workload.Info, bool) {
 	sort.Slice(elements, func(i, j int) bool {
 		return queueOrdering(elements[i], elements[j])
 	})
-	return elements, true
+	return elements
 }
 
 func (c *clusterQueueBase) Info(key string) *workload.Info {

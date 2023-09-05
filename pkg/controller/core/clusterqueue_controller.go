@@ -554,19 +554,14 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 }
 
 func (r *ClusterQueueReconciler) getWorkloadsStatus(cq *kueue.ClusterQueue) *kueue.ClusterQueuePendingWorkloadsStatus {
-	if cq.Status.PendingWorkloadsStatus == nil {
+	pendingWorkloads := r.qManager.GetSnapshot(cq.Name)
+	shouldUpdatePendingWorkloadStatus := cq.Status.PendingWorkloadsStatus == nil ||
+		time.Since(cq.Status.PendingWorkloadsStatus.LastChangeTime.Time) >= r.queueVisibilityUpdateInterval &&
+			!equality.Semantic.DeepEqual(cq.Status.PendingWorkloadsStatus.Head, pendingWorkloads)
+	if shouldUpdatePendingWorkloadStatus {
 		return &kueue.ClusterQueuePendingWorkloadsStatus{
 			Head:           r.qManager.GetSnapshot(cq.Name),
 			LastChangeTime: metav1.Time{Time: time.Now()},
-		}
-	}
-	if time.Since(cq.Status.PendingWorkloadsStatus.LastChangeTime.Time) >= r.queueVisibilityUpdateInterval {
-		pendingWorkloads := r.qManager.GetSnapshot(cq.Name)
-		if !equality.Semantic.DeepEqual(cq.Status.PendingWorkloadsStatus.Head, pendingWorkloads) {
-			return &kueue.ClusterQueuePendingWorkloadsStatus{
-				Head:           pendingWorkloads,
-				LastChangeTime: metav1.Time{Time: time.Now()},
-			}
 		}
 	}
 	return cq.Status.PendingWorkloadsStatus
@@ -587,7 +582,7 @@ func (r *ClusterQueueReconciler) Start(ctx context.Context) error {
 }
 
 func (r *ClusterQueueReconciler) enqueueTakeSnapshot(ctx context.Context) {
-	for cq := range r.qManager.GetClusterQueues() {
+	for _, cq := range r.qManager.GetClusterQueueNames() {
 		r.snapshotsQueue.Add(cq)
 	}
 }
@@ -607,38 +602,10 @@ func (r *ClusterQueueReconciler) processNextSnapshot(ctx context.Context) bool {
 
 	startTime := time.Now()
 	defer func() {
-		log.V(2).Info("Finished snapshot job", "key", key, "elapsed", time.Since(startTime))
+		log.V(5).Info("Finished snapshot job", "key", key, "elapsed", time.Since(startTime))
 	}()
 
 	defer r.snapshotsQueue.Done(key)
-
-	workloads := make([]kueue.ClusterQueuePendingWorkload, 0)
-	if elements, ok := r.getSnapshotFromClusterQueue(key); ok {
-		for index, info := range elements {
-			if int32(index) >= r.queueVisibilityClusterQueuesMaxCount {
-				break
-			}
-			if info == nil {
-				continue
-			}
-			workloads = append(workloads, kueue.ClusterQueuePendingWorkload{
-				Name:      info.Obj.Name,
-				Namespace: info.Obj.Namespace,
-			})
-		}
-	}
-	r.qManager.SetSnapshot(key.(string), workloads)
-
+	r.qManager.UpdateSnapshot(key.(string), r.queueVisibilityClusterQueuesMaxCount)
 	return true
-}
-
-func (r *ClusterQueueReconciler) getSnapshotFromClusterQueue(key interface{}) ([]*workload.Info, bool) {
-	clusterQueues := r.qManager.GetClusterQueues()
-	if len(clusterQueues) == 0 {
-		return nil, false
-	}
-	if cq := clusterQueues[key.(string)]; cq != nil {
-		return cq.Snapshot()
-	}
-	return nil, false
 }

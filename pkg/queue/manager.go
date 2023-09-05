@@ -553,15 +553,42 @@ func (m *Manager) reportPendingWorkloads(cqName string, cq ClusterQueue) {
 	metrics.ReportPendingWorkloads(cqName, active, inadmissible)
 }
 
-func (m *Manager) GetClusterQueues() map[string]ClusterQueue {
+func (m *Manager) GetClusterQueueNames() []string {
 	m.RLock()
 	defer m.RUnlock()
-	return m.clusterQueues
+	clusterQueueNames := make([]string, 0, len(m.clusterQueues))
+	for k := range m.clusterQueues {
+		clusterQueueNames = append(clusterQueueNames, k)
+	}
+	return clusterQueueNames
 }
 
-func (m *Manager) SetSnapshot(cqName string, workloads []kueue.ClusterQueuePendingWorkload) {
+func (m *Manager) getClusterQueue(cqName string) ClusterQueue {
+	m.RLock()
+	defer m.RUnlock()
+	return m.clusterQueues[cqName]
+}
+
+func (m *Manager) UpdateSnapshot(cqName string, maxCount int32) {
 	m.snapshotsMutex.Lock()
 	defer m.snapshotsMutex.Unlock()
+	cq := m.getClusterQueue(cqName)
+	if cq == nil {
+		return
+	}
+	workloads := make([]kueue.ClusterQueuePendingWorkload, 0)
+	for index, info := range cq.Snapshot() {
+		if int32(index) >= maxCount {
+			break
+		}
+		if info == nil {
+			continue
+		}
+		workloads = append(workloads, kueue.ClusterQueuePendingWorkload{
+			Name:      info.Obj.Name,
+			Namespace: info.Obj.Namespace,
+		})
+	}
 	m.snapshots[cqName] = workloads
 }
 
