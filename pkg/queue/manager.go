@@ -21,12 +21,9 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/wait"
-	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -35,8 +32,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
-
-const snapshotWorkers = 5
 
 var (
 	errQueueDoesNotExist         = errors.New("queue doesn't exist")
@@ -54,58 +49,21 @@ type Manager struct {
 	localQueues   map[string]*LocalQueue
 
 	snapshotsMutex sync.RWMutex
-	snapshotsQueue workqueue.Interface
 	snapshots      map[string][]kueue.ClusterQueuePendingWorkload
-
-	queueVisibilityUpdateInterval        time.Duration
-	queueVisibilityClusterQueuesMaxCount int32
 
 	// Key is cohort's name. Value is a set of associated ClusterQueue names.
 	cohorts map[string]sets.Set[string]
 }
 
-type Options struct {
-	QueueVisibilityUpdateInterval        time.Duration
-	QueueVisibilityClusterQueuesMaxCount int32
-}
-
-// Option configures the reconciler.
-type Option func(*Options)
-
-// WithQueueVisibilityUpdateInterval indicates if the controller should reconcile
-// jobs that don't set the queue name annotation.
-func WithQueueVisibilityUpdateInterval(interval int32) Option {
-	return func(o *Options) {
-		o.QueueVisibilityUpdateInterval = time.Duration(interval) * time.Second
-	}
-}
-
-// WithQueueVisibilityClusterQueuesMaxCount indicates if the controller should reconcile
-// jobs that don't set the queue name annotation.
-func WithQueueVisibilityClusterQueuesMaxCount(value int32) Option {
-	return func(o *Options) {
-		o.QueueVisibilityClusterQueuesMaxCount = value
-	}
-}
-
-var DefaultOptions = Options{}
-
-func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Manager {
-	options := DefaultOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
+func NewManager(client client.Client, checker StatusChecker) *Manager {
 	m := &Manager{
-		client:                               client,
-		statusChecker:                        checker,
-		localQueues:                          make(map[string]*LocalQueue),
-		clusterQueues:                        make(map[string]ClusterQueue),
-		cohorts:                              make(map[string]sets.Set[string]),
-		snapshotsMutex:                       sync.RWMutex{},
-		snapshotsQueue:                       workqueue.New(),
-		snapshots:                            make(map[string][]kueue.ClusterQueuePendingWorkload, 0),
-		queueVisibilityUpdateInterval:        options.QueueVisibilityUpdateInterval,
-		queueVisibilityClusterQueuesMaxCount: options.QueueVisibilityClusterQueuesMaxCount,
+		client:         client,
+		statusChecker:  checker,
+		localQueues:    make(map[string]*LocalQueue),
+		clusterQueues:  make(map[string]ClusterQueue),
+		cohorts:        make(map[string]sets.Set[string]),
+		snapshotsMutex: sync.RWMutex{},
+		snapshots:      make(map[string][]kueue.ClusterQueuePendingWorkload, 0),
 	}
 	m.cond.L = &m.RWMutex
 	return m
@@ -595,78 +553,10 @@ func (m *Manager) reportPendingWorkloads(cqName string, cq ClusterQueue) {
 	metrics.ReportPendingWorkloads(cqName, active, inadmissible)
 }
 
-func (m *Manager) Start(ctx context.Context) error {
-	defer m.snapshotsQueue.ShutDown()
-
-	for i := 0; i < snapshotWorkers; i++ {
-		go wait.UntilWithContext(ctx, m.takeSnapshot, m.queueVisibilityUpdateInterval)
-	}
-
-	go wait.UntilWithContext(ctx, m.enqueueTakeSnapshot, m.queueVisibilityUpdateInterval)
-
-	<-ctx.Done()
-
-	return nil
-}
-
-func (m *Manager) enqueueTakeSnapshot(ctx context.Context) {
+func (m *Manager) GetClusterQueues() map[string]ClusterQueue {
 	m.RLock()
 	defer m.RUnlock()
-	for cq := range m.clusterQueues {
-		m.snapshotsQueue.Add(cq)
-	}
-}
-
-func (m *Manager) takeSnapshot(ctx context.Context) {
-	for m.processNextSnapshot(ctx) {
-	}
-}
-
-func (m *Manager) processNextSnapshot(ctx context.Context) bool {
-	log := ctrl.LoggerFrom(ctx).WithName("processNextSnapshot")
-
-	key, quit := m.snapshotsQueue.Get()
-	if quit {
-		return false
-	}
-
-	startTime := time.Now()
-	defer func() {
-		log.V(2).Info("Finished snapshot job", "key", key, "elapsed", time.Since(startTime))
-	}()
-
-	defer m.snapshotsQueue.Done(key)
-
-	workloads := make([]kueue.ClusterQueuePendingWorkload, 0)
-	if elements, ok := m.getSnapshotFromClusterQueue(key); ok {
-		for index, info := range elements {
-			if int32(index) >= m.queueVisibilityClusterQueuesMaxCount {
-				break
-			}
-			if info == nil {
-				continue
-			}
-			workloads = append(workloads, kueue.ClusterQueuePendingWorkload{
-				Name:      info.Obj.Name,
-				Namespace: info.Obj.Namespace,
-			})
-		}
-	}
-	m.SetSnapshot(key.(string), workloads)
-
-	return true
-}
-
-func (m *Manager) getSnapshotFromClusterQueue(key interface{}) ([]*workload.Info, bool) {
-	m.RLock()
-	defer m.RUnlock()
-	if len(m.clusterQueues) == 0 {
-		return nil, false
-	}
-	if cq := m.clusterQueues[key.(string)]; cq != nil {
-		return cq.Snapshot()
-	}
-	return nil, false
+	return m.clusterQueues
 }
 
 func (m *Manager) SetSnapshot(cqName string, workloads []kueue.ClusterQueuePendingWorkload) {

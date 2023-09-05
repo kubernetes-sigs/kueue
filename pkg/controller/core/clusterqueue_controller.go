@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -46,27 +47,32 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
+const snapshotWorkers = 5
+
 type ClusterQueueUpdateWatcher interface {
 	NotifyClusterQueueUpdate(*kueue.ClusterQueue, *kueue.ClusterQueue)
 }
 
 // ClusterQueueReconciler reconciles a ClusterQueue object
 type ClusterQueueReconciler struct {
-	client                        client.Client
-	log                           logr.Logger
-	qManager                      *queue.Manager
-	cache                         *cache.Cache
-	wlUpdateCh                    chan event.GenericEvent
-	rfUpdateCh                    chan event.GenericEvent
-	watchers                      []ClusterQueueUpdateWatcher
-	reportResourceMetrics         bool
-	queueVisibilityUpdateInterval time.Duration
+	client                               client.Client
+	log                                  logr.Logger
+	qManager                             *queue.Manager
+	cache                                *cache.Cache
+	snapshotsQueue                       workqueue.Interface
+	wlUpdateCh                           chan event.GenericEvent
+	rfUpdateCh                           chan event.GenericEvent
+	watchers                             []ClusterQueueUpdateWatcher
+	reportResourceMetrics                bool
+	queueVisibilityUpdateInterval        time.Duration
+	queueVisibilityClusterQueuesMaxCount int32
 }
 
 type ClusterQueueReconcilerOptions struct {
-	Watchers                      []ClusterQueueUpdateWatcher
-	ReportResourceMetrics         bool
-	QueueVisibilityUpdateInterval time.Duration
+	Watchers                             []ClusterQueueUpdateWatcher
+	ReportResourceMetrics                bool
+	QueueVisibilityUpdateInterval        time.Duration
+	QueueVisibilityClusterQueuesMaxCount int32
 }
 
 // Option configures the reconciler.
@@ -94,6 +100,14 @@ func WithQueueVisibilityUpdateInterval(interval int32) ClusterQueueReconcilerOpt
 	}
 }
 
+// WithQueueVisibilityClusterQueuesMaxCount indicates if the controller should reconcile
+// jobs that don't set the queue name annotation.
+func WithQueueVisibilityClusterQueuesMaxCount(value int32) ClusterQueueReconcilerOption {
+	return func(o *ClusterQueueReconcilerOptions) {
+		o.QueueVisibilityClusterQueuesMaxCount = value
+	}
+}
+
 var DefaultOptions = ClusterQueueReconcilerOptions{}
 
 func NewClusterQueueReconciler(
@@ -107,15 +121,17 @@ func NewClusterQueueReconciler(
 		opt(&options)
 	}
 	return &ClusterQueueReconciler{
-		client:                        client,
-		log:                           ctrl.Log.WithName("cluster-queue-reconciler"),
-		qManager:                      qMgr,
-		cache:                         cache,
-		wlUpdateCh:                    make(chan event.GenericEvent, updateChBuffer),
-		rfUpdateCh:                    make(chan event.GenericEvent, updateChBuffer),
-		watchers:                      options.Watchers,
-		reportResourceMetrics:         options.ReportResourceMetrics,
-		queueVisibilityUpdateInterval: options.QueueVisibilityUpdateInterval,
+		client:                               client,
+		log:                                  ctrl.Log.WithName("cluster-queue-reconciler"),
+		qManager:                             qMgr,
+		cache:                                cache,
+		snapshotsQueue:                       workqueue.New(),
+		wlUpdateCh:                           make(chan event.GenericEvent, updateChBuffer),
+		rfUpdateCh:                           make(chan event.GenericEvent, updateChBuffer),
+		watchers:                             options.Watchers,
+		reportResourceMetrics:                options.ReportResourceMetrics,
+		queueVisibilityUpdateInterval:        options.QueueVisibilityUpdateInterval,
+		queueVisibilityClusterQueuesMaxCount: options.QueueVisibilityClusterQueuesMaxCount,
 	}
 }
 
@@ -556,4 +572,75 @@ func (r *ClusterQueueReconciler) getWorkloadsStatus(cq *kueue.ClusterQueue) *kue
 		}
 	}
 	return cq.Status.PendingWorkloadsStatus
+}
+
+func (r *ClusterQueueReconciler) Start(ctx context.Context) error {
+	defer r.snapshotsQueue.ShutDown()
+
+	for i := 0; i < snapshotWorkers; i++ {
+		go wait.UntilWithContext(ctx, r.takeSnapshot, r.queueVisibilityUpdateInterval)
+	}
+
+	go wait.UntilWithContext(ctx, r.enqueueTakeSnapshot, r.queueVisibilityUpdateInterval)
+
+	<-ctx.Done()
+
+	return nil
+}
+
+func (r *ClusterQueueReconciler) enqueueTakeSnapshot(ctx context.Context) {
+	for cq := range r.qManager.GetClusterQueues() {
+		r.snapshotsQueue.Add(cq)
+	}
+}
+
+func (r *ClusterQueueReconciler) takeSnapshot(ctx context.Context) {
+	for r.processNextSnapshot(ctx) {
+	}
+}
+
+func (r *ClusterQueueReconciler) processNextSnapshot(ctx context.Context) bool {
+	log := ctrl.LoggerFrom(ctx).WithName("processNextSnapshot")
+
+	key, quit := r.snapshotsQueue.Get()
+	if quit {
+		return false
+	}
+
+	startTime := time.Now()
+	defer func() {
+		log.V(2).Info("Finished snapshot job", "key", key, "elapsed", time.Since(startTime))
+	}()
+
+	defer r.snapshotsQueue.Done(key)
+
+	workloads := make([]kueue.ClusterQueuePendingWorkload, 0)
+	if elements, ok := r.getSnapshotFromClusterQueue(key); ok {
+		for index, info := range elements {
+			if int32(index) >= r.queueVisibilityClusterQueuesMaxCount {
+				break
+			}
+			if info == nil {
+				continue
+			}
+			workloads = append(workloads, kueue.ClusterQueuePendingWorkload{
+				Name:      info.Obj.Name,
+				Namespace: info.Obj.Namespace,
+			})
+		}
+	}
+	r.qManager.SetSnapshot(key.(string), workloads)
+
+	return true
+}
+
+func (r *ClusterQueueReconciler) getSnapshotFromClusterQueue(key interface{}) ([]*workload.Info, bool) {
+	clusterQueues := r.qManager.GetClusterQueues()
+	if len(clusterQueues) == 0 {
+		return nil, false
+	}
+	if cq := clusterQueues[key.(string)]; cq != nil {
+		return cq.Snapshot()
+	}
+	return nil, false
 }

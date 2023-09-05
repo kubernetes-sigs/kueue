@@ -39,7 +39,7 @@ import (
 )
 
 var ignoreCQConditions = cmpopts.IgnoreFields(kueue.ClusterQueueStatus{}, "Conditions")
-var ignoreLastChangeTime = cmpopts.IgnoreFields(kueue.ClusterQueuePendingWorkloadsStatus{}, "LastChangeTime")
+var ignorePendingWorkloadsStatus = cmpopts.IgnoreFields(kueue.ClusterQueueStatus{}, "PendingWorkloadsStatus")
 
 // +kubebuilder:docs-gen:collapse=Imports
 
@@ -266,8 +266,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 						Total: resource.MustParse("2"),
 					}},
 				}},
-				PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{},
-			}, ignoreCQConditions, ignoreLastChangeTime))
+			}, ignoreCQConditions, ignorePendingWorkloadsStatus))
 
 			ginkgo.By("wait for the timeout to be exceeded")
 			time.Sleep(podsReadyTimeout)
@@ -296,8 +295,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 						Total: resource.MustParse("0"),
 					}},
 				}},
-				PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{},
-			}, ignoreCQConditions, ignoreLastChangeTime))
+			}, ignoreCQConditions, ignorePendingWorkloadsStatus))
 
 			ginkgo.By("verify the active workload metric is decreased for the cluster queue")
 			util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 0)

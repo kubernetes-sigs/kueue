@@ -634,7 +634,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 
 		ginkgo.It("Should update of the pending workloads when a new workload is scheduled", func() {
 			const lowPrio, midPrio, highPrio = 0, 10, 100
-			workloads := []*kueue.Workload{
+			workloadsFirstBatch := []*kueue.Workload{
 				testing.MakeWorkload("one", ns.Name).Queue(localQueue.Name).Priority(highPrio).
 					Request(corev1.ResourceCPU, "2").Request(resourceGPU, "2").Obj(),
 				testing.MakeWorkload("two", ns.Name).Queue(localQueue.Name).Priority(midPrio).
@@ -648,7 +648,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(&kueue.ClusterQueuePendingWorkloadsStatus{}, ignoreLastChangeTime))
 
 			ginkgo.By("Creating workloads")
-			for _, w := range workloads {
+			for _, w := range workloadsFirstBatch {
 				gomega.Expect(k8sClient.Create(ctx, w)).To(gomega.Succeed())
 			}
 			gomega.Eventually(func() *kueue.ClusterQueuePendingWorkloadsStatus {
@@ -669,13 +669,13 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			}, ignoreLastChangeTime))
 
 			ginkgo.By("Creating a new workload")
-			newWorkloads := []*kueue.Workload{
+			workloadsSecondBatch := []*kueue.Workload{
 				testing.MakeWorkload("three", ns.Name).Queue(localQueue.Name).Priority(midPrio).
 					Request(corev1.ResourceCPU, "2").Request(resourceGPU, "2").Obj(),
 				testing.MakeWorkload("four", ns.Name).Queue(localQueue.Name).Priority(lowPrio).
 					Request(corev1.ResourceCPU, "3").Request(resourceGPU, "3").Obj(),
 			}
-			for _, w := range newWorkloads {
+			for _, w := range workloadsSecondBatch {
 				gomega.Expect(k8sClient.Create(ctx, w)).To(gomega.Succeed())
 			}
 
@@ -702,7 +702,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			}, ignoreLastChangeTime))
 
 			ginkgo.By("Admitting workloads")
-			for _, w := range workloads {
+			for _, w := range workloadsFirstBatch {
 				gomega.Eventually(func() error {
 					var newWL kueue.Workload
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
@@ -728,8 +728,8 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			}, ignoreLastChangeTime))
 
 			ginkgo.By("Finishing workload", func() {
-				util.FinishWorkloads(ctx, k8sClient, workloads...)
-				util.FinishWorkloads(ctx, k8sClient, newWorkloads...)
+				util.FinishWorkloads(ctx, k8sClient, workloadsFirstBatch...)
+				util.FinishWorkloads(ctx, k8sClient, workloadsSecondBatch...)
 			})
 
 			gomega.Eventually(func() *kueue.ClusterQueuePendingWorkloadsStatus {

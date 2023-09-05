@@ -146,7 +146,7 @@ func main() {
 	}
 
 	cCache := cache.New(mgr.GetClient(), cache.WithPodsReadyTracking(blockForPodsReady(&cfg)))
-	queues := setupQueueManager(mgr, cCache, &cfg)
+	queues := queue.NewManager(mgr.GetClient(), cCache)
 
 	ctx := ctrl.SetupSignalHandler()
 	if err := setupIndexes(ctx, mgr, &cfg); err != nil {
@@ -176,23 +176,6 @@ func main() {
 		setupLog.Error(err, "Could not run manager")
 		os.Exit(1)
 	}
-}
-
-func setupQueueManager(mgr ctrl.Manager, cCache *cache.Cache, cfg *configapi.Configuration) *queue.Manager {
-	queues := queue.NewManager(
-		mgr.GetClient(),
-		cCache,
-		queue.WithQueueVisibilityUpdateInterval(cfg.QueueVisibility.UpdateIntervalSeconds),
-		queue.WithQueueVisibilityClusterQueuesMaxCount(cfg.QueueVisibility.ClusterQueues.MaxCount),
-	)
-	// Taking snapshot of cluster queue is enabled when maxcount non-zero
-	if cfg.QueueVisibility.ClusterQueues.MaxCount != 0 {
-		if err := mgr.Add(queues); err != nil {
-			setupLog.Error(err, "Unable to add queue manager to manager")
-			os.Exit(1)
-		}
-	}
-	return queues
 }
 
 func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configuration) error {
