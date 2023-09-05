@@ -146,7 +146,9 @@ type WorkloadStatus struct {
 	// +optional
 	// +listType=map
 	// +listMapKey=type
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// +patchStrategy=merge
+	// +patchMergeKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 
 	// reclaimablePods keeps track of the number pods within a podset for which
 	// the resource reservation is no longer needed.
@@ -159,7 +161,9 @@ type WorkloadStatus struct {
 	// +optional
 	// +listType=map
 	// +listMapKey=type
-	AdmissionChecks []metav1.Condition `json:"admissionChecks,omitempty"`
+	// +patchStrategy=merge
+	// +patchMergeKey=type
+	AdmissionChecks []metav1.Condition `json:"admissionChecks,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 
 type ReclaimablePod struct {
