@@ -224,9 +224,6 @@ func (c *clusterQueueBase) DumpInadmissible() (sets.Set[string], bool) {
 
 func (c *clusterQueueBase) Snapshot() ([]*workload.Info, bool) {
 	totalLen := c.heap.Len() + len(c.inadmissibleWorkloads)
-	if totalLen == 0 {
-		return nil, false
-	}
 	elements := make([]*workload.Info, 0, totalLen)
 	for _, e := range c.heap.List() {
 		info := e.(*workload.Info)

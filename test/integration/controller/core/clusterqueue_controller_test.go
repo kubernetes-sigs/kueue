@@ -300,10 +300,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 						Message: "Can admit new workloads",
 					},
 				},
-				PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{
-					Head: []kueue.ClusterQueuePendingWorkload{},
-				},
-			}, ignoreConditionTimestamps, ignoreLastChangeTime))
+			}, ignoreConditionTimestamps, ignorePendingWorkloadsStatus))
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 			util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 0)
 		})
@@ -645,6 +642,12 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 					Request(corev1.ResourceCPU, "3").Request(resourceGPU, "3").Obj(),
 			}
 
+			gomega.Eventually(func() *kueue.ClusterQueuePendingWorkloadsStatus {
+				var updatedCq kueue.ClusterQueue
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
+				return updatedCq.Status.PendingWorkloadsStatus
+			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(&kueue.ClusterQueuePendingWorkloadsStatus{}, ignoreLastChangeTime))
+
 			ginkgo.By("Creating workloads")
 			for _, w := range workloads {
 				gomega.Expect(k8sClient.Create(ctx, w)).To(gomega.Succeed())
@@ -750,6 +753,14 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 				util.FinishWorkloads(ctx, k8sClient, workloads...)
 				util.FinishWorkloads(ctx, k8sClient, newWorkloads...)
 			})
+
+			gomega.Eventually(func() *kueue.ClusterQueuePendingWorkloadsStatus {
+				var updatedCq kueue.ClusterQueue
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
+				return updatedCq.Status.PendingWorkloadsStatus
+			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(&kueue.ClusterQueuePendingWorkloadsStatus{
+				Head: []kueue.ClusterQueuePendingWorkload{},
+			}, ignoreLastChangeTime))
 		})
 	})
 })
