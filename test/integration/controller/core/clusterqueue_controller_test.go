@@ -17,8 +17,6 @@ limitations under the License.
 package core
 
 import (
-	"time"
-
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -635,10 +633,11 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 		})
 
 		ginkgo.It("Should update of the pending workloads when a new workload is scheduled", func() {
+			const lowPrio, midPrio, highPrio = 0, 10, 100
 			workloads := []*kueue.Workload{
-				testing.MakeWorkload("one", ns.Name).Queue(localQueue.Name).
+				testing.MakeWorkload("one", ns.Name).Queue(localQueue.Name).Priority(highPrio).
 					Request(corev1.ResourceCPU, "2").Request(resourceGPU, "2").Obj(),
-				testing.MakeWorkload("two", ns.Name).Queue(localQueue.Name).
+				testing.MakeWorkload("two", ns.Name).Queue(localQueue.Name).Priority(midPrio).
 					Request(corev1.ResourceCPU, "3").Request(resourceGPU, "3").Obj(),
 			}
 
@@ -667,22 +666,17 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 						Namespace: ns.Name,
 					},
 				},
-			},
-				ignoreLastChangeTime,
-				cmpopts.SortSlices(func(i, j kueue.ClusterQueuePendingWorkload) bool {
-					return i.Name < j.Name
-				})))
+			}, ignoreLastChangeTime))
 
 			ginkgo.By("Creating a new workload")
 			newWorkloads := []*kueue.Workload{
-				testing.MakeWorkload("three", ns.Name).Queue(localQueue.Name).
+				testing.MakeWorkload("three", ns.Name).Queue(localQueue.Name).Priority(midPrio).
 					Request(corev1.ResourceCPU, "2").Request(resourceGPU, "2").Obj(),
-				testing.MakeWorkload("four", ns.Name).Queue(localQueue.Name).
+				testing.MakeWorkload("four", ns.Name).Queue(localQueue.Name).Priority(lowPrio).
 					Request(corev1.ResourceCPU, "3").Request(resourceGPU, "3").Obj(),
 			}
 			for _, w := range newWorkloads {
 				gomega.Expect(k8sClient.Create(ctx, w)).To(gomega.Succeed())
-				time.Sleep(time.Second)
 			}
 
 			ginkgo.By("Cut off the head of pending workloads when the number of pending workloads exceeds MaxCount")
@@ -705,28 +699,14 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 						Namespace: ns.Name,
 					},
 				},
-			}, ignoreLastChangeTime, cmpopts.SortSlices(func(i, j kueue.ClusterQueuePendingWorkload) bool {
-				return i.Name < j.Name
-			})))
+			}, ignoreLastChangeTime))
 
 			ginkgo.By("Admitting workloads")
-			admissions := []*kueue.Admission{
-				testing.MakeAdmission(clusterQueue.Name).
-					Assignment(corev1.ResourceCPU, flavorOnDemand, "2").Obj(),
-				testing.MakeAdmission(clusterQueue.Name).
-					Assignment(corev1.ResourceCPU, flavorOnDemand, "3").Obj(),
-				testing.MakeAdmission(clusterQueue.Name).
-					Assignment(corev1.ResourceCPU, flavorOnDemand, "1").Obj(),
-				nil,
-			}
-			for i, w := range workloads {
+			for _, w := range workloads {
 				gomega.Eventually(func() error {
 					var newWL kueue.Workload
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
-					if admissions[i] != nil {
-						return util.SetQuotaReservation(ctx, k8sClient, &newWL, admissions[i])
-					}
-					return k8sClient.Status().Update(ctx, &newWL)
+					return util.SetQuotaReservation(ctx, k8sClient, &newWL, testing.MakeAdmission(clusterQueue.Name).Obj())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			}
 
@@ -745,9 +725,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 						Namespace: ns.Name,
 					},
 				},
-			}, ignoreLastChangeTime, cmpopts.SortSlices(func(i, j kueue.ClusterQueuePendingWorkload) bool {
-				return i.Name < j.Name
-			})))
+			}, ignoreLastChangeTime))
 
 			ginkgo.By("Finishing workload", func() {
 				util.FinishWorkloads(ctx, k8sClient, workloads...)
