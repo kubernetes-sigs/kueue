@@ -239,13 +239,13 @@ type QueueVisibility struct {
 	// UpdateIntervalSeconds specifies the time interval for updates to the structure
 	// of the top pending workloads in the queues.
 	// The minimum value is 1.
-	// Defaults to 5s.
+	// Defaults to 5.
 	UpdateIntervalSeconds int32 `json:"updateIntervalSeconds,omitempty"`
 }
 
 type ClusterQueueVisibility struct {
 	// MaxCount indicates the maximal number of pending workloads exposed in the
-	// cluster queue status.  When the value is set to 0, then LocalQueue
+	// cluster queue status.  When the value is set to 0, then ClusterQueue
 	// visibility updates are disabled.
 	// The maximal value is 4000.
 	// Defaults to 10.
