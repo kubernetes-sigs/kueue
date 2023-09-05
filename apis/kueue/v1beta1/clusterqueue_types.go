@@ -72,8 +72,8 @@ type ClusterQueueSpec struct {
 	// If set to an empty selector `{}`, then all namespaces are eligible.
 	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
 
-	// flavorFungibility defaines whether a workload should try the next flavor
-	// before borrowing in current flavor.
+	// flavorFungibility defines whether a workload should try the next flavor
+	// before borrowing or preempting in the flavor being evaluated.
 	FlavorFungibility *FlavorFungibility `json:"flavorFungibility,omitempty"`
 
 	// preemption describes policies to preempt Workloads from this ClusterQueue
@@ -292,10 +292,10 @@ type FlavorFungibility struct {
 	// whenCanBorrow determines whether a workload should try the next flavor
 	// before borrowing in current flavor. The possible values are:
 	//
-	// - `Borrow` (default for WhenCanBorrow): allocate in current flavor if borrowing
-	//   can help. only effective for WhenCanBorrow
-	// - `TryNextFlavor` (default for WhenCanPreempt): try next flavor if the current
-	//   flavor has no enough resource. effective for WhenCanBorrow and WhenCanPreempt.
+	// - `Borrow` (default): allocate in current flavor if borrowing
+	//   is possible.
+	// - `TryNextFlavor`: try next flavor if the current
+	//   flavor has not enough resources to borrow.
 	//
 	// +kubebuilder:validation:Enum={Borrow,TryNextFlavor}
 	// +kubebuilder:default="Borrow"
@@ -303,10 +303,9 @@ type FlavorFungibility struct {
 	// whenCanPreempt determines whether a workload should try the next flavor
 	// before borrowing in current flavor. The possible values are:
 	//
-	// - `Preempt`: allocate in current flavor if preempt might help. only effective
-	//   for WhenCanPreempt
-	// - `TryNextFlavor` (default for WhenCanPreempt): try next flavor if the current
-	//   flavor has no enough resource. effective for WhenCanBorrow and WhenCanPreempt.
+	// - `Preempt`: allocate in current flavor if it's possible to preempt some workloads.
+	// - `TryNextFlavor` (default): try next flavor if the current
+	//   flavor has not enough resources and there not enough candidates for preemption.
 	//
 	// +kubebuilder:validation:Enum={Preempt,TryNextFlavor}
 	// +kubebuilder:default="TryNextFlavor"

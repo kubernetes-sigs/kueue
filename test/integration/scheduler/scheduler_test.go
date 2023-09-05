@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -55,6 +56,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				GenerateName: "core-",
 			},
 		}
+		features.SetEnable(features.FlavorFungibility, true)
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
 		onDemandFlavor = testing.MakeResourceFlavor("on-demand").Label(instanceKey, "on-demand").Obj()
@@ -1076,7 +1078,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, devCQ.Name, dWl1)
 		})
 
-		ginkgo.It("Should schedule when fungibility is set", func() {
+		ginkgo.It("Should try next flavor instead of borrowing", func() {
 			prodCQ = testing.MakeClusterQueue("prod-cq").
 				Cohort("all").
 				ResourceGroup(*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "10", "10").Obj()).
@@ -1086,7 +1088,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			devCQ = testing.MakeClusterQueue("dev-cq").
 				Cohort("all").
 				FlavorFungibility(kueue.FlavorFungibility{WhenCanBorrow: kueue.TryNextFlavor}).
-				ResourceGroup(*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "10", "10").Obj(), *testing.MakeFlavorQuotas("spot-tainted").Resource(corev1.ResourceCPU, "10").Obj()).
+				ResourceGroup(*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "10", "10").Obj(), *testing.MakeFlavorQuotas("spot-tainted").Resource(corev1.ResourceCPU, "11").Obj()).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, devCQ)).Should(gomega.Succeed())
 
@@ -1105,12 +1107,56 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectAdmittedWorkloadsTotalMetric(prodCQ, 1)
 
 			ginkgo.By("Creating another workload")
-			wl2 := testing.MakeWorkload("wl-2", ns.Name).Queue(podQueue.Name).Request(corev1.ResourceCPU, "9").Toleration(spotToleration).Obj()
+			wl2 := testing.MakeWorkload("wl-2", ns.Name).Queue(podQueue.Name).Request(corev1.ResourceCPU, "11").Toleration(spotToleration).Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, devCQ.Name, wl2)
+			prodWl2Admission := testing.MakeAdmission(devCQ.Name).Assignment(corev1.ResourceCPU, "spot-tainted", "11").Obj()
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl2, prodWl2Admission)
 			util.ExpectPendingWorkloadsMetric(devCQ, 0, 0)
 			util.ExpectAdmittedActiveWorkloadsMetric(devCQ, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(devCQ, 1)
+		})
+
+		ginkgo.It("Should preempt before try next flavor", func() {
+			prodCQ = testing.MakeClusterQueue("prod-cq").
+				Cohort("all").
+				ResourceGroup(*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "10", "10").Obj(), *testing.MakeFlavorQuotas("spot-tainted").Resource(corev1.ResourceCPU, "11").Obj()).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				FlavorFungibility(kueue.FlavorFungibility{WhenCanPreempt: kueue.Preempt}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, prodCQ)).Should(gomega.Succeed())
+
+			devCQ = testing.MakeClusterQueue("dev-cq").
+				Cohort("all").
+				FlavorFungibility(kueue.FlavorFungibility{WhenCanBorrow: kueue.TryNextFlavor}).
+				ResourceGroup(*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "10", "10").Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, devCQ)).Should(gomega.Succeed())
+
+			prodQueue := testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodCQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, prodQueue)).Should(gomega.Succeed())
+
+			podQueue := testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devCQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, podQueue)).Should(gomega.Succeed())
+
+			ginkgo.By("Creating one workload")
+			wl1 := testing.MakeWorkload("wl-1", ns.Name).Queue(podQueue.Name).Request(corev1.ResourceCPU, "9").Obj()
+			wl2 := testing.MakeWorkload("wl-2", ns.Name).Queue(podQueue.Name).Request(corev1.ResourceCPU, "9").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, devCQ.Name, wl1, wl2)
+			util.ExpectPendingWorkloadsMetric(devCQ, 0, 0)
+			util.ExpectAdmittedActiveWorkloadsMetric(devCQ, 2)
+			util.ExpectAdmittedWorkloadsTotalMetric(devCQ, 2)
+
+			ginkgo.By("Creating another workload")
+			wl3 := testing.MakeWorkload("wl-3", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "9").Toleration(spotToleration).Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl3)).Should(gomega.Succeed())
+			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wl1)
+			util.ExpectPendingWorkloadsMetric(prodCQ, 0, 0)
+			util.ExpectAdmittedActiveWorkloadsMetric(prodCQ, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(prodCQ, 1)
 		})
 	})
 

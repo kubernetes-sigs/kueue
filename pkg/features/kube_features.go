@@ -43,9 +43,9 @@ const (
 
 	// owner: @KunWuLuan
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/582-preempt-based-on-flavor-order
-	// alpha: v0.6
+	// alpha: v0.5
 	//
-	// Enables partial admission.
+	// Enables flavor fungibility.
 	FlavorFungibility featuregate.Feature = "FlavorFungibility"
 )
 
