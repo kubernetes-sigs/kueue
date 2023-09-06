@@ -294,8 +294,8 @@ type FlavorFungibility struct {
 	//
 	// - `Borrow` (default): allocate in current flavor if borrowing
 	//   is possible.
-	// - `TryNextFlavor`: try next flavor if the current
-	//   flavor has not enough resources to borrow.
+	// - `TryNextFlavor`: try next flavor even if the current
+	//   flavor has enough resources to borrow.
 	//
 	// +kubebuilder:validation:Enum={Borrow,TryNextFlavor}
 	// +kubebuilder:default="Borrow"
@@ -304,8 +304,8 @@ type FlavorFungibility struct {
 	// before borrowing in current flavor. The possible values are:
 	//
 	// - `Preempt`: allocate in current flavor if it's possible to preempt some workloads.
-	// - `TryNextFlavor` (default): try next flavor if the current
-	//   flavor has not enough resources and there not enough candidates for preemption.
+	// - `TryNextFlavor` (default): try next flavor even if there are enough
+	//   candidates for preemption in the current flavor.
 	//
 	// +kubebuilder:validation:Enum={Preempt,TryNextFlavor}
 	// +kubebuilder:default="TryNextFlavor"

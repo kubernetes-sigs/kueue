@@ -1830,3 +1830,56 @@ func TestAssignFlavors(t *testing.T) {
 		})
 	}
 }
+
+func TestLastAssignmentOutdated(t *testing.T) {
+	type args struct {
+		wl *workload.Info
+		cq *cache.ClusterQueue
+	}
+	tests := []struct {
+		name string
+		args args
+		want bool
+	}{
+		{
+			name: "Cluster queue generation increased",
+			args: args{
+				wl: &workload.Info{
+					LastAssignment: &workload.AssigmentClusterQueueState{
+						ClusterQueueGeneration: 0,
+					},
+				},
+				cq: &cache.ClusterQueue{
+					Cohort:     nil,
+					Generation: 1,
+				},
+			},
+			want: true,
+		},
+		{
+			name: "Cohort generation increased",
+			args: args{
+				wl: &workload.Info{
+					LastAssignment: &workload.AssigmentClusterQueueState{
+						ClusterQueueGeneration: 0,
+						CohortGeneration:       0,
+					},
+				},
+				cq: &cache.ClusterQueue{
+					Cohort: &cache.Cohort{
+						Generation: 1,
+					},
+					Generation: 0,
+				},
+			},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := LastAssignmentOutdated(tt.args.wl, tt.args.cq); got != tt.want {
+				t.Errorf("LastAssignmentOutdated() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

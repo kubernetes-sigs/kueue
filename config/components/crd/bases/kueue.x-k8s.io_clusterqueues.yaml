@@ -82,7 +82,7 @@ spec:
                       try the next flavor before borrowing in current flavor. The
                       possible values are: \n - `Borrow` (default): allocate in current
                       flavor if borrowing is possible. - `TryNextFlavor`: try next
-                      flavor if the current flavor has not enough resources to borrow."
+                      flavor even if the current flavor has enough resources to borrow."
                     enum:
                     - Borrow
                     - TryNextFlavor
@@ -93,8 +93,8 @@ spec:
                       try the next flavor before borrowing in current flavor. The
                       possible values are: \n - `Preempt`: allocate in current flavor
                       if it's possible to preempt some workloads. - `TryNextFlavor`
-                      (default): try next flavor if the current flavor has not enough
-                      resources and there not enough candidates for preemption."
+                      (default): try next flavor even if there are enough candidates
+                      for preemption in the current flavor."
                     enum:
                     - Preempt
                     - TryNextFlavor

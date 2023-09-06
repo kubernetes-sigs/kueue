@@ -227,16 +227,18 @@ type FlavorAssignment struct {
 	borrow                int64
 }
 
+func LastAssignmentOutdated(wl *workload.Info, cq *cache.ClusterQueue) bool {
+	return cq.Generation > wl.LastAssignment.ClusterQueueGeneration ||
+		(cq.Cohort != nil && cq.Cohort.Generation > wl.LastAssignment.CohortGeneration)
+}
+
 // AssignFlavors assigns flavors for each of the resources requested in each pod set.
 // The result for each pod set is accompanied with reasons why the flavor can't
 // be assigned immediately. Each assigned flavor is accompanied with a
 // FlavorAssignmentMode.
 func AssignFlavors(log logr.Logger, wl *workload.Info, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, cq *cache.ClusterQueue, counts []int32) Assignment {
-	if wl.LastAssignment != nil {
-		if cq.Generation > wl.LastAssignment.ClusterQueueGeneration &&
-			(cq.Cohort == nil || cq.Cohort.Generation > wl.LastAssignment.CohortGeneration) {
-			wl.LastAssignment = nil
-		}
+	if wl.LastAssignment != nil && LastAssignmentOutdated(wl, cq) {
+		wl.LastAssignment = nil
 	}
 
 	if len(counts) == 0 {
@@ -251,24 +253,18 @@ func AssignFlavors(log logr.Logger, wl *workload.Info, resourceFlavors map[kueue
 }
 
 func assignFlavors(log logr.Logger, requests []workload.PodSetResources, podSets []kueue.PodSet, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, cq *cache.ClusterQueue, lastAssignment *workload.AssigmentClusterQueueState) Assignment {
-	var assignment Assignment
+	var assignment Assignment = Assignment{
+		TotalBorrow: make(workload.FlavorResourceQuantities),
+		PodSets:     make([]PodSetAssignment, 0, len(requests)),
+		Usage:       make(workload.FlavorResourceQuantities),
+	}
 	if lastAssignment != nil {
-		assignment = Assignment{
-			TotalBorrow: make(workload.FlavorResourceQuantities),
-			PodSets:     make([]PodSetAssignment, 0, len(requests)),
-			LastState:   *lastAssignment,
-			Usage:       make(workload.FlavorResourceQuantities),
-		}
+		assignment.LastState = *lastAssignment
 	} else {
-		assignment = Assignment{
-			TotalBorrow: make(workload.FlavorResourceQuantities),
-			PodSets:     make([]PodSetAssignment, 0, len(requests)),
-			LastState: workload.AssigmentClusterQueueState{
-				LastAssignedFlavorIdx:  make([]map[corev1.ResourceName]int, 0),
-				CohortGeneration:       0,
-				ClusterQueueGeneration: cq.Generation,
-			},
-			Usage: make(workload.FlavorResourceQuantities),
+		assignment.LastState = workload.AssigmentClusterQueueState{
+			LastAssignedFlavorIdx:  make([]map[corev1.ResourceName]int, 0),
+			CohortGeneration:       0,
+			ClusterQueueGeneration: cq.Generation,
 		}
 		if cq.Cohort != nil {
 			assignment.LastState.CohortGeneration = cq.Cohort.Generation
