@@ -77,7 +77,7 @@ type Cache struct {
 	assumedWorkloads  map[string]string
 	resourceFlavors   map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	podsReadyTracking bool
-	admissioChecks    sets.Set[string]
+	admissionChecks   sets.Set[string]
 }
 
 func New(client client.Client, opts ...Option) *Cache {
@@ -91,7 +91,7 @@ func New(client client.Client, opts ...Option) *Cache {
 		cohorts:           make(map[string]*Cohort),
 		assumedWorkloads:  make(map[string]string),
 		resourceFlavors:   make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
-		admissioChecks:    sets.New[string](),
+		admissionChecks:   sets.New[string](),
 		podsReadyTracking: options.podsReadyTracking,
 	}
 	c.podsReadyCond.L = &c.RWMutex
@@ -106,7 +106,7 @@ func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*ClusterQueue, error) {
 		localQueues:       make(map[string]*queue),
 		podsReadyTracking: c.podsReadyTracking,
 	}
-	if err := cqImpl.update(cq, c.resourceFlavors, c.admissioChecks); err != nil {
+	if err := cqImpl.update(cq, c.resourceFlavors, c.admissionChecks); err != nil {
 		return nil, err
 	}
 
@@ -193,7 +193,7 @@ func (c *Cache) updateClusterQueues() sets.Set[string] {
 		// because it is not expensive to do so, and is not worth tracking which ClusterQueues use
 		// which flavors.
 		cq.UpdateWithFlavors(c.resourceFlavors)
-		cq.UpdateWithAdmissionChecks(c.admissioChecks)
+		cq.UpdateWithAdmissionChecks(c.admissionChecks)
 		curStatus := cq.Status
 		if prevStatus == pending && curStatus == active {
 			cqs.Insert(cq.Name)
@@ -219,14 +219,14 @@ func (c *Cache) DeleteResourceFlavor(rf *kueue.ResourceFlavor) sets.Set[string] 
 func (c *Cache) AddOrUpdateAdmissionCheck(ac *kueue.AdmissionCheck) sets.Set[string] {
 	c.Lock()
 	defer c.Unlock()
-	c.admissioChecks.Insert(ac.Name)
+	c.admissionChecks.Insert(ac.Name)
 	return c.updateClusterQueues()
 }
 
 func (c *Cache) DeleteAdmissionCheck(ac *kueue.AdmissionCheck) sets.Set[string] {
 	c.Lock()
 	defer c.Unlock()
-	c.admissioChecks.Delete(ac.Name)
+	c.admissionChecks.Delete(ac.Name)
 	return c.updateClusterQueues()
 }
 
@@ -335,7 +335,7 @@ func (c *Cache) UpdateClusterQueue(cq *kueue.ClusterQueue) error {
 	if !ok {
 		return errCqNotFound
 	}
-	if err := cqImpl.update(cq, c.resourceFlavors, c.admissioChecks); err != nil {
+	if err := cqImpl.update(cq, c.resourceFlavors, c.admissionChecks); err != nil {
 		return err
 	}
 	for _, qImpl := range cqImpl.localQueues {

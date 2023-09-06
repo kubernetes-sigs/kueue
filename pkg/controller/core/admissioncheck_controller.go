@@ -51,6 +51,20 @@ type AdmissionCheckReconciler struct {
 	watchers   []AdmissionCheckUpdateWatcher
 }
 
+func NewAdmissionCheckReconciler(
+	client client.Client,
+	qMgr *queue.Manager,
+	cache *cache.Cache,
+) *AdmissionCheckReconciler {
+	return &AdmissionCheckReconciler{
+		log:        ctrl.Log.WithName("admissioncheck-reconciler"),
+		qManager:   qMgr,
+		client:     client,
+		cache:      cache,
+		cqUpdateCh: make(chan event.GenericEvent, updateChBuffer),
+	}
+}
+
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks/finalizers,verbs=update
@@ -213,18 +227,4 @@ func (r *AdmissionCheckReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		WatchesRawSource(&source.Channel{Source: r.cqUpdateCh}, &handler).
 		WithEventFilter(r).
 		Complete(r)
-}
-
-func NewAdAdmissionCheckReconciler(
-	client client.Client,
-	qMgr *queue.Manager,
-	cache *cache.Cache,
-) *AdmissionCheckReconciler {
-	return &AdmissionCheckReconciler{
-		log:        ctrl.Log.WithName("admissioncheck-reconciler"),
-		qManager:   qMgr,
-		client:     client,
-		cache:      cache,
-		cqUpdateCh: make(chan event.GenericEvent, updateChBuffer),
-	}
 }

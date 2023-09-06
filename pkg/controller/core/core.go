@@ -35,7 +35,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 	if err := rfRec.SetupWithManager(mgr); err != nil {
 		return "ResourceFlavor", err
 	}
-	acRec := NewAdAdmissionCheckReconciler(mgr.GetClient(), qManager, cc)
+	acRec := NewAdmissionCheckReconciler(mgr.GetClient(), qManager, cc)
 	if err := acRec.SetupWithManager(mgr); err != nil {
 		return "AdmissionCheck", err
 	}
