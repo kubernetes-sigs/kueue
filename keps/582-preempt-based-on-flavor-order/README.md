@@ -17,25 +17,26 @@ tags, and then generate with `hack/update-toc.sh`.
 -->
 
 <!-- toc -->
-- [Summary](#summary)
-- [Motivation](#motivation)
-  - [Goals](#goals)
-  - [Non-Goals](#non-goals)
-- [Proposal](#proposal)
-  - [User Stories (Optional)](#user-stories-optional)
-    - [Story 1](#story-1)
-  - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
-  - [Risks and Mitigations](#risks-and-mitigations)
-- [Design Details](#design-details)
-  - [Cluster Queue API](#cluster-queue-api)
-  - [Behavior Changes](#behavior-changes)
-  - [Implementation](#implementation)
-  - [Test Plan](#test-plan)
-      - [Prerequisite testing updates](#prerequisite-testing-updates)
-    - [Unit Tests](#unit-tests)
-    - [Integration tests](#integration-tests)
-  - [Graduation Criteria](#graduation-criteria)
-- [Implementation History](#implementation-history)
+- [KEP-582: Preempt Based On Flavor Order](#kep-582-preempt-based-on-flavor-order)
+  - [Summary](#summary)
+  - [Motivation](#motivation)
+    - [Goals](#goals)
+    - [Non-Goals](#non-goals)
+  - [Proposal](#proposal)
+    - [User Stories (Optional)](#user-stories-optional)
+      - [Story 1](#story-1)
+    - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
+    - [Risks and Mitigations](#risks-and-mitigations)
+  - [Design Details](#design-details)
+    - [Cluster Queue API](#cluster-queue-api)
+    - [Behavior Changes](#behavior-changes)
+    - [Implementation](#implementation)
+    - [Test Plan](#test-plan)
+        - [Prerequisite testing updates](#prerequisite-testing-updates)
+      - [Unit Tests](#unit-tests)
+      - [Integration tests](#integration-tests)
+    - [Graduation Criteria](#graduation-criteria)
+  - [Implementation History](#implementation-history)
 <!-- /toc -->
 
 ## Summary
@@ -343,7 +344,10 @@ Describe what tests will be added to ensure proper quality of the enhancement.
 
 After the implementation PR is merged, add the names of the tests here.
 -->
-Should_Schedule_When_Fungibility_Is_Set
+Scenarios that `WhenCanBorrow` is set as `Borrow` and `WhenCanPreempt` is set as `tryNextFlavor` are same with current behavior. So the added integration tests will these cover scenarios:
+
+- `WhenCanBorrow` is set as `tryNextFlavor`,
+- `WhenCanPreempt` is set as `Preempt`.
 
 ### Graduation Criteria
 
