@@ -570,8 +570,6 @@ func (m *Manager) getClusterQueue(cqName string) ClusterQueue {
 }
 
 func (m *Manager) UpdateSnapshot(cqName string, maxCount int32) {
-	m.snapshotsMutex.Lock()
-	defer m.snapshotsMutex.Unlock()
 	cq := m.getClusterQueue(cqName)
 	if cq == nil {
 		return
@@ -589,6 +587,12 @@ func (m *Manager) UpdateSnapshot(cqName string, maxCount int32) {
 			Namespace: info.Obj.Namespace,
 		})
 	}
+	m.setSnapshot(cqName, workloads)
+}
+
+func (m *Manager) setSnapshot(cqName string, workloads []kueue.ClusterQueuePendingWorkload) {
+	m.snapshotsMutex.Lock()
+	defer m.snapshotsMutex.Unlock()
 	m.snapshots[cqName] = workloads
 }
 

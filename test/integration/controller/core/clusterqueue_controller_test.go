@@ -641,6 +641,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 					Request(corev1.ResourceCPU, "3").Request(resourceGPU, "3").Obj(),
 			}
 
+			ginkgo.By("Verify pending workload status before adding workloads")
 			gomega.Eventually(func() *kueue.ClusterQueuePendingWorkloadsStatus {
 				var updatedCq kueue.ClusterQueue
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
@@ -679,7 +680,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 				gomega.Expect(k8sClient.Create(ctx, w)).To(gomega.Succeed())
 			}
 
-			ginkgo.By("Cut off the head of pending workloads when the number of pending workloads exceeds MaxCount")
+			ginkgo.By("Verify the head of pending workloads when the number of pending workloads exceeds MaxCount")
 			gomega.Eventually(func() *kueue.ClusterQueuePendingWorkloadsStatus {
 				var updatedCq kueue.ClusterQueue
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())

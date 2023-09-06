@@ -554,17 +554,19 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 }
 
 func (r *ClusterQueueReconciler) getWorkloadsStatus(cq *kueue.ClusterQueue) *kueue.ClusterQueuePendingWorkloadsStatus {
-	pendingWorkloads := r.qManager.GetSnapshot(cq.Name)
-	shouldUpdatePendingWorkloadStatus := cq.Status.PendingWorkloadsStatus == nil ||
-		time.Since(cq.Status.PendingWorkloadsStatus.LastChangeTime.Time) >= r.queueVisibilityUpdateInterval &&
-			!equality.Semantic.DeepEqual(cq.Status.PendingWorkloadsStatus.Head, pendingWorkloads)
-	if shouldUpdatePendingWorkloadStatus {
+	if r.shouldUpdatePendingWorkloadStatus(cq) {
 		return &kueue.ClusterQueuePendingWorkloadsStatus{
 			Head:           r.qManager.GetSnapshot(cq.Name),
 			LastChangeTime: metav1.Time{Time: time.Now()},
 		}
 	}
 	return cq.Status.PendingWorkloadsStatus
+}
+
+func (r *ClusterQueueReconciler) shouldUpdatePendingWorkloadStatus(cq *kueue.ClusterQueue) bool {
+	return cq.Status.PendingWorkloadsStatus == nil ||
+		time.Since(cq.Status.PendingWorkloadsStatus.LastChangeTime.Time) >= r.queueVisibilityUpdateInterval &&
+			!equality.Semantic.DeepEqual(cq.Status.PendingWorkloadsStatus.Head, r.qManager.GetSnapshot(cq.Name))
 }
 
 func (r *ClusterQueueReconciler) Start(ctx context.Context) error {
