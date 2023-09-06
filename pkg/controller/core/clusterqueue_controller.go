@@ -565,11 +565,16 @@ func (r *ClusterQueueReconciler) getWorkloadsStatus(cq *kueue.ClusterQueue) *kue
 
 func (r *ClusterQueueReconciler) shouldUpdatePendingWorkloadStatus(cq *kueue.ClusterQueue) bool {
 	return cq.Status.PendingWorkloadsStatus == nil ||
-		time.Since(cq.Status.PendingWorkloadsStatus.LastChangeTime.Time) >= r.queueVisibilityUpdateInterval &&
-			!equality.Semantic.DeepEqual(cq.Status.PendingWorkloadsStatus.Head, r.qManager.GetSnapshot(cq.Name))
+		(time.Since(cq.Status.PendingWorkloadsStatus.LastChangeTime.Time) >= r.queueVisibilityUpdateInterval &&
+			!equality.Semantic.DeepEqual(cq.Status.PendingWorkloadsStatus.Head, r.qManager.GetSnapshot(cq.Name)))
 }
 
 func (r *ClusterQueueReconciler) Start(ctx context.Context) error {
+	// Taking snapshot of cluster queue is enabled when maxcount non-zero
+	if r.queueVisibilityClusterQueuesMaxCount == 0 {
+		return nil
+	}
+
 	defer r.snapshotsQueue.ShutDown()
 
 	for i := 0; i < snapshotWorkers; i++ {

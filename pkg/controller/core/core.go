@@ -49,11 +49,8 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 		WithReportResourceMetrics(cfg.Metrics.EnableClusterQueueResources),
 		WithWatchers(rfRec),
 	)
-	// Taking snapshot of cluster queue is enabled when maxcount non-zero
-	if queueVisibilityClusterQueuesMaxCount(cfg) != 0 {
-		if err := mgr.Add(cqRec); err != nil {
-			return "Unable to add ClusterQueue to manager", err
-		}
+	if err := mgr.Add(cqRec); err != nil {
+		return "Unable to add ClusterQueue to manager", err
 	}
 	rfRec.AddUpdateWatcher(cqRec)
 	if err := cqRec.SetupWithManager(mgr); err != nil {
