@@ -179,17 +179,9 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	newCQObj := cqObj.DeepCopy()
-	if r.cache.ClusterQueueActive(newCQObj.Name) {
-		msg := "Can admit new workloads"
-		if err := r.updateCqStatusIfChanged(ctx, newCQObj, metav1.ConditionTrue, "Ready", msg); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-	} else {
-
-		reason, msg := r.cache.ClusterQueueInactiveReason(newCQObj.Name)
-		if err := r.updateCqStatusIfChanged(ctx, newCQObj, metav1.ConditionFalse, reason, msg); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
+	cqCondition, reason, msg := r.cache.ClusterQueueReadiness(newCQObj.Name)
+	if err := r.updateCqStatusIfChanged(ctx, newCQObj, cqCondition, reason, msg); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	return ctrl.Result{}, nil
 }

@@ -24,6 +24,7 @@ import (
 	"sync"
 
 	"github.com/go-logr/logr"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
@@ -238,14 +239,18 @@ func (c *Cache) ClusterQueueTerminating(name string) bool {
 	return c.clusterQueueInStatus(name, terminating)
 }
 
-func (c *Cache) ClusterQueueInactiveReason(name string) (string, string) {
+func (c *Cache) ClusterQueueReadiness(name string) (metav1.ConditionStatus, string, string) {
 	c.RLock()
 	defer c.RUnlock()
-	cq, exists := c.clusterQueues[name]
-	if !exists {
-		return "NotFound", "Cluster queue not found"
+	cq := c.clusterQueues[name]
+	if cq == nil {
+		return metav1.ConditionFalse, "NotFound", "Cluster queue not found"
 	}
-	return cq.inactiveReason()
+	if cq != nil && cq.Status == active {
+		return metav1.ConditionTrue, "Ready", "Can admit new workloads"
+	}
+	reason, msg := cq.inactiveReason()
+	return metav1.ConditionFalse, reason, msg
 }
 
 func (c *Cache) clusterQueueInStatus(name string, status metrics.ClusterQueueStatus) bool {
