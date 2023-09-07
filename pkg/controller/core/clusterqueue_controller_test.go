@@ -485,7 +485,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 	}
 }
 
-func TestStartSnapshot(t *testing.T) {
+func TestClusterQueuePendingWorkloadsStatus(t *testing.T) {
 	cqName := "test-cq"
 	lqName := "test-lq"
 	const lowPrio, highPrio = 0, 100
@@ -549,7 +549,7 @@ func TestStartSnapshot(t *testing.T) {
 
 			go func() {
 				if err := r.Start(ctx); err != nil {
-					t.Errorf("error start snapshot: %v", err)
+					t.Errorf("error starting the cluster queue reconciler: %v", err)
 				}
 			}()
 
@@ -558,7 +558,7 @@ func TestStartSnapshot(t *testing.T) {
 				diff = cmp.Diff(tc.wantPendingWorkloadsStatus, r.getWorkloadsStatus(cq), cmpopts.IgnoreFields(kueue.ClusterQueuePendingWorkloadsStatus{}, "LastChangeTime"))
 				return diff == "", nil
 			}); err != nil {
-				t.Fatalf("Failed to get snapshot computed, last diff=%s", diff)
+				t.Fatalf("Failed to get the expected pending workloads status, last diff=%s", diff)
 			}
 		})
 	}
