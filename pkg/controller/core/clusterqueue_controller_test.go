@@ -17,7 +17,9 @@ limitations under the License.
 package core
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -32,6 +34,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
+)
+
+const (
+	snapshotTimeout = time.Second
 )
 
 func TestUpdateCqStatusIfChanged(t *testing.T) {
@@ -65,7 +71,6 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					Reason:  "FlavorNotFound",
 					Message: "Can't admit new workloads; some flavors are not found",
 				}},
-				PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{},
 			},
 		},
 		"same condition status": {
@@ -77,7 +82,6 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					Reason:  "Ready",
 					Message: "Can admit new workloads",
 				}},
-				PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{},
 			},
 			newConditionStatus: metav1.ConditionTrue,
 			newReason:          "Ready",
@@ -90,7 +94,6 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					Reason:  "Ready",
 					Message: "Can admit new workloads",
 				}},
-				PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{},
 			},
 		},
 		"same condition status with different reason and message": {
@@ -102,7 +105,6 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					Reason:  "FlavorNotFound",
 					Message: "Can't admit new workloads; Can't admit new workloads; some flavors are not found",
 				}},
-				PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{},
 			},
 			newConditionStatus: metav1.ConditionFalse,
 			newReason:          "Terminating",
@@ -115,7 +117,6 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					Reason:  "Terminating",
 					Message: "Can't admit new workloads; clusterQueue is terminating",
 				}},
-				PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{},
 			},
 		},
 		"different condition status": {
@@ -127,7 +128,6 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					Reason:  "FlavorNotFound",
 					Message: "Can't admit new workloads; some flavors are not found",
 				}},
-				PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{},
 			},
 			newConditionStatus: metav1.ConditionTrue,
 			newReason:          "Ready",
@@ -140,7 +140,6 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					Reason:  "Ready",
 					Message: "Can admit new workloads",
 				}},
-				PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{},
 			},
 		},
 		"different pendingWorkloads with same condition status": {
@@ -165,7 +164,6 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					Reason:  "Ready",
 					Message: "Can admit new workloads",
 				}},
-				PendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{},
 			},
 		},
 	}
@@ -488,4 +486,83 @@ func TestRecordResourceMetrics(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestStartSnapshot(t *testing.T) {
+	cqName := "test-cq"
+	lqName := "test-lq"
+	const lowPrio, highPrio = 0, 100
+	defaultWls := &kueue.WorkloadList{
+		Items: []kueue.Workload{
+			*utiltesting.MakeWorkload("one", "").Queue(lqName).Priority(highPrio).Obj(),
+			*utiltesting.MakeWorkload("two", "").Queue(lqName).Priority(lowPrio).Obj(),
+		},
+	}
+	testCases := map[string]struct {
+		queueVisibilityUpdateInterval        time.Duration
+		queueVisibilityClusterQueuesMaxCount int32
+		wantPendingWorkloadsStatus           *kueue.ClusterQueuePendingWorkloadsStatus
+	}{
+		"taking snapshot of cluster queue is disabled": {},
+		"taking snapshot of cluster queue is enabled": {
+			queueVisibilityClusterQueuesMaxCount: 2,
+			queueVisibilityUpdateInterval:        10 * time.Millisecond,
+			wantPendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{
+				Head: []kueue.ClusterQueuePendingWorkload{
+					{Name: "one"}, {Name: "two"},
+				},
+			},
+		},
+		"verify the head of pending workloads when the number of pending workloads exceeds MaxCount": {
+			queueVisibilityClusterQueuesMaxCount: 1,
+			queueVisibilityUpdateInterval:        10 * time.Millisecond,
+			wantPendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{
+				Head: []kueue.ClusterQueuePendingWorkload{
+					{Name: "one"},
+				},
+			},
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			cq := utiltesting.MakeClusterQueue(cqName).
+				QueueingStrategy(kueue.StrictFIFO).Obj()
+			lq := utiltesting.MakeLocalQueue(lqName, "").
+				ClusterQueue(cqName).Obj()
+			ctx := context.Background()
+
+			cl := utiltesting.NewClientBuilder().WithLists(defaultWls).WithObjects(lq, cq).WithStatusSubresource(lq, cq).
+				Build()
+			cCache := cache.New(cl)
+			qManager := queue.NewManager(cl, cCache)
+			if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Inserting clusterQueue in manager: %v", err)
+			}
+			if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("Inserting localQueue in manager: %v", err)
+			}
+
+			r := NewClusterQueueReconciler(
+				cl,
+				qManager,
+				cCache,
+				WithQueueVisibilityUpdateInterval(tc.queueVisibilityUpdateInterval),
+				WithQueueVisibilityClusterQueuesMaxCount(tc.queueVisibilityClusterQueuesMaxCount),
+			)
+
+			if err := startSnapshotWithTimeout(ctx, r); err != nil {
+				t.Errorf("error startSnapshotWithTimeout: %v", err)
+			}
+
+			if diff := cmp.Diff(tc.wantPendingWorkloadsStatus, r.getWorkloadsStatus(cq), cmpopts.IgnoreFields(kueue.ClusterQueuePendingWorkloadsStatus{}, "LastChangeTime")); len(diff) != 0 {
+				t.Errorf("unexpected ClusterQueueStatus (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func startSnapshotWithTimeout(ctx context.Context, r *ClusterQueueReconciler) error {
+	ctx, cancel := context.WithTimeout(ctx, snapshotTimeout)
+	defer cancel()
+	return r.Start(ctx)
 }

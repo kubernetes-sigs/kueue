@@ -92,9 +92,9 @@ func WithReportResourceMetrics(report bool) ClusterQueueReconcilerOption {
 
 // WithQueueVisibilityUpdateInterval specifies the time interval for updates to the structure
 // of the top pending workloads in the queues.
-func WithQueueVisibilityUpdateInterval(interval int32) ClusterQueueReconcilerOption {
+func WithQueueVisibilityUpdateInterval(interval time.Duration) ClusterQueueReconcilerOption {
 	return func(o *ClusterQueueReconcilerOptions) {
-		o.QueueVisibilityUpdateInterval = time.Duration(interval) * time.Second
+		o.QueueVisibilityUpdateInterval = interval
 	}
 }
 
@@ -553,7 +553,14 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 	return nil
 }
 
+func (r *ClusterQueueReconciler) isVisibilityEnabled() bool {
+	return r.queueVisibilityClusterQueuesMaxCount > 0
+}
+
 func (r *ClusterQueueReconciler) getWorkloadsStatus(cq *kueue.ClusterQueue) *kueue.ClusterQueuePendingWorkloadsStatus {
+	if !r.isVisibilityEnabled() {
+		return nil
+	}
 	if r.shouldUpdatePendingWorkloadStatus(cq) {
 		return &kueue.ClusterQueuePendingWorkloadsStatus{
 			Head:           r.qManager.GetSnapshot(cq.Name),
@@ -571,7 +578,7 @@ func (r *ClusterQueueReconciler) shouldUpdatePendingWorkloadStatus(cq *kueue.Clu
 
 func (r *ClusterQueueReconciler) Start(ctx context.Context) error {
 	// Taking snapshot of cluster queue is enabled when maxcount non-zero
-	if r.queueVisibilityClusterQueuesMaxCount == 0 {
+	if !r.isVisibilityEnabled() {
 		return nil
 	}
 

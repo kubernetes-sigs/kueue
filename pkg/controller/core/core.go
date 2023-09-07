@@ -69,9 +69,9 @@ func podsReadyTimeout(cfg *config.Configuration) *time.Duration {
 	return nil
 }
 
-func queueVisibilityUpdateInterval(cfg *config.Configuration) int32 {
+func queueVisibilityUpdateInterval(cfg *config.Configuration) time.Duration {
 	if cfg.QueueVisibility != nil {
-		return cfg.QueueVisibility.UpdateIntervalSeconds
+		return time.Duration(cfg.QueueVisibility.UpdateIntervalSeconds) * time.Second
 	}
 	return 0
 }
