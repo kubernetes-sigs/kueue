@@ -18,6 +18,7 @@ package core
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -550,19 +551,22 @@ func TestStartSnapshot(t *testing.T) {
 				WithQueueVisibilityClusterQueuesMaxCount(tc.queueVisibilityClusterQueuesMaxCount),
 			)
 
-			if err := startSnapshotWithTimeout(ctx, r); err != nil {
-				t.Errorf("error startSnapshotWithTimeout: %v", err)
-			}
+			ctx, cancel := context.WithTimeout(ctx, snapshotTimeout)
+			defer cancel()
+
+			wg := &sync.WaitGroup{}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if err := r.Start(ctx); err != nil {
+					t.Errorf("error startSnapshotWithTimeout: %v", err)
+				}
+			}()
+			wg.Wait()
 
 			if diff := cmp.Diff(tc.wantPendingWorkloadsStatus, r.getWorkloadsStatus(cq), cmpopts.IgnoreFields(kueue.ClusterQueuePendingWorkloadsStatus{}, "LastChangeTime")); len(diff) != 0 {
 				t.Errorf("unexpected ClusterQueueStatus (-want,+got):\n%s", diff)
 			}
 		})
 	}
-}
-
-func startSnapshotWithTimeout(ctx context.Context, r *ClusterQueueReconciler) error {
-	ctx, cancel := context.WithTimeout(ctx, snapshotTimeout)
-	defer cancel()
-	return r.Start(ctx)
 }

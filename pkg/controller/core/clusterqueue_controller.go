@@ -553,6 +553,7 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 	return nil
 }
 
+// Taking snapshot of cluster queue is enabled when maxcount non-zero
 func (r *ClusterQueueReconciler) isVisibilityEnabled() bool {
 	return r.queueVisibilityClusterQueuesMaxCount > 0
 }
@@ -577,7 +578,6 @@ func (r *ClusterQueueReconciler) shouldUpdatePendingWorkloadStatus(cq *kueue.Clu
 }
 
 func (r *ClusterQueueReconciler) Start(ctx context.Context) error {
-	// Taking snapshot of cluster queue is enabled when maxcount non-zero
 	if !r.isVisibilityEnabled() {
 		return nil
 	}
