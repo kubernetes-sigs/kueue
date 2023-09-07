@@ -18,7 +18,6 @@ package core
 
 import (
 	"context"
-	"sync"
 	"testing"
 	"time"
 
@@ -27,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -35,10 +35,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
-)
-
-const (
-	snapshotTimeout = time.Second
 )
 
 func TestUpdateCqStatusIfChanged(t *testing.T) {
@@ -551,21 +547,18 @@ func TestStartSnapshot(t *testing.T) {
 				WithQueueVisibilityClusterQueuesMaxCount(tc.queueVisibilityClusterQueuesMaxCount),
 			)
 
-			ctx, cancel := context.WithTimeout(ctx, snapshotTimeout)
-			defer cancel()
-
-			wg := &sync.WaitGroup{}
-			wg.Add(1)
 			go func() {
-				defer wg.Done()
 				if err := r.Start(ctx); err != nil {
-					t.Errorf("error startSnapshotWithTimeout: %v", err)
+					t.Errorf("error start snapshot: %v", err)
 				}
 			}()
-			wg.Wait()
 
-			if diff := cmp.Diff(tc.wantPendingWorkloadsStatus, r.getWorkloadsStatus(cq), cmpopts.IgnoreFields(kueue.ClusterQueuePendingWorkloadsStatus{}, "LastChangeTime")); len(diff) != 0 {
-				t.Errorf("unexpected ClusterQueueStatus (-want,+got):\n%s", diff)
+			diff := ""
+			if err := wait.PollUntilContextTimeout(ctx, time.Second, 10*time.Second, false, func(ctx context.Context) (done bool, err error) {
+				diff = cmp.Diff(tc.wantPendingWorkloadsStatus, r.getWorkloadsStatus(cq), cmpopts.IgnoreFields(kueue.ClusterQueuePendingWorkloadsStatus{}, "LastChangeTime"))
+				return diff == "", nil
+			}); err != nil {
+				t.Fatalf("Failed to get snapshot computed, last diff=%s", diff)
 			}
 		})
 	}

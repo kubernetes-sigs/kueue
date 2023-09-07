@@ -562,19 +562,22 @@ func (r *ClusterQueueReconciler) getWorkloadsStatus(cq *kueue.ClusterQueue) *kue
 	if !r.isVisibilityEnabled() {
 		return nil
 	}
-	if r.shouldUpdatePendingWorkloadStatus(cq) {
+	if cq.Status.PendingWorkloadsStatus == nil {
 		return &kueue.ClusterQueuePendingWorkloadsStatus{
 			Head:           r.qManager.GetSnapshot(cq.Name),
 			LastChangeTime: metav1.Time{Time: time.Now()},
 		}
 	}
+	if time.Since(cq.Status.PendingWorkloadsStatus.LastChangeTime.Time) >= r.queueVisibilityUpdateInterval {
+		pendingWorkloads := r.qManager.GetSnapshot(cq.Name)
+		if !equality.Semantic.DeepEqual(cq.Status.PendingWorkloadsStatus.Head, pendingWorkloads) {
+			return &kueue.ClusterQueuePendingWorkloadsStatus{
+				Head:           pendingWorkloads,
+				LastChangeTime: metav1.Time{Time: time.Now()},
+			}
+		}
+	}
 	return cq.Status.PendingWorkloadsStatus
-}
-
-func (r *ClusterQueueReconciler) shouldUpdatePendingWorkloadStatus(cq *kueue.ClusterQueue) bool {
-	return cq.Status.PendingWorkloadsStatus == nil ||
-		(time.Since(cq.Status.PendingWorkloadsStatus.LastChangeTime.Time) >= r.queueVisibilityUpdateInterval &&
-			!equality.Semantic.DeepEqual(cq.Status.PendingWorkloadsStatus.Head, r.qManager.GetSnapshot(cq.Name)))
 }
 
 func (r *ClusterQueueReconciler) Start(ctx context.Context) error {
