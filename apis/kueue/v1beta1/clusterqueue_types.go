@@ -208,6 +208,31 @@ type ClusterQueueStatus struct {
 	// +patchStrategy=merge
 	// +patchMergeKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
+
+	// PendingWorkloadsStatus contains the information exposed about the current
+	// status of the pending workloads in the cluster queue.
+	// +optional
+	PendingWorkloadsStatus *ClusterQueuePendingWorkloadsStatus `json:"pendingWorkloadsStatus"`
+}
+
+type ClusterQueuePendingWorkloadsStatus struct {
+	// Head contains the list of top pending workloads.
+	// +listType=atomic
+	// +optional
+	Head []ClusterQueuePendingWorkload `json:"clusterQueuePendingWorkload"`
+
+	// LastChangeTime indicates the time of the last change of the structure.
+	LastChangeTime metav1.Time `json:"lastChangeTime"`
+}
+
+// ClusterQueuePendingWorkload contains the information identifying a pending workload
+// in the cluster queue.
+type ClusterQueuePendingWorkload struct {
+	// Name indicates the name of the pending workload.
+	Name string `json:"name"`
+
+	// Namespace indicates the name of the pending workload.
+	Namespace string `json:"namespace"`
 }
 
 type FlavorUsage struct {

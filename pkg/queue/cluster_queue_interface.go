@@ -92,6 +92,9 @@ type ClusterQueue interface {
 	// Otherwise returns true.
 	Dump() (sets.Set[string], bool)
 	DumpInadmissible() (sets.Set[string], bool)
+	// Snapshot returns a copy of the current workloads in the heap of
+	// this ClusterQueue.
+	Snapshot() []*workload.Info
 	// Info returns workload.Info for the workload key.
 	// Users of this method should not modify the returned object.
 	Info(string) *workload.Info

@@ -48,17 +48,22 @@ type Manager struct {
 	clusterQueues map[string]ClusterQueue
 	localQueues   map[string]*LocalQueue
 
+	snapshotsMutex sync.RWMutex
+	snapshots      map[string][]kueue.ClusterQueuePendingWorkload
+
 	// Key is cohort's name. Value is a set of associated ClusterQueue names.
 	cohorts map[string]sets.Set[string]
 }
 
 func NewManager(client client.Client, checker StatusChecker) *Manager {
 	m := &Manager{
-		client:        client,
-		statusChecker: checker,
-		localQueues:   make(map[string]*LocalQueue),
-		clusterQueues: make(map[string]ClusterQueue),
-		cohorts:       make(map[string]sets.Set[string]),
+		client:         client,
+		statusChecker:  checker,
+		localQueues:    make(map[string]*LocalQueue),
+		clusterQueues:  make(map[string]ClusterQueue),
+		cohorts:        make(map[string]sets.Set[string]),
+		snapshotsMutex: sync.RWMutex{},
+		snapshots:      make(map[string][]kueue.ClusterQueuePendingWorkload, 0),
 	}
 	m.cond.L = &m.RWMutex
 	return m
@@ -546,4 +551,59 @@ func (m *Manager) reportPendingWorkloads(cqName string, cq ClusterQueue) {
 		active = 0
 	}
 	metrics.ReportPendingWorkloads(cqName, active, inadmissible)
+}
+
+func (m *Manager) GetClusterQueueNames() []string {
+	m.RLock()
+	defer m.RUnlock()
+	clusterQueueNames := make([]string, 0, len(m.clusterQueues))
+	for k := range m.clusterQueues {
+		clusterQueueNames = append(clusterQueueNames, k)
+	}
+	return clusterQueueNames
+}
+
+func (m *Manager) getClusterQueue(cqName string) ClusterQueue {
+	m.RLock()
+	defer m.RUnlock()
+	return m.clusterQueues[cqName]
+}
+
+func (m *Manager) UpdateSnapshot(cqName string, maxCount int32) {
+	cq := m.getClusterQueue(cqName)
+	if cq == nil {
+		return
+	}
+	workloads := make([]kueue.ClusterQueuePendingWorkload, 0)
+	for index, info := range cq.Snapshot() {
+		if int32(index) >= maxCount {
+			break
+		}
+		if info == nil {
+			continue
+		}
+		workloads = append(workloads, kueue.ClusterQueuePendingWorkload{
+			Name:      info.Obj.Name,
+			Namespace: info.Obj.Namespace,
+		})
+	}
+	m.setSnapshot(cqName, workloads)
+}
+
+func (m *Manager) setSnapshot(cqName string, workloads []kueue.ClusterQueuePendingWorkload) {
+	m.snapshotsMutex.Lock()
+	defer m.snapshotsMutex.Unlock()
+	m.snapshots[cqName] = workloads
+}
+
+func (m *Manager) GetSnapshot(cqName string) []kueue.ClusterQueuePendingWorkload {
+	m.snapshotsMutex.RLock()
+	defer m.snapshotsMutex.RUnlock()
+	return m.snapshots[cqName]
+}
+
+func (m *Manager) DeleteSnapshot(cq *kueue.ClusterQueue) {
+	m.snapshotsMutex.Lock()
+	defer m.snapshotsMutex.Unlock()
+	delete(m.snapshots, cq.Name)
 }
