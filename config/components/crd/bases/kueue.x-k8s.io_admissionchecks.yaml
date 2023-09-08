@@ -35,8 +35,9 @@ spec:
             description: AdmissionCheckSpec defines the desired state of AdmissionCheck
             properties:
               controllerName:
-                description: ControllerName identifies the controller managing this
-                  condition.
+                description: controllerName is name of the controller which will actually
+                  perform the checks. This is the name with which controller identifies
+                  with, not necessarily a K8S Pod or Deployment name. Cannot be empty.
                 type: string
               parameters:
                 description: Parameters identifies the resource providing additional
@@ -57,10 +58,15 @@ spec:
                 - name
                 type: object
               retryDelayMinutes:
-                description: RetryDelayMinutes specifies the duration in minutes between
-                  two checks for the same workload.
+                default: 15
+                description: RetryDelayMinutes specifies how long to keep the workload
+                  suspended after a failed check (after it transitioned to False).
+                  After that the check state goes to "Unknown". The default is 15
+                  min.
                 format: int64
                 type: integer
+            required:
+            - controllerName
             type: object
           status:
             description: AdmissionCheckStatus defines the observed state of AdmissionCheck
