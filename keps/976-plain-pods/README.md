@@ -64,8 +64,8 @@ use of this API to implement queuing semantics for Pods.
 ### Goals
 
 - Support queueing of individual Pods.
-- Support queueing of groups of Pods of fixed size, identified by a common label or annotation.
-- Opt-in or opt-out Pods from specific namespaces from queuing.
+- Support queueing of groups of Pods of fixed size, identified by a common label.
+- Opt-in or opt-out Pods from specific namespaces from queueing.
 
 ### Non-Goals
 
@@ -106,8 +106,8 @@ nitty-gritty.
 
 #### Story 1
 
-As an platform developer, I can queue plain Pods. I just add a queue name to the Pods through a
-label.
+As an platform developer, I can queue plain Pods or Pods owned by an object not integrated with
+Kueue. I just add a queue name to the Pods through a label.
 
 ```yaml
 apiVersion: v1
@@ -294,8 +294,8 @@ We can use the following mitigations:
 
 1. Drop the unused managedFields field from the Pod spec, like kube-scheduler is doing
    https://github.com/kubernetes/kubernetes/pull/119556
-2. Filter out terminal Pods from informers, as they no longer influence quota usage
-   https://github.com/kubernetes/kubernetes/blob/99190634ab252604a4496882912ac328542d649d/pkg/scheduler/scheduler.go#L496
+2. Apply a selector in the informer to only keep the Pods that have the `kueue.x-k8s.io/managed: true`.
+   The webhook should still affect all Pods.
 
 #### Limited size for annotation values
 
@@ -433,9 +433,11 @@ scheduling. The list of fields to keep are:
   - `topologySpreadConstraints`
   - `overhead`
   - `volumes`
+  - `resourceClaims`
 
 A sha256 of the reamining Pod spec will be used as a name for a Workload podSet. The count for the
-podSet will be the number of Pods that match the same sha256.
+podSet will be the number of Pods that match the same sha256. The hash will be calculated by the
+webhook and stored as an annotation: `kueue.x-k8s.io/role-hash`.
 
 We can only build the Workload object once we observe the number of Pods defined by the
 `kueue.x-k8s.io/pod-group-total-count` annotation.
@@ -480,7 +482,8 @@ spec:
 
 **Caveats:**
 
-If the number of different sha256s obtained from the groups of Pods, Workload creation will fail.
+If the number of different sha256s obtained from the groups of Pods is greater than 8,
+Workload creation will fail.
 This generally shouldn't be a problem, unless multiple Pods (that should be considered the same
 from an admission perspective) have different label values or reference different volume claims.
 
