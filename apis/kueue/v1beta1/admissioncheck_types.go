@@ -74,7 +74,9 @@ type AdmissionCheckParametersReference struct {
 type AdmissionCheckStatus struct {
 }
 
+//+genclient
 //+kubebuilder:object:root=true
+//+kubebuilder:storageversion
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:scope=Cluster
 
