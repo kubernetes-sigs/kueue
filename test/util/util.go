@@ -36,6 +36,15 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
+func DeleteAdmissionCheck(ctx context.Context, c client.Client, ac *kueue.AdmissionCheck) error {
+	if ac != nil {
+		if err := c.Delete(ctx, ac); err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+	}
+	return nil
+}
+
 func DeleteWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) error {
 	if wl != nil {
 		if err := c.Delete(ctx, wl); err != nil && !apierrors.IsNotFound(err) {
@@ -275,6 +284,16 @@ func ExpectClusterQueueStatusMetric(cq *kueue.ClusterQueue, status metrics.Clust
 			return v
 		}, Timeout, Interval).Should(gomega.Equal(wantV), "cluster_queue_status with status=%s", s)
 	}
+}
+
+func ExpectAdmissionCheckToBeDeleted(ctx context.Context, k8sClient client.Client, ac *kueue.AdmissionCheck, deleteAC bool) {
+	if deleteAC {
+		gomega.Expect(DeleteAdmissionCheck(ctx, k8sClient, ac)).NotTo(gomega.HaveOccurred())
+	}
+	gomega.EventuallyWithOffset(1, func() error {
+		var newAC kueue.AdmissionCheck
+		return k8sClient.Get(ctx, client.ObjectKeyFromObject(ac), &newAC)
+	}, Timeout, Timeout).Should(testing.BeNotFoundError())
 }
 
 func ExpectClusterQueueToBeDeleted(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, deleteCq bool) {
