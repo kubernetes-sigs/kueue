@@ -27,6 +27,7 @@ import (
 
 type KueueV1beta1Interface interface {
 	RESTClient() rest.Interface
+	AdmissionChecksGetter
 	ClusterQueuesGetter
 	LocalQueuesGetter
 	ResourceFlavorsGetter
@@ -36,6 +37,10 @@ type KueueV1beta1Interface interface {
 // KueueV1beta1Client is used to interact with features provided by the kueue.x-k8s.io group.
 type KueueV1beta1Client struct {
 	restClient rest.Interface
+}
+
+func (c *KueueV1beta1Client) AdmissionChecks(namespace string) AdmissionCheckInterface {
+	return newAdmissionChecks(c, namespace)
 }
 
 func (c *KueueV1beta1Client) ClusterQueues(namespace string) ClusterQueueInterface {

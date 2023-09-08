@@ -27,6 +27,10 @@ type FakeKueueV1beta1 struct {
 	*testing.Fake
 }
 
+func (c *FakeKueueV1beta1) AdmissionChecks(namespace string) v1beta1.AdmissionCheckInterface {
+	return &FakeAdmissionChecks{c, namespace}
+}
+
 func (c *FakeKueueV1beta1) ClusterQueues(namespace string) v1beta1.ClusterQueueInterface {
 	return &FakeClusterQueues{c, namespace}
 }

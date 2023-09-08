@@ -30,6 +30,12 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 	// Group=kueue.x-k8s.io, Version=v1beta1
 	case v1beta1.SchemeGroupVersion.WithKind("Admission"):
 		return &kueuev1beta1.AdmissionApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("AdmissionCheck"):
+		return &kueuev1beta1.AdmissionCheckApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("AdmissionCheckParametersReference"):
+		return &kueuev1beta1.AdmissionCheckParametersReferenceApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("AdmissionCheckSpec"):
+		return &kueuev1beta1.AdmissionCheckSpecApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ClusterQueue"):
 		return &kueuev1beta1.ClusterQueueApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ClusterQueuePendingWorkload"):
