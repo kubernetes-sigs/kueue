@@ -1,6 +1,16 @@
-{{ $file := .Get 0 }}
-[{{$file}}]({{printf "/examples/%s" $file}})
-{{ $path := (printf "static/examples/%s" $file)}}
-```{{ .Get 1 }}
+{{ $file := .Get "filename" }}
+{{ $codelang := .Get "codelang"}}
+{{ $path := (printf "static/examples/%s/%s" $codelang $file )}}
+{{$ghlink := printf "/examples/%s/%s" $codelang $file}}
+
+<button type="button" class="btn btn-outline-light">
+    <a href="{{$ghlink}}" download="{{$file}}">
+        <i class="fa-solid fa-file-arrow-down"></i>
+        {{$file}}
+    </a>
+</button>
+
+```{{ $codelang }}
 {{ readFile $path | replaceRE "^---[\\s\\S]+?---" "" | safeHTML }}
 ```
+
