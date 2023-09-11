@@ -20,7 +20,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -47,10 +46,6 @@ var (
 
 func (j *Pod) Object() client.Object {
 	return (*corev1.Pod)(j)
-}
-
-func fromObject(o runtime.Object) *Pod {
-	return (*Pod)(o.(*corev1.Pod))
 }
 
 func (j *Pod) IsSuspended() bool {
