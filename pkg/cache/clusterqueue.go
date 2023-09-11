@@ -159,7 +159,7 @@ func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.
 
 	c.Usage = usedFlavorResources
 	c.UpdateWithFlavors(resourceFlavors)
-	c.UpdateWithAdmissionChecks(admissionChecks)
+	c.updateWithAdmissionChecks(admissionChecks)
 
 	if in.Spec.Preemption != nil {
 		c.Preemption = *in.Spec.Preemption
@@ -275,8 +275,8 @@ func (c *ClusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference
 	return flavorNotFound
 }
 
-// UpdateWithAdmissionChecks updates a ClusterQueue based on the passed AdmissionChecks set.
-func (c *ClusterQueue) UpdateWithAdmissionChecks(checks sets.Set[string]) {
+// updateWithAdmissionChecks updates a ClusterQueue based on the passed AdmissionChecks set.
+func (c *ClusterQueue) updateWithAdmissionChecks(checks sets.Set[string]) {
 	hasMissing := false
 	for ac := range c.admissionChecks {
 		if !checks.Has(ac) {

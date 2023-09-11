@@ -32,6 +32,10 @@ type notFoundErrorMatch struct {
 }
 
 func (matcher *notFoundErrorMatch) Match(actual interface{}) (success bool, err error) {
+	if actual == nil {
+		return false, nil
+	}
+
 	err, ok := actual.(error)
 	if !ok {
 		return false, fmt.Errorf("NotFoundError expects an error")

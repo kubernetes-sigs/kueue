@@ -2623,3 +2623,167 @@ func messageOrEmpty(err error) string {
 	}
 	return err.Error()
 }
+
+func TestClusterQueuesUsingAdmissionChecks(t *testing.T) {
+	admissionCheck1 := utiltesting.MakeAdmissionCheck("ac1").Obj()
+	admissionCheck2 := utiltesting.MakeAdmissionCheck("ac2").Obj()
+	fooCq := utiltesting.MakeClusterQueue("fooCq").
+		AdmissionChecks(admissionCheck1.Name).
+		Obj()
+	barCq := utiltesting.MakeClusterQueue("barCq").Obj()
+	fizzCq := utiltesting.MakeClusterQueue("fizzCq").
+		AdmissionChecks(admissionCheck1.Name, admissionCheck2.Name).
+		Obj()
+
+	cases := map[string]struct {
+		clusterQueues              []*kueue.ClusterQueue
+		wantInUseClusterQueueNames []string
+	}{
+		"single clusterQueue with check in use": {
+			clusterQueues: []*kueue.ClusterQueue{
+				fooCq,
+			},
+			wantInUseClusterQueueNames: []string{fooCq.Name},
+		},
+		"single clusterQueue with no checks": {
+			clusterQueues: []*kueue.ClusterQueue{
+				barCq,
+			},
+		},
+		"multiple clusterQueues with checks in use": {
+			clusterQueues: []*kueue.ClusterQueue{
+				fooCq,
+				barCq,
+				fizzCq,
+			},
+			wantInUseClusterQueueNames: []string{fooCq.Name, fizzCq.Name},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cache := New(utiltesting.NewFakeClient())
+			cache.AddOrUpdateAdmissionCheck(admissionCheck1)
+			cache.AddOrUpdateAdmissionCheck(admissionCheck2)
+
+			for _, cq := range tc.clusterQueues {
+				if err := cache.AddClusterQueue(context.Background(), cq); err != nil {
+					t.Errorf("failed to add clusterQueue %s", cq.Name)
+				}
+			}
+
+			cqs := cache.ClusterQueuesUsingAdmissionCheck(admissionCheck1.Name)
+			if diff := cmp.Diff(tc.wantInUseClusterQueueNames, cqs, cmpopts.SortSlices(func(a, b string) bool {
+				return a < b
+			})); len(diff) != 0 {
+				t.Errorf("Unexpected flavor is in use by clusterQueues (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestClusterQueueRediness(t *testing.T) {
+
+	baseFalvor := utiltesting.MakeResourceFlavor("flavor1").Obj()
+	baseCheck := utiltesting.MakeAdmissionCheck("check1").Obj()
+	baseQueue := utiltesting.MakeClusterQueue("queue1").
+		ResourceGroup(
+			*utiltesting.MakeFlavorQuotas(baseFalvor.Name).
+				Resource(corev1.ResourceCPU, "10", "10").Obj()).
+		AdmissionChecks(baseCheck.Name).
+		Obj()
+
+	cases := map[string]struct {
+		queues      []*kueue.ClusterQueue
+		flavors     []*kueue.ResourceFlavor
+		checks      []*kueue.AdmissionCheck
+		queueName   string
+		terminate   bool
+		wantStatus  metav1.ConditionStatus
+		wantReason  string
+		wantMessage string
+	}{
+		"queue not found": {
+			queueName:   "queue1",
+			wantStatus:  metav1.ConditionFalse,
+			wantReason:  "NotFound",
+			wantMessage: "Cluster queue not found",
+		},
+		"flavor not found": {
+			queues:      []*kueue.ClusterQueue{baseQueue},
+			checks:      []*kueue.AdmissionCheck{baseCheck},
+			queueName:   "queue1",
+			wantStatus:  metav1.ConditionFalse,
+			wantReason:  "FlavorNotFound",
+			wantMessage: "Can't admit new workloads; some flavors are not found",
+		},
+		"check not found": {
+			queues:      []*kueue.ClusterQueue{baseQueue},
+			flavors:     []*kueue.ResourceFlavor{baseFalvor},
+			queueName:   "queue1",
+			wantStatus:  metav1.ConditionFalse,
+			wantReason:  "CheckNotFound",
+			wantMessage: "Can't admit new workloads; some admission checks are not found",
+		},
+		"flavor and check not found": {
+			queues:      []*kueue.ClusterQueue{baseQueue},
+			queueName:   "queue1",
+			wantStatus:  metav1.ConditionFalse,
+			wantReason:  "FlavorAndCheckNotFound",
+			wantMessage: "Can't admit new workloads; some flavors and admission checks are not found",
+		},
+		"terminating": {
+			queues:      []*kueue.ClusterQueue{baseQueue},
+			checks:      []*kueue.AdmissionCheck{baseCheck},
+			flavors:     []*kueue.ResourceFlavor{baseFalvor},
+			queueName:   "queue1",
+			terminate:   true,
+			wantStatus:  metav1.ConditionFalse,
+			wantReason:  "Terminating",
+			wantMessage: "Can't admit new workloads; clusterQueue is terminating",
+		},
+		"ready": {
+			queues:      []*kueue.ClusterQueue{baseQueue},
+			checks:      []*kueue.AdmissionCheck{baseCheck},
+			flavors:     []*kueue.ResourceFlavor{baseFalvor},
+			queueName:   "queue1",
+			wantStatus:  metav1.ConditionTrue,
+			wantReason:  "Ready",
+			wantMessage: "Can admit new workloads",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cache := New(utiltesting.NewFakeClient())
+			for _, rf := range tc.flavors {
+				cache.AddOrUpdateResourceFlavor(rf)
+			}
+			for _, ac := range tc.checks {
+				cache.AddOrUpdateAdmissionCheck(ac)
+			}
+			for _, cq := range tc.queues {
+				if err := cache.AddClusterQueue(context.Background(), cq); err != nil {
+					t.Errorf("failed to add clusterQueue %s", cq.Name)
+				}
+			}
+
+			if tc.terminate {
+				cache.TerminateClusterQueue(tc.queueName)
+			}
+
+			gotStatus, gotReason, gotMessage := cache.ClusterQueueReadiness(tc.queueName)
+
+			if diff := cmp.Diff(tc.wantStatus, gotStatus); len(diff) != 0 {
+				t.Errorf("Unexpected status (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantReason, gotReason); len(diff) != 0 {
+				t.Errorf("Unexpected reason (-want,+got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tc.wantMessage, gotMessage); len(diff) != 0 {
+				t.Errorf("Unexpected message (-want,+got):\n%s", diff)
+			}
+
+		})
+	}
+}

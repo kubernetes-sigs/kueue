@@ -149,7 +149,6 @@ func (r *AdmissionCheckReconciler) Update(e event.UpdateEvent) bool {
 
 func (r *AdmissionCheckReconciler) Delete(e event.DeleteEvent) bool {
 	ac, isAc := e.Object.(*kueue.AdmissionCheck)
-
 	if !isAc {
 		return false
 	}
@@ -168,7 +167,7 @@ func (r *AdmissionCheckReconciler) Generic(e event.GenericEvent) bool {
 }
 
 func (r *AdmissionCheckReconciler) NotifyClusterQueueUpdate(oldCq *kueue.ClusterQueue, newCq *kueue.ClusterQueue) {
-	log := r.log.WithValues("oldCq", klog.KObj(oldCq), "newCq", klog.KObj(newCq))
+	log := r.log.WithValues("oldClusterQueue", klog.KObj(oldCq), "newClusterQueue", klog.KObj(newCq))
 	log.V(5).Info("Cluster queue notification")
 	noChange := newCq != nil && oldCq != nil && slices.CmpNoOrder(oldCq.Spec.AdmissionChecks, newCq.Spec.AdmissionChecks)
 	if noChange {
@@ -199,10 +198,7 @@ func (h *acCqHandler) Delete(context.Context, event.DeleteEvent, workqueue.RateL
 
 func (h *acCqHandler) Generic(ctx context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
 	cq := e.Object.(*kueue.ClusterQueue)
-	if cq.Name == "" {
-		return
-	}
-	log := log.FromContext(ctx).WithValues("cq", klog.KObj(cq))
+	log := log.FromContext(ctx).WithValues("clusterQueue", klog.KObj(cq))
 	log.V(6).Info("Cluster queue generic event")
 
 	for _, ac := range cq.Spec.AdmissionChecks {

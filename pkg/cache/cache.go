@@ -194,7 +194,7 @@ func (c *Cache) updateClusterQueues() sets.Set[string] {
 		// because it is not expensive to do so, and is not worth tracking which ClusterQueues use
 		// which flavors.
 		cq.UpdateWithFlavors(c.resourceFlavors)
-		cq.UpdateWithAdmissionChecks(c.admissionChecks)
+		cq.updateWithAdmissionChecks(c.admissionChecks)
 		curStatus := cq.Status
 		if prevStatus == pending && curStatus == active {
 			cqs.Insert(cq.Name)
