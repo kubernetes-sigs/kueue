@@ -295,7 +295,8 @@ We can use the following mitigations:
 1. Drop the unused managedFields field from the Pod spec, like kube-scheduler is doing
    https://github.com/kubernetes/kubernetes/pull/119556
 2. Apply a selector in the informer to only keep the Pods that have the `kueue.x-k8s.io/managed: true`.
-   The webhook should still affect all Pods.
+3. Users can configure the webhook to only apply to certain namespaces. By default, the webhook
+   won't apply to the kube-system and kueue-system namespaces.
 
 #### Limited size for annotation values
 
