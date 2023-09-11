@@ -41,6 +41,7 @@ type Pod corev1.Pod
 
 var (
 	_ jobframework.GenericJob           = (*Pod)(nil)
+	_ jobframework.JobWithCustomStop    = (*Pod)(nil)
 	_ jobframework.JobWithPriorityClass = (*Pod)(nil)
 )
 
@@ -62,10 +63,14 @@ func (j *Pod) IsActive() bool {
 }
 
 func (p *Pod) Suspend() {
-	if p.Labels == nil {
-		p.Labels = make(map[string]string)
+	// Not used, see Stop()
+}
+
+func (p *Pod) Stop(ctx context.Context, c client.Client, podSetInfos []jobframework.PodSetInfo) (bool, error) {
+	if err := client.IgnoreNotFound(c.Delete(ctx, p.Object())); err != nil {
+		return false, err
 	}
-	p.Labels[deletionLabelKey] = deletionPendingLabelValue
+	return true, nil
 }
 
 func (j *Pod) GVK() schema.GroupVersionKind {

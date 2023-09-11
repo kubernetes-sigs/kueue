@@ -46,13 +46,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := (&controller.PodDeleter{
-		Client: mgr.GetClient(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "Unable to create Pod (deletion) controller")
-		os.Exit(1)
-	}
-
 	if err = controller.NewReconciler(
 		mgr.GetClient(),
 		mgr.GetEventRecorderFor("backfill-kueue-controller"),
