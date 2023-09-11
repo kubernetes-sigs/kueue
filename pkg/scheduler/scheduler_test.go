@@ -32,7 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -216,7 +216,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("10000m"),
 							},
-							Count: pointer.Int32(10),
+							Count: ptr.To[int32](10),
 						},
 					},
 				},
@@ -249,7 +249,7 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("one", 40).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					Admit(utiltesting.MakeAdmission("sales", "one").Assignment(corev1.ResourceCPU, "default", "40000m").AssignmentPodCount(40).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("sales", "one").Assignment(corev1.ResourceCPU, "default", "40000m").AssignmentPodCount(40).Obj()).
 					Obj(),
 			},
 			wantAssignments: map[string]kueue.Admission{
@@ -264,7 +264,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
-							Count: pointer.Int32(40),
+							Count: ptr.To[int32](40),
 						},
 					},
 				},
@@ -313,7 +313,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("1000m"),
 							},
-							Count: pointer.Int32(1),
+							Count: ptr.To[int32](1),
 						},
 					},
 				},
@@ -328,7 +328,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("51000m"),
 							},
-							Count: pointer.Int32(51),
+							Count: ptr.To[int32](51),
 						},
 					},
 				},
@@ -362,7 +362,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
-							Count: pointer.Int32(40),
+							Count: ptr.To[int32](40),
 						},
 					},
 				},
@@ -377,7 +377,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
-							Count: pointer.Int32(40),
+							Count: ptr.To[int32](40),
 						},
 					},
 				},
@@ -413,7 +413,7 @@ func TestSchedule(t *testing.T) {
 								corev1.ResourceCPU: resource.MustParse("60000m"),
 								"example.com/gpu":  resource.MustParse("10"),
 							},
-							Count: pointer.Int32(10),
+							Count: ptr.To[int32](10),
 						},
 						{
 							Name: "two",
@@ -423,24 +423,24 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("40000m"),
 							},
-							Count: pointer.Int32(40),
+							Count: ptr.To[int32](40),
 						},
 					},
 				},
 			},
 			wantScheduled: []string{"eng-beta/new"},
 		},
-		"cannot borrow if cohort was assigned": {
+		"cannot borrow if cohort was assigned and would result in overadmission": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("new", "eng-alpha").
 					Queue("main").
-					PodSets(*utiltesting.MakePodSet("one", 40).
+					PodSets(*utiltesting.MakePodSet("one", 45).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("new", "eng-beta").
 					Queue("main").
-					PodSets(*utiltesting.MakePodSet("one", 51).
+					PodSets(*utiltesting.MakePodSet("one", 56).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					Obj(),
@@ -455,9 +455,9 @@ func TestSchedule(t *testing.T) {
 								corev1.ResourceCPU: "on-demand",
 							},
 							ResourceUsage: corev1.ResourceList{
-								corev1.ResourceCPU: resource.MustParse("40000m"),
+								corev1.ResourceCPU: resource.MustParse("45000m"),
 							},
-							Count: pointer.Int32(40),
+							Count: ptr.To[int32](45),
 						},
 					},
 				},
@@ -467,7 +467,56 @@ func TestSchedule(t *testing.T) {
 				"eng-beta": sets.New("eng-beta/new"),
 			},
 		},
-		"cannot borrow if needs reclaim from cohort": {
+		"can borrow if cohort was assigned and will not result in overadmission": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "eng-alpha").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 45).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("new", "eng-beta").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 55).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"eng-alpha/new": {
+					ClusterQueue: "eng-alpha",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						{
+							Name: "one",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "on-demand",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("45000m"),
+							},
+							Count: ptr.To[int32](45),
+						},
+					},
+				},
+				"eng-beta/new": {
+					ClusterQueue: "eng-beta",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						{
+							Name: "one",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "on-demand",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("55000m"),
+							},
+							Count: ptr.To[int32](55),
+						},
+					},
+				},
+			},
+			wantScheduled: []string{"eng-alpha/new", "eng-beta/new"},
+		},
+		"can borrow if needs reclaim from cohort in different flavor": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("can-reclaim", "eng-alpha").
 					Queue("main").
@@ -479,20 +528,23 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 				*utiltesting.MakeWorkload("user-on-demand", "eng-beta").
 					Request(corev1.ResourceCPU, "50").
-					Admit(utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "on-demand", "50000m").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "on-demand", "50000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("user-spot", "eng-beta").
 					Request(corev1.ResourceCPU, "1").
-					Admit(utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "spot", "1000m").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "spot", "1000m").Obj()).
 					Obj(),
 			},
 			wantLeft: map[string]sets.Set[string]{
 				"eng-alpha": sets.New("eng-alpha/can-reclaim"),
-				"eng-beta":  sets.New("eng-beta/needs-to-borrow"),
 			},
 			wantAssignments: map[string]kueue.Admission{
-				"eng-beta/user-spot":      *utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "spot", "1000m").Obj(),
-				"eng-beta/user-on-demand": *utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "on-demand", "50000m").Obj(),
+				"eng-beta/user-spot":       *utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "spot", "1000m").Obj(),
+				"eng-beta/user-on-demand":  *utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "on-demand", "50000m").Obj(),
+				"eng-beta/needs-to-borrow": *utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj(),
+			},
+			wantScheduled: []string{
+				"eng-beta/needs-to-borrow",
 			},
 		},
 		"preempt workloads in ClusterQueue and cohort": {
@@ -503,21 +555,21 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 				*utiltesting.MakeWorkload("use-all-spot", "eng-alpha").
 					Request(corev1.ResourceCPU, "100").
-					Admit(utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "spot", "100000m").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "spot", "100000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("low-1", "eng-beta").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "30").
-					Admit(utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "on-demand", "30000m").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "on-demand", "30000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("low-2", "eng-beta").
 					Priority(-2).
 					Request(corev1.ResourceCPU, "10").
-					Admit(utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "on-demand", "10000m").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "on-demand", "10000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("borrower", "eng-alpha").
 					Request(corev1.ResourceCPU, "60").
-					Admit(utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "60000m").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "60000m").Obj()).
 					Obj(),
 			},
 			wantLeft: map[string]sets.Set[string]{
@@ -556,7 +608,7 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("one", 45).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
-					Admit(utiltesting.MakeAdmission("eng-beta", "one").Assignment(corev1.ResourceCPU, "on-demand", "45000m").AssignmentPodCount(45).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-beta", "one").Assignment(corev1.ResourceCPU, "on-demand", "45000m").AssignmentPodCount(45).Obj()).
 					Obj(),
 			},
 			wantAssignments: map[string]kueue.Admission{
@@ -571,7 +623,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("60000m"),
 							},
-							Count: pointer.Int32(60),
+							Count: ptr.To[int32](60),
 						},
 					},
 				},
@@ -586,7 +638,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("45000m"),
 							},
-							Count: pointer.Int32(45),
+							Count: ptr.To[int32](45),
 						},
 					},
 				},
@@ -612,23 +664,30 @@ func TestSchedule(t *testing.T) {
 				"flavor-nonexistent-cq": sets.New("sales/foo"),
 			},
 		},
-		"only one workload is admitted in a cohort while borrowing": {
+		"no overadmission while borrowing": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("new", "eng-beta").
 					Queue("main").
-					Creation(time.Now().Add(-time.Second)).
+					Creation(time.Now().Add(-2 * time.Second)).
 					PodSets(*utiltesting.MakePodSet("one", 50).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					Obj(),
-				*utiltesting.MakeWorkload("new-gamma", "eng-beta").
-					Queue("gamma").
+				*utiltesting.MakeWorkload("new-alpha", "eng-alpha").
+					Queue("main").
+					Creation(time.Now().Add(-time.Second)).
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("new-gamma", "eng-gamma").
+					Queue("main").
 					Creation(time.Now()).
 					PodSets(*utiltesting.MakePodSet("one", 50).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					Obj(),
-				*utiltesting.MakeWorkload("existing", "eng-alpha").
+				*utiltesting.MakeWorkload("existing", "eng-gamma").
 					PodSets(
 						*utiltesting.MakePodSet("borrow-on-demand", 51).
 							Request(corev1.ResourceCPU, "1").
@@ -637,7 +696,7 @@ func TestSchedule(t *testing.T) {
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
-					Admit(utiltesting.MakeAdmission("eng-alpha").
+					ReserveQuota(utiltesting.MakeAdmission("eng-gamma").
 						PodSets(
 							kueue.PodSetAssignment{
 								Name: "borrow-on-demand",
@@ -647,7 +706,7 @@ func TestSchedule(t *testing.T) {
 								ResourceUsage: corev1.ResourceList{
 									corev1.ResourceCPU: resource.MustParse("51"),
 								},
-								Count: pointer.Int32(51),
+								Count: ptr.To[int32](51),
 							},
 							kueue.PodSetAssignment{
 								Name: "use-all-spot",
@@ -657,7 +716,7 @@ func TestSchedule(t *testing.T) {
 								ResourceUsage: corev1.ResourceList{
 									corev1.ResourceCPU: resource.MustParse("100"),
 								},
-								Count: pointer.Int32(100),
+								Count: ptr.To[int32](100),
 							},
 						).
 						Obj()).
@@ -673,14 +732,16 @@ func TestSchedule(t *testing.T) {
 					ResourceGroup(
 						*utiltesting.MakeFlavorQuotas("on-demand").
 							Resource(corev1.ResourceCPU, "50", "10").Obj(),
+						*utiltesting.MakeFlavorQuotas("spot").
+							Resource(corev1.ResourceCPU, "0", "100").Obj(),
 					).
 					Obj(),
 			},
 			additionalLocalQueues: []kueue.LocalQueue{
 				{
 					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "eng-beta",
-						Name:      "gamma",
+						Namespace: "eng-gamma",
+						Name:      "main",
 					},
 					Spec: kueue.LocalQueueSpec{
 						ClusterQueue: "eng-gamma",
@@ -688,7 +749,7 @@ func TestSchedule(t *testing.T) {
 				},
 			},
 			wantAssignments: map[string]kueue.Admission{
-				"eng-alpha/existing": *utiltesting.MakeAdmission("eng-alpha").
+				"eng-gamma/existing": *utiltesting.MakeAdmission("eng-gamma").
 					PodSets(
 						kueue.PodSetAssignment{
 							Name: "borrow-on-demand",
@@ -698,7 +759,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("51"),
 							},
-							Count: pointer.Int32(51),
+							Count: ptr.To[int32](51),
 						},
 						kueue.PodSetAssignment{
 							Name: "use-all-spot",
@@ -708,14 +769,15 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("100"),
 							},
-							Count: pointer.Int32(100),
+							Count: ptr.To[int32](100),
 						},
 					).Obj(),
-				"eng-beta/new": *utiltesting.MakeAdmission("eng-beta", "one").Assignment(corev1.ResourceCPU, "on-demand", "50").AssignmentPodCount(50).Obj(),
+				"eng-beta/new":        *utiltesting.MakeAdmission("eng-beta", "one").Assignment(corev1.ResourceCPU, "on-demand", "50").AssignmentPodCount(50).Obj(),
+				"eng-alpha/new-alpha": *utiltesting.MakeAdmission("eng-alpha", "one").Assignment(corev1.ResourceCPU, "on-demand", "1").AssignmentPodCount(1).Obj(),
 			},
-			wantScheduled: []string{"eng-beta/new"},
+			wantScheduled: []string{"eng-beta/new", "eng-alpha/new-alpha"},
 			wantLeft: map[string]sets.Set[string]{
-				"eng-gamma": sets.New("eng-beta/new-gamma"),
+				"eng-gamma": sets.New("eng-gamma/new-gamma"),
 			},
 		},
 		"partial admission single variable pod set": {
@@ -740,7 +802,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("50000m"),
 							},
-							Count: pointer.Int32(25),
+							Count: ptr.To[int32](25),
 						},
 					},
 				},
@@ -763,7 +825,7 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("one", 10).
 						Request("example.com/gpu", "1").
 						Obj()).
-					Admit(utiltesting.MakeAdmission("eng-beta", "one").Assignment("example.com/gpu", "model-a", "10").AssignmentPodCount(10).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-beta", "one").Assignment("example.com/gpu", "model-a", "10").AssignmentPodCount(10).Obj()).
 					Obj(),
 			},
 			wantAssignments: map[string]kueue.Admission{
@@ -778,7 +840,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								"example.com/gpu": resource.MustParse("10"),
 							},
-							Count: pointer.Int32(10),
+							Count: ptr.To[int32](10),
 						},
 					},
 				},
@@ -820,7 +882,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("20000m"),
 							},
-							Count: pointer.Int32(20),
+							Count: ptr.To[int32](20),
 						},
 						{
 							Name: "two",
@@ -830,7 +892,7 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("20000m"),
 							},
-							Count: pointer.Int32(20),
+							Count: ptr.To[int32](20),
 						},
 						{
 							Name: "three",
@@ -840,13 +902,118 @@ func TestSchedule(t *testing.T) {
 							ResourceUsage: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("10000m"),
 							},
-							Count: pointer.Int32(10),
+							Count: ptr.To[int32](10),
 						},
 					},
 				},
 			},
 			wantScheduled:          []string{"sales/new"},
 			enablePartialAdmission: true,
+		},
+		"two workloads can borrow different resources from the same flavor in the same cycle": {
+			additionalClusterQueues: func() []kueue.ClusterQueue {
+				preemption := kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				}
+				rg := *utiltesting.MakeFlavorQuotas("default").Resource("r1", "10", "10").Resource("r2", "10", "10").Obj()
+				cq1 := *utiltesting.MakeClusterQueue("cq1").Cohort("co").Preemption(preemption).ResourceGroup(rg).Obj()
+				cq2 := *utiltesting.MakeClusterQueue("cq2").Cohort("co").Preemption(preemption).ResourceGroup(rg).Obj()
+				cq3 := *utiltesting.MakeClusterQueue("cq3").Cohort("co").Preemption(preemption).ResourceGroup(rg).Obj()
+				return []kueue.ClusterQueue{cq1, cq2, cq3}
+			}(),
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("lq1", "sales").ClusterQueue("cq1").Obj(),
+				*utiltesting.MakeLocalQueue("lq2", "sales").ClusterQueue("cq2").Obj(),
+				*utiltesting.MakeLocalQueue("lq3", "sales").ClusterQueue("cq3").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("wl1", "sales").Queue("lq1").Priority(-1).PodSets(
+					*utiltesting.MakePodSet("main", 1).Request("r1", "16").Obj(),
+				).Obj(),
+				*utiltesting.MakeWorkload("wl2", "sales").Queue("lq2").Priority(-2).PodSets(
+					*utiltesting.MakePodSet("main", 1).Request("r2", "16").Obj(),
+				).Obj(),
+			},
+			wantScheduled: []string{"sales/wl1", "sales/wl2"},
+			wantAssignments: map[string]kueue.Admission{
+				"sales/wl1": *utiltesting.MakeAdmission("cq1", "main").
+					Assignment("r1", "default", "16").AssignmentPodCount(1).
+					Obj(),
+				"sales/wl2": *utiltesting.MakeAdmission("cq2", "main").
+					Assignment("r2", "default", "16").AssignmentPodCount(1).
+					Obj(),
+			},
+		},
+		"two workloads can borrow the same resources from the same flavor in the same cycle if fits in the cohort quota": {
+			additionalClusterQueues: func() []kueue.ClusterQueue {
+				preemption := kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				}
+				rg := *utiltesting.MakeFlavorQuotas("default").Resource("r1", "10", "10").Resource("r2", "10", "10").Obj()
+				cq1 := *utiltesting.MakeClusterQueue("cq1").Cohort("co").Preemption(preemption).ResourceGroup(rg).Obj()
+				cq2 := *utiltesting.MakeClusterQueue("cq2").Cohort("co").Preemption(preemption).ResourceGroup(rg).Obj()
+				cq3 := *utiltesting.MakeClusterQueue("cq3").Cohort("co").Preemption(preemption).ResourceGroup(rg).Obj()
+				return []kueue.ClusterQueue{cq1, cq2, cq3}
+			}(),
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("lq1", "sales").ClusterQueue("cq1").Obj(),
+				*utiltesting.MakeLocalQueue("lq2", "sales").ClusterQueue("cq2").Obj(),
+				*utiltesting.MakeLocalQueue("lq3", "sales").ClusterQueue("cq3").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("wl1", "sales").Queue("lq1").Priority(-1).PodSets(
+					*utiltesting.MakePodSet("main", 1).Request("r1", "16").Obj(),
+				).Obj(),
+				*utiltesting.MakeWorkload("wl2", "sales").Queue("lq2").Priority(-2).PodSets(
+					*utiltesting.MakePodSet("main", 1).Request("r1", "14").Obj(),
+				).Obj(),
+			},
+			wantScheduled: []string{"sales/wl1", "sales/wl2"},
+			wantAssignments: map[string]kueue.Admission{
+				"sales/wl1": *utiltesting.MakeAdmission("cq1", "main").
+					Assignment("r1", "default", "16").AssignmentPodCount(1).
+					Obj(),
+				"sales/wl2": *utiltesting.MakeAdmission("cq2", "main").
+					Assignment("r1", "default", "14").AssignmentPodCount(1).
+					Obj(),
+			},
+		},
+		"only one workload can borrow one resources from the same flavor in the same cycle if cohort quota cannot fit": {
+			additionalClusterQueues: func() []kueue.ClusterQueue {
+				preemption := kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				}
+				rg := *utiltesting.MakeFlavorQuotas("default").Resource("r1", "10", "10").Resource("r2", "10", "10").Obj()
+				cq1 := *utiltesting.MakeClusterQueue("cq1").Cohort("co").Preemption(preemption).ResourceGroup(rg).Obj()
+				cq2 := *utiltesting.MakeClusterQueue("cq2").Cohort("co").Preemption(preemption).ResourceGroup(rg).Obj()
+				cq3 := *utiltesting.MakeClusterQueue("cq3").Cohort("co").Preemption(preemption).ResourceGroup(rg).Obj()
+				return []kueue.ClusterQueue{cq1, cq2, cq3}
+			}(),
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltesting.MakeLocalQueue("lq1", "sales").ClusterQueue("cq1").Obj(),
+				*utiltesting.MakeLocalQueue("lq2", "sales").ClusterQueue("cq2").Obj(),
+				*utiltesting.MakeLocalQueue("lq3", "sales").ClusterQueue("cq3").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("wl1", "sales").Queue("lq1").Priority(-1).PodSets(
+					*utiltesting.MakePodSet("main", 1).Request("r1", "16").Obj(),
+				).Obj(),
+				*utiltesting.MakeWorkload("wl2", "sales").Queue("lq2").Priority(-2).PodSets(
+					*utiltesting.MakePodSet("main", 1).Request("r1", "16").Obj(),
+				).Obj(),
+			},
+			wantScheduled: []string{"sales/wl1"},
+			wantAssignments: map[string]kueue.Admission{
+				"sales/wl1": *utiltesting.MakeAdmission("cq1", "main").
+					Assignment("r1", "default", "16").AssignmentPodCount(1).
+					Obj(),
+			},
+			wantLeft: map[string]sets.Set[string]{
+				"cq2": sets.New("sales/wl2"),
+			},
 		},
 	}
 
@@ -866,6 +1033,7 @@ func TestSchedule(t *testing.T) {
 				WithObjects(
 					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-alpha", Labels: map[string]string{"dep": "eng"}}},
 					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-beta", Labels: map[string]string{"dep": "eng"}}},
+					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-gamma", Labels: map[string]string{"dep": "eng"}}},
 					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "sales", Labels: map[string]string{"dep": "sales"}}},
 				)
 			cl := clientBuilder.Build()
@@ -940,7 +1108,7 @@ func TestSchedule(t *testing.T) {
 			snapshot := cqCache.Snapshot()
 			for cqName, c := range snapshot.ClusterQueues {
 				for name, w := range c.Workloads {
-					if !workload.IsAdmitted(w.Obj) {
+					if !workload.HasQuotaReservation(w.Obj) {
 						t.Errorf("Workload %s is not admitted by a clusterQueue, but it is found as member of clusterQueue %s in the cache", name, cqName)
 					} else if string(w.Obj.Status.Admission.ClusterQueue) != cqName {
 						t.Errorf("Workload %s is admitted by clusterQueue %s, but it is found as member of clusterQueue %s in the cache", name, w.Obj.Status.Admission.ClusterQueue, cqName)
@@ -974,7 +1142,7 @@ func TestEntryOrdering(t *testing.T) {
 		{
 			Info: workload.Info{
 				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "alpha",
+					Name:              "old_borrowing",
 					CreationTimestamp: metav1.NewTime(now),
 				}},
 			},
@@ -987,7 +1155,7 @@ func TestEntryOrdering(t *testing.T) {
 		{
 			Info: workload.Info{
 				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "beta",
+					Name:              "old",
 					CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
 				}},
 			},
@@ -995,7 +1163,7 @@ func TestEntryOrdering(t *testing.T) {
 		{
 			Info: workload.Info{
 				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "gamma",
+					Name:              "new",
 					CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
 				}},
 			},
@@ -1003,7 +1171,32 @@ func TestEntryOrdering(t *testing.T) {
 		{
 			Info: workload.Info{
 				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "delta",
+					Name:              "high_pri_borrowing",
+					CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
+				}, Spec: kueue.WorkloadSpec{
+					Priority: ptr.To[int32](1),
+				}},
+			},
+			assignment: flavorassigner.Assignment{
+				TotalBorrow: cache.FlavorResourceQuantities{
+					"flavor": {},
+				},
+			},
+		},
+		{
+			Info: workload.Info{
+				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+					Name:              "new_high_pri",
+					CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
+				}, Spec: kueue.WorkloadSpec{
+					Priority: ptr.To[int32](1),
+				}},
+			},
+		},
+		{
+			Info: workload.Info{
+				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+					Name:              "new_borrowing",
 					CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
 				}},
 			},
@@ -1017,7 +1210,7 @@ func TestEntryOrdering(t *testing.T) {
 			Info: workload.Info{
 				Obj: &kueue.Workload{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:              "epsilon",
+						Name:              "evicted_borrowing",
 						CreationTimestamp: metav1.NewTime(now),
 					},
 					Status: kueue.WorkloadStatus{
@@ -1042,8 +1235,8 @@ func TestEntryOrdering(t *testing.T) {
 			Info: workload.Info{
 				Obj: &kueue.Workload{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:              "zeta",
-						CreationTimestamp: metav1.NewTime(now.Add(2 * time.Second)),
+						Name:              "recently_evicted",
+						CreationTimestamp: metav1.NewTime(now),
 					},
 					Status: kueue.WorkloadStatus{
 						Conditions: []metav1.Condition{
@@ -1064,7 +1257,7 @@ func TestEntryOrdering(t *testing.T) {
 	for i, e := range input {
 		order[i] = e.Obj.Name
 	}
-	wantOrder := []string{"beta", "zeta", "gamma", "alpha", "epsilon", "delta"}
+	wantOrder := []string{"new_high_pri", "old", "recently_evicted", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing"}
 	if diff := cmp.Diff(wantOrder, order); diff != "" {
 		t.Errorf("Unexpected order (-want,+got):\n%s", diff)
 	}
@@ -1092,7 +1285,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 			wantStatus: kueue.WorkloadStatus{
 				Conditions: []metav1.Condition{
 					{
-						Type:    kueue.WorkloadAdmitted,
+						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
 						Reason:  "Pending",
 						Message: "didn't fit",

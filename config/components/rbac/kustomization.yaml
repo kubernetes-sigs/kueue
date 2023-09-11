@@ -20,13 +20,21 @@ resources:
 - batch_user_role.yaml
 - clusterqueue_editor_role.yaml
 - clusterqueue_viewer_role.yaml
-- job_editor_role.yaml
-- job_viewer_role.yaml
 - localqueue_editor_role.yaml
 - localqueue_viewer_role.yaml
-- workload_editor_role.yaml
-- workload_viewer_role.yaml
 - resourceflavor_editor_role.yaml
 - resourceflavor_viewer_role.yaml
+- workload_editor_role.yaml
+- workload_viewer_role.yaml
+
+# ClusterRoles for Kueue integrations
+- job_editor_role.yaml
+- job_viewer_role.yaml
+- jobset_editor_role.yaml
+- jobset_viewer_role.yaml
 - mpijob_editor_role.yaml
 - mpijob_viewer_role.yaml
+- rayjob_editor_role.yaml
+- rayjob_viewer_role.yaml
+- pytorchjob_editor_role.yaml
+- pytorchjob_viewer_role.yaml

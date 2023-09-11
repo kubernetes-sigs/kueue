@@ -17,15 +17,17 @@ limitations under the License.
 package testing
 
 import (
+	"time"
+
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	"sigs.k8s.io/kueue/pkg/util/pointer"
 )
 
 // JobWrapper wraps a Job.
@@ -40,11 +42,11 @@ func MakeJob(name, ns string) *JobWrapper {
 			Annotations: make(map[string]string, 1),
 		},
 		Spec: batchv1.JobSpec{
-			Parallelism: pointer.Int32(1),
-			Suspend:     pointer.Bool(true),
+			Parallelism: ptr.To[int32](1),
+			Suspend:     ptr.To(true),
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
-					RestartPolicy: "Never",
+					RestartPolicy: corev1.RestartPolicyNever,
 					Containers: []corev1.Container{
 						{
 							Name:      "c",
@@ -64,21 +66,36 @@ func (j *JobWrapper) Obj() *batchv1.Job {
 	return &j.Job
 }
 
+// Clone returns deep copy of the Job.
+func (j *JobWrapper) Clone() *JobWrapper {
+	return &JobWrapper{Job: *j.DeepCopy()}
+}
+
 // Suspend updates the suspend status of the job
 func (j *JobWrapper) Suspend(s bool) *JobWrapper {
-	j.Spec.Suspend = pointer.Bool(s)
+	j.Spec.Suspend = ptr.To(s)
 	return j
 }
 
 // Parallelism updates job parallelism.
 func (j *JobWrapper) Parallelism(p int32) *JobWrapper {
-	j.Spec.Parallelism = pointer.Int32(p)
+	j.Spec.Parallelism = ptr.To(p)
 	return j
 }
 
 // Completions updates job completions.
 func (j *JobWrapper) Completions(p int32) *JobWrapper {
-	j.Spec.Completions = pointer.Int32(p)
+	j.Spec.Completions = ptr.To(p)
+	return j
+}
+
+// Indexed sets the job's completion to Indexed of NonIndexed
+func (j *JobWrapper) Indexed(indexed bool) *JobWrapper {
+	mode := batchv1.NonIndexedCompletion
+	if indexed {
+		mode = batchv1.IndexedCompletion
+	}
+	j.Spec.CompletionMode = &mode
 	return j
 }
 
@@ -146,7 +163,7 @@ func (j *JobWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersi
 			Kind:       ownerGVK.Kind,
 			Name:       ownerName,
 			UID:        types.UID(ownerName),
-			Controller: pointer.Bool(true),
+			Controller: ptr.To(true),
 		},
 	}
 	return j
@@ -155,5 +172,23 @@ func (j *JobWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersi
 // UID updates the uid of the job.
 func (j *JobWrapper) UID(uid string) *JobWrapper {
 	j.ObjectMeta.UID = types.UID(uid)
+	return j
+}
+
+// StartTime sets the .status.startTime
+func (j *JobWrapper) StartTime(t time.Time) *JobWrapper {
+	j.Status.StartTime = &metav1.Time{Time: t}
+	return j
+}
+
+// Active sets the .status.active
+func (j *JobWrapper) Active(c int32) *JobWrapper {
+	j.Status.Active = c
+	return j
+}
+
+// Condition adds a condition
+func (j *JobWrapper) Condition(c batchv1.JobCondition) *JobWrapper {
+	j.Status.Conditions = append(j.Status.Conditions, c)
 	return j
 }

@@ -38,7 +38,7 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) to learn more.
 To install the latest release of Kueue in your cluster, run the following command:
 
 ```shell
-kubectl apply -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.4.0/manifests.yaml
+kubectl apply -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.4.1/manifests.yaml
 ```
 
 The controller runs in the `kueue-system` namespace.
@@ -97,7 +97,8 @@ These are features that we aim to have in the long-term, in no particular order:
 
 ## Community, discussion, contribution, and support
 
-Learn how to engage with the Kubernetes community on the [community page](http://kubernetes.io/community/).
+Learn how to engage with the Kubernetes community on the [community page](http://kubernetes.io/community/)
+and the [contributor's guide](CONTRIBUTING.md).
 
 You can reach the maintainers of this project at:
 

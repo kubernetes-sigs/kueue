@@ -54,11 +54,11 @@ func TestAPIs(t *testing.T) {
 
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
-		ManagerSetup: managerSetup,
-		CRDPath:      filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases"),
-		WebhookPath:  filepath.Join("..", "..", "..", "..", "config", "components", "webhook"),
+		CRDPath:     filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases"),
+		WebhookPath: filepath.Join("..", "..", "..", "..", "config", "components", "webhook"),
 	}
-	ctx, cfg, k8sClient = fwk.Setup()
+	cfg = fwk.Init()
+	ctx, k8sClient = fwk.RunManager(cfg, managerSetup)
 })
 
 var _ = ginkgo.AfterSuite(func() {
@@ -72,9 +72,18 @@ func managerSetup(mgr manager.Manager, ctx context.Context) {
 	failedWebhook, err := webhooks.Setup(mgr)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
+	controllersCfg := &config.Configuration{}
+	controllersCfg.Metrics.EnableClusterQueueResources = true
+	controllersCfg.QueueVisibility = &config.QueueVisibility{
+		UpdateIntervalSeconds: 1,
+		ClusterQueues: &config.ClusterQueueVisibility{
+			MaxCount: 3,
+		},
+	}
+
 	cCache := cache.New(mgr.GetClient())
 	queues := queue.NewManager(mgr.GetClient(), cCache)
 
-	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &config.Configuration{})
+	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 }

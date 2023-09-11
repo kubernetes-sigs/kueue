@@ -248,11 +248,9 @@ func findCandidates(wl *kueue.Workload, cq *cache.ClusterQueue, resPerFlv resour
 	}
 
 	if cq.Cohort != nil && cq.Preemption.ReclaimWithinCohort != kueue.PreemptionPolicyNever {
-		cqs := cq.Cohort.Members
-		cqs.Delete(cq)
-		for cohortCQ := range cqs {
-			if !cqIsBorrowing(cohortCQ, resPerFlv) {
-				// Can't reclaim quota from ClusterQueues that are not borrowing.
+		for cohortCQ := range cq.Cohort.Members {
+			if cq == cohortCQ || !cqIsBorrowing(cohortCQ, resPerFlv) {
+				// Can't reclaim quota from itself or ClusterQueues that are not borrowing.
 				continue
 			}
 			onlyLowerPrio := true
@@ -355,7 +353,7 @@ func workloadFits(wlReq cache.FlavorResourceQuantities, cq *cache.ClusterQueue, 
 // 1. Workloads from other ClusterQueues in the cohort before the ones in the
 // same ClusterQueue as the preemptor.
 // 2. Workloads with lower priority first.
-// 3. Workloads admited more recently first.
+// 3. Workloads admitted more recently first.
 func candidatesOrdering(candidates []*workload.Info, cq string, now time.Time) func(int, int) bool {
 	return func(i, j int) bool {
 		a := candidates[i]
@@ -370,12 +368,12 @@ func candidatesOrdering(candidates []*workload.Info, cq string, now time.Time) f
 		if pa != pb {
 			return pa < pb
 		}
-		return admisionTime(b.Obj, now).Before(admisionTime(a.Obj, now))
+		return quotaReservationTime(b.Obj, now).Before(quotaReservationTime(a.Obj, now))
 	}
 }
 
-func admisionTime(wl *kueue.Workload, now time.Time) time.Time {
-	cond := meta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+func quotaReservationTime(wl *kueue.Workload, now time.Time) time.Time {
+	cond := meta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 	if cond == nil || cond.Status != metav1.ConditionTrue {
 		// The condition wasn't populated yet, use the current time.
 		return now

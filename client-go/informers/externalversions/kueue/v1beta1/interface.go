@@ -23,6 +23,8 @@ import (
 
 // Interface provides access to all the informers in this group version.
 type Interface interface {
+	// AdmissionChecks returns a AdmissionCheckInformer.
+	AdmissionChecks() AdmissionCheckInformer
 	// ClusterQueues returns a ClusterQueueInformer.
 	ClusterQueues() ClusterQueueInformer
 	// LocalQueues returns a LocalQueueInformer.
@@ -42,6 +44,11 @@ type version struct {
 // New returns a new Interface.
 func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakListOptions internalinterfaces.TweakListOptionsFunc) Interface {
 	return &version{factory: f, namespace: namespace, tweakListOptions: tweakListOptions}
+}
+
+// AdmissionChecks returns a AdmissionCheckInformer.
+func (v *version) AdmissionChecks() AdmissionCheckInformer {
+	return &admissionCheckInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // ClusterQueues returns a ClusterQueueInformer.

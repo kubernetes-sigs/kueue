@@ -9,7 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -86,13 +86,21 @@ func newCohort(name string, size int) *Cohort {
 	}
 }
 
-func (c *Cohort) HasBorrowingQueues() bool {
-	for cq := range c.Members {
-		if cq.IsBorrowing() {
-			return true
+func (c *Cohort) CanFit(q FlavorResourceQuantities) bool {
+	for flavor, qResources := range q {
+		if cohortResources, flavorFound := c.RequestableResources[flavor]; flavorFound {
+			cohortUsage := c.Usage[flavor]
+			for resource, value := range qResources {
+				available := cohortResources[resource] - cohortUsage[resource]
+				if available < value {
+					return false
+				}
+			}
+		} else {
+			return false
 		}
 	}
-	return false
+	return true
 }
 
 func (c *ClusterQueue) IsBorrowing() bool {
@@ -174,7 +182,7 @@ func (c *ClusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
 					Nominal: workload.ResourceValue(rIn.Name, rIn.NominalQuota),
 				}
 				if rIn.BorrowingLimit != nil {
-					rQuota.BorrowingLimit = pointer.Int64(workload.ResourceValue(rIn.Name, *rIn.BorrowingLimit))
+					rQuota.BorrowingLimit = ptr.To(workload.ResourceValue(rIn.Name, *rIn.BorrowingLimit))
 				}
 				fQuotas.Resources[rIn.Name] = &rQuota
 			}

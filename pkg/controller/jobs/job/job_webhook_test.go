@@ -18,16 +18,23 @@ package job
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	batchv1 "k8s.io/api/batch/v1"
+	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/apimachinery/pkg/version"
+	fakediscovery "k8s.io/client-go/discovery/fake"
+	fakeclient "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 
 	// without this only the job framework is registered
@@ -48,9 +55,10 @@ var (
 
 func TestValidateCreate(t *testing.T) {
 	testcases := []struct {
-		name    string
-		job     *batchv1.Job
-		wantErr field.ErrorList
+		name          string
+		job           *batchv1.Job
+		wantErr       field.ErrorList
+		serverVersion string
 	}{
 		{
 			name:    "simple",
@@ -138,11 +146,105 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
+		{
+			name: "invalid sync completions annotation (format)",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "-").
+				Indexed(true).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(syncCompletionAnnotationsPath, "-", "strconv.ParseBool: parsing \"-\": invalid syntax"),
+			},
+		},
+		{
+			name: "valid sync completions annotation, wrong completions count",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "true").
+				Indexed(true).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "completions"), ptr.To[int32](6), fmt.Sprintf("should be equal to parallelism when %s is annotation is true", JobCompletionsEqualParallelismAnnotation)),
+			},
+			serverVersion: "1.27.0",
+		},
+		{
+			name: "valid sync completions annotation, wrong job completions type (default)",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "true").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(syncCompletionAnnotationsPath, "true", "should not be enabled for NonIndexed jobs"),
+			},
+			serverVersion: "1.27.0",
+		},
+		{
+			name: "valid sync completions annotation, wrong job completions type",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "true").
+				Indexed(false).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(syncCompletionAnnotationsPath, "true", "should not be enabled for NonIndexed jobs"),
+			},
+			serverVersion: "1.27.0",
+		},
+		{
+			name: "valid sync completions annotation, server version less then 1.27",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "true").
+				Indexed(true).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(syncCompletionAnnotationsPath, "true", "only supported in Kubernetes 1.27 or newer"),
+			},
+			serverVersion: "1.26.3",
+		},
+		{
+			name: "valid sync completions annotation, server version wasn't specified",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "true").
+				Indexed(true).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(syncCompletionAnnotationsPath, "true", "only supported in Kubernetes 1.27 or newer"),
+			},
+		},
+		{
+			name: "valid sync completions annotation",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "true").
+				Indexed(true).
+				Obj(),
+			wantErr:       nil,
+			serverVersion: "1.27.0",
+		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			gotErr := validateCreate((*Job)(tc.job))
+			jw := &JobWebhook{}
+			fakeDiscoveryClient, _ := fakeclient.NewSimpleClientset().Discovery().(*fakediscovery.FakeDiscovery)
+			fakeDiscoveryClient.FakedServerVersion = &version.Info{GitVersion: tc.serverVersion}
+			jw.kubeServerVersion = kubeversion.NewServerVersionFetcher(fakeDiscoveryClient)
+			if err := jw.kubeServerVersion.FetchServerVersion(); err != nil && tc.serverVersion != "" {
+				t.Fatalf("Failed fetching server version: %v", err)
+			}
+
+			gotErr := jw.validateCreate((*Job)(tc.job))
 
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validateCreate() mismatch (-want +got):\n%s", diff)
@@ -254,12 +356,45 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
+		{
+			name: "immutable sync completion annotation while unsuspended",
+			oldJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "true").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				Parallelism(5).
+				Completions(6).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "false").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(syncCompletionAnnotationsPath, fmt.Sprintf("%s while the job is not suspended", apivalidation.FieldImmutableErrorMsg)),
+			},
+		},
+		{
+			name: "mutable sync completion annotation while suspended",
+			oldJob: testingutil.MakeJob("job", "default").
+				Suspend(true).
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "true").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				Parallelism(5).
+				Completions(6).
+				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "false").
+				Obj(),
+			wantErr: nil,
+		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			gotErr := validateUpdate((*Job)(tc.oldJob), (*Job)(tc.newJob))
-
+			gotErr := new(JobWebhook).validateUpdate((*Job)(tc.oldJob), (*Job)(tc.newJob))
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{})); diff != "" {
 				t.Errorf("validateUpdate() mismatch (-want +got):\n%s", diff)
 			}

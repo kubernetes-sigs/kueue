@@ -21,9 +21,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	"sigs.k8s.io/kueue/pkg/util/pointer"
 )
 
 // JobWrapper wraps a RayJob.
@@ -55,9 +55,9 @@ func MakeJob(name, ns string) *JobWrapper {
 				WorkerGroupSpecs: []rayjobapi.WorkerGroupSpec{
 					{
 						GroupName:      "workers-group-0",
-						Replicas:       pointer.Int32(1),
-						MinReplicas:    pointer.Int32(0),
-						MaxReplicas:    pointer.Int32(10),
+						Replicas:       ptr.To[int32](1),
+						MinReplicas:    ptr.To[int32](0),
+						MaxReplicas:    ptr.To[int32](10),
 						RayStartParams: map[string]string{"p1": "v1"},
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{

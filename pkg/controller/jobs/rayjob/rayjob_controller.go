@@ -81,7 +81,7 @@ func (j *RayJob) Suspend() {
 	j.Spec.Suspend = true
 }
 
-func (j *RayJob) GetGVK() schema.GroupVersionKind {
+func (j *RayJob) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
@@ -112,11 +112,13 @@ func (j *RayJob) PodSets() []kueue.PodSet {
 	return podSets
 }
 
-func (j *RayJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
-	j.Spec.Suspend = false
-	if len(podSetInfos) != len(j.Spec.RayClusterSpec.WorkerGroupSpecs)+1 {
-		return
+func (j *RayJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) error {
+	expectedLen := len(j.Spec.RayClusterSpec.WorkerGroupSpecs) + 1
+	if len(podSetInfos) != expectedLen {
+		return jobframework.BadPodSetsInfoLenError(expectedLen, len(podSetInfos))
 	}
+
+	j.Spec.Suspend = false
 
 	// head
 	headPodSpec := &j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec
@@ -127,17 +129,20 @@ func (j *RayJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
 		workerPodSpec := &j.Spec.RayClusterSpec.WorkerGroupSpecs[index].Template.Spec
 		workerPodSpec.NodeSelector = maps.MergeKeepFirst(podSetInfos[index+1].NodeSelector, workerPodSpec.NodeSelector)
 	}
+	return nil
 }
 
-func (j *RayJob) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
+func (j *RayJob) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) bool {
 	if len(podSetInfos) != len(j.Spec.RayClusterSpec.WorkerGroupSpecs)+1 {
-		return
+		return false
 	}
 
+	changed := false
 	// head
 	headPodSpec := &j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec
 	if !equality.Semantic.DeepEqual(headPodSpec.NodeSelector, podSetInfos[0].NodeSelector) {
 		headPodSpec.NodeSelector = maps.Clone(podSetInfos[0].NodeSelector)
+		changed = true
 	}
 
 	// workers
@@ -145,8 +150,10 @@ func (j *RayJob) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
 		workerPodSpec := &j.Spec.RayClusterSpec.WorkerGroupSpecs[index].Template.Spec
 		if !equality.Semantic.DeepEqual(workerPodSpec.NodeSelector, podSetInfos[index+1].NodeSelector) {
 			workerPodSpec.NodeSelector = maps.Clone(podSetInfos[index+1].NodeSelector)
+			changed = true
 		}
 	}
+	return changed
 }
 
 func (j *RayJob) Finished() (metav1.Condition, bool) {

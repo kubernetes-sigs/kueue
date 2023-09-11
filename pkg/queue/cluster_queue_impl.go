@@ -18,6 +18,8 @@ package queue
 
 import (
 	"context"
+	"sort"
+	"sync"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -51,6 +53,8 @@ type clusterQueueBase struct {
 	// queueInadmissibleCycle stores the popId at the time when
 	// QueueInadmissibleWorkloads is called.
 	queueInadmissibleCycle int64
+
+	rwm sync.RWMutex
 }
 
 func newClusterQueueImpl(keyFunc func(obj interface{}) string, lessFunc func(a, b interface{}) bool) *clusterQueueBase {
@@ -58,6 +62,7 @@ func newClusterQueueImpl(keyFunc func(obj interface{}) string, lessFunc func(a, 
 		heap:                   heap.New(keyFunc, lessFunc),
 		inadmissibleWorkloads:  make(map[string]*workload.Info),
 		queueInadmissibleCycle: -1,
+		rwm:                    sync.RWMutex{},
 	}
 }
 
@@ -76,6 +81,8 @@ func (c *clusterQueueBase) Cohort() string {
 }
 
 func (c *clusterQueueBase) AddFromLocalQueue(q *LocalQueue) bool {
+	c.rwm.Lock()
+	defer c.rwm.Unlock()
 	added := false
 	for _, info := range q.items {
 		if c.heap.PushIfNotPresent(info) {
@@ -86,6 +93,8 @@ func (c *clusterQueueBase) AddFromLocalQueue(q *LocalQueue) bool {
 }
 
 func (c *clusterQueueBase) PushOrUpdate(wInfo *workload.Info) {
+	c.rwm.Lock()
+	defer c.rwm.Unlock()
 	key := workload.Key(wInfo.Obj)
 	oldInfo := c.inadmissibleWorkloads[key]
 	if oldInfo != nil {
@@ -111,6 +120,8 @@ func (c *clusterQueueBase) Delete(w *kueue.Workload) {
 }
 
 func (c *clusterQueueBase) DeleteFromLocalQueue(q *LocalQueue) {
+	c.rwm.Lock()
+	defer c.rwm.Unlock()
 	for _, w := range q.items {
 		key := workload.Key(w.Obj)
 		if wl := c.inadmissibleWorkloads[key]; wl != nil {
@@ -128,6 +139,8 @@ func (c *clusterQueueBase) DeleteFromLocalQueue(q *LocalQueue) {
 // the workload will be pushed back to heap directly. Otherwise, the workload
 // will be put into the inadmissibleWorkloads.
 func (c *clusterQueueBase) requeueIfNotPresent(wInfo *workload.Info, immediate bool) bool {
+	c.rwm.Lock()
+	defer c.rwm.Unlock()
 	key := workload.Key(wInfo.Obj)
 	if immediate || c.queueInadmissibleCycle >= c.popCycle {
 		// If the workload was inadmissible, move it back into the queue.
@@ -155,6 +168,8 @@ func (c *clusterQueueBase) requeueIfNotPresent(wInfo *workload.Info, immediate b
 // QueueInadmissibleWorkloads moves all workloads from inadmissibleWorkloads to heap.
 // If at least one workload is moved, returns true. Otherwise returns false.
 func (c *clusterQueueBase) QueueInadmissibleWorkloads(ctx context.Context, client client.Client) bool {
+	c.rwm.Lock()
+	defer c.rwm.Unlock()
 	c.queueInadmissibleCycle = c.popCycle
 	if len(c.inadmissibleWorkloads) == 0 {
 		return false
@@ -177,6 +192,8 @@ func (c *clusterQueueBase) QueueInadmissibleWorkloads(ctx context.Context, clien
 }
 
 func (c *clusterQueueBase) Pending() int {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
 	return c.PendingActive() + c.PendingInadmissible()
 }
 
@@ -189,6 +206,8 @@ func (c *clusterQueueBase) PendingInadmissible() int {
 }
 
 func (c *clusterQueueBase) Pop() *workload.Info {
+	c.rwm.Lock()
+	defer c.rwm.Unlock()
 	c.popCycle++
 	if c.heap.Len() == 0 {
 		return nil
@@ -199,6 +218,8 @@ func (c *clusterQueueBase) Pop() *workload.Info {
 }
 
 func (c *clusterQueueBase) Dump() (sets.Set[string], bool) {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
 	if c.heap.Len() == 0 {
 		return nil, false
 	}
@@ -211,6 +232,8 @@ func (c *clusterQueueBase) Dump() (sets.Set[string], bool) {
 }
 
 func (c *clusterQueueBase) DumpInadmissible() (sets.Set[string], bool) {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
 	if len(c.inadmissibleWorkloads) == 0 {
 		return nil, false
 	}
@@ -221,7 +244,27 @@ func (c *clusterQueueBase) DumpInadmissible() (sets.Set[string], bool) {
 	return elements, true
 }
 
+func (c *clusterQueueBase) Snapshot() []*workload.Info {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
+	totalLen := c.heap.Len() + len(c.inadmissibleWorkloads)
+	elements := make([]*workload.Info, 0, totalLen)
+	for _, e := range c.heap.List() {
+		info := e.(*workload.Info)
+		elements = append(elements, info)
+	}
+	for _, e := range c.inadmissibleWorkloads {
+		elements = append(elements, e)
+	}
+	sort.Slice(elements, func(i, j int) bool {
+		return queueOrdering(elements[i], elements[j])
+	})
+	return elements
+}
+
 func (c *clusterQueueBase) Info(key string) *workload.Info {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
 	info := c.heap.GetByKey(key)
 	if info == nil {
 		return nil

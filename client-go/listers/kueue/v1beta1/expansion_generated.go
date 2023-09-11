@@ -17,6 +17,14 @@ limitations under the License.
 
 package v1beta1
 
+// AdmissionCheckListerExpansion allows custom methods to be added to
+// AdmissionCheckLister.
+type AdmissionCheckListerExpansion interface{}
+
+// AdmissionCheckNamespaceListerExpansion allows custom methods to be added to
+// AdmissionCheckNamespaceLister.
+type AdmissionCheckNamespaceListerExpansion interface{}
+
 // ClusterQueueListerExpansion allows custom methods to be added to
 // ClusterQueueLister.
 type ClusterQueueListerExpansion interface{}

@@ -53,6 +53,12 @@ spec:
           spec:
             description: ClusterQueueSpec defines the desired state of ClusterQueue
             properties:
+              admissionChecks:
+                description: admissionChecks lists the AdmissionChecks required by
+                  this ClusterQueue
+                items:
+                  type: string
+                type: array
               cohort:
                 description: "cohort that this ClusterQueue belongs to. CQs that belong
                   to the same cohort can borrow unused resources from each other.
@@ -421,6 +427,38 @@ spec:
                   waiting to be admitted to this clusterQueue.
                 format: int32
                 type: integer
+              pendingWorkloadsStatus:
+                description: PendingWorkloadsStatus contains the information exposed
+                  about the current status of the pending workloads in the cluster
+                  queue.
+                properties:
+                  clusterQueuePendingWorkload:
+                    description: Head contains the list of top pending workloads.
+                    items:
+                      description: ClusterQueuePendingWorkload contains the information
+                        identifying a pending workload in the cluster queue.
+                      properties:
+                        name:
+                          description: Name indicates the name of the pending workload.
+                          type: string
+                        namespace:
+                          description: Namespace indicates the name of the pending
+                            workload.
+                          type: string
+                      required:
+                      - name
+                      - namespace
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  lastChangeTime:
+                    description: LastChangeTime indicates the time of the last change
+                      of the structure.
+                    format: date-time
+                    type: string
+                required:
+                - lastChangeTime
+                type: object
             type: object
         type: object
     served: true

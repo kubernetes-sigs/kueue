@@ -27,12 +27,15 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
@@ -40,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	"sigs.k8s.io/kueue/pkg/util/resource"
+	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -129,32 +133,111 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
 		return ctrl.Result{}, nil
 	}
-	if workload.IsAdmitted(&wl) {
+
+	cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)
+	if cqOk {
+		if updated, err := r.reconcileSyncAdmissionChecks(ctx, &wl, cqName); updated || err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	if workload.SyncAdmittedCondition(&wl) {
+		return ctrl.Result{}, workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
+	}
+
+	if workload.HasQuotaReservation(&wl) {
+		if evictionTriggered, err := r.reconcileCheckBasedEviction(ctx, &wl); evictionTriggered || err != nil {
+			return ctrl.Result{}, err
+		}
 		return r.reconcileNotReadyTimeout(ctx, req, &wl)
 	}
 
 	if !r.queues.QueueForWorkloadExists(&wl) {
 		log.V(3).Info("Workload is inadmissible because of missing LocalQueue", "localQueue", klog.KRef(wl.Namespace, wl.Spec.QueueName))
-		workload.UnsetAdmissionWithCondition(&wl, "Inadmissible", fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName))
+		workload.UnsetQuotaReservationWithCondition(&wl, "Inadmissible", fmt.Sprintf("LocalQueue %s doesn't exist", wl.Spec.QueueName))
 		err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)
 	if !cqOk {
 		log.V(3).Info("Workload is inadmissible because of missing ClusterQueue", "clusterQueue", klog.KRef("", cqName))
-		workload.UnsetAdmissionWithCondition(&wl, "Inadmissible", fmt.Sprintf("ClusterQueue %s doesn't exist", cqName))
+		workload.UnsetQuotaReservationWithCondition(&wl, "Inadmissible", fmt.Sprintf("ClusterQueue %s doesn't exist", cqName))
 		err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
 	if !r.cache.ClusterQueueActive(cqName) {
 		log.V(3).Info("Workload is inadmissible because ClusterQueue is inactive", "clusterQueue", klog.KRef("", cqName))
-		workload.UnsetAdmissionWithCondition(&wl, "Inadmissible", fmt.Sprintf("ClusterQueue %s is inactive", cqName))
+		workload.UnsetQuotaReservationWithCondition(&wl, "Inadmissible", fmt.Sprintf("ClusterQueue %s is inactive", cqName))
 		err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+
 	return ctrl.Result{}, nil
+}
+
+func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl *kueue.Workload) (bool, error) {
+	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) || !workload.HasRetryOrRejectedChecks(wl) {
+		return false, nil
+	}
+	log := ctrl.LoggerFrom(ctx)
+	log.V(3).Info("Workload is evicted due to admission checks")
+	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByAdmissionCheck, "At least one admission check is false")
+	err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
+	return true, client.IgnoreNotFound(err)
+}
+
+func (r *WorkloadReconciler) reconcileSyncAdmissionChecks(ctx context.Context, wl *kueue.Workload, cqName string) (bool, error) {
+	// because we need to react to API cluster queue events, the list of checks from a cache can lead to race conditions
+	queue := kueue.ClusterQueue{}
+	if err := r.client.Get(ctx, types.NamespacedName{Name: cqName}, &queue); err != nil {
+		return false, err
+	}
+
+	queueAdmissionChecks := queue.Spec.AdmissionChecks
+	newChecks, shouldUpdate := syncAdmissionCheckConditions(wl.Status.AdmissionChecks, queueAdmissionChecks)
+	if shouldUpdate {
+		log := ctrl.LoggerFrom(ctx)
+		log.V(3).Info("The workload needs admission checks updates", "clusterQueue", klog.KRef("", cqName), "admissionChecks", queueAdmissionChecks)
+		wl.Status.AdmissionChecks = newChecks
+		err := r.client.Status().Update(ctx, wl)
+		return true, client.IgnoreNotFound(err)
+	}
+	return false, nil
+}
+
+func syncAdmissionCheckConditions(conds []metav1.Condition, queueChecks []string) ([]metav1.Condition, bool) {
+	if len(queueChecks) == 0 {
+		return nil, len(conds) > 0
+	}
+
+	shouldUpdate := false
+	currentChecks := slices.ToRefMap(conds, func(c *metav1.Condition) string { return c.Type })
+	for _, t := range queueChecks {
+		if _, found := currentChecks[t]; !found {
+			apimeta.SetStatusCondition(&conds, metav1.Condition{
+				Type:   t,
+				Status: metav1.ConditionUnknown,
+				Reason: kueue.CheckStatePending,
+			})
+			shouldUpdate = true
+		}
+	}
+
+	// if the workload conditions length is bigger, then some cleanup should be done
+	if len(conds) > len(queueChecks) {
+		newConds := make([]metav1.Condition, 0, len(queueChecks))
+		queueChecksSet := sets.New(queueChecks...)
+		shouldUpdate = true
+		for i := range conds {
+			c := &conds[i]
+			if queueChecksSet.Has(c.Type) {
+				newConds = append(newConds, *c)
+			}
+		}
+		conds = newConds
+	}
+	return conds, shouldUpdate
 }
 
 func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req ctrl.Request, wl *kueue.Workload) (ctrl.Result, error) {
@@ -192,7 +275,7 @@ func (r *WorkloadReconciler) Create(e event.CreateEvent) bool {
 	wlCopy := wl.DeepCopy()
 	r.adjustResources(log, wlCopy)
 
-	if !workload.IsAdmitted(wl) {
+	if !workload.HasQuotaReservation(wl) {
 		if !r.queues.AddOrUpdateWorkload(wlCopy) {
 			log.V(2).Info("Queue for workload didn't exist; ignored for now")
 		}
@@ -223,7 +306,7 @@ func (r *WorkloadReconciler) Delete(e event.DeleteEvent) bool {
 	// When assigning a clusterQueue to a workload, we assume it in the cache. If
 	// the state is unknown, the workload could have been assumed and we need
 	// to clear it from the cache.
-	if workload.IsAdmitted(wl) || e.DeleteStateUnknown {
+	if workload.HasQuotaReservation(wl) || e.DeleteStateUnknown {
 		// trigger the move of associated inadmissibleWorkloads if required.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wl, func() {
 			// Delete the workload from cache while holding the queues lock
@@ -239,7 +322,7 @@ func (r *WorkloadReconciler) Delete(e event.DeleteEvent) bool {
 
 	// Even if the state is unknown, the last cached state tells us whether the
 	// workload was in the queues and should be cleared from them.
-	if workload.IsAdmitted(wl) {
+	if workload.HasQuotaReservation(wl) {
 		r.queues.DeleteWorkload(wl)
 	}
 	return true
@@ -266,10 +349,10 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 	if prevStatus != status {
 		log = log.WithValues("prevStatus", prevStatus)
 	}
-	if workload.IsAdmitted(wl) {
+	if workload.HasQuotaReservation(wl) {
 		log = log.WithValues("clusterQueue", wl.Status.Admission.ClusterQueue)
 	}
-	if workload.IsAdmitted(oldWl) && (!workload.IsAdmitted(wl) || wl.Status.Admission.ClusterQueue != oldWl.Status.Admission.ClusterQueue) {
+	if workload.HasQuotaReservation(oldWl) && (!workload.HasQuotaReservation(wl) || wl.Status.Admission.ClusterQueue != oldWl.Status.Admission.ClusterQueue) {
 		log = log.WithValues("prevClusterQueue", oldWl.Status.Admission.ClusterQueue)
 	}
 	log.V(2).Info("Workload update event")
@@ -348,6 +431,7 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&kueue.Workload{}).
 		Watches(&corev1.LimitRange{}, ruh).
 		Watches(&nodev1.RuntimeClass{}, ruh).
+		Watches(&kueue.ClusterQueue{}, &workloadCqHandler{client: r.client}).
 		WithEventFilter(r).
 		Complete(r)
 }
@@ -388,7 +472,7 @@ func workloadStatus(w *kueue.Workload) string {
 	if apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished) {
 		return finished
 	}
-	if workload.IsAdmitted(w) {
+	if workload.HasQuotaReservation(w) {
 		return admitted
 	}
 	return pending
@@ -515,7 +599,7 @@ func (h *resourceUpdatesHandler) handle(ctx context.Context, obj client.Object, 
 func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, _ workqueue.RateLimitingInterface, opts ...client.ListOption) {
 	log := ctrl.LoggerFrom(ctx)
 	lst := kueue.WorkloadList{}
-	opts = append(opts, client.MatchingFields{indexer.WorkloadAdmittedKey: string(metav1.ConditionFalse)})
+	opts = append(opts, client.MatchingFields{indexer.WorkloadQuotaReservedKey: string(metav1.ConditionFalse)})
 	err := h.r.client.List(ctx, &lst, opts...)
 	if err != nil {
 		log.Error(err, "Could not list pending workloads")
@@ -529,5 +613,77 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, _
 		if !h.r.queues.AddOrUpdateWorkload(wlCopy) {
 			log.V(2).Info("Queue for workload didn't exist")
 		}
+	}
+}
+
+type workloadCqHandler struct {
+	client client.Client
+}
+
+var _ handler.EventHandler = (*workloadCqHandler)(nil)
+
+// Create is called in response to an create event.
+func (w *workloadCqHandler) Create(ctx context.Context, ev event.CreateEvent, wq workqueue.RateLimitingInterface) {
+	if cq, isQueue := ev.Object.(*kueue.ClusterQueue); isQueue {
+		w.queueReconcileForWorkloads(ctx, cq.Name, wq)
+	}
+}
+
+// Update is called in response to an update event.
+func (w *workloadCqHandler) Update(ctx context.Context, ev event.UpdateEvent, wq workqueue.RateLimitingInterface) {
+	log := ctrl.LoggerFrom(ctx).WithValues("clusterQueue", klog.KObj(ev.ObjectNew))
+	ctx = ctrl.LoggerInto(ctx, log)
+	log.V(5).Info("Workload cluster queue update event")
+	oldCq, oldIsQueue := ev.ObjectOld.(*kueue.ClusterQueue)
+	newCq, newIsQueue := ev.ObjectNew.(*kueue.ClusterQueue)
+	if oldIsQueue && newIsQueue && !slices.CmpNoOrder(oldCq.Spec.AdmissionChecks, newCq.Spec.AdmissionChecks) {
+		w.queueReconcileForWorkloads(ctx, newCq.Name, wq)
+	}
+}
+
+// Delete is called in response to a delete event.
+func (w *workloadCqHandler) Delete(ctx context.Context, ev event.DeleteEvent, wq workqueue.RateLimitingInterface) {
+	if cq, isQueue := ev.Object.(*kueue.ClusterQueue); isQueue {
+		w.queueReconcileForWorkloads(ctx, cq.Name, wq)
+	}
+}
+
+// Generic is called in response to an event of an unknown type or a synthetic event triggered as a cron or
+// external trigger request.
+func (w *workloadCqHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.RateLimitingInterface) {
+	// nothing to do here
+}
+
+func (w *workloadCqHandler) queueReconcileForWorkloads(ctx context.Context, cqName string, wq workqueue.RateLimitingInterface) {
+	log := ctrl.LoggerFrom(ctx)
+	lst := kueue.LocalQueueList{}
+	err := w.client.List(ctx, &lst, client.MatchingFields{indexer.QueueClusterQueueKey: cqName})
+	if err != nil {
+		log.Error(err, "Could not list cluster queues local queues")
+	}
+	for _, lq := range lst.Items {
+		log := log.WithValues("localQueue", klog.KObj(&lq))
+		ctx = ctrl.LoggerInto(ctx, log)
+		w.queueReconcileForWorkloadsOfLocalQueue(ctx, lq.Namespace, lq.Name, wq)
+	}
+}
+
+func (w *workloadCqHandler) queueReconcileForWorkloadsOfLocalQueue(ctx context.Context, namespace string, name string, wq workqueue.RateLimitingInterface) {
+	log := ctrl.LoggerFrom(ctx)
+	lst := kueue.WorkloadList{}
+	err := w.client.List(ctx, &lst, &client.ListOptions{Namespace: namespace}, client.MatchingFields{indexer.WorkloadQueueKey: name})
+	if err != nil {
+		log.Error(err, "Could not list cluster queues workloads")
+	}
+	for _, wl := range lst.Items {
+		log := log.WithValues("workload", klog.KObj(&wl))
+		req := reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      wl.Name,
+				Namespace: wl.Namespace,
+			},
+		}
+		wq.Add(req)
+		log.V(5).Info("Queued reconcile for workload")
 	}
 }

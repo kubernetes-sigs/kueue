@@ -17,7 +17,9 @@ limitations under the License.
 package job
 
 import (
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -25,14 +27,15 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/util/pointer"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 )
@@ -45,8 +48,8 @@ func TestPodsReady(t *testing.T) {
 		"parallelism = completions; no progress": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: pointer.Int32(3),
-					Completions: pointer.Int32(3),
+					Parallelism: ptr.To[int32](3),
+					Completions: ptr.To[int32](3),
 				},
 				Status: batchv1.JobStatus{},
 			},
@@ -55,11 +58,11 @@ func TestPodsReady(t *testing.T) {
 		"parallelism = completions; not enough progress": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: pointer.Int32(3),
-					Completions: pointer.Int32(3),
+					Parallelism: ptr.To[int32](3),
+					Completions: ptr.To[int32](3),
 				},
 				Status: batchv1.JobStatus{
-					Ready:     pointer.Int32(1),
+					Ready:     ptr.To[int32](1),
 					Succeeded: 1,
 				},
 			},
@@ -68,11 +71,11 @@ func TestPodsReady(t *testing.T) {
 		"parallelism = completions; all ready": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: pointer.Int32(3),
-					Completions: pointer.Int32(3),
+					Parallelism: ptr.To[int32](3),
+					Completions: ptr.To[int32](3),
 				},
 				Status: batchv1.JobStatus{
-					Ready:     pointer.Int32(3),
+					Ready:     ptr.To[int32](3),
 					Succeeded: 0,
 				},
 			},
@@ -81,11 +84,11 @@ func TestPodsReady(t *testing.T) {
 		"parallelism = completions; some ready, some succeeded": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: pointer.Int32(3),
-					Completions: pointer.Int32(3),
+					Parallelism: ptr.To[int32](3),
+					Completions: ptr.To[int32](3),
 				},
 				Status: batchv1.JobStatus{
-					Ready:     pointer.Int32(2),
+					Ready:     ptr.To[int32](2),
 					Succeeded: 1,
 				},
 			},
@@ -94,8 +97,8 @@ func TestPodsReady(t *testing.T) {
 		"parallelism = completions; all succeeded": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: pointer.Int32(3),
-					Completions: pointer.Int32(3),
+					Parallelism: ptr.To[int32](3),
+					Completions: ptr.To[int32](3),
 				},
 				Status: batchv1.JobStatus{
 					Succeeded: 3,
@@ -106,11 +109,11 @@ func TestPodsReady(t *testing.T) {
 		"parallelism < completions; reaching parallelism is enough": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: pointer.Int32(2),
-					Completions: pointer.Int32(3),
+					Parallelism: ptr.To[int32](2),
+					Completions: ptr.To[int32](3),
 				},
 				Status: batchv1.JobStatus{
-					Ready: pointer.Int32(2),
+					Ready: ptr.To[int32](2),
 				},
 			},
 			want: true,
@@ -118,11 +121,11 @@ func TestPodsReady(t *testing.T) {
 		"parallelism > completions; reaching completions is enough": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: pointer.Int32(3),
-					Completions: pointer.Int32(2),
+					Parallelism: ptr.To[int32](3),
+					Completions: ptr.To[int32](2),
 				},
 				Status: batchv1.JobStatus{
-					Ready: pointer.Int32(2),
+					Ready: ptr.To[int32](2),
 				},
 			},
 			want: true,
@@ -130,10 +133,10 @@ func TestPodsReady(t *testing.T) {
 		"parallelism specified only; not enough progress": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: pointer.Int32(3),
+					Parallelism: ptr.To[int32](3),
 				},
 				Status: batchv1.JobStatus{
-					Ready: pointer.Int32(2),
+					Ready: ptr.To[int32](2),
 				},
 			},
 			want: false,
@@ -141,10 +144,10 @@ func TestPodsReady(t *testing.T) {
 		"parallelism specified only; all ready": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: pointer.Int32(3),
+					Parallelism: ptr.To[int32](3),
 				},
 				Status: batchv1.JobStatus{
-					Ready: pointer.Int32(3),
+					Ready: ptr.To[int32](3),
 				},
 			},
 			want: true,
@@ -166,6 +169,7 @@ func TestPodSetsInfo(t *testing.T) {
 		job                  *Job
 		runInfo, restoreInfo []jobframework.PodSetInfo
 		wantUnsuspended      *batchv1.Job
+		wantRunError         error
 	}{
 		"append": {
 			job: (*Job)(utiltestingjob.MakeJob("job", "ns").
@@ -239,12 +243,34 @@ func TestPodSetsInfo(t *testing.T) {
 				},
 			},
 		},
+		"noInfoOnRun": {
+			job: (*Job)(utiltestingjob.MakeJob("job", "ns").
+				Parallelism(5).
+				SetAnnotation(JobMinParallelismAnnotation, "2").
+				Obj()),
+			runInfo: []jobframework.PodSetInfo{},
+			wantUnsuspended: utiltestingjob.MakeJob("job", "ns").
+				Parallelism(5).
+				SetAnnotation(JobMinParallelismAnnotation, "2").
+				Suspend(false).
+				Obj(),
+			restoreInfo: []jobframework.PodSetInfo{
+				{
+					Count: 5,
+				},
+			},
+			wantRunError: jobframework.ErrInvalidPodsetInfo,
+		},
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			origSpec := *tc.job.Spec.DeepCopy()
 
-			tc.job.RunWithPodSetsInfo(tc.runInfo)
+			gotErr := tc.job.RunWithPodSetsInfo(tc.runInfo)
+
+			if diff := cmp.Diff(tc.wantRunError, gotErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("node selectors mismatch (-want +got):\n%s", diff)
+			}
 
 			if diff := cmp.Diff(tc.job.Spec, tc.wantUnsuspended.Spec); diff != "" {
 				t.Errorf("node selectors mismatch (-want +got):\n%s", diff)
@@ -268,7 +294,7 @@ func TestPodSets(t *testing.T) {
 			job: (*Job)(utiltestingjob.MakeJob("job", "ns").Parallelism(3).Obj()),
 			wantPodSets: []kueue.PodSet{
 				{
-					Name:     "main",
+					Name:     kueue.DefaultPodSetName,
 					Template: *podTemplate.DeepCopy(),
 					Count:    3,
 				},
@@ -278,10 +304,10 @@ func TestPodSets(t *testing.T) {
 			job: (*Job)(utiltestingjob.MakeJob("job", "ns").Parallelism(3).SetAnnotation(JobMinParallelismAnnotation, "2").Obj()),
 			wantPodSets: []kueue.PodSet{
 				{
-					Name:     "main",
+					Name:     kueue.DefaultPodSetName,
 					Template: *podTemplate.DeepCopy(),
 					Count:    3,
-					MinCount: pointer.Int32(2),
+					MinCount: ptr.To[int32](2),
 				},
 			},
 		},
@@ -306,117 +332,490 @@ var (
 		cmpopts.SortSlices(func(a, b kueue.Workload) bool {
 			return a.Name < b.Name
 		}),
-		cmpopts.IgnoreFields(kueue.Workload{}, "TypeMeta", "ObjectMeta"),
+		cmpopts.SortSlices(func(a, b metav1.Condition) bool {
+			return a.Type < b.Type
+		}),
+		cmpopts.IgnoreFields(
+			kueue.Workload{}, "TypeMeta", "ObjectMeta.OwnerReferences",
+			"ObjectMeta.Name", "ObjectMeta.ResourceVersion",
+		),
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 	}
 )
 
 func TestReconciler(t *testing.T) {
 	defer features.SetFeatureGateDuringTest(t, features.PartialAdmission, true)()
+
+	baseJobWrapper := utiltestingjob.MakeJob("job", "ns").
+		Suspend(true).
+		Parallelism(10).
+		Request(corev1.ResourceCPU, "1").
+		Image("", nil)
+
 	cases := map[string]struct {
-		job           batchv1.Job
-		workloads     []kueue.Workload
-		wantErr       error
-		wantJob       batchv1.Job
-		wantWorkloads []kueue.Workload
+		reconcilerOptions []jobframework.Option
+		job               batchv1.Job
+		wantJob           batchv1.Job
+		workloads         []kueue.Workload
+		wantWorkloads     []kueue.Workload
+		wantErr           error
 	}{
 		"suspended job with matching admitted workload is unsuspended": {
-			job: *utiltestingjob.MakeJob("job", "ns").
-				Suspend(true).
-				Parallelism(10).
-				Request(corev1.ResourceCPU, "1").
-				Image("", nil).
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+			},
+			job: *baseJobWrapper.DeepCopy(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(false).
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").
-					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
-					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
 					Obj(),
 			},
-			wantJob: *utiltestingjob.MakeJob("job", "ns").
-				Suspend(false).
-				Parallelism(10).
-				Request(corev1.ResourceCPU, "1").
-				Image("", nil).
-				Obj(),
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").
-					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
-					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
 					Obj(),
 			},
 		},
 		"non-matching admitted workload is deleted": {
-			job: *utiltestingjob.MakeJob("job", "ns").
-				Suspend(true).
-				Parallelism(10).
-				Request(corev1.ResourceCPU, "1").
-				Image("", nil).
-				Obj(),
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+			},
+			job:     *baseJobWrapper.DeepCopy(),
+			wantJob: *baseJobWrapper.DeepCopy(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").
-					PodSets(*utiltesting.MakePodSet("main", 5).Request(corev1.ResourceCPU, "1").Obj()).
-					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
 					Obj(),
 			},
 			wantErr: jobframework.ErrNoMatchingWorkloads,
-			wantJob: *utiltestingjob.MakeJob("job", "ns").
-				Suspend(true).
-				Parallelism(10).
-				Request(corev1.ResourceCPU, "1").
-				Image("", nil).
-				Obj(),
 		},
 		"suspended job with partial admission and admitted workload is unsuspended": {
-			job: *utiltestingjob.MakeJob("job", "ns").
-				SetAnnotation(JobMinParallelismAnnotation, "5").
-				Suspend(true).
-				Parallelism(10).
-				Request(corev1.ResourceCPU, "1").
-				Image("", nil).
-				Obj(),
-			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").
-					PodSets(*utiltesting.MakePodSet("main", 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(8).Obj()).
-					Obj(),
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
 			},
-			wantJob: *utiltestingjob.MakeJob("job", "ns").
+			job: *baseJobWrapper.Clone().
+				SetAnnotation(JobMinParallelismAnnotation, "5").
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
 				SetAnnotation(JobMinParallelismAnnotation, "5").
 				Suspend(false).
 				Parallelism(8).
-				Request(corev1.ResourceCPU, "1").
-				Image("", nil).
 				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(8).Obj()).
+					Admitted(true).
+					Obj(),
+			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").
-					PodSets(*utiltesting.MakePodSet("main", 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(8).Obj()).
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).
+							SetMinimumCount(5).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(8).Obj()).
+					Admitted(true).
 					Obj(),
 			},
 		},
 		"unsuspended job with partial admission and non-matching admitted workload is suspended and workload is deleted": {
-			job: *utiltestingjob.MakeJob("job", "ns").
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+			},
+			job: *baseJobWrapper.Clone().
 				SetAnnotation(JobMinParallelismAnnotation, "5").
 				Suspend(false).
-				Parallelism(10).
-				Request(corev1.ResourceCPU, "1").
-				Image("", nil).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				SetAnnotation(JobMinParallelismAnnotation, "5").
 				Obj(),
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("a", "ns").
-					PodSets(*utiltesting.MakePodSet("main", 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(8).Obj()).
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).
+							SetMinimumCount(5).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(8).Obj()).
+					Admitted(true).
 					Obj(),
 			},
 			wantErr: jobframework.ErrNoMatchingWorkloads,
-			wantJob: *utiltestingjob.MakeJob("job", "ns").
-				SetAnnotation(JobMinParallelismAnnotation, "5").
-				Suspend(true).
-				Parallelism(10).
-				Request(corev1.ResourceCPU, "1").
-				Image("", nil).
+		},
+		"the workload is created when queue name is set": {
+			job: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				Queue("test-queue").
+				UID("test-uid").
 				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Queue("test-queue").
+				UID("test-uid").
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("job", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue("test-queue").
+					Priority(0).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+		},
+		"the workload without uid label is created when job's uid is longer than 63 characters": {
+			job: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				Queue("test-queue").
+				UID(strings.Repeat("long-uid", 8)).
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Queue("test-queue").
+				UID(strings.Repeat("long-uid", 8)).
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("job", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue("test-queue").
+					Priority(0).
+					Labels(map[string]string{}).
+					Obj(),
+			},
+		},
+		"the workload is not created when queue name is not set": {
+			job: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				Obj(),
+		},
+		"should get error if child job owner not found": {
+			job: *utiltestingjob.MakeJob("job", "ns").
+				ParentWorkload("non-existing-parent-workload").
+				Obj(),
+			wantJob: *utiltestingjob.MakeJob("job", "ns").Obj(),
+			wantErr: jobframework.ErrChildJobOwnerNotFound,
+		},
+		"should get error if workload owner is unknown": {
+			job: *utiltestingjob.MakeJob("job", "ns").
+				ParentWorkload("non-existing-parent-workload").
+				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
+				Obj(),
+			wantJob: *utiltestingjob.MakeJob("job", "ns").Obj(),
+			wantErr: jobframework.ErrUnknownWorkloadOwner,
+		},
+		"non-standalone job is suspended if its parent workload is not found": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+			},
+			job: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				ParentWorkload("unit-test").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				ParentWorkload("unit-test").
+				Obj(),
+		},
+		"non-standalone job is not suspended if its parent workload is admitted": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+			},
+			job: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				ParentWorkload("unit-test").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				ParentWorkload("unit-test").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("unit-test", "ns").
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("unit-test", "ns").
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
+					Obj(),
+			},
+		},
+		"non-standalone job is suspended if its parent workload is found and not admitted": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+			},
+			job: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				ParentWorkload("parent-workload").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				ParentWorkload("unit-test").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("parent-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("parent-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					Obj(),
+			},
+		},
+		"non-standalone job is not suspended if its parent workload is admitted and queue name is set": {
+			job: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				ParentWorkload("parent-workload").
+				Queue("test-queue").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				ParentWorkload("parent-workload").
+				Queue("test-queue").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("parent-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("parent-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
+					Obj(),
+			},
+		},
+		"checking a second non-matching workload is deleted": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+			},
+			job: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				Parallelism(5).
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				Parallelism(5).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("first-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+					Admitted(true).
+					Obj(),
+				*utiltesting.MakeWorkload("second-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("first-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+					Admitted(true).
+					Obj(),
+			},
+			wantErr: jobframework.ErrExtraWorkloads,
+		},
+		"when workload is evicted, suspend, reset startTime and restore node affinity": {
+			job: *baseJobWrapper.Clone().
+				Queue("foo").
+				Suspend(false).
+				StartTime(time.Now()).
+				NodeSelector("provisioning", "spot").
+				Active(10).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadEvicted,
+						Status: metav1.ConditionTrue,
+					}).
+					Obj(),
+			},
+			wantJob: *baseJobWrapper.Clone().
+				Queue("foo").
+				Suspend(true).
+				Active(10).
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadEvicted,
+						Status: metav1.ConditionTrue,
+					}).
+					Obj(),
+			},
+		},
+		"when workload is evicted but suspended, reset startTime and restore node affinity": {
+			job: *baseJobWrapper.Clone().
+				Queue("foo").
+				Suspend(true).
+				StartTime(time.Now()).
+				NodeSelector("provisioning", "spot").
+				Active(10).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadEvicted,
+						Status: metav1.ConditionTrue,
+					}).
+					Obj(),
+			},
+			wantJob: *baseJobWrapper.Clone().
+				Queue("foo").
+				Suspend(true).
+				Active(10).
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadEvicted,
+						Status: metav1.ConditionTrue,
+					}).
+					Obj(),
+			},
+		},
+		"when workload is evicted, suspended and startTime is reset, restore node affinity": {
+			job: *baseJobWrapper.Clone().
+				Queue("foo").
+				Suspend(true).
+				NodeSelector("provisioning", "spot").
+				Active(10).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadEvicted,
+						Status: metav1.ConditionTrue,
+					}).
+					Obj(),
+			},
+			wantJob: *baseJobWrapper.Clone().
+				Queue("foo").
+				Suspend(true).
+				Active(10).
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadEvicted,
+						Status: metav1.ConditionTrue,
+					}).
+					Obj(),
+			},
+		},
+		"when job completes, workload is marked as finished": {
+			job: *baseJobWrapper.Clone().
+				Queue("foo").
+				Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
+					Obj(),
+			},
+			wantJob: *baseJobWrapper.Clone().
+				Queue("foo").
+				Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  "JobFinished",
+						Message: "Job finished successfully",
+					}).
+					Obj(),
+			},
+		},
+		"when the workload is finished, its finalizer is removed": {
+			job: *baseJobWrapper.Clone().Queue("foo").Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadFinished,
+						Status: metav1.ConditionTrue,
+					}).
+					Obj(),
+			},
+			wantJob: *baseJobWrapper.Clone().Queue("foo").Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").
+					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadFinished,
+						Status: metav1.ConditionTrue,
+					}).
+					Obj(),
+			},
 		},
 	}
 	for name, tc := range cases {
@@ -426,9 +825,14 @@ func TestReconciler(t *testing.T) {
 			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
 			}
-			kClient := clientBuilder.
-				WithObjects(&tc.job).
-				Build()
+			kcBuilder := clientBuilder.
+				WithObjects(&tc.job)
+
+			for i := range tc.workloads {
+				kcBuilder = kcBuilder.WithStatusSubresource(&tc.workloads[i])
+			}
+
+			kClient := kcBuilder.Build()
 			for i := range tc.workloads {
 				if err := ctrl.SetControllerReference(&tc.job, &tc.workloads[i], kClient.Scheme()); err != nil {
 					t.Fatalf("Could not setup owner reference in Workloads: %v", err)
@@ -437,9 +841,8 @@ func TestReconciler(t *testing.T) {
 					t.Fatalf("Could not create workload: %v", err)
 				}
 			}
-			broadcaster := record.NewBroadcaster()
-			recorder := broadcaster.NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
-			reconciler := NewReconciler(kClient, recorder, jobframework.WithManageJobsWithoutQueueName(true))
+			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
+			reconciler := NewReconciler(kClient, recorder, tc.reconcilerOptions...)
 
 			jobKey := client.ObjectKeyFromObject(&tc.job)
 			_, err := reconciler.Reconcile(ctx, reconcile.Request{

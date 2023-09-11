@@ -32,4 +32,8 @@ const (
 	// ignores this Job from admission, and takes control of its suspension
 	// status based on the admission status of the parent workload.
 	ParentWorkloadAnnotation = "kueue.x-k8s.io/parent-workload"
+
+	// JobUIDLabel is the label key in the workload resource, that holds the UID of
+	// the owner job.
+	JobUIDLabel = "kueue.x-k8s.io/job-uid"
 )

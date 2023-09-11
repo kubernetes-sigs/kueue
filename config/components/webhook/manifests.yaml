@@ -29,18 +29,56 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /mutate-jobset-x-k8s-io-v1alpha1-jobset
+      path: /mutate-jobset-x-k8s-io-v1alpha2-jobset
   failurePolicy: Fail
   name: mjobset.kb.io
   rules:
   - apiGroups:
     - jobset.x-k8s.io
     apiVersions:
-    - v1alpha1
+    - v1alpha2
     operations:
     - CREATE
     resources:
     - jobsets
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /mutate-kubeflow-org-v1-pytorchjob
+  failurePolicy: Fail
+  name: mpytorchjob.kb.io
+  rules:
+  - apiGroups:
+    - kubeflow.org
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    resources:
+    - pytorchjobs
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /mutate-kubeflow-org-v1-tfjob
+  failurePolicy: Fail
+  name: mtfjob.kb.io
+  rules:
+  - apiGroups:
+    - kubeflow.org
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    resources:
+    - tfjobs
   sideEffects: None
 - admissionReviewVersions:
   - v1
@@ -159,6 +197,7 @@ webhooks:
     apiVersions:
     - v1
     operations:
+    - CREATE
     - UPDATE
     resources:
     - jobs
@@ -169,18 +208,59 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-jobset-x-k8s-io-v1alpha1-jobset
+      path: /validate-jobset-x-k8s-io-v1alpha2-jobset
   failurePolicy: Fail
   name: vjobset.kb.io
   rules:
   - apiGroups:
     - jobset.x-k8s.io
     apiVersions:
-    - v1alpha1
+    - v1alpha2
     operations:
+    - CREATE
     - UPDATE
     resources:
     - jobsets
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-kubeflow-org-v1-pytorchjob
+  failurePolicy: Fail
+  name: vpytorchjob.kb.io
+  rules:
+  - apiGroups:
+    - kubeflow.org
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - pytorchjobs
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-kubeflow-org-v1-tfjob
+  failurePolicy: Fail
+  name: vtfjob.kb.io
+  rules:
+  - apiGroups:
+    - kubeflow.org
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - tfjobs
   sideEffects: None
 - admissionReviewVersions:
   - v1
@@ -197,6 +277,7 @@ webhooks:
     apiVersions:
     - v2beta1
     operations:
+    - CREATE
     - UPDATE
     resources:
     - mpijobs
@@ -216,6 +297,7 @@ webhooks:
     apiVersions:
     - v1alpha1
     operations:
+    - CREATE
     - UPDATE
     resources:
     - rayjobs

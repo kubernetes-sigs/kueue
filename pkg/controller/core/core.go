@@ -39,7 +39,19 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 	if err := qRec.SetupWithManager(mgr); err != nil {
 		return "LocalQueue", err
 	}
-	cqRec := NewClusterQueueReconciler(mgr.GetClient(), qManager, cc, rfRec)
+
+	cqRec := NewClusterQueueReconciler(
+		mgr.GetClient(),
+		qManager,
+		cc,
+		WithQueueVisibilityUpdateInterval(queueVisibilityUpdateInterval(cfg)),
+		WithQueueVisibilityClusterQueuesMaxCount(queueVisibilityClusterQueuesMaxCount(cfg)),
+		WithReportResourceMetrics(cfg.Metrics.EnableClusterQueueResources),
+		WithWatchers(rfRec),
+	)
+	if err := mgr.Add(cqRec); err != nil {
+		return "Unable to add ClusterQueue to manager", err
+	}
 	rfRec.AddUpdateWatcher(cqRec)
 	if err := cqRec.SetupWithManager(mgr); err != nil {
 		return "ClusterQueue", err
@@ -55,4 +67,18 @@ func podsReadyTimeout(cfg *config.Configuration) *time.Duration {
 		return &cfg.WaitForPodsReady.Timeout.Duration
 	}
 	return nil
+}
+
+func queueVisibilityUpdateInterval(cfg *config.Configuration) time.Duration {
+	if cfg.QueueVisibility != nil {
+		return time.Duration(cfg.QueueVisibility.UpdateIntervalSeconds) * time.Second
+	}
+	return 0
+}
+
+func queueVisibilityClusterQueuesMaxCount(cfg *config.Configuration) int32 {
+	if cfg.QueueVisibility != nil && cfg.QueueVisibility.ClusterQueues != nil {
+		return cfg.QueueVisibility.ClusterQueues.MaxCount
+	}
+	return 0
 }
