@@ -46,13 +46,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	// TODO: Register Pod preemption (deletion controller).
+	if err := (&controller.PodDeleter{
+		Client: mgr.GetClient(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Unable to create Pod (deletion) controller")
+		os.Exit(1)
+	}
 
 	if err = controller.NewReconciler(
 		mgr.GetClient(),
 		mgr.GetEventRecorderFor("backfill-kueue-controller"),
 	).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "Unable to create controller")
+		setupLog.Error(err, "Unable to create Pod (job) controller")
 		os.Exit(1)
 	}
 

@@ -28,10 +28,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
-var (
-	AdmissionTaintKey = "kueue.x-k8s.io/kueue-admission"
-	deletionLabelKey  = "kueue.x-k8s.io/deletion"
-)
+var AdmissionTaintKey = "kueue.x-k8s.io/kueue-admission"
 
 var (
 	gvk = corev1.SchemeGroupVersion.WithKind("Pod")
@@ -73,7 +70,7 @@ func (p *Pod) Suspend() {
 	if p.Labels == nil {
 		p.Labels = make(map[string]string)
 	}
-	p.Labels[deletionLabelKey] = "pending"
+	p.Labels[deletionLabelKey] = deletionPendingLabelValue
 }
 
 func (j *Pod) GVK() schema.GroupVersionKind {
