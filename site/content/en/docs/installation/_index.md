@@ -110,6 +110,7 @@ data:
       healthProbeBindAddress: :8081
     metrics:
       bindAddress: :8080
+      # enableClusterQueueResources: true
     webhook:
       port: 9443
     manageJobsWithoutQueueName: true
@@ -120,6 +121,7 @@ data:
     waitForPodsReady:
       enable: true
       timeout: 10m
+    # pprofBindAddress: :8082
     integrations:
       frameworks:
       - "batch/job"
