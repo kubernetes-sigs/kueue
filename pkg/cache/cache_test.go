@@ -2681,7 +2681,7 @@ func TestClusterQueuesUsingAdmissionChecks(t *testing.T) {
 	}
 }
 
-func TestClusterQueueRediness(t *testing.T) {
+func TestClusterQueueReadiness(t *testing.T) {
 
 	baseFalvor := utiltesting.MakeResourceFlavor("flavor1").Obj()
 	baseCheck := utiltesting.MakeAdmissionCheck("check1").Obj()
@@ -2693,85 +2693,89 @@ func TestClusterQueueRediness(t *testing.T) {
 		Obj()
 
 	cases := map[string]struct {
-		queues      []*kueue.ClusterQueue
-		flavors     []*kueue.ResourceFlavor
-		checks      []*kueue.AdmissionCheck
-		queueName   string
-		terminate   bool
-		wantStatus  metav1.ConditionStatus
-		wantReason  string
-		wantMessage string
+		clusterQueues    []*kueue.ClusterQueue
+		resourceFlavors  []*kueue.ResourceFlavor
+		admissionChecks  []*kueue.AdmissionCheck
+		clusterQueueName string
+		terminate        bool
+		wantStatus       metav1.ConditionStatus
+		wantReason       string
+		wantMessage      string
+		wantActive       bool
+		wantTerminating  bool
 	}{
 		"queue not found": {
-			queueName:   "queue1",
-			wantStatus:  metav1.ConditionFalse,
-			wantReason:  "NotFound",
-			wantMessage: "Cluster queue not found",
+			clusterQueueName: "queue1",
+			wantStatus:       metav1.ConditionFalse,
+			wantReason:       "NotFound",
+			wantMessage:      "ClusterQueue not found",
 		},
 		"flavor not found": {
-			queues:      []*kueue.ClusterQueue{baseQueue},
-			checks:      []*kueue.AdmissionCheck{baseCheck},
-			queueName:   "queue1",
-			wantStatus:  metav1.ConditionFalse,
-			wantReason:  "FlavorNotFound",
-			wantMessage: "Can't admit new workloads; some flavors are not found",
+			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
+			admissionChecks:  []*kueue.AdmissionCheck{baseCheck},
+			clusterQueueName: "queue1",
+			wantStatus:       metav1.ConditionFalse,
+			wantReason:       "FlavorNotFound",
+			wantMessage:      "Can't admit new workloads; some resourceFlavors are not found",
 		},
 		"check not found": {
-			queues:      []*kueue.ClusterQueue{baseQueue},
-			flavors:     []*kueue.ResourceFlavor{baseFalvor},
-			queueName:   "queue1",
-			wantStatus:  metav1.ConditionFalse,
-			wantReason:  "CheckNotFound",
-			wantMessage: "Can't admit new workloads; some admission checks are not found",
+			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
+			resourceFlavors:  []*kueue.ResourceFlavor{baseFalvor},
+			clusterQueueName: "queue1",
+			wantStatus:       metav1.ConditionFalse,
+			wantReason:       "CheckNotFound",
+			wantMessage:      "Can't admit new workloads; some admissionChecks are not found",
 		},
 		"flavor and check not found": {
-			queues:      []*kueue.ClusterQueue{baseQueue},
-			queueName:   "queue1",
-			wantStatus:  metav1.ConditionFalse,
-			wantReason:  "FlavorAndCheckNotFound",
-			wantMessage: "Can't admit new workloads; some flavors and admission checks are not found",
+			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
+			clusterQueueName: "queue1",
+			wantStatus:       metav1.ConditionFalse,
+			wantReason:       "FlavorAndCheckNotFound",
+			wantMessage:      "Can't admit new workloads; some resourceFlavors and admissionChecks are not found",
 		},
 		"terminating": {
-			queues:      []*kueue.ClusterQueue{baseQueue},
-			checks:      []*kueue.AdmissionCheck{baseCheck},
-			flavors:     []*kueue.ResourceFlavor{baseFalvor},
-			queueName:   "queue1",
-			terminate:   true,
-			wantStatus:  metav1.ConditionFalse,
-			wantReason:  "Terminating",
-			wantMessage: "Can't admit new workloads; clusterQueue is terminating",
+			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
+			admissionChecks:  []*kueue.AdmissionCheck{baseCheck},
+			resourceFlavors:  []*kueue.ResourceFlavor{baseFalvor},
+			clusterQueueName: "queue1",
+			terminate:        true,
+			wantStatus:       metav1.ConditionFalse,
+			wantReason:       "Terminating",
+			wantMessage:      "Can't admit new workloads; clusterQueue is terminating",
+			wantTerminating:  true,
 		},
 		"ready": {
-			queues:      []*kueue.ClusterQueue{baseQueue},
-			checks:      []*kueue.AdmissionCheck{baseCheck},
-			flavors:     []*kueue.ResourceFlavor{baseFalvor},
-			queueName:   "queue1",
-			wantStatus:  metav1.ConditionTrue,
-			wantReason:  "Ready",
-			wantMessage: "Can admit new workloads",
+			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
+			admissionChecks:  []*kueue.AdmissionCheck{baseCheck},
+			resourceFlavors:  []*kueue.ResourceFlavor{baseFalvor},
+			clusterQueueName: "queue1",
+			wantStatus:       metav1.ConditionTrue,
+			wantReason:       "Ready",
+			wantMessage:      "Can admit new workloads",
+			wantActive:       true,
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			cache := New(utiltesting.NewFakeClient())
-			for _, rf := range tc.flavors {
+			for _, rf := range tc.resourceFlavors {
 				cache.AddOrUpdateResourceFlavor(rf)
 			}
-			for _, ac := range tc.checks {
+			for _, ac := range tc.admissionChecks {
 				cache.AddOrUpdateAdmissionCheck(ac)
 			}
-			for _, cq := range tc.queues {
+			for _, cq := range tc.clusterQueues {
 				if err := cache.AddClusterQueue(context.Background(), cq); err != nil {
-					t.Errorf("failed to add clusterQueue %s", cq.Name)
+					t.Errorf("failed to add clusterQueue %q: %v", cq.Name, err)
 				}
 			}
 
 			if tc.terminate {
-				cache.TerminateClusterQueue(tc.queueName)
+				cache.TerminateClusterQueue(tc.clusterQueueName)
 			}
 
-			gotStatus, gotReason, gotMessage := cache.ClusterQueueReadiness(tc.queueName)
+			gotStatus, gotReason, gotMessage := cache.ClusterQueueReadiness(tc.clusterQueueName)
 
 			if diff := cmp.Diff(tc.wantStatus, gotStatus); len(diff) != 0 {
 				t.Errorf("Unexpected status (-want,+got):\n%s", diff)
@@ -2779,11 +2783,17 @@ func TestClusterQueueRediness(t *testing.T) {
 			if diff := cmp.Diff(tc.wantReason, gotReason); len(diff) != 0 {
 				t.Errorf("Unexpected reason (-want,+got):\n%s", diff)
 			}
-
 			if diff := cmp.Diff(tc.wantMessage, gotMessage); len(diff) != 0 {
 				t.Errorf("Unexpected message (-want,+got):\n%s", diff)
 			}
 
+			if gotActive := cache.ClusterQueueActive(tc.clusterQueueName); gotActive != tc.wantActive {
+				t.Errorf("Unexpected active state %v", gotActive)
+			}
+
+			if gotTerminating := cache.ClusterQueueTerminating(tc.clusterQueueName); gotTerminating != tc.wantTerminating {
+				t.Errorf("Unexpected terminating state %v", gotTerminating)
+			}
 		})
 	}
 }

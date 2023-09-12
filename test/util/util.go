@@ -291,7 +291,7 @@ func ExpectAdmissionCheckToBeDeleted(ctx context.Context, k8sClient client.Clien
 		return
 	}
 	if deleteAC {
-		gomega.Expect(client.IgnoreNotFound(DeleteAdmissionCheck(ctx, k8sClient, ac))).NotTo(gomega.HaveOccurred())
+		gomega.Expect(client.IgnoreNotFound(DeleteAdmissionCheck(ctx, k8sClient, ac))).To(gomega.Succeed())
 	}
 	gomega.EventuallyWithOffset(1, func() error {
 		var newAC kueue.AdmissionCheck

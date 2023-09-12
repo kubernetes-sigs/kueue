@@ -230,11 +230,11 @@ func (c *ClusterQueue) inactiveReason() (string, string) {
 	case pending:
 		switch {
 		case c.hasMissingFlavors && c.hasMissingAdmissionChecks:
-			return "FlavorAndCheckNotFound", "Can't admit new workloads; some flavors and admission checks are not found"
+			return "FlavorAndCheckNotFound", "Can't admit new workloads; some resourceFlavors and admissionChecks are not found"
 		case c.hasMissingFlavors:
-			return "FlavorNotFound", "Can't admit new workloads; some flavors are not found"
+			return "FlavorNotFound", "Can't admit new workloads; some resourceFlavors are not found"
 		default:
-			return "CheckNotFound", "Can't admit new workloads; some admission checks are not found"
+			return "CheckNotFound", "Can't admit new workloads; some admissionChecks are not found"
 
 		}
 	}

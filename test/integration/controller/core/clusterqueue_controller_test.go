@@ -182,7 +182,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 						Type:    kueue.ClusterQueueActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "FlavorNotFound",
-						Message: "Can't admit new workloads; some flavors are not found",
+						Message: "Can't admit new workloads; some resourceFlavors are not found",
 					},
 				},
 			}, ignoreConditionTimestamps, ignorePendingWorkloadsStatus))
@@ -537,7 +537,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 					Type:    kueue.ClusterQueueActive,
 					Status:  metav1.ConditionFalse,
 					Reason:  "FlavorNotFound",
-					Message: "Can't admit new workloads; some flavors are not found",
+					Message: "Can't admit new workloads; some resourceFlavors are not found",
 				},
 			}, ignoreConditionTimestamps))
 
@@ -553,7 +553,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 					Type:    kueue.ClusterQueueActive,
 					Status:  metav1.ConditionFalse,
 					Reason:  "FlavorNotFound",
-					Message: "Can't admit new workloads; some flavors are not found",
+					Message: "Can't admit new workloads; some resourceFlavors are not found",
 				},
 			}, ignoreConditionTimestamps))
 
@@ -574,7 +574,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			}, ignoreConditionTimestamps))
 		})
 
-		ginkgo.It("Should update status conditions when  admission checks are created", func() {
+		ginkgo.It("Should update status conditions when admission checks are created", func() {
 
 			cpuArchAFlavor = testing.MakeResourceFlavor(flavorCPUArchA).Obj()
 			gomega.Expect(k8sClient.Create(ctx, cpuArchAFlavor)).To(gomega.Succeed())
@@ -593,7 +593,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 					Type:    kueue.ClusterQueueActive,
 					Status:  metav1.ConditionFalse,
 					Reason:  "CheckNotFound",
-					Message: "Can't admit new workloads; some admission checks are not found",
+					Message: "Can't admit new workloads; some admissionChecks are not found",
 				},
 			}, ignoreConditionTimestamps))
 
@@ -609,7 +609,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 					Type:    kueue.ClusterQueueActive,
 					Status:  metav1.ConditionFalse,
 					Reason:  "CheckNotFound",
-					Message: "Can't admit new workloads; some admission checks are not found",
+					Message: "Can't admit new workloads; some admissionChecks are not found",
 				},
 			}, ignoreConditionTimestamps))
 
