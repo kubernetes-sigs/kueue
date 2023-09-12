@@ -186,3 +186,9 @@ func (j *JobWrapper) Active(c int32) *JobWrapper {
 	j.Status.Active = c
 	return j
 }
+
+// Condition adds a condition
+func (j *JobWrapper) Condition(c batchv1.JobCondition) *JobWrapper {
+	j.Status.Conditions = append(j.Status.Conditions, c)
+	return j
+}

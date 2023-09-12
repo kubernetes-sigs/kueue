@@ -220,8 +220,8 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			// If WaitForPodsReady is enabled and WaitForPodsReady.BlockAdmission is true
 			// Block admission until all currently admitted workloads are in
 			// PodsReady condition if the waitForPodsReady is enabled
-			workload.UnsetAdmissionWithCondition(e.Obj, "Waiting", "waiting for all admitted workloads to be in PodsReady condition")
-			if err := workload.ApplyAdmissionStatus(ctx, s.client, e.Obj, true); err != nil {
+			workload.UnsetQuotaReservationWithCondition(e.Obj, "Waiting", "waiting for all admitted workloads to be in PodsReady condition")
+			if err := workload.ApplyAdmissionStatus(ctx, s.client, e.Obj, false); err != nil {
 				log.Error(err, "Could not update Workload status")
 			}
 			s.cache.WaitForPodsReady(ctx)
@@ -288,6 +288,8 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		if s.cache.IsAssumedOrAdmittedWorkload(w) {
 			log.Info("Workload skipped from admission because it's already assumed or admitted", "workload", klog.KObj(w.Obj))
 			continue
+		} else if workload.HasRetryOrRejectedChecks(w.Obj) {
+			e.inadmissibleMsg = "The workload has failed admission checks"
 		} else if snap.InactiveClusterQueueSets.Has(w.ClusterQueue) {
 			e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s is inactive", w.ClusterQueue)
 		} else if cq == nil {
@@ -425,7 +427,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 		PodSetAssignments: e.assignment.ToAPI(),
 	}
 
-	workload.SetAdmission(newWorkload, admission)
+	workload.SetQuotaReservation(newWorkload, admission)
 	if err := s.cache.AssumeWorkload(newWorkload); err != nil {
 		return err
 	}
@@ -507,7 +509,7 @@ func (s *Scheduler) requeueAndUpdate(log logr.Logger, ctx context.Context, e ent
 	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue), "queue", klog.KRef(e.Obj.Namespace, e.Obj.Spec.QueueName), "requeueReason", e.requeueReason, "added", added)
 
 	if e.status == notNominated {
-		workload.UnsetAdmissionWithCondition(e.Obj, "Pending", e.inadmissibleMsg)
+		workload.UnsetQuotaReservationWithCondition(e.Obj, "Pending", e.inadmissibleMsg)
 		err := workload.ApplyAdmissionStatus(ctx, s.client, e.Obj, true)
 		if err != nil {
 			log.Error(err, "Could not update Workload status")

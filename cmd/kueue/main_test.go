@@ -99,6 +99,12 @@ integrations:
 					// therefore the batch/framework should be registered
 					Frameworks: []string{job.FrameworkName},
 				},
+				QueueVisibility: &config.QueueVisibility{
+					UpdateIntervalSeconds: config.DefaultQueueVisibilityUpdateIntervalSeconds,
+					ClusterQueues: &config.ClusterQueueVisibility{
+						MaxCount: config.DefaultClusterQueuesMaxCount,
+					},
+				},
 			},
 		},
 		{

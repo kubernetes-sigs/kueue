@@ -368,12 +368,12 @@ func candidatesOrdering(candidates []*workload.Info, cq string, now time.Time) f
 		if pa != pb {
 			return pa < pb
 		}
-		return admissionTime(b.Obj, now).Before(admissionTime(a.Obj, now))
+		return quotaReservationTime(b.Obj, now).Before(quotaReservationTime(a.Obj, now))
 	}
 }
 
-func admissionTime(wl *kueue.Workload, now time.Time) time.Time {
-	cond := meta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+func quotaReservationTime(wl *kueue.Workload, now time.Time) time.Time {
+	cond := meta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 	if cond == nil || cond.Status != metav1.ConditionTrue {
 		// The condition wasn't populated yet, use the current time.
 		return now

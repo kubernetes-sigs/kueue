@@ -30,6 +30,7 @@ type ClusterQueueSpecApplyConfiguration struct {
 	QueueingStrategy  *kueuev1beta1.QueueingStrategy            `json:"queueingStrategy,omitempty"`
 	NamespaceSelector *v1.LabelSelector                         `json:"namespaceSelector,omitempty"`
 	Preemption        *ClusterQueuePreemptionApplyConfiguration `json:"preemption,omitempty"`
+	AdmissionChecks   []string                                  `json:"admissionChecks,omitempty"`
 }
 
 // ClusterQueueSpecApplyConfiguration constructs an declarative configuration of the ClusterQueueSpec type for use with
@@ -80,5 +81,15 @@ func (b *ClusterQueueSpecApplyConfiguration) WithNamespaceSelector(value v1.Labe
 // If called multiple times, the Preemption field is set to the value of the last call.
 func (b *ClusterQueueSpecApplyConfiguration) WithPreemption(value *ClusterQueuePreemptionApplyConfiguration) *ClusterQueueSpecApplyConfiguration {
 	b.Preemption = value
+	return b
+}
+
+// WithAdmissionChecks adds the given value to the AdmissionChecks field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the AdmissionChecks field.
+func (b *ClusterQueueSpecApplyConfiguration) WithAdmissionChecks(values ...string) *ClusterQueueSpecApplyConfiguration {
+	for i := range values {
+		b.AdmissionChecks = append(b.AdmissionChecks, values[i])
+	}
 	return b
 }

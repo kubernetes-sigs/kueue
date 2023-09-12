@@ -97,7 +97,7 @@ func TestNewInfo(t *testing.T) {
 						Request("ex.com/gpu", "1").
 						Obj(),
 				).
-				Admit(utiltesting.MakeAdmission("foo").
+				ReserveQuota(utiltesting.MakeAdmission("foo").
 					PodSets(
 						kueue.PodSetAssignment{
 							Name: "driver",
@@ -156,7 +156,7 @@ func TestNewInfo(t *testing.T) {
 						Request(corev1.ResourceMemory, "10Ki").
 						Obj(),
 				).
-				Admit(
+				ReserveQuota(
 					utiltesting.MakeAdmission("").
 						Assignment(corev1.ResourceCPU, "f1", "30m").
 						Assignment(corev1.ResourceMemory, "f1", "30Ki").
@@ -210,14 +210,14 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 		wantStatus kueue.WorkloadStatus
 	}{
 		"initial empty": {
-			condType:   kueue.WorkloadAdmitted,
+			condType:   kueue.WorkloadQuotaReserved,
 			condStatus: metav1.ConditionFalse,
 			reason:     "Pending",
 			message:    "didn't fit",
 			wantStatus: kueue.WorkloadStatus{
 				Conditions: []metav1.Condition{
 					{
-						Type:    kueue.WorkloadAdmitted,
+						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
 						Reason:  "Pending",
 						Message: "didn't fit",
@@ -229,20 +229,20 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 			oldStatus: kueue.WorkloadStatus{
 				Conditions: []metav1.Condition{
 					{
-						Type:    kueue.WorkloadAdmitted,
+						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
 						Reason:  "Pending",
 						Message: "didn't fit",
 					},
 				},
 			},
-			condType:   kueue.WorkloadAdmitted,
+			condType:   kueue.WorkloadQuotaReserved,
 			condStatus: metav1.ConditionTrue,
 			reason:     "Admitted",
 			wantStatus: kueue.WorkloadStatus{
 				Conditions: []metav1.Condition{
 					{
-						Type:   kueue.WorkloadAdmitted,
+						Type:   kueue.WorkloadQuotaReserved,
 						Status: metav1.ConditionTrue,
 						Reason: "Admitted",
 					},

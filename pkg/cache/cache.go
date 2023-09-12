@@ -292,7 +292,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
 	for i, w := range workloads.Items {
-		if !workload.IsAdmitted(&w) {
+		if !workload.HasQuotaReservation(&w) {
 			continue
 		}
 		c.addOrUpdateWorkload(&workloads.Items[i])
@@ -388,7 +388,7 @@ func (c *Cache) AddOrUpdateWorkload(w *kueue.Workload) bool {
 }
 
 func (c *Cache) addOrUpdateWorkload(w *kueue.Workload) bool {
-	if !workload.IsAdmitted(w) {
+	if !workload.HasQuotaReservation(w) {
 		return false
 	}
 
@@ -412,7 +412,7 @@ func (c *Cache) addOrUpdateWorkload(w *kueue.Workload) bool {
 func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.Workload) error {
 	c.Lock()
 	defer c.Unlock()
-	if workload.IsAdmitted(oldWl) {
+	if workload.HasQuotaReservation(oldWl) {
 		cq, ok := c.clusterQueues[string(oldWl.Status.Admission.ClusterQueue)]
 		if !ok {
 			return fmt.Errorf("old ClusterQueue doesn't exist")
@@ -421,7 +421,7 @@ func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.Workload) error {
 	}
 	c.cleanupAssumedState(oldWl)
 
-	if !workload.IsAdmitted(newWl) {
+	if !workload.HasQuotaReservation(newWl) {
 		return nil
 	}
 	cq, ok := c.clusterQueues[string(newWl.Status.Admission.ClusterQueue)]
@@ -472,7 +472,7 @@ func (c *Cache) AssumeWorkload(w *kueue.Workload) error {
 	c.Lock()
 	defer c.Unlock()
 
-	if !workload.IsAdmitted(w) {
+	if !workload.HasQuotaReservation(w) {
 		return errWorkloadNotAdmitted
 	}
 
@@ -503,7 +503,7 @@ func (c *Cache) ForgetWorkload(w *kueue.Workload) error {
 	}
 	c.cleanupAssumedState(w)
 
-	if !workload.IsAdmitted(w) {
+	if !workload.HasQuotaReservation(w) {
 		return errWorkloadNotAdmitted
 	}
 
@@ -604,7 +604,7 @@ func (c *Cache) cleanupAssumedState(w *kueue.Workload) {
 	if assumed {
 		// If the workload's assigned ClusterQueue is different from the assumed
 		// one, then we should also cleanup the assumed one.
-		if workload.IsAdmitted(w) && assumedCQName != string(w.Status.Admission.ClusterQueue) {
+		if workload.HasQuotaReservation(w) && assumedCQName != string(w.Status.Admission.ClusterQueue) {
 			if assumedCQ, exist := c.clusterQueues[assumedCQName]; exist {
 				assumedCQ.deleteWorkload(w)
 			}
@@ -614,7 +614,7 @@ func (c *Cache) cleanupAssumedState(w *kueue.Workload) {
 }
 
 func (c *Cache) clusterQueueForWorkload(w *kueue.Workload) *ClusterQueue {
-	if workload.IsAdmitted(w) {
+	if workload.HasQuotaReservation(w) {
 		return c.clusterQueues[string(w.Status.Admission.ClusterQueue)]
 	}
 	wKey := workload.Key(w)

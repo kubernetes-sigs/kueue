@@ -24,10 +24,11 @@ import (
 // ClusterQueueStatusApplyConfiguration represents an declarative configuration of the ClusterQueueStatus type for use
 // with apply.
 type ClusterQueueStatusApplyConfiguration struct {
-	FlavorsUsage      []FlavorUsageApplyConfiguration `json:"flavorsUsage,omitempty"`
-	PendingWorkloads  *int32                          `json:"pendingWorkloads,omitempty"`
-	AdmittedWorkloads *int32                          `json:"admittedWorkloads,omitempty"`
-	Conditions        []v1.Condition                  `json:"conditions,omitempty"`
+	FlavorsUsage           []FlavorUsageApplyConfiguration                       `json:"flavorsUsage,omitempty"`
+	PendingWorkloads       *int32                                                `json:"pendingWorkloads,omitempty"`
+	AdmittedWorkloads      *int32                                                `json:"admittedWorkloads,omitempty"`
+	Conditions             []v1.Condition                                        `json:"conditions,omitempty"`
+	PendingWorkloadsStatus *ClusterQueuePendingWorkloadsStatusApplyConfiguration `json:"pendingWorkloadsStatus,omitempty"`
 }
 
 // ClusterQueueStatusApplyConfiguration constructs an declarative configuration of the ClusterQueueStatus type for use with
@@ -72,5 +73,13 @@ func (b *ClusterQueueStatusApplyConfiguration) WithConditions(values ...v1.Condi
 	for i := range values {
 		b.Conditions = append(b.Conditions, values[i])
 	}
+	return b
+}
+
+// WithPendingWorkloadsStatus sets the PendingWorkloadsStatus field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PendingWorkloadsStatus field is set to the value of the last call.
+func (b *ClusterQueueStatusApplyConfiguration) WithPendingWorkloadsStatus(value *ClusterQueuePendingWorkloadsStatusApplyConfiguration) *ClusterQueueStatusApplyConfiguration {
+	b.PendingWorkloadsStatus = value
 	return b
 }

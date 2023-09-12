@@ -36,6 +36,7 @@ import (
 // +kubebuilder:docs-gen:collapse=Imports
 
 var ignoreCqCondition = cmpopts.IgnoreFields(kueue.ClusterQueueStatus{}, "Conditions")
+var ignorePendingWorkloadsStatus = cmpopts.IgnoreFields(kueue.ClusterQueueStatus{}, "PendingWorkloadsStatus")
 
 var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 	var (
@@ -103,7 +104,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -121,7 +122,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							Total: resource.MustParse("2"),
 						}},
 					}},
-				}, ignoreCqCondition))
+				}, ignoreCqCondition, ignorePendingWorkloadsStatus))
 			})
 		})
 	})
@@ -158,7 +159,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -176,7 +177,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							Total: resource.MustParse("1"),
 						}},
 					}},
-				}, ignoreCqCondition))
+				}, ignoreCqCondition, ignorePendingWorkloadsStatus))
 			})
 		})
 	})
@@ -212,7 +213,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -232,7 +233,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							},
 						},
 					}},
-				}, ignoreCqCondition))
+				}, ignoreCqCondition, ignorePendingWorkloadsStatus))
 			})
 
 			ginkgo.By("Check podSets spec", func() {
@@ -254,7 +255,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -274,7 +275,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							},
 						},
 					}},
-				}, ignoreCqCondition))
+				}, ignoreCqCondition, ignorePendingWorkloadsStatus))
 			})
 
 			ginkgo.By("Check podSets spec", func() {
@@ -315,7 +316,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -333,7 +334,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							Total: resource.MustParse("1"),
 						}},
 					}},
-				}, ignoreCqCondition))
+				}, ignoreCqCondition, ignorePendingWorkloadsStatus))
 			})
 
 			ginkgo.By("Check podSets spec", func() {
@@ -380,7 +381,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -398,7 +399,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.ConsistentDuration, util.Interval).Should(gomega.BeFalse())
 			})
 
@@ -415,7 +416,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -436,7 +437,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							Total: resource.MustParse("5"),
 						}},
 					}},
-				}, ignoreCqCondition))
+				}, ignoreCqCondition, ignorePendingWorkloadsStatus))
 			})
 		})
 	})
@@ -472,7 +473,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -488,7 +489,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.ConsistentDuration, util.Interval).Should(gomega.BeFalse())
 			})
 
@@ -505,7 +506,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -526,7 +527,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							Total: resource.MustParse("5"),
 						}},
 					}},
-				}, ignoreCqCondition))
+				}, ignoreCqCondition, ignorePendingWorkloadsStatus))
 			})
 		})
 	})
@@ -560,7 +561,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							Total: resource.MustParse("0"),
 						}},
 					}},
-				}, ignoreCqCondition))
+				}, ignoreCqCondition, ignorePendingWorkloadsStatus))
 			})
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)

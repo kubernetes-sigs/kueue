@@ -17,13 +17,16 @@ limitations under the License.
 package core
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -200,9 +203,12 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			if err != nil {
 				t.Errorf("Updating ClusterQueueStatus: %v", err)
 			}
-			if diff := cmp.Diff(tc.wantCqStatus, cq.Status,
+			configCmpOpts := []cmp.Option{
 				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
-				cmpopts.EquateEmpty()); len(diff) != 0 {
+				cmpopts.IgnoreFields(kueue.ClusterQueuePendingWorkloadsStatus{}, "LastChangeTime"),
+				cmpopts.EquateEmpty(),
+			}
+			if diff := cmp.Diff(tc.wantCqStatus, cq.Status, configCmpOpts...); len(diff) != 0 {
 				t.Errorf("unexpected ClusterQueueStatus (-want,+got):\n%s", diff)
 			}
 		})
@@ -474,6 +480,85 @@ func TestRecordResourceMetrics(t *testing.T) {
 			endMetrics := allMetricsForQueue(tc.queue.Name)
 			if len(endMetrics.NominalDPs) != 0 || len(endMetrics.BorrowingDPs) != 0 || len(endMetrics.UsageDPs) != 0 {
 				t.Errorf("Unexpected metrics after cleanup:\n%v", endMetrics)
+			}
+		})
+	}
+}
+
+func TestClusterQueuePendingWorkloadsStatus(t *testing.T) {
+	cqName := "test-cq"
+	lqName := "test-lq"
+	const lowPrio, highPrio = 0, 100
+	defaultWls := &kueue.WorkloadList{
+		Items: []kueue.Workload{
+			*utiltesting.MakeWorkload("one", "").Queue(lqName).Priority(highPrio).Obj(),
+			*utiltesting.MakeWorkload("two", "").Queue(lqName).Priority(lowPrio).Obj(),
+		},
+	}
+	testCases := map[string]struct {
+		queueVisibilityUpdateInterval        time.Duration
+		queueVisibilityClusterQueuesMaxCount int32
+		wantPendingWorkloadsStatus           *kueue.ClusterQueuePendingWorkloadsStatus
+	}{
+		"taking snapshot of cluster queue is disabled": {},
+		"taking snapshot of cluster queue is enabled": {
+			queueVisibilityClusterQueuesMaxCount: 2,
+			queueVisibilityUpdateInterval:        10 * time.Millisecond,
+			wantPendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{
+				Head: []kueue.ClusterQueuePendingWorkload{
+					{Name: "one"}, {Name: "two"},
+				},
+			},
+		},
+		"verify the head of pending workloads when the number of pending workloads exceeds MaxCount": {
+			queueVisibilityClusterQueuesMaxCount: 1,
+			queueVisibilityUpdateInterval:        10 * time.Millisecond,
+			wantPendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{
+				Head: []kueue.ClusterQueuePendingWorkload{
+					{Name: "one"},
+				},
+			},
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			cq := utiltesting.MakeClusterQueue(cqName).
+				QueueingStrategy(kueue.StrictFIFO).Obj()
+			lq := utiltesting.MakeLocalQueue(lqName, "").
+				ClusterQueue(cqName).Obj()
+			ctx := context.Background()
+
+			cl := utiltesting.NewClientBuilder().WithLists(defaultWls).WithObjects(lq, cq).WithStatusSubresource(lq, cq).
+				Build()
+			cCache := cache.New(cl)
+			qManager := queue.NewManager(cl, cCache)
+			if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Inserting clusterQueue in manager: %v", err)
+			}
+			if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("Inserting localQueue in manager: %v", err)
+			}
+
+			r := NewClusterQueueReconciler(
+				cl,
+				qManager,
+				cCache,
+				WithQueueVisibilityUpdateInterval(tc.queueVisibilityUpdateInterval),
+				WithQueueVisibilityClusterQueuesMaxCount(tc.queueVisibilityClusterQueuesMaxCount),
+			)
+
+			go func() {
+				if err := r.Start(ctx); err != nil {
+					t.Errorf("error starting the cluster queue reconciler: %v", err)
+				}
+			}()
+
+			diff := ""
+			if err := wait.PollUntilContextTimeout(ctx, time.Second, 10*time.Second, false, func(ctx context.Context) (done bool, err error) {
+				diff = cmp.Diff(tc.wantPendingWorkloadsStatus, r.getWorkloadsStatus(cq), cmpopts.IgnoreFields(kueue.ClusterQueuePendingWorkloadsStatus{}, "LastChangeTime"))
+				return diff == "", nil
+			}); err != nil {
+				t.Fatalf("Failed to get the expected pending workloads status, last diff=%s", diff)
 			}
 		})
 	}

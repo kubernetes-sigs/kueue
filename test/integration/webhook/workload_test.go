@@ -153,7 +153,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			gomega.EventuallyWithOffset(1, func() error {
 				var newWL kueue.Workload
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &newWL)).To(gomega.Succeed())
-				return util.SetAdmission(ctx, k8sClient, &newWL, testing.MakeAdmission("cq").Obj())
+				return util.SetQuotaReservation(ctx, k8sClient, &newWL, testing.MakeAdmission("cq").Obj())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			ginkgo.By("Updating queueName")
 			gomega.Eventually(func() error {
