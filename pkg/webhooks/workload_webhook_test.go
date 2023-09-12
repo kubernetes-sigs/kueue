@@ -150,7 +150,7 @@ func TestValidateWorkload(t *testing.T) {
 		},
 		"should have a valid clusterQueue name": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				Admit(testingutil.MakeAdmission("@invalid").Obj()).
+				ReserveQuota(testingutil.MakeAdmission("@invalid").Obj()).
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(statusPath.Child("admission", "clusterQueue"), nil, ""),
@@ -158,7 +158,7 @@ func TestValidateWorkload(t *testing.T) {
 		},
 		"should have a valid podSet name in status assigment": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				Admit(testingutil.MakeAdmission("cluster-queue", "@invalid").Obj()).
+				ReserveQuota(testingutil.MakeAdmission("cluster-queue", "@invalid").Obj()).
 				Obj(),
 			wantErr: field.ErrorList{
 				field.NotFound(statusPath.Child("admission", "podSetAssignments").Index(0).Child("name"), nil),
@@ -176,7 +176,7 @@ func TestValidateWorkload(t *testing.T) {
 						Count: 1,
 					},
 				).
-				Admit(testingutil.MakeAdmission("cluster-queue", "main1", "main2", "main3").Obj()).
+				ReserveQuota(testingutil.MakeAdmission("cluster-queue", "main1", "main2", "main3").Obj()).
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(statusPath.Child("admission", "podSetAssignments"), nil, ""),
@@ -188,7 +188,7 @@ func TestValidateWorkload(t *testing.T) {
 				PodSets(*testingutil.MakePodSet("main", 3).
 					Request(corev1.ResourceCPU, "1").
 					Obj()).
-				Admit(testingutil.MakeAdmission("cluster-queue").
+				ReserveQuota(testingutil.MakeAdmission("cluster-queue").
 					Assignment(corev1.ResourceCPU, "flv", "1").
 					AssignmentPodCount(3).
 					Obj()).
@@ -334,41 +334,41 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		"queueName can be updated when admitting": {
 			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
 			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q").
-				Admit(testingutil.MakeAdmission("cq").Obj()).Obj(),
+				ReserveQuota(testingutil.MakeAdmission("cq").Obj()).Obj(),
 		},
 		"queueName should not be updated once admitted": {
 			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q1").
-				Admit(testingutil.MakeAdmission("cq").Obj()).Obj(),
+				ReserveQuota(testingutil.MakeAdmission("cq").Obj()).Obj(),
 			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q2").
-				Admit(testingutil.MakeAdmission("cq").Obj()).Obj(),
+				ReserveQuota(testingutil.MakeAdmission("cq").Obj()).Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec").Child("queueName"), nil, ""),
 			},
 		},
 		"queueName can be updated when admission is reset": {
 			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q1").
-				Admit(testingutil.MakeAdmission("cq").Obj()).Obj(),
+				ReserveQuota(testingutil.MakeAdmission("cq").Obj()).Obj(),
 			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q2").Obj(),
 		},
 		"admission can be set": {
 			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
-			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Admit(
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).ReserveQuota(
 				testingutil.MakeAdmission("cluster-queue").Assignment("on-demand", "5", "1").Obj(),
 			).Obj(),
 			wantErr: nil,
 		},
 		"admission can be unset": {
-			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Admit(
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).ReserveQuota(
 				testingutil.MakeAdmission("cluster-queue").Assignment("on-demand", "5", "1").Obj(),
 			).Obj(),
 			after:   testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
 			wantErr: nil,
 		},
 		"admission should not be updated once set": {
-			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Admit(
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).ReserveQuota(
 				testingutil.MakeAdmission("cluster-queue").Obj(),
 			).Obj(),
-			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Admit(
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).ReserveQuota(
 				testingutil.MakeAdmission("cluster-queue").Assignment("on-demand", "5", "1").Obj(),
 			).Obj(),
 			wantErr: field.ErrorList{
@@ -382,7 +382,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 					*testingutil.MakePodSet("ps1", 3).Obj(),
 					*testingutil.MakePodSet("ps2", 3).Obj(),
 				).
-				Admit(
+				ReserveQuota(
 					testingutil.MakeAdmission("cluster-queue").
 						PodSets(kueue.PodSetAssignment{Name: "ps1"}, kueue.PodSetAssignment{Name: "ps2"}).
 						Obj(),
@@ -396,7 +396,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 					*testingutil.MakePodSet("ps1", 3).Obj(),
 					*testingutil.MakePodSet("ps2", 3).Obj(),
 				).
-				Admit(
+				ReserveQuota(
 					testingutil.MakeAdmission("cluster-queue").
 						PodSets(kueue.PodSetAssignment{Name: "ps1"}, kueue.PodSetAssignment{Name: "ps2"}).
 						Obj(),
@@ -414,7 +414,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 					*testingutil.MakePodSet("ps1", 3).Obj(),
 					*testingutil.MakePodSet("ps2", 3).Obj(),
 				).
-				Admit(
+				ReserveQuota(
 					testingutil.MakeAdmission("cluster-queue").
 						PodSets(kueue.PodSetAssignment{Name: "ps1"}, kueue.PodSetAssignment{Name: "ps2"}).
 						Obj(),
@@ -429,7 +429,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 					*testingutil.MakePodSet("ps1", 3).Obj(),
 					*testingutil.MakePodSet("ps2", 3).Obj(),
 				).
-				Admit(
+				ReserveQuota(
 					testingutil.MakeAdmission("cluster-queue").
 						PodSets(kueue.PodSetAssignment{Name: "ps1"}, kueue.PodSetAssignment{Name: "ps2"}).
 						Obj(),

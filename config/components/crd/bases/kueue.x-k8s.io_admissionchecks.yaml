@@ -1,0 +1,78 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.12.0
+  name: admissionchecks.kueue.x-k8s.io
+spec:
+  group: kueue.x-k8s.io
+  names:
+    kind: AdmissionCheck
+    listKind: AdmissionCheckList
+    plural: admissionchecks
+    singular: admissioncheck
+  scope: Cluster
+  versions:
+  - name: v1beta1
+    schema:
+      openAPIV3Schema:
+        description: AdmissionCheck is the Schema for the admissionchecks API
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: AdmissionCheckSpec defines the desired state of AdmissionCheck
+            properties:
+              controllerName:
+                description: controllerName is name of the controller which will actually
+                  perform the checks. This is the name with which controller identifies
+                  with, not necessarily a K8S Pod or Deployment name. Cannot be empty.
+                type: string
+              parameters:
+                description: Parameters identifies the resource providing additional
+                  check parameters.
+                properties:
+                  apiGroup:
+                    description: ApiGroup is the group for the resource being referenced.
+                    type: string
+                  kind:
+                    description: Kind is the type of the resource being referenced.
+                    type: string
+                  name:
+                    description: Name is the name of the resource being referenced.
+                    type: string
+                required:
+                - apiGroup
+                - kind
+                - name
+                type: object
+              retryDelayMinutes:
+                default: 15
+                description: RetryDelayMinutes specifies how long to keep the workload
+                  suspended after a failed check (after it transitioned to False).
+                  After that the check state goes to "Unknown". The default is 15
+                  min.
+                format: int64
+                type: integer
+            required:
+            - controllerName
+            type: object
+          status:
+            description: AdmissionCheckStatus defines the observed state of AdmissionCheck
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

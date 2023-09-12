@@ -146,7 +146,9 @@ type WorkloadStatus struct {
 	// +optional
 	// +listType=map
 	// +listMapKey=type
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	// +patchStrategy=merge
+	// +patchMergeKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 
 	// reclaimablePods keeps track of the number pods within a podset for which
 	// the resource reservation is no longer needed.
@@ -154,6 +156,14 @@ type WorkloadStatus struct {
 	// +listType=map
 	// +listMapKey=name
 	ReclaimablePods []ReclaimablePod `json:"reclaimablePods,omitempty"`
+
+	// admissionChecks list all the admission checks required by the workload and the current status
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	// +patchStrategy=merge
+	// +patchMergeKey=type
+	AdmissionChecks []metav1.Condition `json:"admissionChecks,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 
 type ReclaimablePod struct {
@@ -166,8 +176,12 @@ type ReclaimablePod struct {
 }
 
 const (
-	// WorkloadAdmitted means that the Workload was admitted by a ClusterQueue.
+	// WorkloadAdmitted means that the Workload has reserved quota and all the admissionChecks
+	// defined in the ClusterQueue are satisfied.
 	WorkloadAdmitted = "Admitted"
+
+	// WorkloadQuotaReserved means that the Workload has reserved quota a ClusterQueue.
+	WorkloadQuotaReserved = "QuotaReserved"
 
 	// WorkloadFinished means that the workload associated to the
 	// ResourceClaim finished running (failed or succeeded).
@@ -189,6 +203,10 @@ const (
 	// WorkloadEvictedByPodsReadyTimeout indicates that the eviction took
 	// place due to a PodsReady timeout.
 	WorkloadEvictedByPodsReadyTimeout = "PodsReadyTimeout"
+
+	// WorkloadEvictedByAdmissionCheck indicates that the workload was evicted
+	// beacuse at least one admission check transitioned to False.
+	WorkloadEvictedByAdmissionCheck = "AdmissionCheck"
 )
 
 // +genclient

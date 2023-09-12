@@ -72,11 +72,17 @@ func managerSetup(mgr manager.Manager, ctx context.Context) {
 	failedWebhook, err := webhooks.Setup(mgr)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
-	cCache := cache.New(mgr.GetClient())
-	queues := queue.NewManager(mgr.GetClient(), cCache)
-
 	controllersCfg := &config.Configuration{}
 	controllersCfg.Metrics.EnableClusterQueueResources = true
+	controllersCfg.QueueVisibility = &config.QueueVisibility{
+		UpdateIntervalSeconds: 1,
+		ClusterQueues: &config.ClusterQueueVisibility{
+			MaxCount: 3,
+		},
+	}
+
+	cCache := cache.New(mgr.GetClient())
+	queues := queue.NewManager(mgr.GetClient(), cCache)
 
 	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)

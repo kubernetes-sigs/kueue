@@ -34,7 +34,7 @@ const (
 	WorkloadClusterQueueKey    = "status.admission.clusterQueue"
 	QueueClusterQueueKey       = "spec.clusterQueue"
 	LimitRangeHasContainerType = "spec.hasContainerType"
-	WorkloadAdmittedKey        = "status.admitted"
+	WorkloadQuotaReservedKey   = "status.quotaReserved"
 	WorkloadRuntimeClassKey    = "spec.runtimeClass"
 )
 
@@ -79,13 +79,13 @@ func IndexLimitRangeHasContainerType(obj client.Object) []string {
 	return nil
 }
 
-func IndexWorkloadAdmitted(obj client.Object) []string {
+func IndexWorkloadQuotaReserved(obj client.Object) []string {
 	wl, ok := obj.(*kueue.Workload)
 	if !ok {
 		return nil
 	}
 
-	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 	if cond == nil {
 		return []string{string(metav1.ConditionFalse)}
 	}
@@ -118,7 +118,7 @@ func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadClusterQueueKey, IndexWorkloadClusterQueue); err != nil {
 		return fmt.Errorf("setting index on clusterQueue for Workload: %w", err)
 	}
-	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadAdmittedKey, IndexWorkloadAdmitted); err != nil {
+	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadQuotaReservedKey, IndexWorkloadQuotaReserved); err != nil {
 		return fmt.Errorf("setting index on admitted for Workload: %w", err)
 	}
 	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadRuntimeClassKey, IndexWorkloadRuntimeClass); err != nil {

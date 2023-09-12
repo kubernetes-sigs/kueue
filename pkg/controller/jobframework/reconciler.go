@@ -266,10 +266,11 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		if err := r.stopJob(ctx, job, object, wl, evCond.Message); err != nil {
 			return ctrl.Result{}, err
 		}
-		if workload.IsAdmitted(wl) {
+		if workload.HasQuotaReservation(wl) {
 			if !job.IsActive() {
 				log.V(6).Info("The job is no longer active, clear the workloads admission")
-				workload.UnsetAdmissionWithCondition(wl, "Pending", evCond.Message)
+				workload.UnsetQuotaReservationWithCondition(wl, "Pending", evCond.Message)
+				_ = workload.SyncAdmittedCondition(wl)
 				err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
 				if err != nil {
 					return ctrl.Result{}, fmt.Errorf("clearing admission: %w", err)
@@ -444,7 +445,7 @@ func (r *JobReconciler) equivalentToWorkload(job GenericJob, object client.Objec
 
 	jobPodSets := resetMinCounts(job.PodSets())
 
-	if !workload.CanBePartiallyAdmitted(wl) || !workload.IsAdmitted(wl) {
+	if !workload.CanBePartiallyAdmitted(wl) || !workload.HasQuotaReservation(wl) {
 		// the two sets should fully match.
 		return equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets, true)
 	}

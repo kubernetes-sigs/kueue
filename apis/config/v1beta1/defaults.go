@@ -29,16 +29,18 @@ import (
 )
 
 const (
-	DefaultNamespace                      = "kueue-system"
-	DefaultWebhookServiceName             = "kueue-webhook-service"
-	DefaultWebhookSecretName              = "kueue-webhook-server-cert"
-	DefaultWebhookPort                    = 9443
-	DefaultHealthProbeBindAddress         = ":8081"
-	DefaultMetricsBindAddress             = ":8080"
-	DefaultLeaderElectionID               = "c1f6bfd2.kueue.x-k8s.io"
-	DefaultClientConnectionQPS    float32 = 20.0
-	DefaultClientConnectionBurst  int32   = 30
-	defaultPodsReadyTimeout               = 5 * time.Minute
+	DefaultNamespace                                    = "kueue-system"
+	DefaultWebhookServiceName                           = "kueue-webhook-service"
+	DefaultWebhookSecretName                            = "kueue-webhook-server-cert"
+	DefaultWebhookPort                                  = 9443
+	DefaultHealthProbeBindAddress                       = ":8081"
+	DefaultMetricsBindAddress                           = ":8080"
+	DefaultLeaderElectionID                             = "c1f6bfd2.kueue.x-k8s.io"
+	DefaultClientConnectionQPS                  float32 = 20.0
+	DefaultClientConnectionBurst                int32   = 30
+	defaultPodsReadyTimeout                             = 5 * time.Minute
+	DefaultQueueVisibilityUpdateIntervalSeconds int32   = 5
+	DefaultClusterQueuesMaxCount                int32   = 10
 )
 
 func addDefaultingFuncs(scheme *runtime.Scheme) error {
@@ -115,5 +117,16 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	}
 	if cfg.Integrations.Frameworks == nil {
 		cfg.Integrations.Frameworks = []string{job.FrameworkName}
+	}
+	if cfg.QueueVisibility == nil {
+		cfg.QueueVisibility = &QueueVisibility{}
+	}
+	if cfg.QueueVisibility.UpdateIntervalSeconds == 0 {
+		cfg.QueueVisibility.UpdateIntervalSeconds = DefaultQueueVisibilityUpdateIntervalSeconds
+	}
+	if cfg.QueueVisibility.ClusterQueues == nil {
+		cfg.QueueVisibility.ClusterQueues = &ClusterQueueVisibility{
+			MaxCount: DefaultClusterQueuesMaxCount,
+		}
 	}
 }

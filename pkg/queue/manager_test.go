@@ -46,7 +46,7 @@ func TestAddLocalQueueOrphans(t *testing.T) {
 		utiltesting.MakeWorkload("b", "earth").Queue("bar").Obj(),
 		utiltesting.MakeWorkload("c", "earth").Queue("foo").Obj(),
 		utiltesting.MakeWorkload("d", "earth").Queue("foo").
-			Admit(utiltesting.MakeAdmission("cq").Obj()).Obj(),
+			ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).Obj(),
 		utiltesting.MakeWorkload("a", "moon").Queue("foo").Obj(),
 	)
 	manager := NewManager(kClient, nil)
@@ -77,7 +77,7 @@ func TestAddClusterQueueOrphans(t *testing.T) {
 		utiltesting.MakeWorkload("a", "").Queue("foo").Creation(now.Add(time.Second)).Obj(),
 		utiltesting.MakeWorkload("b", "").Queue("bar").Creation(now).Obj(),
 		utiltesting.MakeWorkload("c", "").Queue("foo").
-			Admit(utiltesting.MakeAdmission("cq").Obj()).Obj(),
+			ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).Obj(),
 		utiltesting.MakeWorkload("d", "").Queue("baz").Obj(),
 		queues[0],
 		queues[1],

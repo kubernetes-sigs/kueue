@@ -53,4 +53,12 @@ resources:
   kind: KueueConfiguration
   path: sigs.k8s.io/kueue/apis/config/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+  controller: true
+  domain: x-k8s.io
+  group: kueue
+  kind: AdmissionCheck
+  path: sigs.k8s.io/kueue/apis/kueue/v1beta1
+  version: v1beta1
 version: "3"

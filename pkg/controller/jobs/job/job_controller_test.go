@@ -332,6 +332,9 @@ var (
 		cmpopts.SortSlices(func(a, b kueue.Workload) bool {
 			return a.Name < b.Name
 		}),
+		cmpopts.SortSlices(func(a, b metav1.Condition) bool {
+			return a.Type < b.Type
+		}),
 		cmpopts.IgnoreFields(
 			kueue.Workload{}, "TypeMeta", "ObjectMeta.OwnerReferences",
 			"ObjectMeta.Name", "ObjectMeta.ResourceVersion",
@@ -350,7 +353,6 @@ func TestReconciler(t *testing.T) {
 		Image("", nil)
 
 	cases := map[string]struct {
-		focus             bool
 		reconcilerOptions []jobframework.Option
 		job               batchv1.Job
 		wantJob           batchv1.Job
@@ -369,14 +371,16 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
-					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
 					Obj(),
 			},
 		},
@@ -389,7 +393,8 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
-					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
 					Obj(),
 			},
 			wantErr: jobframework.ErrNoMatchingWorkloads,
@@ -409,7 +414,8 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(8).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(8).Obj()).
+					Admitted(true).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -421,7 +427,8 @@ func TestReconciler(t *testing.T) {
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
-					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(8).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(8).Obj()).
+					Admitted(true).
 					Obj(),
 			},
 		},
@@ -444,7 +451,8 @@ func TestReconciler(t *testing.T) {
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
-					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(8).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(8).Obj()).
+					Admitted(true).
 					Obj(),
 			},
 			wantErr: jobframework.ErrNoMatchingWorkloads,
@@ -549,13 +557,15 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("unit-test", "ns").
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("unit-test", "ns").
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
 					Obj(),
 			},
 		},
@@ -599,13 +609,15 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("parent-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("parent-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
 					Obj(),
 			},
 		},
@@ -626,7 +638,8 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("first-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
-					Admit(utiltesting.MakeAdmission("cq").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+					Admitted(true).
 					Obj(),
 				*utiltesting.MakeWorkload("second-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
@@ -635,7 +648,8 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("first-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
-					Admit(utiltesting.MakeAdmission("cq").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").Obj()).
+					Admitted(true).
 					Obj(),
 			},
 			wantErr: jobframework.ErrExtraWorkloads,
@@ -652,7 +666,8 @@ func TestReconciler(t *testing.T) {
 				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
-					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadEvicted,
 						Status: metav1.ConditionTrue,
@@ -667,7 +682,8 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
-					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadEvicted,
 						Status: metav1.ConditionTrue,
@@ -686,7 +702,8 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
-					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadEvicted,
 						Status: metav1.ConditionTrue,
@@ -701,7 +718,8 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
-					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadEvicted,
 						Status: metav1.ConditionTrue,
@@ -719,7 +737,8 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
-					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadEvicted,
 						Status: metav1.ConditionTrue,
@@ -734,10 +753,43 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
-					Admit(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadEvicted,
 						Status: metav1.ConditionTrue,
+					}).
+					Obj(),
+			},
+		},
+		"when job completes, workload is marked as finished": {
+			job: *baseJobWrapper.Clone().
+				Queue("foo").
+				Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
+					Obj(),
+			},
+			wantJob: *baseJobWrapper.Clone().
+				Queue("foo").
+				Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  "JobFinished",
+						Message: "Job finished successfully",
 					}).
 					Obj(),
 			},

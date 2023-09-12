@@ -20,6 +20,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
@@ -172,6 +174,130 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 			}
 			if tc.wantRecheckAfter != recheckAfter {
 				t.Errorf("Unexpected recheckAfter, want=%v, got=%v", tc.wantRecheckAfter, recheckAfter)
+			}
+		})
+	}
+}
+
+func TestSyncCheckConditions(t *testing.T) {
+	now := metav1.NewTime(time.Now())
+	cases := map[string]struct {
+		conds                []metav1.Condition
+		list                 []string
+		wantConds            []metav1.Condition
+		wantChange           bool
+		ignoreTransitionTime bool
+	}{
+		"nil conditions, nil list": {},
+		"add to nil conditions": {
+			list:       []string{"ac1", "ac2"},
+			wantChange: true,
+			wantConds: []metav1.Condition{
+				{
+					Type:   "ac1",
+					Status: metav1.ConditionUnknown,
+					Reason: kueue.CheckStatePending,
+				},
+				{
+					Type:   "ac2",
+					Status: metav1.ConditionUnknown,
+					Reason: kueue.CheckStatePending,
+				},
+			},
+			ignoreTransitionTime: true,
+		},
+		"add and remove": {
+			conds: []metav1.Condition{
+				{
+					Type:   "ac0",
+					Status: metav1.ConditionUnknown,
+					Reason: kueue.CheckStatePending,
+				},
+				{
+					Type:   "ac1",
+					Status: metav1.ConditionUnknown,
+					Reason: kueue.CheckStatePending,
+				},
+			},
+			list:       []string{"ac1", "ac2"},
+			wantChange: true,
+			wantConds: []metav1.Condition{
+				{
+					Type:   "ac1",
+					Status: metav1.ConditionUnknown,
+					Reason: kueue.CheckStatePending,
+				},
+				{
+					Type:   "ac2",
+					Status: metav1.ConditionUnknown,
+					Reason: kueue.CheckStatePending,
+				},
+			},
+			ignoreTransitionTime: true,
+		},
+		"cleanup": {
+			conds: []metav1.Condition{
+				{
+					Type:   "ac0",
+					Status: metav1.ConditionUnknown,
+					Reason: kueue.CheckStatePending,
+				},
+				{
+					Type:   "ac1",
+					Status: metav1.ConditionUnknown,
+					Reason: kueue.CheckStatePending,
+				},
+			},
+			wantChange: true,
+		},
+		"preserve conditions data": {
+			conds: []metav1.Condition{
+				{
+					Type:               "ac0",
+					Status:             metav1.ConditionTrue,
+					Reason:             "ReasonOne",
+					Message:            "Message one",
+					LastTransitionTime: *now.DeepCopy(),
+				},
+				{
+					Type:   "ac1",
+					Status: metav1.ConditionFalse,
+					Reason: kueue.CheckStatePending,
+				},
+			},
+			list:       []string{"ac0", "ac1"},
+			wantChange: false,
+			wantConds: []metav1.Condition{
+				{
+					Type:               "ac0",
+					Status:             metav1.ConditionTrue,
+					Reason:             "ReasonOne",
+					Message:            "Message one",
+					LastTransitionTime: *now.DeepCopy(),
+				},
+				{
+					Type:   "ac1",
+					Status: metav1.ConditionFalse,
+					Reason: kueue.CheckStatePending,
+				},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			gotConditions, gotShouldChange := syncAdmissionCheckConditions(tc.conds, tc.list)
+
+			if tc.wantChange != gotShouldChange {
+				t.Errorf("Unexpected should change, want=%v", tc.wantChange)
+			}
+
+			opts := []cmp.Option{}
+			if tc.ignoreTransitionTime {
+				opts = append(opts, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))
+			}
+			if diff := cmp.Diff(tc.wantConds, gotConditions, opts...); diff != "" {
+				t.Errorf("Unexpected conditions, (want-/got+): %s", diff)
 			}
 		})
 	}

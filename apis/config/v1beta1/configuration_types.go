@@ -62,6 +62,10 @@ type Configuration struct {
 	// Integrations provide configuration options for AI/ML/Batch frameworks
 	// integrations (including K8S job).
 	Integrations *Integrations `json:"integrations,omitempty"`
+
+	// QueueVisibility is configuration to expose the information about the top
+	// pending workloads.
+	QueueVisibility *QueueVisibility `json:"queueVisibility,omitempty"`
 }
 
 type ControllerManager struct {
@@ -225,4 +229,25 @@ type Integrations struct {
 	//  - "kubeflow.org/pytorchjob"
 	//  - "kubeflow.org/tfjob"
 	Frameworks []string `json:"frameworks,omitempty"`
+}
+
+type QueueVisibility struct {
+	// ClusterQueues is configuration to expose the information
+	// about the top pending workloads in the cluster queue.
+	ClusterQueues *ClusterQueueVisibility `json:"clusterQueues,omitempty"`
+
+	// UpdateIntervalSeconds specifies the time interval for updates to the structure
+	// of the top pending workloads in the queues.
+	// The minimum value is 1.
+	// Defaults to 5.
+	UpdateIntervalSeconds int32 `json:"updateIntervalSeconds,omitempty"`
+}
+
+type ClusterQueueVisibility struct {
+	// MaxCount indicates the maximal number of pending workloads exposed in the
+	// cluster queue status.  When the value is set to 0, then ClusterQueue
+	// visibility updates are disabled.
+	// The maximal value is 4000.
+	// Defaults to 10.
+	MaxCount int32 `json:"maxCount,omitempty"`
 }
