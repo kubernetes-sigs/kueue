@@ -418,5 +418,21 @@ func FinishEvictionForWorkloads(ctx context.Context, k8sClient client.Client, wl
 			return nil
 		}, Timeout, Interval).Should(gomega.Succeed(), fmt.Sprintf("Unable to unset quota reservation for %q", key))
 	}
+}
 
+func SetAdmissionCheckActive(ctx context.Context, k8sClient client.Client, admissionCheck *kueue.AdmissionCheck, status metav1.ConditionStatus) {
+	gomega.EventuallyWithOffset(1, func() error {
+		var updatedAc kueue.AdmissionCheck
+		err := k8sClient.Get(ctx, client.ObjectKeyFromObject(admissionCheck), &updatedAc)
+		if err != nil {
+			return err
+		}
+		apimeta.SetStatusCondition(&updatedAc.Status.Conditions, metav1.Condition{
+			Type:    kueue.AdmissionCheckActive,
+			Status:  status,
+			Reason:  "ByTest",
+			Message: "by test",
+		})
+		return k8sClient.Status().Update(ctx, &updatedAc)
+	}, Timeout, Interval).Should(gomega.Succeed())
 }

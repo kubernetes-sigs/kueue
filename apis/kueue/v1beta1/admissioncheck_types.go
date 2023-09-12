@@ -78,7 +78,21 @@ type AdmissionCheckParametersReference struct {
 
 // AdmissionCheckStatus defines the observed state of AdmissionCheck
 type AdmissionCheckStatus struct {
+	// conditions hold the latest available observations of the AdmissionCheck
+	// current state.
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	// +patchStrategy=merge
+	// +patchMergeKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
+
+const (
+	// AdmissionCheckActive indicates that the controller of the admission check is
+	// ready to evaluate the checks states
+	AdmissionCheckActive string = "Active"
+)
 
 //+genclient
 //+kubebuilder:object:root=true

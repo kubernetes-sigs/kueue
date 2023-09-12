@@ -42,10 +42,10 @@ type ClusterQueue struct {
 	// The following fields are not populated in a snapshot.
 
 	// Key is localQueue's key (namespace/name).
-	localQueues               map[string]*queue
-	podsReadyTracking         bool
-	hasMissingFlavors         bool
-	hasMissingAdmissionChecks bool
+	localQueues                         map[string]*queue
+	podsReadyTracking                   bool
+	hasMissingFlavors                   bool
+	hasMissingOrInactiveAdmissionChecks bool
 }
 
 // Cohort is a set of ClusterQueues that can borrow resources from each other.
@@ -143,7 +143,7 @@ var defaultPreemption = kueue.ClusterQueuePreemption{
 
 var defaultFlavorFungibility = kueue.FlavorFungibility{WhenCanBorrow: kueue.Borrow, WhenCanPreempt: kueue.TryNextFlavor}
 
-func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks sets.Set[string]) error {
+func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks map[string]AdmissionCheck) error {
 	c.updateResourceGroups(in.Spec.ResourceGroups)
 	nsSelector, err := metav1.LabelSelectorAsSelector(in.Spec.NamespaceSelector)
 	if err != nil {
@@ -233,7 +233,7 @@ func (c *ClusterQueue) UpdateRGByResource() {
 
 func (c *ClusterQueue) updateQueueStatus() {
 	status := active
-	if c.hasMissingFlavors || c.hasMissingAdmissionChecks {
+	if c.hasMissingFlavors || c.hasMissingOrInactiveAdmissionChecks {
 		status = pending
 	}
 	if c.Status == terminating {
@@ -251,12 +251,12 @@ func (c *ClusterQueue) inactiveReason() (string, string) {
 		return "Terminating", "Can't admit new workloads; clusterQueue is terminating"
 	case pending:
 		switch {
-		case c.hasMissingFlavors && c.hasMissingAdmissionChecks:
-			return "FlavorAndCheckNotFound", "Can't admit new workloads; some resourceFlavors and admissionChecks are not found"
+		case c.hasMissingFlavors && c.hasMissingOrInactiveAdmissionChecks:
+			return "FlavorNotFoundAndCheckNotFoundOrInactive", "Can't admit new workloads; some resourceFlavors are not found and admissionChecks are not found or inactive"
 		case c.hasMissingFlavors:
 			return "FlavorNotFound", "Can't admit new workloads; some resourceFlavors are not found"
 		default:
-			return "CheckNotFound", "Can't admit new workloads; some admissionChecks are not found"
+			return "CheckNotFoundOrInactive", "Can't admit new workloads; some admissionChecks are not found or inactive"
 
 		}
 	}
@@ -298,17 +298,17 @@ func (c *ClusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference
 }
 
 // updateWithAdmissionChecks updates a ClusterQueue based on the passed AdmissionChecks set.
-func (c *ClusterQueue) updateWithAdmissionChecks(checks sets.Set[string]) {
+func (c *ClusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionCheck) {
 	hasMissing := false
-	for ac := range c.AdmissionChecks {
-		if !checks.Has(ac) {
+	for acName := range c.AdmissionChecks {
+		if ac, found := checks[acName]; !found || !ac.Active {
 			hasMissing = true
 			break
 		}
 	}
 
-	if hasMissing != c.hasMissingAdmissionChecks {
-		c.hasMissingAdmissionChecks = hasMissing
+	if hasMissing != c.hasMissingOrInactiveAdmissionChecks {
+		c.hasMissingOrInactiveAdmissionChecks = hasMissing
 		c.updateQueueStatus()
 	}
 }

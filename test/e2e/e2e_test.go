@@ -229,6 +229,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 		ginkgo.BeforeEach(func() {
 			check = testing.MakeAdmissionCheck("check1").Obj()
 			gomega.Expect(k8sClient.Create(ctx, check)).Should(gomega.Succeed())
+			util.SetAdmissionCheckActive(ctx, k8sClient, check, metav1.ConditionTrue)
 			onDemandRF = testing.MakeResourceFlavor("on-demand").
 				Label("instance-type", "on-demand").Obj()
 			gomega.Expect(k8sClient.Create(ctx, onDemandRF)).Should(gomega.Succeed())

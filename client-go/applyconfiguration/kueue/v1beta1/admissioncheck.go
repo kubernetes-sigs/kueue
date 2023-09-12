@@ -21,7 +21,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
-	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 // AdmissionCheckApplyConfiguration represents an declarative configuration of the AdmissionCheck type for use
@@ -29,8 +28,8 @@ import (
 type AdmissionCheckApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:",inline"`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                             *AdmissionCheckSpecApplyConfiguration `json:"spec,omitempty"`
-	Status                           *kueuev1beta1.AdmissionCheckStatus    `json:"status,omitempty"`
+	Spec                             *AdmissionCheckSpecApplyConfiguration   `json:"spec,omitempty"`
+	Status                           *AdmissionCheckStatusApplyConfiguration `json:"status,omitempty"`
 }
 
 // AdmissionCheck constructs an declarative configuration of the AdmissionCheck type for use with
@@ -213,7 +212,7 @@ func (b *AdmissionCheckApplyConfiguration) WithSpec(value *AdmissionCheckSpecApp
 // WithStatus sets the Status field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Status field is set to the value of the last call.
-func (b *AdmissionCheckApplyConfiguration) WithStatus(value kueuev1beta1.AdmissionCheckStatus) *AdmissionCheckApplyConfiguration {
-	b.Status = &value
+func (b *AdmissionCheckApplyConfiguration) WithStatus(value *AdmissionCheckStatusApplyConfiguration) *AdmissionCheckApplyConfiguration {
+	b.Status = value
 	return b
 }
