@@ -23,6 +23,7 @@ tags, and then generate with `hack/update-toc.sh`.
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
   - [PlanA](#plana)
+  - [PlanB](#planb)
   - [Validation](#validation)
     - [ClusterQueue](#clusterqueue)
     - [Hierachy](#hierachy)
@@ -53,20 +54,25 @@ Kueue currently supports three organizational levels: Cohort (models a business 
 ## Proposal
 We will extend cluster queues to allow a cluster queue to be the parent of another cluster queue. And allow admins to define weights for all these cluster queues.
 ### PlanA
-We propose to add a `.Spec.Children`field to the ClusterQueue CRD. `.Spec.Children`field is a list of `string` to define the children CQs, we will not check if the child CQ exist or not. Noted that `.Spec.Children` cannot exist with `.Spec.Cohort` concurrently.
+We propose to add a `.Spec.Parent`field to the ClusterQueue CRD. `.Spec.Parent` field is a `objectReference`. Noted that `.Spec.Children` cannot exist with `.Spec.Cohort` concurrently. We will check is there a cycle reference problem and if parent queue has been created in webhook when creating a new cluster queue to make sure the tree is valid.
+
+We propose to add a `Policy` to define the admission sequence for cluster queues in a cluster queue tree. Currently we will use if the cluster queue borrowed resource, the priority and the creation time of workload to determine the admission sequence. Add a `Policy` field will give users more control over the admission sequence.
+
 We propose to add a crd named `ClusterQueueTree` to contains `.status.trees[]` to display current trees' state. This crd will only show the hierachy, if admins want to query the resource consumption of cluster queue, they need to query through `ClusterQueue` crd.
 ```go
 type Policy string
+// default, same as the current behavior
 var FIFO Policy = "fifo"
+// the more resource a CQ have consumed, the latter its workloads will be admited in a scheduling cycle. 
 var Fair Policy = "fair"
-var Priority Policy = "priority"
-var Capacity Policy = "Capacity"
+// CQs that consume more resource than its min weights will be admited after the other CQs.
+var Capacity Policy = "capacity"
 type ClusterQueueSpec struct {
-	...
+	  ...
     Policy Policy
     Children []string
-    // only make effect when Policy == Capacity
     MaxWeight *int32
+    // only make effect when Policy == Capacity
     MinWeight *int32
     // can only be set if weight is nil
     ResourceGroups []ResourceGroup
@@ -118,6 +124,22 @@ type ClusterQuotaTree struct {
 Properties other than hierachy and resource groups will still be defined on cluster queues. 
 When a tree is created, we will check if all cluster queues in the tree belong to exactly one tree. Ohterwise we will reject the tree.
 After a tree is created, controller will create corresponding cluster queues for it with the `ClusterQuotaTemplate` if any queue does not exist and config the resource group field for the queue. 
+
+Besides, we propose to extend `QueueingStrategy` to allow users control the dequeue sequence of workloads belong to different local queues under a cluster queue.
+``` go
+type QueueingStrategy string
+
+const (
+	// Fair means workloads belong to the local queues which consumed more resource will be delayed to dequeue.
+  // Workloads belong to same local queue will be sorted by priority and creation time.
+	Fair QueueingStrategy = "Fair"
+  // Allow users to define weight for local queue by their own, workloads belong to the local queues which
+  // have used more than weight will be delayed to dequeue.
+  // Workloads belong to same local queue will be sorted by priority and creation time.
+	Capacity QueueingStrategy = "Capacity"
+)
+``` 
+
 ### Validation
 #### ClusterQueue
 We don't support to use cohort and cluster queue tree for same cluster queue.
@@ -127,7 +149,7 @@ Sum of `MinWeight` of ClusterQuotas belong to one Quota must be 100. `MaxWeight`
 Sum of `MinResources` must be lower than that of the parent quota. `MaxResources` must be lower that of the parent quota.
 #### ResourceFlavor 
 #### localqueue
-No local queue can point to cluster queues that have children in cluster queue tree.
+Only leaf queue in the tree can be pointed to by a local queue. The local queue try to point to a cluster queue which is not a leaf queue will be rejected. And the cluster queue try to set its parent as a cluster queue been pointed by any local queue will be rejected.
 ### Schedule Behavior
 We will check the ClusterQueues' Resource Flavors level by level to ensure all flavors have enough quota.
 ### API
