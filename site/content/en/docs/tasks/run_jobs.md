@@ -55,8 +55,6 @@ without Kueue. However, you must consider the following differences:
 - You should include the resource requests for each Job Pod.
 
 Here is a sample Job with three Pods that just sleep for a few seconds.
-This sample is also available
-in [github.com/kubernetes-sigs/kueue/blob/main/examples/jobs/sample-job.yaml](https://github.com/kubernetes-sigs/kueue/blob/main/examples/jobs/sample-job.yaml).
 
 {{% include "jobs/sample-job.yaml" "yaml" %}}
 
