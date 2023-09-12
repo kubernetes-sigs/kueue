@@ -62,6 +62,7 @@ type ClusterQueueReconciler struct {
 	snapshotsQueue                       workqueue.Interface
 	wlUpdateCh                           chan event.GenericEvent
 	rfUpdateCh                           chan event.GenericEvent
+	acUpdateCh                           chan event.GenericEvent
 	watchers                             []ClusterQueueUpdateWatcher
 	reportResourceMetrics                bool
 	queueVisibilityUpdateInterval        time.Duration
@@ -126,6 +127,7 @@ func NewClusterQueueReconciler(
 		snapshotsQueue:                       workqueue.New(),
 		wlUpdateCh:                           make(chan event.GenericEvent, updateChBuffer),
 		rfUpdateCh:                           make(chan event.GenericEvent, updateChBuffer),
+		acUpdateCh:                           make(chan event.GenericEvent, updateChBuffer),
 		watchers:                             options.Watchers,
 		reportResourceMetrics:                options.ReportResourceMetrics,
 		queueVisibilityUpdateInterval:        options.QueueVisibilityUpdateInterval,
@@ -177,23 +179,10 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	newCQObj := cqObj.DeepCopy()
-	if r.cache.ClusterQueueActive(newCQObj.Name) {
-		msg := "Can admit new workloads"
-		if err := r.updateCqStatusIfChanged(ctx, newCQObj, metav1.ConditionTrue, "Ready", msg); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-	} else if r.cache.ClusterQueueTerminating(newCQObj.Name) {
-		msg := "Can't admit new workloads; clusterQueue is terminating"
-		if err := r.updateCqStatusIfChanged(ctx, newCQObj, metav1.ConditionFalse, "Terminating", msg); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-	} else {
-		msg := "Can't admit new workloads; some flavors are not found"
-		if err := r.updateCqStatusIfChanged(ctx, newCQObj, metav1.ConditionFalse, "FlavorNotFound", msg); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
+	cqCondition, reason, msg := r.cache.ClusterQueueReadiness(newCQObj.Name)
+	if err := r.updateCqStatusIfChanged(ctx, newCQObj, cqCondition, reason, msg); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-
 	return ctrl.Result{}, nil
 }
 
@@ -228,6 +217,15 @@ func (r *ClusterQueueReconciler) NotifyResourceFlavorUpdate(oldRF, newRF *kueue.
 	if newRF == nil {
 		r.rfUpdateCh <- event.GenericEvent{Object: oldRF}
 		return
+	}
+}
+
+func (r *ClusterQueueReconciler) NotifyAdmissionCheckUpdate(oldAc, newAc *kueue.AdmissionCheck) {
+	switch {
+	case oldAc != nil:
+		r.acUpdateCh <- event.GenericEvent{Object: oldAc}
+	case newAc != nil:
+		r.acUpdateCh <- event.GenericEvent{Object: newAc}
 	}
 }
 
@@ -501,6 +499,36 @@ func (h *cqResourceFlavorHandler) Generic(_ context.Context, e event.GenericEven
 	}
 }
 
+type cqAdmissionCheckHandler struct {
+	cache *cache.Cache
+}
+
+func (h *cqAdmissionCheckHandler) Create(context.Context, event.CreateEvent, workqueue.RateLimitingInterface) {
+}
+
+func (h *cqAdmissionCheckHandler) Update(context.Context, event.UpdateEvent, workqueue.RateLimitingInterface) {
+}
+
+func (h *cqAdmissionCheckHandler) Delete(context.Context, event.DeleteEvent, workqueue.RateLimitingInterface) {
+}
+
+func (h *cqAdmissionCheckHandler) Generic(_ context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
+	ac, isAc := e.Object.(*kueue.AdmissionCheck)
+	if !isAc {
+		return
+	}
+
+	if cqs := h.cache.ClusterQueuesUsingAdmissionCheck(ac.Name); len(cqs) != 0 {
+		for _, cq := range cqs {
+			req := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name: cq,
+				}}
+			q.Add(req)
+		}
+	}
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	wHandler := cqWorkloadHandler{
@@ -513,11 +541,15 @@ func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	rfHandler := cqResourceFlavorHandler{
 		cache: r.cache,
 	}
+	acHandler := cqAdmissionCheckHandler{
+		cache: r.cache,
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.ClusterQueue{}).
 		Watches(&corev1.Namespace{}, &nsHandler).
 		WatchesRawSource(&source.Channel{Source: r.wlUpdateCh}, &wHandler).
 		WatchesRawSource(&source.Channel{Source: r.rfUpdateCh}, &rfHandler).
+		WatchesRawSource(&source.Channel{Source: r.acUpdateCh}, &acHandler).
 		WithEventFilter(r).
 		Complete(r)
 }

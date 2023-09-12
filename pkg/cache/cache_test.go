@@ -656,6 +656,76 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "add cluster queue with missing check",
+			operation: func(cache *Cache) {
+				err := cache.AddClusterQueue(context.Background(),
+					utiltesting.MakeClusterQueue("foo").
+						AdmissionChecks("check1", "check2").
+						Obj())
+				if err != nil {
+					t.Fatalf("Adding ClusterQueue: %v", err)
+				}
+			},
+			wantClusterQueues: map[string]*ClusterQueue{
+				"foo": {
+					Name:              "foo",
+					NamespaceSelector: labels.Everything(),
+					Status:            pending,
+					Preemption:        defaultPreemption,
+				},
+			},
+			wantCohorts: map[string]sets.Set[string]{},
+		},
+		{
+			name: "add check after queue creation",
+			operation: func(cache *Cache) {
+				err := cache.AddClusterQueue(context.Background(),
+					utiltesting.MakeClusterQueue("foo").
+						AdmissionChecks("check1", "check2").
+						Obj())
+				if err != nil {
+					t.Fatalf("Adding ClusterQueue: %v", err)
+				}
+
+				cache.AddOrUpdateAdmissionCheck(utiltesting.MakeAdmissionCheck("check1").Obj())
+				cache.AddOrUpdateAdmissionCheck(utiltesting.MakeAdmissionCheck("check2").Obj())
+			},
+			wantClusterQueues: map[string]*ClusterQueue{
+				"foo": {
+					Name:              "foo",
+					NamespaceSelector: labels.Everything(),
+					Status:            active,
+					Preemption:        defaultPreemption,
+				},
+			},
+			wantCohorts: map[string]sets.Set[string]{},
+		},
+		{
+			name: "remove check after queue creation",
+			operation: func(cache *Cache) {
+				cache.AddOrUpdateAdmissionCheck(utiltesting.MakeAdmissionCheck("check1").Obj())
+				cache.AddOrUpdateAdmissionCheck(utiltesting.MakeAdmissionCheck("check2").Obj())
+				err := cache.AddClusterQueue(context.Background(),
+					utiltesting.MakeClusterQueue("foo").
+						AdmissionChecks("check1", "check2").
+						Obj())
+				if err != nil {
+					t.Fatalf("Adding ClusterQueue: %v", err)
+				}
+
+				cache.DeleteAdmissionCheck(utiltesting.MakeAdmissionCheck("check2").Obj())
+			},
+			wantClusterQueues: map[string]*ClusterQueue{
+				"foo": {
+					Name:              "foo",
+					NamespaceSelector: labels.Everything(),
+					Status:            pending,
+					Preemption:        defaultPreemption,
+				},
+			},
+			wantCohorts: map[string]sets.Set[string]{},
+		},
 	}
 
 	for _, tc := range cases {
@@ -2552,4 +2622,178 @@ func messageOrEmpty(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+func TestClusterQueuesUsingAdmissionChecks(t *testing.T) {
+	admissionCheck1 := utiltesting.MakeAdmissionCheck("ac1").Obj()
+	admissionCheck2 := utiltesting.MakeAdmissionCheck("ac2").Obj()
+	fooCq := utiltesting.MakeClusterQueue("fooCq").
+		AdmissionChecks(admissionCheck1.Name).
+		Obj()
+	barCq := utiltesting.MakeClusterQueue("barCq").Obj()
+	fizzCq := utiltesting.MakeClusterQueue("fizzCq").
+		AdmissionChecks(admissionCheck1.Name, admissionCheck2.Name).
+		Obj()
+
+	cases := map[string]struct {
+		clusterQueues              []*kueue.ClusterQueue
+		wantInUseClusterQueueNames []string
+	}{
+		"single clusterQueue with check in use": {
+			clusterQueues: []*kueue.ClusterQueue{
+				fooCq,
+			},
+			wantInUseClusterQueueNames: []string{fooCq.Name},
+		},
+		"single clusterQueue with no checks": {
+			clusterQueues: []*kueue.ClusterQueue{
+				barCq,
+			},
+		},
+		"multiple clusterQueues with checks in use": {
+			clusterQueues: []*kueue.ClusterQueue{
+				fooCq,
+				barCq,
+				fizzCq,
+			},
+			wantInUseClusterQueueNames: []string{fooCq.Name, fizzCq.Name},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cache := New(utiltesting.NewFakeClient())
+			cache.AddOrUpdateAdmissionCheck(admissionCheck1)
+			cache.AddOrUpdateAdmissionCheck(admissionCheck2)
+
+			for _, cq := range tc.clusterQueues {
+				if err := cache.AddClusterQueue(context.Background(), cq); err != nil {
+					t.Errorf("failed to add clusterQueue %s", cq.Name)
+				}
+			}
+
+			cqs := cache.ClusterQueuesUsingAdmissionCheck(admissionCheck1.Name)
+			if diff := cmp.Diff(tc.wantInUseClusterQueueNames, cqs, cmpopts.SortSlices(func(a, b string) bool {
+				return a < b
+			})); len(diff) != 0 {
+				t.Errorf("Unexpected flavor is in use by clusterQueues (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestClusterQueueReadiness(t *testing.T) {
+
+	baseFalvor := utiltesting.MakeResourceFlavor("flavor1").Obj()
+	baseCheck := utiltesting.MakeAdmissionCheck("check1").Obj()
+	baseQueue := utiltesting.MakeClusterQueue("queue1").
+		ResourceGroup(
+			*utiltesting.MakeFlavorQuotas(baseFalvor.Name).
+				Resource(corev1.ResourceCPU, "10", "10").Obj()).
+		AdmissionChecks(baseCheck.Name).
+		Obj()
+
+	cases := map[string]struct {
+		clusterQueues    []*kueue.ClusterQueue
+		resourceFlavors  []*kueue.ResourceFlavor
+		admissionChecks  []*kueue.AdmissionCheck
+		clusterQueueName string
+		terminate        bool
+		wantStatus       metav1.ConditionStatus
+		wantReason       string
+		wantMessage      string
+		wantActive       bool
+		wantTerminating  bool
+	}{
+		"queue not found": {
+			clusterQueueName: "queue1",
+			wantStatus:       metav1.ConditionFalse,
+			wantReason:       "NotFound",
+			wantMessage:      "ClusterQueue not found",
+		},
+		"flavor not found": {
+			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
+			admissionChecks:  []*kueue.AdmissionCheck{baseCheck},
+			clusterQueueName: "queue1",
+			wantStatus:       metav1.ConditionFalse,
+			wantReason:       "FlavorNotFound",
+			wantMessage:      "Can't admit new workloads; some resourceFlavors are not found",
+		},
+		"check not found": {
+			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
+			resourceFlavors:  []*kueue.ResourceFlavor{baseFalvor},
+			clusterQueueName: "queue1",
+			wantStatus:       metav1.ConditionFalse,
+			wantReason:       "CheckNotFound",
+			wantMessage:      "Can't admit new workloads; some admissionChecks are not found",
+		},
+		"flavor and check not found": {
+			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
+			clusterQueueName: "queue1",
+			wantStatus:       metav1.ConditionFalse,
+			wantReason:       "FlavorAndCheckNotFound",
+			wantMessage:      "Can't admit new workloads; some resourceFlavors and admissionChecks are not found",
+		},
+		"terminating": {
+			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
+			admissionChecks:  []*kueue.AdmissionCheck{baseCheck},
+			resourceFlavors:  []*kueue.ResourceFlavor{baseFalvor},
+			clusterQueueName: "queue1",
+			terminate:        true,
+			wantStatus:       metav1.ConditionFalse,
+			wantReason:       "Terminating",
+			wantMessage:      "Can't admit new workloads; clusterQueue is terminating",
+			wantTerminating:  true,
+		},
+		"ready": {
+			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
+			admissionChecks:  []*kueue.AdmissionCheck{baseCheck},
+			resourceFlavors:  []*kueue.ResourceFlavor{baseFalvor},
+			clusterQueueName: "queue1",
+			wantStatus:       metav1.ConditionTrue,
+			wantReason:       "Ready",
+			wantMessage:      "Can admit new workloads",
+			wantActive:       true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cache := New(utiltesting.NewFakeClient())
+			for _, rf := range tc.resourceFlavors {
+				cache.AddOrUpdateResourceFlavor(rf)
+			}
+			for _, ac := range tc.admissionChecks {
+				cache.AddOrUpdateAdmissionCheck(ac)
+			}
+			for _, cq := range tc.clusterQueues {
+				if err := cache.AddClusterQueue(context.Background(), cq); err != nil {
+					t.Errorf("failed to add clusterQueue %q: %v", cq.Name, err)
+				}
+			}
+
+			if tc.terminate {
+				cache.TerminateClusterQueue(tc.clusterQueueName)
+			}
+
+			gotStatus, gotReason, gotMessage := cache.ClusterQueueReadiness(tc.clusterQueueName)
+
+			if diff := cmp.Diff(tc.wantStatus, gotStatus); len(diff) != 0 {
+				t.Errorf("Unexpected status (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantReason, gotReason); len(diff) != 0 {
+				t.Errorf("Unexpected reason (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantMessage, gotMessage); len(diff) != 0 {
+				t.Errorf("Unexpected message (-want,+got):\n%s", diff)
+			}
+
+			if gotActive := cache.ClusterQueueActive(tc.clusterQueueName); gotActive != tc.wantActive {
+				t.Errorf("Unexpected active state %v", gotActive)
+			}
+
+			if gotTerminating := cache.ClusterQueueTerminating(tc.clusterQueueName); gotTerminating != tc.wantTerminating {
+				t.Errorf("Unexpected terminating state %v", gotTerminating)
+			}
+		})
+	}
 }

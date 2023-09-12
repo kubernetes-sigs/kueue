@@ -182,7 +182,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 						Type:    kueue.ClusterQueueActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "FlavorNotFound",
-						Message: "Can't admit new workloads; some flavors are not found",
+						Message: "Can't admit new workloads; some resourceFlavors are not found",
 					},
 				},
 			}, ignoreConditionTimestamps, ignorePendingWorkloadsStatus))
@@ -488,6 +488,8 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			wl             *kueue.Workload
 			cpuArchAFlavor *kueue.ResourceFlavor
 			cpuArchBFlavor *kueue.ResourceFlavor
+			check1         *kueue.AdmissionCheck
+			check2         *kueue.AdmissionCheck
 		)
 
 		ginkgo.BeforeEach(func() {
@@ -495,7 +497,10 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 				ResourceGroup(
 					*testing.MakeFlavorQuotas(flavorCPUArchA).Resource(corev1.ResourceCPU, "5", "5").Obj(),
 					*testing.MakeFlavorQuotas(flavorCPUArchB).Resource(corev1.ResourceCPU, "5", "5").Obj(),
-				).Obj()
+				).
+				AdmissionChecks("check1", "check2").
+				Obj()
+
 			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
 			lq = testing.MakeLocalQueue("bar-lq", ns.Name).ClusterQueue(cq.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
@@ -509,9 +514,18 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
 			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, cpuArchAFlavor, true)
 			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, cpuArchBFlavor, true)
+			util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, check1, true)
+			util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, check2, true)
 		})
 
 		ginkgo.It("Should update status conditions when flavors are created", func() {
+
+			check1 = testing.MakeAdmissionCheck("check1").Obj()
+			gomega.Expect(k8sClient.Create(ctx, check1)).To(gomega.Succeed())
+
+			check2 = testing.MakeAdmissionCheck("check2").Obj()
+			gomega.Expect(k8sClient.Create(ctx, check2)).To(gomega.Succeed())
+
 			ginkgo.By("All Flavors are not found")
 
 			gomega.Eventually(func() []metav1.Condition {
@@ -523,7 +537,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 					Type:    kueue.ClusterQueueActive,
 					Status:  metav1.ConditionFalse,
 					Reason:  "FlavorNotFound",
-					Message: "Can't admit new workloads; some flavors are not found",
+					Message: "Can't admit new workloads; some resourceFlavors are not found",
 				},
 			}, ignoreConditionTimestamps))
 
@@ -539,13 +553,69 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 					Type:    kueue.ClusterQueueActive,
 					Status:  metav1.ConditionFalse,
 					Reason:  "FlavorNotFound",
-					Message: "Can't admit new workloads; some flavors are not found",
+					Message: "Can't admit new workloads; some resourceFlavors are not found",
 				},
 			}, ignoreConditionTimestamps))
 
 			ginkgo.By("All flavors are created")
 			cpuArchBFlavor = testing.MakeResourceFlavor(flavorCPUArchB).Obj()
 			gomega.Expect(k8sClient.Create(ctx, cpuArchBFlavor)).To(gomega.Succeed())
+			gomega.Eventually(func() []metav1.Condition {
+				var updatedCq kueue.ClusterQueue
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).To(gomega.Succeed())
+				return updatedCq.Status.Conditions
+			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]metav1.Condition{
+				{
+					Type:    kueue.ClusterQueueActive,
+					Status:  metav1.ConditionTrue,
+					Reason:  "Ready",
+					Message: "Can admit new workloads",
+				},
+			}, ignoreConditionTimestamps))
+		})
+
+		ginkgo.It("Should update status conditions when admission checks are created", func() {
+
+			cpuArchAFlavor = testing.MakeResourceFlavor(flavorCPUArchA).Obj()
+			gomega.Expect(k8sClient.Create(ctx, cpuArchAFlavor)).To(gomega.Succeed())
+
+			cpuArchBFlavor = testing.MakeResourceFlavor(flavorCPUArchB).Obj()
+			gomega.Expect(k8sClient.Create(ctx, cpuArchBFlavor)).To(gomega.Succeed())
+
+			ginkgo.By("All checks are not found")
+
+			gomega.Eventually(func() []metav1.Condition {
+				var updatedCq kueue.ClusterQueue
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).To(gomega.Succeed())
+				return updatedCq.Status.Conditions
+			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]metav1.Condition{
+				{
+					Type:    kueue.ClusterQueueActive,
+					Status:  metav1.ConditionFalse,
+					Reason:  "CheckNotFound",
+					Message: "Can't admit new workloads; some admissionChecks are not found",
+				},
+			}, ignoreConditionTimestamps))
+
+			ginkgo.By("One of the checks is not found")
+			check1 = testing.MakeAdmissionCheck("check1").Obj()
+			gomega.Expect(k8sClient.Create(ctx, check1)).To(gomega.Succeed())
+			gomega.Eventually(func() []metav1.Condition {
+				var updatedCq kueue.ClusterQueue
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).To(gomega.Succeed())
+				return updatedCq.Status.Conditions
+			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]metav1.Condition{
+				{
+					Type:    kueue.ClusterQueueActive,
+					Status:  metav1.ConditionFalse,
+					Reason:  "CheckNotFound",
+					Message: "Can't admit new workloads; some admissionChecks are not found",
+				},
+			}, ignoreConditionTimestamps))
+
+			ginkgo.By("All checks are created")
+			check2 = testing.MakeAdmissionCheck("check2").Obj()
+			gomega.Expect(k8sClient.Create(ctx, check2)).To(gomega.Succeed())
 			gomega.Eventually(func() []metav1.Condition {
 				var updatedCq kueue.ClusterQueue
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).To(gomega.Succeed())

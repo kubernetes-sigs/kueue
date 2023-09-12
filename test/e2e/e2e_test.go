@@ -187,8 +187,11 @@ var _ = ginkgo.Describe("Kueue", func() {
 			onDemandRF   *kueue.ResourceFlavor
 			localQueue   *kueue.LocalQueue
 			clusterQueue *kueue.ClusterQueue
+			check        *kueue.AdmissionCheck
 		)
 		ginkgo.BeforeEach(func() {
+			check = testing.MakeAdmissionCheck("check1").Obj()
+			gomega.Expect(k8sClient.Create(ctx, check)).Should(gomega.Succeed())
 			onDemandRF = testing.MakeResourceFlavor("on-demand").
 				Label("instance-type", "on-demand").Obj()
 			gomega.Expect(k8sClient.Create(ctx, onDemandRF)).Should(gomega.Succeed())
@@ -210,6 +213,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandRF, true)
+			gomega.Expect(k8sClient.Delete(ctx, check)).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should unsuspend a job only after all checks are cleared", func() {
