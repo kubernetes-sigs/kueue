@@ -453,7 +453,7 @@ func (cq *ClusterQueue) GetPreemptingWorklods(acMap map[string]AdmissionCheck) (
 				if acMap[c.Name].PreemptionPolicy != PreemptOnDemand {
 					continue
 				}
-				if c.State != kueue.CheckStatePreemptionRequired {
+				if c.State != kueue.CheckStatePreemptionRequired && c.State != kueue.CheckStateReady {
 					checkNow = false
 					preemptLater = append(preemptLater, wl)
 					break

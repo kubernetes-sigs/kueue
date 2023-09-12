@@ -185,8 +185,8 @@ func TestSchedule(t *testing.T) {
 		wantLeft map[string]sets.Set[string]
 		// wantInadmissibleLeft is the workload keys that are left in the inadmissible state after this cycle.
 		wantInadmissibleLeft map[string]sets.Set[string]
-		// wantPreempted is the keys of the workloads that get preempted in the scheduling cycle.
-		wantPreempted sets.Set[string]
+		// wantReservedPendingPreemption is the set wof workloads expected to have quota reserved and pending preemption
+		wantReservedPendingPreemption sets.Set[string]
 
 		// additional*Queues can hold any extra queues needed by the tc
 		additionalClusterQueues []kueue.ClusterQueue
@@ -572,17 +572,17 @@ func TestSchedule(t *testing.T) {
 					ReserveQuota(utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "60000m").Obj()).
 					Obj(),
 			},
-			wantLeft: map[string]sets.Set[string]{
-				// Preemptor is not admitted in this cycle.
-				"eng-beta": sets.New("eng-beta/preemptor"),
-			},
-			wantPreempted: sets.New("eng-alpha/borrower", "eng-beta/low-2"),
+			wantReservedPendingPreemption: sets.New("eng-beta/preemptor"),
 			wantAssignments: map[string]kueue.Admission{
 				"eng-alpha/use-all-spot": *utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "spot", "100").Obj(),
 				"eng-beta/low-1":         *utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "on-demand", "30").Obj(),
-				// Removal from cache for the preempted workloads is deferred until we receive Workload updates
-				"eng-beta/low-2":     *utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "on-demand", "10").Obj(),
-				"eng-alpha/borrower": *utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "60").Obj(),
+				"eng-beta/low-2":         *utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "on-demand", "10").Obj(),
+				"eng-alpha/borrower":     *utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "60").Obj(),
+				// has reservation but it is pending preemption
+				"eng-beta/preemptor": *utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
+			},
+			wantScheduled: []string{
+				"eng-beta/preemptor",
 			},
 		},
 		"cannot borrow resource not listed in clusterQueue": {
@@ -844,12 +844,25 @@ func TestSchedule(t *testing.T) {
 						},
 					},
 				},
+				"eng-beta/new": {
+					ClusterQueue: "eng-beta",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						{
+							Name: "one",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								"example.com/gpu": "model-a",
+							},
+							ResourceUsage: corev1.ResourceList{
+								"example.com/gpu": resource.MustParse("20"),
+							},
+							Count: ptr.To[int32](20),
+						},
+					},
+				},
 			},
-			wantPreempted: sets.New("eng-beta/old"),
-			wantLeft: map[string]sets.Set[string]{
-				"eng-beta": sets.New("eng-beta/new"),
-			},
-			enablePartialAdmission: true,
+			wantReservedPendingPreemption: sets.New("eng-beta/new"),
+			enablePartialAdmission:        true,
+			wantScheduled:                 []string{"eng-beta/new"},
 		},
 		"partial admission multiple variable pod sets": {
 			workloads: []kueue.Workload{
@@ -1061,8 +1074,9 @@ func TestSchedule(t *testing.T) {
 			}
 			scheduler := New(qManager, cqCache, cl, recorder)
 			gotScheduled := make(map[string]kueue.Admission)
+			gotReservedPendingPreemption := sets.New[string]()
 			var mu sync.Mutex
-			scheduler.applyAdmission = func(ctx context.Context, w *kueue.Workload) error {
+			scheduler.applyAdmission = func(_ context.Context, w *kueue.Workload) error {
 				if tc.admissionError != nil {
 					return tc.admissionError
 				}
@@ -1076,13 +1090,6 @@ func TestSchedule(t *testing.T) {
 				func() { wg.Add(1) },
 				func() { wg.Done() },
 			))
-			gotPreempted := sets.New[string]()
-			scheduler.preemptor.OverrideApply(func(_ context.Context, w *kueue.Workload) error {
-				mu.Lock()
-				gotPreempted.Insert(workload.Key(w))
-				mu.Unlock()
-				return nil
-			})
 
 			ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
 			go qManager.CleanUpOnContext(ctx)
@@ -1099,7 +1106,7 @@ func TestSchedule(t *testing.T) {
 				t.Errorf("Unexpected scheduled workloads (-want,+got):\n%s", diff)
 			}
 
-			if diff := cmp.Diff(tc.wantPreempted, gotPreempted); diff != "" {
+			if diff := cmp.Diff(tc.wantReservedPendingPreemption, gotReservedPendingPreemption); diff != "" {
 				t.Errorf("Unexpected preemptions (-want,+got):\n%s", diff)
 			}
 

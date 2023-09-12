@@ -195,6 +195,22 @@ func (w *WorkloadWrapper) Labels(l map[string]string) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) SetOrReplaceAdmissionCheck(name string, newState kueue.CheckState) *WorkloadWrapper {
+	state := kueue.AdmissionCheckState{
+		Name:               name,
+		State:              newState,
+		LastTransitionTime: metav1.NewTime(time.Now()),
+	}
+	for i := range w.Status.AdmissionChecks {
+		if w.Status.AdmissionChecks[i].Name == name {
+			w.Status.AdmissionChecks[i] = state
+			return w
+		}
+	}
+	w.Status.AdmissionChecks = append(w.Status.AdmissionChecks, state)
+	return w
+}
+
 type PodSetWrapper struct{ kueue.PodSet }
 
 func MakePodSet(name string, count int) *PodSetWrapper {
@@ -595,6 +611,11 @@ func (ac *AdmissionCheckWrapper) Active(status metav1.ConditionStatus) *Admissio
 		Reason:  "ByTest",
 		Message: "by test",
 	})
+	return ac
+}
+
+func (ac *AdmissionCheckWrapper) Policy(p kueue.AdmissionCheckPreemptionPolicy) *AdmissionCheckWrapper {
+	ac.Spec.PreemptionPolicy = &p
 	return ac
 }
 
