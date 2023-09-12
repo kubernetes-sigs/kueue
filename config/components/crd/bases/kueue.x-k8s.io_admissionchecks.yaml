@@ -57,6 +57,21 @@ spec:
                 - kind
                 - name
                 type: object
+              preemptionPolicy:
+                default: Anytime
+                description: 'preemptionPolicy determines when to issue preemptions
+                  for the Workload, if necessary, in relationship to the status of
+                  the admission check. The possible values are: - `Anytime`: No need
+                  to wait for this check to pass before issuing preemptions. Preemptions
+                  might be blocked on the preemptionPolicy of other AdmissionChecks.
+                  - `AfterCheckPassedOrOnDemand`: Wait for this check to pass pass
+                  before issuing preemptions, unless this or other checks requests
+                  preemptions through the Workload''s admissionChecks. Defaults to
+                  `Anytime`.'
+                enum:
+                - Anytime
+                - AfterCheckPassedOrOnDemand
+                type: string
               retryDelayMinutes:
                 default: 15
                 description: RetryDelayMinutes specifies how long to keep the workload

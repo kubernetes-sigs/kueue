@@ -35,6 +35,7 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 					},
 					Spec: kueue.AdmissionCheckSpec{
 						RetryDelayMinutes: ptr.To[int64](15),
+						PreemptionPolicy:  ptr.To(kueue.Anytime),
 					},
 				},
 			),

@@ -182,7 +182,7 @@ type AdmissionCheckState struct {
 	// status of the condition, one of True, False, Unknown.
 	// +required
 	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Enum=Pending;Ready;Retry;Rejected
+	// +kubebuilder:validation:Enum=Pending;Ready;Retry;Rejected;PreemptionRequired
 	State CheckState `json:"state"`
 	// lastTransitionTime is the last time the condition transitioned from one status to another.
 	// This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.

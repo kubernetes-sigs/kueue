@@ -45,6 +45,11 @@ const (
 	// CheckStateReady means that the check has passed.
 	// A workload having all its checks ready, and quota reserved can begin execution.
 	CheckStateReady CheckState = "Ready"
+
+	// CheckStatePreemptionRequired means that the check might pass if there was fewer workloads.
+	// Proceed with any pending workload preemption. Should be set when condition status
+	// is still "Unknown"
+	CheckStatePreemptionRequired CheckState = "PreemptionRequired"
 )
 
 // AdmissionCheckSpec defines the desired state of AdmissionCheck
@@ -65,7 +70,27 @@ type AdmissionCheckSpec struct {
 	// Parameters identifies the resource providing additional check parameters.
 	// +optional
 	Parameters *AdmissionCheckParametersReference `json:"parameters,omitempty"`
+
+	// preemptionPolicy determines when to issue preemptions for the Workload,
+	// if necessary, in relationship to the status of the admission check.
+	// The possible values are:
+	// - `Anytime`: No need to wait for this check to pass before issuing preemptions.
+	//   Preemptions might be blocked on the preemptionPolicy of other AdmissionChecks.
+	// - `AfterCheckPassedOrOnDemand`: Wait for this check to pass pass before issuing preemptions,
+	//   unless this or other checks requests preemptions through the Workload's admissionChecks.
+	// Defaults to `Anytime`.
+	// +optional
+	// +kubebuilder:default=Anytime
+	PreemptionPolicy *AdmissionCheckPreemptionPolicy `json:"preemptionPolicy,omitempty"`
 }
+
+// +kubebuilder:validation:Enum=Anytime;AfterCheckPassedOrOnDemand
+type AdmissionCheckPreemptionPolicy string
+
+const (
+	Anytime                    AdmissionCheckPreemptionPolicy = "Anytime"
+	AfterCheckPassedOrOnDemand AdmissionCheckPreemptionPolicy = "AfterCheckPassedOrOnDemand"
+)
 
 type AdmissionCheckParametersReference struct {
 	// ApiGroup is the group for the resource being referenced.

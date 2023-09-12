@@ -17,12 +17,17 @@ limitations under the License.
 
 package v1beta1
 
+import (
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+)
+
 // AdmissionCheckSpecApplyConfiguration represents an declarative configuration of the AdmissionCheckSpec type for use
 // with apply.
 type AdmissionCheckSpecApplyConfiguration struct {
 	ControllerName    *string                                              `json:"controllerName,omitempty"`
 	RetryDelayMinutes *int64                                               `json:"retryDelayMinutes,omitempty"`
 	Parameters        *AdmissionCheckParametersReferenceApplyConfiguration `json:"parameters,omitempty"`
+	PreemptionPolicy  *kueuev1beta1.AdmissionCheckPreemptionPolicy         `json:"preemptionPolicy,omitempty"`
 }
 
 // AdmissionCheckSpecApplyConfiguration constructs an declarative configuration of the AdmissionCheckSpec type for use with
@@ -52,5 +57,13 @@ func (b *AdmissionCheckSpecApplyConfiguration) WithRetryDelayMinutes(value int64
 // If called multiple times, the Parameters field is set to the value of the last call.
 func (b *AdmissionCheckSpecApplyConfiguration) WithParameters(value *AdmissionCheckParametersReferenceApplyConfiguration) *AdmissionCheckSpecApplyConfiguration {
 	b.Parameters = value
+	return b
+}
+
+// WithPreemptionPolicy sets the PreemptionPolicy field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PreemptionPolicy field is set to the value of the last call.
+func (b *AdmissionCheckSpecApplyConfiguration) WithPreemptionPolicy(value kueuev1beta1.AdmissionCheckPreemptionPolicy) *AdmissionCheckSpecApplyConfiguration {
+	b.PreemptionPolicy = &value
 	return b
 }
