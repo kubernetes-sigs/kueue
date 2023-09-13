@@ -16,6 +16,14 @@ limitations under the License.
 
 package cache
 
+type PreemptionPolicy int
+
+const (
+	PreemptAnytime PreemptionPolicy = iota
+	PreemptOnDemand
+)
+
 type AdmissionCheck struct {
-	Active bool
+	Active           bool
+	PreemptionPolicy PreemptionPolicy
 }

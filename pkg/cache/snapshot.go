@@ -17,6 +17,8 @@ limitations under the License.
 package cache
 
 import (
+	"maps"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 
@@ -27,6 +29,7 @@ import (
 type Snapshot struct {
 	ClusterQueues            map[string]*ClusterQueue
 	ResourceFlavors          map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
+	AdmissionChecks          map[string]AdmissionCheck
 	InactiveClusterQueueSets sets.Set[string]
 }
 
@@ -59,6 +62,7 @@ func (c *Cache) Snapshot() Snapshot {
 	snap := Snapshot{
 		ClusterQueues:            make(map[string]*ClusterQueue, len(c.clusterQueues)),
 		ResourceFlavors:          make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, len(c.resourceFlavors)),
+		AdmissionChecks:          maps.Clone(c.admissionChecks),
 		InactiveClusterQueueSets: sets.New[string](),
 	}
 	for _, cq := range c.clusterQueues {
