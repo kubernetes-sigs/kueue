@@ -3,7 +3,6 @@ package cache
 import (
 	"errors"
 	"fmt"
-	"sync/atomic"
 
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -12,7 +11,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -25,20 +23,19 @@ var (
 // ClusterQueue is the internal implementation of kueue.ClusterQueue that
 // holds admitted workloads.
 type ClusterQueue struct {
-	Name              string
-	Cohort            *Cohort
-	ResourceGroups    []ResourceGroup
-	RGByResource      map[corev1.ResourceName]*ResourceGroup
-	Usage             workload.FlavorResourceQuantities
-	Generation        int64
-	Workloads         map[string]*workload.Info
-	WorkloadsNotReady sets.Set[string]
-	NamespaceSelector labels.Selector
-	Preemption        kueue.ClusterQueuePreemption
-	FlavorFungibility kueue.FlavorFungibility
-	Status            metrics.ClusterQueueStatus
-	AdmissionChecks   sets.Set[string]
-	FlavorFungibility v1beta1.FlavorFungibility
+	Name                            string
+	Cohort                          *Cohort
+	ResourceGroups                  []ResourceGroup
+	RGByResource                    map[corev1.ResourceName]*ResourceGroup
+	Usage                           workload.FlavorResourceQuantities
+	AllocatableResourceIncreasedGen int64
+	Workloads                       map[string]*workload.Info
+	WorkloadsNotReady               sets.Set[string]
+	NamespaceSelector               labels.Selector
+	Preemption                      kueue.ClusterQueuePreemption
+	FlavorFungibility               kueue.FlavorFungibility
+	AdmissionChecks                 sets.Set[string]
+	Status                          metrics.ClusterQueueStatus
 
 	// The following fields are not populated in a snapshot.
 
@@ -51,13 +48,13 @@ type ClusterQueue struct {
 
 // Cohort is a set of ClusterQueues that can borrow resources from each other.
 type Cohort struct {
-	Name    string
-	Members sets.Set[*ClusterQueue]
+	Name                            string
+	Members                         sets.Set[*ClusterQueue]
+	AllocatableResourceIncreasedGen int64
 
 	// These fields are only populated for a snapshot.
 	RequestableResources workload.FlavorResourceQuantities
 	Usage                workload.FlavorResourceQuantities
-	Generation           int64
 }
 
 type ResourceGroup struct {
@@ -79,8 +76,6 @@ type ResourceQuota struct {
 	Nominal        int64
 	BorrowingLimit *int64
 }
-
-// type FlavorResourceQuantities map[kueue.ResourceFlavorReference]map[corev1.ResourceName]int64
 
 type queue struct {
 	key               string
@@ -216,7 +211,7 @@ func (c *ClusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
 			rg.Flavors = append(rg.Flavors, fQuotas)
 		}
 	}
-	atomic.AddInt64(&c.Generation, 1)
+	c.AllocatableResourceIncreasedGen++
 	c.UpdateRGByResource()
 }
 
@@ -337,6 +332,7 @@ func (c *ClusterQueue) deleteWorkload(w *kueue.Workload) {
 	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
 		c.WorkloadsNotReady.Delete(k)
 	}
+	c.AllocatableResourceIncreasedGen++
 	delete(c.Workloads, k)
 	reportAdmittedActiveWorkloads(wi.ClusterQueue, len(c.Workloads))
 }
@@ -349,9 +345,6 @@ func (c *ClusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 	if _, ok := c.localQueues[qKey]; ok {
 		updateUsage(wi, c.localQueues[qKey].usage, m)
 		c.localQueues[qKey].admittedWorkloads += int(m)
-	}
-	if m < 0 {
-		atomic.AddInt64(&c.Generation, 1)
 	}
 }
 

@@ -228,8 +228,8 @@ type FlavorAssignment struct {
 }
 
 func LastAssignmentOutdated(wl *workload.Info, cq *cache.ClusterQueue) bool {
-	return cq.Generation > wl.LastAssignment.ClusterQueueGeneration ||
-		(cq.Cohort != nil && cq.Cohort.Generation > wl.LastAssignment.CohortGeneration)
+	return cq.AllocatableResourceIncreasedGen > wl.LastAssignment.ClusterQueueGeneration ||
+		(cq.Cohort != nil && cq.Cohort.AllocatableResourceIncreasedGen > wl.LastAssignment.CohortGeneration)
 }
 
 // AssignFlavors assigns flavors for each of the resources requested in each pod set.
@@ -264,10 +264,10 @@ func assignFlavors(log logr.Logger, requests []workload.PodSetResources, podSets
 		assignment.LastState = workload.AssigmentClusterQueueState{
 			LastAssignedFlavorIdx:  make([]map[corev1.ResourceName]int, 0),
 			CohortGeneration:       0,
-			ClusterQueueGeneration: cq.Generation,
+			ClusterQueueGeneration: cq.AllocatableResourceIncreasedGen,
 		}
 		if cq.Cohort != nil {
-			assignment.LastState.CohortGeneration = cq.Cohort.Generation
+			assignment.LastState.CohortGeneration = cq.Cohort.AllocatableResourceIncreasedGen
 		}
 	}
 

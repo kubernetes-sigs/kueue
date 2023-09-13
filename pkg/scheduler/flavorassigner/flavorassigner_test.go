@@ -1818,12 +1818,6 @@ func TestAssignFlavors(t *testing.T) {
 				t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
 			}
 
-			// assignment.LastState = workload.AssigmentClusterQueueState{
-			// 	LastAssignedFlavorIdx: nil,
-			// 	ResourceFlavors:        nil,
-			// 	ClusterQueueUsage:      nil,
-			// 	CohortUsage:            nil,
-			// }
 			if diff := cmp.Diff(tc.wantAssignment, assignment, cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}), cmpopts.IgnoreFields(Assignment{}, "LastState"), cmpopts.IgnoreFields(FlavorAssignment{}, "LastAssignedFlavorIdx")); diff != "" {
 				t.Errorf("Unexpected assignment (-want,+got):\n%s", diff)
 			}
@@ -1842,7 +1836,7 @@ func TestLastAssignmentOutdated(t *testing.T) {
 		want bool
 	}{
 		{
-			name: "Cluster queue generation increased",
+			name: "Cluster queue allocatableResourceIncreasedGen increased",
 			args: args{
 				wl: &workload.Info{
 					LastAssignment: &workload.AssigmentClusterQueueState{
@@ -1850,14 +1844,14 @@ func TestLastAssignmentOutdated(t *testing.T) {
 					},
 				},
 				cq: &cache.ClusterQueue{
-					Cohort:     nil,
-					Generation: 1,
+					Cohort:                          nil,
+					AllocatableResourceIncreasedGen: 1,
 				},
 			},
 			want: true,
 		},
 		{
-			name: "Cohort generation increased",
+			name: "Cohort allocatableResourceIncreasedGen increased",
 			args: args{
 				wl: &workload.Info{
 					LastAssignment: &workload.AssigmentClusterQueueState{
@@ -1867,12 +1861,30 @@ func TestLastAssignmentOutdated(t *testing.T) {
 				},
 				cq: &cache.ClusterQueue{
 					Cohort: &cache.Cohort{
-						Generation: 1,
+						AllocatableResourceIncreasedGen: 1,
 					},
-					Generation: 0,
+					AllocatableResourceIncreasedGen: 0,
 				},
 			},
 			want: true,
+		},
+		{
+			name: "AllocatableResourceIncreasedGen not increased",
+			args: args{
+				wl: &workload.Info{
+					LastAssignment: &workload.AssigmentClusterQueueState{
+						ClusterQueueGeneration: 0,
+						CohortGeneration:       0,
+					},
+				},
+				cq: &cache.ClusterQueue{
+					Cohort: &cache.Cohort{
+						AllocatableResourceIncreasedGen: 0,
+					},
+					AllocatableResourceIncreasedGen: 0,
+				},
+			},
+			want: false,
 		},
 	}
 	for _, tt := range tests {

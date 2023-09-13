@@ -36,8 +36,8 @@ import (
 var snapCmpOpts = []cmp.Option{
 	cmpopts.EquateEmpty(),
 	cmpopts.IgnoreUnexported(ClusterQueue{}),
-	cmpopts.IgnoreFields(ClusterQueue{}, "RGByResource", "Generation"),
-	cmpopts.IgnoreFields(Cohort{}, "Members", "Generation"), // avoid recursion.
+	cmpopts.IgnoreFields(ClusterQueue{}, "RGByResource"),
+	cmpopts.IgnoreFields(Cohort{}, "Members"), // avoid recursion.
 	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 }
 
@@ -64,10 +64,11 @@ func TestSnapshot(t *testing.T) {
 			wantSnapshot: Snapshot{
 				ClusterQueues: map[string]*ClusterQueue{
 					"a": {
-						Name:              "a",
-						NamespaceSelector: labels.Everything(),
-						Status:            active,
-						FlavorFungibility: defaultFlavorFungibility,
+						Name:                            "a",
+						NamespaceSelector:               labels.Everything(),
+						Status:                          active,
+						FlavorFungibility:               defaultFlavorFungibility,
+						AllocatableResourceIncreasedGen: 1,
 						Workloads: map[string]*workload.Info{
 							"/alpha": workload.NewInfo(
 								utiltesting.MakeWorkload("alpha", "").
@@ -76,10 +77,11 @@ func TestSnapshot(t *testing.T) {
 						Preemption: defaultPreemption,
 					},
 					"b": {
-						Name:              "b",
-						NamespaceSelector: labels.Everything(),
-						Status:            active,
-						FlavorFungibility: defaultFlavorFungibility,
+						Name:                            "b",
+						NamespaceSelector:               labels.Everything(),
+						Status:                          active,
+						FlavorFungibility:               defaultFlavorFungibility,
+						AllocatableResourceIncreasedGen: 1,
 						Workloads: map[string]*workload.Info{
 							"/beta": workload.NewInfo(
 								utiltesting.MakeWorkload("beta", "").
@@ -223,8 +225,9 @@ func TestSnapshot(t *testing.T) {
 				return Snapshot{
 					ClusterQueues: map[string]*ClusterQueue{
 						"a": {
-							Name:   "a",
-							Cohort: cohort,
+							Name:                            "a",
+							Cohort:                          cohort,
+							AllocatableResourceIncreasedGen: 1,
 							ResourceGroups: []ResourceGroup{
 								{
 									CoveredResources: sets.New(corev1.ResourceCPU),
@@ -265,8 +268,9 @@ func TestSnapshot(t *testing.T) {
 							Status:            active,
 						},
 						"b": {
-							Name:   "b",
-							Cohort: cohort,
+							Name:                            "b",
+							Cohort:                          cohort,
+							AllocatableResourceIncreasedGen: 1,
 							ResourceGroups: []ResourceGroup{
 								{
 									CoveredResources: sets.New(corev1.ResourceCPU),
@@ -327,7 +331,8 @@ func TestSnapshot(t *testing.T) {
 							Status:            active,
 						},
 						"c": {
-							Name: "c",
+							Name:                            "c",
+							AllocatableResourceIncreasedGen: 1,
 							ResourceGroups: []ResourceGroup{
 								{
 									CoveredResources: sets.New(corev1.ResourceCPU),
@@ -369,11 +374,12 @@ func TestSnapshot(t *testing.T) {
 			wantSnapshot: Snapshot{
 				ClusterQueues: map[string]*ClusterQueue{
 					"with-preemption": {
-						Name:              "with-preemption",
-						NamespaceSelector: labels.Everything(),
-						Status:            active,
-						Workloads:         map[string]*workload.Info{},
-						FlavorFungibility: defaultFlavorFungibility,
+						Name:                            "with-preemption",
+						NamespaceSelector:               labels.Everything(),
+						AllocatableResourceIncreasedGen: 1,
+						Status:                          active,
+						Workloads:                       map[string]*workload.Info{},
+						FlavorFungibility:               defaultFlavorFungibility,
 						Preemption: kueue.ClusterQueuePreemption{
 							ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 							WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
@@ -510,11 +516,12 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 				return Snapshot{
 					ClusterQueues: map[string]*ClusterQueue{
 						"c1": {
-							Name:              "c1",
-							Cohort:            cohort,
-							Workloads:         make(map[string]*workload.Info),
-							ResourceGroups:    cqCache.clusterQueues["c1"].ResourceGroups,
-							FlavorFungibility: defaultFlavorFungibility,
+							Name:                            "c1",
+							Cohort:                          cohort,
+							Workloads:                       make(map[string]*workload.Info),
+							ResourceGroups:                  cqCache.clusterQueues["c1"].ResourceGroups,
+							FlavorFungibility:               defaultFlavorFungibility,
+							AllocatableResourceIncreasedGen: 1,
 							Usage: workload.FlavorResourceQuantities{
 								"default": {corev1.ResourceCPU: 0},
 								"alpha":   {corev1.ResourceMemory: 0},
@@ -522,11 +529,12 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 							},
 						},
 						"c2": {
-							Name:              "c2",
-							Cohort:            cohort,
-							Workloads:         make(map[string]*workload.Info),
-							ResourceGroups:    cqCache.clusterQueues["c2"].ResourceGroups,
-							FlavorFungibility: defaultFlavorFungibility,
+							Name:                            "c2",
+							Cohort:                          cohort,
+							Workloads:                       make(map[string]*workload.Info),
+							ResourceGroups:                  cqCache.clusterQueues["c2"].ResourceGroups,
+							FlavorFungibility:               defaultFlavorFungibility,
+							AllocatableResourceIncreasedGen: 1,
 							Usage: workload.FlavorResourceQuantities{
 								"default": {corev1.ResourceCPU: 0},
 							},
@@ -556,8 +564,9 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								"/c1-memory-alpha": nil,
 								"/c1-memory-beta":  nil,
 							},
-							ResourceGroups:    cqCache.clusterQueues["c1"].ResourceGroups,
-							FlavorFungibility: defaultFlavorFungibility,
+							AllocatableResourceIncreasedGen: 1,
+							ResourceGroups:                  cqCache.clusterQueues["c1"].ResourceGroups,
+							FlavorFungibility:               defaultFlavorFungibility,
 							Usage: workload.FlavorResourceQuantities{
 								"default": {corev1.ResourceCPU: 0},
 								"alpha":   {corev1.ResourceMemory: utiltesting.Gi},
@@ -571,8 +580,9 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								"/c2-cpu-1": nil,
 								"/c2-cpu-2": nil,
 							},
-							ResourceGroups:    cqCache.clusterQueues["c2"].ResourceGroups,
-							FlavorFungibility: defaultFlavorFungibility,
+							ResourceGroups:                  cqCache.clusterQueues["c2"].ResourceGroups,
+							FlavorFungibility:               defaultFlavorFungibility,
+							AllocatableResourceIncreasedGen: 1,
 							Usage: workload.FlavorResourceQuantities{
 								"default": {corev1.ResourceCPU: 2_000},
 							},
@@ -602,8 +612,9 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								"/c1-memory-alpha": nil,
 								"/c1-memory-beta":  nil,
 							},
-							ResourceGroups:    cqCache.clusterQueues["c1"].ResourceGroups,
-							FlavorFungibility: defaultFlavorFungibility,
+							AllocatableResourceIncreasedGen: 1,
+							ResourceGroups:                  cqCache.clusterQueues["c1"].ResourceGroups,
+							FlavorFungibility:               defaultFlavorFungibility,
 							Usage: workload.FlavorResourceQuantities{
 								"default": {corev1.ResourceCPU: 1_000},
 								"alpha":   {corev1.ResourceMemory: 0},
@@ -617,8 +628,9 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 								"/c2-cpu-1": nil,
 								"/c2-cpu-2": nil,
 							},
-							ResourceGroups:    cqCache.clusterQueues["c2"].ResourceGroups,
-							FlavorFungibility: defaultFlavorFungibility,
+							AllocatableResourceIncreasedGen: 1,
+							ResourceGroups:                  cqCache.clusterQueues["c2"].ResourceGroups,
+							FlavorFungibility:               defaultFlavorFungibility,
 							Usage: workload.FlavorResourceQuantities{
 								"default": {corev1.ResourceCPU: 2_000},
 							},
@@ -629,8 +641,8 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 		},
 	}
 	cmpOpts := append(snapCmpOpts,
-		cmpopts.IgnoreFields(ClusterQueue{}, "NamespaceSelector", "Preemption", "Status", "Generation"),
-		cmpopts.IgnoreFields(Cohort{}, "Generation"),
+		cmpopts.IgnoreFields(ClusterQueue{}, "NamespaceSelector", "Preemption", "Status"),
+		cmpopts.IgnoreFields(Cohort{}),
 		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors"),
 		cmpopts.IgnoreTypes(&workload.Info{}))
 	for name, tc := range cases {

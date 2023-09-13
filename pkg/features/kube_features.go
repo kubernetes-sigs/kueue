@@ -62,7 +62,7 @@ func init() {
 var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	PartialAdmission:  {Default: false, PreRelease: featuregate.Alpha},
 	QueueVisibility:   {Default: false, PreRelease: featuregate.Alpha},
-	FlavorFungibility: {Default: false, PreRelease: featuregate.Alpha},
+	FlavorFungibility: {Default: true, PreRelease: featuregate.Alpha},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) func() {

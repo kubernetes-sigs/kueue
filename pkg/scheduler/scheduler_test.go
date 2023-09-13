@@ -1616,7 +1616,6 @@ func TestLastSchedulingContext(t *testing.T) {
 			}
 		})
 	}
-
 }
 
 var ignoreConditionTimestamps = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
