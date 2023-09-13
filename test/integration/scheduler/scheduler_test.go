@@ -1151,7 +1151,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectAdmittedWorkloadsTotalMetric(devCQ, 2)
 
 			ginkgo.By("Creating another workload")
-			wl3 := testing.MakeWorkload("wl-3", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "9").Toleration(spotToleration).Obj()
+			wl3 := testing.MakeWorkload("wl-3", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "5").Toleration(spotToleration).Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl3)).Should(gomega.Succeed())
 			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wl1)
 			util.ExpectPendingWorkloadsMetric(prodCQ, 0, 0)
