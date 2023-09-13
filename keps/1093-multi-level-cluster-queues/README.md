@@ -17,33 +17,39 @@ tags, and then generate with `hack/update-toc.sh`.
 -->
 
 <!-- toc -->
-- [Summary](#summary)
-- [Motivation](#motivation)
-  - [Goals](#goals)
-  - [Non-Goals](#non-goals)
-- [Proposal](#proposal)
-  - [PlanA](#plana)
-  - [PlanB](#planb)
-  - [Validation](#validation)
-    - [ClusterQueue](#clusterqueue)
-    - [Hierachy](#hierachy)
-    - [ResourceFlavor](#resourceflavor)
-    - [localqueue](#localqueue)
-  - [Schedule Behavior](#schedule-behavior)
-  - [API](#api)
-- [Implementation](#implementation)
-- [Testing Plan](#testing-plan)
-  - [NonRegression](#nonregression)
-  - [Unit Tests](#unit-tests)
-  - [Integration tests](#integration-tests)
-- [Implementation History](#implementation-history)
+- [KEP-1093: Multi Level Cluster Queues](#kep-1093-multi-level-cluster-queues)
+  - [Summary](#summary)
+  - [Motivation](#motivation)
+  - [Use Cases](#use-cases)
+    - [Goals](#goals)
+    - [Non-Goals](#non-goals)
+  - [Proposal](#proposal)
+    - [PlanA](#plana)
+    - [PlanB](#planb)
+    - [Validation](#validation)
+      - [ClusterQueue](#clusterqueue)
+      - [Hierachy](#hierachy)
+      - [ResourceFlavor](#resourceflavor)
+      - [localqueue](#localqueue)
+    - [Schedule Behavior](#schedule-behavior)
+    - [API](#api)
+  - [Implementation](#implementation)
+    - [](#)
+  - [Testing Plan](#testing-plan)
+    - [NonRegression](#nonregression)
+    - [Unit Tests](#unit-tests)
+    - [Integration tests](#integration-tests)
+  - [Implementation History](#implementation-history)
 <!-- /toc -->
 
 ## Summary
-This proposal allow cluster admins to define a multi-level hierachy for cluster queues. Multi-level of cluster queues allow admins and users to define different dequeue policies for different node. This will allow Kueue to manage more levels of resources.
+This proposal allow cluster admins to define a multi-level hierachy for cluster queues. Multi-level of cluster queues allow admins and users to define different dequeue policies for different node. This will allow Kueue to manage more levels of resources. 
 ## Motivation
 Systems like Yarn allow creating a hierarchy of fair sharing, which allows modeling deeper organizational structures with fair-sharing.
 Kueue currently supports three organizational levels: Cohort (models a business unit), ClusterQueue (models divisions within a business unit), namespace (models teams within a division). However fair-sharing is only supported at one level, within a cohort. This is not convinent if there are more than one level in an organization or if some users want to manage the resource consumption of his/her own jobs.
+## Use Cases
+- 
+
 ### Goals
 
 - Allow admins to define multi-level hierachy of cluster queues.
