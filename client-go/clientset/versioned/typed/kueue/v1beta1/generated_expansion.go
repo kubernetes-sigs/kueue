@@ -17,6 +17,8 @@ limitations under the License.
 
 package v1beta1
 
+type AdmissionCheckExpansion interface{}
+
 type ClusterQueueExpansion interface{}
 
 type LocalQueueExpansion interface{}

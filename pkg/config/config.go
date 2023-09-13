@@ -52,6 +52,10 @@ func addTo(o *ctrl.Options, cfg *configapi.Configuration) {
 		o.MetricsBindAddress = cfg.Metrics.BindAddress
 	}
 
+	if o.PprofBindAddress == "" && cfg.PprofBindAddress != "" {
+		o.PprofBindAddress = cfg.PprofBindAddress
+	}
+
 	if o.HealthProbeBindAddress == "" && cfg.Health.HealthProbeBindAddress != "" {
 		o.HealthProbeBindAddress = cfg.Health.HealthProbeBindAddress
 	}
@@ -157,6 +161,9 @@ func Load(scheme *runtime.Scheme, configFile string) (ctrl.Options, configapi.Co
 		if err != nil {
 			return options, cfg, err
 		}
+	}
+	if err = validate(&cfg).ToAggregate(); err != nil {
+		return options, cfg, err
 	}
 	addTo(&options, &cfg)
 	return options, cfg, err

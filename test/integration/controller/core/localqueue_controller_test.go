@@ -66,11 +66,11 @@ var _ = ginkgo.Describe("Queue controller", func() {
 	})
 
 	ginkgo.AfterEach(func() {
-		for _, rf := range resourceFlavors {
-			gomega.Expect(util.DeleteResourceFlavor(ctx, k8sClient, &rf)).To(gomega.Succeed())
-		}
 		gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, queue)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, clusterQueue)).To(gomega.Succeed())
+		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		for _, rf := range resourceFlavors {
+			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, &rf, true)
+		}
 	})
 
 	ginkgo.It("Should update conditions when clusterQueues that its localQueue references are updated", func() {
@@ -224,7 +224,7 @@ var _ = ginkgo.Describe("Queue controller", func() {
 			gomega.Eventually(func() error {
 				var newWL kueue.Workload
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
-				return util.SetAdmission(ctx, k8sClient, &newWL, admissions[i])
+				return util.SetQuotaReservation(ctx, k8sClient, &newWL, admissions[i])
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		}
 		gomega.Eventually(func() kueue.LocalQueueStatus {

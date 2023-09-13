@@ -36,6 +36,7 @@ import (
 // +kubebuilder:docs-gen:collapse=Imports
 
 var ignoreCqCondition = cmpopts.IgnoreFields(kueue.ClusterQueueStatus{}, "Conditions")
+var ignorePendingWorkloadsStatus = cmpopts.IgnoreFields(kueue.ClusterQueueStatus{}, "PendingWorkloadsStatus")
 
 var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 	var (
@@ -85,8 +86,8 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			gomega.Expect(util.DeleteRuntimeClass(ctx, k8sClient, runtimeClass)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteResourceFlavor(ctx, k8sClient, onDemandFlavor)).To(gomega.Succeed())
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.It("Should accumulate RuntimeClass's overhead", func() {
@@ -103,7 +104,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -121,7 +122,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							Total: resource.MustParse("2"),
 						}},
 					}},
-				}, ignoreCqCondition))
+				}, ignoreCqCondition, ignorePendingWorkloadsStatus))
 			})
 		})
 	})
@@ -140,8 +141,8 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteResourceFlavor(ctx, k8sClient, onDemandFlavor)).To(gomega.Succeed())
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.It("Should not accumulate RuntimeClass's overhead", func() {
@@ -158,7 +159,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -176,12 +177,12 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							Total: resource.MustParse("1"),
 						}},
 					}},
-				}, ignoreCqCondition))
+				}, ignoreCqCondition, ignorePendingWorkloadsStatus))
 			})
 		})
 	})
 
-	ginkgo.When("When LimitRanges are defined", func() {
+	ginkgo.When("LimitRanges are defined", func() {
 		ginkgo.BeforeEach(func() {
 			limitRange := testing.MakeLimitRange("limits", ns.Name).WithValue("DefaultRequest", corev1.ResourceCPU, "3").Obj()
 			gomega.Expect(k8sClient.Create(ctx, limitRange)).To(gomega.Succeed())
@@ -196,8 +197,8 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteResourceFlavor(ctx, k8sClient, onDemandFlavor)).To(gomega.Succeed())
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.It("Should use the range defined default requests, if provided", func() {
@@ -212,7 +213,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -232,7 +233,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							},
 						},
 					}},
-				}, ignoreCqCondition))
+				}, ignoreCqCondition, ignorePendingWorkloadsStatus))
 			})
 
 			ginkgo.By("Check podSets spec", func() {
@@ -254,7 +255,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -274,7 +275,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							},
 						},
 					}},
-				}, ignoreCqCondition))
+				}, ignoreCqCondition, ignorePendingWorkloadsStatus))
 			})
 
 			ginkgo.By("Check podSets spec", func() {
@@ -285,7 +286,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		})
 	})
 
-	ginkgo.When("When the workload defines only resource limits", func() {
+	ginkgo.When("the workload defines only resource limits", func() {
 		ginkgo.BeforeEach(func() {
 			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).To(gomega.Succeed())
 			clusterQueue = testing.MakeClusterQueue("clusterqueue").
@@ -298,8 +299,8 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteResourceFlavor(ctx, k8sClient, onDemandFlavor)).To(gomega.Succeed())
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.It("The limits should be used as request values", func() {
@@ -315,7 +316,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -333,7 +334,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							Total: resource.MustParse("1"),
 						}},
 					}},
-				}, ignoreCqCondition))
+				}, ignoreCqCondition, ignorePendingWorkloadsStatus))
 			})
 
 			ginkgo.By("Check podSets spec", func() {
@@ -344,7 +345,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		})
 	})
 
-	ginkgo.When("When RuntimeClass is defined and change", func() {
+	ginkgo.When("RuntimeClass is defined and change", func() {
 		ginkgo.BeforeEach(func() {
 			runtimeClass = testing.MakeRuntimeClass("kata", "bar-handler").
 				PodOverhead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}).
@@ -362,8 +363,8 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			gomega.Expect(util.DeleteRuntimeClass(ctx, k8sClient, runtimeClass)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteResourceFlavor(ctx, k8sClient, onDemandFlavor)).To(gomega.Succeed())
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.It("Should sync the resource requests with the new overhead", func() {
@@ -380,7 +381,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -398,7 +399,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.ConsistentDuration, util.Interval).Should(gomega.BeFalse())
 			})
 
@@ -415,7 +416,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -436,11 +437,11 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							Total: resource.MustParse("5"),
 						}},
 					}},
-				}, ignoreCqCondition))
+				}, ignoreCqCondition, ignorePendingWorkloadsStatus))
 			})
 		})
 	})
-	ginkgo.When("When LimitRanges are defined and change", func() {
+	ginkgo.When("LimitRanges are defined and change", func() {
 		var limitRange *corev1.LimitRange
 		ginkgo.BeforeEach(func() {
 			limitRange = testing.MakeLimitRange("limits", ns.Name).WithValue("DefaultRequest", corev1.ResourceCPU, "3").Obj()
@@ -456,8 +457,8 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteResourceFlavor(ctx, k8sClient, onDemandFlavor)).To(gomega.Succeed())
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.It("Should sync the resource requests with the limit", func() {
@@ -472,7 +473,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -488,7 +489,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.ConsistentDuration, util.Interval).Should(gomega.BeFalse())
 			})
 
@@ -505,7 +506,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &read); err != nil {
 						return false
 					}
-					return workload.IsAdmitted(&read)
+					return workload.HasQuotaReservation(&read)
 				}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 			})
 
@@ -526,12 +527,12 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							Total: resource.MustParse("5"),
 						}},
 					}},
-				}, ignoreCqCondition))
+				}, ignoreCqCondition, ignorePendingWorkloadsStatus))
 			})
 		})
 	})
 
-	ginkgo.When("When a LimitRange event occurs near workload deletion time", func() {
+	ginkgo.When("a LimitRange event occurs near workload deletion time", func() {
 		var limitRange *corev1.LimitRange
 		ginkgo.BeforeEach(func() {
 			limitRange = testing.MakeLimitRange("limits", ns.Name).WithValue("DefaultRequest", corev1.ResourceCPU, "3").Obj()
@@ -560,11 +561,11 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							Total: resource.MustParse("0"),
 						}},
 					}},
-				}, ignoreCqCondition))
+				}, ignoreCqCondition, ignorePendingWorkloadsStatus))
 			})
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteResourceFlavor(ctx, k8sClient, onDemandFlavor)).To(gomega.Succeed())
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
 		ginkgo.When("When the workload is admissible", func() {

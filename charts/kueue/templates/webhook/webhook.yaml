@@ -207,9 +207,30 @@ webhooks:
     apiVersions:
     - v1
     operations:
+    - CREATE
     - UPDATE
     resources:
     - jobs
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: '{{ include "kueue.fullname" . }}-webhook-service'
+      namespace: '{{ .Release.Namespace }}'
+      path: /validate-jobset-x-k8s-io-v1alpha2-jobset
+  failurePolicy: Fail
+  name: vjobset.kb.io
+  rules:
+  - apiGroups:
+    - jobset.x-k8s.io
+    apiVersions:
+    - v1alpha2
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - jobsets
   sideEffects: None
 - admissionReviewVersions:
   - v1
@@ -226,7 +247,28 @@ webhooks:
     apiVersions:
     - v2beta1
     operations:
+    - CREATE
     - UPDATE
     resources:
     - mpijobs
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: '{{ include "kueue.fullname" . }}-webhook-service'
+      namespace: '{{ .Release.Namespace }}'
+      path: /validate-ray-io-v1alpha1-rayjob
+  failurePolicy: Fail
+  name: vrayjob.kb.io
+  rules:
+  - apiGroups:
+    - ray.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - rayjobs
   sideEffects: None

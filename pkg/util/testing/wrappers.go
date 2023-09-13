@@ -26,9 +26,9 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/util/pointer"
 )
 
 // PriorityClassWrapper wraps a PriorityClass.
@@ -75,6 +75,11 @@ func (w *WorkloadWrapper) Obj() *kueue.Workload {
 	return &w.Workload
 }
 
+func (w *WorkloadWrapper) Finalizers(fin ...string) *WorkloadWrapper {
+	w.ObjectMeta.Finalizers = fin
+	return w
+}
+
 func (w *WorkloadWrapper) Request(r corev1.ResourceName, q string) *WorkloadWrapper {
 	w.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(q)
 	return w
@@ -97,15 +102,30 @@ func (w *WorkloadWrapper) Queue(q string) *WorkloadWrapper {
 	return w
 }
 
-func (w *WorkloadWrapper) Admit(a *kueue.Admission) *WorkloadWrapper {
+func (w *WorkloadWrapper) ReserveQuota(a *kueue.Admission) *WorkloadWrapper {
 	w.Status.Admission = a
 	w.Status.Conditions = []metav1.Condition{{
-		Type:               kueue.WorkloadAdmitted,
+		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionTrue,
 		LastTransitionTime: metav1.Now(),
 		Reason:             "AdmittedByTest",
 		Message:            fmt.Sprintf("Admitted by ClusterQueue %s", w.Status.Admission.ClusterQueue),
 	}}
+	return w
+}
+
+func (w *WorkloadWrapper) Admitted(a bool) *WorkloadWrapper {
+	cond := metav1.Condition{
+		Type:               kueue.WorkloadAdmitted,
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "ByTest",
+		Message:            fmt.Sprintf("Admitted by ClusterQueue %s", w.Status.Admission.ClusterQueue),
+	}
+	if !a {
+		cond.Status = metav1.ConditionFalse
+	}
+	apimeta.SetStatusCondition(&w.Status.Conditions, cond)
 	return w
 }
 
@@ -165,6 +185,11 @@ func (w *WorkloadWrapper) ReclaimablePods(rps ...kueue.ReclaimablePod) *Workload
 	return w
 }
 
+func (w *WorkloadWrapper) Labels(l map[string]string) *WorkloadWrapper {
+	w.ObjectMeta.Labels = l
+	return w
+}
+
 type PodSetWrapper struct{ kueue.PodSet }
 
 func MakePodSet(name string, count int) *PodSetWrapper {
@@ -174,6 +199,7 @@ func MakePodSet(name string, count int) *PodSetWrapper {
 			Count: int32(count),
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
+					RestartPolicy: corev1.RestartPolicyNever,
 					Containers: []corev1.Container{
 						{
 							Name: "c",
@@ -236,7 +262,7 @@ func MakeAdmission(cq string, podSetNames ...string) *AdmissionWrapper {
 				Name:          kueue.DefaultPodSetName,
 				Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
 				ResourceUsage: make(corev1.ResourceList),
-				Count:         pointer.Int32(1),
+				Count:         ptr.To[int32](1),
 			},
 		}
 		return wrap
@@ -248,7 +274,7 @@ func MakeAdmission(cq string, podSetNames ...string) *AdmissionWrapper {
 			Name:          name,
 			Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
 			ResourceUsage: make(corev1.ResourceList),
-			Count:         pointer.Int32(1),
+			Count:         ptr.To[int32](1),
 		})
 	}
 	wrap.PodSetAssignments = psFlavors
@@ -266,7 +292,7 @@ func (w *AdmissionWrapper) Assignment(r corev1.ResourceName, f kueue.ResourceFla
 }
 
 func (w *AdmissionWrapper) AssignmentPodCount(value int32) *AdmissionWrapper {
-	w.PodSetAssignments[0].Count = pointer.Int32(value)
+	w.PodSetAssignments[0].Count = ptr.To(value)
 	return w
 }
 
@@ -359,6 +385,12 @@ func (c *ClusterQueueWrapper) ResourceGroup(flavors ...kueue.FlavorQuotas) *Clus
 	return c
 }
 
+// AdmissionChecks replaces the queue additional checks
+func (c *ClusterQueueWrapper) AdmissionChecks(checks ...string) *ClusterQueueWrapper {
+	c.Spec.AdmissionChecks = checks
+	return c
+}
+
 // QueueingStrategy sets the queueing strategy in this ClusterQueue.
 func (c *ClusterQueueWrapper) QueueingStrategy(strategy kueue.QueueingStrategy) *ClusterQueueWrapper {
 	c.Spec.QueueingStrategy = strategy
@@ -400,7 +432,7 @@ func (f *FlavorQuotasWrapper) Resource(name corev1.ResourceName, qs ...string) *
 		rq.NominalQuota = resource.MustParse(qs[0])
 	}
 	if len(qs) > 1 {
-		rq.BorrowingLimit = pointer.Quantity(resource.MustParse(qs[1]))
+		rq.BorrowingLimit = ptr.To(resource.MustParse(qs[1]))
 	}
 	if len(qs) > 2 {
 		panic("Must have at most 2 quantities for nominalquota and borrowingLimit")
@@ -517,4 +549,20 @@ func (lr *LimitRangeWrapper) WithValue(member string, t corev1.ResourceName, q s
 
 func (lr *LimitRangeWrapper) Obj() *corev1.LimitRange {
 	return &lr.LimitRange
+}
+
+type AdmissionCheckWrapper struct{ kueue.AdmissionCheck }
+
+func MakeAdmissionCheck(name string) *AdmissionCheckWrapper {
+	return &AdmissionCheckWrapper{
+		AdmissionCheck: kueue.AdmissionCheck{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: name,
+			},
+		},
+	}
+}
+
+func (ac *AdmissionCheckWrapper) Obj() *kueue.AdmissionCheck {
+	return &ac.AdmissionCheck
 }

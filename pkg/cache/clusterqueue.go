@@ -9,7 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -37,8 +37,11 @@ type ClusterQueue struct {
 	// The following fields are not populated in a snapshot.
 
 	// Key is localQueue's key (namespace/name).
-	localQueues       map[string]*queue
-	podsReadyTracking bool
+	localQueues               map[string]*queue
+	podsReadyTracking         bool
+	admissionChecks           sets.Set[string]
+	hasMissingFlavors         bool
+	hasMissingAdmissionChecks bool
 }
 
 // Cohort is a set of ClusterQueues that can borrow resources from each other.
@@ -86,13 +89,21 @@ func newCohort(name string, size int) *Cohort {
 	}
 }
 
-func (c *Cohort) HasBorrowingQueues() bool {
-	for cq := range c.Members {
-		if cq.IsBorrowing() {
-			return true
+func (c *Cohort) CanFit(q FlavorResourceQuantities) bool {
+	for flavor, qResources := range q {
+		if cohortResources, flavorFound := c.RequestableResources[flavor]; flavorFound {
+			cohortUsage := c.Usage[flavor]
+			for resource, value := range qResources {
+				available := cohortResources[resource] - cohortUsage[resource]
+				if available < value {
+					return false
+				}
+			}
+		} else {
+			return false
 		}
 	}
-	return false
+	return true
 }
 
 func (c *ClusterQueue) IsBorrowing() bool {
@@ -123,7 +134,7 @@ var defaultPreemption = kueue.ClusterQueuePreemption{
 	WithinClusterQueue:  kueue.PreemptionPolicyNever,
 }
 
-func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) error {
+func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks sets.Set[string]) error {
 	c.updateResourceGroups(in.Spec.ResourceGroups)
 	nsSelector, err := metav1.LabelSelectorAsSelector(in.Spec.NamespaceSelector)
 	if err != nil {
@@ -143,8 +154,12 @@ func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.
 			usedFlavorResources[f.Name] = usedResources
 		}
 	}
+
+	c.admissionChecks = sets.New(in.Spec.AdmissionChecks...)
+
 	c.Usage = usedFlavorResources
 	c.UpdateWithFlavors(resourceFlavors)
+	c.updateWithAdmissionChecks(admissionChecks)
 
 	if in.Spec.Preemption != nil {
 		c.Preemption = *in.Spec.Preemption
@@ -174,7 +189,7 @@ func (c *ClusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
 					Nominal: workload.ResourceValue(rIn.Name, rIn.NominalQuota),
 				}
 				if rIn.BorrowingLimit != nil {
-					rQuota.BorrowingLimit = pointer.Int64(workload.ResourceValue(rIn.Name, *rIn.BorrowingLimit))
+					rQuota.BorrowingLimit = ptr.To(workload.ResourceValue(rIn.Name, *rIn.BorrowingLimit))
 				}
 				fQuotas.Resources[rIn.Name] = &rQuota
 			}
@@ -194,18 +209,43 @@ func (c *ClusterQueue) UpdateRGByResource() {
 	}
 }
 
+func (c *ClusterQueue) updateQueueStatus() {
+	status := active
+	if c.hasMissingFlavors || c.hasMissingAdmissionChecks {
+		status = pending
+	}
+	if c.Status == terminating {
+		status = terminating
+	}
+	if status != c.Status {
+		c.Status = status
+		metrics.ReportClusterQueueStatus(c.Name, c.Status)
+	}
+}
+
+func (c *ClusterQueue) inactiveReason() (string, string) {
+	switch c.Status {
+	case terminating:
+		return "Terminating", "Can't admit new workloads; clusterQueue is terminating"
+	case pending:
+		switch {
+		case c.hasMissingFlavors && c.hasMissingAdmissionChecks:
+			return "FlavorAndCheckNotFound", "Can't admit new workloads; some resourceFlavors and admissionChecks are not found"
+		case c.hasMissingFlavors:
+			return "FlavorNotFound", "Can't admit new workloads; some resourceFlavors are not found"
+		default:
+			return "CheckNotFound", "Can't admit new workloads; some admissionChecks are not found"
+
+		}
+	}
+	return "Ready", "Can admit new flavors"
+}
+
 // UpdateWithFlavors updates a ClusterQueue based on the passed ResourceFlavors set.
 // Exported only for testing.
 func (c *ClusterQueue) UpdateWithFlavors(flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) {
-	status := active
-	if flavorNotFound := c.updateLabelKeys(flavors); flavorNotFound {
-		status = pending
-	}
-
-	if c.Status != terminating {
-		c.Status = status
-	}
-	metrics.ReportClusterQueueStatus(c.Name, c.Status)
+	c.hasMissingFlavors = c.updateLabelKeys(flavors)
+	c.updateQueueStatus()
 }
 
 func (c *ClusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) bool {
@@ -233,6 +273,22 @@ func (c *ClusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference
 	}
 
 	return flavorNotFound
+}
+
+// updateWithAdmissionChecks updates a ClusterQueue based on the passed AdmissionChecks set.
+func (c *ClusterQueue) updateWithAdmissionChecks(checks sets.Set[string]) {
+	hasMissing := false
+	for ac := range c.admissionChecks {
+		if !checks.Has(ac) {
+			hasMissing = true
+			break
+		}
+	}
+
+	if hasMissing != c.hasMissingAdmissionChecks {
+		c.hasMissingAdmissionChecks = hasMissing
+		c.updateQueueStatus()
+	}
 }
 
 func (c *ClusterQueue) addWorkload(w *kueue.Workload) error {

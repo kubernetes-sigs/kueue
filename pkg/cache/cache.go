@@ -24,6 +24,7 @@ import (
 	"sync"
 
 	"github.com/go-logr/logr"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
@@ -77,6 +78,7 @@ type Cache struct {
 	assumedWorkloads  map[string]string
 	resourceFlavors   map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	podsReadyTracking bool
+	admissionChecks   sets.Set[string]
 }
 
 func New(client client.Client, opts ...Option) *Cache {
@@ -90,6 +92,7 @@ func New(client client.Client, opts ...Option) *Cache {
 		cohorts:           make(map[string]*Cohort),
 		assumedWorkloads:  make(map[string]string),
 		resourceFlavors:   make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
+		admissionChecks:   sets.New[string](),
 		podsReadyTracking: options.podsReadyTracking,
 	}
 	c.podsReadyCond.L = &c.RWMutex
@@ -104,7 +107,7 @@ func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*ClusterQueue, error) {
 		localQueues:       make(map[string]*queue),
 		podsReadyTracking: c.podsReadyTracking,
 	}
-	if err := cqImpl.update(cq, c.resourceFlavors); err != nil {
+	if err := cqImpl.update(cq, c.resourceFlavors, c.admissionChecks); err != nil {
 		return nil, err
 	}
 
@@ -191,6 +194,7 @@ func (c *Cache) updateClusterQueues() sets.Set[string] {
 		// because it is not expensive to do so, and is not worth tracking which ClusterQueues use
 		// which flavors.
 		cq.UpdateWithFlavors(c.resourceFlavors)
+		cq.updateWithAdmissionChecks(c.admissionChecks)
 		curStatus := cq.Status
 		if prevStatus == pending && curStatus == active {
 			cqs.Insert(cq.Name)
@@ -213,12 +217,40 @@ func (c *Cache) DeleteResourceFlavor(rf *kueue.ResourceFlavor) sets.Set[string] 
 	return c.updateClusterQueues()
 }
 
+func (c *Cache) AddOrUpdateAdmissionCheck(ac *kueue.AdmissionCheck) sets.Set[string] {
+	c.Lock()
+	defer c.Unlock()
+	c.admissionChecks.Insert(ac.Name)
+	return c.updateClusterQueues()
+}
+
+func (c *Cache) DeleteAdmissionCheck(ac *kueue.AdmissionCheck) sets.Set[string] {
+	c.Lock()
+	defer c.Unlock()
+	c.admissionChecks.Delete(ac.Name)
+	return c.updateClusterQueues()
+}
+
 func (c *Cache) ClusterQueueActive(name string) bool {
 	return c.clusterQueueInStatus(name, active)
 }
 
 func (c *Cache) ClusterQueueTerminating(name string) bool {
 	return c.clusterQueueInStatus(name, terminating)
+}
+
+func (c *Cache) ClusterQueueReadiness(name string) (metav1.ConditionStatus, string, string) {
+	c.RLock()
+	defer c.RUnlock()
+	cq := c.clusterQueues[name]
+	if cq == nil {
+		return metav1.ConditionFalse, "NotFound", "ClusterQueue not found"
+	}
+	if cq != nil && cq.Status == active {
+		return metav1.ConditionTrue, "Ready", "Can admit new workloads"
+	}
+	reason, msg := cq.inactiveReason()
+	return metav1.ConditionFalse, reason, msg
 }
 
 func (c *Cache) clusterQueueInStatus(name string, status metrics.ClusterQueueStatus) bool {
@@ -292,7 +324,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
 	for i, w := range workloads.Items {
-		if !workload.IsAdmitted(&w) {
+		if !workload.HasQuotaReservation(&w) {
 			continue
 		}
 		c.addOrUpdateWorkload(&workloads.Items[i])
@@ -308,7 +340,7 @@ func (c *Cache) UpdateClusterQueue(cq *kueue.ClusterQueue) error {
 	if !ok {
 		return errCqNotFound
 	}
-	if err := cqImpl.update(cq, c.resourceFlavors); err != nil {
+	if err := cqImpl.update(cq, c.resourceFlavors, c.admissionChecks); err != nil {
 		return err
 	}
 	for _, qImpl := range cqImpl.localQueues {
@@ -388,7 +420,7 @@ func (c *Cache) AddOrUpdateWorkload(w *kueue.Workload) bool {
 }
 
 func (c *Cache) addOrUpdateWorkload(w *kueue.Workload) bool {
-	if !workload.IsAdmitted(w) {
+	if !workload.HasQuotaReservation(w) {
 		return false
 	}
 
@@ -412,7 +444,7 @@ func (c *Cache) addOrUpdateWorkload(w *kueue.Workload) bool {
 func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.Workload) error {
 	c.Lock()
 	defer c.Unlock()
-	if workload.IsAdmitted(oldWl) {
+	if workload.HasQuotaReservation(oldWl) {
 		cq, ok := c.clusterQueues[string(oldWl.Status.Admission.ClusterQueue)]
 		if !ok {
 			return fmt.Errorf("old ClusterQueue doesn't exist")
@@ -421,7 +453,7 @@ func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.Workload) error {
 	}
 	c.cleanupAssumedState(oldWl)
 
-	if !workload.IsAdmitted(newWl) {
+	if !workload.HasQuotaReservation(newWl) {
 		return nil
 	}
 	cq, ok := c.clusterQueues[string(newWl.Status.Admission.ClusterQueue)]
@@ -472,7 +504,7 @@ func (c *Cache) AssumeWorkload(w *kueue.Workload) error {
 	c.Lock()
 	defer c.Unlock()
 
-	if !workload.IsAdmitted(w) {
+	if !workload.HasQuotaReservation(w) {
 		return errWorkloadNotAdmitted
 	}
 
@@ -503,7 +535,7 @@ func (c *Cache) ForgetWorkload(w *kueue.Workload) error {
 	}
 	c.cleanupAssumedState(w)
 
-	if !workload.IsAdmitted(w) {
+	if !workload.HasQuotaReservation(w) {
 		return errWorkloadNotAdmitted
 	}
 
@@ -604,7 +636,7 @@ func (c *Cache) cleanupAssumedState(w *kueue.Workload) {
 	if assumed {
 		// If the workload's assigned ClusterQueue is different from the assumed
 		// one, then we should also cleanup the assumed one.
-		if workload.IsAdmitted(w) && assumedCQName != string(w.Status.Admission.ClusterQueue) {
+		if workload.HasQuotaReservation(w) && assumedCQName != string(w.Status.Admission.ClusterQueue) {
 			if assumedCQ, exist := c.clusterQueues[assumedCQName]; exist {
 				assumedCQ.deleteWorkload(w)
 			}
@@ -614,7 +646,7 @@ func (c *Cache) cleanupAssumedState(w *kueue.Workload) {
 }
 
 func (c *Cache) clusterQueueForWorkload(w *kueue.Workload) *ClusterQueue {
-	if workload.IsAdmitted(w) {
+	if workload.HasQuotaReservation(w) {
 		return c.clusterQueues[string(w.Status.Admission.ClusterQueue)]
 	}
 	wKey := workload.Key(w)
@@ -657,6 +689,19 @@ func (c *Cache) ClusterQueuesUsingFlavor(flavor string) []string {
 
 	for _, cq := range c.clusterQueues {
 		if cq.flavorInUse(flavor) {
+			cqs = append(cqs, cq.Name)
+		}
+	}
+	return cqs
+}
+
+func (c *Cache) ClusterQueuesUsingAdmissionCheck(ac string) []string {
+	c.RLock()
+	defer c.RUnlock()
+	var cqs []string
+
+	for _, cq := range c.clusterQueues {
+		if cq.admissionChecks.Has(ac) {
 			cqs = append(cqs, cq.Name)
 		}
 	}

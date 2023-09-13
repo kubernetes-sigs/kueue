@@ -4,6 +4,7 @@ health:
   healthProbeBindAddress: :8081
 metrics:
   bindAddress: :8080
+# enableClusterQueueResources: true
 webhook:
   port: 9443
 leaderElection:
@@ -19,6 +20,7 @@ controller:
 clientConnection:
   qps: 50
   burst: 100
+#pprofBindAddress: :8082
 #waitForPodsReady:
 #  enable: true
 #manageJobsWithoutQueueName: true
@@ -32,3 +34,5 @@ integrations:
   - "kubeflow.org/mpijob"
   - "ray.io/rayjob"
   - "jobset.x-k8s.io/jobset"
+  - "kubeflow.org/pytorchjob"
+  - "kubeflow.org/tfjob"

@@ -2,7 +2,7 @@
 name: New Release
 about: Propose a new release
 title: Release v0.x.0
-assignees: ahg-g, alculquicondor, ArangoGutierrez, denkensk
+assignees: ahg-g, alculquicondor, tenzen-y
 
 ---
 
@@ -20,8 +20,7 @@ Please do not remove items from the checklist
         `git branch release-$MAJ.$MIN main`
   - [ ] An OWNER pushes the new release branch with
         `git push release-$MAJ.$MIN`
-- [ ] For major or minor releases, update things like README, deployment templates, docs, configuration, test/e2e flags.
-      Submit a PR against the release branch: <!-- example #211 #214 -->
+- [ ] For major or minor releases, update `README.md`, `CHANGELOG`, `charts/kueue/Chart.yaml` (`appVersion`) and `chats/kueue/values.yaml` (`controllerManager.manager.image.tag`) in the release branch: <!-- example #211 #214 -->
 - [ ] An OWNER [prepares a draft release](https://github.com/kubernetes-sigs/kueue/releases)
   - [ ] Write the change log into the draft release.
   - [ ] Run
@@ -43,13 +42,17 @@ Please do not remove items from the checklist
 - [ ] Wait for the PR to be merged and verify that the image `registry.k8s.io/kueue/kueue:$VERSION` is available.
 - [ ] Publish the draft release prepared at the [Github releases page](https://github.com/kubernetes-sigs/kueue/releases).
       Link: <!-- example https://github.com/kubernetes-sigs/kueue/releases/tag/v0.1.0 -->
+- [ ] For major or minor releases, merge the `main` branch into the `website` branch to publish the updated documentation.
 - [ ] Send an announcement email to `sig-scheduling@kubernetes.io` and `wg-batch@kubernetes.io` with the subject `[ANNOUNCE] kueue $VERSION is released`. Link: <!-- example https://groups.google.com/a/kubernetes.io/g/wg-batch/c/-gZOrSnwDV4 -->
-- [ ] Update `README.md`, `CHANGELOG`, `site/content/en/installation`, `charts/kueue/Chart.yaml` (`appVersion`) and `chats/kueue/values.yaml` (`controllerManager.manager.image.tag`) in `main` branch: <!-- example #774 -->
-- [ ] For a major or minor release, create an unannotated _devel_ tag in the
-      `main` branch, on the first commit that gets merged after the release
-       branch has been created (presumably the README update commit above), and, push the tag:
-      `DEVEL=v0.$(($MAJ+1)).0-devel; git tag $DEVEL main && git push $DEVEL`
-      This ensures that the devel builds on the `main` branch will have a meaningful version number.
+- [ ] Update `README.md`, `CHANGELOG`, `site/config.toml`, `charts/kueue/Chart.yaml` (`appVersion`) and `chats/kueue/values.yaml` (`controllerManager.manager.image.tag`) in `main` branch: <!-- example #774 -->
+- [ ] For a major or minor release, prepare the repo for the next version:
+  - [ ] create an unannotated _devel_ tag in the
+        `main` branch, on the first commit that gets merged after the release
+         branch has been created (presumably the README update commit above), and, push the tag:
+        `DEVEL=v0.$(($MAJ+1)).0-devel; git tag $DEVEL main && git push $DEVEL`
+        This ensures that the devel builds on the `main` branch will have a meaningful version number.
+  - [ ] Create a milestone for the next minor release and update prow to set it automatically for new PRs:
+        <!-- example https://github.com/kubernetes/test-infra/pull/30222 -->
 
 
 ## Changelog

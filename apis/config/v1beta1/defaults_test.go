@@ -23,7 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	componentconfigv1alpha1 "k8s.io/component-base/config/v1alpha1"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 )
@@ -39,7 +39,7 @@ const (
 func TestSetDefaults_Configuration(t *testing.T) {
 	defaultCtrlManagerConfigurationSpec := ControllerManager{
 		Webhook: ControllerWebhook{
-			Port: pointer.Int(DefaultWebhookPort),
+			Port: ptr.To(DefaultWebhookPort),
 		},
 		Metrics: ControllerMetrics{
 			BindAddress: DefaultMetricsBindAddress,
@@ -49,11 +49,17 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		},
 	}
 	defaultClientConnection := &ClientConnection{
-		QPS:   pointer.Float32(DefaultClientConnectionQPS),
-		Burst: pointer.Int32(DefaultClientConnectionBurst),
+		QPS:   ptr.To(DefaultClientConnectionQPS),
+		Burst: ptr.To(DefaultClientConnectionBurst),
 	}
 	defaultIntegrations := &Integrations{
 		Frameworks: []string{job.FrameworkName},
+	}
+	defaultQueueVisibility := &QueueVisibility{
+		UpdateIntervalSeconds: DefaultQueueVisibilityUpdateIntervalSeconds,
+		ClusterQueues: &ClusterQueueVisibility{
+			MaxCount: 10,
+		},
 	}
 	podsReadyTimeoutTimeout := metav1.Duration{Duration: defaultPodsReadyTimeout}
 	podsReadyTimeoutOverwrite := metav1.Duration{Duration: time.Minute}
@@ -65,35 +71,36 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		"defaulting namespace": {
 			original: &Configuration{
 				InternalCertManagement: &InternalCertManagement{
-					Enable: pointer.Bool(false),
+					Enable: ptr.To(false),
 				},
 			},
 			want: &Configuration{
-				Namespace:         pointer.String(DefaultNamespace),
+				Namespace:         ptr.To(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
-					Enable: pointer.Bool(false),
+					Enable: ptr.To(false),
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
 			},
 		},
 		"defaulting ControllerManager": {
 			original: &Configuration{
 				ControllerManager: ControllerManager{
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect: pointer.Bool(true),
+						LeaderElect: ptr.To(true),
 					},
 				},
 				InternalCertManagement: &InternalCertManagement{
-					Enable: pointer.Bool(false),
+					Enable: ptr.To(false),
 				},
 			},
 			want: &Configuration{
-				Namespace: pointer.String(DefaultNamespace),
+				Namespace: ptr.To(DefaultNamespace),
 				ControllerManager: ControllerManager{
 					Webhook: ControllerWebhook{
-						Port: pointer.Int(DefaultWebhookPort),
+						Port: ptr.To(DefaultWebhookPort),
 					},
 					Metrics: ControllerMetrics{
 						BindAddress: DefaultMetricsBindAddress,
@@ -102,22 +109,23 @@ func TestSetDefaults_Configuration(t *testing.T) {
 						HealthProbeBindAddress: DefaultHealthProbeBindAddress,
 					},
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect:  pointer.Bool(true),
+						LeaderElect:  ptr.To(true),
 						ResourceName: DefaultLeaderElectionID,
 					},
 				},
 				InternalCertManagement: &InternalCertManagement{
-					Enable: pointer.Bool(false),
+					Enable: ptr.To(false),
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
 			},
 		},
 		"should not default ControllerManager": {
 			original: &Configuration{
 				ControllerManager: ControllerManager{
 					Webhook: ControllerWebhook{
-						Port: pointer.Int(overwriteWebhookPort),
+						Port: ptr.To(overwriteWebhookPort),
 					},
 					Metrics: ControllerMetrics{
 						BindAddress: overwriteMetricBindAddress,
@@ -126,20 +134,21 @@ func TestSetDefaults_Configuration(t *testing.T) {
 						HealthProbeBindAddress: overwriteHealthProbeBindAddress,
 					},
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect:  pointer.Bool(true),
+						LeaderElect:  ptr.To(true),
 						ResourceName: overwriteLeaderElectionID,
 					},
 				},
 				InternalCertManagement: &InternalCertManagement{
-					Enable: pointer.Bool(false),
+					Enable: ptr.To(false),
 				},
-				Integrations: defaultIntegrations,
+				Integrations:    defaultIntegrations,
+				QueueVisibility: defaultQueueVisibility,
 			},
 			want: &Configuration{
-				Namespace: pointer.String(DefaultNamespace),
+				Namespace: ptr.To(DefaultNamespace),
 				ControllerManager: ControllerManager{
 					Webhook: ControllerWebhook{
-						Port: pointer.Int(overwriteWebhookPort),
+						Port: ptr.To(overwriteWebhookPort),
 					},
 					Metrics: ControllerMetrics{
 						BindAddress: overwriteMetricBindAddress,
@@ -148,33 +157,34 @@ func TestSetDefaults_Configuration(t *testing.T) {
 						HealthProbeBindAddress: overwriteHealthProbeBindAddress,
 					},
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect:  pointer.Bool(true),
+						LeaderElect:  ptr.To(true),
 						ResourceName: overwriteLeaderElectionID,
 					},
 				},
 				InternalCertManagement: &InternalCertManagement{
-					Enable: pointer.Bool(false),
+					Enable: ptr.To(false),
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
 			},
 		},
 		"should not set LeaderElectionID": {
 			original: &Configuration{
 				ControllerManager: ControllerManager{
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect: pointer.Bool(false),
+						LeaderElect: ptr.To(false),
 					},
 				},
 				InternalCertManagement: &InternalCertManagement{
-					Enable: pointer.Bool(false),
+					Enable: ptr.To(false),
 				},
 			},
 			want: &Configuration{
-				Namespace: pointer.String(DefaultNamespace),
+				Namespace: ptr.To(DefaultNamespace),
 				ControllerManager: ControllerManager{
 					Webhook: ControllerWebhook{
-						Port: pointer.Int(DefaultWebhookPort),
+						Port: ptr.To(DefaultWebhookPort),
 					},
 					Metrics: ControllerMetrics{
 						BindAddress: DefaultMetricsBindAddress,
@@ -183,89 +193,94 @@ func TestSetDefaults_Configuration(t *testing.T) {
 						HealthProbeBindAddress: DefaultHealthProbeBindAddress,
 					},
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect: pointer.Bool(false),
+						LeaderElect: ptr.To(false),
 					},
 				},
 				InternalCertManagement: &InternalCertManagement{
-					Enable: pointer.Bool(false),
+					Enable: ptr.To(false),
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
 			},
 		},
 		"defaulting InternalCertManagement": {
 			original: &Configuration{
-				Namespace: pointer.String(overwriteNamespace),
+				Namespace: ptr.To(overwriteNamespace),
 			},
 			want: &Configuration{
-				Namespace:         pointer.String(overwriteNamespace),
+				Namespace:         ptr.To(overwriteNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
-					Enable:             pointer.Bool(true),
-					WebhookServiceName: pointer.String(DefaultWebhookServiceName),
-					WebhookSecretName:  pointer.String(DefaultWebhookSecretName),
+					Enable:             ptr.To(true),
+					WebhookServiceName: ptr.To(DefaultWebhookServiceName),
+					WebhookSecretName:  ptr.To(DefaultWebhookSecretName),
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
 			},
 		},
 		"should not default InternalCertManagement": {
 			original: &Configuration{
-				Namespace: pointer.String(overwriteNamespace),
+				Namespace: ptr.To(overwriteNamespace),
 				InternalCertManagement: &InternalCertManagement{
-					Enable: pointer.Bool(false),
+					Enable: ptr.To(false),
 				},
 			},
 			want: &Configuration{
-				Namespace:         pointer.String(overwriteNamespace),
+				Namespace:         ptr.To(overwriteNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
-					Enable: pointer.Bool(false),
+					Enable: ptr.To(false),
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
 			},
 		},
 		"should not default values in custom ClientConnection": {
 			original: &Configuration{
-				Namespace: pointer.String(overwriteNamespace),
+				Namespace: ptr.To(overwriteNamespace),
 				InternalCertManagement: &InternalCertManagement{
-					Enable: pointer.Bool(false),
+					Enable: ptr.To(false),
 				},
 				ClientConnection: &ClientConnection{
-					QPS:   pointer.Float32(123.0),
-					Burst: pointer.Int32(456),
+					QPS:   ptr.To[float32](123.0),
+					Burst: ptr.To[int32](456),
 				},
 			},
 			want: &Configuration{
-				Namespace:         pointer.String(overwriteNamespace),
+				Namespace:         ptr.To(overwriteNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
-					Enable: pointer.Bool(false),
+					Enable: ptr.To(false),
 				},
 				ClientConnection: &ClientConnection{
-					QPS:   pointer.Float32(123.0),
-					Burst: pointer.Int32(456),
+					QPS:   ptr.To[float32](123.0),
+					Burst: ptr.To[int32](456),
 				},
-				Integrations: defaultIntegrations,
+				Integrations:    defaultIntegrations,
+				QueueVisibility: defaultQueueVisibility,
 			},
 		},
 		"should default empty custom ClientConnection": {
 			original: &Configuration{
-				Namespace: pointer.String(overwriteNamespace),
+				Namespace: ptr.To(overwriteNamespace),
 				InternalCertManagement: &InternalCertManagement{
-					Enable: pointer.Bool(false),
+					Enable: ptr.To(false),
 				},
 				ClientConnection: &ClientConnection{},
 			},
 			want: &Configuration{
-				Namespace:         pointer.String(overwriteNamespace),
+				Namespace:         ptr.To(overwriteNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
-					Enable: pointer.Bool(false),
+					Enable: ptr.To(false),
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
 			},
 		},
 		"defaulting waitForPodsReady.timeout": {
@@ -274,22 +289,23 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable: true,
 				},
 				InternalCertManagement: &InternalCertManagement{
-					Enable: pointer.Bool(false),
+					Enable: ptr.To(false),
 				},
 			},
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
 					Enable:         true,
-					BlockAdmission: pointer.Bool(true),
+					BlockAdmission: ptr.To(true),
 					Timeout:        &podsReadyTimeoutTimeout,
 				},
-				Namespace:         pointer.String(DefaultNamespace),
+				Namespace:         ptr.To(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
-					Enable: pointer.Bool(false),
+					Enable: ptr.To(false),
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
 			},
 		},
 		"set waitForPodsReady.blockAdmission to false when enable is false": {
@@ -298,22 +314,23 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable: false,
 				},
 				InternalCertManagement: &InternalCertManagement{
-					Enable: pointer.Bool(false),
+					Enable: ptr.To(false),
 				},
 			},
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
 					Enable:         false,
-					BlockAdmission: pointer.Bool(false),
+					BlockAdmission: ptr.To(false),
 					Timeout:        &podsReadyTimeoutTimeout,
 				},
-				Namespace:         pointer.String(DefaultNamespace),
+				Namespace:         ptr.To(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
-					Enable: pointer.Bool(false),
+					Enable: ptr.To(false),
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
 			},
 		},
 		"respecting provided waitForPodsReady.timeout": {
@@ -323,42 +340,72 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Timeout: &podsReadyTimeoutOverwrite,
 				},
 				InternalCertManagement: &InternalCertManagement{
-					Enable: pointer.Bool(false),
+					Enable: ptr.To(false),
 				},
 			},
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
 					Enable:         true,
-					BlockAdmission: pointer.Bool(true),
+					BlockAdmission: ptr.To(true),
 					Timeout:        &podsReadyTimeoutOverwrite,
 				},
-				Namespace:         pointer.String(DefaultNamespace),
+				Namespace:         ptr.To(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
-					Enable: pointer.Bool(false),
+					Enable: ptr.To(false),
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
 			},
 		},
 		"integrations": {
 			original: &Configuration{
 				InternalCertManagement: &InternalCertManagement{
-					Enable: pointer.Bool(false),
+					Enable: ptr.To(false),
 				},
 				Integrations: &Integrations{
 					Frameworks: []string{"a", "b"},
 				},
 			},
 			want: &Configuration{
-				Namespace:         pointer.String(DefaultNamespace),
+				Namespace:         ptr.To(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
-					Enable: pointer.Bool(false),
+					Enable: ptr.To(false),
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations: &Integrations{
 					Frameworks: []string{"a", "b"},
+				},
+				QueueVisibility: defaultQueueVisibility,
+			},
+		},
+		"queue visibility": {
+			original: &Configuration{
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				QueueVisibility: &QueueVisibility{
+					UpdateIntervalSeconds: 10,
+					ClusterQueues: &ClusterQueueVisibility{
+						MaxCount: 0,
+					},
+				},
+			},
+			want: &Configuration{
+				Namespace:         ptr.To(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				ClientConnection: defaultClientConnection,
+				Integrations:     defaultIntegrations,
+				QueueVisibility: &QueueVisibility{
+					UpdateIntervalSeconds: 10,
+					ClusterQueues: &ClusterQueueVisibility{
+						MaxCount: 0,
+					},
 				},
 			},
 		},

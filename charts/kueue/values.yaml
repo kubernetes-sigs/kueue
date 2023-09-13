@@ -36,6 +36,18 @@ controllerManager:
       allowPrivilegeEscalation: false
   replicas: 1
   imagePullSecrets: []
+  readinessProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 1
+    failureThreshold: 3
+    successThreshold: 1
+  livenessProbe:
+    initialDelaySeconds: 15
+    periodSeconds: 20
+    timeoutSeconds: 1
+    failureThreshold: 3
+    successThreshold: 1
 kubernetesClusterDomain: cluster.local
 # controller_manager_config.yaml. controllerManager utilizes this yaml via manager-config Configmap.
 managerConfig:
@@ -46,6 +58,7 @@ managerConfig:
       healthProbeBindAddress: :8081
     metrics:
       bindAddress: :8080
+    # enableClusterQueueResources: true
     webhook:
       port: 9443
     leaderElection:
@@ -61,6 +74,7 @@ managerConfig:
     clientConnection:
       qps: 50
       burst: 100
+    #pprofBindAddress: :8082
     #waitForPodsReady:
     #  enable: true
     #manageJobsWithoutQueueName: true
@@ -73,6 +87,8 @@ managerConfig:
       - "batch/job"
       - "kubeflow.org/mpijob"
       - "ray.io/rayjob"
+      - "kubeflow.org/pytorchjob"
+      - "kubeflow.org/tfjob"
 # ports definition for metricsService and webhookService.
 metricsService:
   ports:

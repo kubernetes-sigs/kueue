@@ -29,7 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/yaml"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	runtimeconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -189,6 +189,7 @@ health:
   livenessEndpointName: live
 metrics:
   bindAddress: :8080
+pprofBindAddress: :8082
 leaderElection:
   leaderElect: true
   resourceName: c1f6bfd2.kueue.x-k8s.io
@@ -221,6 +222,17 @@ integrations:
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
+	queueVisibilityConfig := filepath.Join(tmpDir, "queueVisibility.yaml")
+	if err := os.WriteFile(queueVisibilityConfig, []byte(`
+apiVersion: config.kueue.x-k8s.io/v1beta1
+kind: Configuration
+queueVisibility:
+  updateIntervalSeconds: 10
+  clusterQueues:
+    maxCount: 0
+`), os.FileMode(0600)); err != nil {
+		t.Fatal(err)
+	}
 
 	defaultControlOptions := ctrl.Options{
 		HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
@@ -235,9 +247,9 @@ integrations:
 	}
 
 	enableDefaultInternalCertManagement := &configapi.InternalCertManagement{
-		Enable:             pointer.Bool(true),
-		WebhookServiceName: pointer.String(configapi.DefaultWebhookServiceName),
-		WebhookSecretName:  pointer.String(configapi.DefaultWebhookSecretName),
+		Enable:             ptr.To(true),
+		WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
+		WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
 	}
 
 	ctrlOptsCmpOpts := []cmp.Option{
@@ -253,12 +265,19 @@ integrations:
 	}
 
 	defaultClientConnection := &configapi.ClientConnection{
-		QPS:   pointer.Float32(configapi.DefaultClientConnectionQPS),
-		Burst: pointer.Int32(configapi.DefaultClientConnectionBurst),
+		QPS:   ptr.To[float32](configapi.DefaultClientConnectionQPS),
+		Burst: ptr.To[int32](configapi.DefaultClientConnectionBurst),
 	}
 
 	defaultIntegrations := &configapi.Integrations{
 		Frameworks: []string{job.FrameworkName},
+	}
+
+	defaultQueueVisibility := &configapi.QueueVisibility{
+		UpdateIntervalSeconds: configapi.DefaultQueueVisibilityUpdateIntervalSeconds,
+		ClusterQueues: &configapi.ClusterQueueVisibility{
+			MaxCount: 10,
+		},
 	}
 
 	testcases := []struct {
@@ -272,10 +291,11 @@ integrations:
 			name:       "default config",
 			configFile: "",
 			wantConfiguration: configapi.Configuration{
-				Namespace:              pointer.String(configapi.DefaultNamespace),
+				Namespace:              ptr.To(configapi.DefaultNamespace),
 				InternalCertManagement: enableDefaultInternalCertManagement,
 				ClientConnection:       defaultClientConnection,
 				Integrations:           defaultIntegrations,
+				QueueVisibility:        defaultQueueVisibility,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
@@ -306,11 +326,12 @@ integrations:
 					APIVersion: configapi.GroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  pointer.String("kueue-tenant-a"),
+				Namespace:                  ptr.To("kueue-tenant-a"),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection:           defaultClientConnection,
 				Integrations:               defaultIntegrations,
+				QueueVisibility:            defaultQueueVisibility,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -322,11 +343,12 @@ integrations:
 					APIVersion: configapi.GroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  pointer.String(configapi.DefaultNamespace),
+				Namespace:                  ptr.To(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection:           defaultClientConnection,
 				Integrations:               defaultIntegrations,
+				QueueVisibility:            defaultQueueVisibility,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: ":38081",
@@ -348,15 +370,16 @@ integrations:
 					APIVersion: configapi.GroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  pointer.String(configapi.DefaultNamespace),
+				Namespace:                  ptr.To(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             pointer.Bool(true),
-					WebhookServiceName: pointer.String("kueue-tenant-a-webhook-service"),
-					WebhookSecretName:  pointer.String("kueue-tenant-a-webhook-server-cert"),
+					Enable:             ptr.To(true),
+					WebhookServiceName: ptr.To("kueue-tenant-a-webhook-service"),
+					WebhookSecretName:  ptr.To("kueue-tenant-a-webhook-server-cert"),
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -368,13 +391,14 @@ integrations:
 					APIVersion: configapi.GroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  pointer.String(configapi.DefaultNamespace),
+				Namespace:                  ptr.To(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable: pointer.Bool(false),
+					Enable: ptr.To(false),
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -386,11 +410,12 @@ integrations:
 					APIVersion: configapi.GroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  pointer.String("kueue-system"),
+				Namespace:                  ptr.To("kueue-system"),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection:           defaultClientConnection,
 				Integrations:               defaultIntegrations,
+				QueueVisibility:            defaultQueueVisibility,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
@@ -412,16 +437,17 @@ integrations:
 					APIVersion: configapi.GroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  pointer.String(configapi.DefaultNamespace),
+				Namespace:                  ptr.To(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
 					Enable:         true,
-					BlockAdmission: pointer.Bool(true),
+					BlockAdmission: ptr.To(true),
 					Timeout:        &metav1.Duration{Duration: 5 * time.Minute},
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
@@ -441,14 +467,15 @@ integrations:
 					APIVersion: configapi.GroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  pointer.String(configapi.DefaultNamespace),
+				Namespace:                  ptr.To(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection: &configapi.ClientConnection{
-					QPS:   pointer.Float32(50),
-					Burst: pointer.Int32(100),
+					QPS:   ptr.To[float32](50),
+					Burst: ptr.To[int32](100),
 				},
-				Integrations: defaultIntegrations,
+				Integrations:    defaultIntegrations,
+				QueueVisibility: defaultQueueVisibility,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -460,27 +487,29 @@ integrations:
 					APIVersion: configapi.GroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  pointer.String(configapi.DefaultNamespace),
+				Namespace:                  ptr.To(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection: &configapi.ClientConnection{
-					QPS:   pointer.Float32(50),
-					Burst: pointer.Int32(100),
+					QPS:   ptr.To[float32](50),
+					Burst: ptr.To[int32](100),
 				},
-				Integrations: defaultIntegrations,
+				Integrations:    defaultIntegrations,
+				QueueVisibility: defaultQueueVisibility,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress:     configapi.DefaultHealthProbeBindAddress,
 				ReadinessEndpointName:      "ready",
 				LivenessEndpointName:       "live",
 				MetricsBindAddress:         configapi.DefaultMetricsBindAddress,
+				PprofBindAddress:           ":8082",
 				LeaderElection:             true,
 				LeaderElectionID:           configapi.DefaultLeaderElectionID,
 				LeaderElectionNamespace:    "namespace",
 				LeaderElectionResourceLock: "lock",
-				LeaseDuration:              pointer.Duration(time.Second * 100),
-				RenewDeadline:              pointer.Duration(time.Second * 15),
-				RetryPeriod:                pointer.Duration(time.Second * 30),
+				LeaseDuration:              ptr.To(time.Second * 100),
+				RenewDeadline:              ptr.To(time.Second * 15),
+				RetryPeriod:                ptr.To(time.Second * 30),
 				Controller: runtimeconfig.Controller{
 					GroupKindConcurrency: map[string]int{
 						"workload": 5,
@@ -504,7 +533,7 @@ integrations:
 					APIVersion: configapi.GroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  pointer.String(configapi.DefaultNamespace),
+				Namespace:                  ptr.To(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection:           defaultClientConnection,
@@ -512,6 +541,37 @@ integrations:
 					// referencing job.FrameworkName ensures the link of job package
 					// therefore the batch/framework should be registered
 					Frameworks: []string{job.FrameworkName},
+				},
+				QueueVisibility: defaultQueueVisibility,
+			},
+			wantOptions: ctrl.Options{
+				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
+				MetricsBindAddress:     configapi.DefaultMetricsBindAddress,
+				WebhookServer: &webhook.DefaultServer{
+					Options: webhook.Options{
+						Port: configapi.DefaultWebhookPort,
+					},
+				},
+			},
+		},
+		{
+			name:       "queue visibility config",
+			configFile: queueVisibilityConfig,
+			wantConfiguration: configapi.Configuration{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: configapi.GroupVersion.String(),
+					Kind:       "Configuration",
+				},
+				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				ManageJobsWithoutQueueName: false,
+				InternalCertManagement:     enableDefaultInternalCertManagement,
+				ClientConnection:           defaultClientConnection,
+				Integrations:               defaultIntegrations,
+				QueueVisibility: &configapi.QueueVisibility{
+					UpdateIntervalSeconds: 10,
+					ClusterQueues: &configapi.ClusterQueueVisibility{
+						MaxCount: 0,
+					},
 				},
 			},
 			wantOptions: ctrl.Options{
@@ -607,6 +667,10 @@ func TestEncode(t *testing.T) {
 				"manageJobsWithoutQueueName": false,
 				"integrations": map[string]any{
 					"frameworks": []any{"batch/job"},
+				},
+				"queueVisibility": map[string]any{
+					"updateIntervalSeconds": int64(configapi.DefaultQueueVisibilityUpdateIntervalSeconds),
+					"clusterQueues":         map[string]any{"maxCount": int64(10)},
 				},
 			},
 		},

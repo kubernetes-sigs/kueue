@@ -27,7 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -94,10 +94,10 @@ func (j *MPIJob) IsActive() bool {
 }
 
 func (j *MPIJob) Suspend() {
-	j.Spec.RunPolicy.Suspend = pointer.Bool(true)
+	j.Spec.RunPolicy.Suspend = ptr.To(true)
 }
 
-func (j *MPIJob) GetGVK() schema.GroupVersionKind {
+func (j *MPIJob) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
@@ -114,31 +114,37 @@ func (j *MPIJob) PodSets() []kueue.PodSet {
 	return podSets
 }
 
-func (j *MPIJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
-	j.Spec.RunPolicy.Suspend = pointer.Bool(false)
-	if len(podSetInfos) == 0 {
-		return
+func (j *MPIJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) error {
+	j.Spec.RunPolicy.Suspend = ptr.To(false)
+	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
+
+	if len(podSetInfos) != len(orderedReplicaTypes) {
+		return jobframework.BadPodSetsInfoLenError(len(orderedReplicaTypes), len(podSetInfos))
 	}
+
 	// The node selectors are provided in the same order as the generated list of
 	// podSets, use the same ordering logic to restore them.
-	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
 	for index := range podSetInfos {
 		replicaType := orderedReplicaTypes[index]
 		info := podSetInfos[index]
 		replicaSpec := &j.Spec.MPIReplicaSpecs[replicaType].Template.Spec
 		replicaSpec.NodeSelector = maps.MergeKeepFirst(info.NodeSelector, replicaSpec.NodeSelector)
 	}
+	return nil
 }
 
-func (j *MPIJob) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
+func (j *MPIJob) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) bool {
 	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
+	changed := false
 	for index, info := range podSetInfos {
 		replicaType := orderedReplicaTypes[index]
 		replicaSpec := &j.Spec.MPIReplicaSpecs[replicaType].Template.Spec
 		if !equality.Semantic.DeepEqual(replicaSpec.NodeSelector, info.NodeSelector) {
+			changed = true
 			replicaSpec.NodeSelector = maps.Clone(info.NodeSelector)
 		}
 	}
+	return changed
 }
 
 func (j *MPIJob) Finished() (metav1.Condition, bool) {
@@ -208,7 +214,7 @@ func orderedReplicaTypes(jobSpec *kubeflow.MPIJobSpec) []kubeflow.MPIReplicaType
 }
 
 func podsCount(jobSpec *kubeflow.MPIJobSpec, mpiReplicaType kubeflow.MPIReplicaType) int32 {
-	return pointer.Int32Deref(jobSpec.MPIReplicaSpecs[mpiReplicaType].Replicas, 1)
+	return ptr.Deref(jobSpec.MPIReplicaSpecs[mpiReplicaType].Replicas, 1)
 }
 
 func GetWorkloadNameForMPIJob(jobName string) string {

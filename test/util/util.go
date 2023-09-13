@@ -36,6 +36,15 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
+func DeleteAdmissionCheck(ctx context.Context, c client.Client, ac *kueue.AdmissionCheck) error {
+	if ac != nil {
+		if err := c.Delete(ctx, ac); err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+	}
+	return nil
+}
+
 func DeleteWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) error {
 	if wl != nil {
 		if err := c.Delete(ctx, wl); err != nil && !apierrors.IsNotFound(err) {
@@ -141,13 +150,13 @@ func FinishWorkloads(ctx context.Context, k8sClient client.Client, workloads ...
 	}
 }
 
-func ExpectWorkloadsToBeAdmitted(ctx context.Context, k8sClient client.Client, cqName string, wls ...*kueue.Workload) {
+func ExpectWorkloadsToHaveQuotaReservation(ctx context.Context, k8sClient client.Client, cqName string, wls ...*kueue.Workload) {
 	gomega.EventuallyWithOffset(1, func() int {
 		admitted := 0
 		var updatedWorkload kueue.Workload
 		for _, wl := range wls {
 			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-			if workload.IsAdmitted(&updatedWorkload) && string(updatedWorkload.Status.Admission.ClusterQueue) == cqName {
+			if workload.HasQuotaReservation(&updatedWorkload) && string(updatedWorkload.Status.Admission.ClusterQueue) == cqName {
 				admitted++
 			}
 		}
@@ -160,7 +169,7 @@ func FilterAdmittedWorkloads(ctx context.Context, k8sClient client.Client, wls .
 	var updatedWorkload kueue.Workload
 	for _, wl := range wls {
 		err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)
-		if err == nil && workload.IsAdmitted(&updatedWorkload) {
+		if err == nil && workload.HasQuotaReservation(&updatedWorkload) {
 			ret = append(ret, wl)
 		}
 	}
@@ -173,7 +182,7 @@ func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wl
 		var updatedWorkload kueue.Workload
 		for _, wl := range wls {
 			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-			cond := apimeta.FindStatusCondition(updatedWorkload.Status.Conditions, kueue.WorkloadAdmitted)
+			cond := apimeta.FindStatusCondition(updatedWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)
 			if cond == nil {
 				continue
 			}
@@ -191,7 +200,7 @@ func ExpectWorkloadsToBeWaiting(ctx context.Context, k8sClient client.Client, wl
 		var updatedWorkload kueue.Workload
 		for _, wl := range wls {
 			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-			cond := apimeta.FindStatusCondition(updatedWorkload.Status.Conditions, kueue.WorkloadAdmitted)
+			cond := apimeta.FindStatusCondition(updatedWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)
 			if cond == nil {
 				continue
 			}
@@ -209,7 +218,7 @@ func ExpectWorkloadsToBeFrozen(ctx context.Context, k8sClient client.Client, cq 
 		var updatedWorkload kueue.Workload
 		for _, wl := range wls {
 			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-			cond := apimeta.FindStatusCondition(updatedWorkload.Status.Conditions, kueue.WorkloadAdmitted)
+			cond := apimeta.FindStatusCondition(updatedWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)
 			if cond == nil {
 				continue
 			}
@@ -277,6 +286,19 @@ func ExpectClusterQueueStatusMetric(cq *kueue.ClusterQueue, status metrics.Clust
 	}
 }
 
+func ExpectAdmissionCheckToBeDeleted(ctx context.Context, k8sClient client.Client, ac *kueue.AdmissionCheck, deleteAC bool) {
+	if ac == nil {
+		return
+	}
+	if deleteAC {
+		gomega.Expect(client.IgnoreNotFound(DeleteAdmissionCheck(ctx, k8sClient, ac))).To(gomega.Succeed())
+	}
+	gomega.EventuallyWithOffset(1, func() error {
+		var newAC kueue.AdmissionCheck
+		return k8sClient.Get(ctx, client.ObjectKeyFromObject(ac), &newAC)
+	}, Timeout, Interval).Should(testing.BeNotFoundError())
+}
+
 func ExpectClusterQueueToBeDeleted(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, deleteCq bool) {
 	if deleteCq {
 		gomega.Expect(DeleteClusterQueue(ctx, k8sClient, cq)).ToNot(gomega.HaveOccurred())
@@ -300,14 +322,54 @@ func ExpectResourceFlavorToBeDeleted(ctx context.Context, k8sClient client.Clien
 	}, Timeout, Interval).Should(testing.BeNotFoundError())
 }
 
-func SetAdmission(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, admission *kueue.Admission) error {
+func ExpectCQResourceNominalQuota(cq *kueue.ClusterQueue, flavor, resource string, v float64) {
+	metric := metrics.ClusterQueueResourceNominalQuota.WithLabelValues(cq.Spec.Cohort, cq.Name, flavor, resource)
+	gomega.EventuallyWithOffset(1, func() float64 {
+		v, err := testutil.GetGaugeMetricValue(metric)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred())
+		return v
+	}, Timeout, Interval).Should(gomega.Equal(v))
+}
+
+func ExpectCQResourceBorrowingQuota(cq *kueue.ClusterQueue, flavor, resource string, v float64) {
+	metric := metrics.ClusterQueueResourceBorrowingLimit.WithLabelValues(cq.Spec.Cohort, cq.Name, flavor, resource)
+	gomega.EventuallyWithOffset(1, func() float64 {
+		v, err := testutil.GetGaugeMetricValue(metric)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred())
+		return v
+	}, Timeout, Interval).Should(gomega.Equal(v))
+}
+
+func ExpectCQResourceUsage(cq *kueue.ClusterQueue, flavor, resource string, v float64) {
+	metric := metrics.ClusterQueueResourceUsage.WithLabelValues(cq.Spec.Cohort, cq.Name, flavor, resource)
+	gomega.EventuallyWithOffset(1, func() float64 {
+		v, err := testutil.GetGaugeMetricValue(metric)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred())
+		return v
+	}, Timeout, Interval).Should(gomega.Equal(v))
+}
+
+func SetQuotaReservation(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, admission *kueue.Admission) error {
 	wl = wl.DeepCopy()
 	if admission == nil {
-		workload.UnsetAdmissionWithCondition(wl, "EvictedByTest", "Evicted By Test")
+		workload.UnsetQuotaReservationWithCondition(wl, "EvictedByTest", "Evicted By Test")
 	} else {
-		workload.SetAdmission(wl, admission)
+		workload.SetQuotaReservation(wl, admission)
 	}
 	return workload.ApplyAdmissionStatus(ctx, k8sClient, wl, false)
+}
+
+// SyncAdmittedConditionForWorkloads sets the Admission condition of the provided workloads based on
+// the state of quota reservation and admission checks. It should be use in tests that are not running
+// the workload controller.
+func SyncAdmittedConditionForWorkloads(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
+	var updatedWorkload kueue.Workload
+	for _, wl := range wls {
+		gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
+		if workload.SyncAdmittedCondition(&updatedWorkload) {
+			gomega.ExpectWithOffset(1, workload.ApplyAdmissionStatus(ctx, k8sClient, &updatedWorkload, false)).To(gomega.Succeed())
+		}
+	}
 }
 
 func FinishEvictionForWorkloads(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
@@ -322,7 +384,7 @@ func FinishEvictionForWorkloads(ctx context.Context, k8sClient client.Client, wl
 		}
 		return evicting
 	}, Timeout, Interval).Should(gomega.Equal(len(wls)), "Not enough workloads were marked for eviction")
-	// unset the admission
+	// unset the quota reservation
 	for i := range wls {
 		key := client.ObjectKeyFromObject(wls[i])
 		gomega.EventuallyWithOffset(1, func() error {
@@ -330,9 +392,13 @@ func FinishEvictionForWorkloads(ctx context.Context, k8sClient client.Client, wl
 			if err := k8sClient.Get(ctx, key, &updatedWorkload); err != nil {
 				return err
 			}
-			workload.UnsetAdmissionWithCondition(&updatedWorkload, "Pending", "By test")
-			return workload.ApplyAdmissionStatus(ctx, k8sClient, &updatedWorkload, true)
-		}, Timeout, Interval).Should(gomega.Succeed(), fmt.Sprintf("Unable to unset admission for %q", key))
+
+			if apimeta.IsStatusConditionTrue(updatedWorkload.Status.Conditions, kueue.WorkloadQuotaReserved) {
+				workload.UnsetQuotaReservationWithCondition(&updatedWorkload, "Pending", "By test")
+				return workload.ApplyAdmissionStatus(ctx, k8sClient, &updatedWorkload, true)
+			}
+			return nil
+		}, Timeout, Interval).Should(gomega.Succeed(), fmt.Sprintf("Unable to unset quota reservation for %q", key))
 	}
 
 }

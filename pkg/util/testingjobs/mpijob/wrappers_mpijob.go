@@ -23,9 +23,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	"sigs.k8s.io/kueue/pkg/util/pointer"
 )
 
 // MPIJobWrapper wraps a Job.
@@ -41,14 +41,14 @@ func MakeMPIJob(name, ns string) *MPIJobWrapper {
 		},
 		Spec: kubeflow.MPIJobSpec{
 			RunPolicy: kubeflow.RunPolicy{
-				Suspend: pointer.Bool(true),
+				Suspend: ptr.To(true),
 			},
 			MPIReplicaSpecs: map[kubeflow.MPIReplicaType]*common.ReplicaSpec{
 				kubeflow.MPIReplicaTypeLauncher: {
-					Replicas: pointer.Int32(1),
+					Replicas: ptr.To[int32](1),
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
-							RestartPolicy: "Never",
+							RestartPolicy: corev1.RestartPolicyNever,
 							Containers: []corev1.Container{
 								{
 									Name:      "c",
@@ -62,10 +62,10 @@ func MakeMPIJob(name, ns string) *MPIJobWrapper {
 					},
 				},
 				kubeflow.MPIReplicaTypeWorker: {
-					Replicas: pointer.Int32(1),
+					Replicas: ptr.To[int32](1),
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
-							RestartPolicy: "Never",
+							RestartPolicy: corev1.RestartPolicyNever,
 							Containers: []corev1.Container{
 								{
 									Name:      "c",
@@ -114,7 +114,7 @@ func (j *MPIJobWrapper) Request(replicaType kubeflow.MPIReplicaType, r corev1.Re
 
 // Parallelism updates job parallelism.
 func (j *MPIJobWrapper) Parallelism(p int32) *MPIJobWrapper {
-	j.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeWorker].Replicas = pointer.Int32(p)
+	j.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeWorker].Replicas = ptr.To(p)
 	return j
 }
 

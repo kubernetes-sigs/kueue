@@ -62,6 +62,10 @@ type Configuration struct {
 	// Integrations provide configuration options for AI/ML/Batch frameworks
 	// integrations (including K8S job).
 	Integrations *Integrations `json:"integrations,omitempty"`
+
+	// QueueVisibility is configuration to expose the information about the top
+	// pending workloads.
+	QueueVisibility *QueueVisibility `json:"queueVisibility,omitempty"`
 }
 
 type ControllerManager struct {
@@ -74,13 +78,21 @@ type ControllerManager struct {
 	// +optional
 	LeaderElection *configv1alpha1.LeaderElectionConfiguration `json:"leaderElection,omitempty"`
 
-	// Metrics contains thw controller metrics configuration
+	// Metrics contains the controller metrics configuration
 	// +optional
 	Metrics ControllerMetrics `json:"metrics,omitempty"`
 
 	// Health contains the controller health configuration
 	// +optional
 	Health ControllerHealth `json:"health,omitempty"`
+
+	// PprofBindAddress is the TCP address that the controller should bind to
+	// for serving pprof.
+	// It can be set to "" or "0" to disable the pprof serving.
+	// Since pprof may contain sensitive information, make sure to protect it
+	// before exposing it to public.
+	// +optional
+	PprofBindAddress string `json:"pprofBindAddress,omitempty"`
 
 	// Controller contains global configuration options for controllers
 	// registered within this manager.
@@ -115,6 +127,11 @@ type ControllerMetrics struct {
 	// It can be set to "0" to disable the metrics serving.
 	// +optional
 	BindAddress string `json:"bindAddress,omitempty"`
+
+	// EnableClusterQueueResources, if true the cluster queue resource usage and quotas
+	// metrics will be reported.
+	// +optional
+	EnableClusterQueueResources bool `json:"enableClusterQueueResources,omitempty"`
 }
 
 // ControllerHealth defines the health configs.
@@ -209,5 +226,28 @@ type Integrations struct {
 	//  - "kubeflow.org/mpijob"
 	//  - "ray.io/rayjob"
 	//  - "jobset.x-k8s.io/jobset"
+	//  - "kubeflow.org/pytorchjob"
+	//  - "kubeflow.org/tfjob"
 	Frameworks []string `json:"frameworks,omitempty"`
+}
+
+type QueueVisibility struct {
+	// ClusterQueues is configuration to expose the information
+	// about the top pending workloads in the cluster queue.
+	ClusterQueues *ClusterQueueVisibility `json:"clusterQueues,omitempty"`
+
+	// UpdateIntervalSeconds specifies the time interval for updates to the structure
+	// of the top pending workloads in the queues.
+	// The minimum value is 1.
+	// Defaults to 5.
+	UpdateIntervalSeconds int32 `json:"updateIntervalSeconds,omitempty"`
+}
+
+type ClusterQueueVisibility struct {
+	// MaxCount indicates the maximal number of pending workloads exposed in the
+	// cluster queue status.  When the value is set to 0, then ClusterQueue
+	// visibility updates are disabled.
+	// The maximal value is 4000.
+	// Defaults to 10.
+	MaxCount int32 `json:"maxCount,omitempty"`
 }

@@ -26,7 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -81,7 +81,7 @@ func (j *JobSet) Object() client.Object {
 }
 
 func (j *JobSet) IsSuspended() bool {
-	return pointer.BoolDeref(j.Spec.Suspend, false)
+	return ptr.Deref(j.Spec.Suspend, false)
 }
 
 func (j *JobSet) IsActive() bool {
@@ -94,10 +94,10 @@ func (j *JobSet) IsActive() bool {
 }
 
 func (j *JobSet) Suspend() {
-	j.Spec.Suspend = pointer.Bool(true)
+	j.Spec.Suspend = ptr.To(true)
 }
 
-func (j *JobSet) GetGVK() schema.GroupVersionKind {
+func (j *JobSet) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
@@ -113,12 +113,10 @@ func (j *JobSet) PodSets() []kueue.PodSet {
 	return podSets
 }
 
-func (j *JobSet) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
-	j.Spec.Suspend = pointer.Bool(false)
+func (j *JobSet) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) error {
+	j.Spec.Suspend = ptr.To(false)
 	if len(podSetInfos) != len(j.Spec.ReplicatedJobs) {
-		// this is very unlikely, however in order to avoid any potential
-		// out of bounds access
-		return
+		return jobframework.BadPodSetsInfoLenError(len(j.Spec.ReplicatedJobs), len(podSetInfos))
 	}
 
 	// If there are Jobs already created by the JobSet, their node selectors will be updated by the JobSet controller
@@ -127,18 +125,22 @@ func (j *JobSet) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
 		templateSpec := &j.Spec.ReplicatedJobs[index].Template.Spec.Template.Spec
 		templateSpec.NodeSelector = maps.MergeKeepFirst(podSetInfos[index].NodeSelector, templateSpec.NodeSelector)
 	}
+	return nil
 }
 
-func (j *JobSet) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
+func (j *JobSet) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) bool {
 	if len(podSetInfos) == 0 {
-		return
+		return false
 	}
+	changed := false
 	for index := range j.Spec.ReplicatedJobs {
 		if equality.Semantic.DeepEqual(j.Spec.ReplicatedJobs[index].Template.Spec.Template.Spec.NodeSelector, podSetInfos[index].NodeSelector) {
 			continue
 		}
+		changed = true
 		j.Spec.ReplicatedJobs[index].Template.Spec.Template.Spec.NodeSelector = maps.Clone(podSetInfos[index].NodeSelector)
 	}
+	return changed
 }
 
 func (j *JobSet) Finished() (metav1.Condition, bool) {
@@ -200,8 +202,8 @@ func (j *JobSet) ReclaimablePods() []kueue.ReclaimablePod {
 func podsCountPerReplica(rj *jobsetapi.ReplicatedJob) int32 {
 	spec := &rj.Template.Spec
 	// parallelism is always set as it is otherwise defaulted by k8s to 1
-	jobPodsCount := pointer.Int32Deref(spec.Parallelism, 1)
-	if comp := pointer.Int32Deref(spec.Completions, jobPodsCount); comp < jobPodsCount {
+	jobPodsCount := ptr.Deref(spec.Parallelism, 1)
+	if comp := ptr.Deref(spec.Completions, jobPodsCount); comp < jobPodsCount {
 		jobPodsCount = comp
 	}
 	return jobPodsCount

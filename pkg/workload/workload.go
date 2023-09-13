@@ -25,7 +25,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -36,7 +36,7 @@ import (
 )
 
 var (
-	admissionManagedConditions = []string{kueue.WorkloadAdmitted, kueue.WorkloadEvicted}
+	admissionManagedConditions = []string{kueue.WorkloadQuotaReserved, kueue.WorkloadEvicted, kueue.WorkloadAdmitted}
 )
 
 // Info holds a Workload object and some pre-processing.
@@ -93,7 +93,7 @@ func (i *Info) CanBePartiallyAdmitted() bool {
 func CanBePartiallyAdmitted(wl *kueue.Workload) bool {
 	ps := wl.Spec.PodSets
 	for psi := range ps {
-		if ps[psi].Count > pointer.Int32Deref(ps[psi].MinCount, ps[psi].Count) {
+		if ps[psi].Count > ptr.Deref(ps[psi].MinCount, ps[psi].Count) {
 			return true
 		}
 	}
@@ -168,7 +168,7 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 		setRes := PodSetResources{
 			Name:     psa.Name,
 			Flavors:  psa.Flavors,
-			Count:    pointer.Int32Deref(psa.Count, totalCounts[psa.Name]),
+			Count:    ptr.Deref(psa.Count, totalCounts[psa.Name]),
 			Requests: newRequests(psa.ResourceUsage),
 		}
 
@@ -263,9 +263,9 @@ func UpdateStatus(ctx context.Context,
 	return c.Status().Patch(ctx, newWl, client.Apply, client.FieldOwner(managerPrefix+"-"+condition.Type))
 }
 
-func UnsetAdmissionWithCondition(wl *kueue.Workload, reason, message string) {
+func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message string) {
 	condition := metav1.Condition{
-		Type:               kueue.WorkloadAdmitted,
+		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionFalse,
 		LastTransitionTime: metav1.Now(),
 		Reason:             reason,
@@ -297,16 +297,16 @@ func BaseSSAWorkload(w *kueue.Workload) *kueue.Workload {
 	return wlCopy
 }
 
-// SetAdmission applies the provided admission to the workload.
+// SetQuotaReservation applies the provided admission to the workload.
 // The WorkloadAdmitted and WorkloadEvicted are added or updated if necessary.
-func SetAdmission(w *kueue.Workload, admission *kueue.Admission) {
+func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission) {
 	w.Status.Admission = admission
 	admittedCond := metav1.Condition{
-		Type:               kueue.WorkloadAdmitted,
+		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionTrue,
 		LastTransitionTime: metav1.Now(),
-		Reason:             "Admitted",
-		Message:            fmt.Sprintf("Admitted by ClusterQueue %s", w.Status.Admission.ClusterQueue),
+		Reason:             "QuoataReserved",
+		Message:            fmt.Sprintf("Quota reserved in ClusterQueue %s", w.Status.Admission.ClusterQueue),
 	}
 	apimeta.SetStatusCondition(&w.Status.Conditions, admittedCond)
 
@@ -315,6 +315,9 @@ func SetAdmission(w *kueue.Workload, admission *kueue.Admission) {
 		evictedCond.Status = metav1.ConditionFalse
 		evictedCond.LastTransitionTime = metav1.Now()
 	}
+
+	// sync Admitted, ignore the result since an API update is always done.
+	_ = SyncAdmittedCondition(w)
 }
 
 func SetEvictedCondition(w *kueue.Workload, reason string, message string) {
@@ -362,9 +365,46 @@ func GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
 	return &w.CreationTimestamp
 }
 
-// IsAdmitted checks if workload is admitted based on conditions
-func IsAdmitted(w *kueue.Workload) bool {
-	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadAdmitted)
+// HasQuotaReservation checks if workload is admitted based on conditions
+func HasQuotaReservation(w *kueue.Workload) bool {
+	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadQuotaReserved)
+}
+
+// SyncAdmittedCondition sync the state of the Admitted condition
+// with the state of QuoataReserved and AdmissionChecks.
+// Return true if any change was done.
+func SyncAdmittedCondition(w *kueue.Workload) bool {
+	hasReservation := HasQuotaReservation(w)
+	hasAllChecksReady := HasAllChecksReady(w)
+	isAdmitted := IsAdmitted(w)
+
+	if isAdmitted == (hasReservation && hasAllChecksReady) {
+		return false
+
+	}
+	newCondition := metav1.Condition{
+		Type:    kueue.WorkloadAdmitted,
+		Status:  metav1.ConditionTrue,
+		Reason:  "Admitted",
+		Message: "The workload is admitted",
+	}
+	switch {
+	case !hasReservation && !hasAllChecksReady:
+		newCondition.Status = metav1.ConditionFalse
+		newCondition.Reason = "NoReservationNoChecks"
+		newCondition.Message = "The workload has no reservation and not all checks ready"
+	case !hasReservation:
+		newCondition.Status = metav1.ConditionFalse
+		newCondition.Reason = "NoReservation"
+		newCondition.Message = "The workload has no reservation"
+	case !hasAllChecksReady:
+		newCondition.Status = metav1.ConditionFalse
+		newCondition.Reason = "NoChecks"
+		newCondition.Message = "The workload has not all checks ready"
+	}
+
+	apimeta.SetStatusCondition(&w.Status.Conditions, newCondition)
+	return true
 }
 
 // UpdateReclaimablePods updates the ReclaimablePods list for the workload wit SSA.
@@ -392,4 +432,29 @@ func ReclaimablePodsAreEqual(a, b []kueue.ReclaimablePod) bool {
 		}
 	}
 	return true
+}
+
+// Returns true if all the checks of the workload are ready.
+func HasAllChecksReady(wl *kueue.Workload) bool {
+	for i := range wl.Status.AdmissionChecks {
+		if wl.Status.AdmissionChecks[i].Status != metav1.ConditionTrue {
+			return false
+		}
+	}
+	return true
+}
+
+// Returns true if any of the workloads checks are Retry or Rejected
+func HasRetryOrRejectedChecks(wl *kueue.Workload) bool {
+	for i := range wl.Status.AdmissionChecks {
+		if wl.Status.AdmissionChecks[i].Status == metav1.ConditionFalse {
+			return true
+		}
+	}
+	return false
+}
+
+// Returns true if the workload is admitted.
+func IsAdmitted(w *kueue.Workload) bool {
+	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadAdmitted)
 }
