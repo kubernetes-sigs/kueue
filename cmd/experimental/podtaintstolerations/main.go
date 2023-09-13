@@ -6,15 +6,15 @@ import (
 
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/backfill/controller"
+	"sigs.k8s.io/kueue/cmd/experimental/podstaintstolerations/controller"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
@@ -29,11 +29,16 @@ func init() {
 }
 
 func main() {
+	flag.StringVar(&controller.AdmissionTaintKey, "admission-taint-key", "kueue.x-k8s.io/kueue-admission",
+		"The controller will add Pod tolerations for this taint key to implement admission.")
+
 	opts := zap.Options{
 		TimeEncoder: zapcore.RFC3339NanoTimeEncoder,
 		ZapOpts:     []zaplog.Option{zaplog.AddCaller()},
 	}
 	opts.BindFlags(flag.CommandLine)
+	flag.Parse()
+
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
 	kubeConfig := ctrl.GetConfigOrDie()
@@ -56,11 +61,9 @@ func main() {
 
 	ctx := ctrl.SetupSignalHandler()
 
-	if err := jobframework.SetupWorkloadOwnerIndex(ctx, mgr.GetFieldIndexer(), schema.GroupVersionKind{
-		Group:   "",
-		Version: "v1",
-		Kind:    "Pod",
-	}); err != nil {
+	if err := jobframework.SetupWorkloadOwnerIndex(ctx, mgr.GetFieldIndexer(),
+		corev1.SchemeGroupVersion.WithKind("Pod"),
+	); err != nil {
 		setupLog.Error(err, "Setting up indexes")
 		os.Exit(1)
 	}

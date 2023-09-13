@@ -96,7 +96,7 @@ func (j *Pod) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) error {
 	var admissionTaintIsSet bool
 	selectorIsSet := map[string]bool{}
 	for i := range j.Spec.Tolerations {
-		// Ensure the admission taint is set correctly.
+		// Ensure the admission toleration is set correctly.
 		if j.Spec.Tolerations[i].Key == AdmissionTaintKey {
 			j.Spec.Tolerations[i].Value = ""
 			j.Spec.Tolerations[i].Operator = corev1.TolerationOpExists
