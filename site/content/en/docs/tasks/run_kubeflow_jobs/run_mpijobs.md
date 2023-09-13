@@ -1,5 +1,5 @@
 ---
-title: "Run an MPIJob"
+title: "Run a MPIJob"
 date: 2023-05-16
 weight: 6
 description: >
