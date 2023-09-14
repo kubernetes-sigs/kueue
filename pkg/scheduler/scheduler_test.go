@@ -1076,12 +1076,15 @@ func TestSchedule(t *testing.T) {
 			gotScheduled := make(map[string]kueue.Admission)
 			gotReservedPendingPreemption := sets.New[string]()
 			var mu sync.Mutex
-			scheduler.applyAdmission = func(_ context.Context, w *kueue.Workload) error {
+			scheduler.applyAdmission = func(_ context.Context, w *kueue.Workload, needsPreempt bool) error {
 				if tc.admissionError != nil {
 					return tc.admissionError
 				}
 				mu.Lock()
 				gotScheduled[workload.Key(w)] = *w.Status.Admission
+				if needsPreempt {
+					gotReservedPendingPreemption.Insert(workload.Key(w))
+				}
 				mu.Unlock()
 				return nil
 			}

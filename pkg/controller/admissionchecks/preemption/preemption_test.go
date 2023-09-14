@@ -26,6 +26,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -337,7 +338,9 @@ func TestOneRun(t *testing.T) {
 			}
 
 			for _, cq := range clusterQueues {
-				cache.AddClusterQueue(ctx, cq.DeepCopy())
+				if err := cache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+					t.Fatal(err)
+				}
 			}
 
 			for _, wl := range tc.workloads {
