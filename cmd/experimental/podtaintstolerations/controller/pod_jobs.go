@@ -30,7 +30,7 @@ import (
 var AdmissionTaintKey = "kueue.x-k8s.io/kueue-admission"
 
 var (
-	gvk = corev1.SchemeGroupVersion.WithKind("Pod")
+	GVK = corev1.SchemeGroupVersion.WithKind("Pod")
 
 	FrameworkName = "core/pod"
 )
@@ -47,6 +47,10 @@ var (
 
 func (j *Pod) Object() client.Object {
 	return (*corev1.Pod)(j)
+}
+
+func (j *Pod) GetGVK() schema.GroupVersionKind {
+	return GVK
 }
 
 func (j *Pod) IsSuspended() bool {
@@ -66,15 +70,15 @@ func (p *Pod) Suspend() {
 	// Not used, see Stop()
 }
 
-func (p *Pod) Stop(ctx context.Context, c client.Client, podSetInfos []jobframework.PodSetInfo) (bool, error) {
+func (p *Pod) Stop(ctx context.Context, c client.Client, podSetInfos []jobframework.PodSetInfo) error {
 	if err := client.IgnoreNotFound(c.Delete(ctx, p.Object())); err != nil {
-		return false, err
+		return err
 	}
-	return true, nil
+	return nil
 }
 
 func (j *Pod) GVK() schema.GroupVersionKind {
-	return gvk
+	return GVK
 }
 
 func (p *Pod) PodSets() []kueue.PodSet {
@@ -90,7 +94,7 @@ func (p *Pod) PodSets() []kueue.PodSet {
 	}
 }
 
-func (j *Pod) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) error {
+func (j *Pod) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
 	info := podSetInfos[0]
 
 	var admissionTaintIsSet bool
@@ -136,14 +140,11 @@ func (j *Pod) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) error {
 			Operator: corev1.TolerationOpEqual,
 		})
 	}
-
-	return nil
 }
 
-func (p *Pod) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) bool {
+func (p *Pod) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) {
 	// Existing Pod tolerations cannot be removed.
 	// Restoring is not needed anyways b/c suspending == deleting for Pods.
-	return false
 }
 
 func (j *Pod) Finished() (metav1.Condition, bool) {
@@ -184,9 +185,9 @@ func (j *Pod) PodsReady() bool {
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
-	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
+	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, GVK)
 }
 
 func GetWorkloadNameForJob(jobName string) string {
-	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, gvk)
+	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, GVK)
 }

@@ -6,7 +6,7 @@ set -x
 dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
 
 # Create cluster
-kind create cluster --name kueue-example --config $dir/kind-config.yaml
+kind create cluster --config $dir/kind-config.yaml
 
 # Install Kueue
 kubectl apply -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.4.1/manifests.yaml

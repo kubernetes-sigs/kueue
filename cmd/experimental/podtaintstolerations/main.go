@@ -3,10 +3,10 @@ package main
 import (
 	"flag"
 	"os"
+	"podtaintstolerations/controller"
 
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -14,7 +14,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/cmd/experimental/podstaintstolerations/controller"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
@@ -51,7 +50,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = controller.NewReconciler(
+	if err := controller.NewReconciler(
 		mgr.GetClient(),
 		mgr.GetEventRecorderFor("backfill-kueue-controller"),
 	).SetupWithManager(mgr); err != nil {
@@ -62,7 +61,7 @@ func main() {
 	ctx := ctrl.SetupSignalHandler()
 
 	if err := jobframework.SetupWorkloadOwnerIndex(ctx, mgr.GetFieldIndexer(),
-		corev1.SchemeGroupVersion.WithKind("Pod"),
+		controller.GVK,
 	); err != nil {
 		setupLog.Error(err, "Setting up indexes")
 		os.Exit(1)

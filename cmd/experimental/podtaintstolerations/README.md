@@ -73,5 +73,5 @@ kubectl get pods
 Delete the local cluster once you are done.
 
 ```bash
-kind delete cluster --name kueue-example
+kind delete cluster
 ```
