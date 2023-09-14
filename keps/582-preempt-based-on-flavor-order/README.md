@@ -256,7 +256,7 @@ func assignFlavors(log logr.Logger, requests []workload.PodSetResources, podSets
 			TotalBorrow: make(workload.FlavorResourceQuantities),
 			PodSets:     make([]PodSetAssignment, 0, len(requests)),
 			LastState: workload.AssigmentClusterQueueState{
-				LastAssignedFlavorIdx:  make([]map[corev1.ResourceName]int, 0),
+				LastAssignedFlavorIdx:  make([]map[corev1.ResourceName]int, 0, len(podSets)),
 				CohortGeneration:       0,
 				ClusterQueueGeneration: cq.Generation,
 			},

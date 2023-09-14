@@ -23,19 +23,22 @@ var (
 // ClusterQueue is the internal implementation of kueue.ClusterQueue that
 // holds admitted workloads.
 type ClusterQueue struct {
-	Name                            string
-	Cohort                          *Cohort
-	ResourceGroups                  []ResourceGroup
-	RGByResource                    map[corev1.ResourceName]*ResourceGroup
-	Usage                           workload.FlavorResourceQuantities
-	AllocatableResourceIncreasedGen int64
-	Workloads                       map[string]*workload.Info
-	WorkloadsNotReady               sets.Set[string]
-	NamespaceSelector               labels.Selector
-	Preemption                      kueue.ClusterQueuePreemption
-	FlavorFungibility               kueue.FlavorFungibility
-	AdmissionChecks                 sets.Set[string]
-	Status                          metrics.ClusterQueueStatus
+	Name              string
+	Cohort            *Cohort
+	ResourceGroups    []ResourceGroup
+	RGByResource      map[corev1.ResourceName]*ResourceGroup
+	Usage             workload.FlavorResourceQuantities
+	Workloads         map[string]*workload.Info
+	WorkloadsNotReady sets.Set[string]
+	NamespaceSelector labels.Selector
+	Preemption        kueue.ClusterQueuePreemption
+	FlavorFungibility kueue.FlavorFungibility
+	AdmissionChecks   sets.Set[string]
+	Status            metrics.ClusterQueueStatus
+	// AllocatableResourceGeneration will be increased when some admitted workloads are
+	// deleted, or the resource groups are changed. After this field is increased, all
+	// lastState in assignments will be outdated.
+	AllocatableResourceGeneration int64
 
 	// The following fields are not populated in a snapshot.
 
@@ -48,9 +51,11 @@ type ClusterQueue struct {
 
 // Cohort is a set of ClusterQueues that can borrow resources from each other.
 type Cohort struct {
-	Name                            string
-	Members                         sets.Set[*ClusterQueue]
-	AllocatableResourceIncreasedGen int64
+	Name    string
+	Members sets.Set[*ClusterQueue]
+	// This field will only be set in snapshot. This field equal to the maximum
+	// allocatable generation among its members.
+	AllocatableResourceGeneration int64
 
 	// These fields are only populated for a snapshot.
 	RequestableResources workload.FlavorResourceQuantities
@@ -211,7 +216,7 @@ func (c *ClusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
 			rg.Flavors = append(rg.Flavors, fQuotas)
 		}
 	}
-	c.AllocatableResourceIncreasedGen++
+	c.AllocatableResourceGeneration++
 	c.UpdateRGByResource()
 }
 
@@ -332,7 +337,7 @@ func (c *ClusterQueue) deleteWorkload(w *kueue.Workload) {
 	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
 		c.WorkloadsNotReady.Delete(k)
 	}
-	c.AllocatableResourceIncreasedGen++
+	c.AllocatableResourceGeneration++
 	delete(c.Workloads, k)
 	reportAdmittedActiveWorkloads(wi.ClusterQueue, len(c.Workloads))
 }

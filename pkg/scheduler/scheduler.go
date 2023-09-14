@@ -194,6 +194,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			if cycleCohortsUsage.hasCommonFlavorResources(cq.Cohort.Name, e.assignment.Usage) && !cq.Cohort.CanFit(sum) {
 				e.status = skipped
 				e.inadmissibleMsg = "other workloads in the cohort were prioritized"
+				e.LastAssignment = nil
 				continue
 			}
 			// Even if the workload will not be admitted after this point, due to preemption pending or other failures,

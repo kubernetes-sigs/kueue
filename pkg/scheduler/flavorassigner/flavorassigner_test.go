@@ -1672,7 +1672,67 @@ func TestAssignFlavors(t *testing.T) {
 				Usage: workload.FlavorResourceQuantities{"two": {"cpu": 9000, "pods": 1}},
 			},
 		},
-		"borrow try next flavor": {
+		"borrow try next flavor, found the first flavor": {
+			wlPods: []kueue.PodSet{
+				*utiltesting.MakePodSet("main", 1).
+					Request(corev1.ResourceCPU, "9").
+					Obj(),
+			},
+			clusterQueue: cache.ClusterQueue{
+				Cohort: &cache.Cohort{
+					Usage: workload.FlavorResourceQuantities{
+						"one": {corev1.ResourceCPU: 2000},
+					},
+					RequestableResources: workload.FlavorResourceQuantities{
+						"one": {corev1.ResourceCPU: 11000, corev1.ResourcePods: 10},
+						"two": {corev1.ResourceCPU: 1000, corev1.ResourcePods: 10},
+					},
+				},
+				FlavorFungibility: kueue.FlavorFungibility{
+					WhenCanBorrow:  kueue.TryNextFlavor,
+					WhenCanPreempt: kueue.TryNextFlavor,
+				},
+				ResourceGroups: []cache.ResourceGroup{{
+					CoveredResources: sets.New(corev1.ResourceCPU, corev1.ResourcePods),
+					Flavors: []cache.FlavorQuotas{{
+						Name: "one",
+						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
+							corev1.ResourcePods: {Nominal: 10},
+							corev1.ResourceCPU:  {Nominal: 10000, BorrowingLimit: ptr.To(int64(1000))},
+						},
+					}, {
+						Name: "two",
+						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
+							corev1.ResourcePods: {Nominal: 10},
+							corev1.ResourceCPU:  {Nominal: 1000},
+						},
+					}},
+				}},
+				Usage: workload.FlavorResourceQuantities{
+					"one": {corev1.ResourceCPU: 2000},
+				},
+			},
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
+				TotalBorrow: workload.FlavorResourceQuantities{"one": {"cpu": 1000}},
+				PodSets: []PodSetAssignment{{
+					Name: "main",
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU:  {Name: "one", Mode: Fit},
+						corev1.ResourcePods: {Name: "one", Mode: Fit},
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("9000m"),
+						corev1.ResourcePods: resource.MustParse("1"),
+					},
+					Count: 1,
+				}},
+				Usage: workload.FlavorResourceQuantities{
+					"one": {corev1.ResourceCPU: 9000, corev1.ResourcePods: 1},
+				},
+			},
+		},
+		"borrow try next flavor, found the second flavor": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
 					Request(corev1.ResourceCPU, "9").
@@ -1818,7 +1878,7 @@ func TestAssignFlavors(t *testing.T) {
 				t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
 			}
 
-			if diff := cmp.Diff(tc.wantAssignment, assignment, cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}), cmpopts.IgnoreFields(Assignment{}, "LastState"), cmpopts.IgnoreFields(FlavorAssignment{}, "LastAssignedFlavorIdx")); diff != "" {
+			if diff := cmp.Diff(tc.wantAssignment, assignment, cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}), cmpopts.IgnoreFields(Assignment{}, "LastState"), cmpopts.IgnoreFields(FlavorAssignment{}, "FlavorIdx")); diff != "" {
 				t.Errorf("Unexpected assignment (-want,+got):\n%s", diff)
 			}
 		})
@@ -1844,8 +1904,8 @@ func TestLastAssignmentOutdated(t *testing.T) {
 					},
 				},
 				cq: &cache.ClusterQueue{
-					Cohort:                          nil,
-					AllocatableResourceIncreasedGen: 1,
+					Cohort:                        nil,
+					AllocatableResourceGeneration: 1,
 				},
 			},
 			want: true,
@@ -1861,15 +1921,15 @@ func TestLastAssignmentOutdated(t *testing.T) {
 				},
 				cq: &cache.ClusterQueue{
 					Cohort: &cache.Cohort{
-						AllocatableResourceIncreasedGen: 1,
+						AllocatableResourceGeneration: 1,
 					},
-					AllocatableResourceIncreasedGen: 0,
+					AllocatableResourceGeneration: 0,
 				},
 			},
 			want: true,
 		},
 		{
-			name: "AllocatableResourceIncreasedGen not increased",
+			name: "AllocatableResourceGeneration not increased",
 			args: args{
 				wl: &workload.Info{
 					LastAssignment: &workload.AssigmentClusterQueueState{
@@ -1879,9 +1939,9 @@ func TestLastAssignmentOutdated(t *testing.T) {
 				},
 				cq: &cache.ClusterQueue{
 					Cohort: &cache.Cohort{
-						AllocatableResourceIncreasedGen: 0,
+						AllocatableResourceGeneration: 0,
 					},
-					AllocatableResourceIncreasedGen: 0,
+					AllocatableResourceGeneration: 0,
 				},
 			},
 			want: false,
@@ -1889,7 +1949,7 @@ func TestLastAssignmentOutdated(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := LastAssignmentOutdated(tt.args.wl, tt.args.cq); got != tt.want {
+			if got := lastAssignmentOutdated(tt.args.wl, tt.args.cq); got != tt.want {
 				t.Errorf("LastAssignmentOutdated() = %v, want %v", got, tt.want)
 			}
 		})

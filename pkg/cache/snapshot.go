@@ -74,13 +74,16 @@ func (c *Cache) Snapshot() Snapshot {
 	}
 	for _, cohort := range c.cohorts {
 		cohortCopy := newCohort(cohort.Name, cohort.Members.Len())
-		cohortCopy.AllocatableResourceIncreasedGen = cohort.AllocatableResourceIncreasedGen
+		cohortCopy.AllocatableResourceGeneration = 0
 		for cq := range cohort.Members {
 			if cq.Active() {
 				cqCopy := snap.ClusterQueues[cq.Name]
 				cqCopy.accumulateResources(cohortCopy)
 				cqCopy.Cohort = cohortCopy
 				cohortCopy.Members.Insert(cqCopy)
+				if cqCopy.AllocatableResourceGeneration > cohortCopy.AllocatableResourceGeneration {
+					cohortCopy.AllocatableResourceGeneration = cqCopy.AllocatableResourceGeneration
+				}
 			}
 		}
 	}
@@ -91,17 +94,17 @@ func (c *Cache) Snapshot() Snapshot {
 // objects and deep copies of changing ones. A reference to the cohort is not included.
 func (c *ClusterQueue) snapshot() *ClusterQueue {
 	cc := &ClusterQueue{
-		Name:                            c.Name,
-		ResourceGroups:                  c.ResourceGroups, // Shallow copy is enough.
-		RGByResource:                    c.RGByResource,   // Shallow copy is enough.
-		FlavorFungibility:               c.FlavorFungibility,
-		AllocatableResourceIncreasedGen: c.AllocatableResourceIncreasedGen,
-		Usage:                           make(workload.FlavorResourceQuantities, len(c.Usage)),
-		Workloads:                       make(map[string]*workload.Info, len(c.Workloads)),
-		Preemption:                      c.Preemption,
-		NamespaceSelector:               c.NamespaceSelector,
-		Status:                          c.Status,
-		AdmissionChecks:                 c.AdmissionChecks.Clone(),
+		Name:                          c.Name,
+		ResourceGroups:                c.ResourceGroups, // Shallow copy is enough.
+		RGByResource:                  c.RGByResource,   // Shallow copy is enough.
+		FlavorFungibility:             c.FlavorFungibility,
+		AllocatableResourceGeneration: c.AllocatableResourceGeneration,
+		Usage:                         make(workload.FlavorResourceQuantities, len(c.Usage)),
+		Workloads:                     make(map[string]*workload.Info, len(c.Workloads)),
+		Preemption:                    c.Preemption,
+		NamespaceSelector:             c.NamespaceSelector,
+		Status:                        c.Status,
+		AdmissionChecks:               c.AdmissionChecks.Clone(),
 	}
 	for fName, rUsage := range c.Usage {
 		rUsageCopy := make(map[corev1.ResourceName]int64, len(rUsage))
