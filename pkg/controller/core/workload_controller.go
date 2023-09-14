@@ -206,11 +206,16 @@ func (r *WorkloadReconciler) reconcileSyncAdmissionChecks(ctx context.Context, w
 		return false, err
 	}
 
-	queueAdmissionChecks := queue.Spec.AdmissionChecks
-	newChecks, shouldUpdate := syncAdmissionCheckConditions(wl.Status.AdmissionChecks, queueAdmissionChecks)
+	targetChecks := queue.Spec.AdmissionChecks
+	// preserve the preemption check if necessary
+	if ps := workload.FindAdmissionCheck(wl.Status.AdmissionChecks, constants.PreemptionAdmissionCheckName); ps != nil && apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadQuotaReserved) {
+		targetChecks = append(targetChecks, constants.PreemptionAdmissionCheckName)
+	}
+
+	newChecks, shouldUpdate := syncAdmissionCheckConditions(wl.Status.AdmissionChecks, targetChecks)
 	if shouldUpdate {
 		log := ctrl.LoggerFrom(ctx)
-		log.V(3).Info("The workload needs admission checks updates", "clusterQueue", klog.KRef("", cqName), "admissionChecks", queueAdmissionChecks)
+		log.V(3).Info("The workload needs admission checks updates", "clusterQueue", klog.KRef("", cqName), "admissionChecks", targetChecks)
 		wl.Status.AdmissionChecks = newChecks
 		err := r.client.Status().Update(ctx, wl)
 		return true, client.IgnoreNotFound(err)
