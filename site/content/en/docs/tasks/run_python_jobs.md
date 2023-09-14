@@ -43,7 +43,7 @@ The following examples demonstrate different use cases for using Kueue in Python
 This example demonstrates installing Kueue to an existing cluster. You can save this
 script to your local machine as `install-kueue-queues.py`. 
 
-{{% include filename="install-kueue-queues.py" codelang="python" %}}
+{{% include filepath="python/install-kueue-queues.py" codelang="python" %}}
 
 
 And then run as follows:
@@ -67,7 +67,7 @@ python install-kueue-queues.py --version {{< param "version" >}}
 
 For the next example, let's start with a cluster with Kueue installed, and first create our queues:
 
-{{% include filename="sample-job.py" codelang="python" %}}
+{{% include filepath="python/sample-job.py" codelang="python" %}}
 
 
 And run as follows:
@@ -107,7 +107,7 @@ with and check on them, you likely want to interact with queues or jobs directly
 After running the example above, you can test the following example to interact
 with the results. Write the following to a script called `sample-queue-control.py`.
 
-{{% include filename="sample-queue-control.py" codelang="python" %}}
+{{% include filepath="python/sample-queue-control.py" codelang="python" %}}
 
 To make the output more interesting, we can run a few random jobs first:
 
@@ -178,7 +178,7 @@ kubectl apply -f https://raw.githubusercontent.com/flux-framework/flux-operator/
 
 Write the following script to `sample-flux-operator-job.py`:
 
-{{% include filename="sample-flux-operator-job.py" codelang="python" %}}
+{{% include filepath="python/sample-flux-operator-job.py" codelang="python" %}}
 
 Now try running the example:
 
@@ -327,7 +327,7 @@ Use:
 "kubectl get jobs" to see jobs
 ```
 
-{{% include filename="sample-mpijob.py" codelang="python" %}}
+{{% include filepath="python/sample-mpijob.py" codelang="python" %}}
 
 After submit, you can see that the queue has an admitted workload!
 

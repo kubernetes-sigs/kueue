@@ -1,16 +1,18 @@
-{{ $file := .Get "filename" }}
-{{ $codelang := .Get "codelang"}}
-{{ $path := (printf "static/examples/%s/%s" $codelang $file )}}
-{{$ghlink := printf "/examples/%s/%s" $codelang $file}}
-
-<button type="button" class="btn btn-outline-light">
-    <a href="{{$ghlink}}" download="{{$file}}">
+{{ $filepath := .Get "filepath" }}
+{{ $filename := (path.Split $filepath).File}}
+{{ $codelang := .Get "language" | default (path.Ext $filename | strings.TrimPrefix ".") }} 
+{{ $path := (printf "static/examples/%s"  $filepath )}}
+{{ $ghlink := printf "/examples/%s"  $filepath | safeURL }}
+{{ $code:= readFile $path | replaceRE "^---[\\s\\S]+?---" "" | safeHTML }}
+[{{ $code }}]
+<div class="highlight">
+    <a href="{{$ghlink}}" download="{{$filename}}" class="text-end">
         <i class="fa-solid fa-file-arrow-down"></i>
-        {{$file}}
+        {{$filename}}
     </a>
-</button>
+    
+</div>
 
-```{{ $codelang }}
-{{ readFile $path | replaceRE "^---[\\s\\S]+?---" "" | safeHTML }}
-```
+
+
 
