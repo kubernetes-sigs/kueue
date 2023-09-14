@@ -49,9 +49,10 @@ func main() {
 		Metrics: metricsserver.Options{
 			BindAddress: ":8080",
 		},
-		HealthProbeBindAddress: ":8081",
-		LeaderElection:         true,
-		LeaderElectionID:       "ae7bde4d.podtaintstolerations.kueue.x-k8s.io",
+		HealthProbeBindAddress:  ":8081",
+		LeaderElection:          true,
+		LeaderElectionID:        "ae7bde4d.podtaintstolerations.kueue.x-k8s.io",
+		LeaderElectionNamespace: "kueue-system",
 	})
 	if err != nil {
 		setupLog.Error(err, "Unable to start manager")

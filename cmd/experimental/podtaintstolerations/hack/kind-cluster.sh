@@ -12,11 +12,6 @@ kind create cluster --config $dir/kind-config.yaml
 kubectl apply -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.4.1/manifests.yaml
 kubectl rollout status deployment -n kueue-system kueue-controller-manager
 
-# Configure Kueue
-kubectl apply -f $dir/queue.yaml
-
-kubectl apply -f $dir/priorities.yaml
-
 # Taint Nodes
 # pool: a
 kubectl taint nodes kind-worker2 tier=spot:NoSchedule

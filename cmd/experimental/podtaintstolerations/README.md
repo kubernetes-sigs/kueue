@@ -6,50 +6,21 @@ NOTE: Node taints should be pre-configured by cluster administrators.
 
 This directory should be considered a reference implementation of how Kueue can be extended out-of-tree to add support for different workload types.
 
-## Deploy
-
-Configure an image.
-
-```bash
-export IMAGE=your-registry.com/kueue-podtaintstolerations
-export TAG=v1.0.0
-```
-
-Build and push the image.
-
-```bash
-docker buildx build . -t ${IMAGE}:${TAG}
-docker push ${IMAGE}:${TAG}
-```
-
-Create a directory.
-
-```bash
-mkdir kueue-podtaintstolerations
-cat << EOF > kueue-podtaintstolerations/kustomization.yaml
-resources:
-- "https://github.com/kubernetes-sigs/kueue//cmd/experimental/podtaintstolerations/config?ref=main"
-images:
-- name: controller
-  newName: ${IMAGE}
-  newTag: ${TAG}
-EOF
-```
-
-Apply into our cluster.
-
-```bash
-kubectl apply -k ./kueue-podtaintstolerations
-```
-
-## Quickstart
+## Local Quickstart
 
 ### Setup
 
-Create a kind cluster with Kueue installed and configured.
+Create a kind cluster with Kueue installed.
 
 ```bash
-./examples/create-kind-cluster.sh
+./hack/kind-cluster.sh
+```
+
+Configure Kueue.
+
+```bash
+kubectl apply -f examples/queue.yaml
+kubectl apply -f examples/priorities.yaml
 ```
 
 In another terminal, start the controller.
@@ -111,3 +82,40 @@ Delete the local cluster once you are done.
 ```bash
 kind delete cluster
 ```
+
+## Deployment
+
+Configure an image.
+
+```bash
+export IMAGE=your-registry.com/kueue-podtaintstolerations
+export TAG=v1.0.0
+```
+
+Build and push the image.
+
+```bash
+docker buildx build . -t ${IMAGE}:${TAG}
+docker push ${IMAGE}:${TAG}
+```
+
+Create a directory.
+
+```bash
+mkdir kueue-podtaintstolerations
+cat << EOF > kueue-podtaintstolerations/kustomization.yaml
+resources:
+- "https://github.com/kubernetes-sigs/kueue//cmd/experimental/podtaintstolerations/config?ref=main"
+images:
+- name: controller
+  newName: ${IMAGE}
+  newTag: ${TAG}
+EOF
+```
+
+Apply into our cluster.
+
+```bash
+kubectl apply -k ./kueue-podtaintstolerations
+```
+
