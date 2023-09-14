@@ -1,0 +1,53 @@
+apiVersion: kubeflow.org/v1
+kind: XGBoostJob
+metadata:
+  name: xgboost-dist-iris-test-train
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  xgbReplicaSpecs:
+    Master:
+      replicas: 1
+      restartPolicy: Never
+      template:
+        spec:
+          containers:
+            - name: xgboost
+              image: docker.io/merlintang/xgboost-dist-iris:1.1
+              resources:
+                requests:
+                  cpu: 0.5
+                  memory: 256Mi
+              ports:
+                - containerPort: 9991
+                  name: xgboostjob-port
+              imagePullPolicy: Always
+              args:
+                - --job_type=Train
+                - --xgboost_parameter=objective:multi:softprob,num_class:3
+                - --n_estimators=10
+                - --learning_rate=0.1
+                - --model_path=/tmp/xgboost-model
+                - --model_storage_type=local
+    Worker:
+      replicas: 2
+      restartPolicy: ExitCode
+      template:
+        spec:
+          containers:
+            - name: xgboost
+              image: docker.io/merlintang/xgboost-dist-iris:1.1
+              resources:
+                requests:
+                  cpu: 0.5
+                  memory: 256Mi
+              ports:
+                - containerPort: 9991
+                  name: xgboostjob-port
+              imagePullPolicy: Always
+              args:
+                - --job_type=Train
+                - --xgboost_parameter="objective:multi:softprob,num_class:3"
+                - --n_estimators=10
+                - --learning_rate=0.1
