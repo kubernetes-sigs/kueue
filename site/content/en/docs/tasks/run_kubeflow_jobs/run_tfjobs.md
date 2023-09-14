@@ -54,4 +54,4 @@ By default, Kueue will set `suspend` to true via webhook and unsuspend it when t
 
 This example is based on https://github.com/kubeflow/training-operator/blob/48dbbf0a8e90e52c55ec05d0f689fcbf83c6b441/examples/tensorflow/dist-mnist/tf_job_mnist.yaml.
 
-{{% include "sample-tfjob.yaml" "yaml" %}}
+{{< include "examples/sample-tfjob.yaml" "yaml" >}}
