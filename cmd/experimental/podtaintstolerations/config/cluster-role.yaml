@@ -1,0 +1,51 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kueue-podtaintstolerations
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kueue.x-k8s.io
+  resources:
+  - workloads
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kueue.x-k8s.io
+  resources:
+  - workloads/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - kueue.x-k8s.io
+  resources:
+  - workloads/status
+  verbs:
+  - get
+  - patch
+  - update

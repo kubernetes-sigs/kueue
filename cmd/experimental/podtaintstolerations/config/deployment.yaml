@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    control-plane: podtaintstolerations
+  name: kueue-podtaintstolerations
+  namespace: kueue-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      control-plane: podtaintstolerations
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: manager
+      labels:
+        control-plane: podtaintstolerations
+    spec:
+      containers:
+      - args:
+        - --zap-log-level=2
+        command:
+        - /podtaintstolerations
+        image: podtaintstolerations
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        name: controller
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 500m
+            memory: 512Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+      - args:
+        - --secure-listen-address=0.0.0.0:8443
+        - --upstream=http://127.0.0.1:8080/
+        - --logtostderr=true
+        - --v=10
+        image: gcr.io/kubebuilder/kube-rbac-proxy:v0.8.0
+        name: kube-rbac-proxy
+        ports:
+        - containerPort: 8443
+          name: https
+          protocol: TCP
+      securityContext:
+        runAsNonRoot: true
+      serviceAccountName: kueue-podtaintstolerations
+      terminationGracePeriodSeconds: 10
