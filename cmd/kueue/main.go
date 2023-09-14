@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -68,7 +69,7 @@ import (
 var (
 	scheme            = runtime.NewScheme()
 	setupLog          = ctrl.Log.WithName("setup")
-	podIntegrationErr = errors.New("pod integration only supported in Kubernetes 1.27 or newer")
+	errPodIntegration = errors.New("pod integration only supported in Kubernetes 1.27 or newer")
 )
 
 func init() {
@@ -241,14 +242,9 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 					return err
 				}
 				if name == "pod" {
-					err := serverVersionFetcher.FetchServerVersion()
-					if err != nil {
-						setupLog.Error(err, "failed to fetch kubernetes server version")
-						os.Exit(1)
-					}
 					v := serverVersionFetcher.GetServerVersion()
 					if v.String() == "" || v.LessThan(kubeversion.KubeVersion1_27) {
-						setupLog.Error(podIntegrationErr,
+						setupLog.Error(errPodIntegration,
 							"Failed to configure reconcilers",
 							"kubernetesVersion", v)
 						os.Exit(1)
@@ -317,6 +313,11 @@ func setupServerVersionFetcher(mgr ctrl.Manager, kubeConfig *rest.Config) *kubev
 
 	if err := mgr.Add(serverVersionFetcher); err != nil {
 		setupLog.Error(err, "Unable to add server version fetcher to manager")
+		os.Exit(1)
+	}
+
+	if err := serverVersionFetcher.FetchServerVersion(); err != nil {
+		setupLog.Error(err, "failed to fetch kubernetes server version")
 		os.Exit(1)
 	}
 

@@ -1,3 +1,19 @@
+/*
+Copyright 2023 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package config
 
 import (
@@ -8,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/utils/strings/slices"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 )
@@ -15,28 +32,27 @@ import (
 const (
 	queueVisibilityClusterQueuesMaxValue              = 4000
 	queueVisibilityClusterQueuesUpdateIntervalSeconds = 1
-	errMsgPodOptionsIsNil                             = "value of Config.Integrations.PodOptions is nil"
-	errMsgNamespaceSelectorIsNil                      = "value of Config.Integrations.PodOptions.PodNamespaceSelector is nil"
-	errMsgProhibitedNamespace                         = "namespaces with this label cannot be used for pod integration"
 )
 
 var (
-	podOptionsPath        = field.NewPath("integrations", "podOptions")
-	namespaceSelectorPath = podOptionsPath.Child("namespaceSelector")
+	integrationsPath           = field.NewPath("integrations")
+	integrationsFrameworksPath = integrationsPath.Child("frameworks")
+	podOptionsPath             = integrationsPath.Child("podOptions")
+	namespaceSelectorPath      = podOptionsPath.Child("namespaceSelector")
 )
 
-func ValidateConfiguration(c configapi.Configuration) field.ErrorList {
+func validate(c *configapi.Configuration) field.ErrorList {
 	var allErrs field.ErrorList
 
 	allErrs = append(allErrs, validateQueueVisibility(c)...)
 
 	// Validate PodNamespaceSelector for the pod framework
-	allErrs = append(allErrs, validateNamespaceSelector(c)...)
+	allErrs = append(allErrs, validateIntegrations(c)...)
 
 	return allErrs
 }
 
-func validateQueueVisibility(cfg configapi.Configuration) field.ErrorList {
+func validateQueueVisibility(cfg *configapi.Configuration) field.ErrorList {
 	var allErrs field.ErrorList
 	if cfg.QueueVisibility != nil {
 		queueVisibilityPath := field.NewPath("queueVisibility")
@@ -53,14 +69,34 @@ func validateQueueVisibility(cfg configapi.Configuration) field.ErrorList {
 	return allErrs
 }
 
-func validateNamespaceSelector(c configapi.Configuration) field.ErrorList {
+func validateIntegrations(c *configapi.Configuration) field.ErrorList {
 	var allErrs field.ErrorList
 
+	if c.Integrations == nil {
+		return field.ErrorList{field.Required(integrationsPath, "cannot be empty")}
+	}
+
+	if c.Integrations.Frameworks == nil {
+		return field.ErrorList{field.Required(integrationsFrameworksPath, "cannot be empty")}
+	}
+
+	allErrs = append(allErrs, validatePodIntegrationOptions(c)...)
+
+	return allErrs
+}
+
+func validatePodIntegrationOptions(c *configapi.Configuration) field.ErrorList {
+	var allErrs field.ErrorList
+
+	if !slices.Contains(c.Integrations.Frameworks, "pod") {
+		return allErrs
+	}
+
 	if c.Integrations.PodOptions == nil {
-		return field.ErrorList{field.Required(podOptionsPath, errMsgPodOptionsIsNil)}
+		return field.ErrorList{field.Required(podOptionsPath, "cannot be empty when pod integration is enabled")}
 	}
 	if c.Integrations.PodOptions.NamespaceSelector == nil {
-		return field.ErrorList{field.Required(namespaceSelectorPath, errMsgNamespaceSelectorIsNil)}
+		return field.ErrorList{field.Required(namespaceSelectorPath, "a namespace selector is required")}
 	}
 
 	prohibitedNamespaces := []labels.Set{{corev1.LabelMetadataName: "kube-system"}}
@@ -78,7 +114,8 @@ func validateNamespaceSelector(c configapi.Configuration) field.ErrorList {
 
 	for _, pn := range prohibitedNamespaces {
 		if selector.Matches(pn) {
-			allErrs = append(allErrs, field.Invalid(namespaceSelectorPath, pn, errMsgProhibitedNamespace))
+			allErrs = append(allErrs, field.Invalid(namespaceSelectorPath, c.Integrations.PodOptions.NamespaceSelector,
+				fmt.Sprintf("should not match the %q namespace", pn[corev1.LabelMetadataName])))
 		}
 	}
 

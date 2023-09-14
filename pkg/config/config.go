@@ -162,12 +162,9 @@ func Load(scheme *runtime.Scheme, configFile string) (ctrl.Options, configapi.Co
 			return options, cfg, err
 		}
 	}
-
-	errs := ValidateConfiguration(cfg)
-	if ea := errs.ToAggregate(); ea != nil {
-		return options, cfg, ea
+	if err := validate(&cfg).ToAggregate(); err != nil {
+		return options, cfg, err
 	}
-
 	addTo(&options, &cfg)
 	return options, cfg, err
 }

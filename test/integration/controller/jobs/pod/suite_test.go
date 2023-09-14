@@ -1,3 +1,19 @@
+/*
+Copyright 2023 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package pod
 
 import (
@@ -7,7 +23,6 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -16,10 +31,12 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/queue"
+	"sigs.k8s.io/kueue/pkg/scheduler"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -77,22 +94,35 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	}
 }
 
-// hasKueueSchedulingGate returns true, if pod contains 'kueue.x-k8s.io/admission'
-// scheduling gate
-func hasKueueSchedulingGate(p *corev1.Pod) bool {
-	for i := range p.Spec.SchedulingGates {
-		if p.Spec.SchedulingGates[i].Name == "kueue.x-k8s.io/admission" {
-			return true
-		}
-	}
+func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetup {
+	return func(mgr manager.Manager, ctx context.Context) {
+		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	return false
-}
+		err = pod.SetupIndexes(ctx, mgr.GetFieldIndexer())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-// hasManagedLabel returns true, if pod contains 'kueue.x-k8s.io/managed' label
-func hasManagedLabel(p *corev1.Pod) bool {
-	if l, ok := p.Labels["kueue.x-k8s.io/managed"]; ok && l == "true" {
-		return true
+		reconciler := pod.NewReconciler(
+			mgr.GetClient(),
+			mgr.GetEventRecorderFor(constants.JobControllerName),
+			opts...)
+		err = reconciler.SetupWithManager(mgr)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		cCache := cache.New(mgr.GetClient())
+		queues := queue.NewManager(mgr.GetClient(), cCache)
+
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &config.Configuration{})
+		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+
+		err = pod.SetupWebhook(mgr, opts...)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		failedWebhook, err := webhooks.Setup(mgr)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
+
+		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))
+		err = sched.Start(ctx)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
-	return false
 }

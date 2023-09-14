@@ -235,6 +235,27 @@ queueVisibility:
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
+	podIntegrationOptionsConfig := filepath.Join(tmpDir, "podIntegrationOptions.yaml")
+	if err := os.WriteFile(podIntegrationOptionsConfig, []byte(`
+apiVersion: config.kueue.x-k8s.io/v1beta1
+kind: Configuration
+integrations:
+  frameworks: 
+  - pod
+  podOptions:
+    namespaceSelector:
+      matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values: [ kube-system, kueue-system, prohibited-namespace ]
+    podSelector:
+      matchExpressions:
+      - key: kueue-job
+        operator: In
+        values: [ "true", "True", "yes" ]
+`), os.FileMode(0600)); err != nil {
+		t.Fatal(err)
+	}
 
 	defaultControlOptions := ctrl.Options{
 		HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
@@ -626,6 +647,57 @@ queueVisibility:
 					UpdateIntervalSeconds: 10,
 					ClusterQueues: &configapi.ClusterQueueVisibility{
 						MaxCount: 0,
+					},
+				},
+			},
+			wantOptions: ctrl.Options{
+				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
+				Metrics: metricsserver.Options{
+					BindAddress: configapi.DefaultMetricsBindAddress,
+				},
+				WebhookServer: &webhook.DefaultServer{
+					Options: webhook.Options{
+						Port: configapi.DefaultWebhookPort,
+					},
+				},
+			},
+		},
+		{
+			name:       "pod integration options config",
+			configFile: podIntegrationOptionsConfig,
+			wantConfiguration: configapi.Configuration{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: configapi.GroupVersion.String(),
+					Kind:       "Configuration",
+				},
+				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				ManageJobsWithoutQueueName: false,
+				InternalCertManagement:     enableDefaultInternalCertManagement,
+				ClientConnection:           defaultClientConnection,
+				QueueVisibility:            defaultQueueVisibility,
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{
+						"pod",
+					},
+					PodOptions: &configapi.PodIntegrationOptions{
+						NamespaceSelector: &metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{
+									Key:      "kubernetes.io/metadata.name",
+									Operator: metav1.LabelSelectorOpNotIn,
+									Values:   []string{"kube-system", "kueue-system", "prohibited-namespace"},
+								},
+							},
+						},
+						PodSelector: &metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{
+									Key:      "kueue-job",
+									Operator: metav1.LabelSelectorOpIn,
+									Values:   []string{"true", "True", "yes"},
+								},
+							},
+						},
 					},
 				},
 			},

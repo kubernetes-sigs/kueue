@@ -24,6 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -38,6 +39,11 @@ const (
 	ManagedLabelKey   = "kueue.x-k8s.io/managed"
 	ManagedLabelValue = "true"
 	PodFinalizer      = ManagedLabelKey
+)
+
+var (
+	labelsPath       = field.NewPath("metadata", "labels")
+	managedLabelPath = labelsPath.Key(ManagedLabelKey)
 )
 
 type PodWebhook struct {
@@ -66,11 +72,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		Complete()
 }
 
-func fromObject(o runtime.Object) *Pod {
-	return (*Pod)(o.(*corev1.Pod))
-}
-
-// +kubebuilder:webhook:path=/mutate--v1-pod,mutating=true,failurePolicy=ignore,sideEffects=None,groups="",resources=pods,verbs=create,versions=v1,name=mpod.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate--v1-pod,mutating=true,failurePolicy=fail,sideEffects=None,groups="",resources=pods,verbs=create,versions=v1,name=mpod.kb.io,admissionReviewVersions=v1
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 
 var _ webhook.CustomDefaulter = &PodWebhook{}
@@ -80,8 +82,8 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook").WithValues("pod", klog.KObj(pod))
 	log.V(5).Info("Applying defaults")
 
-	if IsPodOwnerManagedByQueue(pod) {
-		log.V(5).Info("Pod owner is managed by queue, skipping")
+	if IsPodOwnerManagedByKueue(pod) {
+		log.V(5).Info("Pod owner is managed by kueue, skipping")
 		return nil
 	}
 
@@ -113,7 +115,7 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	}
 
 	if jobframework.QueueName(pod) != "" || w.manageJobsWithoutQueueName {
-		controllerutil.AddFinalizer(obj.(*corev1.Pod), PodFinalizer)
+		controllerutil.AddFinalizer(pod.Object(), PodFinalizer)
 
 		if pod.Labels == nil {
 			pod.Labels = make(map[string]string)
@@ -129,27 +131,65 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	return nil
 }
 
-// +kubebuilder:webhook:path=/validate--v1-pod,mutating=false,failurePolicy=ignore,sideEffects=None,groups="",resources=pods,verbs=create;update,versions=v1,name=vpod.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate--v1-pod,mutating=false,failurePolicy=fail,sideEffects=None,groups="",resources=pods,verbs=create;update,versions=v1,name=vpod.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomValidator = &PodWebhook{}
 
 func (w *PodWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+	var warnings admission.Warnings
+
 	pod := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook").WithValues("pod", klog.KObj(pod))
 	log.V(5).Info("Validating create")
 	allErrs := jobframework.ValidateCreateForQueueName(pod)
-	return nil, allErrs.ToAggregate()
+
+	allErrs = append(allErrs, validateManagedLabel(pod)...)
+
+	if warn := warningForPodManagedLabel(pod); warn != "" {
+		warnings = append(warnings, warn)
+	}
+
+	return warnings, allErrs.ToAggregate()
 }
 
 func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
+	var warnings admission.Warnings
+
 	oldPod := fromObject(oldObj)
 	newPod := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook").WithValues("pod", klog.KObj(newPod))
 	log.V(5).Info("Validating update")
 	allErrs := jobframework.ValidateUpdateForQueueName(oldPod, newPod)
-	return nil, allErrs.ToAggregate()
+
+	allErrs = append(allErrs, validateManagedLabel(newPod)...)
+
+	if warn := warningForPodManagedLabel(newPod); warn != "" {
+		warnings = append(warnings, warn)
+	}
+
+	return warnings, allErrs.ToAggregate()
 }
 
-func (w *PodWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+func (w *PodWebhook) ValidateDelete(context.Context, runtime.Object) (admission.Warnings, error) {
 	return nil, nil
+}
+
+func validateManagedLabel(pod *Pod) field.ErrorList {
+	var allErrs field.ErrorList
+
+	if managedLabel, ok := pod.GetLabels()[ManagedLabelKey]; ok && managedLabel != ManagedLabelValue {
+		return append(allErrs, field.Forbidden(managedLabelPath, fmt.Sprintf("managed label value can only be '%s'", ManagedLabelValue)))
+	}
+
+	return allErrs
+}
+
+// warningForPodManagedLabel returns a warning message if the pod has a managed label, and it's parent is managed by kueue
+func warningForPodManagedLabel(p *Pod) string {
+	if managedLabel := p.GetLabels()[ManagedLabelKey]; managedLabel == ManagedLabelValue && IsPodOwnerManagedByKueue(p) {
+		return fmt.Sprintf("pod owner is managed by kueue, label '%s=%s' might lead to unexpected behaviour",
+			ManagedLabelKey, ManagedLabelValue)
+	}
+
+	return ""
 }

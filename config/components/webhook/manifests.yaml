@@ -144,7 +144,7 @@ webhooks:
       name: webhook-service
       namespace: system
       path: /mutate--v1-pod
-  failurePolicy: Ignore
+  failurePolicy: Fail
   name: mpod.kb.io
   rules:
   - apiGroups:
@@ -386,7 +386,7 @@ webhooks:
       name: webhook-service
       namespace: system
       path: /validate--v1-pod
-  failurePolicy: Ignore
+  failurePolicy: Fail
   name: vpod.kb.io
   rules:
   - apiGroups:

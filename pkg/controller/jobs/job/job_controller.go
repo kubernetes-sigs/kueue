@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -86,7 +85,7 @@ var NewReconciler = jobframework.NewGenericReconciler(
 )
 
 func isJob(owner *metav1.OwnerReference) bool {
-	return owner.Kind == "Job" && strings.HasPrefix(owner.APIVersion, "batch/v1")
+	return owner.Kind == "Job" && owner.APIVersion == gvk.GroupVersion().String()
 }
 
 type parentWorkloadHandler struct {

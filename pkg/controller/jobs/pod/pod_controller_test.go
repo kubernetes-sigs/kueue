@@ -1,14 +1,28 @@
+/*
+Copyright 2023 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package pod
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	rayjobapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
-	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
@@ -21,7 +35,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
 func TestPodsReady(t *testing.T) {
@@ -30,19 +44,19 @@ func TestPodsReady(t *testing.T) {
 		want bool
 	}{
 		"pod is ready": {
-			pod: testingutil.MakePod("test-pod", "test-ns").
+			pod: testingpod.MakePod("test-pod", "test-ns").
 				Queue("test-queue").
 				StatusConditions(
 					corev1.PodCondition{
-						Type:   "Ready",
-						Status: "True",
+						Type:   corev1.PodReady,
+						Status: corev1.ConditionTrue,
 					},
 				).
 				Obj(),
 			want: true,
 		},
 		"pod is not ready": {
-			pod: testingutil.MakePod("test-pod", "test-ns").
+			pod: testingpod.MakePod("test-pod", "test-ns").
 				Queue("test-queue").
 				StatusConditions().
 				Obj(),
@@ -52,7 +66,7 @@ func TestPodsReady(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			pod := (*Pod)(tc.pod)
+			pod := fromObject(tc.pod)
 			got := pod.PodsReady()
 			if tc.want != got {
 				t.Errorf("Unexpected response (want: %v, got: %v)", tc.want, got)
@@ -63,45 +77,28 @@ func TestPodsReady(t *testing.T) {
 
 func TestRunWithPodSetsInfo(t *testing.T) {
 	testCases := map[string]struct {
-		pod                  *Pod
+		pod                  *corev1.Pod
 		runInfo, restoreInfo []jobframework.PodSetInfo
 		wantPod              *corev1.Pod
 		wantErr              error
 	}{
 		"pod set info > 1": {
-			pod:     (*Pod)(testingutil.MakePod("test-pod", "test-namespace").Obj()),
+			pod:     testingpod.MakePod("test-pod", "test-namespace").Obj(),
 			runInfo: make([]jobframework.PodSetInfo, 2),
-			wantErr: fmt.Errorf("invalid podset infos: expecting 1 got 2"),
-		},
-		"pod with scheduling gate and empty node selector": {
-			pod: (*Pod)(testingutil.MakePod("test-pod", "test-namespace").
-				KueueSchedulingGate().
-				Obj()),
-			runInfo: []jobframework.PodSetInfo{
-				{
-					NodeSelector: map[string]string{
-						"test-key": "test-val",
-					},
-				},
-			},
-			wantPod: testingutil.MakePod("test-pod", "test-namespace").
-				NodeSelector("test-key", "test-val").
-				Obj(),
+			wantErr: jobframework.ErrInvalidPodsetInfo,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			gotErr := tc.pod.RunWithPodSetsInfo(tc.runInfo)
+			pod := fromObject(tc.pod)
 
-			if tc.wantErr != nil {
-				if diff := cmp.Diff(tc.wantErr.Error(), gotErr.Error()); diff != "" {
-					t.Errorf("error mismatch mismatch (-want +got):\n%s", diff)
-				}
-			} else {
-				if gotErr != nil {
-					t.Fatalf("unexpected error: %s", gotErr)
-				}
+			gotErr := pod.RunWithPodSetsInfo(tc.runInfo)
+
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("error mismatch (-want +got):\n%s", diff)
+			}
+			if tc.wantErr == nil {
 				if diff := cmp.Diff(tc.wantPod.Spec, tc.pod.Spec); diff != "" {
 					t.Errorf("pod spec mismatch (-want +got):\n%s", diff)
 				}
@@ -133,7 +130,7 @@ var (
 )
 
 func TestReconciler(t *testing.T) {
-	basePodWrapper := testingutil.MakePod("pod", "ns").
+	basePodWrapper := testingpod.MakePod("pod", "ns").
 		UID("test-uid").
 		Queue("user-queue").
 		Request(corev1.ResourceCPU, "1").
@@ -142,7 +139,7 @@ func TestReconciler(t *testing.T) {
 	testCases := map[string]struct {
 		initObjects     []client.Object
 		pod             corev1.Pod
-		wantPod         corev1.Pod
+		wantPod         *corev1.Pod
 		workloads       []kueue.Workload
 		wantWorkloads   []kueue.Workload
 		wantErr         error
@@ -154,13 +151,13 @@ func TestReconciler(t *testing.T) {
 			},
 			pod: *basePodWrapper.
 				Clone().
-				SetLabel("kueue.x-k8s.io/managed", "true").
+				Label("kueue.x-k8s.io/managed", "true").
 				KueueFinalizer().
 				KueueSchedulingGate().
 				Obj(),
-			wantPod: *basePodWrapper.
+			wantPod: basePodWrapper.
 				Clone().
-				SetLabel("kueue.x-k8s.io/managed", "true").
+				Label("kueue.x-k8s.io/managed", "true").
 				NodeSelector("kubernetes.io/arch", "arm64").
 				KueueFinalizer().
 				Obj(),
@@ -190,23 +187,13 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
-		"non-matching admitted workload is deleted": {
+		"non-matching admitted workload is deleted and pod is finalized": {
 			pod: *basePodWrapper.
 				Clone().
-				SetLabel("kueue.x-k8s.io/managed", "true").
+				Label("kueue.x-k8s.io/managed", "true").
 				KueueFinalizer().
 				Obj(),
-			wantPod: *basePodWrapper.
-				Clone().
-				SetLabel("kueue.x-k8s.io/managed", "true").
-				KueueFinalizer().
-				StatusConditions(corev1.PodCondition{
-					Type:    "TerminationTarget",
-					Status:  "True",
-					Reason:  "StoppedByKueue",
-					Message: "No matching Workload",
-				}).
-				Obj(),
+			wantPod: nil,
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
@@ -220,14 +207,14 @@ func TestReconciler(t *testing.T) {
 		"the workload is created when queue name is set": {
 			pod: *basePodWrapper.
 				Clone().
-				SetLabel("kueue.x-k8s.io/managed", "true").
+				Label("kueue.x-k8s.io/managed", "true").
 				KueueFinalizer().
 				KueueSchedulingGate().
 				Queue("test-queue").
 				Obj(),
-			wantPod: *basePodWrapper.
+			wantPod: basePodWrapper.
 				Clone().
-				SetLabel("kueue.x-k8s.io/managed", "true").
+				Label("kueue.x-k8s.io/managed", "true").
 				KueueFinalizer().
 				KueueSchedulingGate().
 				Queue("test-queue").
@@ -253,36 +240,8 @@ func TestReconciler(t *testing.T) {
 			pod: *basePodWrapper.
 				Clone().
 				Obj(),
-			wantPod: *basePodWrapper.
+			wantPod: basePodWrapper.
 				Clone().
-				Obj(),
-			wantWorkloads:   []kueue.Workload{},
-			workloadCmpOpts: defaultWorkloadCmpOpts,
-		},
-		"the pod reconciliation is skipped when it's owner is managed by kueue (Job)": {
-			pod: *basePodWrapper.
-				Clone().
-				SetLabel("kueue.x-k8s.io/managed", "true").
-				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
-				Obj(),
-			wantPod: *basePodWrapper.
-				Clone().
-				SetLabel("kueue.x-k8s.io/managed", "true").
-				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
-				Obj(),
-			wantWorkloads:   []kueue.Workload{},
-			workloadCmpOpts: defaultWorkloadCmpOpts,
-		},
-		"the pod reconciliation is skipped when it's owner is managed by kueue (RayCluster)": {
-			pod: *basePodWrapper.
-				Clone().
-				SetLabel("kueue.x-k8s.io/managed", "true").
-				OwnerReference("parent-ray-cluster", rayjobapi.GroupVersion.WithKind("RayCluster")).
-				Obj(),
-			wantPod: *basePodWrapper.
-				Clone().
-				SetLabel("kueue.x-k8s.io/managed", "true").
-				OwnerReference("parent-ray-cluster", rayjobapi.GroupVersion.WithKind("RayCluster")).
 				Obj(),
 			wantWorkloads:   []kueue.Workload{},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -290,20 +249,20 @@ func TestReconciler(t *testing.T) {
 		"pod is stopped when workload is evicted": {
 			pod: *basePodWrapper.
 				Clone().
-				SetLabel("kueue.x-k8s.io/managed", "true").
+				Label("kueue.x-k8s.io/managed", "true").
 				KueueFinalizer().
 				KueueSchedulingGate().
 				Queue("test-queue").
 				Obj(),
-			wantPod: *basePodWrapper.
+			wantPod: basePodWrapper.
 				Clone().
-				SetLabel("kueue.x-k8s.io/managed", "true").
+				Label("kueue.x-k8s.io/managed", "true").
 				KueueFinalizer().
 				KueueSchedulingGate().
 				Queue("test-queue").
 				StatusConditions(corev1.PodCondition{
 					Type:    "TerminationTarget",
-					Status:  "True",
+					Status:  corev1.ConditionTrue,
 					Reason:  "StoppedByKueue",
 					Message: "Preempted to accommodate a higher priority Workload",
 				}).
@@ -339,13 +298,13 @@ func TestReconciler(t *testing.T) {
 		"pod is finalized when it's succeeded": {
 			pod: *basePodWrapper.
 				Clone().
-				SetLabel("kueue.x-k8s.io/managed", "true").
+				Label("kueue.x-k8s.io/managed", "true").
 				KueueFinalizer().
 				StatusPhase(corev1.PodSucceeded).
 				Obj(),
-			wantPod: *basePodWrapper.
+			wantPod: basePodWrapper.
 				Clone().
-				SetLabel("kueue.x-k8s.io/managed", "true").
+				Label("kueue.x-k8s.io/managed", "true").
 				StatusPhase(corev1.PodSucceeded).
 				Obj(),
 			workloads: []kueue.Workload{
@@ -378,6 +337,58 @@ func TestReconciler(t *testing.T) {
 					return c.Type == "Admitted"
 				}),
 			),
+		},
+		"pod without scheduling gate is terminated if workload is not admitted": {
+			pod: *basePodWrapper.
+				Clone().
+				Label("kueue.x-k8s.io/managed", "true").
+				KueueFinalizer().
+				Obj(),
+			wantPod: basePodWrapper.
+				Clone().
+				Label("kueue.x-k8s.io/managed", "true").
+				KueueFinalizer().
+				StatusConditions(corev1.PodCondition{
+					Type:    "TerminationTarget",
+					Status:  corev1.ConditionTrue,
+					Reason:  "StoppedByKueue",
+					Message: "Not admitted by cluster queue",
+				}).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"finalizer is removed for finished pod without matching workload": {
+			pod: *basePodWrapper.
+				Clone().
+				Label("kueue.x-k8s.io/managed", "true").
+				KueueFinalizer().
+				StatusPhase(corev1.PodSucceeded).
+				Obj(),
+			wantPod: basePodWrapper.
+				Clone().
+				Label("kueue.x-k8s.io/managed", "true").
+				StatusPhase(corev1.PodSucceeded).
+				Obj(),
+			workloads: []kueue.Workload{},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					Labels(map[string]string{"kueue.x-k8s.io/job-uid": "test-uid"}).
+					Queue("user-queue").
+					Priority(0).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 	}
 
@@ -416,10 +427,14 @@ func TestReconciler(t *testing.T) {
 
 			var gotPod corev1.Pod
 			if err := kClient.Get(ctx, podKey, &gotPod); err != nil {
-				t.Fatalf("Could not get Pod after reconcile: %v", err)
+				if tc.wantPod != nil || !errors.IsNotFound(err) {
+					t.Fatalf("Could not get Pod after reconcile: %v", err)
+				}
 			}
-			if diff := cmp.Diff(tc.wantPod, gotPod, podCmpOpts...); diff != "" {
-				t.Errorf("Pod after reconcile (-want,+got):\n%s", diff)
+			if tc.wantPod != nil {
+				if diff := cmp.Diff(*tc.wantPod, gotPod, podCmpOpts...); diff != "" && tc.wantPod != nil {
+					t.Errorf("Pod after reconcile (-want,+got):\n%s", diff)
+				}
 			}
 			var gotWorkloads kueue.WorkloadList
 			if err := kClient.List(ctx, &gotWorkloads); err != nil {
@@ -465,7 +480,7 @@ func TestIsPodOwnerManagedByQueue(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			pod := testingutil.MakePod("pod", "ns").
+			pod := testingpod.MakePod("pod", "ns").
 				UID("test-uid").
 				Request(corev1.ResourceCPU, "1").
 				Image("", nil).
@@ -473,17 +488,19 @@ func TestIsPodOwnerManagedByQueue(t *testing.T) {
 
 			pod.OwnerReferences = append(pod.OwnerReferences, tc.ownerReference)
 
-			if diff := cmp.Diff(tc.wantRes, IsPodOwnerManagedByQueue((*Pod)(pod))); diff != "" {
-				t.Errorf("Unexpected 'IsPodOwnerManagedByQueue' result (-want,+got):\n%s", diff)
+			if tc.wantRes != IsPodOwnerManagedByKueue(fromObject(pod)) {
+				t.Errorf("Unexpected 'IsPodOwnerManagedByKueue' result\n want: %t\n got: %t)",
+					tc.wantRes, IsPodOwnerManagedByKueue(fromObject(pod)))
 			}
 		})
 	}
 }
 
 func TestGetWorkloadNameForPod(t *testing.T) {
+	wantWlName := "pod-unit-test-7bb47"
 	wlName := GetWorkloadNameForPod("unit-test")
 
-	if diff := cmp.Diff("pod-unit-test-7bb47", wlName); diff != "" {
-		t.Errorf("Expected different workload name (-want,+got):\n%s", diff)
+	if wantWlName != wlName {
+		t.Errorf("Expected different workload name\n want: %s\n got: %s", wantWlName, wlName)
 	}
 }

@@ -1,3 +1,19 @@
+/*
+Copyright 2023 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package pod
 
 import (
@@ -10,7 +26,7 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
-	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -64,29 +80,36 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 		})
 
 		ginkgo.When("The queue-name label is set", func() {
-			var pod *corev1.Pod
+			var (
+				pod       *corev1.Pod
+				lookupKey types.NamespacedName
+			)
 
 			ginkgo.BeforeEach(func() {
-				pod = testingutil.MakePod("pod-with-queue-name", ns.Name).Queue("user-queue").Obj()
+				pod = testingpod.MakePod("pod-with-queue-name", ns.Name).Queue("user-queue").Obj()
+				lookupKey = types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}
 			})
 
 			ginkgo.It("Should inject scheduling gate, 'managed' label and finalizer into created pod", func() {
 				gomega.Expect(k8sClient.Create(ctx, pod)).Should(gomega.Succeed())
 
-				lookupKey := types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}
 				createdPod := &corev1.Pod{}
 				gomega.Eventually(func() error {
 					return k8sClient.Get(ctx, lookupKey, createdPod)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				gomega.Expect(hasKueueSchedulingGate(createdPod)).To(gomega.BeTrue(),
-					"Pod should have 'kueue.x-k8s.io/admission' scheduling gate set")
+				gomega.Expect(createdPod.Spec.SchedulingGates).To(
+					gomega.ContainElement(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}),
+					"Pod should have scheduling gate",
+				)
 
-				gomega.Expect(hasManagedLabel(createdPod)).To(gomega.BeTrue(),
-					"Pod should have 'kueue.x-k8s.io/managed=true' label set")
+				gomega.Expect(createdPod.Labels).To(
+					gomega.HaveKeyWithValue("kueue.x-k8s.io/managed", "true"),
+					"Pod should have the label",
+				)
 
 				gomega.Expect(createdPod.Finalizers).To(gomega.ContainElement("kueue.x-k8s.io/managed"),
-					"Pod should have 'kueue.x-k8s.io/managed' finalizer set")
+					"Pod should have finalizer set")
 			})
 
 			ginkgo.It("Should skip a Pod created in the forbidden 'kube-system' namespace", func() {
@@ -99,14 +122,52 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 					return k8sClient.Get(ctx, lookupKey, createdPod)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				gomega.Expect(hasKueueSchedulingGate(createdPod)).To(gomega.BeFalse(),
-					"Pod shouldn't have 'kueue.x-k8s.io/admission' scheduling gate set")
+				gomega.Expect(createdPod.Spec.SchedulingGates).NotTo(
+					gomega.ContainElement(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}),
+					"Pod shouldn't have scheduling gate",
+				)
 
-				gomega.Expect(hasManagedLabel(createdPod)).To(gomega.BeFalse(),
-					"Pod shouldn't have 'kueue.x-k8s.io/managed=true' label set")
+				gomega.Expect(createdPod.Labels).NotTo(
+					gomega.HaveKeyWithValue("kueue.x-k8s.io/managed", "true"),
+					"Pod shouldn't have the label",
+				)
 
 				gomega.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement("kueue.x-k8s.io/managed"),
-					"Pod shouldn't have 'kueue.x-k8s.io/managed' finalizer set")
+					"Pod shouldn't have finalizer set")
+			})
+		})
+
+		ginkgo.When("The queue-name label is not set", func() {
+			var (
+				pod       *corev1.Pod
+				lookupKey types.NamespacedName
+			)
+
+			ginkgo.BeforeEach(func() {
+				pod = testingpod.MakePod("pod-with-queue-name", ns.Name).Obj()
+				lookupKey = types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}
+			})
+
+			ginkgo.It("Should not inject scheduling gate, 'managed' label and finalizer into created pod", func() {
+				gomega.Expect(k8sClient.Create(ctx, pod)).Should(gomega.Succeed())
+
+				createdPod := &corev1.Pod{}
+				gomega.Eventually(func() error {
+					return k8sClient.Get(ctx, lookupKey, createdPod)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Expect(createdPod.Spec.SchedulingGates).NotTo(
+					gomega.ContainElement(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}),
+					"Pod shouldn't have scheduling gate",
+				)
+
+				gomega.Expect(createdPod.Labels).NotTo(
+					gomega.HaveKeyWithValue("kueue.x-k8s.io/managed", "true"),
+					"Pod shouldn't have the label",
+				)
+
+				gomega.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement("kueue.x-k8s.io/managed"),
+					"Pod shouldn't have finalizer set")
 			})
 		})
 	})
@@ -160,7 +221,7 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 			var pod *corev1.Pod
 
 			ginkgo.BeforeEach(func() {
-				pod = testingutil.MakePod("pod-integration", ns.Name).Obj()
+				pod = testingpod.MakePod("pod-integration", ns.Name).Obj()
 			})
 
 			ginkgo.It("Should inject scheduling gate, 'managed' label and finalizer into created pod", func() {
@@ -172,14 +233,18 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 					return k8sClient.Get(ctx, lookupKey, createdPod)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				gomega.Expect(hasKueueSchedulingGate(createdPod)).To(gomega.BeTrue(),
-					"Pod should have 'kueue.x-k8s.io/admission' scheduling gate set")
+				gomega.Expect(createdPod.Spec.SchedulingGates).To(
+					gomega.ContainElement(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}),
+					"Pod should have scheduling gate",
+				)
 
-				gomega.Expect(hasManagedLabel(createdPod)).To(gomega.BeTrue(),
-					"Pod should have 'kueue.x-k8s.io/managed=true' label set")
+				gomega.Expect(createdPod.Labels).To(
+					gomega.HaveKeyWithValue("kueue.x-k8s.io/managed", "true"),
+					"Pod should have the label",
+				)
 
 				gomega.Expect(createdPod.Finalizers).To(gomega.ContainElement("kueue.x-k8s.io/managed"),
-					"Pod should have 'kueue.x-k8s.io/managed' finalizer set")
+					"Pod should have finalizer set")
 			})
 
 			ginkgo.It("Should skip a Pod created in the forbidden 'kube-system' namespace", func() {
@@ -192,14 +257,18 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 					return k8sClient.Get(ctx, lookupKey, createdPod)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				gomega.Expect(hasKueueSchedulingGate(createdPod)).To(gomega.BeFalse(),
-					"Pod shouldn't have 'kueue.x-k8s.io/admission' scheduling gate set")
+				gomega.Expect(createdPod.Spec.SchedulingGates).NotTo(
+					gomega.ContainElement(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}),
+					"Pod shouldn't have scheduling gate",
+				)
 
-				gomega.Expect(hasManagedLabel(createdPod)).To(gomega.BeFalse(),
-					"Pod shouldn't have 'kueue.x-k8s.io/managed=true' label set")
+				gomega.Expect(createdPod.Labels).NotTo(
+					gomega.HaveKeyWithValue("kueue.x-k8s.io/managed", "true"),
+					"Pod shouldn't have the label",
+				)
 
 				gomega.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement("kueue.x-k8s.io/managed"),
-					"Pod shouldn't have 'kueue.x-k8s.io/managed' finalizer set")
+					"Pod shouldn't have finalizer set")
 			})
 		})
 	})

@@ -75,7 +75,7 @@ type JobWithFinalize interface {
 // JobWithSkip interface should be implemented by generic jobs,
 // when reconciliation should be skipped depending on the job's state
 type JobWithSkip interface {
-	Skip() (bool, error)
+	Skip() bool
 }
 
 type JobWithPriorityClass interface {

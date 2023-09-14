@@ -25,6 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -76,13 +77,16 @@ var _ jobframework.GenericJob = (*Pod)(nil)
 var _ jobframework.JobWithCustomStop = (*Pod)(nil)
 var _ jobframework.JobWithFinalize = (*Pod)(nil)
 
+func fromObject(o runtime.Object) *Pod {
+	return (*Pod)(o.(*corev1.Pod))
+}
+
 // Object returns the job instance.
 func (p *Pod) Object() client.Object {
 	return (*corev1.Pod)(p)
 }
 
 func (p *Pod) gateIndex() int {
-
 	for i := range p.Spec.SchedulingGates {
 		if p.Spec.SchedulingGates[i].Name == SchedulingGateName {
 			return i
@@ -126,7 +130,6 @@ func (p *Pod) RestorePodSetsInfo(nodeSelectors []jobframework.PodSetInfo) bool {
 // Finished means whether the job is completed/failed or not,
 // condition represents the workload finished condition.
 func (p *Pod) Finished() (metav1.Condition, bool) {
-
 	ph := p.Status.Phase
 	condition := metav1.Condition{
 		Type:    kueue.WorkloadFinished,
@@ -152,11 +155,6 @@ func (p *Pod) PodSets() []kueue.PodSet {
 			},
 		},
 	}
-}
-
-// PriorityClass returns the job's priority class name.
-func (p *Pod) PriorityClass() string {
-	return p.Spec.PriorityClassName
 }
 
 // IsActive returns true if there are any running pods.
@@ -207,7 +205,7 @@ func (p *Pod) Stop(ctx context.Context, c client.Client, _ []jobframework.PodSet
 	if err == nil {
 		err = c.Delete(ctx, p.Object())
 	}
-	if err == nil && apierrors.IsNotFound(err) {
+	if err == nil || apierrors.IsNotFound(err) {
 		return true, nil
 	}
 	return false, err
@@ -218,10 +216,8 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 }
 
 func (p *Pod) Finalize(ctx context.Context, c client.Client) error {
-	pod := (*corev1.Pod)(p)
-
-	if controllerutil.RemoveFinalizer(pod, PodFinalizer) {
-		if err := c.Update(ctx, pod); err != nil {
+	if controllerutil.RemoveFinalizer(p.Object(), PodFinalizer) {
+		if err := c.Update(ctx, p.Object()); err != nil {
 			return err
 		}
 	}
@@ -229,20 +225,16 @@ func (p *Pod) Finalize(ctx context.Context, c client.Client) error {
 	return nil
 }
 
-func (p *Pod) Skip() (bool, error) {
+func (p *Pod) Skip() bool {
 	// Skip pod reconciliation, if managed label is not set
 	if v, ok := p.GetLabels()[ManagedLabelKey]; !ok || v != ManagedLabelValue {
-		return true, nil
+		return true
 	}
 
-	if IsPodOwnerManagedByQueue(p) {
-		return true, nil
-	}
-
-	return false, nil
+	return false
 }
 
-func IsPodOwnerManagedByQueue(p *Pod) bool {
+func IsPodOwnerManagedByKueue(p *Pod) bool {
 	if owner := metav1.GetControllerOf(p); owner != nil {
 		return jobframework.IsOwnerManagedByKueue(owner) || (owner.Kind == "RayCluster" && strings.HasPrefix(owner.APIVersion, "ray.io/v1alpha1"))
 	}

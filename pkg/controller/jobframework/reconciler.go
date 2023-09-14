@@ -142,7 +142,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	err := r.client.Get(ctx, req.NamespacedName, object)
 
 	if jws, implements := job.(JobWithSkip); implements {
-		if skip, skipErr := jws.Skip(); skip || skipErr != nil {
+		if jws.Skip() {
 			return ctrl.Result{}, nil
 		}
 	}
@@ -427,8 +427,15 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			// than one workload...
 			w = &workloads.Items[0]
 		}
-		if err := r.stopJob(ctx, job, object, w, "No matching Workload"); err != nil {
-			return nil, fmt.Errorf("stopping job with no matching workload: %w", err)
+
+		if _, finished := job.Finished(); finished {
+			if err := r.finalizeJob(ctx, job); err != nil {
+				return nil, fmt.Errorf("finalizing job with no matching workload: %w", err)
+			}
+		} else {
+			if err := r.stopJob(ctx, job, object, w, "No matching Workload"); err != nil {
+				return nil, fmt.Errorf("stopping job with no matching workload: %w", err)
+			}
 		}
 	}
 

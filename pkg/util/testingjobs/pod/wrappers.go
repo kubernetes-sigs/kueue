@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright 2023 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -50,7 +50,6 @@ func MakePod(name, ns string) *PodWrapper {
 				},
 			},
 			SchedulingGates: make([]corev1.PodSchedulingGate, 0),
-			NodeSelector:    map[string]string{},
 		},
 	}}
 }
@@ -74,8 +73,8 @@ func (p *PodWrapper) Queue(queue string) *PodWrapper {
 	return p
 }
 
-// SetLabel sets the label of the Pod
-func (p *PodWrapper) SetLabel(k, v string) *PodWrapper {
+// Label sets the label of the Pod
+func (p *PodWrapper) Label(k, v string) *PodWrapper {
 	if p.Labels == nil {
 		p.Labels = make(map[string]string)
 	}
@@ -83,7 +82,7 @@ func (p *PodWrapper) SetLabel(k, v string) *PodWrapper {
 	return p
 }
 
-func (p *PodWrapper) SetAnnotation(key, content string) *PodWrapper {
+func (p *PodWrapper) Annotation(key, content string) *PodWrapper {
 	p.Annotations[key] = content
 	return p
 }
@@ -114,6 +113,10 @@ func (p *PodWrapper) KueueFinalizer() *PodWrapper {
 
 // NodeSelector adds a node selector to the Pod.
 func (p *PodWrapper) NodeSelector(k, v string) *PodWrapper {
+	if p.Spec.NodeSelector == nil {
+		p.Spec.NodeSelector = make(map[string]string, 1)
+	}
+
 	p.Spec.NodeSelector[k] = v
 	return p
 }
@@ -132,15 +135,17 @@ func (p *PodWrapper) Image(image string, args []string) *PodWrapper {
 
 // OwnerReference adds a ownerReference to the default container.
 func (p *PodWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *PodWrapper {
-	p.ObjectMeta.OwnerReferences = []metav1.OwnerReference{
-		{
+	p.ObjectMeta.OwnerReferences = append(
+		p.ObjectMeta.OwnerReferences,
+		metav1.OwnerReference{
 			APIVersion: ownerGVK.GroupVersion().String(),
 			Kind:       ownerGVK.Kind,
 			Name:       ownerName,
 			UID:        types.UID(ownerName),
 			Controller: ptr.To(true),
 		},
-	}
+	)
+
 	return p
 }
 

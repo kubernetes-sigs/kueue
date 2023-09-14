@@ -1,3 +1,19 @@
+/*
+Copyright 2023 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package config
 
 import (
@@ -6,146 +22,203 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 )
 
-func TestValidateQueueVisibility(t *testing.T) {
-	testcases := []struct {
-		name    string
-		cfg     configapi.Configuration
+func TestValidate(t *testing.T) {
+	defaultQueueVisibility := &configapi.QueueVisibility{
+		UpdateIntervalSeconds: configapi.DefaultQueueVisibilityUpdateIntervalSeconds,
+		ClusterQueues: &configapi.ClusterQueueVisibility{
+			MaxCount: configapi.DefaultClusterQueuesMaxCount,
+		},
+	}
+
+	defaultPodIntegrationOptions := &configapi.PodIntegrationOptions{
+		NamespaceSelector: &metav1.LabelSelector{
+			MatchExpressions: []metav1.LabelSelectorRequirement{
+				{
+					Key:      "kubernetes.io/metadata.name",
+					Operator: metav1.LabelSelectorOpNotIn,
+					Values:   []string{"kube-system", "kueue-system"},
+				},
+			},
+		},
+		PodSelector: &metav1.LabelSelector{},
+	}
+
+	defaultIntegrations := &configapi.Integrations{
+		Frameworks: []string{"batch/job"},
+		PodOptions: defaultPodIntegrationOptions,
+	}
+
+	testCases := map[string]struct {
+		cfg     *configapi.Configuration
 		wantErr field.ErrorList
 	}{
-
-		{
-			name:    "empty",
-			cfg:     configapi.Configuration{},
-			wantErr: nil,
+		"empty": {
+			cfg: &configapi.Configuration{},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "integrations",
+				},
+			},
 		},
-		{
-			name: "invalid queue visibility UpdateIntervalSeconds",
-			cfg: configapi.Configuration{
+		"invalid queue visibility UpdateIntervalSeconds": {
+			cfg: &configapi.Configuration{
 				QueueVisibility: &configapi.QueueVisibility{
 					UpdateIntervalSeconds: 0,
 				},
+				Integrations: defaultIntegrations,
 			},
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("queueVisibility").Child("updateIntervalSeconds"), 0, fmt.Sprintf("greater than or equal to %d", queueVisibilityClusterQueuesUpdateIntervalSeconds)),
 			},
 		},
-		{
-			name: "invalid queue visibility cluster queue max count",
-			cfg: configapi.Configuration{
+		"invalid queue visibility cluster queue max count": {
+			cfg: &configapi.Configuration{
 				QueueVisibility: &configapi.QueueVisibility{
 					ClusterQueues: &configapi.ClusterQueueVisibility{
 						MaxCount: 4001,
 					},
 					UpdateIntervalSeconds: 1,
 				},
+				Integrations: defaultIntegrations,
 			},
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("queueVisibility").Child("clusterQueues").Child("maxCount"), 4001, fmt.Sprintf("must be less than %d", queueVisibilityClusterQueuesMaxValue)),
 			},
 		},
-	}
-	for _, tc := range testcases {
-		t.Run(tc.name, func(t *testing.T) {
-			if diff := cmp.Diff(tc.wantErr, validateQueueVisibility(tc.cfg), cmpopts.IgnoreFields(field.Error{}, "BadValue")); diff != "" {
-				t.Errorf("Unexpected returned error (-want,+got):\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestValidateNamespaceSelector(t *testing.T) {
-	testCases := map[string]struct {
-		podIntegrationOptions *configapi.PodIntegrationOptions
-		wantError             field.ErrorList
-	}{
 		"nil PodIntegrationOptions": {
-			podIntegrationOptions: nil,
-			wantError: field.ErrorList{
-				field.Required(podOptionsPath, errMsgPodOptionsIsNil),
+			cfg: &configapi.Configuration{
+				QueueVisibility: defaultQueueVisibility,
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"pod"},
+					PodOptions: nil,
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "integrations.podOptions",
+				},
 			},
 		},
-
-		"nil PodIntegrationOptions.PodNamespaceSelector": {
-			podIntegrationOptions: &configapi.PodIntegrationOptions{
-				NamespaceSelector: nil,
+		"nil PodIntegrationOptions.NamespaceSelector": {
+			cfg: &configapi.Configuration{
+				QueueVisibility: defaultQueueVisibility,
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"pod"},
+					PodOptions: &configapi.PodIntegrationOptions{
+						NamespaceSelector: nil,
+					},
+				},
 			},
-			wantError: field.ErrorList{
-				field.Required(namespaceSelectorPath, errMsgNamespaceSelectorIsNil),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "integrations.podOptions.namespaceSelector",
+				},
 			},
 		},
 		"emptyLabelSelector": {
-			podIntegrationOptions: &configapi.PodIntegrationOptions{
-				NamespaceSelector: &metav1.LabelSelector{},
+			cfg: &configapi.Configuration{
+				Namespace:       ptr.To("kueue-system"),
+				QueueVisibility: defaultQueueVisibility,
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"pod"},
+					PodOptions: &configapi.PodIntegrationOptions{
+						NamespaceSelector: &metav1.LabelSelector{},
+					},
+				},
 			},
-			wantError: field.ErrorList{
-				field.Invalid(namespaceSelectorPath, labels.Set{corev1.LabelMetadataName: "kube-system"}, errMsgProhibitedNamespace),
-				field.Invalid(namespaceSelectorPath, labels.Set{corev1.LabelMetadataName: "kueue-system"}, errMsgProhibitedNamespace),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "integrations.podOptions.namespaceSelector",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "integrations.podOptions.namespaceSelector",
+				},
 			},
 		},
 		"prohibited namespace in MatchLabels": {
-			podIntegrationOptions: &configapi.PodIntegrationOptions{
-				NamespaceSelector: &metav1.LabelSelector{
-					MatchLabels: map[string]string{
-						"kubernetes.io/metadata.name": "kube-system",
+			cfg: &configapi.Configuration{
+				QueueVisibility: defaultQueueVisibility,
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"pod"},
+					PodOptions: &configapi.PodIntegrationOptions{
+						NamespaceSelector: &metav1.LabelSelector{
+							MatchLabels: map[string]string{
+								"kubernetes.io/metadata.name": "kube-system",
+							},
+						},
 					},
 				},
 			},
-			wantError: field.ErrorList{
-				field.Invalid(namespaceSelectorPath, labels.Set{corev1.LabelMetadataName: "kube-system"}, errMsgProhibitedNamespace),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "integrations.podOptions.namespaceSelector",
+				},
 			},
 		},
 		"prohibited namespace in MatchExpressions with operator In": {
-			podIntegrationOptions: &configapi.PodIntegrationOptions{
-				NamespaceSelector: &metav1.LabelSelector{
-					MatchExpressions: []metav1.LabelSelectorRequirement{
-						{
-							Key:      "kubernetes.io/metadata.name",
-							Operator: metav1.LabelSelectorOpIn,
-							Values:   []string{"kube-system"},
+			cfg: &configapi.Configuration{
+				QueueVisibility: defaultQueueVisibility,
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"pod"},
+					PodOptions: &configapi.PodIntegrationOptions{
+						NamespaceSelector: &metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{
+									Key:      "kubernetes.io/metadata.name",
+									Operator: metav1.LabelSelectorOpIn,
+									Values:   []string{"kube-system"},
+								},
+							},
 						},
 					},
 				},
 			},
-			wantError: field.ErrorList{
-				field.Invalid(namespaceSelectorPath, labels.Set{corev1.LabelMetadataName: "kube-system"}, errMsgProhibitedNamespace),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "integrations.podOptions.namespaceSelector",
+				},
 			},
 		},
 		"prohibited namespace in MatchExpressions with operator NotIn": {
-			podIntegrationOptions: &configapi.PodIntegrationOptions{
-				NamespaceSelector: &metav1.LabelSelector{
-					MatchExpressions: []metav1.LabelSelectorRequirement{
-						{
-							Key:      "kubernetes.io/metadata.name",
-							Operator: metav1.LabelSelectorOpNotIn,
-							Values:   []string{"kube-system", "kueue-system"},
+			cfg: &configapi.Configuration{
+				QueueVisibility: defaultQueueVisibility,
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"pod"},
+					PodOptions: &configapi.PodIntegrationOptions{
+						NamespaceSelector: &metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{
+									Key:      "kubernetes.io/metadata.name",
+									Operator: metav1.LabelSelectorOpNotIn,
+									Values:   []string{"kube-system", "kueue-system"},
+								},
+							},
 						},
 					},
 				},
 			},
-			wantError: nil,
+			wantErr: nil,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			cfg := configapi.Configuration{
-				Namespace: ptr.To("kueue-system"),
-				Integrations: &configapi.Integrations{
-					PodOptions: tc.podIntegrationOptions,
-				},
-			}
-			gotError := validateNamespaceSelector(cfg)
-			if diff := cmp.Diff(tc.wantError, gotError); diff != "" {
-				t.Errorf("unexpected non-nil error (-want,+got):\n%s", diff)
+			if diff := cmp.Diff(tc.wantErr, validate(tc.cfg), cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
+				t.Errorf("Unexpected returned error (-want,+got):\n%s", diff)
 			}
 		})
 	}

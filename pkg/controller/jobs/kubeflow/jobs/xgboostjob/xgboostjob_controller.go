@@ -18,8 +18,10 @@ package xgboostjob
 
 import (
 	"context"
+	"strings"
 
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -36,11 +38,12 @@ var (
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:  SetupIndexes,
-		NewReconciler: NewReconciler,
-		SetupWebhook:  SetupXGBoostJobWebhook,
-		JobType:       &kftraining.XGBoostJob{},
-		AddToScheme:   kftraining.AddToScheme,
+		SetupIndexes:           SetupIndexes,
+		NewReconciler:          NewReconciler,
+		SetupWebhook:           SetupXGBoostJobWebhook,
+		JobType:                &kftraining.XGBoostJob{},
+		AddToScheme:            kftraining.AddToScheme,
+		IsManagingObjectsOwner: isXGBoostJob,
 	}))
 }
 
@@ -57,6 +60,10 @@ func init() {
 var NewReconciler = jobframework.NewGenericReconciler(func() jobframework.GenericJob {
 	return &kubeflowjob.KubeflowJob{KFJobControl: (*JobControl)(&kftraining.XGBoostJob{})}
 }, nil)
+
+func isXGBoostJob(owner *metav1.OwnerReference) bool {
+	return owner.Kind == "XGBoostJob" && strings.HasPrefix(owner.APIVersion, "kubeflow.org")
+}
 
 type JobControl kftraining.XGBoostJob
 
