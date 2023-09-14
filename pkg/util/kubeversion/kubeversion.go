@@ -29,7 +29,7 @@ type Options struct {
 
 type Option func(*Options)
 
-var DefaultOptions = Options{
+var defaultOptions = Options{
 	Interval: fetchServerVersionInterval,
 }
 
@@ -40,7 +40,7 @@ func WithInterval(interval time.Duration) Option {
 }
 
 func NewServerVersionFetcher(dc discovery.DiscoveryInterface, opts ...Option) *ServerVersionFetcher {
-	options := DefaultOptions
+	options := defaultOptions
 	for _, opt := range opts {
 		opt(&options)
 	}

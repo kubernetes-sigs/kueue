@@ -107,7 +107,7 @@ func WithQueueVisibilityClusterQueuesMaxCount(value int32) ClusterQueueReconcile
 	}
 }
 
-var DefaultOptions = ClusterQueueReconcilerOptions{}
+var defaultCQOptions = ClusterQueueReconcilerOptions{}
 
 func NewClusterQueueReconciler(
 	client client.Client,
@@ -115,7 +115,7 @@ func NewClusterQueueReconciler(
 	cache *cache.Cache,
 	opts ...ClusterQueueReconcilerOption,
 ) *ClusterQueueReconciler {
-	options := DefaultOptions
+	options := defaultCQOptions
 	for _, opt := range opts {
 		opt(&options)
 	}
