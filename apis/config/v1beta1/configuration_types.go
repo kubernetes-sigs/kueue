@@ -228,6 +228,7 @@ type Integrations struct {
 	//  - "jobset.x-k8s.io/jobset"
 	//  - "kubeflow.org/pytorchjob"
 	//  - "kubeflow.org/tfjob"
+	//  - "kubeflow.org/xgboostjob"
 	Frameworks []string `json:"frameworks,omitempty"`
 }
 
