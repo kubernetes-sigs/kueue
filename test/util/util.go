@@ -164,18 +164,6 @@ func ExpectWorkloadsToHaveQuotaReservation(ctx context.Context, k8sClient client
 	}, Timeout, Interval).Should(gomega.Equal(len(wls)), "Not enough workloads were admitted")
 }
 
-func FilterAdmittedWorkloads(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) []*kueue.Workload {
-	ret := make([]*kueue.Workload, 0, len(wls))
-	var updatedWorkload kueue.Workload
-	for _, wl := range wls {
-		err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)
-		if err == nil && workload.HasQuotaReservation(&updatedWorkload) {
-			ret = append(ret, wl)
-		}
-	}
-	return ret
-}
-
 func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
 	gomega.EventuallyWithOffset(1, func() int {
 		pending := 0

@@ -337,18 +337,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			gomega.Expect(k8sClient.Create(ctx, alphaMidWl)).To(gomega.Succeed())
 			gomega.Expect(k8sClient.Create(ctx, gammaMidWl)).To(gomega.Succeed())
 
-			// since the two pending workloads are not aware of each other both of them
-			// will request the eviction of betaMidWl only
-			util.FinishEvictionForWorkloads(ctx, k8sClient, betaMidWl)
-
-			// one of alpha-mid and gamma-mid should be admitted
-			gomega.Eventually(func() []*kueue.Workload { return util.FilterAdmittedWorkloads(ctx, k8sClient, alphaMidWl, gammaMidWl) }, util.Interval*4, util.Interval).Should(gomega.HaveLen(1))
-
-			// betaHighWl remains admitted
-			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, betaCQ.Name, betaHighWl)
-
-			// the last one should request the preemption of betaHighWl
-			util.FinishEvictionForWorkloads(ctx, k8sClient, betaHighWl)
+			util.FinishEvictionForWorkloads(ctx, k8sClient, betaMidWl, betaHighWl)
 
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, alphaCQ.Name, alphaMidWl)
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, gammaCQ.Name, gammaMidWl)

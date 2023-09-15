@@ -1149,7 +1149,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		highPriorityClass := testing.MakePriorityClass("high").PriorityValue(100).Obj()
 		gomega.Expect(k8sClient.Create(ctx, highPriorityClass))
 		ginkgo.DeferCleanup(func() {
-			gomega.Expect(k8sClient.Delete(ctx, highPriorityClass)).To(gomega.Succeed())
+			gomega.Eventually(func() error { return k8sClient.Delete(ctx, highPriorityClass) }, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		lowJobKey := types.NamespacedName{Name: "low", Namespace: ns.Name}
