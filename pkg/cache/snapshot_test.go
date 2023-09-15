@@ -199,7 +199,7 @@ func TestSnapshot(t *testing.T) {
 			wantSnapshot: func() Snapshot {
 				cohort := &Cohort{
 					Name:                          "borrowing",
-					AllocatableResourceGeneration: 1,
+					AllocatableResourceGeneration: 2,
 					RequestableResources: workload.FlavorResourceQuantities{
 						"demand": {
 							corev1.ResourceCPU: 100_000,
@@ -507,7 +507,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 			want: func() Snapshot {
 				cohort := &Cohort{
 					Name:                          "cohort",
-					AllocatableResourceGeneration: 1,
+					AllocatableResourceGeneration: 2,
 					RequestableResources:          initialCohortResources,
 					Usage: workload.FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
@@ -550,7 +550,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 			want: func() Snapshot {
 				cohort := &Cohort{
 					Name:                          "cohort",
-					AllocatableResourceGeneration: 1,
+					AllocatableResourceGeneration: 2,
 					RequestableResources:          initialCohortResources,
 					Usage: workload.FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 2_000},
@@ -599,7 +599,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 			want: func() Snapshot {
 				cohort := &Cohort{
 					Name:                          "cohort",
-					AllocatableResourceGeneration: 1,
+					AllocatableResourceGeneration: 2,
 					RequestableResources:          initialCohortResources,
 					Usage: workload.FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 3_000},

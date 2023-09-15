@@ -81,9 +81,7 @@ func (c *Cache) Snapshot() Snapshot {
 				cqCopy.accumulateResources(cohortCopy)
 				cqCopy.Cohort = cohortCopy
 				cohortCopy.Members.Insert(cqCopy)
-				if cqCopy.AllocatableResourceGeneration > cohortCopy.AllocatableResourceGeneration {
-					cohortCopy.AllocatableResourceGeneration = cqCopy.AllocatableResourceGeneration
-				}
+				cohortCopy.AllocatableResourceGeneration += cqCopy.AllocatableResourceGeneration
 			}
 		}
 	}

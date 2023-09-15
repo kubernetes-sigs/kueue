@@ -53,13 +53,13 @@ type ClusterQueue struct {
 type Cohort struct {
 	Name    string
 	Members sets.Set[*ClusterQueue]
-	// This field will only be set in snapshot. This field equal to the maximum
-	// allocatable generation among its members.
-	AllocatableResourceGeneration int64
 
 	// These fields are only populated for a snapshot.
 	RequestableResources workload.FlavorResourceQuantities
 	Usage                workload.FlavorResourceQuantities
+	// This field will only be set in snapshot. This field equal to the maximum
+	// allocatable generation among its members.
+	AllocatableResourceGeneration int64
 }
 
 type ResourceGroup struct {

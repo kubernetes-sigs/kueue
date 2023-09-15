@@ -43,7 +43,7 @@ const (
 
 	// owner: @KunWuLuan
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/582-preempt-based-on-flavor-order
-	// alpha: v0.5
+	// beta: v0.5
 	//
 	// Enables flavor fungibility.
 	FlavorFungibility featuregate.Feature = "FlavorFungibility"
@@ -62,7 +62,7 @@ func init() {
 var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	PartialAdmission:  {Default: false, PreRelease: featuregate.Alpha},
 	QueueVisibility:   {Default: false, PreRelease: featuregate.Alpha},
-	FlavorFungibility: {Default: true, PreRelease: featuregate.Alpha},
+	FlavorFungibility: {Default: true, PreRelease: featuregate.Beta},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) func() {
