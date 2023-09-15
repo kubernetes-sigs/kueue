@@ -20,7 +20,7 @@ tags, and then generate with `hack/update-toc.sh`.
 - [KEP-1093: Multi Level Cluster Queues](#kep-1093-multi-level-cluster-queues)
   - [Summary](#summary)
   - [Motivation](#motivation)
-  - [Use Cases](#use-cases)
+    - [User Stories](#user-stories)
     - [Goals](#goals)
     - [Non-Goals](#non-goals)
   - [Proposal](#proposal)
@@ -47,8 +47,8 @@ This proposal allow cluster admins to define a multi-level hierachy for cluster 
 ## Motivation
 Systems like Yarn allow creating a hierarchy of fair sharing, which allows modeling deeper organizational structures with fair-sharing.
 Kueue currently supports three organizational levels: Cohort (models a business unit), ClusterQueue (models divisions within a business unit), namespace (models teams within a division). However fair-sharing is only supported at one level, within a cohort. This is not convinent if there are more than one level in an organization or if some users want to manage the resource consumption of his/her own jobs.
-## Use Cases
-- 
+### User Stories
+- I am a cluster administrator. In my company all departments share resources in company, and employees share resources in their departments. I hope to create a cluster queue for every employee and make cluster queues belong to employees in one department a Cohort to let them share resources. And I hope to create a cluster queue for every department to let them share resources too. Only create a local queue for each employee is not enought because I have to limit the resources they can use. If kueue support multi-level cluster queue, I can define a tree contains 3 level, each for company, department and employee so that every one can share the resources and they will not consume too much. 
 
 ### Goals
 
