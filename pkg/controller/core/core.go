@@ -23,6 +23,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/preemption"
 	"sigs.k8s.io/kueue/pkg/queue"
 )
 
@@ -44,6 +45,11 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 		return "LocalQueue", err
 	}
 
+	preemptAC := preemption.NewController(cc)
+	if err := preemptAC.SetupWithManager(mgr); err != nil {
+		return "PreemptionACCcontroller", err
+	}
+
 	cqRec := NewClusterQueueReconciler(
 		mgr.GetClient(),
 		qManager,
@@ -57,11 +63,14 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 		return "Unable to add ClusterQueue to manager", err
 	}
 	rfRec.AddUpdateWatcher(cqRec)
-	acRec.AddUpdateWatchers(cqRec)
+	acRec.AddUpdateWatchers(cqRec, preemptAC)
 	if err := cqRec.SetupWithManager(mgr); err != nil {
 		return "ClusterQueue", err
 	}
-	if err := NewWorkloadReconciler(mgr.GetClient(), qManager, cc, WithWorkloadUpdateWatchers(qRec, cqRec), WithPodsReadyTimeout(podsReadyTimeout(cfg))).SetupWithManager(mgr); err != nil {
+
+	if err := NewWorkloadReconciler(mgr.GetClient(), qManager, cc,
+		WithWorkloadUpdateWatchers(qRec, cqRec, preemptAC),
+		WithPodsReadyTimeout(podsReadyTimeout(cfg))).SetupWithManager(mgr); err != nil {
 		return "Workload", err
 	}
 	return "", nil
