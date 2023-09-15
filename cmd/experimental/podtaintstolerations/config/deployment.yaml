@@ -22,7 +22,7 @@ spec:
         - --zap-log-level=2
         command:
         - /podtaintstolerations
-        image: podtaintstolerations
+        image: controller
         imagePullPolicy: IfNotPresent
         livenessProbe:
           httpGet:
