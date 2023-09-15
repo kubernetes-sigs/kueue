@@ -74,3 +74,11 @@ rules:
   - update
   - patch
   - delete
+- apiGroups:
+  - scheduling.k8s.io
+  resources:
+  - priorityclasses
+  verbs:
+  - get
+  - list
+  - watch

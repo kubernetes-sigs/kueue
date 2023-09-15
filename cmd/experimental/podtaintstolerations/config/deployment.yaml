@@ -13,7 +13,7 @@ spec:
   template:
     metadata:
       annotations:
-        kubectl.kubernetes.io/default-container: manager
+        kubectl.kubernetes.io/default-container: controller
       labels:
         control-plane: podtaintstolerations
     spec:
