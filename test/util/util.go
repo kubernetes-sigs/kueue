@@ -164,6 +164,34 @@ func ExpectWorkloadsToHaveQuotaReservation(ctx context.Context, k8sClient client
 	}, Timeout, Interval).Should(gomega.Equal(len(wls)), "Not enough workloads were admitted")
 }
 
+func ExpectWorkloadsToBeEvicted(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
+	gomega.EventuallyWithOffset(1, func() int {
+		found := 0
+		var updatedWorkload kueue.Workload
+		for _, wl := range wls {
+			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
+			if apimeta.IsStatusConditionTrue(updatedWorkload.Status.Conditions, kueue.WorkloadEvicted) {
+				found++
+			}
+		}
+		return found
+	}, Timeout, Interval).Should(gomega.Equal(len(wls)), "Not enough workloads were evicted")
+}
+
+func ExpectWorkloadsToBeAdmitted(ctx context.Context, k8sClient client.Client, cqName string, wls ...*kueue.Workload) {
+	gomega.EventuallyWithOffset(1, func() int {
+		admitted := 0
+		var updatedWorkload kueue.Workload
+		for _, wl := range wls {
+			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
+			if workload.IsAdmitted(&updatedWorkload) && string(updatedWorkload.Status.Admission.ClusterQueue) == cqName {
+				admitted++
+			}
+		}
+		return admitted
+	}, Timeout, Interval).Should(gomega.Equal(len(wls)), "Not enough workloads were admitted")
+}
+
 func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
 	gomega.EventuallyWithOffset(1, func() int {
 		pending := 0
@@ -422,5 +450,19 @@ func SetAdmissionCheckActive(ctx context.Context, k8sClient client.Client, admis
 			Message: "by test",
 		})
 		return k8sClient.Status().Update(ctx, &updatedAc)
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func SetWorkloadsAdmissionCkeck(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, check string, state kueue.CheckState) {
+	var updatedWorkload kueue.Workload
+	gomega.EventuallyWithOffset(1, func() error {
+		err := k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)
+		if err != nil {
+			return err
+		}
+		currentCheck := workload.FindAdmissionCheck(updatedWorkload.Status.AdmissionChecks, check)
+		gomega.ExpectWithOffset(1, currentCheck).NotTo(gomega.BeNil(), "the check was not found")
+		currentCheck.State = state
+		return k8sClient.Status().Update(ctx, &updatedWorkload)
 	}, Timeout, Interval).Should(gomega.Succeed())
 }

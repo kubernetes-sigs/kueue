@@ -22,7 +22,9 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
@@ -59,11 +61,19 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 	ginkgo.Context("In a single ClusterQueue", func() {
 		var (
-			cq *kueue.ClusterQueue
-			q  *kueue.LocalQueue
+			cq            *kueue.ClusterQueue
+			q             *kueue.LocalQueue
+			checkAnytime  *kueue.AdmissionCheck
+			checkOnDemand *kueue.AdmissionCheck
 		)
 
 		ginkgo.BeforeEach(func() {
+			checkAnytime = testing.MakeAdmissionCheck("anytime").Policy(kueue.Anytime).Obj()
+			gomega.Expect(k8sClient.Create(ctx, checkAnytime)).To(gomega.Succeed())
+
+			checkOnDemand = testing.MakeAdmissionCheck("on-demand").Policy(kueue.AfterCheckPassedOrOnDemand).Obj()
+			gomega.Expect(k8sClient.Create(ctx, checkOnDemand)).To(gomega.Succeed())
+
 			cq = testing.MakeClusterQueue("cq").
 				ResourceGroup(*testing.MakeFlavorQuotas("alpha").Resource(corev1.ResourceCPU, "4").Obj()).
 				Preemption(kueue.ClusterQueuePreemption{
@@ -79,6 +89,8 @@ var _ = ginkgo.Describe("Preemption", func() {
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, checkOnDemand, true)
+			util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, checkAnytime, true)
 		})
 
 		ginkgo.It("Should preempt Workloads with lower priority when there is not enough quota", func() {
@@ -180,6 +192,147 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl3)
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl4)
+		})
+
+		ginkgo.It("Should preempt immediately when anytime check is used", func() {
+			ginkgo.By("Adding the check to the ClusterQueue", func() {
+				cqKey := client.ObjectKeyFromObject(cq)
+				gomega.Eventually(func() error {
+					updatedQueue := &kueue.ClusterQueue{}
+					err := k8sClient.Get(ctx, cqKey, updatedQueue)
+					if err != nil {
+						return err
+					}
+					updatedQueue.Spec.AdmissionChecks = []string{checkAnytime.Name}
+					return k8sClient.Update(ctx, updatedQueue)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			lowWl := testing.MakeWorkload("low-wl", ns.Name).
+				Queue(q.Name).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "4").
+				Obj()
+
+			ginkgo.By("Creating the first workload wait its admission", func() {
+				gomega.Expect(k8sClient.Create(ctx, lowWl)).To(gomega.Succeed())
+				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl)
+				util.SetWorkloadsAdmissionCkeck(ctx, k8sClient, lowWl, checkAnytime.Name, kueue.CheckStateReady)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, cq.Name, lowWl)
+			})
+
+			highWl := testing.MakeWorkload("high-wl", ns.Name).
+				Queue(q.Name).
+				Priority(highPriority).
+				Request(corev1.ResourceCPU, "4").
+				Obj()
+			ginkgo.By("Creating a high priority Workload", func() {
+				gomega.Expect(k8sClient.Create(ctx, highWl)).To(gomega.Succeed())
+				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, highWl)
+				util.FinishEvictionForWorkloads(ctx, k8sClient, lowWl)
+				util.SetWorkloadsAdmissionCkeck(ctx, k8sClient, highWl, checkAnytime.Name, kueue.CheckStateReady)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, cq.Name, highWl)
+			})
+		})
+
+		ginkgo.It("Should not preempt immediately when on-demand check is used, after succeed", func() {
+			ginkgo.By("Adding the check to the ClusterQueue", func() {
+				cqKey := client.ObjectKeyFromObject(cq)
+				gomega.Eventually(func() error {
+					updatedQueue := &kueue.ClusterQueue{}
+					err := k8sClient.Get(ctx, cqKey, updatedQueue)
+					if err != nil {
+						return err
+					}
+					updatedQueue.Spec.AdmissionChecks = []string{checkOnDemand.Name}
+					return k8sClient.Update(ctx, updatedQueue)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			lowWl := testing.MakeWorkload("low-wl", ns.Name).
+				Queue(q.Name).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "4").
+				Obj()
+
+			ginkgo.By("Creating the first workload wait its admission", func() {
+				gomega.Expect(k8sClient.Create(ctx, lowWl)).To(gomega.Succeed())
+				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl)
+				util.SetWorkloadsAdmissionCkeck(ctx, k8sClient, lowWl, checkOnDemand.Name, kueue.CheckStateReady)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, cq.Name, lowWl)
+			})
+
+			highWl := testing.MakeWorkload("high-wl", ns.Name).
+				Queue(q.Name).
+				Priority(highPriority).
+				Request(corev1.ResourceCPU, "4").
+				Obj()
+			ginkgo.By("Creating a high priority Workload", func() {
+				gomega.Expect(k8sClient.Create(ctx, highWl)).To(gomega.Succeed())
+				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, highWl)
+				gomega.Consistently(func() bool {
+					readWl := &kueue.Workload{}
+					err := k8sClient.Get(ctx, client.ObjectKeyFromObject(lowWl), readWl)
+					if err != nil {
+						return false
+					}
+					return apimeta.IsStatusConditionTrue(readWl.Status.Conditions, kueue.WorkloadAdmitted)
+
+				}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
+				util.SetWorkloadsAdmissionCkeck(ctx, k8sClient, highWl, checkOnDemand.Name, kueue.CheckStateReady)
+				util.FinishEvictionForWorkloads(ctx, k8sClient, lowWl)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, cq.Name, highWl)
+			})
+		})
+
+		ginkgo.It("Should not preempt immediately when on-demand check is used, after demand", func() {
+			ginkgo.By("Adding the check to the ClusterQueue", func() {
+				cqKey := client.ObjectKeyFromObject(cq)
+				gomega.Eventually(func() error {
+					updatedQueue := &kueue.ClusterQueue{}
+					err := k8sClient.Get(ctx, cqKey, updatedQueue)
+					if err != nil {
+						return err
+					}
+					updatedQueue.Spec.AdmissionChecks = []string{checkOnDemand.Name}
+					return k8sClient.Update(ctx, updatedQueue)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			lowWl := testing.MakeWorkload("low-wl", ns.Name).
+				Queue(q.Name).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "4").
+				Obj()
+
+			ginkgo.By("Creating the first workload wait its admission", func() {
+				gomega.Expect(k8sClient.Create(ctx, lowWl)).To(gomega.Succeed())
+				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl)
+				util.SetWorkloadsAdmissionCkeck(ctx, k8sClient, lowWl, checkOnDemand.Name, kueue.CheckStateReady)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, cq.Name, lowWl)
+			})
+
+			highWl := testing.MakeWorkload("high-wl", ns.Name).
+				Queue(q.Name).
+				Priority(highPriority).
+				Request(corev1.ResourceCPU, "4").
+				Obj()
+			ginkgo.By("Creating a high priority Workload", func() {
+				gomega.Expect(k8sClient.Create(ctx, highWl)).To(gomega.Succeed())
+				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, highWl)
+				gomega.Consistently(func() bool {
+					readWl := &kueue.Workload{}
+					err := k8sClient.Get(ctx, client.ObjectKeyFromObject(lowWl), readWl)
+					if err != nil {
+						return false
+					}
+					return apimeta.IsStatusConditionTrue(readWl.Status.Conditions, kueue.WorkloadAdmitted)
+
+				}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
+				util.SetWorkloadsAdmissionCkeck(ctx, k8sClient, highWl, checkOnDemand.Name, kueue.CheckStatePreemptionRequired)
+				util.FinishEvictionForWorkloads(ctx, k8sClient, lowWl)
+				// the admission will be happen later on
+			})
 		})
 	})
 
