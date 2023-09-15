@@ -29,6 +29,10 @@ import (
 
 var AdmissionTaintKey = "kueue.x-k8s.io/kueue-admission"
 
+const (
+  ControllerName = "kueue-podtaintstolerations"
+)
+
 var (
 	GVK = corev1.SchemeGroupVersion.WithKind("Pod")
 
