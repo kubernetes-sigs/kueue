@@ -1,11 +1,12 @@
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: RoleBinding
 metadata:
-  name: kueue-podtaintstolerations
+  name: kueue-podtaintstolerations-leaderelection
+  namespace: kueue-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: kueue-podtaintstolerations
+  kind: Role
+  name: kueue-leader-election-role
 subjects:
 - kind: ServiceAccount
   name: kueue-podtaintstolerations
