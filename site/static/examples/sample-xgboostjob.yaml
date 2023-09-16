@@ -14,7 +14,7 @@ spec:
         spec:
           containers:
             - name: xgboost
-              image: docker.io/merlintang/xgboost-dist-iris:1.1
+              image: docker.io/kubeflow/xgboost-dist-iris:latest
               resources:
                 requests:
                   cpu: 0.5
@@ -37,7 +37,7 @@ spec:
         spec:
           containers:
             - name: xgboost
-              image: docker.io/merlintang/xgboost-dist-iris:1.1
+              image: docker.io/kubeflow/xgboost-dist-iris:latest
               resources:
                 requests:
                   cpu: 0.5
