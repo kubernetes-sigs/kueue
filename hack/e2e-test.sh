@@ -55,6 +55,11 @@ function startup {
 function kind_load {
     if [ $CREATE_KIND_CLUSTER == 'true' ]
     then
+        export E2E_IMAGES=$(grep '.Image(' ./test/e2e/e2e_test.go | cut -d '"' -f2 | sort | uniq)
+        while read -r E2E_IMAGES; do
+            docker pull $E2E_IMAGES
+            $KIND load docker-image $E2E_IMAGES --name $KIND_CLUSTER_NAME
+        done <<< "$E2E_IMAGES"
         $KIND load docker-image $IMAGE_TAG --name $KIND_CLUSTER_NAME
     fi
 }
