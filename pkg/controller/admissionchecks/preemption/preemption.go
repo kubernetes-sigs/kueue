@@ -44,6 +44,11 @@ const (
 
 type updateStatusFnc func(context.Context, client.Client, *kueue.Workload, bool) error
 
+// Controller manages the preemption process of the workloads after quota reservation taking into account
+// its admission checks states. It will issue eviction for other workloads, and mark the preemption as
+// successful or not based on the current state of the resources pool. Check run() for more details.
+// The controller will react to workload and admission check changes, check NotifyWorkloadUpdate()
+// and NotifyAdmissionCheckUpdate() for details.
 type Controller struct {
 	log         logr.Logger
 	cache       *cache.Cache
@@ -93,6 +98,7 @@ func (c *Controller) Start(ctx context.Context) error {
 			return nil
 		}
 
+		// If a run was triggered and at least throttle timeout has passed.
 		if trigger && timeout {
 			c.run()
 			trigger = false
@@ -101,22 +107,25 @@ func (c *Controller) Start(ctx context.Context) error {
 	}
 }
 
+// trigger - triggers a controller run if not already pending.
 func (c *Controller) trigger(logValues ...interface{}) {
 	select {
 	case c.triggerChan <- struct{}{}:
+		// The run was triggered.
 		c.log.V(2).Info("Triggered", logValues...)
 	default:
+		// The channel is already full, a run in already pending.
 	}
 
 }
 
 func (c *Controller) NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload) {
 	if oldWl == nil {
-		// there is noting to on worklods creation
+		// There is noting to on workloads creation.
 		return
 	}
 	if newWl == nil {
-		// deleting a workload that reserves quota can speed up the
+		// Deleting a workload that reserves quota can speed up the
 		// transition of preemption pending workloads.
 		if workload.HasQuotaReservation(oldWl) {
 			c.trigger("event", "Workload with reservation was deleted", "wl", klog.KObj(oldWl))
@@ -124,45 +133,46 @@ func (c *Controller) NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload) {
 		return
 	}
 
-	// if quota gets released
+	// If quota gets released.
 	if workload.HasQuotaReservation(oldWl) && !workload.HasQuotaReservation(newWl) {
 		c.trigger("event", "Quota released", "wl", klog.KObj(oldWl))
 	}
 
-	// is a preemption pending workload
+	// Is a preemption pending workload.
 	if state := workload.FindAdmissionCheck(newWl.Status.AdmissionChecks, constants.PreemptionAdmissionCheckName); state != nil && state.State == kueue.CheckStatePending {
 		c.trigger("event", "Pending workload updated", "wl", klog.KObj(oldWl))
 	}
 }
 
 func (c *Controller) NotifyAdmissionCheckUpdate(oldAc, newAc *kueue.AdmissionCheck) {
-	// adding or removing a check will lead to a workload update later on
+	// Adding or removing a check will lead to a workload update later on
 	// we should ignore those events here.
 	if oldAc != nil && newAc != nil && ptr.Deref(oldAc.Spec.PreemptionPolicy, "") != ptr.Deref(newAc.Spec.PreemptionPolicy, "") {
-		c.trigger("event", "AC policy changed", "ac", klog.KObj(oldAc))
+		c.trigger("event", "Admission check preemption policy changed", "ac", klog.KObj(oldAc))
 	}
 }
 
 func (c *Controller) run() {
 	c.log.V(2).Info("Start run")
 
+	// If there is nothing to do at this point.
 	if !c.cache.ShouldRunPreemption() {
-		// skip the snapshot creation
+		// skip the snapshot creation and exit
 		return
 	}
 
 	snapshot := c.cache.Snapshot()
 	workloads := filterWorkloads(&snapshot)
 	for _, wl := range workloads {
-		//1. remove it from Snapshot
+		//1. remove the workload from the snapshot
 		snapshot.RemoveWorkload(wl)
-		//2. check if preemption is needed
 		usage := totalRequestsForWorkload(wl)
 		needPreemption := resourcesNeedingPreemption(wl, usage, &snapshot)
 		log := c.log.WithValues("workload", klog.KObj(wl.Obj))
+		//2. check if preemption is sill needed
 		if len(needPreemption) == 0 {
-			// 2.1 - set the check to true
-			// the preemption is done , flip the condition
+			// No more resources need to be freed to accommodate this workload.
+			// The preemption is successful.
 			if err := c.updateFnc(c.ctx, c.client, wl.Obj, true); err != nil {
 				log.V(2).Error(err, "Unable to update the check state to True")
 				c.trigger("retryUpdate", klog.KObj(wl.Obj))
@@ -170,10 +180,11 @@ func (c *Controller) run() {
 				log.V(2).Info("Preemption ended")
 			}
 		} else {
-			// 2.2 - issue eviction
+			// Additional resources need to be freed.
 			targets := c.preemptor.GetTargetsForResources(wl, needPreemption, usage, &snapshot)
 			if len(targets) == 0 {
-				//2.2.1 - preemption is no longer an option, flip the condition to false
+				// There are no candidates for eviction, the preemption can no linger be done.
+				// The preemption failed.
 				if err := c.updateFnc(c.ctx, c.client, wl.Obj, false); err != nil {
 					log.V(2).Error(err, "Unable to update the check state to False")
 					c.trigger("retryUpdate", klog.KObj(wl.Obj))
@@ -181,6 +192,7 @@ func (c *Controller) run() {
 					log.V(2).Info("Preemption is no longer possible")
 				}
 			} else {
+				// Issue the evictions, the controller will run again once the evicted workloads are fully stopped.
 				count, err := c.preemptor.IssuePreemptions(c.ctx, targets, snapshot.ClusterQueues[wl.ClusterQueue])
 				if err != nil {
 					log.V(2).Error(err, "Unable to issue preemption")
@@ -267,12 +279,13 @@ func resourcesNeedingPreemption(wl *workload.Info, usage cache.FlavorResourceQua
 
 func updateCheckState(ctx context.Context, c client.Client, wl *kueue.Workload, successful bool) error {
 	state := kueue.AdmissionCheckState{
-		Name:    constants.PreemptionAdmissionCheckName,
-		State:   kueue.CheckStateReady,
-		Message: "Preemption done",
+		Name: constants.PreemptionAdmissionCheckName,
 	}
 
-	if !successful {
+	if successful {
+		state.State = kueue.CheckStateReady
+		state.Message = "Preemption done"
+	} else {
 		state.State = kueue.CheckStateRetry
 		state.Message = "Preemption is not possible"
 	}
