@@ -23,6 +23,7 @@ ROOT_DIR=$SOURCE_DIR/..
 export KUSTOMIZE=$ROOT_DIR/bin/kustomize
 export GINKGO=$ROOT_DIR/bin/ginkgo
 export KIND=$ROOT_DIR/bin/kind
+export E2E_TEST_IMAGE=gcr.io/k8s-staging-perf-tests/sleep:v0.0.3
 
 function cleanup {
     if [ $CREATE_KIND_CLUSTER == 'true' ]
@@ -55,11 +56,8 @@ function startup {
 function kind_load {
     if [ $CREATE_KIND_CLUSTER == 'true' ]
     then
-        export E2E_IMAGES=$(grep '.Image(' ./test/e2e/e2e_test.go | cut -d '"' -f2 | sort | uniq)
-        while read -r E2E_IMAGES; do
-            docker pull $E2E_IMAGES
-            $KIND load docker-image $E2E_IMAGES --name $KIND_CLUSTER_NAME
-        done <<< "$E2E_IMAGES"
+        docker pull $E2E_TEST_IMAGE
+        $KIND load docker-image $E2E_TEST_IMAGE --name $KIND_CLUSTER_NAME
         $KIND load docker-image $IMAGE_TAG --name $KIND_CLUSTER_NAME
     fi
 }
