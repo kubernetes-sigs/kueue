@@ -26,7 +26,7 @@ ClusterQueue and a single [ResourceFlavor](/docs/concepts/cluster_queue#resource
 to govern the quota of your cluster.
 
 You can perform all these steps at once by
-applying [github.com/kubernetes-sigs/kueue/blob/main/site/static/examples/admin/single-clusterqueue-setup.yaml](https://github.com/kubernetes-sigs/kueue/blob/main/examples/admin/single-clusterqueue-setup.yaml):
+applying [examples/admin/single-clusterqueue-setup.yaml](/examples/admin/single-clusterqueue-setup.yaml):
 
 ```shell
 kubectl apply -f examples/admin/single-clusterqueue-setup.yaml
