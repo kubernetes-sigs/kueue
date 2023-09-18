@@ -17,7 +17,7 @@ require (
 	go.uber.org/zap v1.25.0
 	k8s.io/api v0.27.6
 	k8s.io/apimachinery v0.27.6
-	k8s.io/apiserver v0.27.5
+	k8s.io/apiserver v0.27.6
 	k8s.io/client-go v0.27.6
 	k8s.io/code-generator v0.27.6
 	k8s.io/component-base v0.27.6
