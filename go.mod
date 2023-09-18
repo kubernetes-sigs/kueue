@@ -15,13 +15,13 @@ require (
 	github.com/prometheus/client_model v0.4.0
 	github.com/ray-project/kuberay/ray-operator v0.0.0-20230613204710-aeed3cdcbdcc
 	go.uber.org/zap v1.25.0
-	k8s.io/api v0.27.6
-	k8s.io/apimachinery v0.27.6
-	k8s.io/apiserver v0.27.6
-	k8s.io/client-go v0.27.6
-	k8s.io/code-generator v0.27.6
-	k8s.io/component-base v0.27.6
-	k8s.io/component-helpers v0.27.5
+	k8s.io/api v0.28.2
+	k8s.io/apimachinery v0.28.2
+	k8s.io/apiserver v0.28.2
+	k8s.io/client-go v0.28.2
+	k8s.io/code-generator v0.28.2
+	k8s.io/component-base v0.28.2
+	k8s.io/component-helpers v0.28.2
 	k8s.io/klog/v2 v2.100.1
 	k8s.io/utils v0.0.0-20230726121419-3b25d923346b
 	sigs.k8s.io/controller-runtime v0.15.0
@@ -46,7 +46,7 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
-	github.com/google/gnostic v0.6.9 // indirect
+	github.com/google/gnostic-models v0.6.8 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/pprof v0.0.0-20230323073829-e72429f035bd // indirect
 	github.com/google/uuid v1.3.0 // indirect
@@ -81,7 +81,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/apiextensions-apiserver v0.27.4 // indirect
 	k8s.io/gengo v0.0.0-20220902162205-c0856e24416d // indirect
-	k8s.io/kube-openapi v0.0.0-20230501164219-8b0f38b5fd1f // indirect
+	k8s.io/kube-openapi v0.0.0-20230717233707-2695361300d9 // indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/yaml v1.3.0 // indirect
 )

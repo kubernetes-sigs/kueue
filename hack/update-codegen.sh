@@ -25,7 +25,7 @@ CODEGEN_PKG=$($GO_CMD list -m -f "{{.Dir}}" k8s.io/code-generator)
 cd $(dirname ${BASH_SOURCE[0]})/..
 
 source "${CODEGEN_PKG}/generate-groups.sh" \
-  "all" \
+  applyconfiguration,client,lister,informer \
   sigs.k8s.io/kueue/client-go \
   sigs.k8s.io/kueue/apis \
   kueue:v1beta1 \
