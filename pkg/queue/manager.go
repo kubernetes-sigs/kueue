@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"sync"
 
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -569,12 +570,14 @@ func (m *Manager) getClusterQueue(cqName string) ClusterQueue {
 	return m.clusterQueues[cqName]
 }
 
-func (m *Manager) UpdateSnapshot(cqName string, maxCount int32) {
+// UpdateSnapshot computes the new snapshot and replaces if it differs from the
+// pevious version. It returns true if the snapshot was actually updated.
+func (m *Manager) UpdateSnapshot(cqName string, maxCount int32) bool {
 	cq := m.getClusterQueue(cqName)
 	if cq == nil {
-		return
+		return false
 	}
-	workloads := make([]kueue.ClusterQueuePendingWorkload, 0)
+	newSnapshot := make([]kueue.ClusterQueuePendingWorkload, 0)
 	for index, info := range cq.Snapshot() {
 		if int32(index) >= maxCount {
 			break
@@ -582,12 +585,17 @@ func (m *Manager) UpdateSnapshot(cqName string, maxCount int32) {
 		if info == nil {
 			continue
 		}
-		workloads = append(workloads, kueue.ClusterQueuePendingWorkload{
+		newSnapshot = append(newSnapshot, kueue.ClusterQueuePendingWorkload{
 			Name:      info.Obj.Name,
 			Namespace: info.Obj.Namespace,
 		})
 	}
-	m.setSnapshot(cqName, workloads)
+	prevSnapshot := m.GetSnapshot(cqName)
+	if !equality.Semantic.DeepEqual(prevSnapshot, newSnapshot) {
+		m.setSnapshot(cqName, newSnapshot)
+		return true
+	}
+	return false
 }
 
 func (m *Manager) setSnapshot(cqName string, workloads []kueue.ClusterQueuePendingWorkload) {
