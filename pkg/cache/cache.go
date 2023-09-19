@@ -701,7 +701,7 @@ func (c *Cache) ClusterQueuesUsingAdmissionCheck(ac string) []string {
 	var cqs []string
 
 	for _, cq := range c.clusterQueues {
-		if cq.admissionChecks.Has(ac) {
+		if cq.AdmissionChecks.Has(ac) {
 			cqs = append(cqs, cq.Name)
 		}
 	}
