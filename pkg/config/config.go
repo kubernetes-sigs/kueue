@@ -48,8 +48,8 @@ func fromFile(path string, scheme *runtime.Scheme, cfg *configapi.Configuration)
 // addTo provides an alternative to the deprecated o.AndFrom(&cfg)
 func addTo(o *ctrl.Options, cfg *configapi.Configuration) {
 	addLeaderElectionTo(o, cfg)
-	if o.MetricsBindAddress == "" && cfg.Metrics.BindAddress != "" {
-		o.MetricsBindAddress = cfg.Metrics.BindAddress
+	if o.Metrics.BindAddress == "" && cfg.Metrics.BindAddress != "" {
+		o.Metrics.BindAddress = cfg.Metrics.BindAddress
 	}
 
 	if o.PprofBindAddress == "" && cfg.PprofBindAddress != "" {
