@@ -25,10 +25,11 @@ In the following steps, you will create a queuing system with a single
 ClusterQueue and a single [ResourceFlavor](/docs/concepts/cluster_queue#resourceflavor-object)
 to govern the quota of your cluster.
 
-You can perform all these steps at once by applying [github.com/kubernetes-sigs/kueue/blob/main/examples/single-clusterqueue-setup.yaml](https://github.com/kubernetes-sigs/kueue/blob/main/examples/single-clusterqueue-setup.yaml):
+You can perform all these steps at once by
+applying [examples/admin/single-clusterqueue-setup.yaml](/examples/admin/single-clusterqueue-setup.yaml):
 
 ```shell
-kubectl apply -f examples/single-clusterqueue-setup.yaml
+kubectl apply -f examples/admin/single-clusterqueue-setup.yaml
 ```
 
 ### 1. Create a [ClusterQueue](/docs/concepts/cluster_queue)

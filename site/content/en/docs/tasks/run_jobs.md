@@ -55,32 +55,8 @@ without Kueue. However, you must consider the following differences:
 - You should include the resource requests for each Job Pod.
 
 Here is a sample Job with three Pods that just sleep for a few seconds.
-This sample is also available in [github.com/kubernetes-sigs/kueue/blob/main/examples/sample-job.yaml](https://github.com/kubernetes-sigs/kueue/blob/main/examples/sample-job.yaml).
 
-```yaml
-# sample-job.yaml
-apiVersion: batch/v1
-kind: Job
-metadata:
-  generateName: sample-job-
-  labels:
-    kueue.x-k8s.io/queue-name: user-queue
-spec:
-  parallelism: 3
-  completions: 3
-  suspend: true
-  template:
-    spec:
-      containers:
-      - name: dummy-job
-        image: gcr.io/k8s-staging-perf-tests/sleep:latest
-        args: ["30s"]
-        resources:
-          requests:
-            cpu: 1
-            memory: "200Mi"
-      restartPolicy: Never
-```
+{{% include "jobs/sample-job.yaml" "yaml" %}}
 
 ## 2. Run the Job
 
@@ -233,32 +209,8 @@ To allow partial admission you can provide the minimum acceptable parallelism `P
 
 For example, a Job defined by the following manifest:
 
-```yaml
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: sample-job-partial-admission
-  namespace: default
-  labels:
-    kueue.x-k8s.io/queue-name: user-queue
-  annotations:
-    kueue.x-k8s.io/job-min-parallelism: "5"
-spec:
-  parallelism: 20
-  completions: 20
-  suspend: true
-  template:
-    spec:
-      containers:
-      - name: dummy-job
-        image: gcr.io/k8s-staging-perf-tests/sleep:v0.0.3
-        args: ["30s"]
-        resources:
-          requests:
-            cpu: 1
-            memory: "200Mi"
-      restartPolicy: Never
-```
+{{% include "jobs/sample-job-partial-admission.yaml" "yaml" %}}
+
 When queued in a ClusterQueue with only 9 CPUs available, it will be admitted with `parallelism=9`. Note that the number of completions doesn't change.
 
 **NOTE:** PartialAdmission is an `Alpha` feature disabled by default, check the [Change the feature gates configuration](/docs/installation/#change-the-feature-gates-configuration) section of the [Installation](/docs/installation/) for details.
