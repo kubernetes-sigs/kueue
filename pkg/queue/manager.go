@@ -571,7 +571,7 @@ func (m *Manager) getClusterQueue(cqName string) ClusterQueue {
 }
 
 // UpdateSnapshot computes the new snapshot and replaces if it differs from the
-// pevious version. It returns true if the snapshot was actually updated.
+// previous version. It returns true if the snapshot was actually updated.
 func (m *Manager) UpdateSnapshot(cqName string, maxCount int32) bool {
 	cq := m.getClusterQueue(cqName)
 	if cq == nil {

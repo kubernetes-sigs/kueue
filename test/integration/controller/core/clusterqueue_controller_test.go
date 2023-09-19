@@ -801,9 +801,10 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 				},
 			}, ignoreLastChangeTime))
 
-			ginkgo.By("Finishing workload")
-			util.FinishWorkloads(ctx, k8sClient, workloadsFirstBatch...)
-			util.FinishWorkloads(ctx, k8sClient, workloadsSecondBatch...)
+			ginkgo.By("Finishing workload", func() {
+				util.FinishWorkloads(ctx, k8sClient, workloadsFirstBatch...)
+				util.FinishWorkloads(ctx, k8sClient, workloadsSecondBatch...)
+			})
 
 			ginkgo.By("Awaiting for the pending workloads status to be updated after the workloads are finished")
 			gomega.Eventually(func() *kueue.ClusterQueuePendingWorkloadsStatus {

@@ -63,7 +63,7 @@ type ClusterQueueReconciler struct {
 	wlUpdateCh                           chan event.GenericEvent
 	rfUpdateCh                           chan event.GenericEvent
 	acUpdateCh                           chan event.GenericEvent
-	shUpdateCh                           chan event.GenericEvent
+	snapUpdateCh                         chan event.GenericEvent
 	watchers                             []ClusterQueueUpdateWatcher
 	reportResourceMetrics                bool
 	queueVisibilityUpdateInterval        time.Duration
@@ -129,7 +129,7 @@ func NewClusterQueueReconciler(
 		wlUpdateCh:                           make(chan event.GenericEvent, updateChBuffer),
 		rfUpdateCh:                           make(chan event.GenericEvent, updateChBuffer),
 		acUpdateCh:                           make(chan event.GenericEvent, updateChBuffer),
-		shUpdateCh:                           make(chan event.GenericEvent, updateChBuffer),
+		snapUpdateCh:                         make(chan event.GenericEvent, updateChBuffer),
 		watchers:                             options.Watchers,
 		reportResourceMetrics:                options.ReportResourceMetrics,
 		queueVisibilityUpdateInterval:        options.QueueVisibilityUpdateInterval,
@@ -577,7 +577,7 @@ func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	acHandler := cqAdmissionCheckHandler{
 		cache: r.cache,
 	}
-	shHandler := cqSnapshotHandler{
+	snapHandler := cqSnapshotHandler{
 		queueVisibilityUpdateInterval: r.queueVisibilityUpdateInterval,
 	}
 	return ctrl.NewControllerManagedBy(mgr).
@@ -586,7 +586,7 @@ func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		WatchesRawSource(&source.Channel{Source: r.wlUpdateCh}, &wHandler).
 		WatchesRawSource(&source.Channel{Source: r.rfUpdateCh}, &rfHandler).
 		WatchesRawSource(&source.Channel{Source: r.acUpdateCh}, &acHandler).
-		WatchesRawSource(&source.Channel{Source: r.shUpdateCh}, &shHandler).
+		WatchesRawSource(&source.Channel{Source: r.snapUpdateCh}, &snapHandler).
 		WithEventFilter(r).
 		Complete(r)
 }
@@ -689,9 +689,8 @@ func (r *ClusterQueueReconciler) processNextSnapshot(ctx context.Context) bool {
 
 	cqName := key.(string)
 	if r.qManager.UpdateSnapshot(cqName, r.queueVisibilityClusterQueuesMaxCount) {
-		log.WithValues("cqName", cqName)
-		log.Info("Triggering CQ update due to snapshot change", "cqName", cqName)
-		r.shUpdateCh <- event.GenericEvent{Object: &kueue.ClusterQueue{
+		log.V(5).Info("Triggering CQ update due to snapshot change", "clusterQueue", klog.KRef("", cqName))
+		r.snapUpdateCh <- event.GenericEvent{Object: &kueue.ClusterQueue{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: cqName,
 			},
