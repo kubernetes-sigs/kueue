@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
@@ -228,7 +229,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			log.V(5).Info("Finished waiting for all admitted workloads to be in the PodsReady condition")
 		}
 		e.status = nominated
-		if err := s.admit(ctx, e); err != nil {
+		if err := s.admit(ctx, e, cq.AdmissionChecks); err != nil {
 			e.inadmissibleMsg = fmt.Sprintf("Failed to admit workload: %v", err)
 		}
 	}
@@ -419,7 +420,7 @@ func (s *Scheduler) validateLimitRange(ctx context.Context, wi *workload.Info) e
 // admit sets the admitting clusterQueue and flavors into the workload of
 // the entry, and asynchronously updates the object in the apiserver after
 // assuming it in the cache.
-func (s *Scheduler) admit(ctx context.Context, e *entry) error {
+func (s *Scheduler) admit(ctx context.Context, e *entry, mustHaveChecks sets.Set[string]) error {
 	log := ctrl.LoggerFrom(ctx)
 	newWorkload := e.Obj.DeepCopy()
 	admission := &kueue.Admission{
@@ -428,6 +429,10 @@ func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 	}
 
 	workload.SetQuotaReservation(newWorkload, admission)
+	if workload.HasAllChecks(newWorkload, mustHaveChecks) {
+		// sync Admitted, ignore the result since an API update is always done.
+		_ = workload.SyncAdmittedCondition(newWorkload)
+	}
 	if err := s.cache.AssumeWorkload(newWorkload); err != nil {
 		return err
 	}
