@@ -454,6 +454,18 @@ func HasRetryOrRejectedChecks(wl *kueue.Workload) bool {
 	return false
 }
 
+// Returns the list of Rejected admission checks
+func GetRejectedChecks(wl *kueue.Workload) []string {
+	rejectedChecks := make([]string, 0, len(wl.Status.AdmissionChecks))
+	for i := range wl.Status.AdmissionChecks {
+		ac := wl.Status.AdmissionChecks[i]
+		if ac.Status == metav1.ConditionFalse && ac.Reason == kueue.CheckStateRejected {
+			rejectedChecks = append(rejectedChecks, ac.Type)
+		}
+	}
+	return rejectedChecks
+}
+
 // Returns true if the workload is admitted.
 func IsAdmitted(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadAdmitted)
