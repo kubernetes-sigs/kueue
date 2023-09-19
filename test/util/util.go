@@ -287,13 +287,16 @@ func ExpectClusterQueueStatusMetric(cq *kueue.ClusterQueue, status metrics.Clust
 }
 
 func ExpectAdmissionCheckToBeDeleted(ctx context.Context, k8sClient client.Client, ac *kueue.AdmissionCheck, deleteAC bool) {
+	if ac == nil {
+		return
+	}
 	if deleteAC {
-		gomega.Expect(DeleteAdmissionCheck(ctx, k8sClient, ac)).NotTo(gomega.HaveOccurred())
+		gomega.Expect(client.IgnoreNotFound(DeleteAdmissionCheck(ctx, k8sClient, ac))).To(gomega.Succeed())
 	}
 	gomega.EventuallyWithOffset(1, func() error {
 		var newAC kueue.AdmissionCheck
 		return k8sClient.Get(ctx, client.ObjectKeyFromObject(ac), &newAC)
-	}, Timeout, Timeout).Should(testing.BeNotFoundError())
+	}, Timeout, Interval).Should(testing.BeNotFoundError())
 }
 
 func ExpectClusterQueueToBeDeleted(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, deleteCq bool) {

@@ -38,3 +38,7 @@ resources:
 - rayjob_viewer_role.yaml
 - pytorchjob_editor_role.yaml
 - pytorchjob_viewer_role.yaml
+- tfjob_editor_role.yaml
+- tfjob_viewer_role.yaml
+- xgboostjob_editor_role.yaml
+- xgboostjob_viewer_role.yaml

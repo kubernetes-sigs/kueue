@@ -149,6 +149,49 @@ rules:
       - get
       - update
   - apiGroups:
+      - kubeflow.org
+    resources:
+      - xgboostjobs
+    verbs:
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - kubeflow.org
+    resources:
+      - xgboostjobs/status
+    verbs:
+      - get
+      - update
+  - apiGroups:
+      - kueue.x-k8s.io
+    resources:
+      - admissionchecks
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - kueue.x-k8s.io
+    resources:
+      - admissionchecks/finalizers
+    verbs:
+      - update
+  - apiGroups:
+      - kueue.x-k8s.io
+    resources:
+      - admissionchecks/status
+    verbs:
+      - get
+      - patch
+      - update
+  - apiGroups:
       - kueue.x-k8s.io
     resources:
       - clusterqueues

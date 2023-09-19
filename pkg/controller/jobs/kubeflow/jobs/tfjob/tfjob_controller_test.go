@@ -24,7 +24,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
-func TestCalcPriorityClassName(t *testing.T) {
+func TestPriorityClass(t *testing.T) {
 	testcases := map[string]struct {
 		job                   kftraining.TFJob
 		wantPriorityClassName string
@@ -183,7 +183,7 @@ func TestCalcPriorityClassName(t *testing.T) {
 	}
 }
 
-func TestOrderedReplicaType(t *testing.T) {
+func TestOrderedReplicaTypes(t *testing.T) {
 	testcases := map[string]struct {
 		job              kftraining.TFJob
 		wantReplicaTypes []kftraining.ReplicaType

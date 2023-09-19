@@ -550,3 +550,19 @@ func (lr *LimitRangeWrapper) WithValue(member string, t corev1.ResourceName, q s
 func (lr *LimitRangeWrapper) Obj() *corev1.LimitRange {
 	return &lr.LimitRange
 }
+
+type AdmissionCheckWrapper struct{ kueue.AdmissionCheck }
+
+func MakeAdmissionCheck(name string) *AdmissionCheckWrapper {
+	return &AdmissionCheckWrapper{
+		AdmissionCheck: kueue.AdmissionCheck{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: name,
+			},
+		},
+	}
+}
+
+func (ac *AdmissionCheckWrapper) Obj() *kueue.AdmissionCheck {
+	return &ac.AdmissionCheck
+}

@@ -116,7 +116,7 @@ type WorkloadStatus struct {
 [...]
 	// Status of admission checks, if there are any specified 
 	// for the ClusterQueue in which the workload is queued.
-	AdmissionChecksConditions []metav1.Condition `json:"admissionChecksConditions,omitempty"`
+	AdmissionChecks []metav1.Condition `json:"admissionChecksConditions,omitempty"`
 }
 
 // Condition names used in WorkloadStatus
@@ -144,7 +144,7 @@ const (
 	// The check might pass if there was fewer workloads. Proceed
 	// with any pending workload preemption. Should be set 
 	// when condition status is still "Unknown" 
-	BookQuotaRequired status = "BookQuotaRequired"
+	PreemptionRequired status = "PreemptionRequired"
 )
 
 // AdmissionCheckSpec defines the desired state of AdmissionCheck.
@@ -163,22 +163,20 @@ type AdmissionCheckSpec struct {
 	// A reference to the additional parameters for the check. 
 	Parameters *AdmissionCheckParametersReference `json:"parameters,omitempty"`
 
-	// How should the workload book quota (and possibly preempt others) 
-	// before the check pass. The default is NoBooking.
-	// If different modes are used for different AdmissionChecks,
-	// the most restrictive one is used.
-	QuotaBooking *QuotaBookingMode `json:"quotaBooking,omitempty"`
+	// preemptionPolicy determines when to issue preemptions for the Workload,
+	// if necessary, in relationship to the status of the admission check.
+	// The possible values are:
+	// - `Anytime`: No need to wait for this check to pass before issuing preemptions.
+	//   Preemptions might be blocked on the preemptionPolicy of other AdmissionChecks.
+	// - `AfterCheckPassedOrOnDemand`: Wait for this check to pass pass before issuing preemptions,
+	//   unless this or other checks requests preemptions through the Workload's admissionChecks.
+	// Defaults to `Anytime`.
+	PreemptionPolicy *PreemptionPolicy `json:"preemptionPolicy,omitempty"`
 }
 
-// Definitons of QuotaBookingModes.
-// BookAfterQuotaCheck is more restrictive than NoBooking.
 const (
-	// No booking, unless a check explicitely asks for it reporting quota exhausted.
-	NoBooking QuotaBookingMode = "NoBooking"
-	
-	// Book quota (and preempt) immediately after the basic quota checks 
-	// are done, without waiting for the additional checks to cpmplete.
-	BookAfterQuotaCheck QuotaBookingMode = "BookAfterQuotaCheck"
+	Anytime PreemptionPolicy = "Anytime"
+	AfterCheckPassedOrOnDemand PreemptionPolicy = "AfterCheckPassedOrOnDemand"
 )
 
 // Points to where the parameters for the checks are. 
@@ -199,8 +197,8 @@ type AdmissionCheckParametersReference struct {
 For every workload that is put to a ClusterQueue that has AdmissionChecks
 configured Kueue will add:
 
-* “AdmissionPrecheck” set false to Conditions.
-* “<checkName>” set to "Unknown" for each of the AdmissionChecks to AdmissionCheckConditions.
+* "QuotaReserved" set `False` in Conditions.
+* "<checkName>" set to `Unknown` for each of the AdmissionChecks to AdmissionCheckConditions.
 
 Kueue will perform the very same checks that it does today, 
 before admitting a workload. However, once the basic checks 
@@ -209,27 +207,35 @@ workload is not in on-hold retry state from some check, it will:
 
 1. Fill the Admission field in workload, with the desired flavor assignment. 
 2. Not do any preemptions yet (unless BookCapacity is set to true).
-3. Set “AdmissionPrecheck” to true.
+3. Set "QuotaReserved" to true.
 
-Kueue will only pass as many pods past AdmissionPrecheck as there would
-fit in the quota together, possibly limited by a Kueue configuration option.
+Kueue will only pass as many pods into "QuotaReserved" as there would
+fit in the quota together, assuming that necessary preemptions will happen.
 That would violate a bit BestEffort logic of queues - if there is 1000 tasks
 in a queue that doesn’t pass quota and 1001st task passes, the best effort
 queue would let it in. BestEffort queue with 1000 tasks that don’t pass
 AdmissionChecks would not let 1001st task in (it will not reach the
 checks). Without this limitation, a large number of tasks could be switched
-back and forth from Precheck to suspended state. 
+back and forth from "QuotaReserved" to suspended state. 
 
-Then it will wait until all additional check conditions are satisfied (set
-to "True"). Once it happens, the Kueue will recheck that Admission settings
-are still valid (check quota/preemptions/reclamation) and admit the
-workload (doing preemptions if needed). Kueue will also recheck all of the
-prechecked workloads on every other workload admission, to make sure
-that their flavor admission is still possible. 
+Preemptions might happen at this point or later, depending on the `preemptionPolicy` of each
+AdmissionCheck. Preemption can happen immediately if all AdmissionChecks have a `preemptionPolicy`
+of `Anytime`. Otherwise, it will happen as soon as:
+- An AdmissionCheck requests preemptions using the reason `PreemptionRequired` in the check
+  status posted to the Workload's `.status.admissionChecks`, or
+- All AdmissionChecks with a `preemptionPolicy` of `AfterCheckPassedOrOnDemand` are reported as
+  `True` in the Workload's `.status.admissionChecks`.
 
-If any of these checks fails (either on the final check or when admission
-other workloads), the workload gets back to the suspended state, and gets
-their AdmissionChecks and AdmissionPrecheck cleared.
+Note that all Workloads that have a condition `QuotaReserved` are candidates for preemption. If
+any of these Workloads needs to be preempted:
+1. the `QuotaReserved` condition is set to `False`
+2. `.status.admissionChecks` is cleared.
+3. Controllers for the admission checks should stop any operations started for this Workload.
+
+Once all admission checks are satisfied (set to `True`), Kueue will recheck that Admission settings
+are still valid (check quota/preemptions/reclamation) and admit the workload (doing any pending or
+newly identified preemptions, if needed), setting the `Admitted`
+condition to True.
 
 If any check is switched to "False", with reason "Reject" or "Retry", the workload is either
 completely rejected or switched back to suspend state (with retry delay).
@@ -240,14 +246,12 @@ succeed.
 
 The controller implementing a particular check should:
  
-* Watch all AdmissionCheck objects to know which one should be
-handled by it. 
-* Watch all controller specific parameter objects, potentially referenced
-from AdmissionCheck.
+* Watch all AdmissionCheck objects to know which one should be handled by it. 
+* Watch all controller specific parameter objects, potentially referenced from AdmissionCheck.
 * Watch all workloads and process those that have AdmissionCheck for this
-particular controller and are past AdmissionPrecheck.
+  particular controller and are past AdmissionPrecheck.
 * After approving the workload, keep an eye on the check if it starts failing,
-fail the check and cause the workload to move back to the suspended state.
+  fail the check and cause the workload to move back to the suspended state.
 
 ### Test Plan
 
