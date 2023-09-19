@@ -31,6 +31,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -521,6 +522,7 @@ func TestClusterQueuePendingWorkloadsStatus(t *testing.T) {
 		},
 	}
 	for name, tc := range testCases {
+		defer features.SetFeatureGateDuringTest(t, features.ClusterQueueVisibility, true)()
 		t.Run(name, func(t *testing.T) {
 			cq := utiltesting.MakeClusterQueue(cqName).
 				QueueingStrategy(kueue.StrictFIFO).Obj()

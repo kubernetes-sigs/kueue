@@ -226,3 +226,4 @@ The currently supported features are:
 | Feature | Default | Stage | Since | Until |
 |---------|---------|-------|-------|-------|
 | `PartialAdmission` | `false` | Alpha | 0.4 |  |
+| `ClusterQueueVisibility` | `false` | Alpha | 0.5 |  |

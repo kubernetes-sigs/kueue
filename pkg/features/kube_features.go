@@ -33,6 +33,8 @@ const (
 	//
 	// Enables partial admission.
 	PartialAdmission featuregate.Feature = "PartialAdmission"
+	// Enables cluster queue visibility.
+	ClusterQueueVisibility featuregate.Feature = "ClusterQueueVisibility"
 )
 
 func init() {
@@ -46,7 +48,8 @@ func init() {
 // Entries are separated from each other with blank lines to avoid sweeping gofmt changes
 // when adding or removing one entry.
 var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
-	PartialAdmission: {Default: false, PreRelease: featuregate.Alpha},
+	PartialAdmission:       {Default: false, PreRelease: featuregate.Alpha},
+	ClusterQueueVisibility: {Default: false, PreRelease: featuregate.Alpha},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) func() {
