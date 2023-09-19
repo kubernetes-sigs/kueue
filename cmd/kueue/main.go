@@ -18,7 +18,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -227,13 +226,7 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 				return err
 			}
 			if _, err = mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version); err != nil {
-				// TODO: If the below PR is released, we need to change a way to check if the GVK is registered.
-				// REF: https://github.com/kubernetes-sigs/controller-runtime/pull/2425
-				// if !meta.IsNoMatchError(err) {
-				//   return err
-				// }
-				var NoMatchingErr *discovery.ErrGroupDiscoveryFailed
-				if !meta.IsNoMatchError(err) && !errors.As(err, &NoMatchingErr) {
+				if !meta.IsNoMatchError(err) {
 					return err
 				}
 				log.Info("No matching API server for job framework, skip to create controller and webhook")
