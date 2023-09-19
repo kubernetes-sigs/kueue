@@ -10,7 +10,7 @@ require (
 	github.com/kubeflow/training-operator v1.7.0-rc.0
 	github.com/onsi/ginkgo/v2 v2.12.0
 	github.com/onsi/gomega v1.27.10
-	github.com/open-policy-agent/cert-controller v0.8.0
+	github.com/open-policy-agent/cert-controller v0.9.0
 	github.com/prometheus/client_golang v1.16.0
 	github.com/prometheus/client_model v0.4.0
 	github.com/ray-project/kuberay/ray-operator v0.0.0-20230613204710-aeed3cdcbdcc

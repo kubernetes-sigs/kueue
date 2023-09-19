@@ -106,7 +106,7 @@ func (f *Framework) RunManager(cfg *rest.Config, managerSetup ManagerSetup) (con
 
 	webhookInstallOptions := &f.testEnv.WebhookInstallOptions
 	mgrOpts := manager.Options{
-		Scheme:             scheme.Scheme,
+		Scheme: scheme.Scheme,
 		Metrics: metricsserver.Options{
 			BindAddress: "0", // disable metrics to avoid conflicts between packages.
 		},

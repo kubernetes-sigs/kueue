@@ -21,7 +21,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"testing"
 	"time"
 
@@ -33,6 +32,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	runtimeconfig "sigs.k8s.io/controller-runtime/pkg/config"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
@@ -240,8 +240,8 @@ queueVisibility:
 		Metrics: metricsserver.Options{
 			BindAddress: configapi.DefaultMetricsBindAddress,
 		},
-		LeaderElectionID:       configapi.DefaultLeaderElectionID,
-		LeaderElection:         true,
+		LeaderElectionID: configapi.DefaultLeaderElectionID,
+		LeaderElection:   true,
 		WebhookServer: &webhook.DefaultServer{
 			Options: webhook.Options{
 				Port: configapi.DefaultWebhookPort,
@@ -305,8 +305,8 @@ queueVisibility:
 				Metrics: metricsserver.Options{
 					BindAddress: configapi.DefaultMetricsBindAddress,
 				},
-				LeaderElectionID:       "",
-				LeaderElection:         false,
+				LeaderElectionID: "",
+				LeaderElection:   false,
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
@@ -360,8 +360,8 @@ queueVisibility:
 				Metrics: metricsserver.Options{
 					BindAddress: ":38080",
 				},
-				LeaderElection:         true,
-				LeaderElectionID:       "test-id",
+				LeaderElection:   true,
+				LeaderElectionID: "test-id",
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: 9444,
@@ -429,8 +429,8 @@ queueVisibility:
 				Metrics: metricsserver.Options{
 					BindAddress: configapi.DefaultMetricsBindAddress,
 				},
-				LeaderElectionID:       "",
-				LeaderElection:         false,
+				LeaderElectionID: "",
+				LeaderElection:   false,
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
@@ -509,9 +509,9 @@ queueVisibility:
 				QueueVisibility: defaultQueueVisibility,
 			},
 			wantOptions: ctrl.Options{
-				HealthProbeBindAddress:     configapi.DefaultHealthProbeBindAddress,
-				ReadinessEndpointName:      "ready",
-				LivenessEndpointName:       "live",
+				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
+				ReadinessEndpointName:  "ready",
+				LivenessEndpointName:   "live",
 				Metrics: metricsserver.Options{
 					BindAddress: configapi.DefaultMetricsBindAddress,
 				},
