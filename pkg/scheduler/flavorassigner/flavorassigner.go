@@ -456,10 +456,8 @@ func (a *Assignment) findFlavorForResourceGroup(
 	}
 
 	for _, assignment := range bestAssignment {
-		// When the workload needborrowing and there is another workload in cohort doesn't
-		// need borrowing, the workload needborrowing will come again. In this case we should
-		// not skip the previous flavors.
-		if flavorIdx == len(rg.Flavors)-1 || assignment.Mode == Fit {
+		if flavorIdx == len(rg.Flavors)-1 {
+			// we have reach the last flavor, try from the first flavor next time
 			assignment.FlavorIdx = -1
 		} else {
 			assignment.FlavorIdx = flavorIdx
