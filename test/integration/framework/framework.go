@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -105,8 +106,10 @@ func (f *Framework) RunManager(cfg *rest.Config, managerSetup ManagerSetup) (con
 
 	webhookInstallOptions := &f.testEnv.WebhookInstallOptions
 	mgrOpts := manager.Options{
-		Scheme:             scheme.Scheme,
-		MetricsBindAddress: "0", // disable metrics to avoid conflicts between packages.
+		Scheme: scheme.Scheme,
+		Metrics: metricsserver.Options{
+			BindAddress: "0", // disable metrics to avoid conflicts between packages.
+		},
 		WebhookServer: webhook.NewServer(
 			webhook.Options{
 				Host:    webhookInstallOptions.LocalServingHost,
