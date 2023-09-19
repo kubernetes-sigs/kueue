@@ -337,6 +337,8 @@ func (c *ClusterQueue) deleteWorkload(w *kueue.Workload) {
 	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
 		c.WorkloadsNotReady.Delete(k)
 	}
+	// we only increase the AllocatableResourceGeneration cause the add of workload won't make more
+	// workloads fit in ClusterQueue.
 	c.AllocatableResourceGeneration++
 	delete(c.Workloads, k)
 	reportAdmittedActiveWorkloads(wi.ClusterQueue, len(c.Workloads))
