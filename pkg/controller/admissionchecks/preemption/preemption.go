@@ -55,7 +55,6 @@ type Controller struct {
 	client      client.Client
 	recorder    record.EventRecorder
 	preemptor   *preemption.Preemptor
-	ctx         context.Context
 	triggerChan chan struct{}
 
 	// stub, only for test
@@ -83,7 +82,7 @@ var _ manager.Runnable = (*Controller)(nil)
 
 func (c *Controller) Start(ctx context.Context) error {
 	c.log.V(5).Info("Staring main loop")
-	c.ctx = ctx
+	ctx = ctrl.LoggerInto(ctx, c.log)
 	ticker := time.NewTicker(throttleTimeout)
 	trigger := false
 	timeout := false
@@ -100,7 +99,7 @@ func (c *Controller) Start(ctx context.Context) error {
 
 		// If a run was triggered and at least throttle timeout has passed.
 		if trigger && timeout {
-			c.run()
+			c.run(ctx)
 			trigger = false
 			timeout = false
 		}
@@ -152,7 +151,7 @@ func (c *Controller) NotifyAdmissionCheckUpdate(oldAc, newAc *kueue.AdmissionChe
 	}
 }
 
-func (c *Controller) run() {
+func (c *Controller) run(ctx context.Context) {
 	c.log.V(2).Info("Start run")
 
 	// If there is nothing to do at this point.
@@ -173,7 +172,7 @@ func (c *Controller) run() {
 		if len(needPreemption) == 0 {
 			// No more resources need to be freed to accommodate this workload.
 			// The preemption is successful.
-			if err := c.updateFnc(c.ctx, c.client, wl.Obj, true); err != nil {
+			if err := c.updateFnc(ctx, c.client, wl.Obj, true); err != nil {
 				log.V(2).Error(err, "Unable to update the check state to True")
 				c.trigger("retryUpdate", klog.KObj(wl.Obj))
 			} else {
@@ -185,7 +184,7 @@ func (c *Controller) run() {
 			if len(targets) == 0 {
 				// There are no candidates for eviction, the preemption can no linger be done.
 				// The preemption failed.
-				if err := c.updateFnc(c.ctx, c.client, wl.Obj, false); err != nil {
+				if err := c.updateFnc(ctx, c.client, wl.Obj, false); err != nil {
 					log.V(2).Error(err, "Unable to update the check state to False")
 					c.trigger("retryUpdate", klog.KObj(wl.Obj))
 				} else {
@@ -193,7 +192,7 @@ func (c *Controller) run() {
 				}
 			} else {
 				// Issue the evictions, the controller will run again once the evicted workloads are fully stopped.
-				count, err := c.preemptor.IssuePreemptions(c.ctx, targets, snapshot.ClusterQueues[wl.ClusterQueue])
+				count, err := c.preemptor.IssuePreemptions(ctx, targets, snapshot.ClusterQueues[wl.ClusterQueue])
 				if err != nil {
 					log.V(2).Error(err, "Unable to issue preemption")
 					c.trigger("retryEviction", klog.KObj(wl.Obj))

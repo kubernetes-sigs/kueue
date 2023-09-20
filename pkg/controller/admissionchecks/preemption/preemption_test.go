@@ -351,7 +351,6 @@ func TestOneRun(t *testing.T) {
 			controller := NewController(cache)
 
 			// setup any additional parts
-			controller.ctx = ctx
 			controller.preemptor = preemption.New(fakeClient, record.NewFakeRecorder(10))
 			var updates []preemptionUpdateRecord
 			controller.updateFnc = func(_ context.Context, _ client.Client, wl *kueue.Workload, successful bool) error {
@@ -365,7 +364,7 @@ func TestOneRun(t *testing.T) {
 				return nil
 			})
 
-			controller.run()
+			controller.run(ctx)
 
 			if diff := cmp.Diff(tc.wantEvents, updates); diff != "" {
 				t.Errorf("Unexpected events (-want/+got):\n%s", diff)
