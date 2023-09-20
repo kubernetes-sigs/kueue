@@ -32,7 +32,7 @@ import (
 
 // +kubebuilder:docs-gen:collapse=Imports
 
-var _ = ginkgo.Describe("AdmissionCheck controller", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("AdmissionCheck controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeAll(func() {

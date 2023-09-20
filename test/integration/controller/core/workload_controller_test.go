@@ -35,7 +35,7 @@ import (
 
 // +kubebuilder:docs-gen:collapse=Imports
 
-var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns                   *corev1.Namespace
 		updatedQueueWorkload kueue.Workload

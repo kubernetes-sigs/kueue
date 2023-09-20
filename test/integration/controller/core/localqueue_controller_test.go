@@ -32,7 +32,7 @@ import (
 
 // +kubebuilder:docs-gen:collapse=Imports
 
-var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	const (
 		flavorModelC = "model-c"
 		flavorModelD = "model-d"

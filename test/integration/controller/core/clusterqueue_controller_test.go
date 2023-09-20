@@ -52,7 +52,7 @@ var ignoreConditionTimestamps = cmpopts.IgnoreFields(metav1.Condition{}, "LastTr
 var ignoreLastChangeTime = cmpopts.IgnoreFields(kueue.ClusterQueuePendingWorkloadsStatus{}, "LastChangeTime")
 var ignorePendingWorkloadsStatus = cmpopts.IgnoreFields(kueue.ClusterQueueStatus{}, "PendingWorkloadsStatus")
 
-var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns               *corev1.Namespace
 		emptyUsedFlavors = []kueue.FlavorUsage{
@@ -688,7 +688,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, func() {
 	})
 })
 
-var _ = ginkgo.Describe("ClusterQueue controller with queue visibility is enabled", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("ClusterQueue controller with queue visibility is enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeAll(func() {
