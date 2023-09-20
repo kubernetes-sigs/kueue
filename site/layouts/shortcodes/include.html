@@ -1,5 +1,6 @@
 
 {{/* Handle the "file" and "lang" named parameter or two unnamed parameter as the filepath and coding language*/}}
+{{/* The first parameter should be a relative path to the "static" directory. Ex: "examples/jobs/sample-job.yaml" */}}
 {{ if .IsNamedParams }}
 	{{ $.Scratch.Set "fparameter" ( .Get "file" ) }}
   {{ $.Scratch.Set "lang" ( .Get "lang") }}

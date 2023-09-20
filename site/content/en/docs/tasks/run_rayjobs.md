@@ -68,11 +68,11 @@ The resource needs of the workload can be configured in the `spec.rayClusterSpec
 
 In this example, the code is provided to the Ray framework via a ConfigMap.
 
-{{% include "jobs/ray-job-code-sample.yaml" "yaml" %}}
+{{< include "examples/jobs/ray-job-code-sample.yaml" "yaml" >}}
 
 The RayJob looks like the following:
 
-{{% include "jobs/ray-job-sample.yaml" "yaml" %}}
+{{< include "examples/jobs/ray-job-sample.yaml" "yaml" >}}
 
 You can run this RayJob with the following commands:
 
