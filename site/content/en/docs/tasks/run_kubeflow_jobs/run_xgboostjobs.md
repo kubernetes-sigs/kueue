@@ -54,4 +54,4 @@ By default, Kueue will set `suspend` to true via webhook and unsuspend it when t
 
 This example is based on https://github.com/kubeflow/training-operator/blob/afba76bc5a168cbcbc8685c7661f36e9b787afd1/examples/xgboost/xgboostjob.yaml.
 
-{{% include "sample-xgboostjob.yaml" "yaml" %}}
+{{< include "examples/sample-xgboostjob.yaml" "yaml" >}}

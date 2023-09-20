@@ -56,7 +56,7 @@ without Kueue. However, you must consider the following differences:
 
 Here is a sample Job with three Pods that just sleep for a few seconds.
 
-{{% include "jobs/sample-job.yaml" "yaml" %}}
+{{< include "examples/jobs/sample-job.yaml" "yaml" >}}
 
 ## 2. Run the Job
 
@@ -209,7 +209,7 @@ To allow partial admission you can provide the minimum acceptable parallelism `P
 
 For example, a Job defined by the following manifest:
 
-{{% include "jobs/sample-job-partial-admission.yaml" "yaml" %}}
+{{< include "examples/jobs/sample-job-partial-admission.yaml" "yaml" >}}
 
 When queued in a ClusterQueue with only 9 CPUs available, it will be admitted with `parallelism=9`. Note that the number of completions doesn't change.
 
