@@ -317,9 +317,13 @@ var _ = ginkgo.Describe("Preemption", func() {
 				Priority(highPriority).
 				Request(corev1.ResourceCPU, "4").
 				Obj()
+
 			ginkgo.By("Creating a high priority Workload", func() {
 				gomega.Expect(k8sClient.Create(ctx, highWl)).To(gomega.Succeed())
 				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, highWl)
+			})
+
+			ginkgo.By("Checking that the low priority workload stays admitted", func() {
 				gomega.Consistently(func() bool {
 					readWl := &kueue.Workload{}
 					err := k8sClient.Get(ctx, client.ObjectKeyFromObject(lowWl), readWl)
@@ -329,6 +333,9 @@ var _ = ginkgo.Describe("Preemption", func() {
 					return apimeta.IsStatusConditionTrue(readWl.Status.Conditions, kueue.WorkloadAdmitted)
 
 				}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
+			})
+
+			ginkgo.By("Checking that the low priority workload is evicted after the check of the high one changes", func() {
 				util.SetWorkloadsAdmissionCkeck(ctx, k8sClient, highWl, checkOnDemand.Name, kueue.CheckStatePreemptionRequired)
 				util.FinishEvictionForWorkloads(ctx, k8sClient, lowWl)
 				// the admission will be happen later on

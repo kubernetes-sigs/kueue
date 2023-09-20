@@ -42,8 +42,6 @@ const (
 	throttleTimeout = 500 * time.Millisecond
 )
 
-type updateStatusFnc func(context.Context, client.Client, *kueue.Workload, bool) error
-
 // Controller manages the preemption process of the workloads after quota reservation taking into account
 // its admission checks states. It will issue eviction for other workloads, and mark the preemption as
 // successful or not based on the current state of the resources pool. Check run() for more details.
@@ -58,7 +56,7 @@ type Controller struct {
 	triggerChan chan struct{}
 
 	// stub, only for test
-	updateFnc updateStatusFnc
+	updateCheckStatus func(context.Context, client.Client, *kueue.Workload, bool) error
 }
 
 func NewController(cache *cache.Cache) *Controller {
@@ -66,8 +64,8 @@ func NewController(cache *cache.Cache) *Controller {
 		log:   ctrl.Log.WithName(controllerName),
 		cache: cache,
 		// keep this buffered so we can "requeue" in case of API errors
-		triggerChan: make(chan struct{}, 1),
-		updateFnc:   updateCheckState,
+		triggerChan:       make(chan struct{}, 1),
+		updateCheckStatus: updateCheckState,
 	}
 }
 
@@ -127,27 +125,27 @@ func (c *Controller) NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload) {
 		// Deleting a workload that reserves quota can speed up the
 		// transition of preemption pending workloads.
 		if workload.HasQuotaReservation(oldWl) {
-			c.trigger("event", "Workload with reservation was deleted", "wl", klog.KObj(oldWl))
+			c.trigger("event", "Workload with reservation was deleted", "workload", klog.KObj(oldWl))
 		}
 		return
 	}
 
 	// If quota gets released.
 	if workload.HasQuotaReservation(oldWl) && !workload.HasQuotaReservation(newWl) {
-		c.trigger("event", "Quota released", "wl", klog.KObj(oldWl))
+		c.trigger("event", "Quota released", "workload", klog.KObj(oldWl))
 	}
 
 	// Is a preemption pending workload.
 	if state := workload.FindAdmissionCheck(newWl.Status.AdmissionChecks, constants.PreemptionAdmissionCheckName); state != nil && state.State == kueue.CheckStatePending {
-		c.trigger("event", "Pending workload updated", "wl", klog.KObj(oldWl))
+		c.trigger("event", "Pending workload updated", "workload", klog.KObj(oldWl))
 	}
 }
 
 func (c *Controller) NotifyAdmissionCheckUpdate(oldAc, newAc *kueue.AdmissionCheck) {
 	// Adding or removing a check will lead to a workload update later on
 	// we should ignore those events here.
-	if oldAc != nil && newAc != nil && ptr.Deref(oldAc.Spec.PreemptionPolicy, "") != ptr.Deref(newAc.Spec.PreemptionPolicy, "") {
-		c.trigger("event", "Admission check preemption policy changed", "ac", klog.KObj(oldAc))
+	if oldAc != nil && newAc != nil && !ptr.Equal(oldAc.Spec.PreemptionPolicy, newAc.Spec.PreemptionPolicy) {
+		c.trigger("event", "Admission check preemption policy changed", "admissionCheck", klog.KObj(oldAc))
 	}
 }
 
@@ -155,7 +153,7 @@ func (c *Controller) run(ctx context.Context) {
 	c.log.V(2).Info("Start run")
 
 	// If there is nothing to do at this point.
-	if !c.cache.ShouldRunPreemption() {
+	if !c.cache.ShouldCheckWorkloadsPreemption() {
 		// skip the snapshot creation and exit
 		return
 	}
@@ -163,16 +161,16 @@ func (c *Controller) run(ctx context.Context) {
 	snapshot := c.cache.Snapshot()
 	workloads := filterWorkloads(&snapshot)
 	for _, wl := range workloads {
-		//1. remove the workload from the snapshot
+		// 1. remove the workload from the snapshot
 		snapshot.RemoveWorkload(wl)
 		usage := totalRequestsForWorkload(wl)
 		needPreemption := resourcesNeedingPreemption(wl, usage, &snapshot)
 		log := c.log.WithValues("workload", klog.KObj(wl.Obj))
-		//2. check if preemption is sill needed
+		// 2. check if preemption is sill needed
 		if len(needPreemption) == 0 {
 			// No more resources need to be freed to accommodate this workload.
 			// The preemption is successful.
-			if err := c.updateFnc(ctx, c.client, wl.Obj, true); err != nil {
+			if err := c.updateCheckStatus(ctx, c.client, wl.Obj, true); err != nil {
 				log.V(2).Error(err, "Unable to update the check state to True")
 				c.trigger("retryUpdate", klog.KObj(wl.Obj))
 			} else {
@@ -184,7 +182,7 @@ func (c *Controller) run(ctx context.Context) {
 			if len(targets) == 0 {
 				// There are no candidates for eviction, the preemption can no linger be done.
 				// The preemption failed.
-				if err := c.updateFnc(ctx, c.client, wl.Obj, false); err != nil {
+				if err := c.updateCheckStatus(ctx, c.client, wl.Obj, false); err != nil {
 					log.V(2).Error(err, "Unable to update the check state to False")
 					c.trigger("retryUpdate", klog.KObj(wl.Obj))
 				} else {
@@ -201,16 +199,16 @@ func (c *Controller) run(ctx context.Context) {
 				}
 			}
 		}
-		// 3 add it back to the Snapshot
+		// 3. add it back to the Snapshot
 		snapshot.AddWorkload(wl)
 	}
 }
 
-func filterWorkloads(snapsot *cache.Snapshot) []*workload.Info {
+func filterWorkloads(snapshot *cache.Snapshot) []*workload.Info {
 	preemptNow := []*workload.Info{}
 	preemptLater := []*workload.Info{}
-	for _, cq := range snapsot.ClusterQueues {
-		now, later := cq.GetPreemptingWorklods(snapsot.AdmissionChecks)
+	for _, cq := range snapshot.ClusterQueues {
+		now, later := cq.GetPreemptingWorkloads(snapshot.AdmissionChecks)
 		preemptNow = append(preemptNow, now...)
 		preemptLater = append(preemptLater, later...)
 	}
@@ -218,7 +216,7 @@ func filterWorkloads(snapsot *cache.Snapshot) []*workload.Info {
 	// remove the workloads that should not evaluated now to limit the number of evictions
 	// needed at the current point in time
 	for _, wl := range preemptLater {
-		snapsot.RemoveWorkload(wl)
+		snapshot.RemoveWorkload(wl)
 	}
 	return preemptNow
 }
@@ -257,13 +255,12 @@ func resourcesNeedingPreemption(wl *workload.Info, usage cache.FlavorResourceQua
 				cohortResRequestable = cq.Cohort.RequestableResources[flvQuotas.Name]
 			}
 			for rName, rReq := range flvReq {
-				limit := flvQuotas.Resources[rName].Nominal
-				if flvQuotas.Resources[rName].BorrowingLimit != nil {
-					limit += *flvQuotas.Resources[rName].BorrowingLimit
-				}
-				exceedsNominal := cqResUsage[rName]+rReq > limit
-				exceedsBorrowing := cq.Cohort != nil && cohortResUsage[rName]+rReq > cohortResRequestable[rName]
-				if exceedsNominal || exceedsBorrowing {
+				resourceQuota := ptr.Deref(flvQuotas.Resources[rName], cache.ResourceQuota{})
+				queueLimit := resourceQuota.Nominal + ptr.Deref(resourceQuota.BorrowingLimit, 0)
+
+				exceedsQueueLimit := cqResUsage[rName]+rReq > queueLimit
+				exceedsCohortLimit := cq.Cohort != nil && cohortResUsage[rName]+rReq > cohortResRequestable[rName]
+				if exceedsQueueLimit || exceedsCohortLimit {
 					if _, found := ret[flvQuotas.Name]; !found {
 						ret[flvQuotas.Name] = sets.New(rName)
 					} else {

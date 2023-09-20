@@ -3,11 +3,16 @@ package cache
 import (
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestClusterQueueUpdateWithFlavors(t *testing.T) {
@@ -264,4 +269,155 @@ func TestCohortCanFit(t *testing.T) {
 		})
 	}
 
+}
+
+func TestGetPreemptingWorklods(t *testing.T) {
+	cases := map[string]struct {
+		workloads        []*kueue.Workload
+		checks           map[string]AdmissionCheck
+		wantPreemptNow   []string
+		wantPreemptLater []string
+	}{
+		"empty": {},
+		"one workload no preemption": {
+			workloads: []*kueue.Workload{
+				utiltesting.MakeWorkload("wl1", "ns1").Obj(),
+			},
+		},
+		"one workload preempt check pending, preempt anytime": {
+			workloads: []*kueue.Workload{
+				utiltesting.MakeWorkload("wl1", "ns1").
+					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, metav1.ConditionUnknown, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck("check1", metav1.ConditionUnknown, kueue.CheckStatePending).
+					Obj(),
+			},
+			checks: map[string]AdmissionCheck{
+				"check1": {
+					PreemptionPolicy: kueue.Anytime,
+				},
+			},
+			wantPreemptNow: []string{"ns1/wl1"},
+		},
+		"one workload preempt check pending, preempt on demand": {
+			workloads: []*kueue.Workload{
+				utiltesting.MakeWorkload("wl1", "ns1").
+					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, metav1.ConditionUnknown, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck("check1", metav1.ConditionUnknown, kueue.CheckStatePending).
+					Obj(),
+			},
+			checks: map[string]AdmissionCheck{
+				"check1": {
+					PreemptionPolicy: kueue.AfterCheckPassedOrOnDemand,
+				},
+			},
+			wantPreemptLater: []string{"ns1/wl1"},
+		},
+		"one workload check request, preempt on demand": {
+			workloads: []*kueue.Workload{
+				utiltesting.MakeWorkload("wl1", "ns1").
+					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, metav1.ConditionUnknown, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck("check1", metav1.ConditionUnknown, kueue.CheckStatePreemptionRequired).
+					Obj(),
+			},
+			checks: map[string]AdmissionCheck{
+				"check1": {
+					PreemptionPolicy: kueue.AfterCheckPassedOrOnDemand,
+				},
+			},
+			wantPreemptNow: []string{"ns1/wl1"},
+		},
+		"one workload check ready, preempt on demand": {
+			workloads: []*kueue.Workload{
+				utiltesting.MakeWorkload("wl1", "ns1").
+					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, metav1.ConditionUnknown, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck("check1", metav1.ConditionTrue, kueue.CheckStateReady).
+					Obj(),
+			},
+			checks: map[string]AdmissionCheck{
+				"check1": {
+					PreemptionPolicy: kueue.AfterCheckPassedOrOnDemand,
+				},
+			},
+			wantPreemptNow: []string{"ns1/wl1"},
+		},
+		"multiple workloads": {
+			workloads: []*kueue.Workload{
+				utiltesting.MakeWorkload("wl1", "ns1").
+					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, metav1.ConditionUnknown, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck("checkOnDemand", metav1.ConditionTrue, kueue.CheckStateReady).
+					Obj(),
+				utiltesting.MakeWorkload("wl2", "ns1").
+					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, metav1.ConditionUnknown, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck("checkOnDemand", metav1.ConditionUnknown, kueue.CheckStatePending).
+					Obj(),
+				utiltesting.MakeWorkload("wl3", "ns1").
+					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, metav1.ConditionUnknown, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck("checkAnytime", metav1.ConditionUnknown, kueue.CheckStatePending).
+					Obj(),
+				utiltesting.MakeWorkload("wl4", "ns1").
+					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, metav1.ConditionUnknown, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck("checkOnDemand", metav1.ConditionUnknown, kueue.CheckStatePreemptionRequired).
+					Obj(),
+				utiltesting.MakeWorkload("wl5", "ns1").
+					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, metav1.ConditionUnknown, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck("checkOnDemand", metav1.ConditionUnknown, kueue.CheckStatePending).
+					Obj(),
+				utiltesting.MakeWorkload("wl6", "ns1").
+					SetOrReplaceAdmissionCheck("checkAnytime", metav1.ConditionUnknown, kueue.CheckStatePending).
+					Obj(),
+				utiltesting.MakeWorkload("wl7", "ns1").
+					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, metav1.ConditionUnknown, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck("checkAnytime", metav1.ConditionUnknown, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck("checkOnDemand", metav1.ConditionUnknown, kueue.CheckStatePending).
+					Obj(),
+				utiltesting.MakeWorkload("wl8", "ns1").
+					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, metav1.ConditionUnknown, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck("checkAnytime", metav1.ConditionUnknown, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck("checkOnDemand", metav1.ConditionUnknown, kueue.CheckStatePreemptionRequired).
+					Obj(),
+			},
+			checks: map[string]AdmissionCheck{
+				"checkOnDemand": {
+					PreemptionPolicy: kueue.AfterCheckPassedOrOnDemand,
+				},
+				"checkAnytime": {
+					PreemptionPolicy: kueue.Anytime,
+				},
+			},
+			wantPreemptNow:   []string{"ns1/wl1", "ns1/wl3", "ns1/wl4", "ns1/wl8"},
+			wantPreemptLater: []string{"ns1/wl2", "ns1/wl5", "ns1/wl7"},
+		},
+	}
+
+	sortOpt := cmpopts.SortSlices(func(a, b *workload.Info) bool { return workload.Key(a.Obj) < workload.Key(b.Obj) })
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			wlMap := make(map[string]*workload.Info, len(tc.workloads))
+			for _, wl := range tc.workloads {
+				wlMap[workload.Key(wl)] = workload.NewInfo(wl)
+			}
+
+			cq := ClusterQueue{
+				Workloads: wlMap,
+			}
+
+			gotPrermptNow, gotPreemptLater := cq.GetPreemptingWorkloads(tc.checks)
+
+			wantPreemptNowWorkloads := make([]*workload.Info, len(tc.wantPreemptNow))
+			for i, wlKey := range tc.wantPreemptNow {
+				wantPreemptNowWorkloads[i] = wlMap[wlKey]
+			}
+			if diff := cmp.Diff(wantPreemptNowWorkloads, gotPrermptNow, sortOpt); diff != "" {
+				t.Errorf("Unexpected preempt now (-want/+got):\n%s", diff)
+			}
+
+			wantPreemptLaterWorkloads := make([]*workload.Info, len(tc.wantPreemptLater))
+			for i, wlKey := range tc.wantPreemptLater {
+				wantPreemptLaterWorkloads[i] = wlMap[wlKey]
+			}
+			if diff := cmp.Diff(wantPreemptLaterWorkloads, gotPreemptLater, sortOpt); diff != "" {
+				t.Errorf("Unexpected preempt later (-want/+got):\n%s", diff)
+			}
+		})
+	}
 }

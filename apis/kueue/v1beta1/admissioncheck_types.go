@@ -76,15 +76,15 @@ type AdmissionCheckSpec struct {
 	// The possible values are:
 	// - `Anytime`: No need to wait for this check to pass before issuing preemptions.
 	//   Preemptions might be blocked on the preemptionPolicy of other AdmissionChecks.
-	// - `AfterCheckPassedOrOnDemand`: Wait for this check to pass pass before issuing preemptions,
+	// - `AfterCheckPassedOrOnDemand`: Wait for this check to pass before issuing preemptions,
 	//   unless this or other checks requests preemptions through the Workload's admissionChecks.
 	// Defaults to `Anytime`.
 	// +optional
 	// +kubebuilder:default=Anytime
+	// +kubebuilder:validation:Enum=Anytime;AfterCheckPassedOrOnDemand
 	PreemptionPolicy *AdmissionCheckPreemptionPolicy `json:"preemptionPolicy,omitempty"`
 }
 
-// +kubebuilder:validation:Enum=Anytime;AfterCheckPassedOrOnDemand
 type AdmissionCheckPreemptionPolicy string
 
 const (

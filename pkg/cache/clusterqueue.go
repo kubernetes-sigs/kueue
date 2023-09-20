@@ -435,10 +435,10 @@ func reportAdmittedActiveWorkloads(cqName string, val int) {
 	metrics.AdmittedActiveWorkloads.WithLabelValues(cqName).Set(float64(val))
 }
 
-// GetPreemptingWorklods - returns two list of Workloads
+// GetPreemptingWorkloads - returns two list of Workloads
 // the first one contains the workloads that are pending preemption and should be evaluated now
 // the second one contains the workloads that are pending preemption and should be evaluated later
-func (cq *ClusterQueue) GetPreemptingWorklods(acMap map[string]AdmissionCheck) ([]*workload.Info, []*workload.Info) {
+func (cq *ClusterQueue) GetPreemptingWorkloads(acMap map[string]AdmissionCheck) ([]*workload.Info, []*workload.Info) {
 	preemptNow := []*workload.Info{}
 	preemptLater := []*workload.Info{}
 	for _, wl := range cq.Workloads {
@@ -450,7 +450,7 @@ func (cq *ClusterQueue) GetPreemptingWorklods(acMap map[string]AdmissionCheck) (
 				if c.Name == constants.PreemptionAdmissionCheckName {
 					continue
 				}
-				if acMap[c.Name].PreemptionPolicy != PreemptOnDemand {
+				if acMap[c.Name].PreemptionPolicy == kueue.Anytime {
 					continue
 				}
 				if c.State != kueue.CheckStatePreemptionRequired && c.State != kueue.CheckStateReady {

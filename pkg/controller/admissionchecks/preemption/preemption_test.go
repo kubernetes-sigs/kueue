@@ -46,7 +46,6 @@ const (
 )
 
 func TestOneRun(t *testing.T) {
-
 	rf1 := utiltesting.MakeResourceFlavor(testingFlavorName).Obj()
 
 	qCPU2b2 := utiltesting.MakeClusterQueue(testingCQName).
@@ -334,7 +333,7 @@ func TestOneRun(t *testing.T) {
 			}
 
 			for _, ac := range tc.admissionChecks {
-				cache.AddOrUpdateAdmissionCheck(ac.DeepCopy())
+				cache.AddOrUpdateAdmissionCheck(ac)
 			}
 
 			for _, cq := range clusterQueues {
@@ -353,7 +352,7 @@ func TestOneRun(t *testing.T) {
 			// setup any additional parts
 			controller.preemptor = preemption.New(fakeClient, record.NewFakeRecorder(10))
 			var updates []preemptionUpdateRecord
-			controller.updateFnc = func(_ context.Context, _ client.Client, wl *kueue.Workload, successful bool) error {
+			controller.updateCheckStatus = func(_ context.Context, _ client.Client, wl *kueue.Workload, successful bool) error {
 				updates = append(updates, preemptionUpdateRecord{Workload: client.ObjectKeyFromObject(wl).String(), State: successful})
 				return nil
 			}

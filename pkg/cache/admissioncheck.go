@@ -16,14 +16,11 @@ limitations under the License.
 
 package cache
 
-type PreemptionPolicy int
-
-const (
-	PreemptAnytime PreemptionPolicy = iota
-	PreemptOnDemand
+import (
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
 type AdmissionCheck struct {
 	Active           bool
-	PreemptionPolicy PreemptionPolicy
+	PreemptionPolicy kueue.AdmissionCheckPreemptionPolicy
 }

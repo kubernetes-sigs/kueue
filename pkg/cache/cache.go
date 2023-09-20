@@ -222,21 +222,11 @@ func (c *Cache) DeleteResourceFlavor(rf *kueue.ResourceFlavor) sets.Set[string] 
 func (c *Cache) AddOrUpdateAdmissionCheck(ac *kueue.AdmissionCheck) sets.Set[string] {
 	c.Lock()
 	defer c.Unlock()
-	checkPolicy := PreemptAnytime
-	if ptr.Deref(ac.Spec.PreemptionPolicy, kueue.Anytime) == kueue.AfterCheckPassedOrOnDemand {
-		checkPolicy = PreemptOnDemand
+	c.admissionChecks[ac.Name] = AdmissionCheck{
+		Active:           apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionCheckActive),
+		PreemptionPolicy: ptr.Deref(ac.Spec.PreemptionPolicy, kueue.Anytime),
 	}
-	if val, fond := c.admissionChecks[ac.Name]; fond {
-		val.Active = apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionCheckActive)
-		val.PreemptionPolicy = checkPolicy
-		c.admissionChecks[ac.Name] = val
-	} else {
-		c.admissionChecks[ac.Name] = AdmissionCheck{
-			PreemptionPolicy: checkPolicy,
-			Active:           apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionCheckActive),
-		}
 
-	}
 	return c.updateClusterQueues()
 }
 
@@ -737,12 +727,14 @@ func (c *Cache) MatchingClusterQueues(nsLabels map[string]string) sets.Set[strin
 	return cqs
 }
 
-// ShouldRunPreemption returns true if it has workloads pending preemption now.
-func (c *Cache) ShouldRunPreemption() bool {
+// ShouldCheckWorkloadsPreemption returns true if it has workloads pending preemption now.
+func (c *Cache) ShouldCheckWorkloadsPreemption() bool {
 	c.RLock()
 	defer c.RUnlock()
+	// Depending on the overall state this may end up iterating over all the workloads present
+	// in the cache (workloads having QuotaReservation).
 	for _, cq := range c.clusterQueues {
-		if now, _ := cq.GetPreemptingWorklods(c.admissionChecks); len(now) > 0 {
+		if now, _ := cq.GetPreemptingWorkloads(c.admissionChecks); len(now) > 0 {
 			return true
 		}
 	}
