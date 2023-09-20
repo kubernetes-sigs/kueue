@@ -502,8 +502,11 @@ func TestClusterQueuePendingWorkloadsStatus(t *testing.T) {
 		wantPendingWorkloadsStatus           *kueue.ClusterQueuePendingWorkloadsStatus
 		enableQueueVisibility                bool
 	}{
-		"taking snapshot of cluster queue is disabled": {},
-		"taking snapshot of cluster queue is enabled": {
+		"queue visibility is disabled": {},
+		"queue visibility is disabled but maxcount is provided": {
+			queueVisibilityClusterQueuesMaxCount: 2,
+		},
+		"queue visibility is enabled": {
 			queueVisibilityClusterQueuesMaxCount: 2,
 			queueVisibilityUpdateInterval:        10 * time.Millisecond,
 			enableQueueVisibility:                true,
