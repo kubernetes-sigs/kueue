@@ -52,6 +52,6 @@ By default, Kueue will set `suspend` to true via webhook and unsuspend it when t
 
 This example is based on https://github.com/kubeflow/mpi-operator/blob/ccf2756f749336d652fa6b10a732e241a40c7aa6/examples/v2beta1/pi/pi.yaml.
 
-{{% include "examples/jobs/sample-mpijob.yaml" "yaml" %}}
+{{< include "examples/jobs/sample-mpijob.yaml" "yaml" >}}
 
 For equivalent instructions for doing this in Python, see [Run Python Jobs](/docs/tasks/run_python_jobs/#mpi-operator-job).
