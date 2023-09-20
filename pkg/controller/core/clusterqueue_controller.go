@@ -588,7 +588,7 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 
 // Taking snapshot of cluster queue is enabled when maxcount non-zero
 func (r *ClusterQueueReconciler) isVisibilityEnabled() bool {
-	return features.Enabled(features.ClusterQueueVisibility) && r.queueVisibilityClusterQueuesMaxCount > 0
+	return features.Enabled(features.QueueVisibility) && r.queueVisibilityClusterQueuesMaxCount > 0
 }
 
 func (r *ClusterQueueReconciler) getWorkloadsStatus(cq *kueue.ClusterQueue) *kueue.ClusterQueuePendingWorkloadsStatus {

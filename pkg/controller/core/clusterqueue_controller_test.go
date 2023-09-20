@@ -500,11 +500,13 @@ func TestClusterQueuePendingWorkloadsStatus(t *testing.T) {
 		queueVisibilityUpdateInterval        time.Duration
 		queueVisibilityClusterQueuesMaxCount int32
 		wantPendingWorkloadsStatus           *kueue.ClusterQueuePendingWorkloadsStatus
+		enableQueueVisibility                bool
 	}{
 		"taking snapshot of cluster queue is disabled": {},
 		"taking snapshot of cluster queue is enabled": {
 			queueVisibilityClusterQueuesMaxCount: 2,
 			queueVisibilityUpdateInterval:        10 * time.Millisecond,
+			enableQueueVisibility:                true,
 			wantPendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{
 				Head: []kueue.ClusterQueuePendingWorkload{
 					{Name: "one"}, {Name: "two"},
@@ -514,6 +516,7 @@ func TestClusterQueuePendingWorkloadsStatus(t *testing.T) {
 		"verify the head of pending workloads when the number of pending workloads exceeds MaxCount": {
 			queueVisibilityClusterQueuesMaxCount: 1,
 			queueVisibilityUpdateInterval:        10 * time.Millisecond,
+			enableQueueVisibility:                true,
 			wantPendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{
 				Head: []kueue.ClusterQueuePendingWorkload{
 					{Name: "one"},
@@ -522,7 +525,7 @@ func TestClusterQueuePendingWorkloadsStatus(t *testing.T) {
 		},
 	}
 	for name, tc := range testCases {
-		defer features.SetFeatureGateDuringTest(t, features.ClusterQueueVisibility, true)()
+		defer features.SetFeatureGateDuringTest(t, features.QueueVisibility, tc.enableQueueVisibility)()
 		t.Run(name, func(t *testing.T) {
 			cq := utiltesting.MakeClusterQueue(cqName).
 				QueueingStrategy(kueue.StrictFIFO).Obj()
