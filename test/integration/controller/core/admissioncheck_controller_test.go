@@ -26,13 +26,23 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
 // +kubebuilder:docs-gen:collapse=Imports
 
-var _ = ginkgo.Describe("AdmissionCheck controller", func() {
+var _ = ginkgo.Describe("AdmissionCheck controller", ginkgo.Ordered, func() {
 	var ns *corev1.Namespace
+
+	ginkgo.BeforeAll(func() {
+		fwk = &framework.Framework{CRDPath: crdPath, WebhookPath: webhookPath}
+		cfg = fwk.Init()
+		ctx, k8sClient = fwk.RunManager(cfg, managerSetup)
+	})
+	ginkgo.AfterAll(func() {
+		fwk.Teardown()
+	})
 
 	ginkgo.BeforeEach(func() {
 		ns = &corev1.Namespace{
