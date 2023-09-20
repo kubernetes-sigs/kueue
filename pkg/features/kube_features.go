@@ -33,6 +33,12 @@ const (
 	//
 	// Enables partial admission.
 	PartialAdmission featuregate.Feature = "PartialAdmission"
+	// owner: @stuton
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/168-pending-workloads-visibility
+	// alpha: v0.5
+	//
+	// Enables queue visibility.
+	QueueVisibility featuregate.Feature = "QueueVisibility"
 )
 
 func init() {
@@ -47,6 +53,7 @@ func init() {
 // when adding or removing one entry.
 var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	PartialAdmission: {Default: false, PreRelease: featuregate.Alpha},
+	QueueVisibility:  {Default: false, PreRelease: featuregate.Alpha},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) func() {

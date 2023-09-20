@@ -31,6 +31,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -499,11 +500,16 @@ func TestClusterQueuePendingWorkloadsStatus(t *testing.T) {
 		queueVisibilityUpdateInterval        time.Duration
 		queueVisibilityClusterQueuesMaxCount int32
 		wantPendingWorkloadsStatus           *kueue.ClusterQueuePendingWorkloadsStatus
+		enableQueueVisibility                bool
 	}{
-		"taking snapshot of cluster queue is disabled": {},
-		"taking snapshot of cluster queue is enabled": {
+		"queue visibility is disabled": {},
+		"queue visibility is disabled but maxcount is provided": {
+			queueVisibilityClusterQueuesMaxCount: 2,
+		},
+		"queue visibility is enabled": {
 			queueVisibilityClusterQueuesMaxCount: 2,
 			queueVisibilityUpdateInterval:        10 * time.Millisecond,
+			enableQueueVisibility:                true,
 			wantPendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{
 				Head: []kueue.ClusterQueuePendingWorkload{
 					{Name: "one"}, {Name: "two"},
@@ -513,6 +519,7 @@ func TestClusterQueuePendingWorkloadsStatus(t *testing.T) {
 		"verify the head of pending workloads when the number of pending workloads exceeds MaxCount": {
 			queueVisibilityClusterQueuesMaxCount: 1,
 			queueVisibilityUpdateInterval:        10 * time.Millisecond,
+			enableQueueVisibility:                true,
 			wantPendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{
 				Head: []kueue.ClusterQueuePendingWorkload{
 					{Name: "one"},
@@ -521,6 +528,7 @@ func TestClusterQueuePendingWorkloadsStatus(t *testing.T) {
 		},
 	}
 	for name, tc := range testCases {
+		defer features.SetFeatureGateDuringTest(t, features.QueueVisibility, tc.enableQueueVisibility)()
 		t.Run(name, func(t *testing.T) {
 			cq := utiltesting.MakeClusterQueue(cqName).
 				QueueingStrategy(kueue.StrictFIFO).Obj()
