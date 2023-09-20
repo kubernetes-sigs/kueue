@@ -31,7 +31,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	runtimeconfig "sigs.k8s.io/controller-runtime/pkg/config"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
@@ -236,9 +238,11 @@ queueVisibility:
 
 	defaultControlOptions := ctrl.Options{
 		HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
-		MetricsBindAddress:     configapi.DefaultMetricsBindAddress,
-		LeaderElectionID:       configapi.DefaultLeaderElectionID,
-		LeaderElection:         true,
+		Metrics: metricsserver.Options{
+			BindAddress: configapi.DefaultMetricsBindAddress,
+		},
+		LeaderElectionID: configapi.DefaultLeaderElectionID,
+		LeaderElection:   true,
 		WebhookServer: &webhook.DefaultServer{
 			Options: webhook.Options{
 				Port: configapi.DefaultWebhookPort,
@@ -255,6 +259,7 @@ queueVisibility:
 	ctrlOptsCmpOpts := []cmp.Option{
 		cmpopts.IgnoreUnexported(ctrl.Options{}),
 		cmpopts.IgnoreUnexported(webhook.DefaultServer{}),
+		cmpopts.IgnoreUnexported(ctrlcache.Options{}),
 		cmpopts.IgnoreFields(ctrl.Options{}, "Scheme", "Logger"),
 	}
 
@@ -299,9 +304,11 @@ queueVisibility:
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
-				MetricsBindAddress:     configapi.DefaultMetricsBindAddress,
-				LeaderElectionID:       "",
-				LeaderElection:         false,
+				Metrics: metricsserver.Options{
+					BindAddress: configapi.DefaultMetricsBindAddress,
+				},
+				LeaderElectionID: "",
+				LeaderElection:   false,
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
@@ -352,9 +359,11 @@ queueVisibility:
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: ":38081",
-				MetricsBindAddress:     ":38080",
-				LeaderElection:         true,
-				LeaderElectionID:       "test-id",
+				Metrics: metricsserver.Options{
+					BindAddress: ":38080",
+				},
+				LeaderElection:   true,
+				LeaderElectionID: "test-id",
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: 9444,
@@ -419,9 +428,11 @@ queueVisibility:
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
-				MetricsBindAddress:     configapi.DefaultMetricsBindAddress,
-				LeaderElectionID:       "",
-				LeaderElection:         false,
+				Metrics: metricsserver.Options{
+					BindAddress: configapi.DefaultMetricsBindAddress,
+				},
+				LeaderElectionID: "",
+				LeaderElection:   false,
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
@@ -451,7 +462,9 @@ queueVisibility:
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
-				MetricsBindAddress:     configapi.DefaultMetricsBindAddress,
+				Metrics: metricsserver.Options{
+					BindAddress: configapi.DefaultMetricsBindAddress,
+				},
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
@@ -498,10 +511,12 @@ queueVisibility:
 				QueueVisibility: defaultQueueVisibility,
 			},
 			wantOptions: ctrl.Options{
-				HealthProbeBindAddress:     configapi.DefaultHealthProbeBindAddress,
-				ReadinessEndpointName:      "ready",
-				LivenessEndpointName:       "live",
-				MetricsBindAddress:         configapi.DefaultMetricsBindAddress,
+				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
+				ReadinessEndpointName:  "ready",
+				LivenessEndpointName:   "live",
+				Metrics: metricsserver.Options{
+					BindAddress: configapi.DefaultMetricsBindAddress,
+				},
 				PprofBindAddress:           ":8082",
 				LeaderElection:             true,
 				LeaderElectionID:           configapi.DefaultLeaderElectionID,
@@ -546,7 +561,9 @@ queueVisibility:
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
-				MetricsBindAddress:     configapi.DefaultMetricsBindAddress,
+				Metrics: metricsserver.Options{
+					BindAddress: configapi.DefaultMetricsBindAddress,
+				},
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
@@ -576,7 +593,9 @@ queueVisibility:
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
-				MetricsBindAddress:     configapi.DefaultMetricsBindAddress,
+				Metrics: metricsserver.Options{
+					BindAddress: configapi.DefaultMetricsBindAddress,
+				},
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,

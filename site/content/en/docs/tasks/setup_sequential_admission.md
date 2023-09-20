@@ -46,7 +46,7 @@ fields:
 ```
 
 > **Note**
-Note that, if you update an exiting Kueue installation you may need to restart the
+Note that, if you update an existing Kueue installation you may need to restart the
 `kueue-controller-manager` pod in order for Kueue to pick up the updated
 configuration. In that case run:
 

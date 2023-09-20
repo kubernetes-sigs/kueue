@@ -245,17 +245,7 @@ func (c *clusterQueueBase) DumpInadmissible() (sets.Set[string], bool) {
 }
 
 func (c *clusterQueueBase) Snapshot() []*workload.Info {
-	c.rwm.RLock()
-	defer c.rwm.RUnlock()
-	totalLen := c.heap.Len() + len(c.inadmissibleWorkloads)
-	elements := make([]*workload.Info, 0, totalLen)
-	for _, e := range c.heap.List() {
-		info := e.(*workload.Info)
-		elements = append(elements, info)
-	}
-	for _, e := range c.inadmissibleWorkloads {
-		elements = append(elements, e)
-	}
+	elements := c.totalElements()
 	sort.Slice(elements, func(i, j int) bool {
 		return queueOrdering(elements[i], elements[j])
 	})
@@ -270,4 +260,19 @@ func (c *clusterQueueBase) Info(key string) *workload.Info {
 		return nil
 	}
 	return info.(*workload.Info)
+}
+
+func (c *clusterQueueBase) totalElements() []*workload.Info {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
+	totalLen := c.heap.Len() + len(c.inadmissibleWorkloads)
+	elements := make([]*workload.Info, 0, totalLen)
+	for _, e := range c.heap.List() {
+		info := e.(*workload.Info)
+		elements = append(elements, info)
+	}
+	for _, e := range c.inadmissibleWorkloads {
+		elements = append(elements, e)
+	}
+	return elements
 }

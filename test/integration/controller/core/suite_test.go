@@ -75,7 +75,7 @@ func managerSetup(mgr manager.Manager, ctx context.Context) {
 	controllersCfg := &config.Configuration{}
 	controllersCfg.Metrics.EnableClusterQueueResources = true
 	controllersCfg.QueueVisibility = &config.QueueVisibility{
-		UpdateIntervalSeconds: 1,
+		UpdateIntervalSeconds: 2,
 		ClusterQueues: &config.ClusterQueueVisibility{
 			MaxCount: 3,
 		},

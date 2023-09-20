@@ -20,4 +20,5 @@ package jobs
 import (
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/pytorchjob"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/tfjob"
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/xgboostjob"
 )

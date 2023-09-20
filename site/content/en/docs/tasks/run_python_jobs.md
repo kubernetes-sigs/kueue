@@ -309,7 +309,7 @@ kubectl get pods -n kueue-system
 When Kueue is ready:
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/kueue/main/site/static/examples/single-clusterqueue-setup.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/kueue/main/site/static/examples/admin/single-clusterqueue-setup.yaml
 ```
 
 Now try running the example MPI job.
