@@ -31,7 +31,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -84,8 +83,6 @@ func managerSetup(mgr manager.Manager, ctx context.Context) {
 
 	cCache := cache.New(mgr.GetClient())
 	queues := queue.NewManager(mgr.GetClient(), cCache)
-
-	gomega.Expect(features.SetEnable(features.QueueVisibility, true)).To(gomega.Succeed())
 
 	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)

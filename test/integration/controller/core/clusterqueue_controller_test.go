@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -80,6 +81,10 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 			},
 		}
 	)
+
+	ginkgo.BeforeAll(func() {
+		gomega.Expect(features.SetEnable(features.QueueVisibility, true)).To(gomega.Succeed())
+	})
 
 	ginkgo.BeforeEach(func() {
 		ns = &corev1.Namespace{
@@ -676,7 +681,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", func() {
 		})
 	})
 
-	ginkgo.When("Reconciling clusterQueue pending workload status", func() {
+	ginkgo.When("Reconciling clusterQueue pending workload status when queue visibility is enabled", ginkgo.Ordered, func() {
 		var (
 			clusterQueue   *kueue.ClusterQueue
 			localQueue     *kueue.LocalQueue
