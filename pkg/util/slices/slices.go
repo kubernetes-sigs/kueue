@@ -16,8 +16,6 @@ limitations under the License.
 
 package slices
 
-import "k8s.io/apimachinery/pkg/util/sets"
-
 // ToMap creates a map[K]V out of the provided slice s using mf() to get the key and value
 // for a given index i.
 //
@@ -65,14 +63,22 @@ func Map[From any, To any, S ~[]From](s S, mapFunc func(*From) To) []To {
 }
 
 // CmpNoOrder returns true if the two provided slices have the same elements
-// regardless of their order.
+// regardless of their order. It counts occurences of particular values in both slices and
+// then compares them.
 func CmpNoOrder[E comparable, S ~[]E](a, b S) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	setA := sets.New(a...)
-	for i := range b {
-		if !setA.Has(b[i]) {
+
+	counterA := make(map[E]int)
+	counterB := make(map[E]int)
+	for i := range a {
+		counterA[a[i]] = counterA[a[i]] + 1
+		counterB[b[i]] = counterB[b[i]] + 1
+	}
+
+	for k := range counterA {
+		if counterA[k] != counterB[k] {
 			return false
 		}
 	}
