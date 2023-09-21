@@ -36,8 +36,7 @@ type ClusterQueue struct {
 	AdmissionChecks   sets.Set[string]
 	Status            metrics.ClusterQueueStatus
 	// AllocatableResourceGeneration will be increased when some admitted workloads are
-	// deleted, or the resource groups are changed. After this field is increased, all
-	// lastState in assignments will be outdated.
+	// deleted, or the resource groups are changed.
 	AllocatableResourceGeneration int64
 
 	// The following fields are not populated in a snapshot.
@@ -57,7 +56,7 @@ type Cohort struct {
 	// These fields are only populated for a snapshot.
 	RequestableResources workload.FlavorResourceQuantities
 	Usage                workload.FlavorResourceQuantities
-	// This field will only be set in snapshot. This field equal to the maximum
+	// This field will only be set in snapshot. This field equal to the sum of
 	// allocatable generation among its members.
 	AllocatableResourceGeneration int64
 }

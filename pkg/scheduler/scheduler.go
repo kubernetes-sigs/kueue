@@ -194,7 +194,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			if cycleCohortsUsage.hasCommonFlavorResources(cq.Cohort.Name, e.assignment.Usage) && !cq.Cohort.CanFit(sum) {
 				e.status = skipped
 				e.inadmissibleMsg = "other workloads in the cohort were prioritized"
-				// When the workload needborrowing and there is another workload in cohort doesn't
+				// When the workload needs borrowing and there is another workload in cohort doesn't
 				// need borrowing, the workload needborrowing will come again. In this case we should
 				// not skip the previous flavors.
 				e.LastAssignment = nil

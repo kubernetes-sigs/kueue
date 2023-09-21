@@ -1384,17 +1384,17 @@ func TestLastSchedulingContext(t *testing.T) {
 		Admitted(true).
 		Obj()
 	cases := []struct {
-		name                        string
-		cqs                         []kueue.ClusterQueue
-		admittedWorkloads           []kueue.Workload
-		workloads                   []kueue.Workload
-		deletedWorkloads            []kueue.Workload
-		wantPreempted               sets.Set[string]
-		wantAdmissionsOnceSchedule  map[string]kueue.Admission
-		wantAdmissionsTwiceSchedule map[string]kueue.Admission
+		name                           string
+		cqs                            []kueue.ClusterQueue
+		admittedWorkloads              []kueue.Workload
+		workloads                      []kueue.Workload
+		deletedWorkloads               []kueue.Workload
+		wantPreempted                  sets.Set[string]
+		wantAdmissionsOnFirstSchedule  map[string]kueue.Admission
+		wantAdmissionsOnSecondSchedule map[string]kueue.Admission
 	}{
 		{
-			name: "not changed",
+			name: "scheduling context not changed",
 			cqs:  clusterQueue,
 			admittedWorkloads: []kueue.Workload{
 				*wl,
@@ -1405,16 +1405,16 @@ func TestLastSchedulingContext(t *testing.T) {
 					Request(corev1.ResourceCPU, "20").
 					Obj(),
 			},
-			deletedWorkloads:           []kueue.Workload{},
-			wantPreempted:              sets.Set[string]{},
-			wantAdmissionsOnceSchedule: map[string]kueue.Admission{},
-			wantAdmissionsTwiceSchedule: map[string]kueue.Admission{
+			deletedWorkloads:              []kueue.Workload{},
+			wantPreempted:                 sets.Set[string]{},
+			wantAdmissionsOnFirstSchedule: map[string]kueue.Admission{},
+			wantAdmissionsOnSecondSchedule: map[string]kueue.Admission{
 				"default/preemptor": *utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "spot", "20").Obj(),
 				"default/low-1":     *utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj(),
 			},
 		},
 		{
-			name: "changed",
+			name: "some workloads were deleted",
 			cqs:  clusterQueue,
 			admittedWorkloads: []kueue.Workload{
 				*wl,
@@ -1428,9 +1428,9 @@ func TestLastSchedulingContext(t *testing.T) {
 			deletedWorkloads: []kueue.Workload{
 				*wl,
 			},
-			wantPreempted:              sets.Set[string]{},
-			wantAdmissionsOnceSchedule: map[string]kueue.Admission{},
-			wantAdmissionsTwiceSchedule: map[string]kueue.Admission{
+			wantPreempted:                 sets.Set[string]{},
+			wantAdmissionsOnFirstSchedule: map[string]kueue.Admission{},
+			wantAdmissionsOnSecondSchedule: map[string]kueue.Admission{
 				"default/preemptor": *utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
 			},
 		},
@@ -1456,11 +1456,11 @@ func TestLastSchedulingContext(t *testing.T) {
 			},
 			deletedWorkloads: []kueue.Workload{},
 			wantPreempted:    sets.Set[string]{},
-			wantAdmissionsOnceSchedule: map[string]kueue.Admission{
+			wantAdmissionsOnFirstSchedule: map[string]kueue.Admission{
 				"default/workload1": *utiltesting.MakeAdmission("eng-cohort-beta").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
 				"default/borrower":  *utiltesting.MakeAdmission("eng-cohort-alpha").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
 			},
-			wantAdmissionsTwiceSchedule: map[string]kueue.Admission{
+			wantAdmissionsOnSecondSchedule: map[string]kueue.Admission{
 				"default/placeholder": *utiltesting.MakeAdmission("eng-cohort-alpha").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj(),
 				"default/workload1":   *utiltesting.MakeAdmission("eng-cohort-beta").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
 				"default/borrower":    *utiltesting.MakeAdmission("eng-cohort-alpha").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
@@ -1489,13 +1489,51 @@ func TestLastSchedulingContext(t *testing.T) {
 			},
 			deletedWorkloads: []kueue.Workload{},
 			wantPreempted:    sets.Set[string]{},
-			wantAdmissionsOnceSchedule: map[string]kueue.Admission{
+			wantAdmissionsOnFirstSchedule: map[string]kueue.Admission{
 				"default/workload": *utiltesting.MakeAdmission("eng-cohort-theta").Assignment(corev1.ResourceCPU, "spot", "20").Obj(),
 			},
-			wantAdmissionsTwiceSchedule: map[string]kueue.Admission{
+			wantAdmissionsOnSecondSchedule: map[string]kueue.Admission{
 				"default/placeholder":  *utiltesting.MakeAdmission("eng-cohort-alpha").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj(),
 				"default/placeholder1": *utiltesting.MakeAdmission("eng-cohort-theta").Assignment(corev1.ResourceCPU, "on-demand", "50").Obj(),
 				"default/workload":     *utiltesting.MakeAdmission("eng-cohort-theta").Assignment(corev1.ResourceCPU, "spot", "20").Obj(),
+			},
+		},
+		{
+			name: "when the next flavor is full",
+			cqs:  clusterQueue_cohort,
+			admittedWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("placeholder", "default").
+					Request(corev1.ResourceCPU, "40").
+					ReserveQuota(utiltesting.MakeAdmission("eng-cohort-alpha").Assignment(corev1.ResourceCPU, "on-demand", "40").Obj()).
+					Admitted(true).
+					Obj(),
+				*utiltesting.MakeWorkload("placeholder1", "default").
+					Request(corev1.ResourceCPU, "40").
+					ReserveQuota(utiltesting.MakeAdmission("eng-cohort-theta").Assignment(corev1.ResourceCPU, "on-demand", "40").Obj()).
+					Admitted(true).
+					Obj(),
+				*utiltesting.MakeWorkload("placeholder2", "default").
+					Request(corev1.ResourceCPU, "100").
+					ReserveQuota(utiltesting.MakeAdmission("eng-cohort-theta").Assignment(corev1.ResourceCPU, "spot", "100").Obj()).
+					Admitted(true).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("workload", "default").
+					Queue("main-theta").
+					Request(corev1.ResourceCPU, "20").
+					Obj(),
+			},
+			deletedWorkloads: []kueue.Workload{},
+			wantPreempted:    sets.Set[string]{},
+			wantAdmissionsOnFirstSchedule: map[string]kueue.Admission{
+				"default/workload": *utiltesting.MakeAdmission("eng-cohort-theta").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
+			},
+			wantAdmissionsOnSecondSchedule: map[string]kueue.Admission{
+				"default/placeholder":  *utiltesting.MakeAdmission("eng-cohort-alpha").Assignment(corev1.ResourceCPU, "on-demand", "40").Obj(),
+				"default/placeholder1": *utiltesting.MakeAdmission("eng-cohort-theta").Assignment(corev1.ResourceCPU, "on-demand", "40").Obj(),
+				"default/placeholder2": *utiltesting.MakeAdmission("eng-cohort-theta").Assignment(corev1.ResourceCPU, "spot", "100").Obj(),
+				"default/workload":     *utiltesting.MakeAdmission("eng-cohort-theta").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj(),
 			},
 		},
 	}
@@ -1568,14 +1606,9 @@ func TestLastSchedulingContext(t *testing.T) {
 			if diff := cmp.Diff(tc.wantPreempted, gotPreempted); diff != "" {
 				t.Errorf("Unexpected preemptions (-want,+got):\n%s", diff)
 			}
-			if diff := cmp.Diff(tc.wantAdmissionsOnceSchedule, gotScheduled); diff != "" {
+			if diff := cmp.Diff(tc.wantAdmissionsOnFirstSchedule, gotScheduled); diff != "" {
 				t.Errorf("Unexpected scheduled workloads (-want,+got):\n%s", diff)
 			}
-
-			// should schedule from where preempting failed last time
-			ctx, cancel = context.WithTimeout(ctx, queueingTimeout)
-			go qManager.CleanUpOnContext(ctx)
-			defer cancel()
 
 			for _, wl := range tc.deletedWorkloads {
 				err := cl.Delete(ctx, &wl)
@@ -1611,7 +1644,7 @@ func TestLastSchedulingContext(t *testing.T) {
 			if len(gotAssignments) == 0 {
 				gotAssignments = nil
 			}
-			if diff := cmp.Diff(tc.wantAdmissionsTwiceSchedule, gotAssignments); diff != "" {
+			if diff := cmp.Diff(tc.wantAdmissionsOnSecondSchedule, gotAssignments); diff != "" {
 				t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
 			}
 		})
