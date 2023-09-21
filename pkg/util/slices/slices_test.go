@@ -61,32 +61,32 @@ func TestToCmpNoOrder(t *testing.T) {
 		sliceB []int
 		want   bool
 	}{
-		"correct_single_occurence_value": {
+		"equal sets": {
 			sliceA: []int{1, 2, 3},
 			sliceB: []int{3, 2, 1},
 			want:   true,
 		},
-		"correct_multiple_occurences_value": {
+		"equal multisets": {
 			sliceA: []int{1, 1, 2},
 			sliceB: []int{1, 2, 1},
 			want:   true,
 		},
-		"incorrect_multiple_occurences_value": {
+		"unequal multisets": {
 			sliceA: []int{1, 2, 2},
 			sliceB: []int{1, 2, 1},
 			want:   false,
 		},
-		"incorrect_multiple_occurences_value_2": {
+		"unequal sets": {
 			sliceA: []int{1, 2},
 			sliceB: []int{1, 1},
 			want:   false,
 		},
-		"incorrect_single_occurence_value": {
+		"slice A is longer": {
 			sliceA: []int{1, 2, 3},
 			sliceB: []int{1, 2},
 			want:   false,
 		},
-		"incorrect_single_occurence_value_2": {
+		"slice B is longer": {
 			sliceA: []int{1, 2},
 			sliceB: []int{1, 2, 3},
 			want:   false,
