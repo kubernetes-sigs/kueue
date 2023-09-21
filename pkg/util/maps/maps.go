@@ -18,21 +18,13 @@ limitations under the License.
 // when `x/exp/maps` graduates to stable.
 package maps
 
-// Clone clones the input preserving the difference between nil and empty
+import (
+	"maps"
+)
+
+// Clone uses clone std built-in function
 func Clone[K comparable, V any, S ~map[K]V](s S) S {
-	if s == nil {
-		return nil
-	}
-
-	if len(s) == 0 {
-		return S{}
-	}
-
-	ret := make(S, len(s))
-	for k, v := range s {
-		ret[k] = v
-	}
-	return ret
+	return maps.Clone(s)
 }
 
 // Merge merges a and b while resolving the conflicts by calling commonKeyValue

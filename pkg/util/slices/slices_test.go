@@ -57,42 +57,47 @@ func TestToRefMap(t *testing.T) {
 
 func TestToCmpNoOrder(t *testing.T) {
 	cases := map[string]struct {
-		sliceA      []int
-		sliceB      []int
-		expectedRes bool
+		sliceA []int
+		sliceB []int
+		want   bool
 	}{
 		"correct_single_occurence_value": {
-			sliceA:      []int{1, 2, 3},
-			sliceB:      []int{3, 2, 1},
-			expectedRes: true,
+			sliceA: []int{1, 2, 3},
+			sliceB: []int{3, 2, 1},
+			want:   true,
 		},
 		"correct_multiple_occurences_value": {
-			sliceA:      []int{1, 1, 2},
-			sliceB:      []int{1, 2, 1},
-			expectedRes: true,
+			sliceA: []int{1, 1, 2},
+			sliceB: []int{1, 2, 1},
+			want:   true,
 		},
 		"incorrect_multiple_occurences_value": {
-			sliceA:      []int{1, 2, 2},
-			sliceB:      []int{1, 2, 1},
-			expectedRes: false,
+			sliceA: []int{1, 2, 2},
+			sliceB: []int{1, 2, 1},
+			want:   false,
+		},
+		"incorrect_multiple_occurences_value_2": {
+			sliceA: []int{1, 2},
+			sliceB: []int{1, 1},
+			want:   false,
 		},
 		"incorrect_single_occurence_value": {
-			sliceA:      []int{1, 2, 3},
-			sliceB:      []int{1, 2},
-			expectedRes: false,
+			sliceA: []int{1, 2, 3},
+			sliceB: []int{1, 2},
+			want:   false,
 		},
 		"incorrect_single_occurence_value_2": {
-			sliceA:      []int{1, 2},
-			sliceB:      []int{1, 2, 3},
-			expectedRes: false,
+			sliceA: []int{1, 2},
+			sliceB: []int{1, 2, 3},
+			want:   false,
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			res := CmpNoOrder[int](tc.sliceA, tc.sliceB)
-			if res != tc.expectedRes {
-				t.Errorf("Unexpected result")
+			if res != tc.want {
+				t.Errorf("Unexpected result: want: %v, got: %v", tc.want, res)
 			}
 		})
 	}
