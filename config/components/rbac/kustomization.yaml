@@ -42,3 +42,5 @@ resources:
 - tfjob_viewer_role.yaml
 - xgboostjob_editor_role.yaml
 - xgboostjob_viewer_role.yaml
+- paddlejob_editor_role.yaml
+- paddlejob_viewer_role.yaml
