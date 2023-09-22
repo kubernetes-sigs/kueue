@@ -6,7 +6,7 @@ description: >
   Run a Kueue scheduled MPIJob
 ---
 
-This page shows how to leverage Kueue's scheduling and resource management capabilities when running [MPI Operator](https://github.com/kubeflow/mpi-operator) MPIJobs.
+This page shows how to leverage Kueue's scheduling and resource management capabilities when running [MPI Operator](https://www.kubeflow.org/docs/components/training/mpi/) MPIJobs.
 
 This guide is for [batch users](/docs/tasks#batch-user) that have a basic understanding of Kueue. For more information, see [Kueue's overview](/docs/overview).
 

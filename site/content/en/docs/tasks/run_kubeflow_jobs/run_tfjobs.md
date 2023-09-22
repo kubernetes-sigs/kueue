@@ -6,7 +6,7 @@ description: >
   Run a Kueue scheduled TFJob
 ---
 
-This page shows how to leverage Kueue's scheduling and resource management capabilities when running [Training Operator](https://github.com/kubeflow/training-operator) TFJobs.
+This page shows how to leverage Kueue's scheduling and resource management capabilities when running [Training Operator](https://www.kubeflow.org/docs/components/training/tftraining/) TFJobs.
 
 This guide is for [batch users](/docs/tasks#batch-user) that have a basic understanding of Kueue. For more information, see [Kueue's overview](/docs/overview).
 
@@ -54,4 +54,4 @@ By default, Kueue will set `suspend` to true via webhook and unsuspend it when t
 
 This example is based on https://github.com/kubeflow/training-operator/blob/48dbbf0a8e90e52c55ec05d0f689fcbf83c6b441/examples/tensorflow/dist-mnist/tf_job_mnist.yaml.
 
-{{< include "examples/sample-tfjob.yaml" "yaml" >}}
+{{< include "examples/jobs/sample-tfjob.yaml" "yaml" >}}
