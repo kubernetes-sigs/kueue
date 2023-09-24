@@ -86,6 +86,7 @@ func (w *PyTorchJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj r
 	log := ctrl.LoggerFrom(ctx).WithName("pytorchjob-webhook")
 	log.Info("Validating update", "pytorchjob", klog.KObj(newJob.Object()))
 	allErrs := jobframework.ValidateUpdateForQueueName(oldJob, newJob)
+	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(oldJob, newJob)...)
 	return nil, allErrs.ToAggregate()
 }
 

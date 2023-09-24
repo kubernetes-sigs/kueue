@@ -91,6 +91,15 @@ func (j *PyTorchJobWrapper) PriorityClass(pc string) *PyTorchJobWrapper {
 	return j
 }
 
+// WorkloadPriorityClass updates job workloadpriorityclass.
+func (j *PyTorchJobWrapper) WorkloadPriorityClass(wpc string) *PyTorchJobWrapper {
+	if j.Labels == nil {
+		j.Labels = make(map[string]string)
+	}
+	j.Labels[constants.WorkloadPriorityClassLabel] = wpc
+	return j
+}
+
 // Obj returns the inner Job.
 func (j *PyTorchJobWrapper) Obj() *kftraining.PyTorchJob {
 	return &j.PyTorchJob

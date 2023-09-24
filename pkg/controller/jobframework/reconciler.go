@@ -560,13 +560,14 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 		)
 	}
 
-	priorityClassName, p, err := r.extractPriority(ctx, podSets, job)
+	priorityClassName, source, p, err := r.extractPriority(ctx, podSets, job)
 	if err != nil {
 		return nil, err
 	}
 
 	wl.Spec.PriorityClassName = priorityClassName
 	wl.Spec.Priority = &p
+	wl.Spec.PriorityClassSource = source
 
 	if err := ctrl.SetControllerReference(object, wl, r.client.Scheme()); err != nil {
 		return nil, err
@@ -574,7 +575,10 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob, o
 	return wl, nil
 }
 
-func (r *JobReconciler) extractPriority(ctx context.Context, podSets []kueue.PodSet, job GenericJob) (string, int32, error) {
+func (r *JobReconciler) extractPriority(ctx context.Context, podSets []kueue.PodSet, job GenericJob) (string, string, int32, error) {
+	if workloadPriorityClass := workloadPriorityClassName(job); len(workloadPriorityClass) > 0 {
+		return utilpriority.GetPriorityFromWorkloadPriorityClass(ctx, r.client, workloadPriorityClass)
+	}
 	if jobWithPriorityClass, isImplemented := job.(JobWithPriorityClass); isImplemented {
 		return utilpriority.GetPriorityFromPriorityClass(
 			ctx, r.client, jobWithPriorityClass.PriorityClass())

@@ -47,6 +47,10 @@ func (c *FakeKueueV1beta1) Workloads(namespace string) v1beta1.WorkloadInterface
 	return &FakeWorkloads{c, namespace}
 }
 
+func (c *FakeKueueV1beta1) WorkloadPriorityClasses(namespace string) v1beta1.WorkloadPriorityClassInterface {
+	return &FakeWorkloadPriorityClasses{c, namespace}
+}
+
 // RESTClient returns a RESTClient that is used to communicate
 // with API server by this client implementation.
 func (c *FakeKueueV1beta1) RESTClient() rest.Interface {

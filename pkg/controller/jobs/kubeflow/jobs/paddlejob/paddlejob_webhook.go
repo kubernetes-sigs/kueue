@@ -86,6 +86,7 @@ func (w *PaddleJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj ru
 	log := ctrl.LoggerFrom(ctx).WithName("paddlejob-webhook")
 	log.Info("Validating update", "paddlejob", klog.KObj(newJob.Object()))
 	allErrs := jobframework.ValidateUpdateForQueueName(oldJob, newJob)
+	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(oldJob, newJob)...)
 	return nil, allErrs.ToAggregate()
 }
 

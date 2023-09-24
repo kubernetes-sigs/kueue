@@ -40,28 +40,41 @@ func Priority(w *kueue.Workload) int32 {
 // priority class. If not specified, priority will be default or
 // zero if there is no default.
 func GetPriorityFromPriorityClass(ctx context.Context, client client.Client,
-	priorityClass string) (string, int32, error) {
+	priorityClass string) (string, string, int32, error) {
 	if len(priorityClass) == 0 {
 		return getDefaultPriority(ctx, client)
 	}
 
 	pc := &schedulingv1.PriorityClass{}
 	if err := client.Get(ctx, types.NamespacedName{Name: priorityClass}, pc); err != nil {
-		return "", 0, err
+		return "", "", 0, err
 	}
 
-	return pc.Name, pc.Value, nil
+	return pc.Name, constants.PodPriorityClassSource, pc.Value, nil
 }
 
-func getDefaultPriority(ctx context.Context, client client.Client) (string, int32, error) {
+// GetPriorityFromWorkloadPriorityClass returns the priority populated from
+// workload priority class. If not specified, returns 0.
+// DefaultPriority is not called within this function
+// because k8s priority class should be  checked next.
+func GetPriorityFromWorkloadPriorityClass(ctx context.Context, client client.Client,
+	workloadPriorityClass string) (string, string, int32, error) {
+	wpc := &kueue.WorkloadPriorityClass{}
+	if err := client.Get(ctx, types.NamespacedName{Name: workloadPriorityClass}, wpc); err != nil {
+		return "", "", 0, err
+	}
+	return wpc.Name, constants.WorkloadPriorityClassSource, wpc.Value, nil
+}
+
+func getDefaultPriority(ctx context.Context, client client.Client) (string, string, int32, error) {
 	dpc, err := getDefaultPriorityClass(ctx, client)
 	if err != nil {
-		return "", 0, err
+		return "", "", 0, err
 	}
 	if dpc != nil {
-		return dpc.Name, dpc.Value, nil
+		return dpc.Name, constants.PodPriorityClassSource, dpc.Value, nil
 	}
-	return "", int32(constants.DefaultPriority), nil
+	return "", "", int32(constants.DefaultPriority), nil
 }
 
 func getDefaultPriorityClass(ctx context.Context, client client.Client) (*schedulingv1.PriorityClass, error) {

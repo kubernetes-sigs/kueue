@@ -82,6 +82,7 @@ func (w *JobSetWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runti
 	log.Info("Validating update", "jobset", klog.KObj(newJobSet))
 	allErrs := jobframework.ValidateUpdateForQueueName(oldJobSet, newJobSet)
 	allErrs = append(allErrs, jobframework.ValidateCreateForQueueName(newJobSet)...)
+	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(oldJobSet, newJobSet)...)
 	return nil, allErrs.ToAggregate()
 }
 

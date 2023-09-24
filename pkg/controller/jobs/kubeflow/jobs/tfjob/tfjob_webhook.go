@@ -86,6 +86,7 @@ func (w *TFJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtim
 	log := ctrl.LoggerFrom(ctx).WithName("tfjob-webhook")
 	log.Info("Validating update", "tfjob", klog.KObj(newJob.Object()))
 	allErrs := jobframework.ValidateUpdateForQueueName(oldJob, newJob)
+	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(oldJob, newJob)...)
 	return nil, allErrs.ToAggregate()
 }
 

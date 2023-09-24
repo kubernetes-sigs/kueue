@@ -86,3 +86,11 @@ func QueueNameForObject(object client.Object) string {
 	// fallback to the annotation (deprecated)
 	return object.GetAnnotations()[constants.QueueAnnotation]
 }
+
+func workloadPriorityClassName(job GenericJob) string {
+	object := job.Object()
+	if workloadPriorityClassLabel := object.GetLabels()[constants.WorkloadPriorityClassLabel]; workloadPriorityClassLabel != "" {
+		return workloadPriorityClassLabel
+	}
+	return ""
+}

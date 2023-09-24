@@ -150,3 +150,12 @@ func (j *JobWrapper) WithWorkerPriorityClassName(value string) *JobWrapper {
 	j.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.PriorityClassName = value
 	return j
 }
+
+// WorkloadPriorityClass updates job workloadpriorityclass.
+func (j *JobWrapper) WorkloadPriorityClass(wpc string) *JobWrapper {
+	if j.Labels == nil {
+		j.Labels = make(map[string]string)
+	}
+	j.Labels[constants.WorkloadPriorityClassLabel] = wpc
+	return j
+}

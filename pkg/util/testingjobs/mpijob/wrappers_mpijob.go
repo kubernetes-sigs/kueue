@@ -92,6 +92,15 @@ func (j *MPIJobWrapper) PriorityClass(pc string) *MPIJobWrapper {
 	return j
 }
 
+// WorkloadPriorityClass updates job workloadpriorityclass.
+func (j *MPIJobWrapper) WorkloadPriorityClass(wpc string) *MPIJobWrapper {
+	if j.Labels == nil {
+		j.Labels = make(map[string]string)
+	}
+	j.Labels[constants.WorkloadPriorityClassLabel] = wpc
+	return j
+}
+
 // Obj returns the inner Job.
 func (j *MPIJobWrapper) Obj() *kubeflow.MPIJob {
 	return &j.MPIJob

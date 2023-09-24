@@ -108,6 +108,15 @@ func (j *TFJobWrapper) PriorityClass(pc string) *TFJobWrapper {
 	return j
 }
 
+// WorkloadPriorityClass updates job workloadpriorityclass.
+func (j *TFJobWrapper) WorkloadPriorityClass(wpc string) *TFJobWrapper {
+	if j.Labels == nil {
+		j.Labels = make(map[string]string)
+	}
+	j.Labels[constants.WorkloadPriorityClassLabel] = wpc
+	return j
+}
+
 // Obj returns the inner Job.
 func (j *TFJobWrapper) Obj() *kftraining.TFJob {
 	return &j.TFJob

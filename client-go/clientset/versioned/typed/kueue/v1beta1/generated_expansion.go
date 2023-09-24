@@ -26,3 +26,5 @@ type LocalQueueExpansion interface{}
 type ResourceFlavorExpansion interface{}
 
 type WorkloadExpansion interface{}
+
+type WorkloadPriorityClassExpansion interface{}

@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	schedulingv1 "k8s.io/api/scheduling/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -65,11 +66,12 @@ func TestGetPriorityFromPriorityClass(t *testing.T) {
 	}
 
 	tests := map[string]struct {
-		priorityClassList      *schedulingv1.PriorityClassList
-		priorityClassName      string
-		wantPriorityClassName  string
-		wantPriorityClassValue int32
-		wantErr                string
+		priorityClassList       *schedulingv1.PriorityClassList
+		priorityClassName       string
+		wantPriorityClassName   string
+		wantPriorityClassSource string
+		wantPriorityClassValue  int32
+		wantErr                 error
 	}{
 		"priorityClass is specified and it exists": {
 			priorityClassList: &schedulingv1.PriorityClassList{
@@ -80,16 +82,17 @@ func TestGetPriorityFromPriorityClass(t *testing.T) {
 					},
 				},
 			},
-			priorityClassName:      "test",
-			wantPriorityClassName:  "test",
-			wantPriorityClassValue: 50,
+			priorityClassName:       "test",
+			wantPriorityClassSource: constants.PodPriorityClassSource,
+			wantPriorityClassName:   "test",
+			wantPriorityClassValue:  50,
 		},
 		"priorityClass is specified and it does not exist": {
 			priorityClassList: &schedulingv1.PriorityClassList{
 				Items: []schedulingv1.PriorityClass{},
 			},
 			priorityClassName: "test",
-			wantErr:           `priorityclasses.scheduling.k8s.io "test" not found`,
+			wantErr:           apierrors.NewNotFound(schedulingv1.Resource("priorityclasses"), "test"),
 		},
 		"priorityClass is unspecified and one global default exists": {
 			priorityClassList: &schedulingv1.PriorityClassList{
@@ -101,8 +104,9 @@ func TestGetPriorityFromPriorityClass(t *testing.T) {
 					},
 				},
 			},
-			wantPriorityClassName:  "globalDefault",
-			wantPriorityClassValue: 40,
+			wantPriorityClassName:   "globalDefault",
+			wantPriorityClassSource: constants.PodPriorityClassSource,
+			wantPriorityClassValue:  40,
 		},
 		"priorityClass is unspecified and multiple global defaults exist": {
 			priorityClassList: &schedulingv1.PriorityClassList{
@@ -124,8 +128,9 @@ func TestGetPriorityFromPriorityClass(t *testing.T) {
 					},
 				},
 			},
-			wantPriorityClassName:  "globalDefault2",
-			wantPriorityClassValue: 20,
+			wantPriorityClassName:   "globalDefault2",
+			wantPriorityClassSource: constants.PodPriorityClassSource,
+			wantPriorityClassValue:  20,
 		},
 	}
 
@@ -137,28 +142,86 @@ func TestGetPriorityFromPriorityClass(t *testing.T) {
 			builder := fake.NewClientBuilder().WithScheme(scheme).WithLists(tt.priorityClassList)
 			client := builder.Build()
 
-			name, value, err := GetPriorityFromPriorityClass(context.Background(), client, tt.priorityClassName)
-			if tt.wantErr != "" {
-				if err == nil {
-					t.Fatalf("expected an error")
-				}
-
-				if diff := cmp.Diff(tt.wantErr, err.Error()); diff != "" {
-					t.Errorf("unexpected error (-want,+got):\n%s", diff)
-				}
-				return
-			}
-
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
+			name, source, value, err := GetPriorityFromPriorityClass(context.Background(), client, tt.priorityClassName)
+			if diff := cmp.Diff(tt.wantErr, err); diff != "" {
+				t.Errorf("unexpected error (-want,+got):\n%s", diff)
 			}
 
 			if name != tt.wantPriorityClassName {
 				t.Errorf("unexpected name: got: %s, expected: %s", name, tt.wantPriorityClassName)
 			}
 
+			if source != tt.wantPriorityClassSource {
+				t.Errorf("unexpected source: got: %s, expected: %s", source, tt.wantPriorityClassSource)
+			}
+
 			if value != tt.wantPriorityClassValue {
 				t.Errorf("unexpected value: got: %d, expected: %d", value, tt.wantPriorityClassValue)
+			}
+		})
+	}
+}
+
+func TestGetPriorityFromWorkloadPriorityClass(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := kueue.AddToScheme(scheme); err != nil {
+		t.Fatalf("Failed adding kueue scheme: %v", err)
+	}
+
+	tests := map[string]struct {
+		workloadPriorityClassList       *kueue.WorkloadPriorityClassList
+		workloadPriorityClassName       string
+		wantWorkloadPriorityClassName   string
+		wantWorkloadPriorityClassSource string
+		wantWorkloadPriorityClassValue  int32
+		wantErr                         error
+	}{
+		"workloadPriorityClass is specified and it exists": {
+			workloadPriorityClassList: &kueue.WorkloadPriorityClassList{
+				Items: []kueue.WorkloadPriorityClass{
+					{
+						ObjectMeta: v1.ObjectMeta{Name: "test"},
+						Value:      50,
+					},
+				},
+			},
+			workloadPriorityClassName:       "test",
+			wantWorkloadPriorityClassSource: constants.WorkloadPriorityClassSource,
+			wantWorkloadPriorityClassName:   "test",
+			wantWorkloadPriorityClassValue:  50,
+		},
+		"workloadPriorityClass is specified and it does not exist": {
+			workloadPriorityClassList: &kueue.WorkloadPriorityClassList{
+				Items: []kueue.WorkloadPriorityClass{},
+			},
+			workloadPriorityClassName: "test",
+			wantErr:                   apierrors.NewNotFound(kueue.Resource("workloadpriorityclasses"), "test"),
+		},
+	}
+
+	for desc, tt := range tests {
+		tt := tt
+		t.Run(desc, func(t *testing.T) {
+			t.Parallel()
+
+			builder := fake.NewClientBuilder().WithScheme(scheme).WithLists(tt.workloadPriorityClassList)
+			client := builder.Build()
+
+			name, source, value, err := GetPriorityFromWorkloadPriorityClass(context.Background(), client, tt.workloadPriorityClassName)
+			if diff := cmp.Diff(tt.wantErr, err); diff != "" {
+				t.Errorf("unexpected error (-want,+got):\n%s", diff)
+			}
+
+			if name != tt.wantWorkloadPriorityClassName {
+				t.Errorf("unexpected name: got: %s, expected: %s", name, tt.wantWorkloadPriorityClassName)
+			}
+
+			if source != tt.wantWorkloadPriorityClassSource {
+				t.Errorf("unexpected source: got: %s, expected: %s", source, tt.wantWorkloadPriorityClassSource)
+			}
+
+			if value != tt.wantWorkloadPriorityClassValue {
+				t.Errorf("unexpected value: got: %d, expected: %d", value, tt.wantWorkloadPriorityClassValue)
 			}
 		})
 	}

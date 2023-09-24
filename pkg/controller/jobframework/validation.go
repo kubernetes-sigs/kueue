@@ -24,10 +24,11 @@ import (
 )
 
 var (
-	annotationsPath       = field.NewPath("metadata", "annotations")
-	labelsPath            = field.NewPath("metadata", "labels")
-	parentWorkloadKeyPath = annotationsPath.Key(constants.ParentWorkloadAnnotation)
-	queueNameLabelPath    = labelsPath.Key(constants.QueueLabel)
+	annotationsPath               = field.NewPath("metadata", "annotations")
+	labelsPath                    = field.NewPath("metadata", "labels")
+	parentWorkloadKeyPath         = annotationsPath.Key(constants.ParentWorkloadAnnotation)
+	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
+	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
 )
 
 func ValidateCreateForQueueName(job GenericJob) field.ErrorList {
@@ -80,6 +81,16 @@ func ValidateUpdateForParentWorkload(oldJob, newJob GenericJob) field.ErrorList 
 	if errList := apivalidation.ValidateImmutableField(ParentWorkloadName(newJob),
 		ParentWorkloadName(oldJob), parentWorkloadKeyPath); len(errList) > 0 {
 		allErrs = append(allErrs, field.Forbidden(parentWorkloadKeyPath, "this annotation is immutable"))
+	}
+	return allErrs
+}
+
+func ValidateUpdateForWorkloadPriorityClassName(oldJob, newJob GenericJob) field.ErrorList {
+	var allErrs field.ErrorList
+	oldName := workloadPriorityClassName(oldJob)
+	newName := workloadPriorityClassName(newJob)
+	if oldName != newName {
+		allErrs = append(allErrs, apivalidation.ValidateImmutableField(oldName, newName, workloadPriorityClassNamePath)...)
 	}
 	return allErrs
 }

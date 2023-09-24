@@ -46,11 +46,12 @@ const (
 )
 
 var (
-	annotationsPath          = field.NewPath("metadata", "annotations")
-	labelsPath               = field.NewPath("metadata", "labels")
-	parentWorkloadKeyPath    = annotationsPath.Key(constants.ParentWorkloadAnnotation)
-	queueNameLabelPath       = labelsPath.Key(constants.QueueLabel)
-	queueNameAnnotationsPath = annotationsPath.Key(constants.QueueAnnotation)
+	annotationsPath               = field.NewPath("metadata", "annotations")
+	labelsPath                    = field.NewPath("metadata", "labels")
+	parentWorkloadKeyPath         = annotationsPath.Key(constants.ParentWorkloadAnnotation)
+	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
+	queueNameAnnotationsPath      = annotationsPath.Key(constants.QueueAnnotation)
+	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
 )
 
 func TestValidateCreate(t *testing.T) {
@@ -389,6 +390,14 @@ func TestValidateUpdate(t *testing.T) {
 				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "false").
 				Obj(),
 			wantErr: nil,
+		},
+		{
+			name:   "workloadPriorityClassName is immutable",
+			oldJob: testingutil.MakeJob("job", "default").WorkloadPriorityClass("test-1").Obj(),
+			newJob: testingutil.MakeJob("job", "default").WorkloadPriorityClass("test-2").Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(workloadPriorityClassNamePath, "test-1", apivalidation.FieldImmutableErrorMsg),
+			},
 		},
 	}
 
