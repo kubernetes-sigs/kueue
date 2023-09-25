@@ -25,7 +25,7 @@ require (
 	k8s.io/klog/v2 v2.100.1
 	k8s.io/utils v0.0.0-20230726121419-3b25d923346b
 	sigs.k8s.io/controller-runtime v0.16.2
-	sigs.k8s.io/jobset v0.2.2
+	sigs.k8s.io/jobset v0.2.3
 	sigs.k8s.io/structured-merge-diff/v4 v4.3.0
 )
 
