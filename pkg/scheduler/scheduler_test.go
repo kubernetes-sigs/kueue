@@ -1019,7 +1019,6 @@ func TestSchedule(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			defer features.SetFeatureGateDuringTest(t, features.FlavorFungibility, true)()
 			if tc.enablePartialAdmission {
 				defer features.SetFeatureGateDuringTest(t, features.PartialAdmission, true)()
 			}
@@ -1265,7 +1264,6 @@ func TestEntryOrdering(t *testing.T) {
 }
 
 func TestLastSchedulingContext(t *testing.T) {
-	defer features.SetFeatureGateDuringTest(t, features.FlavorFungibility, true)()
 	resourceFlavors := []*kueue.ResourceFlavor{
 		{ObjectMeta: metav1.ObjectMeta{Name: "on-demand"}},
 		{ObjectMeta: metav1.ObjectMeta{Name: "spot"}},

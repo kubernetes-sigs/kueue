@@ -32,7 +32,6 @@ import (
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
 	"k8s.io/utils/ptr"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -455,28 +454,30 @@ func (a *Assignment) findFlavorForResourceGroup(
 		}
 	}
 
-	for _, assignment := range bestAssignment {
-		if flavorIdx == len(rg.Flavors)-1 {
-			// we have reach the last flavor, try from the first flavor next time
-			assignment.FlavorIdx = -1
-		} else {
-			assignment.FlavorIdx = flavorIdx
+	if features.Enabled(features.FlavorFungibility) {
+		for _, assignment := range bestAssignment {
+			if flavorIdx == len(rg.Flavors)-1 {
+				// we have reach the last flavor, try from the first flavor next time
+				assignment.FlavorIdx = -1
+			} else {
+				assignment.FlavorIdx = flavorIdx
+			}
 		}
-	}
-	if bestAssignmentMode == Fit {
-		return bestAssignment, nil
+		if bestAssignmentMode == Fit {
+			return bestAssignment, nil
+		}
 	}
 	return bestAssignment, status
 }
 
-func shouldTryNextFlavor(representativeMode FlavorAssignmentMode, flavorFungibility v1beta1.FlavorFungibility, needsBorrowing bool) bool {
+func shouldTryNextFlavor(representativeMode FlavorAssignmentMode, flavorFungibility kueue.FlavorFungibility, needsBorrowing bool) bool {
 	policyPreempt := flavorFungibility.WhenCanPreempt
 	policyBorrow := flavorFungibility.WhenCanBorrow
-	if representativeMode == Preempt && policyPreempt == v1beta1.Preempt {
+	if representativeMode == Preempt && policyPreempt == kueue.Preempt {
 		return false
 	}
 
-	if representativeMode == Fit && needsBorrowing && policyBorrow == v1beta1.Borrow {
+	if representativeMode == Fit && needsBorrowing && policyBorrow == kueue.Borrow {
 		return false
 	}
 

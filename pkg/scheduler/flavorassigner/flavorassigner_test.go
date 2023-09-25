@@ -31,13 +31,15 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
-	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestAssignFlavors(t *testing.T) {
-	defer features.SetFeatureGateDuringTest(t, features.FlavorFungibility, true)()
+	defaultFlavorFungibility := kueue.FlavorFungibility{
+		WhenCanBorrow:  kueue.Borrow,
+		WhenCanPreempt: kueue.TryNextFlavor,
+	}
 	resourceFlavors := map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
 		"default": {
 			ObjectMeta: metav1.ObjectMeta{Name: "default"},
@@ -1631,10 +1633,7 @@ func TestAssignFlavors(t *testing.T) {
 					Obj(),
 			},
 			clusterQueue: cache.ClusterQueue{
-				FlavorFungibility: kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.Borrow,
-					WhenCanPreempt: kueue.TryNextFlavor,
-				},
+				FlavorFungibility: defaultFlavorFungibility,
 				ResourceGroups: []cache.ResourceGroup{{
 					CoveredResources: sets.New(corev1.ResourceCPU, corev1.ResourcePods),
 					Flavors: []cache.FlavorQuotas{{
@@ -1807,10 +1806,7 @@ func TestAssignFlavors(t *testing.T) {
 						"two": {corev1.ResourceCPU: 10000, corev1.ResourcePods: 10},
 					},
 				},
-				FlavorFungibility: kueue.FlavorFungibility{
-					WhenCanBorrow:  kueue.Borrow,
-					WhenCanPreempt: kueue.TryNextFlavor,
-				},
+				FlavorFungibility: defaultFlavorFungibility,
 				ResourceGroups: []cache.ResourceGroup{{
 					CoveredResources: sets.New(corev1.ResourceCPU, corev1.ResourcePods),
 					Flavors: []cache.FlavorQuotas{{

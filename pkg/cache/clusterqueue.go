@@ -177,10 +177,10 @@ func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.
 	if in.Spec.FlavorFungibility != nil {
 		c.FlavorFungibility = *in.Spec.FlavorFungibility
 		if c.FlavorFungibility.WhenCanBorrow == "" {
-			c.FlavorFungibility.WhenCanBorrow = kueue.Borrow
+			c.FlavorFungibility.WhenCanBorrow = defaultFlavorFungibility.WhenCanBorrow
 		}
 		if c.FlavorFungibility.WhenCanPreempt == "" {
-			c.FlavorFungibility.WhenCanPreempt = kueue.TryNextFlavor
+			c.FlavorFungibility.WhenCanPreempt = defaultFlavorFungibility.WhenCanPreempt
 		}
 	} else {
 		c.FlavorFungibility = defaultFlavorFungibility

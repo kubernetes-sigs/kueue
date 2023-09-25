@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -42,7 +41,6 @@ var snapCmpOpts = []cmp.Option{
 }
 
 func TestSnapshot(t *testing.T) {
-	defer features.SetFeatureGateDuringTest(t, features.FlavorFungibility, true)()
 	testCases := map[string]struct {
 		cqs          []*kueue.ClusterQueue
 		rfs          []*kueue.ResourceFlavor
