@@ -25,12 +25,14 @@ CODEGEN_PKG=$($GO_CMD list -m -f "{{.Dir}}" k8s.io/code-generator)
 cd $(dirname ${BASH_SOURCE[0]})/..
 
 chmod +x "${CODEGEN_PKG}/generate-internal-groups.sh"
-source "${CODEGEN_PKG}/generate-groups.sh" \
+chmod +x "${CODEGEN_PKG}/generate-groups.sh"
+"${CODEGEN_PKG}/generate-groups.sh" \
   applyconfiguration,client,lister,informer \
   sigs.k8s.io/kueue/client-go \
   sigs.k8s.io/kueue/apis \
   kueue:v1beta1 \
   --go-header-file ${KUEUE_ROOT}/hack/boilerplate.go.txt
+
 
 # Future releases of of code-generator add better support for out of GOPATH generation,
 # check https://github.com/kubernetes/code-generator/blob/master/examples/hack/update-codegen.sh for details,
