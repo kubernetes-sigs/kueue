@@ -58,6 +58,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Kueue().V1beta1().ClusterQueues().Informer()}, nil
 	case v1beta1.SchemeGroupVersion.WithResource("localqueues"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Kueue().V1beta1().LocalQueues().Informer()}, nil
+	case v1beta1.SchemeGroupVersion.WithResource("provisioningrequestconfigs"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Kueue().V1beta1().ProvisioningRequestConfigs().Informer()}, nil
 	case v1beta1.SchemeGroupVersion.WithResource("resourceflavors"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Kueue().V1beta1().ResourceFlavors().Informer()}, nil
 	case v1beta1.SchemeGroupVersion.WithResource("workloads"):
