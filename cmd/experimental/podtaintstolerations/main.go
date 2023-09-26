@@ -9,13 +9,13 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"podtaintstolerations/controller"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+
+	"podtaintstolerations/controller"
 )
 
 var (
@@ -58,7 +58,7 @@ func main() {
 
 	if err := controller.NewReconciler(
 		mgr.GetClient(),
-		mgr.GetEventRecorderFor("backfill-kueue-controller"),
+		mgr.GetEventRecorderFor("kueue-pod-taints-tolerations"),
 	).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Unable to create Pod (job) controller")
 		os.Exit(1)

@@ -161,6 +161,10 @@ CREATE_KIND_CLUSTER ?= true
 .PHONY: test-e2e
 test-e2e: kustomize manifests generate ginkgo run-test-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
+.PHONY: test-e2e-experimental
+test-e2e-experimental: kustomize kind ginkgo
+	cd ./cmd/experimental/podtaintstolerations && $(MAKE) test-e2e KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) ARTIFACTS="$(ARTIFACTS)/$@"
+
 E2E_TARGETS := $(addprefix run-test-e2e-,${E2E_K8S_VERSIONS})
 .PHONY: test-e2e-all
 test-e2e-all: kustomize manifests generate envtest ginkgo $(E2E_TARGETS)

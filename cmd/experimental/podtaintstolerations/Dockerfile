@@ -12,7 +12,8 @@ COPY go.sum go.sum
 RUN go mod download
 
 # Copy the go source
-COPY . .
+COPY main.go .
+COPY controller ./controller
 
 # Build
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build .
