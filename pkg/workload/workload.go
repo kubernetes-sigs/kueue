@@ -25,6 +25,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -316,8 +317,6 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission) {
 		evictedCond.LastTransitionTime = metav1.Now()
 	}
 
-	// sync Admitted, ignore the result since an API update is always done.
-	_ = SyncAdmittedCondition(w)
 }
 
 func SetEvictedCondition(w *kueue.Workload, reason string, message string) {
@@ -442,6 +441,19 @@ func HasAllChecksReady(wl *kueue.Workload) bool {
 		}
 	}
 	return true
+}
+
+// Returns true if all the mustHaveChecks are present in the workload.
+func HasAllChecks(wl *kueue.Workload, mustHaveChecks sets.Set[string]) bool {
+	if mustHaveChecks.Len() == 0 {
+		return true
+	}
+
+	mustHaveChecks = mustHaveChecks.Clone()
+	for i := range wl.Status.AdmissionChecks {
+		mustHaveChecks.Delete(wl.Status.AdmissionChecks[i].Type)
+	}
+	return mustHaveChecks.Len() == 0
 }
 
 // Returns true if any of the workloads checks are Retry or Rejected

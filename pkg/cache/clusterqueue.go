@@ -33,13 +33,13 @@ type ClusterQueue struct {
 	NamespaceSelector labels.Selector
 	Preemption        kueue.ClusterQueuePreemption
 	Status            metrics.ClusterQueueStatus
+	AdmissionChecks   sets.Set[string]
 
 	// The following fields are not populated in a snapshot.
 
 	// Key is localQueue's key (namespace/name).
 	localQueues               map[string]*queue
 	podsReadyTracking         bool
-	admissionChecks           sets.Set[string]
 	hasMissingFlavors         bool
 	hasMissingAdmissionChecks bool
 }
@@ -155,7 +155,7 @@ func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.
 		}
 	}
 
-	c.admissionChecks = sets.New(in.Spec.AdmissionChecks...)
+	c.AdmissionChecks = sets.New(in.Spec.AdmissionChecks...)
 
 	c.Usage = usedFlavorResources
 	c.UpdateWithFlavors(resourceFlavors)
@@ -278,7 +278,7 @@ func (c *ClusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference
 // updateWithAdmissionChecks updates a ClusterQueue based on the passed AdmissionChecks set.
 func (c *ClusterQueue) updateWithAdmissionChecks(checks sets.Set[string]) {
 	hasMissing := false
-	for ac := range c.admissionChecks {
+	for ac := range c.AdmissionChecks {
 		if !checks.Has(ac) {
 			hasMissing = true
 			break

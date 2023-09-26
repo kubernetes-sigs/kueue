@@ -98,6 +98,7 @@ func (c *ClusterQueue) snapshot() *ClusterQueue {
 		Preemption:        c.Preemption,
 		NamespaceSelector: c.NamespaceSelector,
 		Status:            c.Status,
+		AdmissionChecks:   c.AdmissionChecks.Clone(),
 	}
 	for fName, rUsage := range c.Usage {
 		rUsageCopy := make(map[corev1.ResourceName]int64, len(rUsage))
