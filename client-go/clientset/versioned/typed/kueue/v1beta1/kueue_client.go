@@ -30,6 +30,7 @@ type KueueV1beta1Interface interface {
 	AdmissionChecksGetter
 	ClusterQueuesGetter
 	LocalQueuesGetter
+	ProvisioningRequestConfigsGetter
 	ResourceFlavorsGetter
 	WorkloadsGetter
 	WorkloadPriorityClassesGetter
@@ -50,6 +51,10 @@ func (c *KueueV1beta1Client) ClusterQueues(namespace string) ClusterQueueInterfa
 
 func (c *KueueV1beta1Client) LocalQueues(namespace string) LocalQueueInterface {
 	return newLocalQueues(c, namespace)
+}
+
+func (c *KueueV1beta1Client) ProvisioningRequestConfigs(namespace string) ProvisioningRequestConfigInterface {
+	return newProvisioningRequestConfigs(c, namespace)
 }
 
 func (c *KueueV1beta1Client) ResourceFlavors(namespace string) ResourceFlavorInterface {

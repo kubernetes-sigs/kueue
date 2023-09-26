@@ -29,6 +29,8 @@ type Interface interface {
 	ClusterQueues() ClusterQueueInformer
 	// LocalQueues returns a LocalQueueInformer.
 	LocalQueues() LocalQueueInformer
+	// ProvisioningRequestConfigs returns a ProvisioningRequestConfigInformer.
+	ProvisioningRequestConfigs() ProvisioningRequestConfigInformer
 	// ResourceFlavors returns a ResourceFlavorInformer.
 	ResourceFlavors() ResourceFlavorInformer
 	// Workloads returns a WorkloadInformer.
@@ -61,6 +63,11 @@ func (v *version) ClusterQueues() ClusterQueueInformer {
 // LocalQueues returns a LocalQueueInformer.
 func (v *version) LocalQueues() LocalQueueInformer {
 	return &localQueueInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// ProvisioningRequestConfigs returns a ProvisioningRequestConfigInformer.
+func (v *version) ProvisioningRequestConfigs() ProvisioningRequestConfigInformer {
+	return &provisioningRequestConfigInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // ResourceFlavors returns a ResourceFlavorInformer.

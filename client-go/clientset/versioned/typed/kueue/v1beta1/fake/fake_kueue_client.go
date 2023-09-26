@@ -39,6 +39,10 @@ func (c *FakeKueueV1beta1) LocalQueues(namespace string) v1beta1.LocalQueueInter
 	return &FakeLocalQueues{c, namespace}
 }
 
+func (c *FakeKueueV1beta1) ProvisioningRequestConfigs(namespace string) v1beta1.ProvisioningRequestConfigInterface {
+	return &FakeProvisioningRequestConfigs{c, namespace}
+}
+
 func (c *FakeKueueV1beta1) ResourceFlavors(namespace string) v1beta1.ResourceFlavorInterface {
 	return &FakeResourceFlavors{c, namespace}
 }
