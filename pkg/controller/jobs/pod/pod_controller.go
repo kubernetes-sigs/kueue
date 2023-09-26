@@ -193,7 +193,7 @@ func (p *Pod) Stop(ctx context.Context, c client.Client, _ []jobframework.PodSet
 					Type:   ConditionTypeTerminationTarget,
 					Status: corev1.ConditionTrue,
 					LastTransitionTime: metav1.Time{
-						Time: time.Time{},
+						Time: time.Now(),
 					},
 					Reason:  "StoppedByKueue",
 					Message: eventMsg,

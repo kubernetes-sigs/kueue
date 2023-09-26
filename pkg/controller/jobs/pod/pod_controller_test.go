@@ -112,6 +112,7 @@ var (
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(corev1.Pod{}, "TypeMeta", "ObjectMeta.ResourceVersion",
 			"ObjectMeta.DeletionTimestamp"),
+		cmpopts.IgnoreFields(corev1.PodCondition{}, "LastTransitionTime"),
 	}
 	defaultWorkloadCmpOpts = []cmp.Option{
 		cmpopts.EquateEmpty(),

@@ -263,12 +263,18 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				return createdPod.DeletionTimestamp.IsZero()
 			}, util.Timeout, util.Interval).Should(gomega.BeFalse(), "Expected pod to be deleted")
 
-			gomega.Expect(createdPod.Status.Conditions).Should(gomega.ContainElement(corev1.PodCondition{
-				Type:    "TerminationTarget",
-				Status:  "True",
-				Reason:  "StoppedByKueue",
-				Message: "By test",
-			}))
+			gomega.Expect(createdPod.Status.Conditions).Should(gomega.ContainElement(
+				gomega.BeComparableTo(
+					corev1.PodCondition{
+						Type:    "TerminationTarget",
+						Status:  "True",
+						Reason:  "StoppedByKueue",
+						Message: "By test",
+					},
+					cmpopts.IgnoreFields(corev1.PodCondition{}, "LastTransitionTime"),
+				),
+			))
+
 		})
 
 		ginkgo.When("Pod owner is managed by Kueue", func() {
@@ -384,5 +390,71 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Orde
 		gomega.Expect(createdPod.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
 		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 		util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 1)
+	})
+
+	ginkgo.When("The workload's admission is removed", func() {
+		ginkgo.It("Should not restore the original node selectors", func() {
+			localQueue := testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			pod := testingpod.MakePod("dev-pod", ns.Name).Queue(localQueue.Name).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+			lookupKey := types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}
+			createdPod := &corev1.Pod{}
+
+			ginkgo.By("creating a pod", func() {
+				gomega.Expect(k8sClient.Create(ctx, pod)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking if pod is suspended", func() {
+				gomega.Eventually(func(g gomega.Gomega) []corev1.PodSchedulingGate {
+					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}, createdPod)).
+						To(gomega.Succeed())
+					return createdPod.Spec.SchedulingGates
+				}, util.Timeout, util.Interval).Should(
+					gomega.ContainElement(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}),
+				)
+			})
+
+			// backup the node selector
+			originalNodeSelector := createdPod.Spec.NodeSelector
+
+			ginkgo.By("creating a localQueue", func() {
+				gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking if pod is unsuspended", func() {
+				gomega.Eventually(func() []corev1.PodSchedulingGate {
+					gomega.Expect(k8sClient.Get(ctx, lookupKey, createdPod)).Should(gomega.Succeed())
+					return createdPod.Spec.SchedulingGates
+				}, util.Timeout, util.Interval).Should(gomega.BeEmpty())
+			})
+
+			ginkgo.By("checking if the node selector is updated", func() {
+				gomega.Eventually(func() map[string]string {
+					gomega.Expect(k8sClient.Get(ctx, lookupKey, createdPod)).Should(gomega.Succeed())
+					return createdPod.Spec.NodeSelector
+				}, util.Timeout, util.Interval).ShouldNot(gomega.Equal(originalNodeSelector))
+			})
+			updatedNodeSelector := createdPod.Spec.NodeSelector
+
+			ginkgo.By("deleting the localQueue to prevent readmission", func() {
+				gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("clearing the workload's admission to stop the job", func() {
+				wl := &kueue.Workload{}
+				wlKey := types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(pod.Name), Namespace: pod.Namespace}
+				gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, nil)).Should(gomega.Succeed())
+				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+			})
+
+			ginkgo.By("checking if the node selectors are not restored", func() {
+				gomega.Eventually(func() map[string]string {
+					gomega.Expect(k8sClient.Get(ctx, lookupKey, createdPod)).Should(gomega.Succeed())
+					return createdPod.Spec.NodeSelector
+				}, util.Timeout, util.Interval).Should(gomega.Equal(updatedNodeSelector))
+			})
+		})
 	})
 })
