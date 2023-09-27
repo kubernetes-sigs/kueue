@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -66,8 +67,9 @@ import (
 )
 
 var (
-	scheme   = runtime.NewScheme()
-	setupLog = ctrl.Log.WithName("setup")
+	scheme            = runtime.NewScheme()
+	setupLog          = ctrl.Log.WithName("setup")
+	errPodIntegration = errors.New("pod integration only supported in Kubernetes 1.27 or newer")
 )
 
 func init() {
@@ -239,6 +241,21 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 					log.Error(err, "Unable to create controller")
 					return err
 				}
+				if name == "pod" {
+					v := serverVersionFetcher.GetServerVersion()
+					if v.String() == "" || v.LessThan(kubeversion.KubeVersion1_27) {
+						setupLog.Error(errPodIntegration,
+							"Failed to configure reconcilers",
+							"kubernetesVersion", v)
+						os.Exit(1)
+					}
+
+					opts = append(
+						opts,
+						jobframework.WithPodNamespaceSelector(cfg.Integrations.PodOptions.NamespaceSelector),
+						jobframework.WithPodSelector(cfg.Integrations.PodOptions.PodSelector),
+					)
+				}
 				if err = cb.SetupWebhook(mgr, opts...); err != nil {
 					log.Error(err, "Unable to create webhook")
 					return err
@@ -296,6 +313,11 @@ func setupServerVersionFetcher(mgr ctrl.Manager, kubeConfig *rest.Config) *kubev
 
 	if err := mgr.Add(serverVersionFetcher); err != nil {
 		setupLog.Error(err, "Unable to add server version fetcher to manager")
+		os.Exit(1)
+	}
+
+	if err := serverVersionFetcher.FetchServerVersion(); err != nil {
+		setupLog.Error(err, "failed to fetch kubernetes server version")
 		os.Exit(1)
 	}
 

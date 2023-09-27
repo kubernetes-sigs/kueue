@@ -18,8 +18,10 @@ package paddlejob
 
 import (
 	"context"
+	"strings"
 
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -36,11 +38,12 @@ var (
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:  SetupIndexes,
-		NewReconciler: NewReconciler,
-		SetupWebhook:  SetupPaddleJobWebhook,
-		JobType:       &kftraining.PaddleJob{},
-		AddToScheme:   kftraining.AddToScheme,
+		SetupIndexes:           SetupIndexes,
+		NewReconciler:          NewReconciler,
+		SetupWebhook:           SetupPaddleJobWebhook,
+		JobType:                &kftraining.PaddleJob{},
+		AddToScheme:            kftraining.AddToScheme,
+		IsManagingObjectsOwner: isPaddleJob,
 	}))
 }
 
@@ -57,6 +60,10 @@ func init() {
 var NewReconciler = jobframework.NewGenericReconciler(func() jobframework.GenericJob {
 	return &kubeflowjob.KubeflowJob{KFJobControl: (*JobControl)(&kftraining.PaddleJob{})}
 }, nil)
+
+func isPaddleJob(owner *metav1.OwnerReference) bool {
+	return owner.Kind == "PaddleJob" && strings.HasPrefix(owner.APIVersion, "kubeflow.org")
+}
 
 type JobControl kftraining.PaddleJob
 
