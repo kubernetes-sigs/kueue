@@ -19,6 +19,7 @@ package workload
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -33,7 +34,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
-	"sigs.k8s.io/kueue/pkg/util/maps"
 )
 
 var (

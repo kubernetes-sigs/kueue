@@ -18,6 +18,7 @@ package jobset
 
 import (
 	"context"
+	"maps"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -32,7 +33,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/util/maps"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 )
 
@@ -124,7 +125,7 @@ func (j *JobSet) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) error
 	// before unsuspending the individual Jobs.
 	for index := range j.Spec.ReplicatedJobs {
 		templateSpec := &j.Spec.ReplicatedJobs[index].Template.Spec.Template.Spec
-		templateSpec.NodeSelector = maps.MergeKeepFirst(podSetInfos[index].NodeSelector, templateSpec.NodeSelector)
+		templateSpec.NodeSelector = utilmaps.MergeKeepFirst(podSetInfos[index].NodeSelector, templateSpec.NodeSelector)
 	}
 	return nil
 }

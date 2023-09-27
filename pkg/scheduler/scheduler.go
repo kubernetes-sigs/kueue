@@ -19,6 +19,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"time"
@@ -45,7 +46,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
-	"sigs.k8s.io/kueue/pkg/util/maps"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/routine"
@@ -120,7 +121,7 @@ func (cu *cohortsUsage) add(cohort string, assigment cache.FlavorResourceQuantit
 
 	for flavor, resources := range assigment {
 		if _, found := cohortUsage[flavor]; found {
-			cohortUsage[flavor] = maps.Merge(cohortUsage[flavor], resources, func(a, b int64) int64 { return a + b })
+			cohortUsage[flavor] = utilmaps.Merge(cohortUsage[flavor], resources, func(a, b int64) int64 { return a + b })
 		} else {
 			cohortUsage[flavor] = maps.Clone(resources)
 		}
@@ -129,8 +130,8 @@ func (cu *cohortsUsage) add(cohort string, assigment cache.FlavorResourceQuantit
 }
 
 func (cu *cohortsUsage) totalUsageForCommonFlavorResources(cohort string, assigment cache.FlavorResourceQuantities) cache.FlavorResourceQuantities {
-	return maps.Intersect((*cu)[cohort], assigment, func(a, b map[corev1.ResourceName]int64) map[corev1.ResourceName]int64 {
-		return maps.Intersect(a, b, func(a, b int64) int64 { return a + b })
+	return utilmaps.Intersect((*cu)[cohort], assigment, func(a, b map[corev1.ResourceName]int64) map[corev1.ResourceName]int64 {
+		return utilmaps.Intersect(a, b, func(a, b int64) int64 { return a + b })
 	})
 }
 

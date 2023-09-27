@@ -18,6 +18,7 @@ package mpijob
 
 import (
 	"context"
+	"maps"
 	"strings"
 
 	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
@@ -32,7 +33,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/util/maps"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 )
 
 var (
@@ -129,7 +130,7 @@ func (j *MPIJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) error
 		replicaType := orderedReplicaTypes[index]
 		info := podSetInfos[index]
 		replicaSpec := &j.Spec.MPIReplicaSpecs[replicaType].Template.Spec
-		replicaSpec.NodeSelector = maps.MergeKeepFirst(info.NodeSelector, replicaSpec.NodeSelector)
+		replicaSpec.NodeSelector = utilmaps.MergeKeepFirst(info.NodeSelector, replicaSpec.NodeSelector)
 	}
 	return nil
 }

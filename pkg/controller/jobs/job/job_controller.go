@@ -19,6 +19,7 @@ package job
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strconv"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -40,7 +41,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/util/maps"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 )
 
 var (
@@ -224,7 +225,7 @@ func (j *Job) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) error {
 	}
 
 	info := podSetsInfo[0]
-	j.Spec.Template.Spec.NodeSelector = maps.MergeKeepFirst(info.NodeSelector, j.Spec.Template.Spec.NodeSelector)
+	j.Spec.Template.Spec.NodeSelector = utilmaps.MergeKeepFirst(info.NodeSelector, j.Spec.Template.Spec.NodeSelector)
 
 	if j.minPodsCount() != nil {
 		j.Spec.Parallelism = ptr.To(info.Count)

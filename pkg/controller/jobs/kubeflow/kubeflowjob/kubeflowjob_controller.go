@@ -17,6 +17,7 @@ limitations under the License.
 package kubeflowjob
 
 import (
+	"maps"
 	"strings"
 
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
@@ -29,7 +30,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/util/maps"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 )
 
 type KubeflowJob struct {
@@ -64,7 +65,7 @@ func (j *KubeflowJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) 
 		replicaType := orderedReplicaTypes[index]
 		info := podSetInfos[index]
 		replicaSpec := &j.KFJobControl.ReplicaSpecs()[replicaType].Template.Spec
-		replicaSpec.NodeSelector = maps.MergeKeepFirst(info.NodeSelector, replicaSpec.NodeSelector)
+		replicaSpec.NodeSelector = utilmaps.MergeKeepFirst(info.NodeSelector, replicaSpec.NodeSelector)
 	}
 	return nil
 }

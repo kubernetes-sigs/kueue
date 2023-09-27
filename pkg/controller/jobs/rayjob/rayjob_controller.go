@@ -18,6 +18,7 @@ package rayjob
 
 import (
 	"context"
+	"maps"
 	"strings"
 
 	rayjobapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
@@ -29,7 +30,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/util/maps"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 )
 
 var (
@@ -123,12 +124,12 @@ func (j *RayJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) error
 
 	// head
 	headPodSpec := &j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec
-	headPodSpec.NodeSelector = maps.MergeKeepFirst(podSetInfos[0].NodeSelector, headPodSpec.NodeSelector)
+	headPodSpec.NodeSelector = utilmaps.MergeKeepFirst(podSetInfos[0].NodeSelector, headPodSpec.NodeSelector)
 
 	// workers
 	for index := range j.Spec.RayClusterSpec.WorkerGroupSpecs {
 		workerPodSpec := &j.Spec.RayClusterSpec.WorkerGroupSpecs[index].Template.Spec
-		workerPodSpec.NodeSelector = maps.MergeKeepFirst(podSetInfos[index+1].NodeSelector, workerPodSpec.NodeSelector)
+		workerPodSpec.NodeSelector = utilmaps.MergeKeepFirst(podSetInfos[index+1].NodeSelector, workerPodSpec.NodeSelector)
 	}
 	return nil
 }
