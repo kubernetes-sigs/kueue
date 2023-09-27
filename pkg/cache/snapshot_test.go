@@ -68,7 +68,7 @@ func TestSnapshot(t *testing.T) {
 						Workloads: map[string]*workload.Info{
 							"/alpha": workload.NewInfo(
 								utiltesting.MakeWorkload("alpha", "").
-									ReserveQuota(&kueue.Admission{ClusterQueue: "a"}).Obj()),
+									ReserveQuota(&kueue.Admission{ClusterQueue: "a"}).Obj(), nil),
 						},
 						Preemption: defaultPreemption,
 					},
@@ -79,7 +79,7 @@ func TestSnapshot(t *testing.T) {
 						Workloads: map[string]*workload.Info{
 							"/beta": workload.NewInfo(
 								utiltesting.MakeWorkload("beta", "").
-									ReserveQuota(&kueue.Admission{ClusterQueue: "b"}).Obj()),
+									ReserveQuota(&kueue.Admission{ClusterQueue: "b"}).Obj(), nil),
 						},
 						Preemption: defaultPreemption,
 					},
@@ -253,7 +253,7 @@ func TestSnapshot(t *testing.T) {
 										Assignment(corev1.ResourceCPU, "demand", "10000m").
 										AssignmentPodCount(5).
 										Obj()).
-									Obj()),
+									Obj(), nil),
 							},
 							Preemption:        defaultPreemption,
 							NamespaceSelector: labels.Everything(),
@@ -302,7 +302,7 @@ func TestSnapshot(t *testing.T) {
 										Assignment("example.com/gpu", "default", "10").
 										AssignmentPodCount(5).
 										Obj()).
-									Obj()),
+									Obj(), nil),
 								"/gamma": workload.NewInfo(utiltesting.MakeWorkload("gamma", "").
 									PodSets(*utiltesting.MakePodSet("main", 5).
 										Request(corev1.ResourceCPU, "1").
@@ -314,7 +314,7 @@ func TestSnapshot(t *testing.T) {
 										Assignment("example.com/gpu", "default", "5").
 										AssignmentPodCount(5).
 										Obj()).
-									Obj()),
+									Obj(), nil),
 							},
 							Preemption:        defaultPreemption,
 							NamespaceSelector: labels.Everything(),
@@ -390,7 +390,7 @@ func TestSnapshot(t *testing.T) {
 				cache.AddOrUpdateResourceFlavor(rf)
 			}
 			for _, wl := range tc.wls {
-				cache.AddOrUpdateWorkload(wl)
+				cache.AddOrUpdateWorkload(wl, nil)
 			}
 			snapshot := cache.Snapshot()
 			if diff := cmp.Diff(tc.wantSnapshot, snapshot, snapCmpOpts...); len(diff) != 0 {

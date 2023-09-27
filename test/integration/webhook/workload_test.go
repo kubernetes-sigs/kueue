@@ -63,7 +63,7 @@ var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 					PodSets: []kueue.PodSet{
 						{
 							Count: 1,
-							Template: corev1.PodTemplateSpec{
+							Template: &corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{
 									Containers: []corev1.Container{},
 								},

@@ -125,6 +125,52 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 		})
 	})
 
+	ginkgo.When("check pod template name when podtemplate exists", func() {
+		ginkgo.BeforeEach(func() {
+			clusterQueue = testing.MakeClusterQueue("cluster-queue").
+				ResourceGroup(*testing.MakeFlavorQuotas(flavorOnDemand).
+					Resource(resourceGPU, "5", "5").Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		})
+		ginkgo.AfterAll(func() {
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		})
+		ginkgo.It("Should update status when workloads are created", func() {
+			pt := testing.MakePodTemplate(fmt.Sprintf("%s-%s", "four", kueue.DefaultPodSetName), ns.Name).Request(corev1.ResourceCPU, "1").Obj()
+			gomega.Expect(k8sClient.Create(ctx, pt)).To(gomega.Succeed())
+			wl = testing.MakeWorkload("four", ns.Name).Queue(localQueue.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+			gomega.Eventually(func() bool {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
+				return updatedQueueWorkload.Spec.PodSets[0].PodTemplateName != nil
+			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+		})
+	})
+
+	ginkgo.When("check pod template name when podtemplate does not exist", func() {
+		ginkgo.BeforeEach(func() {
+			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue("fooclusterqueue").Obj()
+			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		})
+		ginkgo.It("Should update status when workloads are created", func() {
+			wl = testing.MakeWorkload("five", ns.Name).Queue(localQueue.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+			gomega.Eventually(func() bool {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
+				return updatedQueueWorkload.Spec.PodSets[0].PodTemplateName != nil
+			}, util.Timeout, util.Interval).Should(gomega.BeFalse())
+		})
+	})
+
 	ginkgo.When("the workload is admitted", func() {
 		var flavor *kueue.ResourceFlavor
 

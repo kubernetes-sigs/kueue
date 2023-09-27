@@ -113,7 +113,7 @@ func (j *KubeflowJob) PodSets() []kueue.PodSet {
 	for index, replicaType := range replicaTypes {
 		podSets[index] = kueue.PodSet{
 			Name:     strings.ToLower(string(replicaType)),
-			Template: *j.KFJobControl.ReplicaSpecs()[replicaType].Template.DeepCopy(),
+			Template: j.KFJobControl.ReplicaSpecs()[replicaType].Template.DeepCopy(),
 			Count:    podsCount(j.KFJobControl.ReplicaSpecs(), replicaType),
 		}
 	}

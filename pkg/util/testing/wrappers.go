@@ -202,7 +202,7 @@ func MakePodSet(name string, count int) *PodSetWrapper {
 		kueue.PodSet{
 			Name:  name,
 			Count: int32(count),
-			Template: corev1.PodTemplateSpec{
+			Template: &corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					RestartPolicy: corev1.RestartPolicyNever,
 					Containers: []corev1.Container{
@@ -255,6 +255,11 @@ func (p *PodSetWrapper) InitContainers(containers ...corev1.Container) *PodSetWr
 
 func (p *PodSetWrapper) NodeSelector(kv map[string]string) *PodSetWrapper {
 	p.Template.Spec.NodeSelector = kv
+	return p
+}
+
+func (p *PodSetWrapper) SetPodTemplateName(name string) *PodSetWrapper {
+	p.PodTemplateName = &name
 	return p
 }
 
@@ -580,6 +585,80 @@ func MakeAdmissionCheck(name string) *AdmissionCheckWrapper {
 
 func (ac *AdmissionCheckWrapper) Obj() *kueue.AdmissionCheck {
 	return &ac.AdmissionCheck
+}
+
+type PodTemplateWrapper struct{ corev1.PodTemplate }
+
+// MakePodTemplate creates a wrapper for a PodTemplate with a single
+// pod with a single container.
+func MakePodTemplate(name, ns string) *PodTemplateWrapper {
+	return &PodTemplateWrapper{
+		corev1.PodTemplate{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					RestartPolicy: corev1.RestartPolicyNever,
+					Containers: []corev1.Container{
+						{
+							Name:  "c",
+							Image: "pause",
+							Resources: corev1.ResourceRequirements{
+								Requests: make(corev1.ResourceList),
+							},
+						},
+					},
+				},
+			},
+		}}
+}
+
+func (w *PodTemplateWrapper) Request(r corev1.ResourceName, q string) *PodTemplateWrapper {
+	w.Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(q)
+	return w
+}
+
+func (w *PodTemplateWrapper) Toleration(t corev1.Toleration) *PodTemplateWrapper {
+	w.Template.Spec.Tolerations = append(w.Template.Spec.Tolerations, t)
+	return w
+}
+
+func (w *PodTemplateWrapper) PriorityClass(priorityClassName string) *PodTemplateWrapper {
+	w.Template.Spec.PriorityClassName = priorityClassName
+	return w
+}
+
+func (w *PodTemplateWrapper) RuntimeClass(name string) *PodTemplateWrapper {
+	w.Template.Spec.RuntimeClassName = &name
+	return w
+}
+
+func (w *PodTemplateWrapper) Priority(priority int32) *PodTemplateWrapper {
+	w.Template.Spec.Priority = &priority
+	return w
+}
+
+func (w *PodTemplateWrapper) InitContainers(containers ...corev1.Container) *PodTemplateWrapper {
+	w.Template.Spec.InitContainers = containers
+	return w
+}
+
+func (w *PodTemplateWrapper) Containers(containers ...corev1.Container) *PodTemplateWrapper {
+	w.Template.Spec.Containers = containers
+	return w
+}
+
+func (w *PodTemplateWrapper) NodeSelector(kv map[string]string) *PodTemplateWrapper {
+	w.Template.Spec.NodeSelector = kv
+	return w
+}
+
+func (w *PodTemplateWrapper) Affinity(a *corev1.Affinity) *PodTemplateWrapper {
+	w.Template.Spec.Affinity = a
+	return w
+}
+
+func (w *PodTemplateWrapper) Obj() *corev1.PodTemplate {
+	return &w.PodTemplate
 }
 
 // WorkloadPriorityClassWrapper wraps a WorkloadPriorityClass.

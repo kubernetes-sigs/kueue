@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"sync"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -174,7 +175,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		if workload.HasQuotaReservation(&w) {
 			continue
 		}
-		qImpl.AddOrUpdate(workload.NewInfo(&w))
+		qImpl.AddOrUpdate(workload.NewInfo(&w, m.extractPodTemplate(ctx, w)))
 	}
 	cq := m.clusterQueues[qImpl.ClusterQueue]
 	if cq != nil && cq.AddFromLocalQueue(qImpl) {
@@ -260,19 +261,19 @@ func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (string, bool) {
 
 // AddOrUpdateWorkload adds or updates workload to the corresponding queue.
 // Returns whether the queue existed.
-func (m *Manager) AddOrUpdateWorkload(w *kueue.Workload) bool {
+func (m *Manager) AddOrUpdateWorkload(w *kueue.Workload, pts []corev1.PodTemplate) bool {
 	m.Lock()
 	defer m.Unlock()
-	return m.addOrUpdateWorkload(w)
+	return m.addOrUpdateWorkload(w, pts)
 }
 
-func (m *Manager) addOrUpdateWorkload(w *kueue.Workload) bool {
+func (m *Manager) addOrUpdateWorkload(w *kueue.Workload, pts []corev1.PodTemplate) bool {
 	qKey := workload.QueueKey(w)
 	q := m.localQueues[qKey]
 	if q == nil {
 		return false
 	}
-	wInfo := workload.NewInfo(w)
+	wInfo := workload.NewInfo(w, pts)
 	q.AddOrUpdate(wInfo)
 	cq := m.clusterQueues[q.ClusterQueue]
 	if cq == nil {
@@ -417,13 +418,13 @@ func (m *Manager) queueAllInadmissibleWorkloadsInCohort(ctx context.Context, cq 
 
 // UpdateWorkload updates the workload to the corresponding queue or adds it if
 // it didn't exist. Returns whether the queue existed.
-func (m *Manager) UpdateWorkload(oldW, w *kueue.Workload) bool {
+func (m *Manager) UpdateWorkload(oldW, w *kueue.Workload, pts []corev1.PodTemplate) bool {
 	m.Lock()
 	defer m.Unlock()
 	if oldW.Spec.QueueName != w.Spec.QueueName {
 		m.deleteWorkloadFromQueueAndClusterQueue(w, workload.QueueKey(oldW))
 	}
-	return m.addOrUpdateWorkload(w)
+	return m.addOrUpdateWorkload(w, pts)
 }
 
 // CleanUpOnContext tracks the context. When closed, it wakes routines waiting
@@ -614,4 +615,21 @@ func (m *Manager) DeleteSnapshot(cq *kueue.ClusterQueue) {
 	m.snapshotsMutex.Lock()
 	defer m.snapshotsMutex.Unlock()
 	delete(m.snapshots, cq.Name)
+}
+
+func (m *Manager) extractPodTemplate(ctx context.Context, wl kueue.Workload) []corev1.PodTemplate {
+	log := ctrl.LoggerFrom(ctx)
+	podTemplates := make([]corev1.PodTemplate, 0, len(wl.Spec.PodSets))
+	for _, ps := range wl.Spec.PodSets {
+		if ps.PodTemplateName == nil {
+			continue
+		}
+		var podTemplate corev1.PodTemplate
+		if err := m.client.Get(ctx, client.ObjectKey{Name: *ps.PodTemplateName, Namespace: wl.Namespace}, &podTemplate); err != nil {
+			log.Error(err, "Unable to get podTemplate that match the name")
+			continue
+		}
+		podTemplates = append(podTemplates, podTemplate)
+	}
+	return podTemplates
 }

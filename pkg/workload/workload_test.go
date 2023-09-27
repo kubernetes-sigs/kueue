@@ -35,14 +35,23 @@ import (
 
 func TestNewInfo(t *testing.T) {
 	cases := map[string]struct {
-		workload kueue.Workload
-		wantInfo Info
+		workload     kueue.Workload
+		podTemplates []corev1.PodTemplate
+		wantInfo     Info
 	}{
 		"pending": {
 			workload: *utiltesting.MakeWorkload("", "").
-				Request(corev1.ResourceCPU, "10m").
-				Request(corev1.ResourceMemory, "512Ki").
+				PodSets(*utiltesting.MakePodSet("main", 1).
+					SetPodTemplateName("main").
+					Obj(),
+				).
 				Obj(),
+			podTemplates: []corev1.PodTemplate{
+				*utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "10m").
+					Request(corev1.ResourceMemory, "512Ki").
+					Obj(),
+			},
 			wantInfo: Info{
 				TotalRequests: []PodSetResources{
 					{
@@ -60,8 +69,7 @@ func TestNewInfo(t *testing.T) {
 			workload: *utiltesting.MakeWorkload("", "").
 				PodSets(
 					*utiltesting.MakePodSet("main", 5).
-						Request(corev1.ResourceCPU, "10m").
-						Request(corev1.ResourceMemory, "512Ki").
+						SetPodTemplateName("main").
 						Obj(),
 				).
 				ReclaimablePods(
@@ -71,6 +79,12 @@ func TestNewInfo(t *testing.T) {
 					},
 				).
 				Obj(),
+			podTemplates: []corev1.PodTemplate{
+				*utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "10m").
+					Request(corev1.ResourceMemory, "512Ki").
+					Obj(),
+			},
 			wantInfo: Info{
 				TotalRequests: []PodSetResources{
 					{
@@ -122,6 +136,17 @@ func TestNewInfo(t *testing.T) {
 					).
 					Obj()).
 				Obj(),
+			podTemplates: []corev1.PodTemplate{
+				*utiltesting.MakePodTemplate("driver", "").
+					Request(corev1.ResourceCPU, "10m").
+					Request(corev1.ResourceMemory, "512Ki").
+					Obj(),
+				*utiltesting.MakePodTemplate("workers", "").
+					Request(corev1.ResourceCPU, "5m").
+					Request(corev1.ResourceMemory, "1Mi").
+					Request("ex.com/gpu", "1").
+					Obj(),
+			},
 			wantInfo: Info{
 				ClusterQueue: "foo",
 				TotalRequests: []PodSetResources{
@@ -152,8 +177,6 @@ func TestNewInfo(t *testing.T) {
 			workload: *utiltesting.MakeWorkload("", "").
 				PodSets(
 					*utiltesting.MakePodSet("main", 5).
-						Request(corev1.ResourceCPU, "10m").
-						Request(corev1.ResourceMemory, "10Ki").
 						Obj(),
 				).
 				ReserveQuota(
@@ -170,6 +193,12 @@ func TestNewInfo(t *testing.T) {
 					},
 				).
 				Obj(),
+			podTemplates: []corev1.PodTemplate{
+				*utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "10m").
+					Request(corev1.ResourceMemory, "10Ki").
+					Obj(),
+			},
 			wantInfo: Info{
 				TotalRequests: []PodSetResources{
 					{
@@ -190,8 +219,8 @@ func TestNewInfo(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			info := NewInfo(&tc.workload)
-			if diff := cmp.Diff(info, &tc.wantInfo, cmpopts.IgnoreFields(Info{}, "Obj")); diff != "" {
+			info := NewInfo(&tc.workload, tc.podTemplates)
+			if diff := cmp.Diff(info, &tc.wantInfo, cmpopts.IgnoreFields(Info{}, "Obj", "PodTemplates")); diff != "" {
 				t.Errorf("NewInfo(_) = (-want,+got):\n%s", diff)
 			}
 		})

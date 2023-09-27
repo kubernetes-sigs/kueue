@@ -211,7 +211,7 @@ func (j *Job) PodSets() []kueue.PodSet {
 	return []kueue.PodSet{
 		{
 			Name:     kueue.DefaultPodSetName,
-			Template: *j.Spec.Template.DeepCopy(),
+			Template: j.Spec.Template.DeepCopy(),
 			Count:    j.podsCount(),
 			MinCount: j.minPodsCount(),
 		},

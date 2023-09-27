@@ -291,12 +291,12 @@ func (c *ClusterQueue) updateWithAdmissionChecks(checks sets.Set[string]) {
 	}
 }
 
-func (c *ClusterQueue) addWorkload(w *kueue.Workload) error {
+func (c *ClusterQueue) addWorkload(w *kueue.Workload, pts []corev1.PodTemplate) error {
 	k := workload.Key(w)
 	if _, exist := c.Workloads[k]; exist {
 		return fmt.Errorf("workload already exists in ClusterQueue")
 	}
-	wi := workload.NewInfo(w)
+	wi := workload.NewInfo(w, pts)
 	c.Workloads[k] = wi
 	c.updateWorkloadUsage(wi, 1)
 	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {

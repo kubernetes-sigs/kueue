@@ -94,7 +94,7 @@ func (j *RayJob) PodSets() []kueue.PodSet {
 	// head
 	podSets[0] = kueue.PodSet{
 		Name:     headGroupPodSetName,
-		Template: *j.Spec.RayClusterSpec.HeadGroupSpec.Template.DeepCopy(),
+		Template: j.Spec.RayClusterSpec.HeadGroupSpec.Template.DeepCopy(),
 		Count:    1,
 	}
 
@@ -107,7 +107,7 @@ func (j *RayJob) PodSets() []kueue.PodSet {
 		}
 		podSets[index+1] = kueue.PodSet{
 			Name:     strings.ToLower(wgs.GroupName),
-			Template: *wgs.Template.DeepCopy(),
+			Template: wgs.Template.DeepCopy(),
 			Count:    replicas,
 		}
 	}

@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 
-	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -153,32 +152,10 @@ func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 		allErrs = append(allErrs, field.Invalid(path.Child("name"), ps.Name, msg))
 	}
 
-	// validate initContainers
-	icPath := path.Child("template", "spec", "initContainers")
-	for ci := range ps.Template.Spec.InitContainers {
-		allErrs = append(allErrs, validateContainer(&ps.Template.Spec.InitContainers[ci], icPath.Index(ci))...)
-	}
-	// validate containers
-	cPath := path.Child("template", "spec", "containers")
-	for ci := range ps.Template.Spec.Containers {
-		allErrs = append(allErrs, validateContainer(&ps.Template.Spec.Containers[ci], cPath.Index(ci))...)
-	}
-
 	if min := ptr.Deref(ps.MinCount, ps.Count); min > ps.Count || min < 0 {
 		allErrs = append(allErrs, field.Forbidden(path.Child("minCount"), fmt.Sprintf("%d should be positive and less or equal to %d", min, ps.Count)))
 	}
 
-	return allErrs
-}
-
-func validateContainer(c *corev1.Container, path *field.Path) field.ErrorList {
-	var allErrs field.ErrorList
-	rPath := path.Child("resources", "requests")
-	for name := range c.Resources.Requests {
-		if name == corev1.ResourcePods {
-			allErrs = append(allErrs, field.Invalid(rPath.Key(string(name)), corev1.ResourcePods, "the key is reserved for internal kueue use"))
-		}
-	}
 	return allErrs
 }
 
@@ -243,7 +220,6 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 	var allErrs field.ErrorList
 	specPath := field.NewPath("spec")
 	allErrs = append(allErrs, ValidateWorkload(newObj)...)
-	allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"))...)
 	allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PriorityClassSource, oldObj.Spec.PriorityClassSource, specPath.Child("priorityClassSource"))...)
 	allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PriorityClassName, oldObj.Spec.PriorityClassName, specPath.Child("priorityClassName"))...)
 	if workload.HasQuotaReservation(newObj) && workload.HasQuotaReservation(oldObj) {

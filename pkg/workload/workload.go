@@ -48,6 +48,8 @@ type Info struct {
 	// Populated from the queue during admission or from the admission field if
 	// already admitted.
 	ClusterQueue string
+	// list of pod templates related to the podsets.
+	PodTemplates []corev1.PodTemplate
 }
 
 type PodSetResources struct {
@@ -70,15 +72,16 @@ func (psr *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
 	return ret
 }
 
-func NewInfo(w *kueue.Workload) *Info {
+func NewInfo(w *kueue.Workload, pts []corev1.PodTemplate) *Info {
 	info := &Info{
-		Obj: w,
+		Obj:          w,
+		PodTemplates: pts,
 	}
 	if w.Status.Admission != nil {
 		info.ClusterQueue = string(w.Status.Admission.ClusterQueue)
 		info.TotalRequests = totalRequestsFromAdmission(w)
 	} else {
-		info.TotalRequests = totalRequestsFromPodSets(w)
+		info.TotalRequests = totalRequestsFromPodSets(w, pts)
 	}
 	return info
 }
@@ -139,21 +142,29 @@ func podSetsCountsAfterReclaim(wl *kueue.Workload) map[string]int32 {
 	return totalCounts
 }
 
-func totalRequestsFromPodSets(wl *kueue.Workload) []PodSetResources {
+func totalRequestsFromPodSets(wl *kueue.Workload, pts []corev1.PodTemplate) []PodSetResources {
 	if len(wl.Spec.PodSets) == 0 {
 		return nil
 	}
 	res := make([]PodSetResources, 0, len(wl.Spec.PodSets))
 	currentCounts := podSetsCountsAfterReclaim(wl)
 	for _, ps := range wl.Spec.PodSets {
-		count := currentCounts[ps.Name]
-		setRes := PodSetResources{
-			Name:  ps.Name,
-			Count: count,
+		if ps.PodTemplateName == nil {
+			continue
 		}
-		setRes.Requests = newRequests(limitrange.TotalRequests(&ps.Template.Spec))
-		setRes.Requests.scaleUp(int64(count))
-		res = append(res, setRes)
+		for i, pt := range pts {
+			if pt.Name != *ps.PodTemplateName {
+				continue
+			}
+			count := currentCounts[ps.Name]
+			setRes := PodSetResources{
+				Name:  ps.Name,
+				Count: count,
+			}
+			setRes.Requests = newRequests(limitrange.TotalRequests(&pts[i].Template.Spec))
+			setRes.Requests.scaleUp(int64(count))
+			res = append(res, setRes)
+		}
 	}
 	return res
 }

@@ -143,6 +143,12 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			return createdWorkload.Spec.QueueName == jobQueueName
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 
+		ginkgo.By("checking the pod template is created")
+		var createdPodTemplate corev1.PodTemplate
+		gomega.Eventually(func() error {
+			return k8sClient.Get(ctx, types.NamespacedName{Name: kueue.DefaultPodSetName, Namespace: ns.Name}, &createdPodTemplate)
+		}, util.Timeout, util.Interval).Should(gomega.BeNil())
+
 		ginkgo.By("checking a second non-matching workload is deleted")
 		secondWl := &kueue.Workload{
 			ObjectMeta: metav1.ObjectMeta{

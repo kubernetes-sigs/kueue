@@ -155,7 +155,7 @@ func TestUpdateClusterQueue(t *testing.T) {
 		if err := cl.Create(ctx, w); err != nil {
 			t.Fatalf("Failed adding workload to client: %v", err)
 		}
-		manager.RequeueWorkload(ctx, workload.NewInfo(w), RequeueReasonGeneric)
+		manager.RequeueWorkload(ctx, workload.NewInfo(w, nil), RequeueReasonGeneric)
 	}
 
 	// Put cq2 in the same cohort as cq1.
@@ -216,7 +216,7 @@ func TestUpdateLocalQueue(t *testing.T) {
 		}
 	}
 	for _, w := range workloads {
-		manager.AddOrUpdateWorkload(w)
+		manager.AddOrUpdateWorkload(w, nil)
 	}
 
 	// Update cluster queue of first queue.
@@ -330,7 +330,7 @@ func TestAddWorkload(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.workload.Name, func(t *testing.T) {
-			if added := manager.AddOrUpdateWorkload(tc.workload); added != tc.wantAdded {
+			if added := manager.AddOrUpdateWorkload(tc.workload, nil); added != tc.wantAdded {
 				t.Errorf("AddWorkload returned %t, want %t", added, tc.wantAdded)
 			}
 		})
@@ -398,7 +398,7 @@ func TestStatus(t *testing.T) {
 	}
 	for _, wl := range workloads {
 		wl := wl
-		manager.AddOrUpdateWorkload(&wl)
+		manager.AddOrUpdateWorkload(&wl, nil)
 	}
 
 	cases := map[string]struct {
@@ -518,9 +518,9 @@ func TestRequeueWorkloadStrictFIFO(t *testing.T) {
 				}
 			}
 			if tc.inQueue {
-				_ = manager.AddOrUpdateWorkload(tc.workload)
+				_ = manager.AddOrUpdateWorkload(tc.workload, nil)
 			}
-			info := workload.NewInfo(tc.workload)
+			info := workload.NewInfo(tc.workload, nil)
 			if requeued := manager.RequeueWorkload(ctx, info, RequeueReasonGeneric); requeued != tc.wantRequeued {
 				t.Errorf("RequeueWorkload returned %t, want %t", requeued, tc.wantRequeued)
 			}
@@ -670,11 +670,11 @@ func TestUpdateWorkload(t *testing.T) {
 				}
 			}
 			for _, w := range tc.workloads {
-				manager.AddOrUpdateWorkload(w)
+				manager.AddOrUpdateWorkload(w, nil)
 			}
 			wl := tc.workloads[0].DeepCopy()
 			tc.update(wl)
-			if updated := manager.UpdateWorkload(tc.workloads[0], wl); updated != tc.wantUpdated {
+			if updated := manager.UpdateWorkload(tc.workloads[0], wl, nil); updated != tc.wantUpdated {
 				t.Errorf("UpdatedWorkload returned %t, want %t", updated, tc.wantUpdated)
 			}
 			q := manager.localQueues[workload.QueueKey(wl)]
@@ -787,7 +787,7 @@ func TestHeads(t *testing.T) {
 
 			go manager.CleanUpOnContext(ctx)
 			for _, wl := range tc.workloads {
-				manager.AddOrUpdateWorkload(wl)
+				manager.AddOrUpdateWorkload(wl, nil)
 			}
 
 			wlNames := sets.New[string]()
@@ -845,7 +845,7 @@ func TestHeadsAsync(t *testing.T) {
 				if err := mgr.AddLocalQueue(ctx, &queues[0]); err != nil {
 					t.Errorf("Failed adding queue: %s", err)
 				}
-				mgr.AddOrUpdateWorkload(&wl)
+				mgr.AddOrUpdateWorkload(&wl, nil)
 				go func() {
 					if err := mgr.AddClusterQueue(ctx, clusterQueues[0]); err != nil {
 						t.Errorf("Failed adding clusterQueue: %v", err)
@@ -875,6 +875,7 @@ func TestHeadsAsync(t *testing.T) {
 				{
 					Obj:          &wl,
 					ClusterQueue: "fooCq",
+					PodTemplates: []corev1.PodTemplate{},
 				},
 			},
 		},
@@ -887,7 +888,7 @@ func TestHeadsAsync(t *testing.T) {
 					t.Errorf("Failed adding queue: %s", err)
 				}
 				go func() {
-					mgr.AddOrUpdateWorkload(&wl)
+					mgr.AddOrUpdateWorkload(&wl, nil)
 				}()
 			},
 			wantHeads: []workload.Info{
@@ -908,7 +909,7 @@ func TestHeadsAsync(t *testing.T) {
 				go func() {
 					wlCopy := wl.DeepCopy()
 					wlCopy.ResourceVersion = "old"
-					mgr.UpdateWorkload(wlCopy, &wl)
+					mgr.UpdateWorkload(wlCopy, &wl, nil)
 				}()
 			},
 			wantHeads: []workload.Info{
@@ -930,7 +931,7 @@ func TestHeadsAsync(t *testing.T) {
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
 				go func() {
-					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
+					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl, nil), RequeueReasonFailedAfterNomination)
 				}()
 			},
 			wantHeads: []workload.Info{
@@ -958,7 +959,7 @@ func TestHeadsAsync(t *testing.T) {
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
 				go func() {
-					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
+					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl, nil), RequeueReasonFailedAfterNomination)
 				}()
 			},
 			wantHeads: []workload.Info{
@@ -990,7 +991,7 @@ func TestHeadsAsync(t *testing.T) {
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
 				go func() {
-					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination)
+					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl, nil), RequeueReasonFailedAfterNomination)
 				}()
 			},
 			wantHeads: []workload.Info{

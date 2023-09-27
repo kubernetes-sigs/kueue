@@ -23,7 +23,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -94,7 +93,6 @@ func TestValidateWorkload(t *testing.T) {
 	specPath := field.NewPath("spec")
 	podSetsPath := specPath.Child("podSets")
 	statusPath := field.NewPath("status")
-	firstPodSetSpecPath := podSetsPath.Index(0).Child("template", "spec")
 	testCases := map[string]struct {
 		workload *kueue.Workload
 		wantErr  field.ErrorList
@@ -132,14 +130,6 @@ func TestValidateWorkload(t *testing.T) {
 		"should pass validation when priorityClassName is empty": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
 			wantErr:  nil,
-		},
-		"should have priority once priorityClassName is set": {
-			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PriorityClass("priority").
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(specPath.Child("priority"), nil, ""),
-			},
 		},
 		"should have a valid queueName": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -196,40 +186,6 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(statusPath.Child("admission", "podSetAssignments").Index(0).Child("resourceUsage").Key(string(corev1.ResourceCPU)), nil, ""),
-			},
-		},
-		"should not request num-pods resource": {
-			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(kueue.PodSet{
-					Name:  "bad",
-					Count: 1,
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							InitContainers: []corev1.Container{
-								{
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											corev1.ResourcePods: resource.MustParse("1"),
-										},
-									},
-								},
-							},
-							Containers: []corev1.Container{
-								{
-									Resources: corev1.ResourceRequirements{
-										Requests: corev1.ResourceList{
-											corev1.ResourcePods: resource.MustParse("1"),
-										},
-									},
-								},
-							},
-						},
-					},
-				}).
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(firstPodSetSpecPath.Child("initContainers").Index(0).Child("resources", "requests").Key(string(corev1.ResourcePods)), nil, ""),
-				field.Invalid(firstPodSetSpecPath.Child("containers").Index(0).Child("resources", "requests").Key(string(corev1.ResourcePods)), nil, ""),
 			},
 		},
 		"invalid reclaimablePods": {
@@ -294,39 +250,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		before, after *kueue.Workload
 		wantErr       field.ErrorList
 	}{
-		"podSets should not be updated: count": {
-			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
-			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
-				*testingutil.MakePodSet("main", 2).Obj(),
-			).Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec").Child("podSets"), nil, ""),
-			},
-		},
-		"podSets should not be updated: podSpec": {
-			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
-			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
-				kueue.PodSet{
-					Name:  "main",
-					Count: 1,
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							Containers: []corev1.Container{
-								{
-									Name: "c-after",
-									Resources: corev1.ResourceRequirements{
-										Requests: make(corev1.ResourceList),
-									},
-								},
-							},
-						},
-					},
-				},
-			).Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec").Child("podSets"), nil, ""),
-			},
-		},
 		"queueName can be updated when not admitted": {
 			before:  testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q1").Obj(),
 			after:   testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q2").Obj(),

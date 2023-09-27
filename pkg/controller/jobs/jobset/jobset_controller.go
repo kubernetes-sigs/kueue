@@ -108,7 +108,7 @@ func (j *JobSet) PodSets() []kueue.PodSet {
 	for index, replicatedJob := range j.Spec.ReplicatedJobs {
 		podSets[index] = kueue.PodSet{
 			Name:     replicatedJob.Name,
-			Template: *replicatedJob.Template.Spec.Template.DeepCopy(),
+			Template: replicatedJob.Template.Spec.Template.DeepCopy(),
 			Count:    podsCount(&replicatedJob),
 		}
 	}

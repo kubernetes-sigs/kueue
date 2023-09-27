@@ -872,7 +872,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					utiltesting.MakeWorkload("pending", "").Obj(),
 				}
 				for i := range workloads {
-					cache.AddOrUpdateWorkload(workloads[i])
+					cache.AddOrUpdateWorkload(workloads[i], nil)
 				}
 				return nil
 			},
@@ -899,7 +899,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				w := utiltesting.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "three",
 				}).Obj()
-				if !cache.AddOrUpdateWorkload(w) {
+				if !cache.AddOrUpdateWorkload(w, nil) {
 					return fmt.Errorf("failed to add workload")
 				}
 				return nil
@@ -928,7 +928,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				w := utiltesting.MakeWorkload("b", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "one",
 				}).Obj()
-				if !cache.AddOrUpdateWorkload(w) {
+				if !cache.AddOrUpdateWorkload(w, nil) {
 					return fmt.Errorf("failed to add workload")
 				}
 				return nil
@@ -960,7 +960,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					ClusterQueue:      "two",
 					PodSetAssignments: podSetFlavors,
 				}).Obj()
-				return cache.UpdateWorkload(old, latest)
+				return cache.UpdateWorkload(old, latest, nil)
 			},
 			wantResults: map[string]result{
 				"one": {
@@ -988,7 +988,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				latest := utiltesting.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "one",
 				}).Obj()
-				return cache.UpdateWorkload(old, latest)
+				return cache.UpdateWorkload(old, latest, nil)
 			},
 			wantError: "old ClusterQueue doesn't exist",
 			wantResults: map[string]result{
@@ -1017,7 +1017,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				latest := utiltesting.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "three",
 				}).Obj()
-				return cache.UpdateWorkload(old, latest)
+				return cache.UpdateWorkload(old, latest, nil)
 			},
 			wantError: "new ClusterQueue doesn't exist",
 			wantResults: map[string]result{
@@ -1046,7 +1046,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				latest := utiltesting.MakeWorkload("d", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "two",
 				}).Obj()
-				return cache.UpdateWorkload(old, latest)
+				return cache.UpdateWorkload(old, latest, nil)
 			},
 			wantResults: map[string]result{
 				"one": {
@@ -1202,7 +1202,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					}).Obj(),
 				}
 				for i := range workloads {
-					if err := cache.AssumeWorkload(workloads[i]); err != nil {
+					if err := cache.AssumeWorkload(workloads[i], nil); err != nil {
 						return err
 					}
 				}
@@ -1235,7 +1235,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				w := utiltesting.MakeWorkload("d", "").PodSets(podSets...).ReserveQuota(&kueue.Admission{
 					ClusterQueue: "three",
 				}).Obj()
-				if err := cache.AssumeWorkload(w); err != nil {
+				if err := cache.AssumeWorkload(w, nil); err != nil {
 					return err
 				}
 				return nil
@@ -1273,7 +1273,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					}).Obj(),
 				}
 				for i := range workloads {
-					if err := cache.AssumeWorkload(workloads[i]); err != nil {
+					if err := cache.AssumeWorkload(workloads[i], nil); err != nil {
 						return err
 					}
 				}
@@ -1344,13 +1344,13 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					}).Obj(),
 				}
 				for i := range workloads {
-					if err := cache.AssumeWorkload(workloads[i]); err != nil {
+					if err := cache.AssumeWorkload(workloads[i], nil); err != nil {
 						return err
 					}
 				}
 
 				w := workloads[0]
-				if !cache.AddOrUpdateWorkload(w) {
+				if !cache.AddOrUpdateWorkload(w, nil) {
 					return fmt.Errorf("failed to add workload")
 				}
 				return nil
@@ -1571,7 +1571,7 @@ func TestClusterQueueUsage(t *testing.T) {
 				t.Fatalf("Adding ClusterQueue: %v", err)
 			}
 			for _, w := range tc.workloads {
-				if added := cache.AddOrUpdateWorkload(&w); !added {
+				if added := cache.AddOrUpdateWorkload(&w, nil); !added {
 					t.Fatalf("Workload %s was not added", workload.Key(&w))
 				}
 			}
@@ -1797,7 +1797,7 @@ func TestLocalQueueUsage(t *testing.T) {
 				t.Fatalf("Adding LocalQueue: %v", err)
 			}
 			for _, w := range tc.wls {
-				if added := cache.AddOrUpdateWorkload(&w); !added && !tc.inAdmissibleWl.Has(w.Name) {
+				if added := cache.AddOrUpdateWorkload(&w, nil); !added && !tc.inAdmissibleWl.Has(w.Name) {
 					t.Fatalf("Workload %s was not added", workload.Key(&w))
 				}
 			}
@@ -1902,7 +1902,7 @@ func TestCacheQueueOperations(t *testing.T) {
 			if err := cl.Create(ctx, wl); err != nil {
 				return err
 			}
-			cache.AddOrUpdateWorkload(wl)
+			cache.AddOrUpdateWorkload(wl, nil)
 		}
 		return nil
 	}
@@ -2039,7 +2039,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					if err := cl.Create(ctx, wl); err != nil {
 						return err
 					}
-					return cache.AssumeWorkload(wl)
+					return cache.AssumeWorkload(wl, nil)
 				},
 			},
 			wantLocalQueues: map[string]*queue{
@@ -2057,7 +2057,7 @@ func TestCacheQueueOperations(t *testing.T) {
 					if err := cl.Create(ctx, wl); err != nil {
 						return err
 					}
-					if err := cache.AssumeWorkload(wl); err != nil {
+					if err := cache.AssumeWorkload(wl, nil); err != nil {
 						return err
 					}
 					return cache.ForgetWorkload(wl)
@@ -2257,7 +2257,7 @@ func TestWaitForPodsReadyCancelled(t *testing.T) {
 	wl := utiltesting.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
 		ClusterQueue: "one",
 	}).Obj()
-	if err := cache.AssumeWorkload(wl); err != nil {
+	if err := cache.AssumeWorkload(wl, nil); err != nil {
 		t.Fatalf("Failed assuming the workload to block the further admission: %v", err)
 	}
 
@@ -2301,7 +2301,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 				wl := utiltesting.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "one",
 				}).Obj()
-				cache.AddOrUpdateWorkload(wl)
+				cache.AddOrUpdateWorkload(wl, nil)
 				return nil
 			},
 			wantReady: false,
@@ -2315,7 +2315,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 					Type:   kueue.WorkloadPodsReady,
 					Status: metav1.ConditionFalse,
 				}).Obj()
-				cache.AddOrUpdateWorkload(wl)
+				cache.AddOrUpdateWorkload(wl, nil)
 				return nil
 			},
 			wantReady: false,
@@ -2329,7 +2329,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 					Type:   kueue.WorkloadPodsReady,
 					Status: metav1.ConditionTrue,
 				}).Obj()
-				cache.AddOrUpdateWorkload(wl)
+				cache.AddOrUpdateWorkload(wl, nil)
 				return nil
 			},
 			wantReady: true,
@@ -2340,7 +2340,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 				wl := utiltesting.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "one",
 				}).Obj()
-				return cache.AssumeWorkload(wl)
+				return cache.AssumeWorkload(wl, nil)
 			},
 			wantReady: false,
 		},
@@ -2353,7 +2353,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 					Type:   kueue.WorkloadPodsReady,
 					Status: metav1.ConditionFalse,
 				}).Obj()
-				return cache.AssumeWorkload(wl)
+				return cache.AssumeWorkload(wl, nil)
 			},
 			wantReady: false,
 		},
@@ -2366,7 +2366,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 					Type:   kueue.WorkloadPodsReady,
 					Status: metav1.ConditionTrue,
 				}).Obj()
-				return cache.AssumeWorkload(wl)
+				return cache.AssumeWorkload(wl, nil)
 			},
 			wantReady: true,
 		},
@@ -2376,7 +2376,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 				wl := utiltesting.MakeWorkload("a", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "one",
 				}).Obj()
-				cache.AddOrUpdateWorkload(wl)
+				cache.AddOrUpdateWorkload(wl, nil)
 				return nil
 			},
 			operation: func(cache *Cache) error {
@@ -2386,7 +2386,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 					Type:   kueue.WorkloadPodsReady,
 					Status: metav1.ConditionTrue,
 				})
-				return cache.UpdateWorkload(wl, newWl)
+				return cache.UpdateWorkload(wl, newWl, nil)
 			},
 			wantReady: true,
 		},
@@ -2399,7 +2399,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 					Type:   kueue.WorkloadPodsReady,
 					Status: metav1.ConditionTrue,
 				}).Obj()
-				cache.AddOrUpdateWorkload(wl)
+				cache.AddOrUpdateWorkload(wl, nil)
 				return nil
 			},
 			operation: func(cache *Cache) error {
@@ -2409,7 +2409,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 					Type:   kueue.WorkloadPodsReady,
 					Status: metav1.ConditionFalse,
 				})
-				return cache.UpdateWorkload(wl, newWl)
+				return cache.UpdateWorkload(wl, newWl, nil)
 			},
 			wantReady: false,
 		},
@@ -2422,14 +2422,14 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 					Type:   kueue.WorkloadPodsReady,
 					Status: metav1.ConditionTrue,
 				}).Obj()
-				cache.AddOrUpdateWorkload(wl1)
+				cache.AddOrUpdateWorkload(wl1, nil)
 				return nil
 			},
 			operation: func(cache *Cache) error {
 				wl2 := utiltesting.MakeWorkload("b", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "two",
 				}).Obj()
-				return cache.AssumeWorkload(wl2)
+				return cache.AssumeWorkload(wl2, nil)
 			},
 			wantReady: false,
 		},
@@ -2442,11 +2442,11 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 					Type:   kueue.WorkloadPodsReady,
 					Status: metav1.ConditionTrue,
 				}).Obj()
-				cache.AddOrUpdateWorkload(wl1)
+				cache.AddOrUpdateWorkload(wl1, nil)
 				wl2 := utiltesting.MakeWorkload("b", "").ReserveQuota(&kueue.Admission{
 					ClusterQueue: "two",
 				}).Obj()
-				cache.AddOrUpdateWorkload(wl2)
+				cache.AddOrUpdateWorkload(wl2, nil)
 				return nil
 			},
 			operation: func(cache *Cache) error {
@@ -2456,7 +2456,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 					Type:   kueue.WorkloadPodsReady,
 					Status: metav1.ConditionTrue,
 				})
-				return cache.UpdateWorkload(wl2, newWl2)
+				return cache.UpdateWorkload(wl2, newWl2, nil)
 			},
 			wantReady: true,
 		},
@@ -2469,7 +2469,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 					Type:   kueue.WorkloadPodsReady,
 					Status: metav1.ConditionFalse,
 				}).Obj()
-				cache.AddOrUpdateWorkload(wl)
+				cache.AddOrUpdateWorkload(wl, nil)
 				return nil
 			},
 			operation: func(cache *Cache) error {
@@ -2487,7 +2487,7 @@ func TestCachePodsReadyForAllAdmittedWorkloads(t *testing.T) {
 					Type:   kueue.WorkloadPodsReady,
 					Status: metav1.ConditionFalse,
 				}).Obj()
-				return cache.AssumeWorkload(wl)
+				return cache.AssumeWorkload(wl, nil)
 			},
 			operation: func(cache *Cache) error {
 				wl := cache.clusterQueues["one"].Workloads["/a"].Obj

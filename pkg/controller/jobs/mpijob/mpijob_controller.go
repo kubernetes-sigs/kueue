@@ -109,7 +109,7 @@ func (j *MPIJob) PodSets() []kueue.PodSet {
 	for index, mpiReplicaType := range replicaTypes {
 		podSets[index] = kueue.PodSet{
 			Name:     strings.ToLower(string(mpiReplicaType)),
-			Template: *j.Spec.MPIReplicaSpecs[mpiReplicaType].Template.DeepCopy(),
+			Template: j.Spec.MPIReplicaSpecs[mpiReplicaType].Template.DeepCopy(),
 			Count:    podsCount(&j.Spec, mpiReplicaType),
 		}
 	}

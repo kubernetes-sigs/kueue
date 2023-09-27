@@ -150,7 +150,7 @@ func (p *Pod) PodSets() []kueue.PodSet {
 		{
 			Name:  kueue.DefaultPodSetName,
 			Count: 1,
-			Template: corev1.PodTemplateSpec{
+			Template: &corev1.PodTemplateSpec{
 				Spec: *p.Spec.DeepCopy(),
 			},
 		},
