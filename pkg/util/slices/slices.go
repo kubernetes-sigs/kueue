@@ -63,22 +63,20 @@ func Map[From any, To any, S ~[]From](s S, mapFunc func(*From) To) []To {
 }
 
 // CmpNoOrder returns true if the two provided slices have the same elements
-// regardless of their order. It counts occurences of particular values in both slices and
-// then compares them.
+// regardless of their order.
 func CmpNoOrder[E comparable, S ~[]E](a, b S) bool {
 	if len(a) != len(b) {
 		return false
 	}
 
-	counterA := make(map[E]int)
-	counterB := make(map[E]int)
+	counters := make(map[E]int, len(a))
 	for i := range a {
-		counterA[a[i]] = counterA[a[i]] + 1
-		counterB[b[i]] = counterB[b[i]] + 1
+		counters[a[i]]++
+		counters[b[i]]--
 	}
 
-	for k := range counterA {
-		if counterA[k] != counterB[k] {
+	for _, v := range counters {
+		if v != 0 {
 			return false
 		}
 	}
