@@ -449,6 +449,10 @@ func HasAllChecks(wl *kueue.Workload, mustHaveChecks sets.Set[string]) bool {
 		return true
 	}
 
+	if mustHaveChecks.Len() > len(wl.Status.AdmissionChecks) {
+		return false
+	}
+
 	mustHaveChecks = mustHaveChecks.Clone()
 	for i := range wl.Status.AdmissionChecks {
 		mustHaveChecks.Delete(wl.Status.AdmissionChecks[i].Type)
