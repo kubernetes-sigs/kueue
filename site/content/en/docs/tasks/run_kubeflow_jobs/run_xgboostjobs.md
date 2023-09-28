@@ -6,7 +6,7 @@ description: >
   Run a Kueue scheduled XGBoostJob
 ---
 
-This page shows how to leverage Kueue's scheduling and resource management capabilities when running [Training Operator](https://github.com/kubeflow/training-operator) XGBoostJobs.
+This page shows how to leverage Kueue's scheduling and resource management capabilities when running [Training Operator](https://www.kubeflow.org/docs/components/training/xgboost/) XGBoostJobs.
 
 This guide is for [batch users](/docs/tasks#batch-user) that have a basic understanding of Kueue. For more information, see [Kueue's overview](/docs/overview).
 
@@ -54,4 +54,4 @@ By default, Kueue will set `suspend` to true via webhook and unsuspend it when t
 
 This example is based on https://github.com/kubeflow/training-operator/blob/afba76bc5a168cbcbc8685c7661f36e9b787afd1/examples/xgboost/xgboostjob.yaml.
 
-{{< include "examples/sample-xgboostjob.yaml" "yaml" >}}
+{{< include "examples/jobs/sample-xgboostjob.yaml" "yaml" >}}

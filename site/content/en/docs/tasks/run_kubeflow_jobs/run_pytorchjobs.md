@@ -6,7 +6,7 @@ description: >
   Run a Kueue scheduled PyTorchJob
 ---
 
-This page shows how to leverage Kueue's scheduling and resource management capabilities when running [Training Operator](https://github.com/kubeflow/training-operator) PyTorchJobs.
+This page shows how to leverage Kueue's scheduling and resource management capabilities when running [Training Operator](https://www.kubeflow.org/docs/components/training/pytorch/) PyTorchJobs.
 
 This guide is for [batch users](/docs/tasks#batch-user) that have a basic understanding of Kueue. For more information, see [Kueue's overview](/docs/overview).
 
@@ -54,4 +54,4 @@ By default, Kueue will set `suspend` to true via webhook and unsuspend it when t
 
 This example is based on https://github.com/kubeflow/training-operator/blob/855e0960668b34992ba4e1fd5914a08a3362cfb1/examples/pytorch/simple.yaml.
 
-{{< include "examples/sample-pytorchjob.yaml" "yaml" >}}
+{{< include "examples/jobs/sample-pytorchjob.yaml" "yaml" >}}
