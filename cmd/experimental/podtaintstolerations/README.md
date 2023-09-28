@@ -45,6 +45,9 @@ docker buildx build . -t ${IMAGE}:${TAG}
 
 # Push the image if you are deploying to a remote cluster.
 # docker push ${IMAGE}:${TAG}
+
+# Load the image into the local kind cluster.
+kind load docker-image $IMAGE:$TAG
 ```
 
 Create a directory for Kustomize.
