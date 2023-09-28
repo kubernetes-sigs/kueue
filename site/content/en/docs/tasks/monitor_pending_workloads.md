@@ -29,6 +29,7 @@ QueueVisibility is an `Alpha` feature disabled by default, check the [Change the
 ## Monitor pending workloads
 
 > _Available in Kueue v0.5.0 and later_
+
 To install a simple setup of cluster queue, run the following command:
 
 ```shell
@@ -78,7 +79,9 @@ Status:
     Last Change Time:  2023-09-28T09:22:12Z
 ```
 
-The `QueueVisibility.ClusterQueues.MaxCount` parameter indicates the maximal number of pending workloads exposed in the ClusterQueue status. By default, Kueue will set this parameter to 10. When the value is set to 0, then ClusterQueues visibility updates are disabled.
+The `QueueVisibility.ClusterQueues.MaxCount` parameter indicates the maximal number of pending workloads exposed in the ClusterQueue status. 
+By default, Kueue will set this parameter to 10. 
+When the value is set to 0, then ClusterQueues visibility updates are disabled.
 
 ```yaml
     queueVisibility:
@@ -86,7 +89,9 @@ The `QueueVisibility.ClusterQueues.MaxCount` parameter indicates the maximal num
         maxCount: 0
 ```
 
-The `QueueVisibility.UpdateIntervalSeconds` parameter allows to control the period of snapshot updates after Kueue startup. Defaults to 5s. It also can be changed in Kueue configuration
+The `QueueVisibility.UpdateIntervalSeconds` parameter allows to control the period of snapshot updates after Kueue startup. 
+Defaults to 5s. 
+It also can be changed in Kueue configuration:
 
 ```yaml
     queueVisibility:

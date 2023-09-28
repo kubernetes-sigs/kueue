@@ -23,6 +23,8 @@ As a batch administrator, you can learn how to:
   to Kueue objects.
 - [Administer cluster quotas](/docs/tasks/administer_cluster_quotas) with ClusterQueues and LocalQueues.
 - Setup [Sequential Admission with Ready Pods](/docs/tasks/setup_sequential_admission).
+- As a batch administrator, you can learn how to
+  [monitor pending workloads](/docs/tasks/monitor_pending_workloads).
 
 ### Batch user
 
