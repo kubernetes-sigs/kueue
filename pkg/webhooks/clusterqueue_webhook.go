@@ -73,12 +73,6 @@ func (w *ClusterQueueWebhook) Default(ctx context.Context, obj runtime.Object) e
 			WhenCanPreempt: kueue.TryNextFlavor,
 		}
 	}
-	if cq.Spec.FlavorFungibility.WhenCanBorrow == "" {
-		cq.Spec.FlavorFungibility.WhenCanBorrow = kueue.Borrow
-	}
-	if cq.Spec.FlavorFungibility.WhenCanPreempt == "" {
-		cq.Spec.FlavorFungibility.WhenCanPreempt = kueue.TryNextFlavor
-	}
 	return nil
 }
 

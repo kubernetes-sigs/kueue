@@ -1639,9 +1639,6 @@ func TestLastSchedulingContext(t *testing.T) {
 					}
 				}
 			}
-			if len(gotAssignments) == 0 {
-				gotAssignments = nil
-			}
 			if diff := cmp.Diff(tc.wantAdmissionsOnSecondSchedule, gotAssignments); diff != "" {
 				t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
 			}

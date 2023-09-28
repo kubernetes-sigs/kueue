@@ -1697,7 +1697,7 @@ func TestAssignFlavors(t *testing.T) {
 						Name: "one",
 						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
 							corev1.ResourcePods: {Nominal: 10},
-							corev1.ResourceCPU:  {Nominal: 10000, BorrowingLimit: ptr.To(int64(1000))},
+							corev1.ResourceCPU:  {Nominal: 10000, BorrowingLimit: ptr.To[int64](1000)},
 						},
 					}, {
 						Name: "two",
@@ -1757,7 +1757,7 @@ func TestAssignFlavors(t *testing.T) {
 						Name: "one",
 						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
 							corev1.ResourcePods: {Nominal: 10},
-							corev1.ResourceCPU:  {Nominal: 10000, BorrowingLimit: ptr.To(int64(1000))},
+							corev1.ResourceCPU:  {Nominal: 10000, BorrowingLimit: ptr.To[int64](1000)},
 						},
 					}, {
 						Name: "two",
@@ -1813,7 +1813,7 @@ func TestAssignFlavors(t *testing.T) {
 						Name: "one",
 						Resources: map[corev1.ResourceName]*cache.ResourceQuota{
 							corev1.ResourcePods: {Nominal: 10},
-							corev1.ResourceCPU:  {Nominal: 10000, BorrowingLimit: ptr.To(int64(1000))},
+							corev1.ResourceCPU:  {Nominal: 10000, BorrowingLimit: ptr.To[int64](1000)},
 						},
 					}, {
 						Name: "two",
