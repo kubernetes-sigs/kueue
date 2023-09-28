@@ -799,6 +799,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Preemption:                    defaultPreemption,
 					AllocatableResourceGeneration: 1,
 					FlavorFungibility:             defaultFlavorFungibility,
+					AdmissionChecks:               sets.Set[string]{"check1": {}, "check2": {}},
 				},
 			},
 			wantCohorts: map[string]sets.Set[string]{},
