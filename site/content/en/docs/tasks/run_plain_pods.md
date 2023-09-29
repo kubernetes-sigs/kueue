@@ -41,7 +41,7 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
    ```
 
 2. Pods that belong to other API resources managed by Kueue are excluded from being queued by `pod` integration. 
-   For example, pods managed by `batch/v1/Job` won't be managed by `pod` integration if the `job` integration is enabled.
+   For example, pods managed by `batch/v1.Job` won't be managed by `pod` integration.
 
 3. Kueue will inject a `kueue.x-k8s.io/managed=true` label to indicate which pods are managed by it.
 
@@ -74,12 +74,12 @@ The resource needs of the workload can be configured in the `spec.containers`.
 ### c. Limitations
 
 - A Kueue managed Pod cannot be created in `kube-system` or `kueue-system` namespaces.
-- In case of [preemption](/docs/concepts/cluster_queue/#preemption), Pod will
+- In case of [preemption](/docs/concepts/cluster_queue/#preemption), the Pod will
   be terminated and deleted.
 
 ## Example Pod
 
-Here is a sample Pod that just sleep for a few seconds:
+Here is a sample Pod that just sleeps for a few seconds:
 
 {{< include "examples/pods-kueue/kueue-pod.yaml" "yaml" >}}
 
