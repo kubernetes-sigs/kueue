@@ -20,7 +20,7 @@ Make sure the following conditions are met:
 
 - A Kubernetes cluster is running.
 - The kubectl command-line tool has communication with your cluster.
-- [Kueue is installed](/docs/installation) in version 0.5.0 or later.
+- [Kueue is installed](/docs/installation) in version v0.5.0 or later.
 
 ## Enabling feature QueueVisibility
 
@@ -79,7 +79,9 @@ Status:
     Last Change Time:  2023-09-28T09:22:12Z
 ```
 
-The `QueueVisibility.ClusterQueues.MaxCount` parameter indicates the maximal number of pending workloads exposed in the ClusterQueue status. 
+To configure queue visibility, please, follow the instruction how to [install Kueue with a custom manager configuration](/docs/installation/#install-a-custom-configured-released-version).
+
+The `queueVisibility.clusterQueues.maxCount` parameter indicates the maximal number of pending workloads exposed in the ClusterQueue status. 
 By default, Kueue will set this parameter to 10. 
 When the value is set to 0, then ClusterQueues visibility updates are disabled.
 
@@ -89,7 +91,7 @@ When the value is set to 0, then ClusterQueues visibility updates are disabled.
         maxCount: 0
 ```
 
-The `QueueVisibility.UpdateIntervalSeconds` parameter allows to control the period of snapshot updates after Kueue startup. 
+The `queueVisibility.updateIntervalSeconds` parameter allows to control the period of snapshot updates after Kueue startup. 
 Defaults to 5s. 
 It also can be changed in Kueue configuration:
 
