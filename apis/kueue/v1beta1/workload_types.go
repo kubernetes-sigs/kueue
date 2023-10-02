@@ -167,10 +167,61 @@ type WorkloadStatus struct {
 	// admissionChecks list all the admission checks required by the workload and the current status
 	// +optional
 	// +listType=map
-	// +listMapKey=type
+	// +listMapKey=name
 	// +patchStrategy=merge
-	// +patchMergeKey=type
-	AdmissionChecks []metav1.Condition `json:"admissionChecks,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
+	// +patchMergeKey=name
+	AdmissionChecks []AdmissionCheckState `json:"admissionChecks,omitempty" patchStrategy:"merge" patchMergeKey:"name"`
+}
+
+type AdmissionCheckState struct {
+	// name identifies the admission check.
+	// +required
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MaxLength=316
+	Name string `json:"name"`
+	// status of the condition, one of True, False, Unknown.
+	// +required
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Enum=Pending;Ready;Retry;Rejected
+	State CheckState `json:"state"`
+	// lastTransitionTime is the last time the condition transitioned from one status to another.
+	// This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+	// +required
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Format=date-time
+	LastTransitionTime metav1.Time `json:"lastTransitionTime"`
+	// message is a human readable message indicating details about the transition.
+	// This may be an empty string.
+	// +required
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MaxLength=32768
+	Message string `json:"message" protobuf:"bytes,6,opt,name=message"`
+
+	// +optional
+	PodSetUpdates []PodSetUpdate `json:"podSetUpdates,omitempty"`
+}
+
+// PodSetUpdate contains a list of pod set modifications suggested by AdmissionChecks.
+// The modifications should be additive only - modifications of already existing keys
+// are not allowed and will result in failure during workload admission.
+type PodSetUpdate struct {
+	// Name of the PodSet to modify. Should match to one of the Workload's PodSets.
+	// +required
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
+
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
+
+	// +optional
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+
+	// +optional
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 }
 
 type ReclaimablePod struct {

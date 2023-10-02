@@ -266,7 +266,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 					if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 						return nil
 					}
-					return slices.ToMap(createdWorkload.Status.AdmissionChecks, func(i int) (string, string) { return createdWorkload.Status.AdmissionChecks[i].Type, "" })
+					return slices.ToMap(createdWorkload.Status.AdmissionChecks, func(i int) (string, string) { return createdWorkload.Status.AdmissionChecks[i].Name, "" })
 
 				}, util.LongTimeout, util.Interval).Should(gomega.BeComparableTo(map[string]string{"check1": ""}))
 			})
@@ -299,10 +299,9 @@ var _ = ginkgo.Describe("Kueue", func() {
 						return err
 					}
 					patch := workload.BaseSSAWorkload(createdWorkload)
-					apimeta.SetStatusCondition(&patch.Status.AdmissionChecks, metav1.Condition{
-						Type:   "check1",
-						Status: metav1.ConditionTrue,
-						Reason: kueue.CheckStateReady,
+					workload.SetAdmissionCheckState(&patch.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:  "check1",
+						State: kueue.CheckStateReady,
 					})
 					return k8sClient.Status().Patch(ctx, patch, client.Apply, client.FieldOwner("test-admission-check-controller"), client.ForceOwnership)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -334,7 +333,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 					if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 						return nil
 					}
-					return slices.ToMap(createdWorkload.Status.AdmissionChecks, func(i int) (string, string) { return createdWorkload.Status.AdmissionChecks[i].Type, "" })
+					return slices.ToMap(createdWorkload.Status.AdmissionChecks, func(i int) (string, string) { return createdWorkload.Status.AdmissionChecks[i].Name, "" })
 
 				}, util.LongTimeout, util.Interval).Should(gomega.BeComparableTo(map[string]string{"check1": ""}))
 			})
@@ -345,10 +344,9 @@ var _ = ginkgo.Describe("Kueue", func() {
 						return err
 					}
 					patch := workload.BaseSSAWorkload(createdWorkload)
-					apimeta.SetStatusCondition(&patch.Status.AdmissionChecks, metav1.Condition{
-						Type:   "check1",
-						Status: metav1.ConditionTrue,
-						Reason: kueue.CheckStateReady,
+					workload.SetAdmissionCheckState(&patch.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:  "check1",
+						State: kueue.CheckStateReady,
 					})
 					return k8sClient.Status().Patch(ctx, patch, client.Apply, client.FieldOwner("test-admission-check-controller"), client.ForceOwnership)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -364,10 +362,9 @@ var _ = ginkgo.Describe("Kueue", func() {
 						return err
 					}
 					patch := workload.BaseSSAWorkload(createdWorkload)
-					apimeta.SetStatusCondition(&patch.Status.AdmissionChecks, metav1.Condition{
-						Type:   "check1",
-						Status: metav1.ConditionFalse,
-						Reason: kueue.CheckStateRetry,
+					workload.SetAdmissionCheckState(&patch.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:  "check1",
+						State: kueue.CheckStateRetry,
 					})
 					return k8sClient.Status().Patch(ctx, patch, client.Apply, client.FieldOwner("test-admission-check-controller"), client.ForceOwnership)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())

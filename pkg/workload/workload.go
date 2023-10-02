@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -436,7 +437,7 @@ func ReclaimablePodsAreEqual(a, b []kueue.ReclaimablePod) bool {
 // Returns true if all the checks of the workload are ready.
 func HasAllChecksReady(wl *kueue.Workload) bool {
 	for i := range wl.Status.AdmissionChecks {
-		if wl.Status.AdmissionChecks[i].Status != metav1.ConditionTrue {
+		if wl.Status.AdmissionChecks[i].State != kueue.CheckStateReady {
 			return false
 		}
 	}
@@ -455,7 +456,7 @@ func HasAllChecks(wl *kueue.Workload, mustHaveChecks sets.Set[string]) bool {
 
 	mustHaveChecks = mustHaveChecks.Clone()
 	for i := range wl.Status.AdmissionChecks {
-		mustHaveChecks.Delete(wl.Status.AdmissionChecks[i].Type)
+		mustHaveChecks.Delete(wl.Status.AdmissionChecks[i].Name)
 	}
 	return mustHaveChecks.Len() == 0
 }
@@ -463,7 +464,8 @@ func HasAllChecks(wl *kueue.Workload, mustHaveChecks sets.Set[string]) bool {
 // Returns true if any of the workloads checks are Retry or Rejected
 func HasRetryOrRejectedChecks(wl *kueue.Workload) bool {
 	for i := range wl.Status.AdmissionChecks {
-		if wl.Status.AdmissionChecks[i].Status == metav1.ConditionFalse {
+		state := wl.Status.AdmissionChecks[i].State
+		if state == kueue.CheckStateRetry || state == kueue.CheckStateRejected {
 			return true
 		}
 	}
@@ -475,8 +477,8 @@ func GetRejectedChecks(wl *kueue.Workload) []string {
 	rejectedChecks := make([]string, 0, len(wl.Status.AdmissionChecks))
 	for i := range wl.Status.AdmissionChecks {
 		ac := wl.Status.AdmissionChecks[i]
-		if ac.Status == metav1.ConditionFalse && ac.Reason == kueue.CheckStateRejected {
-			rejectedChecks = append(rejectedChecks, ac.Type)
+		if ac.State == kueue.CheckStateRejected {
+			rejectedChecks = append(rejectedChecks, ac.Name)
 		}
 	}
 	return rejectedChecks
@@ -485,4 +487,41 @@ func GetRejectedChecks(wl *kueue.Workload) []string {
 // Returns true if the workload is admitted.
 func IsAdmitted(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadAdmitted)
+}
+
+// FindStatusCondition - returns a pointer to the check identified by checkName if found in checks.
+func FindAdmissionCheck(checks []kueue.AdmissionCheckState, checkName string) *kueue.AdmissionCheckState {
+	for i := range checks {
+		if checks[i].Name == checkName {
+			return &checks[i]
+		}
+	}
+
+	return nil
+}
+
+// SetAdmissionCheckState - adds or updates newCheck in the provided checks list.
+func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.AdmissionCheckState) {
+	if checks == nil {
+		return
+	}
+	existingCondition := FindAdmissionCheck(*checks, newCheck.Name)
+	if existingCondition == nil {
+		if newCheck.LastTransitionTime.IsZero() {
+			newCheck.LastTransitionTime = metav1.NewTime(time.Now())
+		}
+		*checks = append(*checks, newCheck)
+		return
+	}
+
+	if existingCondition.State != newCheck.State {
+		existingCondition.State = newCheck.State
+		if !newCheck.LastTransitionTime.IsZero() {
+			existingCondition.LastTransitionTime = newCheck.LastTransitionTime
+		} else {
+			existingCondition.LastTransitionTime = metav1.NewTime(time.Now())
+		}
+	}
+	existingCondition.Message = newCheck.Message
+	existingCondition.PodSetUpdates = newCheck.PodSetUpdates
 }
