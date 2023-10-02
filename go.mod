@@ -11,8 +11,8 @@ require (
 	github.com/onsi/ginkgo/v2 v2.12.1
 	github.com/onsi/gomega v1.27.10
 	github.com/open-policy-agent/cert-controller v0.9.0
-	github.com/prometheus/client_golang v1.16.0
-	github.com/prometheus/client_model v0.4.0
+	github.com/prometheus/client_golang v1.17.0
+	github.com/prometheus/client_model v0.4.1-0.20230718164431-9a2bf3000d16
 	github.com/ray-project/kuberay/ray-operator v0.0.0-20230613204710-aeed3cdcbdcc
 	go.uber.org/zap v1.26.0
 	k8s.io/api v0.28.2
