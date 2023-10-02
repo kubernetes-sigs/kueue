@@ -39,6 +39,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
@@ -132,6 +133,17 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
 		return ctrl.Result{}, nil
+	}
+
+	if rejectedChecks := workload.GetRejectedChecks(&wl); len(rejectedChecks) > 0 {
+		// Finish the workload
+		log.V(3).Info("Workload has Rejected admission checks, Finish with failure")
+		err := workload.UpdateStatus(ctx, r.client, &wl, kueue.WorkloadFinished,
+			metav1.ConditionTrue,
+			"AdmissionChecksRejected",
+			fmt.Sprintf("Admission checks %v are rejected", rejectedChecks),
+			constants.KueueName)
+		return ctrl.Result{}, err
 	}
 
 	cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)
