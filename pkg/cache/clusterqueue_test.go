@@ -6,7 +6,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -287,8 +286,8 @@ func TestGetPreemptingWorklods(t *testing.T) {
 		"one workload preempt check pending, preempt anytime": {
 			workloads: []*kueue.Workload{
 				utiltesting.MakeWorkload("wl1", "ns1").
-					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, metav1.ConditionUnknown, kueue.CheckStatePending).
-					SetOrReplaceAdmissionCheck("check1", metav1.ConditionUnknown, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck("check1", kueue.CheckStatePending).
 					Obj(),
 			},
 			checks: map[string]AdmissionCheck{
@@ -301,8 +300,8 @@ func TestGetPreemptingWorklods(t *testing.T) {
 		"one workload preempt check pending, preempt on demand": {
 			workloads: []*kueue.Workload{
 				utiltesting.MakeWorkload("wl1", "ns1").
-					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, metav1.ConditionUnknown, kueue.CheckStatePending).
-					SetOrReplaceAdmissionCheck("check1", metav1.ConditionUnknown, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck("check1", kueue.CheckStatePending).
 					Obj(),
 			},
 			checks: map[string]AdmissionCheck{
@@ -315,8 +314,8 @@ func TestGetPreemptingWorklods(t *testing.T) {
 		"one workload check request, preempt on demand": {
 			workloads: []*kueue.Workload{
 				utiltesting.MakeWorkload("wl1", "ns1").
-					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, metav1.ConditionUnknown, kueue.CheckStatePending).
-					SetOrReplaceAdmissionCheck("check1", metav1.ConditionUnknown, kueue.CheckStatePreemptionRequired).
+					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck("check1", kueue.CheckStatePreemptionRequired).
 					Obj(),
 			},
 			checks: map[string]AdmissionCheck{
@@ -329,8 +328,8 @@ func TestGetPreemptingWorklods(t *testing.T) {
 		"one workload check ready, preempt on demand": {
 			workloads: []*kueue.Workload{
 				utiltesting.MakeWorkload("wl1", "ns1").
-					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, metav1.ConditionUnknown, kueue.CheckStatePending).
-					SetOrReplaceAdmissionCheck("check1", metav1.ConditionTrue, kueue.CheckStateReady).
+					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck("check1", kueue.CheckStateReady).
 					Obj(),
 			},
 			checks: map[string]AdmissionCheck{
@@ -343,37 +342,37 @@ func TestGetPreemptingWorklods(t *testing.T) {
 		"multiple workloads": {
 			workloads: []*kueue.Workload{
 				utiltesting.MakeWorkload("wl1", "ns1").
-					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, metav1.ConditionUnknown, kueue.CheckStatePending).
-					SetOrReplaceAdmissionCheck("checkOnDemand", metav1.ConditionTrue, kueue.CheckStateReady).
+					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck("checkOnDemand", kueue.CheckStateReady).
 					Obj(),
 				utiltesting.MakeWorkload("wl2", "ns1").
-					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, metav1.ConditionUnknown, kueue.CheckStatePending).
-					SetOrReplaceAdmissionCheck("checkOnDemand", metav1.ConditionUnknown, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck("checkOnDemand", kueue.CheckStatePending).
 					Obj(),
 				utiltesting.MakeWorkload("wl3", "ns1").
-					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, metav1.ConditionUnknown, kueue.CheckStatePending).
-					SetOrReplaceAdmissionCheck("checkAnytime", metav1.ConditionUnknown, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck("checkAnytime", kueue.CheckStatePending).
 					Obj(),
 				utiltesting.MakeWorkload("wl4", "ns1").
-					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, metav1.ConditionUnknown, kueue.CheckStatePending).
-					SetOrReplaceAdmissionCheck("checkOnDemand", metav1.ConditionUnknown, kueue.CheckStatePreemptionRequired).
+					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck("checkOnDemand", kueue.CheckStatePreemptionRequired).
 					Obj(),
 				utiltesting.MakeWorkload("wl5", "ns1").
-					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, metav1.ConditionUnknown, kueue.CheckStatePending).
-					SetOrReplaceAdmissionCheck("checkOnDemand", metav1.ConditionUnknown, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck("checkOnDemand", kueue.CheckStatePending).
 					Obj(),
 				utiltesting.MakeWorkload("wl6", "ns1").
-					SetOrReplaceAdmissionCheck("checkAnytime", metav1.ConditionUnknown, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck("checkAnytime", kueue.CheckStatePending).
 					Obj(),
 				utiltesting.MakeWorkload("wl7", "ns1").
-					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, metav1.ConditionUnknown, kueue.CheckStatePending).
-					SetOrReplaceAdmissionCheck("checkAnytime", metav1.ConditionUnknown, kueue.CheckStatePending).
-					SetOrReplaceAdmissionCheck("checkOnDemand", metav1.ConditionUnknown, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck("checkAnytime", kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck("checkOnDemand", kueue.CheckStatePending).
 					Obj(),
 				utiltesting.MakeWorkload("wl8", "ns1").
-					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, metav1.ConditionUnknown, kueue.CheckStatePending).
-					SetOrReplaceAdmissionCheck("checkAnytime", metav1.ConditionUnknown, kueue.CheckStatePending).
-					SetOrReplaceAdmissionCheck("checkOnDemand", metav1.ConditionUnknown, kueue.CheckStatePreemptionRequired).
+					SetOrReplaceAdmissionCheck(constants.PreemptionAdmissionCheckName, kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck("checkAnytime", kueue.CheckStatePending).
+					SetOrReplaceAdmissionCheck("checkOnDemand", kueue.CheckStatePreemptionRequired).
 					Obj(),
 			},
 			checks: map[string]AdmissionCheck{

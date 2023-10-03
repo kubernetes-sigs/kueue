@@ -18,6 +18,7 @@ package webhooks
 
 import (
 	"context"
+	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -33,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
 )
 
 const (
@@ -115,6 +117,7 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	allErrs = append(allErrs, validateResourceGroups(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
 	allErrs = append(allErrs,
 		validation.ValidateLabelSelector(cq.Spec.NamespaceSelector, validation.LabelSelectorValidationOptions{}, path.Child("namespaceSelector"))...)
+	allErrs = append(allErrs, validateAdmissionChecks(cq.Spec.AdmissionChecks, path.Child("admissionChecks"))...)
 
 	return allErrs
 }
@@ -157,6 +160,13 @@ func validateResourceGroups(resourceGroups []kueue.ResourceGroup, path *field.Pa
 		}
 	}
 	return allErrs
+}
+
+func validateAdmissionChecks(checks []string, path *field.Path) field.ErrorList {
+	if idx := slices.Index(checks, constants.PreemptionAdmissionCheckName); idx != -1 {
+		return field.ErrorList{field.Invalid(path.Index(idx), checks[idx], "admission name is reserved for internal kueue use")}
+	}
+	return nil
 }
 
 func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []corev1.ResourceName, path *field.Path) field.ErrorList {

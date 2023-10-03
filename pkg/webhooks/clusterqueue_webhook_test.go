@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -304,6 +305,15 @@ func TestValidateClusterQueue(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Duplicate(resourceGroupsPath.Index(1).Child("flavors").Index(0).Child("name"), nil),
+			},
+		},
+		{
+			name: "invalid check name",
+			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").
+				AdmissionChecks("check1", constants.PreemptionAdmissionCheckName, "check3").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(specPath.Child("admissionChecks").Index(1), nil, ""),
 			},
 		},
 	}
