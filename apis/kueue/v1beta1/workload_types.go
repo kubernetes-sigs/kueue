@@ -199,12 +199,14 @@ type AdmissionCheckState struct {
 	Message string `json:"message" protobuf:"bytes,6,opt,name=message"`
 
 	// +optional
+	// +listType=atomic
 	PodSetUpdates []PodSetUpdate `json:"podSetUpdates,omitempty"`
 }
 
 // PodSetUpdate contains a list of pod set modifications suggested by AdmissionChecks.
 // The modifications should be additive only - modifications of already existing keys
-// are not allowed and will result in failure during workload admission.
+// or having the same key provided by multiple AdmissionChecks is not allowed and will
+// result in failure during workload admission.
 type PodSetUpdate struct {
 	// Name of the PodSet to modify. Should match to one of the Workload's PodSets.
 	// +required

@@ -8328,8 +8328,10 @@ spec:
                       items:
                         description: PodSetUpdate contains a list of pod set modifications
                           suggested by AdmissionChecks. The modifications should be
-                          additive only - modifications of already existing keys are
-                          not allowed and will result in failure during workload admission.
+                          additive only - modifications of already existing keys or
+                          having the same key provided by multiple AdmissionChecks
+                          is not allowed and will result in failure during workload
+                          admission.
                         properties:
                           annotations:
                             additionalProperties:
@@ -8394,6 +8396,7 @@ spec:
                         - name
                         type: object
                       type: array
+                      x-kubernetes-list-type: atomic
                     state:
                       description: status of the condition, one of True, False, Unknown.
                       enum:

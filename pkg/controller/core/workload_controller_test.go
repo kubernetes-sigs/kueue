@@ -179,12 +179,12 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 	}
 }
 
-func TestSyncCheckConditions(t *testing.T) {
+func TestSyncCheckStates(t *testing.T) {
 	now := metav1.NewTime(time.Now())
 	cases := map[string]struct {
-		conds                []kueue.AdmissionCheckState
+		states               []kueue.AdmissionCheckState
 		list                 []string
-		wantConds            []kueue.AdmissionCheckState
+		wantStates           []kueue.AdmissionCheckState
 		wantChange           bool
 		ignoreTransitionTime bool
 	}{
@@ -192,7 +192,7 @@ func TestSyncCheckConditions(t *testing.T) {
 		"add to nil conditions": {
 			list:       []string{"ac1", "ac2"},
 			wantChange: true,
-			wantConds: []kueue.AdmissionCheckState{
+			wantStates: []kueue.AdmissionCheckState{
 				{
 					Name:  "ac1",
 					State: kueue.CheckStatePending,
@@ -205,7 +205,7 @@ func TestSyncCheckConditions(t *testing.T) {
 			ignoreTransitionTime: true,
 		},
 		"add and remove": {
-			conds: []kueue.AdmissionCheckState{
+			states: []kueue.AdmissionCheckState{
 				{
 					Name:  "ac0",
 					State: kueue.CheckStatePending,
@@ -217,7 +217,7 @@ func TestSyncCheckConditions(t *testing.T) {
 			},
 			list:       []string{"ac1", "ac2"},
 			wantChange: true,
-			wantConds: []kueue.AdmissionCheckState{
+			wantStates: []kueue.AdmissionCheckState{
 				{
 					Name:  "ac1",
 					State: kueue.CheckStatePending,
@@ -230,7 +230,7 @@ func TestSyncCheckConditions(t *testing.T) {
 			ignoreTransitionTime: true,
 		},
 		"cleanup": {
-			conds: []kueue.AdmissionCheckState{
+			states: []kueue.AdmissionCheckState{
 				{
 					Name:  "ac0",
 					State: kueue.CheckStatePending,
@@ -243,7 +243,7 @@ func TestSyncCheckConditions(t *testing.T) {
 			wantChange: true,
 		},
 		"preserve conditions data": {
-			conds: []kueue.AdmissionCheckState{
+			states: []kueue.AdmissionCheckState{
 				{
 					Name:               "ac0",
 					State:              kueue.CheckStateReady,
@@ -257,7 +257,7 @@ func TestSyncCheckConditions(t *testing.T) {
 			},
 			list:       []string{"ac0", "ac1"},
 			wantChange: false,
-			wantConds: []kueue.AdmissionCheckState{
+			wantStates: []kueue.AdmissionCheckState{
 				{
 					Name:               "ac0",
 					State:              kueue.CheckStateReady,
@@ -274,7 +274,7 @@ func TestSyncCheckConditions(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			gotConditions, gotShouldChange := syncAdmissionCheckConditions(tc.conds, tc.list)
+			gotConditions, gotShouldChange := syncAdmissionCheckConditions(tc.states, tc.list)
 
 			if tc.wantChange != gotShouldChange {
 				t.Errorf("Unexpected should change, want=%v", tc.wantChange)
@@ -284,7 +284,7 @@ func TestSyncCheckConditions(t *testing.T) {
 			if tc.ignoreTransitionTime {
 				opts = append(opts, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"))
 			}
-			if diff := cmp.Diff(tc.wantConds, gotConditions, opts...); diff != "" {
+			if diff := cmp.Diff(tc.wantStates, gotConditions, opts...); diff != "" {
 				t.Errorf("Unexpected conditions, (want-/got+): %s", diff)
 			}
 		})
