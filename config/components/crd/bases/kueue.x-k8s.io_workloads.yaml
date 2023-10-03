@@ -8294,15 +8294,6 @@ spec:
                 description: admissionChecks list all the admission checks required
                   by the workload and the current status
                 items:
-                  description: "Condition contains details for one aspect of the current
-                    state of this API Resource. --- This struct is intended for direct
-                    use as an array at the field path .status.conditions.  For example,
-                    \n type FooStatus struct{ // Represents the observations of a
-                    foo's current state. // Known .status.conditions.type are: \"Available\",
-                    \"Progressing\", and \"Degraded\" // +patchMergeKey=type // +patchStrategy=merge
-                    // +listType=map // +listMapKey=type Conditions []metav1.Condition
-                    `json:\"conditions,omitempty\" patchStrategy:\"merge\" patchMergeKey:\"type\"
-                    protobuf:\"bytes,1,rep,name=conditions\"` \n // other fields }"
                   properties:
                     lastTransitionTime:
                       description: lastTransitionTime is the last time the condition
@@ -8316,52 +8307,100 @@ spec:
                         details about the transition. This may be an empty string.
                       maxLength: 32768
                       type: string
-                    observedGeneration:
-                      description: observedGeneration represents the .metadata.generation
-                        that the condition was set based upon. For instance, if .metadata.generation
-                        is currently 12, but the .status.conditions[x].observedGeneration
-                        is 9, the condition is out of date with respect to the current
-                        state of the instance.
-                      format: int64
-                      minimum: 0
-                      type: integer
-                    reason:
-                      description: reason contains a programmatic identifier indicating
-                        the reason for the condition's last transition. Producers
-                        of specific condition types may define expected values and
-                        meanings for this field, and whether the values are considered
-                        a guaranteed API. The value should be a CamelCase string.
-                        This field may not be empty.
-                      maxLength: 1024
-                      minLength: 1
-                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                    name:
+                      description: name identifies the admission check.
+                      maxLength: 316
                       type: string
-                    status:
+                    podSetUpdates:
+                      items:
+                        description: PodSetUpdate contains a list of pod set modifications
+                          suggested by AdmissionChecks. The modifications should be
+                          additive only - modifications of already existing keys or
+                          having the same key provided by multiple AdmissionChecks
+                          is not allowed and will result in failure during workload
+                          admission.
+                        properties:
+                          annotations:
+                            additionalProperties:
+                              type: string
+                            type: object
+                          labels:
+                            additionalProperties:
+                              type: string
+                            type: object
+                          name:
+                            description: Name of the PodSet to modify. Should match
+                              to one of the Workload's PodSets.
+                            type: string
+                          nodeSelector:
+                            additionalProperties:
+                              type: string
+                            type: object
+                          tolerations:
+                            items:
+                              description: The pod this Toleration is attached to
+                                tolerates any taint that matches the triple <key,value,effect>
+                                using the matching operator <operator>.
+                              properties:
+                                effect:
+                                  description: Effect indicates the taint effect to
+                                    match. Empty means match all taint effects. When
+                                    specified, allowed values are NoSchedule, PreferNoSchedule
+                                    and NoExecute.
+                                  type: string
+                                key:
+                                  description: Key is the taint key that the toleration
+                                    applies to. Empty means match all taint keys.
+                                    If the key is empty, operator must be Exists;
+                                    this combination means to match all values and
+                                    all keys.
+                                  type: string
+                                operator:
+                                  description: Operator represents a key's relationship
+                                    to the value. Valid operators are Exists and Equal.
+                                    Defaults to Equal. Exists is equivalent to wildcard
+                                    for value, so that a pod can tolerate all taints
+                                    of a particular category.
+                                  type: string
+                                tolerationSeconds:
+                                  description: TolerationSeconds represents the period
+                                    of time the toleration (which must be of effect
+                                    NoExecute, otherwise this field is ignored) tolerates
+                                    the taint. By default, it is not set, which means
+                                    tolerate the taint forever (do not evict). Zero
+                                    and negative values will be treated as 0 (evict
+                                    immediately) by the system.
+                                  format: int64
+                                  type: integer
+                                value:
+                                  description: Value is the taint value the toleration
+                                    matches to. If the operator is Exists, the value
+                                    should be empty, otherwise just a regular string.
+                                  type: string
+                              type: object
+                            type: array
+                        required:
+                        - name
+                        type: object
+                      type: array
+                      x-kubernetes-list-type: atomic
+                    state:
                       description: status of the condition, one of True, False, Unknown.
                       enum:
-                      - "True"
-                      - "False"
-                      - Unknown
-                      type: string
-                    type:
-                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
-                        --- Many .condition.type values are consistent across resources
-                        like Available, but because arbitrary conditions can be useful
-                        (see .node.status.conditions), the ability to deconflict is
-                        important. The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
-                      maxLength: 316
-                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      - Pending
+                      - Ready
+                      - Retry
+                      - Rejected
                       type: string
                   required:
                   - lastTransitionTime
                   - message
-                  - reason
-                  - status
-                  - type
+                  - name
+                  - state
                   type: object
                 type: array
                 x-kubernetes-list-map-keys:
-                - type
+                - name
                 x-kubernetes-list-type: map
               conditions:
                 description: "conditions hold the latest available observations of
