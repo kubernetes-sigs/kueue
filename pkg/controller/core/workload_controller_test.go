@@ -274,7 +274,7 @@ func TestSyncCheckStates(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			gotConditions, gotShouldChange := syncAdmissionCheckConditions(tc.states, tc.list)
+			gotStates, gotShouldChange := syncAdmissionCheckConditions(tc.states, tc.list)
 
 			if tc.wantChange != gotShouldChange {
 				t.Errorf("Unexpected should change, want=%v", tc.wantChange)
@@ -284,7 +284,7 @@ func TestSyncCheckStates(t *testing.T) {
 			if tc.ignoreTransitionTime {
 				opts = append(opts, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"))
 			}
-			if diff := cmp.Diff(tc.wantStates, gotConditions, opts...); diff != "" {
+			if diff := cmp.Diff(tc.wantStates, gotStates, opts...); diff != "" {
 				t.Errorf("Unexpected conditions, (want-/got+): %s", diff)
 			}
 		})
