@@ -10,6 +10,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -400,20 +401,14 @@ func TestGetPreemptingWorklods(t *testing.T) {
 				Workloads: wlMap,
 			}
 
-			gotPrermptNow, gotPreemptLater := cq.GetPreemptingWorkloads(tc.checks)
+			gotPrermptNow, gotPreemptLater := cq.PreemptingWorkloads(tc.checks)
 
-			wantPreemptNowWorkloads := make([]*workload.Info, len(tc.wantPreemptNow))
-			for i, wlKey := range tc.wantPreemptNow {
-				wantPreemptNowWorkloads[i] = wlMap[wlKey]
-			}
+			wantPreemptNowWorkloads := slices.Map(tc.wantPreemptNow, func(s *string) *workload.Info { return wlMap[*s] })
 			if diff := cmp.Diff(wantPreemptNowWorkloads, gotPrermptNow, sortOpt); diff != "" {
 				t.Errorf("Unexpected preempt now (-want/+got):\n%s", diff)
 			}
 
-			wantPreemptLaterWorkloads := make([]*workload.Info, len(tc.wantPreemptLater))
-			for i, wlKey := range tc.wantPreemptLater {
-				wantPreemptLaterWorkloads[i] = wlMap[wlKey]
-			}
+			wantPreemptLaterWorkloads := slices.Map(tc.wantPreemptLater, func(s *string) *workload.Info { return wlMap[*s] })
 			if diff := cmp.Diff(wantPreemptLaterWorkloads, gotPreemptLater, sortOpt); diff != "" {
 				t.Errorf("Unexpected preempt later (-want/+got):\n%s", diff)
 			}

@@ -727,14 +727,14 @@ func (c *Cache) MatchingClusterQueues(nsLabels map[string]string) sets.Set[strin
 	return cqs
 }
 
-// ShouldCheckWorkloadsPreemption returns true if it has workloads pending preemption now.
-func (c *Cache) ShouldCheckWorkloadsPreemption() bool {
+// HasWorkloadsPreemptingNow returns true if it has workloads that need preemption now.
+func (c *Cache) HasWorkloadsPreemptingNow() bool {
 	c.RLock()
 	defer c.RUnlock()
 	// Depending on the overall state this may end up iterating over all the workloads present
 	// in the cache (workloads having QuotaReservation).
 	for _, cq := range c.clusterQueues {
-		if now, _ := cq.GetPreemptingWorkloads(c.admissionChecks); len(now) > 0 {
+		if now, _ := cq.PreemptingWorkloads(c.admissionChecks); len(now) > 0 {
 			return true
 		}
 	}

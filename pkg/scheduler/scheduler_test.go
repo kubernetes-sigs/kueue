@@ -185,7 +185,7 @@ func TestSchedule(t *testing.T) {
 		wantLeft map[string]sets.Set[string]
 		// wantInadmissibleLeft is the workload keys that are left in the inadmissible state after this cycle.
 		wantInadmissibleLeft map[string]sets.Set[string]
-		// wantReservedPendingPreemption is the set wof workloads expected to have quota reserved and pending preemption
+		// wantReservedPendingPreemption is the set of workloads expected to have quota reserved and pending preemption
 		wantReservedPendingPreemption sets.Set[string]
 
 		// additional*Queues can hold any extra queues needed by the tc

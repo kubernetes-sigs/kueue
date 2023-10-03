@@ -153,7 +153,7 @@ func (c *Controller) run(ctx context.Context) {
 	c.log.V(2).Info("Start run")
 
 	// If there is nothing to do at this point.
-	if !c.cache.ShouldCheckWorkloadsPreemption() {
+	if !c.cache.HasWorkloadsPreemptingNow() {
 		// skip the snapshot creation and exit
 		return
 	}
@@ -208,7 +208,7 @@ func filterWorkloads(snapshot *cache.Snapshot) []*workload.Info {
 	preemptNow := []*workload.Info{}
 	preemptLater := []*workload.Info{}
 	for _, cq := range snapshot.ClusterQueues {
-		now, later := cq.GetPreemptingWorkloads(snapshot.AdmissionChecks)
+		now, later := cq.PreemptingWorkloads(snapshot.AdmissionChecks)
 		preemptNow = append(preemptNow, now...)
 		preemptLater = append(preemptLater, later...)
 	}
