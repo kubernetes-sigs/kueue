@@ -341,6 +341,39 @@ func TestReconciler(t *testing.T) {
 				}),
 			),
 		},
+		"workload status condition is added even if the pod is finalized": {
+			pod: *basePodWrapper.
+				Clone().
+				Label("kueue.x-k8s.io/managed", "true").
+				StatusPhase(corev1.PodSucceeded).
+				Obj(),
+			wantPod: basePodWrapper.
+				Clone().
+				Label("kueue.x-k8s.io/managed", "true").
+				StatusPhase(corev1.PodSucceeded).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
+					Admitted(true).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
+					Admitted(true).
+					Condition(metav1.Condition{
+						Type:    "Finished",
+						Status:  "True",
+						Reason:  "JobFinished",
+						Message: "Job finished successfully",
+					}).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
 		"pod without scheduling gate is terminated if workload is not admitted": {
 			pod: *basePodWrapper.
 				Clone().
@@ -522,24 +555,6 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 		t.Errorf("Expected reconcile error (-want,+got):\n%s", diff)
 	}
 
-	var gotPod corev1.Pod
-	if err := kClient.Get(ctx, podKey, &gotPod); err != nil {
-		t.Fatalf("Could not get Pod after reconcile: %v", err)
-	}
-	// Validate that pod has not changed due to client error
-	if diff := cmp.Diff(pod, gotPod, podCmpOpts...); diff != "" {
-		t.Errorf("Pod after reconcile (-want,+got):\n%s", diff)
-	}
-
-	var gotWorkloads kueue.WorkloadList
-	if err := kClient.List(ctx, &gotWorkloads); err != nil {
-		t.Fatalf("Could not get Workloads after reconcile: %v", err)
-	}
-	// Workload should be the same after reconcile
-	if diff := cmp.Diff([]kueue.Workload{wl}, gotWorkloads.Items, defaultWorkloadCmpOpts...); diff != "" {
-		t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
-	}
-
 	// Reconcile for the second time
 	_, err = reconciler.Reconcile(ctx, reconcile.Request{
 		NamespacedName: podKey,
@@ -548,6 +563,7 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 		t.Errorf("Got unexpected error while running reconcile:\n%v", err)
 	}
 
+	var gotPod corev1.Pod
 	if err := kClient.Get(ctx, podKey, &gotPod); err != nil {
 		t.Fatalf("Could not get Pod after second reconcile: %v", err)
 	}
@@ -560,6 +576,8 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 	if diff := cmp.Diff(wantPod, gotPod, podCmpOpts...); diff != "" {
 		t.Errorf("Pod after second reconcile (-want,+got):\n%s", diff)
 	}
+
+	var gotWorkloads kueue.WorkloadList
 	if err := kClient.List(ctx, &gotWorkloads); err != nil {
 		t.Fatalf("Could not get Workloads after second reconcile: %v", err)
 	}
