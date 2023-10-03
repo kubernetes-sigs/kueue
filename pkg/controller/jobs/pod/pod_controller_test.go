@@ -17,12 +17,14 @@ limitations under the License.
 package pod
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
@@ -428,7 +430,7 @@ func TestReconciler(t *testing.T) {
 
 			var gotPod corev1.Pod
 			if err := kClient.Get(ctx, podKey, &gotPod); err != nil {
-				if tc.wantPod != nil || !errors.IsNotFound(err) {
+				if tc.wantPod != nil || !apierrors.IsNotFound(err) {
 					t.Fatalf("Could not get Pod after reconcile: %v", err)
 				}
 			}
@@ -445,6 +447,139 @@ func TestReconciler(t *testing.T) {
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// podErrFinalizeMock has a mock Finalize function that will fail on the first run
+type podErrFinalizeMock struct {
+	Pod
+}
+
+var (
+	errMock = errors.New("mock client error")
+	counter = 0
+)
+
+func (p *podErrFinalizeMock) Finalize(ctx context.Context, c client.Client) error {
+	if counter == 0 {
+		counter += 1
+		return errMock
+	}
+
+	return p.Pod.Finalize(ctx, c)
+}
+
+func TestReconciler_ErrorFinalizingPod(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	clientBuilder := utiltesting.NewClientBuilder()
+	if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
+		t.Fatalf("Could not setup indexes: %v", err)
+	}
+
+	basePodWrapper := testingpod.MakePod("pod", "ns").
+		UID("test-uid").
+		Queue("user-queue").
+		Request(corev1.ResourceCPU, "1").
+		Image("", nil)
+
+	pod := *basePodWrapper.
+		Clone().
+		Label("kueue.x-k8s.io/managed", "true").
+		KueueFinalizer().
+		StatusPhase(corev1.PodSucceeded).
+		Obj()
+
+	wl := *utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+		PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
+		Admitted(true).
+		Obj()
+
+	kcBuilder := clientBuilder.WithObjects(&pod)
+
+	kcBuilder = kcBuilder.WithStatusSubresource(&wl)
+
+	kClient := kcBuilder.Build()
+	if err := ctrl.SetControllerReference(&pod, &wl, kClient.Scheme()); err != nil {
+		t.Fatalf("Could not setup owner reference in Workloads: %v", err)
+	}
+	if err := kClient.Create(ctx, &wl); err != nil {
+		t.Fatalf("Could not create workload: %v", err)
+	}
+	recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
+
+	reconciler := jobframework.NewGenericReconciler(
+		func() jobframework.GenericJob {
+			return &podErrFinalizeMock{}
+		}, nil)(kClient, recorder)
+
+	podKey := client.ObjectKeyFromObject(&pod)
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: podKey,
+	})
+
+	if diff := cmp.Diff(errMock, err, cmpopts.EquateErrors()); diff != "" {
+		t.Errorf("Expected reconcile error (-want,+got):\n%s", diff)
+	}
+
+	var gotPod corev1.Pod
+	if err := kClient.Get(ctx, podKey, &gotPod); err != nil {
+		t.Fatalf("Could not get Pod after reconcile: %v", err)
+	}
+	// Validate that pod has not changed due to client error
+	if diff := cmp.Diff(pod, gotPod, podCmpOpts...); diff != "" {
+		t.Errorf("Pod after reconcile (-want,+got):\n%s", diff)
+	}
+
+	var gotWorkloads kueue.WorkloadList
+	if err := kClient.List(ctx, &gotWorkloads); err != nil {
+		t.Fatalf("Could not get Workloads after reconcile: %v", err)
+	}
+	// Workload should be the same after reconcile
+	if diff := cmp.Diff([]kueue.Workload{wl}, gotWorkloads.Items, defaultWorkloadCmpOpts...); diff != "" {
+		t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+	}
+
+	// Reconcile for the second time
+	_, err = reconciler.Reconcile(ctx, reconcile.Request{
+		NamespacedName: podKey,
+	})
+	if err != nil {
+		t.Errorf("Got unexpected error while running reconcile:\n%v", err)
+	}
+
+	if err := kClient.Get(ctx, podKey, &gotPod); err != nil {
+		t.Fatalf("Could not get Pod after second reconcile: %v", err)
+	}
+	// Validate that pod has no finalizer after the second reconcile
+	wantPod := *basePodWrapper.
+		Clone().
+		Label("kueue.x-k8s.io/managed", "true").
+		StatusPhase(corev1.PodSucceeded).
+		Obj()
+	if diff := cmp.Diff(wantPod, gotPod, podCmpOpts...); diff != "" {
+		t.Errorf("Pod after second reconcile (-want,+got):\n%s", diff)
+	}
+	if err := kClient.List(ctx, &gotWorkloads); err != nil {
+		t.Fatalf("Could not get Workloads after second reconcile: %v", err)
+	}
+
+	// Workload should be finished after the second reconcile
+	wantWl := *utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+		PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
+		Admitted(true).
+		Condition(
+			metav1.Condition{
+				Type:    kueue.WorkloadFinished,
+				Status:  metav1.ConditionTrue,
+				Reason:  "JobFinished",
+				Message: "Job finished successfully",
+			},
+		).
+		Obj()
+	if diff := cmp.Diff([]kueue.Workload{wantWl}, gotWorkloads.Items, defaultWorkloadCmpOpts...); diff != "" {
+		t.Errorf("Workloads after second reconcile (-want,+got):\n%s", diff)
 	}
 }
 

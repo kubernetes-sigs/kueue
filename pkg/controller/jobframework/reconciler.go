@@ -241,14 +241,16 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// 2. handle job is finished.
 	if condition, finished := job.Finished(); finished && wl != nil {
-		err := workload.UpdateStatus(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName)
-		if err != nil {
-			log.Error(err, "Updating workload status")
-		}
 		// Execute job finalization logic
 		if err := r.finalizeJob(ctx, job); err != nil {
 			return ctrl.Result{}, err
 		}
+
+		err := workload.UpdateStatus(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName)
+		if err != nil {
+			log.Error(err, "Updating workload status")
+		}
+
 		return ctrl.Result{}, nil
 	}
 
