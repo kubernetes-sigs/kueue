@@ -12,7 +12,9 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/config"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 
 	"podtaintstolerations/controller"
@@ -26,9 +28,13 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(kueue.AddToScheme(scheme))
+	utilruntime.Must(configapi.AddToScheme(scheme))
 }
 
 func main() {
+	var configFilePath string
+	flag.StringVar(&configFilePath, "kueue-config", "",
+		"Kueue system config file.")
 	flag.StringVar(&controller.AdmissionTaintKey, "admission-taint-key", "kueue.x-k8s.io/kueue-admission",
 		"The controller will add Pod tolerations for this taint key to implement admission.")
 
@@ -40,6 +46,13 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	_, cfg, err := config.Load(scheme, configFilePath)
+	if err != nil {
+		setupLog.Error(err, "Unable to load kueue configuration")
+		os.Exit(1)
+	}
+	setupLog.Info("Using config file", "configFilePath", configFilePath)
 
 	kubeConfig := ctrl.GetConfigOrDie()
 
@@ -59,6 +72,7 @@ func main() {
 	if err := controller.NewReconciler(
 		mgr.GetClient(),
 		mgr.GetEventRecorderFor("kueue-pod-taints-tolerations"),
+		jobframework.WithWaitForPodsReady(waitForPodsReady(cfg)),
 	).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Unable to create Pod (job) controller")
 		os.Exit(1)
@@ -87,4 +101,8 @@ func main() {
 		setupLog.Error(err, "Could not run manager")
 		os.Exit(1)
 	}
+}
+
+func waitForPodsReady(cfg configapi.Configuration) bool {
+	return cfg.WaitForPodsReady != nil && cfg.WaitForPodsReady.Enable
 }

@@ -22,7 +22,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
@@ -30,7 +29,7 @@ import (
 var AdmissionTaintKey = "kueue.x-k8s.io/kueue-admission"
 
 const (
-  ControllerName = "kueue-podtaintstolerations"
+	ControllerName = "kueue-podtaintstolerations"
 )
 
 var (
