@@ -19,6 +19,7 @@ limitations under the License.
 package maps
 
 import (
+	"fmt"
 	"maps"
 )
 
@@ -59,6 +60,16 @@ func Intersect[K comparable, V any, M ~map[K]V](a, b M, commonKeyValue func(a, b
 // MergeKeepFirst merges a and b keeping the values in a in case of conflict
 func MergeKeepFirst[K comparable, V any, S ~map[K]V](a, b S) S {
 	return Merge(a, b, func(v, _ V) V { return v })
+}
+
+// HavaConflict checks if a and b have the same key, but different value
+func HaveConflict[K comparable, V comparable, S ~map[K]V](a, b S) error {
+	for k, av := range a {
+		if bv, found := b[k]; found && av != bv {
+			return fmt.Errorf("conflict for key=%v, value1=%v, value2=%v", k, av, bv)
+		}
+	}
+	return nil
 }
 
 // Contains returns true if a contains all the keys in b with the same value

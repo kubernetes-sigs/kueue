@@ -31,6 +31,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -39,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -284,6 +286,183 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 			return apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadFinished)
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+	})
+
+	ginkgo.When("the queue has admission checks", func() {
+		var (
+			clusterQueueAc *kueue.ClusterQueue
+			localQueue     *kueue.LocalQueue
+			testFlavor     *kueue.ResourceFlavor
+			jobLookupKey   *types.NamespacedName
+			wlLookupKey    *types.NamespacedName
+			admissionCheck *kueue.AdmissionCheck
+		)
+
+		ginkgo.BeforeEach(func() {
+			clusterQueueAc = testing.MakeClusterQueue("prod-cq-with-checks").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("test-flavor").Resource(corev1.ResourceCPU, "5").Obj(),
+				).AdmissionChecks("check").Obj()
+			gomega.Expect(k8sClient.Create(ctx, clusterQueueAc)).Should(gomega.Succeed())
+			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueueAc.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+			testFlavor = testing.MakeResourceFlavor("test-flavor").Label(instanceKey, "test-flavor").Obj()
+			gomega.Expect(k8sClient.Create(ctx, testFlavor)).Should(gomega.Succeed())
+			admissionCheck = testing.MakeAdmissionCheck("check").Obj()
+			gomega.Expect(k8sClient.Create(ctx, admissionCheck)).To(gomega.Succeed())
+
+			jobLookupKey = &types.NamespacedName{Name: jobName, Namespace: ns.Name}
+			wlLookupKey = &types.NamespacedName{Name: workloadmpijob.GetWorkloadNameForMPIJob(jobName), Namespace: ns.Name}
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteAdmissionCheck(ctx, k8sClient, admissionCheck)).To(gomega.Succeed())
+			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, testFlavor, true)
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueueAc, true)
+		})
+
+		ginkgo.It("labels and annotations should be propagated from admission check to job", func() {
+			createdJob := &kubeflow.MPIJob{}
+			createdWorkload := &kueue.Workload{}
+
+			ginkgo.By("creating the job with pod labels & annotations", func() {
+				job := testingmpijob.MakeMPIJob(jobName, ns.Name).
+					Queue(localQueue.Name).
+					PodAnnotation(kubeflow.MPIReplicaTypeWorker, "old-ann-key", "old-ann-value").
+					PodLabel(kubeflow.MPIReplicaTypeWorker, "old-label-key", "old-label-value").
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("fetch the job and verify it is suspended as the checks are not ready", func() {
+				gomega.Eventually(func() *bool {
+					gomega.Expect(k8sClient.Get(ctx, *jobLookupKey, createdJob)).Should(gomega.Succeed())
+					return createdJob.Spec.RunPolicy.Suspend
+				}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(true)))
+			})
+
+			ginkgo.By("fetch the created workload", func() {
+				gomega.Eventually(func() error {
+					return k8sClient.Get(ctx, *wlLookupKey, createdWorkload)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("add labels & annotations to the admission check", func() {
+				gomega.Eventually(func() error {
+					var newWL kueue.Workload
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdWorkload), &newWL)).To(gomega.Succeed())
+					workload.SetAdmissionCheckState(&newWL.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "launcher",
+							},
+							{
+								Name: "worker",
+								Annotations: map[string]string{
+									"ann1": "ann-value1",
+								},
+								Labels: map[string]string{
+									"label1": "label-value1",
+								},
+								NodeSelector: map[string]string{
+									"selector1": "selector-value1",
+								},
+								Tolerations: []corev1.Toleration{
+									{
+										Key:      "selector1",
+										Value:    "selector-value1",
+										Operator: corev1.TolerationOpEqual,
+										Effect:   corev1.TaintEffectNoSchedule,
+									},
+								},
+							},
+						},
+					})
+					return k8sClient.Status().Update(ctx, &newWL)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("admit the workload", func() {
+				admission := testing.MakeAdmission(clusterQueueAc.Name).
+					PodSets(
+						kueue.PodSetAssignment{
+							Name: "launcher",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "test-flavor",
+							},
+							Count: ptr.To(createdWorkload.Spec.PodSets[0].Count),
+						},
+						kueue.PodSetAssignment{
+							Name: "worker",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "test-flavor",
+							},
+							Count: ptr.To(createdWorkload.Spec.PodSets[1].Count),
+						},
+					).
+					Obj()
+				gomega.Expect(k8sClient.Get(ctx, *wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+			})
+
+			ginkgo.By("await for the job to start", func() {
+				gomega.Eventually(func() *bool {
+					gomega.Expect(k8sClient.Get(ctx, *jobLookupKey, createdJob)).Should(gomega.Succeed())
+					return createdJob.Spec.RunPolicy.Suspend
+				}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(false)))
+			})
+
+			ginkgo.By("verify the PodSetUpdates are propagated to the running job", func() {
+				worker := createdJob.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeWorker].Template
+				gomega.Expect(worker.Annotations).Should(gomega.HaveKeyWithValue("ann1", "ann-value1"))
+				gomega.Expect(worker.Annotations).Should(gomega.HaveKeyWithValue("old-ann-key", "old-ann-value"))
+				gomega.Expect(worker.Labels).Should(gomega.HaveKeyWithValue("label1", "label-value1"))
+				gomega.Expect(worker.Labels).Should(gomega.HaveKeyWithValue("old-label-key", "old-label-value"))
+				gomega.Expect(worker.Spec.NodeSelector).Should(gomega.HaveKeyWithValue(instanceKey, "test-flavor"))
+				gomega.Expect(worker.Spec.NodeSelector).Should(gomega.HaveKeyWithValue("selector1", "selector-value1"))
+				gomega.Expect(worker.Spec.Tolerations).Should(gomega.BeComparableTo(
+					[]corev1.Toleration{
+						{
+							Key:      "selector1",
+							Value:    "selector-value1",
+							Operator: corev1.TolerationOpEqual,
+							Effect:   corev1.TaintEffectNoSchedule,
+						},
+					},
+				))
+			})
+
+			ginkgo.By("delete the localQueue to prevent readmission", func() {
+				gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("clear the workload's admission to stop the job", func() {
+				gomega.Expect(k8sClient.Get(ctx, *wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, nil)).Should(gomega.Succeed())
+				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+			})
+
+			ginkgo.By("await for the job to be suspended", func() {
+				gomega.Eventually(func() *bool {
+					gomega.Expect(k8sClient.Get(ctx, *jobLookupKey, createdJob)).Should(gomega.Succeed())
+					return createdJob.Spec.RunPolicy.Suspend
+				}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(true)))
+			})
+
+			ginkgo.By("verify the PodSetUpdates are restored", func() {
+				worker := createdJob.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeWorker].Template
+				gomega.Expect(worker.Annotations).ShouldNot(gomega.HaveKey("ann1"))
+				gomega.Expect(worker.Annotations).Should(gomega.HaveKeyWithValue("old-ann-key", "old-ann-value"))
+				gomega.Expect(worker.Labels).ShouldNot(gomega.HaveKey("label1"))
+				gomega.Expect(worker.Labels).Should(gomega.HaveKeyWithValue("old-label-key", "old-label-value"))
+				gomega.Expect(worker.Spec.NodeSelector).ShouldNot(gomega.HaveKey(instanceKey))
+				gomega.Expect(worker.Spec.NodeSelector).ShouldNot(gomega.HaveKey("selector1"))
+			})
+		})
 	})
 })
 

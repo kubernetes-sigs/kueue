@@ -18,10 +18,8 @@ package jobset
 
 import (
 	"context"
-	"maps"
 	"strings"
 
-	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -33,7 +31,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 )
 
@@ -124,8 +121,11 @@ func (j *JobSet) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) error
 	// If there are Jobs already created by the JobSet, their node selectors will be updated by the JobSet controller
 	// before unsuspending the individual Jobs.
 	for index := range j.Spec.ReplicatedJobs {
-		templateSpec := &j.Spec.ReplicatedJobs[index].Template.Spec.Template.Spec
-		templateSpec.NodeSelector = utilmaps.MergeKeepFirst(podSetInfos[index].NodeSelector, templateSpec.NodeSelector)
+		template := &j.Spec.ReplicatedJobs[index].Template.Spec.Template
+		info := podSetInfos[index]
+		if err := jobframework.Merge(&template.ObjectMeta, &template.Spec, info); err != nil {
+			return nil
+		}
 	}
 	return nil
 }
@@ -136,11 +136,9 @@ func (j *JobSet) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) bool 
 	}
 	changed := false
 	for index := range j.Spec.ReplicatedJobs {
-		if equality.Semantic.DeepEqual(j.Spec.ReplicatedJobs[index].Template.Spec.Template.Spec.NodeSelector, podSetInfos[index].NodeSelector) {
-			continue
-		}
-		changed = true
-		j.Spec.ReplicatedJobs[index].Template.Spec.Template.Spec.NodeSelector = maps.Clone(podSetInfos[index].NodeSelector)
+		replica := &j.Spec.ReplicatedJobs[index].Template.Spec.Template
+		info := podSetInfos[index]
+		changed = jobframework.Update(&replica.ObjectMeta, &replica.Spec, info) || changed
 	}
 	return changed
 }

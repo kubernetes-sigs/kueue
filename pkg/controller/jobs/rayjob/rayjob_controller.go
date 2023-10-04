@@ -18,11 +18,9 @@ package rayjob
 
 import (
 	"context"
-	"maps"
 	"strings"
 
 	rayjobapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -30,7 +28,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 )
 
 var (
@@ -123,13 +120,19 @@ func (j *RayJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) error
 	j.Spec.Suspend = false
 
 	// head
-	headPodSpec := &j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec
-	headPodSpec.NodeSelector = utilmaps.MergeKeepFirst(podSetInfos[0].NodeSelector, headPodSpec.NodeSelector)
+	headPod := &j.Spec.RayClusterSpec.HeadGroupSpec.Template
+	info := podSetInfos[0]
+	if err := jobframework.Merge(&headPod.ObjectMeta, &headPod.Spec, info); err != nil {
+		return err
+	}
 
 	// workers
 	for index := range j.Spec.RayClusterSpec.WorkerGroupSpecs {
-		workerPodSpec := &j.Spec.RayClusterSpec.WorkerGroupSpecs[index].Template.Spec
-		workerPodSpec.NodeSelector = utilmaps.MergeKeepFirst(podSetInfos[index+1].NodeSelector, workerPodSpec.NodeSelector)
+		workerPod := &j.Spec.RayClusterSpec.WorkerGroupSpecs[index].Template
+		info := podSetInfos[index+1]
+		if err := jobframework.Merge(&workerPod.ObjectMeta, &workerPod.Spec, info); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -141,19 +144,14 @@ func (j *RayJob) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) bool 
 
 	changed := false
 	// head
-	headPodSpec := &j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec
-	if !equality.Semantic.DeepEqual(headPodSpec.NodeSelector, podSetInfos[0].NodeSelector) {
-		headPodSpec.NodeSelector = maps.Clone(podSetInfos[0].NodeSelector)
-		changed = true
-	}
+	headPod := &j.Spec.RayClusterSpec.HeadGroupSpec.Template
+	changed = jobframework.Update(&headPod.ObjectMeta, &headPod.Spec, podSetInfos[0]) || changed
 
 	// workers
 	for index := range j.Spec.RayClusterSpec.WorkerGroupSpecs {
-		workerPodSpec := &j.Spec.RayClusterSpec.WorkerGroupSpecs[index].Template.Spec
-		if !equality.Semantic.DeepEqual(workerPodSpec.NodeSelector, podSetInfos[index+1].NodeSelector) {
-			workerPodSpec.NodeSelector = maps.Clone(podSetInfos[index+1].NodeSelector)
-			changed = true
-		}
+		workerPod := &j.Spec.RayClusterSpec.WorkerGroupSpecs[index].Template
+		info := podSetInfos[index+1]
+		changed = jobframework.Update(&workerPod.ObjectMeta, &workerPod.Spec, info) || changed
 	}
 	return changed
 }

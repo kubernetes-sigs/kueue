@@ -168,7 +168,7 @@ func TestNodeSelectors(t *testing.T) {
 					},
 				},
 				{
-					NodeSelector: map[string]string{
+					NodeSelectorOverwrite: map[string]string{
 						"key-wg1": "updated-value-wg1",
 					},
 				},

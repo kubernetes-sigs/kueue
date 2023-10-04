@@ -18,12 +18,10 @@ package mpijob
 
 import (
 	"context"
-	"maps"
 	"strings"
 
 	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -33,7 +31,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 )
 
 var (
@@ -129,8 +126,10 @@ func (j *MPIJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) error
 	for index := range podSetInfos {
 		replicaType := orderedReplicaTypes[index]
 		info := podSetInfos[index]
-		replicaSpec := &j.Spec.MPIReplicaSpecs[replicaType].Template.Spec
-		replicaSpec.NodeSelector = utilmaps.MergeKeepFirst(info.NodeSelector, replicaSpec.NodeSelector)
+		replica := &j.Spec.MPIReplicaSpecs[replicaType].Template
+		if err := jobframework.Merge(&replica.ObjectMeta, &replica.Spec, info); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -140,11 +139,8 @@ func (j *MPIJob) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) bool 
 	changed := false
 	for index, info := range podSetInfos {
 		replicaType := orderedReplicaTypes[index]
-		replicaSpec := &j.Spec.MPIReplicaSpecs[replicaType].Template.Spec
-		if !equality.Semantic.DeepEqual(replicaSpec.NodeSelector, info.NodeSelector) {
-			changed = true
-			replicaSpec.NodeSelector = maps.Clone(info.NodeSelector)
-		}
+		replica := &j.Spec.MPIReplicaSpecs[replicaType].Template
+		changed = jobframework.Update(&replica.ObjectMeta, &replica.Spec, info) || changed
 	}
 	return changed
 }

@@ -155,3 +155,21 @@ func (j *TFJobWrapper) UID(uid string) *TFJobWrapper {
 	j.ObjectMeta.UID = types.UID(uid)
 	return j
 }
+
+// PodAnnotation sets annotation at the pod template level
+func (j *TFJobWrapper) PodAnnotation(replicaType kftraining.ReplicaType, k, v string) *TFJobWrapper {
+	if j.Spec.TFReplicaSpecs[replicaType].Template.Annotations == nil {
+		j.Spec.TFReplicaSpecs[replicaType].Template.Annotations = make(map[string]string)
+	}
+	j.Spec.TFReplicaSpecs[replicaType].Template.Annotations[k] = v
+	return j
+}
+
+// PodLabel sets label at the pod template level
+func (j *TFJobWrapper) PodLabel(replicaType kftraining.ReplicaType, k, v string) *TFJobWrapper {
+	if j.Spec.TFReplicaSpecs[replicaType].Template.Labels == nil {
+		j.Spec.TFReplicaSpecs[replicaType].Template.Labels = make(map[string]string)
+	}
+	j.Spec.TFReplicaSpecs[replicaType].Template.Labels[k] = v
+	return j
+}
