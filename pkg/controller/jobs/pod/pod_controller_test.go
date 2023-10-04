@@ -489,16 +489,17 @@ type podErrFinalizeMock struct {
 }
 
 var (
-	errMock = errors.New("mock client error")
-	counter = 0
+	errMock            = errors.New("mock client error")
+	shouldFailFinalize = true
 )
 
 func (p *podErrFinalizeMock) Finalize(ctx context.Context, c client.Client) error {
-	if counter == 0 {
-		counter += 1
+	if shouldFailFinalize {
+		shouldFailFinalize = false
 		return errMock
 	}
 
+	shouldFailFinalize = true
 	return p.Pod.Finalize(ctx, c)
 }
 
