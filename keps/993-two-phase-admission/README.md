@@ -12,6 +12,7 @@
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
+  - [Preemption Admission Check Controller](#preemption-admission-check-controller)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
@@ -206,7 +207,7 @@ pass AND there are some AdmissionChecks configured, AND the
 workload is not in on-hold retry state from some check, it will:
 
 1. Fill the Admission field in workload, with the desired flavor assignment. 
-2. Not do any preemptions yet (unless BookCapacity is set to true).
+2. Not do any preemptions yet (unless the check uses `Anytime` preemption policy).
 3. Set "QuotaReserved" to true.
 
 Kueue will only pass as many pods into "QuotaReserved" as there would
@@ -252,6 +253,27 @@ The controller implementing a particular check should:
   particular controller and are past AdmissionPrecheck.
 * After approving the workload, keep an eye on the check if it starts failing,
   fail the check and cause the workload to move back to the suspended state.
+
+### Preemption Admission Check Controller
+
+Because now, the time when the eviction of the preemption candidate should vary based on the preemptor state
+the scheduler will not issue the eviction during it's process instead it will set a `Pending` admission check
+that is manged by a new built-in admission check controller.
+
+The **Admission Check Controller** will:
+
+- Watch for a change in state of the workloads pending preemption.
+- Watch for workloads that are finishing execution and therefore releasing quota.
+- Watch for AdmissionCheck changes, since the preemption policy can change.
+
+Since evaluating the current preemption state and the needs of a workload requires checking the sate of all resource pool the events are rate limited the kueue's cache is used.
+
+At every run the controller will get the list of workloads pending preemption.
+Since for some of these workloads is not necessary to issue eviction at that given point (eg. Having a pending check that uses AfterCheckPassedOrOnDemand policy) their quota reservation will be ignored.
+Fore every other preemption pending workloads, it will check if it can fit without evicting other workloads, case in which the preemption admission check condition will be set to `Ready`.
+If eviction of other workload is still needed, an updated list candidates is created and eviction is issued for all of them.
+If the updated list of candidates is empty, meaning that the preemption can no longer succeed, the preemption admission check is set as `Retry`, the workload will louse it's quota reservation and requeued.
+
 
 ### Test Plan
 
