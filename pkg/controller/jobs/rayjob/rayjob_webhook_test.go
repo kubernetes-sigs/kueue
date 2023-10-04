@@ -223,7 +223,7 @@ func TestValidateUpdate(t *testing.T) {
 				ShutdownAfterJobFinishes(true).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Forbidden(field.NewPath("metadata", "labels").Key(constants.QueueLabel), "must not update queue name when job is unsuspend"),
+				field.Invalid(field.NewPath("metadata", "labels").Key(constants.QueueLabel), "queue", apivalidation.FieldImmutableErrorMsg),
 			}.ToAggregate(),
 		},
 		"managed - queue name can change while suspended": {
