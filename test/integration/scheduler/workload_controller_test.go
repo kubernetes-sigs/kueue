@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
@@ -92,10 +93,16 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 
 		ginkgo.It("Should accumulate RuntimeClass's overhead", func() {
 			ginkgo.By("Create and wait for workload admission", func() {
-				wl = testing.MakeWorkload("one", ns.Name).
-					Queue(localQueue.Name).
+				pt := testing.MakePodTemplate("one", ns.Name).
 					Request(corev1.ResourceCPU, "1").
 					RuntimeClass("kata").
+					Obj()
+				pt.SetLabels(map[string]string{constants.WorkloadNameSource: "one"})
+				gomega.Expect(k8sClient.Create(ctx, pt)).To(gomega.Succeed())
+
+				wl = testing.MakeWorkload("one", ns.Name).
+					PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(pt.Name).Obj()).
+					Queue(localQueue.Name).
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
@@ -147,10 +154,16 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 
 		ginkgo.It("Should not accumulate RuntimeClass's overhead", func() {
 			ginkgo.By("Create and wait for workload admission", func() {
-				wl = testing.MakeWorkload("one", ns.Name).
-					Queue(localQueue.Name).
+				pt := testing.MakePodTemplate("one", ns.Name).
 					Request(corev1.ResourceCPU, "1").
 					RuntimeClass("kata").
+					Obj()
+				pt.SetLabels(map[string]string{constants.WorkloadNameSource: "one"})
+				gomega.Expect(k8sClient.Create(ctx, pt)).To(gomega.Succeed())
+
+				wl = testing.MakeWorkload("one", ns.Name).
+					PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(pt.Name).Obj()).
+					Queue(localQueue.Name).
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
@@ -203,7 +216,12 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 
 		ginkgo.It("Should use the range defined default requests, if provided", func() {
 			ginkgo.By("Create and wait for workload admission", func() {
+				pt := testing.MakePodTemplate("one", ns.Name).Obj()
+				pt.SetLabels(map[string]string{constants.WorkloadNameSource: "one"})
+				gomega.Expect(k8sClient.Create(ctx, pt)).To(gomega.Succeed())
+
 				wl = testing.MakeWorkload("one", ns.Name).
+					PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(pt.Name).Obj()).
 					Queue(localQueue.Name).
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
@@ -244,9 +262,13 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		})
 		ginkgo.It("Should not use the range defined requests, if provided by the workload", func() {
 			ginkgo.By("Create and wait for workload admission", func() {
+				pt := testing.MakePodTemplate("one", ns.Name).Request(corev1.ResourceCPU, "1").Obj()
+				pt.SetLabels(map[string]string{constants.WorkloadNameSource: "one"})
+				gomega.Expect(k8sClient.Create(ctx, pt)).To(gomega.Succeed())
+
 				wl = testing.MakeWorkload("one", ns.Name).
+					PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(pt.Name).Obj()).
 					Queue(localQueue.Name).
-					Request(corev1.ResourceCPU, "1").
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
@@ -305,9 +327,13 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 
 		ginkgo.It("The limits should be used as request values", func() {
 			ginkgo.By("Create and wait for workload admission", func() {
+				pt := testing.MakePodTemplate("one", ns.Name).Request(corev1.ResourceCPU, "1").Obj()
+				pt.SetLabels(map[string]string{constants.WorkloadNameSource: "one"})
+				gomega.Expect(k8sClient.Create(ctx, pt)).To(gomega.Succeed())
+
 				wl = testing.MakeWorkload("one", ns.Name).
+					PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(pt.Name).Obj()).
 					Queue(localQueue.Name).
-					Request(corev1.ResourceCPU, "1").
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
@@ -369,10 +395,16 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 
 		ginkgo.It("Should sync the resource requests with the new overhead", func() {
 			ginkgo.By("Create and wait for the first workload admission", func() {
-				wl = testing.MakeWorkload("one", ns.Name).
-					Queue(localQueue.Name).
+				pt := testing.MakePodTemplate("one", ns.Name).
 					Request(corev1.ResourceCPU, "1").
 					RuntimeClass("kata").
+					Obj()
+				pt.SetLabels(map[string]string{constants.WorkloadNameSource: "one"})
+				gomega.Expect(k8sClient.Create(ctx, pt)).To(gomega.Succeed())
+
+				wl = testing.MakeWorkload("one", ns.Name).
+					PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(pt.Name).Obj()).
+					Queue(localQueue.Name).
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
@@ -387,10 +419,16 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 
 			var wl2 *kueue.Workload
 			ginkgo.By("Create a second workload, should stay pending", func() {
-				wl2 = testing.MakeWorkload("two", ns.Name).
-					Queue(localQueue.Name).
+				pt2 := testing.MakePodTemplate("two", ns.Name).
 					Request(corev1.ResourceCPU, "1").
 					RuntimeClass("kata").
+					Obj()
+				pt2.SetLabels(map[string]string{constants.WorkloadNameSource: "two"})
+				gomega.Expect(k8sClient.Create(ctx, pt2)).To(gomega.Succeed())
+
+				wl2 = testing.MakeWorkload("two", ns.Name).
+					PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(pt2.Name).Obj()).
+					Queue(localQueue.Name).
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())
 
@@ -463,7 +501,12 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 
 		ginkgo.It("Should sync the resource requests with the limit", func() {
 			ginkgo.By("Create and wait for the first workload admission", func() {
+				pt := testing.MakePodTemplate("one", ns.Name).Obj()
+				pt.SetLabels(map[string]string{constants.WorkloadNameSource: "one"})
+				gomega.Expect(k8sClient.Create(ctx, pt)).To(gomega.Succeed())
+
 				wl = testing.MakeWorkload("one", ns.Name).
+					PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(pt.Name).Obj()).
 					Queue(localQueue.Name).
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
@@ -479,7 +522,12 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 
 			var wl2 *kueue.Workload
 			ginkgo.By("Create a second workload, should stay pending", func() {
+				pt2 := testing.MakePodTemplate("two", ns.Name).Obj()
+				pt2.SetLabels(map[string]string{constants.WorkloadNameSource: "two"})
+				gomega.Expect(k8sClient.Create(ctx, pt2)).To(gomega.Succeed())
+
 				wl2 = testing.MakeWorkload("two", ns.Name).
+					PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(pt2.Name).Obj()).
 					Queue(localQueue.Name).
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())

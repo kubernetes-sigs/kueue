@@ -113,6 +113,8 @@ type PodSet struct {
 	// the keys in the nodeLabels from the ResourceFlavors considered for this
 	// Workload are used to filter the ResourceFlavors that can be assigned to
 	// this podSet.
+	//
+	// +optional
 	Template *corev1.PodTemplateSpec `json:"template"`
 
 	// count is the number of pods for the spec.
@@ -133,6 +135,8 @@ type PodSet struct {
 	MinCount *int32 `json:"minCount,omitempty"`
 
 	// PodTemplateName is the name of the PodTemplate the Workload is associated with.
+	//
+	// +optional
 	PodTemplateName *string `json:"podTemplateName,omitempty"`
 }
 

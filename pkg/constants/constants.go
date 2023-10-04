@@ -37,4 +37,5 @@ const (
 
 	WorkloadPriorityClassSource = "kueue.x-k8s.io/workloadpriorityclass"
 	PodPriorityClassSource      = "scheduling.k8s.io/priorityclass"
+	WorkloadNameSource          = "kueue.x-k8s.io/workload-name"
 )

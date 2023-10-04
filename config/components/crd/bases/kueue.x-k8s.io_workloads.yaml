@@ -8186,7 +8186,6 @@ spec:
                   required:
                   - count
                   - name
-                  - template
                   type: object
                 maxItems: 8
                 minItems: 1

@@ -45,6 +45,15 @@ func DeleteAdmissionCheck(ctx context.Context, c client.Client, ac *kueue.Admiss
 	return nil
 }
 
+func DeletePodTemplate(ctx context.Context, c client.Client, pt *corev1.PodTemplate) error {
+	if pt != nil {
+		if err := c.Delete(ctx, pt); err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+	}
+	return nil
+}
+
 func DeleteWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) error {
 	if wl != nil {
 		if err := c.Delete(ctx, wl); err != nil && !apierrors.IsNotFound(err) {

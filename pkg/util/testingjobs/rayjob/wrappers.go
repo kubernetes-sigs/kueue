@@ -46,7 +46,8 @@ func MakeJob(name, ns string) *JobWrapper {
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
 								{
-									Name: "head-container",
+									Name:  "head-container",
+									Image: "pause",
 								},
 							},
 						},
@@ -63,7 +64,8 @@ func MakeJob(name, ns string) *JobWrapper {
 							Spec: corev1.PodSpec{
 								Containers: []corev1.Container{
 									{
-										Name: "worker-container",
+										Name:  "worker-container",
+										Image: "pause",
 									},
 								},
 							},

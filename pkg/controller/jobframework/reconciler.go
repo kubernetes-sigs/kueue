@@ -731,9 +731,11 @@ func newPodTemplate(ps kueue.PodSet, job GenericJob, object client.Object) *core
 	return &corev1.PodTemplate{
 		Template: *ps.Template.DeepCopy(),
 		ObjectMeta: metav1.ObjectMeta{
-			//Name:      fmt.Sprintf("%s-%s", GetWorkloadNameForOwnerWithGVK(object.GetName(), job.GVK()), ps.Name),
-			Name:      ps.Name,
+			Name:      GetPodTemplateName(object.GetName(), ps.Name),
 			Namespace: object.GetNamespace(),
+			Labels: map[string]string{
+				constants.WorkloadNameSource: GetWorkloadNameForOwnerWithGVK(object.GetName(), job.GVK()),
+			},
 		},
 	}
 }

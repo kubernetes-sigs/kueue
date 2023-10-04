@@ -617,6 +617,18 @@ func (w *PodTemplateWrapper) Request(r corev1.ResourceName, q string) *PodTempla
 	return w
 }
 
+func (w *PodTemplateWrapper) Limit(r corev1.ResourceName, q string) *PodTemplateWrapper {
+	res := &w.Template.Spec.Containers[0].Resources
+	if res.Limits == nil {
+		res.Limits = corev1.ResourceList{
+			r: resource.MustParse(q),
+		}
+	} else {
+		res.Limits[r] = resource.MustParse(q)
+	}
+	return w
+}
+
 func (w *PodTemplateWrapper) Toleration(t corev1.Toleration) *PodTemplateWrapper {
 	w.Template.Spec.Tolerations = append(w.Template.Spec.Tolerations, t)
 	return w

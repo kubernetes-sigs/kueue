@@ -19,13 +19,16 @@ package core
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
@@ -135,17 +138,17 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, nil
 	}
 
-	for i, ps := range wl.Spec.PodSets {
-		if wl.Spec.PodSets[i].PodTemplateName != nil {
-			continue
-		}
-		var pt corev1.PodTemplate
-		if err := r.client.Get(ctx, client.ObjectKey{Name: fmt.Sprintf("%s-%s", wl.Name, ps.Name), Namespace: wl.Namespace}, &pt); err != nil {
-			continue
-		}
-		wl.Spec.PodSets[i].PodTemplateName = &pt.Name
+	wlCopy := wl.DeepCopy()
+
+	if err := r.updatePodTemplateName(ctx, &wl); err != nil {
+		log.V(2).Error(err, "updatePodTemplateName")
+		return ctrl.Result{}, err
+	}
+
+	if !equality.Semantic.DeepEqual(wl.Spec.PodSets, wlCopy.Spec.PodSets) {
 		if err := r.client.Update(ctx, &wl); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
+			log.V(2).Error(err, "client.Update", "wl", wl)
+			return ctrl.Result{}, err
 		}
 	}
 
@@ -189,6 +192,27 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *WorkloadReconciler) updatePodTemplateName(ctx context.Context, wl *kueue.Workload) error {
+	labelSelector := metav1.LabelSelector{MatchLabels: map[string]string{constants.WorkloadNameSource: wl.Name}}
+	var pts corev1.PodTemplateList
+	if err := r.client.List(ctx, &pts, &client.ListOptions{LabelSelector: labels.Set(labelSelector.MatchLabels).AsSelector(), Namespace: wl.Namespace}); err != nil {
+		return err
+	}
+
+	for i, ps := range wl.Spec.PodSets {
+		if wl.Spec.PodSets[i].PodTemplateName != nil {
+			continue
+		}
+		for _, pt := range pts.Items {
+			if strings.Contains(pt.Name, ps.Name) {
+				wl.Spec.PodSets[i].PodTemplateName = &pt.Name
+			}
+		}
+	}
+
+	return nil
 }
 
 func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl *kueue.Workload) (bool, error) {
@@ -289,8 +313,12 @@ func (r *WorkloadReconciler) Create(e event.CreateEvent) bool {
 	}
 
 	pts := r.extractPodTemplates(ctx, *wl)
+	if len(pts) == 0 {
+		return false
+	}
 
 	wlCopy := wl.DeepCopy()
+	r.adjustResources(ctx, wlCopy, pts)
 
 	if !workload.HasQuotaReservation(wl) {
 		if !r.queues.AddOrUpdateWorkload(wlCopy, pts) {
@@ -377,6 +405,8 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 	pts := r.extractPodTemplates(ctx, *wl)
 
 	wlCopy := wl.DeepCopy()
+
+	r.adjustResources(ctx, wlCopy, pts)
 
 	switch {
 	case status == finished:
@@ -500,26 +530,28 @@ func workloadStatus(w *kueue.Workload) string {
 // As a result, the pod's Overhead is not always correct. E.g. if we set a non-existent runtime class name to
 // `pod.Spec.RuntimeClassName` and we also set the `pod.Spec.Overhead`, in real world, the pod creation will be
 // rejected due to the mismatch with RuntimeClass. However, in the future we assume that they are correct.
-func (h *podTemplateHandler) handlePodOverhead(ctx context.Context, pt *corev1.PodTemplate) {
+func (r *WorkloadReconciler) handlePodOverhead(ctx context.Context, pts []corev1.PodTemplate) {
 	log := ctrl.LoggerFrom(ctx)
 
-	podSpec := &pt.Template.Spec
-	if podSpec.RuntimeClassName != nil && len(podSpec.Overhead) == 0 {
-		var runtimeClass nodev1.RuntimeClass
-		if err := h.client.Get(ctx, types.NamespacedName{Name: *podSpec.RuntimeClassName}, &runtimeClass); err != nil {
-			log.Error(err, "Could not get RuntimeClass")
-		}
-		if runtimeClass.Overhead != nil {
-			podSpec.Overhead = runtimeClass.Overhead.PodFixed
+	for pi := range pts {
+		podSpec := &pts[pi].Template.Spec
+		if podSpec.RuntimeClassName != nil && len(podSpec.Overhead) == 0 {
+			var runtimeClass nodev1.RuntimeClass
+			if err := r.client.Get(ctx, types.NamespacedName{Name: *podSpec.RuntimeClassName}, &runtimeClass); err != nil {
+				log.Error(err, "Could not get RuntimeClass")
+			}
+			if runtimeClass.Overhead != nil {
+				podSpec.Overhead = runtimeClass.Overhead.PodFixed
+			}
 		}
 	}
 }
 
-func (h *podTemplateHandler) handlePodLimitRange(ctx context.Context, pt *corev1.PodTemplate) {
+func (r *WorkloadReconciler) handlePodLimitRange(ctx context.Context, wl *kueue.Workload, pts []corev1.PodTemplate) {
 	log := ctrl.LoggerFrom(ctx)
 	// get the list of limit ranges
 	var list corev1.LimitRangeList
-	if err := h.client.List(ctx, &list, &client.ListOptions{Namespace: pt.Namespace}, client.MatchingFields{indexer.LimitRangeHasContainerType: "true"}); err != nil {
+	if err := r.client.List(ctx, &list, &client.ListOptions{Namespace: wl.Namespace}, client.MatchingFields{indexer.LimitRangeHasContainerType: "true"}); err != nil {
 		log.Error(err, "Could not list LimitRanges")
 		return
 	}
@@ -533,54 +565,51 @@ func (h *podTemplateHandler) handlePodLimitRange(ctx context.Context, pt *corev1
 		return
 	}
 
-	pod := &pt.Template.Spec
-	for ci := range pod.InitContainers {
-		res := &pod.InitContainers[ci].Resources
-		res.Limits = resource.MergeResourceListKeepFirst(res.Limits, containerLimits.Default)
-		res.Requests = resource.MergeResourceListKeepFirst(res.Requests, containerLimits.DefaultRequest)
-	}
-	for ci := range pod.Containers {
-		res := &pod.Containers[ci].Resources
-		res.Limits = resource.MergeResourceListKeepFirst(res.Limits, containerLimits.Default)
-		res.Requests = resource.MergeResourceListKeepFirst(res.Requests, containerLimits.DefaultRequest)
-	}
-}
-
-func (h *podTemplateHandler) handleLimitsToRequests(pt *corev1.PodTemplate) {
-	pod := &pt.Template.Spec
-	for ci := range pod.InitContainers {
-		res := &pod.InitContainers[ci].Resources
-		res.Requests = resource.MergeResourceListKeepFirst(res.Requests, res.Limits)
-	}
-	for ci := range pod.Containers {
-		res := &pod.Containers[ci].Resources
-		res.Requests = resource.MergeResourceListKeepFirst(res.Requests, res.Limits)
+	for pi := range pts {
+		pod := &pts[pi].Template.Spec
+		for ci := range pod.InitContainers {
+			res := &pod.InitContainers[ci].Resources
+			res.Limits = resource.MergeResourceListKeepFirst(res.Limits, containerLimits.Default)
+			res.Requests = resource.MergeResourceListKeepFirst(res.Requests, containerLimits.DefaultRequest)
+		}
+		for ci := range pod.Containers {
+			res := &pod.Containers[ci].Resources
+			res.Limits = resource.MergeResourceListKeepFirst(res.Limits, containerLimits.Default)
+			res.Requests = resource.MergeResourceListKeepFirst(res.Requests, containerLimits.DefaultRequest)
+		}
 	}
 }
 
-func (h *podTemplateHandler) adjustResources(ctx context.Context, obj client.Object) {
-	pt := obj.(*corev1.PodTemplate)
-	if pt.Name == "" {
-		return
+func (r *WorkloadReconciler) handleLimitsToRequests(pts []corev1.PodTemplate) {
+	for pi := range pts {
+		pod := &pts[pi].Template.Spec
+		for ci := range pod.InitContainers {
+			res := &pod.InitContainers[ci].Resources
+			res.Requests = resource.MergeResourceListKeepFirst(res.Requests, res.Limits)
+		}
+		for ci := range pod.Containers {
+			res := &pod.Containers[ci].Resources
+			res.Requests = resource.MergeResourceListKeepFirst(res.Requests, res.Limits)
+		}
 	}
-	h.handlePodOverhead(ctx, pt)
-	h.handlePodLimitRange(ctx, pt)
-	h.handleLimitsToRequests(pt)
-	if err := h.client.Update(ctx, pt); err != nil {
-		return
-	}
+}
+
+func (r *WorkloadReconciler) adjustResources(ctx context.Context, wl *kueue.Workload, pts []corev1.PodTemplate) {
+	r.handlePodOverhead(ctx, pts)
+	r.handlePodLimitRange(ctx, wl, pts)
+	r.handleLimitsToRequests(pts)
 }
 
 func (r *WorkloadReconciler) extractPodTemplates(ctx context.Context, wl kueue.Workload) []corev1.PodTemplate {
-	podTemplates := make([]corev1.PodTemplate, 0, len(wl.Spec.PodSets))
-	for _, ps := range wl.Spec.PodSets {
-		var pt corev1.PodTemplate
-		if err := r.client.Get(ctx, client.ObjectKey{Name: fmt.Sprintf("%s-%s", wl.Name, ps.Name), Namespace: wl.Namespace}, &pt); err != nil {
-			continue
-		}
-		podTemplates = append(podTemplates, pt)
+	log := ctrl.LoggerFrom(ctx)
+	labelSelector := metav1.LabelSelector{MatchLabels: map[string]string{constants.WorkloadNameSource: wl.Name}}
+	var pts corev1.PodTemplateList
+	if err := r.client.List(ctx, &pts, &client.ListOptions{LabelSelector: labels.Set(labelSelector.MatchLabels).AsSelector(), Namespace: wl.Namespace}); err != nil {
+		log.V(2).Error(err, "Unable to find list of podtemplates")
+		return nil
 	}
-	return podTemplates
+	log.V(2).Info("extractPodTemplates", "pt", pts.Items)
+	return pts.Items
 }
 
 type resourceUpdatesHandler struct {
@@ -620,7 +649,7 @@ func (h *resourceUpdatesHandler) handle(ctx context.Context, obj client.Object, 
 	case *nodev1.RuntimeClass:
 		log := ctrl.LoggerFrom(ctx).WithValues("runtimeClass", klog.KObj(v))
 		ctx = ctrl.LoggerInto(ctx, log)
-		h.queueReconcileForPending(ctx, q, client.MatchingFields{indexer.WorkloadRuntimeClassKey: v.Name})
+		h.queueReconcileForPending(ctx, q)
 	default:
 		panic(v)
 	}
@@ -634,12 +663,14 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, _
 	if err != nil {
 		log.Error(err, "Could not list pending workloads")
 	}
-	log.V(4).Info("Updating pending workload requests", "count", len(lst.Items))
+	log.V(2).Info("Updating pending workload requests", "count", len(lst.Items), "opts", opts)
 	for _, w := range lst.Items {
 		wlCopy := w.DeepCopy()
 		log := log.WithValues("workload", klog.KObj(wlCopy))
 		log.V(5).Info("Queue reconcile for")
-		if !h.r.queues.AddOrUpdateWorkload(wlCopy, h.r.extractPodTemplates(ctx, w)) {
+		pts := h.r.extractPodTemplates(ctx, w)
+		h.r.adjustResources(ctx, wlCopy, pts)
+		if !h.r.queues.AddOrUpdateWorkload(wlCopy, pts) {
 			log.V(2).Info("Queue for workload didn't exist")
 		}
 	}
@@ -658,7 +689,6 @@ func (h *podTemplateHandler) Create(ctx context.Context, e event.CreateEvent, q 
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(5).Info("Create event")
 	h.handle(ctx, e.Object, q)
-	h.adjustResources(ctx, e.Object)
 }
 
 func (h *podTemplateHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.RateLimitingInterface) {
@@ -666,7 +696,6 @@ func (h *podTemplateHandler) Update(ctx context.Context, e event.UpdateEvent, q 
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(5).Info("Update event")
 	h.handle(ctx, e.ObjectNew, q)
-	h.adjustResources(ctx, e.ObjectNew)
 }
 
 func (h *podTemplateHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.RateLimitingInterface) {
@@ -674,7 +703,6 @@ func (h *podTemplateHandler) Delete(ctx context.Context, e event.DeleteEvent, q 
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(5).Info("Delete event")
 	h.handle(ctx, e.Object, q)
-	h.adjustResources(ctx, e.Object)
 }
 
 func (h *podTemplateHandler) Generic(context.Context, event.GenericEvent, workqueue.RateLimitingInterface) {
