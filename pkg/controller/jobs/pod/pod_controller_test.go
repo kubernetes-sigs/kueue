@@ -18,7 +18,8 @@ package pod
 
 import (
 	"context"
-	"errors"
+	"fmt"
+	"syscall"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -30,6 +31,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -483,28 +485,9 @@ func TestReconciler(t *testing.T) {
 	}
 }
 
-// podErrFinalizeMock has a mock Finalize function that will fail on the first run
-type podErrFinalizeMock struct {
-	Pod
-}
-
-var (
-	errMock            = errors.New("mock client error")
-	shouldFailFinalize = true
-)
-
-func (p *podErrFinalizeMock) Finalize(ctx context.Context, c client.Client) error {
-	if shouldFailFinalize {
-		shouldFailFinalize = false
-		return errMock
-	}
-
-	shouldFailFinalize = true
-	return p.Pod.Finalize(ctx, c)
-}
-
 func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
+
 	clientBuilder := utiltesting.NewClientBuilder()
 	if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
 		t.Fatalf("Could not setup indexes: %v", err)
@@ -529,9 +512,29 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 		Admitted(true).
 		Obj()
 
-	kcBuilder := clientBuilder.WithObjects(&pod)
+	reqcount := 0
+	errMock := fmt.Errorf("connection refused: %w", syscall.ECONNREFUSED)
 
-	kcBuilder = kcBuilder.WithStatusSubresource(&wl)
+	kcBuilder := clientBuilder.
+		WithObjects(&pod).
+		WithStatusSubresource(&wl).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				gvk := obj.GetObjectKind().GroupVersionKind()
+				if gvk.GroupVersion().String() == "v1" && gvk.Kind == "Pod" {
+					defer func() { reqcount++ }()
+					if reqcount == 0 {
+						// return a connection refused error for the first update request.
+						return errMock
+					}
+					if reqcount == 1 {
+						// Exec a regular update operation for the second request
+						return client.Update(ctx, obj, opts...)
+					}
+				}
+				return client.Update(ctx, obj, opts...)
+			},
+		})
 
 	kClient := kcBuilder.Build()
 	if err := ctrl.SetControllerReference(&pod, &wl, kClient.Scheme()); err != nil {
@@ -542,10 +545,7 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 	}
 	recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
 
-	reconciler := jobframework.NewGenericReconciler(
-		func() jobframework.GenericJob {
-			return &podErrFinalizeMock{}
-		}, nil)(kClient, recorder)
+	reconciler := NewReconciler(kClient, recorder)
 
 	podKey := client.ObjectKeyFromObject(&pod)
 	_, err := reconciler.Reconcile(ctx, reconcile.Request{
