@@ -133,3 +133,8 @@ Delete the local cluster once you are done.
 kind delete cluster
 ```
 
+## Testing
+
+```bash
+make test-e2e
+```

@@ -44,7 +44,7 @@ function startup {
 		if [ ! -d "$ARTIFACTS" ]; then
 			mkdir -p "$ARTIFACTS"
 		fi
-		$KIND create cluster --name $KIND_CLUSTER_NAME --image $E2E_KIND_VERSION --config $SOURCE_DIR/kind-cluster.yaml --wait 1m -v 5 >$ARTIFACTS/kind-create.log 2>&1 ||
+		$KIND create cluster --name $KIND_CLUSTER_NAME --image $E2E_KIND_VERSION --config $SOURCE_DIR/kind-cluster.yaml --wait 15m -v 5 >$ARTIFACTS/kind-create.log 2>&1 ||
 			{
 				echo "unable to start the kind cluster "
 				cat $ARTIFACTS/kind-create.log
@@ -55,7 +55,7 @@ function startup {
 }
 
 function kind_load {
-	$KIND load docker-image $IMAGE --name $KIND_CLUSTER_NAME
+	$KIND load docker-image $CONTROLLER_IMAGE --name $KIND_CLUSTER_NAME
 }
 
 function kueue_deploy {
@@ -63,16 +63,16 @@ function kueue_deploy {
 }
 
 function controller_deploy {
-	(cd test/e2e/config && $KUSTOMIZE edit set image controller=$IMAGE)
+	(cd test/e2e/config && $KUSTOMIZE edit set image controller=$CONTROLLER_IMAGE)
 	kubectl apply --server-side -k test/e2e/config
 }
 
 function taint_nodes {
-	kubectl taint nodes kind-worker2 --overwrite tier=spot:NoSchedule
-	kubectl taint nodes kind-worker2 --overwrite company.com/kueue-admission:NoSchedule
+	kubectl taint nodes $KIND_CLUSTER_NAME-worker2 --overwrite tier=spot:NoSchedule
+	kubectl taint nodes $KIND_CLUSTER_NAME-worker2 --overwrite company.com/kueue-admission:NoSchedule
 
-	kubectl taint nodes kind-worker3 --overwrite tier=regular:NoSchedule
-	kubectl taint nodes kind-worker3 --overwrite company.com/kueue-admission:NoSchedule
+	kubectl taint nodes $KIND_CLUSTER_NAME-worker3 --overwrite tier=regular:NoSchedule
+	kubectl taint nodes $KIND_CLUSTER_NAME-worker3 --overwrite company.com/kueue-admission:NoSchedule
 }
 
 trap cleanup EXIT
