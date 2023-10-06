@@ -27,7 +27,7 @@ import (
 )
 
 // SyncAdmittedCondition sync the state of the Admitted condition
-// with the state of QuoataReserved and AdmissionChecks.
+// with the state of QuotaReserved and AdmissionChecks.
 // Return true if any change was done.
 func SyncAdmittedCondition(w *kueue.Workload) bool {
 	hasReservation := HasQuotaReservation(w)
@@ -36,7 +36,6 @@ func SyncAdmittedCondition(w *kueue.Workload) bool {
 
 	if isAdmitted == (hasReservation && hasAllChecksReady) {
 		return false
-
 	}
 	newCondition := metav1.Condition{
 		Type:    kueue.WorkloadAdmitted,
