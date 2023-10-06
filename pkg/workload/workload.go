@@ -305,7 +305,7 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission) {
 		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionTrue,
 		LastTransitionTime: metav1.Now(),
-		Reason:             "QuoataReserved",
+		Reason:             "QuotaReserved",
 		Message:            fmt.Sprintf("Quota reserved in ClusterQueue %s", w.Status.Admission.ClusterQueue),
 	}
 	apimeta.SetStatusCondition(&w.Status.Conditions, admittedCond)
@@ -315,7 +315,6 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission) {
 		evictedCond.Status = metav1.ConditionFalse
 		evictedCond.LastTransitionTime = metav1.Now()
 	}
-
 }
 
 func SetEvictedCondition(w *kueue.Workload, reason string, message string) {
