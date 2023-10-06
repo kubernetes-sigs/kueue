@@ -260,7 +260,7 @@ In this proposal, the time to evict the preemption candidates varies based on th
 the scheduler will not issue the eviction during it's process instead it will set a `Pending` admission check
 that is manged by a new built-in admission check controller.
 
-The **Admission Check Controller** will:
+The **Preemption Admission Check Controller** will:
 
 - Watch for a change in state of the workloads pending preemption.
 - Watch for workloads that are finishing execution and therefore releasing quota.
