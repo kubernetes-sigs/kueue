@@ -1,0 +1,33 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin
+artifacts
+testbin/*
+.DS_Store
+# Test binary, build with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+
+# editor and IDE paraphernalia
+.idea
+.vscode
+*.nix
+*.swp
+*.swo
+*~
+
+# vendor files
+vendor
+
+# Local Netlify folder
+.netlify
+
+# Directory with CRDs for dependencies
+dep-crds

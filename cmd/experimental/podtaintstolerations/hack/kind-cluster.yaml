@@ -1,0 +1,15 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+  - role: worker
+    labels:
+      pool: controllers
+  - role: worker
+    labels:
+      pool: jobs
+      tier: spot
+  - role: worker
+    labels:
+      pool: jobs
+      tier: regular
