@@ -111,12 +111,12 @@ func (s *Scheduler) setAdmissionRoutineWrapper(wrapper routine.Wrapper) {
 	s.admissionRoutineWrapper = wrapper
 }
 
-type cohortsUsage map[string]workload.FlavorResourceQuantities
+type cohortsUsage map[string]cache.FlavorResourceQuantities
 
-func (cu *cohortsUsage) add(cohort string, assigment workload.FlavorResourceQuantities) {
+func (cu *cohortsUsage) add(cohort string, assigment cache.FlavorResourceQuantities) {
 	cohortUsage := (*cu)[cohort]
 	if cohortUsage == nil {
-		cohortUsage = make(workload.FlavorResourceQuantities, len(assigment))
+		cohortUsage = make(cache.FlavorResourceQuantities, len(assigment))
 	}
 
 	for flavor, resources := range assigment {
@@ -129,13 +129,13 @@ func (cu *cohortsUsage) add(cohort string, assigment workload.FlavorResourceQuan
 	(*cu)[cohort] = cohortUsage
 }
 
-func (cu *cohortsUsage) totalUsageForCommonFlavorResources(cohort string, assigment workload.FlavorResourceQuantities) workload.FlavorResourceQuantities {
+func (cu *cohortsUsage) totalUsageForCommonFlavorResources(cohort string, assigment cache.FlavorResourceQuantities) cache.FlavorResourceQuantities {
 	return utilmaps.Intersect((*cu)[cohort], assigment, func(a, b map[corev1.ResourceName]int64) map[corev1.ResourceName]int64 {
 		return utilmaps.Intersect(a, b, func(a, b int64) int64 { return a + b })
 	})
 }
 
-func (cu *cohortsUsage) hasCommonFlavorResources(cohort string, assigment workload.FlavorResourceQuantities) bool {
+func (cu *cohortsUsage) hasCommonFlavorResources(cohort string, assigment cache.FlavorResourceQuantities) bool {
 	cohortUsage, cohortFound := (*cu)[cohort]
 	if !cohortFound {
 		return false

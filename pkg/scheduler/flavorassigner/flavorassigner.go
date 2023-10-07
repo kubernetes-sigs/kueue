@@ -40,12 +40,12 @@ import (
 
 type Assignment struct {
 	PodSets     []PodSetAssignment
-	TotalBorrow workload.FlavorResourceQuantities
+	TotalBorrow cache.FlavorResourceQuantities
 	LastState   workload.AssigmentClusterQueueState
 
 	// Usage is the accumulated Usage of resources as pod sets get
 	// flavors assigned.
-	Usage workload.FlavorResourceQuantities
+	Usage cache.FlavorResourceQuantities
 
 	// representativeMode is the cached representative mode for this assignment.
 	representativeMode *FlavorAssignmentMode
@@ -253,9 +253,9 @@ func AssignFlavors(log logr.Logger, wl *workload.Info, resourceFlavors map[kueue
 
 func assignFlavors(log logr.Logger, requests []workload.PodSetResources, podSets []kueue.PodSet, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, cq *cache.ClusterQueue, lastAssignment *workload.AssigmentClusterQueueState) Assignment {
 	assignment := Assignment{
-		TotalBorrow: make(workload.FlavorResourceQuantities),
+		TotalBorrow: make(cache.FlavorResourceQuantities),
 		PodSets:     make([]PodSetAssignment, 0, len(requests)),
-		Usage:       make(workload.FlavorResourceQuantities),
+		Usage:       make(cache.FlavorResourceQuantities),
 	}
 	if lastAssignment != nil {
 		assignment.LastState = *lastAssignment

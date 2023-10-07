@@ -97,7 +97,7 @@ func (c *ClusterQueue) snapshot() *ClusterQueue {
 		RGByResource:                  c.RGByResource,   // Shallow copy is enough.
 		FlavorFungibility:             c.FlavorFungibility,
 		AllocatableResourceGeneration: c.AllocatableResourceGeneration,
-		Usage:                         make(workload.FlavorResourceQuantities, len(c.Usage)),
+		Usage:                         make(FlavorResourceQuantities, len(c.Usage)),
 		Workloads:                     make(map[string]*workload.Info, len(c.Workloads)),
 		Preemption:                    c.Preemption,
 		NamespaceSelector:             c.NamespaceSelector,
@@ -120,7 +120,7 @@ func (c *ClusterQueue) snapshot() *ClusterQueue {
 
 func (c *ClusterQueue) accumulateResources(cohort *Cohort) {
 	if cohort.RequestableResources == nil {
-		cohort.RequestableResources = make(workload.FlavorResourceQuantities, len(c.ResourceGroups))
+		cohort.RequestableResources = make(FlavorResourceQuantities, len(c.ResourceGroups))
 	}
 	for _, rg := range c.ResourceGroups {
 		for _, flvQuotas := range rg.Flavors {
@@ -135,7 +135,7 @@ func (c *ClusterQueue) accumulateResources(cohort *Cohort) {
 		}
 	}
 	if cohort.Usage == nil {
-		cohort.Usage = make(workload.FlavorResourceQuantities, len(c.Usage))
+		cohort.Usage = make(FlavorResourceQuantities, len(c.Usage))
 	}
 	for fName, resUsages := range c.Usage {
 		used := cohort.Usage[fName]

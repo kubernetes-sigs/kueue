@@ -363,10 +363,6 @@ func MakeClusterQueue(name string) *ClusterQueueWrapper {
 				WhenCanBorrow:  kueue.Borrow,
 				WhenCanPreempt: kueue.TryNextFlavor,
 			},
-			Preemption: &kueue.ClusterQueuePreemption{
-				ReclaimWithinCohort: kueue.PreemptionPolicyNever,
-				WithinClusterQueue:  kueue.PreemptionPolicyNever,
-			},
 		},
 	}}
 }

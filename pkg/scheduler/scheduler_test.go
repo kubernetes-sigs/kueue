@@ -1147,7 +1147,7 @@ func TestEntryOrdering(t *testing.T) {
 				}},
 			},
 			assignment: flavorassigner.Assignment{
-				TotalBorrow: workload.FlavorResourceQuantities{
+				TotalBorrow: cache.FlavorResourceQuantities{
 					"flavor": {},
 				},
 			},
@@ -1178,7 +1178,7 @@ func TestEntryOrdering(t *testing.T) {
 				}},
 			},
 			assignment: flavorassigner.Assignment{
-				TotalBorrow: workload.FlavorResourceQuantities{
+				TotalBorrow: cache.FlavorResourceQuantities{
 					"flavor": {},
 				},
 			},
@@ -1201,7 +1201,7 @@ func TestEntryOrdering(t *testing.T) {
 				}},
 			},
 			assignment: flavorassigner.Assignment{
-				TotalBorrow: workload.FlavorResourceQuantities{
+				TotalBorrow: cache.FlavorResourceQuantities{
 					"flavor": {},
 				},
 			},
@@ -1226,7 +1226,7 @@ func TestEntryOrdering(t *testing.T) {
 				},
 			},
 			assignment: flavorassigner.Assignment{
-				TotalBorrow: workload.FlavorResourceQuantities{
+				TotalBorrow: cache.FlavorResourceQuantities{
 					"flavor": {},
 				},
 			},

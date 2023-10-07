@@ -312,7 +312,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 		qImpl := &queue{
 			key:               qKey,
 			admittedWorkloads: 0,
-			usage:             make(workload.FlavorResourceQuantities),
+			usage:             make(FlavorResourceQuantities),
 		}
 		if err = qImpl.resetFlavorsAndResources(cqImpl.Usage); err != nil {
 			return err

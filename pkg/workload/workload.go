@@ -40,8 +40,6 @@ var (
 	admissionManagedConditions = []string{kueue.WorkloadQuotaReserved, kueue.WorkloadEvicted, kueue.WorkloadAdmitted}
 )
 
-type FlavorResourceQuantities map[kueue.ResourceFlavorReference]map[corev1.ResourceName]int64
-
 type AssigmentClusterQueueState struct {
 	LastAssignedFlavorIdx  []map[corev1.ResourceName]int
 	CohortGeneration       int64

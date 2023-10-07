@@ -198,7 +198,7 @@ func TestSnapshot(t *testing.T) {
 				cohort := &Cohort{
 					Name:                          "borrowing",
 					AllocatableResourceGeneration: 2,
-					RequestableResources: workload.FlavorResourceQuantities{
+					RequestableResources: FlavorResourceQuantities{
 						"demand": {
 							corev1.ResourceCPU: 100_000,
 						},
@@ -209,7 +209,7 @@ func TestSnapshot(t *testing.T) {
 							"example.com/gpu": 50,
 						},
 					},
-					Usage: workload.FlavorResourceQuantities{
+					Usage: FlavorResourceQuantities{
 						"demand": {
 							corev1.ResourceCPU: 10_000,
 						},
@@ -248,7 +248,7 @@ func TestSnapshot(t *testing.T) {
 								},
 							},
 							FlavorFungibility: defaultFlavorFungibility,
-							Usage: workload.FlavorResourceQuantities{
+							Usage: FlavorResourceQuantities{
 								"demand": {corev1.ResourceCPU: 10_000},
 								"spot":   {corev1.ResourceCPU: 0},
 							},
@@ -292,7 +292,7 @@ func TestSnapshot(t *testing.T) {
 								},
 							},
 							FlavorFungibility: defaultFlavorFungibility,
-							Usage: workload.FlavorResourceQuantities{
+							Usage: FlavorResourceQuantities{
 								"spot": {
 									corev1.ResourceCPU: 10_000,
 								},
@@ -344,7 +344,7 @@ func TestSnapshot(t *testing.T) {
 								},
 							},
 							FlavorFungibility: defaultFlavorFungibility,
-							Usage: workload.FlavorResourceQuantities{
+							Usage: FlavorResourceQuantities{
 								"default": {
 									corev1.ResourceCPU: 0,
 								},
@@ -507,7 +507,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 					Name:                          "cohort",
 					AllocatableResourceGeneration: 2,
 					RequestableResources:          initialCohortResources,
-					Usage: workload.FlavorResourceQuantities{
+					Usage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
 						"alpha":   {corev1.ResourceMemory: 0},
 						"beta":    {corev1.ResourceMemory: 0},
@@ -522,7 +522,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 							ResourceGroups:                cqCache.clusterQueues["c1"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							AllocatableResourceGeneration: 1,
-							Usage: workload.FlavorResourceQuantities{
+							Usage: FlavorResourceQuantities{
 								"default": {corev1.ResourceCPU: 0},
 								"alpha":   {corev1.ResourceMemory: 0},
 								"beta":    {corev1.ResourceMemory: 0},
@@ -535,7 +535,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 							ResourceGroups:                cqCache.clusterQueues["c2"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							AllocatableResourceGeneration: 1,
-							Usage: workload.FlavorResourceQuantities{
+							Usage: FlavorResourceQuantities{
 								"default": {corev1.ResourceCPU: 0},
 							},
 						},
@@ -550,7 +550,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 					Name:                          "cohort",
 					AllocatableResourceGeneration: 2,
 					RequestableResources:          initialCohortResources,
-					Usage: workload.FlavorResourceQuantities{
+					Usage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 2_000},
 						"alpha":   {corev1.ResourceMemory: utiltesting.Gi},
 						"beta":    {corev1.ResourceMemory: utiltesting.Gi},
@@ -568,7 +568,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 							AllocatableResourceGeneration: 1,
 							ResourceGroups:                cqCache.clusterQueues["c1"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
-							Usage: workload.FlavorResourceQuantities{
+							Usage: FlavorResourceQuantities{
 								"default": {corev1.ResourceCPU: 0},
 								"alpha":   {corev1.ResourceMemory: utiltesting.Gi},
 								"beta":    {corev1.ResourceMemory: utiltesting.Gi},
@@ -584,7 +584,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 							ResourceGroups:                cqCache.clusterQueues["c2"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
 							AllocatableResourceGeneration: 1,
-							Usage: workload.FlavorResourceQuantities{
+							Usage: FlavorResourceQuantities{
 								"default": {corev1.ResourceCPU: 2_000},
 							},
 						},
@@ -599,7 +599,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 					Name:                          "cohort",
 					AllocatableResourceGeneration: 2,
 					RequestableResources:          initialCohortResources,
-					Usage: workload.FlavorResourceQuantities{
+					Usage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 3_000},
 						"alpha":   {corev1.ResourceMemory: 0},
 						"beta":    {corev1.ResourceMemory: utiltesting.Gi},
@@ -617,7 +617,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 							AllocatableResourceGeneration: 1,
 							ResourceGroups:                cqCache.clusterQueues["c1"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
-							Usage: workload.FlavorResourceQuantities{
+							Usage: FlavorResourceQuantities{
 								"default": {corev1.ResourceCPU: 1_000},
 								"alpha":   {corev1.ResourceMemory: 0},
 								"beta":    {corev1.ResourceMemory: utiltesting.Gi},
@@ -633,7 +633,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 							AllocatableResourceGeneration: 1,
 							ResourceGroups:                cqCache.clusterQueues["c2"].ResourceGroups,
 							FlavorFungibility:             defaultFlavorFungibility,
-							Usage: workload.FlavorResourceQuantities{
+							Usage: FlavorResourceQuantities{
 								"default": {corev1.ResourceCPU: 2_000},
 							},
 						},

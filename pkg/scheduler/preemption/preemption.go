@@ -299,8 +299,8 @@ func workloadUsesResources(wl *workload.Info, resPerFlv resourcesPerFlavor) bool
 	return false
 }
 
-func totalRequestsForAssignment(wl *workload.Info, assignment flavorassigner.Assignment) workload.FlavorResourceQuantities {
-	usage := make(workload.FlavorResourceQuantities)
+func totalRequestsForAssignment(wl *workload.Info, assignment flavorassigner.Assignment) cache.FlavorResourceQuantities {
+	usage := make(cache.FlavorResourceQuantities)
 	for i, ps := range wl.TotalRequests {
 		for res, q := range ps.Requests {
 			flv := assignment.PodSets[i].Flavors[res].Name
@@ -318,7 +318,7 @@ func totalRequestsForAssignment(wl *workload.Info, assignment flavorassigner.Ass
 // workloadFits determines if the workload requests would fits given the
 // requestable resources and simulated usage of the ClusterQueue and its cohort,
 // if it belongs to one.
-func workloadFits(wlReq workload.FlavorResourceQuantities, cq *cache.ClusterQueue, allowBorrowing bool) bool {
+func workloadFits(wlReq cache.FlavorResourceQuantities, cq *cache.ClusterQueue, allowBorrowing bool) bool {
 	for _, rg := range cq.ResourceGroups {
 		for _, flvQuotas := range rg.Flavors {
 			flvReq, found := wlReq[flvQuotas.Name]
