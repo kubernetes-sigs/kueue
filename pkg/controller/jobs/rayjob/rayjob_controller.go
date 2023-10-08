@@ -33,12 +33,12 @@ import (
 )
 
 var (
-	gvk           = rayjobapi.GroupVersion.WithKind("RayJob")
-	FrameworkName = "ray.io/rayjob"
+	gvk = rayjobapi.GroupVersion.WithKind("RayJob")
 )
 
 const (
 	headGroupPodSetName = "head"
+	FrameworkName       = "ray.io/rayjob"
 )
 
 func init() {
@@ -156,7 +156,8 @@ func (j *RayJob) Finished() (metav1.Condition, bool) {
 		Reason:  string(j.Status.JobStatus),
 		Message: j.Status.Message,
 	}
-	return condition, rayjobapi.IsJobTerminal(j.Status.JobStatus)
+
+	return condition, j.Status.JobStatus == rayjobapi.JobStatusFailed || j.Status.JobStatus == rayjobapi.JobStatusSucceeded
 }
 
 func (j *RayJob) PodsReady() bool {
