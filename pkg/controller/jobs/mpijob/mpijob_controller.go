@@ -140,7 +140,7 @@ func (j *MPIJob) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) bool 
 	for index, info := range podSetInfos {
 		replicaType := orderedReplicaTypes[index]
 		replica := &j.Spec.MPIReplicaSpecs[replicaType].Template
-		changed = jobframework.Update(&replica.ObjectMeta, &replica.Spec, info) || changed
+		changed = jobframework.Restore(&replica.ObjectMeta, &replica.Spec, info) || changed
 	}
 	return changed
 }

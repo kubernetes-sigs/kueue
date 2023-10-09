@@ -395,6 +395,15 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 							},
 							{
 								Name: "replicated-job-2",
+								Annotations: map[string]string{
+									"ann1": "ann-value2",
+								},
+								Labels: map[string]string{
+									"label1": "label-value2",
+								},
+								NodeSelector: map[string]string{
+									"selector1": "selector-value2",
+								},
 							},
 						},
 					})
@@ -430,7 +439,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 				}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(false)))
 			})
 
-			ginkgo.By("verify the PodSetUpdates are propagated to the running job", func() {
+			ginkgo.By("verify the PodSetUpdates are propagated to the running job, for replicated-job-1", func() {
 				replica1 := createdJob.Spec.ReplicatedJobs[0].Template.Spec.Template
 				gomega.Expect(replica1.Annotations).Should(gomega.HaveKeyWithValue("ann1", "ann-value1"))
 				gomega.Expect(replica1.Annotations).Should(gomega.HaveKeyWithValue("old-ann-key", "old-ann-value"))
@@ -447,6 +456,13 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 						},
 					},
 				))
+			})
+
+			ginkgo.By("verify the PodSetUpdates are propagated to the running job, for replicated-job-2", func() {
+				replica2 := createdJob.Spec.ReplicatedJobs[1].Template.Spec.Template
+				gomega.Expect(replica2.Spec.NodeSelector).Should(gomega.HaveKeyWithValue("selector1", "selector-value2"))
+				gomega.Expect(replica2.Annotations).Should(gomega.HaveKeyWithValue("ann1", "ann-value2"))
+				gomega.Expect(replica2.Labels).Should(gomega.HaveKeyWithValue("label1", "label-value2"))
 			})
 
 			ginkgo.By("delete the localQueue to prevent readmission", func() {
@@ -466,13 +482,20 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 				}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(true)))
 			})
 
-			ginkgo.By("verify the PodSetUpdates are restored", func() {
+			ginkgo.By("verify the PodSetUpdates are restored for replicated-job-1", func() {
 				replica1 := createdJob.Spec.ReplicatedJobs[0].Template.Spec.Template
 				gomega.Expect(replica1.Annotations).ShouldNot(gomega.HaveKey("ann1"))
 				gomega.Expect(replica1.Annotations).Should(gomega.HaveKeyWithValue("old-ann-key", "old-ann-value"))
 				gomega.Expect(replica1.Labels).ShouldNot(gomega.HaveKey("label1"))
 				gomega.Expect(replica1.Labels).Should(gomega.HaveKeyWithValue("old-label-key", "old-label-value"))
 				gomega.Expect(replica1.Spec.NodeSelector).ShouldNot(gomega.HaveKey("selector1"))
+			})
+
+			ginkgo.By("verify the PodSetUpdates are restored for replicated-job-2", func() {
+				replica2 := createdJob.Spec.ReplicatedJobs[1].Template.Spec.Template
+				gomega.Expect(replica2.Spec.NodeSelector).ShouldNot(gomega.HaveKey("selector1"))
+				gomega.Expect(replica2.Annotations).ShouldNot(gomega.HaveKey("ann1"))
+				gomega.Expect(replica2.Labels).ShouldNot(gomega.HaveKey("label1"))
 			})
 		})
 	})

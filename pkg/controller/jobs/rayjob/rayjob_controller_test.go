@@ -168,8 +168,8 @@ func TestNodeSelectors(t *testing.T) {
 					},
 				},
 				{
-					NodeSelectorOverwrite: map[string]string{
-						"key-wg1": "updated-value-wg1",
+					NodeSelector: map[string]string{
+						"key-wg1": "value-wg1",
 					},
 				},
 				{
@@ -210,7 +210,7 @@ func TestNodeSelectors(t *testing.T) {
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
 							NodeSelector: map[string]string{
-								"key-wg1": "updated-value-wg1",
+								"key-wg1": "value-wg1",
 							},
 						},
 					},

@@ -25,13 +25,12 @@ import (
 )
 
 type PodSetInfo struct {
-	Name                  string
-	Count                 int32
-	NodeSelectorOverwrite map[string]string
-	Annotations           map[string]string
-	Labels                map[string]string
-	NodeSelector          map[string]string
-	Tolerations           []corev1.Toleration
+	Name         string
+	Count        int32
+	Annotations  map[string]string
+	Labels       map[string]string
+	NodeSelector map[string]string
+	Tolerations  []corev1.Toleration
 }
 
 func (podSetInfo *PodSetInfo) Merge(o PodSetInfo) error {
@@ -41,10 +40,6 @@ func (podSetInfo *PodSetInfo) Merge(o PodSetInfo) error {
 	if err := utilmaps.HaveConflict(podSetInfo.Labels, o.Labels); err != nil {
 		return BadPodSetsUpdateError("labels", err)
 	}
-	maps.DeleteFunc(o.NodeSelector, func(k, v string) bool {
-		_, overwriteExists := o.NodeSelectorOverwrite[k]
-		return overwriteExists
-	})
 	if err := utilmaps.HaveConflict(podSetInfo.NodeSelector, o.NodeSelector); err != nil {
 		return BadPodSetsUpdateError("nodeSelector", err)
 	}
@@ -69,23 +64,29 @@ func Merge(meta *metav1.ObjectMeta, spec *v1.PodSpec, info PodSetInfo) error {
 	meta.Annotations = info.Annotations
 	meta.Labels = info.Labels
 	spec.NodeSelector = info.NodeSelector
-	spec.NodeSelector = utilmaps.MergeKeepFirst(info.NodeSelectorOverwrite, spec.NodeSelector)
 	spec.Tolerations = info.Tolerations
 	return nil
 }
 
-// Update sets replica metadata and spec fields based on PodSetInfo.
+// Restore sets replica metadata and spec fields based on PodSetInfo.
 // It returns true if there is any change.
-func Update(meta *metav1.ObjectMeta, spec *v1.PodSpec, info PodSetInfo) bool {
-	if !maps.Equal(meta.Annotations, info.Annotations) ||
-		!maps.Equal(meta.Labels, info.Labels) ||
-		!maps.Equal(spec.NodeSelector, info.NodeSelector) ||
-		!slices.Equal(spec.Tolerations, info.Tolerations) {
+func Restore(meta *metav1.ObjectMeta, spec *v1.PodSpec, info PodSetInfo) bool {
+	changed := false
+	if !maps.Equal(meta.Annotations, info.Annotations) {
 		meta.Annotations = maps.Clone(info.Annotations)
-		meta.Labels = maps.Clone(info.Labels)
-		spec.NodeSelector = maps.Clone(info.NodeSelector)
-		spec.Tolerations = slices.Clone(info.Tolerations)
-		return true
+		changed = true
 	}
-	return false
+	if !maps.Equal(meta.Labels, info.Labels) {
+		meta.Labels = maps.Clone(info.Labels)
+		changed = true
+	}
+	if !maps.Equal(spec.NodeSelector, info.NodeSelector) {
+		spec.NodeSelector = maps.Clone(info.NodeSelector)
+		changed = true
+	}
+	if !slices.Equal(spec.Tolerations, info.Tolerations) {
+		spec.Tolerations = slices.Clone(info.Tolerations)
+		changed = true
+	}
+	return changed
 }

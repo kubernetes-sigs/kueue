@@ -515,7 +515,7 @@ func (r *JobReconciler) equivalentToWorkload(job GenericJob, object client.Objec
 
 // startJob will unsuspend the job, and also inject the node affinity.
 func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
-	info, err := r.getPodSetsInfoFromAdmission(ctx, wl)
+	info, err := r.getPodSetsInfoFromStatus(ctx, wl)
 	if err != nil {
 		return err
 	}
@@ -645,8 +645,9 @@ func extractPriorityFromPodSets(podSets []kueue.PodSet) string {
 	return ""
 }
 
-// getPodSetsInfoFromAdmission will extract podSetsInfo and podSets count from admitted workloads.
-func (r *JobReconciler) getPodSetsInfoFromAdmission(ctx context.Context, w *kueue.Workload) ([]PodSetInfo, error) {
+// getPodSetsInfoFromStatus extracts podSetsInfos from workload status, based on
+// admission, and admission checks.
+func (r *JobReconciler) getPodSetsInfoFromStatus(ctx context.Context, w *kueue.Workload) ([]PodSetInfo, error) {
 	if len(w.Status.Admission.PodSetAssignments) == 0 {
 		return nil, nil
 	}
@@ -656,13 +657,11 @@ func (r *JobReconciler) getPodSetsInfoFromAdmission(ctx context.Context, w *kueu
 	for i, podSetFlavor := range w.Status.Admission.PodSetAssignments {
 		processedFlvs := sets.NewString()
 		podSetInfo := PodSetInfo{
-			Name:                  podSetFlavor.Name,
-			NodeSelector:          make(map[string]string),
-			NodeSelectorOverwrite: make(map[string]string),
-			Count:                 ptr.Deref(podSetFlavor.Count, w.Spec.PodSets[i].Count),
-			Labels:                make(map[string]string),
-			Annotations:           make(map[string]string),
-			Tolerations:           make([]corev1.Toleration, 0),
+			Name:         podSetFlavor.Name,
+			NodeSelector: make(map[string]string),
+			Count:        ptr.Deref(podSetFlavor.Count, w.Spec.PodSets[i].Count),
+			Labels:       make(map[string]string),
+			Annotations:  make(map[string]string),
 		}
 		for _, flvRef := range podSetFlavor.Flavors {
 			flvName := string(flvRef)
@@ -675,7 +674,7 @@ func (r *JobReconciler) getPodSetsInfoFromAdmission(ctx context.Context, w *kueu
 				return nil, err
 			}
 			for k, v := range flv.Spec.NodeLabels {
-				podSetInfo.NodeSelectorOverwrite[k] = v
+				podSetInfo.NodeSelector[k] = v
 			}
 			processedFlvs.Insert(flvName)
 		}
@@ -688,7 +687,7 @@ func (r *JobReconciler) getPodSetsInfoFromAdmission(ctx context.Context, w *kueu
 						Tolerations:  podSetUpdate.Tolerations,
 						NodeSelector: podSetUpdate.NodeSelector,
 					}); err != nil {
-						return nil, err
+						return nil, fmt.Errorf("in admission check %q: %w", admissionCheck.Name, err)
 					}
 				}
 			}
@@ -808,5 +807,5 @@ func BadPodSetsInfoLenError(want, got int) error {
 }
 
 func BadPodSetsUpdateError(update string, err error) error {
-	return fmt.Errorf("%w: conflict for %v, error: %v", ErrInvalidPodSetUpdate, update, err)
+	return fmt.Errorf("%w: conflict for %v: %v", ErrInvalidPodSetUpdate, update, err)
 }

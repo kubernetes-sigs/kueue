@@ -138,7 +138,7 @@ func (j *JobSet) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) bool 
 	for index := range j.Spec.ReplicatedJobs {
 		replica := &j.Spec.ReplicatedJobs[index].Template.Spec.Template
 		info := podSetInfos[index]
-		changed = jobframework.Update(&replica.ObjectMeta, &replica.Spec, info) || changed
+		changed = jobframework.Restore(&replica.ObjectMeta, &replica.Spec, info) || changed
 	}
 	return changed
 }

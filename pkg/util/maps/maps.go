@@ -62,7 +62,7 @@ func MergeKeepFirst[K comparable, V any, S ~map[K]V](a, b S) S {
 	return Merge(a, b, func(v, _ V) V { return v })
 }
 
-// HavaConflict checks if a and b have the same key, but different value
+// HaveConflict checks if a and b have the same key, but different value
 func HaveConflict[K comparable, V comparable, S ~map[K]V](a, b S) error {
 	for k, av := range a {
 		if bv, found := b[k]; found && av != bv {

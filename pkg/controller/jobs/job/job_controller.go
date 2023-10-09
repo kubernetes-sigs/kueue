@@ -246,7 +246,7 @@ func (j *Job) RestorePodSetsInfo(podSetsInfo []jobframework.PodSetInfo) bool {
 			j.Spec.Completions = j.Spec.Parallelism
 		}
 	}
-	changed = jobframework.Update(&j.Spec.Template.ObjectMeta, &j.Spec.Template.Spec, podSetsInfo[0]) || changed
+	changed = jobframework.Restore(&j.Spec.Template.ObjectMeta, &j.Spec.Template.Spec, podSetsInfo[0]) || changed
 	return changed
 }
 
