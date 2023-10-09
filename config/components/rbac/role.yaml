@@ -136,6 +136,23 @@ rules:
 - apiGroups:
   - kubeflow.org
   resources:
+  - mxjobs
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kubeflow.org
+  resources:
+  - mxjobs/status
+  verbs:
+  - get
+  - update
+- apiGroups:
+  - kubeflow.org
+  resources:
   - paddlejobs
   verbs:
   - get

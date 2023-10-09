@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package xgboostjob
+package mxjob
 
 import (
 	"context"
@@ -32,25 +32,25 @@ import (
 )
 
 var (
-	gvk           = kftraining.SchemeGroupVersion.WithKind(kftraining.XGBoostJobKind)
-	FrameworkName = "kubeflow.org/xgboostjob"
+	gvk           = kftraining.SchemeGroupVersion.WithKind(kftraining.MXJobKind)
+	FrameworkName = "kubeflow.org/mxjob"
 )
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:           SetupIndexes,
 		NewReconciler:          NewReconciler,
-		SetupWebhook:           SetupXGBoostJobWebhook,
-		JobType:                &kftraining.XGBoostJob{},
+		SetupWebhook:           SetupMXJobWebhook,
+		JobType:                &kftraining.MXJob{},
 		AddToScheme:            kftraining.AddToScheme,
-		IsManagingObjectsOwner: isXGBoostJob,
+		IsManagingObjectsOwner: isMXJob,
 	}))
 }
 
 // +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
-// +kubebuilder:rbac:groups=kubeflow.org,resources=xgboostjobs,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=kubeflow.org,resources=xgboostjobs/status,verbs=get;update
+// +kubebuilder:rbac:groups=kubeflow.org,resources=mxjobs,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=kubeflow.org,resources=mxjobs/status,verbs=get;update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
@@ -58,23 +58,23 @@ func init() {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 
 var NewReconciler = jobframework.NewGenericReconciler(func() jobframework.GenericJob {
-	return &kubeflowjob.KubeflowJob{KFJobControl: (*JobControl)(&kftraining.XGBoostJob{})}
+	return &kubeflowjob.KubeflowJob{KFJobControl: (*JobControl)(&kftraining.MXJob{})}
 }, nil)
 
-func isXGBoostJob(owner *metav1.OwnerReference) bool {
-	return owner.Kind == kftraining.XGBoostJobKind && strings.HasPrefix(owner.APIVersion, kftraining.SchemeGroupVersion.Group)
+func isMXJob(owner *metav1.OwnerReference) bool {
+	return owner.Kind == kftraining.MXJobKind && strings.HasPrefix(owner.APIVersion, kftraining.SchemeGroupVersion.Group)
 }
 
-type JobControl kftraining.XGBoostJob
+type JobControl kftraining.MXJob
 
 var _ kubeflowjob.KFJobControl = (*JobControl)(nil)
 
 func (j *JobControl) Object() client.Object {
-	return (*kftraining.XGBoostJob)(j)
+	return (*kftraining.MXJob)(j)
 }
 
 func fromObject(o runtime.Object) *kubeflowjob.KubeflowJob {
-	return &kubeflowjob.KubeflowJob{KFJobControl: (*JobControl)(o.(*kftraining.XGBoostJob))}
+	return &kubeflowjob.KubeflowJob{KFJobControl: (*JobControl)(o.(*kftraining.MXJob))}
 }
 
 func (j *JobControl) GVK() schema.GroupVersionKind {
@@ -86,7 +86,7 @@ func (j *JobControl) RunPolicy() *kftraining.RunPolicy {
 }
 
 func (j *JobControl) ReplicaSpecs() map[kftraining.ReplicaType]*kftraining.ReplicaSpec {
-	return j.Spec.XGBReplicaSpecs
+	return j.Spec.MXReplicaSpecs
 }
 
 func (j *JobControl) JobStatus() kftraining.JobStatus {
@@ -94,13 +94,26 @@ func (j *JobControl) JobStatus() kftraining.JobStatus {
 }
 
 func (j *JobControl) OrderedReplicaTypes() []kftraining.ReplicaType {
-	return []kftraining.ReplicaType{kftraining.XGBoostJobReplicaTypeMaster, kftraining.XGBoostJobReplicaTypeWorker}
+	if j.Spec.JobMode == kftraining.MXTrain {
+		return []kftraining.ReplicaType{
+			kftraining.MXJobReplicaTypeScheduler,
+			kftraining.MXJobReplicaTypeServer,
+			kftraining.MXJobReplicaTypeWorker,
+		}
+	} else if j.Spec.JobMode == kftraining.MXTune {
+		return []kftraining.ReplicaType{
+			kftraining.MXJobReplicaTypeTunerTracker,
+			kftraining.MXJobReplicaTypeTunerServer,
+			kftraining.MXJobReplicaTypeTuner,
+		}
+	}
+	return make([]kftraining.ReplicaType, 0)
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
 }
 
-func GetWorkloadNameForXGBoostJob(jobName string) string {
+func GetWorkloadNameForMXJob(jobName string) string {
 	return jobframework.GetWorkloadNameForOwnerWithGVK(jobName, gvk)
 }

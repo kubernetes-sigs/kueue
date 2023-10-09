@@ -62,7 +62,7 @@ var NewReconciler = jobframework.NewGenericReconciler(func() jobframework.Generi
 }, nil)
 
 func isTFJob(owner *metav1.OwnerReference) bool {
-	return owner.Kind == "TFJob" && strings.HasPrefix(owner.APIVersion, "kubeflow.org")
+	return owner.Kind == kftraining.TFJobKind && strings.HasPrefix(owner.APIVersion, kftraining.SchemeGroupVersion.Group)
 }
 
 type JobControl kftraining.TFJob
