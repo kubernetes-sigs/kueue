@@ -39,6 +39,24 @@ var (
 	admissionManagedConditions = []string{kueue.WorkloadQuotaReserved, kueue.WorkloadEvicted, kueue.WorkloadAdmitted}
 )
 
+type AssigmentClusterQueueState struct {
+	LastAssignedFlavorIdx  []map[corev1.ResourceName]int
+	CohortGeneration       int64
+	ClusterQueueGeneration int64
+}
+
+func (s *AssigmentClusterQueueState) Clone() *AssigmentClusterQueueState {
+	c := AssigmentClusterQueueState{
+		LastAssignedFlavorIdx:  make([]map[corev1.ResourceName]int, len(s.LastAssignedFlavorIdx)),
+		CohortGeneration:       s.CohortGeneration,
+		ClusterQueueGeneration: s.ClusterQueueGeneration,
+	}
+	for ps, flavorIdx := range s.LastAssignedFlavorIdx {
+		c.LastAssignedFlavorIdx[ps] = maps.Clone(flavorIdx)
+	}
+	return &c
+}
+
 // Info holds a Workload object and some pre-processing.
 type Info struct {
 	Obj *kueue.Workload
@@ -46,7 +64,8 @@ type Info struct {
 	TotalRequests []PodSetResources
 	// Populated from the queue during admission or from the admission field if
 	// already admitted.
-	ClusterQueue string
+	ClusterQueue   string
+	LastAssignment *AssigmentClusterQueueState
 }
 
 type PodSetResources struct {

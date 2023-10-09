@@ -246,21 +246,21 @@ func assignFlavors(log logr.Logger, requests []workload.PodSetResources, podSets
 	var assignment Assignment
 	if lastAssignment != nil {
 		assignment = Assignment{
-			TotalBorrow: make(workload.FlavorResourceQuantities),
+			TotalBorrow: make(cache.FlavorResourceQuantities),
 			PodSets:     make([]PodSetAssignment, 0, len(requests)),
 			LastState:   *lastAssignment,
-			Usage:       make(workload.FlavorResourceQuantities),
+			Usage:       make(cache.FlavorResourceQuantities),
 		}
 	} else {
 		assignment = Assignment{
-			TotalBorrow: make(workload.FlavorResourceQuantities),
+			TotalBorrow: make(cache.FlavorResourceQuantities),
 			PodSets:     make([]PodSetAssignment, 0, len(requests)),
 			LastState: workload.AssigmentClusterQueueState{
-				LastAssignedFlavorIdx:  make([]map[corev1.ResourceName]int, 0),
+				LastAssignedFlavorIdx:  make([]map[corev1.ResourceName]int, 0, len(podSets)),
 				CohortGeneration:       0,
 				ClusterQueueGeneration: cq.Generation,
 			},
-			Usage: make(workload.FlavorResourceQuantities),
+			Usage: make(cache.FlavorResourceQuantities),
 		}
 		if cq.Cohort != nil {
 			assignment.LastState.CohortGeneration = cq.Cohort.Generation

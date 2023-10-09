@@ -50,6 +50,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.ClusterQueueSpecApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ClusterQueueStatus"):
 		return &kueuev1beta1.ClusterQueueStatusApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("FlavorFungibility"):
+		return &kueuev1beta1.FlavorFungibilityApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("FlavorQuotas"):
 		return &kueuev1beta1.FlavorQuotasApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("FlavorUsage"):

@@ -68,6 +68,13 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			Cohort("two").
 			NamespaceSelector(nil).
 			Obj(),
+		*utiltesting.MakeClusterQueue("f").
+			Cohort("two").
+			NamespaceSelector(nil).
+			FlavorFungibility(kueue.FlavorFungibility{
+				WhenCanBorrow: kueue.TryNextFlavor,
+			}).
+			Obj(),
 	}
 	setup := func(cache *Cache) error {
 		cache.AddOrUpdateResourceFlavor(
@@ -94,7 +101,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			},
 			wantClusterQueues: map[string]*ClusterQueue{
 				"a": {
-					Name: "a",
+					Name:                          "a",
+					AllocatableResourceGeneration: 1,
 					ResourceGroups: []ResourceGroup{{
 						CoveredResources: sets.New(corev1.ResourceCPU),
 						Flavors: []FlavorQuotas{{
@@ -109,6 +117,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						LabelKeys: sets.New("cpuType"),
 					}},
 					NamespaceSelector: labels.Nothing(),
+					FlavorFungibility: defaultFlavorFungibility,
 					Usage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
 					},
@@ -116,7 +125,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Preemption: defaultPreemption,
 				},
 				"b": {
-					Name: "b",
+					Name:                          "b",
+					AllocatableResourceGeneration: 1,
 					ResourceGroups: []ResourceGroup{{
 						CoveredResources: sets.New(corev1.ResourceCPU),
 						Flavors: []FlavorQuotas{{
@@ -130,6 +140,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						LabelKeys: sets.New("cpuType"),
 					}},
 					NamespaceSelector: labels.Nothing(),
+					FlavorFungibility: defaultFlavorFungibility,
 					Usage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
 					},
@@ -137,23 +148,28 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Preemption: defaultPreemption,
 				},
 				"c": {
-					Name:              "c",
-					ResourceGroups:    []ResourceGroup{},
-					NamespaceSelector: labels.Nothing(),
-					Usage:             FlavorResourceQuantities{},
-					Status:            active,
-					Preemption:        defaultPreemption,
+					Name:                          "c",
+					AllocatableResourceGeneration: 1,
+					ResourceGroups:                []ResourceGroup{},
+					NamespaceSelector:             labels.Nothing(),
+					FlavorFungibility:             defaultFlavorFungibility,
+					Usage:                         FlavorResourceQuantities{},
+					Status:                        active,
+					Preemption:                    defaultPreemption,
 				},
 				"d": {
-					Name:              "d",
-					ResourceGroups:    []ResourceGroup{},
-					NamespaceSelector: labels.Nothing(),
-					Usage:             FlavorResourceQuantities{},
-					Status:            active,
-					Preemption:        defaultPreemption,
+					Name:                          "d",
+					AllocatableResourceGeneration: 1,
+					ResourceGroups:                []ResourceGroup{},
+					NamespaceSelector:             labels.Nothing(),
+					FlavorFungibility:             defaultFlavorFungibility,
+					Usage:                         FlavorResourceQuantities{},
+					Status:                        active,
+					Preemption:                    defaultPreemption,
 				},
 				"e": {
-					Name: "e",
+					Name:                          "e",
+					AllocatableResourceGeneration: 1,
 					ResourceGroups: []ResourceGroup{{
 						CoveredResources: sets.New(corev1.ResourceCPU),
 						Flavors: []FlavorQuotas{{
@@ -166,16 +182,30 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						}},
 					}},
 					NamespaceSelector: labels.Nothing(),
+					FlavorFungibility: defaultFlavorFungibility,
 					Usage: FlavorResourceQuantities{
 						"nonexistent-flavor": {corev1.ResourceCPU: 0},
 					},
 					Status:     pending,
 					Preemption: defaultPreemption,
 				},
+				"f": {
+					Name:                          "f",
+					AllocatableResourceGeneration: 1,
+					ResourceGroups:                []ResourceGroup{},
+					NamespaceSelector:             labels.Nothing(),
+					Usage:                         FlavorResourceQuantities{},
+					Status:                        active,
+					Preemption:                    defaultPreemption,
+					FlavorFungibility: kueue.FlavorFungibility{
+						WhenCanBorrow:  kueue.TryNextFlavor,
+						WhenCanPreempt: kueue.TryNextFlavor,
+					},
+				},
 			},
 			wantCohorts: map[string]sets.Set[string]{
 				"one": sets.New("a", "b"),
-				"two": sets.New("c", "e"),
+				"two": sets.New("c", "e", "f"),
 			},
 		},
 		{
@@ -192,9 +222,11 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			},
 			wantClusterQueues: map[string]*ClusterQueue{
 				"foo": {
-					Name:              "foo",
-					NamespaceSelector: labels.Everything(),
-					Status:            active,
+					Name:                          "foo",
+					AllocatableResourceGeneration: 1,
+					NamespaceSelector:             labels.Everything(),
+					Status:                        active,
+					FlavorFungibility:             defaultFlavorFungibility,
 					Preemption: kueue.ClusterQueuePreemption{
 						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
@@ -218,7 +250,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			},
 			wantClusterQueues: map[string]*ClusterQueue{
 				"a": {
-					Name: "a",
+					Name:                          "a",
+					AllocatableResourceGeneration: 1,
 					ResourceGroups: []ResourceGroup{{
 						CoveredResources: sets.New(corev1.ResourceCPU),
 						Flavors: []FlavorQuotas{{
@@ -232,6 +265,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						}},
 						LabelKeys: sets.New("cpuType"),
 					}},
+					FlavorFungibility: defaultFlavorFungibility,
 					NamespaceSelector: labels.Nothing(),
 					Usage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
@@ -240,7 +274,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Preemption: defaultPreemption,
 				},
 				"b": {
-					Name: "b",
+					Name:                          "b",
+					AllocatableResourceGeneration: 1,
 					ResourceGroups: []ResourceGroup{{
 						CoveredResources: sets.New(corev1.ResourceCPU),
 						Flavors: []FlavorQuotas{{
@@ -253,6 +288,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						}},
 						LabelKeys: sets.New("cpuType"),
 					}},
+					FlavorFungibility: defaultFlavorFungibility,
 					NamespaceSelector: labels.Nothing(),
 					Usage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
@@ -261,23 +297,28 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Preemption: defaultPreemption,
 				},
 				"c": {
-					Name:              "c",
-					ResourceGroups:    []ResourceGroup{},
-					NamespaceSelector: labels.Nothing(),
-					Usage:             FlavorResourceQuantities{},
-					Status:            active,
-					Preemption:        defaultPreemption,
+					Name:                          "c",
+					AllocatableResourceGeneration: 1,
+					ResourceGroups:                []ResourceGroup{},
+					NamespaceSelector:             labels.Nothing(),
+					FlavorFungibility:             defaultFlavorFungibility,
+					Usage:                         FlavorResourceQuantities{},
+					Status:                        active,
+					Preemption:                    defaultPreemption,
 				},
 				"d": {
-					Name:              "d",
-					ResourceGroups:    []ResourceGroup{},
-					NamespaceSelector: labels.Nothing(),
-					Usage:             FlavorResourceQuantities{},
-					Status:            active,
-					Preemption:        defaultPreemption,
+					Name:                          "d",
+					AllocatableResourceGeneration: 1,
+					ResourceGroups:                []ResourceGroup{},
+					NamespaceSelector:             labels.Nothing(),
+					FlavorFungibility:             defaultFlavorFungibility,
+					Usage:                         FlavorResourceQuantities{},
+					Status:                        active,
+					Preemption:                    defaultPreemption,
 				},
 				"e": {
-					Name: "e",
+					Name:                          "e",
+					AllocatableResourceGeneration: 1,
 					ResourceGroups: []ResourceGroup{{
 						CoveredResources: sets.New(corev1.ResourceCPU),
 						Flavors: []FlavorQuotas{
@@ -292,16 +333,30 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						},
 					}},
 					NamespaceSelector: labels.Nothing(),
+					FlavorFungibility: defaultFlavorFungibility,
 					Usage: FlavorResourceQuantities{
 						"nonexistent-flavor": {corev1.ResourceCPU: 0},
 					},
 					Status:     pending,
 					Preemption: defaultPreemption,
 				},
+				"f": {
+					Name:                          "f",
+					AllocatableResourceGeneration: 1,
+					ResourceGroups:                []ResourceGroup{},
+					NamespaceSelector:             labels.Nothing(),
+					Usage:                         FlavorResourceQuantities{},
+					Status:                        active,
+					Preemption:                    defaultPreemption,
+					FlavorFungibility: kueue.FlavorFungibility{
+						WhenCanBorrow:  kueue.TryNextFlavor,
+						WhenCanPreempt: kueue.TryNextFlavor,
+					},
+				},
 			},
 			wantCohorts: map[string]sets.Set[string]{
 				"one": sets.New("a", "b"),
-				"two": sets.New("c", "e"),
+				"two": sets.New("c", "e", "f"),
 			},
 		},
 		{
@@ -343,7 +398,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			},
 			wantClusterQueues: map[string]*ClusterQueue{
 				"a": {
-					Name: "a",
+					Name:                          "a",
+					AllocatableResourceGeneration: 2,
 					ResourceGroups: []ResourceGroup{{
 						CoveredResources: sets.New(corev1.ResourceCPU),
 						Flavors: []FlavorQuotas{{
@@ -358,6 +414,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						LabelKeys: sets.New("cpuType", "region"),
 					}},
 					NamespaceSelector: labels.Nothing(),
+					FlavorFungibility: defaultFlavorFungibility,
 					Usage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
 					},
@@ -365,31 +422,38 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Preemption: defaultPreemption,
 				},
 				"b": {
-					Name:              "b",
-					ResourceGroups:    []ResourceGroup{},
-					NamespaceSelector: labels.Everything(),
-					Usage:             FlavorResourceQuantities{},
-					Status:            active,
-					Preemption:        defaultPreemption,
+					Name:                          "b",
+					AllocatableResourceGeneration: 2,
+					ResourceGroups:                []ResourceGroup{},
+					NamespaceSelector:             labels.Everything(),
+					FlavorFungibility:             defaultFlavorFungibility,
+					Usage:                         FlavorResourceQuantities{},
+					Status:                        active,
+					Preemption:                    defaultPreemption,
 				},
 				"c": {
-					Name:              "c",
-					ResourceGroups:    []ResourceGroup{},
-					NamespaceSelector: labels.Nothing(),
-					Usage:             FlavorResourceQuantities{},
-					Status:            active,
-					Preemption:        defaultPreemption,
+					Name:                          "c",
+					AllocatableResourceGeneration: 1,
+					ResourceGroups:                []ResourceGroup{},
+					NamespaceSelector:             labels.Nothing(),
+					FlavorFungibility:             defaultFlavorFungibility,
+					Usage:                         FlavorResourceQuantities{},
+					Status:                        active,
+					Preemption:                    defaultPreemption,
 				},
 				"d": {
-					Name:              "d",
-					ResourceGroups:    []ResourceGroup{},
-					NamespaceSelector: labels.Nothing(),
-					Usage:             FlavorResourceQuantities{},
-					Status:            active,
-					Preemption:        defaultPreemption,
+					Name:                          "d",
+					AllocatableResourceGeneration: 1,
+					ResourceGroups:                []ResourceGroup{},
+					NamespaceSelector:             labels.Nothing(),
+					FlavorFungibility:             defaultFlavorFungibility,
+					Usage:                         FlavorResourceQuantities{},
+					Status:                        active,
+					Preemption:                    defaultPreemption,
 				},
 				"e": {
-					Name: "e",
+					Name:                          "e",
+					AllocatableResourceGeneration: 2,
 					ResourceGroups: []ResourceGroup{{
 						CoveredResources: sets.New(corev1.ResourceCPU),
 						Flavors: []FlavorQuotas{{
@@ -404,16 +468,30 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						LabelKeys: sets.New("cpuType", "region"),
 					}},
 					NamespaceSelector: labels.Nothing(),
+					FlavorFungibility: defaultFlavorFungibility,
 					Usage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
 					},
 					Status:     active,
 					Preemption: defaultPreemption,
 				},
+				"f": {
+					Name:                          "f",
+					AllocatableResourceGeneration: 1,
+					ResourceGroups:                []ResourceGroup{},
+					NamespaceSelector:             labels.Nothing(),
+					Usage:                         FlavorResourceQuantities{},
+					Status:                        active,
+					Preemption:                    defaultPreemption,
+					FlavorFungibility: kueue.FlavorFungibility{
+						WhenCanBorrow:  kueue.TryNextFlavor,
+						WhenCanPreempt: kueue.TryNextFlavor,
+					},
+				},
 			},
 			wantCohorts: map[string]sets.Set[string]{
 				"one": sets.New("b"),
-				"two": sets.New("a", "c", "e"),
+				"two": sets.New("a", "c", "e", "f"),
 			},
 		},
 		{
@@ -434,7 +512,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			},
 			wantClusterQueues: map[string]*ClusterQueue{
 				"b": {
-					Name: "b",
+					Name:                          "b",
+					AllocatableResourceGeneration: 1,
 					ResourceGroups: []ResourceGroup{{
 						CoveredResources: sets.New(corev1.ResourceCPU),
 						Flavors: []FlavorQuotas{{
@@ -446,6 +525,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						LabelKeys: sets.New("cpuType"),
 					}},
 					NamespaceSelector: labels.Nothing(),
+					FlavorFungibility: defaultFlavorFungibility,
 					Usage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
 					},
@@ -453,15 +533,18 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Preemption: defaultPreemption,
 				},
 				"c": {
-					Name:              "c",
-					ResourceGroups:    []ResourceGroup{},
-					NamespaceSelector: labels.Nothing(),
-					Usage:             FlavorResourceQuantities{},
-					Status:            active,
-					Preemption:        defaultPreemption,
+					Name:                          "c",
+					AllocatableResourceGeneration: 1,
+					ResourceGroups:                []ResourceGroup{},
+					NamespaceSelector:             labels.Nothing(),
+					FlavorFungibility:             defaultFlavorFungibility,
+					Usage:                         FlavorResourceQuantities{},
+					Status:                        active,
+					Preemption:                    defaultPreemption,
 				},
 				"e": {
-					Name: "e",
+					Name:                          "e",
+					AllocatableResourceGeneration: 1,
 					ResourceGroups: []ResourceGroup{{
 						CoveredResources: sets.New(corev1.ResourceCPU),
 						Flavors: []FlavorQuotas{
@@ -476,16 +559,30 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						},
 					}},
 					NamespaceSelector: labels.Nothing(),
+					FlavorFungibility: defaultFlavorFungibility,
 					Usage: FlavorResourceQuantities{
 						"nonexistent-flavor": {corev1.ResourceCPU: 0},
 					},
 					Status:     pending,
 					Preemption: defaultPreemption,
 				},
+				"f": {
+					Name:                          "f",
+					AllocatableResourceGeneration: 1,
+					ResourceGroups:                []ResourceGroup{},
+					NamespaceSelector:             labels.Nothing(),
+					Usage:                         FlavorResourceQuantities{},
+					Status:                        active,
+					Preemption:                    defaultPreemption,
+					FlavorFungibility: kueue.FlavorFungibility{
+						WhenCanBorrow:  kueue.TryNextFlavor,
+						WhenCanPreempt: kueue.TryNextFlavor,
+					},
+				},
 			},
 			wantCohorts: map[string]sets.Set[string]{
 				"one": sets.New("b"),
-				"two": sets.New("c", "e"),
+				"two": sets.New("c", "e", "f"),
 			},
 		},
 		{
@@ -502,7 +599,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			},
 			wantClusterQueues: map[string]*ClusterQueue{
 				"a": {
-					Name: "a",
+					Name:                          "a",
+					AllocatableResourceGeneration: 1,
 					ResourceGroups: []ResourceGroup{{
 						CoveredResources: sets.New(corev1.ResourceCPU),
 						Flavors: []FlavorQuotas{{
@@ -517,6 +615,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						LabelKeys: sets.New("cpuType"),
 					}},
 					NamespaceSelector: labels.Nothing(),
+					FlavorFungibility: defaultFlavorFungibility,
 					Usage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
 					},
@@ -524,7 +623,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Preemption: defaultPreemption,
 				},
 				"b": {
-					Name: "b",
+					Name:                          "b",
+					AllocatableResourceGeneration: 1,
 					ResourceGroups: []ResourceGroup{{
 						CoveredResources: sets.New(corev1.ResourceCPU),
 						Flavors: []FlavorQuotas{{
@@ -538,6 +638,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						LabelKeys: sets.New("cpuType"),
 					}},
 					NamespaceSelector: labels.Nothing(),
+					FlavorFungibility: defaultFlavorFungibility,
 					Usage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
 					},
@@ -545,23 +646,28 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Preemption: defaultPreemption,
 				},
 				"c": {
-					Name:              "c",
-					ResourceGroups:    []ResourceGroup{},
-					NamespaceSelector: labels.Nothing(),
-					Usage:             FlavorResourceQuantities{},
-					Status:            active,
-					Preemption:        defaultPreemption,
+					Name:                          "c",
+					AllocatableResourceGeneration: 1,
+					ResourceGroups:                []ResourceGroup{},
+					NamespaceSelector:             labels.Nothing(),
+					FlavorFungibility:             defaultFlavorFungibility,
+					Usage:                         FlavorResourceQuantities{},
+					Status:                        active,
+					Preemption:                    defaultPreemption,
 				},
 				"d": {
-					Name:              "d",
-					ResourceGroups:    []ResourceGroup{},
-					NamespaceSelector: labels.Nothing(),
-					Usage:             FlavorResourceQuantities{},
-					Status:            active,
-					Preemption:        defaultPreemption,
+					Name:                          "d",
+					AllocatableResourceGeneration: 1,
+					ResourceGroups:                []ResourceGroup{},
+					NamespaceSelector:             labels.Nothing(),
+					FlavorFungibility:             defaultFlavorFungibility,
+					Usage:                         FlavorResourceQuantities{},
+					Status:                        active,
+					Preemption:                    defaultPreemption,
 				},
 				"e": {
-					Name: "e",
+					Name:                          "e",
+					AllocatableResourceGeneration: 1,
 					ResourceGroups: []ResourceGroup{{
 						CoveredResources: sets.New(corev1.ResourceCPU),
 						Flavors: []FlavorQuotas{{
@@ -574,14 +680,28 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						}},
 					}},
 					NamespaceSelector: labels.Nothing(),
+					FlavorFungibility: defaultFlavorFungibility,
 					Usage:             FlavorResourceQuantities{"nonexistent-flavor": {corev1.ResourceCPU: 0}},
 					Status:            active,
 					Preemption:        defaultPreemption,
 				},
+				"f": {
+					Name:                          "f",
+					AllocatableResourceGeneration: 1,
+					ResourceGroups:                []ResourceGroup{},
+					NamespaceSelector:             labels.Nothing(),
+					Usage:                         FlavorResourceQuantities{},
+					Status:                        active,
+					Preemption:                    defaultPreemption,
+					FlavorFungibility: kueue.FlavorFungibility{
+						WhenCanBorrow:  kueue.TryNextFlavor,
+						WhenCanPreempt: kueue.TryNextFlavor,
+					},
+				},
 			},
 			wantCohorts: map[string]sets.Set[string]{
 				"one": sets.New("a", "b"),
-				"two": sets.New("c", "e"),
+				"two": sets.New("c", "e", "f"),
 			},
 		},
 		{
@@ -611,8 +731,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			},
 			wantClusterQueues: map[string]*ClusterQueue{
 				"foo": {
-					Name:              "foo",
-					NamespaceSelector: labels.Everything(),
+					Name:                          "foo",
+					NamespaceSelector:             labels.Everything(),
+					AllocatableResourceGeneration: 1,
 					ResourceGroups: []ResourceGroup{
 						{
 							CoveredResources: sets.New[corev1.ResourceName]("cpu", "memory"),
@@ -651,6 +772,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 							},
 						},
 					},
+					FlavorFungibility: defaultFlavorFungibility,
 					Usage: FlavorResourceQuantities{
 						"foo": {
 							"cpu":    0,
@@ -686,11 +808,13 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			},
 			wantClusterQueues: map[string]*ClusterQueue{
 				"foo": {
-					Name:              "foo",
-					NamespaceSelector: labels.Everything(),
-					Status:            pending,
-					Preemption:        defaultPreemption,
-					AdmissionChecks:   sets.New("check1", "check2"),
+					Name:                          "foo",
+					NamespaceSelector:             labels.Everything(),
+					Status:                        pending,
+					Preemption:                    defaultPreemption,
+					AllocatableResourceGeneration: 1,
+					FlavorFungibility:             defaultFlavorFungibility,
+					AdmissionChecks:               sets.New("check1", "check2"),
 				},
 			},
 			wantCohorts: map[string]sets.Set[string]{},
@@ -712,11 +836,13 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			},
 			wantClusterQueues: map[string]*ClusterQueue{
 				"foo": {
-					Name:              "foo",
-					NamespaceSelector: labels.Everything(),
-					Status:            active,
-					Preemption:        defaultPreemption,
-					AdmissionChecks:   sets.New("check1", "check2"),
+					Name:                          "foo",
+					NamespaceSelector:             labels.Everything(),
+					Status:                        active,
+					Preemption:                    defaultPreemption,
+					AllocatableResourceGeneration: 1,
+					FlavorFungibility:             defaultFlavorFungibility,
+					AdmissionChecks:               sets.New("check1", "check2"),
 				},
 			},
 			wantCohorts: map[string]sets.Set[string]{},
@@ -739,11 +865,13 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			},
 			wantClusterQueues: map[string]*ClusterQueue{
 				"foo": {
-					Name:              "foo",
-					NamespaceSelector: labels.Everything(),
-					Status:            pending,
-					Preemption:        defaultPreemption,
-					AdmissionChecks:   sets.New("check1", "check2"),
+					Name:                          "foo",
+					NamespaceSelector:             labels.Everything(),
+					Status:                        pending,
+					Preemption:                    defaultPreemption,
+					AllocatableResourceGeneration: 1,
+					FlavorFungibility:             defaultFlavorFungibility,
+					AdmissionChecks:               sets.New("check1", "check2"),
 				},
 			},
 			wantCohorts: map[string]sets.Set[string]{},

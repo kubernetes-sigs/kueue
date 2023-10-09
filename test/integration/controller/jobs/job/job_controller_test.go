@@ -763,6 +763,10 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 				*testing.MakeFlavorQuotas("spot-untainted").Resource(corev1.ResourceCPU, "5").Obj(),
 				*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
 			).
+			FlavorFungibility(kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.Borrow,
+				WhenCanPreempt: kueue.TryNextFlavor,
+			}).
 			Preemption(kueue.ClusterQueuePreemption{
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).

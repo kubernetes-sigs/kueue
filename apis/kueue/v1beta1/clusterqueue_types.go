@@ -72,6 +72,10 @@ type ClusterQueueSpec struct {
 	// If set to an empty selector `{}`, then all namespaces are eligible.
 	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
 
+	// flavorFungibility defines whether a workload should try the next flavor
+	// before borrowing or preempting in the flavor being evaluated.
+	FlavorFungibility *FlavorFungibility `json:"flavorFungibility,omitempty"`
+
 	// preemption describes policies to preempt Workloads from this ClusterQueue
 	// or the ClusterQueue's cohort.
 	//
@@ -273,6 +277,40 @@ const (
 	PreemptionPolicyLowerPriority             PreemptionPolicy = "LowerPriority"
 	PreemptionPolicyLowerOrNewerEqualPriority PreemptionPolicy = "LowerOrNewerEqualPriority"
 )
+
+type FlavorFungibilityPolicy string
+
+const (
+	Borrow        FlavorFungibilityPolicy = "Borrow"
+	Preempt       FlavorFungibilityPolicy = "Preempt"
+	TryNextFlavor FlavorFungibilityPolicy = "TryNextFlavor"
+)
+
+// FlavorFungibility determines whether a workload should try the next flavor
+// before borrowing or preempting in current flavor.
+type FlavorFungibility struct {
+	// whenCanBorrow determines whether a workload should try the next flavor
+	// before borrowing in current flavor. The possible values are:
+	//
+	// - `Borrow` (default): allocate in current flavor if borrowing
+	//   is possible.
+	// - `TryNextFlavor`: try next flavor even if the current
+	//   flavor has enough resources to borrow.
+	//
+	// +kubebuilder:validation:Enum={Borrow,TryNextFlavor}
+	// +kubebuilder:default="Borrow"
+	WhenCanBorrow FlavorFungibilityPolicy `json:"whenCanBorrow,omitempty"`
+	// whenCanPreempt determines whether a workload should try the next flavor
+	// before borrowing in current flavor. The possible values are:
+	//
+	// - `Preempt`: allocate in current flavor if it's possible to preempt some workloads.
+	// - `TryNextFlavor` (default): try next flavor even if there are enough
+	//   candidates for preemption in the current flavor.
+	//
+	// +kubebuilder:validation:Enum={Preempt,TryNextFlavor}
+	// +kubebuilder:default="TryNextFlavor"
+	WhenCanPreempt FlavorFungibilityPolicy `json:"whenCanPreempt,omitempty"`
+}
 
 // ClusterQueuePreemption contains policies to preempt Workloads from this
 // ClusterQueue or the ClusterQueue's cohort.

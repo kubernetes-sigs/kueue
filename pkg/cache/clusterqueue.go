@@ -32,8 +32,12 @@ type ClusterQueue struct {
 	WorkloadsNotReady sets.Set[string]
 	NamespaceSelector labels.Selector
 	Preemption        kueue.ClusterQueuePreemption
-	Status            metrics.ClusterQueueStatus
+	FlavorFungibility kueue.FlavorFungibility
 	AdmissionChecks   sets.Set[string]
+	Status            metrics.ClusterQueueStatus
+	// AllocatableResourceGeneration will be increased when some admitted workloads are
+	// deleted, or the resource groups are changed.
+	AllocatableResourceGeneration int64
 
 	// The following fields are not populated in a snapshot.
 
@@ -52,6 +56,9 @@ type Cohort struct {
 	// These fields are only populated for a snapshot.
 	RequestableResources FlavorResourceQuantities
 	Usage                FlavorResourceQuantities
+	// This field will only be set in snapshot. This field equal to the sum of
+	// allocatable generation among its members.
+	AllocatableResourceGeneration int64
 }
 
 type ResourceGroup struct {
@@ -134,6 +141,8 @@ var defaultPreemption = kueue.ClusterQueuePreemption{
 	WithinClusterQueue:  kueue.PreemptionPolicyNever,
 }
 
+var defaultFlavorFungibility = kueue.FlavorFungibility{WhenCanBorrow: kueue.Borrow, WhenCanPreempt: kueue.TryNextFlavor}
+
 func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks sets.Set[string]) error {
 	c.updateResourceGroups(in.Spec.ResourceGroups)
 	nsSelector, err := metav1.LabelSelectorAsSelector(in.Spec.NamespaceSelector)
@@ -167,6 +176,18 @@ func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.
 		c.Preemption = defaultPreemption
 	}
 
+	if in.Spec.FlavorFungibility != nil {
+		c.FlavorFungibility = *in.Spec.FlavorFungibility
+		if c.FlavorFungibility.WhenCanBorrow == "" {
+			c.FlavorFungibility.WhenCanBorrow = defaultFlavorFungibility.WhenCanBorrow
+		}
+		if c.FlavorFungibility.WhenCanPreempt == "" {
+			c.FlavorFungibility.WhenCanPreempt = defaultFlavorFungibility.WhenCanPreempt
+		}
+	} else {
+		c.FlavorFungibility = defaultFlavorFungibility
+	}
+
 	return nil
 }
 
@@ -196,6 +217,7 @@ func (c *ClusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
 			rg.Flavors = append(rg.Flavors, fQuotas)
 		}
 	}
+	c.AllocatableResourceGeneration++
 	c.UpdateRGByResource()
 }
 
@@ -316,6 +338,9 @@ func (c *ClusterQueue) deleteWorkload(w *kueue.Workload) {
 	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
 		c.WorkloadsNotReady.Delete(k)
 	}
+	// we only increase the AllocatableResourceGeneration cause the add of workload won't make more
+	// workloads fit in ClusterQueue.
+	c.AllocatableResourceGeneration++
 	delete(c.Workloads, k)
 	reportAdmittedActiveWorkloads(wi.ClusterQueue, len(c.Workloads))
 }
