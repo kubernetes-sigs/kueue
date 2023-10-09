@@ -35,7 +35,7 @@ As a batch user, you can learn how to:
 - [Run a Kueue managed batch/Job](/docs/tasks/run_jobs).
 - [Run a Kueue managed Flux MiniCluster](/docs/tasks/run_flux_minicluster).
 - [Run a Kueue managed Kubeflow Job](/docs/tasks/run_kubeflow_jobs).
-  Kueue supports MPIJob v2beta1, PyTorchJob, TFJob, XGBoostJob, and PaddleJob.
+  Kueue supports MPIJob v2beta1, PyTorchJob, TFJob, XGBoostJob, PaddleJob, and MXJob.
 - [Run a Kueue managed KubeRay RayJob](/docs/tasks/run_rayjobs).
 - [Submit Kueue jobs from Python](/docs/tasks/run_python_jobs).
 - [Run a Kueue managed plain Pod](/docs/tasks/run_plain_pods)
