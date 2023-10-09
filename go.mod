@@ -12,7 +12,7 @@ require (
 	github.com/onsi/gomega v1.28.0
 	github.com/open-policy-agent/cert-controller v0.10.0
 	github.com/prometheus/client_golang v1.17.0
-	github.com/prometheus/client_model v0.4.1-0.20230718164431-9a2bf3000d16
+	github.com/prometheus/client_model v0.5.0
 	github.com/ray-project/kuberay/ray-operator v0.0.0-20230613204710-aeed3cdcbdcc
 	go.uber.org/zap v1.26.0
 	k8s.io/api v0.28.2
