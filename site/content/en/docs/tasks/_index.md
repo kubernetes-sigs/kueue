@@ -25,6 +25,7 @@ As a batch administrator, you can learn how to:
 - Setup [Sequential Admission with Ready Pods](/docs/tasks/setup_sequential_admission).
 - As a batch administrator, you can learn how to
   [monitor pending workloads](/docs/tasks/monitor_pending_workloads).
+- As a batch administrator, you can learn how to [run a Kueue managed Jobs with a custom WorkloadPriority](/docs/tasks/run_job_with_workload_priority).
 
 ### Batch user
 
@@ -38,7 +39,7 @@ As a batch user, you can learn how to:
   Kueue supports MPIJob v2beta1, PyTorchJob, TFJob, XGBoostJob, and PaddleJob.
 - [Run a Kueue managed KubeRay RayJob](/docs/tasks/run_rayjobs).
 - [Submit Kueue jobs from Python](/docs/tasks/run_python_jobs).
-- [Run a Kueue managed plain Pod](/docs/tasks/run_plain_pods)
+- [Run a Kueue managed plain Pod](/docs/tasks/run_plain_pods).
 
 ### Platform developer
 
