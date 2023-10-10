@@ -603,6 +603,11 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 })
 
 var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+
+	const (
+		instanceKey = "cloud.provider.com/instance"
+	)
+
 	ginkgo.BeforeAll(func() {
 		fwk = &framework.Framework{
 			CRDPath:     crdPath,
