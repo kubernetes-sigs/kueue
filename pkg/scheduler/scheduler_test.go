@@ -1585,7 +1585,7 @@ func TestLastSchedulingContext(t *testing.T) {
 			scheduler := New(qManager, cqCache, cl, recorder)
 			gotScheduled := make(map[string]kueue.Admission)
 			var mu sync.Mutex
-			scheduler.applyAdmission = func(ctx context.Context, w *kueue.Workload) error {
+			scheduler.applyAdmission = func(_ context.Context, w *kueue.Workload, _ bool) error {
 				mu.Lock()
 				gotScheduled[workload.Key(w)] = *w.Status.Admission
 				mu.Unlock()
