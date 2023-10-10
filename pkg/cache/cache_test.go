@@ -830,8 +830,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					return fmt.Errorf("Adding ClusterQueue: %w", err)
 				}
 
-				cache.AddOrUpdateAdmissionCheck(utiltesting.MakeAdmissionCheck("check1").Obj())
-				cache.AddOrUpdateAdmissionCheck(utiltesting.MakeAdmissionCheck("check2").Obj())
+				cache.AddOrUpdateAdmissionCheck(utiltesting.MakeAdmissionCheck("check1").Active(metav1.ConditionTrue).Obj())
+				cache.AddOrUpdateAdmissionCheck(utiltesting.MakeAdmissionCheck("check2").Active(metav1.ConditionTrue).Obj())
 				return nil
 			},
 			wantClusterQueues: map[string]*ClusterQueue{
@@ -850,8 +850,8 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		{
 			name: "remove check after queue creation",
 			operation: func(cache *Cache) error {
-				cache.AddOrUpdateAdmissionCheck(utiltesting.MakeAdmissionCheck("check1").Obj())
-				cache.AddOrUpdateAdmissionCheck(utiltesting.MakeAdmissionCheck("check2").Obj())
+				cache.AddOrUpdateAdmissionCheck(utiltesting.MakeAdmissionCheck("check1").Active(metav1.ConditionTrue).Obj())
+				cache.AddOrUpdateAdmissionCheck(utiltesting.MakeAdmissionCheck("check2").Active(metav1.ConditionTrue).Obj())
 				err := cache.AddClusterQueue(context.Background(),
 					utiltesting.MakeClusterQueue("foo").
 						AdmissionChecks("check1", "check2").
@@ -861,6 +861,35 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				}
 
 				cache.DeleteAdmissionCheck(utiltesting.MakeAdmissionCheck("check2").Obj())
+				return nil
+			},
+			wantClusterQueues: map[string]*ClusterQueue{
+				"foo": {
+					Name:                          "foo",
+					NamespaceSelector:             labels.Everything(),
+					Status:                        pending,
+					Preemption:                    defaultPreemption,
+					AllocatableResourceGeneration: 1,
+					FlavorFungibility:             defaultFlavorFungibility,
+					AdmissionChecks:               sets.New("check1", "check2"),
+				},
+			},
+			wantCohorts: map[string]sets.Set[string]{},
+		},
+		{
+			name: "inactivate check after queue creation",
+			operation: func(cache *Cache) error {
+				cache.AddOrUpdateAdmissionCheck(utiltesting.MakeAdmissionCheck("check1").Active(metav1.ConditionTrue).Obj())
+				cache.AddOrUpdateAdmissionCheck(utiltesting.MakeAdmissionCheck("check2").Active(metav1.ConditionTrue).Obj())
+				err := cache.AddClusterQueue(context.Background(),
+					utiltesting.MakeClusterQueue("foo").
+						AdmissionChecks("check1", "check2").
+						Obj())
+				if err != nil {
+					return fmt.Errorf("Adding ClusterQueue: %w", err)
+				}
+
+				cache.AddOrUpdateAdmissionCheck(utiltesting.MakeAdmissionCheck("check2").Active(metav1.ConditionFalse).Obj())
 				return nil
 			},
 			wantClusterQueues: map[string]*ClusterQueue{
@@ -2836,7 +2865,7 @@ func TestClusterQueuesUsingAdmissionChecks(t *testing.T) {
 func TestClusterQueueReadiness(t *testing.T) {
 
 	baseFalvor := utiltesting.MakeResourceFlavor("flavor1").Obj()
-	baseCheck := utiltesting.MakeAdmissionCheck("check1").Obj()
+	baseCheck := utiltesting.MakeAdmissionCheck("check1").Active(metav1.ConditionTrue).Obj()
 	baseQueue := utiltesting.MakeClusterQueue("queue1").
 		ResourceGroup(
 			*utiltesting.MakeFlavorQuotas(baseFalvor.Name).
@@ -2875,15 +2904,24 @@ func TestClusterQueueReadiness(t *testing.T) {
 			resourceFlavors:  []*kueue.ResourceFlavor{baseFalvor},
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
-			wantReason:       "CheckNotFound",
-			wantMessage:      "Can't admit new workloads; some admissionChecks are not found",
+			wantReason:       "CheckNotFoundOrInactive",
+			wantMessage:      "Can't admit new workloads; some admissionChecks are not found or inactive",
+		},
+		"check inactive": {
+			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
+			resourceFlavors:  []*kueue.ResourceFlavor{baseFalvor},
+			admissionChecks:  []*kueue.AdmissionCheck{utiltesting.MakeAdmissionCheck("check1").Obj()},
+			clusterQueueName: "queue1",
+			wantStatus:       metav1.ConditionFalse,
+			wantReason:       "CheckNotFoundOrInactive",
+			wantMessage:      "Can't admit new workloads; some admissionChecks are not found or inactive",
 		},
 		"flavor and check not found": {
 			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
-			wantReason:       "FlavorAndCheckNotFound",
-			wantMessage:      "Can't admit new workloads; some resourceFlavors and admissionChecks are not found",
+			wantReason:       "FlavorNotFoundAndCheckNotFoundOrInactive",
+			wantMessage:      "Can't admit new workloads; some resourceFlavors are not found and admissionChecks are not found or inactive",
 		},
 		"terminating": {
 			clusterQueues:    []*kueue.ClusterQueue{baseQueue},

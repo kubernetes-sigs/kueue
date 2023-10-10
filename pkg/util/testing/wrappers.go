@@ -588,6 +588,16 @@ func MakeAdmissionCheck(name string) *AdmissionCheckWrapper {
 	}
 }
 
+func (ac *AdmissionCheckWrapper) Active(status metav1.ConditionStatus) *AdmissionCheckWrapper {
+	apimeta.SetStatusCondition(&ac.Status.Conditions, metav1.Condition{
+		Type:    kueue.AdmissionCheckActive,
+		Status:  status,
+		Reason:  "ByTest",
+		Message: "by test",
+	})
+	return ac
+}
+
 func (ac *AdmissionCheckWrapper) Obj() *kueue.AdmissionCheck {
 	return &ac.AdmissionCheck
 }
