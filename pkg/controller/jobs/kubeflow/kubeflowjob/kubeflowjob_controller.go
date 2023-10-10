@@ -84,6 +84,9 @@ func (j *KubeflowJob) RestorePodSetsInfo(podSetsInfo []jobframework.PodSetInfo) 
 func (j *KubeflowJob) Finished() (metav1.Condition, bool) {
 	var conditionType kftraining.JobConditionType
 	var finished bool
+	if j.KFJobControl.JobStatus() == nil {
+		return metav1.Condition{}, false
+	}
 	for _, c := range j.KFJobControl.JobStatus().Conditions {
 		if (c.Type == kftraining.JobSucceeded || c.Type == kftraining.JobFailed) && c.Status == corev1.ConditionTrue {
 			conditionType = c.Type

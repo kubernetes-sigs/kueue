@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -27,7 +28,9 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/metrics/testutil"
+
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -446,4 +449,28 @@ func SetWorkloadsAdmissionCkeck(ctx context.Context, k8sClient client.Client, wl
 		currentCheck.State = state
 		g.Expect(k8sClient.Status().Update(ctx, &updatedWorkload)).To(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func AwaitAndVerifyWorkloadQueueName(ctx context.Context, client client.Client, createdWorkload *kueue.Workload, wlLookupKey types.NamespacedName, jobQueueName string) {
+	gomega.EventuallyWithOffset(1, func() bool {
+		if err := client.Get(ctx, wlLookupKey, createdWorkload); err != nil {
+			return false
+		}
+		return createdWorkload.Spec.QueueName == jobQueueName
+	}, Timeout, Interval).Should(gomega.BeTrue())
+}
+
+func AwaitAndVerifyCreatedWorkload(ctx context.Context, client client.Client, wlLookupKey types.NamespacedName, createdJob metav1.Object) *kueue.Workload {
+	createdWorkload := &kueue.Workload{}
+	gomega.EventuallyWithOffset(1, func() error {
+		return client.Get(ctx, wlLookupKey, createdWorkload)
+	}, Timeout, Interval).Should(gomega.Succeed())
+	gomega.ExpectWithOffset(1, metav1.IsControlledBy(createdWorkload, createdJob)).To(gomega.BeTrue(), "The Workload should be owned by the Job")
+	return createdWorkload
+}
+
+func VerifyWorkloadPriority(createdWorkload *kueue.Workload, priorityClassName string, priorityValue int32) {
+	ginkgo.By("checking the workload is created with priority and priorityName")
+	gomega.ExpectWithOffset(1, createdWorkload.Spec.PriorityClassName).Should(gomega.Equal(priorityClassName))
+	gomega.ExpectWithOffset(1, *createdWorkload.Spec.Priority).Should(gomega.Equal(int32(priorityValue)))
 }
