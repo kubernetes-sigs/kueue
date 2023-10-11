@@ -168,6 +168,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		if workload.IsAdmitted(&w) {
 			continue
 		}
+		workload.AdjustResources(ctx, m.client, &w)
 		qImpl.AddOrUpdate(workload.NewInfo(&w))
 	}
 	cq := m.clusterQueues[qImpl.ClusterQueue]
