@@ -1,3 +1,12 @@
+## v0.4.2
+
+Changes since `v0.4.1`:
+
+### Bug or Regression
+
+- Adjust resources (based on LimitRanges, PodOverhead and resource limits) on existing Workloads when a LocalQueue is created (#1197, @alculquicondor)
+- Fix resuming of RayJob after preempted. (#1190, @kerthcet)
+
 ## v0.4.1
 
 Changes since `v0.4.0`:
