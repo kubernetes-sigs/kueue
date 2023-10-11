@@ -25,6 +25,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -80,7 +81,7 @@ type Cache struct {
 	assumedWorkloads  map[string]string
 	resourceFlavors   map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	podsReadyTracking bool
-	admissionChecks   sets.Set[string]
+	admissionChecks   map[string]AdmissionCheck
 }
 
 func New(client client.Client, opts ...Option) *Cache {
@@ -94,7 +95,7 @@ func New(client client.Client, opts ...Option) *Cache {
 		cohorts:           make(map[string]*Cohort),
 		assumedWorkloads:  make(map[string]string),
 		resourceFlavors:   make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor),
-		admissionChecks:   sets.New[string](),
+		admissionChecks:   make(map[string]AdmissionCheck),
 		podsReadyTracking: options.podsReadyTracking,
 	}
 	c.podsReadyCond.L = &c.RWMutex
@@ -222,14 +223,17 @@ func (c *Cache) DeleteResourceFlavor(rf *kueue.ResourceFlavor) sets.Set[string] 
 func (c *Cache) AddOrUpdateAdmissionCheck(ac *kueue.AdmissionCheck) sets.Set[string] {
 	c.Lock()
 	defer c.Unlock()
-	c.admissionChecks.Insert(ac.Name)
+	c.admissionChecks[ac.Name] = AdmissionCheck{
+		Active: apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionCheckActive),
+	}
+
 	return c.updateClusterQueues()
 }
 
 func (c *Cache) DeleteAdmissionCheck(ac *kueue.AdmissionCheck) sets.Set[string] {
 	c.Lock()
 	defer c.Unlock()
-	c.admissionChecks.Delete(ac.Name)
+	delete(c.admissionChecks, ac.Name)
 	return c.updateClusterQueues()
 }
 

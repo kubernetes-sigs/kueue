@@ -67,6 +67,12 @@ func (w *ClusterQueueWebhook) Default(ctx context.Context, obj runtime.Object) e
 			ReclaimWithinCohort: kueue.PreemptionPolicyNever,
 		}
 	}
+	if cq.Spec.FlavorFungibility == nil {
+		cq.Spec.FlavorFungibility = &kueue.FlavorFungibility{
+			WhenCanBorrow:  kueue.Borrow,
+			WhenCanPreempt: kueue.TryNextFlavor,
+		}
+	}
 	return nil
 }
 

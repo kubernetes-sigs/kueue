@@ -87,6 +87,7 @@ managerConfig:
       - "batch/job"
       - "kubeflow.org/mpijob"
       - "ray.io/rayjob"
+      - "jobset.x-k8s.io/jobset"
       - "kubeflow.org/paddlejob"    
       - "kubeflow.org/pytorchjob"
       - "kubeflow.org/tfjob"

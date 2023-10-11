@@ -32,16 +32,20 @@ type ClusterQueue struct {
 	WorkloadsNotReady sets.Set[string]
 	NamespaceSelector labels.Selector
 	Preemption        kueue.ClusterQueuePreemption
-	Status            metrics.ClusterQueueStatus
+	FlavorFungibility kueue.FlavorFungibility
 	AdmissionChecks   sets.Set[string]
+	Status            metrics.ClusterQueueStatus
+	// AllocatableResourceGeneration will be increased when some admitted workloads are
+	// deleted, or the resource groups are changed.
+	AllocatableResourceGeneration int64
 
 	// The following fields are not populated in a snapshot.
 
 	// Key is localQueue's key (namespace/name).
-	localQueues               map[string]*queue
-	podsReadyTracking         bool
-	hasMissingFlavors         bool
-	hasMissingAdmissionChecks bool
+	localQueues                         map[string]*queue
+	podsReadyTracking                   bool
+	hasMissingFlavors                   bool
+	hasMissingOrInactiveAdmissionChecks bool
 }
 
 // Cohort is a set of ClusterQueues that can borrow resources from each other.
@@ -52,6 +56,9 @@ type Cohort struct {
 	// These fields are only populated for a snapshot.
 	RequestableResources FlavorResourceQuantities
 	Usage                FlavorResourceQuantities
+	// This field will only be set in snapshot. This field equal to the sum of
+	// allocatable generation among its members.
+	AllocatableResourceGeneration int64
 }
 
 type ResourceGroup struct {
@@ -134,7 +141,9 @@ var defaultPreemption = kueue.ClusterQueuePreemption{
 	WithinClusterQueue:  kueue.PreemptionPolicyNever,
 }
 
-func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks sets.Set[string]) error {
+var defaultFlavorFungibility = kueue.FlavorFungibility{WhenCanBorrow: kueue.Borrow, WhenCanPreempt: kueue.TryNextFlavor}
+
+func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, admissionChecks map[string]AdmissionCheck) error {
 	c.updateResourceGroups(in.Spec.ResourceGroups)
 	nsSelector, err := metav1.LabelSelectorAsSelector(in.Spec.NamespaceSelector)
 	if err != nil {
@@ -167,6 +176,18 @@ func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.
 		c.Preemption = defaultPreemption
 	}
 
+	if in.Spec.FlavorFungibility != nil {
+		c.FlavorFungibility = *in.Spec.FlavorFungibility
+		if c.FlavorFungibility.WhenCanBorrow == "" {
+			c.FlavorFungibility.WhenCanBorrow = defaultFlavorFungibility.WhenCanBorrow
+		}
+		if c.FlavorFungibility.WhenCanPreempt == "" {
+			c.FlavorFungibility.WhenCanPreempt = defaultFlavorFungibility.WhenCanPreempt
+		}
+	} else {
+		c.FlavorFungibility = defaultFlavorFungibility
+	}
+
 	return nil
 }
 
@@ -196,6 +217,7 @@ func (c *ClusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
 			rg.Flavors = append(rg.Flavors, fQuotas)
 		}
 	}
+	c.AllocatableResourceGeneration++
 	c.UpdateRGByResource()
 }
 
@@ -211,7 +233,7 @@ func (c *ClusterQueue) UpdateRGByResource() {
 
 func (c *ClusterQueue) updateQueueStatus() {
 	status := active
-	if c.hasMissingFlavors || c.hasMissingAdmissionChecks {
+	if c.hasMissingFlavors || c.hasMissingOrInactiveAdmissionChecks {
 		status = pending
 	}
 	if c.Status == terminating {
@@ -229,12 +251,12 @@ func (c *ClusterQueue) inactiveReason() (string, string) {
 		return "Terminating", "Can't admit new workloads; clusterQueue is terminating"
 	case pending:
 		switch {
-		case c.hasMissingFlavors && c.hasMissingAdmissionChecks:
-			return "FlavorAndCheckNotFound", "Can't admit new workloads; some resourceFlavors and admissionChecks are not found"
+		case c.hasMissingFlavors && c.hasMissingOrInactiveAdmissionChecks:
+			return "FlavorNotFoundAndCheckNotFoundOrInactive", "Can't admit new workloads; some resourceFlavors are not found and admissionChecks are not found or inactive"
 		case c.hasMissingFlavors:
 			return "FlavorNotFound", "Can't admit new workloads; some resourceFlavors are not found"
 		default:
-			return "CheckNotFound", "Can't admit new workloads; some admissionChecks are not found"
+			return "CheckNotFoundOrInactive", "Can't admit new workloads; some admissionChecks are not found or inactive"
 
 		}
 	}
@@ -276,17 +298,17 @@ func (c *ClusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference
 }
 
 // updateWithAdmissionChecks updates a ClusterQueue based on the passed AdmissionChecks set.
-func (c *ClusterQueue) updateWithAdmissionChecks(checks sets.Set[string]) {
+func (c *ClusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionCheck) {
 	hasMissing := false
-	for ac := range c.AdmissionChecks {
-		if !checks.Has(ac) {
+	for acName := range c.AdmissionChecks {
+		if ac, found := checks[acName]; !found || !ac.Active {
 			hasMissing = true
 			break
 		}
 	}
 
-	if hasMissing != c.hasMissingAdmissionChecks {
-		c.hasMissingAdmissionChecks = hasMissing
+	if hasMissing != c.hasMissingOrInactiveAdmissionChecks {
+		c.hasMissingOrInactiveAdmissionChecks = hasMissing
 		c.updateQueueStatus()
 	}
 }
@@ -316,6 +338,9 @@ func (c *ClusterQueue) deleteWorkload(w *kueue.Workload) {
 	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
 		c.WorkloadsNotReady.Delete(k)
 	}
+	// we only increase the AllocatableResourceGeneration cause the add of workload won't make more
+	// workloads fit in ClusterQueue.
+	c.AllocatableResourceGeneration++
 	delete(c.Workloads, k)
 	reportAdmittedActiveWorkloads(wi.ClusterQueue, len(c.Workloads))
 }

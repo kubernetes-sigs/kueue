@@ -19,6 +19,7 @@ package core
 import (
 	"fmt"
 
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -30,6 +31,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -238,23 +240,21 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 
 				gomega.Eventually(func() []string {
 					gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
-					return slices.Map(createdWl.Status.AdmissionChecks, func(c *metav1.Condition) string { return c.Type })
+					return slices.Map(createdWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string { return c.Name })
 				}, util.Timeout, util.Interval).Should(gomega.ConsistOf("check1", "check2"))
 			})
 
 			ginkgo.By("setting the check conditions", func() {
 				gomega.Eventually(func() error {
 					gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
-					apimeta.SetStatusCondition(&createdWl.Status.AdmissionChecks, metav1.Condition{
-						Type:    "check1",
-						Status:  metav1.ConditionTrue,
-						Reason:  kueue.CheckStateReady,
+					workload.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:    "check1",
+						State:   kueue.CheckStateReady,
 						Message: "check successfully passed",
 					})
-					apimeta.SetStatusCondition(&createdWl.Status.AdmissionChecks, metav1.Condition{
-						Type:    "check2",
-						Status:  metav1.ConditionFalse,
-						Reason:  kueue.CheckStateRejected,
+					workload.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:    "check2",
+						State:   kueue.CheckStateRetry,
 						Message: "check rejected",
 					})
 					return k8sClient.Status().Update(ctx, &createdWl)
@@ -262,7 +262,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 			})
 
 			// save check2 condition
-			oldCheck2Cond := apimeta.FindStatusCondition(createdWl.Status.AdmissionChecks, "check2")
+			oldCheck2Cond := workload.FindAdmissionCheck(createdWl.Status.AdmissionChecks, "check2")
 			gomega.Expect(oldCheck2Cond).NotTo(gomega.BeNil())
 
 			ginkgo.By("updating the queue checks, the changes should propagate to the workload", func() {
@@ -277,11 +277,48 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				createdWl := kueue.Workload{}
 				gomega.Eventually(func() []string {
 					gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
-					return slices.Map(createdWl.Status.AdmissionChecks, func(c *metav1.Condition) string { return c.Type })
+					return slices.Map(createdWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string { return c.Name })
 				}, util.Timeout, util.Interval).Should(gomega.ConsistOf("check2", "check3"))
 
-				check2Cond := apimeta.FindStatusCondition(createdWl.Status.AdmissionChecks, "check2")
+				check2Cond := workload.FindAdmissionCheck(createdWl.Status.AdmissionChecks, "check2")
 				gomega.Expect(check2Cond).To(gomega.Equal(oldCheck2Cond))
+			})
+		})
+		ginkgo.It("should finish the workload with failure when a check is rejected", func() {
+			wl := testing.MakeWorkload("wl", ns.Name).Queue("queue").Obj()
+			wlKey := client.ObjectKeyFromObject(wl)
+			createdWl := kueue.Workload{}
+			ginkgo.By("creating the workload, the check conditions should be added", func() {
+				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+				gomega.Eventually(func() []string {
+					gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					return slices.Map(createdWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string { return c.Name })
+				}, util.Timeout, util.Interval).Should(gomega.ConsistOf("check1", "check2"))
+			})
+
+			ginkgo.By("setting the check conditions", func() {
+				gomega.Eventually(func() error {
+					gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					workload.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:    "check1",
+						State:   kueue.CheckStateRejected,
+						Message: "check rejected",
+					})
+					return k8sClient.Status().Update(ctx, &createdWl)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking the finish condition", func() {
+				gomega.Eventually(func() *metav1.Condition {
+					gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
+					return apimeta.FindStatusCondition(createdWl.Status.Conditions, kueue.WorkloadFinished)
+				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(&metav1.Condition{
+					Type:    kueue.WorkloadFinished,
+					Status:  metav1.ConditionTrue,
+					Reason:  "AdmissionChecksRejected",
+					Message: "Admission checks [check1] are rejected",
+				}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
 			})
 		})
 	})

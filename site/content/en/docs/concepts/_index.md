@@ -34,6 +34,12 @@ single tenant.
 An application that will run to completion. It is the unit of _admission_ in
 Kueue. Sometimes referred to as _job_.
 
+### [Workload Priority Class](/docs/concepts/workload_priority_class)
+
+`WorkloadPriorityClass` defines a priority class for a workload,
+independently from [pod priority](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/).  
+This priority value from a `WorkloadPriorityClass` is only used for managing the queueing and preemption of [Workloads](#workload).
+
 ![Components](/images/queueing-components.svg)
 
 ## Glossary

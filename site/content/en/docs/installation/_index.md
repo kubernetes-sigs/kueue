@@ -227,3 +227,4 @@ The currently supported features are:
 |---------|---------|-------|-------|-------|
 | `PartialAdmission` | `false` | Alpha | 0.4 |  |
 | `QueueVisibility` | `false` | Alpha | 0.5 |  |
+| `FlavorFungibility` | `true` | beta | 0.5 |  |

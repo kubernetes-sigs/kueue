@@ -578,12 +578,13 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 		})
 
 		ginkgo.It("Should update status conditions when flavors are created", func() {
-
 			check1 = testing.MakeAdmissionCheck("check1").Obj()
 			gomega.Expect(k8sClient.Create(ctx, check1)).To(gomega.Succeed())
+			util.SetAdmissionCheckActive(ctx, k8sClient, check1, metav1.ConditionTrue)
 
 			check2 = testing.MakeAdmissionCheck("check2").Obj()
 			gomega.Expect(k8sClient.Create(ctx, check2)).To(gomega.Succeed())
+			util.SetAdmissionCheckActive(ctx, k8sClient, check2, metav1.ConditionTrue)
 
 			ginkgo.By("All Flavors are not found")
 
@@ -651,14 +652,15 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 				{
 					Type:    kueue.ClusterQueueActive,
 					Status:  metav1.ConditionFalse,
-					Reason:  "CheckNotFound",
-					Message: "Can't admit new workloads; some admissionChecks are not found",
+					Reason:  "CheckNotFoundOrInactive",
+					Message: "Can't admit new workloads; some admissionChecks are not found or inactive",
 				},
 			}, ignoreConditionTimestamps))
 
 			ginkgo.By("One of the checks is not found")
-			check1 = testing.MakeAdmissionCheck("check1").Obj()
+			check1 = testing.MakeAdmissionCheck("check1").Active(metav1.ConditionTrue).Obj()
 			gomega.Expect(k8sClient.Create(ctx, check1)).To(gomega.Succeed())
+			util.SetAdmissionCheckActive(ctx, k8sClient, check1, metav1.ConditionTrue)
 			gomega.Eventually(func() []metav1.Condition {
 				var updatedCq kueue.ClusterQueue
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).To(gomega.Succeed())
@@ -667,14 +669,29 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 				{
 					Type:    kueue.ClusterQueueActive,
 					Status:  metav1.ConditionFalse,
-					Reason:  "CheckNotFound",
-					Message: "Can't admit new workloads; some admissionChecks are not found",
+					Reason:  "CheckNotFoundOrInactive",
+					Message: "Can't admit new workloads; some admissionChecks are not found or inactive",
+				},
+			}, ignoreConditionTimestamps))
+
+			ginkgo.By("One check is inactive")
+			check2 = testing.MakeAdmissionCheck("check2").Obj()
+			gomega.Expect(k8sClient.Create(ctx, check2)).To(gomega.Succeed())
+			gomega.Eventually(func() []metav1.Condition {
+				var updatedCq kueue.ClusterQueue
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).To(gomega.Succeed())
+				return updatedCq.Status.Conditions
+			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]metav1.Condition{
+				{
+					Type:    kueue.ClusterQueueActive,
+					Status:  metav1.ConditionFalse,
+					Reason:  "CheckNotFoundOrInactive",
+					Message: "Can't admit new workloads; some admissionChecks are not found or inactive",
 				},
 			}, ignoreConditionTimestamps))
 
 			ginkgo.By("All checks are created")
-			check2 = testing.MakeAdmissionCheck("check2").Obj()
-			gomega.Expect(k8sClient.Create(ctx, check2)).To(gomega.Succeed())
+			util.SetAdmissionCheckActive(ctx, k8sClient, check2, metav1.ConditionTrue)
 			gomega.Eventually(func() []metav1.Condition {
 				var updatedCq kueue.ClusterQueue
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).To(gomega.Succeed())

@@ -29,6 +29,7 @@ type ClusterQueueSpecApplyConfiguration struct {
 	Cohort            *string                                   `json:"cohort,omitempty"`
 	QueueingStrategy  *kueuev1beta1.QueueingStrategy            `json:"queueingStrategy,omitempty"`
 	NamespaceSelector *v1.LabelSelector                         `json:"namespaceSelector,omitempty"`
+	FlavorFungibility *FlavorFungibilityApplyConfiguration      `json:"flavorFungibility,omitempty"`
 	Preemption        *ClusterQueuePreemptionApplyConfiguration `json:"preemption,omitempty"`
 	AdmissionChecks   []string                                  `json:"admissionChecks,omitempty"`
 }
@@ -73,6 +74,14 @@ func (b *ClusterQueueSpecApplyConfiguration) WithQueueingStrategy(value kueuev1b
 // If called multiple times, the NamespaceSelector field is set to the value of the last call.
 func (b *ClusterQueueSpecApplyConfiguration) WithNamespaceSelector(value v1.LabelSelector) *ClusterQueueSpecApplyConfiguration {
 	b.NamespaceSelector = &value
+	return b
+}
+
+// WithFlavorFungibility sets the FlavorFungibility field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the FlavorFungibility field is set to the value of the last call.
+func (b *ClusterQueueSpecApplyConfiguration) WithFlavorFungibility(value *FlavorFungibilityApplyConfiguration) *ClusterQueueSpecApplyConfiguration {
+	b.FlavorFungibility = value
 	return b
 }
 

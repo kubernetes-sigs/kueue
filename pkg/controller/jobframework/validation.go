@@ -70,27 +70,18 @@ func ValidateCreateForParentWorkload(job GenericJob) field.ErrorList {
 
 func ValidateUpdateForQueueName(oldJob, newJob GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
-	if !newJob.IsSuspended() && (QueueName(oldJob) != QueueName(newJob)) {
-		allErrs = append(allErrs, field.Forbidden(queueNameLabelPath, "must not update queue name when job is unsuspend"))
+	if !newJob.IsSuspended() {
+		allErrs = append(allErrs, apivalidation.ValidateImmutableField(QueueName(oldJob), QueueName(newJob), queueNameLabelPath)...)
 	}
 	return allErrs
 }
 
 func ValidateUpdateForParentWorkload(oldJob, newJob GenericJob) field.ErrorList {
-	var allErrs field.ErrorList
-	if errList := apivalidation.ValidateImmutableField(ParentWorkloadName(newJob),
-		ParentWorkloadName(oldJob), parentWorkloadKeyPath); len(errList) > 0 {
-		allErrs = append(allErrs, field.Forbidden(parentWorkloadKeyPath, "this annotation is immutable"))
-	}
+	allErrs := apivalidation.ValidateImmutableField(ParentWorkloadName(newJob), ParentWorkloadName(oldJob), parentWorkloadKeyPath)
 	return allErrs
 }
 
 func ValidateUpdateForWorkloadPriorityClassName(oldJob, newJob GenericJob) field.ErrorList {
-	var allErrs field.ErrorList
-	oldName := workloadPriorityClassName(oldJob)
-	newName := workloadPriorityClassName(newJob)
-	if oldName != newName {
-		allErrs = append(allErrs, apivalidation.ValidateImmutableField(oldName, newName, workloadPriorityClassNamePath)...)
-	}
+	allErrs := apivalidation.ValidateImmutableField(workloadPriorityClassName(oldJob), workloadPriorityClassName(newJob), workloadPriorityClassNamePath)
 	return allErrs
 }

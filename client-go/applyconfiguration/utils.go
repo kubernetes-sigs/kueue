@@ -36,6 +36,10 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.AdmissionCheckParametersReferenceApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("AdmissionCheckSpec"):
 		return &kueuev1beta1.AdmissionCheckSpecApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("AdmissionCheckState"):
+		return &kueuev1beta1.AdmissionCheckStateApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("AdmissionCheckStatus"):
+		return &kueuev1beta1.AdmissionCheckStatusApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ClusterQueue"):
 		return &kueuev1beta1.ClusterQueueApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ClusterQueuePendingWorkload"):
@@ -48,6 +52,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.ClusterQueueSpecApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ClusterQueueStatus"):
 		return &kueuev1beta1.ClusterQueueStatusApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("FlavorFungibility"):
+		return &kueuev1beta1.FlavorFungibilityApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("FlavorQuotas"):
 		return &kueuev1beta1.FlavorQuotasApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("FlavorUsage"):
@@ -66,6 +72,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.PodSetApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("PodSetAssignment"):
 		return &kueuev1beta1.PodSetAssignmentApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("PodSetUpdate"):
+		return &kueuev1beta1.PodSetUpdateApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ReclaimablePod"):
 		return &kueuev1beta1.ReclaimablePodApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ResourceFlavor"):

@@ -374,6 +374,10 @@ func MakeClusterQueue(name string) *ClusterQueueWrapper {
 		Spec: kueue.ClusterQueueSpec{
 			NamespaceSelector: &metav1.LabelSelector{},
 			QueueingStrategy:  kueue.BestEffortFIFO,
+			FlavorFungibility: &kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.Borrow,
+				WhenCanPreempt: kueue.TryNextFlavor,
+			},
 		},
 	}}
 }
@@ -436,6 +440,12 @@ func (c *ClusterQueueWrapper) NamespaceSelector(s *metav1.LabelSelector) *Cluste
 // Preemption sets the preeemption policies.
 func (c *ClusterQueueWrapper) Preemption(p kueue.ClusterQueuePreemption) *ClusterQueueWrapper {
 	c.Spec.Preemption = &p
+	return c
+}
+
+// Preemption sets the preeemption policies.
+func (c *ClusterQueueWrapper) FlavorFungibility(p kueue.FlavorFungibility) *ClusterQueueWrapper {
+	c.Spec.FlavorFungibility = &p
 	return c
 }
 
@@ -591,6 +601,16 @@ func MakeAdmissionCheck(name string) *AdmissionCheckWrapper {
 			},
 		},
 	}
+}
+
+func (ac *AdmissionCheckWrapper) Active(status metav1.ConditionStatus) *AdmissionCheckWrapper {
+	apimeta.SetStatusCondition(&ac.Status.Conditions, metav1.Condition{
+		Type:    kueue.AdmissionCheckActive,
+		Status:  status,
+		Reason:  "ByTest",
+		Message: "by test",
+	})
+	return ac
 }
 
 func (ac *AdmissionCheckWrapper) Obj() *kueue.AdmissionCheck {

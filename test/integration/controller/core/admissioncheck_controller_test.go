@@ -68,6 +68,11 @@ var _ = ginkgo.Describe("AdmissionCheck controller", ginkgo.Ordered, ginkgo.Cont
 				Obj()
 
 			gomega.Expect(k8sClient.Create(ctx, admissionCheck)).To(gomega.Succeed())
+
+			ginkgo.By("Activating the admission check", func() {
+				util.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck, metav1.ConditionTrue)
+			})
+
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 
 			ginkgo.By("Wait for the queue to become active", func() {

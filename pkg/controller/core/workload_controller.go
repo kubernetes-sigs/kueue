@@ -138,6 +138,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, nil
 	}
 
+
 	wlSpecCopy := wl.Spec.DeepCopy()
 
 	if err := r.updatePodTemplateName(ctx, &wl); err != nil {
@@ -150,6 +151,17 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			log.V(2).Error(err, "client.Update", "wl", wl)
 			return ctrl.Result{}, err
 		}
+	}
+
+	if rejectedChecks := workload.GetRejectedChecks(&wl); len(rejectedChecks) > 0 {
+		// Finish the workload
+		log.V(3).Info("Workload has Rejected admission checks, Finish with failure")
+		err := workload.UpdateStatus(ctx, r.client, &wl, kueue.WorkloadFinished,
+			metav1.ConditionTrue,
+			"AdmissionChecksRejected",
+			fmt.Sprintf("Admission checks %v are rejected", rejectedChecks),
+			constants.KueueName)
+		return ctrl.Result{}, err
 	}
 
 	cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)
@@ -246,19 +258,18 @@ func (r *WorkloadReconciler) reconcileSyncAdmissionChecks(ctx context.Context, w
 	return false, nil
 }
 
-func syncAdmissionCheckConditions(conds []metav1.Condition, queueChecks []string) ([]metav1.Condition, bool) {
+func syncAdmissionCheckConditions(conds []kueue.AdmissionCheckState, queueChecks []string) ([]kueue.AdmissionCheckState, bool) {
 	if len(queueChecks) == 0 {
 		return nil, len(conds) > 0
 	}
 
 	shouldUpdate := false
-	currentChecks := slices.ToRefMap(conds, func(c *metav1.Condition) string { return c.Type })
+	currentChecks := slices.ToRefMap(conds, func(c *kueue.AdmissionCheckState) string { return c.Name })
 	for _, t := range queueChecks {
 		if _, found := currentChecks[t]; !found {
-			apimeta.SetStatusCondition(&conds, metav1.Condition{
-				Type:   t,
-				Status: metav1.ConditionUnknown,
-				Reason: kueue.CheckStatePending,
+			workload.SetAdmissionCheckState(&conds, kueue.AdmissionCheckState{
+				Name:  t,
+				State: kueue.CheckStatePending,
 			})
 			shouldUpdate = true
 		}
@@ -266,12 +277,12 @@ func syncAdmissionCheckConditions(conds []metav1.Condition, queueChecks []string
 
 	// if the workload conditions length is bigger, then some cleanup should be done
 	if len(conds) > len(queueChecks) {
-		newConds := make([]metav1.Condition, 0, len(queueChecks))
+		newConds := make([]kueue.AdmissionCheckState, 0, len(queueChecks))
 		queueChecksSet := sets.New(queueChecks...)
 		shouldUpdate = true
 		for i := range conds {
 			c := &conds[i]
-			if queueChecksSet.Has(c.Type) {
+			if queueChecksSet.Has(c.Name) {
 				newConds = append(newConds, *c)
 			}
 		}
