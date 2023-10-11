@@ -70,9 +70,11 @@ var _ = ginkgo.Describe("Preemption", func() {
 		ginkgo.BeforeEach(func() {
 			checkAnytime = testing.MakeAdmissionCheck("anytime").Policy(kueue.Anytime).Obj()
 			gomega.Expect(k8sClient.Create(ctx, checkAnytime)).To(gomega.Succeed())
+			util.SetAdmissionCheckActive(ctx, k8sClient, checkAnytime, metav1.ConditionTrue)
 
 			checkOnDemand = testing.MakeAdmissionCheck("on-demand").Policy(kueue.AfterCheckPassedOrOnDemand).Obj()
 			gomega.Expect(k8sClient.Create(ctx, checkOnDemand)).To(gomega.Succeed())
+			util.SetAdmissionCheckActive(ctx, k8sClient, checkOnDemand, metav1.ConditionTrue)
 
 			cq = testing.MakeClusterQueue("cq").
 				ResourceGroup(*testing.MakeFlavorQuotas("alpha").Resource(corev1.ResourceCPU, "4").Obj()).
