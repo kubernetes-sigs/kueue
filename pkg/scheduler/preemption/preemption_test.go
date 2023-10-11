@@ -124,7 +124,7 @@ func TestPreemption(t *testing.T) {
 	cases := map[string]struct {
 		admitted      []kueue.Workload
 		incoming      *kueue.Workload
-		podtemplates  []corev1.PodTemplate
+		podTemplates  map[string]*corev1.PodTemplateSpec
 		targetCQ      string
 		assignment    flavorassigner.Assignment
 		wantPreempted sets.Set[string]
@@ -182,10 +182,10 @@ func TestPreemption(t *testing.T) {
 					Obj()).
 				Priority(1).
 				Obj(),
-			podtemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "3").
-					Obj(),
+					Obj().Template,
 			},
 			targetCQ: "standalone",
 			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
@@ -212,10 +212,10 @@ func TestPreemption(t *testing.T) {
 			incoming: utiltesting.MakeWorkload("in", "").
 				Priority(-1).
 				Obj(),
-			podtemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "1").
-					Obj(),
+					Obj().Template,
 			},
 			targetCQ: "standalone",
 			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
@@ -242,10 +242,10 @@ func TestPreemption(t *testing.T) {
 					SetPodTemplateName("main").
 					Obj()).
 				Obj(),
-			podtemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "4").
-					Obj(),
+					Obj().Template,
 			},
 			targetCQ: "standalone",
 			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
@@ -308,10 +308,10 @@ func TestPreemption(t *testing.T) {
 					Obj()).
 				Priority(1).
 				Obj(),
-			podtemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "2").
-					Obj(),
+					Obj().Template,
 			},
 			targetCQ: "standalone",
 			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
@@ -436,10 +436,10 @@ func TestPreemption(t *testing.T) {
 					Obj()).
 				Priority(1).
 				Obj(),
-			podtemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "4").
-					Obj(),
+					Obj().Template,
 			},
 			targetCQ: "c1",
 			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
@@ -473,11 +473,11 @@ func TestPreemption(t *testing.T) {
 					Obj()).
 				Priority(1).
 				Obj(),
-			podtemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "4").
 					Request(corev1.ResourceMemory, "5Gi").
-					Obj(),
+					Obj().Template,
 			},
 			targetCQ: "c1",
 			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
@@ -516,10 +516,10 @@ func TestPreemption(t *testing.T) {
 					Obj()).
 				Priority(1).
 				Obj(),
-			podtemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "4").
-					Obj(),
+					Obj().Template,
 			},
 			targetCQ: "c1",
 			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
@@ -559,11 +559,11 @@ func TestPreemption(t *testing.T) {
 					Obj()).
 				Priority(1).
 				Obj(),
-			podtemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "2").
 					Request(corev1.ResourceMemory, "5Gi").
-					Obj(),
+					Obj().Template,
 			},
 			targetCQ: "c1",
 			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
@@ -597,10 +597,10 @@ func TestPreemption(t *testing.T) {
 					Obj()).
 				Priority(1).
 				Obj(),
-			podtemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "4").
-					Obj(),
+					Obj().Template,
 			},
 			targetCQ: "l1",
 			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
@@ -691,10 +691,10 @@ func TestPreemption(t *testing.T) {
 					SetPodTemplateName("main").
 					Obj()).
 				Obj(),
-			podtemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "4").
-					Obj(),
+					Obj().Template,
 			},
 			targetCQ: "c1",
 			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
@@ -744,13 +744,13 @@ func TestPreemption(t *testing.T) {
 					*utiltesting.MakePodSet("workers", 2).SetPodTemplateName("workers").Obj(),
 				).
 				Obj(),
-			podtemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("launcher", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"launcher": &utiltesting.MakePodTemplate("launcher", "").
 					Request(corev1.ResourceMemory, "2Gi").
-					Obj(),
-				*utiltesting.MakePodTemplate("workers", "").
+					Obj().Template,
+				"workers": &utiltesting.MakePodTemplate("workers", "").
 					Request(corev1.ResourceMemory, "1Gi").
-					Obj(),
+					Obj().Template,
 			},
 			targetCQ: "standalone",
 			assignment: flavorassigner.Assignment{
@@ -860,7 +860,7 @@ func TestPreemption(t *testing.T) {
 			startingSnapshot := cqCache.Snapshot()
 			// make a working copy of the snapshot than preemption can temporarily modify
 			snapshot := cqCache.Snapshot()
-			wlInfo := workload.NewInfo(tc.incoming, tc.podtemplates)
+			wlInfo := workload.NewInfo(tc.incoming, tc.podTemplates)
 			wlInfo.ClusterQueue = tc.targetCQ
 			targets := preemptor.GetTargets(*wlInfo, tc.assignment, &snapshot)
 			preempted, err := preemptor.IssuePreemptions(ctx, targets, snapshot.ClusterQueues[wlInfo.ClusterQueue])

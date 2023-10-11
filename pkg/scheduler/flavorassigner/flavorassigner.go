@@ -239,7 +239,7 @@ func AssignFlavors(log logr.Logger, wl *workload.Info, resourceFlavors map[kueue
 	return assignFlavors(log, currentResources, wl.PodTemplates, resourceFlavors, cq)
 }
 
-func assignFlavors(log logr.Logger, requests []workload.PodSetResources, podTemplates []corev1.PodTemplate, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, cq *cache.ClusterQueue) Assignment {
+func assignFlavors(log logr.Logger, requests []workload.PodSetResources, podTemplates map[string]*corev1.PodTemplateSpec, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, cq *cache.ClusterQueue) Assignment {
 	assignment := Assignment{
 		TotalBorrow: make(cache.FlavorResourceQuantities),
 		PodSets:     make([]PodSetAssignment, 0, len(requests)),
@@ -271,13 +271,13 @@ func assignFlavors(log logr.Logger, requests []workload.PodSetResources, podTemp
 				}
 				break
 			}
-			var podTemplateIndex int
-			for i, pt := range podTemplates {
-				if pt.Name == podSet.Name {
-					podTemplateIndex = i
-				}
+			podTemplateSpec := podTemplates[podSet.PodTemplateName]
+			if podTemplateSpec == nil {
+				continue
 			}
-			flavors, status := assignment.findFlavorForResourceGroup(log, rg, podSet.Requests, resourceFlavors, cq, &podTemplates[podTemplateIndex].Template.Spec)
+
+			flavors, status := assignment.findFlavorForResourceGroup(log, rg, podSet.Requests, resourceFlavors, cq, &podTemplateSpec.Spec)
+
 			if status.IsError() || len(flavors) == 0 {
 				psAssignment.Flavors = nil
 				psAssignment.Status = status

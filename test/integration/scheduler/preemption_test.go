@@ -85,25 +85,25 @@ var _ = ginkgo.Describe("Preemption", func() {
 		ginkgo.It("Should preempt Workloads with lower priority when there is not enough quota", func() {
 			ginkgo.By("Creating pod templates with different priorities")
 			lowPt1 := testing.MakePodTemplate("main-1", ns.Name).
+				Labels(map[string]string{constants.WorkloadNameLabel: "low-wl-1"}).
 				Request(corev1.ResourceCPU, "1").
 				Priority(lowPriority).
 				Obj()
-			lowPt1.SetLabels(map[string]string{constants.WorkloadNameSource: "low-wl-1"})
 			lowPt2 := testing.MakePodTemplate("main-2", ns.Name).
+				Labels(map[string]string{constants.WorkloadNameLabel: "low-wl-2"}).
 				Request(corev1.ResourceCPU, "1").
 				Priority(lowPriority).
 				Obj()
-			lowPt2.SetLabels(map[string]string{constants.WorkloadNameSource: "low-wl-2"})
 			midPt := testing.MakePodTemplate("main-mid", ns.Name).
+				Labels(map[string]string{constants.WorkloadNameLabel: "mid-wl"}).
 				Request(corev1.ResourceCPU, "1").
 				Priority(midPriority).
 				Obj()
-			midPt.SetLabels(map[string]string{constants.WorkloadNameSource: "mid-wl"})
 			highPt := testing.MakePodTemplate("main-high", ns.Name).
+				Labels(map[string]string{constants.WorkloadNameLabel: "high-wl-1"}).
 				Request(corev1.ResourceCPU, "1").
 				Priority(highPriority).
 				Obj()
-			highPt.SetLabels(map[string]string{constants.WorkloadNameSource: "high-wl-1"})
 
 			gomega.Expect(k8sClient.Create(ctx, lowPt1)).To(gomega.Succeed())
 			gomega.Expect(k8sClient.Create(ctx, lowPt2)).To(gomega.Succeed())
@@ -112,22 +112,26 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			ginkgo.By("Creating initial Workloads with different priorities")
 			lowWl1 := testing.MakeWorkload("low-wl-1", ns.Name).
-				PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(lowPt1.Name).Obj()).
+				SetPodSetName(lowPt1.Name).
+				SetPodTemplateName(lowPt1.Name).
 				Priority(lowPriority).
 				Queue(q.Name).
 				Obj()
 			lowWl2 := testing.MakeWorkload("low-wl-2", ns.Name).
-				PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(lowPt2.Name).Obj()).
+				SetPodSetName(lowPt2.Name).
+				SetPodTemplateName(lowPt2.Name).
 				Priority(lowPriority).
 				Queue(q.Name).
 				Obj()
 			midWl := testing.MakeWorkload("mid-wl", ns.Name).
-				PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(midPt.Name).Obj()).
+				SetPodSetName(midPt.Name).
+				SetPodTemplateName(midPt.Name).
 				Priority(midPriority).
 				Queue(q.Name).
 				Obj()
 			highWl1 := testing.MakeWorkload("high-wl-1", ns.Name).
-				PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(highPt.Name).Obj()).
+				SetPodSetName(highPt.Name).
+				SetPodTemplateName(highPt.Name).
 				Priority(highPriority).
 				Queue(q.Name).
 				Obj()
@@ -141,14 +145,15 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			ginkgo.By("Creating a low priority pod template")
 			lowPt3 := testing.MakePodTemplate("low-main-3", ns.Name).
+				Labels(map[string]string{constants.WorkloadNameLabel: "low-wl-3"}).
 				Request(corev1.ResourceCPU, "1").
 				Priority(lowPriority).
 				Obj()
-			lowPt3.SetLabels(map[string]string{constants.WorkloadNameSource: "low-wl-3"})
 			gomega.Expect(k8sClient.Create(ctx, lowPt3)).To(gomega.Succeed())
 
 			lowWl3 := testing.MakeWorkload("low-wl-3", ns.Name).
-				PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(lowPt3.Name).Obj()).
+				SetPodSetName(lowPt3.Name).
+				SetPodTemplateName(lowPt3.Name).
 				Priority(lowPriority).
 				Queue(q.Name).
 				Obj()
@@ -158,14 +163,15 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			ginkgo.By("Creating a high priority Workload")
 			highPt2 := testing.MakePodTemplate("high-pt-2", ns.Name).
+				Labels(map[string]string{constants.WorkloadNameLabel: "high-wl-2"}).
 				Request(corev1.ResourceCPU, "2").
 				Priority(highPriority).
 				Obj()
-			highPt2.SetLabels(map[string]string{constants.WorkloadNameSource: "high-wl-2"})
 			gomega.Expect(k8sClient.Create(ctx, highPt2)).To(gomega.Succeed())
 
 			highWl2 := testing.MakeWorkload("high-wl-2", ns.Name).
-				PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(highPt2.Name).Obj()).
+				SetPodSetName(highPt2.Name).
+				SetPodTemplateName(highPt2.Name).
 				Priority(highPriority).
 				Queue(q.Name).
 				Obj()
@@ -180,31 +186,34 @@ var _ = ginkgo.Describe("Preemption", func() {
 		ginkgo.It("Should preempt newer Workloads with the same priority when there is not enough quota", func() {
 			ginkgo.By("Creating pod templates")
 			pt1 := testing.MakePodTemplate("main-1", ns.Name).
+				Labels(map[string]string{constants.WorkloadNameLabel: "wl-1"}).
 				Request(corev1.ResourceCPU, "1").
 				Obj()
-			pt1.SetLabels(map[string]string{constants.WorkloadNameSource: "wl-1"})
 			pt2 := testing.MakePodTemplate("main-2", ns.Name).
+				Labels(map[string]string{constants.WorkloadNameLabel: "wl-2"}).
 				Request(corev1.ResourceCPU, "1").
 				Obj()
-			pt2.SetLabels(map[string]string{constants.WorkloadNameSource: "wl-2"})
 			pt3 := testing.MakePodTemplate("main-3", ns.Name).
+				Labels(map[string]string{constants.WorkloadNameLabel: "wl-3"}).
 				Request(corev1.ResourceCPU, "3").
 				Obj()
-			pt3.SetLabels(map[string]string{constants.WorkloadNameSource: "wl-3"})
 
 			ginkgo.By("Creating initial Workloads")
 			wl1 := testing.MakeWorkload("wl-1", ns.Name).
-				PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(pt1.Name).Obj()).
+				SetPodSetName(pt1.Name).
+				SetPodTemplateName(pt1.Name).
 				Priority(lowPriority).
 				Queue(q.Name).
 				Obj()
 			wl2 := testing.MakeWorkload("wl-2", ns.Name).
-				PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(pt2.Name).Obj()).
+				SetPodSetName(pt2.Name).
+				SetPodTemplateName(pt2.Name).
 				Priority(lowPriority).
 				Queue(q.Name).
 				Obj()
 			wl3 := testing.MakeWorkload("wl-3", ns.Name).
-				PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(pt3.Name).Obj()).
+				SetPodSetName(pt3.Name).
+				SetPodTemplateName(pt3.Name).
 				Priority(lowPriority).
 				Queue(q.Name).
 				Obj()
@@ -224,14 +233,15 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			ginkgo.By("Creating a new PodTemplate")
 			pt4 := testing.MakePodTemplate("main-4", ns.Name).
+				Labels(map[string]string{constants.WorkloadNameLabel: "wl-4"}).
 				Request(corev1.ResourceCPU, "1").
 				Priority(lowPriority).
 				Obj()
-			pt4.SetLabels(map[string]string{constants.WorkloadNameSource: "wl-4"})
 
 			ginkgo.By("Creating a new Workload")
 			wl4 := testing.MakeWorkload("wl-4", ns.Name).
-				PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(pt4.Name).Obj()).
+				SetPodSetName(pt4.Name).
+				SetPodTemplateName(pt4.Name).
 				Priority(lowPriority).
 				Queue(q.Name).
 				Obj()
@@ -304,39 +314,42 @@ var _ = ginkgo.Describe("Preemption", func() {
 			ginkgo.By("Creating workloads in beta-cq that borrow quota")
 
 			alphaLowPt := testing.MakePodTemplate("alpha-low", ns.Name).
+				Labels(map[string]string{constants.WorkloadNameLabel: "alpha-low"}).
 				Request(corev1.ResourceCPU, "1").
 				Obj()
-			alphaLowPt.SetLabels(map[string]string{constants.WorkloadNameSource: "alpha-low"})
 			gomega.Expect(k8sClient.Create(ctx, alphaLowPt)).To(gomega.Succeed())
 
 			alphaLowWl := testing.MakeWorkload("alpha-low", ns.Name).
-				PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(alphaLowPt.Name).Obj()).
+				SetPodSetName(alphaLowPt.Name).
+				SetPodTemplateName(alphaLowPt.Name).
 				Queue(alphaQ.Name).
 				Priority(lowPriority).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, alphaLowWl)).To(gomega.Succeed())
 
 			betaMidPt := testing.MakePodTemplate("beta-mid", ns.Name).
+				Labels(map[string]string{constants.WorkloadNameLabel: "beta-mid"}).
 				Request(corev1.ResourceCPU, "1").
 				Obj()
-			betaMidPt.SetLabels(map[string]string{constants.WorkloadNameSource: "beta-mid"})
 			gomega.Expect(k8sClient.Create(ctx, betaMidPt)).To(gomega.Succeed())
 
 			betaMidWl := testing.MakeWorkload("beta-mid", ns.Name).
-				PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(betaMidPt.Name).Obj()).
+				SetPodSetName(betaMidPt.Name).
+				SetPodTemplateName(betaMidPt.Name).
 				Queue(betaQ.Name).
 				Priority(midPriority).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, betaMidWl)).To(gomega.Succeed())
 
 			betaHighPt := testing.MakePodTemplate("beta-high", ns.Name).
+				Labels(map[string]string{constants.WorkloadNameLabel: "beta-high"}).
 				Request(corev1.ResourceCPU, "4").
 				Obj()
-			betaHighPt.SetLabels(map[string]string{constants.WorkloadNameSource: "beta-high"})
 			gomega.Expect(k8sClient.Create(ctx, betaHighPt)).To(gomega.Succeed())
 
 			betaHighWl := testing.MakeWorkload("beta-high", ns.Name).
-				PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(betaHighPt.Name).Obj()).
+				SetPodSetName(betaHighPt.Name).
+				SetPodTemplateName(betaHighPt.Name).
 				Queue(betaQ.Name).
 				Priority(highPriority).
 				Obj()
@@ -347,13 +360,14 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			ginkgo.By("Creating workload in alpha-cq to preempt workloads in both ClusterQueues")
 			alphaMidPt := testing.MakePodTemplate("alpha-mid", ns.Name).
+				Labels(map[string]string{constants.WorkloadNameLabel: "alpha-mid"}).
 				Request(corev1.ResourceCPU, "2").
 				Obj()
-			alphaMidPt.SetLabels(map[string]string{constants.WorkloadNameSource: "alpha-mid"})
 			gomega.Expect(k8sClient.Create(ctx, alphaMidPt)).To(gomega.Succeed())
 
 			alphaMidWl := testing.MakeWorkload("alpha-mid", ns.Name).
-				PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(alphaMidPt.Name).Obj()).
+				SetPodSetName(alphaMidPt.Name).
+				SetPodTemplateName(alphaMidPt.Name).
 				Queue(alphaQ.Name).
 				Priority(midPriority).
 				Obj()
@@ -368,26 +382,26 @@ var _ = ginkgo.Describe("Preemption", func() {
 		ginkgo.It("Should not preempt Workloads in the cohort, if the ClusterQueue requires borrowing", func() {
 			ginkgo.By("Creating workloads in beta-cq that borrow quota")
 			alphaHighPt1 := testing.MakePodTemplate("alpha-high-1", ns.Name).
+				Labels(map[string]string{constants.WorkloadNameLabel: "alpha-high-1"}).
 				Request(corev1.ResourceCPU, "2").
 				Obj()
-			alphaHighPt1.SetLabels(map[string]string{constants.WorkloadNameSource: "alpha-high-1"})
 			gomega.Expect(k8sClient.Create(ctx, alphaHighPt1)).To(gomega.Succeed())
 
 			alphaHighWl1 := testing.MakeWorkload("alpha-high-1", ns.Name).
-				PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(alphaHighPt1.Name).Obj()).
+				SetPodTemplateName(alphaHighPt1.Name).
 				Queue(alphaQ.Name).
 				Priority(highPriority).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, alphaHighWl1)).To(gomega.Succeed())
 
 			betaLowPt1 := testing.MakePodTemplate("beta-low", ns.Name).
+				Labels(map[string]string{constants.WorkloadNameLabel: "beta-low"}).
 				Request(corev1.ResourceCPU, "4").
 				Obj()
-			betaLowPt1.SetLabels(map[string]string{constants.WorkloadNameSource: "beta-low"})
 			gomega.Expect(k8sClient.Create(ctx, betaLowPt1)).To(gomega.Succeed())
 
 			betaLowWl := testing.MakeWorkload("beta-low", ns.Name).
-				PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(betaLowPt1.Name).Obj()).
+				SetPodTemplateName(betaLowPt1.Name).
 				Queue(betaQ.Name).
 				Priority(lowPriority).
 				Obj()
@@ -398,13 +412,13 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			ginkgo.By("Creating high priority workload in alpha-cq that doesn't fit without borrowing")
 			alphaHighPt2 := testing.MakePodTemplate("alpha-high-2", ns.Name).
+				Labels(map[string]string{constants.WorkloadNameLabel: "alpha-high-2"}).
 				Request(corev1.ResourceCPU, "2").
 				Obj()
-			alphaHighPt2.SetLabels(map[string]string{constants.WorkloadNameSource: "alpha-high-2"})
 			gomega.Expect(k8sClient.Create(ctx, alphaHighPt2)).To(gomega.Succeed())
 
 			alphaHighWl2 := testing.MakeWorkload("alpha-high-2", ns.Name).
-				PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(alphaHighPt2.Name).Obj()).
+				SetPodTemplateName(alphaHighPt2.Name).
 				Queue(alphaQ.Name).
 				Priority(highPriority).
 				Obj()
@@ -419,26 +433,28 @@ var _ = ginkgo.Describe("Preemption", func() {
 		ginkgo.It("Should preempt all necessary workloads in concurrent scheduling", func() {
 			ginkgo.By("Creating workloads in beta-cq that borrow quota")
 			betaMidPt := testing.MakePodTemplate("beta-mid", ns.Name).
+				Labels(map[string]string{constants.WorkloadNameLabel: "beta-mid"}).
 				Request(corev1.ResourceCPU, "3").
 				Obj()
-			betaMidPt.SetLabels(map[string]string{constants.WorkloadNameSource: "beta-mid"})
 			gomega.Expect(k8sClient.Create(ctx, betaMidPt)).To(gomega.Succeed())
 
 			betaMidWl := testing.MakeWorkload("beta-mid", ns.Name).
-				PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(betaMidPt.Name).Obj()).
+				SetPodSetName(betaMidPt.Name).
+				SetPodTemplateName(betaMidPt.Name).
 				Queue(betaQ.Name).
 				Priority(midPriority).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, betaMidWl)).To(gomega.Succeed())
 
 			betaHighPt := testing.MakePodTemplate("beta-high", ns.Name).
+				Labels(map[string]string{constants.WorkloadNameLabel: "beta-high"}).
 				Request(corev1.ResourceCPU, "3").
 				Obj()
-			betaHighPt.SetLabels(map[string]string{constants.WorkloadNameSource: "beta-high"})
 			gomega.Expect(k8sClient.Create(ctx, betaHighPt)).To(gomega.Succeed())
 
 			betaHighWl := testing.MakeWorkload("beta-high", ns.Name).
-				PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(betaHighPt.Name).Obj()).
+				SetPodSetName(betaHighPt.Name).
+				SetPodTemplateName(betaHighPt.Name).
 				Queue(betaQ.Name).
 				Priority(highPriority).
 				Obj()
@@ -450,23 +466,25 @@ var _ = ginkgo.Describe("Preemption", func() {
 			alphaMidPt := testing.MakePodTemplate("alpha-mid", ns.Name).
 				Request(corev1.ResourceCPU, "2").
 				Obj()
-			alphaMidPt.SetLabels(map[string]string{constants.WorkloadNameSource: "alpha-mid"})
+			alphaMidPt.SetLabels(map[string]string{constants.WorkloadNameLabel: "alpha-mid"})
 			gomega.Expect(k8sClient.Create(ctx, alphaMidPt)).To(gomega.Succeed())
 
 			alphaMidWl := testing.MakeWorkload("alpha-mid", ns.Name).
-				PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(alphaMidPt.Name).Obj()).
+				SetPodSetName(alphaMidPt.Name).
+				SetPodTemplateName(alphaMidPt.Name).
 				Queue(alphaQ.Name).
 				Priority(midPriority).
 				Obj()
 
 			gammaMidPt := testing.MakePodTemplate("gamma-mid", ns.Name).
+				Labels(map[string]string{constants.WorkloadNameLabel: "gamma-mid"}).
 				Request(corev1.ResourceCPU, "2").
 				Obj()
-			gammaMidPt.SetLabels(map[string]string{constants.WorkloadNameSource: "gamma-mid"})
 			gomega.Expect(k8sClient.Create(ctx, gammaMidPt)).To(gomega.Succeed())
 
 			gammaMidWl := testing.MakeWorkload("gamma-mid", ns.Name).
-				PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(gammaMidPt.Name).Obj()).
+				SetPodSetName(gammaMidPt.Name).
+				SetPodTemplateName(gammaMidPt.Name).
 				Queue(gammaQ.Name).
 				Priority(midPriority).
 				Obj()

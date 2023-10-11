@@ -80,6 +80,16 @@ func (w *WorkloadWrapper) Finalizers(fin ...string) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) SetPodSetName(name string) *WorkloadWrapper {
+	w.Spec.PodSets[0].Name = name
+	return w
+}
+
+func (w *WorkloadWrapper) SetPodTemplateName(name string) *WorkloadWrapper {
+	w.Spec.PodSets[0].PodTemplateName = &name
+	return w
+}
+
 func (w *WorkloadWrapper) Request(r corev1.ResourceName, q string) *WorkloadWrapper {
 	w.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(q)
 	return w
@@ -666,6 +676,11 @@ func (w *PodTemplateWrapper) NodeSelector(kv map[string]string) *PodTemplateWrap
 
 func (w *PodTemplateWrapper) Affinity(a *corev1.Affinity) *PodTemplateWrapper {
 	w.Template.Spec.Affinity = a
+	return w
+}
+
+func (w *PodTemplateWrapper) Labels(l map[string]string) *PodTemplateWrapper {
+	w.ObjectMeta.Labels = l
 	return w
 }
 

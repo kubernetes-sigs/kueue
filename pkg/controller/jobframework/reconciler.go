@@ -213,12 +213,6 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	log.V(2).Info("Reconciling Job")
 
-	// Create PodTemplate object
-	if err := r.createPodTemplate(ctx, job, object); err != nil {
-		log.Error(err, "Creating pod template")
-		return ctrl.Result{}, client.IgnoreAlreadyExists(err)
-	}
-
 	// 1. make sure there is only a single existing instance of the workload.
 	// If there's no workload exists and job is unsuspended, we'll stop it immediately.
 	wl, err := r.ensureOneWorkload(ctx, job, object)
@@ -256,6 +250,14 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
+	}
+
+	if wl == nil {
+		// Create PodTemplate object
+		if err := r.createPodTemplate(ctx, job, object); err != nil {
+			log.Error(err, "Creating pod template")
+			return ctrl.Result{}, client.IgnoreAlreadyExists(err)
+		}
 	}
 
 	// 3. handle workload is nil.
@@ -734,7 +736,7 @@ func newPodTemplate(ps kueue.PodSet, job GenericJob, object client.Object) *core
 			Name:      GetPodTemplateName(object.GetName(), ps.Name),
 			Namespace: object.GetNamespace(),
 			Labels: map[string]string{
-				constants.WorkloadNameSource: GetWorkloadNameForOwnerWithGVK(object.GetName(), job.GVK()),
+				constants.WorkloadNameLabel: GetWorkloadNameForOwnerWithGVK(object.GetName(), job.GVK()),
 			},
 		},
 	}

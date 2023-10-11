@@ -104,6 +104,9 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 	if err := c.DeleteAllOf(ctx, &kueue.LocalQueue{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
+	if err := DeletePodTemplatesInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
 	if err := DeleteWorkloadsInNamespace(ctx, c, ns); err != nil {
 		return err
 	}
@@ -120,6 +123,13 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 func DeleteAllJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
 	err := c.DeleteAllOf(ctx, &batchv1.Job{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
 	if err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	return nil
+}
+
+func DeletePodTemplatesInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	if err := c.DeleteAllOf(ctx, &corev1.PodTemplate{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
 	return nil

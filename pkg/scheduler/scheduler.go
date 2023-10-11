@@ -365,11 +365,10 @@ func (s *Scheduler) validateResources(wi *workload.Info) error {
 	podTemplatePath := field.NewPath("podTemplate")
 	// requests should be less then limits.
 	allReasons := []string{}
-	for i := range wi.PodTemplates {
-		pt := &wi.PodTemplates[i]
-		ptPath := podTemplatePath.Child(pt.Name)
-		for i := range pt.Template.Spec.InitContainers {
-			c := pt.Template.Spec.InitContainers[i]
+	for name, pt := range wi.PodTemplates {
+		ptPath := podTemplatePath.Child(name)
+		for i := range pt.Spec.InitContainers {
+			c := pt.Spec.InitContainers[i]
 			if list := resource.GetGreaterKeys(c.Resources.Requests, c.Resources.Limits); len(list) > 0 {
 				allReasons = append(allReasons, fmt.Sprintf("%s[%s] requests exceed it's limits",
 					ptPath.Child("initContainers").Index(i).String(),
@@ -377,8 +376,8 @@ func (s *Scheduler) validateResources(wi *workload.Info) error {
 			}
 		}
 
-		for i := range pt.Template.Spec.Containers {
-			c := pt.Template.Spec.Containers[i]
+		for i := range pt.Spec.Containers {
+			c := pt.Spec.Containers[i]
 			if list := resource.GetGreaterKeys(c.Resources.Requests, c.Resources.Limits); len(list) > 0 {
 				allReasons = append(allReasons, fmt.Sprintf("%s[%s] requests exceed it's limits",
 					ptPath.Child("containers").Index(i).String(),
@@ -408,9 +407,9 @@ func (s *Scheduler) validateLimitRange(ctx context.Context, wi *workload.Info) e
 
 	// verify
 	allReasons := []string{}
-	for i := range wi.PodTemplates {
-		pt := &wi.PodTemplates[i]
-		allReasons = append(allReasons, summary.ValidatePodSpec(&pt.Template.Spec, podTemplatePath.Child(pt.Name))...)
+	for _, pt := range wi.PodTemplates {
+		ptNew := pt
+		allReasons = append(allReasons, summary.ValidatePodSpec(&ptNew.Spec, podTemplatePath.Child(pt.Name))...)
 	}
 	if len(allReasons) > 0 {
 		return fmt.Errorf("didn't satisfy LimitRange constraints: %s", strings.Join(allReasons, "; "))

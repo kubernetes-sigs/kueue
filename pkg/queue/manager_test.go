@@ -802,7 +802,7 @@ func TestHeads(t *testing.T) {
 	}
 }
 
-var ignoreTypeMeta = cmpopts.IgnoreTypes(metav1.TypeMeta{})
+var ignoreTypeMeta = cmpopts.IgnoreTypes(metav1.TypeMeta{}, map[string]*corev1.PodTemplateSpec{})
 
 // TestHeadAsync ensures that Heads call is blocked until the queues are filled
 // asynchronously.
@@ -875,7 +875,7 @@ func TestHeadsAsync(t *testing.T) {
 				{
 					Obj:          &wl,
 					ClusterQueue: "fooCq",
-					PodTemplates: []corev1.PodTemplate{},
+					PodTemplates: map[string]*corev1.PodTemplateSpec{},
 				},
 			},
 		},

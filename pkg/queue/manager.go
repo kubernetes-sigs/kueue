@@ -32,6 +32,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/podtemplate"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -175,7 +176,11 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		if workload.HasQuotaReservation(&w) {
 			continue
 		}
-		qImpl.AddOrUpdate(workload.NewInfo(&w, m.extractPodTemplate(ctx, w)))
+		pts, err := podtemplate.ExtractByWorkloadLabel(ctx, m.client, &w)
+		if err != nil {
+			continue
+		}
+		qImpl.AddOrUpdate(workload.NewInfo(&w, pts))
 	}
 	cq := m.clusterQueues[qImpl.ClusterQueue]
 	if cq != nil && cq.AddFromLocalQueue(qImpl) {
@@ -261,13 +266,13 @@ func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (string, bool) {
 
 // AddOrUpdateWorkload adds or updates workload to the corresponding queue.
 // Returns whether the queue existed.
-func (m *Manager) AddOrUpdateWorkload(w *kueue.Workload, pts []corev1.PodTemplate) bool {
+func (m *Manager) AddOrUpdateWorkload(w *kueue.Workload, pts map[string]*corev1.PodTemplateSpec) bool {
 	m.Lock()
 	defer m.Unlock()
 	return m.addOrUpdateWorkload(w, pts)
 }
 
-func (m *Manager) addOrUpdateWorkload(w *kueue.Workload, pts []corev1.PodTemplate) bool {
+func (m *Manager) addOrUpdateWorkload(w *kueue.Workload, pts map[string]*corev1.PodTemplateSpec) bool {
 	qKey := workload.QueueKey(w)
 	q := m.localQueues[qKey]
 	if q == nil {
@@ -304,7 +309,11 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	if q == nil {
 		return false
 	}
-	info.Update(&w)
+	pts, err := podtemplate.ExtractByWorkloadLabel(ctx, m.client, &w)
+	if err != nil {
+		return false
+	}
+	info.Update(&w, pts)
 	q.AddOrUpdate(info)
 	cq := m.clusterQueues[q.ClusterQueue]
 	if cq == nil {
@@ -418,7 +427,7 @@ func (m *Manager) queueAllInadmissibleWorkloadsInCohort(ctx context.Context, cq 
 
 // UpdateWorkload updates the workload to the corresponding queue or adds it if
 // it didn't exist. Returns whether the queue existed.
-func (m *Manager) UpdateWorkload(oldW, w *kueue.Workload, pts []corev1.PodTemplate) bool {
+func (m *Manager) UpdateWorkload(oldW, w *kueue.Workload, pts map[string]*corev1.PodTemplateSpec) bool {
 	m.Lock()
 	defer m.Unlock()
 	if oldW.Spec.QueueName != w.Spec.QueueName {
@@ -615,21 +624,4 @@ func (m *Manager) DeleteSnapshot(cq *kueue.ClusterQueue) {
 	m.snapshotsMutex.Lock()
 	defer m.snapshotsMutex.Unlock()
 	delete(m.snapshots, cq.Name)
-}
-
-func (m *Manager) extractPodTemplate(ctx context.Context, wl kueue.Workload) []corev1.PodTemplate {
-	log := ctrl.LoggerFrom(ctx)
-	podTemplates := make([]corev1.PodTemplate, 0, len(wl.Spec.PodSets))
-	for _, ps := range wl.Spec.PodSets {
-		if ps.PodTemplateName == nil {
-			continue
-		}
-		var podTemplate corev1.PodTemplate
-		if err := m.client.Get(ctx, client.ObjectKey{Name: *ps.PodTemplateName, Namespace: wl.Namespace}, &podTemplate); err != nil {
-			log.Error(err, "Unable to get podTemplate that match the name")
-			continue
-		}
-		podTemplates = append(podTemplates, podTemplate)
-	}
-	return podTemplates
 }

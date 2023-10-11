@@ -168,13 +168,16 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 
 		podtemplates := []*corev1.PodTemplate{
 			testing.MakePodTemplate("one", ns.Name).
-				//Request(resourceGPU, "2").
+				Labels(map[string]string{constants.WorkloadNameLabel: "one"}).
+				Request(resourceGPU, "2").
 				Obj(),
 			testing.MakePodTemplate("two", ns.Name).
-				//Request(resourceGPU, "3").
+				Labels(map[string]string{constants.WorkloadNameLabel: "two"}).
+				Request(resourceGPU, "3").
 				Obj(),
 			testing.MakePodTemplate("three", ns.Name).
-				//Request(resourceGPU, "1").
+				Labels(map[string]string{constants.WorkloadNameLabel: "three"}).
+				Request(resourceGPU, "1").
 				Obj(),
 		}
 		workloads := []*kueue.Workload{
@@ -199,7 +202,6 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 
 		ginkgo.By("Creating podtemplates")
 		for _, pt := range podtemplates {
-			pt.SetLabels(map[string]string{constants.WorkloadNameSource: pt.Name})
 			gomega.Expect(k8sClient.Create(ctx, pt)).To(gomega.Succeed())
 		}
 

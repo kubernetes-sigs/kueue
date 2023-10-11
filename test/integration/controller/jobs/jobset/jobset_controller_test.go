@@ -26,14 +26,17 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/constants"
+	ctrlconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	"sigs.k8s.io/kueue/pkg/util/testing"
@@ -130,7 +133,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 
 		ginkgo.By("checking the workload is updated with queue name when the JobSet does")
 		jobSetQueueName := "test-queue"
-		createdJobSet.Annotations = map[string]string{constants.QueueLabel: jobSetQueueName}
+		createdJobSet.Annotations = map[string]string{ctrlconstants.QueueLabel: jobSetQueueName}
 		gomega.Expect(k8sClient.Update(ctx, createdJobSet)).Should(gomega.Succeed())
 		gomega.Eventually(func() bool {
 			if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
@@ -344,9 +347,9 @@ var _ = ginkgo.Describe("JobSet controller for workloads when only jobs with que
 		ginkgo.By("checking the workload is created when queue name is set")
 		jobQueueName := "test-queue"
 		if createdJobSet.Labels == nil {
-			createdJobSet.Labels = map[string]string{constants.QueueLabel: jobQueueName}
+			createdJobSet.Labels = map[string]string{ctrlconstants.QueueLabel: jobQueueName}
 		} else {
-			createdJobSet.Labels[constants.QueueLabel] = jobQueueName
+			createdJobSet.Labels[ctrlconstants.QueueLabel] = jobQueueName
 		}
 		gomega.Expect(k8sClient.Update(ctx, createdJobSet)).Should(gomega.Succeed())
 		gomega.Eventually(func() error {
@@ -418,7 +421,7 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 				},
 			).Obj()
 			jobSetQueueName := "test-queue"
-			jobSet.Annotations = map[string]string{constants.QueueLabel: jobSetQueueName}
+			jobSet.Annotations = map[string]string{ctrlconstants.QueueLabel: jobSetQueueName}
 			gomega.Expect(k8sClient.Create(ctx, jobSet)).Should(gomega.Succeed())
 			lookupKey := types.NamespacedName{Name: jobSetName, Namespace: ns.Name}
 			createdJobSet := &jobsetapi.JobSet{}
@@ -661,7 +664,18 @@ var _ = ginkgo.Describe("JobSet controller interacting with scheduler", ginkgo.O
 				Should(gomega.Succeed())
 			return ptr.Deref(createdJobSet.Spec.Suspend, false)
 		}, util.Timeout, util.Interval).Should(gomega.BeFalse())
-		fmt.Println(createdJobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.NodeSelector)
+
+		ginkgo.By("checking podtemplates are created")
+		createdPodTemplate := &corev1.PodTemplateList{}
+		gomega.Eventually(func() int {
+			labelSelector := metav1.LabelSelector{MatchLabels: map[string]string{constants.WorkloadNameLabel: workloadjobset.GetWorkloadNameForJobSet(jobSet.Name)}}
+			err := k8sClient.List(ctx, createdPodTemplate, &client.ListOptions{Namespace: jobSet.Namespace, LabelSelector: labels.Set(labelSelector.MatchLabels).AsSelector()})
+			if err != nil {
+				return 0
+			}
+			return len(createdPodTemplate.Items)
+		}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(2))
+
 		gomega.Expect(createdJobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
 		gomega.Expect(createdJobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
@@ -704,6 +718,18 @@ var _ = ginkgo.Describe("JobSet controller interacting with scheduler", ginkgo.O
 			util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 1)
 		})
 
+		ginkgo.By("checking the podtemplates for jobset is created", func() {
+			createdPodTemplate := &corev1.PodTemplateList{}
+			gomega.Eventually(func() int {
+				labelSelector := metav1.LabelSelector{MatchLabels: map[string]string{constants.WorkloadNameLabel: workloadjobset.GetWorkloadNameForJobSet(jobSet1.Name)}}
+				err := k8sClient.List(ctx, createdPodTemplate, &client.ListOptions{Namespace: jobSet1.Namespace, LabelSelector: labels.Set(labelSelector.MatchLabels).AsSelector()})
+				if err != nil {
+					return 0
+				}
+				return len(createdPodTemplate.Items)
+			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(2))
+		})
+
 		jobSet2 := testingjobset.MakeJobSet("dev-jobset2", ns.Name).ReplicatedJobs(
 			testingjobset.ReplicatedJobRequirements{
 				Name:        "replicated-job-1",
@@ -732,6 +758,18 @@ var _ = ginkgo.Describe("JobSet controller interacting with scheduler", ginkgo.O
 			}, util.ConsistentDuration, util.Interval).Should(gomega.Equal(ptr.To(true)))
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
 			util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 1)
+		})
+
+		ginkgo.By("checking the podtemplates for a second jobset", func() {
+			createdPodTemplate := &corev1.PodTemplateList{}
+			gomega.Eventually(func() int {
+				labelSelector := metav1.LabelSelector{MatchLabels: map[string]string{constants.WorkloadNameLabel: workloadjobset.GetWorkloadNameForJobSet(jobSet2.Name)}}
+				err := k8sClient.List(ctx, createdPodTemplate, &client.ListOptions{Namespace: jobSet2.Namespace, LabelSelector: labels.Set(labelSelector.MatchLabels).AsSelector()})
+				if err != nil {
+					return 0
+				}
+				return len(createdPodTemplate.Items)
+			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(2))
 		})
 
 		ginkgo.By("checking the second job starts when the first one needs less then two cpus", func() {

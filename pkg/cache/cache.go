@@ -35,6 +35,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/podtemplate"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -328,7 +329,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 		if !workload.HasQuotaReservation(&w) {
 			continue
 		}
-		podTemplates, err := c.extractPodTemplate(ctx, w)
+		podTemplates, err := podtemplate.ExtractByWorkloadLabel(ctx, c.client, &w)
 		if err != nil {
 			return fmt.Errorf("getting podTemplate that match the name: %w", err)
 		}
@@ -336,21 +337,6 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 	}
 
 	return nil
-}
-
-func (c *Cache) extractPodTemplate(ctx context.Context, w kueue.Workload) ([]corev1.PodTemplate, error) {
-	podTemplates := make([]corev1.PodTemplate, 0, len(w.Spec.PodSets))
-	for _, ps := range w.Spec.PodSets {
-		if ps.PodTemplateName == nil {
-			continue
-		}
-		var podTemplate corev1.PodTemplate
-		if err := c.client.Get(ctx, client.ObjectKey{Name: *ps.PodTemplateName, Namespace: w.Namespace}, &podTemplate); err != nil {
-			continue
-		}
-		podTemplates = append(podTemplates, podTemplate)
-	}
-	return podTemplates, nil
 }
 
 func (c *Cache) UpdateClusterQueue(cq *kueue.ClusterQueue) error {
@@ -433,13 +419,13 @@ func (c *Cache) UpdateLocalQueue(oldQ, newQ *kueue.LocalQueue) error {
 	return nil
 }
 
-func (c *Cache) AddOrUpdateWorkload(w *kueue.Workload, pts []corev1.PodTemplate) bool {
+func (c *Cache) AddOrUpdateWorkload(w *kueue.Workload, pts map[string]*corev1.PodTemplateSpec) bool {
 	c.Lock()
 	defer c.Unlock()
 	return c.addOrUpdateWorkload(w, pts)
 }
 
-func (c *Cache) addOrUpdateWorkload(w *kueue.Workload, pts []corev1.PodTemplate) bool {
+func (c *Cache) addOrUpdateWorkload(w *kueue.Workload, pts map[string]*corev1.PodTemplateSpec) bool {
 	if !workload.HasQuotaReservation(w) {
 		return false
 	}
@@ -461,7 +447,7 @@ func (c *Cache) addOrUpdateWorkload(w *kueue.Workload, pts []corev1.PodTemplate)
 	return clusterQueue.addWorkload(w, pts) == nil
 }
 
-func (c *Cache) UpdateWorkload(oldWl *kueue.Workload, newWl *kueue.Workload, pts []corev1.PodTemplate) error {
+func (c *Cache) UpdateWorkload(oldWl *kueue.Workload, newWl *kueue.Workload, pts map[string]*corev1.PodTemplateSpec) error {
 	c.Lock()
 	defer c.Unlock()
 	if workload.HasQuotaReservation(oldWl) {
@@ -520,7 +506,7 @@ func (c *Cache) IsAssumedOrAdmittedWorkload(w workload.Info) bool {
 	return false
 }
 
-func (c *Cache) AssumeWorkload(w *kueue.Workload, pts []corev1.PodTemplate) error {
+func (c *Cache) AssumeWorkload(w *kueue.Workload, pts map[string]*corev1.PodTemplateSpec) error {
 	c.Lock()
 	defer c.Unlock()
 

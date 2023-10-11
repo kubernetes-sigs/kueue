@@ -54,7 +54,7 @@ func TestAssignFlavors(t *testing.T) {
 
 	cases := map[string]struct {
 		wlPods            []kueue.PodSet
-		podTemplates      []corev1.PodTemplate
+		podTemplates      map[string]*corev1.PodTemplateSpec
 		wlReclaimablePods []kueue.ReclaimablePod
 		clusterQueue      cache.ClusterQueue
 		wantRepMode       FlavorAssignmentMode
@@ -66,11 +66,11 @@ func TestAssignFlavors(t *testing.T) {
 					SetPodTemplateName("main").
 					Obj(),
 			},
-			podTemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "1").
 					Request(corev1.ResourceMemory, "1Mi").
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{{
@@ -114,8 +114,8 @@ func TestAssignFlavors(t *testing.T) {
 					SetPodTemplateName("main").
 					Obj(),
 			},
-			podTemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "1").
 					Toleration(corev1.Toleration{
 						Key:      "instance",
@@ -123,7 +123,7 @@ func TestAssignFlavors(t *testing.T) {
 						Value:    "spot",
 						Effect:   corev1.TaintEffectNoSchedule,
 					}).
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{{
@@ -161,10 +161,10 @@ func TestAssignFlavors(t *testing.T) {
 					SetPodTemplateName("main").
 					Obj(),
 			},
-			podTemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "2").
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{{
@@ -208,11 +208,11 @@ func TestAssignFlavors(t *testing.T) {
 					SetPodTemplateName("main").
 					Obj(),
 			},
-			podTemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "3").
 					Request(corev1.ResourceMemory, "10Mi").
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{
@@ -282,11 +282,11 @@ func TestAssignFlavors(t *testing.T) {
 					SetPodTemplateName("main").
 					Obj(),
 			},
-			podTemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "3").
 					Request(corev1.ResourceMemory, "10Mi").
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{
@@ -336,12 +336,12 @@ func TestAssignFlavors(t *testing.T) {
 					SetPodTemplateName("main").
 					Obj(),
 			},
-			podTemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "3").
 					Request(corev1.ResourceMemory, "10Mi").
 					Request("example.com/gpu", "3").
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{
@@ -416,12 +416,12 @@ func TestAssignFlavors(t *testing.T) {
 					SetPodTemplateName("main").
 					Obj(),
 			},
-			podTemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "3").
 					Request(corev1.ResourceMemory, "10Mi").
 					Request("example.com/gpu", "3").
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{
@@ -521,11 +521,11 @@ func TestAssignFlavors(t *testing.T) {
 					SetPodTemplateName("main").
 					Obj(),
 			},
-			podTemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "3").
 					Request(corev1.ResourceMemory, "10Mi").
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{
@@ -574,10 +574,10 @@ func TestAssignFlavors(t *testing.T) {
 					SetPodTemplateName("main").
 					Obj(),
 			},
-			podTemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "3").
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{
@@ -625,10 +625,10 @@ func TestAssignFlavors(t *testing.T) {
 					SetPodTemplateName("main").
 					Obj(),
 			},
-			podTemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "3").
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{
@@ -676,8 +676,8 @@ func TestAssignFlavors(t *testing.T) {
 					SetPodTemplateName("main").
 					Obj(),
 			},
-			podTemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Containers(utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
 						corev1.ResourceCPU: "1",
 					})...).
@@ -700,7 +700,7 @@ func TestAssignFlavors(t *testing.T) {
 								},
 							}},
 					}).
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{
@@ -754,30 +754,31 @@ func TestAssignFlavors(t *testing.T) {
 					SetPodTemplateName("main").
 					Obj(),
 			},
-			podTemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Containers(utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
 						corev1.ResourceCPU:    "1",
 						corev1.ResourceMemory: "1Mi",
 					})...).
 					// ignored:foo should get ignored
 					NodeSelector(map[string]string{"ignored1": "foo"}).
-					Affinity(&corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
-						RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
-							NodeSelectorTerms: []corev1.NodeSelectorTerm{
-								{
-									MatchExpressions: []corev1.NodeSelectorRequirement{
-										{
-											Key:      "type",
-											Operator: corev1.NodeSelectorOpIn,
-											Values:   []string{"two"},
+					Affinity(&corev1.Affinity{
+						NodeAffinity: &corev1.NodeAffinity{
+							RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+								NodeSelectorTerms: []corev1.NodeSelectorTerm{
+									{
+										MatchExpressions: []corev1.NodeSelectorRequirement{
+											{
+												Key:      "type",
+												Operator: corev1.NodeSelectorOpIn,
+												Values:   []string{"two"},
+											},
 										},
 									},
 								},
-							},
-						}},
+							}},
 					}).
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{
@@ -830,11 +831,12 @@ func TestAssignFlavors(t *testing.T) {
 					SetPodTemplateName("main").
 					Obj(),
 			},
-			podTemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Containers(utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
 						corev1.ResourceCPU: "1",
 					})...).
+					// ignored:foo should get ignored
 					Affinity(&corev1.Affinity{
 						NodeAffinity: &corev1.NodeAffinity{
 							RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
@@ -864,7 +866,7 @@ func TestAssignFlavors(t *testing.T) {
 								},
 							}},
 					}).
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{
@@ -912,8 +914,8 @@ func TestAssignFlavors(t *testing.T) {
 					SetPodTemplateName("main").
 					Obj(),
 			},
-			podTemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Containers(utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
 						corev1.ResourceCPU: "1",
 					})...).
@@ -933,7 +935,7 @@ func TestAssignFlavors(t *testing.T) {
 								},
 							}},
 					}).
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{
@@ -982,13 +984,13 @@ func TestAssignFlavors(t *testing.T) {
 					SetPodTemplateName("worker").
 					Obj(),
 			},
-			podTemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("driver", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"driver": &utiltesting.MakePodTemplate("driver", "").
 					Request(corev1.ResourceCPU, "5").
-					Obj(),
-				*utiltesting.MakePodTemplate("worker", "").
+					Obj().Template,
+				"worker": &utiltesting.MakePodTemplate("worker", "").
 					Request(corev1.ResourceCPU, "3").
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{
@@ -1054,15 +1056,15 @@ func TestAssignFlavors(t *testing.T) {
 					SetPodTemplateName("worker").
 					Obj(),
 			},
-			podTemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("driver", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"driver": &utiltesting.MakePodTemplate("driver", "").
 					Request(corev1.ResourceCPU, "4").
 					Request(corev1.ResourceMemory, "1Gi").
-					Obj(),
-				*utiltesting.MakePodTemplate("worker", "").
+					Obj().Template,
+				"worker": &utiltesting.MakePodTemplate("worker", "").
 					Request(corev1.ResourceCPU, "6").
 					Request(corev1.ResourceMemory, "4Gi").
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{{
@@ -1132,10 +1134,10 @@ func TestAssignFlavors(t *testing.T) {
 					SetPodTemplateName("main").
 					Obj(),
 			},
-			podTemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "2").
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{{
@@ -1176,10 +1178,10 @@ func TestAssignFlavors(t *testing.T) {
 					SetPodTemplateName("main").
 					Obj(),
 			},
-			podTemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "2").
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{{
@@ -1232,10 +1234,10 @@ func TestAssignFlavors(t *testing.T) {
 					SetPodTemplateName("main").
 					Obj(),
 			},
-			podTemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "2").
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{{
@@ -1279,10 +1281,10 @@ func TestAssignFlavors(t *testing.T) {
 					SetPodTemplateName("main").
 					Obj(),
 			},
-			podTemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "2").
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{{
@@ -1334,13 +1336,13 @@ func TestAssignFlavors(t *testing.T) {
 					SetPodTemplateName("main").
 					Obj(),
 			},
-			podTemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Containers(utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
 						corev1.ResourceCPU: "2",
 					})...).
 					NodeSelector(map[string]string{"type": "two"}).
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{{
@@ -1399,11 +1401,11 @@ func TestAssignFlavors(t *testing.T) {
 					SetPodTemplateName("workers").
 					Obj(),
 			},
-			podTemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("launcher", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"launcher": &utiltesting.MakePodTemplate("launcher", "").
 					Request(corev1.ResourceCPU, "2").
-					Obj(),
-				*utiltesting.MakePodTemplate("workers", "").
+					Obj().Template,
+				"workers": &utiltesting.MakePodTemplate("workers", "").
 					Request(corev1.ResourceCPU, "1").
 					Toleration(corev1.Toleration{
 						Key:      "instance",
@@ -1411,7 +1413,7 @@ func TestAssignFlavors(t *testing.T) {
 						Value:    "spot",
 						Effect:   corev1.TaintEffectNoSchedule,
 					}).
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{{
@@ -1488,10 +1490,10 @@ func TestAssignFlavors(t *testing.T) {
 					SetPodTemplateName("main").
 					Obj(),
 			},
-			podTemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request("example.com/gpu", "2").
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{{
@@ -1524,10 +1526,10 @@ func TestAssignFlavors(t *testing.T) {
 					SetPodTemplateName("main").
 					Obj(),
 			},
-			podTemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "1").
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{{
@@ -1560,10 +1562,10 @@ func TestAssignFlavors(t *testing.T) {
 					SetPodTemplateName("main").
 					Obj(),
 			},
-			podTemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "1").
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{{
@@ -1606,10 +1608,10 @@ func TestAssignFlavors(t *testing.T) {
 					SetPodTemplateName("main").
 					Obj(),
 			},
-			podTemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "1").
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{{
@@ -1644,10 +1646,10 @@ func TestAssignFlavors(t *testing.T) {
 					SetPodTemplateName("main").
 					Obj(),
 			},
-			podTemplates: []corev1.PodTemplate{
-				*utiltesting.MakePodTemplate("main", "").
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "1").
-					Obj(),
+					Obj().Template,
 			},
 			wlReclaimablePods: []kueue.ReclaimablePod{
 				{

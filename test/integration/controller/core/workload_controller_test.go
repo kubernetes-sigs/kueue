@@ -78,8 +78,8 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		})
 		ginkgo.It("Should update status when workloads are created", func() {
-			pt := testing.MakePodTemplate("one", ns.Name).Request(corev1.ResourceCPU, "1").Obj()
-			pt.SetLabels(map[string]string{constants.WorkloadNameSource: "one"})
+			pt := testing.MakePodTemplate("one", ns.Name).Labels(map[string]string{constants.WorkloadNameLabel: "one"}).
+				Request(corev1.ResourceCPU, "1").Obj()
 			gomega.Expect(k8sClient.Create(ctx, pt)).To(gomega.Succeed())
 			wl = testing.MakeWorkload("one", ns.Name).
 				PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(pt.Name).Obj()).
@@ -99,8 +99,8 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		})
 		ginkgo.It("Should update status when workloads are created", func() {
-			pt := testing.MakePodTemplate("two", ns.Name).Request(corev1.ResourceCPU, "1").Obj()
-			pt.SetLabels(map[string]string{constants.WorkloadNameSource: "two"})
+			pt := testing.MakePodTemplate("two", ns.Name).Labels(map[string]string{constants.WorkloadNameLabel: "two"}).
+				Request(corev1.ResourceCPU, "1").Obj()
 			gomega.Expect(k8sClient.Create(ctx, pt)).To(gomega.Succeed())
 			wl = testing.MakeWorkload("two", ns.Name).
 				Queue("non-created-queue").
@@ -125,8 +125,8 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		})
 		ginkgo.It("Should update status when workloads are created", func() {
-			pt := testing.MakePodTemplate("three", ns.Name).Request(corev1.ResourceCPU, "1").Obj()
-			pt.SetLabels(map[string]string{constants.WorkloadNameSource: "three"})
+			pt := testing.MakePodTemplate("three", ns.Name).Labels(map[string]string{constants.WorkloadNameLabel: "three"}).
+				Request(corev1.ResourceCPU, "1").Obj()
 			gomega.Expect(k8sClient.Create(ctx, pt)).To(gomega.Succeed())
 			wl = testing.MakeWorkload("three", ns.Name).
 				Queue(localQueue.Name).
@@ -160,9 +160,9 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 		})
 		ginkgo.It("Should update status when workloads are created", func() {
 			pt := testing.MakePodTemplate(kueue.DefaultPodSetName, ns.Name).
+				Labels(map[string]string{constants.WorkloadNameLabel: "four"}).
 				Request(corev1.ResourceCPU, "1").
 				Obj()
-			pt.SetLabels(map[string]string{constants.WorkloadNameSource: "four"})
 			gomega.Expect(k8sClient.Create(ctx, pt)).To(gomega.Succeed())
 
 			wl = testing.MakeWorkload("four", ns.Name).
@@ -222,9 +222,9 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 
 		ginkgo.It("the workload should get the AdditionalChecks added", func() {
 			pt := testing.MakePodTemplate(kueue.DefaultPodSetName, ns.Name).
+				Labels(map[string]string{constants.WorkloadNameLabel: "wl"}).
 				Request(corev1.ResourceCPU, "1").
 				Obj()
-			pt.SetLabels(map[string]string{constants.WorkloadNameSource: "wl"})
 			gomega.Expect(k8sClient.Create(ctx, pt)).To(gomega.Succeed())
 
 			wl := testing.MakeWorkload("wl", ns.Name).
@@ -299,9 +299,9 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 		ginkgo.It("case of WorkloadPriorityClass", func() {
 			ginkgo.By("creating workload")
 			pt := testing.MakePodTemplate(kueue.DefaultPodSetName, ns.Name).
+				Labels(map[string]string{constants.WorkloadNameLabel: "wl"}).
 				Request(corev1.ResourceCPU, "1").
 				Obj()
-			pt.SetLabels(map[string]string{constants.WorkloadNameSource: "wl"})
 			gomega.Expect(k8sClient.Create(ctx, pt)).To(gomega.Succeed())
 			wl = testing.MakeWorkload("wl", ns.Name).PodSets(*testing.MakePodSet("main", 1).SetPodTemplateName(pt.Name).Obj()).
 				Queue("lq").

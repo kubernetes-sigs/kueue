@@ -207,6 +207,7 @@ func TestSchedule(t *testing.T) {
 			},
 			podTemplates: []corev1.PodTemplate{
 				*utiltesting.MakePodTemplate("one", "sales").
+					Labels(map[string]string{constants.WorkloadNameLabel: "foo"}).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -239,6 +240,7 @@ func TestSchedule(t *testing.T) {
 			},
 			podTemplates: []corev1.PodTemplate{
 				*utiltesting.MakePodTemplate("one", "").
+					Labels(map[string]string{constants.WorkloadNameLabel: "foo"}).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -262,9 +264,11 @@ func TestSchedule(t *testing.T) {
 			},
 			podTemplates: []corev1.PodTemplate{
 				*utiltesting.MakePodTemplate("new-one", "").
+					Labels(map[string]string{constants.WorkloadNameLabel: "new"}).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltesting.MakePodTemplate("assigned-one", "").
+					Labels(map[string]string{constants.WorkloadNameLabel: "assigned"}).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -299,6 +303,7 @@ func TestSchedule(t *testing.T) {
 			},
 			podTemplates: []corev1.PodTemplate{
 				*utiltesting.MakePodTemplate("new-one", "").
+					Labels(map[string]string{constants.WorkloadNameLabel: "new"}).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -323,9 +328,11 @@ func TestSchedule(t *testing.T) {
 			},
 			podTemplates: []corev1.PodTemplate{
 				*utiltesting.MakePodTemplate("new-one", "sales").
+					Labels(map[string]string{constants.WorkloadNameLabel: "new"}).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltesting.MakePodTemplate("new-one", "eng-alpha").
+					Labels(map[string]string{constants.WorkloadNameLabel: "new"}).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -380,9 +387,11 @@ func TestSchedule(t *testing.T) {
 			},
 			podTemplates: []corev1.PodTemplate{
 				*utiltesting.MakePodTemplate("new-one", "eng-alpha").
+					Labels(map[string]string{constants.WorkloadNameLabel: "new"}).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltesting.MakePodTemplate("new-one", "eng-beta").
+					Labels(map[string]string{constants.WorkloadNameLabel: "new"}).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -436,10 +445,12 @@ func TestSchedule(t *testing.T) {
 			},
 			podTemplates: []corev1.PodTemplate{
 				*utiltesting.MakePodTemplate("new-one", "eng-beta").
+					Labels(map[string]string{constants.WorkloadNameLabel: "new"}).
 					Request(corev1.ResourceCPU, "6").
 					Request("example.com/gpu", "1").
 					Obj(),
 				*utiltesting.MakePodTemplate("new-two", "eng-beta").
+					Labels(map[string]string{constants.WorkloadNameLabel: "new"}).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -491,9 +502,11 @@ func TestSchedule(t *testing.T) {
 			},
 			podTemplates: []corev1.PodTemplate{
 				*utiltesting.MakePodTemplate("new-one", "eng-alpha").
+					Labels(map[string]string{constants.WorkloadNameLabel: "new"}).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltesting.MakePodTemplate("new-one", "eng-beta").
+					Labels(map[string]string{constants.WorkloadNameLabel: "new"}).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -536,9 +549,11 @@ func TestSchedule(t *testing.T) {
 			},
 			podTemplates: []corev1.PodTemplate{
 				*utiltesting.MakePodTemplate("new-one", "eng-alpha").
+					Labels(map[string]string{constants.WorkloadNameLabel: "new"}).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltesting.MakePodTemplate("new-one", "eng-beta").
+					Labels(map[string]string{constants.WorkloadNameLabel: "new"}).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -580,40 +595,36 @@ func TestSchedule(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("can-reclaim", "eng-alpha").
 					Queue("main").
-					PodSets(*utiltesting.MakePodSet("main", 1).
-						SetPodTemplateName("can-reclaim-main").
-						Obj()).
+					SetPodTemplateName("can-reclaim-main").
 					Obj(),
 				*utiltesting.MakeWorkload("needs-to-borrow", "eng-beta").
 					Queue("main").
-					PodSets(*utiltesting.MakePodSet("main", 1).
-						SetPodTemplateName("needs-to-borrow-main").
-						Obj()).
+					SetPodTemplateName("needs-to-borrow-main").
 					Obj(),
 				*utiltesting.MakeWorkload("user-on-demand", "eng-beta").
-					PodSets(*utiltesting.MakePodSet("main", 1).
-						SetPodTemplateName("user-on-demand-main").
-						Obj()).
+					SetPodTemplateName("user-on-demand-main").
 					ReserveQuota(utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "on-demand", "50000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("user-spot", "eng-beta").
-					PodSets(*utiltesting.MakePodSet("main", 1).
-						SetPodTemplateName("user-spot-main").
-						Obj()).
+					SetPodTemplateName("user-spot-main").
 					ReserveQuota(utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "spot", "1000m").Obj()).
 					Obj(),
 			},
 			podTemplates: []corev1.PodTemplate{
 				*utiltesting.MakePodTemplate("can-reclaim-main", "eng-alpha").
+					Labels(map[string]string{constants.WorkloadNameLabel: "can-reclaim"}).
 					Request(corev1.ResourceCPU, "100").
 					Obj(),
 				*utiltesting.MakePodTemplate("needs-to-borrow-main", "eng-beta").
+					Labels(map[string]string{constants.WorkloadNameLabel: "needs-to-borrow"}).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltesting.MakePodTemplate("user-on-demand-main", "eng-beta").
+					Labels(map[string]string{constants.WorkloadNameLabel: "user-on-demand"}).
 					Request(corev1.ResourceCPU, "50").
 					Obj(),
 				*utiltesting.MakePodTemplate("user-spot-main", "eng-beta").
+					Labels(map[string]string{constants.WorkloadNameLabel: "user-spot"}).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -633,51 +644,46 @@ func TestSchedule(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("preemptor", "eng-beta").
 					Queue("main").
-					PodSets(*utiltesting.MakePodSet("main", 1).
-						SetPodTemplateName("preemptor-main").
-						Obj()).
+					SetPodTemplateName("preemptor-main").
 					Obj(),
 				*utiltesting.MakeWorkload("use-all-spot", "eng-alpha").
 					ReserveQuota(utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "spot", "100000m").Obj()).
-					PodSets(*utiltesting.MakePodSet("main", 1).
-						SetPodTemplateName("use-all-spot-main").
-						Obj()).
+					SetPodTemplateName("use-all-spot-main").
 					Obj(),
 				*utiltesting.MakeWorkload("low-1", "eng-beta").
 					Priority(-1).
-					PodSets(*utiltesting.MakePodSet("main", 1).
-						SetPodTemplateName("low-1-main").
-						Obj()).
+					SetPodTemplateName("low-1-main").
 					ReserveQuota(utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "on-demand", "30000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("low-2", "eng-beta").
 					Priority(-2).
-					PodSets(*utiltesting.MakePodSet("main", 1).
-						SetPodTemplateName("low-2-main").
-						Obj()).
+					SetPodTemplateName("low-2-main").
 					ReserveQuota(utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "on-demand", "10000m").Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("borrower", "eng-alpha").
-					PodSets(*utiltesting.MakePodSet("main", 1).
-						SetPodTemplateName("borrower-main").
-						Obj()).
+					SetPodTemplateName("borrower-main").
 					ReserveQuota(utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "60000m").Obj()).
 					Obj(),
 			},
 			podTemplates: []corev1.PodTemplate{
 				*utiltesting.MakePodTemplate("preemptor-main", "eng-beta").
+					Labels(map[string]string{constants.WorkloadNameLabel: "preemptor"}).
 					Request(corev1.ResourceCPU, "20").
 					Obj(),
 				*utiltesting.MakePodTemplate("use-all-spot-main", "eng-alpha").
+					Labels(map[string]string{constants.WorkloadNameLabel: "use-all-spot"}).
 					Request(corev1.ResourceCPU, "100").
 					Obj(),
 				*utiltesting.MakePodTemplate("low-1-main", "eng-beta").
+					Labels(map[string]string{constants.WorkloadNameLabel: "low-1"}).
 					Request(corev1.ResourceCPU, "30").
 					Obj(),
 				*utiltesting.MakePodTemplate("low-2-main", "eng-beta").
+					Labels(map[string]string{constants.WorkloadNameLabel: "low-2"}).
 					Request(corev1.ResourceCPU, "10").
 					Obj(),
 				*utiltesting.MakePodTemplate("borrower-main", "eng-alpha").
+					Labels(map[string]string{constants.WorkloadNameLabel: "borrower"}).
 					Request(corev1.ResourceCPU, "60").
 					Obj(),
 			},
@@ -702,6 +708,7 @@ func TestSchedule(t *testing.T) {
 			},
 			podTemplates: []corev1.PodTemplate{
 				*utiltesting.MakePodTemplate("main", "").
+					Labels(map[string]string{constants.WorkloadNameLabel: "new"}).
 					Request("example.com/gpu", "1").
 					Obj(),
 			},
@@ -726,9 +733,11 @@ func TestSchedule(t *testing.T) {
 			},
 			podTemplates: []corev1.PodTemplate{
 				*utiltesting.MakePodTemplate("new-main", "eng-alpha").
+					Labels(map[string]string{constants.WorkloadNameLabel: "new"}).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltesting.MakePodTemplate("new-main", "eng-beta").
+					Labels(map[string]string{constants.WorkloadNameLabel: "existing"}).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -774,6 +783,7 @@ func TestSchedule(t *testing.T) {
 			},
 			podTemplates: []corev1.PodTemplate{
 				*utiltesting.MakePodTemplate("foo-main", "sales").
+					Labels(map[string]string{constants.WorkloadNameLabel: "foo"}).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -786,6 +796,7 @@ func TestSchedule(t *testing.T) {
 			},
 			podTemplates: []corev1.PodTemplate{
 				*utiltesting.MakePodTemplate("foo-main", "sales").
+					Labels(map[string]string{constants.WorkloadNameLabel: "foo"}).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -853,18 +864,23 @@ func TestSchedule(t *testing.T) {
 			},
 			podTemplates: []corev1.PodTemplate{
 				*utiltesting.MakePodTemplate("new-one", "eng-beta").
+					Labels(map[string]string{constants.WorkloadNameLabel: "new"}).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltesting.MakePodTemplate("new-alpha-one", "eng-alpha").
+					Labels(map[string]string{constants.WorkloadNameLabel: "new-alpha"}).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltesting.MakePodTemplate("new-gamma-one", "eng-gamma").
+					Labels(map[string]string{constants.WorkloadNameLabel: "new-gamma"}).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltesting.MakePodTemplate("existing-borrow-on-demand", "eng-gamma").
+					Labels(map[string]string{constants.WorkloadNameLabel: "existing"}).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltesting.MakePodTemplate("existing-use-all-spot", "eng-gamma").
+					Labels(map[string]string{constants.WorkloadNameLabel: "existing"}).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -938,6 +954,7 @@ func TestSchedule(t *testing.T) {
 			},
 			podTemplates: []corev1.PodTemplate{
 				*utiltesting.MakePodTemplate("new-one", "sales").
+					Labels(map[string]string{constants.WorkloadNameLabel: "new"}).
 					Request(corev1.ResourceCPU, "2").
 					Obj(),
 			},
@@ -981,9 +998,11 @@ func TestSchedule(t *testing.T) {
 			},
 			podTemplates: []corev1.PodTemplate{
 				*utiltesting.MakePodTemplate("new-one", "eng-beta").
+					Labels(map[string]string{constants.WorkloadNameLabel: "new"}).
 					Request("example.com/gpu", "1").
 					Obj(),
 				*utiltesting.MakePodTemplate("old-one", "eng-beta").
+					Labels(map[string]string{constants.WorkloadNameLabel: "old"}).
 					Request("example.com/gpu", "1").
 					Obj(),
 			},
@@ -1031,12 +1050,15 @@ func TestSchedule(t *testing.T) {
 			},
 			podTemplates: []corev1.PodTemplate{
 				*utiltesting.MakePodTemplate("new-one", "sales").
+					Labels(map[string]string{constants.WorkloadNameLabel: "new"}).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltesting.MakePodTemplate("new-two", "sales").
+					Labels(map[string]string{constants.WorkloadNameLabel: "new"}).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltesting.MakePodTemplate("new-three", "sales").
+					Labels(map[string]string{constants.WorkloadNameLabel: "new"}).
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
@@ -1098,22 +1120,16 @@ func TestSchedule(t *testing.T) {
 				*utiltesting.MakeLocalQueue("lq3", "sales").ClusterQueue("cq3").Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("wl1", "sales").Queue("lq1").Priority(-1).PodSets(
-					*utiltesting.MakePodSet("main", 1).
-						SetPodTemplateName("wl1-main").
-						Obj(),
-				).Obj(),
-				*utiltesting.MakeWorkload("wl2", "sales").Queue("lq2").Priority(-2).PodSets(
-					*utiltesting.MakePodSet("main", 1).
-						SetPodTemplateName("wl2-main").
-						Obj(),
-				).Obj(),
+				*utiltesting.MakeWorkload("wl1", "sales").Queue("lq1").Priority(-1).SetPodTemplateName("wl1-main").Obj(),
+				*utiltesting.MakeWorkload("wl2", "sales").Queue("lq2").Priority(-2).SetPodTemplateName("wl2-main").Obj(),
 			},
 			podTemplates: []corev1.PodTemplate{
 				*utiltesting.MakePodTemplate("wl1-main", "sales").
+					Labels(map[string]string{constants.WorkloadNameLabel: "wl1"}).
 					Request("r1", "16").
 					Obj(),
 				*utiltesting.MakePodTemplate("wl2-main", "sales").
+					Labels(map[string]string{constants.WorkloadNameLabel: "wl2"}).
 					Request("r2", "16").
 					Obj(),
 			},
@@ -1145,22 +1161,16 @@ func TestSchedule(t *testing.T) {
 				*utiltesting.MakeLocalQueue("lq3", "sales").ClusterQueue("cq3").Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("wl1", "sales").Queue("lq1").Priority(-1).PodSets(
-					*utiltesting.MakePodSet("main", 1).
-						SetPodTemplateName("wl1-main").
-						Obj(),
-				).Obj(),
-				*utiltesting.MakeWorkload("wl2", "sales").Queue("lq2").Priority(-2).PodSets(
-					*utiltesting.MakePodSet("main", 1).
-						SetPodTemplateName("wl2-main").
-						Obj(),
-				).Obj(),
+				*utiltesting.MakeWorkload("wl1", "sales").Queue("lq1").Priority(-1).SetPodTemplateName("wl1-main").Obj(),
+				*utiltesting.MakeWorkload("wl2", "sales").Queue("lq2").Priority(-2).SetPodTemplateName("wl2-main").Obj(),
 			},
 			podTemplates: []corev1.PodTemplate{
 				*utiltesting.MakePodTemplate("wl1-main", "sales").
+					Labels(map[string]string{constants.WorkloadNameLabel: "wl1"}).
 					Request("r1", "16").
 					Obj(),
 				*utiltesting.MakePodTemplate("wl2-main", "sales").
+					Labels(map[string]string{constants.WorkloadNameLabel: "wl2"}).
 					Request("r1", "14").
 					Obj(),
 			},
@@ -1192,22 +1202,16 @@ func TestSchedule(t *testing.T) {
 				*utiltesting.MakeLocalQueue("lq3", "sales").ClusterQueue("cq3").Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("wl1", "sales").Queue("lq1").Priority(-1).PodSets(
-					*utiltesting.MakePodSet("main", 1).
-						SetPodTemplateName("wl1-main").
-						Obj(),
-				).Obj(),
-				*utiltesting.MakeWorkload("wl2", "sales").Queue("lq2").Priority(-2).PodSets(
-					*utiltesting.MakePodSet("main", 1).
-						SetPodTemplateName("wl2-main").
-						Obj(),
-				).Obj(),
+				*utiltesting.MakeWorkload("wl1", "sales").Queue("lq1").Priority(-1).SetPodTemplateName("wl1-main").Obj(),
+				*utiltesting.MakeWorkload("wl2", "sales").Queue("lq2").Priority(-2).SetPodTemplateName("wl2-main").Obj(),
 			},
 			podTemplates: []corev1.PodTemplate{
 				*utiltesting.MakePodTemplate("wl1-main", "sales").
+					Labels(map[string]string{constants.WorkloadNameLabel: "wl1"}).
 					Request("r1", "16").
 					Obj(),
 				*utiltesting.MakePodTemplate("wl2-main", "sales").
+					Labels(map[string]string{constants.WorkloadNameLabel: "wl2"}).
 					Request("r1", "16").
 					Obj(),
 			},

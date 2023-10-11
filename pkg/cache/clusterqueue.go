@@ -291,7 +291,7 @@ func (c *ClusterQueue) updateWithAdmissionChecks(checks sets.Set[string]) {
 	}
 }
 
-func (c *ClusterQueue) addWorkload(w *kueue.Workload, pts []corev1.PodTemplate) error {
+func (c *ClusterQueue) addWorkload(w *kueue.Workload, pts map[string]*corev1.PodTemplateSpec) error {
 	k := workload.Key(w)
 	if _, exist := c.Workloads[k]; exist {
 		return fmt.Errorf("workload already exists in ClusterQueue")

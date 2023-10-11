@@ -35,7 +35,8 @@ const (
 	QueueClusterQueueKey       = "spec.clusterQueue"
 	LimitRangeHasContainerType = "spec.hasContainerType"
 	WorkloadQuotaReservedKey   = "status.quotaReserved"
-	WorkloadRuntimeClassKey    = "spec.runtimeClass"
+	PodTemplateRuntimeClassKey = "spec.runtimeClass"
+	WorkloadPodTemplateNameKey = "spec.podTemplateName"
 )
 
 func IndexQueueClusterQueue(obj client.Object) []string {
@@ -93,15 +94,26 @@ func IndexWorkloadQuotaReserved(obj client.Object) []string {
 	return []string{string(cond.Status)}
 }
 
-func IndexWorkloadRuntimeClass(obj client.Object) []string {
+func IndexPodTemplateRuntimeClass(obj client.Object) []string {
+	pt, ok := obj.(*corev1.PodTemplate)
+	if !ok {
+		return nil
+	}
+	if pt.Template.Spec.RuntimeClassName != nil {
+		return []string{*pt.Template.Spec.RuntimeClassName}
+	}
+	return nil
+}
+
+func IndexWorkloadPodTemplateName(obj client.Object) []string {
 	wl, ok := obj.(*kueue.Workload)
 	if !ok {
 		return nil
 	}
 	set := sets.New[string]()
 	for _, ps := range wl.Spec.PodSets {
-		if ps.Template.Spec.RuntimeClassName != nil {
-			set.Insert(*ps.Template.Spec.RuntimeClassName)
+		if ps.PodTemplateName != nil {
+			set.Insert(*ps.PodTemplateName)
 		}
 	}
 	if set.Len() > 0 {
@@ -121,8 +133,11 @@ func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadQuotaReservedKey, IndexWorkloadQuotaReserved); err != nil {
 		return fmt.Errorf("setting index on admitted for Workload: %w", err)
 	}
-	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadRuntimeClassKey, IndexWorkloadRuntimeClass); err != nil {
+	if err := indexer.IndexField(ctx, &corev1.PodTemplate{}, PodTemplateRuntimeClassKey, IndexPodTemplateRuntimeClass); err != nil {
 		return fmt.Errorf("setting index on runtimeClass for Workload: %w", err)
+	}
+	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadPodTemplateNameKey, IndexWorkloadPodTemplateName); err != nil {
+		return fmt.Errorf("setting index on podTemplateName for Workload: %w", err)
 	}
 	if err := indexer.IndexField(ctx, &kueue.LocalQueue{}, QueueClusterQueueKey, IndexQueueClusterQueue); err != nil {
 		return fmt.Errorf("setting index on clusterQueue for localQueue: %w", err)
