@@ -174,6 +174,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		if workload.HasQuotaReservation(&w) {
 			continue
 		}
+		workload.AdjustResources(ctx, m.client, &w)
 		qImpl.AddOrUpdate(workload.NewInfo(&w))
 	}
 	cq := m.clusterQueues[qImpl.ClusterQueue]
