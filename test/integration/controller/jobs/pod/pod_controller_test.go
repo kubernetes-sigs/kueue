@@ -326,6 +326,9 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			)
 
 			ginkgo.BeforeEach(func() {
+				admissionCheck = testing.MakeAdmissionCheck("check").Obj()
+				gomega.Expect(k8sClient.Create(ctx, admissionCheck)).To(gomega.Succeed())
+				util.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck, metav1.ConditionTrue)
 				clusterQueueAc = testing.MakeClusterQueue("prod-cq-with-checks").
 					ResourceGroup(
 						*testing.MakeFlavorQuotas("test-flavor").Resource(corev1.ResourceCPU, "5").Obj(),
@@ -335,8 +338,6 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
 				testFlavor = testing.MakeResourceFlavor("test-flavor").Label(instanceKey, "test-flavor").Obj()
 				gomega.Expect(k8sClient.Create(ctx, testFlavor)).Should(gomega.Succeed())
-				admissionCheck = testing.MakeAdmissionCheck("check").Obj()
-				gomega.Expect(k8sClient.Create(ctx, admissionCheck)).To(gomega.Succeed())
 
 				podLookupKey = &types.NamespacedName{Name: podName, Namespace: ns.Name}
 				wlLookupKey = &types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(podName), Namespace: ns.Name}
