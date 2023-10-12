@@ -16,4 +16,4 @@ If you are using Kueue, feel free to open a pull request to add your organizatio
 | [CyberAgent, Inc.](https://www.cyberagent.co.jp/en/) | End User | On-premise ML Platform | batch/job </br> kubeflow.org/mpijob | [@tenzen-y](https://github.com/tenzen-y) |
 | [DaoCloud, Inc.](https://www.daocloud.io/en/) | End User | Part of the AI Platform for managing all kinds of Jobs. | batch/job </br> RayJob </br> ... | [@kerthcet](https://github.com/kerthcet) |
 | [WattIQ, Inc.](https://wattiq.io) | End User | SaaS/IoT product | batch/job </br> RayJob </br> | [@madsenwattiq](https://github.com/madsenwattiq) |
-| [Horizon, Inc.](https://horizon.cc/) | End User | AI training platform | batch/job </br> ... | [@kerthcet](https://github.com/kerthcet) |
+| [Horizon, Inc.](https://horizon.cc/) | End User | AI training platform | batch/job </br> ... | [@GhangZh](https://github.com/GhangZh) |
