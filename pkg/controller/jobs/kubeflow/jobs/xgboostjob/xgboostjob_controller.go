@@ -62,7 +62,7 @@ var NewReconciler = jobframework.NewGenericReconciler(func() jobframework.Generi
 }, nil)
 
 func isXGBoostJob(owner *metav1.OwnerReference) bool {
-	return owner.Kind == kftraining.XGBoostJobKind && strings.HasPrefix(owner.APIVersion, kftraining.SchemeGroupVersion.Group)
+	return owner.Kind == "XGBoostJob" && strings.HasPrefix(owner.APIVersion, "kubeflow.org")
 }
 
 type JobControl kftraining.XGBoostJob
