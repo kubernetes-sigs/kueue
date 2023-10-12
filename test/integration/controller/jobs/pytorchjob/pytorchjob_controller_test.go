@@ -338,7 +338,7 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
-	ginkgo.FWhen("the queue has admission checks", func() {
+	ginkgo.When("the queue has admission checks", func() {
 		var (
 			clusterQueueAc *kueue.ClusterQueue
 			localQueue     *kueue.LocalQueue

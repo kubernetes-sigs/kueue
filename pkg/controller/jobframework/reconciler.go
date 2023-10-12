@@ -645,14 +645,14 @@ func extractPriorityFromPodSets(podSets []kueue.PodSet) string {
 	return ""
 }
 
-// getPodSetsInfoFromStatus extracts podSetsInfos from workload status, based on
+// getPodSetsInfoFromStatus extracts podSetInfos from workload status, based on
 // admission, and admission checks.
 func (r *JobReconciler) getPodSetsInfoFromStatus(ctx context.Context, w *kueue.Workload) ([]PodSetInfo, error) {
 	if len(w.Status.Admission.PodSetAssignments) == 0 {
 		return nil, nil
 	}
 
-	podsSetInfos := make([]PodSetInfo, len(w.Status.Admission.PodSetAssignments))
+	podSetInfos := make([]PodSetInfo, len(w.Status.Admission.PodSetAssignments))
 
 	for i, podSetFlavor := range w.Status.Admission.PodSetAssignments {
 		processedFlvs := sets.NewString()
@@ -692,9 +692,9 @@ func (r *JobReconciler) getPodSetsInfoFromStatus(ctx context.Context, w *kueue.W
 				}
 			}
 		}
-		podsSetInfos[i] = podSetInfo
+		podSetInfos[i] = podSetInfo
 	}
-	return podsSetInfos, nil
+	return podSetInfos, nil
 }
 
 func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job GenericJob, object client.Object) error {
