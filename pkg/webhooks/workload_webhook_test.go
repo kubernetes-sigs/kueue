@@ -396,8 +396,8 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		before, after *kueue.Workload
 		wantErr       field.ErrorList
 	}{
-		"podSets should not be updated: count": {
-			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
+		"podSets should not be updated when has quota reservation: count": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).ReserveQuota(testingutil.MakeAdmission("cq").Obj()).Obj(),
 			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
 				*testingutil.MakePodSet("main", 2).Obj(),
 			).Obj(),
@@ -406,7 +406,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			},
 		},
 		"podSets should not be updated: podSpec": {
-			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).ReserveQuota(testingutil.MakeAdmission("cq").Obj()).Obj(),
 			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
 				kueue.PodSet{
 					Name:  "main",
@@ -549,7 +549,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		"priorityClassSource should not be updated": {
 			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q").
 				PriorityClass("test-class").PriorityClassSource(constants.PodPriorityClassSource).
-				Priority(10).Obj(),
+				Priority(10).ReserveQuota(testingutil.MakeAdmission("cq").Obj()).Obj(),
 			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q").
 				PriorityClass("test-class").PriorityClassSource(constants.WorkloadPriorityClassSource).
 				Priority(10).Obj(),
@@ -560,7 +560,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		"priorityClassName should not be updated": {
 			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q").
 				PriorityClass("test-class-1").PriorityClassSource(constants.PodPriorityClassSource).
-				Priority(10).Obj(),
+				Priority(10).ReserveQuota(testingutil.MakeAdmission("cq").Obj()).Obj(),
 			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q").
 				PriorityClass("test-class-2").PriorityClassSource(constants.PodPriorityClassSource).
 				Priority(10).Obj(),
@@ -607,6 +607,46 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSetUpdates:      []kueue.PodSetUpdate{{Name: "first", Labels: map[string]string{"foo": "bar"}}, {Name: "second"}},
 				State:              kueue.CheckStateReady,
 			}).Obj(),
+		},
+		"updating priorityClassName before setting reserve quota for workload": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q").
+				PriorityClass("test-class-1").PriorityClassSource(constants.PodPriorityClassSource).
+				Priority(10).Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q").
+				PriorityClass("test-class-2").PriorityClassSource(constants.PodPriorityClassSource).
+				Priority(10).Obj(),
+			wantErr: nil,
+		},
+		"updating priorityClassSource before setting reserve quota for workload": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q").
+				PriorityClass("test-class").PriorityClassSource(constants.PodPriorityClassSource).
+				Priority(10).Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q").
+				PriorityClass("test-class").PriorityClassSource(constants.WorkloadPriorityClassSource).
+				Priority(10).Obj(),
+			wantErr: nil,
+		},
+		"updating podSets  before setting reserve quota for workload": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
+				kueue.PodSet{
+					Name:  "main",
+					Count: 1,
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name: "c-after",
+									Resources: corev1.ResourceRequirements{
+										Requests: make(corev1.ResourceList),
+									},
+								},
+							},
+						},
+					},
+				},
+			).Obj(),
+			wantErr: nil,
 		},
 	}
 	for name, tc := range testCases {

@@ -413,6 +413,12 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		}
 	}
 
+	var toUpdate *kueue.Workload
+	if match == nil && len(toDelete) > 0 && job.IsSuspended() && !workload.HasQuotaReservation(toDelete[0]) {
+		toUpdate = toDelete[0]
+		toDelete = toDelete[1:]
+	}
+
 	// If there is no matching workload and the job is running, suspend it.
 	if match == nil && !job.IsSuspended() {
 		log.V(2).Info("job with no matching workload, suspending")
@@ -437,14 +443,14 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 
 	// Delete duplicate workload instances.
 	existedWls := 0
-	for i := range toDelete {
-		wlKey := workload.Key(toDelete[i])
-		err := r.removeFinalizer(ctx, toDelete[i])
+	for _, wl := range toDelete {
+		wlKey := workload.Key(wl)
+		err := r.removeFinalizer(ctx, wl)
 		if err != nil && !apierrors.IsNotFound(err) {
 			return nil, fmt.Errorf("failed to remove workload finalizer for: %w ", err)
 		}
 
-		err = r.client.Delete(ctx, toDelete[i])
+		err = r.client.Delete(ctx, wl)
 		if err != nil && !apierrors.IsNotFound(err) {
 			return nil, fmt.Errorf("deleting not matching workload: %w", err)
 		}
@@ -460,6 +466,10 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			return nil, fmt.Errorf("%w: deleted %d workloads", ErrNoMatchingWorkloads, len(toDelete))
 		}
 		return nil, fmt.Errorf("%w: deleted %d workloads", ErrExtraWorkloads, len(toDelete))
+	}
+
+	if toUpdate != nil {
+		return r.updateWorkloadToMatchJob(ctx, job, object, toUpdate)
 	}
 
 	return match, nil
@@ -503,6 +513,21 @@ func (r *JobReconciler) equivalentToWorkload(job GenericJob, object client.Objec
 		}
 	}
 	return true
+}
+
+func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) (*kueue.Workload, error) {
+	newWl, err := r.constructWorkload(ctx, job, object)
+	if err != nil {
+		return nil, fmt.Errorf("can't construct workload for update: %w", err)
+	}
+	wl.Spec = newWl.Spec
+	if err = r.client.Update(ctx, wl); err != nil {
+		return nil, fmt.Errorf("updating existed workload: %w", err)
+	}
+
+	r.record.Eventf(object, corev1.EventTypeNormal, "UpdatedWorkload",
+		"Updated not matching Workload for suspended job: %v", wl)
+	return newWl, nil
 }
 
 // startJob will unsuspend the job, and also inject the node affinity.
