@@ -62,7 +62,7 @@ var NewReconciler = jobframework.NewGenericReconciler(func() jobframework.Generi
 }, nil)
 
 func isPyTorchJob(owner *metav1.OwnerReference) bool {
-	return owner.Kind == "PyTorchJob" && strings.HasPrefix(owner.APIVersion, "kubeflow.org")
+	return owner.Kind == kftraining.PyTorchJobKind && strings.HasPrefix(owner.APIVersion, kftraining.SchemeGroupVersion.Group)
 }
 
 type JobControl kftraining.PyTorchJob
