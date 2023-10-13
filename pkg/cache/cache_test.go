@@ -2118,7 +2118,7 @@ func TestLocalQueueUsage(t *testing.T) {
 					t.Fatalf("Workload %s was not added", workload.Key(&w))
 				}
 			}
-			gotUsage, err := cache.LocalQueueUsage(&localQueue)
+			gotUsage, err := cache.LocalQueueReservations(&localQueue)
 			if err != nil {
 				t.Fatalf("Couldn't get usage for the queue: %v", err)
 			}
@@ -2164,14 +2164,18 @@ func TestCacheQueueOperations(t *testing.T) {
 				utiltesting.MakeAdmission("foo").
 					Assignment("cpu", "spot", "2").
 					Assignment("memory", "spot", "8Gi").Obj(),
-			).Obj(),
+			).
+			Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
+			Obj(),
 		utiltesting.MakeWorkload("job2", "ns2").
 			Queue("beta").
 			Request("example.com/gpu", "2").
 			ReserveQuota(
 				utiltesting.MakeAdmission("foo").
 					Assignment("example.com/gpu", "model-a", "2").Obj(),
-			).Obj(),
+			).
+			Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
+			Obj(),
 		utiltesting.MakeWorkload("job3", "ns1").
 			Queue("gamma").
 			Request("cpu", "5").
@@ -2225,9 +2229,19 @@ func TestCacheQueueOperations(t *testing.T) {
 	}
 	cacheLocalQueuesAfterInsertingAll := map[string]*queue{
 		"ns1/alpha": {
-			key:               "ns1/alpha",
-			admittedWorkloads: 1,
+			key:                "ns1/alpha",
+			reservingWorkloads: 1,
+			admittedWorkloads:  1,
 			usage: FlavorResourceQuantities{
+				"spot": {
+					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("2")),
+					corev1.ResourceMemory: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("8Gi")),
+				},
+				"model-a": {
+					"example.com/gpu": workload.ResourceValue("example.com/gpu", resource.MustParse("0")),
+				},
+			},
+			admittedUsage: FlavorResourceQuantities{
 				"spot": {
 					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("2")),
 					corev1.ResourceMemory: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("8Gi")),
@@ -2238,8 +2252,9 @@ func TestCacheQueueOperations(t *testing.T) {
 			},
 		},
 		"ns2/beta": {
-			key:               "ns2/beta",
-			admittedWorkloads: 2,
+			key:                "ns2/beta",
+			reservingWorkloads: 2,
+			admittedWorkloads:  1,
 			usage: FlavorResourceQuantities{
 				"spot": {
 					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
@@ -2249,10 +2264,20 @@ func TestCacheQueueOperations(t *testing.T) {
 					"example.com/gpu": workload.ResourceValue("example.com/gpu", resource.MustParse("7")),
 				},
 			},
+			admittedUsage: FlavorResourceQuantities{
+				"spot": {
+					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
+					corev1.ResourceMemory: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
+				},
+				"model-a": {
+					"example.com/gpu": workload.ResourceValue("example.com/gpu", resource.MustParse("2")),
+				},
+			},
 		},
 		"ns1/gamma": {
-			key:               "ns1/gamma",
-			admittedWorkloads: 1,
+			key:                "ns1/gamma",
+			reservingWorkloads: 1,
+			admittedWorkloads:  0,
 			usage: FlavorResourceQuantities{
 				"ondemand": {
 					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("5")),
@@ -2262,13 +2287,32 @@ func TestCacheQueueOperations(t *testing.T) {
 					"example.com/gpu": workload.ResourceValue("example.com/gpu", resource.MustParse("0")),
 				},
 			},
+			admittedUsage: FlavorResourceQuantities{
+				"ondemand": {
+					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
+					corev1.ResourceMemory: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
+				},
+				"model-b": {
+					"example.com/gpu": workload.ResourceValue("example.com/gpu", resource.MustParse("0")),
+				},
+			},
 		},
 	}
 	cacheLocalQueuesAfterInsertingCqAndQ := map[string]*queue{
 		"ns1/alpha": {
-			key:               "ns1/alpha",
-			admittedWorkloads: 0,
+			key:                "ns1/alpha",
+			reservingWorkloads: 0,
+			admittedWorkloads:  0,
 			usage: FlavorResourceQuantities{
+				"spot": {
+					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
+					corev1.ResourceMemory: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
+				},
+				"model-a": {
+					"example.com/gpu": workload.ResourceValue("example.com/gpu", resource.MustParse("0")),
+				},
+			},
+			admittedUsage: FlavorResourceQuantities{
 				"spot": {
 					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
 					corev1.ResourceMemory: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
@@ -2279,9 +2323,19 @@ func TestCacheQueueOperations(t *testing.T) {
 			},
 		},
 		"ns2/beta": {
-			key:               "ns2/beta",
-			admittedWorkloads: 0,
+			key:                "ns2/beta",
+			reservingWorkloads: 0,
+			admittedWorkloads:  0,
 			usage: FlavorResourceQuantities{
+				"spot": {
+					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
+					corev1.ResourceMemory: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
+				},
+				"model-a": {
+					"example.com/gpu": workload.ResourceValue("example.com/gpu", resource.MustParse("0")),
+				},
+			},
+			admittedUsage: FlavorResourceQuantities{
 				"spot": {
 					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
 					corev1.ResourceMemory: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
@@ -2292,9 +2346,19 @@ func TestCacheQueueOperations(t *testing.T) {
 			},
 		},
 		"ns1/gamma": {
-			key:               "ns1/gamma",
-			admittedWorkloads: 0,
+			key:                "ns1/gamma",
+			reservingWorkloads: 0,
+			admittedWorkloads:  0,
 			usage: FlavorResourceQuantities{
+				"ondemand": {
+					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
+					corev1.ResourceMemory: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
+				},
+				"model-b": {
+					"example.com/gpu": workload.ResourceValue("example.com/gpu", resource.MustParse("0")),
+				},
+			},
+			admittedUsage: FlavorResourceQuantities{
 				"ondemand": {
 					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
 					corev1.ResourceMemory: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),

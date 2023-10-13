@@ -172,6 +172,20 @@ func (c *Cache) CleanUpOnContext(ctx context.Context) {
 	c.podsReadyCond.Broadcast()
 }
 
+func (c *Cache) ReservingWorkloadsInLocalQueue(localQueue *kueue.LocalQueue) int32 {
+	c.Lock()
+	defer c.Unlock()
+	cq, ok := c.clusterQueues[string(localQueue.Spec.ClusterQueue)]
+	if !ok {
+		return 0
+	}
+	qImpl, ok := cq.localQueues[queueKey(localQueue)]
+	if !ok {
+		return 0
+	}
+	return int32(qImpl.reservingWorkloads)
+}
+
 func (c *Cache) AdmittedWorkloadsInLocalQueue(localQueue *kueue.LocalQueue) int32 {
 	c.Lock()
 	defer c.Unlock()
@@ -314,11 +328,13 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 	for _, q := range queues.Items {
 		qKey := queueKey(&q)
 		qImpl := &queue{
-			key:               qKey,
-			admittedWorkloads: 0,
-			usage:             make(FlavorResourceQuantities),
+			key:                qKey,
+			reservingWorkloads: 0,
+			admittedWorkloads:  0,
+			usage:              make(FlavorResourceQuantities),
+			admittedUsage:      make(FlavorResourceQuantities),
 		}
-		if err = qImpl.resetFlavorsAndResources(cqImpl.Usage); err != nil {
+		if err = qImpl.resetFlavorsAndResources(cqImpl.Usage, cqImpl.AdmittedUsage); err != nil {
 			return err
 		}
 		cqImpl.localQueues[qKey] = qImpl
@@ -351,7 +367,7 @@ func (c *Cache) UpdateClusterQueue(cq *kueue.ClusterQueue) error {
 		if qImpl == nil {
 			return errQNotFound
 		}
-		if err := qImpl.resetFlavorsAndResources(cqImpl.Usage); err != nil {
+		if err := qImpl.resetFlavorsAndResources(cqImpl.Usage, cqImpl.AdmittedUsage); err != nil {
 			return err
 		}
 	}
@@ -614,6 +630,22 @@ func getUsage(frq FlavorResourceQuantities, rgs []ResourceGroup, cohort *Cohort)
 	return usage
 }
 
+func (c *Cache) LocalQueueReservations(qObj *kueue.LocalQueue) ([]kueue.LocalQueueFlavorUsage, error) {
+	c.RLock()
+	defer c.RUnlock()
+
+	cqImpl, ok := c.clusterQueues[string(qObj.Spec.ClusterQueue)]
+	if !ok {
+		return nil, nil
+	}
+	qImpl, ok := cqImpl.localQueues[queueKey(qObj)]
+	if !ok {
+		return nil, errQNotFound
+	}
+
+	return filterLocalQueueUsage(qImpl.usage, cqImpl.ResourceGroups), nil
+}
+
 func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) ([]kueue.LocalQueueFlavorUsage, error) {
 	c.RLock()
 	defer c.RUnlock()
@@ -627,10 +659,14 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) ([]kueue.LocalQueueFlavo
 		return nil, errQNotFound
 	}
 
-	qFlvUsages := make([]kueue.LocalQueueFlavorUsage, 0, len(qImpl.usage))
-	for _, rg := range cqImpl.ResourceGroups {
+	return filterLocalQueueUsage(qImpl.admittedUsage, cqImpl.ResourceGroups), nil
+}
+
+func filterLocalQueueUsage(orig FlavorResourceQuantities, resourceGroups []ResourceGroup) []kueue.LocalQueueFlavorUsage {
+	qFlvUsages := make([]kueue.LocalQueueFlavorUsage, 0, len(orig))
+	for _, rg := range resourceGroups {
 		for _, flvQuotas := range rg.Flavors {
-			flvUsage := qImpl.usage[flvQuotas.Name]
+			flvUsage := orig[flvQuotas.Name]
 			outFlvUsage := kueue.LocalQueueFlavorUsage{
 				Name:      flvQuotas.Name,
 				Resources: make([]kueue.LocalQueueResourceUsage, 0, len(flvQuotas.Resources)),
@@ -648,7 +684,7 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) ([]kueue.LocalQueueFlavo
 			qFlvUsages = append(qFlvUsages, outFlvUsage)
 		}
 	}
-	return qFlvUsages, nil
+	return qFlvUsages
 }
 
 func (c *Cache) cleanupAssumedState(w *kueue.Workload) {

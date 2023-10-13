@@ -85,9 +85,11 @@ type ResourceQuota struct {
 type FlavorResourceQuantities map[kueue.ResourceFlavorReference]map[corev1.ResourceName]int64
 
 type queue struct {
-	key               string
-	admittedWorkloads int
-	usage             FlavorResourceQuantities
+	key                string
+	reservingWorkloads int
+	admittedWorkloads  int
+	usage              FlavorResourceQuantities
+	admittedUsage      FlavorResourceQuantities
 }
 
 func newCohort(name string, size int) *Cohort {
@@ -374,10 +376,13 @@ func (c *ClusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 		updateUsage(wi, c.AdmittedUsage, m)
 	}
 	qKey := workload.QueueKey(wi.Obj)
-	if _, ok := c.localQueues[qKey]; ok {
-		// todo: track admitted in local queues
-		updateUsage(wi, c.localQueues[qKey].usage, m)
-		c.localQueues[qKey].admittedWorkloads += int(m)
+	if lq, ok := c.localQueues[qKey]; ok {
+		updateUsage(wi, lq.usage, m)
+		lq.reservingWorkloads += int(m)
+		if admitted {
+			updateUsage(wi, lq.admittedUsage, m)
+			lq.admittedWorkloads += int(m)
+		}
 	}
 }
 
@@ -403,17 +408,21 @@ func (c *ClusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	// We need to count the workloads, because they could have been added before
 	// receiving the queue add event.
 	qImpl := &queue{
-		key:               qKey,
-		admittedWorkloads: 0,
-		usage:             make(FlavorResourceQuantities),
+		key:                qKey,
+		reservingWorkloads: 0,
+		usage:              make(FlavorResourceQuantities),
 	}
-	if err := qImpl.resetFlavorsAndResources(c.Usage); err != nil {
+	if err := qImpl.resetFlavorsAndResources(c.Usage, c.AdmittedUsage); err != nil {
 		return err
 	}
 	for _, wl := range c.Workloads {
 		if workloadBelongsToLocalQueue(wl.Obj, q) {
 			updateUsage(wl, qImpl.usage, 1)
-			qImpl.admittedWorkloads++
+			qImpl.reservingWorkloads++
+			if workload.IsAdmitted(wl.Obj) {
+				updateUsage(wl, qImpl.admittedUsage, 1)
+				qImpl.admittedWorkloads++
+			}
 		}
 	}
 	c.localQueues[qKey] = qImpl
@@ -436,19 +445,24 @@ func (c *ClusterQueue) flavorInUse(flavor string) bool {
 	return false
 }
 
-func (q *queue) resetFlavorsAndResources(cqUsage FlavorResourceQuantities) error {
+func (q *queue) resetFlavorsAndResources(cqUsage FlavorResourceQuantities, cqAdmittedUsage FlavorResourceQuantities) error {
 	// Clean up removed flavors or resources.
+	q.usage = resetUsage(q.usage, cqUsage)
+	q.admittedUsage = resetUsage(q.admittedUsage, cqAdmittedUsage)
+	return nil
+}
+
+func resetUsage(lqUsage FlavorResourceQuantities, cqUsage FlavorResourceQuantities) FlavorResourceQuantities {
 	usedFlavorResources := make(FlavorResourceQuantities)
 	for cqFlv, cqRes := range cqUsage {
-		existingUsedResources := q.usage[cqFlv]
+		existingUsedResources := lqUsage[cqFlv]
 		usedResources := make(map[corev1.ResourceName]int64, len(cqRes))
 		for rName := range cqRes {
 			usedResources[rName] = existingUsedResources[rName]
 		}
 		usedFlavorResources[cqFlv] = usedResources
 	}
-	q.usage = usedFlavorResources
-	return nil
+	return usedFlavorResources
 }
 
 func workloadBelongsToLocalQueue(wl *kueue.Workload, q *kueue.LocalQueue) bool {
