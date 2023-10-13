@@ -566,6 +566,6 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		gomega.Expect(createdJob.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeMaster].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
 		gomega.Expect(createdJob.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeWorker].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
-		util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 1)
+		util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 	})
 })

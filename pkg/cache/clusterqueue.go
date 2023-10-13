@@ -28,6 +28,7 @@ type ClusterQueue struct {
 	ResourceGroups    []ResourceGroup
 	RGByResource      map[corev1.ResourceName]*ResourceGroup
 	Usage             FlavorResourceQuantities
+	AdmittedUsage     FlavorResourceQuantities
 	Workloads         map[string]*workload.Info
 	WorkloadsNotReady sets.Set[string]
 	NamespaceSelector labels.Selector
@@ -151,22 +152,10 @@ func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.
 	}
 	c.NamespaceSelector = nsSelector
 
-	// Cleanup removed flavors or resources.
-	usedFlavorResources := make(FlavorResourceQuantities)
-	for _, rg := range in.Spec.ResourceGroups {
-		for _, f := range rg.Flavors {
-			existingUsedResources := c.Usage[f.Name]
-			usedResources := make(map[corev1.ResourceName]int64, len(f.Resources))
-			for _, r := range f.Resources {
-				usedResources[r.Name] = existingUsedResources[r.Name]
-			}
-			usedFlavorResources[f.Name] = usedResources
-		}
-	}
-
 	c.AdmissionChecks = sets.New(in.Spec.AdmissionChecks...)
 
-	c.Usage = usedFlavorResources
+	c.Usage = filterQuantities(c.Usage, in.Spec.ResourceGroups)
+	c.AdmittedUsage = filterQuantities(c.AdmittedUsage, in.Spec.ResourceGroups)
 	c.UpdateWithFlavors(resourceFlavors)
 	c.updateWithAdmissionChecks(admissionChecks)
 
@@ -189,6 +178,21 @@ func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.
 	}
 
 	return nil
+}
+
+func filterQuantities(orig FlavorResourceQuantities, resourceGroups []kueue.ResourceGroup) FlavorResourceQuantities {
+	ret := make(FlavorResourceQuantities)
+	for _, rg := range resourceGroups {
+		for _, f := range rg.Flavors {
+			existingUsedResources := orig[f.Name]
+			usedResources := make(map[corev1.ResourceName]int64, len(f.Resources))
+			for _, r := range f.Resources {
+				usedResources[r.Name] = existingUsedResources[r.Name]
+			}
+			ret[f.Name] = usedResources
+		}
+	}
+	return ret
 }
 
 func (c *ClusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
@@ -324,7 +328,7 @@ func (c *ClusterQueue) addWorkload(w *kueue.Workload) error {
 	if c.podsReadyTracking && !apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadPodsReady) {
 		c.WorkloadsNotReady.Insert(k)
 	}
-	reportAdmittedActiveWorkloads(wi.ClusterQueue, len(c.Workloads))
+	c.reportActiveWorkloads()
 	return nil
 }
 
@@ -341,16 +345,37 @@ func (c *ClusterQueue) deleteWorkload(w *kueue.Workload) {
 	// we only increase the AllocatableResourceGeneration cause the add of workload won't make more
 	// workloads fit in ClusterQueue.
 	c.AllocatableResourceGeneration++
+
 	delete(c.Workloads, k)
-	reportAdmittedActiveWorkloads(wi.ClusterQueue, len(c.Workloads))
+	c.reportActiveWorkloads()
+}
+
+func (c *ClusterQueue) reportActiveWorkloads() {
+	metrics.AdmittedActiveWorkloads.WithLabelValues(c.Name).Set(float64(c.admittedWorkloadsCount()))
+	metrics.ReservingActiveWorkloads.WithLabelValues(c.Name).Set(float64(len(c.Workloads)))
+}
+
+func (c *ClusterQueue) admittedWorkloadsCount() int {
+	count := 0
+	for _, wi := range c.Workloads {
+		if workload.IsAdmitted(wi.Obj) {
+			count++
+		}
+	}
+	return count
 }
 
 // updateWorkloadUsage updates the usage of the ClusterQueue for the workload
 // and the number of admitted workloads for local queues.
 func (c *ClusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
+	admitted := workload.IsAdmitted(wi.Obj)
 	updateUsage(wi, c.Usage, m)
+	if admitted {
+		updateUsage(wi, c.AdmittedUsage, m)
+	}
 	qKey := workload.QueueKey(wi.Obj)
 	if _, ok := c.localQueues[qKey]; ok {
+		// todo: track admitted in local queues
 		updateUsage(wi, c.localQueues[qKey].usage, m)
 		c.localQueues[qKey].admittedWorkloads += int(m)
 	}
@@ -428,8 +453,4 @@ func (q *queue) resetFlavorsAndResources(cqUsage FlavorResourceQuantities) error
 
 func workloadBelongsToLocalQueue(wl *kueue.Workload, q *kueue.LocalQueue) bool {
 	return wl.Namespace == q.Namespace && wl.Spec.QueueName == q.Name
-}
-
-func reportAdmittedActiveWorkloads(cqName string, val int) {
-	metrics.AdmittedActiveWorkloads.WithLabelValues(cqName).Set(float64(val))
 }

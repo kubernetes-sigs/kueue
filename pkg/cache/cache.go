@@ -554,8 +554,8 @@ func (c *Cache) ForgetWorkload(w *kueue.Workload) error {
 	return nil
 }
 
-// Usage reports the used resources and number of workloads admitted by the ClusterQueue.
-func (c *Cache) Usage(cqObj *kueue.ClusterQueue) ([]kueue.FlavorUsage, int, error) {
+// ReservationStats reports the reserved resources and number of workloads holding them in the ClusterQueue.
+func (c *Cache) ReservationStats(cqObj *kueue.ClusterQueue) ([]kueue.FlavorUsage, int, error) {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -564,10 +564,27 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) ([]kueue.FlavorUsage, int, erro
 		return nil, 0, errCqNotFound
 	}
 
-	usage := make([]kueue.FlavorUsage, 0, len(cq.Usage))
-	for _, rg := range cq.ResourceGroups {
+	return getUsage(cq.Usage, cq.ResourceGroups, cq.Cohort), len(cq.Workloads), nil
+}
+
+// UsageStats reports the used resources and number of workloads holding them in the ClusterQueue.
+func (c *Cache) UsageStats(cqObj *kueue.ClusterQueue) ([]kueue.FlavorUsage, int, error) {
+	c.RLock()
+	defer c.RUnlock()
+
+	cq := c.clusterQueues[cqObj.Name]
+	if cq == nil {
+		return nil, 0, errCqNotFound
+	}
+
+	return getUsage(cq.AdmittedUsage, cq.ResourceGroups, cq.Cohort), cq.admittedWorkloadsCount(), nil
+}
+
+func getUsage(frq FlavorResourceQuantities, rgs []ResourceGroup, cohort *Cohort) []kueue.FlavorUsage {
+	usage := make([]kueue.FlavorUsage, 0, len(frq))
+	for _, rg := range rgs {
 		for _, flvQuotas := range rg.Flavors {
-			flvUsage := cq.Usage[flvQuotas.Name]
+			flvUsage := frq[flvQuotas.Name]
 			outFlvUsage := kueue.FlavorUsage{
 				Name:      flvQuotas.Name,
 				Resources: make([]kueue.ResourceUsage, 0, len(flvQuotas.Resources)),
@@ -579,7 +596,7 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) ([]kueue.FlavorUsage, int, erro
 					Total: workload.ResourceQuantity(rName, used),
 				}
 				// Enforce `borrowed=0` if the clusterQueue doesn't belong to a cohort.
-				if cq.Cohort != nil {
+				if cohort != nil {
 					borrowed := used - rQuota.Nominal
 					if borrowed > 0 {
 						rUsage.Borrowed = workload.ResourceQuantity(rName, borrowed)
@@ -594,7 +611,7 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) ([]kueue.FlavorUsage, int, erro
 			usage = append(usage, outFlvUsage)
 		}
 	}
-	return usage, len(cq.Workloads), nil
+	return usage
 }
 
 func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) ([]kueue.LocalQueueFlavorUsage, error) {

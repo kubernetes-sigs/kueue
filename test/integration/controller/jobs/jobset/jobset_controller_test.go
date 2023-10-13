@@ -881,7 +881,7 @@ var _ = ginkgo.Describe("JobSet controller interacting with scheduler", ginkgo.O
 		gomega.Expect(createdJobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
 		gomega.Expect(createdJobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
-		util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 1)
+		util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 
 	})
 
@@ -917,7 +917,7 @@ var _ = ginkgo.Describe("JobSet controller interacting with scheduler", ginkgo.O
 				return createdJobSet1.Spec.Suspend
 			}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(false)))
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
-			util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 1)
+			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 		})
 
 		jobSet2 := testingjobset.MakeJobSet("dev-jobset2", ns.Name).ReplicatedJobs(
@@ -947,7 +947,7 @@ var _ = ginkgo.Describe("JobSet controller interacting with scheduler", ginkgo.O
 				return createdJobSet2.Spec.Suspend
 			}, util.ConsistentDuration, util.Interval).Should(gomega.Equal(ptr.To(true)))
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
-			util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 1)
+			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 		})
 
 		ginkgo.By("checking the second job starts when the first one needs less then two cpus", func() {
@@ -988,7 +988,7 @@ var _ = ginkgo.Describe("JobSet controller interacting with scheduler", ginkgo.O
 				return createdJobSet2.Spec.Suspend
 			}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(false)))
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
-			util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 2)
+			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 2)
 		})
 	})
 })
