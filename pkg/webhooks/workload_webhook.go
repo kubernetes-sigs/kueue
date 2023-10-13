@@ -187,7 +187,7 @@ func validateAdmission(obj *kueue.Workload, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, validateNameReference(string(admission.ClusterQueue), path.Child("clusterQueue"))...)
 
-	names := sets.NewString()
+	names := sets.New[string]()
 	for _, ps := range obj.Spec.PodSets {
 		names.Insert(ps.Name)
 	}
