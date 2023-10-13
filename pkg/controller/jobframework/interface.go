@@ -37,7 +37,7 @@ type GenericJob interface {
 	RunWithPodSetsInfo(nodeSelectors []PodSetInfo) error
 	// RestorePodSetsInfo will restore the original node affinity and podSet counts of the job.
 	// Returns whether any change was done.
-	RestorePodSetsInfo(podSetInfos []PodSetInfo) bool
+	RestorePodSetsInfo(nodeSelectors []PodSetInfo) bool
 	// Finished means whether the job is completed/failed or not,
 	// condition represents the workload finished condition.
 	Finished() (condition metav1.Condition, finished bool)
