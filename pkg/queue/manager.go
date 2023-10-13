@@ -180,6 +180,7 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		if err != nil {
 			continue
 		}
+    workload.AdjustResources(ctx, m.client, &w, pts)
 		qImpl.AddOrUpdate(workload.NewInfo(&w, pts))
 	}
 	cq := m.clusterQueues[qImpl.ClusterQueue]

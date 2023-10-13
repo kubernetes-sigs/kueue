@@ -45,8 +45,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/podtemplate"
 	"sigs.k8s.io/kueue/pkg/queue"
-	"sigs.k8s.io/kueue/pkg/util/limitrange"
-	"sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -329,8 +327,7 @@ func (r *WorkloadReconciler) Create(e event.CreateEvent) bool {
 		log.Error(err, "Failed to extract pod template by workload name")
 	}
 
-	wlCopy := wl.DeepCopy()
-	r.adjustResources(ctx, wlCopy, pts)
+	workload.AdjustResources(ctx, r.client, wlCopy, pts)
 
 	if !workload.HasQuotaReservation(wl) {
 		if !r.queues.AddOrUpdateWorkload(wlCopy, pts) {
@@ -421,7 +418,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 
 	wlCopy := wl.DeepCopy()
 	// We do not handle old workload here as it will be deleted or replaced by new one anyway.
-	r.adjustResources(ctx, wlCopy, pts)
+  workload.AdjustResources(ctrl.LoggerInto(ctx, log), r.client, wlCopy, pts)
 
 	switch {
 	case status == finished:
@@ -541,79 +538,6 @@ func workloadStatus(w *kueue.Workload) string {
 	return pending
 }
 
-// We do not verify Pod's RuntimeClass legality here as this will be performed in admission controller.
-// As a result, the pod's Overhead is not always correct. E.g. if we set a non-existent runtime class name to
-// `pod.Spec.RuntimeClassName` and we also set the `pod.Spec.Overhead`, in real world, the pod creation will be
-// rejected due to the mismatch with RuntimeClass. However, in the future we assume that they are correct.
-func (r *WorkloadReconciler) handlePodOverhead(ctx context.Context, pts map[string]*corev1.PodTemplateSpec) {
-	log := ctrl.LoggerFrom(ctx)
-	for _, pt := range pts {
-		podSpec := &pt.Spec
-		if podSpec.RuntimeClassName != nil && len(podSpec.Overhead) == 0 {
-			var runtimeClass nodev1.RuntimeClass
-			if err := r.client.Get(ctx, types.NamespacedName{Name: *podSpec.RuntimeClassName}, &runtimeClass); err != nil {
-				log.Error(err, "Could not get RuntimeClass")
-			}
-			if runtimeClass.Overhead != nil {
-				podSpec.Overhead = runtimeClass.Overhead.PodFixed
-			}
-		}
-	}
-}
-
-func (r *WorkloadReconciler) handlePodLimitRange(ctx context.Context, wl *kueue.Workload, pts map[string]*corev1.PodTemplateSpec) {
-	log := ctrl.LoggerFrom(ctx)
-	// get the list of limit ranges
-	var list corev1.LimitRangeList
-	if err := r.client.List(ctx, &list, &client.ListOptions{Namespace: wl.Namespace}, client.MatchingFields{indexer.LimitRangeHasContainerType: "true"}); err != nil {
-		log.Error(err, "Could not list LimitRanges")
-		return
-	}
-
-	if len(list.Items) == 0 {
-		return
-	}
-	summary := limitrange.Summarize(list.Items...)
-	containerLimits, found := summary[corev1.LimitTypeContainer]
-	if !found {
-		return
-	}
-
-	for _, pt := range pts {
-		pod := pt
-		for ci := range pod.Spec.InitContainers {
-			res := &pod.Spec.InitContainers[ci].Resources
-			res.Limits = resource.MergeResourceListKeepFirst(res.Limits, containerLimits.Default)
-			res.Requests = resource.MergeResourceListKeepFirst(res.Requests, containerLimits.DefaultRequest)
-		}
-		for ci := range pod.Spec.Containers {
-			res := &pod.Spec.Containers[ci].Resources
-			res.Limits = resource.MergeResourceListKeepFirst(res.Limits, containerLimits.Default)
-			res.Requests = resource.MergeResourceListKeepFirst(res.Requests, containerLimits.DefaultRequest)
-		}
-	}
-}
-
-func (r *WorkloadReconciler) handleLimitsToRequests(pts map[string]*corev1.PodTemplateSpec) {
-	for _, pt := range pts {
-		pod := &pt.Spec
-		for ci := range pod.InitContainers {
-			res := &pod.InitContainers[ci].Resources
-			res.Requests = resource.MergeResourceListKeepFirst(res.Requests, res.Limits)
-		}
-		for ci := range pod.Containers {
-			res := &pod.Containers[ci].Resources
-			res.Requests = resource.MergeResourceListKeepFirst(res.Requests, res.Limits)
-		}
-	}
-}
-
-func (r *WorkloadReconciler) adjustResources(ctx context.Context, wl *kueue.Workload, pts map[string]*corev1.PodTemplateSpec) {
-	r.handlePodOverhead(ctx, pts)
-	r.handlePodLimitRange(ctx, wl, pts)
-	r.handleLimitsToRequests(pts)
-}
-
 type resourceUpdatesHandler struct {
 	r *WorkloadReconciler
 }
@@ -673,7 +597,7 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, _
 		if err != nil {
 			log.Error(err, "Failed to extract pod template by workload name")
 		}
-		h.r.adjustResources(ctx, wlCopy, pts)
+		workload.AdjustResources(ctrl.LoggerInto(ctx, log), h.r.client, wlCopy, pts)
 		log.V(2).Info("queueReconcileForPending", "value", pts)
 		if !h.r.queues.AddOrUpdateWorkload(wlCopy, pts) {
 			log.V(2).Info("Queue for workload didn't exist")
@@ -700,7 +624,7 @@ func (h *resourceUpdatesHandler) queueReconcileForRuntimeClass(ctx context.Conte
 	log.V(2).Info("Updating pending workload requests", "count", len(workloadList))
 	for _, w := range workloadList {
 		wlCopy := w.DeepCopy()
-		h.r.adjustResources(ctx, wlCopy, pts)
+		workload.AdjustResources(ctrl.LoggerInto(ctx, log), h.r.client, wlCopy, pts)
 		if !h.r.queues.AddOrUpdateWorkload(wlCopy, pts) {
 			log.V(2).Info("Queue for workload didn't exist")
 		}
