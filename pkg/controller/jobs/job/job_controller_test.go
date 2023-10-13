@@ -210,9 +210,10 @@ func TestPodSetsInfo(t *testing.T) {
 					},
 				},
 			},
+			wantRunError: jobframework.ErrInvalidPodSetUpdate,
 			wantUnsuspended: utiltestingjob.MakeJob("job", "ns").
 				Parallelism(1).
-				NodeSelector("orig-key", "new-val").
+				NodeSelector("orig-key", "orig-val").
 				Suspend(false).
 				Obj(),
 			restoreInfo: []jobframework.PodSetInfo{
@@ -341,6 +342,7 @@ var (
 			"ObjectMeta.Name", "ObjectMeta.ResourceVersion",
 		),
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
+		cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"),
 	}
 )
 
@@ -349,6 +351,7 @@ func TestReconciler(t *testing.T) {
 
 	baseJobWrapper := utiltestingjob.MakeJob("job", "ns").
 		Suspend(true).
+		Queue("foo").
 		Parallelism(10).
 		Request(corev1.ResourceCPU, "1").
 		Image("", nil)
@@ -368,6 +371,438 @@ func TestReconciler(t *testing.T) {
 		wantWorkloads     []kueue.Workload
 		wantErr           error
 	}{
+		"when workload is admitted the PodSetUpdates are propagated to job": {
+			job: *baseJobWrapper.Clone().
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(false).
+				PodLabel("ac-key", "ac-value").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "main",
+								Labels: map[string]string{
+									"ac-key": "ac-value",
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "main",
+								Labels: map[string]string{
+									"ac-key": "ac-value",
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+		},
+		"when workload is admitted and PodSetUpdates conflict between admission checks on labels, the workload is finished with failure": {
+			job: *baseJobWrapper.Clone().
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(true).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check1",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "main",
+								Labels: map[string]string{
+									"ac-key": "ac-value1",
+								},
+							},
+						},
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check2",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "main",
+								Labels: map[string]string{
+									"ac-key": "ac-value2",
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check1",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "main",
+								Labels: map[string]string{
+									"ac-key": "ac-value1",
+								},
+							},
+						},
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check2",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "main",
+								Labels: map[string]string{
+									"ac-key": "ac-value2",
+								},
+							},
+						},
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  "FailedToStart",
+						Message: `in admission check "check2": invalid admission check PodSetUpdate: conflict for labels: conflict for key=ac-key, value1=ac-value1, value2=ac-value2`,
+					}).
+					Obj(),
+			},
+		},
+		"when workload is admitted and PodSetUpdates conflict between admission checks on annotations, the workload is finished with failure": {
+			job: *baseJobWrapper.Clone().
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(true).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check1",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "main",
+								Annotations: map[string]string{
+									"ac-key": "ac-value1",
+								},
+							},
+						},
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check2",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "main",
+								Annotations: map[string]string{
+									"ac-key": "ac-value2",
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check1",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "main",
+								Annotations: map[string]string{
+									"ac-key": "ac-value1",
+								},
+							},
+						},
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check2",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "main",
+								Annotations: map[string]string{
+									"ac-key": "ac-value2",
+								},
+							},
+						},
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  "FailedToStart",
+						Message: `in admission check "check2": invalid admission check PodSetUpdate: conflict for annotations: conflict for key=ac-key, value1=ac-value1, value2=ac-value2`,
+					}).
+					Obj(),
+			},
+		},
+		"when workload is admitted and PodSetUpdates conflict between admission checks on nodeSelector, the workload is finished with failure": {
+			job: *baseJobWrapper.Clone().
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(true).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check1",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "main",
+								NodeSelector: map[string]string{
+									"ac-key": "ac-value1",
+								},
+							},
+						},
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check2",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "main",
+								NodeSelector: map[string]string{
+									"ac-key": "ac-value2",
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check1",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "main",
+								NodeSelector: map[string]string{
+									"ac-key": "ac-value1",
+								},
+							},
+						},
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check2",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "main",
+								NodeSelector: map[string]string{
+									"ac-key": "ac-value2",
+								},
+							},
+						},
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  "FailedToStart",
+						Message: `in admission check "check2": invalid admission check PodSetUpdate: conflict for nodeSelector: conflict for key=ac-key, value1=ac-value1, value2=ac-value2`,
+					}).
+					Obj(),
+			},
+		},
+		"when workload is admitted and PodSetUpdates conflict between admission check nodeSelector and current node selector, the workload is finished with failure": {
+			job: *baseJobWrapper.Clone().
+				NodeSelector("provisioning", "spot").
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(true).
+				NodeSelector("provisioning", "spot").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "main",
+								NodeSelector: map[string]string{
+									"provisioning": "on-demand",
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "main",
+								NodeSelector: map[string]string{
+									"provisioning": "on-demand",
+								},
+							},
+						},
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  "FailedToStart",
+						Message: `invalid admission check PodSetUpdate: conflict for nodeSelector: conflict for key=provisioning, value1=on-demand, value2=spot`,
+					}).
+					Obj(),
+			},
+		},
+		"when workload is admitted the PodSetUpdates values matching for key": {
+			job: *baseJobWrapper.Clone().
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(false).
+				PodAnnotation("annotation-key1", "common-value").
+				PodAnnotation("annotation-key2", "only-in-check1").
+				PodLabel("label-key1", "common-value").
+				NodeSelector("node-selector-key1", "common-value").
+				NodeSelector("node-selector-key2", "only-in-check2").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check1",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "main",
+								Labels: map[string]string{
+									"label-key1": "common-value",
+								},
+								Annotations: map[string]string{
+									"annotation-key1": "common-value",
+									"annotation-key2": "only-in-check1",
+								},
+								NodeSelector: map[string]string{
+									"node-selector-key1": "common-value",
+								},
+							},
+						},
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check2",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "main",
+								Labels: map[string]string{
+									"label-key1": "common-value",
+								},
+								Annotations: map[string]string{
+									"annotation-key1": "common-value",
+								},
+								NodeSelector: map[string]string{
+									"node-selector-key1": "common-value",
+									"node-selector-key2": "only-in-check2",
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					Admitted(true).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check1",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "main",
+								Labels: map[string]string{
+									"label-key1": "common-value",
+								},
+								Annotations: map[string]string{
+									"annotation-key1": "common-value",
+									"annotation-key2": "only-in-check1",
+								},
+								NodeSelector: map[string]string{
+									"node-selector-key1": "common-value",
+								},
+							},
+						},
+					}).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check2",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "main",
+								Labels: map[string]string{
+									"label-key1": "common-value",
+								},
+								Annotations: map[string]string{
+									"annotation-key1": "common-value",
+								},
+								NodeSelector: map[string]string{
+									"node-selector-key1": "common-value",
+									"node-selector-key2": "only-in-check2",
+								},
+							},
+						},
+					}).
+					Obj(),
+			},
+		},
 		"suspended job with matching admitted workload is unsuspended": {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
@@ -510,12 +945,10 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"the workload is not created when queue name is not set": {
-			job: *baseJobWrapper.
-				Clone().
+			job: *utiltestingjob.MakeJob("job", "ns").
 				Suspend(false).
 				Obj(),
-			wantJob: *baseJobWrapper.
-				Clone().
+			wantJob: *utiltestingjob.MakeJob("job", "ns").
 				Suspend(false).
 				Obj(),
 		},
@@ -664,7 +1097,6 @@ func TestReconciler(t *testing.T) {
 		},
 		"when workload is evicted, suspend, reset startTime and restore node affinity": {
 			job: *baseJobWrapper.Clone().
-				Queue("foo").
 				Suspend(false).
 				StartTime(time.Now()).
 				NodeSelector("provisioning", "spot").
@@ -683,7 +1115,6 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantJob: *baseJobWrapper.Clone().
-				Queue("foo").
 				Suspend(true).
 				Active(10).
 				Obj(),
@@ -701,7 +1132,6 @@ func TestReconciler(t *testing.T) {
 		},
 		"when workload is evicted but suspended, reset startTime and restore node affinity": {
 			job: *baseJobWrapper.Clone().
-				Queue("foo").
 				Suspend(true).
 				StartTime(time.Now()).
 				NodeSelector("provisioning", "spot").
@@ -719,7 +1149,6 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantJob: *baseJobWrapper.Clone().
-				Queue("foo").
 				Suspend(true).
 				Active(10).
 				Obj(),
@@ -737,7 +1166,6 @@ func TestReconciler(t *testing.T) {
 		},
 		"when workload is evicted, suspended and startTime is reset, restore node affinity": {
 			job: *baseJobWrapper.Clone().
-				Queue("foo").
 				Suspend(true).
 				NodeSelector("provisioning", "spot").
 				Active(10).
@@ -754,7 +1182,6 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantJob: *baseJobWrapper.Clone().
-				Queue("foo").
 				Suspend(true).
 				Active(10).
 				Obj(),
@@ -772,7 +1199,6 @@ func TestReconciler(t *testing.T) {
 		},
 		"when job completes, workload is marked as finished": {
 			job: *baseJobWrapper.Clone().
-				Queue("foo").
 				Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
 				Obj(),
 			workloads: []kueue.Workload{
@@ -784,7 +1210,6 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantJob: *baseJobWrapper.Clone().
-				Queue("foo").
 				Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
 				Obj(),
 			wantWorkloads: []kueue.Workload{
@@ -803,7 +1228,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when the workload is finished, its finalizer is removed": {
-			job: *baseJobWrapper.Clone().Queue("foo").Obj(),
+			job: *baseJobWrapper.Clone().Obj(),
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					Finalizers(kueue.ResourceInUseFinalizerName).
@@ -814,7 +1239,7 @@ func TestReconciler(t *testing.T) {
 					}).
 					Obj(),
 			},
-			wantJob: *baseJobWrapper.Clone().Queue("foo").Obj(),
+			wantJob: *baseJobWrapper.Clone().Obj(),
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "ns").
 					PodSets(*utiltesting.MakePodSet("main", 10).Request(corev1.ResourceCPU, "1").Obj()).

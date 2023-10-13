@@ -27,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -311,6 +312,126 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				createdWorkload := &kueue.Workload{}
 
 				gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(testing.BeNotFoundError())
+			})
+		})
+
+		ginkgo.When("the queue has admission checks", func() {
+			var (
+				clusterQueueAc *kueue.ClusterQueue
+				localQueue     *kueue.LocalQueue
+				testFlavor     *kueue.ResourceFlavor
+				podLookupKey   *types.NamespacedName
+				wlLookupKey    *types.NamespacedName
+				admissionCheck *kueue.AdmissionCheck
+			)
+
+			ginkgo.BeforeEach(func() {
+				admissionCheck = testing.MakeAdmissionCheck("check").Obj()
+				gomega.Expect(k8sClient.Create(ctx, admissionCheck)).To(gomega.Succeed())
+				util.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck, metav1.ConditionTrue)
+				clusterQueueAc = testing.MakeClusterQueue("prod-cq-with-checks").
+					ResourceGroup(
+						*testing.MakeFlavorQuotas("test-flavor").Resource(corev1.ResourceCPU, "5").Obj(),
+					).AdmissionChecks("check").Obj()
+				gomega.Expect(k8sClient.Create(ctx, clusterQueueAc)).Should(gomega.Succeed())
+				localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueueAc.Name).Obj()
+				gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+				testFlavor = testing.MakeResourceFlavor("test-flavor").Label(instanceKey, "test-flavor").Obj()
+				gomega.Expect(k8sClient.Create(ctx, testFlavor)).Should(gomega.Succeed())
+
+				podLookupKey = &types.NamespacedName{Name: podName, Namespace: ns.Name}
+				wlLookupKey = &types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(podName), Namespace: ns.Name}
+			})
+
+			ginkgo.AfterEach(func() {
+				gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+				gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+				gomega.Expect(util.DeleteAdmissionCheck(ctx, k8sClient, admissionCheck)).To(gomega.Succeed())
+				util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueueAc, true)
+				util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, testFlavor, true)
+			})
+
+			ginkgo.It("labels and annotations should be propagated from admission check to job", func() {
+				createdPod := &corev1.Pod{}
+				createdWorkload := &kueue.Workload{}
+
+				ginkgo.By("creating the job with pod labels & annotations", func() {
+					job := testingpod.MakePod(podName, ns.Name).
+						Queue(localQueue.Name).
+						Request(corev1.ResourceCPU, "5").
+						Annotation("old-ann-key", "old-ann-value").
+						Label("old-label-key", "old-label-value").
+						Obj()
+					gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("fetch the job and verify it is suspended as the checks are not ready", func() {
+					gomega.Eventually(func(g gomega.Gomega) []corev1.PodSchedulingGate {
+						g.Expect(k8sClient.Get(ctx, *podLookupKey, createdPod)).To(gomega.Succeed())
+						return createdPod.Spec.SchedulingGates
+					}, util.Timeout, util.Interval).Should(
+						gomega.ContainElement(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}),
+					)
+				})
+
+				ginkgo.By("fetch the created workload", func() {
+					gomega.Eventually(func() error {
+						return k8sClient.Get(ctx, *wlLookupKey, createdWorkload)
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("add labels & annotations to the admission check", func() {
+					gomega.Eventually(func() error {
+						var newWL kueue.Workload
+						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(createdWorkload), &newWL)).To(gomega.Succeed())
+						workload.SetAdmissionCheckState(&newWL.Status.AdmissionChecks, kueue.AdmissionCheckState{
+							Name:  "check",
+							State: kueue.CheckStateReady,
+							PodSetUpdates: []kueue.PodSetUpdate{
+								{
+									Name: "main",
+									Labels: map[string]string{
+										"label1": "label-value1",
+									},
+									Annotations: map[string]string{
+										"ann1": "ann-value1",
+									},
+									NodeSelector: map[string]string{
+										"selector1": "selector-value1",
+									},
+								},
+							},
+						})
+						return k8sClient.Status().Update(ctx, &newWL)
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("admit the workload", func() {
+					admission := testing.MakeAdmission(clusterQueueAc.Name).
+						Assignment(corev1.ResourceCPU, "test-flavor", "1").
+						AssignmentPodCount(createdWorkload.Spec.PodSets[0].Count).
+						Obj()
+					gomega.Expect(k8sClient.Get(ctx, *wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+					gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+				})
+
+				ginkgo.By("await for the job to be admitted", func() {
+					gomega.Eventually(func(g gomega.Gomega) []corev1.PodSchedulingGate {
+						g.Expect(k8sClient.Get(ctx, *podLookupKey, createdPod)).
+							To(gomega.Succeed())
+						return createdPod.Spec.SchedulingGates
+					}, util.Timeout, util.Interval).Should(gomega.BeEmpty())
+				})
+
+				ginkgo.By("verify the PodSetUpdates are propagated to the running job", func() {
+					gomega.Expect(createdPod.Annotations).Should(gomega.HaveKeyWithValue("ann1", "ann-value1"))
+					gomega.Expect(createdPod.Annotations).Should(gomega.HaveKeyWithValue("old-ann-key", "old-ann-value"))
+					gomega.Expect(createdPod.Labels).Should(gomega.HaveKeyWithValue("label1", "label-value1"))
+					gomega.Expect(createdPod.Labels).Should(gomega.HaveKeyWithValue("old-label-key", "old-label-value"))
+					gomega.Expect(createdPod.Spec.NodeSelector).Should(gomega.HaveKeyWithValue(instanceKey, "test-flavor"))
+					gomega.Expect(createdPod.Spec.NodeSelector).Should(gomega.HaveKeyWithValue("selector1", "selector-value1"))
+				})
 			})
 		})
 	})

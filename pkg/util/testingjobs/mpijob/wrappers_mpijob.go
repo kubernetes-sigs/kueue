@@ -138,3 +138,21 @@ func (j *MPIJobWrapper) UID(uid string) *MPIJobWrapper {
 	j.ObjectMeta.UID = types.UID(uid)
 	return j
 }
+
+// PodAnnotation sets annotation at the pod template level
+func (j *MPIJobWrapper) PodAnnotation(replicaType kubeflow.MPIReplicaType, k, v string) *MPIJobWrapper {
+	if j.Spec.MPIReplicaSpecs[replicaType].Template.Annotations == nil {
+		j.Spec.MPIReplicaSpecs[replicaType].Template.Annotations = make(map[string]string)
+	}
+	j.Spec.MPIReplicaSpecs[replicaType].Template.Annotations[k] = v
+	return j
+}
+
+// PodLabel sets label at the pod template level
+func (j *MPIJobWrapper) PodLabel(replicaType kubeflow.MPIReplicaType, k, v string) *MPIJobWrapper {
+	if j.Spec.MPIReplicaSpecs[replicaType].Template.Labels == nil {
+		j.Spec.MPIReplicaSpecs[replicaType].Template.Labels = make(map[string]string)
+	}
+	j.Spec.MPIReplicaSpecs[replicaType].Template.Labels[k] = v
+	return j
+}

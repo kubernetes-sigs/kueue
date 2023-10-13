@@ -107,26 +107,26 @@ func (j *JobWrapper) PriorityClass(pc string) *JobWrapper {
 
 // WorkloadPriorityClass updates job workloadpriorityclass.
 func (j *JobWrapper) WorkloadPriorityClass(wpc string) *JobWrapper {
-	if j.Labels == nil {
-		j.Labels = make(map[string]string)
-	}
-	j.Labels[constants.WorkloadPriorityClassLabel] = wpc
-	return j
+	return j.Label(constants.WorkloadPriorityClassLabel, wpc)
 }
 
 // Queue updates the queue name of the job
 func (j *JobWrapper) Queue(queue string) *JobWrapper {
+	return j.Label(constants.QueueLabel, queue)
+}
+
+// Annotation sets the annotation key and value
+func (j *JobWrapper) Label(key, value string) *JobWrapper {
 	if j.Labels == nil {
 		j.Labels = make(map[string]string)
 	}
-	j.Labels[constants.QueueLabel] = queue
+	j.Labels[key] = value
 	return j
 }
 
 // QueueNameAnnotation updates the queue name of the job by annotation (deprecated)
 func (j *JobWrapper) QueueNameAnnotation(queue string) *JobWrapper {
-	j.Annotations[constants.QueueAnnotation] = queue
-	return j
+	return j.SetAnnotation(constants.QueueAnnotation, queue)
 }
 
 // ParentWorkload sets the parent-workload annotation
@@ -149,6 +149,24 @@ func (j *JobWrapper) Toleration(t corev1.Toleration) *JobWrapper {
 // NodeSelector adds a node selector to the job.
 func (j *JobWrapper) NodeSelector(k, v string) *JobWrapper {
 	j.Spec.Template.Spec.NodeSelector[k] = v
+	return j
+}
+
+// PodAnnotation sets annotation at the pod template level
+func (j *JobWrapper) PodAnnotation(k, v string) *JobWrapper {
+	if j.Spec.Template.Annotations == nil {
+		j.Spec.Template.Annotations = make(map[string]string)
+	}
+	j.Spec.Template.Annotations[k] = v
+	return j
+}
+
+// PodLabel sets label at the pod template level
+func (j *JobWrapper) PodLabel(k, v string) *JobWrapper {
+	if j.Spec.Template.Labels == nil {
+		j.Spec.Template.Labels = make(map[string]string)
+	}
+	j.Spec.Template.Labels[k] = v
 	return j
 }
 

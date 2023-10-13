@@ -19,12 +19,10 @@ package job
 import (
 	"context"
 	"fmt"
-	"maps"
 	"strconv"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -41,7 +39,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 )
 
 var (
@@ -225,7 +222,6 @@ func (j *Job) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) error {
 	}
 
 	info := podSetsInfo[0]
-	j.Spec.Template.Spec.NodeSelector = utilmaps.MergeKeepFirst(info.NodeSelector, j.Spec.Template.Spec.NodeSelector)
 
 	if j.minPodsCount() != nil {
 		j.Spec.Parallelism = ptr.To(info.Count)
@@ -233,7 +229,7 @@ func (j *Job) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) error {
 			j.Spec.Completions = j.Spec.Parallelism
 		}
 	}
-	return nil
+	return jobframework.Merge(&j.Spec.Template.ObjectMeta, &j.Spec.Template.Spec, info)
 }
 
 func (j *Job) RestorePodSetsInfo(podSetsInfo []jobframework.PodSetInfo) bool {
@@ -250,12 +246,8 @@ func (j *Job) RestorePodSetsInfo(podSetsInfo []jobframework.PodSetInfo) bool {
 			j.Spec.Completions = j.Spec.Parallelism
 		}
 	}
-
-	if equality.Semantic.DeepEqual(j.Spec.Template.Spec.NodeSelector, podSetsInfo[0].NodeSelector) {
-		return changed
-	}
-	j.Spec.Template.Spec.NodeSelector = maps.Clone(podSetsInfo[0].NodeSelector)
-	return true
+	changed = jobframework.Restore(&j.Spec.Template.ObjectMeta, &j.Spec.Template.Spec, podSetsInfo[0]) || changed
+	return changed
 }
 
 func (j *Job) Finished() (metav1.Condition, bool) {

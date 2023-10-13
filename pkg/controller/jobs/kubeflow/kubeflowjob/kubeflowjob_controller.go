@@ -17,12 +17,10 @@ limitations under the License.
 package kubeflowjob
 
 import (
-	"maps"
 	"strings"
 
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/utils/ptr"
@@ -30,7 +28,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 )
 
 type KubeflowJob struct {
@@ -64,8 +61,11 @@ func (j *KubeflowJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) 
 	for index := range podSetInfos {
 		replicaType := orderedReplicaTypes[index]
 		info := podSetInfos[index]
-		replicaSpec := &j.KFJobControl.ReplicaSpecs()[replicaType].Template.Spec
-		replicaSpec.NodeSelector = utilmaps.MergeKeepFirst(info.NodeSelector, replicaSpec.NodeSelector)
+		replica := &j.KFJobControl.ReplicaSpecs()[replicaType].Template
+		if err := jobframework.Merge(&replica.ObjectMeta, &replica.Spec, info); err != nil {
+			return err
+		}
+
 	}
 	return nil
 }
@@ -75,11 +75,8 @@ func (j *KubeflowJob) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) 
 	changed := false
 	for index, info := range podSetInfos {
 		replicaType := orderedReplicaTypes[index]
-		replicaSpec := &j.KFJobControl.ReplicaSpecs()[replicaType].Template.Spec
-		if !equality.Semantic.DeepEqual(replicaSpec.NodeSelector, info.NodeSelector) {
-			changed = true
-			replicaSpec.NodeSelector = maps.Clone(info.NodeSelector)
-		}
+		replica := &j.KFJobControl.ReplicaSpecs()[replicaType].Template
+		changed = jobframework.Restore(&replica.ObjectMeta, &replica.Spec, info) || changed
 	}
 	return changed
 }

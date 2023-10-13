@@ -34,7 +34,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/util/maps"
 )
 
 const (
@@ -114,11 +113,7 @@ func (p *Pod) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) error {
 	if idx != gateNotFound {
 		p.Spec.SchedulingGates = append(p.Spec.SchedulingGates[:idx], p.Spec.SchedulingGates[idx+1:]...)
 	}
-
-	p.Spec.NodeSelector = maps.MergeKeepFirst(podSetsInfo[0].NodeSelector, p.Spec.NodeSelector)
-
-	return nil
-
+	return jobframework.Merge(&p.ObjectMeta, &p.Spec, podSetsInfo[0])
 }
 
 // RestorePodSetsInfo will restore the original node affinity and podSet counts of the job.

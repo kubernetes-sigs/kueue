@@ -106,7 +106,7 @@ help: ## Display this help.
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) \
 		rbac:roleName=manager-role output:rbac:artifacts:config=config/components/rbac\
-		crd output:crd:artifacts:config=config/components/crd/bases\
+		crd:generateEmbeddedObjectMeta=true output:crd:artifacts:config=config/components/crd/bases\
 		webhook output:webhook:artifacts:config=config/components/webhook\
 		paths="./..."
 

@@ -137,3 +137,21 @@ func (j *PyTorchJobWrapper) UID(uid string) *PyTorchJobWrapper {
 	j.ObjectMeta.UID = types.UID(uid)
 	return j
 }
+
+// PodAnnotation sets annotation at the pod template level
+func (j *PyTorchJobWrapper) PodAnnotation(replicaType kftraining.ReplicaType, k, v string) *PyTorchJobWrapper {
+	if j.Spec.PyTorchReplicaSpecs[replicaType].Template.Annotations == nil {
+		j.Spec.PyTorchReplicaSpecs[replicaType].Template.Annotations = make(map[string]string)
+	}
+	j.Spec.PyTorchReplicaSpecs[replicaType].Template.Annotations[k] = v
+	return j
+}
+
+// PodLabel sets label at the pod template level
+func (j *PyTorchJobWrapper) PodLabel(replicaType kftraining.ReplicaType, k, v string) *PyTorchJobWrapper {
+	if j.Spec.PyTorchReplicaSpecs[replicaType].Template.Labels == nil {
+		j.Spec.PyTorchReplicaSpecs[replicaType].Template.Labels = make(map[string]string)
+	}
+	j.Spec.PyTorchReplicaSpecs[replicaType].Template.Labels[k] = v
+	return j
+}

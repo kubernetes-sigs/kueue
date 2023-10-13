@@ -176,6 +176,11 @@ func (w *WorkloadWrapper) Condition(condition metav1.Condition) *WorkloadWrapper
 	return w
 }
 
+func (w *WorkloadWrapper) AdmissionCheck(ac kueue.AdmissionCheckState) *WorkloadWrapper {
+	w.Status.AdmissionChecks = append(w.Status.AdmissionChecks, ac)
+	return w
+}
+
 func (w *WorkloadWrapper) SetOrReplaceCondition(condition metav1.Condition) *WorkloadWrapper {
 	existingCondition := apimeta.FindStatusCondition(w.Status.Conditions, condition.Type)
 	if existingCondition != nil {
