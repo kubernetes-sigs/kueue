@@ -34,10 +34,10 @@ type GenericJob interface {
 	// Suspend will suspend the job.
 	Suspend()
 	// RunWithPodSetsInfo will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
-	RunWithPodSetsInfo(nodeSelectors []PodSetInfo) error
+	RunWithPodSetsInfo(podSetsInfo []PodSetInfo) error
 	// RestorePodSetsInfo will restore the original node affinity and podSet counts of the job.
 	// Returns whether any change was done.
-	RestorePodSetsInfo(nodeSelectors []PodSetInfo) bool
+	RestorePodSetsInfo(podSetsInfo []PodSetInfo) bool
 	// Finished means whether the job is completed/failed or not,
 	// condition represents the workload finished condition.
 	Finished() (condition metav1.Condition, finished bool)

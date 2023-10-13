@@ -113,19 +113,19 @@ func (j *MPIJob) PodSets() []kueue.PodSet {
 	return podSets
 }
 
-func (j *MPIJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) error {
+func (j *MPIJob) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) error {
 	j.Spec.RunPolicy.Suspend = ptr.To(false)
 	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
 
-	if len(podSetInfos) != len(orderedReplicaTypes) {
-		return jobframework.BadPodSetsInfoLenError(len(orderedReplicaTypes), len(podSetInfos))
+	if len(podSetsInfo) != len(orderedReplicaTypes) {
+		return jobframework.BadPodSetsInfoLenError(len(orderedReplicaTypes), len(podSetsInfo))
 	}
 
 	// The node selectors are provided in the same order as the generated list of
 	// podSets, use the same ordering logic to restore them.
-	for index := range podSetInfos {
+	for index := range podSetsInfo {
 		replicaType := orderedReplicaTypes[index]
-		info := podSetInfos[index]
+		info := podSetsInfo[index]
 		replica := &j.Spec.MPIReplicaSpecs[replicaType].Template
 		if err := jobframework.Merge(&replica.ObjectMeta, &replica.Spec, info); err != nil {
 			return err
@@ -134,10 +134,10 @@ func (j *MPIJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) error
 	return nil
 }
 
-func (j *MPIJob) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) bool {
+func (j *MPIJob) RestorePodSetsInfo(podSetsInfo []jobframework.PodSetInfo) bool {
 	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
 	changed := false
-	for index, info := range podSetInfos {
+	for index, info := range podSetsInfo {
 		replicaType := orderedReplicaTypes[index]
 		replica := &j.Spec.MPIReplicaSpecs[replicaType].Template
 		changed = jobframework.Restore(&replica.ObjectMeta, &replica.Spec, info) || changed

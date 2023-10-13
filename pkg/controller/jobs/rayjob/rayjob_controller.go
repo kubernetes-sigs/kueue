@@ -111,17 +111,17 @@ func (j *RayJob) PodSets() []kueue.PodSet {
 	return podSets
 }
 
-func (j *RayJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) error {
+func (j *RayJob) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) error {
 	expectedLen := len(j.Spec.RayClusterSpec.WorkerGroupSpecs) + 1
-	if len(podSetInfos) != expectedLen {
-		return jobframework.BadPodSetsInfoLenError(expectedLen, len(podSetInfos))
+	if len(podSetsInfo) != expectedLen {
+		return jobframework.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
 	}
 
 	j.Spec.Suspend = false
 
 	// head
 	headPod := &j.Spec.RayClusterSpec.HeadGroupSpec.Template
-	info := podSetInfos[0]
+	info := podSetsInfo[0]
 	if err := jobframework.Merge(&headPod.ObjectMeta, &headPod.Spec, info); err != nil {
 		return err
 	}
@@ -129,7 +129,7 @@ func (j *RayJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) error
 	// workers
 	for index := range j.Spec.RayClusterSpec.WorkerGroupSpecs {
 		workerPod := &j.Spec.RayClusterSpec.WorkerGroupSpecs[index].Template
-		info := podSetInfos[index+1]
+		info := podSetsInfo[index+1]
 		if err := jobframework.Merge(&workerPod.ObjectMeta, &workerPod.Spec, info); err != nil {
 			return err
 		}
@@ -137,20 +137,20 @@ func (j *RayJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) error
 	return nil
 }
 
-func (j *RayJob) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) bool {
-	if len(podSetInfos) != len(j.Spec.RayClusterSpec.WorkerGroupSpecs)+1 {
+func (j *RayJob) RestorePodSetsInfo(podSetsInfo []jobframework.PodSetInfo) bool {
+	if len(podSetsInfo) != len(j.Spec.RayClusterSpec.WorkerGroupSpecs)+1 {
 		return false
 	}
 
 	changed := false
 	// head
 	headPod := &j.Spec.RayClusterSpec.HeadGroupSpec.Template
-	changed = jobframework.Restore(&headPod.ObjectMeta, &headPod.Spec, podSetInfos[0]) || changed
+	changed = jobframework.Restore(&headPod.ObjectMeta, &headPod.Spec, podSetsInfo[0]) || changed
 
 	// workers
 	for index := range j.Spec.RayClusterSpec.WorkerGroupSpecs {
 		workerPod := &j.Spec.RayClusterSpec.WorkerGroupSpecs[index].Template
-		info := podSetInfos[index+1]
+		info := podSetsInfo[index+1]
 		changed = jobframework.Restore(&workerPod.ObjectMeta, &workerPod.Spec, info) || changed
 	}
 	return changed
