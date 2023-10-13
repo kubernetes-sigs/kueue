@@ -66,7 +66,7 @@ type Info struct {
 	// already admitted.
 	ClusterQueue   string
 	LastAssignment *AssigmentClusterQueueState
-  // list of pod templates related to the podsets.
+	// list of pod templates related to the podsets.
 	PodTemplates map[string]*corev1.PodTemplateSpec
 }
 

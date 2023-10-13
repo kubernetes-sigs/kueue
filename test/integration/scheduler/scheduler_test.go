@@ -1621,14 +1621,13 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 
 		type testParams struct {
-			reqCPU                      string
-			limitCPU                    string
-			minCPU                      string
-			maxCPU                      string
-			limitType                   corev1.LimitType
-			wantedStatus                string
-			shouldBeAdmited             bool
-			podTemplateShouldBeSucceded bool
+			reqCPU          string
+			limitCPU        string
+			minCPU          string
+			maxCPU          string
+			limitType       corev1.LimitType
+			wantedStatus    string
+			shouldBeAdmited bool
 		}
 
 		ginkgo.DescribeTable("", func(tp testParams) {
