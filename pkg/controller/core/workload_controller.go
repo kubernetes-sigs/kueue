@@ -121,6 +121,7 @@ func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *c
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
 //+kubebuilder:rbac:groups=node.k8s.io,resources=runtimeclasses,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=podtemplates,verbs=get;list;watch;create
 
 func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var wl kueue.Workload

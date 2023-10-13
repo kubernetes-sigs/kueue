@@ -237,7 +237,7 @@ func TestValidateWorkload(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			gotErr := ValidateWorkload(tc.workload)
+			gotErr := ValidateWorkload(tc.workload, nil)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("ValidateWorkload() mismatch (-want +got):\n%s", diff)
 			}

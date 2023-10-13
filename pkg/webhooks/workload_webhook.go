@@ -84,7 +84,7 @@ func (w *WorkloadWebhook) ValidateCreate(ctx context.Context, obj runtime.Object
 	wl := obj.(*kueue.Workload)
 	log := ctrl.LoggerFrom(ctx).WithName("workload-webhook")
 	log.V(5).Info("Validating create", "workload", klog.KObj(wl))
-	return nil, ValidateWorkload(wl).ToAggregate()
+	return nil, ValidateWorkload(wl, nil).ToAggregate()
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
@@ -101,7 +101,7 @@ func (w *WorkloadWebhook) ValidateDelete(ctx context.Context, obj runtime.Object
 	return nil, nil
 }
 
-func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
+func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 	var allErrs field.ErrorList
 	specPath := field.NewPath("spec")
 
@@ -109,6 +109,9 @@ func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 	for i := range obj.Spec.PodSets {
 		ps := &obj.Spec.PodSets[i]
 		allErrs = append(allErrs, validatePodSet(ps, specPath.Child("podSets").Index(i))...)
+		if oldObj != nil {
+			allErrs = append(allErrs, apivalidation.ValidateImmutableField(ps.Count, oldObj.Spec.PodSets[i].Count, specPath.Child("podSets").Index(i))...)
+		}
 		if ps.MinCount != nil {
 			variableCountPosets++
 		}
@@ -219,7 +222,7 @@ func validateReclaimablePods(obj *kueue.Workload, basePath *field.Path) field.Er
 func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 	var allErrs field.ErrorList
 	specPath := field.NewPath("spec")
-	allErrs = append(allErrs, ValidateWorkload(newObj)...)
+	allErrs = append(allErrs, ValidateWorkload(newObj, oldObj)...)
 	allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PriorityClassSource, oldObj.Spec.PriorityClassSource, specPath.Child("priorityClassSource"))...)
 	allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PriorityClassName, oldObj.Spec.PriorityClassName, specPath.Child("priorityClassName"))...)
 	if workload.HasQuotaReservation(newObj) && workload.HasQuotaReservation(oldObj) {

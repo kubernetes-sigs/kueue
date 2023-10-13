@@ -50,6 +50,15 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - podtemplates
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - secrets
   verbs:
   - get
