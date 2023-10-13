@@ -49,18 +49,18 @@ func (j *KubeflowJob) Suspend() {
 	j.KFJobControl.RunPolicy().Suspend = ptr.To(true)
 }
 
-func (j *KubeflowJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) error {
+func (j *KubeflowJob) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) error {
 	j.KFJobControl.RunPolicy().Suspend = ptr.To(false)
 	orderedReplicaTypes := j.OrderedReplicaTypes()
 
-	if len(podSetInfos) != len(orderedReplicaTypes) {
-		return jobframework.BadPodSetsInfoLenError(len(orderedReplicaTypes), len(podSetInfos))
+	if len(podSetsInfo) != len(orderedReplicaTypes) {
+		return jobframework.BadPodSetsInfoLenError(len(orderedReplicaTypes), len(podSetsInfo))
 	}
 	// The node selectors are provided in the same order as the generated list of
 	// podSets, use the same ordering logic to restore them.
-	for index := range podSetInfos {
+	for index := range podSetsInfo {
 		replicaType := orderedReplicaTypes[index]
-		info := podSetInfos[index]
+		info := podSetsInfo[index]
 		replica := &j.KFJobControl.ReplicaSpecs()[replicaType].Template
 		if err := jobframework.Merge(&replica.ObjectMeta, &replica.Spec, info); err != nil {
 			return err
@@ -70,10 +70,10 @@ func (j *KubeflowJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) 
 	return nil
 }
 
-func (j *KubeflowJob) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) bool {
+func (j *KubeflowJob) RestorePodSetsInfo(podSetsInfo []jobframework.PodSetInfo) bool {
 	orderedReplicaTypes := j.OrderedReplicaTypes()
 	changed := false
-	for index, info := range podSetInfos {
+	for index, info := range podSetsInfo {
 		replicaType := orderedReplicaTypes[index]
 		replica := &j.KFJobControl.ReplicaSpecs()[replicaType].Template
 		changed = jobframework.Restore(&replica.ObjectMeta, &replica.Spec, info) || changed

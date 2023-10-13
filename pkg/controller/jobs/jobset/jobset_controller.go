@@ -112,17 +112,17 @@ func (j *JobSet) PodSets() []kueue.PodSet {
 	return podSets
 }
 
-func (j *JobSet) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) error {
+func (j *JobSet) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) error {
 	j.Spec.Suspend = ptr.To(false)
-	if len(podSetInfos) != len(j.Spec.ReplicatedJobs) {
-		return jobframework.BadPodSetsInfoLenError(len(j.Spec.ReplicatedJobs), len(podSetInfos))
+	if len(podSetsInfo) != len(j.Spec.ReplicatedJobs) {
+		return jobframework.BadPodSetsInfoLenError(len(j.Spec.ReplicatedJobs), len(podSetsInfo))
 	}
 
 	// If there are Jobs already created by the JobSet, their node selectors will be updated by the JobSet controller
 	// before unsuspending the individual Jobs.
 	for index := range j.Spec.ReplicatedJobs {
 		template := &j.Spec.ReplicatedJobs[index].Template.Spec.Template
-		info := podSetInfos[index]
+		info := podSetsInfo[index]
 		if err := jobframework.Merge(&template.ObjectMeta, &template.Spec, info); err != nil {
 			return nil
 		}
@@ -130,14 +130,14 @@ func (j *JobSet) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) error
 	return nil
 }
 
-func (j *JobSet) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) bool {
-	if len(podSetInfos) == 0 {
+func (j *JobSet) RestorePodSetsInfo(podSetsInfo []jobframework.PodSetInfo) bool {
+	if len(podSetsInfo) == 0 {
 		return false
 	}
 	changed := false
 	for index := range j.Spec.ReplicatedJobs {
 		replica := &j.Spec.ReplicatedJobs[index].Template.Spec.Template
-		info := podSetInfos[index]
+		info := podSetsInfo[index]
 		changed = jobframework.Restore(&replica.ObjectMeta, &replica.Spec, info) || changed
 	}
 	return changed
