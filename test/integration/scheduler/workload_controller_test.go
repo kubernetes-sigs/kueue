@@ -335,7 +335,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					SetPodSetName(pt.Name).
 					SetPodTemplateName(pt.Name).
 					Queue(localQueue.Name).
-          Obj()
+					Obj()
 				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
 				gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
