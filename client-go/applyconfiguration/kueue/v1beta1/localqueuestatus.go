@@ -24,10 +24,12 @@ import (
 // LocalQueueStatusApplyConfiguration represents an declarative configuration of the LocalQueueStatus type for use
 // with apply.
 type LocalQueueStatusApplyConfiguration struct {
-	PendingWorkloads  *int32                                    `json:"pendingWorkloads,omitempty"`
-	AdmittedWorkloads *int32                                    `json:"admittedWorkloads,omitempty"`
-	Conditions        []v1.Condition                            `json:"conditions,omitempty"`
-	FlavorUsage       []LocalQueueFlavorUsageApplyConfiguration `json:"flavorUsage,omitempty"`
+	PendingWorkloads   *int32                                    `json:"pendingWorkloads,omitempty"`
+	ReservingWorkloads *int32                                    `json:"reservingWorkloads,omitempty"`
+	AdmittedWorkloads  *int32                                    `json:"admittedWorkloads,omitempty"`
+	Conditions         []v1.Condition                            `json:"conditions,omitempty"`
+	FlavorsReservation []LocalQueueFlavorUsageApplyConfiguration `json:"flavorsReservation,omitempty"`
+	FlavorsUsage       []LocalQueueFlavorUsageApplyConfiguration `json:"flavorsUsage,omitempty"`
 }
 
 // LocalQueueStatusApplyConfiguration constructs an declarative configuration of the LocalQueueStatus type for use with
@@ -41,6 +43,14 @@ func LocalQueueStatus() *LocalQueueStatusApplyConfiguration {
 // If called multiple times, the PendingWorkloads field is set to the value of the last call.
 func (b *LocalQueueStatusApplyConfiguration) WithPendingWorkloads(value int32) *LocalQueueStatusApplyConfiguration {
 	b.PendingWorkloads = &value
+	return b
+}
+
+// WithReservingWorkloads sets the ReservingWorkloads field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ReservingWorkloads field is set to the value of the last call.
+func (b *LocalQueueStatusApplyConfiguration) WithReservingWorkloads(value int32) *LocalQueueStatusApplyConfiguration {
+	b.ReservingWorkloads = &value
 	return b
 }
 
@@ -62,15 +72,28 @@ func (b *LocalQueueStatusApplyConfiguration) WithConditions(values ...v1.Conditi
 	return b
 }
 
-// WithFlavorUsage adds the given value to the FlavorUsage field in the declarative configuration
+// WithFlavorsReservation adds the given value to the FlavorsReservation field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the FlavorUsage field.
-func (b *LocalQueueStatusApplyConfiguration) WithFlavorUsage(values ...*LocalQueueFlavorUsageApplyConfiguration) *LocalQueueStatusApplyConfiguration {
+// If called multiple times, values provided by each call will be appended to the FlavorsReservation field.
+func (b *LocalQueueStatusApplyConfiguration) WithFlavorsReservation(values ...*LocalQueueFlavorUsageApplyConfiguration) *LocalQueueStatusApplyConfiguration {
 	for i := range values {
 		if values[i] == nil {
-			panic("nil value passed to WithFlavorUsage")
+			panic("nil value passed to WithFlavorsReservation")
 		}
-		b.FlavorUsage = append(b.FlavorUsage, *values[i])
+		b.FlavorsReservation = append(b.FlavorsReservation, *values[i])
+	}
+	return b
+}
+
+// WithFlavorsUsage adds the given value to the FlavorsUsage field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the FlavorsUsage field.
+func (b *LocalQueueStatusApplyConfiguration) WithFlavorsUsage(values ...*LocalQueueFlavorUsageApplyConfiguration) *LocalQueueStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithFlavorsUsage")
+		}
+		b.FlavorsUsage = append(b.FlavorsUsage, *values[i])
 	}
 	return b
 }

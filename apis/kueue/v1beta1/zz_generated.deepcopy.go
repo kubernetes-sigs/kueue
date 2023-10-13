@@ -567,8 +567,15 @@ func (in *LocalQueueStatus) DeepCopyInto(out *LocalQueueStatus) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	if in.FlavorUsage != nil {
-		in, out := &in.FlavorUsage, &out.FlavorUsage
+	if in.FlavorsReservation != nil {
+		in, out := &in.FlavorsReservation, &out.FlavorsReservation
+		*out = make([]LocalQueueFlavorUsage, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
+	if in.FlavorsUsage != nil {
+		in, out := &in.FlavorsUsage, &out.FlavorsUsage
 		*out = make([]LocalQueueFlavorUsage, len(*in))
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
