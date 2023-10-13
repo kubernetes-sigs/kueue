@@ -35,14 +35,14 @@ import (
 // As a result, the pod's Overhead is not always correct. E.g. if we set a non-existent runtime class name to
 // `pod.Spec.RuntimeClassName` and we also set the `pod.Spec.Overhead`, in real world, the pod creation will be
 // rejected due to the mismatch with RuntimeClass. However, in the future we assume that they are correct.
-func handlePodOverhead(ctx context.Context, cl client.Client, wl *kueue.Workload) []error {
+func handlePodOverhead(ctx context.Context, cl client.Client, pts map[string]*corev1.PodTemplateSpec) []error {
 	var errs []error
-	for i := range wl.Spec.PodSets {
-		podSpec := &wl.Spec.PodSets[i].Template.Spec
+	for name, pt := range pts {
+		podSpec := &pt.Spec
 		if podSpec.RuntimeClassName != nil && len(podSpec.Overhead) == 0 {
 			var runtimeClass nodev1.RuntimeClass
 			if err := cl.Get(ctx, types.NamespacedName{Name: *podSpec.RuntimeClassName}, &runtimeClass); err != nil {
-				errs = append(errs, fmt.Errorf("in podSet %s: %w", wl.Spec.PodSets[i].Name, err))
+				errs = append(errs, fmt.Errorf("in pod template %s: %w", name, err))
 				continue
 			}
 			if runtimeClass.Overhead != nil {
@@ -53,7 +53,7 @@ func handlePodOverhead(ctx context.Context, cl client.Client, wl *kueue.Workload
 	return errs
 }
 
-func handlePodLimitRange(ctx context.Context, cl client.Client, wl *kueue.Workload) error {
+func handlePodLimitRange(ctx context.Context, cl client.Client, wl *kueue.Workload, pts map[string]*corev1.PodTemplateSpec) error {
 	// get the list of limit ranges
 	var list corev1.LimitRangeList
 	if err := cl.List(ctx, &list, &client.ListOptions{Namespace: wl.Namespace}, client.MatchingFields{indexer.LimitRangeHasContainerType: "true"}); err != nil {
@@ -69,15 +69,15 @@ func handlePodLimitRange(ctx context.Context, cl client.Client, wl *kueue.Worklo
 		return nil
 	}
 
-	for pi := range wl.Spec.PodSets {
-		pod := &wl.Spec.PodSets[pi].Template.Spec
-		for ci := range pod.InitContainers {
-			res := &pod.InitContainers[ci].Resources
+	for _, pt := range pts {
+		pod := pt
+		for ci := range pod.Spec.InitContainers {
+			res := &pod.Spec.InitContainers[ci].Resources
 			res.Limits = resource.MergeResourceListKeepFirst(res.Limits, containerLimits.Default)
 			res.Requests = resource.MergeResourceListKeepFirst(res.Requests, containerLimits.DefaultRequest)
 		}
-		for ci := range pod.Containers {
-			res := &pod.Containers[ci].Resources
+		for ci := range pod.Spec.Containers {
+			res := &pod.Spec.Containers[ci].Resources
 			res.Limits = resource.MergeResourceListKeepFirst(res.Limits, containerLimits.Default)
 			res.Requests = resource.MergeResourceListKeepFirst(res.Requests, containerLimits.DefaultRequest)
 		}
@@ -85,9 +85,9 @@ func handlePodLimitRange(ctx context.Context, cl client.Client, wl *kueue.Worklo
 	return nil
 }
 
-func handleLimitsToRequests(wl *kueue.Workload) {
-	for pi := range wl.Spec.PodSets {
-		pod := &wl.Spec.PodSets[pi].Template.Spec
+func handleLimitsToRequests(pts map[string]*corev1.PodTemplateSpec) {
+	for _, pt := range pts {
+		pod := &pt.Spec
 		for ci := range pod.InitContainers {
 			res := &pod.InitContainers[ci].Resources
 			res.Requests = resource.MergeResourceListKeepFirst(res.Requests, res.Limits)
@@ -103,13 +103,13 @@ func handleLimitsToRequests(wl *kueue.Workload) {
 // - PodOverhead
 // - LimitRanges
 // - Limits
-func AdjustResources(ctx context.Context, cl client.Client, wl *kueue.Workload) {
+func AdjustResources(ctx context.Context, cl client.Client, wl *kueue.Workload, pts map[string]*corev1.PodTemplateSpec) {
 	log := ctrl.LoggerFrom(ctx)
-	for _, err := range handlePodOverhead(ctx, cl, wl) {
+	for _, err := range handlePodOverhead(ctx, cl, pts) {
 		log.Error(err, "Failures adjusting requests for pod overhead")
 	}
-	if err := handlePodLimitRange(ctx, cl, wl); err != nil {
+	if err := handlePodLimitRange(ctx, cl, wl, pts); err != nil {
 		log.Error(err, "Failed adjusting requests for LimitRanges")
 	}
-	handleLimitsToRequests(wl)
+	handleLimitsToRequests(pts)
 }

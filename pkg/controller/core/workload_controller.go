@@ -136,7 +136,6 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, nil
 	}
 
-
 	wlSpecCopy := wl.Spec.DeepCopy()
 
 	if err := r.updatePodTemplateName(ctx, &wl); err != nil {
@@ -322,6 +321,8 @@ func (r *WorkloadReconciler) Create(e event.CreateEvent) bool {
 		return true
 	}
 
+	wlCopy := wl.DeepCopy()
+
 	pts, err := podtemplate.ExtractByWorkloadLabel(ctx, r.client, wl)
 	if err != nil {
 		log.Error(err, "Failed to extract pod template by workload name")
@@ -418,7 +419,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 
 	wlCopy := wl.DeepCopy()
 	// We do not handle old workload here as it will be deleted or replaced by new one anyway.
-  workload.AdjustResources(ctrl.LoggerInto(ctx, log), r.client, wlCopy, pts)
+	workload.AdjustResources(ctrl.LoggerInto(ctx, log), r.client, wlCopy, pts)
 
 	switch {
 	case status == finished:
