@@ -1699,8 +1699,13 @@ func TestAssignFlavors(t *testing.T) {
 		"preempt before try next flavor": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
-					Request(corev1.ResourceCPU, "9").
+					SetPodTemplateName("main").
 					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "9").
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				FlavorFungibility: kueue.FlavorFungibility{
@@ -1750,8 +1755,13 @@ func TestAssignFlavors(t *testing.T) {
 		"preempt try next flavor": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
-					Request(corev1.ResourceCPU, "9").
+					SetPodTemplateName("main").
 					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "9").
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				FlavorFungibility: defaultFlavorFungibility,
@@ -1795,8 +1805,13 @@ func TestAssignFlavors(t *testing.T) {
 		"borrow try next flavor, found the first flavor": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
-					Request(corev1.ResourceCPU, "9").
+					SetPodTemplateName("main").
 					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "9").
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				Cohort: &cache.Cohort{
@@ -1855,8 +1870,13 @@ func TestAssignFlavors(t *testing.T) {
 		"borrow try next flavor, found the second flavor": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
-					Request(corev1.ResourceCPU, "9").
+					SetPodTemplateName("main").
 					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "9").
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				Cohort: &cache.Cohort{
@@ -1914,8 +1934,13 @@ func TestAssignFlavors(t *testing.T) {
 		"borrow before try next flavor": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
-					Request(corev1.ResourceCPU, "9").
+					SetPodTemplateName("main").
 					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "9").
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				Cohort: &cache.Cohort{

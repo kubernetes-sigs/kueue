@@ -1596,6 +1596,7 @@ func TestLastSchedulingContext(t *testing.T) {
 		cqs                            []kueue.ClusterQueue
 		admittedWorkloads              []kueue.Workload
 		workloads                      []kueue.Workload
+		podTemplates                   []corev1.PodTemplate
 		deletedWorkloads               []kueue.Workload
 		wantPreempted                  sets.Set[string]
 		wantAdmissionsOnFirstSchedule  map[string]kueue.Admission
@@ -1607,10 +1608,16 @@ func TestLastSchedulingContext(t *testing.T) {
 			admittedWorkloads: []kueue.Workload{
 				*wl,
 			},
+			podTemplates: []corev1.PodTemplate{
+				*utiltesting.MakePodTemplate("main", "default").
+					Labels(map[string]string{constants.WorkloadNameLabel: "preemptor"}).
+					Request(corev1.ResourceCPU, "20").
+					Obj(),
+			},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("preemptor", "default").
+					SetPodTemplateName("main").
 					Queue("main").
-					Request(corev1.ResourceCPU, "20").
 					Obj(),
 			},
 			deletedWorkloads:              []kueue.Workload{},
@@ -1627,10 +1634,16 @@ func TestLastSchedulingContext(t *testing.T) {
 			admittedWorkloads: []kueue.Workload{
 				*wl,
 			},
+			podTemplates: []corev1.PodTemplate{
+				*utiltesting.MakePodTemplate("main", "default").
+					Labels(map[string]string{constants.WorkloadNameLabel: "preemptor"}).
+					Request(corev1.ResourceCPU, "20").
+					Obj(),
+			},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("preemptor", "default").
+					SetPodTemplateName("main").
 					Queue("main").
-					Request(corev1.ResourceCPU, "20").
 					Obj(),
 			},
 			deletedWorkloads: []kueue.Workload{
@@ -1652,14 +1665,24 @@ func TestLastSchedulingContext(t *testing.T) {
 					Admitted(true).
 					Obj(),
 			},
-			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("borrower", "default").
-					Queue("main-alpha").
+			podTemplates: []corev1.PodTemplate{
+				*utiltesting.MakePodTemplate("main-alpha", "default").
+					Labels(map[string]string{constants.WorkloadNameLabel: "borrower"}).
 					Request(corev1.ResourceCPU, "20").
 					Obj(),
-				*utiltesting.MakeWorkload("workload1", "default").
-					Queue("main-beta").
+				*utiltesting.MakePodTemplate("main-beta", "default").
+					Labels(map[string]string{constants.WorkloadNameLabel: "workload1"}).
 					Request(corev1.ResourceCPU, "20").
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("borrower", "default").
+					SetPodTemplateName("main-alpha").
+					Queue("main-alpha").
+					Obj(),
+				*utiltesting.MakeWorkload("workload1", "default").
+					SetPodTemplateName("main-beta").
+					Queue("main-beta").
 					Obj(),
 			},
 			deletedWorkloads: []kueue.Workload{},
@@ -1689,10 +1712,16 @@ func TestLastSchedulingContext(t *testing.T) {
 					Admitted(true).
 					Obj(),
 			},
+			podTemplates: []corev1.PodTemplate{
+				*utiltesting.MakePodTemplate("main", "default").
+					Labels(map[string]string{constants.WorkloadNameLabel: "workload"}).
+					Request(corev1.ResourceCPU, "20").
+					Obj(),
+			},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("workload", "default").
+					SetPodTemplateName("main").
 					Queue("main-theta").
-					Request(corev1.ResourceCPU, "20").
 					Obj(),
 			},
 			deletedWorkloads: []kueue.Workload{},
@@ -1726,10 +1755,16 @@ func TestLastSchedulingContext(t *testing.T) {
 					Admitted(true).
 					Obj(),
 			},
+			podTemplates: []corev1.PodTemplate{
+				*utiltesting.MakePodTemplate("main", "default").
+					Labels(map[string]string{constants.WorkloadNameLabel: "workload"}).
+					Request(corev1.ResourceCPU, "20").
+					Obj(),
+			},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("workload", "default").
+					SetPodTemplateName("main").
 					Queue("main-theta").
-					Request(corev1.ResourceCPU, "20").
 					Obj(),
 			},
 			deletedWorkloads: []kueue.Workload{},
@@ -1754,6 +1789,7 @@ func TestLastSchedulingContext(t *testing.T) {
 			clientBuilder := utiltesting.NewClientBuilder().
 				WithLists(&kueue.WorkloadList{Items: tc.admittedWorkloads},
 					&kueue.WorkloadList{Items: tc.workloads},
+					&corev1.PodTemplateList{Items: tc.podTemplates},
 					&kueue.ClusterQueueList{Items: tc.cqs},
 					&kueue.LocalQueueList{Items: queues}).
 				WithObjects(

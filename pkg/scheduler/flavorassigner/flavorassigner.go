@@ -262,7 +262,7 @@ func assignFlavors(log logr.Logger, requests []workload.PodSetResources, podTemp
 		assignment.LastState = *lastAssignment
 	} else {
 		assignment.LastState = workload.AssigmentClusterQueueState{
-			LastAssignedFlavorIdx:  make([]map[corev1.ResourceName]int, 0, len(podSets)),
+			LastAssignedFlavorIdx:  make([]map[corev1.ResourceName]int, 0, len(podTemplates)),
 			CohortGeneration:       0,
 			ClusterQueueGeneration: cq.AllocatableResourceGeneration,
 		}
@@ -297,7 +297,7 @@ func assignFlavors(log logr.Logger, requests []workload.PodSetResources, podTemp
 				}
 				break
 			}
-      
+
 			podTemplateSpec := podTemplates[podSet.PodTemplateName]
 			if podTemplateSpec == nil {
 				continue

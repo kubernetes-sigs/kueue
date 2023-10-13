@@ -152,19 +152,19 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 					Request(corev1.ResourceCPU, "2").Request(resourceGPU, "2").Limit(resourceGPU, "2").Obj(),
 				testing.MakePodTemplate("two", ns.Name).
 					Labels(map[string]string{constants.WorkloadNameLabel: "two"}).
-					Request(corev1.ResourceCPU, "3").Request(resourceGPU, "3").Obj(),
+					Request(corev1.ResourceCPU, "3").Request(resourceGPU, "3").Limit(resourceGPU, "3").Obj(),
 				testing.MakePodTemplate("three", ns.Name).
 					Labels(map[string]string{constants.WorkloadNameLabel: "three"}).
-					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
+					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Limit(resourceGPU, "1").Obj(),
 				testing.MakePodTemplate("four", ns.Name).
 					Labels(map[string]string{constants.WorkloadNameLabel: "four"}).
-					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
+					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Limit(resourceGPU, "1").Obj(),
 				testing.MakePodTemplate("five", ns.Name).
 					Labels(map[string]string{constants.WorkloadNameLabel: "five"}).
-					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
+					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Limit(resourceGPU, "1").Obj(),
 				testing.MakePodTemplate("six", ns.Name).
 					Labels(map[string]string{constants.WorkloadNameLabel: "six"}).
-					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
+					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Limit(resourceGPU, "1").Obj(),
 			}
 
 			workloads := []*kueue.Workload{

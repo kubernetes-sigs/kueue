@@ -543,7 +543,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.By("Reclaim all the pods from the second PodSet", func() {
 				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, secondWl, []kueue.ReclaimablePod{{Name: thirdPt.Name, Count: 2}})).To(gomega.Succeed())
 
-				//util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, firstWl, secondWl)
+				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, firstWl, secondWl)
 				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
 				util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 2)
 			})
@@ -1325,8 +1325,13 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			devQueue := testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devCQ.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, devQueue)).Should(gomega.Succeed())
 
+			ginkgo.By("Creating one pod template")
+			pt1 := testing.MakePodTemplate("pt-1", ns.Name).Labels(map[string]string{constants.WorkloadNameLabel: "wl-1"}).
+				Request(corev1.ResourceCPU, "9").Obj()
+			gomega.Expect(k8sClient.Create(ctx, pt1)).Should(gomega.Succeed())
+
 			ginkgo.By("Creating one workload")
-			wl1 := testing.MakeWorkload("wl-1", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "9").Obj()
+			wl1 := testing.MakeWorkload("wl-1", ns.Name).Queue(prodQueue.Name).SetPodTemplateName(pt1.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
 			prodWl1Admission := testing.MakeAdmission(prodCQ.Name).Assignment(corev1.ResourceCPU, "on-demand", "9").Obj()
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1, prodWl1Admission)
@@ -1334,8 +1339,13 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectAdmittedActiveWorkloadsMetric(prodCQ, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(prodCQ, 1)
 
+			ginkgo.By("Creating another pod template")
+			pt2 := testing.MakePodTemplate("pt-2", ns.Name).Labels(map[string]string{constants.WorkloadNameLabel: "wl-2"}).
+				Request(corev1.ResourceCPU, "11").Toleration(spotToleration).Obj()
+			gomega.Expect(k8sClient.Create(ctx, pt2)).Should(gomega.Succeed())
+
 			ginkgo.By("Creating another workload")
-			wl2 := testing.MakeWorkload("wl-2", ns.Name).Queue(devQueue.Name).Request(corev1.ResourceCPU, "11").Toleration(spotToleration).Obj()
+			wl2 := testing.MakeWorkload("wl-2", ns.Name).Queue(devQueue.Name).SetPodTemplateName(pt2.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
 			prodWl2Admission := testing.MakeAdmission(devCQ.Name).Assignment(corev1.ResourceCPU, "spot-tainted", "11").Obj()
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl2, prodWl2Admission)
@@ -1370,17 +1380,31 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			devQueue := testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devCQ.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, devQueue)).Should(gomega.Succeed())
 
+			ginkgo.By("Creating two pod templates")
+			pt1 := testing.MakePodTemplate("pt-1", ns.Name).Labels(map[string]string{constants.WorkloadNameLabel: "wl-1"}).
+				Request(corev1.ResourceCPU, "9").Obj()
+			pt2 := testing.MakePodTemplate("pt-2", ns.Name).Labels(map[string]string{constants.WorkloadNameLabel: "wl-2"}).
+				Request(corev1.ResourceCPU, "9").Obj()
+			gomega.Expect(k8sClient.Create(ctx, pt1)).Should(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, pt2)).Should(gomega.Succeed())
+
 			ginkgo.By("Creating two workloads")
-			wl1 := testing.MakeWorkload("wl-1", ns.Name).Priority(0).Queue(devQueue.Name).Request(corev1.ResourceCPU, "9").Obj()
-			wl2 := testing.MakeWorkload("wl-2", ns.Name).Priority(1).Queue(devQueue.Name).Request(corev1.ResourceCPU, "9").Obj()
+			wl1 := testing.MakeWorkload("wl-1", ns.Name).Priority(0).Queue(devQueue.Name).SetPodTemplateName(pt1.Name).Obj()
+			wl2 := testing.MakeWorkload("wl-2", ns.Name).Priority(1).Queue(devQueue.Name).SetPodTemplateName(pt2.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
 			gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
 			util.ExpectPendingWorkloadsMetric(devCQ, 0, 0)
 			util.ExpectAdmittedActiveWorkloadsMetric(devCQ, 2)
 			util.ExpectAdmittedWorkloadsTotalMetric(devCQ, 2)
 
+			ginkgo.By("Creating another pod template")
+			pt3 := testing.MakePodTemplate("pt-3", ns.Name).Labels(map[string]string{constants.WorkloadNameLabel: "wl-3"}).
+				Request(corev1.ResourceCPU, "5").Obj()
+			gomega.Expect(k8sClient.Create(ctx, pt3)).Should(gomega.Succeed())
+
 			ginkgo.By("Creating another workload")
-			wl3 := testing.MakeWorkload("wl-3", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "5").Obj()
+			wl3 := testing.MakeWorkload("wl-3", ns.Name).SetPodSetName(pt3.Name).SetPodTemplateName(pt3.Name).
+				Queue(prodQueue.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl3)).Should(gomega.Succeed())
 			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wl1)
 			util.ExpectPendingWorkloadsMetric(prodCQ, 0, 0)

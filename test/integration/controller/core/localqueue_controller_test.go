@@ -170,14 +170,17 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 			testing.MakePodTemplate("one", ns.Name).
 				Labels(map[string]string{constants.WorkloadNameLabel: "one"}).
 				Request(resourceGPU, "2").
+				Limit(resourceGPU, "2").
 				Obj(),
 			testing.MakePodTemplate("two", ns.Name).
 				Labels(map[string]string{constants.WorkloadNameLabel: "two"}).
 				Request(resourceGPU, "3").
+				Limit(resourceGPU, "3").
 				Obj(),
 			testing.MakePodTemplate("three", ns.Name).
 				Labels(map[string]string{constants.WorkloadNameLabel: "three"}).
 				Request(resourceGPU, "1").
+				Limit(resourceGPU, "1").
 				Obj(),
 		}
 		workloads := []*kueue.Workload{
