@@ -1,0 +1,61 @@
+apiVersion: kubeflow.org/v1
+kind: MXJob
+metadata:
+  name: mxnet-job
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  jobMode: MXTrain
+  mxReplicaSpecs:
+    Scheduler:
+      replicas: 1
+      restartPolicy: Never
+      template:
+        spec:
+          containers:
+            - name: mxnet
+              image: kubeflow/mxnet-gpu:latest
+              resources:
+                limits:
+                  cpu: 100m
+                  memory: 0.2Gi
+              ports:
+                - containerPort: 9991
+                  name: mxjob-port
+    Server:
+      replicas: 1
+      restartPolicy: Never
+      template:
+        spec:
+          containers:
+            - name: mxnet
+              image: kubeflow/mxnet-gpu:latest
+              resources:
+                limits:
+                  cpu: 100m
+                  memory: 0.2Gi
+              ports:
+                - containerPort: 9991
+                  name: mxjob-port
+    Worker:
+      replicas: 1
+      restartPolicy: Never
+      template:
+        spec:
+          containers:
+            - name: mxnet
+              image: kubeflow/mxnet-gpu:latest
+              command:
+              - python3
+              args:
+              - /mxnet/mxnet/example/image-classification/train_mnist.py
+              - --num-epochs=1
+              - --num-layers=2
+              - --kv-store=dist_device_sync
+              resources:
+                limits:
+                  cpu: 2
+                  memory: 1Gi
+              ports:
+                - containerPort: 9991
+                  name: mxjob-port
