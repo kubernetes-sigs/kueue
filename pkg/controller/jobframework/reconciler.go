@@ -655,7 +655,7 @@ func (r *JobReconciler) getPodSetsInfoFromStatus(ctx context.Context, w *kueue.W
 	podSetsInfo := make([]PodSetInfo, len(w.Status.Admission.PodSetAssignments))
 
 	for i, podSetFlavor := range w.Status.Admission.PodSetAssignments {
-		processedFlvs := sets.NewString()
+		processedFlvs := sets.New[kueue.ResourceFlavorReference]()
 		podSetInfo := PodSetInfo{
 			Name:         podSetFlavor.Name,
 			NodeSelector: make(map[string]string),
@@ -664,19 +664,18 @@ func (r *JobReconciler) getPodSetsInfoFromStatus(ctx context.Context, w *kueue.W
 			Annotations:  make(map[string]string),
 		}
 		for _, flvRef := range podSetFlavor.Flavors {
-			flvName := string(flvRef)
-			if processedFlvs.Has(flvName) {
+			if processedFlvs.Has(flvRef) {
 				continue
 			}
 			// Lookup the ResourceFlavors to fetch the node affinity labels to apply on the job.
 			flv := kueue.ResourceFlavor{}
-			if err := r.client.Get(ctx, types.NamespacedName{Name: string(flvName)}, &flv); err != nil {
+			if err := r.client.Get(ctx, types.NamespacedName{Name: string(flvRef)}, &flv); err != nil {
 				return nil, err
 			}
 			for k, v := range flv.Spec.NodeLabels {
 				podSetInfo.NodeSelector[k] = v
 			}
-			processedFlvs.Insert(flvName)
+			processedFlvs.Insert(flvRef)
 		}
 		for _, admissionCheck := range w.Status.AdmissionChecks {
 			for _, podSetUpdate := range admissionCheck.PodSetUpdates {
