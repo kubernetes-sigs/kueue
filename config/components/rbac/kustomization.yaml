@@ -34,6 +34,8 @@ resources:
 - jobset_viewer_role.yaml
 - mpijob_editor_role.yaml
 - mpijob_viewer_role.yaml
+- mxjob_editor_role.yaml
+- mxjob_viewer_role.yaml
 - rayjob_editor_role.yaml
 - rayjob_viewer_role.yaml
 - pytorchjob_editor_role.yaml
