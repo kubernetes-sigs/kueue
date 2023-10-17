@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -222,7 +223,8 @@ func (c *Cache) AddOrUpdateAdmissionCheck(ac *kueue.AdmissionCheck) sets.Set[str
 	c.Lock()
 	defer c.Unlock()
 	c.admissionChecks[ac.Name] = AdmissionCheck{
-		Active: apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionCheckActive),
+		Active:           apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionCheckActive),
+		PreemptionPolicy: ptr.Deref(ac.Spec.PreemptionPolicy, kueue.Anytime),
 	}
 
 	return c.updateClusterQueues()
@@ -723,6 +725,20 @@ func (c *Cache) MatchingClusterQueues(nsLabels map[string]string) sets.Set[strin
 		}
 	}
 	return cqs
+}
+
+// HasWorkloadsPreemptingNow returns true if it has workloads that need preemption now.
+func (c *Cache) HasWorkloadsPreemptingNow() bool {
+	c.RLock()
+	defer c.RUnlock()
+	// Depending on the overall state this may end up iterating over all the workloads present
+	// in the cache (workloads having QuotaReservation).
+	for _, cq := range c.clusterQueues {
+		if now, _ := cq.PreemptingWorkloads(c.admissionChecks); len(now) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // Key is the key used to index the queue.

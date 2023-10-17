@@ -365,9 +365,20 @@ func admissionPatch(w *kueue.Workload) *kueue.Workload {
 // if strict is true, resourceVersion will be part of the patch, make this call fail if Workload
 // was changed.
 func ApplyAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workload, strict bool) error {
+	return ApplyAdmissionStatusPreempt(ctx, c, w, strict, false)
+}
+
+func ApplyAdmissionStatusPreempt(ctx context.Context, c client.Client, w *kueue.Workload, strict bool, needsPreemption bool) error {
 	patch := admissionPatch(w)
 	if strict {
 		patch.ResourceVersion = w.ResourceVersion
+	}
+	if needsPreemption {
+		SetAdmissionCheckState(&patch.Status.AdmissionChecks, kueue.AdmissionCheckState{
+			Name:  constants.PreemptionAdmissionCheckName,
+			State: kueue.CheckStatePending,
+		})
+		_ = SyncAdmittedCondition(patch)
 	}
 	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.AdmissionName))
 }

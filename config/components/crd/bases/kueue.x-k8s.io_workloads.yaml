@@ -8425,6 +8425,7 @@ spec:
                       - Ready
                       - Retry
                       - Rejected
+                      - PreemptionRequired
                       type: string
                   required:
                   - lastTransitionTime

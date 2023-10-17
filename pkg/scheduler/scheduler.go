@@ -65,7 +65,7 @@ type Scheduler struct {
 	admissionRoutineWrapper routine.Wrapper
 	preemptor               *preemption.Preemptor
 	// Stubs.
-	applyAdmission func(context.Context, *kueue.Workload) error
+	applyAdmission func(context.Context, *kueue.Workload, bool) error
 }
 
 type options struct {
@@ -208,18 +208,12 @@ func (s *Scheduler) schedule(ctx context.Context) {
 		ctx := ctrl.LoggerInto(ctx, log)
 		if e.assignment.RepresentativeMode() != flavorassigner.Fit {
 			if len(e.preemptionTargets) != 0 {
-				preempted, err := s.preemptor.IssuePreemptions(ctx, e.preemptionTargets, cq)
-				if err != nil {
-					log.Error(err, "Failed to preempt workloads")
-				}
-				if preempted != 0 {
-					e.inadmissibleMsg += fmt.Sprintf(". Pending the preemption of %d workload(s)", preempted)
-					e.requeueReason = queue.RequeueReasonPendingPreemption
-				}
+				e.inadmissibleMsg += fmt.Sprintf(". May require the preemption of %d workload(s)", len(e.preemptionTargets))
+				e.requeueReason = queue.RequeueReasonPendingPreemption
 			} else {
 				log.V(2).Info("Workload requires preemption, but there are no candidate workloads allowed for preemption", "preemptionReclaimWithinCohort", cq.Preemption.ReclaimWithinCohort, "preemptionWithinClusterQueue", cq.Preemption.WithinClusterQueue)
+				continue
 			}
-			continue
 		}
 		if !s.cache.PodsReadyForAllAdmittedWorkloads(log) {
 			log.V(5).Info("Waiting for all admitted workloads to be in the PodsReady condition")
@@ -446,7 +440,8 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, mustHaveChecks sets.Set
 	log.V(2).Info("Workload assumed in the cache")
 
 	s.admissionRoutineWrapper.Run(func() {
-		err := s.applyAdmission(ctx, newWorkload)
+		needsPreemtion := e.assignment.RepresentativeMode() == flavorassigner.Preempt
+		err := s.applyAdmission(ctx, newWorkload, needsPreemtion)
 		if err == nil {
 			waitTime := time.Since(e.Obj.CreationTimestamp.Time)
 			s.recorder.Eventf(newWorkload, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time was %.0fs", admission.ClusterQueue, waitTime.Seconds())
@@ -469,8 +464,8 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, mustHaveChecks sets.Set
 	return nil
 }
 
-func (s *Scheduler) applyAdmissionWithSSA(ctx context.Context, w *kueue.Workload) error {
-	return workload.ApplyAdmissionStatus(ctx, s.client, w, false)
+func (s *Scheduler) applyAdmissionWithSSA(ctx context.Context, w *kueue.Workload, needsPreemption bool) error {
+	return workload.ApplyAdmissionStatusPreempt(ctx, s.client, w, false, needsPreemption)
 }
 
 type entryOrdering []entry

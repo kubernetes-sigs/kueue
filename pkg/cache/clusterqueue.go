@@ -12,6 +12,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -432,4 +433,46 @@ func workloadBelongsToLocalQueue(wl *kueue.Workload, q *kueue.LocalQueue) bool {
 
 func reportAdmittedActiveWorkloads(cqName string, val int) {
 	metrics.AdmittedActiveWorkloads.WithLabelValues(cqName).Set(float64(val))
+}
+
+// PreemptingWorkloads - returns two list of Workloads
+// the first one contains the workloads that are pending preemption and should be evaluated now
+// the second one contains the workloads that are pending preemption and should be evaluated later
+func (cq *ClusterQueue) PreemptingWorkloads(acMap map[string]AdmissionCheck) ([]*workload.Info, []*workload.Info) {
+	var preemptNow, preemptLater []*workload.Info
+	for _, wl := range cq.Workloads {
+		// if the workload has the preemption check set to unknown
+		if state := workload.FindAdmissionCheck(wl.Obj.Status.AdmissionChecks, constants.PreemptionAdmissionCheckName); state != nil && state.State == kueue.CheckStatePending {
+			checkNow := true
+			skip := false
+			for i := range wl.Obj.Status.AdmissionChecks {
+				c := &wl.Obj.Status.AdmissionChecks[i]
+				if c.Name == constants.PreemptionAdmissionCheckName {
+					continue
+				}
+
+				ac, found := acMap[c.Name]
+				if !found {
+					skip = true
+					break
+				}
+
+				if ac.PreemptionPolicy == kueue.Anytime {
+					continue
+				}
+				if c.State != kueue.CheckStatePreemptionRequired && c.State != kueue.CheckStateReady {
+					checkNow = false
+					break
+				}
+			}
+			if !skip {
+				if checkNow {
+					preemptNow = append(preemptNow, wl)
+				} else {
+					preemptLater = append(preemptLater, wl)
+				}
+			}
+		}
+	}
+	return preemptNow, preemptLater
 }

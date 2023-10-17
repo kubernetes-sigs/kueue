@@ -37,4 +37,8 @@ const (
 
 	WorkloadPriorityClassSource = "kueue.x-k8s.io/workloadpriorityclass"
 	PodPriorityClassSource      = "scheduling.k8s.io/priorityclass"
+
+	// PreemptionAdmissionCheckName is the name of the builtin preemption
+	// admission check controller.
+	PreemptionAdmissionCheckName = "kueue-preemption"
 )

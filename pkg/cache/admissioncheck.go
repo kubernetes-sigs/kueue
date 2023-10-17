@@ -16,6 +16,11 @@ limitations under the License.
 
 package cache
 
+import (
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+)
+
 type AdmissionCheck struct {
-	Active bool
+	Active           bool
+	PreemptionPolicy kueue.AdmissionCheckPreemptionPolicy
 }
