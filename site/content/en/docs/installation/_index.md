@@ -225,6 +225,7 @@ The currently supported features are:
 
 | Feature | Default | Stage | Since | Until |
 |---------|---------|-------|-------|-------|
-| `PartialAdmission` | `false` | Alpha | 0.4 |  |
-| `QueueVisibility` | `false` | Alpha | 0.5 |  |
 | `FlavorFungibility` | `true` | beta | 0.5 |  |
+| `PartialAdmission` | `false` | Alpha | 0.4 | 0.4 |
+| `PartialAdmission` | `true` | Beta | 0.5 |  |
+| `QueueVisibility` | `false` | Alpha | 0.5 |  |

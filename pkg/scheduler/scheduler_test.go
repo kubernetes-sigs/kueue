@@ -38,7 +38,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/util/routine"
@@ -191,9 +190,6 @@ func TestSchedule(t *testing.T) {
 		// additional*Queues can hold any extra queues needed by the tc
 		additionalClusterQueues []kueue.ClusterQueue
 		additionalLocalQueues   []kueue.LocalQueue
-
-		// enable partial admission
-		enablePartialAdmission bool
 	}{
 		"workload fits in single clusterQueue": {
 			workloads: []kueue.Workload{
@@ -807,8 +803,7 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantScheduled:          []string{"sales/new"},
-			enablePartialAdmission: true,
+			wantScheduled: []string{"sales/new"},
 		},
 		"partial admission single variable pod set, preempt first": {
 			workloads: []kueue.Workload{
@@ -849,7 +844,6 @@ func TestSchedule(t *testing.T) {
 			wantLeft: map[string]sets.Set[string]{
 				"eng-beta": sets.New("eng-beta/new"),
 			},
-			enablePartialAdmission: true,
 		},
 		"partial admission multiple variable pod sets": {
 			workloads: []kueue.Workload{
@@ -907,8 +901,7 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantScheduled:          []string{"sales/new"},
-			enablePartialAdmission: true,
+			wantScheduled: []string{"sales/new"},
 		},
 		"two workloads can borrow different resources from the same flavor in the same cycle": {
 			additionalClusterQueues: func() []kueue.ClusterQueue {
@@ -1019,9 +1012,6 @@ func TestSchedule(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if tc.enablePartialAdmission {
-				defer features.SetFeatureGateDuringTest(t, features.PartialAdmission, true)()
-			}
 			ctx, _ := utiltesting.ContextWithLog(t)
 			scheme := runtime.NewScheme()
 
