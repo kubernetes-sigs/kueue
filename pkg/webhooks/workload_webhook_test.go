@@ -94,6 +94,8 @@ func TestValidateWorkload(t *testing.T) {
 	specPath := field.NewPath("spec")
 	podSetsPath := specPath.Child("podSets")
 	statusPath := field.NewPath("status")
+	firstAdmissionChecksPath := statusPath.Child("admissionChecks").Index(0)
+	podSetUpdatePath := firstAdmissionChecksPath.Child("podSetUpdates")
 	firstPodSetSpecPath := podSetsPath.Index(0).Child("template", "spec")
 	testCases := map[string]struct {
 		workload *kueue.Workload
@@ -230,6 +232,70 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(firstPodSetSpecPath.Child("initContainers").Index(0).Child("resources", "requests").Key(string(corev1.ResourcePods)), nil, ""),
 				field.Invalid(firstPodSetSpecPath.Child("containers").Index(0).Child("resources", "requests").Key(string(corev1.ResourcePods)), nil, ""),
+			},
+		},
+		"empty podSetUpdates": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).AdmissionChecks(kueue.AdmissionCheckState{}).Obj(),
+			wantErr:  nil,
+		},
+		"should podSetUpdates have the same number of podSets": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
+				*testingutil.MakePodSet("first", 1).Obj(),
+				*testingutil.MakePodSet("second", 1).Obj(),
+			).AdmissionChecks(
+				kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{{Name: "first"}}},
+			).Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetUpdatePath, nil, "must have the same number of podSetUpdates as the podSets"),
+			},
+		},
+		"mismatched names in podSetUpdates with names in podSets": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
+				*testingutil.MakePodSet("first", 1).Obj(),
+				*testingutil.MakePodSet("second", 1).Obj(),
+			).AdmissionChecks(
+				kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{{Name: "first"}, {Name: "third"}}},
+			).Obj(),
+			wantErr: field.ErrorList{
+				field.NotSupported(firstAdmissionChecksPath.Child("podSetUpdates").Index(1).Child("name"), nil, nil),
+			},
+		},
+		"matched names in podSetUpdates with names in podSets": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
+				*testingutil.MakePodSet("first", 1).Obj(),
+				*testingutil.MakePodSet("second", 1).Obj(),
+			).AdmissionChecks(
+				kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{{Name: "first"}, {Name: "second"}}},
+			).Obj(),
+		},
+		"invalid label name of podSetUpdate": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(
+					kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{{Name: "main", Labels: map[string]string{"@abc": "foo"}}}},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetUpdatePath.Index(0).Child("labels"), "@abc", ""),
+			},
+		},
+		"invalid node selector name of podSetUpdate": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(
+					kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{{Name: "main", NodeSelector: map[string]string{"@abc": "foo"}}}},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetUpdatePath.Index(0).Child("nodeSelector"), "@abc", ""),
+			},
+		},
+		"invalid label value of podSetUpdate": {
+			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				AdmissionChecks(
+					kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{{Name: "main", Labels: map[string]string{"foo": "@abc"}}}},
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetUpdatePath.Index(0).Child("labels"), "@abc", ""),
 			},
 		},
 		"invalid reclaimablePods": {
@@ -464,6 +530,25 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				Priority(10).Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec").Child("priorityClassName"), nil, ""),
+			},
+		},
+		"podSetUpdates should be immutable when state is ready": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
+				*testingutil.MakePodSet("first", 1).Obj(),
+				*testingutil.MakePodSet("second", 1).Obj(),
+			).AdmissionChecks(kueue.AdmissionCheckState{
+				PodSetUpdates: []kueue.PodSetUpdate{{Name: "first", Labels: map[string]string{"foo": "bar"}}, {Name: "second"}},
+				State:         kueue.CheckStateReady,
+			}).Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
+				*testingutil.MakePodSet("first", 1).Obj(),
+				*testingutil.MakePodSet("second", 1).Obj(),
+			).AdmissionChecks(kueue.AdmissionCheckState{
+				PodSetUpdates: []kueue.PodSetUpdate{{Name: "first", Labels: map[string]string{"foo": "baz"}}, {Name: "second"}},
+				State:         kueue.CheckStateReady,
+			}).Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("status").Child("admissionChecks").Index(0).Child("podSetUpdates"), nil, ""),
 			},
 		},
 	}

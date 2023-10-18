@@ -190,6 +190,11 @@ func (w *WorkloadWrapper) SetOrReplaceCondition(condition metav1.Condition) *Wor
 	return w
 }
 
+func (w *WorkloadWrapper) AdmissionChecks(ac ...kueue.AdmissionCheckState) *WorkloadWrapper {
+	w.Status.AdmissionChecks = ac
+	return w
+}
+
 func (w *WorkloadWrapper) ReclaimablePods(rps ...kueue.ReclaimablePod) *WorkloadWrapper {
 	w.Status.ReclaimablePods = rps
 	return w
