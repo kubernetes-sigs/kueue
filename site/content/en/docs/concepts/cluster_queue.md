@@ -348,6 +348,37 @@ Workloads as possible, preferring Workloads with these characteristics:
 - Workloads with the lowest priority.
 - Workloads that have been admitted more recently.
 
+## FlavorFungibility
+
+When there is not enough nominal quota of resources in a ResourceFlavor, the incoming workload can borrow or preempt in ClusterQueue or Cohort. 
+
+By default the incoming workload will stop trying the next flavor if it can get enough resource by borrowing. 
+And preemption will be triggered after all ResourceFlavors were considered.
+
+ClusterQueues can also try preemption whenever preemption might help before trying next ResourceFlavor or only borrowing after all ResourceFlavors have been considered by setting `FlavorFungibility`.
+
+A configuration for a ClusterQueue that changes this behavior looks like the following:
+```
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: "team-a-cq"
+spec:
+  flavorFungibility:
+    whenCanBorrow: TryNextFlavor
+    whenCanPreempt: Preempt
+```
+
+The fields above have the following semantics:
+- `whenCanBorrow` determines whether a workload should stop finding a better assignment if it can get enough resource by borrowing in current ResourceFlavor. The possible values are:
+  - `Borrow` (default): ClusterQueue stops to find a better assignment.
+  - `TryNextFlavor`: ClusterQueue will try the next ResourceFlavor to see if the workload can get a better assignment.
+- `whenCanPreempt` determines whether a workload should try preemtion in current ResourceFlavor before try the next one. The possible values are:
+  - `Preempt`: ClusterQueue stops to try preempting in current ResourceFlavor and start from the next one if preempting failed.
+  - `TryNextFlavor` (default): ClusterQueue will try the next ResourceFlavor to see if the workload can fit in the ResourceFlavor.
+
+Noted that if `whenCanBorrow` is `Borrow` and `whenCanPreempt` is `Preempt`, or both `whenCanBorrow` and `whenCanPreempt` is `TryNextFlavor`, borrowing has a higher priority than preemption.
+
 ## What's next?
 
 - Create [local queues](/docs/concepts/local_queue)
