@@ -192,8 +192,8 @@ func TestSchedule(t *testing.T) {
 		additionalClusterQueues []kueue.ClusterQueue
 		additionalLocalQueues   []kueue.LocalQueue
 
-		// enable partial admission
-		enablePartialAdmission bool
+		// disable partial admission
+		disablePartialAdmission bool
 	}{
 		"workload fits in single clusterQueue": {
 			workloads: []kueue.Workload{
@@ -807,8 +807,7 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantScheduled:          []string{"sales/new"},
-			enablePartialAdmission: true,
+			wantScheduled: []string{"sales/new"},
 		},
 		"partial admission single variable pod set, preempt first": {
 			workloads: []kueue.Workload{
@@ -849,7 +848,6 @@ func TestSchedule(t *testing.T) {
 			wantLeft: map[string]sets.Set[string]{
 				"eng-beta": sets.New("eng-beta/new"),
 			},
-			enablePartialAdmission: true,
 		},
 		"partial admission multiple variable pod sets": {
 			workloads: []kueue.Workload{
@@ -907,8 +905,31 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantScheduled:          []string{"sales/new"},
-			enablePartialAdmission: true,
+			wantScheduled: []string{"sales/new"},
+		},
+		"partial admission disabled, multiple variable pod sets": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "sales").
+					Queue("main").
+					PodSets(
+						*utiltesting.MakePodSet("one", 20).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltesting.MakePodSet("two", 30).
+							SetMinimumCount(10).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltesting.MakePodSet("three", 15).
+							SetMinimumCount(5).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Obj(),
+			},
+			wantLeft: map[string]sets.Set[string]{
+				"sales": sets.New("sales/new"),
+			},
+			disablePartialAdmission: true,
 		},
 		"two workloads can borrow different resources from the same flavor in the same cycle": {
 			additionalClusterQueues: func() []kueue.ClusterQueue {
@@ -1019,8 +1040,8 @@ func TestSchedule(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if tc.enablePartialAdmission {
-				defer features.SetFeatureGateDuringTest(t, features.PartialAdmission, true)()
+			if tc.disablePartialAdmission {
+				defer features.SetFeatureGateDuringTest(t, features.PartialAdmission, false)()
 			}
 			ctx, _ := utiltesting.ContextWithLog(t)
 			scheme := runtime.NewScheme()

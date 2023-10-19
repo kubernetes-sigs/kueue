@@ -217,6 +217,46 @@ var _ = ginkgo.Describe("Kueue", func() {
 				})
 			})
 		})
+		ginkgo.It("Should partially admit the Job if configured and not fully fits", func() {
+			// Use a binary that ends.
+			job := testingjob.MakeJob("job", ns.Name).
+				Queue("main").
+				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.0.3", []string{"1s"}).
+				Request("cpu", "500m").
+				Parallelism(3).
+				Completions(4).
+				SetAnnotation(workloadjob.JobMinParallelismAnnotation, "1").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+
+			ginkgo.By("Wait for the job to start and check the updated Parallelism and Completions", func() {
+				jobKey := client.ObjectKeyFromObject(job)
+				expectJobUnsuspendedWithNodeSelectors(jobKey, map[string]string{
+					"instance-type": "on-demand",
+				})
+
+				updatedJob := &batchv1.Job{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, jobKey, updatedJob)).To(gomega.Succeed())
+					g.Expect(ptr.Deref(updatedJob.Spec.Parallelism, 0)).To(gomega.Equal(int32(2)))
+					g.Expect(ptr.Deref(updatedJob.Spec.Completions, 0)).To(gomega.Equal(int32(4)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			})
+
+			ginkgo.By("Wait for the job to finish", func() {
+				createdWorkload := &kueue.Workload{}
+				wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name), Namespace: ns.Name}
+				gomega.Eventually(func() bool {
+					if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
+						return false
+					}
+					return workload.HasQuotaReservation(createdWorkload) &&
+						apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadFinished)
+
+				}, util.LongTimeout, util.Interval).Should(gomega.BeTrue())
+			})
+		})
 	})
 
 	ginkgo.When("Creating a Job In a Twostepadmission Queue", func() {

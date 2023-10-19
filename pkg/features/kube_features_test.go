@@ -24,7 +24,7 @@ import (
 )
 
 func TestFeatureGate(t *testing.T) {
-	defer featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, PartialAdmission, true)()
+	defer featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, QueueVisibility, true)()
 
 	if !utilfeature.DefaultFeatureGate.Enabled(PartialAdmission) {
 		t.Error("feature gate should be enabled")
