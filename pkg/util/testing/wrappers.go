@@ -229,12 +229,25 @@ func (p *PodSetWrapper) PriorityClass(pc string) *PodSetWrapper {
 	return p
 }
 
+func (p *PodSetWrapper) RuntimeClass(name string) *PodSetWrapper {
+	p.Template.Spec.RuntimeClassName = &name
+	return p
+}
+
 func (p *PodSetWrapper) Obj() *kueue.PodSet {
 	return &p.PodSet
 }
 
 func (p *PodSetWrapper) Request(r corev1.ResourceName, q string) *PodSetWrapper {
 	p.Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(q)
+	return p
+}
+
+func (p *PodSetWrapper) Limit(r corev1.ResourceName, q string) *PodSetWrapper {
+	if p.Template.Spec.Containers[0].Resources.Limits == nil {
+		p.Template.Spec.Containers[0].Resources.Limits = make(map[corev1.ResourceName]resource.Quantity)
+	}
+	p.Template.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(q)
 	return p
 }
 
@@ -265,6 +278,11 @@ func (p *PodSetWrapper) NodeSelector(kv map[string]string) *PodSetWrapper {
 
 func (p *PodSetWrapper) SchedulingGates(sg ...corev1.PodSchedulingGate) *PodSetWrapper {
 	p.Template.Spec.SchedulingGates = sg
+	return p
+}
+
+func (p *PodSetWrapper) PodOverHead(resources corev1.ResourceList) *PodSetWrapper {
+	p.Template.Spec.Overhead = resources
 	return p
 }
 
