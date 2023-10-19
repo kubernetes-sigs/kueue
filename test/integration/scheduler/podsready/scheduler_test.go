@@ -260,7 +260,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 				PendingWorkloads:    0,
 				ReservingdWorkloads: 1,
 				AdmittedWorkloads:   1,
-				FlavorsReservations: []kueue.FlavorUsage{{
+				FlavorsReservation: []kueue.FlavorUsage{{
 					Name: "default",
 					Resources: []kueue.ResourceUsage{{
 						Name:  corev1.ResourceCPU,
@@ -297,7 +297,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 				PendingWorkloads:    1,
 				ReservingdWorkloads: 0,
 				AdmittedWorkloads:   0,
-				FlavorsReservations: []kueue.FlavorUsage{{
+				FlavorsReservation: []kueue.FlavorUsage{{
 					Name: "default",
 					Resources: []kueue.ResourceUsage{{
 						Name:  corev1.ResourceCPU,

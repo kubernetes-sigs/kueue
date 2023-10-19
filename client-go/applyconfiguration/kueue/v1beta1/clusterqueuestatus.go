@@ -24,10 +24,10 @@ import (
 // ClusterQueueStatusApplyConfiguration represents an declarative configuration of the ClusterQueueStatus type for use
 // with apply.
 type ClusterQueueStatusApplyConfiguration struct {
-	FlavorsReservations    []FlavorUsageApplyConfiguration                       `json:"flavorsReservations,omitempty"`
+	FlavorsReservation     []FlavorUsageApplyConfiguration                       `json:"flavorsReservation,omitempty"`
 	FlavorsUsage           []FlavorUsageApplyConfiguration                       `json:"flavorUsage,omitempty"`
 	PendingWorkloads       *int32                                                `json:"pendingWorkloads,omitempty"`
-	ReservingdWorkloads    *int32                                                `json:"quotaReservedWorkloads,omitempty"`
+	ReservingdWorkloads    *int32                                                `json:"reservingdWorkloads,omitempty"`
 	AdmittedWorkloads      *int32                                                `json:"admittedWorkloads,omitempty"`
 	Conditions             []v1.Condition                                        `json:"conditions,omitempty"`
 	PendingWorkloadsStatus *ClusterQueuePendingWorkloadsStatusApplyConfiguration `json:"pendingWorkloadsStatus,omitempty"`
@@ -39,15 +39,15 @@ func ClusterQueueStatus() *ClusterQueueStatusApplyConfiguration {
 	return &ClusterQueueStatusApplyConfiguration{}
 }
 
-// WithFlavorsReservations adds the given value to the FlavorsReservations field in the declarative configuration
+// WithFlavorsReservation adds the given value to the FlavorsReservation field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the FlavorsReservations field.
-func (b *ClusterQueueStatusApplyConfiguration) WithFlavorsReservations(values ...*FlavorUsageApplyConfiguration) *ClusterQueueStatusApplyConfiguration {
+// If called multiple times, values provided by each call will be appended to the FlavorsReservation field.
+func (b *ClusterQueueStatusApplyConfiguration) WithFlavorsReservation(values ...*FlavorUsageApplyConfiguration) *ClusterQueueStatusApplyConfiguration {
 	for i := range values {
 		if values[i] == nil {
-			panic("nil value passed to WithFlavorsReservations")
+			panic("nil value passed to WithFlavorsReservation")
 		}
-		b.FlavorsReservations = append(b.FlavorsReservations, *values[i])
+		b.FlavorsReservation = append(b.FlavorsReservation, *values[i])
 	}
 	return b
 }

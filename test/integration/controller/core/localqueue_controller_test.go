@@ -239,7 +239,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 				},
 			},
 			FlavorsReservation: emptyUsage,
-			FlavorsUsage:       emptyUsage,
+			FlavorUsage:        emptyUsage,
 		}, ignoreConditionTimestamps))
 
 		ginkgo.By("Setting the workloads quota reservation")
@@ -289,7 +289,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 				},
 			},
 			FlavorsReservation: fullUsage,
-			FlavorsUsage:       emptyUsage,
+			FlavorUsage:        emptyUsage,
 		}, ignoreConditionTimestamps))
 
 		ginkgo.By("Setting the workloads admission checks")
@@ -314,7 +314,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 				},
 			},
 			FlavorsReservation: fullUsage,
-			FlavorsUsage:       fullUsage,
+			FlavorUsage:        fullUsage,
 		}, ignoreConditionTimestamps))
 
 		ginkgo.By("Finishing workloads")
@@ -333,7 +333,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 				},
 			},
 			FlavorsReservation: emptyUsage,
-			FlavorsUsage:       emptyUsage,
+			FlavorUsage:        emptyUsage,
 		}, ignoreConditionTimestamps))
 	})
 })

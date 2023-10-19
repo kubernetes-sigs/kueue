@@ -47,6 +47,7 @@ type ClusterQueue struct {
 	podsReadyTracking                   bool
 	hasMissingFlavors                   bool
 	hasMissingOrInactiveAdmissionChecks bool
+	admittedWorkloadsCount              int
 }
 
 // Cohort is a set of ClusterQueues that can borrow resources from each other.
@@ -88,8 +89,9 @@ type queue struct {
 	key                string
 	reservingWorkloads int
 	admittedWorkloads  int
-	usage              FlavorResourceQuantities
-	admittedUsage      FlavorResourceQuantities
+	//TODO: rename this to better distinguish between reserved and "in use" quantities
+	usage         FlavorResourceQuantities
+	admittedUsage FlavorResourceQuantities
 }
 
 func newCohort(name string, size int) *Cohort {
@@ -353,18 +355,8 @@ func (c *ClusterQueue) deleteWorkload(w *kueue.Workload) {
 }
 
 func (c *ClusterQueue) reportActiveWorkloads() {
-	metrics.AdmittedActiveWorkloads.WithLabelValues(c.Name).Set(float64(c.admittedWorkloadsCount()))
+	metrics.AdmittedActiveWorkloads.WithLabelValues(c.Name).Set(float64(c.admittedWorkloadsCount))
 	metrics.ReservingActiveWorkloads.WithLabelValues(c.Name).Set(float64(len(c.Workloads)))
-}
-
-func (c *ClusterQueue) admittedWorkloadsCount() int {
-	count := 0
-	for _, wi := range c.Workloads {
-		if workload.IsAdmitted(wi.Obj) {
-			count++
-		}
-	}
-	return count
 }
 
 // updateWorkloadUsage updates the usage of the ClusterQueue for the workload
@@ -374,6 +366,7 @@ func (c *ClusterQueue) updateWorkloadUsage(wi *workload.Info, m int64) {
 	updateUsage(wi, c.Usage, m)
 	if admitted {
 		updateUsage(wi, c.AdmittedUsage, m)
+		c.admittedWorkloadsCount += int(m)
 	}
 	qKey := workload.QueueKey(wi.Obj)
 	if lq, ok := c.localQueues[qKey]; ok {

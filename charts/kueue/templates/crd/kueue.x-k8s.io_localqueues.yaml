@@ -150,9 +150,9 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
-              flavorsReservation:
-                description: flavorsReservation are the reserved quotas, by flavor
-                  currently in use by the workloads assigned to this LocalQueue.
+              flavorUsage:
+                description: flavorsUsage are the used quotas, by flavor currently
+                  in use by the workloads assigned to this LocalQueue.
                 items:
                   properties:
                     name:
@@ -190,9 +190,9 @@ spec:
                 x-kubernetes-list-map-keys:
                 - name
                 x-kubernetes-list-type: map
-              flavorsUsage:
-                description: flavorsUsage are the used quotas, by flavor currently
-                  in use by the workloads assigned to this LocalQueue.
+              flavorsReservation:
+                description: flavorsReservation are the reserved quotas, by flavor
+                  currently in use by the workloads assigned to this LocalQueue.
                 items:
                   properties:
                     name:

@@ -1876,31 +1876,29 @@ func TestClusterQueueUsage(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Adding ClusterQueue: %v", err)
 			}
-			for _, w := range tc.workloads {
-				if added := cache.AddOrUpdateWorkload(&w); !added {
-					t.Fatalf("Workload %s was not added", workload.Key(&w))
+			for i := range tc.workloads {
+				w := &tc.workloads[i]
+				if added := cache.AddOrUpdateWorkload(w); !added {
+					t.Fatalf("Workload %s was not added", workload.Key(w))
 				}
 			}
-			reservedResources, reservingWorkloads, err := cache.ReservationStats(tc.clusterQueue)
+			stats, err := cache.Usage(tc.clusterQueue)
 			if err != nil {
 				t.Fatalf("Couldn't get usage: %v", err)
-			}
-			if diff := cmp.Diff(tc.wantReservedResources, reservedResources); diff != "" {
-				t.Errorf("Unexpected used reserved resources (-want,+got):\n%s", diff)
-			}
-			if reservingWorkloads != tc.wantReservingWorkloads {
-				t.Errorf("Got %d reserving workloads, want %d", reservingWorkloads, tc.wantReservingWorkloads)
 			}
 
-			usedResources, admittedWorkloads, err := cache.UsageStats(tc.clusterQueue)
-			if err != nil {
-				t.Fatalf("Couldn't get usage: %v", err)
+			if diff := cmp.Diff(tc.wantReservedResources, stats.ReservedResources); diff != "" {
+				t.Errorf("Unexpected used reserved resources (-want,+got):\n%s", diff)
 			}
-			if diff := cmp.Diff(tc.wantUsedResources, usedResources); diff != "" {
+			if stats.ReservingWorkloads != tc.wantReservingWorkloads {
+				t.Errorf("Got %d reserving workloads, want %d", stats.ReservingWorkloads, tc.wantReservingWorkloads)
+			}
+
+			if diff := cmp.Diff(tc.wantUsedResources, stats.AdmittedResources); diff != "" {
 				t.Errorf("Unexpected used resources (-want,+got):\n%s", diff)
 			}
-			if reservingWorkloads != tc.wantReservingWorkloads {
-				t.Errorf("Got %d admitted workloads, want %d", admittedWorkloads, tc.wantAdmittedWorkloads)
+			if stats.AdmittedWorkloads != tc.wantAdmittedWorkloads {
+				t.Errorf("Got %d admitted workloads, want %d", stats.AdmittedWorkloads, tc.wantAdmittedWorkloads)
 			}
 		})
 	}
@@ -2118,11 +2116,11 @@ func TestLocalQueueUsage(t *testing.T) {
 					t.Fatalf("Workload %s was not added", workload.Key(&w))
 				}
 			}
-			gotUsage, err := cache.LocalQueueReservations(&localQueue)
+			gotUsage, err := cache.LocalQueueUsage(&localQueue)
 			if err != nil {
 				t.Fatalf("Couldn't get usage for the queue: %v", err)
 			}
-			if diff := cmp.Diff(tc.wantUsage, gotUsage); diff != "" {
+			if diff := cmp.Diff(tc.wantUsage, gotUsage.ReservedResources); diff != "" {
 				t.Errorf("Unexpected used resources for the queue (-want,+got):\n%s", diff)
 			}
 		})

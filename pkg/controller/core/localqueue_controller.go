@@ -272,12 +272,7 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 		r.log.Error(err, failedUpdateLqStatusMsg)
 		return err
 	}
-	resservations, err := r.cache.LocalQueueReservations(queue)
-	if err != nil {
-		r.log.Error(err, failedUpdateLqStatusMsg)
-		return err
-	}
-	usage, err := r.cache.LocalQueueUsage(queue)
+	stats, err := r.cache.LocalQueueUsage(queue)
 	if err != nil {
 		r.log.Error(err, failedUpdateLqStatusMsg)
 		return err
@@ -285,8 +280,8 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 	queue.Status.PendingWorkloads = pendingWls
 	queue.Status.ReservingWorkloads = r.cache.ReservingWorkloadsInLocalQueue(queue)
 	queue.Status.AdmittedWorkloads = r.cache.AdmittedWorkloadsInLocalQueue(queue)
-	queue.Status.FlavorsReservation = resservations
-	queue.Status.FlavorsUsage = usage
+	queue.Status.FlavorsReservation = stats.ReservedResources
+	queue.Status.FlavorUsage = stats.AdmittedResources
 	if len(conditionStatus) != 0 && len(reason) != 0 && len(msg) != 0 {
 		meta.SetStatusCondition(&queue.Status.Conditions, metav1.Condition{
 			Type:    kueue.LocalQueueActive,

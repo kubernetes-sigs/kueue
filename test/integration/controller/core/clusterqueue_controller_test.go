@@ -193,9 +193,9 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
 				return updatedCq.Status
 			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
-				PendingWorkloads:    5,
-				FlavorsReservations: emptyUsedFlavors,
-				FlavorsUsage:        emptyUsedFlavors,
+				PendingWorkloads:   5,
+				FlavorsReservation: emptyUsedFlavors,
+				FlavorsUsage:       emptyUsedFlavors,
 				Conditions: []metav1.Condition{
 					{
 						Type:    kueue.ClusterQueueActive,
@@ -284,7 +284,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 				PendingWorkloads:    1,
 				ReservingdWorkloads: 4,
 				AdmittedWorkloads:   0,
-				FlavorsReservations: totalUsage,
+				FlavorsReservation:  totalUsage,
 				FlavorsUsage:        emptyUsedFlavors,
 				Conditions: []metav1.Condition{
 					{
@@ -318,7 +318,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 				PendingWorkloads:    1,
 				ReservingdWorkloads: 4,
 				AdmittedWorkloads:   4,
-				FlavorsReservations: totalUsage,
+				FlavorsReservation:  totalUsage,
 				FlavorsUsage:        totalUsage,
 				Conditions: []metav1.Condition{
 					{
@@ -346,8 +346,8 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
 				return updatedCq.Status
 			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
-				FlavorsReservations: emptyUsedFlavors,
-				FlavorsUsage:        emptyUsedFlavors,
+				FlavorsReservation: emptyUsedFlavors,
+				FlavorsUsage:       emptyUsedFlavors,
 				Conditions: []metav1.Condition{
 					{
 						Type:    kueue.ClusterQueueActive,
@@ -425,7 +425,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			gomega.Eventually(func() []kueue.FlavorUsage {
 				var updatedCq kueue.ClusterQueue
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
-				return updatedCq.Status.FlavorsReservations
+				return updatedCq.Status.FlavorsReservation
 			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]kueue.FlavorUsage{
 				{
 					Name: flavorOnDemand,
@@ -462,7 +462,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 				gomega.Eventually(func() []kueue.FlavorUsage {
 					var updatedCq kueue.ClusterQueue
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
-					return updatedCq.Status.FlavorsReservations
+					return updatedCq.Status.FlavorsReservation
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]kueue.FlavorUsage{
 					{
 						Name: flavorOnDemand,
@@ -500,7 +500,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 				gomega.Eventually(func() []kueue.FlavorUsage {
 					var updatedCq kueue.ClusterQueue
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
-					return updatedCq.Status.FlavorsReservations
+					return updatedCq.Status.FlavorsReservation
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo([]kueue.FlavorUsage{
 					{
 						Name: flavorOnDemand,

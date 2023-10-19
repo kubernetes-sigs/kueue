@@ -29,7 +29,7 @@ type LocalQueueStatusApplyConfiguration struct {
 	AdmittedWorkloads  *int32                                    `json:"admittedWorkloads,omitempty"`
 	Conditions         []v1.Condition                            `json:"conditions,omitempty"`
 	FlavorsReservation []LocalQueueFlavorUsageApplyConfiguration `json:"flavorsReservation,omitempty"`
-	FlavorsUsage       []LocalQueueFlavorUsageApplyConfiguration `json:"flavorsUsage,omitempty"`
+	FlavorUsage        []LocalQueueFlavorUsageApplyConfiguration `json:"flavorUsage,omitempty"`
 }
 
 // LocalQueueStatusApplyConfiguration constructs an declarative configuration of the LocalQueueStatus type for use with
@@ -85,15 +85,15 @@ func (b *LocalQueueStatusApplyConfiguration) WithFlavorsReservation(values ...*L
 	return b
 }
 
-// WithFlavorsUsage adds the given value to the FlavorsUsage field in the declarative configuration
+// WithFlavorUsage adds the given value to the FlavorUsage field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the FlavorsUsage field.
-func (b *LocalQueueStatusApplyConfiguration) WithFlavorsUsage(values ...*LocalQueueFlavorUsageApplyConfiguration) *LocalQueueStatusApplyConfiguration {
+// If called multiple times, values provided by each call will be appended to the FlavorUsage field.
+func (b *LocalQueueStatusApplyConfiguration) WithFlavorUsage(values ...*LocalQueueFlavorUsageApplyConfiguration) *LocalQueueStatusApplyConfiguration {
 	for i := range values {
 		if values[i] == nil {
-			panic("nil value passed to WithFlavorsUsage")
+			panic("nil value passed to WithFlavorUsage")
 		}
-		b.FlavorsUsage = append(b.FlavorsUsage, *values[i])
+		b.FlavorUsage = append(b.FlavorUsage, *values[i])
 	}
 	return b
 }

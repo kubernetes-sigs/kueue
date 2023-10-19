@@ -451,8 +451,8 @@ spec:
                 x-kubernetes-list-map-keys:
                 - name
                 x-kubernetes-list-type: map
-              flavorsReservations:
-                description: flavorsReservations are the reserved quotas, by flavor,
+              flavorsReservation:
+                description: flavorsReservation are the reserved quotas, by flavor,
                   currently in use by the workloads assigned to this ClusterQueue.
                 items:
                   properties:
@@ -538,7 +538,7 @@ spec:
                 required:
                 - lastChangeTime
                 type: object
-              quotaReservedWorkloads:
+              reservingdWorkloads:
                 description: reservingdWorkloads is the number of workloads currently
                   reserving quota in this clusterQueue.
                 format: int32

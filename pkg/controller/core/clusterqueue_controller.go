@@ -332,8 +332,8 @@ func recordResourceMetrics(cq *kueue.ClusterQueue) {
 		}
 	}
 
-	for fri := range cq.Status.FlavorsReservations {
-		fr := &cq.Status.FlavorsReservations[fri]
+	for fri := range cq.Status.FlavorsReservation {
+		fr := &cq.Status.FlavorsReservation[fri]
 		for ri := range fr.Resources {
 			r := &fr.Resources[ri]
 			metrics.ReportClusterQueueResourceReservations(cq.Spec.Cohort, cq.Name, string(fr.Name), string(r.Name), resource.QuantityToFloat(&r.Total))
@@ -386,13 +386,13 @@ func clearOldResourceQuotas(oldCq, newCq *kueue.ClusterQueue) {
 	}
 
 	// reservation metrics
-	if len(oldCq.Status.FlavorsReservations) > 0 {
+	if len(oldCq.Status.FlavorsReservation) > 0 {
 		newFlavors := map[kueue.ResourceFlavorReference]*kueue.FlavorUsage{}
-		if len(newCq.Status.FlavorsReservations) > 0 {
-			newFlavors = slices.ToRefMap(newCq.Status.FlavorsReservations, func(f *kueue.FlavorUsage) kueue.ResourceFlavorReference { return f.Name })
+		if len(newCq.Status.FlavorsReservation) > 0 {
+			newFlavors = slices.ToRefMap(newCq.Status.FlavorsReservation, func(f *kueue.FlavorUsage) kueue.ResourceFlavorReference { return f.Name })
 		}
-		for fi := range oldCq.Status.FlavorsReservations {
-			flavor := &oldCq.Status.FlavorsReservations[fi]
+		for fi := range oldCq.Status.FlavorsReservation {
+			flavor := &oldCq.Status.FlavorsReservation[fi]
 			if newFlavor, found := newFlavors[flavor.Name]; !found || len(newFlavor.Resources) == 0 {
 				metrics.ClearClusterQueueResourceReservations(oldCq.Name, string(flavor.Name), "")
 			} else {
@@ -630,24 +630,17 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 ) error {
 	oldStatus := cq.Status.DeepCopy()
 	pendingWorkloads := r.qManager.Pending(cq)
-	usage, workloadsAdmitted, err := r.cache.UsageStats(cq)
-	if err != nil {
-		r.log.Error(err, "Failed getting reservations from cache")
-		// This is likely because the cluster queue was recently removed,
-		// but we didn't process that event yet.
-		return err
-	}
-	reservations, workloadsReserved, err := r.cache.ReservationStats(cq)
+	stats, err := r.cache.Usage(cq)
 	if err != nil {
 		r.log.Error(err, "Failed getting usage from cache")
 		// This is likely because the cluster queue was recently removed,
 		// but we didn't process that event yet.
 		return err
 	}
-	cq.Status.FlavorsReservations = reservations
-	cq.Status.FlavorsUsage = usage
-	cq.Status.ReservingdWorkloads = int32(workloadsReserved)
-	cq.Status.AdmittedWorkloads = int32(workloadsAdmitted)
+	cq.Status.FlavorsReservation = stats.ReservedResources
+	cq.Status.FlavorsUsage = stats.AdmittedResources
+	cq.Status.ReservingdWorkloads = int32(stats.ReservingWorkloads)
+	cq.Status.AdmittedWorkloads = int32(stats.AdmittedWorkloads)
 	cq.Status.PendingWorkloads = int32(pendingWorkloads)
 	cq.Status.PendingWorkloadsStatus = r.getWorkloadsStatus(cq)
 	meta.SetStatusCondition(&cq.Status.Conditions, metav1.Condition{

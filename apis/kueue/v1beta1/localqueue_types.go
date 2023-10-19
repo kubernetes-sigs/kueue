@@ -70,7 +70,7 @@ type LocalQueueStatus struct {
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=16
 	// +optional
-	FlavorsUsage []LocalQueueFlavorUsage `json:"flavorsUsage"`
+	FlavorUsage []LocalQueueFlavorUsage `json:"flavorUsage"`
 }
 
 const (

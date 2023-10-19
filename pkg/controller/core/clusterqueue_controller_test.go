@@ -268,7 +268,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 			},
 		},
 		Status: kueue.ClusterQueueStatus{
-			FlavorsReservations: []kueue.FlavorUsage{
+			FlavorsReservation: []kueue.FlavorUsage{
 				{
 					Name: "flavor",
 					Resources: []kueue.ResourceUsage{
@@ -320,7 +320,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 				ret := baseQueue.DeepCopy()
 				ret.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("2")
 				ret.Spec.ResourceGroups[0].Flavors[0].Resources[0].BorrowingLimit = ptr.To(resource.MustParse("1"))
-				ret.Status.FlavorsReservations[0].Resources[0].Total = resource.MustParse("3")
+				ret.Status.FlavorsReservation[0].Resources[0].Total = resource.MustParse("3")
 				return ret
 			}(),
 			wantUpdatedMetrics: cqMetrics{
@@ -381,7 +381,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 			updatedQueue: func() *kueue.ClusterQueue {
 				ret := baseQueue.DeepCopy()
 				ret.Spec.ResourceGroups[0].Flavors[0].Name = "flavor2"
-				ret.Status.FlavorsReservations[0].Name = "flavor2"
+				ret.Status.FlavorsReservation[0].Name = "flavor2"
 				return ret
 			}(),
 			wantUpdatedMetrics: cqMetrics{
@@ -412,7 +412,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 			updatedQueue: func() *kueue.ClusterQueue {
 				ret := baseQueue.DeepCopy()
 				ret.Spec.ResourceGroups[0].Flavors[0].Resources[0].Name = corev1.ResourceMemory
-				ret.Status.FlavorsReservations[0].Resources[0].Name = corev1.ResourceMemory
+				ret.Status.FlavorsReservation[0].Resources[0].Name = corev1.ResourceMemory
 				return ret
 			}(),
 			wantUpdatedMetrics: cqMetrics{
@@ -442,7 +442,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 			},
 			updatedQueue: func() *kueue.ClusterQueue {
 				ret := baseQueue.DeepCopy()
-				ret.Status.FlavorsReservations = nil
+				ret.Status.FlavorsReservation = nil
 				return ret
 			}(),
 			wantUpdatedMetrics: cqMetrics{

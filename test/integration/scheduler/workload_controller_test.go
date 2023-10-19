@@ -115,7 +115,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
 					PendingWorkloads:    0,
 					ReservingdWorkloads: 1,
-					FlavorsReservations: []kueue.FlavorUsage{{
+					FlavorsReservation: []kueue.FlavorUsage{{
 						Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
 						Resources: []kueue.ResourceUsage{{
 							Name:  corev1.ResourceCPU,
@@ -170,7 +170,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
 					PendingWorkloads:    0,
 					ReservingdWorkloads: 1,
-					FlavorsReservations: []kueue.FlavorUsage{{
+					FlavorsReservation: []kueue.FlavorUsage{{
 						Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
 						Resources: []kueue.ResourceUsage{{
 							Name:  corev1.ResourceCPU,
@@ -224,7 +224,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
 					PendingWorkloads:    0,
 					ReservingdWorkloads: 1,
-					FlavorsReservations: []kueue.FlavorUsage{{
+					FlavorsReservation: []kueue.FlavorUsage{{
 						Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
 						Resources: []kueue.ResourceUsage{
 							{
@@ -266,7 +266,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
 					PendingWorkloads:    0,
 					ReservingdWorkloads: 1,
-					FlavorsReservations: []kueue.FlavorUsage{{
+					FlavorsReservation: []kueue.FlavorUsage{{
 						Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
 						Resources: []kueue.ResourceUsage{
 							{
@@ -328,7 +328,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
 					PendingWorkloads:    0,
 					ReservingdWorkloads: 1,
-					FlavorsReservations: []kueue.FlavorUsage{{
+					FlavorsReservation: []kueue.FlavorUsage{{
 						Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
 						Resources: []kueue.ResourceUsage{{
 							Name:  corev1.ResourceCPU,
@@ -431,7 +431,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
 					PendingWorkloads:    0,
 					ReservingdWorkloads: 2,
-					FlavorsReservations: []kueue.FlavorUsage{{
+					FlavorsReservation: []kueue.FlavorUsage{{
 						Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
 						Resources: []kueue.ResourceUsage{{
 							Name:  corev1.ResourceCPU,
@@ -521,7 +521,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
 					PendingWorkloads:    0,
 					ReservingdWorkloads: 2,
-					FlavorsReservations: []kueue.FlavorUsage{{
+					FlavorsReservation: []kueue.FlavorUsage{{
 						Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
 						Resources: []kueue.ResourceUsage{{
 							Name:  corev1.ResourceCPU,
@@ -555,7 +555,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
 					PendingWorkloads:    0,
 					ReservingdWorkloads: 0,
-					FlavorsReservations: []kueue.FlavorUsage{{
+					FlavorsReservation: []kueue.FlavorUsage{{
 						Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
 						Resources: []kueue.ResourceUsage{{
 							Name:  corev1.ResourceCPU,
