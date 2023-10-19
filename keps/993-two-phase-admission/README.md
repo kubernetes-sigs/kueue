@@ -269,11 +269,24 @@ The **Preemption Admission Check Controller** will:
 The preemption controller uses the kueue cache, since it needs to check the state of workloads admitted to the ClusterQueues.
 
 At every run the controller will get the list of workloads pending preemption.
-1. Since for some of these workloads is not necessary to issue eviction at that given point (eg. Having a pending check that uses AfterCheckPassedOrOnDemand policy) their quota reservation will be ignored.
-2. For every other preemption pending workloads, it will check if it can fit without evicting other workloads, case in which the preemption admission check condition will be set to `Ready`.
-3. If eviction of other workload is still needed, an updated list candidates is created and eviction is issued for all of them.
-4. If the updated list of candidates is empty, meaning that the preemption can no longer succeed, the preemption admission check is set as `Retry`, the workload will lose it's quota reservation and be requeued.
 
+The workloads pending preemption are divided into:
+- `preemtingLetaer` - Workloads having at least one check that uses AfterCheckPassedOrOnDemand policy with the state `pending`.
+- `preemtingNow` - Workloads that expect to be able to issue evictions or potentially change their preemption state in the current cycle.
+
+Then:
+1. Remove all workloads from the snapshot.
+2. For every workload in `preemtingNow` , in the order of their priority:
+  - If it can fit without the need of evicting other workloads
+    - Set its admission check to `Ready`
+    - Add it to the snapshot
+  - If it cannot fit
+    - Get an updated list of eviction candidates
+      - If the updated list is not empty.
+        - Issue the eviction to the candidates.
+        - Add it to the snapshot
+      - If the updated list is empty, meaning the preemption cannot be done.
+        - Set its admission check to `Ready`
 
 ### Test Plan
 
