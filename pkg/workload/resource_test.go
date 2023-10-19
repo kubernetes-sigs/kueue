@@ -146,6 +146,7 @@ func TestAdjustResources(t *testing.T) {
 				Obj(),
 		},
 	}
+
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().WithLists(
