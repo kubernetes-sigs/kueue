@@ -603,6 +603,11 @@ func (ac *AdmissionCheckWrapper) Active(status metav1.ConditionStatus) *Admissio
 	return ac
 }
 
+func (ac *AdmissionCheckWrapper) ControllerName(c string) *AdmissionCheckWrapper {
+	ac.Spec.ControllerName = c
+	return ac
+}
+
 func (ac *AdmissionCheckWrapper) Obj() *kueue.AdmissionCheck {
 	return &ac.AdmissionCheck
 }
