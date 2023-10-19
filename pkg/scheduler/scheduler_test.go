@@ -38,6 +38,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/util/routine"
@@ -190,6 +191,9 @@ func TestSchedule(t *testing.T) {
 		// additional*Queues can hold any extra queues needed by the tc
 		additionalClusterQueues []kueue.ClusterQueue
 		additionalLocalQueues   []kueue.LocalQueue
+
+		// disable partial admission
+		disablePartialAdmission bool
 	}{
 		"workload fits in single clusterQueue": {
 			workloads: []kueue.Workload{
@@ -903,6 +907,30 @@ func TestSchedule(t *testing.T) {
 			},
 			wantScheduled: []string{"sales/new"},
 		},
+		"partial admission disabled, multiple variable pod sets": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("new", "sales").
+					Queue("main").
+					PodSets(
+						*utiltesting.MakePodSet("one", 20).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltesting.MakePodSet("two", 30).
+							SetMinimumCount(10).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltesting.MakePodSet("three", 15).
+							SetMinimumCount(5).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Obj(),
+			},
+			wantLeft: map[string]sets.Set[string]{
+				"sales": sets.New("sales/new"),
+			},
+			disablePartialAdmission: true,
+		},
 		"two workloads can borrow different resources from the same flavor in the same cycle": {
 			additionalClusterQueues: func() []kueue.ClusterQueue {
 				preemption := kueue.ClusterQueuePreemption{
@@ -1012,6 +1040,9 @@ func TestSchedule(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			if tc.disablePartialAdmission {
+				defer features.SetFeatureGateDuringTest(t, features.PartialAdmission, false)()
+			}
 			ctx, _ := utiltesting.ContextWithLog(t)
 			scheme := runtime.NewScheme()
 
