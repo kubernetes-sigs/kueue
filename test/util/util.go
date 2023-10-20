@@ -45,6 +45,15 @@ func DeleteAdmissionCheck(ctx context.Context, c client.Client, ac *kueue.Admiss
 	return nil
 }
 
+func DeleteProvisioningRequestConfig(ctx context.Context, c client.Client, ac *kueue.ProvisioningRequestConfig) error {
+	if ac != nil {
+		if err := c.Delete(ctx, ac); err != nil && !apierrors.IsNotFound(err) {
+			return err
+		}
+	}
+	return nil
+}
+
 func DeleteWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) error {
 	if wl != nil {
 		if err := c.Delete(ctx, wl); err != nil && !apierrors.IsNotFound(err) {
@@ -317,6 +326,19 @@ func ExpectAdmissionCheckToBeDeleted(ctx context.Context, k8sClient client.Clien
 	}, Timeout, Interval).Should(testing.BeNotFoundError())
 }
 
+func ExpectProvisioningRequestConfigToBeDeleted(ctx context.Context, k8sClient client.Client, prc *kueue.ProvisioningRequestConfig, deleteAC bool) {
+	if prc == nil {
+		return
+	}
+	if deleteAC {
+		gomega.ExpectWithOffset(1, client.IgnoreNotFound(DeleteProvisioningRequestConfig(ctx, k8sClient, prc))).To(gomega.Succeed())
+	}
+	gomega.EventuallyWithOffset(1, func() error {
+		var newAC kueue.AdmissionCheck
+		return k8sClient.Get(ctx, client.ObjectKeyFromObject(prc), &newAC)
+	}, Timeout, Interval).Should(testing.BeNotFoundError())
+}
+
 func ExpectClusterQueueToBeDeleted(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, deleteCq bool) {
 	if deleteCq {
 		gomega.Expect(DeleteClusterQueue(ctx, k8sClient, cq)).ToNot(gomega.HaveOccurred())
@@ -437,13 +459,20 @@ func SetAdmissionCheckActive(ctx context.Context, k8sClient client.Client, admis
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
-func SetWorkloadsAdmissionCkeck(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, check string, state kueue.CheckState) {
+func SetWorkloadsAdmissionCkeck(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, check string, state kueue.CheckState, expectExisting bool) {
 	var updatedWorkload kueue.Workload
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-		currentCheck := workload.FindAdmissionCheck(updatedWorkload.Status.AdmissionChecks, check)
-		g.Expect(currentCheck).NotTo(gomega.BeNil(), "the check %s was not found in %s", check, workload.Key(wl))
-		currentCheck.State = state
+		if expectExisting {
+			currentCheck := workload.FindAdmissionCheck(updatedWorkload.Status.AdmissionChecks, check)
+			g.Expect(currentCheck).NotTo(gomega.BeNil(), "the check %s was not found in %s", check, workload.Key(wl))
+			currentCheck.State = state
+		} else {
+			workload.SetAdmissionCheckState(&updatedWorkload.Status.AdmissionChecks, kueue.AdmissionCheckState{
+				Name:  check,
+				State: state,
+			})
+		}
 		g.Expect(k8sClient.Status().Update(ctx, &updatedWorkload)).To(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed())
 }

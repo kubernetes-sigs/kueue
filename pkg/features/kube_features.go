@@ -48,6 +48,13 @@ const (
 	//
 	// Enables flavor fungibility.
 	FlavorFungibility featuregate.Feature = "FlavorFungibility"
+
+	// owner: @trasc
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/1136-provisioning-request-support
+	// alpha: v0.5
+	//
+	// Enables Provisioning Admission Check Controller.
+	ProvisioningACC featuregate.Feature = "ProvisioningACC"
 )
 
 func init() {
@@ -64,6 +71,7 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	PartialAdmission:  {Default: true, PreRelease: featuregate.Beta},
 	QueueVisibility:   {Default: false, PreRelease: featuregate.Alpha},
 	FlavorFungibility: {Default: true, PreRelease: featuregate.Beta},
+	ProvisioningACC:   {Default: false, PreRelease: featuregate.Alpha},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) func() {

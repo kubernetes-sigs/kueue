@@ -294,7 +294,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 
 		ginkgo.By("Setting the workloads admission checks")
 		for _, w := range workloads {
-			util.SetWorkloadsAdmissionCkeck(ctx, k8sClient, w, ac.Name, kueue.CheckStateReady)
+			util.SetWorkloadsAdmissionCkeck(ctx, k8sClient, w, ac.Name, kueue.CheckStateReady, true)
 		}
 
 		gomega.Eventually(func() kueue.LocalQueueStatus {
