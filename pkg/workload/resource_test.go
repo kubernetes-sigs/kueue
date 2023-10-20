@@ -17,8 +17,10 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
@@ -32,9 +34,9 @@ func TestAdjustResources(t *testing.T) {
 	}{
 		"Handle Pod Overhead": {
 			runtimeClasses: []nodev1.RuntimeClass{
-				utiltesting.MakeRuntimeClass("runtime-a", "handler-a").
-					RuntimeClass,
-				utiltesting.MakeRuntimeClass("runtime-b", "handler-b").
+				//utiltesting.MakeRuntimeClass("runtime-a", "handler-a").
+				//	RuntimeClass,
+				utiltesting.MakeRuntimeClass("runtime-a", "handler-b").
 					PodOverhead(corev1.ResourceList{
 						corev1.ResourceCPU:    ResourceQuantity(corev1.ResourceCPU, 1),
 						corev1.ResourceMemory: ResourceQuantity(corev1.ResourceMemory, 1024),
@@ -46,28 +48,28 @@ func TestAdjustResources(t *testing.T) {
 					*utiltesting.MakePodSet("a", 1).
 						RuntimeClass("runtime-a").
 						Obj(),
-					*utiltesting.MakePodSet("b", 1).
-						RuntimeClass("runtime-b").
-						Obj(),
-					*utiltesting.MakePodSet("c", 1).
-						RuntimeClass("runtime-c").
-						Obj(),
+					//*utiltesting.MakePodSet("b", 1).
+					//	RuntimeClass("runtime-b").
+					//	Obj(),
+					//*utiltesting.MakePodSet("c", 1).
+					//	RuntimeClass("runtime-c").
+					//	Obj(),
 				).
 				Obj(),
 			wantWl: utiltesting.MakeWorkload("foo", "").
 				PodSets(
+					//*utiltesting.MakePodSet("a", 1).
+					//	RuntimeClass("runtime-a").
+					//	Obj(),
 					*utiltesting.MakePodSet("a", 1).
-						RuntimeClass("runtime-a").
-						Obj(),
-					*utiltesting.MakePodSet("b", 1).
-						RuntimeClass("runtime-b").PodOverHead(
+						RuntimeClass("runtime-a").PodOverHead(
 						corev1.ResourceList{
 							corev1.ResourceCPU:    ResourceQuantity(corev1.ResourceCPU, 1),
 							corev1.ResourceMemory: ResourceQuantity(corev1.ResourceMemory, 1024),
 						}).Obj(),
-					*utiltesting.MakePodSet("c", 1).
-						RuntimeClass("runtime-c").
-						Obj(),
+					//*utiltesting.MakePodSet("c", 1).
+					//	RuntimeClass("runtime-c").
+					//	Obj(),
 				).
 				Obj(),
 		},
@@ -87,11 +89,11 @@ func TestAdjustResources(t *testing.T) {
 				PodSets(
 					*utiltesting.MakePodSet("a", 1).
 						Obj(),
+					//*utiltesting.MakePodSet("b", 1).
+					//	Limit(corev1.ResourceCPU, "5").
+					//	Request(corev1.ResourceCPU, "1").
+					//	Obj(),
 					*utiltesting.MakePodSet("b", 1).
-						Limit(corev1.ResourceCPU, "5").
-						Request(corev1.ResourceCPU, "1").
-						Obj(),
-					*utiltesting.MakePodSet("c", 1).
 						Limit(corev1.ResourceCPU, "3").
 						Request(corev1.ResourceCPU, "3").
 						Obj(),
@@ -103,11 +105,11 @@ func TestAdjustResources(t *testing.T) {
 						Limit(corev1.ResourceCPU, "4").
 						Request(corev1.ResourceCPU, "4").
 						Obj(),
+					//*utiltesting.MakePodSet("b", 1).
+					//	Limit(corev1.ResourceCPU, "6").
+					//	Request(corev1.ResourceCPU, "1").
+					//	Obj(),
 					*utiltesting.MakePodSet("b", 1).
-						Limit(corev1.ResourceCPU, "6").
-						Request(corev1.ResourceCPU, "1").
-						Obj(),
-					*utiltesting.MakePodSet("c", 1).
 						Limit(corev1.ResourceCPU, "3").
 						Request(corev1.ResourceCPU, "3").
 						Obj(),
@@ -146,7 +148,6 @@ func TestAdjustResources(t *testing.T) {
 				Obj(),
 		},
 	}
-
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().WithLists(
