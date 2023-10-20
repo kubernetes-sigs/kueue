@@ -40,20 +40,12 @@ func TestAdjustResources(t *testing.T) {
 						corev1.ResourceMemory: ResourceQuantity(corev1.ResourceMemory, 1024),
 					}).
 					RuntimeClass,
-				//utiltesting.MakeRuntimeClass("runtime-b", "handler-b").
-				//	RuntimeClass,
 			},
 			wl: utiltesting.MakeWorkload("foo", "").
 				PodSets(
 					*utiltesting.MakePodSet("a", 1).
 						RuntimeClass("runtime-a").
 						Obj(),
-					//*utiltesting.MakePodSet("b", 1).
-					//	RuntimeClass("runtime-b").
-					//	Obj(),
-					//*utiltesting.MakePodSet("c", 1).
-					//	RuntimeClass("runtime-c").
-					//	Obj(),
 				).
 				Obj(),
 			wantWl: utiltesting.MakeWorkload("foo", "").
@@ -64,21 +56,15 @@ func TestAdjustResources(t *testing.T) {
 							corev1.ResourceCPU:    ResourceQuantity(corev1.ResourceCPU, 1),
 							corev1.ResourceMemory: ResourceQuantity(corev1.ResourceMemory, 1024),
 						}).Obj(),
-					//*utiltesting.MakePodSet("b", 1).
-					//	RuntimeClass("runtime-b").
-					//	Obj(),
-					//*utiltesting.MakePodSet("c", 1).
-					//	RuntimeClass("runtime-c").
-					//	Obj(),
 				).
 				Obj(),
 		},
 		"Handle Pod Limit Range": {
 			limitranges: []corev1.LimitRange{
 				utiltesting.MakeLimitRange("foo", "").
-					WithType(corev1.LimitTypePod).
+					WithType(corev1.LimitTypeContainer).
 					WithValue(
-						"Max", corev1.ResourceCPU, "4",
+						"Default", corev1.ResourceCPU, "4",
 					).
 					WithValue(
 						"DefaultRequest", corev1.ResourceCPU, "2",
@@ -93,10 +79,6 @@ func TestAdjustResources(t *testing.T) {
 						Limit(corev1.ResourceCPU, "3").
 						Request(corev1.ResourceCPU, "3").
 						Obj(),
-					//*utiltesting.MakePodSet("c", 1).
-					//	Limit(corev1.ResourceCPU, "5").
-					//	Request(corev1.ResourceCPU, "1").
-					//	Obj(),
 				).
 				Obj(),
 			wantWl: utiltesting.MakeWorkload("foo", "").
@@ -109,10 +91,6 @@ func TestAdjustResources(t *testing.T) {
 						Limit(corev1.ResourceCPU, "3").
 						Request(corev1.ResourceCPU, "3").
 						Obj(),
-					//*utiltesting.MakePodSet("c", 1).
-					//	Limit(corev1.ResourceCPU, "6").
-					//	Request(corev1.ResourceCPU, "1").
-					//	Obj(),
 				).
 				Obj(),
 		},
