@@ -76,7 +76,7 @@ func TestAdjustResources(t *testing.T) {
 		"Handle Pod Limit Range": {
 			limitranges: []corev1.LimitRange{
 				utiltesting.MakeLimitRange("foo", "").
-					WithType(corev1.LimitTypeContainer).
+					WithType(corev1.LimitTypePod).
 					WithValue(
 						"Max", corev1.ResourceCPU, "4",
 					).
@@ -105,14 +105,14 @@ func TestAdjustResources(t *testing.T) {
 						Limit(corev1.ResourceCPU, "4").
 						Request(corev1.ResourceCPU, "2").
 						Obj(),
-					//*utiltesting.MakePodSet("b", 1).
-					//	Limit(corev1.ResourceCPU, "6").
-					//	Request(corev1.ResourceCPU, "1").
-					//	Obj(),
 					*utiltesting.MakePodSet("b", 1).
 						Limit(corev1.ResourceCPU, "3").
 						Request(corev1.ResourceCPU, "3").
 						Obj(),
+					//*utiltesting.MakePodSet("c", 1).
+					//	Limit(corev1.ResourceCPU, "6").
+					//	Request(corev1.ResourceCPU, "1").
+					//	Obj(),
 				).
 				Obj(),
 		},
