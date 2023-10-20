@@ -34,7 +34,7 @@ func TestAdjustResources(t *testing.T) {
 	}{
 		"Handle Pod Overhead": {
 			runtimeClasses: []nodev1.RuntimeClass{
-				utiltesting.MakeRuntimeClass("runtime-a", "handler-b").
+				utiltesting.MakeRuntimeClass("runtime-a", "handler-a").
 					PodOverhead(corev1.ResourceList{
 						corev1.ResourceCPU:    ResourceQuantity(corev1.ResourceCPU, 1),
 						corev1.ResourceMemory: ResourceQuantity(corev1.ResourceMemory, 1024),
@@ -51,11 +51,13 @@ func TestAdjustResources(t *testing.T) {
 			wantWl: utiltesting.MakeWorkload("foo", "").
 				PodSets(
 					*utiltesting.MakePodSet("a", 1).
-						RuntimeClass("runtime-a").PodOverHead(
-						corev1.ResourceList{
-							corev1.ResourceCPU:    ResourceQuantity(corev1.ResourceCPU, 1),
-							corev1.ResourceMemory: ResourceQuantity(corev1.ResourceMemory, 1024),
-						}).Obj(),
+						RuntimeClass("runtime-a").
+						PodOverHead(
+							corev1.ResourceList{
+								corev1.ResourceCPU:    ResourceQuantity(corev1.ResourceCPU, 1),
+								corev1.ResourceMemory: ResourceQuantity(corev1.ResourceMemory, 1024),
+							}).
+						Obj(),
 				).
 				Obj(),
 		},
@@ -67,7 +69,13 @@ func TestAdjustResources(t *testing.T) {
 						"Default", corev1.ResourceCPU, "4",
 					).
 					WithValue(
-						"DefaultRequest", corev1.ResourceCPU, "2",
+						"DefaultRequest", corev1.ResourceCPU, "4",
+					).
+					WithValue(
+						"Max", corev1.ResourceCPU, "4",
+					).
+					WithValue(
+						"Min", corev1.ResourceCPU, "2",
 					).
 					LimitRange,
 			},
@@ -76,8 +84,10 @@ func TestAdjustResources(t *testing.T) {
 					*utiltesting.MakePodSet("a", 1).
 						Obj(),
 					*utiltesting.MakePodSet("b", 1).
-						Limit(corev1.ResourceCPU, "3").
-						Request(corev1.ResourceCPU, "3").
+						Limit(corev1.ResourceCPU, "5").
+						Obj(),
+					*utiltesting.MakePodSet("c", 1).
+						Request(corev1.ResourceCPU, "1").
 						Obj(),
 				).
 				Obj(),
@@ -85,11 +95,15 @@ func TestAdjustResources(t *testing.T) {
 				PodSets(
 					*utiltesting.MakePodSet("a", 1).
 						Limit(corev1.ResourceCPU, "4").
-						Request(corev1.ResourceCPU, "2").
+						Request(corev1.ResourceCPU, "4").
 						Obj(),
 					*utiltesting.MakePodSet("b", 1).
-						Limit(corev1.ResourceCPU, "3").
-						Request(corev1.ResourceCPU, "3").
+						Limit(corev1.ResourceCPU, "5").
+						Request(corev1.ResourceCPU, "4").
+						Obj(),
+					*utiltesting.MakePodSet("c", 1).
+						Limit(corev1.ResourceCPU, "4").
+						Request(corev1.ResourceCPU, "1").
 						Obj(),
 				).
 				Obj(),
@@ -106,6 +120,11 @@ func TestAdjustResources(t *testing.T) {
 						Limit(corev1.ResourceCPU, "3").
 						Limit(corev1.ResourceMemory, "1Gi").
 						Obj(),
+					*utiltesting.MakePodSet("c", 1).
+						Request(corev1.ResourceMemory, "1Gi").
+						Limit(corev1.ResourceCPU, "1").
+						Limit(corev1.ResourceMemory, "3Gi").
+						Obj(),
 				).
 				Obj(),
 			wantWl: utiltesting.MakeWorkload("foo", "").
@@ -120,6 +139,12 @@ func TestAdjustResources(t *testing.T) {
 						Limit(corev1.ResourceCPU, "3").
 						Limit(corev1.ResourceMemory, "1Gi").
 						Request(corev1.ResourceCPU, "2").
+						Request(corev1.ResourceMemory, "1Gi").
+						Obj(),
+					*utiltesting.MakePodSet("c", 1).
+						Limit(corev1.ResourceCPU, "1").
+						Limit(corev1.ResourceMemory, "3Gi").
+						Request(corev1.ResourceCPU, "1").
 						Request(corev1.ResourceMemory, "1Gi").
 						Obj(),
 				).
