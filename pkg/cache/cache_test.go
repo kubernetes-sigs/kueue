@@ -121,6 +121,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Usage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
 					},
+					AdmittedUsage: FlavorResourceQuantities{
+						"default": {corev1.ResourceCPU: 0},
+					},
 					Status:     active,
 					Preemption: defaultPreemption,
 				},
@@ -142,6 +145,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector: labels.Nothing(),
 					FlavorFungibility: defaultFlavorFungibility,
 					Usage: FlavorResourceQuantities{
+						"default": {corev1.ResourceCPU: 0},
+					},
+					AdmittedUsage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
 					},
 					Status:     active,
@@ -184,6 +190,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector: labels.Nothing(),
 					FlavorFungibility: defaultFlavorFungibility,
 					Usage: FlavorResourceQuantities{
+						"nonexistent-flavor": {corev1.ResourceCPU: 0},
+					},
+					AdmittedUsage: FlavorResourceQuantities{
 						"nonexistent-flavor": {corev1.ResourceCPU: 0},
 					},
 					Status:     pending,
@@ -270,6 +279,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Usage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
 					},
+					AdmittedUsage: FlavorResourceQuantities{
+						"default": {corev1.ResourceCPU: 0},
+					},
 					Status:     active,
 					Preemption: defaultPreemption,
 				},
@@ -291,6 +303,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					FlavorFungibility: defaultFlavorFungibility,
 					NamespaceSelector: labels.Nothing(),
 					Usage: FlavorResourceQuantities{
+						"default": {corev1.ResourceCPU: 0},
+					},
+					AdmittedUsage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
 					},
 					Status:     active,
@@ -335,6 +350,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector: labels.Nothing(),
 					FlavorFungibility: defaultFlavorFungibility,
 					Usage: FlavorResourceQuantities{
+						"nonexistent-flavor": {corev1.ResourceCPU: 0},
+					},
+					AdmittedUsage: FlavorResourceQuantities{
 						"nonexistent-flavor": {corev1.ResourceCPU: 0},
 					},
 					Status:     pending,
@@ -418,6 +436,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Usage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
 					},
+					AdmittedUsage: FlavorResourceQuantities{
+						"default": {corev1.ResourceCPU: 0},
+					},
 					Status:     active,
 					Preemption: defaultPreemption,
 				},
@@ -470,6 +491,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector: labels.Nothing(),
 					FlavorFungibility: defaultFlavorFungibility,
 					Usage: FlavorResourceQuantities{
+						"default": {corev1.ResourceCPU: 0},
+					},
+					AdmittedUsage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
 					},
 					Status:     active,
@@ -529,6 +553,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Usage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
 					},
+					AdmittedUsage: FlavorResourceQuantities{
+						"default": {corev1.ResourceCPU: 0},
+					},
 					Status:     active,
 					Preemption: defaultPreemption,
 				},
@@ -561,6 +588,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector: labels.Nothing(),
 					FlavorFungibility: defaultFlavorFungibility,
 					Usage: FlavorResourceQuantities{
+						"nonexistent-flavor": {corev1.ResourceCPU: 0},
+					},
+					AdmittedUsage: FlavorResourceQuantities{
 						"nonexistent-flavor": {corev1.ResourceCPU: 0},
 					},
 					Status:     pending,
@@ -619,6 +649,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					Usage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
 					},
+					AdmittedUsage: FlavorResourceQuantities{
+						"default": {corev1.ResourceCPU: 0},
+					},
 					Status:     active,
 					Preemption: defaultPreemption,
 				},
@@ -640,6 +673,9 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector: labels.Nothing(),
 					FlavorFungibility: defaultFlavorFungibility,
 					Usage: FlavorResourceQuantities{
+						"default": {corev1.ResourceCPU: 0},
+					},
+					AdmittedUsage: FlavorResourceQuantities{
 						"default": {corev1.ResourceCPU: 0},
 					},
 					Status:     active,
@@ -682,6 +718,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					NamespaceSelector: labels.Nothing(),
 					FlavorFungibility: defaultFlavorFungibility,
 					Usage:             FlavorResourceQuantities{"nonexistent-flavor": {corev1.ResourceCPU: 0}},
+					AdmittedUsage:     FlavorResourceQuantities{"nonexistent-flavor": {corev1.ResourceCPU: 0}},
 					Status:            active,
 					Preemption:        defaultPreemption,
 				},
@@ -774,6 +811,22 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					},
 					FlavorFungibility: defaultFlavorFungibility,
 					Usage: FlavorResourceQuantities{
+						"foo": {
+							"cpu":    0,
+							"memory": 0,
+						},
+						"bar": {
+							"cpu":    0,
+							"memory": 0,
+						},
+						"theta": {
+							"example.com/gpu": 0,
+						},
+						"gamma": {
+							"example.com/gpu": 0,
+						},
+					},
+					AdmittedUsage: FlavorResourceQuantities{
 						"foo": {
 							"cpu":    0,
 							"memory": 0,
@@ -1594,6 +1647,7 @@ func TestClusterQueueUsage(t *testing.T) {
 			Request(corev1.ResourceCPU, "8").
 			Request("example.com/gpu", "5").
 			ReserveQuota(utiltesting.MakeAdmission("foo").Assignment(corev1.ResourceCPU, "default", "8000m").Assignment("example.com/gpu", "model_a", "5").Obj()).
+			Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
 			Obj(),
 		*utiltesting.MakeWorkload("two", "").
 			Request(corev1.ResourceCPU, "5").
@@ -1602,14 +1656,47 @@ func TestClusterQueueUsage(t *testing.T) {
 			Obj(),
 	}
 	cases := map[string]struct {
-		clusterQueue      *kueue.ClusterQueue
-		workloads         []kueue.Workload
-		wantUsedResources []kueue.FlavorUsage
-		wantWorkloads     int
+		clusterQueue           *kueue.ClusterQueue
+		workloads              []kueue.Workload
+		wantReservedResources  []kueue.FlavorUsage
+		wantReservingWorkloads int
+		wantUsedResources      []kueue.FlavorUsage
+		wantAdmittedWorkloads  int
 	}{
-		"clusterQueue without cohort; single no borrowing": {
+		"clusterQueue without cohort; single, admitted no borrowing": {
 			clusterQueue: cqWithOutCohort,
 			workloads:    workloads[:1],
+			wantReservedResources: []kueue.FlavorUsage{
+				{
+					Name: "default",
+					Resources: []kueue.ResourceUsage{{
+						Name:  corev1.ResourceCPU,
+						Total: resource.MustParse("8"),
+					}},
+				},
+				{
+					Name: "model_a",
+					Resources: []kueue.ResourceUsage{{
+						Name:  "example.com/gpu",
+						Total: resource.MustParse("5"),
+					}},
+				},
+				{
+					Name: "model_b",
+					Resources: []kueue.ResourceUsage{{
+						Name: "example.com/gpu",
+					}},
+				},
+				{
+					Name: "interconnect_a",
+					Resources: []kueue.ResourceUsage{
+						{Name: "example.com/vf-0"},
+						{Name: "example.com/vf-1"},
+						{Name: "example.com/vf-2"},
+					},
+				},
+			},
+			wantReservingWorkloads: 1,
 			wantUsedResources: []kueue.FlavorUsage{
 				{
 					Name: "default",
@@ -1640,12 +1727,12 @@ func TestClusterQueueUsage(t *testing.T) {
 					},
 				},
 			},
-			wantWorkloads: 1,
+			wantAdmittedWorkloads: 1,
 		},
 		"clusterQueue with cohort; multiple borrowing": {
 			clusterQueue: cq,
 			workloads:    workloads,
-			wantUsedResources: []kueue.FlavorUsage{
+			wantReservedResources: []kueue.FlavorUsage{
 				{
 					Name: "default",
 					Resources: []kueue.ResourceUsage{{
@@ -1678,12 +1765,43 @@ func TestClusterQueueUsage(t *testing.T) {
 					},
 				},
 			},
-			wantWorkloads: 2,
+			wantReservingWorkloads: 2,
+			wantUsedResources: []kueue.FlavorUsage{
+				{
+					Name: "default",
+					Resources: []kueue.ResourceUsage{{
+						Name:  corev1.ResourceCPU,
+						Total: resource.MustParse("8"),
+					}},
+				},
+				{
+					Name: "model_a",
+					Resources: []kueue.ResourceUsage{{
+						Name:  "example.com/gpu",
+						Total: resource.MustParse("5"),
+					}},
+				},
+				{
+					Name: "model_b",
+					Resources: []kueue.ResourceUsage{{
+						Name: "example.com/gpu",
+					}},
+				},
+				{
+					Name: "interconnect_a",
+					Resources: []kueue.ResourceUsage{
+						{Name: "example.com/vf-0"},
+						{Name: "example.com/vf-1"},
+						{Name: "example.com/vf-2"},
+					},
+				},
+			},
+			wantAdmittedWorkloads: 1,
 		},
 		"clusterQueue without cohort; multiple borrowing": {
 			clusterQueue: cqWithOutCohort,
 			workloads:    workloads,
-			wantUsedResources: []kueue.FlavorUsage{
+			wantReservedResources: []kueue.FlavorUsage{
 				{
 					Name: "default",
 					Resources: []kueue.ResourceUsage{{
@@ -1716,7 +1834,38 @@ func TestClusterQueueUsage(t *testing.T) {
 					},
 				},
 			},
-			wantWorkloads: 2,
+			wantReservingWorkloads: 2,
+			wantUsedResources: []kueue.FlavorUsage{
+				{
+					Name: "default",
+					Resources: []kueue.ResourceUsage{{
+						Name:  corev1.ResourceCPU,
+						Total: resource.MustParse("8"),
+					}},
+				},
+				{
+					Name: "model_a",
+					Resources: []kueue.ResourceUsage{{
+						Name:  "example.com/gpu",
+						Total: resource.MustParse("5"),
+					}},
+				},
+				{
+					Name: "model_b",
+					Resources: []kueue.ResourceUsage{{
+						Name: "example.com/gpu",
+					}},
+				},
+				{
+					Name: "interconnect_a",
+					Resources: []kueue.ResourceUsage{
+						{Name: "example.com/vf-0"},
+						{Name: "example.com/vf-1"},
+						{Name: "example.com/vf-2"},
+					},
+				},
+			},
+			wantAdmittedWorkloads: 1,
 		},
 	}
 	for name, tc := range cases {
@@ -1727,20 +1876,29 @@ func TestClusterQueueUsage(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Adding ClusterQueue: %v", err)
 			}
-			for _, w := range tc.workloads {
-				if added := cache.AddOrUpdateWorkload(&w); !added {
-					t.Fatalf("Workload %s was not added", workload.Key(&w))
+			for i := range tc.workloads {
+				w := &tc.workloads[i]
+				if added := cache.AddOrUpdateWorkload(w); !added {
+					t.Fatalf("Workload %s was not added", workload.Key(w))
 				}
 			}
-			resources, workloads, err := cache.Usage(tc.clusterQueue)
+			stats, err := cache.Usage(tc.clusterQueue)
 			if err != nil {
 				t.Fatalf("Couldn't get usage: %v", err)
 			}
-			if diff := cmp.Diff(tc.wantUsedResources, resources); diff != "" {
+
+			if diff := cmp.Diff(tc.wantReservedResources, stats.ReservedResources); diff != "" {
+				t.Errorf("Unexpected used reserved resources (-want,+got):\n%s", diff)
+			}
+			if stats.ReservingWorkloads != tc.wantReservingWorkloads {
+				t.Errorf("Got %d reserving workloads, want %d", stats.ReservingWorkloads, tc.wantReservingWorkloads)
+			}
+
+			if diff := cmp.Diff(tc.wantUsedResources, stats.AdmittedResources); diff != "" {
 				t.Errorf("Unexpected used resources (-want,+got):\n%s", diff)
 			}
-			if workloads != tc.wantWorkloads {
-				t.Errorf("Got %d workloads, want %d", workloads, tc.wantWorkloads)
+			if stats.AdmittedWorkloads != tc.wantAdmittedWorkloads {
+				t.Errorf("Got %d admitted workloads, want %d", stats.AdmittedWorkloads, tc.wantAdmittedWorkloads)
 			}
 		})
 	}
@@ -1962,7 +2120,7 @@ func TestLocalQueueUsage(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Couldn't get usage for the queue: %v", err)
 			}
-			if diff := cmp.Diff(tc.wantUsage, gotUsage); diff != "" {
+			if diff := cmp.Diff(tc.wantUsage, gotUsage.ReservedResources); diff != "" {
 				t.Errorf("Unexpected used resources for the queue (-want,+got):\n%s", diff)
 			}
 		})
@@ -2004,14 +2162,18 @@ func TestCacheQueueOperations(t *testing.T) {
 				utiltesting.MakeAdmission("foo").
 					Assignment("cpu", "spot", "2").
 					Assignment("memory", "spot", "8Gi").Obj(),
-			).Obj(),
+			).
+			Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
+			Obj(),
 		utiltesting.MakeWorkload("job2", "ns2").
 			Queue("beta").
 			Request("example.com/gpu", "2").
 			ReserveQuota(
 				utiltesting.MakeAdmission("foo").
 					Assignment("example.com/gpu", "model-a", "2").Obj(),
-			).Obj(),
+			).
+			Condition(metav1.Condition{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue}).
+			Obj(),
 		utiltesting.MakeWorkload("job3", "ns1").
 			Queue("gamma").
 			Request("cpu", "5").
@@ -2065,9 +2227,19 @@ func TestCacheQueueOperations(t *testing.T) {
 	}
 	cacheLocalQueuesAfterInsertingAll := map[string]*queue{
 		"ns1/alpha": {
-			key:               "ns1/alpha",
-			admittedWorkloads: 1,
+			key:                "ns1/alpha",
+			reservingWorkloads: 1,
+			admittedWorkloads:  1,
 			usage: FlavorResourceQuantities{
+				"spot": {
+					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("2")),
+					corev1.ResourceMemory: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("8Gi")),
+				},
+				"model-a": {
+					"example.com/gpu": workload.ResourceValue("example.com/gpu", resource.MustParse("0")),
+				},
+			},
+			admittedUsage: FlavorResourceQuantities{
 				"spot": {
 					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("2")),
 					corev1.ResourceMemory: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("8Gi")),
@@ -2078,8 +2250,9 @@ func TestCacheQueueOperations(t *testing.T) {
 			},
 		},
 		"ns2/beta": {
-			key:               "ns2/beta",
-			admittedWorkloads: 2,
+			key:                "ns2/beta",
+			reservingWorkloads: 2,
+			admittedWorkloads:  1,
 			usage: FlavorResourceQuantities{
 				"spot": {
 					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
@@ -2089,10 +2262,20 @@ func TestCacheQueueOperations(t *testing.T) {
 					"example.com/gpu": workload.ResourceValue("example.com/gpu", resource.MustParse("7")),
 				},
 			},
+			admittedUsage: FlavorResourceQuantities{
+				"spot": {
+					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
+					corev1.ResourceMemory: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
+				},
+				"model-a": {
+					"example.com/gpu": workload.ResourceValue("example.com/gpu", resource.MustParse("2")),
+				},
+			},
 		},
 		"ns1/gamma": {
-			key:               "ns1/gamma",
-			admittedWorkloads: 1,
+			key:                "ns1/gamma",
+			reservingWorkloads: 1,
+			admittedWorkloads:  0,
 			usage: FlavorResourceQuantities{
 				"ondemand": {
 					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("5")),
@@ -2102,13 +2285,32 @@ func TestCacheQueueOperations(t *testing.T) {
 					"example.com/gpu": workload.ResourceValue("example.com/gpu", resource.MustParse("0")),
 				},
 			},
+			admittedUsage: FlavorResourceQuantities{
+				"ondemand": {
+					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
+					corev1.ResourceMemory: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
+				},
+				"model-b": {
+					"example.com/gpu": workload.ResourceValue("example.com/gpu", resource.MustParse("0")),
+				},
+			},
 		},
 	}
 	cacheLocalQueuesAfterInsertingCqAndQ := map[string]*queue{
 		"ns1/alpha": {
-			key:               "ns1/alpha",
-			admittedWorkloads: 0,
+			key:                "ns1/alpha",
+			reservingWorkloads: 0,
+			admittedWorkloads:  0,
 			usage: FlavorResourceQuantities{
+				"spot": {
+					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
+					corev1.ResourceMemory: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
+				},
+				"model-a": {
+					"example.com/gpu": workload.ResourceValue("example.com/gpu", resource.MustParse("0")),
+				},
+			},
+			admittedUsage: FlavorResourceQuantities{
 				"spot": {
 					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
 					corev1.ResourceMemory: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
@@ -2119,9 +2321,19 @@ func TestCacheQueueOperations(t *testing.T) {
 			},
 		},
 		"ns2/beta": {
-			key:               "ns2/beta",
-			admittedWorkloads: 0,
+			key:                "ns2/beta",
+			reservingWorkloads: 0,
+			admittedWorkloads:  0,
 			usage: FlavorResourceQuantities{
+				"spot": {
+					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
+					corev1.ResourceMemory: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
+				},
+				"model-a": {
+					"example.com/gpu": workload.ResourceValue("example.com/gpu", resource.MustParse("0")),
+				},
+			},
+			admittedUsage: FlavorResourceQuantities{
 				"spot": {
 					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
 					corev1.ResourceMemory: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
@@ -2132,9 +2344,19 @@ func TestCacheQueueOperations(t *testing.T) {
 			},
 		},
 		"ns1/gamma": {
-			key:               "ns1/gamma",
-			admittedWorkloads: 0,
+			key:                "ns1/gamma",
+			reservingWorkloads: 0,
+			admittedWorkloads:  0,
 			usage: FlavorResourceQuantities{
+				"ondemand": {
+					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
+					corev1.ResourceMemory: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),
+				},
+				"model-b": {
+					"example.com/gpu": workload.ResourceValue("example.com/gpu", resource.MustParse("0")),
+				},
+			},
+			admittedUsage: FlavorResourceQuantities{
 				"ondemand": {
 					corev1.ResourceCPU:    workload.ResourceValue(corev1.ResourceCPU, resource.MustParse("0")),
 					corev1.ResourceMemory: workload.ResourceValue(corev1.ResourceMemory, resource.MustParse("0")),

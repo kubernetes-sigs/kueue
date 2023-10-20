@@ -186,8 +186,16 @@ type ResourceFlavorReference string
 
 // ClusterQueueStatus defines the observed state of ClusterQueue
 type ClusterQueueStatus struct {
-	// flavorsUsage are the used quotas, by flavor, currently in use by the
+	// flavorsReservation are the reserved quotas, by flavor, currently in use by the
 	// workloads assigned to this ClusterQueue.
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=16
+	// +optional
+	FlavorsReservation []FlavorUsage `json:"flavorsReservation"`
+
+	// flavorsUsage are the used quotas, by flavor, currently in use by the
+	// workloads admitted in this ClusterQueue.
 	// +listType=map
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=16
@@ -198,6 +206,11 @@ type ClusterQueueStatus struct {
 	// admitted to this clusterQueue.
 	// +optional
 	PendingWorkloads int32 `json:"pendingWorkloads"`
+
+	// reservingWorkloads is the number of workloads currently reserving quota in this
+	// clusterQueue.
+	// +optional
+	ReservingWorkloads int32 `json:"reservingWorkloads"`
 
 	// admittedWorkloads is the number of workloads currently admitted to this
 	// clusterQueue and haven't finished yet.

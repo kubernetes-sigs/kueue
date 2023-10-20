@@ -37,7 +37,12 @@ type LocalQueueStatus struct {
 	// +optional
 	PendingWorkloads int32 `json:"pendingWorkloads"`
 
-	// AdmittedWorkloads is the number of workloads in this LocalQueue
+	// reservingWorkloads is the number of workloads in this LocalQueue
+	// reserving quota in a ClusterQueue and that haven't finished yet.
+	// +optional
+	ReservingWorkloads int32 `json:"reservingWorkloads"`
+
+	// admittedWorkloads is the number of workloads in this LocalQueue
 	// admitted to a ClusterQueue and that haven't finished yet.
 	// +optional
 	AdmittedWorkloads int32 `json:"admittedWorkloads"`
@@ -51,7 +56,15 @@ type LocalQueueStatus struct {
 	// +patchMergeKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 
-	// flavorUsage are the used quotas, by flavor currently in use by the
+	// flavorsReservation are the reserved quotas, by flavor currently in use by the
+	// workloads assigned to this LocalQueue.
+	// +listType=map
+	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=16
+	// +optional
+	FlavorsReservation []LocalQueueFlavorUsage `json:"flavorsReservation"`
+
+	// flavorsUsage are the used quotas, by flavor currently in use by the
 	// workloads assigned to this LocalQueue.
 	// +listType=map
 	// +listMapKey=name

@@ -105,6 +105,14 @@ The label 'result' can have the following values:
 
 	// Metrics tied to the cache.
 
+	ReservingActiveWorkloads = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "reserving_active_workloads",
+			Help:      "The number of Workloads that are reserving quota, per 'cluster_queue'",
+		}, []string{"cluster_queue"},
+	)
+
 	AdmittedActiveWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -123,6 +131,14 @@ For a ClusterQueue, the metric only reports a value of 1 for one of the statuses
 	)
 
 	// Optional cluster queue metrics
+	ClusterQueueResourceReservations = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "cluster_queue_resource_reservation",
+			Help:      `Reports the cluster_queue's total resource reservation within all the flavors`,
+		}, []string{"cohort", "cluster_queue", "flavor", "resource"},
+	)
+
 	ClusterQueueResourceUsage = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -181,6 +197,7 @@ func ReportClusterQueueStatus(cqName string, cqStatus ClusterQueueStatus) {
 }
 
 func ClearCacheMetrics(cqName string) {
+	ReservingActiveWorkloads.DeleteLabelValues(cqName)
 	AdmittedActiveWorkloads.DeleteLabelValues(cqName)
 	for _, status := range CQStatuses {
 		ClusterQueueByStatus.DeleteLabelValues(cqName, string(status))
@@ -190,6 +207,10 @@ func ClearCacheMetrics(cqName string) {
 func ReportClusterQueueQuotas(cohort, queue, flavor, resource string, nominal, borrowing float64) {
 	ClusterQueueResourceNominalQuota.WithLabelValues(cohort, queue, flavor, resource).Set(nominal)
 	ClusterQueueResourceBorrowingLimit.WithLabelValues(cohort, queue, flavor, resource).Set(borrowing)
+}
+
+func ReportClusterQueueResourceReservations(cohort, queue, flavor, resource string, usage float64) {
+	ClusterQueueResourceReservations.WithLabelValues(cohort, queue, flavor, resource).Set(usage)
 }
 
 func ReportClusterQueueResourceUsage(cohort, queue, flavor, resource string, usage float64) {
@@ -203,6 +224,7 @@ func ClearClusterQueueResourceMetrics(cqName string) {
 	ClusterQueueResourceNominalQuota.DeletePartialMatch(lbls)
 	ClusterQueueResourceBorrowingLimit.DeletePartialMatch(lbls)
 	ClusterQueueResourceUsage.DeletePartialMatch(lbls)
+	ClusterQueueResourceReservations.DeletePartialMatch(lbls)
 }
 
 func ClearClusterQueueResourceQuotas(cqName, flavor, resource string) {
@@ -232,15 +254,30 @@ func ClearClusterQueueResourceUsage(cqName, flavor, resource string) {
 	ClusterQueueResourceUsage.DeletePartialMatch(lbls)
 }
 
+func ClearClusterQueueResourceReservations(cqName, flavor, resource string) {
+	lbls := prometheus.Labels{
+		"cluster_queue": cqName,
+		"flavor":        flavor,
+	}
+
+	if len(resource) != 0 {
+		lbls["resource"] = resource
+	}
+
+	ClusterQueueResourceReservations.DeletePartialMatch(lbls)
+}
+
 func Register() {
 	metrics.Registry.MustRegister(
 		admissionAttemptsTotal,
 		admissionAttemptDuration,
 		PendingWorkloads,
+		ReservingActiveWorkloads,
 		AdmittedActiveWorkloads,
 		AdmittedWorkloadsTotal,
 		admissionWaitTime,
 		ClusterQueueResourceUsage,
+		ClusterQueueResourceReservations,
 		ClusterQueueResourceNominalQuota,
 		ClusterQueueResourceBorrowingLimit,
 	)

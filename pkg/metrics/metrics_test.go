@@ -43,15 +43,20 @@ func TestReportAndCleanupClusterQueueMetics(t *testing.T) {
 	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 2, "cluster_queue", "queue")
 	expectFilteredMetricsCount(t, ClusterQueueResourceBorrowingLimit, 2, "cluster_queue", "queue")
 
+	ReportClusterQueueResourceReservations("cohort", "queue", "flavor", "res", 7)
+	ReportClusterQueueResourceReservations("cohort", "queue", "flavor2", "res", 3)
+
 	ReportClusterQueueResourceUsage("cohort", "queue", "flavor", "res", 7)
 	ReportClusterQueueResourceUsage("cohort", "queue", "flavor2", "res", 3)
 
+	expectFilteredMetricsCount(t, ClusterQueueResourceReservations, 2, "cluster_queue", "queue")
 	expectFilteredMetricsCount(t, ClusterQueueResourceUsage, 2, "cluster_queue", "queue")
 
 	ClearClusterQueueResourceMetrics("queue")
 
 	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 0, "cluster_queue", "queue")
 	expectFilteredMetricsCount(t, ClusterQueueResourceBorrowingLimit, 0, "cluster_queue", "queue")
+	expectFilteredMetricsCount(t, ClusterQueueResourceReservations, 0, "cluster_queue", "queue")
 	expectFilteredMetricsCount(t, ClusterQueueResourceUsage, 0, "cluster_queue", "queue")
 }
 
@@ -84,6 +89,25 @@ func TestReportAndCleanupClusterQueueQuotas(t *testing.T) {
 }
 
 func TestReportAndCleanupClusterQueueUsage(t *testing.T) {
+	ReportClusterQueueResourceReservations("cohort", "queue", "flavor", "res", 5)
+	ReportClusterQueueResourceReservations("cohort", "queue", "flavor", "res2", 5)
+	ReportClusterQueueResourceReservations("cohort", "queue", "flavor2", "res", 1)
+	ReportClusterQueueResourceReservations("cohort", "queue", "flavor2", "res2", 1)
+
+	expectFilteredMetricsCount(t, ClusterQueueResourceReservations, 4, "cluster_queue", "queue")
+
+	// drop flavor2
+	ClearClusterQueueResourceReservations("queue", "flavor2", "")
+
+	expectFilteredMetricsCount(t, ClusterQueueResourceReservations, 2, "cluster_queue", "queue")
+	expectFilteredMetricsCount(t, ClusterQueueResourceReservations, 0, "cluster_queue", "queue", "flavor", "flavor2")
+
+	// drop res2
+	ClearClusterQueueResourceReservations("queue", "flavor", "res2")
+
+	expectFilteredMetricsCount(t, ClusterQueueResourceReservations, 1, "cluster_queue", "queue")
+	expectFilteredMetricsCount(t, ClusterQueueResourceReservations, 0, "cluster_queue", "queue", "flavor", "flavor", "resource", "res2")
+
 	ReportClusterQueueResourceUsage("cohort", "queue", "flavor", "res", 5)
 	ReportClusterQueueResourceUsage("cohort", "queue", "flavor", "res2", 5)
 	ReportClusterQueueResourceUsage("cohort", "queue", "flavor2", "res", 1)

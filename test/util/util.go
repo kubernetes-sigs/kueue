@@ -271,8 +271,8 @@ func ExpectPendingWorkloadsMetric(cq *kueue.ClusterQueue, active, inadmissible i
 	}
 }
 
-func ExpectAdmittedActiveWorkloadsMetric(cq *kueue.ClusterQueue, v int) {
-	metric := metrics.AdmittedActiveWorkloads.WithLabelValues(cq.Name)
+func ExpectReservingActiveWorkloadsMetric(cq *kueue.ClusterQueue, v int) {
+	metric := metrics.ReservingActiveWorkloads.WithLabelValues(cq.Name)
 	gomega.EventuallyWithOffset(1, func() int {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred())
@@ -358,8 +358,8 @@ func ExpectCQResourceBorrowingQuota(cq *kueue.ClusterQueue, flavor, resource str
 	}, Timeout, Interval).Should(gomega.Equal(v))
 }
 
-func ExpectCQResourceUsage(cq *kueue.ClusterQueue, flavor, resource string, v float64) {
-	metric := metrics.ClusterQueueResourceUsage.WithLabelValues(cq.Spec.Cohort, cq.Name, flavor, resource)
+func ExpectCQResourceReservations(cq *kueue.ClusterQueue, flavor, resource string, v float64) {
+	metric := metrics.ClusterQueueResourceReservations.WithLabelValues(cq.Spec.Cohort, cq.Name, flavor, resource)
 	gomega.EventuallyWithOffset(1, func() float64 {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred())
@@ -434,5 +434,16 @@ func SetAdmissionCheckActive(ctx context.Context, k8sClient client.Client, admis
 			Message: "by test",
 		})
 		return k8sClient.Status().Update(ctx, &updatedAc)
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
+func SetWorkloadsAdmissionCkeck(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, check string, state kueue.CheckState) {
+	var updatedWorkload kueue.Workload
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
+		currentCheck := workload.FindAdmissionCheck(updatedWorkload.Status.AdmissionChecks, check)
+		g.Expect(currentCheck).NotTo(gomega.BeNil(), "the check %s was not found in %s", check, workload.Key(wl))
+		currentCheck.State = state
+		g.Expect(k8sClient.Status().Update(ctx, &updatedWorkload)).To(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed())
 }

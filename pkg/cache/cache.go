@@ -172,20 +172,6 @@ func (c *Cache) CleanUpOnContext(ctx context.Context) {
 	c.podsReadyCond.Broadcast()
 }
 
-func (c *Cache) AdmittedWorkloadsInLocalQueue(localQueue *kueue.LocalQueue) int32 {
-	c.Lock()
-	defer c.Unlock()
-	cq, ok := c.clusterQueues[string(localQueue.Spec.ClusterQueue)]
-	if !ok {
-		return 0
-	}
-	qImpl, ok := cq.localQueues[queueKey(localQueue)]
-	if !ok {
-		return 0
-	}
-	return int32(qImpl.admittedWorkloads)
-}
-
 func (c *Cache) updateClusterQueues() sets.Set[string] {
 	cqs := sets.New[string]()
 
@@ -314,11 +300,14 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 	for _, q := range queues.Items {
 		qKey := queueKey(&q)
 		qImpl := &queue{
-			key:               qKey,
-			admittedWorkloads: 0,
-			usage:             make(FlavorResourceQuantities),
+			key:                qKey,
+			reservingWorkloads: 0,
+			admittedWorkloads:  0,
+			//TODO: rename this to better distinguish between reserved and in use quantities
+			usage:         make(FlavorResourceQuantities),
+			admittedUsage: make(FlavorResourceQuantities),
 		}
-		if err = qImpl.resetFlavorsAndResources(cqImpl.Usage); err != nil {
+		if err = qImpl.resetFlavorsAndResources(cqImpl.Usage, cqImpl.AdmittedUsage); err != nil {
 			return err
 		}
 		cqImpl.localQueues[qKey] = qImpl
@@ -351,7 +340,7 @@ func (c *Cache) UpdateClusterQueue(cq *kueue.ClusterQueue) error {
 		if qImpl == nil {
 			return errQNotFound
 		}
-		if err := qImpl.resetFlavorsAndResources(cqImpl.Usage); err != nil {
+		if err := qImpl.resetFlavorsAndResources(cqImpl.Usage, cqImpl.AdmittedUsage); err != nil {
 			return err
 		}
 	}
@@ -554,20 +543,36 @@ func (c *Cache) ForgetWorkload(w *kueue.Workload) error {
 	return nil
 }
 
-// Usage reports the used resources and number of workloads admitted by the ClusterQueue.
-func (c *Cache) Usage(cqObj *kueue.ClusterQueue) ([]kueue.FlavorUsage, int, error) {
+type ClusterQueueUsageStats struct {
+	ReservedResources  []kueue.FlavorUsage
+	ReservingWorkloads int
+	AdmittedResources  []kueue.FlavorUsage
+	AdmittedWorkloads  int
+}
+
+// Usage reports the reserved and admitted resources and number of workloads holding them in the ClusterQueue.
+func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error) {
 	c.RLock()
 	defer c.RUnlock()
 
 	cq := c.clusterQueues[cqObj.Name]
 	if cq == nil {
-		return nil, 0, errCqNotFound
+		return nil, errCqNotFound
 	}
 
-	usage := make([]kueue.FlavorUsage, 0, len(cq.Usage))
-	for _, rg := range cq.ResourceGroups {
+	return &ClusterQueueUsageStats{
+		ReservedResources:  getUsage(cq.Usage, cq.ResourceGroups, cq.Cohort),
+		ReservingWorkloads: len(cq.Workloads),
+		AdmittedResources:  getUsage(cq.AdmittedUsage, cq.ResourceGroups, cq.Cohort),
+		AdmittedWorkloads:  cq.admittedWorkloadsCount,
+	}, nil
+}
+
+func getUsage(frq FlavorResourceQuantities, rgs []ResourceGroup, cohort *Cohort) []kueue.FlavorUsage {
+	usage := make([]kueue.FlavorUsage, 0, len(frq))
+	for _, rg := range rgs {
 		for _, flvQuotas := range rg.Flavors {
-			flvUsage := cq.Usage[flvQuotas.Name]
+			flvUsage := frq[flvQuotas.Name]
 			outFlvUsage := kueue.FlavorUsage{
 				Name:      flvQuotas.Name,
 				Resources: make([]kueue.ResourceUsage, 0, len(flvQuotas.Resources)),
@@ -579,7 +584,7 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) ([]kueue.FlavorUsage, int, erro
 					Total: workload.ResourceQuantity(rName, used),
 				}
 				// Enforce `borrowed=0` if the clusterQueue doesn't belong to a cohort.
-				if cq.Cohort != nil {
+				if cohort != nil {
 					borrowed := used - rQuota.Nominal
 					if borrowed > 0 {
 						rUsage.Borrowed = workload.ResourceQuantity(rName, borrowed)
@@ -594,26 +599,42 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) ([]kueue.FlavorUsage, int, erro
 			usage = append(usage, outFlvUsage)
 		}
 	}
-	return usage, len(cq.Workloads), nil
+	return usage
 }
 
-func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) ([]kueue.LocalQueueFlavorUsage, error) {
+type LocalQueueUsageStats struct {
+	ReservedResources  []kueue.LocalQueueFlavorUsage
+	ReservingWorkloads int
+	AdmittedResources  []kueue.LocalQueueFlavorUsage
+	AdmittedWorkloads  int
+}
+
+func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, error) {
 	c.RLock()
 	defer c.RUnlock()
 
 	cqImpl, ok := c.clusterQueues[string(qObj.Spec.ClusterQueue)]
 	if !ok {
-		return nil, nil
+		return &LocalQueueUsageStats{}, nil
 	}
 	qImpl, ok := cqImpl.localQueues[queueKey(qObj)]
 	if !ok {
 		return nil, errQNotFound
 	}
 
-	qFlvUsages := make([]kueue.LocalQueueFlavorUsage, 0, len(qImpl.usage))
-	for _, rg := range cqImpl.ResourceGroups {
+	return &LocalQueueUsageStats{
+		ReservedResources:  filterLocalQueueUsage(qImpl.usage, cqImpl.ResourceGroups),
+		ReservingWorkloads: qImpl.reservingWorkloads,
+		AdmittedResources:  filterLocalQueueUsage(qImpl.admittedUsage, cqImpl.ResourceGroups),
+		AdmittedWorkloads:  qImpl.admittedWorkloads,
+	}, nil
+}
+
+func filterLocalQueueUsage(orig FlavorResourceQuantities, resourceGroups []ResourceGroup) []kueue.LocalQueueFlavorUsage {
+	qFlvUsages := make([]kueue.LocalQueueFlavorUsage, 0, len(orig))
+	for _, rg := range resourceGroups {
 		for _, flvQuotas := range rg.Flavors {
-			flvUsage := qImpl.usage[flvQuotas.Name]
+			flvUsage := orig[flvQuotas.Name]
 			outFlvUsage := kueue.LocalQueueFlavorUsage{
 				Name:      flvQuotas.Name,
 				Resources: make([]kueue.LocalQueueResourceUsage, 0, len(flvQuotas.Resources)),
@@ -631,7 +652,7 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) ([]kueue.LocalQueueFlavo
 			qFlvUsages = append(qFlvUsages, outFlvUsage)
 		}
 	}
-	return qFlvUsages, nil
+	return qFlvUsages
 }
 
 func (c *Cache) cleanupAssumedState(w *kueue.Workload) {
