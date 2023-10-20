@@ -35,18 +35,28 @@ import (
 
 func TestNewInfo(t *testing.T) {
 	cases := map[string]struct {
-		workload kueue.Workload
-		wantInfo Info
+		workload     kueue.Workload
+		podTemplates map[string]*corev1.PodTemplateSpec
+		wantInfo     Info
 	}{
 		"pending": {
 			workload: *utiltesting.MakeWorkload("", "").
-				Request(corev1.ResourceCPU, "10m").
-				Request(corev1.ResourceMemory, "512Ki").
+				PodSets(*utiltesting.MakePodSet("main", 1).
+					SetPodTemplateName("main").
+					Obj(),
+				).
 				Obj(),
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "10m").
+					Request(corev1.ResourceMemory, "512Ki").
+					Obj().Template,
+			},
 			wantInfo: Info{
 				TotalRequests: []PodSetResources{
 					{
-						Name: "main",
+						Name:            "main",
+						PodTemplateName: "main",
 						Requests: Requests{
 							corev1.ResourceCPU:    10,
 							corev1.ResourceMemory: 512 * 1024,
@@ -60,8 +70,7 @@ func TestNewInfo(t *testing.T) {
 			workload: *utiltesting.MakeWorkload("", "").
 				PodSets(
 					*utiltesting.MakePodSet("main", 5).
-						Request(corev1.ResourceCPU, "10m").
-						Request(corev1.ResourceMemory, "512Ki").
+						SetPodTemplateName("main").
 						Obj(),
 				).
 				ReclaimablePods(
@@ -71,10 +80,17 @@ func TestNewInfo(t *testing.T) {
 					},
 				).
 				Obj(),
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "10m").
+					Request(corev1.ResourceMemory, "512Ki").
+					Obj().Template,
+			},
 			wantInfo: Info{
 				TotalRequests: []PodSetResources{
 					{
-						Name: "main",
+						Name:            "main",
+						PodTemplateName: "main",
 						Requests: Requests{
 							corev1.ResourceCPU:    3 * 10,
 							corev1.ResourceMemory: 3 * 512 * 1024,
@@ -122,6 +138,17 @@ func TestNewInfo(t *testing.T) {
 					).
 					Obj()).
 				Obj(),
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"driver": &utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "10m").
+					Request(corev1.ResourceMemory, "512Ki").
+					Obj().Template,
+				"workers": &utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "5m").
+					Request(corev1.ResourceMemory, "1Mi").
+					Request("ex.com/gpu", "1").
+					Obj().Template,
+			},
 			wantInfo: Info{
 				ClusterQueue: "foo",
 				TotalRequests: []PodSetResources{
@@ -152,8 +179,6 @@ func TestNewInfo(t *testing.T) {
 			workload: *utiltesting.MakeWorkload("", "").
 				PodSets(
 					*utiltesting.MakePodSet("main", 5).
-						Request(corev1.ResourceCPU, "10m").
-						Request(corev1.ResourceMemory, "10Ki").
 						Obj(),
 				).
 				ReserveQuota(
@@ -170,6 +195,12 @@ func TestNewInfo(t *testing.T) {
 					},
 				).
 				Obj(),
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "10m").
+					Request(corev1.ResourceMemory, "10Ki").
+					Obj().Template,
+			},
 			wantInfo: Info{
 				TotalRequests: []PodSetResources{
 					{
@@ -190,8 +221,8 @@ func TestNewInfo(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			info := NewInfo(&tc.workload)
-			if diff := cmp.Diff(info, &tc.wantInfo, cmpopts.IgnoreFields(Info{}, "Obj")); diff != "" {
+			info := NewInfo(&tc.workload, tc.podTemplates)
+			if diff := cmp.Diff(info, &tc.wantInfo, cmpopts.IgnoreFields(Info{}, "Obj", "PodTemplates")); diff != "" {
 				t.Errorf("NewInfo(_) = (-want,+got):\n%s", diff)
 			}
 		})

@@ -19,11 +19,13 @@ package core
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -41,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/podtemplate"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -118,6 +121,7 @@ func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *c
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
 //+kubebuilder:rbac:groups=node.k8s.io,resources=runtimeclasses,verbs=get;list;watch
+//+kubebuilder:rbac:groups="",resources=podtemplates,verbs=get;list;watch;create
 
 func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var wl kueue.Workload
@@ -131,6 +135,20 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
 		return ctrl.Result{}, nil
+	}
+
+	wlSpecCopy := wl.Spec.DeepCopy()
+
+	if err := r.updatePodTemplateName(ctx, &wl); err != nil {
+		log.V(2).Error(err, "updatePodTemplateName")
+		return ctrl.Result{}, err
+	}
+
+	if !equality.Semantic.DeepEqual(wl.Spec.PodSets, wlSpecCopy.PodSets) {
+		if err := r.client.Update(ctx, &wl); err != nil {
+			log.V(2).Error(err, "client.Update", "wl", wl)
+			return ctrl.Result{}, err
+		}
 	}
 
 	if rejectedChecks := workload.GetRejectedChecks(&wl); len(rejectedChecks) > 0 {
@@ -184,6 +202,28 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func (r *WorkloadReconciler) updatePodTemplateName(ctx context.Context, wl *kueue.Workload) error {
+	pts, err := podtemplate.ExtractByWorkloadLabel(ctx, r.client, wl)
+	if err != nil {
+		return err
+	}
+
+	// Clear pod template name before setting a new one
+	for i := range wl.Spec.PodSets {
+		wl.Spec.PodSets[i].PodTemplateName = nil
+	}
+
+	for name := range pts {
+		for i, ps := range wl.Spec.PodSets {
+			if strings.Contains(name, ps.Name) {
+				wl.Spec.PodSets[i].PodTemplateName = &name
+			}
+		}
+	}
+
+	return nil
 }
 
 func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl *kueue.Workload) (bool, error) {
@@ -276,22 +316,28 @@ func (r *WorkloadReconciler) Create(e event.CreateEvent) bool {
 	status := workloadStatus(wl)
 	log := r.log.WithValues("workload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
 	log.V(2).Info("Workload create event")
+	ctx := ctrl.LoggerInto(context.Background(), log)
 
 	if status == finished {
 		return true
 	}
 
-	ctx := ctrl.LoggerInto(context.Background(), log)
 	wlCopy := wl.DeepCopy()
-	workload.AdjustResources(ctx, r.client, wlCopy)
+
+	pts, err := podtemplate.ExtractByWorkloadLabel(ctx, r.client, wl)
+	if err != nil {
+		log.Error(err, "Failed to extract pod template by workload name")
+	}
+
+	workload.AdjustResources(ctx, r.client, wlCopy, pts)
 
 	if !workload.HasQuotaReservation(wl) {
-		if !r.queues.AddOrUpdateWorkload(wlCopy) {
+		if !r.queues.AddOrUpdateWorkload(wlCopy, pts) {
 			log.V(2).Info("Queue for workload didn't exist; ignored for now")
 		}
 		return true
 	}
-	if !r.cache.AddOrUpdateWorkload(wlCopy) {
+	if !r.cache.AddOrUpdateWorkload(wlCopy, pts) {
 		log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 	}
 
@@ -367,9 +413,14 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 	}
 	log.V(2).Info("Workload update event")
 
+	pts, err := podtemplate.ExtractByWorkloadLabel(ctx, r.client, wl)
+	if err != nil {
+		log.Error(err, "Failed to extract pod template by workload name")
+	}
+
 	wlCopy := wl.DeepCopy()
 	// We do not handle old workload here as it will be deleted or replaced by new one anyway.
-	workload.AdjustResources(ctrl.LoggerInto(ctx, log), r.client, wlCopy)
+	workload.AdjustResources(ctrl.LoggerInto(ctx, log), r.client, wlCopy, pts)
 
 	switch {
 	case status == finished:
@@ -387,13 +438,13 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 		})
 
 	case prevStatus == pending && status == pending:
-		if !r.queues.UpdateWorkload(oldWl, wlCopy) {
+		if !r.queues.UpdateWorkload(oldWl, wlCopy, pts) {
 			log.V(2).Info("Queue for updated workload didn't exist; ignoring for now")
 		}
 
 	case prevStatus == pending && status == admitted:
 		r.queues.DeleteWorkload(oldWl)
-		if !r.cache.AddOrUpdateWorkload(wlCopy) {
+		if !r.cache.AddOrUpdateWorkload(wlCopy, pts) {
 			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 		}
 	case prevStatus == admitted && status == pending:
@@ -406,14 +457,14 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 				log.Error(err, "Failed to delete workload from cache")
 			}
 		})
-		if !r.queues.AddOrUpdateWorkload(wlCopy) {
+		if !r.queues.AddOrUpdateWorkload(wlCopy, pts) {
 			log.V(2).Info("Queue for workload didn't exist; ignored for now")
 		}
 
 	default:
 		// Workload update in the cache is handled here; however, some fields are immutable
 		// and are not supposed to actually change anything.
-		if err := r.cache.UpdateWorkload(oldWl, wlCopy); err != nil {
+		if err := r.cache.UpdateWorkload(oldWl, wlCopy, pts); err != nil {
 			log.Error(err, "Updating workload in cache")
 		}
 	}
@@ -442,6 +493,7 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&corev1.LimitRange{}, ruh).
 		Watches(&nodev1.RuntimeClass{}, ruh).
 		Watches(&kueue.ClusterQueue{}, &workloadCqHandler{client: r.client}).
+		Watches(&corev1.PodTemplate{}, &podTemplateHandler{client: r.client}).
 		WithEventFilter(r).
 		Complete(r)
 }
@@ -525,7 +577,7 @@ func (h *resourceUpdatesHandler) handle(ctx context.Context, obj client.Object, 
 	case *nodev1.RuntimeClass:
 		log := ctrl.LoggerFrom(ctx).WithValues("runtimeClass", klog.KObj(v))
 		ctx = ctrl.LoggerInto(ctx, log)
-		h.queueReconcileForPending(ctx, q, client.MatchingFields{indexer.WorkloadRuntimeClassKey: v.Name})
+		h.queueReconcileForRuntimeClass(ctx, q, client.MatchingFields{"spec.runtimeClass": v.Name})
 	default:
 		panic(v)
 	}
@@ -535,20 +587,96 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, _
 	log := ctrl.LoggerFrom(ctx)
 	lst := kueue.WorkloadList{}
 	opts = append(opts, client.MatchingFields{indexer.WorkloadQuotaReservedKey: string(metav1.ConditionFalse)})
-	err := h.r.client.List(ctx, &lst, opts...)
-	if err != nil {
+	if err := h.r.client.List(ctx, &lst, opts...); err != nil {
 		log.Error(err, "Could not list pending workloads")
 	}
-	log.V(4).Info("Updating pending workload requests", "count", len(lst.Items))
+	log.V(2).Info("Updating pending workload requests", "count", len(lst.Items))
 	for _, w := range lst.Items {
 		wlCopy := w.DeepCopy()
 		log := log.WithValues("workload", klog.KObj(wlCopy))
 		log.V(5).Info("Queue reconcile for")
-		workload.AdjustResources(ctrl.LoggerInto(ctx, log), h.r.client, wlCopy)
-		if !h.r.queues.AddOrUpdateWorkload(wlCopy) {
+		pts, err := podtemplate.ExtractByWorkloadLabel(ctx, h.r.client, &w)
+		if err != nil {
+			log.Error(err, "Failed to extract pod template by workload name")
+		}
+		workload.AdjustResources(ctrl.LoggerInto(ctx, log), h.r.client, wlCopy, pts)
+		log.V(2).Info("queueReconcileForPending", "value", pts)
+		if !h.r.queues.AddOrUpdateWorkload(wlCopy, pts) {
 			log.V(2).Info("Queue for workload didn't exist")
 		}
 	}
+}
+
+func (h *resourceUpdatesHandler) queueReconcileForRuntimeClass(ctx context.Context, _ workqueue.RateLimitingInterface, opts ...client.ListOption) {
+	log := ctrl.LoggerFrom(ctx)
+	pts, err := podtemplate.Extract(ctx, h.r.client, opts...)
+	if err != nil {
+		log.Error(err, "Failed to extract pod template by workload name")
+	}
+	workloadList := make(map[string]kueue.Workload)
+	for name := range pts {
+		lst := kueue.WorkloadList{}
+		if err := h.r.client.List(ctx, &lst, client.MatchingFields{indexer.WorkloadPodTemplateNameKey: name}, client.MatchingFields{indexer.WorkloadQuotaReservedKey: string(metav1.ConditionFalse)}); err != nil {
+			log.Error(err, "Could not list pending workloads")
+		}
+		for _, w := range lst.Items {
+			workloadList[w.Name] = w
+		}
+	}
+	log.V(2).Info("Updating pending workload requests", "count", len(workloadList))
+	for _, w := range workloadList {
+		wlCopy := w.DeepCopy()
+		workload.AdjustResources(ctrl.LoggerInto(ctx, log), h.r.client, wlCopy, pts)
+		if !h.r.queues.AddOrUpdateWorkload(wlCopy, pts) {
+			log.V(2).Info("Queue for workload didn't exist")
+		}
+	}
+}
+
+// podTemplateHandler signals the controller to reconcile the Workload associated
+// to the podtemplate in the event.
+// Since the events come from a channel Source, only the Generic handler will
+// receive events.
+type podTemplateHandler struct {
+	client client.Client
+}
+
+func (h *podTemplateHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.RateLimitingInterface) {
+	log := ctrl.LoggerFrom(ctx).WithValues("kind", e.Object.GetObjectKind())
+	ctx = ctrl.LoggerInto(ctx, log)
+	log.V(5).Info("Create event")
+	h.handle(ctx, e.Object, q)
+}
+
+func (h *podTemplateHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.RateLimitingInterface) {
+	log := ctrl.LoggerFrom(ctx).WithValues("kind", e.ObjectNew.GetObjectKind())
+	ctx = ctrl.LoggerInto(ctx, log)
+	log.V(5).Info("Update event")
+	h.handle(ctx, e.ObjectNew, q)
+}
+
+func (h *podTemplateHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.RateLimitingInterface) {
+	log := ctrl.LoggerFrom(ctx).WithValues("kind", e.Object.GetObjectKind())
+	ctx = ctrl.LoggerInto(ctx, log)
+	log.V(5).Info("Delete event")
+	h.handle(ctx, e.Object, q)
+}
+
+func (h *podTemplateHandler) Generic(context.Context, event.GenericEvent, workqueue.RateLimitingInterface) {
+}
+
+func (h *podTemplateHandler) handle(ctx context.Context, obj client.Object, q workqueue.RateLimitingInterface) {
+	pt := obj.(*corev1.PodTemplate)
+	if pt.Name == "" {
+		return
+	}
+	req := reconcile.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      pt.Name,
+			Namespace: pt.Namespace,
+		},
+	}
+	q.AddAfter(req, constants.UpdatesBatchPeriod)
 }
 
 type workloadCqHandler struct {

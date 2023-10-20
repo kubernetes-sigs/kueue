@@ -25,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -165,18 +166,32 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 		ginkgo.By("Creating a clusterQueue")
 		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 
+		podtemplates := []*corev1.PodTemplate{
+			testing.MakePodTemplate("one", ns.Name).
+				Labels(map[string]string{constants.WorkloadNameLabel: "one"}).
+				Request(resourceGPU, "2").
+				Limit(resourceGPU, "2").
+				Obj(),
+			testing.MakePodTemplate("two", ns.Name).
+				Labels(map[string]string{constants.WorkloadNameLabel: "two"}).
+				Request(resourceGPU, "3").
+				Limit(resourceGPU, "3").
+				Obj(),
+			testing.MakePodTemplate("three", ns.Name).
+				Labels(map[string]string{constants.WorkloadNameLabel: "three"}).
+				Request(resourceGPU, "1").
+				Limit(resourceGPU, "1").
+				Obj(),
+		}
 		workloads := []*kueue.Workload{
 			testing.MakeWorkload("one", ns.Name).
 				Queue(queue.Name).
-				Request(resourceGPU, "2").
 				Obj(),
 			testing.MakeWorkload("two", ns.Name).
 				Queue(queue.Name).
-				Request(resourceGPU, "3").
 				Obj(),
 			testing.MakeWorkload("three", ns.Name).
 				Queue(queue.Name).
-				Request(resourceGPU, "1").
 				Obj(),
 		}
 		admissions := []*kueue.Admission{
@@ -186,6 +201,11 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Ordered, ginkgo.ContinueOnFai
 				Assignment(resourceGPU, flavorModelC, "3").Obj(),
 			testing.MakeAdmission(clusterQueue.Name).
 				Assignment(resourceGPU, flavorModelD, "1").Obj(),
+		}
+
+		ginkgo.By("Creating podtemplates")
+		for _, pt := range podtemplates {
+			gomega.Expect(k8sClient.Create(ctx, pt)).To(gomega.Succeed())
 		}
 
 		ginkgo.By("Creating workloads")

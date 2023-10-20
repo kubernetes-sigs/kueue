@@ -37,4 +37,7 @@ const (
 
 	WorkloadPriorityClassSource = "kueue.x-k8s.io/workloadpriorityclass"
 	PodPriorityClassSource      = "scheduling.k8s.io/priorityclass"
+	// WorkloadNameLabel is the label key in the podtemplate resource, that holds the name of
+	// the workload.
+	WorkloadNameLabel = "kueue.x-k8s.io/workload-name"
 )

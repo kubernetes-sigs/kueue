@@ -24,10 +24,11 @@ import (
 // PodSetApplyConfiguration represents an declarative configuration of the PodSet type for use
 // with apply.
 type PodSetApplyConfiguration struct {
-	Name     *string             `json:"name,omitempty"`
-	Template *v1.PodTemplateSpec `json:"template,omitempty"`
-	Count    *int32              `json:"count,omitempty"`
-	MinCount *int32              `json:"minCount,omitempty"`
+	Name            *string             `json:"name,omitempty"`
+	Template        *v1.PodTemplateSpec `json:"template,omitempty"`
+	Count           *int32              `json:"count,omitempty"`
+	MinCount        *int32              `json:"minCount,omitempty"`
+	PodTemplateName *string             `json:"podTemplateName,omitempty"`
 }
 
 // PodSetApplyConfiguration constructs an declarative configuration of the PodSet type for use with
@@ -65,5 +66,13 @@ func (b *PodSetApplyConfiguration) WithCount(value int32) *PodSetApplyConfigurat
 // If called multiple times, the MinCount field is set to the value of the last call.
 func (b *PodSetApplyConfiguration) WithMinCount(value int32) *PodSetApplyConfiguration {
 	b.MinCount = &value
+	return b
+}
+
+// WithPodTemplateName sets the PodTemplateName field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PodTemplateName field is set to the value of the last call.
+func (b *PodSetApplyConfiguration) WithPodTemplateName(value string) *PodSetApplyConfiguration {
+	b.PodTemplateName = &value
 	return b
 }

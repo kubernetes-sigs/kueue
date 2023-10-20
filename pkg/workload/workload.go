@@ -66,21 +66,25 @@ type Info struct {
 	// already admitted.
 	ClusterQueue   string
 	LastAssignment *AssigmentClusterQueueState
+	// list of pod templates related to the podsets.
+	PodTemplates map[string]*corev1.PodTemplateSpec
 }
 
 type PodSetResources struct {
-	Name     string
-	Requests Requests
-	Count    int32
-	Flavors  map[corev1.ResourceName]kueue.ResourceFlavorReference
+	Name            string
+	Requests        Requests
+	Count           int32
+	PodTemplateName string
+	Flavors         map[corev1.ResourceName]kueue.ResourceFlavorReference
 }
 
 func (psr *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
 	ret := &PodSetResources{
-		Name:     psr.Name,
-		Requests: maps.Clone(psr.Requests),
-		Count:    psr.Count,
-		Flavors:  maps.Clone(psr.Flavors),
+		Name:            psr.Name,
+		PodTemplateName: psr.PodTemplateName,
+		Requests:        maps.Clone(psr.Requests),
+		Count:           psr.Count,
+		Flavors:         maps.Clone(psr.Flavors),
 	}
 	ret.Requests.scaleDown(int64(ret.Count))
 	ret.Requests.scaleUp(int64(newCount))
@@ -88,21 +92,23 @@ func (psr *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
 	return ret
 }
 
-func NewInfo(w *kueue.Workload) *Info {
+func NewInfo(w *kueue.Workload, pts map[string]*corev1.PodTemplateSpec) *Info {
 	info := &Info{
-		Obj: w,
+		Obj:          w,
+		PodTemplates: pts,
 	}
 	if w.Status.Admission != nil {
 		info.ClusterQueue = string(w.Status.Admission.ClusterQueue)
 		info.TotalRequests = totalRequestsFromAdmission(w)
 	} else {
-		info.TotalRequests = totalRequestsFromPodSets(w)
+		info.TotalRequests = totalRequestsFromPodSets(w, pts)
 	}
 	return info
 }
 
-func (i *Info) Update(wl *kueue.Workload) {
+func (i *Info) Update(wl *kueue.Workload, pts map[string]*corev1.PodTemplateSpec) {
 	i.Obj = wl
+	i.PodTemplates = pts
 }
 
 func (i *Info) CanBePartiallyAdmitted() bool {
@@ -157,19 +163,27 @@ func podSetsCountsAfterReclaim(wl *kueue.Workload) map[string]int32 {
 	return totalCounts
 }
 
-func totalRequestsFromPodSets(wl *kueue.Workload) []PodSetResources {
+func totalRequestsFromPodSets(wl *kueue.Workload, pts map[string]*corev1.PodTemplateSpec) []PodSetResources {
 	if len(wl.Spec.PodSets) == 0 {
 		return nil
 	}
 	res := make([]PodSetResources, 0, len(wl.Spec.PodSets))
 	currentCounts := podSetsCountsAfterReclaim(wl)
 	for _, ps := range wl.Spec.PodSets {
+		if ps.PodTemplateName == nil {
+			continue
+		}
+		podTemplate := pts[*ps.PodTemplateName]
+		if podTemplate == nil {
+			continue
+		}
 		count := currentCounts[ps.Name]
 		setRes := PodSetResources{
-			Name:  ps.Name,
-			Count: count,
+			Name:            ps.Name,
+			PodTemplateName: *ps.PodTemplateName,
+			Count:           count,
 		}
-		setRes.Requests = newRequests(limitrange.TotalRequests(&ps.Template.Spec))
+		setRes.Requests = newRequests(limitrange.TotalRequests(&podTemplate.Spec))
 		setRes.Requests.scaleUp(int64(count))
 		res = append(res, setRes)
 	}

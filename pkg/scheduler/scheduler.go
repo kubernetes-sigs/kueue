@@ -367,26 +367,25 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 // validateResources validates that requested resources are less or equal
 // to limits.
 func (s *Scheduler) validateResources(wi *workload.Info) error {
-	podsetsPath := field.NewPath("podSets")
+	podTemplatePath := field.NewPath("podTemplate")
 	// requests should be less then limits.
 	allReasons := []string{}
-	for i := range wi.Obj.Spec.PodSets {
-		ps := &wi.Obj.Spec.PodSets[i]
-		psPath := podsetsPath.Child(ps.Name)
-		for i := range ps.Template.Spec.InitContainers {
-			c := ps.Template.Spec.InitContainers[i]
+	for name, pt := range wi.PodTemplates {
+		ptPath := podTemplatePath.Child(name)
+		for i := range pt.Spec.InitContainers {
+			c := pt.Spec.InitContainers[i]
 			if list := resource.GetGreaterKeys(c.Resources.Requests, c.Resources.Limits); len(list) > 0 {
 				allReasons = append(allReasons, fmt.Sprintf("%s[%s] requests exceed it's limits",
-					psPath.Child("initContainers").Index(i).String(),
+					ptPath.Child("initContainers").Index(i).String(),
 					strings.Join(list, ", ")))
 			}
 		}
 
-		for i := range ps.Template.Spec.Containers {
-			c := ps.Template.Spec.Containers[i]
+		for i := range pt.Spec.Containers {
+			c := pt.Spec.Containers[i]
 			if list := resource.GetGreaterKeys(c.Resources.Requests, c.Resources.Limits); len(list) > 0 {
 				allReasons = append(allReasons, fmt.Sprintf("%s[%s] requests exceed it's limits",
-					psPath.Child("containers").Index(i).String(),
+					ptPath.Child("containers").Index(i).String(),
 					strings.Join(list, ", ")))
 			}
 		}
@@ -400,7 +399,7 @@ func (s *Scheduler) validateResources(wi *workload.Info) error {
 // validateLimitRange validates that the requested resources fit into the namespace defined
 // limitRanges.
 func (s *Scheduler) validateLimitRange(ctx context.Context, wi *workload.Info) error {
-	podsetsPath := field.NewPath("podSets")
+	podTemplatePath := field.NewPath("podTemplate")
 	// get the range summary from the namespace.
 	list := corev1.LimitRangeList{}
 	if err := s.client.List(ctx, &list, &client.ListOptions{Namespace: wi.Obj.Namespace}); err != nil {
@@ -413,9 +412,9 @@ func (s *Scheduler) validateLimitRange(ctx context.Context, wi *workload.Info) e
 
 	// verify
 	allReasons := []string{}
-	for i := range wi.Obj.Spec.PodSets {
-		ps := &wi.Obj.Spec.PodSets[i]
-		allReasons = append(allReasons, summary.ValidatePodSpec(&ps.Template.Spec, podsetsPath.Child(ps.Name))...)
+	for _, pt := range wi.PodTemplates {
+		ptNew := pt
+		allReasons = append(allReasons, summary.ValidatePodSpec(&ptNew.Spec, podTemplatePath.Child(pt.Name))...)
 	}
 	if len(allReasons) > 0 {
 		return fmt.Errorf("didn't satisfy LimitRange constraints: %s", strings.Join(allReasons, "; "))
@@ -439,7 +438,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, mustHaveChecks sets.Set
 		// sync Admitted, ignore the result since an API update is always done.
 		_ = workload.SyncAdmittedCondition(newWorkload)
 	}
-	if err := s.cache.AssumeWorkload(newWorkload); err != nil {
+	if err := s.cache.AssumeWorkload(newWorkload, e.PodTemplates); err != nil {
 		return err
 	}
 	e.status = assumed

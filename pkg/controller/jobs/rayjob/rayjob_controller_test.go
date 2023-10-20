@@ -78,7 +78,7 @@ func TestPodSets(t *testing.T) {
 		{
 			Name:  "head",
 			Count: 1,
-			Template: corev1.PodTemplateSpec{
+			Template: &corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
@@ -91,7 +91,7 @@ func TestPodSets(t *testing.T) {
 		{
 			Name:  "group1",
 			Count: 1,
-			Template: corev1.PodTemplateSpec{
+			Template: &corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
@@ -104,7 +104,7 @@ func TestPodSets(t *testing.T) {
 		{
 			Name:  "group2",
 			Count: 3,
-			Template: corev1.PodTemplateSpec{
+			Template: &corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{

@@ -256,6 +256,14 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, nil
 	}
 
+	if wl == nil {
+		// Create PodTemplate object
+		if err := r.createPodTemplate(ctx, job, object); err != nil {
+			log.Error(err, "Creating pod template")
+			return ctrl.Result{}, client.IgnoreAlreadyExists(err)
+		}
+	}
+
 	// 3. handle workload is nil.
 	if wl == nil {
 		err := r.handleJobWithNoWorkload(ctx, job, object)
@@ -716,6 +724,35 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	r.record.Eventf(object, corev1.EventTypeNormal, "CreatedWorkload",
 		"Created Workload: %v", workload.Key(wl))
 	return nil
+}
+
+func (r *JobReconciler) createPodTemplate(ctx context.Context, job GenericJob, object client.Object) error {
+	for _, ps := range job.PodSets() {
+		podTemplate := newPodTemplate(ps, job, object)
+		if err := ctrl.SetControllerReference(object, podTemplate, r.client.Scheme()); err != nil {
+			return err
+		}
+		if err := r.client.Create(ctx, podTemplate); err != nil {
+			return client.IgnoreAlreadyExists(err)
+		}
+		r.record.Eventf(object, corev1.EventTypeNormal, "CreatedPodTemplate",
+			"Created PodTemplate: %v", fmt.Sprintf("%s/%s", object.GetNamespace(), podTemplate.Name))
+	}
+
+	return nil
+}
+
+func newPodTemplate(ps kueue.PodSet, job GenericJob, object client.Object) *corev1.PodTemplate {
+	return &corev1.PodTemplate{
+		Template: *ps.Template.DeepCopy(),
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      GetPodTemplateName(object.GetName(), ps.Name),
+			Namespace: object.GetNamespace(),
+			Labels: map[string]string{
+				constants.WorkloadNameLabel: GetWorkloadNameForOwnerWithGVK(object.GetName(), job.GVK()),
+			},
+		},
+	}
 }
 
 func generatePodsReadyCondition(job GenericJob, wl *kueue.Workload) metav1.Condition {

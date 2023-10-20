@@ -58,6 +58,7 @@ func TestAssignFlavors(t *testing.T) {
 
 	cases := map[string]struct {
 		wlPods            []kueue.PodSet
+		podTemplates      map[string]*corev1.PodTemplateSpec
 		wlReclaimablePods []kueue.ReclaimablePod
 		clusterQueue      cache.ClusterQueue
 		wantRepMode       FlavorAssignmentMode
@@ -66,9 +67,14 @@ func TestAssignFlavors(t *testing.T) {
 		"single flavor, fits": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
+					SetPodTemplateName("main").
+					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "1").
 					Request(corev1.ResourceMemory, "1Mi").
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{{
@@ -109,6 +115,11 @@ func TestAssignFlavors(t *testing.T) {
 		"single flavor, fits tainted flavor": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
+					SetPodTemplateName("main").
+					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "1").
 					Toleration(corev1.Toleration{
 						Key:      "instance",
@@ -116,7 +127,7 @@ func TestAssignFlavors(t *testing.T) {
 						Value:    "spot",
 						Effect:   corev1.TaintEffectNoSchedule,
 					}).
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{{
@@ -151,8 +162,13 @@ func TestAssignFlavors(t *testing.T) {
 		"single flavor, used resources, doesn't fit": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
-					Request(corev1.ResourceCPU, "2").
+					SetPodTemplateName("main").
 					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "2").
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{{
@@ -193,9 +209,14 @@ func TestAssignFlavors(t *testing.T) {
 		"multiple resource groups, fits": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
+					SetPodTemplateName("main").
+					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "3").
 					Request(corev1.ResourceMemory, "10Mi").
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{
@@ -262,9 +283,14 @@ func TestAssignFlavors(t *testing.T) {
 		"multiple resource groups, one could fit with preemption, other doesn't fit": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
+					SetPodTemplateName("main").
+					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "3").
 					Request(corev1.ResourceMemory, "10Mi").
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{
@@ -311,10 +337,15 @@ func TestAssignFlavors(t *testing.T) {
 		"multiple resource groups with multiple resources, fits": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
+					SetPodTemplateName("main").
+					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "3").
 					Request(corev1.ResourceMemory, "10Mi").
 					Request("example.com/gpu", "3").
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{
@@ -386,10 +417,15 @@ func TestAssignFlavors(t *testing.T) {
 		"multiple resource groups with multiple resources, fits with different modes": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
+					SetPodTemplateName("main").
+					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "3").
 					Request(corev1.ResourceMemory, "10Mi").
 					Request("example.com/gpu", "3").
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{
@@ -486,9 +522,14 @@ func TestAssignFlavors(t *testing.T) {
 		"multiple resources in a group, doesn't fit": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
+					SetPodTemplateName("main").
+					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
 					Request(corev1.ResourceCPU, "3").
 					Request(corev1.ResourceMemory, "10Mi").
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{
@@ -534,8 +575,13 @@ func TestAssignFlavors(t *testing.T) {
 		"multiple flavors, fits while skipping tainted flavor": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
-					Request(corev1.ResourceCPU, "3").
+					SetPodTemplateName("main").
 					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "3").
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{
@@ -580,8 +626,13 @@ func TestAssignFlavors(t *testing.T) {
 		"multiple flavors, skip missing ResourceFlavor": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
-					Request(corev1.ResourceCPU, "3").
+					SetPodTemplateName("main").
 					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "3").
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{
@@ -625,35 +676,35 @@ func TestAssignFlavors(t *testing.T) {
 		},
 		"multiple flavors, fits a node selector": {
 			wlPods: []kueue.PodSet{
-				{
-					Count: 1,
-					Name:  "main",
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							Containers: utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
-								corev1.ResourceCPU: "1",
-							}),
-							// ignored:foo should get ignored
-							NodeSelector: map[string]string{"type": "two", "ignored1": "foo"},
-							Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
-								RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
-									NodeSelectorTerms: []corev1.NodeSelectorTerm{
-										{
-											MatchExpressions: []corev1.NodeSelectorRequirement{
-												{
-													// this expression should get ignored
-													Key:      "ignored2",
-													Operator: corev1.NodeSelectorOpIn,
-													Values:   []string{"bar"},
-												},
+				*utiltesting.MakePodSet("main", 1).
+					SetPodTemplateName("main").
+					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Containers(utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
+						corev1.ResourceCPU: "1",
+					})...).
+					// ignored:foo should get ignored
+					NodeSelector(map[string]string{"type": "two", "ignored1": "foo"}).
+					Affinity(&corev1.Affinity{
+						NodeAffinity: &corev1.NodeAffinity{
+							RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+								NodeSelectorTerms: []corev1.NodeSelectorTerm{
+									{
+										MatchExpressions: []corev1.NodeSelectorRequirement{
+											{
+												// this expression should get ignored
+												Key:      "ignored2",
+												Operator: corev1.NodeSelectorOpIn,
+												Values:   []string{"bar"},
 											},
 										},
 									},
-								}},
-							},
-						},
-					},
-				},
+								},
+							}},
+					}).
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{
@@ -703,34 +754,35 @@ func TestAssignFlavors(t *testing.T) {
 		},
 		"multiple flavors, fits with node affinity": {
 			wlPods: []kueue.PodSet{
-				{
-					Count: 1,
-					Name:  "main",
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							Containers: utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
-								corev1.ResourceCPU:    "1",
-								corev1.ResourceMemory: "1Mi",
-							}),
-							NodeSelector: map[string]string{"ignored1": "foo"},
-							Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
-								RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
-									NodeSelectorTerms: []corev1.NodeSelectorTerm{
-										{
-											MatchExpressions: []corev1.NodeSelectorRequirement{
-												{
-													Key:      "type",
-													Operator: corev1.NodeSelectorOpIn,
-													Values:   []string{"two"},
-												},
+				*utiltesting.MakePodSet("main", 1).
+					SetPodTemplateName("main").
+					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Containers(utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
+						corev1.ResourceCPU:    "1",
+						corev1.ResourceMemory: "1Mi",
+					})...).
+					// ignored:foo should get ignored
+					NodeSelector(map[string]string{"ignored1": "foo"}).
+					Affinity(&corev1.Affinity{
+						NodeAffinity: &corev1.NodeAffinity{
+							RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+								NodeSelectorTerms: []corev1.NodeSelectorTerm{
+									{
+										MatchExpressions: []corev1.NodeSelectorRequirement{
+											{
+												Key:      "type",
+												Operator: corev1.NodeSelectorOpIn,
+												Values:   []string{"two"},
 											},
 										},
 									},
-								}},
-							},
-						},
-					},
-				},
+								},
+							}},
+					}).
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{
@@ -779,45 +831,46 @@ func TestAssignFlavors(t *testing.T) {
 		},
 		"multiple flavors, node affinity fits any flavor": {
 			wlPods: []kueue.PodSet{
-				{
-					Count: 1,
-					Name:  "main",
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							Containers: utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
-								corev1.ResourceCPU: "1",
-							}),
-							Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
-								RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
-									NodeSelectorTerms: []corev1.NodeSelectorTerm{
-										{
-											MatchExpressions: []corev1.NodeSelectorRequirement{
-												{
-													Key:      "ignored2",
-													Operator: corev1.NodeSelectorOpIn,
-													Values:   []string{"bar"},
-												},
-											},
-										},
-										{
-											MatchExpressions: []corev1.NodeSelectorRequirement{
-												{
-													// although this terms selects two
-													// the first term practically matches
-													// any flavor; and since the terms
-													// are ORed, any flavor can be selected.
-													Key:      "cpuType",
-													Operator: corev1.NodeSelectorOpIn,
-													Values:   []string{"two"},
-												},
+				*utiltesting.MakePodSet("main", 1).
+					SetPodTemplateName("main").
+					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Containers(utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
+						corev1.ResourceCPU: "1",
+					})...).
+					// ignored:foo should get ignored
+					Affinity(&corev1.Affinity{
+						NodeAffinity: &corev1.NodeAffinity{
+							RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+								NodeSelectorTerms: []corev1.NodeSelectorTerm{
+									{
+										MatchExpressions: []corev1.NodeSelectorRequirement{
+											{
+												Key:      "ignored2",
+												Operator: corev1.NodeSelectorOpIn,
+												Values:   []string{"bar"},
 											},
 										},
 									},
-								}},
-							},
-						},
-					},
-				},
+									{
+										MatchExpressions: []corev1.NodeSelectorRequirement{
+											{
+												// although this terms selects two
+												// the first term practically matches
+												// any flavor; and since the terms
+												// are ORed, any flavor can be selected.
+												Key:      "cpuType",
+												Operator: corev1.NodeSelectorOpIn,
+												Values:   []string{"two"},
+											},
+										},
+									},
+								},
+							}},
+					}).
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{
@@ -861,32 +914,32 @@ func TestAssignFlavors(t *testing.T) {
 		},
 		"multiple flavors, doesn't fit node affinity": {
 			wlPods: []kueue.PodSet{
-				{
-					Count: 1,
-					Name:  "main",
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							Containers: utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
-								corev1.ResourceCPU: "1",
-							}),
-							Affinity: &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
-								RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
-									NodeSelectorTerms: []corev1.NodeSelectorTerm{
-										{
-											MatchExpressions: []corev1.NodeSelectorRequirement{
-												{
-													Key:      "type",
-													Operator: corev1.NodeSelectorOpIn,
-													Values:   []string{"three"},
-												},
+				*utiltesting.MakePodSet("main", 1).
+					SetPodTemplateName("main").
+					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Containers(utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
+						corev1.ResourceCPU: "1",
+					})...).
+					Affinity(&corev1.Affinity{
+						NodeAffinity: &corev1.NodeAffinity{
+							RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+								NodeSelectorTerms: []corev1.NodeSelectorTerm{
+									{
+										MatchExpressions: []corev1.NodeSelectorRequirement{
+											{
+												Key:      "type",
+												Operator: corev1.NodeSelectorOpIn,
+												Values:   []string{"three"},
 											},
 										},
 									},
-								}},
-							},
-						},
-					},
-				},
+								},
+							}},
+					}).
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{
@@ -929,11 +982,19 @@ func TestAssignFlavors(t *testing.T) {
 		"multiple specs, fit different flavors": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("driver", 1).
-					Request(corev1.ResourceCPU, "5").
+					SetPodTemplateName("driver").
 					Obj(),
 				*utiltesting.MakePodSet("worker", 1).
-					Request(corev1.ResourceCPU, "3").
+					SetPodTemplateName("worker").
 					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"driver": &utiltesting.MakePodTemplate("driver", "").
+					Request(corev1.ResourceCPU, "5").
+					Obj().Template,
+				"worker": &utiltesting.MakePodTemplate("worker", "").
+					Request(corev1.ResourceCPU, "3").
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{
@@ -993,13 +1054,21 @@ func TestAssignFlavors(t *testing.T) {
 		"multiple specs, fits borrowing": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("driver", 1).
-					Request(corev1.ResourceCPU, "4").
-					Request(corev1.ResourceMemory, "1Gi").
+					SetPodTemplateName("driver").
 					Obj(),
 				*utiltesting.MakePodSet("worker", 1).
+					SetPodTemplateName("worker").
+					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"driver": &utiltesting.MakePodTemplate("driver", "").
+					Request(corev1.ResourceCPU, "4").
+					Request(corev1.ResourceMemory, "1Gi").
+					Obj().Template,
+				"worker": &utiltesting.MakePodTemplate("worker", "").
 					Request(corev1.ResourceCPU, "6").
 					Request(corev1.ResourceMemory, "4Gi").
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{{
@@ -1066,8 +1135,13 @@ func TestAssignFlavors(t *testing.T) {
 		"not enough space to borrow": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
-					Request(corev1.ResourceCPU, "2").
+					SetPodTemplateName("main").
 					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "2").
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{{
@@ -1105,8 +1179,13 @@ func TestAssignFlavors(t *testing.T) {
 		"past max, but can preempt in ClusterQueue": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
-					Request(corev1.ResourceCPU, "2").
+					SetPodTemplateName("main").
 					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "2").
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{{
@@ -1156,8 +1235,13 @@ func TestAssignFlavors(t *testing.T) {
 		"past min, but can preempt in ClusterQueue": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
-					Request(corev1.ResourceCPU, "2").
+					SetPodTemplateName("main").
 					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "2").
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{{
@@ -1198,8 +1282,13 @@ func TestAssignFlavors(t *testing.T) {
 		"past min, but can preempt in cohort and ClusterQueue": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
-					Request(corev1.ResourceCPU, "2").
+					SetPodTemplateName("main").
 					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "2").
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{{
@@ -1247,18 +1336,17 @@ func TestAssignFlavors(t *testing.T) {
 		},
 		"can only preempt flavors that match affinity": {
 			wlPods: []kueue.PodSet{
-				{
-					Count: 1,
-					Name:  "main",
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							Containers: utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
-								corev1.ResourceCPU: "2",
-							}),
-							NodeSelector: map[string]string{"type": "two"},
-						},
-					},
-				},
+				*utiltesting.MakePodSet("main", 1).
+					SetPodTemplateName("main").
+					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Containers(utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
+						corev1.ResourceCPU: "2",
+					})...).
+					NodeSelector(map[string]string{"type": "two"}).
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{{
@@ -1311,9 +1399,17 @@ func TestAssignFlavors(t *testing.T) {
 		"each podset requires preemption on a different flavor": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("launcher", 1).
-					Request(corev1.ResourceCPU, "2").
+					SetPodTemplateName("launcher").
 					Obj(),
 				*utiltesting.MakePodSet("workers", 10).
+					SetPodTemplateName("workers").
+					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"launcher": &utiltesting.MakePodTemplate("launcher", "").
+					Request(corev1.ResourceCPU, "2").
+					Obj().Template,
+				"workers": &utiltesting.MakePodTemplate("workers", "").
 					Request(corev1.ResourceCPU, "1").
 					Toleration(corev1.Toleration{
 						Key:      "instance",
@@ -1321,7 +1417,7 @@ func TestAssignFlavors(t *testing.T) {
 						Value:    "spot",
 						Effect:   corev1.TaintEffectNoSchedule,
 					}).
-					Obj(),
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{{
@@ -1395,8 +1491,13 @@ func TestAssignFlavors(t *testing.T) {
 		"resource not listed in clusterQueue": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
-					Request("example.com/gpu", "2").
+					SetPodTemplateName("main").
 					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Request("example.com/gpu", "2").
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{{
@@ -1426,8 +1527,13 @@ func TestAssignFlavors(t *testing.T) {
 		"flavor not found": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
-					Request(corev1.ResourceCPU, "1").
+					SetPodTemplateName("main").
 					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "1").
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{{
@@ -1457,8 +1563,13 @@ func TestAssignFlavors(t *testing.T) {
 		"num pods fit": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 3).
-					Request(corev1.ResourceCPU, "1").
+					SetPodTemplateName("main").
 					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "1").
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{{
@@ -1498,8 +1609,13 @@ func TestAssignFlavors(t *testing.T) {
 		"num pods don't fit": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 3).
-					Request(corev1.ResourceCPU, "1").
+					SetPodTemplateName("main").
 					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "1").
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				ResourceGroups: []cache.ResourceGroup{{
@@ -1531,8 +1647,13 @@ func TestAssignFlavors(t *testing.T) {
 		"with reclaimable pods": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 5).
-					Request(corev1.ResourceCPU, "1").
+					SetPodTemplateName("main").
 					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "1").
+					Obj().Template,
 			},
 			wlReclaimablePods: []kueue.ReclaimablePod{
 				{
@@ -1578,8 +1699,13 @@ func TestAssignFlavors(t *testing.T) {
 		"preempt before try next flavor": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
-					Request(corev1.ResourceCPU, "9").
+					SetPodTemplateName("main").
 					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "9").
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				FlavorFungibility: kueue.FlavorFungibility{
@@ -1629,8 +1755,13 @@ func TestAssignFlavors(t *testing.T) {
 		"preempt try next flavor": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
-					Request(corev1.ResourceCPU, "9").
+					SetPodTemplateName("main").
 					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "9").
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				FlavorFungibility: defaultFlavorFungibility,
@@ -1674,8 +1805,13 @@ func TestAssignFlavors(t *testing.T) {
 		"borrow try next flavor, found the first flavor": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
-					Request(corev1.ResourceCPU, "9").
+					SetPodTemplateName("main").
 					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "9").
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				Cohort: &cache.Cohort{
@@ -1734,8 +1870,13 @@ func TestAssignFlavors(t *testing.T) {
 		"borrow try next flavor, found the second flavor": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
-					Request(corev1.ResourceCPU, "9").
+					SetPodTemplateName("main").
 					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "9").
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				Cohort: &cache.Cohort{
@@ -1793,8 +1934,13 @@ func TestAssignFlavors(t *testing.T) {
 		"borrow before try next flavor": {
 			wlPods: []kueue.PodSet{
 				*utiltesting.MakePodSet("main", 1).
-					Request(corev1.ResourceCPU, "9").
+					SetPodTemplateName("main").
 					Obj(),
+			},
+			podTemplates: map[string]*corev1.PodTemplateSpec{
+				"main": &utiltesting.MakePodTemplate("main", "").
+					Request(corev1.ResourceCPU, "9").
+					Obj().Template,
 			},
 			clusterQueue: cache.ClusterQueue{
 				Cohort: &cache.Cohort{
@@ -1860,7 +2006,7 @@ func TestAssignFlavors(t *testing.T) {
 				Status: kueue.WorkloadStatus{
 					ReclaimablePods: tc.wlReclaimablePods,
 				},
-			})
+			}, tc.podTemplates)
 			if tc.clusterQueue.FlavorFungibility.WhenCanBorrow == "" {
 				tc.clusterQueue.FlavorFungibility.WhenCanBorrow = kueue.Borrow
 			}

@@ -63,7 +63,7 @@ var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 					PodSets: []kueue.PodSet{
 						{
 							Count: 1,
-							Template: corev1.PodTemplateSpec{
+							Template: &corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{
 									Containers: []corev1.Container{},
 								},
@@ -154,8 +154,12 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 		})
 
 		ginkgo.It("Should forbid the change of spec.podSet", func() {
+			ginkgo.By("Creating a pod template")
+			podtemplate := testing.MakePodTemplate(workloadName, ns.Name).Labels(map[string]string{constants.WorkloadNameLabel: workloadName}).Obj()
+			gomega.Expect(k8sClient.Create(ctx, podtemplate)).Should(gomega.Succeed())
+
 			ginkgo.By("Creating a new Workload")
-			workload := testing.MakeWorkload(workloadName, ns.Name).Obj()
+			workload := testing.MakeWorkload(workloadName, ns.Name).SetPodSetName(podtemplate.Name).SetPodTemplateName(podtemplate.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
 
 			ginkgo.By("Updating podSet")

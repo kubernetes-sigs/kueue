@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"sync"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -31,6 +32,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/podtemplate"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -174,8 +176,12 @@ func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error 
 		if workload.HasQuotaReservation(&w) {
 			continue
 		}
-		workload.AdjustResources(ctx, m.client, &w)
-		qImpl.AddOrUpdate(workload.NewInfo(&w))
+		pts, err := podtemplate.ExtractByWorkloadLabel(ctx, m.client, &w)
+		if err != nil {
+			continue
+		}
+		workload.AdjustResources(ctx, m.client, &w, pts)
+		qImpl.AddOrUpdate(workload.NewInfo(&w, pts))
 	}
 	cq := m.clusterQueues[qImpl.ClusterQueue]
 	if cq != nil && cq.AddFromLocalQueue(qImpl) {
@@ -261,19 +267,19 @@ func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (string, bool) {
 
 // AddOrUpdateWorkload adds or updates workload to the corresponding queue.
 // Returns whether the queue existed.
-func (m *Manager) AddOrUpdateWorkload(w *kueue.Workload) bool {
+func (m *Manager) AddOrUpdateWorkload(w *kueue.Workload, pts map[string]*corev1.PodTemplateSpec) bool {
 	m.Lock()
 	defer m.Unlock()
-	return m.addOrUpdateWorkload(w)
+	return m.addOrUpdateWorkload(w, pts)
 }
 
-func (m *Manager) addOrUpdateWorkload(w *kueue.Workload) bool {
+func (m *Manager) addOrUpdateWorkload(w *kueue.Workload, pts map[string]*corev1.PodTemplateSpec) bool {
 	qKey := workload.QueueKey(w)
 	q := m.localQueues[qKey]
 	if q == nil {
 		return false
 	}
-	wInfo := workload.NewInfo(w)
+	wInfo := workload.NewInfo(w, pts)
 	q.AddOrUpdate(wInfo)
 	cq := m.clusterQueues[q.ClusterQueue]
 	if cq == nil {
@@ -304,7 +310,11 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	if q == nil {
 		return false
 	}
-	info.Update(&w)
+	pts, err := podtemplate.ExtractByWorkloadLabel(ctx, m.client, &w)
+	if err != nil {
+		return false
+	}
+	info.Update(&w, pts)
 	q.AddOrUpdate(info)
 	cq := m.clusterQueues[q.ClusterQueue]
 	if cq == nil {
@@ -418,13 +428,13 @@ func (m *Manager) queueAllInadmissibleWorkloadsInCohort(ctx context.Context, cq 
 
 // UpdateWorkload updates the workload to the corresponding queue or adds it if
 // it didn't exist. Returns whether the queue existed.
-func (m *Manager) UpdateWorkload(oldW, w *kueue.Workload) bool {
+func (m *Manager) UpdateWorkload(oldW, w *kueue.Workload, pts map[string]*corev1.PodTemplateSpec) bool {
 	m.Lock()
 	defer m.Unlock()
 	if oldW.Spec.QueueName != w.Spec.QueueName {
 		m.deleteWorkloadFromQueueAndClusterQueue(w, workload.QueueKey(oldW))
 	}
-	return m.addOrUpdateWorkload(w)
+	return m.addOrUpdateWorkload(w, pts)
 }
 
 // CleanUpOnContext tracks the context. When closed, it wakes routines waiting

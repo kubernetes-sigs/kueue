@@ -142,6 +142,12 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			return createdWorkload.Spec.QueueName == jobQueueName
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 
+		createdPodTemplate := &corev1.PodTemplateList{}
+		gomega.Eventually(func() int {
+			gomega.Expect(k8sClient.List(ctx, createdPodTemplate, &client.ListOptions{Namespace: ns.Name})).Should(gomega.Succeed())
+			return len(createdPodTemplate.Items)
+		}, util.Timeout, util.Interval).Should(gomega.Equal(1))
+
 		ginkgo.By("checking a second non-matching workload is deleted")
 		secondWl := &kueue.Workload{
 			ObjectMeta: metav1.ObjectMeta{
@@ -1025,6 +1031,13 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		prodJob1 := testingjob.MakeJob("prod-job1", ns.Name).Queue(prodLocalQ.Name).Request(corev1.ResourceCPU, "2").Obj()
 		gomega.Expect(k8sClient.Create(ctx, prodJob1)).Should(gomega.Succeed())
 		lookupKey1 := types.NamespacedName{Name: prodJob1.Name, Namespace: prodJob1.Namespace}
+
+		createdPodTemplate := &corev1.PodTemplateList{}
+		gomega.Eventually(func() int {
+			gomega.Expect(k8sClient.List(ctx, createdPodTemplate, &client.ListOptions{Namespace: ns.Name})).Should(gomega.Succeed())
+			return len(createdPodTemplate.Items)
+		}, util.Timeout, util.Interval).Should(gomega.Equal(1))
+
 		createdProdJob1 := &batchv1.Job{}
 		gomega.Eventually(func() *bool {
 			gomega.Expect(k8sClient.Get(ctx, lookupKey1, createdProdJob1)).Should(gomega.Succeed())

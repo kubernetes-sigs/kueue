@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/testing"
@@ -145,19 +146,46 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 		})
 
 		ginkgo.It("Should update status and report metrics when workloads are assigned and finish", func() {
+			podTemplates := []*corev1.PodTemplate{
+				testing.MakePodTemplate("one", ns.Name).
+					Labels(map[string]string{constants.WorkloadNameLabel: "one"}).
+					Request(corev1.ResourceCPU, "2").Request(resourceGPU, "2").Limit(resourceGPU, "2").Obj(),
+				testing.MakePodTemplate("two", ns.Name).
+					Labels(map[string]string{constants.WorkloadNameLabel: "two"}).
+					Request(corev1.ResourceCPU, "3").Request(resourceGPU, "3").Limit(resourceGPU, "3").Obj(),
+				testing.MakePodTemplate("three", ns.Name).
+					Labels(map[string]string{constants.WorkloadNameLabel: "three"}).
+					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Limit(resourceGPU, "1").Obj(),
+				testing.MakePodTemplate("four", ns.Name).
+					Labels(map[string]string{constants.WorkloadNameLabel: "four"}).
+					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Limit(resourceGPU, "1").Obj(),
+				testing.MakePodTemplate("five", ns.Name).
+					Labels(map[string]string{constants.WorkloadNameLabel: "five"}).
+					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Limit(resourceGPU, "1").Obj(),
+				testing.MakePodTemplate("six", ns.Name).
+					Labels(map[string]string{constants.WorkloadNameLabel: "six"}).
+					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Limit(resourceGPU, "1").Obj(),
+			}
+
 			workloads := []*kueue.Workload{
 				testing.MakeWorkload("one", ns.Name).Queue(localQueue.Name).
-					Request(corev1.ResourceCPU, "2").Request(resourceGPU, "2").Obj(),
+					PodSets([]kueue.PodSet{*testing.MakePodSet("main", 1).SetPodTemplateName("one").Obj()}...).
+					Obj(),
 				testing.MakeWorkload("two", ns.Name).Queue(localQueue.Name).
-					Request(corev1.ResourceCPU, "3").Request(resourceGPU, "3").Obj(),
+					PodSets([]kueue.PodSet{*testing.MakePodSet("main", 1).SetPodTemplateName("two").Obj()}...).
+					Obj(),
 				testing.MakeWorkload("three", ns.Name).Queue(localQueue.Name).
-					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
+					PodSets([]kueue.PodSet{*testing.MakePodSet("main", 1).SetPodTemplateName("three").Obj()}...).
+					Obj(),
 				testing.MakeWorkload("four", ns.Name).Queue(localQueue.Name).
-					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
+					PodSets([]kueue.PodSet{*testing.MakePodSet("main", 1).SetPodTemplateName("four").Obj()}...).
+					Obj(),
 				testing.MakeWorkload("five", ns.Name).Queue("other").
-					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
+					PodSets([]kueue.PodSet{*testing.MakePodSet("main", 1).SetPodTemplateName("five").Obj()}...).
+					Obj(),
 				testing.MakeWorkload("six", ns.Name).Queue(localQueue.Name).
-					Request(corev1.ResourceCPU, "1").Request(resourceGPU, "1").Obj(),
+					PodSets([]kueue.PodSet{*testing.MakePodSet("main", 1).SetPodTemplateName("six").Obj()}...).
+					Obj(),
 			}
 
 			ginkgo.By("Checking that the resource metrics are published", func() {
@@ -176,6 +204,11 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 				util.ExpectCQResourceUsage(clusterQueue, flavorModelA, string(resourceGPU), 0)
 				util.ExpectCQResourceUsage(clusterQueue, flavorModelB, string(resourceGPU), 0)
 			})
+
+			ginkgo.By("Creating podtemplates")
+			for _, pt := range podTemplates {
+				gomega.Expect(k8sClient.Create(ctx, pt)).To(gomega.Succeed())
+			}
 
 			ginkgo.By("Creating workloads")
 			for _, w := range workloads {
@@ -327,14 +360,29 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 				gomega.Expect(k8sClient.Create(ctx, modelBFlavor)).To(gomega.Succeed())
 			})
 
+			pt1 := testing.MakePodTemplate("driver", ns.Name).
+				Labels(map[string]string{constants.WorkloadNameLabel: "one"}).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+
+			pt2 := testing.MakePodTemplate("workers", ns.Name).
+				Labels(map[string]string{constants.WorkloadNameLabel: "one"}).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+
+			ginkgo.By("Creating the podtemplates", func() {
+				gomega.Expect(k8sClient.Create(ctx, pt1)).To(gomega.Succeed())
+				gomega.Expect(k8sClient.Create(ctx, pt2)).To(gomega.Succeed())
+			})
+
 			wl := testing.MakeWorkload("one", ns.Name).
 				Queue(localQueue.Name).
 				PodSets(
 					*testing.MakePodSet("driver", 2).
-						Request(corev1.ResourceCPU, "1").
+						SetPodTemplateName(pt1.Name).
 						Obj(),
 					*testing.MakePodSet("workers", 5).
-						Request(resourceGPU, "1").
+						SetPodTemplateName(pt2.Name).
 						Obj(),
 				).
 				Obj()
@@ -761,11 +809,26 @@ var _ = ginkgo.Describe("ClusterQueue controller with queue visibility is enable
 
 		ginkgo.It("Should update of the pending workloads when a new workload is scheduled", func() {
 			const lowPrio, midLowerPrio, midHigherPrio, highPrio = 0, 10, 20, 100
+			podTemplateFirstBatch := []*corev1.PodTemplate{
+				testing.MakePodTemplate("one", ns.Name).
+					Labels(map[string]string{constants.WorkloadNameLabel: "one"}).
+					Request(corev1.ResourceCPU, "2").Obj(),
+				testing.MakePodTemplate("two", ns.Name).
+					Labels(map[string]string{constants.WorkloadNameLabel: "two"}).
+					Request(corev1.ResourceCPU, "3").Obj(),
+			}
+
 			workloadsFirstBatch := []*kueue.Workload{
-				testing.MakeWorkload("one", ns.Name).Queue(localQueue.Name).Priority(highPrio).
-					Request(corev1.ResourceCPU, "2").Request(resourceGPU, "2").Obj(),
-				testing.MakeWorkload("two", ns.Name).Queue(localQueue.Name).Priority(midHigherPrio).
-					Request(corev1.ResourceCPU, "3").Request(resourceGPU, "3").Obj(),
+				testing.MakeWorkload("one", ns.Name).
+					SetPodTemplateName("one").
+					Queue(localQueue.Name).
+					Priority(highPrio).
+					Obj(),
+				testing.MakeWorkload("two", ns.Name).
+					SetPodTemplateName("two").
+					Queue(localQueue.Name).
+					Priority(midHigherPrio).
+					Obj(),
 			}
 
 			ginkgo.By("Verify pending workload status before adding workloads")
@@ -774,6 +837,11 @@ var _ = ginkgo.Describe("ClusterQueue controller with queue visibility is enable
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
 				return updatedCq.Status.PendingWorkloadsStatus
 			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(&kueue.ClusterQueuePendingWorkloadsStatus{}, ignoreLastChangeTime))
+
+			ginkgo.By("Creating pod template")
+			for _, pt := range podTemplateFirstBatch {
+				gomega.Expect(k8sClient.Create(ctx, pt)).To(gomega.Succeed())
+			}
 
 			ginkgo.By("Creating workloads")
 			for _, w := range workloadsFirstBatch {
@@ -799,12 +867,31 @@ var _ = ginkgo.Describe("ClusterQueue controller with queue visibility is enable
 			}, ignoreLastChangeTime))
 
 			ginkgo.By("Creating new workloads to so that the number of workloads exceeds the MaxCount")
-			workloadsSecondBatch := []*kueue.Workload{
-				testing.MakeWorkload("three", ns.Name).Queue(localQueue.Name).Priority(midLowerPrio).
-					Request(corev1.ResourceCPU, "2").Request(resourceGPU, "2").Obj(),
-				testing.MakeWorkload("four", ns.Name).Queue(localQueue.Name).Priority(lowPrio).
-					Request(corev1.ResourceCPU, "3").Request(resourceGPU, "3").Obj(),
+			podTemplateSecondBatch := []*corev1.PodTemplate{
+				testing.MakePodTemplate("three", ns.Name).
+					Labels(map[string]string{constants.WorkloadNameLabel: "three"}).
+					Request(corev1.ResourceCPU, "2").Obj(),
+				testing.MakePodTemplate("four", ns.Name).
+					Labels(map[string]string{constants.WorkloadNameLabel: "four"}).
+					Request(corev1.ResourceCPU, "3").Obj(),
 			}
+
+			workloadsSecondBatch := []*kueue.Workload{
+				testing.MakeWorkload("three", ns.Name).
+					SetPodTemplateName("one").
+					Queue(localQueue.Name).
+					Priority(midLowerPrio).
+					Obj(),
+				testing.MakeWorkload("four", ns.Name).
+					SetPodTemplateName("one").
+					Queue(localQueue.Name).
+					Priority(lowPrio).
+					Obj(),
+			}
+			for _, pt := range podTemplateSecondBatch {
+				gomega.Expect(k8sClient.Create(ctx, pt)).To(gomega.Succeed())
+			}
+
 			for _, w := range workloadsSecondBatch {
 				gomega.Expect(k8sClient.Create(ctx, w)).To(gomega.Succeed())
 			}

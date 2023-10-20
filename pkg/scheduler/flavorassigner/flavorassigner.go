@@ -241,27 +241,28 @@ func AssignFlavors(log logr.Logger, wl *workload.Info, resourceFlavors map[kueue
 	}
 
 	if len(counts) == 0 {
-		return assignFlavors(log, wl.TotalRequests, wl.Obj.Spec.PodSets, resourceFlavors, cq, wl.LastAssignment)
+		return assignFlavors(log, wl.TotalRequests, wl.PodTemplates, resourceFlavors, cq, wl.LastAssignment)
 	}
 
 	currentResources := make([]workload.PodSetResources, len(wl.TotalRequests))
 	for i := range wl.TotalRequests {
 		currentResources[i] = *wl.TotalRequests[i].ScaledTo(counts[i])
 	}
-	return assignFlavors(log, currentResources, wl.Obj.Spec.PodSets, resourceFlavors, cq, wl.LastAssignment)
+	return assignFlavors(log, currentResources, wl.PodTemplates, resourceFlavors, cq, wl.LastAssignment)
 }
 
-func assignFlavors(log logr.Logger, requests []workload.PodSetResources, podSets []kueue.PodSet, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, cq *cache.ClusterQueue, lastAssignment *workload.AssigmentClusterQueueState) Assignment {
+func assignFlavors(log logr.Logger, requests []workload.PodSetResources, podTemplates map[string]*corev1.PodTemplateSpec, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, cq *cache.ClusterQueue, lastAssignment *workload.AssigmentClusterQueueState) Assignment {
 	assignment := Assignment{
 		TotalBorrow: make(cache.FlavorResourceQuantities),
 		PodSets:     make([]PodSetAssignment, 0, len(requests)),
 		Usage:       make(cache.FlavorResourceQuantities),
 	}
+
 	if lastAssignment != nil {
 		assignment.LastState = *lastAssignment
 	} else {
 		assignment.LastState = workload.AssigmentClusterQueueState{
-			LastAssignedFlavorIdx:  make([]map[corev1.ResourceName]int, 0, len(podSets)),
+			LastAssignedFlavorIdx:  make([]map[corev1.ResourceName]int, 0, len(podTemplates)),
 			CohortGeneration:       0,
 			ClusterQueueGeneration: cq.AllocatableResourceGeneration,
 		}
@@ -296,6 +297,12 @@ func assignFlavors(log logr.Logger, requests []workload.PodSetResources, podSets
 				}
 				break
 			}
+
+			podTemplateSpec := podTemplates[podSet.PodTemplateName]
+			if podTemplateSpec == nil {
+				continue
+			}
+
 			lastFlavorAssignment := -1
 			if lastAssignment != nil && len(lastAssignment.LastAssignedFlavorIdx) > i {
 				idx, ok := lastAssignment.LastAssignedFlavorIdx[i][resName]
@@ -303,7 +310,7 @@ func assignFlavors(log logr.Logger, requests []workload.PodSetResources, podSets
 					lastFlavorAssignment = idx
 				}
 			}
-			flavors, status := assignment.findFlavorForResourceGroup(log, rg, podSet.Requests, resourceFlavors, cq, &podSets[i].Template.Spec, lastFlavorAssignment)
+			flavors, status := assignment.findFlavorForResourceGroup(log, rg, podSet.Requests, resourceFlavors, cq, &podTemplateSpec.Spec, lastFlavorAssignment)
 			if status.IsError() || len(flavors) == 0 {
 				psAssignment.Flavors = nil
 				psAssignment.Status = status

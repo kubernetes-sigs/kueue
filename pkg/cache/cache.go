@@ -24,6 +24,7 @@ import (
 	"sync"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -35,6 +36,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/podtemplate"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -331,7 +333,11 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 		if !workload.HasQuotaReservation(&w) {
 			continue
 		}
-		c.addOrUpdateWorkload(&workloads.Items[i])
+		podTemplates, err := podtemplate.ExtractByWorkloadLabel(ctx, c.client, &w)
+		if err != nil {
+			return fmt.Errorf("getting podTemplate that match the name: %w", err)
+		}
+		c.addOrUpdateWorkload(&workloads.Items[i], podTemplates)
 	}
 
 	return nil
@@ -417,13 +423,13 @@ func (c *Cache) UpdateLocalQueue(oldQ, newQ *kueue.LocalQueue) error {
 	return nil
 }
 
-func (c *Cache) AddOrUpdateWorkload(w *kueue.Workload) bool {
+func (c *Cache) AddOrUpdateWorkload(w *kueue.Workload, pts map[string]*corev1.PodTemplateSpec) bool {
 	c.Lock()
 	defer c.Unlock()
-	return c.addOrUpdateWorkload(w)
+	return c.addOrUpdateWorkload(w, pts)
 }
 
-func (c *Cache) addOrUpdateWorkload(w *kueue.Workload) bool {
+func (c *Cache) addOrUpdateWorkload(w *kueue.Workload, pts map[string]*corev1.PodTemplateSpec) bool {
 	if !workload.HasQuotaReservation(w) {
 		return false
 	}
@@ -442,10 +448,10 @@ func (c *Cache) addOrUpdateWorkload(w *kueue.Workload) bool {
 	if c.podsReadyTracking {
 		c.podsReadyCond.Broadcast()
 	}
-	return clusterQueue.addWorkload(w) == nil
+	return clusterQueue.addWorkload(w, pts) == nil
 }
 
-func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.Workload) error {
+func (c *Cache) UpdateWorkload(oldWl *kueue.Workload, newWl *kueue.Workload, pts map[string]*corev1.PodTemplateSpec) error {
 	c.Lock()
 	defer c.Unlock()
 	if workload.HasQuotaReservation(oldWl) {
@@ -467,7 +473,7 @@ func (c *Cache) UpdateWorkload(oldWl, newWl *kueue.Workload) error {
 	if c.podsReadyTracking {
 		c.podsReadyCond.Broadcast()
 	}
-	return cq.addWorkload(newWl)
+	return cq.addWorkload(newWl, pts)
 }
 
 func (c *Cache) DeleteWorkload(w *kueue.Workload) error {
@@ -504,7 +510,7 @@ func (c *Cache) IsAssumedOrAdmittedWorkload(w workload.Info) bool {
 	return false
 }
 
-func (c *Cache) AssumeWorkload(w *kueue.Workload) error {
+func (c *Cache) AssumeWorkload(w *kueue.Workload, pts map[string]*corev1.PodTemplateSpec) error {
 	c.Lock()
 	defer c.Unlock()
 
@@ -523,7 +529,7 @@ func (c *Cache) AssumeWorkload(w *kueue.Workload) error {
 		return errCqNotFound
 	}
 
-	if err := cq.addWorkload(w); err != nil {
+	if err := cq.addWorkload(w, pts); err != nil {
 		return err
 	}
 	c.assumedWorkloads[k] = string(w.Status.Admission.ClusterQueue)
