@@ -551,8 +551,8 @@ spec:
                 required:
                 - lastChangeTime
                 type: object
-              reservingdWorkloads:
-                description: reservingdWorkloads is the number of workloads currently
+              reservingWorkloads:
+                description: reservingWorkloads is the number of workloads currently
                   reserving quota in this clusterQueue.
                 format: int32
                 type: integer

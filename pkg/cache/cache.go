@@ -172,34 +172,6 @@ func (c *Cache) CleanUpOnContext(ctx context.Context) {
 	c.podsReadyCond.Broadcast()
 }
 
-func (c *Cache) ReservingWorkloadsInLocalQueue(localQueue *kueue.LocalQueue) int32 {
-	c.Lock()
-	defer c.Unlock()
-	cq, ok := c.clusterQueues[string(localQueue.Spec.ClusterQueue)]
-	if !ok {
-		return 0
-	}
-	qImpl, ok := cq.localQueues[queueKey(localQueue)]
-	if !ok {
-		return 0
-	}
-	return int32(qImpl.reservingWorkloads)
-}
-
-func (c *Cache) AdmittedWorkloadsInLocalQueue(localQueue *kueue.LocalQueue) int32 {
-	c.Lock()
-	defer c.Unlock()
-	cq, ok := c.clusterQueues[string(localQueue.Spec.ClusterQueue)]
-	if !ok {
-		return 0
-	}
-	qImpl, ok := cq.localQueues[queueKey(localQueue)]
-	if !ok {
-		return 0
-	}
-	return int32(qImpl.admittedWorkloads)
-}
-
 func (c *Cache) updateClusterQueues() sets.Set[string] {
 	cqs := sets.New[string]()
 
@@ -571,7 +543,7 @@ func (c *Cache) ForgetWorkload(w *kueue.Workload) error {
 	return nil
 }
 
-type LusterQueueUsageStats struct {
+type ClusterQueueUsageStats struct {
 	ReservedResources  []kueue.FlavorUsage
 	ReservingWorkloads int
 	AdmittedResources  []kueue.FlavorUsage
@@ -579,7 +551,7 @@ type LusterQueueUsageStats struct {
 }
 
 // Usage reports the reserved and admitted resources and number of workloads holding them in the ClusterQueue.
-func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*LusterQueueUsageStats, error) {
+func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error) {
 	c.RLock()
 	defer c.RUnlock()
 
@@ -588,7 +560,7 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*LusterQueueUsageStats, error)
 		return nil, errCqNotFound
 	}
 
-	return &LusterQueueUsageStats{
+	return &ClusterQueueUsageStats{
 		ReservedResources:  getUsage(cq.Usage, cq.ResourceGroups, cq.Cohort),
 		ReservingWorkloads: len(cq.Workloads),
 		AdmittedResources:  getUsage(cq.AdmittedUsage, cq.ResourceGroups, cq.Cohort),
@@ -630,27 +602,31 @@ func getUsage(frq FlavorResourceQuantities, rgs []ResourceGroup, cohort *Cohort)
 	return usage
 }
 
-type LocakQueueUsageStats struct {
-	ReservedResources []kueue.LocalQueueFlavorUsage
-	AdmittedResources []kueue.LocalQueueFlavorUsage
+type LocalQueueUsageStats struct {
+	ReservedResources  []kueue.LocalQueueFlavorUsage
+	ReservingWorkloads int
+	AdmittedResources  []kueue.LocalQueueFlavorUsage
+	AdmittedWorkloads  int
 }
 
-func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocakQueueUsageStats, error) {
+func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, error) {
 	c.RLock()
 	defer c.RUnlock()
 
 	cqImpl, ok := c.clusterQueues[string(qObj.Spec.ClusterQueue)]
 	if !ok {
-		return &LocakQueueUsageStats{}, nil
+		return &LocalQueueUsageStats{}, nil
 	}
 	qImpl, ok := cqImpl.localQueues[queueKey(qObj)]
 	if !ok {
 		return nil, errQNotFound
 	}
 
-	return &LocakQueueUsageStats{
-		ReservedResources: filterLocalQueueUsage(qImpl.usage, cqImpl.ResourceGroups),
-		AdmittedResources: filterLocalQueueUsage(qImpl.admittedUsage, cqImpl.ResourceGroups),
+	return &LocalQueueUsageStats{
+		ReservedResources:  filterLocalQueueUsage(qImpl.usage, cqImpl.ResourceGroups),
+		ReservingWorkloads: qImpl.reservingWorkloads,
+		AdmittedResources:  filterLocalQueueUsage(qImpl.admittedUsage, cqImpl.ResourceGroups),
+		AdmittedWorkloads:  qImpl.admittedWorkloads,
 	}, nil
 }
 

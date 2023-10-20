@@ -639,7 +639,7 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 	}
 	cq.Status.FlavorsReservation = stats.ReservedResources
 	cq.Status.FlavorsUsage = stats.AdmittedResources
-	cq.Status.ReservingdWorkloads = int32(stats.ReservingWorkloads)
+	cq.Status.ReservingWorkloads = int32(stats.ReservingWorkloads)
 	cq.Status.AdmittedWorkloads = int32(stats.AdmittedWorkloads)
 	cq.Status.PendingWorkloads = int32(pendingWorkloads)
 	cq.Status.PendingWorkloadsStatus = r.getWorkloadsStatus(cq)

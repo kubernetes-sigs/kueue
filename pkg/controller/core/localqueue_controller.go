@@ -278,8 +278,8 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 		return err
 	}
 	queue.Status.PendingWorkloads = pendingWls
-	queue.Status.ReservingWorkloads = r.cache.ReservingWorkloadsInLocalQueue(queue)
-	queue.Status.AdmittedWorkloads = r.cache.AdmittedWorkloadsInLocalQueue(queue)
+	queue.Status.ReservingWorkloads = int32(stats.ReservingWorkloads)
+	queue.Status.AdmittedWorkloads = int32(stats.AdmittedWorkloads)
 	queue.Status.FlavorsReservation = stats.ReservedResources
 	queue.Status.FlavorUsage = stats.AdmittedResources
 	if len(conditionStatus) != 0 && len(reason) != 0 && len(msg) != 0 {

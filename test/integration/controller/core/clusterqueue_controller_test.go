@@ -281,11 +281,11 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
 				return updatedCQ.Status
 			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
-				PendingWorkloads:    1,
-				ReservingdWorkloads: 4,
-				AdmittedWorkloads:   0,
-				FlavorsReservation:  totalUsage,
-				FlavorsUsage:        emptyUsedFlavors,
+				PendingWorkloads:   1,
+				ReservingWorkloads: 4,
+				AdmittedWorkloads:  0,
+				FlavorsReservation: totalUsage,
+				FlavorsUsage:       emptyUsedFlavors,
 				Conditions: []metav1.Condition{
 					{
 						Type:    kueue.ClusterQueueActive,
@@ -315,11 +315,11 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
 				return updatedCQ.Status
 			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
-				PendingWorkloads:    1,
-				ReservingdWorkloads: 4,
-				AdmittedWorkloads:   4,
-				FlavorsReservation:  totalUsage,
-				FlavorsUsage:        totalUsage,
+				PendingWorkloads:   1,
+				ReservingWorkloads: 4,
+				AdmittedWorkloads:  4,
+				FlavorsReservation: totalUsage,
+				FlavorsUsage:       totalUsage,
 				Conditions: []metav1.Condition{
 					{
 						Type:    kueue.ClusterQueueActive,

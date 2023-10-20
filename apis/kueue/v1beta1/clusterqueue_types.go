@@ -207,10 +207,10 @@ type ClusterQueueStatus struct {
 	// +optional
 	PendingWorkloads int32 `json:"pendingWorkloads"`
 
-	// reservingdWorkloads is the number of workloads currently reserving quota in this
+	// reservingWorkloads is the number of workloads currently reserving quota in this
 	// clusterQueue.
 	// +optional
-	ReservingdWorkloads int32 `json:"reservingdWorkloads"`
+	ReservingWorkloads int32 `json:"reservingWorkloads"`
 
 	// admittedWorkloads is the number of workloads currently admitted to this
 	// clusterQueue and haven't finished yet.

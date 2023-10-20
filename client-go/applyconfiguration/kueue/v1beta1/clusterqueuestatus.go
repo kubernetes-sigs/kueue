@@ -27,7 +27,7 @@ type ClusterQueueStatusApplyConfiguration struct {
 	FlavorsReservation     []FlavorUsageApplyConfiguration                       `json:"flavorsReservation,omitempty"`
 	FlavorsUsage           []FlavorUsageApplyConfiguration                       `json:"flavorUsage,omitempty"`
 	PendingWorkloads       *int32                                                `json:"pendingWorkloads,omitempty"`
-	ReservingdWorkloads    *int32                                                `json:"reservingdWorkloads,omitempty"`
+	ReservingWorkloads     *int32                                                `json:"reservingWorkloads,omitempty"`
 	AdmittedWorkloads      *int32                                                `json:"admittedWorkloads,omitempty"`
 	Conditions             []v1.Condition                                        `json:"conditions,omitempty"`
 	PendingWorkloadsStatus *ClusterQueuePendingWorkloadsStatusApplyConfiguration `json:"pendingWorkloadsStatus,omitempty"`
@@ -73,11 +73,11 @@ func (b *ClusterQueueStatusApplyConfiguration) WithPendingWorkloads(value int32)
 	return b
 }
 
-// WithReservingdWorkloads sets the ReservingdWorkloads field in the declarative configuration to the given value
+// WithReservingWorkloads sets the ReservingWorkloads field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the ReservingdWorkloads field is set to the value of the last call.
-func (b *ClusterQueueStatusApplyConfiguration) WithReservingdWorkloads(value int32) *ClusterQueueStatusApplyConfiguration {
-	b.ReservingdWorkloads = &value
+// If called multiple times, the ReservingWorkloads field is set to the value of the last call.
+func (b *ClusterQueueStatusApplyConfiguration) WithReservingWorkloads(value int32) *ClusterQueueStatusApplyConfiguration {
+	b.ReservingWorkloads = &value
 	return b
 }
 

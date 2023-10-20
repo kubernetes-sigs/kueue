@@ -257,9 +257,9 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodClusterQ), &updatedCQ)).To(gomega.Succeed())
 				return updatedCQ.Status
 			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
-				PendingWorkloads:    0,
-				ReservingdWorkloads: 1,
-				AdmittedWorkloads:   1,
+				PendingWorkloads:   0,
+				ReservingWorkloads: 1,
+				AdmittedWorkloads:  1,
 				FlavorsReservation: []kueue.FlavorUsage{{
 					Name: "default",
 					Resources: []kueue.ResourceUsage{{
@@ -294,9 +294,9 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodClusterQ), &updatedCQ)).To(gomega.Succeed())
 				return updatedCQ.Status
 			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
-				PendingWorkloads:    1,
-				ReservingdWorkloads: 0,
-				AdmittedWorkloads:   0,
+				PendingWorkloads:   1,
+				ReservingWorkloads: 0,
+				AdmittedWorkloads:  0,
 				FlavorsReservation: []kueue.FlavorUsage{{
 					Name: "default",
 					Resources: []kueue.ResourceUsage{{
