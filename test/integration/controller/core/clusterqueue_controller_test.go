@@ -307,7 +307,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 
 			ginkgo.By("Setting the admission check for the first 4 workloads")
 			for _, w := range workloads[:4] {
-				util.SetWorkloadsAdmissionCkeck(ctx, k8sClient, w, ac.Name, kueue.CheckStateReady)
+				util.SetWorkloadsAdmissionCkeck(ctx, k8sClient, w, ac.Name, kueue.CheckStateReady, true)
 			}
 
 			gomega.Eventually(func() kueue.ClusterQueueStatus {

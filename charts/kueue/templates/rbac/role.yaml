@@ -49,6 +49,17 @@ rules:
   - apiGroups:
       - ""
     resources:
+      - podtemplates
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - update
+      - watch
+  - apiGroups:
+      - ""
+    resources:
       - secrets
     verbs:
       - get
@@ -73,6 +84,24 @@ rules:
       - list
       - update
       - watch
+  - apiGroups:
+      - autoscaling.x-k8s.io
+    resources:
+      - provisioningrequests
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - autoscaling.x-k8s.io
+    resources:
+      - provisioningrequests/status
+    verbs:
+      - get
   - apiGroups:
       - batch
     resources:
@@ -295,6 +324,14 @@ rules:
       - get
       - patch
       - update
+  - apiGroups:
+      - kueue.x-k8s.io
+    resources:
+      - provisioningrequestconfigs
+    verbs:
+      - get
+      - list
+      - watch
   - apiGroups:
       - kueue.x-k8s.io
     resources:

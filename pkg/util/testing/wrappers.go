@@ -200,6 +200,11 @@ func (w *WorkloadWrapper) Labels(l map[string]string) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) AdmissionChecks(checks ...kueue.AdmissionCheckState) *WorkloadWrapper {
+	w.Status.AdmissionChecks = checks
+	return w
+}
+
 type PodSetWrapper struct{ kueue.PodSet }
 
 func MakePodSet(name string, count int) *PodSetWrapper {
@@ -235,6 +240,19 @@ func (p *PodSetWrapper) Obj() *kueue.PodSet {
 
 func (p *PodSetWrapper) Request(r corev1.ResourceName, q string) *PodSetWrapper {
 	p.Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(q)
+	return p
+}
+
+func (p *PodSetWrapper) Limit(r corev1.ResourceName, q string) *PodSetWrapper {
+	if p.Template.Spec.Containers[0].Resources.Limits == nil {
+		p.Template.Spec.Containers[0].Resources.Limits = corev1.ResourceList{}
+	}
+	p.Template.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(q)
+	return p
+}
+
+func (p *PodSetWrapper) Image(image string) *PodSetWrapper {
+	p.Template.Spec.Containers[0].Image = image
 	return p
 }
 
@@ -605,6 +623,15 @@ func (ac *AdmissionCheckWrapper) Active(status metav1.ConditionStatus) *Admissio
 
 func (ac *AdmissionCheckWrapper) ControllerName(c string) *AdmissionCheckWrapper {
 	ac.Spec.ControllerName = c
+	return ac
+}
+
+func (ac *AdmissionCheckWrapper) Parameters(apigroup, kind, name string) *AdmissionCheckWrapper {
+	ac.Spec.Parameters = &kueue.AdmissionCheckParametersReference{
+		APIGroup: apigroup,
+		Kind:     kind,
+		Name:     name,
+	}
 	return ac
 }
 
