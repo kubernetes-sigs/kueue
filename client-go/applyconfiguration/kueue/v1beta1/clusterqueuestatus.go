@@ -25,7 +25,7 @@ import (
 // with apply.
 type ClusterQueueStatusApplyConfiguration struct {
 	FlavorsReservation     []FlavorUsageApplyConfiguration                       `json:"flavorsReservation,omitempty"`
-	FlavorsUsage           []FlavorUsageApplyConfiguration                       `json:"flavorUsage,omitempty"`
+	FlavorsUsage           []FlavorUsageApplyConfiguration                       `json:"flavorsUsage,omitempty"`
 	PendingWorkloads       *int32                                                `json:"pendingWorkloads,omitempty"`
 	ReservingWorkloads     *int32                                                `json:"reservingWorkloads,omitempty"`
 	AdmittedWorkloads      *int32                                                `json:"admittedWorkloads,omitempty"`

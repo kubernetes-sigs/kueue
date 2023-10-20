@@ -200,7 +200,7 @@ type ClusterQueueStatus struct {
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=16
 	// +optional
-	FlavorsUsage []FlavorUsage `json:"flavorUsage"`
+	FlavorsUsage []FlavorUsage `json:"flavorsUsage"`
 
 	// pendingWorkloads is the number of workloads currently waiting to be
 	// admitted to this clusterQueue.
