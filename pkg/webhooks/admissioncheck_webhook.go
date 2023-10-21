@@ -78,7 +78,7 @@ func validateAdmissionCheck(ac *kueue.AdmissionCheck) field.ErrorList {
 	var allErrs field.ErrorList
 	specPath := field.NewPath("spec")
 	if len(ac.Spec.ControllerName) == 0 {
-		allErrs = append(allErrs, field.Invalid(specPath.Child("controllerName"), ac.Spec.ControllerName, utilvalidation.EmptyError()))
+		allErrs = append(allErrs, field.Required(specPath.Child("controllerName"), utilvalidation.EmptyError()))
 	}
 	if ac.Spec.Parameters != nil {
 		allErrs = append(allErrs, validateParameters(ac.Spec.Parameters, field.NewPath("spec", "parameters"))...)

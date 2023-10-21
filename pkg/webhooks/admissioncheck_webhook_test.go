@@ -41,7 +41,7 @@ func TestAdmissionCheckValidation(t *testing.T) {
 					},
 				},
 			},
-			wantErr: field.ErrorList{field.Invalid(field.NewPath("spec", "controllerName"), "", "")},
+			wantErr: field.ErrorList{field.Required(field.NewPath("spec", "controllerName"), "")},
 		},
 		"bad ref api group": {
 			ac: &kueue.AdmissionCheck{
