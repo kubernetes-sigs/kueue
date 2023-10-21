@@ -349,7 +349,7 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 		)
 
 		ginkgo.BeforeEach(func() {
-			admissionCheck = testing.MakeAdmissionCheck("check").Obj()
+			admissionCheck = testing.MakeAdmissionCheck("check").ControllerName("ac-controller").Obj()
 			gomega.Expect(k8sClient.Create(ctx, admissionCheck)).To(gomega.Succeed())
 			util.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck, metav1.ConditionTrue)
 			clusterQueueAc = testing.MakeClusterQueue("prod-cq-with-checks").

@@ -28,12 +28,16 @@ var _ = ginkgo.Describe("AdmissionCheck Webhook", func() {
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "foo",
 					},
+					Spec: kueue.AdmissionCheckSpec{
+						ControllerName: "ac-controller",
+					},
 				},
 				kueue.AdmissionCheck{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: "foo",
 					},
 					Spec: kueue.AdmissionCheckSpec{
+						ControllerName:    "ac-controller",
 						RetryDelayMinutes: ptr.To[int64](15),
 					},
 				},
