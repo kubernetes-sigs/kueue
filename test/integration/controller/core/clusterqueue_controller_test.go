@@ -117,7 +117,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 		)
 
 		ginkgo.BeforeEach(func() {
-			ac = testing.MakeAdmissionCheck("ac").Obj()
+			ac = testing.MakeAdmissionCheck("ac").ControllerName("ac-controller").Obj()
 			gomega.Expect(k8sClient.Create(ctx, ac)).To(gomega.Succeed())
 			util.SetAdmissionCheckActive(ctx, k8sClient, ac, metav1.ConditionTrue)
 
