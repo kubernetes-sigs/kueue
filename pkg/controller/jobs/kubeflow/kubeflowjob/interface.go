@@ -32,7 +32,7 @@ type KFJobControl interface {
 	// ReplicaSpecs returns the ReplicaSpecs for the KFJob.
 	ReplicaSpecs() map[kftraining.ReplicaType]*kftraining.ReplicaSpec
 	// JobStatus returns the JobStatus for the KFJob.
-	JobStatus() kftraining.JobStatus
+	JobStatus() *kftraining.JobStatus
 	// OrderedReplicaTypes returns the ordered list of ReplicaTypes for the KFJob.
 	OrderedReplicaTypes() []kftraining.ReplicaType
 }
