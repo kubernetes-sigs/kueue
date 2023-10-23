@@ -216,7 +216,7 @@ spec:
       containers:
       - name: manager
         args:
-        - --config=controller_manager_config.yaml
+        - --config=/controller_manager_config.yaml
         - --zap-log-level=2
 +       - --feature-gates=PartialAdmission=true
 ```
