@@ -22,6 +22,7 @@ import (
 	nodev1 "k8s.io/api/node/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -156,7 +157,8 @@ func TestAdjustResources(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().WithLists(
 				&nodev1.RuntimeClassList{Items: tc.runtimeClasses},
 				&corev1.LimitRangeList{Items: tc.limitranges},
-			).Build()
+			).WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerType, indexer.IndexLimitRangeHasContainerType).
+				Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
 			AdjustResources(ctx, cl, tc.wl)
 			if diff := cmp.Diff(tc.wl, tc.wantWl); diff != "" {
