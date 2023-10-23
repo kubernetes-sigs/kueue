@@ -195,6 +195,9 @@ semantics:
 - For each pod set resource in a Workload, a ClusterQueue can only borrow quota
   for one flavor.
 
+You can influence some semantics of flavor selection and borrowing
+by setting a [`flavorFungibility`](/docs/concepts/cluster_queue#FlavorFungibility) in ClusterQueue.
+
 ### Borrowing example
 
 Assume you created the following two ClusterQueues:
@@ -321,7 +324,7 @@ spec:
     withinClusterQueue: LowerPriority
 ```
 
-The fields above have the following semantics:
+The fields above do the following:
 
 - `reclaimWithinCohort` determines whether a pending Workload can preempt
   Workloads from other ClusterQueues in the cohort that are using more than
@@ -350,15 +353,15 @@ Workloads as possible, preferring Workloads with these characteristics:
 
 ## FlavorFungibility
 
-When there is not enough nominal quota of resources in a ResourceFlavor, the incoming workload can borrow or preempt in ClusterQueue or Cohort. 
+When there is not enough nominal quota of resources in a ResourceFlavor, the incoming Workload can borrow
+quota or preempt running Workloads in the ClusterQueue or Cohort.
 
-By default the incoming workload will stop trying the next flavor if it can get enough resource by borrowing. 
-And preemption will be triggered after all ResourceFlavors were considered.
+Kueue evaluates the flavors in a ClusterQueue in order. You can influence whether to prioritize
+preemptions or borrowing in a flavor before trying to accommodate the Workload in the next flavor, by
+setting the `flavorFungibility` field.
 
-ClusterQueues can also try preemption whenever preemption might help before trying next ResourceFlavor or only borrowing after all ResourceFlavors have been considered by setting `FlavorFungibility`.
-
-A configuration for a ClusterQueue that changes this behavior looks like the following:
-```
+A configuration for a ClusterQueue that configures this behavior looks like the following:
+```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
 metadata:
@@ -369,15 +372,18 @@ spec:
     whenCanPreempt: Preempt
 ```
 
-The fields above have the following semantics:
+The fields above do the following:
 - `whenCanBorrow` determines whether a workload should stop finding a better assignment if it can get enough resource by borrowing in current ResourceFlavor. The possible values are:
-  - `Borrow` (default): ClusterQueue stops to find a better assignment.
-  - `TryNextFlavor`: ClusterQueue will try the next ResourceFlavor to see if the workload can get a better assignment.
+  - `Borrow` (default): ClusterQueue stops finding a better assignment.
+  - `TryNextFlavor`: ClusterQueue tries the next ResourceFlavor to see if the workload can get a better assignment.
 - `whenCanPreempt` determines whether a workload should try preemtion in current ResourceFlavor before try the next one. The possible values are:
-  - `Preempt`: ClusterQueue stops to try preempting in current ResourceFlavor and start from the next one if preempting failed.
-  - `TryNextFlavor` (default): ClusterQueue will try the next ResourceFlavor to see if the workload can fit in the ResourceFlavor.
+  - `Preempt`: ClusterQueue stops trying preemption in current ResourceFlavor and starts from the next one if preempting failed.
+  - `TryNextFlavor` (default): ClusterQueue tries the next ResourceFlavor to see if the workload can fit in the ResourceFlavor.
 
-Noted that if `whenCanBorrow` is `Borrow` and `whenCanPreempt` is `Preempt`, or both `whenCanBorrow` and `whenCanPreempt` is `TryNextFlavor`, borrowing has a higher priority than preemption.
+By default, the incoming workload stops trying the next flavor if the workload can get enough borrowed resources. 
+And Kueue triggers preemption only after Kueue determines that the remaining ResourceFlavors can't fit the workload.
+
+Note that, whenever possible and when the configured policy allows it, Kueue avoids preemptions if it can fit a Workload by borrowing.
 
 ## What's next?
 
