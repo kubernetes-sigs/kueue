@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
       - args:
-        - --config=controller_manager_config.yaml
+        - --config=/controller_manager_config.yaml
         - --zap-log-level=2
         command:
         - /manager
