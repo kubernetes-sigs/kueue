@@ -24,18 +24,18 @@
 
 Introduce an (AdmissionCheck)[https://github.com/kubernetes-sigs/kueue/tree/main/keps/993-two-phase-admission]
 that will use (`ProvisioningRequest`)[https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/proposals/provisioning-request.md]
-to ensure that there is enough capacity in the cluster before 
+to ensure that there is enough capacity in the cluster before
 admitting a workload.
 
 ## Motivation
 
-Currently Kueue admits workloads based on the quota check alone. 
-This works reasonably well in most cases, but doesn't provide 
-guarantee that an admitted workload will actually schedule 
+Currently Kueue admits workloads based on the quota check alone.
+This works reasonably well in most cases, but doesn't provide
+guarantee that an admitted workload will actually schedule
 in full in the cluster. With `ProvisioningRequest`, SIG-Autoscaling owned
 (ClusterAutoscaler)[https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler]
 opens a way for stronger (but still not hard-guaranteed) all-or-nothing
-scheduling in an autoscaled cloud environment. 
+scheduling in an autoscaled cloud environment.
 
 Before admission, CA will check whether there is enough resources and
 provide them if their number is not sufficient (details
@@ -82,12 +82,15 @@ was added specifically for use cases like this.
 The new ProvisioningRequest controller will:
 
 * Watch for all workloads that require an `AdmissionCheck` with controller
-name set to `"ProvisioningRequestController"`. For that it will also need to
+name set to `"kueue.x-k8s.io/provisioning-request"`. For that it will also need to
 to watch all `AdmissionCheck` definitions to understand whether the particular
 check is in fact `ProvisioningRequest` or not.
 
 * For each of such workloads create a `ProvisioningRequest` (and accompanying
-PodTemplates) requesting capacity for all podsets from the workload. 
+PodTemplates) requesting capacity for the podsets of interest from the workload.
+A podset is considered "of interest" if it requires at least one resource listed
+in the `ProvisioningRequestConfig` `managedResources` field or `managedResources`
+is empty. If the workload has no podsets of interest it is considered `Ready`.
 The `ProvisioningRequest` should have the owner reference set to the workload.
 To understand what details should it put into `ProvisioningRequest` the controller
 will also need to watch `ProvisioningRequestConfigs`.
@@ -98,40 +101,74 @@ with success (and propagate the information about `ProvisioningRequest` name to
 workload pods - KEP #1145 under `"cluster-autoscaler.kubernetes.io/consume-provisioning-request"`.
 If the `ProvisioningRequest` fails, fail the `AdmissionCheck`.
 
-* Watch the admission of the workload - if it is again suspended or finished, 
+* Watch the admission of the workload - if it is again suspended or finished,
 the provisioning request should also be deleted (the last one can be achieved via
 OwnerReference).
 
 The definition of `ProvisioningRequestConfig` is relatively simple and is based on
 what can be set in `ProvisioningRequest`.
 
-```
+```go
+// ProvisioningRequestConfig is the Schema for the provisioningrequestconfig API
 type ProvisioningRequestConfig struct {
-    metav1.TypeMeta   `json:",inline"`
-    metav1.ObjectMeta `json:"metadata,omitempty"`
-    
-    ProvisioningClass string
-    Parameters map[string]string
-} 
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec ProvisioningRequestConfigSpec `json:"spec,omitempty"`
+}
+
+type ProvisioningRequestConfigSpec struct {
+	// ProvisioningClassName describes the different modes of provisioning the resources.
+	// Check autoscaling.x-k8s.io ProvisioningRequestSpec.ProvisioningClassName for details.
+	//
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	// +kubebuilder:validation:MaxLength=253
+	ProvisioningClassName string `json:"provisioningClassName"`
+
+	// Parameters contains all other parameters classes may require.
+	//
+	// +optional
+	// +kubebuilder:validation:MaxProperties=100
+	Parameters map[string]Parameter `json:"parameters,omitempty"`
+
+	// managedResources contains the list of resources managed by the autoscaling.
+	//
+	// If empty, all resources are considered managed.
+	//
+	// If not empty, the ProvisioningRequest will contain only the podsets that are
+	// requesting at least one of them.
+	//
+	// If none of the workloads podsets is requesting at least a managed resource,
+	// the workload is considered ready.
+	//
+	// +optional
+	// +listType=set
+	// +kubebuilder:validation:MaxItems=100
+	ManagedResources []corev1.ResourceName `json:"managedResources,omitempty"`
+}
 ```
 
 `AdmissionCheck` will point to this configuration:
 
-```
+```yaml
 kind: AdmissionCheck:
-    Name: "SuperProvider"
-    Spec:
-	ControllerName: “ProvisioningRequestController”
-    Parameters: 
-	    ApiGroup: “kueue.x-k8s.io/v1beta1”
-	    Kind: “ProvisioningRequestConfig”
-	    Name: “SuperProviderConfig”
-
+name: "SuperProvider"
+spec:
+  controllerName: “kueue.x-k8s.io/provisioning-request”
+  parameters:
+    apiGroup: “kueue.x-k8s.io/v1beta1”
+    kind: “ProvisioningRequestConfig”
+    name: “SuperProviderConfig”
+---
 kind: ProvsioningRequestConfig:
-    Name: "SuperProviderConfig"
-    ProvisioningClass: "SuperSpot"
-    Parameters: 
-	"Priority": "TopTier"
+name: "SuperProviderConfig"
+spec:
+  provisioningClass: "SuperSpot"
+  parameters:
+    "Priority": "TopTier"
+  managedResources:
+  - cpu
 
 ```
 
@@ -155,7 +192,7 @@ Integration tests should be done without actual Cluster Autoscaler running
 (but with integration tests flipping the `ProvisioningRequest` state)
 to cover possible error scenarios.
 
-The tests should start with a job going to a queue with ProvisioningRequestController-based `AdmissionCheck`.
+The tests should start with a job going to a queue with `kueue.x-k8s.io/provisioning-request` based `AdmissionCheck`.
 The appropriate `ProvisioningRequest` should be created, with the right `ProvisioningClass` set (taken from `ProvisioningRequestConfig`).
 The following scenarios should be tested:
 
@@ -176,7 +213,7 @@ User feedback is positive.
 
 ## Implementation History
 
-2023-09-21: KEP 
+2023-09-21: KEP
 
 ## Alternatives
 

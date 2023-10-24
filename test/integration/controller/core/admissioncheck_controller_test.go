@@ -62,7 +62,7 @@ var _ = ginkgo.Describe("AdmissionCheck controller", ginkgo.Ordered, ginkgo.Cont
 		var clusterQueue *kueue.ClusterQueue
 
 		ginkgo.BeforeEach(func() {
-			admissionCheck = utiltesting.MakeAdmissionCheck("check1").Obj()
+			admissionCheck = utiltesting.MakeAdmissionCheck("check1").ControllerName("ac-controller").Obj()
 			clusterQueue = utiltesting.MakeClusterQueue("foo").
 				AdmissionChecks("check1").
 				Obj()

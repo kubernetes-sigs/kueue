@@ -13,15 +13,16 @@ require (
 	github.com/open-policy-agent/cert-controller v0.10.0
 	github.com/prometheus/client_golang v1.17.0
 	github.com/prometheus/client_model v0.5.0
-	github.com/ray-project/kuberay/ray-operator v0.0.0-20230613204710-aeed3cdcbdcc
+	github.com/ray-project/kuberay/ray-operator v0.6.0
 	go.uber.org/zap v1.26.0
-	k8s.io/api v0.28.2
-	k8s.io/apimachinery v0.28.2
+	k8s.io/api v0.28.3
+	k8s.io/apimachinery v0.28.3
 	k8s.io/apiserver v0.28.2
-	k8s.io/client-go v0.28.2
-	k8s.io/code-generator v0.28.2
+	k8s.io/autoscaler/cluster-autoscaler v0.0.0-20230925095857-cf8c507d2421
+	k8s.io/client-go v0.28.3
+	k8s.io/code-generator v0.28.3
 	k8s.io/component-base v0.28.2
-	k8s.io/component-helpers v0.28.2
+	k8s.io/component-helpers v0.28.3
 	k8s.io/klog/v2 v2.100.1
 	k8s.io/utils v0.0.0-20230726121419-3b25d923346b
 	sigs.k8s.io/controller-runtime v0.16.2
@@ -67,10 +68,10 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/exp v0.0.0-20230905200255-921286631fa9 // indirect
 	golang.org/x/mod v0.12.0 // indirect
-	golang.org/x/net v0.15.0 // indirect
+	golang.org/x/net v0.17.0 // indirect
 	golang.org/x/oauth2 v0.12.0 // indirect
-	golang.org/x/sys v0.12.0 // indirect
-	golang.org/x/term v0.12.0 // indirect
+	golang.org/x/sys v0.13.0 // indirect
+	golang.org/x/term v0.13.0 // indirect
 	golang.org/x/text v0.13.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
 	golang.org/x/tools v0.13.0 // indirect

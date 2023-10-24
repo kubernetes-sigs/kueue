@@ -38,7 +38,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -450,7 +449,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		)
 
 		ginkgo.BeforeEach(func() {
-			admissionCheck = testing.MakeAdmissionCheck("check").Obj()
+			admissionCheck = testing.MakeAdmissionCheck("check").ControllerName("ac-controller").Obj()
 			gomega.Expect(k8sClient.Create(ctx, admissionCheck)).To(gomega.Succeed())
 			util.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck, metav1.ConditionTrue)
 			clusterQueueAc = testing.MakeClusterQueue("prod-cq-with-checks").
@@ -1033,7 +1032,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(false)))
 		gomega.Expect(createdProdJob1.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 		util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
-		util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
+		util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
 
 		ginkgo.By("checking a second no-fit prod job does not start")
 		prodJob2 := testingjob.MakeJob("prod-job2", ns.Name).Queue(prodLocalQ.Name).Request(corev1.ResourceCPU, "5").Obj()
@@ -1045,7 +1044,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 			return createdProdJob2.Spec.Suspend
 		}, util.ConsistentDuration, util.Interval).Should(gomega.Equal(ptr.To(true)))
 		util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 1)
-		util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
+		util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
 
 		ginkgo.By("checking a dev job starts")
 		devJob := testingjob.MakeJob("dev-job", ns.Name).Queue(devLocalQ.Name).Request(corev1.ResourceCPU, "5").Obj()
@@ -1058,7 +1057,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(false)))
 		gomega.Expect(createdDevJob.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
 		util.ExpectPendingWorkloadsMetric(devClusterQ, 0, 0)
-		util.ExpectAdmittedActiveWorkloadsMetric(devClusterQ, 1)
+		util.ExpectReservingActiveWorkloadsMetric(devClusterQ, 1)
 
 		ginkgo.By("checking the second prod job starts when the first finishes")
 		createdProdJob1.Status.Conditions = append(createdProdJob1.Status.Conditions,
@@ -1075,7 +1074,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(false)))
 		gomega.Expect(createdProdJob2.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 		util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
-		util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
+		util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
 	})
 
 	ginkgo.It("Should unsuspend job iff localQueue is in the same namespace", func() {
@@ -1321,7 +1320,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 			}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(false)))
 			gomega.Expect(createdJob1.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 			util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
-			util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
+			util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
 		})
 
 		job2 := testingjob.MakeJob("job2", ns.Name).Queue(prodLocalQ.Name).Request(corev1.ResourceCPU, "3").Obj()
@@ -1335,7 +1334,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 				return createdJob2.Spec.Suspend
 			}, util.ConsistentDuration, util.Interval).Should(gomega.Equal(ptr.To(true)))
 			util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 1)
-			util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
+			util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
 		})
 
 		ginkgo.By("checking the second job starts when the first has less then to completions to go", func() {
@@ -1363,7 +1362,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 			gomega.Expect(createdJob2.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 
 			util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
-			util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 2)
+			util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 2)
 		})
 	})
 
@@ -1461,12 +1460,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		})
 	})
 
-	ginkgo.It("Should schedule jobs when partial admission is enabled", func() {
-		origPartialAdmission := features.Enabled(features.PartialAdmission)
-		ginkgo.By("enable partial admission", func() {
-			gomega.Expect(features.SetEnable(features.PartialAdmission, true)).To(gomega.Succeed())
-		})
-
+	ginkgo.It("Should schedule jobs with partial admission", func() {
 		prodLocalQ = testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
 		job1 := testingjob.MakeJob("job1", ns.Name).
 			Queue(prodLocalQ.Name).
@@ -1532,10 +1526,6 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 				return createdJob.Spec.Suspend
 			}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(true)))
 			gomega.Expect(*createdJob.Spec.Parallelism).To(gomega.BeEquivalentTo(5))
-		})
-
-		ginkgo.By("restore partial admission", func() {
-			gomega.Expect(features.SetEnable(features.PartialAdmission, origPartialAdmission)).To(gomega.Succeed())
 		})
 	})
 

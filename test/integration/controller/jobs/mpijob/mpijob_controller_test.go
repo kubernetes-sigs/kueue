@@ -299,7 +299,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		)
 
 		ginkgo.BeforeEach(func() {
-			admissionCheck = testing.MakeAdmissionCheck("check").Obj()
+			admissionCheck = testing.MakeAdmissionCheck("check").ControllerName("ac-controller").Obj()
 			gomega.Expect(k8sClient.Create(ctx, admissionCheck)).To(gomega.Succeed())
 			util.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck, metav1.ConditionTrue)
 			clusterQueueAc = testing.MakeClusterQueue("prod-cq-with-checks").
@@ -877,7 +877,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		gomega.Expect(createdJob.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeLauncher].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
 		gomega.Expect(createdJob.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeWorker].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
-		util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 1)
+		util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 
 	})
 

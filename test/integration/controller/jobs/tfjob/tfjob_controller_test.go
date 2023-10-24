@@ -17,8 +17,6 @@ limitations under the License.
 package tfjob
 
 import (
-	"fmt"
-
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
@@ -27,16 +25,16 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/ptr"
-	ctrl "sigs.k8s.io/controller-runtime"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadtfjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/tfjob"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingtfjob "sigs.k8s.io/kueue/pkg/util/testingjobs/tfjob"
+	kftesting "sigs.k8s.io/kueue/test/integration/controller/jobs/kubeflow"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -46,6 +44,7 @@ const (
 	instanceKey       = "cloud.provider.com/instance"
 	priorityClassName = "test-priority-class"
 	priorityValue     = 10
+	jobQueueName      = "test-queue"
 )
 
 var (
@@ -86,219 +85,23 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 	})
 
 	ginkgo.It("Should reconcile TFJobs", func() {
-		ginkgo.By("checking the job gets suspended when created unsuspended")
-		priorityClass := testing.MakePriorityClass(priorityClassName).
-			PriorityValue(int32(priorityValue)).Obj()
-		gomega.Expect(k8sClient.Create(ctx, priorityClass)).Should(gomega.Succeed())
+		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadtfjob.JobControl)(testingtfjob.MakeTFJob(jobName, ns.Name).Obj())}
+		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadtfjob.JobControl)(&kftraining.TFJob{})}
 
-		job := testingtfjob.MakeTFJob(jobName, ns.Name).PriorityClass(priorityClassName).Obj()
-		err := k8sClient.Create(ctx, job)
-		gomega.Expect(err).To(gomega.Succeed())
-		createdJob := &kftraining.TFJob{}
-
-		gomega.Eventually(func() bool {
-			if err := k8sClient.Get(ctx, types.NamespacedName{Name: jobName, Namespace: ns.Name}, createdJob); err != nil {
-				return false
-			}
-			return createdJob.Spec.RunPolicy.Suspend != nil && *createdJob.Spec.RunPolicy.Suspend
-		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
-
-		ginkgo.By("checking the workload is created without queue assigned")
-		createdWorkload := &kueue.Workload{}
-		gomega.Eventually(func() error {
-			return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		gomega.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(""), "The Workload shouldn't have .spec.queueName set")
-		gomega.Expect(metav1.IsControlledBy(createdWorkload, createdJob)).To(gomega.BeTrue(), "The Workload should be owned by the Job")
-
-		ginkgo.By("checking the workload is created with priority and priorityName")
-		gomega.Expect(createdWorkload.Spec.PriorityClassName).Should(gomega.Equal(priorityClassName))
-		gomega.Expect(*createdWorkload.Spec.Priority).Should(gomega.Equal(int32(priorityValue)))
-
-		ginkgo.By("checking the workload is updated with queue name when the job does")
-		jobQueueName := "test-queue"
-		createdJob.Annotations = map[string]string{constants.QueueAnnotation: jobQueueName}
-		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
-		gomega.Eventually(func() bool {
-			if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
-				return false
-			}
-			return createdWorkload.Spec.QueueName == jobQueueName
-		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
-
-		ginkgo.By("checking a second non-matching workload is deleted")
-		secondWl := &kueue.Workload{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      workloadtfjob.GetWorkloadNameForTFJob("second-workload"),
-				Namespace: createdWorkload.Namespace,
+		kftesting.ShouldReconcileJob(ctx, k8sClient, kfJob, createdJob, ns, wlLookupKey, []kftesting.PodSetsResource{
+			{
+				NodeName:    kftraining.TFJobReplicaTypeChief,
+				ResourceCPU: "on-demand",
 			},
-			Spec: *createdWorkload.Spec.DeepCopy(),
-		}
-		gomega.Expect(ctrl.SetControllerReference(createdJob, secondWl, scheme.Scheme)).Should(gomega.Succeed())
-		secondWl.Spec.PodSets[0].Count += 1
-
-		gomega.Expect(k8sClient.Create(ctx, secondWl)).Should(gomega.Succeed())
-		gomega.Eventually(func() error {
-			wl := &kueue.Workload{}
-			key := types.NamespacedName{Name: secondWl.Name, Namespace: secondWl.Namespace}
-			return k8sClient.Get(ctx, key, wl)
-		}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
-		// check the original wl is still there
-		gomega.Consistently(func() bool {
-			err := k8sClient.Get(ctx, wlLookupKey, createdWorkload)
-			return err == nil
-		}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
-
-		ginkgo.By("checking the job is unsuspended when workload is assigned")
-		onDemandFlavor := testing.MakeResourceFlavor("on-demand").Label(instanceKey, "on-demand").Obj()
-		gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).Should(gomega.Succeed())
-		spotFlavor := testing.MakeResourceFlavor("spot").Label(instanceKey, "spot").Obj()
-		gomega.Expect(k8sClient.Create(ctx, spotFlavor)).Should(gomega.Succeed())
-		clusterQueue := testing.MakeClusterQueue("cluster-queue").
-			ResourceGroup(
-				*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
-				*testing.MakeFlavorQuotas("spot").Resource(corev1.ResourceCPU, "5").Obj(),
-			).Obj()
-		admission := testing.MakeAdmission(clusterQueue.Name).
-			PodSets(
-				kueue.PodSetAssignment{
-					Name: "Chief",
-					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-						corev1.ResourceCPU: "on-demand",
-					},
-					Count: ptr.To(createdWorkload.Spec.PodSets[0].Count),
-				},
-				kueue.PodSetAssignment{
-					Name: "PS",
-					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-						corev1.ResourceCPU: "spot",
-					},
-					Count: ptr.To(createdWorkload.Spec.PodSets[1].Count),
-				},
-				kueue.PodSetAssignment{
-					Name: "Worker",
-					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-						corev1.ResourceCPU: "spot",
-					},
-					Count: ptr.To(createdWorkload.Spec.PodSets[2].Count),
-				},
-			).
-			Obj()
-		gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
-		util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
-		lookupKey := types.NamespacedName{Name: jobName, Namespace: ns.Name}
-		gomega.Eventually(func() bool {
-			if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {
-				return false
-			}
-			return !*createdJob.Spec.RunPolicy.Suspend
-		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
-		gomega.Eventually(func() bool {
-			ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Admitted by clusterQueue %v", clusterQueue.Name))
-			return ok
-		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
-		gomega.Expect(len(createdJob.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeChief].Template.Spec.NodeSelector)).Should(gomega.Equal(1))
-		gomega.Expect(createdJob.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeChief].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
-		gomega.Expect(len(createdJob.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypePS].Template.Spec.NodeSelector)).Should(gomega.Equal(1))
-		gomega.Expect(createdJob.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypePS].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotFlavor.Name))
-		gomega.Expect(len(createdJob.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeWorker].Template.Spec.NodeSelector)).Should(gomega.Equal(1))
-		gomega.Expect(createdJob.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeWorker].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotFlavor.Name))
-		gomega.Consistently(func() bool {
-			if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
-				return false
-			}
-			return len(createdWorkload.Status.Conditions) == 2
-		}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
-
-		ginkgo.By("checking the job gets suspended when parallelism changes and the added node selectors are removed")
-		parallelism := ptr.Deref(job.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeWorker].Replicas, 1)
-		newParallelism := parallelism + 1
-		createdJob.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeWorker].Replicas = &newParallelism
-		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
-		gomega.Eventually(func() bool {
-			if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {
-				return false
-			}
-			return createdJob.Spec.RunPolicy.Suspend != nil && *createdJob.Spec.RunPolicy.Suspend &&
-				len(createdJob.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeWorker].Template.Spec.NodeSelector) == 0
-		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
-		gomega.Eventually(func() bool {
-			ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "DeletedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching Workload: %v", wlLookupKey.String()))
-			return ok
-		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
-
-		ginkgo.By("checking the workload is updated with new count")
-		gomega.Eventually(func() bool {
-			if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
-				return false
-			}
-			return createdWorkload.Spec.PodSets[2].Count == newParallelism
-		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
-		gomega.Expect(createdWorkload.Status.Admission).Should(gomega.BeNil())
-
-		ginkgo.By("checking the job is unsuspended and selectors added when workload is assigned again")
-		admission = testing.MakeAdmission(clusterQueue.Name).
-			PodSets(
-				kueue.PodSetAssignment{
-					Name: "Chief",
-					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-						corev1.ResourceCPU: "on-demand",
-					},
-					Count: ptr.To(createdWorkload.Spec.PodSets[0].Count),
-				},
-				kueue.PodSetAssignment{
-					Name: "PS",
-					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-						corev1.ResourceCPU: "spot",
-					},
-					Count: ptr.To(createdWorkload.Spec.PodSets[1].Count),
-				},
-				kueue.PodSetAssignment{
-					Name: "Worker",
-					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-						corev1.ResourceCPU: "spot",
-					},
-					Count: ptr.To(createdWorkload.Spec.PodSets[2].Count),
-				},
-			).
-			Obj()
-		gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
-		util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
-		gomega.Eventually(func() bool {
-			if err := k8sClient.Get(ctx, lookupKey, createdJob); err != nil {
-				return false
-			}
-			return !*createdJob.Spec.RunPolicy.Suspend
-		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
-		gomega.Expect(len(createdJob.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeChief].Template.Spec.NodeSelector)).Should(gomega.Equal(1))
-		gomega.Expect(createdJob.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeChief].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
-		gomega.Expect(len(createdJob.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypePS].Template.Spec.NodeSelector)).Should(gomega.Equal(1))
-		gomega.Expect(createdJob.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypePS].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotFlavor.Name))
-		gomega.Expect(len(createdJob.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeWorker].Template.Spec.NodeSelector)).Should(gomega.Equal(1))
-		gomega.Expect(createdJob.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeWorker].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotFlavor.Name))
-		gomega.Consistently(func() bool {
-			if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
-				return false
-			}
-			return len(createdWorkload.Status.Conditions) == 2
-		}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
-
-		ginkgo.By("checking the workload is finished when job is completed")
-		createdJob.Status.Conditions = append(createdJob.Status.Conditions,
-			kftraining.JobCondition{
-				Type:               kftraining.JobSucceeded,
-				Status:             corev1.ConditionTrue,
-				LastTransitionTime: metav1.Now(),
-			})
-		gomega.Expect(k8sClient.Status().Update(ctx, createdJob)).Should(gomega.Succeed())
-		gomega.Eventually(func() bool {
-			err := k8sClient.Get(ctx, wlLookupKey, createdWorkload)
-			if err != nil || len(createdWorkload.Status.Conditions) == 2 {
-				return false
-			}
-
-			return apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadFinished)
-		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+			{
+				NodeName:    kftraining.TFJobReplicaTypePS,
+				ResourceCPU: "spot",
+			},
+			{
+				NodeName:    kftraining.TFJobReplicaTypeWorker,
+				ResourceCPU: "spot",
+			},
+		})
 	})
 })
 
@@ -350,7 +153,6 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 		func(podsReadyTestSpec podsReadyTestSpec) {
 			ginkgo.By("Create a job")
 			job := testingtfjob.MakeTFJob(jobName, ns.Name).Parallelism(2, 2).Obj()
-			jobQueueName := "test-queue"
 			job.Annotations = map[string]string{constants.QueueAnnotation: jobQueueName}
 			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 			lookupKey := types.NamespacedName{Name: jobName, Namespace: ns.Name}
@@ -593,6 +395,6 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		gomega.Expect(createdJob.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypePS].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
 		gomega.Expect(createdJob.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeWorker].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
-		util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 1)
+		util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 	})
 })

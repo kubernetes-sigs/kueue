@@ -36,5 +36,10 @@ func Setup(mgr ctrl.Manager) (string, error) {
 	if err := setupWebhookForLocalQueue(mgr); err != nil {
 		return "Queue", err
 	}
+
+	if err := setupWebhookForAdmissionCheck(mgr); err != nil {
+		return "AdmissionCheck", err
+	}
+
 	return "", nil
 }

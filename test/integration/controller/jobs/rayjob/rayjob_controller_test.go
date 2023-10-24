@@ -597,7 +597,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		gomega.Expect(createdJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
 		gomega.Expect(createdJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
-		util.ExpectAdmittedActiveWorkloadsMetric(clusterQueue, 1)
+		util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 
 	})
 })

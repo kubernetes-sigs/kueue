@@ -24,8 +24,10 @@ import (
 // ClusterQueueStatusApplyConfiguration represents an declarative configuration of the ClusterQueueStatus type for use
 // with apply.
 type ClusterQueueStatusApplyConfiguration struct {
+	FlavorsReservation     []FlavorUsageApplyConfiguration                       `json:"flavorsReservation,omitempty"`
 	FlavorsUsage           []FlavorUsageApplyConfiguration                       `json:"flavorsUsage,omitempty"`
 	PendingWorkloads       *int32                                                `json:"pendingWorkloads,omitempty"`
+	ReservingWorkloads     *int32                                                `json:"reservingWorkloads,omitempty"`
 	AdmittedWorkloads      *int32                                                `json:"admittedWorkloads,omitempty"`
 	Conditions             []v1.Condition                                        `json:"conditions,omitempty"`
 	PendingWorkloadsStatus *ClusterQueuePendingWorkloadsStatusApplyConfiguration `json:"pendingWorkloadsStatus,omitempty"`
@@ -35,6 +37,19 @@ type ClusterQueueStatusApplyConfiguration struct {
 // apply.
 func ClusterQueueStatus() *ClusterQueueStatusApplyConfiguration {
 	return &ClusterQueueStatusApplyConfiguration{}
+}
+
+// WithFlavorsReservation adds the given value to the FlavorsReservation field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the FlavorsReservation field.
+func (b *ClusterQueueStatusApplyConfiguration) WithFlavorsReservation(values ...*FlavorUsageApplyConfiguration) *ClusterQueueStatusApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithFlavorsReservation")
+		}
+		b.FlavorsReservation = append(b.FlavorsReservation, *values[i])
+	}
+	return b
 }
 
 // WithFlavorsUsage adds the given value to the FlavorsUsage field in the declarative configuration
@@ -55,6 +70,14 @@ func (b *ClusterQueueStatusApplyConfiguration) WithFlavorsUsage(values ...*Flavo
 // If called multiple times, the PendingWorkloads field is set to the value of the last call.
 func (b *ClusterQueueStatusApplyConfiguration) WithPendingWorkloads(value int32) *ClusterQueueStatusApplyConfiguration {
 	b.PendingWorkloads = &value
+	return b
+}
+
+// WithReservingWorkloads sets the ReservingWorkloads field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ReservingWorkloads field is set to the value of the last call.
+func (b *ClusterQueueStatusApplyConfiguration) WithReservingWorkloads(value int32) *ClusterQueueStatusApplyConfiguration {
+	b.ReservingWorkloads = &value
 	return b
 }
 

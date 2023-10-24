@@ -89,8 +89,8 @@ func (j *JobControl) ReplicaSpecs() map[kftraining.ReplicaType]*kftraining.Repli
 	return j.Spec.TFReplicaSpecs
 }
 
-func (j *JobControl) JobStatus() kftraining.JobStatus {
-	return j.Status
+func (j *JobControl) JobStatus() *kftraining.JobStatus {
+	return &j.Status
 }
 
 func (j *JobControl) OrderedReplicaTypes() []kftraining.ReplicaType {

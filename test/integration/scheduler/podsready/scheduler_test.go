@@ -257,8 +257,16 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodClusterQ), &updatedCQ)).To(gomega.Succeed())
 				return updatedCQ.Status
 			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
-				PendingWorkloads:  0,
-				AdmittedWorkloads: 1,
+				PendingWorkloads:   0,
+				ReservingWorkloads: 1,
+				AdmittedWorkloads:  1,
+				FlavorsReservation: []kueue.FlavorUsage{{
+					Name: "default",
+					Resources: []kueue.ResourceUsage{{
+						Name:  corev1.ResourceCPU,
+						Total: resource.MustParse("2"),
+					}},
+				}},
 				FlavorsUsage: []kueue.FlavorUsage{{
 					Name: "default",
 					Resources: []kueue.ResourceUsage{{
@@ -286,8 +294,16 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodClusterQ), &updatedCQ)).To(gomega.Succeed())
 				return updatedCQ.Status
 			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
-				PendingWorkloads:  1,
-				AdmittedWorkloads: 0,
+				PendingWorkloads:   1,
+				ReservingWorkloads: 0,
+				AdmittedWorkloads:  0,
+				FlavorsReservation: []kueue.FlavorUsage{{
+					Name: "default",
+					Resources: []kueue.ResourceUsage{{
+						Name:  corev1.ResourceCPU,
+						Total: resource.MustParse("0"),
+					}},
+				}},
 				FlavorsUsage: []kueue.FlavorUsage{{
 					Name: "default",
 					Resources: []kueue.ResourceUsage{{
@@ -298,7 +314,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			}, ignoreCQConditions, ignorePendingWorkloadsStatus))
 
 			ginkgo.By("verify the active workload metric is decreased for the cluster queue")
-			util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 0)
+			util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 0)
 
 			ginkgo.By("wait for the 'dev' workload to get admitted")
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, devClusterQ.Name, devWl)
