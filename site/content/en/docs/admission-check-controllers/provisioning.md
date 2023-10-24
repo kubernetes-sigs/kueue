@@ -26,7 +26,7 @@ spec:
 ```
 
 Where:
-- **provisioningClassName** - describes the different modes of provisioning the resources. Check autoscaling.x-k8s.io ProvisioningRequestSpec.ProvisioningClassName for details.
+- **provisioningClassName** - describes the different modes of provisioning the resources. Check `autoscaling.x-k8s.io` `ProvisioningRequestSpec.provisioningClassName` for details.
 - **managedResources** -  contains the list of resources managed by the autoscaling.
 
 Check the [API definition](https://github.com/kubernetes-sigs/kueue/blob/main/apis/kueue/v1beta1/provisioningrequestconfig_types.go) for more details.
