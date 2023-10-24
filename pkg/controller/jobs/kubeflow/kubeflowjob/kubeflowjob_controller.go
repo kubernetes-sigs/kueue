@@ -28,6 +28,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/util/podsetinfo"
 )
 
 type KubeflowJob struct {
@@ -49,12 +50,12 @@ func (j *KubeflowJob) Suspend() {
 	j.KFJobControl.RunPolicy().Suspend = ptr.To(true)
 }
 
-func (j *KubeflowJob) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) error {
+func (j *KubeflowJob) RunWithPodSetsInfo(podSetsInfo []podsetinfo.PodSetInfo) error {
 	j.KFJobControl.RunPolicy().Suspend = ptr.To(false)
 	orderedReplicaTypes := j.OrderedReplicaTypes()
 
 	if len(podSetsInfo) != len(orderedReplicaTypes) {
-		return jobframework.BadPodSetsInfoLenError(len(orderedReplicaTypes), len(podSetsInfo))
+		return podsetinfo.BadPodSetsInfoLenError(len(orderedReplicaTypes), len(podSetsInfo))
 	}
 	// The node selectors are provided in the same order as the generated list of
 	// podSets, use the same ordering logic to restore them.
@@ -62,7 +63,7 @@ func (j *KubeflowJob) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) 
 		replicaType := orderedReplicaTypes[index]
 		info := podSetsInfo[index]
 		replica := &j.KFJobControl.ReplicaSpecs()[replicaType].Template
-		if err := jobframework.Merge(&replica.ObjectMeta, &replica.Spec, info); err != nil {
+		if err := podsetinfo.Merge(&replica.ObjectMeta, &replica.Spec, info); err != nil {
 			return err
 		}
 
@@ -70,13 +71,13 @@ func (j *KubeflowJob) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) 
 	return nil
 }
 
-func (j *KubeflowJob) RestorePodSetsInfo(podSetsInfo []jobframework.PodSetInfo) bool {
+func (j *KubeflowJob) RestorePodSetsInfo(podSetsInfo []podsetinfo.PodSetInfo) bool {
 	orderedReplicaTypes := j.OrderedReplicaTypes()
 	changed := false
 	for index, info := range podSetsInfo {
 		replicaType := orderedReplicaTypes[index]
 		replica := &j.KFJobControl.ReplicaSpecs()[replicaType].Template
-		changed = jobframework.Restore(&replica.ObjectMeta, &replica.Spec, info) || changed
+		changed = podsetinfo.Restore(&replica.ObjectMeta, &replica.Spec, info) || changed
 	}
 	return changed
 }

@@ -17,15 +17,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
-	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
@@ -40,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+	"sigs.k8s.io/kueue/pkg/util/podsetinfo"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -55,8 +53,6 @@ var (
 	ErrWorkloadOwnerNotFound = errors.New("workload owner not found")
 	ErrNoMatchingWorkloads   = errors.New("no matching workloads")
 	ErrExtraWorkloads        = errors.New("extra workloads")
-	ErrInvalidPodsetInfo     = errors.New("invalid podset infos")
-	ErrInvalidPodSetUpdate   = errors.New("invalid admission check PodSetUpdate")
 )
 
 // JobReconciler reconciles a GenericJob object
@@ -320,7 +316,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			err := r.startJob(ctx, job, object, wl)
 			if err != nil {
 				log.Error(err, "Unsuspending job")
-				if isPermanent(err) {
+				if podsetinfo.IsPermanent(err) {
 					// Mark the workload as finished with failure since the is no point to retry.
 					errUpdateStatus := workload.UpdateStatus(ctx, r.client, wl, kueue.WorkloadFinished, metav1.ConditionTrue, FailedToStartFinishedReason, err.Error(), constants.JobControllerName)
 					if errUpdateStatus != nil {
@@ -361,10 +357,6 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// workload is admitted and job is running, nothing to do.
 	log.V(3).Info("Job running with admitted workload, nothing to do")
 	return ctrl.Result{}, nil
-}
-
-func isPermanent(e error) bool {
-	return errors.Is(e, ErrInvalidPodsetInfo) || errors.Is(e, ErrInvalidPodSetUpdate)
 }
 
 // IsParentJobManaged checks whether the parent job is managed by kueue.
@@ -647,51 +639,30 @@ func extractPriorityFromPodSets(podSets []kueue.PodSet) string {
 
 // getPodSetsInfoFromStatus extracts podSetsInfo from workload status, based on
 // admission, and admission checks.
-func (r *JobReconciler) getPodSetsInfoFromStatus(ctx context.Context, w *kueue.Workload) ([]PodSetInfo, error) {
+func (r *JobReconciler) getPodSetsInfoFromStatus(ctx context.Context, w *kueue.Workload) ([]podsetinfo.PodSetInfo, error) {
 	if len(w.Status.Admission.PodSetAssignments) == 0 {
 		return nil, nil
 	}
 
-	podSetsInfo := make([]PodSetInfo, len(w.Status.Admission.PodSetAssignments))
+	podSetsInfo := make([]podsetinfo.PodSetInfo, len(w.Status.Admission.PodSetAssignments))
 
 	for i, podSetFlavor := range w.Status.Admission.PodSetAssignments {
-		processedFlvs := sets.New[kueue.ResourceFlavorReference]()
-		podSetInfo := PodSetInfo{
-			Name:         podSetFlavor.Name,
-			NodeSelector: make(map[string]string),
-			Count:        ptr.Deref(podSetFlavor.Count, w.Spec.PodSets[i].Count),
-			Labels:       make(map[string]string),
-			Annotations:  make(map[string]string),
+		info, err := podsetinfo.FromAssignment(ctx, r.client, &podSetFlavor, w.Spec.PodSets[i].Count)
+		if err != nil {
+			return nil, err
 		}
-		for _, flvRef := range podSetFlavor.Flavors {
-			if processedFlvs.Has(flvRef) {
-				continue
-			}
-			// Lookup the ResourceFlavors to fetch the node affinity labels to apply on the job.
-			flv := kueue.ResourceFlavor{}
-			if err := r.client.Get(ctx, types.NamespacedName{Name: string(flvRef)}, &flv); err != nil {
-				return nil, err
-			}
-			for k, v := range flv.Spec.NodeLabels {
-				podSetInfo.NodeSelector[k] = v
-			}
-			processedFlvs.Insert(flvRef)
-		}
+
 		for _, admissionCheck := range w.Status.AdmissionChecks {
 			for _, podSetUpdate := range admissionCheck.PodSetUpdates {
-				if podSetUpdate.Name == podSetInfo.Name {
-					if err := podSetInfo.Merge(PodSetInfo{
-						Labels:       podSetUpdate.Labels,
-						Annotations:  podSetUpdate.Annotations,
-						Tolerations:  podSetUpdate.Tolerations,
-						NodeSelector: podSetUpdate.NodeSelector,
-					}); err != nil {
+				if podSetUpdate.Name == info.Name {
+					if err := info.Merge(podsetinfo.FromUpdate(&podSetUpdate)); err != nil {
 						return nil, fmt.Errorf("in admission check %q: %w", admissionCheck.Name, err)
 					}
+					break
 				}
 			}
 		}
-		podSetsInfo[i] = podSetInfo
+		podSetsInfo[i] = info
 	}
 	return podSetsInfo, nil
 }
@@ -740,21 +711,13 @@ func generatePodsReadyCondition(job GenericJob, wl *kueue.Workload) metav1.Condi
 
 // getPodSetsInfoFromWorkload retrieve the podSetsInfo slice from the
 // provided workload's spec
-func getPodSetsInfoFromWorkload(wl *kueue.Workload) []PodSetInfo {
+func getPodSetsInfoFromWorkload(wl *kueue.Workload) []podsetinfo.PodSetInfo {
 	if wl == nil {
 		return nil
 	}
 
-	return utilslices.Map(wl.Spec.PodSets, func(ps *kueue.PodSet) PodSetInfo {
-		return PodSetInfo{
-			Name:         ps.Name,
-			Count:        ps.Count,
-			Annotations:  maps.Clone(ps.Template.Annotations),
-			Labels:       maps.Clone(ps.Template.Labels),
-			NodeSelector: maps.Clone(ps.Template.Spec.NodeSelector),
-			Tolerations:  slices.Clone(ps.Template.Spec.Tolerations),
-		}
-	})
+	return utilslices.Map(wl.Spec.PodSets, podsetinfo.FromPodSet)
+
 }
 
 // NewGenericReconciler creates a new reconciler factory for a concrete GenericJob type.
@@ -799,12 +762,4 @@ func resetMinCounts(in []kueue.PodSet) []kueue.PodSet {
 		in[i].MinCount = nil
 	}
 	return in
-}
-
-func BadPodSetsInfoLenError(want, got int) error {
-	return fmt.Errorf("%w: expecting %d podset, got %d", ErrInvalidPodsetInfo, got, want)
-}
-
-func BadPodSetsUpdateError(update string, err error) error {
-	return fmt.Errorf("%w: conflict for %v: %v", ErrInvalidPodSetUpdate, update, err)
 }

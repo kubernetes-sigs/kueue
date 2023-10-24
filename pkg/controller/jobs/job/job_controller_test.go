@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/util/podsetinfo"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 )
@@ -167,7 +168,7 @@ func TestPodsReady(t *testing.T) {
 func TestPodSetsInfo(t *testing.T) {
 	testcases := map[string]struct {
 		job                  *Job
-		runInfo, restoreInfo []jobframework.PodSetInfo
+		runInfo, restoreInfo []podsetinfo.PodSetInfo
 		wantUnsuspended      *batchv1.Job
 		wantRunError         error
 	}{
@@ -176,7 +177,7 @@ func TestPodSetsInfo(t *testing.T) {
 				Parallelism(1).
 				NodeSelector("orig-key", "orig-val").
 				Obj()),
-			runInfo: []jobframework.PodSetInfo{
+			runInfo: []podsetinfo.PodSetInfo{
 				{
 					NodeSelector: map[string]string{
 						"new-key": "new-val",
@@ -189,7 +190,7 @@ func TestPodSetsInfo(t *testing.T) {
 				NodeSelector("new-key", "new-val").
 				Suspend(false).
 				Obj(),
-			restoreInfo: []jobframework.PodSetInfo{
+			restoreInfo: []podsetinfo.PodSetInfo{
 				{
 					NodeSelector: map[string]string{
 						"orig-key": "orig-val",
@@ -202,20 +203,20 @@ func TestPodSetsInfo(t *testing.T) {
 				Parallelism(1).
 				NodeSelector("orig-key", "orig-val").
 				Obj()),
-			runInfo: []jobframework.PodSetInfo{
+			runInfo: []podsetinfo.PodSetInfo{
 				{
 					NodeSelector: map[string]string{
 						"orig-key": "new-val",
 					},
 				},
 			},
-			wantRunError: jobframework.ErrInvalidPodSetUpdate,
+			wantRunError: podsetinfo.ErrInvalidPodSetUpdate,
 			wantUnsuspended: utiltestingjob.MakeJob("job", "ns").
 				Parallelism(1).
 				NodeSelector("orig-key", "orig-val").
 				Suspend(false).
 				Obj(),
-			restoreInfo: []jobframework.PodSetInfo{
+			restoreInfo: []podsetinfo.PodSetInfo{
 				{
 					NodeSelector: map[string]string{
 						"orig-key": "orig-val",
@@ -228,7 +229,7 @@ func TestPodSetsInfo(t *testing.T) {
 				Parallelism(5).
 				SetAnnotation(JobMinParallelismAnnotation, "2").
 				Obj()),
-			runInfo: []jobframework.PodSetInfo{
+			runInfo: []podsetinfo.PodSetInfo{
 				{
 					Count: 2,
 				},
@@ -238,7 +239,7 @@ func TestPodSetsInfo(t *testing.T) {
 				SetAnnotation(JobMinParallelismAnnotation, "2").
 				Suspend(false).
 				Obj(),
-			restoreInfo: []jobframework.PodSetInfo{
+			restoreInfo: []podsetinfo.PodSetInfo{
 				{
 					Count: 5,
 				},
@@ -249,18 +250,18 @@ func TestPodSetsInfo(t *testing.T) {
 				Parallelism(5).
 				SetAnnotation(JobMinParallelismAnnotation, "2").
 				Obj()),
-			runInfo: []jobframework.PodSetInfo{},
+			runInfo: []podsetinfo.PodSetInfo{},
 			wantUnsuspended: utiltestingjob.MakeJob("job", "ns").
 				Parallelism(5).
 				SetAnnotation(JobMinParallelismAnnotation, "2").
 				Suspend(false).
 				Obj(),
-			restoreInfo: []jobframework.PodSetInfo{
+			restoreInfo: []podsetinfo.PodSetInfo{
 				{
 					Count: 5,
 				},
 			},
-			wantRunError: jobframework.ErrInvalidPodsetInfo,
+			wantRunError: podsetinfo.ErrInvalidPodsetInfo,
 		},
 	}
 	for name, tc := range testcases {

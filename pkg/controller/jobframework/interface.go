@@ -22,6 +22,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/util/podsetinfo"
 )
 
 // GenericJob if the interface which needs to be implemented by all jobs
@@ -34,10 +35,10 @@ type GenericJob interface {
 	// Suspend will suspend the job.
 	Suspend()
 	// RunWithPodSetsInfo will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
-	RunWithPodSetsInfo(podSetsInfo []PodSetInfo) error
+	RunWithPodSetsInfo(podSetsInfo []podsetinfo.PodSetInfo) error
 	// RestorePodSetsInfo will restore the original node affinity and podSet counts of the job.
 	// Returns whether any change was done.
-	RestorePodSetsInfo(podSetsInfo []PodSetInfo) bool
+	RestorePodSetsInfo(podSetsInfo []podsetinfo.PodSetInfo) bool
 	// Finished means whether the job is completed/failed or not,
 	// condition represents the workload finished condition.
 	Finished() (condition metav1.Condition, finished bool)
@@ -63,7 +64,7 @@ type JobWithCustomStop interface {
 	// Stop implements a custom stop procedure.
 	// The function should be idempotent: not do any API calls if the job is already stopped.
 	// Returns whether the Job stopped with this call or an error
-	Stop(ctx context.Context, c client.Client, podSetsInfo []PodSetInfo, eventMsg string) (bool, error)
+	Stop(ctx context.Context, c client.Client, podSetsInfo []podsetinfo.PodSetInfo, eventMsg string) (bool, error)
 }
 
 // JobWithFinalize interface should be implemented by generic jobs,

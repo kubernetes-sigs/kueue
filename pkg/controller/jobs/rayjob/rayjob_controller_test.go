@@ -26,7 +26,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/util/podsetinfo"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 )
 
@@ -153,15 +153,15 @@ func TestNodeSelectors(t *testing.T) {
 
 	cases := map[string]struct {
 		job          *rayjobapi.RayJob
-		runInfo      []jobframework.PodSetInfo
-		restoreInfo  []jobframework.PodSetInfo
+		runInfo      []podsetinfo.PodSetInfo
+		restoreInfo  []podsetinfo.PodSetInfo
 		wantRunError error
 		wantAfterRun *rayjobapi.RayJob
 		wantFinal    *rayjobapi.RayJob
 	}{
 		"valid configuration": {
 			job: baseJob.DeepCopy(),
-			runInfo: []jobframework.PodSetInfo{
+			runInfo: []podsetinfo.PodSetInfo{
 				{
 					NodeSelector: map[string]string{
 						"newKey": "newValue",
@@ -178,7 +178,7 @@ func TestNodeSelectors(t *testing.T) {
 					},
 				},
 			},
-			restoreInfo: []jobframework.PodSetInfo{
+			restoreInfo: []podsetinfo.PodSetInfo{
 				{
 					NodeSelector: map[string]string{
 						// clean it all
@@ -229,7 +229,7 @@ func TestNodeSelectors(t *testing.T) {
 		},
 		"invalid runInfo": {
 			job: baseJob.DeepCopy(),
-			runInfo: []jobframework.PodSetInfo{
+			runInfo: []podsetinfo.PodSetInfo{
 				{
 					NodeSelector: map[string]string{
 						"newKey": "newValue",
@@ -241,7 +241,7 @@ func TestNodeSelectors(t *testing.T) {
 					},
 				},
 			},
-			wantRunError: jobframework.ErrInvalidPodsetInfo,
+			wantRunError: podsetinfo.ErrInvalidPodsetInfo,
 			wantAfterRun: baseJob.DeepCopy(),
 		},
 	}

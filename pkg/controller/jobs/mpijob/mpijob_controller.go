@@ -31,6 +31,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/util/podsetinfo"
 )
 
 var (
@@ -113,12 +114,12 @@ func (j *MPIJob) PodSets() []kueue.PodSet {
 	return podSets
 }
 
-func (j *MPIJob) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) error {
+func (j *MPIJob) RunWithPodSetsInfo(podSetsInfo []podsetinfo.PodSetInfo) error {
 	j.Spec.RunPolicy.Suspend = ptr.To(false)
 	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
 
 	if len(podSetsInfo) != len(orderedReplicaTypes) {
-		return jobframework.BadPodSetsInfoLenError(len(orderedReplicaTypes), len(podSetsInfo))
+		return podsetinfo.BadPodSetsInfoLenError(len(orderedReplicaTypes), len(podSetsInfo))
 	}
 
 	// The node selectors are provided in the same order as the generated list of
@@ -127,20 +128,20 @@ func (j *MPIJob) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) error
 		replicaType := orderedReplicaTypes[index]
 		info := podSetsInfo[index]
 		replica := &j.Spec.MPIReplicaSpecs[replicaType].Template
-		if err := jobframework.Merge(&replica.ObjectMeta, &replica.Spec, info); err != nil {
+		if err := podsetinfo.Merge(&replica.ObjectMeta, &replica.Spec, info); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (j *MPIJob) RestorePodSetsInfo(podSetsInfo []jobframework.PodSetInfo) bool {
+func (j *MPIJob) RestorePodSetsInfo(podSetsInfo []podsetinfo.PodSetInfo) bool {
 	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
 	changed := false
 	for index, info := range podSetsInfo {
 		replicaType := orderedReplicaTypes[index]
 		replica := &j.Spec.MPIReplicaSpecs[replicaType].Template
-		changed = jobframework.Restore(&replica.ObjectMeta, &replica.Spec, info) || changed
+		changed = podsetinfo.Restore(&replica.ObjectMeta, &replica.Spec, info) || changed
 	}
 	return changed
 }
