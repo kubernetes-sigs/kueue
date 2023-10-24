@@ -41,7 +41,7 @@ spec:
 ### ClusterQueue admissionChecks
 
 Once defined, an AdmissionCheck can be referenced in the ClusterQueues' spec. All Workloads associated with the queue need to be evaluated by the AdmissionCheck's controller before being admitted.
-Similarly to `ResourceFlavors`, if an `AdmissionCheck` is not found or its controller has not mark it as `Active`, the cluster queue will be marked as Inactive.
+Similarly to `ResourceFlavors`, if an `AdmissionCheck` is not found or its controller has not marked it as `Active`, the ClusterQueue will be marked as Inactive.
 
 ### AdmissionCheckState
 
@@ -51,50 +51,19 @@ AdmissionCheckStates are listed in the Workload's `.status.admissionCheckStates`
 
 The status of a Workload that has pending AdmissionChecks looks like the following:
 ```yaml
-properties:
-  lastTransitionTime:
-    description: lastTransitionTime is the last time the condition
-      transitioned from one status to another. This should be when
-      the underlying condition changed.  If that is not known, then
-      using the time when the API field changed is acceptable.
-    format: date-time
-    type: string
-  message:
-    description: message is a human readable message indicating
-      details about the transition. This may be an empty string.
-    maxLength: 32768
-    type: string
-  name:
-    description: name identifies the admission check.
-    maxLength: 316
-    type: string
-  podSetUpdates:
-    items:
-      description: PodSetUpdate contains a list of pod set modifications
-        suggested by AdmissionChecks. The modifications should be
-        additive only - modifications of already existing keys or
-        having the same key provided by multiple AdmissionChecks
-        is not allowed and will result in failure during workload
-        admission.
+status:
+  admission:
+    <...>
+  admissionChecks:
+  - lastTransitionTime: "2023-10-20T06:40:14Z"
+    message: ""
+    name: sample-prov
+    podSetUpdates:
+    - annotations:
+        cluster-autoscaler.kubernetes.io/consume-provisioning-request: job-prov-job-9815b-sample-prov
+      name: main
+    state: Ready
   <...>
-      type: object
-    type: array
-    x-kubernetes-list-type: atomic
-  state:
-    description: status of the condition, one of True, False, Unknown.
-    enum:
-    - Pending
-    - Ready
-    - Retry
-    - Rejected
-    - PreemptionRequired
-    type: string
-required:
-- lastTransitionTime
-- message
-- name
-- state
-type: object
 ```
 
 A list of states being maintained in the Status of all the monitored Workloads.
@@ -112,5 +81,5 @@ Kueue ensures that the list of the Workloads AdmissionCheckStates is in sync wit
 
 ### Admission Check Controller
 
-Is a component that monitors Workloads maintaining the content of its specific `AdmissionCheckStates` and the `Active` condition of the `AdmissionCheck`s  its  controlling.
-The logic for how an `AdmissionCheck` changes states is not part of Kueue.
+Is a component that monitors Workloads maintaining the content of its specific `admissionCheckStates` and the `Active` condition of the AdmissionChecks it's  controlling.
+The logic for how an AdmissionCheck changes states is not part of Kueue.
