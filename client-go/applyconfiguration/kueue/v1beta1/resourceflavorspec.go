@@ -24,8 +24,9 @@ import (
 // ResourceFlavorSpecApplyConfiguration represents an declarative configuration of the ResourceFlavorSpec type for use
 // with apply.
 type ResourceFlavorSpecApplyConfiguration struct {
-	NodeLabels map[string]string `json:"nodeLabels,omitempty"`
-	NodeTaints []v1.Taint        `json:"nodeTaints,omitempty"`
+	NodeLabels  map[string]string `json:"nodeLabels,omitempty"`
+	NodeTaints  []v1.Taint        `json:"nodeTaints,omitempty"`
+	Tolerations []v1.Toleration   `json:"tolerations,omitempty"`
 }
 
 // ResourceFlavorSpecApplyConfiguration constructs an declarative configuration of the ResourceFlavorSpec type for use with
@@ -54,6 +55,16 @@ func (b *ResourceFlavorSpecApplyConfiguration) WithNodeLabels(entries map[string
 func (b *ResourceFlavorSpecApplyConfiguration) WithNodeTaints(values ...v1.Taint) *ResourceFlavorSpecApplyConfiguration {
 	for i := range values {
 		b.NodeTaints = append(b.NodeTaints, values[i])
+	}
+	return b
+}
+
+// WithTolerations adds the given value to the Tolerations field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Tolerations field.
+func (b *ResourceFlavorSpecApplyConfiguration) WithTolerations(values ...v1.Toleration) *ResourceFlavorSpecApplyConfiguration {
+	for i := range values {
+		b.Tolerations = append(b.Tolerations, values[i])
 	}
 	return b
 }
