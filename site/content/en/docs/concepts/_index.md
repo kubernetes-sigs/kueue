@@ -42,8 +42,7 @@ This priority value from a `WorkloadPriorityClass` is only used for managing the
 
 ### [Admission Check](/docs/concepts/admission_check)
 
-A mechanism allowing custom internal or external components to control the timing of
-workloads admission.
+A mechanism allowing internal or external components to influence the timing of workloads admission.
 
 ![Components](/images/queueing-components.svg)
 
@@ -58,7 +57,7 @@ Is the process during which the kueue scheduler locks the resources needed by a 
 ### Admission
 
 The process of admitting a Workload to start (Pods to be created). A Workload
-is admitted when it has a Quota Reservation and all it's potential [AdmissionCheckStates](/docs/concepts/admission_check)
+is admitted when it has a Quota Reservation and all its [AdmissionCheckStates](/docs/concepts/admission_check)
 are `Ready`.
 
 ### [Cohort](/docs/concepts/cluster_queue#cohort)
