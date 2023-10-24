@@ -60,12 +60,13 @@ func FromAssignment(ctx context.Context, client client.Client, assignment *kueue
 		if processedFlvs.Has(flvRef) {
 			continue
 		}
-		// Lookup the ResourceFlavors to fetch the node affinity labels to apply on the job.
+		// Lookup the ResourceFlavors to fetch the node affinity labels and toleration to apply on the job.
 		flv := kueue.ResourceFlavor{}
 		if err := client.Get(ctx, types.NamespacedName{Name: string(flvRef)}, &flv); err != nil {
 			return info, err
 		}
 		info.NodeSelector = utilmaps.MergeKeepFirst(info.NodeSelector, flv.Spec.NodeLabels)
+		info.Tolerations = append(info.Tolerations, flv.Spec.Tolerations...)
 
 		processedFlvs.Insert(flvRef)
 	}
@@ -114,18 +115,19 @@ func (podSetInfo *PodSetInfo) Merge(o PodSetInfo) error {
 // Merge updates or appends the replica metadata & spec fields based on PodSetInfo.
 // If returns error if there is a conflict.
 func Merge(meta *metav1.ObjectMeta, spec *corev1.PodSpec, info PodSetInfo) error {
-	if err := info.Merge(PodSetInfo{
+	tmp := PodSetInfo{
 		Annotations:  meta.Annotations,
 		Labels:       meta.Labels,
 		NodeSelector: spec.NodeSelector,
 		Tolerations:  spec.Tolerations,
-	}); err != nil {
+	}
+	if err := tmp.Merge(info); err != nil {
 		return err
 	}
-	meta.Annotations = info.Annotations
-	meta.Labels = info.Labels
-	spec.NodeSelector = info.NodeSelector
-	spec.Tolerations = info.Tolerations
+	meta.Annotations = tmp.Annotations
+	meta.Labels = tmp.Labels
+	spec.NodeSelector = tmp.NodeSelector
+	spec.Tolerations = tmp.Tolerations
 	return nil
 }
 

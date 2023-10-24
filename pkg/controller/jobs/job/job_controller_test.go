@@ -176,11 +176,25 @@ func TestPodSetsInfo(t *testing.T) {
 			job: (*Job)(utiltestingjob.MakeJob("job", "ns").
 				Parallelism(1).
 				NodeSelector("orig-key", "orig-val").
+				Toleration(corev1.Toleration{
+					Key:      "orig-t-key",
+					Operator: corev1.TolerationOpEqual,
+					Value:    "orig-t-val",
+					Effect:   corev1.TaintEffectNoSchedule,
+				}).
 				Obj()),
 			runInfo: []podsetinfo.PodSetInfo{
 				{
 					NodeSelector: map[string]string{
 						"new-key": "new-val",
+					},
+					Tolerations: []corev1.Toleration{
+						{
+							Key:      "new-t-key",
+							Operator: corev1.TolerationOpEqual,
+							Value:    "new-t-val",
+							Effect:   corev1.TaintEffectNoSchedule,
+						},
 					},
 				},
 			},
@@ -188,12 +202,32 @@ func TestPodSetsInfo(t *testing.T) {
 				Parallelism(1).
 				NodeSelector("orig-key", "orig-val").
 				NodeSelector("new-key", "new-val").
+				Toleration(corev1.Toleration{
+					Key:      "orig-t-key",
+					Operator: corev1.TolerationOpEqual,
+					Value:    "orig-t-val",
+					Effect:   corev1.TaintEffectNoSchedule,
+				}).
+				Toleration(corev1.Toleration{
+					Key:      "new-t-key",
+					Operator: corev1.TolerationOpEqual,
+					Value:    "new-t-val",
+					Effect:   corev1.TaintEffectNoSchedule,
+				}).
 				Suspend(false).
 				Obj(),
 			restoreInfo: []podsetinfo.PodSetInfo{
 				{
 					NodeSelector: map[string]string{
 						"orig-key": "orig-val",
+					},
+					Tolerations: []corev1.Toleration{
+						{
+							Key:      "orig-t-key",
+							Operator: corev1.TolerationOpEqual,
+							Value:    "orig-t-val",
+							Effect:   corev1.TaintEffectNoSchedule,
+						},
 					},
 				},
 			},
@@ -693,7 +727,7 @@ func TestReconciler(t *testing.T) {
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
 						Reason:  "FailedToStart",
-						Message: `invalid admission check PodSetUpdate: conflict for nodeSelector: conflict for key=provisioning, value1=on-demand, value2=spot`,
+						Message: `invalid admission check PodSetUpdate: conflict for nodeSelector: conflict for key=provisioning, value1=spot, value2=on-demand`,
 					}).
 					Obj(),
 			},
