@@ -62,6 +62,15 @@ spec:
           spec:
             description: WorkloadSpec defines the desired state of Workload
             properties:
+              active:
+                default: true
+                description: "Active determines if a workload can be admitted into
+                  a queue. Changing active from true to false will evict any running
+                  workloads. Possible values are: \n - false: indicates that a workload
+                  should never be admitted and evicts running workloads - true: indicates
+                  that a workload can be evaluated for admission into it's respective
+                  queue. \n Defaults to true"
+                type: boolean
               podSets:
                 description: podSets is a list of sets of homogeneous pods, each described
                   by a Pod spec and a count. There must be at least one element and
