@@ -107,7 +107,10 @@ creating a corresponding Workload object for it.
 
 ## Dynamic Reclaim
 
-It's a mechanism allowing a currently Admitted workload to release a part of it's Quota Reservation that is no longer needed. This is done via the `ReclaimablePods` status field, which should enumerate the number of pods for which the Quota Reservation is no longer needed.
+It's a mechanism allowing a currently Admitted workload to release a part of it's Quota Reservation that is no longer needed.
+
+Job integrations communicate this information by setting the `reclaimablePods` status field, enumerating the number of pods per podset for which the Quota Reservation is no longer needed.
+
 ```yaml
 
 status:
