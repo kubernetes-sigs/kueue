@@ -136,6 +136,10 @@ gomod-verify:
 	$(GO_CMD) mod tidy
 	git --no-pager diff --exit-code go.mod go.sum
 
+.PHONY: gomod-download
+gomod-download:
+	$(GO_CMD) mod download
+
 .PHONY: toc-update
 toc-update:
 	./hack/update-toc.sh
@@ -149,21 +153,21 @@ vet: ## Run go vet against code.
 	$(GO_CMD) vet ./...
 
 .PHONY: test
-test: generate gotestsum ## Run tests.
+test: gotestsum ## Run tests.
 	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/') -coverpkg=./... -coverprofile $(ARTIFACTS)/cover.out
 
 .PHONY: test-integration
-test-integration: manifests generate envtest ginkgo mpi-operator-crd ray-operator-crd jobset-operator-crd kf-training-operator-crd  cluster-autoscaler-crd ## Run tests.
+test-integration: gomod-download envtest ginkgo mpi-operator-crd ray-operator-crd jobset-operator-crd kf-training-operator-crd  cluster-autoscaler-crd ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	$(GINKGO) $(GINKGO_ARGS) --junit-report=junit.xml --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 
 CREATE_KIND_CLUSTER ?= true
 .PHONY: test-e2e
-test-e2e: kustomize manifests generate ginkgo run-test-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e: kustomize ginkgo run-test-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 E2E_TARGETS := $(addprefix run-test-e2e-,${E2E_K8S_VERSIONS})
 .PHONY: test-e2e-all
-test-e2e-all: kustomize manifests generate envtest ginkgo $(E2E_TARGETS)
+test-e2e-all: ginkgo $(E2E_TARGETS)
 
 FORCE:
 
