@@ -40,10 +40,23 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
            values: [ "true", "True", "yes" ]
    ```
 
-2. Pods that belong to other API resources managed by Kueue are excluded from being queued by `pod` integration. 
-   For example, pods managed by `batch/v1.Job` won't be managed by `pod` integration.
+2. Kueue will run webhooks for all created pods if the pod integration is enabled. The webhook namespaceSelector could be 
+   used to filter the pods to reconcile. The default webhook namespaceSelector is:
+   ```yaml
+   matchExpressions:
+   - key: kubernetes.io/metadata.name
+     operator: NotIn
+     values: [ kube-system, kueue-system ]
+   ```
+   
+   When you [install Kueue via Helm](/docs/installation/#install-via-helm), the webhook namespace selector 
+   will match the `integrations.podOptions.namespaceSelector` in the `values.yaml`.
 
-3. Kueue will inject a `kueue.x-k8s.io/managed=true` label to indicate which pods are managed by it.
+   Make sure that namespaceSelector never matches the kueue namespace, otherwise the 
+   Kueue deployment won't be able to create Pods.
+
+3. Pods that belong to other API resources managed by Kueue are excluded from being queued by `pod` integration. 
+   For example, pods managed by `batch/v1.Job` won't be managed by `pod` integration.
 
 4. Check [Administer cluster quotas](/docs/tasks/administer_cluster_quotas) for details on the initial Kueue setup.
 
@@ -71,7 +84,11 @@ The resource needs of the workload can be configured in the `spec.containers`.
           cpu: 3
 ```
 
-### c. Limitations
+### c. The "managed" label
+
+Kueue will inject the `kueue.x-k8s.io/managed=true` label to indicate which pods are managed by it.
+
+### d. Limitations
 
 - A Kueue managed Pod cannot be created in `kube-system` or `kueue-system` namespaces.
 - In case of [preemption](/docs/concepts/cluster_queue/#preemption), the Pod will
