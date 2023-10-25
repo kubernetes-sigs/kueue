@@ -159,6 +159,11 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if evictionTriggered, err := r.reconcileCheckBasedEviction(ctx, &wl); evictionTriggered || err != nil {
 			return ctrl.Result{}, err
 		}
+
+		if reservationRemoved, err := r.reconcileReservationOnQueueDeletion(ctx, &wl, cqName); reservationRemoved || err != nil {
+			return ctrl.Result{}, err
+		}
+
 		return r.reconcileNotReadyTimeout(ctx, req, &wl)
 	}
 
@@ -212,6 +217,25 @@ func (r *WorkloadReconciler) reconcileSyncAdmissionChecks(ctx context.Context, w
 		wl.Status.AdmissionChecks = newChecks
 		err := r.client.Status().Update(ctx, wl)
 		return true, client.IgnoreNotFound(err)
+	}
+	return false, nil
+}
+
+func (r *WorkloadReconciler) reconcileReservationOnQueueDeletion(ctx context.Context, wl *kueue.Workload, cqName string) (bool, error) {
+	if workload.IsAdmitted(wl) {
+		return false, nil
+	}
+
+	queue := kueue.ClusterQueue{}
+	if err := r.client.Get(ctx, types.NamespacedName{Name: cqName}, &queue); err != nil {
+		return false, err
+	}
+
+	if !queue.DeletionTimestamp.IsZero() {
+		log := ctrl.LoggerFrom(ctx)
+		log.V(3).Info("Workload is inadmissible because ClusterQueue is terminating", "clusterQueue", klog.KRef("", cqName))
+		workload.UnsetQuotaReservationWithCondition(wl, "Inadmissible", fmt.Sprintf("ClusterQueue %s is terminating", cqName))
+		return true, workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
 	}
 	return false, nil
 }
@@ -571,7 +595,7 @@ func (w *workloadCqHandler) Update(ctx context.Context, ev event.UpdateEvent, wq
 	log.V(5).Info("Workload cluster queue update event")
 	oldCq, oldIsQueue := ev.ObjectOld.(*kueue.ClusterQueue)
 	newCq, newIsQueue := ev.ObjectNew.(*kueue.ClusterQueue)
-	if oldIsQueue && newIsQueue && !slices.CmpNoOrder(oldCq.Spec.AdmissionChecks, newCq.Spec.AdmissionChecks) {
+	if oldIsQueue && newIsQueue && (!slices.CmpNoOrder(oldCq.Spec.AdmissionChecks, newCq.Spec.AdmissionChecks) || !newCq.DeletionTimestamp.IsZero()) {
 		w.queueReconcileForWorkloads(ctx, newCq.Name, wq)
 	}
 }
