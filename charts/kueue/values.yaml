@@ -19,8 +19,6 @@ controllerManager:
   manager:
     image:
       repository: gcr.io/k8s-staging-kueue/kueue
-      # tag, if defined will use the given image tag, else Chart.AppVersion will be used
-      tag: main
       # This should be set to 'IfNotPresent' for released version      
       pullPolicy: Always
     resources:
