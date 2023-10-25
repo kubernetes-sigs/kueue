@@ -40,6 +40,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
@@ -62,6 +63,8 @@ type ClusterQueueReconciler struct {
 	snapshotsQueue                       workqueue.Interface
 	wlUpdateCh                           chan event.GenericEvent
 	rfUpdateCh                           chan event.GenericEvent
+	acUpdateCh                           chan event.GenericEvent
+	snapUpdateCh                         chan event.GenericEvent
 	watchers                             []ClusterQueueUpdateWatcher
 	reportResourceMetrics                bool
 	queueVisibilityUpdateInterval        time.Duration
@@ -106,7 +109,7 @@ func WithQueueVisibilityClusterQueuesMaxCount(value int32) ClusterQueueReconcile
 	}
 }
 
-var DefaultOptions = ClusterQueueReconcilerOptions{}
+var defaultCQOptions = ClusterQueueReconcilerOptions{}
 
 func NewClusterQueueReconciler(
 	client client.Client,
@@ -114,7 +117,7 @@ func NewClusterQueueReconciler(
 	cache *cache.Cache,
 	opts ...ClusterQueueReconcilerOption,
 ) *ClusterQueueReconciler {
-	options := DefaultOptions
+	options := defaultCQOptions
 	for _, opt := range opts {
 		opt(&options)
 	}
@@ -126,6 +129,8 @@ func NewClusterQueueReconciler(
 		snapshotsQueue:                       workqueue.New(),
 		wlUpdateCh:                           make(chan event.GenericEvent, updateChBuffer),
 		rfUpdateCh:                           make(chan event.GenericEvent, updateChBuffer),
+		acUpdateCh:                           make(chan event.GenericEvent, updateChBuffer),
+		snapUpdateCh:                         make(chan event.GenericEvent, updateChBuffer),
 		watchers:                             options.Watchers,
 		reportResourceMetrics:                options.ReportResourceMetrics,
 		queueVisibilityUpdateInterval:        options.QueueVisibilityUpdateInterval,
@@ -165,7 +170,7 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 		if controllerutil.ContainsFinalizer(&cqObj, kueue.ResourceInUseFinalizerName) {
 			// The clusterQueue is being deleted, remove the finalizer only if
-			// there are no active admitted workloads.
+			// there are no active reserving workloads.
 			if r.cache.ClusterQueueEmpty(cqObj.Name) {
 				controllerutil.RemoveFinalizer(&cqObj, kueue.ResourceInUseFinalizerName)
 				if err := r.client.Update(ctx, &cqObj); err != nil {
@@ -177,23 +182,10 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	newCQObj := cqObj.DeepCopy()
-	if r.cache.ClusterQueueActive(newCQObj.Name) {
-		msg := "Can admit new workloads"
-		if err := r.updateCqStatusIfChanged(ctx, newCQObj, metav1.ConditionTrue, "Ready", msg); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-	} else if r.cache.ClusterQueueTerminating(newCQObj.Name) {
-		msg := "Can't admit new workloads; clusterQueue is terminating"
-		if err := r.updateCqStatusIfChanged(ctx, newCQObj, metav1.ConditionFalse, "Terminating", msg); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-	} else {
-		msg := "Can't admit new workloads; some flavors are not found"
-		if err := r.updateCqStatusIfChanged(ctx, newCQObj, metav1.ConditionFalse, "FlavorNotFound", msg); err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
+	cqCondition, reason, msg := r.cache.ClusterQueueReadiness(newCQObj.Name)
+	if err := r.updateCqStatusIfChanged(ctx, newCQObj, cqCondition, reason, msg); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-
 	return ctrl.Result{}, nil
 }
 
@@ -228,6 +220,15 @@ func (r *ClusterQueueReconciler) NotifyResourceFlavorUpdate(oldRF, newRF *kueue.
 	if newRF == nil {
 		r.rfUpdateCh <- event.GenericEvent{Object: oldRF}
 		return
+	}
+}
+
+func (r *ClusterQueueReconciler) NotifyAdmissionCheckUpdate(oldAc, newAc *kueue.AdmissionCheck) {
+	switch {
+	case oldAc != nil:
+		r.acUpdateCh <- event.GenericEvent{Object: oldAc}
+	case newAc != nil:
+		r.acUpdateCh <- event.GenericEvent{Object: newAc}
 	}
 }
 
@@ -331,6 +332,14 @@ func recordResourceMetrics(cq *kueue.ClusterQueue) {
 		}
 	}
 
+	for fri := range cq.Status.FlavorsReservation {
+		fr := &cq.Status.FlavorsReservation[fri]
+		for ri := range fr.Resources {
+			r := &fr.Resources[ri]
+			metrics.ReportClusterQueueResourceReservations(cq.Spec.Cohort, cq.Name, string(fr.Name), string(r.Name), resource.QuantityToFloat(&r.Total))
+		}
+	}
+
 	for fui := range cq.Status.FlavorsUsage {
 		fu := &cq.Status.FlavorsUsage[fui]
 		for ri := range fu.Resources {
@@ -370,6 +379,28 @@ func clearOldResourceQuotas(oldCq, newCq *kueue.ClusterQueue) {
 					rname := flavor.Resources[ri].Name
 					if _, found := newResources[rname]; !found {
 						metrics.ClearClusterQueueResourceQuotas(oldCq.Name, string(flavor.Name), string(rname))
+					}
+				}
+			}
+		}
+	}
+
+	// reservation metrics
+	if len(oldCq.Status.FlavorsReservation) > 0 {
+		newFlavors := map[kueue.ResourceFlavorReference]*kueue.FlavorUsage{}
+		if len(newCq.Status.FlavorsReservation) > 0 {
+			newFlavors = slices.ToRefMap(newCq.Status.FlavorsReservation, func(f *kueue.FlavorUsage) kueue.ResourceFlavorReference { return f.Name })
+		}
+		for fi := range oldCq.Status.FlavorsReservation {
+			flavor := &oldCq.Status.FlavorsReservation[fi]
+			if newFlavor, found := newFlavors[flavor.Name]; !found || len(newFlavor.Resources) == 0 {
+				metrics.ClearClusterQueueResourceReservations(oldCq.Name, string(flavor.Name), "")
+			} else {
+				newResources := slices.ToRefMap(newFlavor.Resources, func(r *kueue.ResourceUsage) corev1.ResourceName { return r.Name })
+				for ri := range flavor.Resources {
+					rname := flavor.Resources[ri].Name
+					if _, found := newResources[rname]; !found {
+						metrics.ClearClusterQueueResourceReservations(oldCq.Name, string(flavor.Name), string(rname))
 					}
 				}
 			}
@@ -501,6 +532,67 @@ func (h *cqResourceFlavorHandler) Generic(_ context.Context, e event.GenericEven
 	}
 }
 
+type cqAdmissionCheckHandler struct {
+	cache *cache.Cache
+}
+
+type cqSnapshotHandler struct {
+	queueVisibilityUpdateInterval time.Duration
+}
+
+func (h *cqAdmissionCheckHandler) Create(context.Context, event.CreateEvent, workqueue.RateLimitingInterface) {
+}
+
+func (h *cqAdmissionCheckHandler) Update(context.Context, event.UpdateEvent, workqueue.RateLimitingInterface) {
+}
+
+func (h *cqAdmissionCheckHandler) Delete(context.Context, event.DeleteEvent, workqueue.RateLimitingInterface) {
+}
+
+func (h *cqAdmissionCheckHandler) Generic(_ context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
+	ac, isAc := e.Object.(*kueue.AdmissionCheck)
+	if !isAc {
+		return
+	}
+
+	if cqs := h.cache.ClusterQueuesUsingAdmissionCheck(ac.Name); len(cqs) != 0 {
+		for _, cq := range cqs {
+			req := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name: cq,
+				}}
+			q.Add(req)
+		}
+	}
+}
+
+func (h *cqSnapshotHandler) Create(context.Context, event.CreateEvent, workqueue.RateLimitingInterface) {
+}
+
+func (h *cqSnapshotHandler) Update(context.Context, event.UpdateEvent, workqueue.RateLimitingInterface) {
+}
+
+func (h *cqSnapshotHandler) Delete(context.Context, event.DeleteEvent, workqueue.RateLimitingInterface) {
+}
+
+func (h *cqSnapshotHandler) Generic(_ context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
+	cq, isCq := e.Object.(*kueue.ClusterQueue)
+	if !isCq {
+		return
+	}
+	remainingTime := constants.UpdatesBatchPeriod
+	if cq.Status.PendingWorkloadsStatus != nil {
+		remainingTime = h.queueVisibilityUpdateInterval - time.Since(cq.Status.PendingWorkloadsStatus.LastChangeTime.Time)
+		if remainingTime <= constants.UpdatesBatchPeriod {
+			remainingTime = constants.UpdatesBatchPeriod
+		}
+	}
+	q.AddAfter(reconcile.Request{
+		NamespacedName: types.NamespacedName{
+			Name: cq.Name,
+		}}, remainingTime)
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	wHandler := cqWorkloadHandler{
@@ -513,11 +605,19 @@ func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	rfHandler := cqResourceFlavorHandler{
 		cache: r.cache,
 	}
+	acHandler := cqAdmissionCheckHandler{
+		cache: r.cache,
+	}
+	snapHandler := cqSnapshotHandler{
+		queueVisibilityUpdateInterval: r.queueVisibilityUpdateInterval,
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.ClusterQueue{}).
 		Watches(&corev1.Namespace{}, &nsHandler).
 		WatchesRawSource(&source.Channel{Source: r.wlUpdateCh}, &wHandler).
 		WatchesRawSource(&source.Channel{Source: r.rfUpdateCh}, &rfHandler).
+		WatchesRawSource(&source.Channel{Source: r.acUpdateCh}, &acHandler).
+		WatchesRawSource(&source.Channel{Source: r.snapUpdateCh}, &snapHandler).
 		WithEventFilter(r).
 		Complete(r)
 }
@@ -530,15 +630,17 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 ) error {
 	oldStatus := cq.Status.DeepCopy()
 	pendingWorkloads := r.qManager.Pending(cq)
-	usage, workloads, err := r.cache.Usage(cq)
+	stats, err := r.cache.Usage(cq)
 	if err != nil {
 		r.log.Error(err, "Failed getting usage from cache")
 		// This is likely because the cluster queue was recently removed,
 		// but we didn't process that event yet.
 		return err
 	}
-	cq.Status.FlavorsUsage = usage
-	cq.Status.AdmittedWorkloads = int32(workloads)
+	cq.Status.FlavorsReservation = stats.ReservedResources
+	cq.Status.FlavorsUsage = stats.AdmittedResources
+	cq.Status.ReservingWorkloads = int32(stats.ReservingWorkloads)
+	cq.Status.AdmittedWorkloads = int32(stats.AdmittedWorkloads)
 	cq.Status.PendingWorkloads = int32(pendingWorkloads)
 	cq.Status.PendingWorkloadsStatus = r.getWorkloadsStatus(cq)
 	meta.SetStatusCondition(&cq.Status.Conditions, metav1.Condition{
@@ -555,26 +657,20 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 
 // Taking snapshot of cluster queue is enabled when maxcount non-zero
 func (r *ClusterQueueReconciler) isVisibilityEnabled() bool {
-	return r.queueVisibilityClusterQueuesMaxCount > 0
+	return features.Enabled(features.QueueVisibility) && r.queueVisibilityClusterQueuesMaxCount > 0
 }
 
 func (r *ClusterQueueReconciler) getWorkloadsStatus(cq *kueue.ClusterQueue) *kueue.ClusterQueuePendingWorkloadsStatus {
 	if !r.isVisibilityEnabled() {
 		return nil
 	}
-	if cq.Status.PendingWorkloadsStatus == nil {
+	pendingWorkloads := r.qManager.GetSnapshot(cq.Name)
+	if cq.Status.PendingWorkloadsStatus == nil ||
+		cq.Status.PendingWorkloadsStatus.Head == nil ||
+		!equality.Semantic.DeepEqual(cq.Status.PendingWorkloadsStatus.Head, pendingWorkloads) {
 		return &kueue.ClusterQueuePendingWorkloadsStatus{
-			Head:           r.qManager.GetSnapshot(cq.Name),
+			Head:           pendingWorkloads,
 			LastChangeTime: metav1.Time{Time: time.Now()},
-		}
-	}
-	if time.Since(cq.Status.PendingWorkloadsStatus.LastChangeTime.Time) >= r.queueVisibilityUpdateInterval {
-		pendingWorkloads := r.qManager.GetSnapshot(cq.Name)
-		if !equality.Semantic.DeepEqual(cq.Status.PendingWorkloadsStatus.Head, pendingWorkloads) {
-			return &kueue.ClusterQueuePendingWorkloadsStatus{
-				Head:           pendingWorkloads,
-				LastChangeTime: metav1.Time{Time: time.Now()},
-			}
 		}
 	}
 	return cq.Status.PendingWorkloadsStatus
@@ -623,6 +719,15 @@ func (r *ClusterQueueReconciler) processNextSnapshot(ctx context.Context) bool {
 	}()
 
 	defer r.snapshotsQueue.Done(key)
-	r.qManager.UpdateSnapshot(key.(string), r.queueVisibilityClusterQueuesMaxCount)
+
+	cqName := key.(string)
+	if r.qManager.UpdateSnapshot(cqName, r.queueVisibilityClusterQueuesMaxCount) {
+		log.V(5).Info("Triggering CQ update due to snapshot change", "clusterQueue", klog.KRef("", cqName))
+		r.snapUpdateCh <- event.GenericEvent{Object: &kueue.ClusterQueue{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: cqName,
+			},
+		}}
+	}
 	return true
 }

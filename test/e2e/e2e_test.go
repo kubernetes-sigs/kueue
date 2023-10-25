@@ -146,7 +146,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			}, util.LongTimeout, util.Interval).Should(gomega.BeTrue())
 		})
 
-		ginkgo.It("Should readmit preempted job into a separate flavor", func() {
+		ginkgo.It("Should readmit preempted job with priorityClass into a separate flavor", func() {
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
 			highPriorityClass := testing.MakePriorityClass("high").PriorityValue(100).Obj()
@@ -181,14 +181,95 @@ var _ = ginkgo.Describe("Kueue", func() {
 				})
 			})
 		})
+
+		ginkgo.It("Should readmit preempted job with workloadPriorityClass into a separate flavor", func() {
+			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
+
+			highWorkloadPriorityClass := testing.MakeWorkloadPriorityClass("high-workload").PriorityValue(300).Obj()
+			gomega.Expect(k8sClient.Create(ctx, highWorkloadPriorityClass)).Should(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				gomega.Expect(k8sClient.Delete(ctx, highWorkloadPriorityClass)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Job is admitted using the first flavor", func() {
+				expectJobUnsuspendedWithNodeSelectors(jobKey, map[string]string{
+					"instance-type": "on-demand",
+				})
+			})
+
+			ginkgo.By("Job is preempted by higher priority job", func() {
+				job := testingjob.MakeJob("high-with-wpc", ns.Name).
+					Queue("main").
+					WorkloadPriorityClass("high-workload").
+					Request(corev1.ResourceCPU, "1").
+					NodeSelector("instance-type", "on-demand"). // target the same flavor to cause preemption
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+
+				expectJobUnsuspendedWithNodeSelectors(client.ObjectKeyFromObject(job), map[string]string{
+					"instance-type": "on-demand",
+				})
+			})
+
+			ginkgo.By("Job is re-admitted using the second flavor", func() {
+				expectJobUnsuspendedWithNodeSelectors(jobKey, map[string]string{
+					"instance-type": "spot",
+				})
+			})
+		})
+		ginkgo.It("Should partially admit the Job if configured and not fully fits", func() {
+			// Use a binary that ends.
+			job := testingjob.MakeJob("job", ns.Name).
+				Queue("main").
+				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.0.3", []string{"1s"}).
+				Request("cpu", "500m").
+				Parallelism(3).
+				Completions(4).
+				SetAnnotation(workloadjob.JobMinParallelismAnnotation, "1").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+
+			ginkgo.By("Wait for the job to start and check the updated Parallelism and Completions", func() {
+				jobKey := client.ObjectKeyFromObject(job)
+				expectJobUnsuspendedWithNodeSelectors(jobKey, map[string]string{
+					"instance-type": "on-demand",
+				})
+
+				updatedJob := &batchv1.Job{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, jobKey, updatedJob)).To(gomega.Succeed())
+					g.Expect(ptr.Deref(updatedJob.Spec.Parallelism, 0)).To(gomega.Equal(int32(2)))
+					g.Expect(ptr.Deref(updatedJob.Spec.Completions, 0)).To(gomega.Equal(int32(4)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			})
+
+			ginkgo.By("Wait for the job to finish", func() {
+				createdWorkload := &kueue.Workload{}
+				wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name), Namespace: ns.Name}
+				gomega.Eventually(func() bool {
+					if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
+						return false
+					}
+					return workload.HasQuotaReservation(createdWorkload) &&
+						apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadFinished)
+
+				}, util.LongTimeout, util.Interval).Should(gomega.BeTrue())
+			})
+		})
 	})
+
 	ginkgo.When("Creating a Job In a Twostepadmission Queue", func() {
 		var (
 			onDemandRF   *kueue.ResourceFlavor
 			localQueue   *kueue.LocalQueue
 			clusterQueue *kueue.ClusterQueue
+			check        *kueue.AdmissionCheck
 		)
 		ginkgo.BeforeEach(func() {
+			check = testing.MakeAdmissionCheck("check1").ControllerName("ac-controller").Obj()
+			gomega.Expect(k8sClient.Create(ctx, check)).Should(gomega.Succeed())
+			util.SetAdmissionCheckActive(ctx, k8sClient, check, metav1.ConditionTrue)
 			onDemandRF = testing.MakeResourceFlavor("on-demand").
 				Label("instance-type", "on-demand").Obj()
 			gomega.Expect(k8sClient.Create(ctx, onDemandRF)).Should(gomega.Succeed())
@@ -210,6 +291,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandRF, true)
+			gomega.Expect(k8sClient.Delete(ctx, check)).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should unsuspend a job only after all checks are cleared", func() {
@@ -225,7 +307,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 					if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 						return nil
 					}
-					return slices.ToMap(createdWorkload.Status.AdmissionChecks, func(i int) (string, string) { return createdWorkload.Status.AdmissionChecks[i].Type, "" })
+					return slices.ToMap(createdWorkload.Status.AdmissionChecks, func(i int) (string, string) { return createdWorkload.Status.AdmissionChecks[i].Name, "" })
 
 				}, util.LongTimeout, util.Interval).Should(gomega.BeComparableTo(map[string]string{"check1": ""}))
 			})
@@ -258,10 +340,9 @@ var _ = ginkgo.Describe("Kueue", func() {
 						return err
 					}
 					patch := workload.BaseSSAWorkload(createdWorkload)
-					apimeta.SetStatusCondition(&patch.Status.AdmissionChecks, metav1.Condition{
-						Type:   "check1",
-						Status: metav1.ConditionTrue,
-						Reason: kueue.CheckStateReady,
+					workload.SetAdmissionCheckState(&patch.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:  "check1",
+						State: kueue.CheckStateReady,
 					})
 					return k8sClient.Status().Patch(ctx, patch, client.Apply, client.FieldOwner("test-admission-check-controller"), client.ForceOwnership)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -293,7 +374,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 					if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 						return nil
 					}
-					return slices.ToMap(createdWorkload.Status.AdmissionChecks, func(i int) (string, string) { return createdWorkload.Status.AdmissionChecks[i].Type, "" })
+					return slices.ToMap(createdWorkload.Status.AdmissionChecks, func(i int) (string, string) { return createdWorkload.Status.AdmissionChecks[i].Name, "" })
 
 				}, util.LongTimeout, util.Interval).Should(gomega.BeComparableTo(map[string]string{"check1": ""}))
 			})
@@ -304,10 +385,9 @@ var _ = ginkgo.Describe("Kueue", func() {
 						return err
 					}
 					patch := workload.BaseSSAWorkload(createdWorkload)
-					apimeta.SetStatusCondition(&patch.Status.AdmissionChecks, metav1.Condition{
-						Type:   "check1",
-						Status: metav1.ConditionTrue,
-						Reason: kueue.CheckStateReady,
+					workload.SetAdmissionCheckState(&patch.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:  "check1",
+						State: kueue.CheckStateReady,
 					})
 					return k8sClient.Status().Patch(ctx, patch, client.Apply, client.FieldOwner("test-admission-check-controller"), client.ForceOwnership)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -323,10 +403,9 @@ var _ = ginkgo.Describe("Kueue", func() {
 						return err
 					}
 					patch := workload.BaseSSAWorkload(createdWorkload)
-					apimeta.SetStatusCondition(&patch.Status.AdmissionChecks, metav1.Condition{
-						Type:   "check1",
-						Status: metav1.ConditionFalse,
-						Reason: kueue.CheckStateRetry,
+					workload.SetAdmissionCheckState(&patch.Status.AdmissionChecks, kueue.AdmissionCheckState{
+						Name:  "check1",
+						State: kueue.CheckStateRetry,
 					})
 					return k8sClient.Status().Patch(ctx, patch, client.Apply, client.FieldOwner("test-admission-check-controller"), client.ForceOwnership)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())

@@ -21,7 +21,6 @@ import (
 	"strings"
 
 	rayjobapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -29,16 +28,16 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/util/maps"
+	"sigs.k8s.io/kueue/pkg/podset"
 )
 
 var (
-	gvk           = rayjobapi.GroupVersion.WithKind("RayJob")
-	FrameworkName = "ray.io/rayjob"
+	gvk = rayjobapi.GroupVersion.WithKind("RayJob")
 )
 
 const (
 	headGroupPodSetName = "head"
+	FrameworkName       = "ray.io/rayjob"
 )
 
 func init() {
@@ -58,6 +57,7 @@ func init() {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 
 var NewReconciler = jobframework.NewGenericReconciler(func() jobframework.GenericJob { return &RayJob{} }, nil)
 
@@ -112,46 +112,47 @@ func (j *RayJob) PodSets() []kueue.PodSet {
 	return podSets
 }
 
-func (j *RayJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) error {
+func (j *RayJob) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
 	expectedLen := len(j.Spec.RayClusterSpec.WorkerGroupSpecs) + 1
-	if len(podSetInfos) != expectedLen {
-		return jobframework.BadPodSetsInfoLenError(expectedLen, len(podSetInfos))
+	if len(podSetsInfo) != expectedLen {
+		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
 	}
 
 	j.Spec.Suspend = false
 
 	// head
-	headPodSpec := &j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec
-	headPodSpec.NodeSelector = maps.MergeKeepFirst(podSetInfos[0].NodeSelector, headPodSpec.NodeSelector)
+	headPod := &j.Spec.RayClusterSpec.HeadGroupSpec.Template
+	info := podSetsInfo[0]
+	if err := podset.Merge(&headPod.ObjectMeta, &headPod.Spec, info); err != nil {
+		return err
+	}
 
 	// workers
 	for index := range j.Spec.RayClusterSpec.WorkerGroupSpecs {
-		workerPodSpec := &j.Spec.RayClusterSpec.WorkerGroupSpecs[index].Template.Spec
-		workerPodSpec.NodeSelector = maps.MergeKeepFirst(podSetInfos[index+1].NodeSelector, workerPodSpec.NodeSelector)
+		workerPod := &j.Spec.RayClusterSpec.WorkerGroupSpecs[index].Template
+		info := podSetsInfo[index+1]
+		if err := podset.Merge(&workerPod.ObjectMeta, &workerPod.Spec, info); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-func (j *RayJob) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) bool {
-	if len(podSetInfos) != len(j.Spec.RayClusterSpec.WorkerGroupSpecs)+1 {
+func (j *RayJob) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
+	if len(podSetsInfo) != len(j.Spec.RayClusterSpec.WorkerGroupSpecs)+1 {
 		return false
 	}
 
 	changed := false
 	// head
-	headPodSpec := &j.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec
-	if !equality.Semantic.DeepEqual(headPodSpec.NodeSelector, podSetInfos[0].NodeSelector) {
-		headPodSpec.NodeSelector = maps.Clone(podSetInfos[0].NodeSelector)
-		changed = true
-	}
+	headPod := &j.Spec.RayClusterSpec.HeadGroupSpec.Template
+	changed = podset.RestorePodSpec(&headPod.ObjectMeta, &headPod.Spec, podSetsInfo[0]) || changed
 
 	// workers
 	for index := range j.Spec.RayClusterSpec.WorkerGroupSpecs {
-		workerPodSpec := &j.Spec.RayClusterSpec.WorkerGroupSpecs[index].Template.Spec
-		if !equality.Semantic.DeepEqual(workerPodSpec.NodeSelector, podSetInfos[index+1].NodeSelector) {
-			workerPodSpec.NodeSelector = maps.Clone(podSetInfos[index+1].NodeSelector)
-			changed = true
-		}
+		workerPod := &j.Spec.RayClusterSpec.WorkerGroupSpecs[index].Template
+		info := podSetsInfo[index+1]
+		changed = podset.RestorePodSpec(&workerPod.ObjectMeta, &workerPod.Spec, info) || changed
 	}
 	return changed
 }
@@ -163,7 +164,8 @@ func (j *RayJob) Finished() (metav1.Condition, bool) {
 		Reason:  string(j.Status.JobStatus),
 		Message: j.Status.Message,
 	}
-	return condition, rayjobapi.IsJobTerminal(j.Status.JobStatus)
+
+	return condition, j.Status.JobStatus == rayjobapi.JobStatusFailed || j.Status.JobStatus == rayjobapi.JobStatusSucceeded
 }
 
 func (j *RayJob) PodsReady() bool {

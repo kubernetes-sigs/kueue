@@ -18,8 +18,10 @@ package pytorchjob
 
 import (
 	"context"
+	"strings"
 
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -36,11 +38,12 @@ var (
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:  SetupIndexes,
-		NewReconciler: NewReconciler,
-		SetupWebhook:  SetupPyTorchJobWebhook,
-		JobType:       &kftraining.PyTorchJob{},
-		AddToScheme:   kftraining.AddToScheme,
+		SetupIndexes:           SetupIndexes,
+		NewReconciler:          NewReconciler,
+		SetupWebhook:           SetupPyTorchJobWebhook,
+		JobType:                &kftraining.PyTorchJob{},
+		AddToScheme:            kftraining.AddToScheme,
+		IsManagingObjectsOwner: isPyTorchJob,
 	}))
 }
 
@@ -52,10 +55,15 @@ func init() {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 
 var NewReconciler = jobframework.NewGenericReconciler(func() jobframework.GenericJob {
 	return &kubeflowjob.KubeflowJob{KFJobControl: (*JobControl)(&kftraining.PyTorchJob{})}
 }, nil)
+
+func isPyTorchJob(owner *metav1.OwnerReference) bool {
+	return owner.Kind == kftraining.PyTorchJobKind && strings.HasPrefix(owner.APIVersion, kftraining.SchemeGroupVersion.Group)
+}
 
 type JobControl kftraining.PyTorchJob
 
@@ -81,8 +89,8 @@ func (j *JobControl) ReplicaSpecs() map[kftraining.ReplicaType]*kftraining.Repli
 	return j.Spec.PyTorchReplicaSpecs
 }
 
-func (j *JobControl) JobStatus() kftraining.JobStatus {
-	return j.Status
+func (j *JobControl) JobStatus() *kftraining.JobStatus {
+	return &j.Status
 }
 
 func (j *JobControl) OrderedReplicaTypes() []kftraining.ReplicaType {

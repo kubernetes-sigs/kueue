@@ -36,7 +36,7 @@ import (
 // +kubebuilder:docs-gen:collapse=Imports
 
 var ignoreCqCondition = cmpopts.IgnoreFields(kueue.ClusterQueueStatus{}, "Conditions")
-var ignorePendingWorkloadsStatus = cmpopts.IgnoreFields(kueue.ClusterQueueStatus{}, "PendingWorkloadsStatus")
+var ignoreInClusterQueueStatus = cmpopts.IgnoreFields(kueue.ClusterQueueStatus{}, "PendingWorkloadsStatus", "FlavorsUsage", "AdmittedWorkloads")
 
 var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 	var (
@@ -113,16 +113,16 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
 					return updatedCQ.Status
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
-					PendingWorkloads:  0,
-					AdmittedWorkloads: 1,
-					FlavorsUsage: []kueue.FlavorUsage{{
+					PendingWorkloads:   0,
+					ReservingWorkloads: 1,
+					FlavorsReservation: []kueue.FlavorUsage{{
 						Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
 						Resources: []kueue.ResourceUsage{{
 							Name:  corev1.ResourceCPU,
 							Total: resource.MustParse("2"),
 						}},
 					}},
-				}, ignoreCqCondition, ignorePendingWorkloadsStatus))
+				}, ignoreCqCondition, ignoreInClusterQueueStatus))
 			})
 		})
 	})
@@ -168,16 +168,16 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
 					return updatedCQ.Status
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
-					PendingWorkloads:  0,
-					AdmittedWorkloads: 1,
-					FlavorsUsage: []kueue.FlavorUsage{{
+					PendingWorkloads:   0,
+					ReservingWorkloads: 1,
+					FlavorsReservation: []kueue.FlavorUsage{{
 						Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
 						Resources: []kueue.ResourceUsage{{
 							Name:  corev1.ResourceCPU,
 							Total: resource.MustParse("1"),
 						}},
 					}},
-				}, ignoreCqCondition, ignorePendingWorkloadsStatus))
+				}, ignoreCqCondition, ignoreInClusterQueueStatus))
 			})
 		})
 	})
@@ -222,9 +222,9 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
 					return updatedCQ.Status
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
-					PendingWorkloads:  0,
-					AdmittedWorkloads: 1,
-					FlavorsUsage: []kueue.FlavorUsage{{
+					PendingWorkloads:   0,
+					ReservingWorkloads: 1,
+					FlavorsReservation: []kueue.FlavorUsage{{
 						Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
 						Resources: []kueue.ResourceUsage{
 							{
@@ -233,7 +233,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							},
 						},
 					}},
-				}, ignoreCqCondition, ignorePendingWorkloadsStatus))
+				}, ignoreCqCondition, ignoreInClusterQueueStatus))
 			})
 
 			ginkgo.By("Check podSets spec", func() {
@@ -264,9 +264,9 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
 					return updatedCQ.Status
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
-					PendingWorkloads:  0,
-					AdmittedWorkloads: 1,
-					FlavorsUsage: []kueue.FlavorUsage{{
+					PendingWorkloads:   0,
+					ReservingWorkloads: 1,
+					FlavorsReservation: []kueue.FlavorUsage{{
 						Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
 						Resources: []kueue.ResourceUsage{
 							{
@@ -275,7 +275,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							},
 						},
 					}},
-				}, ignoreCqCondition, ignorePendingWorkloadsStatus))
+				}, ignoreCqCondition, ignoreInClusterQueueStatus))
 			})
 
 			ginkgo.By("Check podSets spec", func() {
@@ -286,7 +286,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		})
 	})
 
-	ginkgo.When("the workload defines only resource limits", func() {
+	ginkgo.When("the workload defines only resource limits and the LocalQueue is created late", func() {
 		ginkgo.BeforeEach(func() {
 			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).To(gomega.Succeed())
 			clusterQueue = testing.MakeClusterQueue("clusterqueue").
@@ -295,7 +295,6 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -307,9 +306,11 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			ginkgo.By("Create and wait for workload admission", func() {
 				wl = testing.MakeWorkload("one", ns.Name).
 					Queue(localQueue.Name).
-					Request(corev1.ResourceCPU, "1").
+					Limit(corev1.ResourceCPU, "1").
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+				gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
 
 				gomega.Eventually(func() bool {
 					read := kueue.Workload{}
@@ -325,16 +326,16 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
 					return updatedCQ.Status
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
-					PendingWorkloads:  0,
-					AdmittedWorkloads: 1,
-					FlavorsUsage: []kueue.FlavorUsage{{
+					PendingWorkloads:   0,
+					ReservingWorkloads: 1,
+					FlavorsReservation: []kueue.FlavorUsage{{
 						Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
 						Resources: []kueue.ResourceUsage{{
 							Name:  corev1.ResourceCPU,
 							Total: resource.MustParse("1"),
 						}},
 					}},
-				}, ignoreCqCondition, ignorePendingWorkloadsStatus))
+				}, ignoreCqCondition, ignoreInClusterQueueStatus))
 			})
 
 			ginkgo.By("Check podSets spec", func() {
@@ -428,16 +429,16 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
 					return updatedCQ.Status
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
-					PendingWorkloads:  0,
-					AdmittedWorkloads: 2,
-					FlavorsUsage: []kueue.FlavorUsage{{
+					PendingWorkloads:   0,
+					ReservingWorkloads: 2,
+					FlavorsReservation: []kueue.FlavorUsage{{
 						Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
 						Resources: []kueue.ResourceUsage{{
 							Name:  corev1.ResourceCPU,
 							Total: resource.MustParse("5"),
 						}},
 					}},
-				}, ignoreCqCondition, ignorePendingWorkloadsStatus))
+				}, ignoreCqCondition, ignoreInClusterQueueStatus))
 			})
 		})
 	})
@@ -518,16 +519,16 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
 					return updatedCQ.Status
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
-					PendingWorkloads:  0,
-					AdmittedWorkloads: 2,
-					FlavorsUsage: []kueue.FlavorUsage{{
+					PendingWorkloads:   0,
+					ReservingWorkloads: 2,
+					FlavorsReservation: []kueue.FlavorUsage{{
 						Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
 						Resources: []kueue.ResourceUsage{{
 							Name:  corev1.ResourceCPU,
 							Total: resource.MustParse("5"),
 						}},
 					}},
-				}, ignoreCqCondition, ignorePendingWorkloadsStatus))
+				}, ignoreCqCondition, ignoreInClusterQueueStatus))
 			})
 		})
 	})
@@ -552,16 +553,16 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
 					return updatedCQ.Status
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
-					PendingWorkloads:  0,
-					AdmittedWorkloads: 0,
-					FlavorsUsage: []kueue.FlavorUsage{{
+					PendingWorkloads:   0,
+					ReservingWorkloads: 0,
+					FlavorsReservation: []kueue.FlavorUsage{{
 						Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
 						Resources: []kueue.ResourceUsage{{
 							Name:  corev1.ResourceCPU,
 							Total: resource.MustParse("0"),
 						}},
 					}},
-				}, ignoreCqCondition, ignorePendingWorkloadsStatus))
+				}, ignoreCqCondition, ignoreInClusterQueueStatus))
 			})
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)

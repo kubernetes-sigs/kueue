@@ -31,6 +31,35 @@ rules:
   - apiGroups:
       - ""
     resources:
+      - pods
+    verbs:
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - pods/status
+    verbs:
+      - get
+      - patch
+  - apiGroups:
+      - ""
+    resources:
+      - podtemplates
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - update
+      - watch
+  - apiGroups:
+      - ""
+    resources:
       - secrets
     verbs:
       - get
@@ -55,6 +84,24 @@ rules:
       - list
       - update
       - watch
+  - apiGroups:
+      - autoscaling.x-k8s.io
+    resources:
+      - provisioningrequests
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - autoscaling.x-k8s.io
+    resources:
+      - provisioningrequests/status
+    verbs:
+      - get
   - apiGroups:
       - batch
     resources:
@@ -117,6 +164,40 @@ rules:
   - apiGroups:
       - kubeflow.org
     resources:
+      - mxjobs
+    verbs:
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - kubeflow.org
+    resources:
+      - mxjobs/status
+    verbs:
+      - get
+      - update
+  - apiGroups:
+      - kubeflow.org
+    resources:
+      - paddlejobs
+    verbs:
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - kubeflow.org
+    resources:
+      - paddlejobs/status
+    verbs:
+      - get
+      - update
+  - apiGroups:
+      - kubeflow.org
+    resources:
       - pytorchjobs
     verbs:
       - get
@@ -147,6 +228,49 @@ rules:
       - tfjobs/status
     verbs:
       - get
+      - update
+  - apiGroups:
+      - kubeflow.org
+    resources:
+      - xgboostjobs
+    verbs:
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - kubeflow.org
+    resources:
+      - xgboostjobs/status
+    verbs:
+      - get
+      - update
+  - apiGroups:
+      - kueue.x-k8s.io
+    resources:
+      - admissionchecks
+    verbs:
+      - create
+      - delete
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - kueue.x-k8s.io
+    resources:
+      - admissionchecks/finalizers
+    verbs:
+      - update
+  - apiGroups:
+      - kueue.x-k8s.io
+    resources:
+      - admissionchecks/status
+    verbs:
+      - get
+      - patch
       - update
   - apiGroups:
       - kueue.x-k8s.io
@@ -203,6 +327,14 @@ rules:
   - apiGroups:
       - kueue.x-k8s.io
     resources:
+      - provisioningrequestconfigs
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - kueue.x-k8s.io
+    resources:
       - resourceflavors
     verbs:
       - delete
@@ -216,6 +348,14 @@ rules:
       - resourceflavors/finalizers
     verbs:
       - update
+  - apiGroups:
+      - kueue.x-k8s.io
+    resources:
+      - workloadpriorityclasses
+    verbs:
+      - get
+      - list
+      - watch
   - apiGroups:
       - kueue.x-k8s.io
     resources:

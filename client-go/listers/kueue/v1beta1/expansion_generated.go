@@ -41,6 +41,14 @@ type LocalQueueListerExpansion interface{}
 // LocalQueueNamespaceLister.
 type LocalQueueNamespaceListerExpansion interface{}
 
+// ProvisioningRequestConfigListerExpansion allows custom methods to be added to
+// ProvisioningRequestConfigLister.
+type ProvisioningRequestConfigListerExpansion interface{}
+
+// ProvisioningRequestConfigNamespaceListerExpansion allows custom methods to be added to
+// ProvisioningRequestConfigNamespaceLister.
+type ProvisioningRequestConfigNamespaceListerExpansion interface{}
+
 // ResourceFlavorListerExpansion allows custom methods to be added to
 // ResourceFlavorLister.
 type ResourceFlavorListerExpansion interface{}
@@ -56,3 +64,11 @@ type WorkloadListerExpansion interface{}
 // WorkloadNamespaceListerExpansion allows custom methods to be added to
 // WorkloadNamespaceLister.
 type WorkloadNamespaceListerExpansion interface{}
+
+// WorkloadPriorityClassListerExpansion allows custom methods to be added to
+// WorkloadPriorityClassLister.
+type WorkloadPriorityClassListerExpansion interface{}
+
+// WorkloadPriorityClassNamespaceListerExpansion allows custom methods to be added to
+// WorkloadPriorityClassNamespaceLister.
+type WorkloadPriorityClassNamespaceListerExpansion interface{}

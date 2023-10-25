@@ -65,6 +65,19 @@ type ResourceFlavorSpec struct {
 	// +listType=atomic
 	// +kubebuilder:validation:MaxItems=8
 	NodeTaints []corev1.Taint `json:"nodeTaints,omitempty"`
+
+	// tolerations are extra tolerations that will be added to the pods admitted in
+	// the quota associated with this resource flavor.
+	//
+	// An example of a toleration is
+	// cloud.provider.com/preemptible="true":NoSchedule
+	//
+	// tolerations can be up to 8 elements.
+	//
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=8
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 }
 
 //+kubebuilder:object:root=true

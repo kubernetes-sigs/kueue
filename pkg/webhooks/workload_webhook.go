@@ -19,6 +19,7 @@ package webhooks
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
@@ -35,6 +36,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -142,6 +144,7 @@ func ValidateWorkload(obj *kueue.Workload) field.ErrorList {
 
 	allErrs = append(allErrs, metav1validation.ValidateConditions(obj.Status.Conditions, statusPath.Child("conditions"))...)
 	allErrs = append(allErrs, validateReclaimablePods(obj, statusPath.Child("reclaimablePods"))...)
+	allErrs = append(allErrs, validateAdmissionChecks(obj, statusPath.Child("admissionChecks"))...)
 
 	return allErrs
 }
@@ -182,12 +185,109 @@ func validateContainer(c *corev1.Container, path *field.Path) field.ErrorList {
 	return allErrs
 }
 
+func validateAdmissionChecks(obj *kueue.Workload, basePath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	for i := range obj.Status.AdmissionChecks {
+		admissionChecksPath := basePath.Index(i)
+		ac := &obj.Status.AdmissionChecks[i]
+		if len(ac.PodSetUpdates) > 0 && len(ac.PodSetUpdates) != len(obj.Spec.PodSets) {
+			allErrs = append(allErrs, field.Invalid(admissionChecksPath.Child("podSetUpdates"), field.OmitValueType{}, "must have the same number of podSetUpdates as the podSets"))
+		}
+		allErrs = append(allErrs, validatePodSetUpdates(ac, obj, admissionChecksPath.Child("podSetUpdates"))...)
+	}
+	return allErrs
+}
+
+func validatePodSetUpdates(acs *kueue.AdmissionCheckState, obj *kueue.Workload, basePath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+
+	knowPodSets := sets.New(slices.Map(obj.Spec.PodSets, func(ps *kueue.PodSet) string {
+		return ps.Name
+	})...)
+
+	for i := range acs.PodSetUpdates {
+		psu := &acs.PodSetUpdates[i]
+		psuPath := basePath.Index(i)
+		if !knowPodSets.Has(psu.Name) {
+			allErrs = append(allErrs, field.NotSupported(psuPath.Child("name"), psu.Name, sets.List(knowPodSets)))
+		}
+		allErrs = append(allErrs, validateTolerations(psu.Tolerations, psuPath.Child("tolerations"))...)
+		allErrs = append(allErrs, apivalidation.ValidateAnnotations(psu.Annotations, psuPath.Child("annotations"))...)
+		allErrs = append(allErrs, metav1validation.ValidateLabels(psu.NodeSelector, psuPath.Child("nodeSelector"))...)
+		allErrs = append(allErrs, metav1validation.ValidateLabels(psu.Labels, psuPath.Child("labels"))...)
+	}
+	return allErrs
+}
+
+func validateImmutablePodSetUpdates(newObj, oldObj *kueue.Workload, basePath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	newAcs := slices.ToRefMap(newObj.Status.AdmissionChecks, func(f *kueue.AdmissionCheckState) string { return f.Name })
+	for i := range oldObj.Status.AdmissionChecks {
+		oldAc := &oldObj.Status.AdmissionChecks[i]
+		newAc, found := newAcs[oldAc.Name]
+		if !found {
+			continue
+		}
+		if oldAc.State == kueue.CheckStateReady && newAc.State == kueue.CheckStateReady {
+			allErrs = append(allErrs, apivalidation.ValidateImmutableField(newAc.PodSetUpdates, oldAc.PodSetUpdates, basePath.Index(i).Child("podSetUpdates"))...)
+		}
+	}
+	return allErrs
+}
+
+// validateTolerations is extracted from git.k8s.io/kubernetes/pkg/apis/core/validation/validation.go
+// we do not import it as dependency, see the comment:
+// https://github.com/kubernetes/kubernetes/issues/79384#issuecomment-505627280
+func validateTolerations(tolerations []corev1.Toleration, fldPath *field.Path) field.ErrorList {
+	allErrors := field.ErrorList{}
+	for i, toleration := range tolerations {
+		idxPath := fldPath.Index(i)
+		// validate the toleration key
+		if len(toleration.Key) > 0 {
+			allErrors = append(allErrors, metav1validation.ValidateLabelName(toleration.Key, idxPath.Child("key"))...)
+		}
+
+		// empty toleration key with Exists operator and empty value means match all taints
+		if len(toleration.Key) == 0 && toleration.Operator != corev1.TolerationOpExists {
+			allErrors = append(allErrors, field.Invalid(idxPath.Child("operator"), toleration.Operator,
+				"operator must be Exists when `key` is empty, which means \"match all values and all keys\""))
+		}
+
+		if toleration.TolerationSeconds != nil && toleration.Effect != corev1.TaintEffectNoExecute {
+			allErrors = append(allErrors, field.Invalid(idxPath.Child("effect"), toleration.Effect,
+				"effect must be 'NoExecute' when `tolerationSeconds` is set"))
+		}
+
+		// validate toleration operator and value
+		switch toleration.Operator {
+		// empty operator means Equal
+		case corev1.TolerationOpEqual, "":
+			if errs := validation.IsValidLabelValue(toleration.Value); len(errs) != 0 {
+				allErrors = append(allErrors, field.Invalid(idxPath.Child("operator"), toleration.Value, strings.Join(errs, ";")))
+			}
+		case corev1.TolerationOpExists:
+			if len(toleration.Value) > 0 {
+				allErrors = append(allErrors, field.Invalid(idxPath.Child("operator"), toleration, "value must be empty when `operator` is 'Exists'"))
+			}
+		default:
+			validValues := []string{string(corev1.TolerationOpEqual), string(corev1.TolerationOpExists)}
+			allErrors = append(allErrors, field.NotSupported(idxPath.Child("operator"), toleration.Operator, validValues))
+		}
+
+		// validate toleration effect, empty toleration effect means match all taint effects
+		if len(toleration.Effect) > 0 {
+			allErrors = append(allErrors, validateTaintEffect(&toleration.Effect, true, idxPath.Child("effect"))...)
+		}
+	}
+	return allErrors
+}
+
 func validateAdmission(obj *kueue.Workload, path *field.Path) field.ErrorList {
 	admission := obj.Status.Admission
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, validateNameReference(string(admission.ClusterQueue), path.Child("clusterQueue"))...)
 
-	names := sets.NewString()
+	names := sets.New[string]()
 	for _, ps := range obj.Spec.PodSets {
 		names.Insert(ps.Name)
 	}
@@ -242,13 +342,17 @@ func validateReclaimablePods(obj *kueue.Workload, basePath *field.Path) field.Er
 func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 	var allErrs field.ErrorList
 	specPath := field.NewPath("spec")
+	statusPath := field.NewPath("status")
 	allErrs = append(allErrs, ValidateWorkload(newObj)...)
 	allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"))...)
+	allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PriorityClassSource, oldObj.Spec.PriorityClassSource, specPath.Child("priorityClassSource"))...)
+	allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PriorityClassName, oldObj.Spec.PriorityClassName, specPath.Child("priorityClassName"))...)
 	if workload.HasQuotaReservation(newObj) && workload.HasQuotaReservation(oldObj) {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.QueueName, oldObj.Spec.QueueName, specPath.Child("queueName"))...)
 		allErrs = append(allErrs, validateReclaimablePodsUpdate(newObj, oldObj, field.NewPath("status", "reclaimablePods"))...)
 	}
 	allErrs = append(allErrs, validateAdmissionUpdate(newObj.Status.Admission, oldObj.Status.Admission, field.NewPath("status", "admission"))...)
+	allErrs = append(allErrs, validateImmutablePodSetUpdates(newObj, oldObj, statusPath.Child("admissionChecks"))...)
 
 	return allErrs
 }

@@ -17,6 +17,7 @@ limitations under the License.
 package maps
 
 import (
+	"maps"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -46,7 +47,7 @@ func TestToRefMap(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			result := Clone(tc.orig)
+			result := maps.Clone(tc.orig)
 			if diff := cmp.Diff(tc.orig, result); diff != "" {
 				t.Errorf("Unexpected result (-want,+got):\n%s", diff)
 			}

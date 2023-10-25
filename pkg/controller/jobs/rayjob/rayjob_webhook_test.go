@@ -23,11 +23,17 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	rayjobapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
+	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
+)
+
+var (
+	labelsPath                    = field.NewPath("metadata", "labels")
+	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
 )
 
 func TestValidateDefault(t *testing.T) {
@@ -217,7 +223,7 @@ func TestValidateUpdate(t *testing.T) {
 				ShutdownAfterJobFinishes(true).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Forbidden(field.NewPath("metadata", "labels").Key(constants.QueueLabel), "must not update queue name when job is unsuspend"),
+				field.Invalid(field.NewPath("metadata", "labels").Key(constants.QueueLabel), "queue", apivalidation.FieldImmutableErrorMsg),
 			}.ToAggregate(),
 		},
 		"managed - queue name can change while suspended": {
@@ -232,6 +238,19 @@ func TestValidateUpdate(t *testing.T) {
 				ShutdownAfterJobFinishes(true).
 				Obj(),
 			wantErr: nil,
+		},
+		"priorityClassName is immutable": {
+			oldJob: testingrayutil.MakeJob("job", "ns").
+				Queue("queue").
+				WorkloadPriorityClass("test-1").
+				Obj(),
+			newJob: testingrayutil.MakeJob("job", "ns").
+				Queue("queue").
+				WorkloadPriorityClass("test-2").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(workloadPriorityClassNamePath, "test-1", apivalidation.FieldImmutableErrorMsg),
+			}.ToAggregate(),
 		},
 	}
 

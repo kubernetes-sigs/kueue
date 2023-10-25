@@ -29,10 +29,14 @@ type Interface interface {
 	ClusterQueues() ClusterQueueInformer
 	// LocalQueues returns a LocalQueueInformer.
 	LocalQueues() LocalQueueInformer
+	// ProvisioningRequestConfigs returns a ProvisioningRequestConfigInformer.
+	ProvisioningRequestConfigs() ProvisioningRequestConfigInformer
 	// ResourceFlavors returns a ResourceFlavorInformer.
 	ResourceFlavors() ResourceFlavorInformer
 	// Workloads returns a WorkloadInformer.
 	Workloads() WorkloadInformer
+	// WorkloadPriorityClasses returns a WorkloadPriorityClassInformer.
+	WorkloadPriorityClasses() WorkloadPriorityClassInformer
 }
 
 type version struct {
@@ -61,6 +65,11 @@ func (v *version) LocalQueues() LocalQueueInformer {
 	return &localQueueInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
+// ProvisioningRequestConfigs returns a ProvisioningRequestConfigInformer.
+func (v *version) ProvisioningRequestConfigs() ProvisioningRequestConfigInformer {
+	return &provisioningRequestConfigInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
 // ResourceFlavors returns a ResourceFlavorInformer.
 func (v *version) ResourceFlavors() ResourceFlavorInformer {
 	return &resourceFlavorInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
@@ -69,4 +78,9 @@ func (v *version) ResourceFlavors() ResourceFlavorInformer {
 // Workloads returns a WorkloadInformer.
 func (v *version) Workloads() WorkloadInformer {
 	return &workloadInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// WorkloadPriorityClasses returns a WorkloadPriorityClassInformer.
+func (v *version) WorkloadPriorityClasses() WorkloadPriorityClassInformer {
+	return &workloadPriorityClassInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }

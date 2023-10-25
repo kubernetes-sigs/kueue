@@ -23,6 +23,10 @@ type ClusterQueueExpansion interface{}
 
 type LocalQueueExpansion interface{}
 
+type ProvisioningRequestConfigExpansion interface{}
+
 type ResourceFlavorExpansion interface{}
 
 type WorkloadExpansion interface{}
+
+type WorkloadPriorityClassExpansion interface{}

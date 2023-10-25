@@ -226,9 +226,22 @@ type Integrations struct {
 	//  - "kubeflow.org/mpijob"
 	//  - "ray.io/rayjob"
 	//  - "jobset.x-k8s.io/jobset"
+	//  - "kubeflow.org/mxjob"
+	//  - "kubeflow.org/paddlejob"
 	//  - "kubeflow.org/pytorchjob"
 	//  - "kubeflow.org/tfjob"
+	//  - "kubeflow.org/xgboostjob"
+	//  - "pod"
 	Frameworks []string `json:"frameworks,omitempty"`
+	// PodOptions defines kueue controller behaviour for pod objects
+	PodOptions *PodIntegrationOptions `json:"podOptions,omitempty"`
+}
+
+type PodIntegrationOptions struct {
+	// NamespaceSelector can be used to omit some namespaces from pod reconciliation
+	NamespaceSelector *metav1.LabelSelector `json:"namespaceSelector,omitempty"`
+	// PodSelector can be used to choose what pods to reconcile
+	PodSelector *metav1.LabelSelector `json:"podSelector,omitempty"`
 }
 
 type QueueVisibility struct {

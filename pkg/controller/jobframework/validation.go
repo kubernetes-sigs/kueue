@@ -24,10 +24,11 @@ import (
 )
 
 var (
-	annotationsPath       = field.NewPath("metadata", "annotations")
-	labelsPath            = field.NewPath("metadata", "labels")
-	parentWorkloadKeyPath = annotationsPath.Key(constants.ParentWorkloadAnnotation)
-	queueNameLabelPath    = labelsPath.Key(constants.QueueLabel)
+	annotationsPath               = field.NewPath("metadata", "annotations")
+	labelsPath                    = field.NewPath("metadata", "labels")
+	parentWorkloadKeyPath         = annotationsPath.Key(constants.ParentWorkloadAnnotation)
+	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
+	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
 )
 
 func ValidateCreateForQueueName(job GenericJob) field.ErrorList {
@@ -69,17 +70,18 @@ func ValidateCreateForParentWorkload(job GenericJob) field.ErrorList {
 
 func ValidateUpdateForQueueName(oldJob, newJob GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
-	if !newJob.IsSuspended() && (QueueName(oldJob) != QueueName(newJob)) {
-		allErrs = append(allErrs, field.Forbidden(queueNameLabelPath, "must not update queue name when job is unsuspend"))
+	if !newJob.IsSuspended() {
+		allErrs = append(allErrs, apivalidation.ValidateImmutableField(QueueName(oldJob), QueueName(newJob), queueNameLabelPath)...)
 	}
 	return allErrs
 }
 
 func ValidateUpdateForParentWorkload(oldJob, newJob GenericJob) field.ErrorList {
-	var allErrs field.ErrorList
-	if errList := apivalidation.ValidateImmutableField(ParentWorkloadName(newJob),
-		ParentWorkloadName(oldJob), parentWorkloadKeyPath); len(errList) > 0 {
-		allErrs = append(allErrs, field.Forbidden(parentWorkloadKeyPath, "this annotation is immutable"))
-	}
+	allErrs := apivalidation.ValidateImmutableField(ParentWorkloadName(newJob), ParentWorkloadName(oldJob), parentWorkloadKeyPath)
+	return allErrs
+}
+
+func ValidateUpdateForWorkloadPriorityClassName(oldJob, newJob GenericJob) field.ErrorList {
+	allErrs := apivalidation.ValidateImmutableField(workloadPriorityClassName(oldJob), workloadPriorityClassName(newJob), workloadPriorityClassNamePath)
 	return allErrs
 }

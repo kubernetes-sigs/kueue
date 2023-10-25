@@ -19,6 +19,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"time"
@@ -28,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
@@ -44,7 +46,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
-	"sigs.k8s.io/kueue/pkg/util/maps"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/routine"
@@ -119,7 +121,7 @@ func (cu *cohortsUsage) add(cohort string, assigment cache.FlavorResourceQuantit
 
 	for flavor, resources := range assigment {
 		if _, found := cohortUsage[flavor]; found {
-			cohortUsage[flavor] = maps.Merge(cohortUsage[flavor], resources, func(a, b int64) int64 { return a + b })
+			cohortUsage[flavor] = utilmaps.Merge(cohortUsage[flavor], resources, func(a, b int64) int64 { return a + b })
 		} else {
 			cohortUsage[flavor] = maps.Clone(resources)
 		}
@@ -128,8 +130,8 @@ func (cu *cohortsUsage) add(cohort string, assigment cache.FlavorResourceQuantit
 }
 
 func (cu *cohortsUsage) totalUsageForCommonFlavorResources(cohort string, assigment cache.FlavorResourceQuantities) cache.FlavorResourceQuantities {
-	return maps.Intersect((*cu)[cohort], assigment, func(a, b map[corev1.ResourceName]int64) map[corev1.ResourceName]int64 {
-		return maps.Intersect(a, b, func(a, b int64) int64 { return a + b })
+	return utilmaps.Intersect((*cu)[cohort], assigment, func(a, b map[corev1.ResourceName]int64) map[corev1.ResourceName]int64 {
+		return utilmaps.Intersect(a, b, func(a, b int64) int64 { return a + b })
 	})
 }
 
@@ -192,6 +194,10 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			if cycleCohortsUsage.hasCommonFlavorResources(cq.Cohort.Name, e.assignment.Usage) && !cq.Cohort.CanFit(sum) {
 				e.status = skipped
 				e.inadmissibleMsg = "other workloads in the cohort were prioritized"
+				// When the workload needs borrowing and there is another workload in cohort doesn't
+				// need borrowing, the workload needborrowing will come again. In this case we should
+				// not skip the previous flavors.
+				e.LastAssignment = nil
 				continue
 			}
 			// Even if the workload will not be admitted after this point, due to preemption pending or other failures,
@@ -228,7 +234,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			log.V(5).Info("Finished waiting for all admitted workloads to be in the PodsReady condition")
 		}
 		e.status = nominated
-		if err := s.admit(ctx, e); err != nil {
+		if err := s.admit(ctx, e, cq.AdmissionChecks); err != nil {
 			e.inadmissibleMsg = fmt.Sprintf("Failed to admit workload: %v", err)
 		}
 	}
@@ -306,6 +312,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		} else {
 			e.assignment, e.preemptionTargets = s.getAssignments(log, &e.Info, &snap)
 			e.inadmissibleMsg = e.assignment.Message()
+			e.Info.LastAssignment = &e.assignment.LastState
 		}
 		entries = append(entries, e)
 	}
@@ -419,7 +426,7 @@ func (s *Scheduler) validateLimitRange(ctx context.Context, wi *workload.Info) e
 // admit sets the admitting clusterQueue and flavors into the workload of
 // the entry, and asynchronously updates the object in the apiserver after
 // assuming it in the cache.
-func (s *Scheduler) admit(ctx context.Context, e *entry) error {
+func (s *Scheduler) admit(ctx context.Context, e *entry, mustHaveChecks sets.Set[string]) error {
 	log := ctrl.LoggerFrom(ctx)
 	newWorkload := e.Obj.DeepCopy()
 	admission := &kueue.Admission{
@@ -428,6 +435,10 @@ func (s *Scheduler) admit(ctx context.Context, e *entry) error {
 	}
 
 	workload.SetQuotaReservation(newWorkload, admission)
+	if workload.HasAllChecks(newWorkload, mustHaveChecks) {
+		// sync Admitted, ignore the result since an API update is always done.
+		_ = workload.SyncAdmittedCondition(newWorkload)
+	}
 	if err := s.cache.AssumeWorkload(newWorkload); err != nil {
 		return err
 	}

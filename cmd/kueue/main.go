@@ -35,6 +35,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+	autoscaling "k8s.io/autoscaler/cluster-autoscaler/provisioningrequest/apis/autoscaling.x-k8s.io/v1beta1"
 	"k8s.io/client-go/discovery"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -48,10 +49,12 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/config"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/noop"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/scheduler"
@@ -67,8 +70,9 @@ import (
 )
 
 var (
-	scheme   = runtime.NewScheme()
-	setupLog = ctrl.Log.WithName("setup")
+	scheme            = runtime.NewScheme()
+	setupLog          = ctrl.Log.WithName("setup")
+	errPodIntegration = errors.New("pod integration only supported in Kubernetes 1.27 or newer")
 )
 
 func init() {
@@ -77,6 +81,7 @@ func init() {
 
 	utilruntime.Must(kueue.AddToScheme(scheme))
 	utilruntime.Must(configapi.AddToScheme(scheme))
+	utilruntime.Must(autoscaling.AddToScheme(scheme))
 	// Add any additional framework integration types.
 	utilruntime.Must(
 		jobframework.ForEachIntegration(func(_ string, cb jobframework.IntegrationCallbacks) error {
@@ -86,6 +91,7 @@ func init() {
 			return nil
 		}),
 	)
+
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -184,6 +190,16 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 		return err
 	}
 
+	// setup provision admission check controller indexes
+	if features.Enabled(features.ProvisioningACC) {
+		if !provisioning.ServerSupportsProvisioningRequest(mgr) {
+			setupLog.Error(nil, "Provisioning Requests are not supported, skipped admission check controller setup")
+		} else if err := provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer()); err != nil {
+			setupLog.Error(err, "Could not setup provisioning indexer")
+			os.Exit(1)
+		}
+	}
+
 	err = jobframework.ForEachIntegration(func(name string, cb jobframework.IntegrationCallbacks) error {
 		if isFrameworkEnabled(cfg, name) {
 			if err := cb.SetupIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
@@ -206,6 +222,16 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 		setupLog.Error(err, "Unable to create controller", "controller", failedCtrl)
 		os.Exit(1)
 	}
+
+	// setup provision admission check controller
+	if features.Enabled(features.ProvisioningACC) && provisioning.ServerSupportsProvisioningRequest(mgr) {
+		// A info message is added in setupIndexes if autoscaling is not supported by the cluster
+		if err := provisioning.NewController(mgr.GetClient()).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "Could not setup provisioning controller")
+			os.Exit(1)
+		}
+	}
+
 	manageJobsWithoutQueueName := cfg.ManageJobsWithoutQueueName
 
 	if failedWebhook, err := webhooks.Setup(mgr); err != nil {
@@ -227,13 +253,7 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 				return err
 			}
 			if _, err = mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version); err != nil {
-				// TODO: If the below PR is released, we need to change a way to check if the GVK is registered.
-				// REF: https://github.com/kubernetes-sigs/controller-runtime/pull/2425
-				// if !meta.IsNoMatchError(err) {
-				//   return err
-				// }
-				var NoMatchingErr *discovery.ErrGroupDiscoveryFailed
-				if !meta.IsNoMatchError(err) && !errors.As(err, &NoMatchingErr) {
+				if !meta.IsNoMatchError(err) {
 					return err
 				}
 				log.Info("No matching API server for job framework, skip to create controller and webhook")
@@ -245,6 +265,21 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 				).SetupWithManager(mgr); err != nil {
 					log.Error(err, "Unable to create controller")
 					return err
+				}
+				if name == "pod" {
+					v := serverVersionFetcher.GetServerVersion()
+					if v.String() == "" || v.LessThan(kubeversion.KubeVersion1_27) {
+						setupLog.Error(errPodIntegration,
+							"Failed to configure reconcilers",
+							"kubernetesVersion", v)
+						os.Exit(1)
+					}
+
+					opts = append(
+						opts,
+						jobframework.WithPodNamespaceSelector(cfg.Integrations.PodOptions.NamespaceSelector),
+						jobframework.WithPodSelector(cfg.Integrations.PodOptions.PodSelector),
+					)
 				}
 				if err = cb.SetupWebhook(mgr, opts...); err != nil {
 					log.Error(err, "Unable to create webhook")
@@ -303,6 +338,11 @@ func setupServerVersionFetcher(mgr ctrl.Manager, kubeConfig *rest.Config) *kubev
 
 	if err := mgr.Add(serverVersionFetcher); err != nil {
 		setupLog.Error(err, "Unable to add server version fetcher to manager")
+		os.Exit(1)
+	}
+
+	if err := serverVersionFetcher.FetchServerVersion(); err != nil {
+		setupLog.Error(err, "failed to fetch kubernetes server version")
 		os.Exit(1)
 	}
 

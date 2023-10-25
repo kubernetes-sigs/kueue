@@ -71,6 +71,35 @@ spec:
                   Validation of a cohort name is equivalent to that of object names:
                   subdomain in DNS (RFC 1123)."
                 type: string
+              flavorFungibility:
+                description: flavorFungibility defines whether a workload should try
+                  the next flavor before borrowing or preempting in the flavor being
+                  evaluated.
+                properties:
+                  whenCanBorrow:
+                    default: Borrow
+                    description: "whenCanBorrow determines whether a workload should
+                      try the next flavor before borrowing in current flavor. The
+                      possible values are: \n - `Borrow` (default): allocate in current
+                      flavor if borrowing is possible. - `TryNextFlavor`: try next
+                      flavor even if the current flavor has enough resources to borrow."
+                    enum:
+                    - Borrow
+                    - TryNextFlavor
+                    type: string
+                  whenCanPreempt:
+                    default: TryNextFlavor
+                    description: "whenCanPreempt determines whether a workload should
+                      try the next flavor before borrowing in current flavor. The
+                      possible values are: \n - `Preempt`: allocate in current flavor
+                      if it's possible to preempt some workloads. - `TryNextFlavor`
+                      (default): try next flavor even if there are enough candidates
+                      for preemption in the current flavor."
+                    enum:
+                    - Preempt
+                    - TryNextFlavor
+                    type: string
+                type: object
               namespaceSelector:
                 description: namespaceSelector defines which namespaces are allowed
                   to submit workloads to this clusterQueue. Beyond this basic support
@@ -372,9 +401,59 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              flavorsReservation:
+                description: flavorsReservation are the reserved quotas, by flavor,
+                  currently in use by the workloads assigned to this ClusterQueue.
+                items:
+                  properties:
+                    name:
+                      description: name of the flavor.
+                      type: string
+                    resources:
+                      description: resources lists the quota usage for the resources
+                        in this flavor.
+                      items:
+                        properties:
+                          borrowed:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            description: Borrowed is quantity of quota that is borrowed
+                              from the cohort. In other words, it's the used quota
+                              that is over the nominalQuota.
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                          name:
+                            description: name of the resource
+                            type: string
+                          total:
+                            anyOf:
+                            - type: integer
+                            - type: string
+                            description: total is the total quantity of used quota,
+                              including the amount borrowed from the cohort.
+                            pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                            x-kubernetes-int-or-string: true
+                        required:
+                        - name
+                        type: object
+                      maxItems: 16
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - name
+                      x-kubernetes-list-type: map
+                  required:
+                  - name
+                  - resources
+                  type: object
+                maxItems: 16
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
               flavorsUsage:
                 description: flavorsUsage are the used quotas, by flavor, currently
-                  in use by the workloads assigned to this ClusterQueue.
+                  in use by the workloads admitted in this ClusterQueue.
                 items:
                   properties:
                     name:
@@ -459,6 +538,11 @@ spec:
                 required:
                 - lastChangeTime
                 type: object
+              reservingWorkloads:
+                description: reservingWorkloads is the number of workloads currently
+                  reserving quota in this clusterQueue.
+                format: int32
+                type: integer
             type: object
         type: object
     served: true

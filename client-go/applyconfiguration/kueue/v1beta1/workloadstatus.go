@@ -24,10 +24,10 @@ import (
 // WorkloadStatusApplyConfiguration represents an declarative configuration of the WorkloadStatus type for use
 // with apply.
 type WorkloadStatusApplyConfiguration struct {
-	Admission       *AdmissionApplyConfiguration       `json:"admission,omitempty"`
-	Conditions      []v1.Condition                     `json:"conditions,omitempty"`
-	ReclaimablePods []ReclaimablePodApplyConfiguration `json:"reclaimablePods,omitempty"`
-	AdmissionChecks []v1.Condition                     `json:"admissionChecks,omitempty"`
+	Admission       *AdmissionApplyConfiguration            `json:"admission,omitempty"`
+	Conditions      []v1.Condition                          `json:"conditions,omitempty"`
+	ReclaimablePods []ReclaimablePodApplyConfiguration      `json:"reclaimablePods,omitempty"`
+	AdmissionChecks []AdmissionCheckStateApplyConfiguration `json:"admissionChecks,omitempty"`
 }
 
 // WorkloadStatusApplyConfiguration constructs an declarative configuration of the WorkloadStatus type for use with
@@ -70,9 +70,12 @@ func (b *WorkloadStatusApplyConfiguration) WithReclaimablePods(values ...*Reclai
 // WithAdmissionChecks adds the given value to the AdmissionChecks field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the AdmissionChecks field.
-func (b *WorkloadStatusApplyConfiguration) WithAdmissionChecks(values ...v1.Condition) *WorkloadStatusApplyConfiguration {
+func (b *WorkloadStatusApplyConfiguration) WithAdmissionChecks(values ...*AdmissionCheckStateApplyConfiguration) *WorkloadStatusApplyConfiguration {
 	for i := range values {
-		b.AdmissionChecks = append(b.AdmissionChecks, values[i])
+		if values[i] == nil {
+			panic("nil value passed to WithAdmissionChecks")
+		}
+		b.AdmissionChecks = append(b.AdmissionChecks, *values[i])
 	}
 	return b
 }

@@ -1,0 +1,21 @@
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: AdmissionCheck
+metadata:
+  name: prov-test
+spec:
+  controllerName: ProvisioningRequestController
+  parameters:
+    apiGroup: kueue.x-k8s.io
+    kind: ProvisioningRequestConfig
+    name: prov-test-config
+
+---
+
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ProvisioningRequestConfig
+metadata:
+  name: prov-test-config
+spec:
+  provisioningClassName: test-class
+  parameters:
+    parma1: value1

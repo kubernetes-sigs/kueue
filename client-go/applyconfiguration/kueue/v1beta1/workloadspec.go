@@ -20,10 +20,11 @@ package v1beta1
 // WorkloadSpecApplyConfiguration represents an declarative configuration of the WorkloadSpec type for use
 // with apply.
 type WorkloadSpecApplyConfiguration struct {
-	PodSets           []PodSetApplyConfiguration `json:"podSets,omitempty"`
-	QueueName         *string                    `json:"queueName,omitempty"`
-	PriorityClassName *string                    `json:"priorityClassName,omitempty"`
-	Priority          *int32                     `json:"priority,omitempty"`
+	PodSets             []PodSetApplyConfiguration `json:"podSets,omitempty"`
+	QueueName           *string                    `json:"queueName,omitempty"`
+	PriorityClassName   *string                    `json:"priorityClassName,omitempty"`
+	Priority            *int32                     `json:"priority,omitempty"`
+	PriorityClassSource *string                    `json:"priorityClassSource,omitempty"`
 }
 
 // WorkloadSpecApplyConfiguration constructs an declarative configuration of the WorkloadSpec type for use with
@@ -66,5 +67,13 @@ func (b *WorkloadSpecApplyConfiguration) WithPriorityClassName(value string) *Wo
 // If called multiple times, the Priority field is set to the value of the last call.
 func (b *WorkloadSpecApplyConfiguration) WithPriority(value int32) *WorkloadSpecApplyConfiguration {
 	b.Priority = &value
+	return b
+}
+
+// WithPriorityClassSource sets the PriorityClassSource field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PriorityClassSource field is set to the value of the last call.
+func (b *WorkloadSpecApplyConfiguration) WithPriorityClassSource(value string) *WorkloadSpecApplyConfiguration {
+	b.PriorityClassSource = &value
 	return b
 }

@@ -46,11 +46,12 @@ const (
 )
 
 var (
-	annotationsPath          = field.NewPath("metadata", "annotations")
-	labelsPath               = field.NewPath("metadata", "labels")
-	parentWorkloadKeyPath    = annotationsPath.Key(constants.ParentWorkloadAnnotation)
-	queueNameLabelPath       = labelsPath.Key(constants.QueueLabel)
-	queueNameAnnotationsPath = annotationsPath.Key(constants.QueueAnnotation)
+	annotationsPath               = field.NewPath("metadata", "annotations")
+	labelsPath                    = field.NewPath("metadata", "labels")
+	parentWorkloadKeyPath         = annotationsPath.Key(constants.ParentWorkloadAnnotation)
+	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
+	queueNameAnnotationsPath      = annotationsPath.Key(constants.QueueAnnotation)
+	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
 )
 
 func TestValidateCreate(t *testing.T) {
@@ -267,10 +268,12 @@ func TestValidateUpdate(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name:    "add queue name with suspend is false",
-			oldJob:  testingutil.MakeJob("job", "default").Obj(),
-			newJob:  testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
-			wantErr: field.ErrorList{field.Forbidden(queueNameLabelPath, "must not update queue name when job is unsuspend")},
+			name:   "add queue name with suspend is false",
+			oldJob: testingutil.MakeJob("job", "default").Obj(),
+			newJob: testingutil.MakeJob("job", "default").Queue("queue").Suspend(false).Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(queueNameLabelPath, "", apivalidation.FieldImmutableErrorMsg),
+			},
 		},
 		{
 			name:    "add queue name with suspend is true",
@@ -279,10 +282,12 @@ func TestValidateUpdate(t *testing.T) {
 			wantErr: nil,
 		},
 		{
-			name:    "change queue name with suspend is false",
-			oldJob:  testingutil.MakeJob("job", "default").Queue("queue").Obj(),
-			newJob:  testingutil.MakeJob("job", "default").Queue("queue2").Suspend(false).Obj(),
-			wantErr: field.ErrorList{field.Forbidden(queueNameLabelPath, "must not update queue name when job is unsuspend")},
+			name:   "change queue name with suspend is false",
+			oldJob: testingutil.MakeJob("job", "default").Queue("queue").Obj(),
+			newJob: testingutil.MakeJob("job", "default").Queue("queue2").Suspend(false).Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(queueNameLabelPath, "queue", apivalidation.FieldImmutableErrorMsg),
+			},
 		},
 		{
 			name:    "change queue name with suspend is true",
@@ -303,13 +308,17 @@ func TestValidateUpdate(t *testing.T) {
 				ParentWorkload("parent").
 				OwnerReference("parent", kubeflow.SchemeGroupVersionKind).
 				Obj(),
-			wantErr: field.ErrorList{field.Forbidden(parentWorkloadKeyPath, "this annotation is immutable")},
+			wantErr: field.ErrorList{
+				field.Invalid(parentWorkloadKeyPath, "parent", apivalidation.FieldImmutableErrorMsg),
+			},
 		},
 		{
-			name:    "update the non-empty parent workload to nil",
-			oldJob:  testingutil.MakeJob("job", "default").ParentWorkload("parent").Obj(),
-			newJob:  testingutil.MakeJob("job", "default").Obj(),
-			wantErr: field.ErrorList{field.Forbidden(parentWorkloadKeyPath, "this annotation is immutable")},
+			name:   "update the non-empty parent workload to nil",
+			oldJob: testingutil.MakeJob("job", "default").ParentWorkload("parent").Obj(),
+			newJob: testingutil.MakeJob("job", "default").Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(parentWorkloadKeyPath, "", apivalidation.FieldImmutableErrorMsg),
+			},
 		},
 		{
 			name:   "invalid queue name and immutable parent",
@@ -321,7 +330,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(queueNameLabelPath, "queue name", invalidRFC1123Message),
-				field.Forbidden(parentWorkloadKeyPath, "this annotation is immutable"),
+				field.Invalid(parentWorkloadKeyPath, "parent", apivalidation.FieldImmutableErrorMsg),
 			},
 		},
 		{
@@ -389,6 +398,14 @@ func TestValidateUpdate(t *testing.T) {
 				SetAnnotation(JobCompletionsEqualParallelismAnnotation, "false").
 				Obj(),
 			wantErr: nil,
+		},
+		{
+			name:   "workloadPriorityClassName is immutable",
+			oldJob: testingutil.MakeJob("job", "default").WorkloadPriorityClass("test-1").Obj(),
+			newJob: testingutil.MakeJob("job", "default").WorkloadPriorityClass("test-2").Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(workloadPriorityClassNamePath, "test-1", apivalidation.FieldImmutableErrorMsg),
+			},
 		},
 	}
 

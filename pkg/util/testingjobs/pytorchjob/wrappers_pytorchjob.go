@@ -91,6 +91,15 @@ func (j *PyTorchJobWrapper) PriorityClass(pc string) *PyTorchJobWrapper {
 	return j
 }
 
+// WorkloadPriorityClass updates job workloadpriorityclass.
+func (j *PyTorchJobWrapper) WorkloadPriorityClass(wpc string) *PyTorchJobWrapper {
+	if j.Labels == nil {
+		j.Labels = make(map[string]string)
+	}
+	j.Labels[constants.WorkloadPriorityClassLabel] = wpc
+	return j
+}
+
 // Obj returns the inner Job.
 func (j *PyTorchJobWrapper) Obj() *kftraining.PyTorchJob {
 	return &j.PyTorchJob
@@ -126,5 +135,23 @@ func (j *PyTorchJobWrapper) Suspend(s bool) *PyTorchJobWrapper {
 // UID updates the uid of the job.
 func (j *PyTorchJobWrapper) UID(uid string) *PyTorchJobWrapper {
 	j.ObjectMeta.UID = types.UID(uid)
+	return j
+}
+
+// PodAnnotation sets annotation at the pod template level
+func (j *PyTorchJobWrapper) PodAnnotation(replicaType kftraining.ReplicaType, k, v string) *PyTorchJobWrapper {
+	if j.Spec.PyTorchReplicaSpecs[replicaType].Template.Annotations == nil {
+		j.Spec.PyTorchReplicaSpecs[replicaType].Template.Annotations = make(map[string]string)
+	}
+	j.Spec.PyTorchReplicaSpecs[replicaType].Template.Annotations[k] = v
+	return j
+}
+
+// PodLabel sets label at the pod template level
+func (j *PyTorchJobWrapper) PodLabel(replicaType kftraining.ReplicaType, k, v string) *PyTorchJobWrapper {
+	if j.Spec.PyTorchReplicaSpecs[replicaType].Template.Labels == nil {
+		j.Spec.PyTorchReplicaSpecs[replicaType].Template.Labels = make(map[string]string)
+	}
+	j.Spec.PyTorchReplicaSpecs[replicaType].Template.Labels[k] = v
 	return j
 }

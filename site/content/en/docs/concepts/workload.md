@@ -89,11 +89,15 @@ In addition to the usual resource naming restrictions, you cannot use the `pods`
 ## Priority
 
 Workloads have a priority that influences the [order in which they are admitted by a ClusterQueue](/docs/concepts/cluster_queue#queueing-strategy).
-You can see the priority of the Workload in the field `.spec.priority`.
+There are two ways to set the Workload priority:
 
+- **Pod Priority**: You can see the priority of the Workload in the field `.spec.priority`.
 For a `batch/v1.Job`, Kueue sets the priority of the Workload based on the
-[pod priority](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/)
-of the Job's pod template.
+[pod priority](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/) of the Job's pod template.
+
+- **WorkloadPriority**: Sometimes developers would like to control workload's priority without affecting pod's priority.
+By using [`WorkloadPriority`](/docs/concepts/workload_priority_class),
+you can independently manage the priority of workloads for queuing and preemption, separate from pod's priority.
 
 ## Custom Workloads
 
@@ -101,6 +105,25 @@ As described previously, Kueue has built-in support for workloads created with
 the Job API. But any custom workload API can integrate with Kueue by
 creating a corresponding Workload object for it.
 
+## Dynamic Reclaim
+
+It's a mechanism allowing a currently Admitted workload to release a part of it's Quota Reservation that is no longer needed.
+
+Job integrations communicate this information by setting the `reclaimablePods` status field, enumerating the number of pods per podset for which the Quota Reservation is no longer needed.
+
+```yaml
+
+status:
+  reclaimablePods:
+  - name: podset1
+    count: 2
+  - name: podset2
+    count: 2
+    
+```
+The `count` can only increase while the workload holds a Quota Reservation.
+
 ## What's next
 
+- Learn about [workload priority class](/docs/concepts/workload_priority_class).
 - Learn how to [run jobs](/docs/tasks/run_jobs)

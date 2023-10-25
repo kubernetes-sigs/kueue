@@ -55,16 +55,16 @@ BASE_IMAGE ?= gcr.io/distroless/static:nonroot
 BUILDER_IMAGE ?= golang:$(GO_VERSION)
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION ?= 1.27
+ENVTEST_K8S_VERSION ?= 1.28
 
 INTEGRATION_TARGET ?= ./test/integration/...
 
 E2E_TARGET ?= ./test/e2e/...
 
-E2E_KIND_VERSION ?= kindest/node:v1.27.3
+E2E_KIND_VERSION ?= kindest/node:v1.28.0
 
 # E2E_K8S_VERSIONS sets the list of k8s versions included in test-e2e-all
-E2E_K8S_VERSIONS ?= 1.24.15 1.25.11 1.26.6 1.27.3
+E2E_K8S_VERSIONS ?= 1.24.15 1.25.11 1.26.6 1.27.3 1.28.0
 
 # For local testing, we should allow user to use different kind cluster name
 # Default will delete default kind cluster
@@ -106,7 +106,7 @@ help: ## Display this help.
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) \
 		rbac:roleName=manager-role output:rbac:artifacts:config=config/components/rbac\
-		crd output:crd:artifacts:config=config/components/crd/bases\
+		crd:generateEmbeddedObjectMeta=true output:crd:artifacts:config=config/components/crd/bases\
 		webhook output:webhook:artifacts:config=config/components/webhook\
 		paths="./..."
 
@@ -136,6 +136,10 @@ gomod-verify:
 	$(GO_CMD) mod tidy
 	git --no-pager diff --exit-code go.mod go.sum
 
+.PHONY: gomod-download
+gomod-download:
+	$(GO_CMD) mod download
+
 .PHONY: toc-update
 toc-update:
 	./hack/update-toc.sh
@@ -149,21 +153,21 @@ vet: ## Run go vet against code.
 	$(GO_CMD) vet ./...
 
 .PHONY: test
-test: generate gotestsum ## Run tests.
+test: gotestsum ## Run tests.
 	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) $(shell $(GO_CMD) list ./... | grep -v '/test/') -coverpkg=./... -coverprofile $(ARTIFACTS)/cover.out
 
 .PHONY: test-integration
-test-integration: manifests generate envtest ginkgo mpi-operator-crd ray-operator-crd jobset-operator-crd kf-training-operator-crd ## Run tests.
+test-integration: gomod-download envtest ginkgo mpi-operator-crd ray-operator-crd jobset-operator-crd kf-training-operator-crd  cluster-autoscaler-crd ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
 	$(GINKGO) $(GINKGO_ARGS) --junit-report=junit.xml --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 
 CREATE_KIND_CLUSTER ?= true
 .PHONY: test-e2e
-test-e2e: kustomize manifests generate ginkgo run-test-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
+test-e2e: kustomize ginkgo run-test-e2e-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 E2E_TARGETS := $(addprefix run-test-e2e-,${E2E_K8S_VERSIONS})
 .PHONY: test-e2e-all
-test-e2e-all: kustomize manifests generate envtest ginkgo $(E2E_TARGETS)
+test-e2e-all: ginkgo $(E2E_TARGETS)
 
 FORCE:
 
@@ -272,7 +276,7 @@ PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 GOLANGCI_LINT = $(PROJECT_DIR)/bin/golangci-lint
 .PHONY: golangci-lint
 golangci-lint: ## Download golangci-lint locally if necessary.
-	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.52.2
+	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.54.2
 
 CONTROLLER_GEN = $(PROJECT_DIR)/bin/controller-gen
 .PHONY: controller-gen
@@ -337,3 +341,10 @@ JOBSETROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" sigs.k8s.io/jobset)
 jobset-operator-crd:
 	mkdir -p $(PROJECT_DIR)/dep-crds/jobset-operator/
 	cp -f $(JOBSETROOT)/config/components/crd/bases/* $(PROJECT_DIR)/dep-crds/jobset-operator/
+
+
+CAROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" k8s.io/autoscaler/cluster-autoscaler)
+.PHONY: cluster-autoscaler-crd
+cluster-autoscaler-crd:
+	mkdir -p $(PROJECT_DIR)/dep-crds/cluster-autoscaler/
+	cp -f $(CAROOT)/config/crd/* $(PROJECT_DIR)/dep-crds/cluster-autoscaler/

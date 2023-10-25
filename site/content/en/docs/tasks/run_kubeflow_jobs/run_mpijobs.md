@@ -1,12 +1,12 @@
 ---
-title: "Run an MPIJob"
+title: "Run a MPIJob"
 date: 2023-05-16
 weight: 6
 description: >
   Run a Kueue scheduled MPIJob
 ---
 
-This page shows how to leverage Kueue's scheduling and resource management capabilities when running [MPI Operator](https://github.com/kubeflow/mpi-operator) MPIJobs.
+This page shows how to leverage Kueue's scheduling and resource management capabilities when running [MPI Operator](https://www.kubeflow.org/docs/components/training/mpi/) MPIJobs.
 
 This guide is for [batch users](/docs/tasks#batch-user) that have a basic understanding of Kueue. For more information, see [Kueue's overview](/docs/overview).
 
@@ -52,58 +52,6 @@ By default, Kueue will set `suspend` to true via webhook and unsuspend it when t
 
 This example is based on https://github.com/kubeflow/mpi-operator/blob/ccf2756f749336d652fa6b10a732e241a40c7aa6/examples/v2beta1/pi/pi.yaml.
 
-```yaml
-apiVersion: kubeflow.org/v2beta1
-kind: MPIJob
-metadata:
-  name: pi
-  labels:
-    kueue.x-k8s.io/queue-name: user-queue
-spec:
-  slotsPerWorker: 1
-  runPolicy:
-    cleanPodPolicy: Running
-    ttlSecondsAfterFinished: 60
-  sshAuthMountPath: /home/mpiuser/.ssh
-  mpiReplicaSpecs:
-    Launcher:
-      replicas: 1
-      template:
-        spec:
-          containers:
-          - image: mpioperator/mpi-pi:openmpi
-            name: mpi-launcher
-            securityContext:
-              runAsUser: 1000
-            command:
-            - mpirun
-            args:
-            - -n
-            - "2"
-            - /home/mpiuser/pi
-            resources:
-              limits:
-                cpu: 1
-                memory: 1Gi
-    Worker:
-      replicas: 2
-      template:
-        spec:
-          containers:
-          - image: mpioperator/mpi-pi:openmpi
-            name: mpi-worker
-            securityContext:
-              runAsUser: 1000
-            command:
-            - /usr/sbin/sshd
-            args:
-            - -De
-            - -f
-            - /home/mpiuser/.sshd_config
-            resources:
-              limits:
-                cpu: 1
-                memory: 1Gi
-```
+{{< include "examples/jobs/sample-mpijob.yaml" "yaml" >}}
 
 For equivalent instructions for doing this in Python, see [Run Python Jobs](/docs/tasks/run_python_jobs/#mpi-operator-job).

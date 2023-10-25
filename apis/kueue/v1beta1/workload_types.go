@@ -52,6 +52,13 @@ type WorkloadSpec struct {
 	// The higher the value, the higher the priority.
 	// If priorityClassName is specified, priority must not be null.
 	Priority *int32 `json:"priority,omitempty"`
+
+	// priorityClassSource determines whether the priorityClass field refers to a pod PriorityClass or kueue.x-k8s.io/workloadpriorityclass.
+	// Workload's PriorityClass can accept the name of a pod priorityClass or a workloadPriorityClass.
+	// When using pod PriorityClass, a priorityClassSource field has the scheduling.k8s.io/priorityclass value.
+	// +kubebuilder:default=""
+	// +kubebuilder:validation:Enum=kueue.x-k8s.io/workloadpriorityclass;scheduling.k8s.io/priorityclass;""
+	PriorityClassSource string `json:"priorityClassSource,omitempty"`
 }
 
 type Admission struct {
@@ -160,10 +167,63 @@ type WorkloadStatus struct {
 	// admissionChecks list all the admission checks required by the workload and the current status
 	// +optional
 	// +listType=map
-	// +listMapKey=type
+	// +listMapKey=name
 	// +patchStrategy=merge
-	// +patchMergeKey=type
-	AdmissionChecks []metav1.Condition `json:"admissionChecks,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
+	// +patchMergeKey=name
+	AdmissionChecks []AdmissionCheckState `json:"admissionChecks,omitempty" patchStrategy:"merge" patchMergeKey:"name"`
+}
+
+type AdmissionCheckState struct {
+	// name identifies the admission check.
+	// +required
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MaxLength=316
+	Name string `json:"name"`
+	// status of the condition, one of True, False, Unknown.
+	// +required
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Enum=Pending;Ready;Retry;Rejected
+	State CheckState `json:"state"`
+	// lastTransitionTime is the last time the condition transitioned from one status to another.
+	// This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+	// +required
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Format=date-time
+	LastTransitionTime metav1.Time `json:"lastTransitionTime"`
+	// message is a human readable message indicating details about the transition.
+	// This may be an empty string.
+	// +required
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MaxLength=32768
+	Message string `json:"message" protobuf:"bytes,6,opt,name=message"`
+
+	// +optional
+	// +listType=atomic
+	PodSetUpdates []PodSetUpdate `json:"podSetUpdates,omitempty"`
+}
+
+// PodSetUpdate contains a list of pod set modifications suggested by AdmissionChecks.
+// The modifications should be additive only - modifications of already existing keys
+// or having the same key provided by multiple AdmissionChecks is not allowed and will
+// result in failure during workload admission.
+type PodSetUpdate struct {
+	// Name of the PodSet to modify. Should match to one of the Workload's PodSets.
+	// +required
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
+
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
+
+	// +optional
+	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
+
+	// +optional
+	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 }
 
 type ReclaimablePod struct {

@@ -110,6 +110,7 @@ data:
       healthProbeBindAddress: :8081
     metrics:
       bindAddress: :8080
+      # enableClusterQueueResources: true
     webhook:
       port: 9443
     manageJobsWithoutQueueName: true
@@ -120,6 +121,7 @@ data:
     waitForPodsReady:
       enable: true
       timeout: 10m
+    # pprofBindAddress: :8082
     integrations:
       frameworks:
       - "batch/job"
@@ -214,7 +216,7 @@ spec:
       containers:
       - name: manager
         args:
-        - --config=controller_manager_config.yaml
+        - --config=/controller_manager_config.yaml
         - --zap-log-level=2
 +       - --feature-gates=PartialAdmission=true
 ```
@@ -223,4 +225,8 @@ The currently supported features are:
 
 | Feature | Default | Stage | Since | Until |
 |---------|---------|-------|-------|-------|
-| `PartialAdmission` | `false` | Alpha | 0.4 |  |
+| `FlavorFungibility` | `true` | beta | 0.5 |  |
+| `PartialAdmission` | `false` | Alpha | 0.4 | 0.4 |
+| `PartialAdmission` | `true` | Beta | 0.5 |  |
+| `ProvisioningACC` | `false` | Alpha | 0.5 |  |
+| `QueueVisibility` | `false` | Alpha | 0.5 |  |

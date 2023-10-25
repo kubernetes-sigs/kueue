@@ -23,7 +23,6 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -40,7 +39,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/util/maps"
+	"sigs.k8s.io/kueue/pkg/podset"
 )
 
 var (
@@ -57,10 +56,11 @@ const (
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:  SetupIndexes,
-		NewReconciler: NewReconciler,
-		SetupWebhook:  SetupWebhook,
-		JobType:       &batchv1.Job{},
+		SetupIndexes:           SetupIndexes,
+		NewReconciler:          NewReconciler,
+		SetupWebhook:           SetupWebhook,
+		JobType:                &batchv1.Job{},
+		IsManagingObjectsOwner: isJob,
 	}))
 }
 
@@ -73,13 +73,19 @@ func init() {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 
 var NewReconciler = jobframework.NewGenericReconciler(
 	func() jobframework.GenericJob {
 		return &Job{}
 	}, func(c client.Client) handler.EventHandler {
 		return &parentWorkloadHandler{client: c}
-	})
+	},
+)
+
+func isJob(owner *metav1.OwnerReference) bool {
+	return owner.Kind == "Job" && owner.APIVersion == gvk.GroupVersion().String()
+}
 
 type parentWorkloadHandler struct {
 	client client.Client
@@ -151,7 +157,7 @@ func (j *Job) Suspend() {
 	j.Spec.Suspend = ptr.To(true)
 }
 
-func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []jobframework.PodSetInfo) (bool, error) {
+func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, eventMsg string) (bool, error) {
 	stoppedNow := false
 	if !j.IsSuspended() {
 		j.Suspend()
@@ -210,14 +216,13 @@ func (j *Job) PodSets() []kueue.PodSet {
 	}
 }
 
-func (j *Job) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) error {
+func (j *Job) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
 	j.Spec.Suspend = ptr.To(false)
 	if len(podSetsInfo) != 1 {
-		return jobframework.BadPodSetsInfoLenError(1, len(podSetsInfo))
+		return podset.BadPodSetsInfoLenError(1, len(podSetsInfo))
 	}
 
 	info := podSetsInfo[0]
-	j.Spec.Template.Spec.NodeSelector = maps.MergeKeepFirst(info.NodeSelector, j.Spec.Template.Spec.NodeSelector)
 
 	if j.minPodsCount() != nil {
 		j.Spec.Parallelism = ptr.To(info.Count)
@@ -225,10 +230,10 @@ func (j *Job) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) error {
 			j.Spec.Completions = j.Spec.Parallelism
 		}
 	}
-	return nil
+	return podset.Merge(&j.Spec.Template.ObjectMeta, &j.Spec.Template.Spec, info)
 }
 
-func (j *Job) RestorePodSetsInfo(podSetsInfo []jobframework.PodSetInfo) bool {
+func (j *Job) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 	if len(podSetsInfo) == 0 {
 		return false
 	}
@@ -242,12 +247,8 @@ func (j *Job) RestorePodSetsInfo(podSetsInfo []jobframework.PodSetInfo) bool {
 			j.Spec.Completions = j.Spec.Parallelism
 		}
 	}
-
-	if equality.Semantic.DeepEqual(j.Spec.Template.Spec.NodeSelector, podSetsInfo[0].NodeSelector) {
-		return changed
-	}
-	j.Spec.Template.Spec.NodeSelector = maps.Clone(podSetsInfo[0].NodeSelector)
-	return true
+	changed = podset.RestorePodSpec(&j.Spec.Template.ObjectMeta, &j.Spec.Template.Spec, podSetsInfo[0]) || changed
+	return changed
 }
 
 func (j *Job) Finished() (metav1.Condition, bool) {

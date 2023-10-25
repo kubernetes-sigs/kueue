@@ -38,10 +38,12 @@ import (
 )
 
 var (
-	cfg       *rest.Config
-	k8sClient client.Client
-	ctx       context.Context
-	fwk       *framework.Framework
+	cfg         *rest.Config
+	k8sClient   client.Client
+	ctx         context.Context
+	fwk         *framework.Framework
+	crdPath     = filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases")
+	webhookPath = filepath.Join("..", "..", "..", "..", "config", "components", "webhook")
 )
 
 func TestAPIs(t *testing.T) {
@@ -51,19 +53,6 @@ func TestAPIs(t *testing.T) {
 		"Core Controllers Suite",
 	)
 }
-
-var _ = ginkgo.BeforeSuite(func() {
-	fwk = &framework.Framework{
-		CRDPath:     filepath.Join("..", "..", "..", "..", "config", "components", "crd", "bases"),
-		WebhookPath: filepath.Join("..", "..", "..", "..", "config", "components", "webhook"),
-	}
-	cfg = fwk.Init()
-	ctx, k8sClient = fwk.RunManager(cfg, managerSetup)
-})
-
-var _ = ginkgo.AfterSuite(func() {
-	fwk.Teardown()
-})
 
 func managerSetup(mgr manager.Manager, ctx context.Context) {
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
@@ -75,7 +64,7 @@ func managerSetup(mgr manager.Manager, ctx context.Context) {
 	controllersCfg := &config.Configuration{}
 	controllersCfg.Metrics.EnableClusterQueueResources = true
 	controllersCfg.QueueVisibility = &config.QueueVisibility{
-		UpdateIntervalSeconds: 1,
+		UpdateIntervalSeconds: 2,
 		ClusterQueues: &config.ClusterQueueVisibility{
 			MaxCount: 3,
 		},

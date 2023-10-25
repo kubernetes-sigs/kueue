@@ -20,29 +20,31 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+type CheckState string
+
 const (
 	// CheckStateRetry means that the check cannot pass at this moment, back off (possibly
 	// allowing other to try, unblock quota) and retry.
 	// A workload having at least one check in the state,
 	// will be evicted if admitted will not be considered
 	// for admission.
-	CheckStateRetry = "Retry"
+	CheckStateRetry CheckState = "Retry"
 
 	// CheckStateRejected means that the check will not pass in the near future. It is not worth
 	// to retry.
 	// NOTE: The admission behaviour is currently the same as for retry,
 	// we can consider marking the workload as "Finished" with a failure
 	// description.
-	CheckStateRejected = "Rejected"
+	CheckStateRejected CheckState = "Rejected"
 
 	// CheckStatePending means that the check still hasn't been performed and the state can be
 	// 1. Unknown, the condition was added by kueue and its controller was not able to evaluate it.
 	// 2. Set by its controller and reevaluated after quota is reserved.
-	CheckStatePending = "Pending"
+	CheckStatePending CheckState = "Pending"
 
 	// CheckStateReady means that the check has passed.
 	// A workload having all its checks ready, and quota reserved can begin execution.
-	CheckStateReady = "Ready"
+	CheckStateReady CheckState = "Ready"
 )
 
 // AdmissionCheckSpec defines the desired state of AdmissionCheck
@@ -76,7 +78,21 @@ type AdmissionCheckParametersReference struct {
 
 // AdmissionCheckStatus defines the observed state of AdmissionCheck
 type AdmissionCheckStatus struct {
+	// conditions hold the latest available observations of the AdmissionCheck
+	// current state.
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	// +patchStrategy=merge
+	// +patchMergeKey=type
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
+
+const (
+	// AdmissionCheckActive indicates that the controller of the admission check is
+	// ready to evaluate the checks states
+	AdmissionCheckActive string = "Active"
+)
 
 //+genclient
 //+kubebuilder:object:root=true

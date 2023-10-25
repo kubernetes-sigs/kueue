@@ -31,7 +31,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	runtimeconfig "sigs.k8s.io/controller-runtime/pkg/config"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
@@ -233,12 +235,35 @@ queueVisibility:
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
+	podIntegrationOptionsConfig := filepath.Join(tmpDir, "podIntegrationOptions.yaml")
+	if err := os.WriteFile(podIntegrationOptionsConfig, []byte(`
+apiVersion: config.kueue.x-k8s.io/v1beta1
+kind: Configuration
+integrations:
+  frameworks: 
+  - pod
+  podOptions:
+    namespaceSelector:
+      matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values: [ kube-system, kueue-system, prohibited-namespace ]
+    podSelector:
+      matchExpressions:
+      - key: kueue-job
+        operator: In
+        values: [ "true", "True", "yes" ]
+`), os.FileMode(0600)); err != nil {
+		t.Fatal(err)
+	}
 
 	defaultControlOptions := ctrl.Options{
 		HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
-		MetricsBindAddress:     configapi.DefaultMetricsBindAddress,
-		LeaderElectionID:       configapi.DefaultLeaderElectionID,
-		LeaderElection:         true,
+		Metrics: metricsserver.Options{
+			BindAddress: configapi.DefaultMetricsBindAddress,
+		},
+		LeaderElectionID: configapi.DefaultLeaderElectionID,
+		LeaderElection:   true,
 		WebhookServer: &webhook.DefaultServer{
 			Options: webhook.Options{
 				Port: configapi.DefaultWebhookPort,
@@ -255,6 +280,7 @@ queueVisibility:
 	ctrlOptsCmpOpts := []cmp.Option{
 		cmpopts.IgnoreUnexported(ctrl.Options{}),
 		cmpopts.IgnoreUnexported(webhook.DefaultServer{}),
+		cmpopts.IgnoreUnexported(ctrlcache.Options{}),
 		cmpopts.IgnoreFields(ctrl.Options{}, "Scheme", "Logger"),
 	}
 
@@ -271,6 +297,18 @@ queueVisibility:
 
 	defaultIntegrations := &configapi.Integrations{
 		Frameworks: []string{job.FrameworkName},
+		PodOptions: &configapi.PodIntegrationOptions{
+			NamespaceSelector: &metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{
+					{
+						Key:      "kubernetes.io/metadata.name",
+						Operator: metav1.LabelSelectorOpNotIn,
+						Values:   []string{"kube-system", "kueue-system"},
+					},
+				},
+			},
+			PodSelector: &metav1.LabelSelector{},
+		},
 	}
 
 	defaultQueueVisibility := &configapi.QueueVisibility{
@@ -299,9 +337,11 @@ queueVisibility:
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
-				MetricsBindAddress:     configapi.DefaultMetricsBindAddress,
-				LeaderElectionID:       "",
-				LeaderElection:         false,
+				Metrics: metricsserver.Options{
+					BindAddress: configapi.DefaultMetricsBindAddress,
+				},
+				LeaderElectionID: "",
+				LeaderElection:   false,
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
@@ -330,8 +370,22 @@ queueVisibility:
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection:           defaultClientConnection,
-				Integrations:               defaultIntegrations,
-				QueueVisibility:            defaultQueueVisibility,
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{job.FrameworkName},
+					PodOptions: &configapi.PodIntegrationOptions{
+						NamespaceSelector: &metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{
+									Key:      "kubernetes.io/metadata.name",
+									Operator: metav1.LabelSelectorOpNotIn,
+									Values:   []string{"kube-system", "kueue-tenant-a"},
+								},
+							},
+						},
+						PodSelector: &metav1.LabelSelector{},
+					},
+				},
+				QueueVisibility: defaultQueueVisibility,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -352,9 +406,11 @@ queueVisibility:
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: ":38081",
-				MetricsBindAddress:     ":38080",
-				LeaderElection:         true,
-				LeaderElectionID:       "test-id",
+				Metrics: metricsserver.Options{
+					BindAddress: ":38080",
+				},
+				LeaderElection:   true,
+				LeaderElectionID: "test-id",
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: 9444,
@@ -419,9 +475,11 @@ queueVisibility:
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
-				MetricsBindAddress:     configapi.DefaultMetricsBindAddress,
-				LeaderElectionID:       "",
-				LeaderElection:         false,
+				Metrics: metricsserver.Options{
+					BindAddress: configapi.DefaultMetricsBindAddress,
+				},
+				LeaderElectionID: "",
+				LeaderElection:   false,
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
@@ -451,7 +509,9 @@ queueVisibility:
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
-				MetricsBindAddress:     configapi.DefaultMetricsBindAddress,
+				Metrics: metricsserver.Options{
+					BindAddress: configapi.DefaultMetricsBindAddress,
+				},
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
@@ -498,10 +558,12 @@ queueVisibility:
 				QueueVisibility: defaultQueueVisibility,
 			},
 			wantOptions: ctrl.Options{
-				HealthProbeBindAddress:     configapi.DefaultHealthProbeBindAddress,
-				ReadinessEndpointName:      "ready",
-				LivenessEndpointName:       "live",
-				MetricsBindAddress:         configapi.DefaultMetricsBindAddress,
+				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
+				ReadinessEndpointName:  "ready",
+				LivenessEndpointName:   "live",
+				Metrics: metricsserver.Options{
+					BindAddress: configapi.DefaultMetricsBindAddress,
+				},
 				PprofBindAddress:           ":8082",
 				LeaderElection:             true,
 				LeaderElectionID:           configapi.DefaultLeaderElectionID,
@@ -541,12 +603,26 @@ queueVisibility:
 					// referencing job.FrameworkName ensures the link of job package
 					// therefore the batch/framework should be registered
 					Frameworks: []string{job.FrameworkName},
+					PodOptions: &configapi.PodIntegrationOptions{
+						NamespaceSelector: &metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{
+									Key:      "kubernetes.io/metadata.name",
+									Operator: metav1.LabelSelectorOpNotIn,
+									Values:   []string{"kube-system", "kueue-system"},
+								},
+							},
+						},
+						PodSelector: &metav1.LabelSelector{},
+					},
 				},
 				QueueVisibility: defaultQueueVisibility,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
-				MetricsBindAddress:     configapi.DefaultMetricsBindAddress,
+				Metrics: metricsserver.Options{
+					BindAddress: configapi.DefaultMetricsBindAddress,
+				},
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
@@ -576,7 +652,60 @@ queueVisibility:
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
-				MetricsBindAddress:     configapi.DefaultMetricsBindAddress,
+				Metrics: metricsserver.Options{
+					BindAddress: configapi.DefaultMetricsBindAddress,
+				},
+				WebhookServer: &webhook.DefaultServer{
+					Options: webhook.Options{
+						Port: configapi.DefaultWebhookPort,
+					},
+				},
+			},
+		},
+		{
+			name:       "pod integration options config",
+			configFile: podIntegrationOptionsConfig,
+			wantConfiguration: configapi.Configuration{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: configapi.GroupVersion.String(),
+					Kind:       "Configuration",
+				},
+				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				ManageJobsWithoutQueueName: false,
+				InternalCertManagement:     enableDefaultInternalCertManagement,
+				ClientConnection:           defaultClientConnection,
+				QueueVisibility:            defaultQueueVisibility,
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{
+						"pod",
+					},
+					PodOptions: &configapi.PodIntegrationOptions{
+						NamespaceSelector: &metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{
+									Key:      "kubernetes.io/metadata.name",
+									Operator: metav1.LabelSelectorOpNotIn,
+									Values:   []string{"kube-system", "kueue-system", "prohibited-namespace"},
+								},
+							},
+						},
+						PodSelector: &metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{
+									Key:      "kueue-job",
+									Operator: metav1.LabelSelectorOpIn,
+									Values:   []string{"true", "True", "yes"},
+								},
+							},
+						},
+					},
+				},
+			},
+			wantOptions: ctrl.Options{
+				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
+				Metrics: metricsserver.Options{
+					BindAddress: configapi.DefaultMetricsBindAddress,
+				},
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
@@ -667,6 +796,16 @@ func TestEncode(t *testing.T) {
 				"manageJobsWithoutQueueName": false,
 				"integrations": map[string]any{
 					"frameworks": []any{"batch/job"},
+					"podOptions": map[string]any{
+						"namespaceSelector": map[string]any{
+							"matchExpressions": []any{map[string]any{
+								"key":      "kubernetes.io/metadata.name",
+								"operator": "NotIn",
+								"values":   []any{"kube-system", "kueue-system"},
+							}},
+						},
+						"podSelector": map[string]any{},
+					},
 				},
 				"queueVisibility": map[string]any{
 					"updateIntervalSeconds": int64(configapi.DefaultQueueVisibilityUpdateIntervalSeconds),

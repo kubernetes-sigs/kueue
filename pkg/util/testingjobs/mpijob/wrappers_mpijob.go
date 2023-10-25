@@ -92,6 +92,15 @@ func (j *MPIJobWrapper) PriorityClass(pc string) *MPIJobWrapper {
 	return j
 }
 
+// WorkloadPriorityClass updates job workloadpriorityclass.
+func (j *MPIJobWrapper) WorkloadPriorityClass(wpc string) *MPIJobWrapper {
+	if j.Labels == nil {
+		j.Labels = make(map[string]string)
+	}
+	j.Labels[constants.WorkloadPriorityClassLabel] = wpc
+	return j
+}
+
 // Obj returns the inner Job.
 func (j *MPIJobWrapper) Obj() *kubeflow.MPIJob {
 	return &j.MPIJob
@@ -127,5 +136,23 @@ func (j *MPIJobWrapper) Suspend(s bool) *MPIJobWrapper {
 // UID updates the uid of the job.
 func (j *MPIJobWrapper) UID(uid string) *MPIJobWrapper {
 	j.ObjectMeta.UID = types.UID(uid)
+	return j
+}
+
+// PodAnnotation sets annotation at the pod template level
+func (j *MPIJobWrapper) PodAnnotation(replicaType kubeflow.MPIReplicaType, k, v string) *MPIJobWrapper {
+	if j.Spec.MPIReplicaSpecs[replicaType].Template.Annotations == nil {
+		j.Spec.MPIReplicaSpecs[replicaType].Template.Annotations = make(map[string]string)
+	}
+	j.Spec.MPIReplicaSpecs[replicaType].Template.Annotations[k] = v
+	return j
+}
+
+// PodLabel sets label at the pod template level
+func (j *MPIJobWrapper) PodLabel(replicaType kubeflow.MPIReplicaType, k, v string) *MPIJobWrapper {
+	if j.Spec.MPIReplicaSpecs[replicaType].Template.Labels == nil {
+		j.Spec.MPIReplicaSpecs[replicaType].Template.Labels = make(map[string]string)
+	}
+	j.Spec.MPIReplicaSpecs[replicaType].Template.Labels[k] = v
 	return j
 }

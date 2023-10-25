@@ -54,3 +54,51 @@ func TestToRefMap(t *testing.T) {
 		})
 	}
 }
+
+func TestToCmpNoOrder(t *testing.T) {
+	cases := map[string]struct {
+		sliceA []int
+		sliceB []int
+		want   bool
+	}{
+		"equal sets": {
+			sliceA: []int{1, 2, 3},
+			sliceB: []int{3, 2, 1},
+			want:   true,
+		},
+		"equal multisets": {
+			sliceA: []int{1, 1, 2},
+			sliceB: []int{1, 2, 1},
+			want:   true,
+		},
+		"unequal multisets": {
+			sliceA: []int{1, 2, 2},
+			sliceB: []int{1, 2, 1},
+			want:   false,
+		},
+		"unequal sets": {
+			sliceA: []int{1, 2},
+			sliceB: []int{1, 1},
+			want:   false,
+		},
+		"slice A is longer": {
+			sliceA: []int{1, 2, 3},
+			sliceB: []int{1, 2},
+			want:   false,
+		},
+		"slice B is longer": {
+			sliceA: []int{1, 2},
+			sliceB: []int{1, 2, 3},
+			want:   false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			res := CmpNoOrder[int](tc.sliceA, tc.sliceB)
+			if res != tc.want {
+				t.Errorf("Unexpected result: want: %v, got: %v", tc.want, res)
+			}
+		})
+	}
+}

@@ -39,12 +39,20 @@ func (c *FakeKueueV1beta1) LocalQueues(namespace string) v1beta1.LocalQueueInter
 	return &FakeLocalQueues{c, namespace}
 }
 
+func (c *FakeKueueV1beta1) ProvisioningRequestConfigs(namespace string) v1beta1.ProvisioningRequestConfigInterface {
+	return &FakeProvisioningRequestConfigs{c, namespace}
+}
+
 func (c *FakeKueueV1beta1) ResourceFlavors(namespace string) v1beta1.ResourceFlavorInterface {
 	return &FakeResourceFlavors{c, namespace}
 }
 
 func (c *FakeKueueV1beta1) Workloads(namespace string) v1beta1.WorkloadInterface {
 	return &FakeWorkloads{c, namespace}
+}
+
+func (c *FakeKueueV1beta1) WorkloadPriorityClasses(namespace string) v1beta1.WorkloadPriorityClassInterface {
+	return &FakeWorkloadPriorityClasses{c, namespace}
 }
 
 // RESTClient returns a RESTClient that is used to communicate

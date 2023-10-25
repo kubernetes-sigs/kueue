@@ -22,7 +22,6 @@ import (
 
 	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -32,7 +31,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/util/maps"
+	"sigs.k8s.io/kueue/pkg/podset"
 )
 
 var (
@@ -60,6 +59,7 @@ func init() {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 
 var NewReconciler = jobframework.NewGenericReconciler(func() jobframework.GenericJob { return &MPIJob{} }, nil)
 
@@ -114,35 +114,34 @@ func (j *MPIJob) PodSets() []kueue.PodSet {
 	return podSets
 }
 
-func (j *MPIJob) RunWithPodSetsInfo(podSetInfos []jobframework.PodSetInfo) error {
+func (j *MPIJob) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
 	j.Spec.RunPolicy.Suspend = ptr.To(false)
 	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
 
-	if len(podSetInfos) != len(orderedReplicaTypes) {
-		return jobframework.BadPodSetsInfoLenError(len(orderedReplicaTypes), len(podSetInfos))
+	if len(podSetsInfo) != len(orderedReplicaTypes) {
+		return podset.BadPodSetsInfoLenError(len(orderedReplicaTypes), len(podSetsInfo))
 	}
 
 	// The node selectors are provided in the same order as the generated list of
 	// podSets, use the same ordering logic to restore them.
-	for index := range podSetInfos {
+	for index := range podSetsInfo {
 		replicaType := orderedReplicaTypes[index]
-		info := podSetInfos[index]
-		replicaSpec := &j.Spec.MPIReplicaSpecs[replicaType].Template.Spec
-		replicaSpec.NodeSelector = maps.MergeKeepFirst(info.NodeSelector, replicaSpec.NodeSelector)
+		info := podSetsInfo[index]
+		replica := &j.Spec.MPIReplicaSpecs[replicaType].Template
+		if err := podset.Merge(&replica.ObjectMeta, &replica.Spec, info); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-func (j *MPIJob) RestorePodSetsInfo(podSetInfos []jobframework.PodSetInfo) bool {
+func (j *MPIJob) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 	orderedReplicaTypes := orderedReplicaTypes(&j.Spec)
 	changed := false
-	for index, info := range podSetInfos {
+	for index, info := range podSetsInfo {
 		replicaType := orderedReplicaTypes[index]
-		replicaSpec := &j.Spec.MPIReplicaSpecs[replicaType].Template.Spec
-		if !equality.Semantic.DeepEqual(replicaSpec.NodeSelector, info.NodeSelector) {
-			changed = true
-			replicaSpec.NodeSelector = maps.Clone(info.NodeSelector)
-		}
+		replica := &j.Spec.MPIReplicaSpecs[replicaType].Template
+		changed = podset.RestorePodSpec(&replica.ObjectMeta, &replica.Spec, info) || changed
 	}
 	return changed
 }

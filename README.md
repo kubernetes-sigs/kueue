@@ -19,14 +19,20 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) to learn more.
 
 - ✔️ API version: v1beta1, respecting [Kubernetes Deprecation Policy](https://kubernetes.io/docs/reference/using-api/deprecation-policy/)
 - ✔️ Up-to-date [documentation](https://kueue.sigs.k8s.io/docs).
-- ✔️ Good Test Coverage:
-  - ✔️ Unit Test: ~77.2% (controllers are excluded for they're covered by integration tests)
-  - ✔️ Integration Test: 124 testcases.
-  - ✔️ E2E Test: available for kubernetes 1.24, 1.25, 1.26 on Kind.
+- ✔️ Test Coverage:
+  - ✔️ Unit Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-unit-main).
+  - ✔️ Integration Test [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-main)
+  - ✔️ E2E Tests for Kubernetes
+    [1.25](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-main-1-25),
+    [1.26](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-main-1-26),
+    [1.27](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-main-1-27),
+    [1.28](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-e2e-main-1-28)
+    on Kind.
 - ✔️ Scalability verification via [performance tests](https://github.com/kubernetes-sigs/kueue/tree/main/test/performance).
 - ✔️ Monitoring via [metrics](https://kueue.sigs.k8s.io/docs/reference/metrics).
 - ✔️ Security: RBAC based accessibility.
 - ✔️ Stable release cycle(2-3 months) for new features, bugfixes, cleanups.
+- ✔️ [Adopters](https://kueue.sigs.k8s.io/docs/adopters/) running on production.
 
   _Based on community feedback, we continue to simplify and evolve the API to
   address new use cases_.
@@ -50,13 +56,13 @@ Read the [installation guide](https://kueue.sigs.k8s.io/docs/installation/) to l
 A minimal configuration can be set by running the [examples](examples):
 
 ```shell
-kubectl apply -f examples/single-clusterqueue-setup.yaml
+kubectl apply -f examples/admin/single-clusterqueue-setup.yaml
 ```
 
 Then you can run a job with:
 
 ```shell
-kubectl create -f examples/sample-job.yaml
+kubectl create -f examples/jobs/sample-job.yaml
 ```
 
 Learn more about:

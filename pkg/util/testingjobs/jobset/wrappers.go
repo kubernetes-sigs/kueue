@@ -112,7 +112,16 @@ func (j *JobSetWrapper) PriorityClass(pc string) *JobSetWrapper {
 	return j
 }
 
-// PriorityClass updates JobSet priorityclass.
+// WorkloadPriorityClass updates JobSet workloadpriorityclass.
+func (j *JobSetWrapper) WorkloadPriorityClass(wpc string) *JobSetWrapper {
+	if j.Labels == nil {
+		j.Labels = make(map[string]string)
+	}
+	j.Labels[constants.WorkloadPriorityClassLabel] = wpc
+	return j
+}
+
+// JobsStatus updates JobSet status.
 func (j *JobSetWrapper) JobsStatus(statuses ...jobsetapi.ReplicatedJobStatus) *JobSetWrapper {
 	j.Status.ReplicatedJobsStatus = statuses
 	return j

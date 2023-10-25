@@ -151,6 +151,11 @@ func (w *WorkloadWrapper) Priority(priority int32) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) PriorityClassSource(source string) *WorkloadWrapper {
+	w.Spec.PriorityClassSource = source
+	return w
+}
+
 func (w *WorkloadWrapper) PodSets(podSets ...kueue.PodSet) *WorkloadWrapper {
 	w.Spec.PodSets = podSets
 	return w
@@ -171,6 +176,11 @@ func (w *WorkloadWrapper) Condition(condition metav1.Condition) *WorkloadWrapper
 	return w
 }
 
+func (w *WorkloadWrapper) AdmissionCheck(ac kueue.AdmissionCheckState) *WorkloadWrapper {
+	w.Status.AdmissionChecks = append(w.Status.AdmissionChecks, ac)
+	return w
+}
+
 func (w *WorkloadWrapper) SetOrReplaceCondition(condition metav1.Condition) *WorkloadWrapper {
 	existingCondition := apimeta.FindStatusCondition(w.Status.Conditions, condition.Type)
 	if existingCondition != nil {
@@ -187,6 +197,11 @@ func (w *WorkloadWrapper) ReclaimablePods(rps ...kueue.ReclaimablePod) *Workload
 
 func (w *WorkloadWrapper) Labels(l map[string]string) *WorkloadWrapper {
 	w.ObjectMeta.Labels = l
+	return w
+}
+
+func (w *WorkloadWrapper) AdmissionChecks(checks ...kueue.AdmissionCheckState) *WorkloadWrapper {
+	w.Status.AdmissionChecks = checks
 	return w
 }
 
@@ -214,12 +229,30 @@ func MakePodSet(name string, count int) *PodSetWrapper {
 	}
 }
 
+func (p *PodSetWrapper) PriorityClass(pc string) *PodSetWrapper {
+	p.Template.Spec.PriorityClassName = pc
+	return p
+}
+
 func (p *PodSetWrapper) Obj() *kueue.PodSet {
 	return &p.PodSet
 }
 
 func (p *PodSetWrapper) Request(r corev1.ResourceName, q string) *PodSetWrapper {
 	p.Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(q)
+	return p
+}
+
+func (p *PodSetWrapper) Limit(r corev1.ResourceName, q string) *PodSetWrapper {
+	if p.Template.Spec.Containers[0].Resources.Limits == nil {
+		p.Template.Spec.Containers[0].Resources.Limits = corev1.ResourceList{}
+	}
+	p.Template.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(q)
+	return p
+}
+
+func (p *PodSetWrapper) Image(image string) *PodSetWrapper {
+	p.Template.Spec.Containers[0].Image = image
 	return p
 }
 
@@ -245,6 +278,21 @@ func (p *PodSetWrapper) InitContainers(containers ...corev1.Container) *PodSetWr
 
 func (p *PodSetWrapper) NodeSelector(kv map[string]string) *PodSetWrapper {
 	p.Template.Spec.NodeSelector = kv
+	return p
+}
+
+func (p *PodSetWrapper) Labels(kv map[string]string) *PodSetWrapper {
+	p.Template.Labels = kv
+	return p
+}
+
+func (p *PodSetWrapper) Annotations(kv map[string]string) *PodSetWrapper {
+	p.Template.Annotations = kv
+	return p
+}
+
+func (p *PodSetWrapper) SchedulingGates(sg ...corev1.PodSchedulingGate) *PodSetWrapper {
+	p.Template.Spec.SchedulingGates = sg
 	return p
 }
 
@@ -344,6 +392,10 @@ func MakeClusterQueue(name string) *ClusterQueueWrapper {
 		Spec: kueue.ClusterQueueSpec{
 			NamespaceSelector: &metav1.LabelSelector{},
 			QueueingStrategy:  kueue.BestEffortFIFO,
+			FlavorFungibility: &kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.Borrow,
+				WhenCanPreempt: kueue.TryNextFlavor,
+			},
 		},
 	}}
 }
@@ -409,6 +461,12 @@ func (c *ClusterQueueWrapper) Preemption(p kueue.ClusterQueuePreemption) *Cluste
 	return c
 }
 
+// Preemption sets the preeemption policies.
+func (c *ClusterQueueWrapper) FlavorFungibility(p kueue.FlavorFungibility) *ClusterQueueWrapper {
+	c.Spec.FlavorFungibility = &p
+	return c
+}
+
 // FlavorQuotasWrapper wraps a FlavorQuotas object.
 type FlavorQuotasWrapper struct{ kueue.FlavorQuotas }
 
@@ -470,6 +528,12 @@ func (rf *ResourceFlavorWrapper) Label(k, v string) *ResourceFlavorWrapper {
 // Taint adds a taint to the ResourceFlavor.
 func (rf *ResourceFlavorWrapper) Taint(t corev1.Taint) *ResourceFlavorWrapper {
 	rf.Spec.NodeTaints = append(rf.Spec.NodeTaints, t)
+	return rf
+}
+
+// Toleration  adds a taint to the ResourceFlavor.
+func (rf *ResourceFlavorWrapper) Toleration(t corev1.Toleration) *ResourceFlavorWrapper {
+	rf.Spec.Tolerations = append(rf.Spec.Tolerations, t)
 	return rf
 }
 
@@ -549,4 +613,69 @@ func (lr *LimitRangeWrapper) WithValue(member string, t corev1.ResourceName, q s
 
 func (lr *LimitRangeWrapper) Obj() *corev1.LimitRange {
 	return &lr.LimitRange
+}
+
+type AdmissionCheckWrapper struct{ kueue.AdmissionCheck }
+
+func MakeAdmissionCheck(name string) *AdmissionCheckWrapper {
+	return &AdmissionCheckWrapper{
+		AdmissionCheck: kueue.AdmissionCheck{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: name,
+			},
+		},
+	}
+}
+
+func (ac *AdmissionCheckWrapper) Active(status metav1.ConditionStatus) *AdmissionCheckWrapper {
+	apimeta.SetStatusCondition(&ac.Status.Conditions, metav1.Condition{
+		Type:    kueue.AdmissionCheckActive,
+		Status:  status,
+		Reason:  "ByTest",
+		Message: "by test",
+	})
+	return ac
+}
+
+func (ac *AdmissionCheckWrapper) ControllerName(c string) *AdmissionCheckWrapper {
+	ac.Spec.ControllerName = c
+	return ac
+}
+
+func (ac *AdmissionCheckWrapper) Parameters(apigroup, kind, name string) *AdmissionCheckWrapper {
+	ac.Spec.Parameters = &kueue.AdmissionCheckParametersReference{
+		APIGroup: apigroup,
+		Kind:     kind,
+		Name:     name,
+	}
+	return ac
+}
+
+func (ac *AdmissionCheckWrapper) Obj() *kueue.AdmissionCheck {
+	return &ac.AdmissionCheck
+}
+
+// WorkloadPriorityClassWrapper wraps a WorkloadPriorityClass.
+type WorkloadPriorityClassWrapper struct {
+	kueue.WorkloadPriorityClass
+}
+
+// MakeWorkloadPriorityClass creates a wrapper for a WorkloadPriorityClass.
+func MakeWorkloadPriorityClass(name string) *WorkloadPriorityClassWrapper {
+	return &WorkloadPriorityClassWrapper{kueue.WorkloadPriorityClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		}},
+	}
+}
+
+// PriorityValue updates value of WorkloadPriorityClass.
+func (p *WorkloadPriorityClassWrapper) PriorityValue(v int32) *WorkloadPriorityClassWrapper {
+	p.Value = v
+	return p
+}
+
+// Obj returns the inner WorkloadPriorityClass.
+func (p *WorkloadPriorityClassWrapper) Obj() *kueue.WorkloadPriorityClass {
+	return &p.WorkloadPriorityClass
 }

@@ -30,8 +30,10 @@ type KueueV1beta1Interface interface {
 	AdmissionChecksGetter
 	ClusterQueuesGetter
 	LocalQueuesGetter
+	ProvisioningRequestConfigsGetter
 	ResourceFlavorsGetter
 	WorkloadsGetter
+	WorkloadPriorityClassesGetter
 }
 
 // KueueV1beta1Client is used to interact with features provided by the kueue.x-k8s.io group.
@@ -51,12 +53,20 @@ func (c *KueueV1beta1Client) LocalQueues(namespace string) LocalQueueInterface {
 	return newLocalQueues(c, namespace)
 }
 
+func (c *KueueV1beta1Client) ProvisioningRequestConfigs(namespace string) ProvisioningRequestConfigInterface {
+	return newProvisioningRequestConfigs(c, namespace)
+}
+
 func (c *KueueV1beta1Client) ResourceFlavors(namespace string) ResourceFlavorInterface {
 	return newResourceFlavors(c, namespace)
 }
 
 func (c *KueueV1beta1Client) Workloads(namespace string) WorkloadInterface {
 	return newWorkloads(c, namespace)
+}
+
+func (c *KueueV1beta1Client) WorkloadPriorityClasses(namespace string) WorkloadPriorityClassInterface {
+	return newWorkloadPriorityClasses(c, namespace)
 }
 
 // NewForConfig creates a new KueueV1beta1Client for the given config.

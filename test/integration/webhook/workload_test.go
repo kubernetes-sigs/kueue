@@ -19,6 +19,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1 "k8s.io/api/scheduling/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -26,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -118,6 +120,25 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 	})
 
 	ginkgo.Context("When updating a Workload", func() {
+		var (
+			updatedQueueWorkload  kueue.Workload
+			finalQueueWorkload    kueue.Workload
+			workloadPriorityClass *kueue.WorkloadPriorityClass
+			priorityClass         *schedulingv1.PriorityClass
+		)
+		ginkgo.BeforeEach(func() {
+			workloadPriorityClass = testing.MakeWorkloadPriorityClass("workload-priority-class").PriorityValue(200).Obj()
+			priorityClass = testing.MakePriorityClass("priority-class").PriorityValue(100).Obj()
+			gomega.Expect(k8sClient.Create(ctx, workloadPriorityClass)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, priorityClass)).To(gomega.Succeed())
+
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Delete(ctx, workloadPriorityClass)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Delete(ctx, priorityClass)).To(gomega.Succeed())
+		})
+
 		ginkgo.It("Should allow the change of priority", func() {
 			ginkgo.By("Creating a new Workload")
 			workload := testing.MakeWorkload(workloadName, ns.Name).Obj()
@@ -193,6 +214,50 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			err := k8sClient.Create(ctx, workload)
 			gomega.Expect(err).Should(gomega.HaveOccurred())
 			gomega.Expect(errors.IsForbidden(err)).Should(gomega.BeTrue(), "error: %v", err)
+		})
+
+		ginkgo.It("workload's priority should be mutable when referencing WorkloadPriorityClass", func() {
+			ginkgo.By("creating workload")
+			wl := testing.MakeWorkload("wl", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
+				PriorityClass("workload-priority-class").PriorityClassSource(constants.WorkloadPriorityClassSource).Priority(200).Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+			gomega.Eventually(func() []metav1.Condition {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
+				return updatedQueueWorkload.Status.Conditions
+			}, util.Timeout, util.Interval).ShouldNot(gomega.BeNil())
+			initialPriority := int32(200)
+			gomega.Expect(updatedQueueWorkload.Spec.Priority).To(gomega.Equal(&initialPriority))
+
+			ginkgo.By("Updating workload's priority")
+			updatedPriority := int32(150)
+			updatedQueueWorkload.Spec.Priority = &updatedPriority
+			gomega.Expect(k8sClient.Update(ctx, &updatedQueueWorkload)).To(gomega.Succeed())
+			gomega.Eventually(func() *int32 {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&updatedQueueWorkload), &finalQueueWorkload)).To(gomega.Succeed())
+				return finalQueueWorkload.Spec.Priority
+			}, util.Timeout, util.Interval).Should(gomega.Equal(&updatedPriority))
+		})
+
+		ginkgo.It("workload's priority should be mutable when referencing PriorityClass", func() {
+			ginkgo.By("creating workload")
+			wl := testing.MakeWorkload("wl", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
+				PriorityClass("priority-class").PriorityClassSource(constants.PodPriorityClassSource).Priority(100).Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+			gomega.Eventually(func() []metav1.Condition {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
+				return updatedQueueWorkload.Status.Conditions
+			}, util.Timeout, util.Interval).ShouldNot(gomega.BeNil())
+			initialPriority := int32(100)
+			gomega.Expect(updatedQueueWorkload.Spec.Priority).To(gomega.Equal(&initialPriority))
+
+			ginkgo.By("Updating workload's priority")
+			updatedPriority := int32(50)
+			updatedQueueWorkload.Spec.Priority = &updatedPriority
+			gomega.Expect(k8sClient.Update(ctx, &updatedQueueWorkload)).To(gomega.Succeed())
+			gomega.Eventually(func() *int32 {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&updatedQueueWorkload), &finalQueueWorkload)).To(gomega.Succeed())
+				return finalQueueWorkload.Spec.Priority
+			}, util.Timeout, util.Interval).Should(gomega.Equal(&updatedPriority))
 		})
 	})
 })

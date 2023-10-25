@@ -6,6 +6,9 @@ resources:
 - bases/kueue.x-k8s.io_clusterqueues.yaml
 - bases/kueue.x-k8s.io_workloads.yaml
 - bases/kueue.x-k8s.io_resourceflavors.yaml
+- bases/kueue.x-k8s.io_admissionchecks.yaml
+- bases/kueue.x-k8s.io_workloadpriorityclasses.yaml
+- bases/kueue.x-k8s.io_provisioningrequestconfigs.yaml
 #+kubebuilder:scaffold:crdkustomizeresource
 
 patches:

@@ -57,7 +57,7 @@ func TestIsParentJobManaged(t *testing.T) {
 				UID(parentJobName).
 				Obj(),
 			job: testingjob.MakeJob(childJobName, jobNamespace).
-				OwnerReference(parentJobName, batchv1.SchemeGroupVersion.WithKind("Job")).
+				OwnerReference(parentJobName, batchv1.SchemeGroupVersion.WithKind("CronJob")).
 				Obj(),
 			wantErr: ErrUnknownWorkloadOwner,
 		},

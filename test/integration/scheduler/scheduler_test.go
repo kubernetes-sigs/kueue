@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -55,6 +56,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				GenerateName: "core-",
 			},
 		}
+		_ = features.SetEnable(features.FlavorFungibility, true)
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
 		onDemandFlavor = testing.MakeResourceFlavor("on-demand").Label(instanceKey, "on-demand").Obj()
@@ -160,7 +162,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			prodWl1Admission := testing.MakeAdmission(prodClusterQ.Name).Assignment(corev1.ResourceCPU, "on-demand", "2").Obj()
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, prodWl1, prodWl1Admission)
 			util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
-			util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
+			util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 1)
 
 			ginkgo.By("checking a second no-fit workload does not get admitted")
@@ -175,7 +177,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			spotUntaintedFlavorAdmission := testing.MakeAdmission(devClusterQ.Name).Assignment(corev1.ResourceCPU, "spot-untainted", "5").Obj()
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, devWl, spotUntaintedFlavorAdmission)
 			util.ExpectPendingWorkloadsMetric(devClusterQ, 0, 0)
-			util.ExpectAdmittedActiveWorkloadsMetric(devClusterQ, 1)
+			util.ExpectReservingActiveWorkloadsMetric(devClusterQ, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(devClusterQ, 1)
 
 			ginkgo.By("checking the second workload gets admitted when the first workload finishes")
@@ -183,7 +185,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			prodWl2Admission := testing.MakeAdmission(prodClusterQ.Name).Assignment(corev1.ResourceCPU, "on-demand", "5").Obj()
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, prodWl2, prodWl2Admission)
 			util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
-			util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
+			util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 2)
 		})
 
@@ -204,7 +206,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					Obj()
 				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1, wl1Admission)
 				util.ExpectPendingWorkloadsMetric(podsCountClusterQ, 0, 0)
-				util.ExpectAdmittedActiveWorkloadsMetric(podsCountClusterQ, 1)
+				util.ExpectReservingActiveWorkloadsMetric(podsCountClusterQ, 1)
 				util.ExpectAdmittedWorkloadsTotalMetric(podsCountClusterQ, 1)
 			})
 
@@ -231,7 +233,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, podsCountClusterQ.Name, wl1, wl3)
 				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
 				util.ExpectPendingWorkloadsMetric(podsCountClusterQ, 0, 1)
-				util.ExpectAdmittedActiveWorkloadsMetric(podsCountClusterQ, 2)
+				util.ExpectReservingActiveWorkloadsMetric(podsCountClusterQ, 2)
 				util.ExpectAdmittedWorkloadsTotalMetric(podsCountClusterQ, 2)
 			})
 
@@ -242,7 +244,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.By("checking the second workload is also admitted", func() {
 				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, podsCountClusterQ.Name, wl2, wl3)
 				util.ExpectPendingWorkloadsMetric(podsCountClusterQ, 0, 0)
-				util.ExpectAdmittedActiveWorkloadsMetric(podsCountClusterQ, 2)
+				util.ExpectReservingActiveWorkloadsMetric(podsCountClusterQ, 2)
 				util.ExpectAdmittedWorkloadsTotalMetric(podsCountClusterQ, 3)
 			})
 		})
@@ -262,7 +264,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					Obj()
 				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1, wl1Admission)
 				util.ExpectPendingWorkloadsMetric(podsCountOnlyClusterQ, 0, 0)
-				util.ExpectAdmittedActiveWorkloadsMetric(podsCountOnlyClusterQ, 1)
+				util.ExpectReservingActiveWorkloadsMetric(podsCountOnlyClusterQ, 1)
 				util.ExpectAdmittedWorkloadsTotalMetric(podsCountOnlyClusterQ, 1)
 			})
 
@@ -287,7 +289,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, podsCountOnlyClusterQ.Name, wl1, wl3)
 				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
 				util.ExpectPendingWorkloadsMetric(podsCountOnlyClusterQ, 0, 1)
-				util.ExpectAdmittedActiveWorkloadsMetric(podsCountOnlyClusterQ, 2)
+				util.ExpectReservingActiveWorkloadsMetric(podsCountOnlyClusterQ, 2)
 				util.ExpectAdmittedWorkloadsTotalMetric(podsCountOnlyClusterQ, 2)
 			})
 
@@ -298,7 +300,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.By("checking the second workload is also admitted", func() {
 				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, podsCountOnlyClusterQ.Name, wl2, wl3)
 				util.ExpectPendingWorkloadsMetric(podsCountOnlyClusterQ, 0, 0)
-				util.ExpectAdmittedActiveWorkloadsMetric(podsCountOnlyClusterQ, 2)
+				util.ExpectReservingActiveWorkloadsMetric(podsCountOnlyClusterQ, 2)
 				util.ExpectAdmittedWorkloadsTotalMetric(podsCountOnlyClusterQ, 3)
 			})
 		})
@@ -320,7 +322,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Expect(k8sClient.Create(ctx, wlHigh2)).Should(gomega.Succeed())
 
 			util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
-			util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 0)
+			util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 0)
 			// delay creating the queue until after workloads are created.
 			gomega.Expect(k8sClient.Create(ctx, queue)).Should(gomega.Succeed())
 
@@ -331,7 +333,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wlHigh1, wlHigh2)
 
 			util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 3)
-			util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 2)
+			util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 2)
 			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 2)
 
 			ginkgo.By("after the high priority workloads finish, only the mid priority workloads should be admitted")
@@ -339,7 +341,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wlMid1, wlMid2)
 			util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 1)
-			util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 2)
+			util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 2)
 			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 4)
 		})
 
@@ -350,7 +352,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, bigWl)
 			util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
-			util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
+			util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 1)
 
 			smallWl1 := testing.MakeWorkload("small-wl-1", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "2.5").Obj()
@@ -361,14 +363,14 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, smallWl1, smallWl2)
 			util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 2)
-			util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
+			util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
 
 			ginkgo.By("Marking the big workload as finished")
 			util.FinishWorkloads(ctx, k8sClient, bigWl)
 
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, smallWl1, smallWl2)
 			util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
-			util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 2)
+			util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 2)
 			util.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, 3)
 		})
 
@@ -381,7 +383,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, firstWl)
 				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
-				util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
+				util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
 			})
 
 			secondWl := testing.MakeWorkload("second-wl", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "3").Obj()
@@ -390,7 +392,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 				util.ExpectWorkloadsToBePending(ctx, k8sClient, secondWl)
 				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 1)
-				util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
+				util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
 			})
 
 			ginkgo.By("Reclaim one pod from the first workload", func() {
@@ -398,7 +400,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, firstWl, secondWl)
 				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
-				util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 2)
+				util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 2)
 			})
 		})
 
@@ -411,7 +413,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, firstWl)
 				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
-				util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
+				util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
 			})
 
 			secondWl := testing.MakeWorkload("second-wl", ns.Name).Queue(prodQueue.Name).
@@ -430,7 +432,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 				util.ExpectWorkloadsToBePending(ctx, k8sClient, secondWl)
 				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 1)
-				util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
+				util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
 			})
 
 			ginkgo.By("Reclaim all the pods from the second PodSet", func() {
@@ -438,7 +440,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, firstWl, secondWl)
 				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
-				util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 2)
+				util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 2)
 			})
 		})
 
@@ -451,14 +453,14 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
 				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 1)
-				util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 0)
+				util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 0)
 			})
 			ginkgo.By("Mark one pod as reclaimable", func() {
 				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "main", Count: 1}})).To(gomega.Succeed())
 
 				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wl)
 				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
-				util.ExpectAdmittedActiveWorkloadsMetric(prodClusterQ, 1)
+				util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
 
 				createWl := &kueue.Workload{}
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), createWl)).To(gomega.Succeed())
@@ -503,7 +505,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			expectWl1Admission := testing.MakeAdmission(cq.Name).Assignment(corev1.ResourceCPU, "on-demand", "4").Obj()
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1, expectWl1Admission)
 			util.ExpectPendingWorkloadsMetric(cq, 0, 0)
-			util.ExpectAdmittedActiveWorkloadsMetric(cq, 1)
+			util.ExpectReservingActiveWorkloadsMetric(cq, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, 1)
 
 			ginkgo.By("Second big workload is pending")
@@ -511,7 +513,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
 			util.ExpectPendingWorkloadsMetric(cq, 0, 1)
-			util.ExpectAdmittedActiveWorkloadsMetric(cq, 1)
+			util.ExpectReservingActiveWorkloadsMetric(cq, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, 1)
 
 			ginkgo.By("Third small workload starts")
@@ -520,7 +522,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			expectWl3Admission := testing.MakeAdmission(cq.Name).Assignment(corev1.ResourceCPU, "on-demand", "1").Obj()
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl3, expectWl3Admission)
 			util.ExpectPendingWorkloadsMetric(cq, 0, 1)
-			util.ExpectAdmittedActiveWorkloadsMetric(cq, 2)
+			util.ExpectReservingActiveWorkloadsMetric(cq, 2)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, 2)
 
 			ginkgo.By("Second big workload starts after the first one is deleted")
@@ -528,7 +530,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			expectWl2Admission := testing.MakeAdmission(cq.Name).Assignment(corev1.ResourceCPU, "on-demand", "4").Obj()
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl2, expectWl2Admission)
 			util.ExpectPendingWorkloadsMetric(cq, 0, 0)
-			util.ExpectAdmittedActiveWorkloadsMetric(cq, 2)
+			util.ExpectReservingActiveWorkloadsMetric(cq, 2)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, 3)
 		})
 
@@ -551,7 +553,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			expectAdmission := testing.MakeAdmission(fooCQ.Name).Assignment(corev1.ResourceCPU, "on-demand", "8").Obj()
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1, expectAdmission)
 			util.ExpectPendingWorkloadsMetric(fooCQ, 0, 0)
-			util.ExpectAdmittedActiveWorkloadsMetric(fooCQ, 1)
+			util.ExpectReservingActiveWorkloadsMetric(fooCQ, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(fooCQ, 1)
 
 			ginkgo.By("Second big workload is pending")
@@ -559,7 +561,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
 			util.ExpectPendingWorkloadsMetric(cq, 0, 1)
-			util.ExpectAdmittedActiveWorkloadsMetric(cq, 0)
+			util.ExpectReservingActiveWorkloadsMetric(cq, 0)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, 0)
 
 			ginkgo.By("Third small workload starts")
@@ -568,7 +570,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			expectAdmission = testing.MakeAdmission(fooCQ.Name).Assignment(corev1.ResourceCPU, "on-demand", "2").Obj()
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl3, expectAdmission)
 			util.ExpectPendingWorkloadsMetric(fooCQ, 0, 0)
-			util.ExpectAdmittedActiveWorkloadsMetric(fooCQ, 2)
+			util.ExpectReservingActiveWorkloadsMetric(fooCQ, 2)
 			util.ExpectAdmittedWorkloadsTotalMetric(fooCQ, 2)
 
 			ginkgo.By("Second big workload starts after the first one is deleted")
@@ -576,7 +578,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			expectAdmission = testing.MakeAdmission(cq.Name).Assignment(corev1.ResourceCPU, "on-demand", "8").Obj()
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl2, expectAdmission)
 			util.ExpectPendingWorkloadsMetric(cq, 0, 0)
-			util.ExpectAdmittedActiveWorkloadsMetric(cq, 1)
+			util.ExpectReservingActiveWorkloadsMetric(cq, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, 1)
 		})
 	})
@@ -608,7 +610,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
 			util.ExpectPendingWorkloadsMetric(cq, 0, 1)
-			util.ExpectAdmittedActiveWorkloadsMetric(cq, 0)
+			util.ExpectReservingActiveWorkloadsMetric(cq, 0)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, 0)
 
 			ginkgo.By("updating ClusterQueue")
@@ -630,7 +632,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			expectAdmission := testing.MakeAdmission(cq.Name).Assignment(corev1.ResourceCPU, "on-demand", "6").Obj()
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl, expectAdmission)
 			util.ExpectPendingWorkloadsMetric(cq, 0, 0)
-			util.ExpectAdmittedActiveWorkloadsMetric(cq, 1)
+			util.ExpectReservingActiveWorkloadsMetric(cq, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, 1)
 		})
 	})
@@ -687,14 +689,14 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl1, wl2)
 			util.ExpectPendingWorkloadsMetric(cq, 0, 2)
-			util.ExpectAdmittedActiveWorkloadsMetric(cq, 0)
+			util.ExpectReservingActiveWorkloadsMetric(cq, 0)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, 0)
 
 			ginkgo.By("checking the first workload gets admitted after updating the namespace labels to match CQ selector")
 			ns.Labels = map[string]string{"dep": "eng"}
 			gomega.Expect(k8sClient.Update(ctx, ns)).Should(gomega.Succeed())
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl1)
-			util.ExpectAdmittedActiveWorkloadsMetric(cq, 1)
+			util.ExpectReservingActiveWorkloadsMetric(cq, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, 1)
 			util.ExpectPendingWorkloadsMetric(cq, 0, 1)
 		})
@@ -728,7 +730,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
 			util.ExpectWorkloadsToBeFrozen(ctx, k8sClient, fooCQ.Name, wl)
 			util.ExpectPendingWorkloadsMetric(fooCQ, 0, 1)
-			util.ExpectAdmittedActiveWorkloadsMetric(fooCQ, 0)
+			util.ExpectReservingActiveWorkloadsMetric(fooCQ, 0)
 			util.ExpectAdmittedWorkloadsTotalMetric(fooCQ, 0)
 
 			ginkgo.By("Creating foo flavor")
@@ -740,7 +742,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectClusterQueueStatusMetric(fooCQ, metrics.CQStatusActive)
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, fooCQ.Name, wl)
 			util.ExpectPendingWorkloadsMetric(fooCQ, 0, 0)
-			util.ExpectAdmittedActiveWorkloadsMetric(fooCQ, 1)
+			util.ExpectReservingActiveWorkloadsMetric(fooCQ, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(fooCQ, 1)
 		})
 	})
@@ -783,7 +785,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			expectAdmission := testing.MakeAdmission(cq.Name).Assignment(corev1.ResourceCPU, "on-demand", "5").Obj()
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1, expectAdmission)
 			util.ExpectPendingWorkloadsMetric(cq, 0, 0)
-			util.ExpectAdmittedActiveWorkloadsMetric(cq, 1)
+			util.ExpectReservingActiveWorkloadsMetric(cq, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, 1)
 
 			ginkgo.By("checking a second workload without toleration doesn't start")
@@ -791,7 +793,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
 			util.ExpectPendingWorkloadsMetric(cq, 0, 1)
-			util.ExpectAdmittedActiveWorkloadsMetric(cq, 1)
+			util.ExpectReservingActiveWorkloadsMetric(cq, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, 1)
 
 			ginkgo.By("checking a third workload with toleration starts")
@@ -801,7 +803,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			expectAdmission = testing.MakeAdmission(cq.Name).Assignment(corev1.ResourceCPU, "spot-tainted", "5").Obj()
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl3, expectAdmission)
 			util.ExpectPendingWorkloadsMetric(cq, 0, 1)
-			util.ExpectAdmittedActiveWorkloadsMetric(cq, 2)
+			util.ExpectReservingActiveWorkloadsMetric(cq, 2)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, 2)
 		})
 	})
@@ -840,7 +842,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
 			expectAdmission := testing.MakeAdmission(cq.Name).Assignment(corev1.ResourceCPU, "spot-untainted", "1").Obj()
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1, expectAdmission)
-			util.ExpectAdmittedActiveWorkloadsMetric(cq, 1)
+			util.ExpectReservingActiveWorkloadsMetric(cq, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, 1)
 			util.ExpectPendingWorkloadsMetric(cq, 0, 0)
 
@@ -853,7 +855,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			expectAdmission = testing.MakeAdmission(cq.Name).Assignment(corev1.ResourceCPU, "on-demand", "1").Obj()
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl2, expectAdmission)
 			util.ExpectPendingWorkloadsMetric(cq, 0, 0)
-			util.ExpectAdmittedActiveWorkloadsMetric(cq, 2)
+			util.ExpectReservingActiveWorkloadsMetric(cq, 2)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, 2)
 		})
 	})
@@ -921,6 +923,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		ginkgo.BeforeEach(func() {
 			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).Should(gomega.Succeed())
 			gomega.Expect(k8sClient.Create(ctx, spotTaintedFlavor)).Should(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, spotUntaintedFlavor)).Should(gomega.Succeed())
 		})
 
 		ginkgo.AfterEach(func() {
@@ -931,6 +934,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}
 			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, spotTaintedFlavor, true)
+			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, spotUntaintedFlavor, true)
 		})
 
 		ginkgo.It("Should admit workloads using borrowed ClusterQueue", func() {
@@ -951,7 +955,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
 			util.ExpectPendingWorkloadsMetric(prodCQ, 0, 1)
-			util.ExpectAdmittedActiveWorkloadsMetric(prodCQ, 0)
+			util.ExpectReservingActiveWorkloadsMetric(prodCQ, 0)
 			util.ExpectAdmittedWorkloadsTotalMetric(prodCQ, 0)
 
 			ginkgo.By("checking the workload gets admitted when a fallback ClusterQueue gets added")
@@ -969,7 +973,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			expectAdmission := testing.MakeAdmission(prodCQ.Name).Assignment(corev1.ResourceCPU, "on-demand", "10").Obj()
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl, expectAdmission)
 			util.ExpectPendingWorkloadsMetric(prodCQ, 0, 0)
-			util.ExpectAdmittedActiveWorkloadsMetric(prodCQ, 1)
+			util.ExpectReservingActiveWorkloadsMetric(prodCQ, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(prodCQ, 1)
 		})
 
@@ -989,10 +993,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			prodQueue := testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodCQ.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, prodQueue)).Should(gomega.Succeed())
 
-			podQueue := testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devCQ.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, podQueue)).Should(gomega.Succeed())
+			devQueue := testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devCQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, devQueue)).Should(gomega.Succeed())
 			wl1 := testing.MakeWorkload("wl-1", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "11").Obj()
-			wl2 := testing.MakeWorkload("wl-2", ns.Name).Queue(podQueue.Name).Request(corev1.ResourceCPU, "11").Obj()
+			wl2 := testing.MakeWorkload("wl-2", ns.Name).Queue(devQueue.Name).Request(corev1.ResourceCPU, "11").Obj()
 
 			ginkgo.By("Creating two workloads")
 			gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
@@ -1000,8 +1004,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl1, wl2)
 			util.ExpectPendingWorkloadsMetric(prodCQ, 0, 1)
 			util.ExpectPendingWorkloadsMetric(devCQ, 0, 1)
-			util.ExpectAdmittedActiveWorkloadsMetric(prodCQ, 0)
-			util.ExpectAdmittedActiveWorkloadsMetric(devCQ, 0)
+			util.ExpectReservingActiveWorkloadsMetric(prodCQ, 0)
+			util.ExpectReservingActiveWorkloadsMetric(devCQ, 0)
 			util.ExpectAdmittedWorkloadsTotalMetric(prodCQ, 0)
 			util.ExpectAdmittedWorkloadsTotalMetric(devCQ, 0)
 
@@ -1020,8 +1024,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, devCQ.Name, wl2)
 			util.ExpectPendingWorkloadsMetric(prodCQ, 0, 0)
 			util.ExpectPendingWorkloadsMetric(devCQ, 0, 0)
-			util.ExpectAdmittedActiveWorkloadsMetric(prodCQ, 1)
-			util.ExpectAdmittedActiveWorkloadsMetric(devCQ, 1)
+			util.ExpectReservingActiveWorkloadsMetric(prodCQ, 1)
+			util.ExpectReservingActiveWorkloadsMetric(devCQ, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(prodCQ, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(devCQ, 1)
 		})
@@ -1074,6 +1078,91 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.By("Finishing third workload for prod ClusterQueue")
 			util.FinishWorkloads(ctx, k8sClient, pWl3)
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, devCQ.Name, dWl1)
+		})
+
+		ginkgo.It("Should try next flavor instead of borrowing", func() {
+			prodCQ = testing.MakeClusterQueue("prod-cq").
+				Cohort("all").
+				ResourceGroup(*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "10", "10").Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, prodCQ)).Should(gomega.Succeed())
+
+			devCQ = testing.MakeClusterQueue("dev-cq").
+				Cohort("all").
+				FlavorFungibility(kueue.FlavorFungibility{WhenCanBorrow: kueue.TryNextFlavor}).
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "10", "10").Obj(),
+					*testing.MakeFlavorQuotas("spot-tainted").Resource(corev1.ResourceCPU, "11").Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, devCQ)).Should(gomega.Succeed())
+
+			prodQueue := testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodCQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, prodQueue)).Should(gomega.Succeed())
+
+			devQueue := testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devCQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, devQueue)).Should(gomega.Succeed())
+
+			ginkgo.By("Creating one workload")
+			wl1 := testing.MakeWorkload("wl-1", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "9").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
+			prodWl1Admission := testing.MakeAdmission(prodCQ.Name).Assignment(corev1.ResourceCPU, "on-demand", "9").Obj()
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1, prodWl1Admission)
+			util.ExpectPendingWorkloadsMetric(prodCQ, 0, 0)
+			util.ExpectReservingActiveWorkloadsMetric(prodCQ, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(prodCQ, 1)
+
+			ginkgo.By("Creating another workload")
+			wl2 := testing.MakeWorkload("wl-2", ns.Name).Queue(devQueue.Name).Request(corev1.ResourceCPU, "11").Toleration(spotToleration).Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
+			prodWl2Admission := testing.MakeAdmission(devCQ.Name).Assignment(corev1.ResourceCPU, "spot-tainted", "11").Obj()
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl2, prodWl2Admission)
+			util.ExpectPendingWorkloadsMetric(devCQ, 0, 0)
+			util.ExpectReservingActiveWorkloadsMetric(devCQ, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(devCQ, 1)
+		})
+
+		ginkgo.It("Should preempt before try next flavor", func() {
+			prodCQ = testing.MakeClusterQueue("prod-cq").
+				Cohort("all").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "10", "10").Obj(),
+					*testing.MakeFlavorQuotas("spot-untainted").Resource(corev1.ResourceCPU, "11").Obj()).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				FlavorFungibility(kueue.FlavorFungibility{WhenCanPreempt: kueue.Preempt}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, prodCQ)).Should(gomega.Succeed())
+
+			devCQ = testing.MakeClusterQueue("dev-cq").
+				Cohort("all").
+				FlavorFungibility(kueue.FlavorFungibility{WhenCanBorrow: kueue.TryNextFlavor}).
+				ResourceGroup(*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "10", "10").Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, devCQ)).Should(gomega.Succeed())
+
+			prodQueue := testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodCQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, prodQueue)).Should(gomega.Succeed())
+
+			devQueue := testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devCQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, devQueue)).Should(gomega.Succeed())
+
+			ginkgo.By("Creating two workloads")
+			wl1 := testing.MakeWorkload("wl-1", ns.Name).Priority(0).Queue(devQueue.Name).Request(corev1.ResourceCPU, "9").Obj()
+			wl2 := testing.MakeWorkload("wl-2", ns.Name).Priority(1).Queue(devQueue.Name).Request(corev1.ResourceCPU, "9").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
+			util.ExpectPendingWorkloadsMetric(devCQ, 0, 0)
+			util.ExpectReservingActiveWorkloadsMetric(devCQ, 2)
+			util.ExpectAdmittedWorkloadsTotalMetric(devCQ, 2)
+
+			ginkgo.By("Creating another workload")
+			wl3 := testing.MakeWorkload("wl-3", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "5").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl3)).Should(gomega.Succeed())
+			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wl1)
+			util.ExpectPendingWorkloadsMetric(prodCQ, 0, 0)
+			util.ExpectReservingActiveWorkloadsMetric(prodCQ, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(prodCQ, 1)
 		})
 	})
 
@@ -1141,7 +1230,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				return !workload.HasQuotaReservation(wl3)
 			}, util.ConsistentDuration, util.Interval).Should(gomega.Equal(true))
 			util.ExpectPendingWorkloadsMetric(strictFIFOClusterQ, 2, 0)
-			util.ExpectAdmittedActiveWorkloadsMetric(strictFIFOClusterQ, 1)
+			util.ExpectReservingActiveWorkloadsMetric(strictFIFOClusterQ, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(strictFIFOClusterQ, 1)
 		})
 
@@ -1195,7 +1284,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				gomega.Expect(util.DeleteWorkload(ctx, k8sClient, wl1)).To(gomega.Succeed())
 			}()
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl1)
-			util.ExpectAdmittedActiveWorkloadsMetric(cq, 1)
+			util.ExpectReservingActiveWorkloadsMetric(cq, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, 1)
 
 			ginkgo.By("Delete clusterQueue")
@@ -1213,7 +1302,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				gomega.Expect(util.DeleteWorkload(ctx, k8sClient, wl2)).To(gomega.Succeed())
 			}()
 			util.ExpectWorkloadsToBeFrozen(ctx, k8sClient, cq.Name, wl2)
-			util.ExpectAdmittedActiveWorkloadsMetric(cq, 1)
+			util.ExpectReservingActiveWorkloadsMetric(cq, 1)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, 1)
 			util.ExpectPendingWorkloadsMetric(cq, 0, 1)
 		})

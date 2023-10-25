@@ -31,6 +31,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -225,7 +226,7 @@ func allMetricsForQueue(name string) cqMetrics {
 	return cqMetrics{
 		NominalDPs:   testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceNominalQuota, map[string]string{"cluster_queue": name}),
 		BorrowingDPs: testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceBorrowingLimit, map[string]string{"cluster_queue": name}),
-		UsageDPs:     testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceUsage, map[string]string{"cluster_queue": name}),
+		UsageDPs:     testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceReservations, map[string]string{"cluster_queue": name}),
 	}
 }
 
@@ -267,7 +268,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 			},
 		},
 		Status: kueue.ClusterQueueStatus{
-			FlavorsUsage: []kueue.FlavorUsage{
+			FlavorsReservation: []kueue.FlavorUsage{
 				{
 					Name: "flavor",
 					Resources: []kueue.ResourceUsage{
@@ -319,7 +320,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 				ret := baseQueue.DeepCopy()
 				ret.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("2")
 				ret.Spec.ResourceGroups[0].Flavors[0].Resources[0].BorrowingLimit = ptr.To(resource.MustParse("1"))
-				ret.Status.FlavorsUsage[0].Resources[0].Total = resource.MustParse("3")
+				ret.Status.FlavorsReservation[0].Resources[0].Total = resource.MustParse("3")
 				return ret
 			}(),
 			wantUpdatedMetrics: cqMetrics{
@@ -380,7 +381,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 			updatedQueue: func() *kueue.ClusterQueue {
 				ret := baseQueue.DeepCopy()
 				ret.Spec.ResourceGroups[0].Flavors[0].Name = "flavor2"
-				ret.Status.FlavorsUsage[0].Name = "flavor2"
+				ret.Status.FlavorsReservation[0].Name = "flavor2"
 				return ret
 			}(),
 			wantUpdatedMetrics: cqMetrics{
@@ -411,7 +412,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 			updatedQueue: func() *kueue.ClusterQueue {
 				ret := baseQueue.DeepCopy()
 				ret.Spec.ResourceGroups[0].Flavors[0].Resources[0].Name = corev1.ResourceMemory
-				ret.Status.FlavorsUsage[0].Resources[0].Name = corev1.ResourceMemory
+				ret.Status.FlavorsReservation[0].Resources[0].Name = corev1.ResourceMemory
 				return ret
 			}(),
 			wantUpdatedMetrics: cqMetrics{
@@ -441,7 +442,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 			},
 			updatedQueue: func() *kueue.ClusterQueue {
 				ret := baseQueue.DeepCopy()
-				ret.Status.FlavorsUsage = nil
+				ret.Status.FlavorsReservation = nil
 				return ret
 			}(),
 			wantUpdatedMetrics: cqMetrics{
@@ -499,11 +500,16 @@ func TestClusterQueuePendingWorkloadsStatus(t *testing.T) {
 		queueVisibilityUpdateInterval        time.Duration
 		queueVisibilityClusterQueuesMaxCount int32
 		wantPendingWorkloadsStatus           *kueue.ClusterQueuePendingWorkloadsStatus
+		enableQueueVisibility                bool
 	}{
-		"taking snapshot of cluster queue is disabled": {},
-		"taking snapshot of cluster queue is enabled": {
+		"queue visibility is disabled": {},
+		"queue visibility is disabled but maxcount is provided": {
+			queueVisibilityClusterQueuesMaxCount: 2,
+		},
+		"queue visibility is enabled": {
 			queueVisibilityClusterQueuesMaxCount: 2,
 			queueVisibilityUpdateInterval:        10 * time.Millisecond,
+			enableQueueVisibility:                true,
 			wantPendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{
 				Head: []kueue.ClusterQueuePendingWorkload{
 					{Name: "one"}, {Name: "two"},
@@ -513,6 +519,7 @@ func TestClusterQueuePendingWorkloadsStatus(t *testing.T) {
 		"verify the head of pending workloads when the number of pending workloads exceeds MaxCount": {
 			queueVisibilityClusterQueuesMaxCount: 1,
 			queueVisibilityUpdateInterval:        10 * time.Millisecond,
+			enableQueueVisibility:                true,
 			wantPendingWorkloadsStatus: &kueue.ClusterQueuePendingWorkloadsStatus{
 				Head: []kueue.ClusterQueuePendingWorkload{
 					{Name: "one"},
@@ -521,6 +528,7 @@ func TestClusterQueuePendingWorkloadsStatus(t *testing.T) {
 		},
 	}
 	for name, tc := range testCases {
+		defer features.SetFeatureGateDuringTest(t, features.QueueVisibility, tc.enableQueueVisibility)()
 		t.Run(name, func(t *testing.T) {
 			cq := utiltesting.MakeClusterQueue(cqName).
 				QueueingStrategy(kueue.StrictFIFO).Obj()

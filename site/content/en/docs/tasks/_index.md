@@ -23,6 +23,9 @@ As a batch administrator, you can learn how to:
   to Kueue objects.
 - [Administer cluster quotas](/docs/tasks/administer_cluster_quotas) with ClusterQueues and LocalQueues.
 - Setup [Sequential Admission with Ready Pods](/docs/tasks/setup_sequential_admission).
+- As a batch administrator, you can learn how to
+  [monitor pending workloads](/docs/tasks/monitor_pending_workloads).
+- As a batch administrator, you can learn how to [run a Kueue managed Jobs with a custom WorkloadPriority](/docs/tasks/run_job_with_workload_priority).
 
 ### Batch user
 
@@ -32,9 +35,11 @@ batch user is a researcher, AI/ML engineer, data scientist, among others.
 As a batch user, you can learn how to:
 - [Run a Kueue managed batch/Job](/docs/tasks/run_jobs).
 - [Run a Kueue managed Flux MiniCluster](/docs/tasks/run_flux_minicluster).
-- [Run a Kueue managed Kubeflow MPIJob](/docs/tasks/run_mpi_jobs).
+- [Run a Kueue managed Kubeflow Job](/docs/tasks/run_kubeflow_jobs).
+  Kueue supports MPIJob v2beta1, PyTorchJob, TFJob, XGBoostJob, PaddleJob, and MXJob.
 - [Run a Kueue managed KubeRay RayJob](/docs/tasks/run_rayjobs).
 - [Submit Kueue jobs from Python](/docs/tasks/run_python_jobs).
+- [Run a Kueue managed plain Pod](/docs/tasks/run_plain_pods).
 
 ### Platform developer
 
@@ -43,4 +48,4 @@ A _platform developer_ integrates Kueue with other software and/or contributes t
 As a platform developer, you can learn how to:
 - [Integrate a custom Job with Kueue](/docs/tasks/integrate_a_custom_job).
 - [Submit Kueue jobs from Python](/docs/tasks/run_python_jobs).
-
+- [Enable pprof endpoints](/docs/tasks/enabling_pprof_endpoints).

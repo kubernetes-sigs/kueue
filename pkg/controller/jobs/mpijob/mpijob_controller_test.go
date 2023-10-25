@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
@@ -195,9 +196,14 @@ var (
 )
 
 func TestReconciler(t *testing.T) {
+	baseWPCWrapper := utiltesting.MakeWorkloadPriorityClass("test-wpc").
+		PriorityValue(100)
+	basePCWrapper := utiltesting.MakePriorityClass("test-pc").
+		PriorityValue(200)
 	cases := map[string]struct {
 		reconcilerOptions []jobframework.Option
 		job               *kubeflow.MPIJob
+		priorityClasses   []client.Object
 		wantJob           *kubeflow.MPIJob
 		wantWorkloads     []kueue.Workload
 		wantErr           error
@@ -217,6 +223,65 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		"workload is created with podsets and workloadPriorityClass": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+			},
+			job: testingmpijob.MakeMPIJob("mpijob", "ns").Parallelism(2).WorkloadPriorityClass("test-wpc").Obj(),
+			priorityClasses: []client.Object{
+				baseWPCWrapper.Obj(),
+			},
+			wantJob: testingmpijob.MakeMPIJob("mpijob", "ns").Parallelism(2).WorkloadPriorityClass("test-wpc").Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("mpijob", "ns").
+					PodSets(
+						*utiltesting.MakePodSet("launcher", 1).Obj(),
+						*utiltesting.MakePodSet("worker", 2).Obj(),
+					).PriorityClass("test-wpc").Priority(100).
+					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					Obj(),
+			},
+		},
+		"workload is created with podsets and PriorityClass": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+			},
+			job: testingmpijob.MakeMPIJob("mpijob", "ns").Parallelism(2).PriorityClass("test-pc").Obj(),
+			priorityClasses: []client.Object{
+				basePCWrapper.Obj(),
+			},
+			wantJob: testingmpijob.MakeMPIJob("mpijob", "ns").Parallelism(2).PriorityClass("test-pc").Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("mpijob", "ns").
+					PodSets(
+						*utiltesting.MakePodSet("launcher", 1).Obj(),
+						*utiltesting.MakePodSet("worker", 2).Obj(),
+					).PriorityClass("test-pc").Priority(200).
+					PriorityClassSource(constants.PodPriorityClassSource).
+					Obj(),
+			},
+		},
+		"workload is created with podsets, workloadPriorityClass and PriorityClass": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+			},
+			job: testingmpijob.MakeMPIJob("mpijob", "ns").Parallelism(2).
+				WorkloadPriorityClass("test-wpc").PriorityClass("test-pc").Obj(),
+			priorityClasses: []client.Object{
+				basePCWrapper.Obj(), baseWPCWrapper.Obj(),
+			},
+			wantJob: testingmpijob.MakeMPIJob("mpijob", "ns").Parallelism(2).
+				WorkloadPriorityClass("test-wpc").PriorityClass("test-pc").Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("mpijob", "ns").
+					PodSets(
+						*utiltesting.MakePodSet("launcher", 1).Obj(),
+						*utiltesting.MakePodSet("worker", 2).Obj(),
+					).PriorityClass("test-wpc").Priority(100).
+					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					Obj(),
+			},
+		},
 	}
 
 	for name, tc := range cases {
@@ -226,7 +291,8 @@ func TestReconciler(t *testing.T) {
 			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
 			}
-			kClient := clientBuilder.WithObjects(tc.job).Build()
+			objs := append(tc.priorityClasses, tc.job)
+			kClient := clientBuilder.WithObjects(objs...).Build()
 			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
 			reconciler := NewReconciler(kClient, recorder, tc.reconcilerOptions...)
 

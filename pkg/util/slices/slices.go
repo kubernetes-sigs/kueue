@@ -16,8 +16,6 @@ limitations under the License.
 
 package slices
 
-import "k8s.io/apimachinery/pkg/util/sets"
-
 // ToMap creates a map[K]V out of the provided slice s using mf() to get the key and value
 // for a given index i.
 //
@@ -70,9 +68,15 @@ func CmpNoOrder[E comparable, S ~[]E](a, b S) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	setA := sets.New(a...)
-	for i := range b {
-		if !setA.Has(b[i]) {
+
+	counters := make(map[E]int, len(a))
+	for i := range a {
+		counters[a[i]]++
+		counters[b[i]]--
+	}
+
+	for _, v := range counters {
+		if v != 0 {
 			return false
 		}
 	}
