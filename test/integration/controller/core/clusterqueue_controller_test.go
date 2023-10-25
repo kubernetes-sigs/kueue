@@ -308,7 +308,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 
 			ginkgo.By("Setting the admission check for the first 4 workloads")
 			for _, w := range workloads[:4] {
-				util.SetWorkloadsAdmissionCkeck(ctx, k8sClient, w, ac.Name, kueue.CheckStateReady, true)
+				util.SetWorkloadsAdmissionCheck(ctx, k8sClient, w, ac.Name, kueue.CheckStateReady, true)
 			}
 
 			gomega.Eventually(func() kueue.ClusterQueueStatus {
@@ -740,7 +740,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 			wl := testing.MakeWorkload("workload", ns.Name).Queue(lq.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, testing.MakeAdmission(cq.Name).Obj())).To(gomega.Succeed())
-			util.SetWorkloadsAdmissionCkeck(ctx, k8sClient, wl, check.Name, kueue.CheckStateReady, true)
+			util.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, check.Name, kueue.CheckStateReady, true)
 			gomega.Eventually(func(g gomega.Gomega) {
 				key := client.ObjectKeyFromObject(wl)
 				updatedWl := &kueue.Workload{}
