@@ -40,7 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/util/podsetinfo"
+	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -285,12 +285,12 @@ func (c *Controller) syncProvisionRequestsPodTemplates(ctx context.Context, wl *
 			}
 
 			// apply the admission node selectors to the Template
-			psi, err := podsetinfo.FromAssignment(ctx, c.client, psaMap[psName], reqPS.Count)
+			psi, err := podset.FromAssignment(ctx, c.client, psaMap[psName], reqPS.Count)
 			if err != nil {
 				return err
 			}
 
-			err = podsetinfo.Merge(&newPt.Template.ObjectMeta, &newPt.Template.Spec, psi)
+			err = podset.Merge(&newPt.Template.ObjectMeta, &newPt.Template.Spec, psi)
 			if err != nil {
 				return err
 			}

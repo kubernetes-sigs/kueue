@@ -31,7 +31,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/util/podsetinfo"
+	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 )
 
@@ -113,10 +113,10 @@ func (j *JobSet) PodSets() []kueue.PodSet {
 	return podSets
 }
 
-func (j *JobSet) RunWithPodSetsInfo(podSetsInfo []podsetinfo.PodSetInfo) error {
+func (j *JobSet) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
 	j.Spec.Suspend = ptr.To(false)
 	if len(podSetsInfo) != len(j.Spec.ReplicatedJobs) {
-		return podsetinfo.BadPodSetsInfoLenError(len(j.Spec.ReplicatedJobs), len(podSetsInfo))
+		return podset.BadPodSetsInfoLenError(len(j.Spec.ReplicatedJobs), len(podSetsInfo))
 	}
 
 	// If there are Jobs already created by the JobSet, their node selectors will be updated by the JobSet controller
@@ -124,14 +124,14 @@ func (j *JobSet) RunWithPodSetsInfo(podSetsInfo []podsetinfo.PodSetInfo) error {
 	for index := range j.Spec.ReplicatedJobs {
 		template := &j.Spec.ReplicatedJobs[index].Template.Spec.Template
 		info := podSetsInfo[index]
-		if err := podsetinfo.Merge(&template.ObjectMeta, &template.Spec, info); err != nil {
+		if err := podset.Merge(&template.ObjectMeta, &template.Spec, info); err != nil {
 			return nil
 		}
 	}
 	return nil
 }
 
-func (j *JobSet) RestorePodSetsInfo(podSetsInfo []podsetinfo.PodSetInfo) bool {
+func (j *JobSet) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 	if len(podSetsInfo) == 0 {
 		return false
 	}
@@ -139,7 +139,7 @@ func (j *JobSet) RestorePodSetsInfo(podSetsInfo []podsetinfo.PodSetInfo) bool {
 	for index := range j.Spec.ReplicatedJobs {
 		replica := &j.Spec.ReplicatedJobs[index].Template.Spec.Template
 		info := podSetsInfo[index]
-		changed = podsetinfo.Restore(&replica.ObjectMeta, &replica.Spec, info) || changed
+		changed = podset.RestorePodSpec(&replica.ObjectMeta, &replica.Spec, info) || changed
 	}
 	return changed
 }

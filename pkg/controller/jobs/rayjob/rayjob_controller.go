@@ -28,7 +28,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/util/podsetinfo"
+	"sigs.k8s.io/kueue/pkg/podset"
 )
 
 var (
@@ -112,10 +112,10 @@ func (j *RayJob) PodSets() []kueue.PodSet {
 	return podSets
 }
 
-func (j *RayJob) RunWithPodSetsInfo(podSetsInfo []podsetinfo.PodSetInfo) error {
+func (j *RayJob) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
 	expectedLen := len(j.Spec.RayClusterSpec.WorkerGroupSpecs) + 1
 	if len(podSetsInfo) != expectedLen {
-		return podsetinfo.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
+		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
 	}
 
 	j.Spec.Suspend = false
@@ -123,7 +123,7 @@ func (j *RayJob) RunWithPodSetsInfo(podSetsInfo []podsetinfo.PodSetInfo) error {
 	// head
 	headPod := &j.Spec.RayClusterSpec.HeadGroupSpec.Template
 	info := podSetsInfo[0]
-	if err := podsetinfo.Merge(&headPod.ObjectMeta, &headPod.Spec, info); err != nil {
+	if err := podset.Merge(&headPod.ObjectMeta, &headPod.Spec, info); err != nil {
 		return err
 	}
 
@@ -131,14 +131,14 @@ func (j *RayJob) RunWithPodSetsInfo(podSetsInfo []podsetinfo.PodSetInfo) error {
 	for index := range j.Spec.RayClusterSpec.WorkerGroupSpecs {
 		workerPod := &j.Spec.RayClusterSpec.WorkerGroupSpecs[index].Template
 		info := podSetsInfo[index+1]
-		if err := podsetinfo.Merge(&workerPod.ObjectMeta, &workerPod.Spec, info); err != nil {
+		if err := podset.Merge(&workerPod.ObjectMeta, &workerPod.Spec, info); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (j *RayJob) RestorePodSetsInfo(podSetsInfo []podsetinfo.PodSetInfo) bool {
+func (j *RayJob) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 	if len(podSetsInfo) != len(j.Spec.RayClusterSpec.WorkerGroupSpecs)+1 {
 		return false
 	}
@@ -146,13 +146,13 @@ func (j *RayJob) RestorePodSetsInfo(podSetsInfo []podsetinfo.PodSetInfo) bool {
 	changed := false
 	// head
 	headPod := &j.Spec.RayClusterSpec.HeadGroupSpec.Template
-	changed = podsetinfo.Restore(&headPod.ObjectMeta, &headPod.Spec, podSetsInfo[0]) || changed
+	changed = podset.RestorePodSpec(&headPod.ObjectMeta, &headPod.Spec, podSetsInfo[0]) || changed
 
 	// workers
 	for index := range j.Spec.RayClusterSpec.WorkerGroupSpecs {
 		workerPod := &j.Spec.RayClusterSpec.WorkerGroupSpecs[index].Template
 		info := podSetsInfo[index+1]
-		changed = podsetinfo.Restore(&workerPod.ObjectMeta, &workerPod.Spec, info) || changed
+		changed = podset.RestorePodSpec(&workerPod.ObjectMeta, &workerPod.Spec, info) || changed
 	}
 	return changed
 }

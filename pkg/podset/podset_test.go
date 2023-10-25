@@ -13,7 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-package podsetinfo
+package podset
 
 import (
 	"context"
@@ -294,7 +294,7 @@ func TestMergeRestore(t *testing.T) {
 				}
 
 				restoreInfo := FromPodSet(orig)
-				gotRestoreChage := Restore(&tc.podSet.Template.ObjectMeta, &tc.podSet.Template.Spec, restoreInfo)
+				gotRestoreChage := RestorePodSpec(&tc.podSet.Template.ObjectMeta, &tc.podSet.Template.Spec, restoreInfo)
 				if gotRestoreChage != tc.wantRestoreChanges {
 					t.Errorf("Unexpected restore change status want:%v", tc.wantRestoreChanges)
 				}

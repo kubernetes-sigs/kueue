@@ -11,7 +11,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package podsetinfo
+package podset
 
 import (
 	"context"
@@ -131,9 +131,9 @@ func Merge(meta *metav1.ObjectMeta, spec *corev1.PodSpec, info PodSetInfo) error
 	return nil
 }
 
-// Restore sets replica metadata and spec fields based on PodSetInfo.
+// RestorePodSpec sets replica metadata and spec fields based on PodSetInfo.
 // It returns true if there is any change.
-func Restore(meta *metav1.ObjectMeta, spec *corev1.PodSpec, info PodSetInfo) bool {
+func RestorePodSpec(meta *metav1.ObjectMeta, spec *corev1.PodSpec, info PodSetInfo) bool {
 	changed := false
 	if !maps.Equal(meta.Annotations, info.Annotations) {
 		meta.Annotations = maps.Clone(info.Annotations)

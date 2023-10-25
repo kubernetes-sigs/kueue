@@ -35,9 +35,9 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
-	"sigs.k8s.io/kueue/pkg/util/podsetinfo"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -316,7 +316,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			err := r.startJob(ctx, job, object, wl)
 			if err != nil {
 				log.Error(err, "Unsuspending job")
-				if podsetinfo.IsPermanent(err) {
+				if podset.IsPermanent(err) {
 					// Mark the workload as finished with failure since the is no point to retry.
 					errUpdateStatus := workload.UpdateStatus(ctx, r.client, wl, kueue.WorkloadFinished, metav1.ConditionTrue, FailedToStartFinishedReason, err.Error(), constants.JobControllerName)
 					if errUpdateStatus != nil {
@@ -639,15 +639,15 @@ func extractPriorityFromPodSets(podSets []kueue.PodSet) string {
 
 // getPodSetsInfoFromStatus extracts podSetsInfo from workload status, based on
 // admission, and admission checks.
-func (r *JobReconciler) getPodSetsInfoFromStatus(ctx context.Context, w *kueue.Workload) ([]podsetinfo.PodSetInfo, error) {
+func (r *JobReconciler) getPodSetsInfoFromStatus(ctx context.Context, w *kueue.Workload) ([]podset.PodSetInfo, error) {
 	if len(w.Status.Admission.PodSetAssignments) == 0 {
 		return nil, nil
 	}
 
-	podSetsInfo := make([]podsetinfo.PodSetInfo, len(w.Status.Admission.PodSetAssignments))
+	podSetsInfo := make([]podset.PodSetInfo, len(w.Status.Admission.PodSetAssignments))
 
 	for i, podSetFlavor := range w.Status.Admission.PodSetAssignments {
-		info, err := podsetinfo.FromAssignment(ctx, r.client, &podSetFlavor, w.Spec.PodSets[i].Count)
+		info, err := podset.FromAssignment(ctx, r.client, &podSetFlavor, w.Spec.PodSets[i].Count)
 		if err != nil {
 			return nil, err
 		}
@@ -655,7 +655,7 @@ func (r *JobReconciler) getPodSetsInfoFromStatus(ctx context.Context, w *kueue.W
 		for _, admissionCheck := range w.Status.AdmissionChecks {
 			for _, podSetUpdate := range admissionCheck.PodSetUpdates {
 				if podSetUpdate.Name == info.Name {
-					if err := info.Merge(podsetinfo.FromUpdate(&podSetUpdate)); err != nil {
+					if err := info.Merge(podset.FromUpdate(&podSetUpdate)); err != nil {
 						return nil, fmt.Errorf("in admission check %q: %w", admissionCheck.Name, err)
 					}
 					break
@@ -711,12 +711,12 @@ func generatePodsReadyCondition(job GenericJob, wl *kueue.Workload) metav1.Condi
 
 // getPodSetsInfoFromWorkload retrieve the podSetsInfo slice from the
 // provided workload's spec
-func getPodSetsInfoFromWorkload(wl *kueue.Workload) []podsetinfo.PodSetInfo {
+func getPodSetsInfoFromWorkload(wl *kueue.Workload) []podset.PodSetInfo {
 	if wl == nil {
 		return nil
 	}
 
-	return utilslices.Map(wl.Spec.PodSets, podsetinfo.FromPodSet)
+	return utilslices.Map(wl.Spec.PodSets, podset.FromPodSet)
 
 }
 
