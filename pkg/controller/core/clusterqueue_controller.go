@@ -170,7 +170,7 @@ func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 		if controllerutil.ContainsFinalizer(&cqObj, kueue.ResourceInUseFinalizerName) {
 			// The clusterQueue is being deleted, remove the finalizer only if
-			// there are no active admitted workloads.
+			// there are no active reserving workloads.
 			if r.cache.ClusterQueueEmpty(cqObj.Name) {
 				controllerutil.RemoveFinalizer(&cqObj, kueue.ResourceInUseFinalizerName)
 				if err := r.client.Update(ctx, &cqObj); err != nil {

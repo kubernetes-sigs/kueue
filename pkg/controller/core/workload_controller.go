@@ -24,6 +24,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -159,6 +160,11 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if evictionTriggered, err := r.reconcileCheckBasedEviction(ctx, &wl); evictionTriggered || err != nil {
 			return ctrl.Result{}, err
 		}
+
+		if reservationRemoved, err := r.reconcileReservationOnClusterQueueDeletion(ctx, &wl, cqName); reservationRemoved || err != nil {
+			return ctrl.Result{}, err
+		}
+
 		return r.reconcileNotReadyTimeout(ctx, req, &wl)
 	}
 
@@ -212,6 +218,26 @@ func (r *WorkloadReconciler) reconcileSyncAdmissionChecks(ctx context.Context, w
 		wl.Status.AdmissionChecks = newChecks
 		err := r.client.Status().Update(ctx, wl)
 		return true, client.IgnoreNotFound(err)
+	}
+	return false, nil
+}
+
+func (r *WorkloadReconciler) reconcileReservationOnClusterQueueDeletion(ctx context.Context, wl *kueue.Workload, cqName string) (bool, error) {
+	if workload.IsAdmitted(wl) {
+		return false, nil
+	}
+
+	queue := kueue.ClusterQueue{}
+	err := r.client.Get(ctx, types.NamespacedName{Name: cqName}, &queue)
+	if client.IgnoreNotFound(err) != nil {
+		return false, err
+	}
+
+	if apierrors.IsNotFound(err) || !queue.DeletionTimestamp.IsZero() {
+		log := ctrl.LoggerFrom(ctx)
+		log.V(3).Info("Workload is inadmissible because ClusterQueue is terminating or missing", "clusterQueue", klog.KRef("", cqName))
+		workload.UnsetQuotaReservationWithCondition(wl, "Inadmissible", fmt.Sprintf("ClusterQueue %s is terminating or missing", cqName))
+		return true, workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
 	}
 	return false, nil
 }
@@ -571,7 +597,12 @@ func (w *workloadCqHandler) Update(ctx context.Context, ev event.UpdateEvent, wq
 	log.V(5).Info("Workload cluster queue update event")
 	oldCq, oldIsQueue := ev.ObjectOld.(*kueue.ClusterQueue)
 	newCq, newIsQueue := ev.ObjectNew.(*kueue.ClusterQueue)
-	if oldIsQueue && newIsQueue && !slices.CmpNoOrder(oldCq.Spec.AdmissionChecks, newCq.Spec.AdmissionChecks) {
+
+	if !oldIsQueue || !newIsQueue {
+		return
+	}
+
+	if !newCq.DeletionTimestamp.IsZero() || !slices.CmpNoOrder(oldCq.Spec.AdmissionChecks, newCq.Spec.AdmissionChecks) {
 		w.queueReconcileForWorkloads(ctx, newCq.Name, wq)
 	}
 }

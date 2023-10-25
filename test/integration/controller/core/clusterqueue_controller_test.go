@@ -21,6 +21,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
@@ -307,7 +308,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 
 			ginkgo.By("Setting the admission check for the first 4 workloads")
 			for _, w := range workloads[:4] {
-				util.SetWorkloadsAdmissionCkeck(ctx, k8sClient, w, ac.Name, kueue.CheckStateReady, true)
+				util.SetWorkloadsAdmissionCheck(ctx, k8sClient, w, ac.Name, kueue.CheckStateReady, true)
 			}
 
 			gomega.Eventually(func() kueue.ClusterQueueStatus {
@@ -708,15 +709,23 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 
 	ginkgo.When("Deleting clusterQueues", func() {
 		var (
-			cq *kueue.ClusterQueue
-			lq *kueue.LocalQueue
+			cq    *kueue.ClusterQueue
+			lq    *kueue.LocalQueue
+			check *kueue.AdmissionCheck
 		)
 
 		ginkgo.BeforeEach(func() {
-			cq = testing.MakeClusterQueue("foo-cq").Obj()
+			check = testing.MakeAdmissionCheck("check").ControllerName("check-controller").Obj()
+			gomega.Expect(k8sClient.Create(ctx, check)).To(gomega.Succeed())
+
+			cq = testing.MakeClusterQueue("foo-cq").AdmissionChecks(check.Name).Obj()
 			lq = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
 			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectAdmissionCheckToBeDeleted(ctx, k8sClient, check, true)
 		})
 
 		ginkgo.It("Should delete clusterQueues successfully when no admitted workloads are running", func() {
@@ -724,12 +733,20 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 		})
 
 		ginkgo.It("Should be stuck in termination until admitted workloads finished running", func() {
+			util.SetAdmissionCheckActive(ctx, k8sClient, check, metav1.ConditionTrue)
 			util.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusActive)
 
 			ginkgo.By("Admit workload")
 			wl := testing.MakeWorkload("workload", ns.Name).Queue(lq.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, testing.MakeAdmission(cq.Name).Obj())).To(gomega.Succeed())
+			util.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, check.Name, kueue.CheckStateReady, true)
+			gomega.Eventually(func(g gomega.Gomega) {
+				key := client.ObjectKeyFromObject(wl)
+				updatedWl := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, key, updatedWl)).To(gomega.Succeed())
+				g.Expect(apimeta.IsStatusConditionTrue(updatedWl.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Delete clusterQueue")
 			gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, cq)).To(gomega.Succeed())
@@ -748,6 +765,19 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 				var newCQ kueue.ClusterQueue
 				return k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &newCQ)
 			}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
+		})
+
+		ginkgo.It("Should delete the cluster without waiting for reserving only workloads to finish", func() {
+			util.SetAdmissionCheckActive(ctx, k8sClient, check, metav1.ConditionTrue)
+			util.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusActive)
+
+			ginkgo.By("Setting quota reservation")
+			wl := testing.MakeWorkload("workload", ns.Name).Queue(lq.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, testing.MakeAdmission(cq.Name).Obj())).To(gomega.Succeed())
+
+			ginkgo.By("Delete clusterQueue")
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
 		})
 	})
 })

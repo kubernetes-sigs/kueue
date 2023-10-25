@@ -157,7 +157,7 @@ var _ = ginkgo.Describe("Provisioning", func() {
 					if err != nil {
 						return err
 					}
-					util.SetWorkloadsAdmissionCkeck(ctx, k8sClient, updatedWl, ac.Name, kueue.CheckStatePending, false)
+					util.SetWorkloadsAdmissionCheck(ctx, k8sClient, updatedWl, ac.Name, kueue.CheckStatePending, false)
 					return nil
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -182,7 +182,7 @@ var _ = ginkgo.Describe("Provisioning", func() {
 					if err != nil {
 						return err
 					}
-					util.SetWorkloadsAdmissionCkeck(ctx, k8sClient, updatedWl, ac.Name, kueue.CheckStatePending, false)
+					util.SetWorkloadsAdmissionCheck(ctx, k8sClient, updatedWl, ac.Name, kueue.CheckStatePending, false)
 					return nil
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -256,7 +256,7 @@ var _ = ginkgo.Describe("Provisioning", func() {
 						return err
 					}
 					gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, updatedWl, nil)).To(gomega.Succeed())
-					util.SetWorkloadsAdmissionCkeck(ctx, k8sClient, updatedWl, ac.Name, kueue.CheckStatePending, false)
+					util.SetWorkloadsAdmissionCheck(ctx, k8sClient, updatedWl, ac.Name, kueue.CheckStatePending, false)
 					return nil
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -281,7 +281,7 @@ var _ = ginkgo.Describe("Provisioning", func() {
 					if err != nil {
 						return err
 					}
-					util.SetWorkloadsAdmissionCkeck(ctx, k8sClient, updatedWl, ac.Name, kueue.CheckStatePending, false)
+					util.SetWorkloadsAdmissionCheck(ctx, k8sClient, updatedWl, ac.Name, kueue.CheckStatePending, false)
 					return nil
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -351,7 +351,7 @@ var _ = ginkgo.Describe("Provisioning", func() {
 					if err != nil {
 						return err
 					}
-					util.SetWorkloadsAdmissionCkeck(ctx, k8sClient, updatedWl, ac.Name, kueue.CheckStatePending, false)
+					util.SetWorkloadsAdmissionCheck(ctx, k8sClient, updatedWl, ac.Name, kueue.CheckStatePending, false)
 					return nil
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -407,7 +407,7 @@ var _ = ginkgo.Describe("Provisioning", func() {
 					if err != nil {
 						return err
 					}
-					util.SetWorkloadsAdmissionCkeck(ctx, k8sClient, updatedWl, ac.Name, kueue.CheckStatePending, false)
+					util.SetWorkloadsAdmissionCheck(ctx, k8sClient, updatedWl, ac.Name, kueue.CheckStatePending, false)
 					return nil
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
