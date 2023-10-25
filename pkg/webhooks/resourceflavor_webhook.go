@@ -93,6 +93,7 @@ func ValidateResourceFlavor(rf *kueue.ResourceFlavor) field.ErrorList {
 	allErrs = append(allErrs, metavalidation.ValidateLabels(rf.Spec.NodeLabels, specPath.Child("nodeLabels"))...)
 
 	allErrs = append(allErrs, validateNodeTaints(rf.Spec.NodeTaints, specPath.Child("nodeTaints"))...)
+	allErrs = append(allErrs, validateTolerations(rf.Spec.Tolerations, specPath.Child("tolerations"))...)
 	return allErrs
 }
 

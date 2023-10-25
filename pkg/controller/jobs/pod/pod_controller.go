@@ -34,6 +34,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/podset"
 )
 
 const (
@@ -105,19 +106,19 @@ func (p *Pod) Suspend() {
 }
 
 // RunWithPodSetsInfo will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
-func (p *Pod) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) error {
+func (p *Pod) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
 	if len(podSetsInfo) != 1 {
-		return fmt.Errorf("%w: expecting 1 got %d", jobframework.ErrInvalidPodsetInfo, len(podSetsInfo))
+		return fmt.Errorf("%w: expecting 1 got %d", podset.ErrInvalidPodsetInfo, len(podSetsInfo))
 	}
 	idx := p.gateIndex()
 	if idx != gateNotFound {
 		p.Spec.SchedulingGates = append(p.Spec.SchedulingGates[:idx], p.Spec.SchedulingGates[idx+1:]...)
 	}
-	return jobframework.Merge(&p.ObjectMeta, &p.Spec, podSetsInfo[0])
+	return podset.Merge(&p.ObjectMeta, &p.Spec, podSetsInfo[0])
 }
 
 // RestorePodSetsInfo will restore the original node affinity and podSet counts of the job.
-func (p *Pod) RestorePodSetsInfo(nodeSelectors []jobframework.PodSetInfo) bool {
+func (p *Pod) RestorePodSetsInfo(nodeSelectors []podset.PodSetInfo) bool {
 	// Not implemented since Pods cannot be updated, they can only be terminated.
 	return false
 }
@@ -173,7 +174,7 @@ func (p *Pod) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
-func (p *Pod) Stop(ctx context.Context, c client.Client, _ []jobframework.PodSetInfo, eventMsg string) (bool, error) {
+func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, eventMsg string) (bool, error) {
 	// The podset info is not relevant here, since this should mark the pod's end of life
 	pCopy := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{

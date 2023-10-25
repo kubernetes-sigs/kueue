@@ -281,6 +281,16 @@ func (p *PodSetWrapper) NodeSelector(kv map[string]string) *PodSetWrapper {
 	return p
 }
 
+func (p *PodSetWrapper) Labels(kv map[string]string) *PodSetWrapper {
+	p.Template.Labels = kv
+	return p
+}
+
+func (p *PodSetWrapper) Annotations(kv map[string]string) *PodSetWrapper {
+	p.Template.Annotations = kv
+	return p
+}
+
 func (p *PodSetWrapper) SchedulingGates(sg ...corev1.PodSchedulingGate) *PodSetWrapper {
 	p.Template.Spec.SchedulingGates = sg
 	return p
@@ -518,6 +528,12 @@ func (rf *ResourceFlavorWrapper) Label(k, v string) *ResourceFlavorWrapper {
 // Taint adds a taint to the ResourceFlavor.
 func (rf *ResourceFlavorWrapper) Taint(t corev1.Taint) *ResourceFlavorWrapper {
 	rf.Spec.NodeTaints = append(rf.Spec.NodeTaints, t)
+	return rf
+}
+
+// Toleration  adds a taint to the ResourceFlavor.
+func (rf *ResourceFlavorWrapper) Toleration(t corev1.Toleration) *ResourceFlavorWrapper {
+	rf.Spec.Tolerations = append(rf.Spec.Tolerations, t)
 	return rf
 }
 

@@ -39,6 +39,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/podset"
 )
 
 var (
@@ -156,7 +157,7 @@ func (j *Job) Suspend() {
 	j.Spec.Suspend = ptr.To(true)
 }
 
-func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []jobframework.PodSetInfo, eventMsg string) (bool, error) {
+func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, eventMsg string) (bool, error) {
 	stoppedNow := false
 	if !j.IsSuspended() {
 		j.Suspend()
@@ -215,10 +216,10 @@ func (j *Job) PodSets() []kueue.PodSet {
 	}
 }
 
-func (j *Job) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) error {
+func (j *Job) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
 	j.Spec.Suspend = ptr.To(false)
 	if len(podSetsInfo) != 1 {
-		return jobframework.BadPodSetsInfoLenError(1, len(podSetsInfo))
+		return podset.BadPodSetsInfoLenError(1, len(podSetsInfo))
 	}
 
 	info := podSetsInfo[0]
@@ -229,10 +230,10 @@ func (j *Job) RunWithPodSetsInfo(podSetsInfo []jobframework.PodSetInfo) error {
 			j.Spec.Completions = j.Spec.Parallelism
 		}
 	}
-	return jobframework.Merge(&j.Spec.Template.ObjectMeta, &j.Spec.Template.Spec, info)
+	return podset.Merge(&j.Spec.Template.ObjectMeta, &j.Spec.Template.Spec, info)
 }
 
-func (j *Job) RestorePodSetsInfo(podSetsInfo []jobframework.PodSetInfo) bool {
+func (j *Job) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 	if len(podSetsInfo) == 0 {
 		return false
 	}
@@ -246,7 +247,7 @@ func (j *Job) RestorePodSetsInfo(podSetsInfo []jobframework.PodSetInfo) bool {
 			j.Spec.Completions = j.Spec.Parallelism
 		}
 	}
-	changed = jobframework.Restore(&j.Spec.Template.ObjectMeta, &j.Spec.Template.Spec, podSetsInfo[0]) || changed
+	changed = podset.RestorePodSpec(&j.Spec.Template.ObjectMeta, &j.Spec.Template.Spec, podSetsInfo[0]) || changed
 	return changed
 }
 

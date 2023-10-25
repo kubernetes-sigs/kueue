@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 )
@@ -167,7 +168,7 @@ func TestPodsReady(t *testing.T) {
 func TestPodSetsInfo(t *testing.T) {
 	testcases := map[string]struct {
 		job                  *Job
-		runInfo, restoreInfo []jobframework.PodSetInfo
+		runInfo, restoreInfo []podset.PodSetInfo
 		wantUnsuspended      *batchv1.Job
 		wantRunError         error
 	}{
@@ -175,11 +176,25 @@ func TestPodSetsInfo(t *testing.T) {
 			job: (*Job)(utiltestingjob.MakeJob("job", "ns").
 				Parallelism(1).
 				NodeSelector("orig-key", "orig-val").
+				Toleration(corev1.Toleration{
+					Key:      "orig-t-key",
+					Operator: corev1.TolerationOpEqual,
+					Value:    "orig-t-val",
+					Effect:   corev1.TaintEffectNoSchedule,
+				}).
 				Obj()),
-			runInfo: []jobframework.PodSetInfo{
+			runInfo: []podset.PodSetInfo{
 				{
 					NodeSelector: map[string]string{
 						"new-key": "new-val",
+					},
+					Tolerations: []corev1.Toleration{
+						{
+							Key:      "new-t-key",
+							Operator: corev1.TolerationOpEqual,
+							Value:    "new-t-val",
+							Effect:   corev1.TaintEffectNoSchedule,
+						},
 					},
 				},
 			},
@@ -187,12 +202,32 @@ func TestPodSetsInfo(t *testing.T) {
 				Parallelism(1).
 				NodeSelector("orig-key", "orig-val").
 				NodeSelector("new-key", "new-val").
+				Toleration(corev1.Toleration{
+					Key:      "orig-t-key",
+					Operator: corev1.TolerationOpEqual,
+					Value:    "orig-t-val",
+					Effect:   corev1.TaintEffectNoSchedule,
+				}).
+				Toleration(corev1.Toleration{
+					Key:      "new-t-key",
+					Operator: corev1.TolerationOpEqual,
+					Value:    "new-t-val",
+					Effect:   corev1.TaintEffectNoSchedule,
+				}).
 				Suspend(false).
 				Obj(),
-			restoreInfo: []jobframework.PodSetInfo{
+			restoreInfo: []podset.PodSetInfo{
 				{
 					NodeSelector: map[string]string{
 						"orig-key": "orig-val",
+					},
+					Tolerations: []corev1.Toleration{
+						{
+							Key:      "orig-t-key",
+							Operator: corev1.TolerationOpEqual,
+							Value:    "orig-t-val",
+							Effect:   corev1.TaintEffectNoSchedule,
+						},
 					},
 				},
 			},
@@ -202,20 +237,20 @@ func TestPodSetsInfo(t *testing.T) {
 				Parallelism(1).
 				NodeSelector("orig-key", "orig-val").
 				Obj()),
-			runInfo: []jobframework.PodSetInfo{
+			runInfo: []podset.PodSetInfo{
 				{
 					NodeSelector: map[string]string{
 						"orig-key": "new-val",
 					},
 				},
 			},
-			wantRunError: jobframework.ErrInvalidPodSetUpdate,
+			wantRunError: podset.ErrInvalidPodSetUpdate,
 			wantUnsuspended: utiltestingjob.MakeJob("job", "ns").
 				Parallelism(1).
 				NodeSelector("orig-key", "orig-val").
 				Suspend(false).
 				Obj(),
-			restoreInfo: []jobframework.PodSetInfo{
+			restoreInfo: []podset.PodSetInfo{
 				{
 					NodeSelector: map[string]string{
 						"orig-key": "orig-val",
@@ -228,7 +263,7 @@ func TestPodSetsInfo(t *testing.T) {
 				Parallelism(5).
 				SetAnnotation(JobMinParallelismAnnotation, "2").
 				Obj()),
-			runInfo: []jobframework.PodSetInfo{
+			runInfo: []podset.PodSetInfo{
 				{
 					Count: 2,
 				},
@@ -238,7 +273,7 @@ func TestPodSetsInfo(t *testing.T) {
 				SetAnnotation(JobMinParallelismAnnotation, "2").
 				Suspend(false).
 				Obj(),
-			restoreInfo: []jobframework.PodSetInfo{
+			restoreInfo: []podset.PodSetInfo{
 				{
 					Count: 5,
 				},
@@ -249,18 +284,18 @@ func TestPodSetsInfo(t *testing.T) {
 				Parallelism(5).
 				SetAnnotation(JobMinParallelismAnnotation, "2").
 				Obj()),
-			runInfo: []jobframework.PodSetInfo{},
+			runInfo: []podset.PodSetInfo{},
 			wantUnsuspended: utiltestingjob.MakeJob("job", "ns").
 				Parallelism(5).
 				SetAnnotation(JobMinParallelismAnnotation, "2").
 				Suspend(false).
 				Obj(),
-			restoreInfo: []jobframework.PodSetInfo{
+			restoreInfo: []podset.PodSetInfo{
 				{
 					Count: 5,
 				},
 			},
-			wantRunError: jobframework.ErrInvalidPodsetInfo,
+			wantRunError: podset.ErrInvalidPodsetInfo,
 		},
 	}
 	for name, tc := range testcases {
@@ -692,7 +727,7 @@ func TestReconciler(t *testing.T) {
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
 						Reason:  "FailedToStart",
-						Message: `invalid admission check PodSetUpdate: conflict for nodeSelector: conflict for key=provisioning, value1=on-demand, value2=spot`,
+						Message: `invalid admission check PodSetUpdate: conflict for nodeSelector: conflict for key=provisioning, value1=spot, value2=on-demand`,
 					}).
 					Obj(),
 			},

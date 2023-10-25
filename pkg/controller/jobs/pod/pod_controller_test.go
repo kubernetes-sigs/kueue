@@ -38,6 +38,7 @@ import (
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	"sigs.k8s.io/kueue/pkg/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
@@ -82,14 +83,14 @@ func TestPodsReady(t *testing.T) {
 func TestRunWithPodSetsInfo(t *testing.T) {
 	testCases := map[string]struct {
 		pod                  *corev1.Pod
-		runInfo, restoreInfo []jobframework.PodSetInfo
+		runInfo, restoreInfo []podset.PodSetInfo
 		wantPod              *corev1.Pod
 		wantErr              error
 	}{
 		"pod set info > 1": {
 			pod:     testingpod.MakePod("test-pod", "test-namespace").Obj(),
-			runInfo: make([]jobframework.PodSetInfo, 2),
-			wantErr: jobframework.ErrInvalidPodsetInfo,
+			runInfo: make([]podset.PodSetInfo, 2),
+			wantErr: podset.ErrInvalidPodsetInfo,
 		},
 	}
 

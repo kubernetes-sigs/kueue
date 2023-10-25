@@ -112,7 +112,14 @@ func TestReconcile(t *testing.T) {
 		}).
 		Obj()
 
-	baseFlavor1 := utiltesting.MakeResourceFlavor("flv1").Label("f1l1", "v1").Obj()
+	baseFlavor1 := utiltesting.MakeResourceFlavor("flv1").Label("f1l1", "v1").
+		Toleration(corev1.Toleration{
+			Key:      "f1t1k",
+			Value:    "f1t1v",
+			Operator: corev1.TolerationOpEqual,
+			Effect:   corev1.TaintEffectNoSchedule,
+		}).
+		Obj()
 	baseFlavor2 := utiltesting.MakeResourceFlavor("flv2").Label("f2l1", "v1").Obj()
 
 	baseRequest := &autoscaling.ProvisioningRequest{
@@ -170,6 +177,14 @@ func TestReconcile(t *testing.T) {
 					},
 				},
 				NodeSelector: map[string]string{"f1l1": "v1"},
+				Tolerations: []corev1.Toleration{
+					{
+						Key:      "f1t1k",
+						Value:    "f1t1v",
+						Operator: corev1.TolerationOpEqual,
+						Effect:   corev1.TaintEffectNoSchedule,
+					},
+				},
 			},
 		},
 	}

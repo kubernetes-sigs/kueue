@@ -40,7 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -285,11 +285,15 @@ func (c *Controller) syncProvisionRequestsPodTemplates(ctx context.Context, wl *
 			}
 
 			// apply the admission node selectors to the Template
-			selectors, err := c.getFlavorSelectors(ctx, psaMap[psName])
+			psi, err := podset.FromAssignment(ctx, c.client, psaMap[psName], reqPS.Count)
 			if err != nil {
 				return err
 			}
-			newPt.Template.Spec.NodeSelector = utilmaps.MergeKeepFirst(newPt.Template.Spec.NodeSelector, selectors)
+
+			err = podset.Merge(&newPt.Template.ObjectMeta, &newPt.Template.Spec, psi)
+			if err != nil {
+				return err
+			}
 
 			if err := ctrl.SetControllerReference(request, newPt, c.client.Scheme()); err != nil {
 				return err
@@ -346,26 +350,6 @@ func containerUses(cont *corev1.Container, resourceSet sets.Set[corev1.ResourceN
 		}
 	}
 	return false
-}
-
-func (c *Controller) getFlavorSelectors(ctx context.Context, assignment *kueue.PodSetAssignment) (map[string]string, error) {
-	processedFlvs := sets.NewString()
-	nodeSelector := make(map[string]string)
-	for _, flvRef := range assignment.Flavors {
-		flvName := string(flvRef)
-		if processedFlvs.Has(flvName) {
-			continue
-		}
-		flv := kueue.ResourceFlavor{}
-		if err := c.client.Get(ctx, types.NamespacedName{Name: string(flvName)}, &flv); err != nil {
-			return nil, err
-		}
-		for k, v := range flv.Spec.NodeLabels {
-			nodeSelector[k] = v
-		}
-		processedFlvs.Insert(flvName)
-	}
-	return nodeSelector, nil
 }
 
 func parametersKueueToProvisioning(in map[string]kueue.Parameter) map[string]autoscaling.Parameter {
