@@ -316,7 +316,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.By("Creating first workload", func() {
 				gomega.Expect(k8sClient.Create(ctx, firstWl)).Should(gomega.Succeed())
 
-				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, firstWl)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, firstWl)
 				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
 				util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
 			})
@@ -344,9 +344,10 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 1)
 			})
 
-			ginkgo.By("Reclaim two pods from the second workload", func() {
+			ginkgo.By("Reclaim two pods from the second workload so that the first workload is resumed", func() {
 				gomega.Expect(workload.UpdateReclaimablePods(ctx, k8sClient, secondWl, []kueue.ReclaimablePod{{Name: "first", Count: 1}, {Name: "second", Count: 1}})).To(gomega.Succeed())
 
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, firstWl, secondWl)
 				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
 				util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 2)
 			})
