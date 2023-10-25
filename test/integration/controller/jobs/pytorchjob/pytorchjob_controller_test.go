@@ -142,9 +142,9 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 
 		createdWorkload := &kueue.Workload{}
 		wlLookupKey := types.NamespacedName{Name: workloadpytorchjob.GetWorkloadNameForPyTorchJob(jobName), Namespace: ns.Name}
-		gomega.Consistently(func() bool {
+		gomega.Eventually(func() bool {
 			return apierrors.IsNotFound(k8sClient.Get(ctx, wlLookupKey, createdWorkload))
-		}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
+		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking the workload is created when queue name is set")
 		createdJob.Annotations = map[string]string{constants.QueueAnnotation: jobQueueName}

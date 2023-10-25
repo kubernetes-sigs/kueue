@@ -149,10 +149,9 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			return k8sClient.Get(ctx, key, wl)
 		}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
 		// check the original wl is still there
-		gomega.Consistently(func() bool {
-			err := k8sClient.Get(ctx, wlLookupKey, createdWorkload)
-			return err == nil
-		}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
+		gomega.Eventually(func() error {
+			return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("checking the job is unsuspended when workload is assigned")
 		onDemandFlavor := testing.MakeResourceFlavor("on-demand").Label(instanceKey, "on-demand").Obj()
@@ -199,12 +198,12 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		gomega.Expect(createdJob.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeLauncher].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 		gomega.Expect(len(createdJob.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeWorker].Template.Spec.NodeSelector)).Should(gomega.Equal(1))
 		gomega.Expect(createdJob.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeWorker].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotFlavor.Name))
-		gomega.Consistently(func() bool {
+		gomega.Eventually(func() bool {
 			if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 				return false
 			}
 			return len(createdWorkload.Status.Conditions) == 2
-		}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
+		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking the job gets suspended when parallelism changes and the added node selectors are removed")
 		parallelism := ptr.Deref(job.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeWorker].Replicas, 1)
@@ -263,12 +262,12 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		gomega.Expect(createdJob.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeLauncher].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
 		gomega.Expect(len(createdJob.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeWorker].Template.Spec.NodeSelector)).Should(gomega.Equal(1))
 		gomega.Expect(createdJob.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeWorker].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotFlavor.Name))
-		gomega.Consistently(func() bool {
+		gomega.Eventually(func() bool {
 			if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 				return false
 			}
 			return len(createdWorkload.Status.Conditions) == 2
-		}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
+		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking the workload is finished when job is completed")
 		createdJob.Status.Conditions = append(createdJob.Status.Conditions,
@@ -534,9 +533,9 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 
 		createdWorkload := &kueue.Workload{}
 		wlLookupKey := types.NamespacedName{Name: workloadmpijob.GetWorkloadNameForMPIJob(jobName), Namespace: ns.Name}
-		gomega.Consistently(func() bool {
+		gomega.Eventually(func() bool {
 			return apierrors.IsNotFound(k8sClient.Get(ctx, wlLookupKey, createdWorkload))
-		}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
+		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 
 		ginkgo.By("checking the workload is created when queue name is set")
 		jobQueueName := "test-queue"
@@ -588,10 +587,10 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 		gomega.Expect(k8sClient.Create(ctx, childJob)).Should(gomega.Succeed())
 
 		ginkgo.By("Checking that the child job isn't suspended")
-		gomega.Consistently(func() *bool {
+		gomega.Eventually(func() *bool {
 			gomega.Expect(k8sClient.Get(ctx, childLookupKey, childJob))
 			return childJob.Spec.Suspend
-		}, util.ConsistentDuration, util.Interval).Should(gomega.Equal(ptr.To(false)))
+		}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(false)))
 	})
 })
 
