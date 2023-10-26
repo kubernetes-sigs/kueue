@@ -61,7 +61,15 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 	if err := cqRec.SetupWithManager(mgr); err != nil {
 		return "ClusterQueue", err
 	}
-	if err := NewWorkloadReconciler(mgr.GetClient(), qManager, cc, WithWorkloadUpdateWatchers(qRec, cqRec), WithPodsReadyTimeout(podsReadyTimeout(cfg))).SetupWithManager(mgr); err != nil {
+	wlRec := NewWorkloadReconciler(
+		mgr.GetClient(),
+		qManager,
+		cc,
+		mgr.GetEventRecorderFor("workload-controller"),
+		WithWorkloadUpdateWatchers(qRec, cqRec),
+		WithPodsReadyTimeout(podsReadyTimeout(cfg)),
+	)
+	if err := wlRec.SetupWithManager(mgr); err != nil {
 		return "Workload", err
 	}
 	return "", nil

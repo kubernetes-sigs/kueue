@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/provisioningrequest/apis/autoscaling.x-k8s.io/v1beta1"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -580,7 +581,8 @@ func TestReconcile(t *testing.T) {
 			)
 
 			k8sclient := builder.Build()
-			controller := NewController(k8sclient)
+			recorder := record.NewBroadcaster().NewRecorder(k8sclient.Scheme(), corev1.EventSource{Component: "admission-checks-controller"})
+			controller := NewController(k8sclient, recorder)
 
 			req := reconcile.Request{
 				NamespacedName: types.NamespacedName{

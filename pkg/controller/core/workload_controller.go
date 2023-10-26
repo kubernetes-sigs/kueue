@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -93,11 +94,12 @@ type WorkloadReconciler struct {
 	queues           *queue.Manager
 	cache            *cache.Cache
 	client           client.Client
+	record           record.EventRecorder
 	watchers         []WorkloadUpdateWatcher
 	podsReadyTimeout *time.Duration
 }
 
-func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *cache.Cache, opts ...Option) *WorkloadReconciler {
+func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *cache.Cache, record record.EventRecorder, opts ...Option) *WorkloadReconciler {
 	options := defaultOptions
 	for _, opt := range opts {
 		opt(&options)
@@ -108,6 +110,7 @@ func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *c
 		client:           client,
 		queues:           queues,
 		cache:            cache,
+		record:           record,
 		watchers:         options.watchers,
 		podsReadyTimeout: options.podsReadyTimeout,
 	}
@@ -216,8 +219,11 @@ func (r *WorkloadReconciler) reconcileSyncAdmissionChecks(ctx context.Context, w
 		log := ctrl.LoggerFrom(ctx)
 		log.V(3).Info("The workload needs admission checks updates", "clusterQueue", klog.KRef("", cqName), "admissionChecks", queueAdmissionChecks)
 		wl.Status.AdmissionChecks = newChecks
-		err := r.client.Status().Update(ctx, wl)
-		return true, client.IgnoreNotFound(err)
+		if err := r.client.Status().Update(ctx, wl); !apierrors.IsNotFound(err) {
+			return true, err
+		}
+		r.record.Eventf(wl, corev1.EventTypeNormal, "UpdatedWorkload", "Updated admission checks of the workload %v for clusterQueue %s", workload.Key(wl), cqName)
+		return true, nil
 	}
 	return false, nil
 }
