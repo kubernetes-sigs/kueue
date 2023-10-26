@@ -63,7 +63,10 @@ func TestAPIs(t *testing.T) {
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	return func(mgr manager.Manager, ctx context.Context) {
-		err := pod.SetupIndexes(ctx, mgr.GetFieldIndexer())
+		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		err = pod.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		podReconciler := pod.NewReconciler(
