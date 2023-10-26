@@ -1,0 +1,15 @@
+hiddenMemberFields:
+  - "TypeMeta"
+  - "ObjectMeta"
+
+apis:
+  - name: kueue
+    title: Kueue API
+    package: ../..
+    path: apis/kueue/v1beta1
+
+externalPackages:
+  - match: ^k8s\.io/(api|apimachinery/pkg/apis)/
+    target: https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#{{- lower .TypeIdentifier -}}-{{- arrIndex .PackageSegments -1 -}}-{{- arrIndex .PackageSegments -2 -}}
+  - match: ^k8s\.io/apimachinery/pkg/api/resource\.Quantity$
+    target: https://pkg.go.dev/k8s.io/apimachinery/pkg/api/resource#Quantity
