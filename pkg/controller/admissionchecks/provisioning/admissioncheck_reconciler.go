@@ -19,8 +19,10 @@ package provisioning
 import (
 	"context"
 
+	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -31,6 +33,7 @@ import (
 type acReconciler struct {
 	client client.Client
 	helper *storeHelper
+	record record.EventRecorder
 }
 
 var _ reconcile.Reconciler = (*acReconciler)(nil)
@@ -61,6 +64,7 @@ func (a *acReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 
 	if currentCondition.Status != newCondition.Status {
 		apimeta.SetStatusCondition(&ac.Status.Conditions, newCondition)
+		a.record.Eventf(ac, corev1.EventTypeNormal, "UpdatedAdmissionChecks", "Admission checks status is changed to %s", newCondition.Status)
 		return reconcile.Result{}, a.client.Status().Update(ctx, ac)
 	}
 	return reconcile.Result{}, nil

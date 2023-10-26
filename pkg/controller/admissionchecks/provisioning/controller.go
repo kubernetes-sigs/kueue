@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/provisioningrequest/apis/autoscaling.x-k8s.io/v1beta1"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
@@ -59,6 +60,7 @@ var (
 type Controller struct {
 	client client.Client
 	helper *storeHelper
+	record record.EventRecorder
 }
 
 var _ reconcile.Reconciler = (*Controller)(nil)
@@ -72,9 +74,10 @@ var _ reconcile.Reconciler = (*Controller)(nil)
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=provisioningrequestconfigs,verbs=get;list;watch
 
-func NewController(client client.Client) *Controller {
+func NewController(client client.Client, record record.EventRecorder) *Controller {
 	return &Controller{
 		client: client,
+		record: record,
 		helper: &storeHelper{
 			client: client,
 		},
@@ -407,7 +410,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 
 			prFailed := apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.Failed)
 			prAccepted := apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.Provisioned)
-			prAvaiable := apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.CapacityAvailable)
+			prAvailable := apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.CapacityAvailable)
 
 			switch {
 			case prFailed:
@@ -416,7 +419,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 					checkState.State = kueue.CheckStateRejected
 					checkState.Message = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed).Message
 				}
-			case prAccepted || prAvaiable:
+			case prAccepted || prAvailable:
 				if checkState.State != kueue.CheckStateReady {
 					updated = true
 					checkState.State = kueue.CheckStateReady
@@ -433,6 +436,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 		workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, checkState)
 	}
 	if updated {
+		c.record.Eventf(wl, corev1.EventTypeNormal, "UpdatedWorkload", "Updated admission checks state for workload %s", workload.Key(wl))
 		return c.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(ControllerName), client.ForceOwnership)
 	}
 	return nil
@@ -618,6 +622,7 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 	acReconciler := &acReconciler{
 		client: c.client,
 		helper: c.helper,
+		record: c.record,
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
