@@ -52,7 +52,7 @@ To install a released version of Kueue in your cluster, run the following comman
 
 ```shell
 VERSION={{< param "version" >}}
-kubectl apply -f https://github.com/kubernetes-sigs/kueue/releases/download/$VERSION/manifests.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/$VERSION/manifests.yaml
 ```
 
 ### Add metrics scraping for prometheus-operator
@@ -63,7 +63,7 @@ To allow [prometheus-operator](https://github.com/prometheus-operator/prometheus
 to scrape metrics from kueue components, run the following command:
 
 ```shell
-kubectl apply -f https://github.com/kubernetes-sigs/kueue/releases/download/$VERSION/prometheus.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/$VERSION/prometheus.yaml
 ```
 
 ### Uninstall
@@ -138,7 +138,7 @@ more about using `waitForPodsReady` for Kueue.
 4. Apply the customized manifests to the cluster:
 
 ```shell
-kubectl apply -f manifests.yaml
+kubectl apply --server-side -f manifests.yaml
 ```
 
 ## Install the latest development version
@@ -147,7 +147,7 @@ To install the latest development version of Kueue in your cluster, run the
 following command:
 
 ```shell
-kubectl apply -k "github.com/kubernetes-sigs/kueue/config/default?ref=main"
+kubectl apply --server-side -k "github.com/kubernetes-sigs/kueue/config/default?ref=main"
 ```
 
 The controller runs in the `kueue-system` namespace.
