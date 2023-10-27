@@ -1,14 +1,14 @@
 {{ define "packages" -}}
 
 {{- range $idx, $val := .packages -}}
-{{/* Special handling for kubeconfig */}}
-  {{- if and .IsMain (ne .GroupName "") -}}
+{{/* Special handling for config */}}
+  {{- if .IsMain -}}
 ---
 title: {{ .Title }}
 content_type: tool-reference
 package: {{ .DisplayName }}
 auto_generated: true
-description: Generated API reference documentation for {{ .DisplayName }}.
+description: Generated API reference documentation for {{ if ne .GroupName "" -}} {{ .DisplayName }}{{ else -}} Kueue Configuration{{- end -}}.
 ---
 {{ .GetComment -}}
   {{- end -}}
@@ -17,8 +17,9 @@ description: Generated API reference documentation for {{ .DisplayName }}.
 ## Resource Types 
 
 {{ range .packages -}}
+  {{ $isConfig := (eq .GroupName "") }}
   {{- range .VisibleTypes -}}
-    {{- if .IsExported }}
+    {{- if or .IsExported (and $isConfig (eq .DisplayName "Configuration")) }}
 - [{{ .DisplayName }}]({{ .Link }})
     {{- end -}}
   {{- end -}}
@@ -34,9 +35,9 @@ description: Generated API reference documentation for {{ .DisplayName }}.
     {{ end }}
   {{ else }}
     {{/* For package w/o group name, list only types referenced. */}}
-    {{ $pkgTitle := .Title }}
+    {{ $isConfig := (eq .GroupName "") }}
     {{- range .VisibleTypes -}}
-      {{- if .Referenced -}}
+      {{- if or .Referenced $isConfig -}}
 {{ template "type" . }}
       {{- end -}}
     {{- end }}
