@@ -388,6 +388,9 @@ func validateReclaimablePodsUpdate(newObj, oldObj *kueue.Workload, basePath *fie
 	for i := range newObj.Status.ReclaimablePods {
 		newCount := &newObj.Status.ReclaimablePods[i]
 		newNames.Insert(newCount.Name)
+		if !workload.HasQuotaReservation(newObj) && newCount.Count == 0 {
+			continue
+		}
 		oldCount, found := knowPodSets[newCount.Name]
 		if found && newCount.Count < oldCount.Count {
 			ret = append(ret, field.Invalid(basePath.Key(newCount.Name).Child("count"), newCount.Count, fmt.Sprintf("cannot be less then %d", oldCount.Count)))
@@ -395,7 +398,7 @@ func validateReclaimablePodsUpdate(newObj, oldObj *kueue.Workload, basePath *fie
 	}
 
 	for name := range knowPodSets {
-		if !newNames.Has(name) {
+		if workload.HasQuotaReservation(newObj) && !newNames.Has(name) {
 			ret = append(ret, field.Required(basePath.Key(name), "cannot be removed"))
 		}
 	}
