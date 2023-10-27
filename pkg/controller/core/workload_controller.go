@@ -222,7 +222,7 @@ func (r *WorkloadReconciler) reconcileSyncAdmissionChecks(ctx context.Context, w
 		if err := r.client.Status().Update(ctx, wl); !apierrors.IsNotFound(err) {
 			return true, err
 		}
-		r.record.Eventf(wl, corev1.EventTypeNormal, "UpdatedWorkload", "Updated admission checks of the workload %v for clusterQueue %s", workload.Key(wl), cqName)
+		r.record.Eventf(wl, corev1.EventTypeNormal, "WorkloadAdmissionChecksUpdated", "Updated admission checks of the workload %v for clusterQueue %s", workload.Key(wl), cqName)
 		return true, nil
 	}
 	return false, nil
