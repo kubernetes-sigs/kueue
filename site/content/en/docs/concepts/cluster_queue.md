@@ -329,13 +329,13 @@ The fields above do the following:
 - `reclaimWithinCohort` determines whether a pending Workload can preempt
   Workloads from other ClusterQueues in the cohort that are using more than
   their nominal quota. The possible values are:
-	  - `Never` (default): do not preempt Workloads in the cohort.
-	  - `LowerPriority`: if the pending Workload fits within the nominal
-	    quota of its ClusterQueue, only preempt Workloads in the cohort that have
-	    lower priority than the pending Workload.
-	  - `Any`: if the pending Workload fits within the nominal quota of its
-	    ClusterQueue, preempt any Workload in the cohort, irrespective of
-	    priority.
+  - `Never` (default): do not preempt Workloads in the cohort.
+  - `LowerPriority`: if the pending Workload fits within the nominal
+    quota of its ClusterQueue, only preempt Workloads in the cohort that have
+    lower priority than the pending Workload.
+  - `Any`: if the pending Workload fits within the nominal quota of its
+    ClusterQueue, preempt any Workload in the cohort, irrespective of
+    priority.
 
 - `withinClusterQueue` determines whether a pending Workload that doesn't fit
   within the nominal quota for its ClusterQueue, can preempt active Workloads in
@@ -343,6 +343,7 @@ The fields above do the following:
   - `Never` (default): do not preempt Workloads in the ClusterQueue.
   - `LowerPriority`: only preempt Workloads in the ClusterQueue that have
     lower priority than the pending Workload.
+  - `LowerOrNewerEqualPriority`: only preempt Workloads in the ClusterQueue that either have a lower priority than the pending workload or equal priority and are newer than the pending workload.
 
 Note that an incoming Workload can preempt Workloads both within the
 ClusterQueue and the cohort. Kueue implements heuristics to preempt as few
