@@ -179,7 +179,7 @@ type AdmissionCheckState struct {
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MaxLength=316
 	Name string `json:"name"`
-	// status of the condition, one of True, False, Unknown.
+	// state of the admissionCheck, one of Pending, Ready, Retry, Rejected
 	// +required
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Enum=Pending;Ready;Retry;Rejected
