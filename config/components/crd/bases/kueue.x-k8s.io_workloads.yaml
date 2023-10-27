@@ -8419,7 +8419,8 @@ spec:
                       type: array
                       x-kubernetes-list-type: atomic
                     state:
-                      description: status of the condition, one of True, False, Unknown.
+                      description: state of the admissionCheck, one of Pending, Ready,
+                        Retry, Rejected
                       enum:
                       - Pending
                       - Ready
