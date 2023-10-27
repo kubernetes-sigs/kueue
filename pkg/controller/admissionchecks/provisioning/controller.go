@@ -42,6 +42,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -385,6 +386,7 @@ func requestHasParamaters(req *autoscaling.ProvisioningRequest, prc *kueue.Provi
 func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, checks []string) error {
 	checksMap := slices.ToRefMap(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string { return c.Name })
 	wlPatch := workload.BaseSSAWorkload(wl)
+	recorderMessages := make([]string, 0, len(checks))
 	updated := false
 	for _, check := range checks {
 		checkState := *checksMap[check]
@@ -434,10 +436,19 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 			}
 		}
 		workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, checkState)
+		message := fmt.Sprintf("Admission check %s set state %s", checkState.Name, checkState.State)
+		if checkState.Message != "" {
+			message += fmt.Sprintf(" with message %s", checkState.Message)
+		}
+		recorderMessages = append(recorderMessages, message)
 	}
 	if updated {
-		c.record.Eventf(wl, corev1.EventTypeNormal, "UpdatedWorkload", "Updated admission checks state for workload %s", workload.Key(wl))
-		return c.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(ControllerName), client.ForceOwnership)
+		if err := c.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(ControllerName), client.ForceOwnership); err != nil {
+			return err
+		}
+		for i := range recorderMessages {
+			c.record.Eventf(wl, corev1.EventTypeNormal, "WorkloadAdmissionChecksUpdated", api.TruncateEventMessage(recorderMessages[i]))
+		}
 	}
 	return nil
 }

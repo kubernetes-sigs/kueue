@@ -64,8 +64,11 @@ func (a *acReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 
 	if currentCondition.Status != newCondition.Status {
 		apimeta.SetStatusCondition(&ac.Status.Conditions, newCondition)
+		if err := a.client.Status().Update(ctx, ac); err != nil {
+			return reconcile.Result{}, err
+		}
 		a.record.Eventf(ac, corev1.EventTypeNormal, "UpdatedAdmissionChecks", "Admission checks status is changed to %s", newCondition.Status)
-		return reconcile.Result{}, a.client.Status().Update(ctx, ac)
+		return reconcile.Result{}, nil
 	}
 	return reconcile.Result{}, nil
 }
