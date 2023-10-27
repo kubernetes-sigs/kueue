@@ -178,7 +178,7 @@ ci-lint: golangci-lint
 
 .PHONY: verify
 verify: gomod-verify vet ci-lint fmt-verify toc-verify manifests generate update-helm generate-apiref
-	git --no-pager diff --exit-code config/components apis charts/kueue/templates client-go site/content/en/docs/reference/kueue.v1beta1.md
+	git --no-pager diff --exit-code config/components apis charts/kueue/templates client-go site/content/en/docs/reference
 
 ##@ Build
 
@@ -317,7 +317,8 @@ helm: ## Download helm locally if necessary.
 GENREF = $(PROJECT_DIR)/bin/genref
 .PHONY: genref
 genref: ## Download genref locally if necessary.
-	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install github.com/kubernetes-sigs/reference-docs/genref@latest
+	# TODO: update the package version. "c519be1" - is the master tip on 27-Oct-2023
+	@GOBIN=$(PROJECT_DIR)/bin $(GO_CMD) install github.com/kubernetes-sigs/reference-docs/genref@c519be1
 
 MPIROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" github.com/kubeflow/mpi-operator)
 .PHONY: mpi-operator-crd
