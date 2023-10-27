@@ -1,15 +1,17 @@
 # See the OWNERS docs at https://go.k8s.io/owners
 
 approvers:
-- ahg-g
 - alculquicondor
 - tenzen-y
 
 reviewers:
-- ahg-g
 - alculquicondor
-- ArangoGutierrez
 - denkensk
 - kerthcet
+- mimowo
 - tenzen-y
 - trasc
+
+emeritus_approvers:
+- ahg-g
+- denkensk
