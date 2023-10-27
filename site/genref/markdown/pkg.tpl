@@ -2,24 +2,16 @@
 
 {{- range $idx, $val := .packages -}}
 {{/* Special handling for kubeconfig */}}
-{{- if eq .Title "kubeconfig (v1)" -}}
----
-title: {{ .Title }}
-content_type: tool-reference
-package: v1
-auto_generated: true
----
-{{- else -}}
   {{- if and .IsMain (ne .GroupName "") -}}
 ---
 title: {{ .Title }}
 content_type: tool-reference
 package: {{ .DisplayName }}
 auto_generated: true
+description: Generated API reference documentation for {{ .DisplayName }}.
 ---
 {{ .GetComment -}}
   {{- end -}}
-{{- end -}}
 {{- end }}
 
 ## Resource Types 
@@ -44,7 +36,7 @@ auto_generated: true
     {{/* For package w/o group name, list only types referenced. */}}
     {{ $pkgTitle := .Title }}
     {{- range .VisibleTypes -}}
-      {{- if or .Referenced (eq $pkgTitle "kubeconfig (v1)") -}}
+      {{- if .Referenced -}}
 {{ template "type" . }}
       {{- end -}}
     {{- end }}

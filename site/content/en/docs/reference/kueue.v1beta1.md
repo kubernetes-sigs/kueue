@@ -3,6 +3,7 @@ title: Kueue API
 content_type: tool-reference
 package: kueue.x-k8s.io/v1beta1
 auto_generated: true
+description: Generated API reference documentation for kueue.x-k8s.io/v1beta1.
 ---
 
 
