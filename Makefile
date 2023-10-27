@@ -181,8 +181,8 @@ ci-lint: golangci-lint
 	$(GOLANGCI_LINT) run --timeout 15m0s
 
 .PHONY: verify
-verify: gomod-verify vet ci-lint fmt-verify toc-verify manifests generate update-helm
-	git --no-pager diff --exit-code config/components apis charts/kueue/templates client-go
+verify: gomod-verify vet ci-lint fmt-verify toc-verify manifests generate update-helm generate-apiref
+	git --no-pager diff --exit-code config/components apis charts/kueue/templates client-go site/content/en/docs/reference
 
 ##@ Build
 
@@ -318,6 +318,12 @@ HELM = $(PROJECT_DIR)/bin/helm
 helm: ## Download helm locally if necessary.
 	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install helm.sh/helm/v3/cmd/helm@v3.12.1
 
+GENREF = $(PROJECT_DIR)/bin/genref
+.PHONY: genref
+genref: ## Download genref locally if necessary.
+	# TODO: update the package version. "c519be1" - is the master tip on 27-Oct-2023
+	@GOBIN=$(PROJECT_DIR)/bin $(GO_CMD) install github.com/kubernetes-sigs/reference-docs/genref@c519be1
+
 MPIROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" github.com/kubeflow/mpi-operator)
 .PHONY: mpi-operator-crd
 mpi-operator-crd:
@@ -348,3 +354,7 @@ CAROOT = $(shell $(GO_CMD) list -m -f "{{.Dir}}" k8s.io/autoscaler/cluster-autos
 cluster-autoscaler-crd:
 	mkdir -p $(PROJECT_DIR)/dep-crds/cluster-autoscaler/
 	cp -f $(CAROOT)/config/crd/* $(PROJECT_DIR)/dep-crds/cluster-autoscaler/
+
+.PHONY: generate-apiref
+generate-apiref: genref
+	cd  $(PROJECT_DIR)/site/genref/ && $(GENREF)  -o $(PROJECT_DIR)/site/content/en/docs/reference
