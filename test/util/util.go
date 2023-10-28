@@ -206,6 +206,20 @@ func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wl
 	}, Timeout, Interval).Should(gomega.Equal(len(wls)), "Not enough workloads are pending")
 }
 
+func ExpectWorkloadsToBeAdmitted(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
+	gomega.EventuallyWithOffset(1, func() int {
+		admitted := 0
+		var updatedWorkload kueue.Workload
+		for _, wl := range wls {
+			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
+			if apimeta.IsStatusConditionTrue(updatedWorkload.Status.Conditions, kueue.WorkloadAdmitted) {
+				admitted++
+			}
+		}
+		return admitted
+	}, Timeout, Interval).Should(gomega.Equal(len(wls)), "Not enough workloads are admitted")
+}
+
 func ExpectWorkloadsToBePreempted(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
 	gomega.EventuallyWithOffset(1, func() int {
 		preempted := 0
