@@ -279,6 +279,10 @@ const (
 	// beacuse at least one admission check transitioned to False.
 	WorkloadEvictedByAdmissionCheck = "AdmissionCheck"
 
+	// WorkloadEvictedByClusterQueueStop indicates that the workload was evicted
+	// beacuse the ClusterQueue is Stopped.
+	WorkloadEvictedByClusterQueueStop = "ClusterQueueStop"
+
 	// WorkloadEvictedByDeactivation indicates that the workload was evicted
 	// because spec.active is set to false.
 	WorkloadEvictedByDeactivation = "InactiveWorkload"
