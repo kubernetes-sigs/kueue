@@ -38,3 +38,4 @@ kubectl get -n my-namespace queues
 ## What's next?
 
 - Launch a [Workload](/docs/concepts/workload) through a local queue
+- Read the [API reference](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-LocalQueue) for `LocalQueue`
