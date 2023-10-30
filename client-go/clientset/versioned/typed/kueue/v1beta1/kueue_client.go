@@ -41,32 +41,32 @@ type KueueV1beta1Client struct {
 	restClient rest.Interface
 }
 
-func (c *KueueV1beta1Client) AdmissionChecks(namespace string) AdmissionCheckInterface {
-	return newAdmissionChecks(c, namespace)
+func (c *KueueV1beta1Client) AdmissionChecks() AdmissionCheckInterface {
+	return newAdmissionChecks(c)
 }
 
-func (c *KueueV1beta1Client) ClusterQueues(namespace string) ClusterQueueInterface {
-	return newClusterQueues(c, namespace)
+func (c *KueueV1beta1Client) ClusterQueues() ClusterQueueInterface {
+	return newClusterQueues(c)
 }
 
 func (c *KueueV1beta1Client) LocalQueues(namespace string) LocalQueueInterface {
 	return newLocalQueues(c, namespace)
 }
 
-func (c *KueueV1beta1Client) ProvisioningRequestConfigs(namespace string) ProvisioningRequestConfigInterface {
-	return newProvisioningRequestConfigs(c, namespace)
+func (c *KueueV1beta1Client) ProvisioningRequestConfigs() ProvisioningRequestConfigInterface {
+	return newProvisioningRequestConfigs(c)
 }
 
-func (c *KueueV1beta1Client) ResourceFlavors(namespace string) ResourceFlavorInterface {
-	return newResourceFlavors(c, namespace)
+func (c *KueueV1beta1Client) ResourceFlavors() ResourceFlavorInterface {
+	return newResourceFlavors(c)
 }
 
 func (c *KueueV1beta1Client) Workloads(namespace string) WorkloadInterface {
 	return newWorkloads(c, namespace)
 }
 
-func (c *KueueV1beta1Client) WorkloadPriorityClasses(namespace string) WorkloadPriorityClassInterface {
-	return newWorkloadPriorityClasses(c, namespace)
+func (c *KueueV1beta1Client) WorkloadPriorityClasses() WorkloadPriorityClassInterface {
+	return newWorkloadPriorityClasses(c)
 }
 
 // NewForConfig creates a new KueueV1beta1Client for the given config.
