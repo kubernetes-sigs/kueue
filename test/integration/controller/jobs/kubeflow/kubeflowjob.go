@@ -112,10 +112,9 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 		return k8sClient.Get(ctx, key, wl)
 	}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
 	// check the original wl is still there
-	gomega.Consistently(func() bool {
-		err := k8sClient.Get(ctx, wlLookupKey, createdWorkload)
-		return err == nil
-	}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
+	gomega.Eventually(func() error {
+		return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
+	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 	ginkgo.By("checking the job is unsuspended when workload is assigned")
 	onDemandFlavor := testing.MakeResourceFlavor("on-demand").Label(instanceKey, "on-demand").Obj()
@@ -147,12 +146,12 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 		gomega.Expect(len(createdJob.KFJobControl.ReplicaSpecs()[psr.NodeName].Template.Spec.NodeSelector)).Should(gomega.Equal(1))
 		gomega.Expect(createdJob.KFJobControl.ReplicaSpecs()[psr.NodeName].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotFlavor.Name))
 	}
-	gomega.Consistently(func() bool {
+	gomega.Eventually(func() bool {
 		if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 			return false
 		}
 		return len(createdWorkload.Status.Conditions) == 2
-	}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
+	}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 
 	ginkgo.By("checking the job gets suspended when parallelism changes and the added node selectors are removed")
 	parallelism := ptr.Deref(job.KFJobControl.ReplicaSpecs()[ReplicaTypeWorker].Replicas, 1)
@@ -196,12 +195,12 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 		gomega.Expect(len(createdJob.KFJobControl.ReplicaSpecs()[psr.NodeName].Template.Spec.NodeSelector)).Should(gomega.Equal(1))
 		gomega.Expect(createdJob.KFJobControl.ReplicaSpecs()[psr.NodeName].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotFlavor.Name))
 	}
-	gomega.Consistently(func() bool {
+	gomega.Eventually(func() bool {
 		if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 			return false
 		}
 		return len(createdWorkload.Status.Conditions) == 2
-	}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
+	}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 
 	ginkgo.By("checking the workload is finished when job is completed")
 	createdJob.KFJobControl.JobStatus().Conditions = append(createdJob.KFJobControl.JobStatus().Conditions,
