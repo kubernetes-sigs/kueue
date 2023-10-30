@@ -83,3 +83,7 @@ Kueue ensures that the list of the Workloads AdmissionCheckStates is in sync wit
 
 Is a component that monitors Workloads maintaining the content of its specific `admissionCheckStates` and the `Active` condition of the AdmissionChecks it's  controlling.
 The logic for how an AdmissionCheck changes states is not part of Kueue.
+
+## What's next?
+
+- Read the [API reference](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-AdmissionCheck) for `AdmissionCheck`

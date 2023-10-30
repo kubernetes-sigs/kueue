@@ -112,3 +112,4 @@ Workload's `PriorityClassSource` and `PriorityClassName` fields are immutable.
 
 - Learn how to [run jobs](/docs/tasks/run_jobs)
 - Learn how to [run jobs with workload priority](/docs/tasks/run_job_with_workload_priority)
+- Read the [API reference](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-WorkloadPriorityClass) for `WorkloadPriorityClass`

@@ -97,3 +97,4 @@ metadata:
 ## What's next?
 
 - Learn about [cluster queues](/docs/concepts/cluster_queue).
+- Read the [API reference](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-ResourceFlavor) for `ResourceFlavor`
