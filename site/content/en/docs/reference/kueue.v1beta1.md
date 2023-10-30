@@ -382,7 +382,7 @@ The default is 15 min.</p>
 <a href="#kueue-x-k8s-io-v1beta1-CheckState"><code>CheckState</code></a>
 </td>
 <td>
-   <p>status of the condition, one of True, False, Unknown.</p>
+   <p>state of the admissionCheck, one of Pending, Ready, Retry, Rejected</p>
 </td>
 </tr>
 <tr><td><code>lastTransitionTime</code> <B>[Required]</B><br/>
@@ -1144,7 +1144,7 @@ enabled.</p>
 </td>
 </tr>
 <tr><td><code>flavors</code> <B>[Required]</B><br/>
-<a href="#kueue-x-k8s-io-v1beta1-ResourceFlavorReference"><code>map[k8s.io/api/core/v1.ResourceName]../../apis/kueue/v1beta1.ResourceFlavorReference</code></a>
+<a href="#kueue-x-k8s-io-v1beta1-ResourceFlavorReference"><code>map[ResourceName]ResourceFlavorReference</code></a>
 </td>
 <td>
    <p>Flavors are the flavors assigned to the workload for each resource.</p>
@@ -1263,7 +1263,7 @@ Check autoscaling.x-k8s.io ProvisioningRequestSpec.ProvisioningClassName for det
 </td>
 </tr>
 <tr><td><code>parameters</code><br/>
-<a href="#kueue-x-k8s-io-v1beta1-Parameter"><code>map[string]../../apis/kueue/v1beta1.Parameter</code></a>
+<a href="#kueue-x-k8s-io-v1beta1-Parameter"><code>map[string]Parameter</code></a>
 </td>
 <td>
    <p>Parameters contains all other parameters classes may require.</p>
