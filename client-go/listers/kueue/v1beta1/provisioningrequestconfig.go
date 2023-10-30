@@ -30,8 +30,9 @@ type ProvisioningRequestConfigLister interface {
 	// List lists all ProvisioningRequestConfigs in the indexer.
 	// Objects returned here must be treated as read-only.
 	List(selector labels.Selector) (ret []*v1beta1.ProvisioningRequestConfig, err error)
-	// ProvisioningRequestConfigs returns an object that can list and get ProvisioningRequestConfigs.
-	ProvisioningRequestConfigs(namespace string) ProvisioningRequestConfigNamespaceLister
+	// Get retrieves the ProvisioningRequestConfig from the index for a given name.
+	// Objects returned here must be treated as read-only.
+	Get(name string) (*v1beta1.ProvisioningRequestConfig, error)
 	ProvisioningRequestConfigListerExpansion
 }
 
@@ -53,41 +54,9 @@ func (s *provisioningRequestConfigLister) List(selector labels.Selector) (ret []
 	return ret, err
 }
 
-// ProvisioningRequestConfigs returns an object that can list and get ProvisioningRequestConfigs.
-func (s *provisioningRequestConfigLister) ProvisioningRequestConfigs(namespace string) ProvisioningRequestConfigNamespaceLister {
-	return provisioningRequestConfigNamespaceLister{indexer: s.indexer, namespace: namespace}
-}
-
-// ProvisioningRequestConfigNamespaceLister helps list and get ProvisioningRequestConfigs.
-// All objects returned here must be treated as read-only.
-type ProvisioningRequestConfigNamespaceLister interface {
-	// List lists all ProvisioningRequestConfigs in the indexer for a given namespace.
-	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1beta1.ProvisioningRequestConfig, err error)
-	// Get retrieves the ProvisioningRequestConfig from the indexer for a given namespace and name.
-	// Objects returned here must be treated as read-only.
-	Get(name string) (*v1beta1.ProvisioningRequestConfig, error)
-	ProvisioningRequestConfigNamespaceListerExpansion
-}
-
-// provisioningRequestConfigNamespaceLister implements the ProvisioningRequestConfigNamespaceLister
-// interface.
-type provisioningRequestConfigNamespaceLister struct {
-	indexer   cache.Indexer
-	namespace string
-}
-
-// List lists all ProvisioningRequestConfigs in the indexer for a given namespace.
-func (s provisioningRequestConfigNamespaceLister) List(selector labels.Selector) (ret []*v1beta1.ProvisioningRequestConfig, err error) {
-	err = cache.ListAllByNamespace(s.indexer, s.namespace, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1beta1.ProvisioningRequestConfig))
-	})
-	return ret, err
-}
-
-// Get retrieves the ProvisioningRequestConfig from the indexer for a given namespace and name.
-func (s provisioningRequestConfigNamespaceLister) Get(name string) (*v1beta1.ProvisioningRequestConfig, error) {
-	obj, exists, err := s.indexer.GetByKey(s.namespace + "/" + name)
+// Get retrieves the ProvisioningRequestConfig from the index for a given name.
+func (s *provisioningRequestConfigLister) Get(name string) (*v1beta1.ProvisioningRequestConfig, error) {
+	obj, exists, err := s.indexer.GetByKey(name)
 	if err != nil {
 		return nil, err
 	}

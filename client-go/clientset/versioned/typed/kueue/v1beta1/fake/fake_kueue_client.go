@@ -27,32 +27,32 @@ type FakeKueueV1beta1 struct {
 	*testing.Fake
 }
 
-func (c *FakeKueueV1beta1) AdmissionChecks(namespace string) v1beta1.AdmissionCheckInterface {
-	return &FakeAdmissionChecks{c, namespace}
+func (c *FakeKueueV1beta1) AdmissionChecks() v1beta1.AdmissionCheckInterface {
+	return &FakeAdmissionChecks{c}
 }
 
-func (c *FakeKueueV1beta1) ClusterQueues(namespace string) v1beta1.ClusterQueueInterface {
-	return &FakeClusterQueues{c, namespace}
+func (c *FakeKueueV1beta1) ClusterQueues() v1beta1.ClusterQueueInterface {
+	return &FakeClusterQueues{c}
 }
 
 func (c *FakeKueueV1beta1) LocalQueues(namespace string) v1beta1.LocalQueueInterface {
 	return &FakeLocalQueues{c, namespace}
 }
 
-func (c *FakeKueueV1beta1) ProvisioningRequestConfigs(namespace string) v1beta1.ProvisioningRequestConfigInterface {
-	return &FakeProvisioningRequestConfigs{c, namespace}
+func (c *FakeKueueV1beta1) ProvisioningRequestConfigs() v1beta1.ProvisioningRequestConfigInterface {
+	return &FakeProvisioningRequestConfigs{c}
 }
 
-func (c *FakeKueueV1beta1) ResourceFlavors(namespace string) v1beta1.ResourceFlavorInterface {
-	return &FakeResourceFlavors{c, namespace}
+func (c *FakeKueueV1beta1) ResourceFlavors() v1beta1.ResourceFlavorInterface {
+	return &FakeResourceFlavors{c}
 }
 
 func (c *FakeKueueV1beta1) Workloads(namespace string) v1beta1.WorkloadInterface {
 	return &FakeWorkloads{c, namespace}
 }
 
-func (c *FakeKueueV1beta1) WorkloadPriorityClasses(namespace string) v1beta1.WorkloadPriorityClassInterface {
-	return &FakeWorkloadPriorityClasses{c, namespace}
+func (c *FakeKueueV1beta1) WorkloadPriorityClasses() v1beta1.WorkloadPriorityClassInterface {
+	return &FakeWorkloadPriorityClasses{c}
 }
 
 // RESTClient returns a RESTClient that is used to communicate

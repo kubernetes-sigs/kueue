@@ -35,7 +35,7 @@ import (
 // ClusterQueuesGetter has a method to return a ClusterQueueInterface.
 // A group's client should implement this interface.
 type ClusterQueuesGetter interface {
-	ClusterQueues(namespace string) ClusterQueueInterface
+	ClusterQueues() ClusterQueueInterface
 }
 
 // ClusterQueueInterface has methods to work with ClusterQueue resources.
@@ -57,14 +57,12 @@ type ClusterQueueInterface interface {
 // clusterQueues implements ClusterQueueInterface
 type clusterQueues struct {
 	client rest.Interface
-	ns     string
 }
 
 // newClusterQueues returns a ClusterQueues
-func newClusterQueues(c *KueueV1beta1Client, namespace string) *clusterQueues {
+func newClusterQueues(c *KueueV1beta1Client) *clusterQueues {
 	return &clusterQueues{
 		client: c.RESTClient(),
-		ns:     namespace,
 	}
 }
 
@@ -72,7 +70,6 @@ func newClusterQueues(c *KueueV1beta1Client, namespace string) *clusterQueues {
 func (c *clusterQueues) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1beta1.ClusterQueue, err error) {
 	result = &v1beta1.ClusterQueue{}
 	err = c.client.Get().
-		Namespace(c.ns).
 		Resource("clusterqueues").
 		Name(name).
 		VersionedParams(&options, scheme.ParameterCodec).
@@ -89,7 +86,6 @@ func (c *clusterQueues) List(ctx context.Context, opts v1.ListOptions) (result *
 	}
 	result = &v1beta1.ClusterQueueList{}
 	err = c.client.Get().
-		Namespace(c.ns).
 		Resource("clusterqueues").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -106,7 +102,6 @@ func (c *clusterQueues) Watch(ctx context.Context, opts v1.ListOptions) (watch.I
 	}
 	opts.Watch = true
 	return c.client.Get().
-		Namespace(c.ns).
 		Resource("clusterqueues").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -117,7 +112,6 @@ func (c *clusterQueues) Watch(ctx context.Context, opts v1.ListOptions) (watch.I
 func (c *clusterQueues) Create(ctx context.Context, clusterQueue *v1beta1.ClusterQueue, opts v1.CreateOptions) (result *v1beta1.ClusterQueue, err error) {
 	result = &v1beta1.ClusterQueue{}
 	err = c.client.Post().
-		Namespace(c.ns).
 		Resource("clusterqueues").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Body(clusterQueue).
@@ -130,7 +124,6 @@ func (c *clusterQueues) Create(ctx context.Context, clusterQueue *v1beta1.Cluste
 func (c *clusterQueues) Update(ctx context.Context, clusterQueue *v1beta1.ClusterQueue, opts v1.UpdateOptions) (result *v1beta1.ClusterQueue, err error) {
 	result = &v1beta1.ClusterQueue{}
 	err = c.client.Put().
-		Namespace(c.ns).
 		Resource("clusterqueues").
 		Name(clusterQueue.Name).
 		VersionedParams(&opts, scheme.ParameterCodec).
@@ -145,7 +138,6 @@ func (c *clusterQueues) Update(ctx context.Context, clusterQueue *v1beta1.Cluste
 func (c *clusterQueues) UpdateStatus(ctx context.Context, clusterQueue *v1beta1.ClusterQueue, opts v1.UpdateOptions) (result *v1beta1.ClusterQueue, err error) {
 	result = &v1beta1.ClusterQueue{}
 	err = c.client.Put().
-		Namespace(c.ns).
 		Resource("clusterqueues").
 		Name(clusterQueue.Name).
 		SubResource("status").
@@ -159,7 +151,6 @@ func (c *clusterQueues) UpdateStatus(ctx context.Context, clusterQueue *v1beta1.
 // Delete takes name of the clusterQueue and deletes it. Returns an error if one occurs.
 func (c *clusterQueues) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
 	return c.client.Delete().
-		Namespace(c.ns).
 		Resource("clusterqueues").
 		Name(name).
 		Body(&opts).
@@ -174,7 +165,6 @@ func (c *clusterQueues) DeleteCollection(ctx context.Context, opts v1.DeleteOpti
 		timeout = time.Duration(*listOpts.TimeoutSeconds) * time.Second
 	}
 	return c.client.Delete().
-		Namespace(c.ns).
 		Resource("clusterqueues").
 		VersionedParams(&listOpts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -187,7 +177,6 @@ func (c *clusterQueues) DeleteCollection(ctx context.Context, opts v1.DeleteOpti
 func (c *clusterQueues) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.ClusterQueue, err error) {
 	result = &v1beta1.ClusterQueue{}
 	err = c.client.Patch(pt).
-		Namespace(c.ns).
 		Resource("clusterqueues").
 		Name(name).
 		SubResource(subresources...).
@@ -214,7 +203,6 @@ func (c *clusterQueues) Apply(ctx context.Context, clusterQueue *kueuev1beta1.Cl
 	}
 	result = &v1beta1.ClusterQueue{}
 	err = c.client.Patch(types.ApplyPatchType).
-		Namespace(c.ns).
 		Resource("clusterqueues").
 		Name(*name).
 		VersionedParams(&patchOpts, scheme.ParameterCodec).
@@ -243,7 +231,6 @@ func (c *clusterQueues) ApplyStatus(ctx context.Context, clusterQueue *kueuev1be
 
 	result = &v1beta1.ClusterQueue{}
 	err = c.client.Patch(types.ApplyPatchType).
-		Namespace(c.ns).
 		Resource("clusterqueues").
 		Name(*name).
 		SubResource("status").
