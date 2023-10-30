@@ -546,6 +546,38 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				field.Required(field.NewPath("status", "reclaimablePods").Key("ps2"), ""),
 			},
 		},
+		"reclaimable pod count can go to 0 if the job is suspended": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*testingutil.MakePodSet("ps1", 3).Obj(),
+					*testingutil.MakePodSet("ps2", 3).Obj(),
+				).
+				ReserveQuota(
+					testingutil.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}, kueue.PodSetAssignment{Name: "ps2"}).
+						Obj(),
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 2},
+					kueue.ReclaimablePod{Name: "ps2", Count: 1},
+				).
+				Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*testingutil.MakePodSet("ps1", 3).Obj(),
+					*testingutil.MakePodSet("ps2", 3).Obj(),
+				).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					PodSetUpdates: []kueue.PodSetUpdate{{Name: "ps1"}, {Name: "ps2"}},
+					State:         kueue.CheckStateReady,
+				}).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 0},
+					kueue.ReclaimablePod{Name: "ps2", Count: 1},
+				).
+				Obj(),
+			wantErr: nil,
+		},
 		"priorityClassSource should not be updated": {
 			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q").
 				PriorityClass("test-class").PriorityClassSource(constants.PodPriorityClassSource).
