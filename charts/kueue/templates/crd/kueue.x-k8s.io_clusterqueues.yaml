@@ -332,6 +332,19 @@ spec:
                 maxItems: 16
                 type: array
                 x-kubernetes-list-type: atomic
+              stopPolicy:
+                description: "stopPolicy - if set the ClusterQueue is considered Inactive,
+                  no new reservation being made. \n Depending on its value, its associated
+                  workloads will: \n - StopNow - Admitted workloads are evicted and
+                  Reserving workloads will cancel the reservation. - WaitForAdmitted
+                  - Admitted workloads will run to completion and Reserving workloads
+                  will cancel the reservation. - WaitForAdmitted - Admitted and Reserving
+                  workloads will run to completion."
+                enum:
+                - StopNow
+                - WaitForAdmitted
+                - WaitForReserving
+                type: string
             type: object
           status:
             description: ClusterQueueStatus defines the observed state of ClusterQueue

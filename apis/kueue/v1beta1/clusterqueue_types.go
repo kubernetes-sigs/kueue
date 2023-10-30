@@ -96,6 +96,19 @@ type ClusterQueueSpec struct {
 	// admissionChecks lists the AdmissionChecks required by this ClusterQueue
 	// +optional
 	AdmissionChecks []string `json:"admissionChecks,omitempty"`
+
+	// stopPolicy - if set the ClusterQueue is considered Inactive, no new reservation being
+	// made.
+	//
+	// Depending on its value, its associated workloads will:
+	//
+	// - StopNow - Admitted workloads are evicted and Reserving workloads will cancel the reservation.
+	// - WaitForAdmitted - Admitted workloads will run to completion and Reserving workloads will cancel the reservation.
+	// - WaitForAdmitted - Admitted and Reserving workloads will run to completion.
+	//
+	// +optional
+	// +kubebuilder:validation:Enum=StopNow;WaitForAdmitted;WaitForReserving
+	StopPolicy StopPolicy `json:"stopPolicy,omitempty"`
 }
 
 type QueueingStrategy string
@@ -110,6 +123,14 @@ const (
 	// however older workloads that can't be admitted will not block
 	// admitting newer workloads that fit existing quota.
 	BestEffortFIFO QueueingStrategy = "BestEffortFIFO"
+)
+
+type StopPolicy string
+
+const (
+	StopNow          StopPolicy = "StopNow"
+	WaitForAdmitted  StopPolicy = "WaitForAdmitted"
+	WaitForReserving StopPolicy = "WaitForReserving"
 )
 
 type ResourceGroup struct {
