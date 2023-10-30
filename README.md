@@ -71,11 +71,10 @@ Learn more about:
 - Common and advanced [tasks](https://kueue.sigs.k8s.io/docs/tasks).
 
 ## Feature
-- A set of controllers that supports quota-based job queuing, with:
-  - Resource sharing: you can define unused resources that can be borrowed by other tenants.
-  - Resource flavors and fungibility: you can define multiple flavors or variants of a resource. Jobs are assigned to flavors that are still available.
-  - Two queueing strategies: `StrictFIFO` and `BestEffortFIFO`.
-  - [Preemption](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#preemption) within ClusterQueue and cohort, based on [Pod PriorityClass](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/#priorityclass), [Workload PriorityClass](https://kueue.sigs.k8s.io/docs/concepts/workload_priority_class/) and [resource flavor order](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#flavorfungibility).
+- Resource fair sharing: you can define unused resources that can be borrowed by other tenants.
+- Resource flavors and fungibility: you can define multiple flavors or variants of a resource. Jobs will be assigned to flavors that are still available.
+- Job management with queueing strategies: `StrictFIFO` and `BestEffortFIFO`.
+- [Preemption](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#preemption) within ClusterQueue or cohort, based on [Pod PriorityClass](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/#priorityclass), [Workload PriorityClass](https://kueue.sigs.k8s.io/docs/concepts/workload_priority_class/) and [resource flavor order](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#flavorfungibility).
 - Support for the `BatchJob`, `JobSet`, `KubeFlow`, `RayJob`, `Pod(WIP)`.
 - The Workload API abstraction allows you to integrate a third-party job API with Kueue.
 - [Prometheus metrics](https://github.com/kubernetes-sigs/kueue/blob/v0.2.1/docs/reference/metrics.md) to monitor health of the system and the status of ClusterQueues.
