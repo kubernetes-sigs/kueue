@@ -37,7 +37,10 @@ const (
 	PendingStatusInadmissible = "inadmissible"
 
 	// CQStatusPending means the ClusterQueue is accepted but not yet active,
-	// this can be because of a missing ResourceFlavor referenced by the ClusterQueue.
+	// this can be because of:
+	// - a missing ResourceFlavor referenced by the ClusterQueue
+	// - a missing or inactive AdmissionCheck referenced by the ClusterQueue
+	// - the ClusterQueue is stopped
 	// In this state, the ClusterQueue can't admit new workloads and its quota can't be borrowed
 	// by other active ClusterQueues in the cohort.
 	CQStatusPending ClusterQueueStatus = "pending"
