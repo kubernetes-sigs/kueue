@@ -35,7 +35,7 @@ import (
 // ResourceFlavorsGetter has a method to return a ResourceFlavorInterface.
 // A group's client should implement this interface.
 type ResourceFlavorsGetter interface {
-	ResourceFlavors(namespace string) ResourceFlavorInterface
+	ResourceFlavors() ResourceFlavorInterface
 }
 
 // ResourceFlavorInterface has methods to work with ResourceFlavor resources.
@@ -55,14 +55,12 @@ type ResourceFlavorInterface interface {
 // resourceFlavors implements ResourceFlavorInterface
 type resourceFlavors struct {
 	client rest.Interface
-	ns     string
 }
 
 // newResourceFlavors returns a ResourceFlavors
-func newResourceFlavors(c *KueueV1beta1Client, namespace string) *resourceFlavors {
+func newResourceFlavors(c *KueueV1beta1Client) *resourceFlavors {
 	return &resourceFlavors{
 		client: c.RESTClient(),
-		ns:     namespace,
 	}
 }
 
@@ -70,7 +68,6 @@ func newResourceFlavors(c *KueueV1beta1Client, namespace string) *resourceFlavor
 func (c *resourceFlavors) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1beta1.ResourceFlavor, err error) {
 	result = &v1beta1.ResourceFlavor{}
 	err = c.client.Get().
-		Namespace(c.ns).
 		Resource("resourceflavors").
 		Name(name).
 		VersionedParams(&options, scheme.ParameterCodec).
@@ -87,7 +84,6 @@ func (c *resourceFlavors) List(ctx context.Context, opts v1.ListOptions) (result
 	}
 	result = &v1beta1.ResourceFlavorList{}
 	err = c.client.Get().
-		Namespace(c.ns).
 		Resource("resourceflavors").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -104,7 +100,6 @@ func (c *resourceFlavors) Watch(ctx context.Context, opts v1.ListOptions) (watch
 	}
 	opts.Watch = true
 	return c.client.Get().
-		Namespace(c.ns).
 		Resource("resourceflavors").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -115,7 +110,6 @@ func (c *resourceFlavors) Watch(ctx context.Context, opts v1.ListOptions) (watch
 func (c *resourceFlavors) Create(ctx context.Context, resourceFlavor *v1beta1.ResourceFlavor, opts v1.CreateOptions) (result *v1beta1.ResourceFlavor, err error) {
 	result = &v1beta1.ResourceFlavor{}
 	err = c.client.Post().
-		Namespace(c.ns).
 		Resource("resourceflavors").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Body(resourceFlavor).
@@ -128,7 +122,6 @@ func (c *resourceFlavors) Create(ctx context.Context, resourceFlavor *v1beta1.Re
 func (c *resourceFlavors) Update(ctx context.Context, resourceFlavor *v1beta1.ResourceFlavor, opts v1.UpdateOptions) (result *v1beta1.ResourceFlavor, err error) {
 	result = &v1beta1.ResourceFlavor{}
 	err = c.client.Put().
-		Namespace(c.ns).
 		Resource("resourceflavors").
 		Name(resourceFlavor.Name).
 		VersionedParams(&opts, scheme.ParameterCodec).
@@ -141,7 +134,6 @@ func (c *resourceFlavors) Update(ctx context.Context, resourceFlavor *v1beta1.Re
 // Delete takes name of the resourceFlavor and deletes it. Returns an error if one occurs.
 func (c *resourceFlavors) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
 	return c.client.Delete().
-		Namespace(c.ns).
 		Resource("resourceflavors").
 		Name(name).
 		Body(&opts).
@@ -156,7 +148,6 @@ func (c *resourceFlavors) DeleteCollection(ctx context.Context, opts v1.DeleteOp
 		timeout = time.Duration(*listOpts.TimeoutSeconds) * time.Second
 	}
 	return c.client.Delete().
-		Namespace(c.ns).
 		Resource("resourceflavors").
 		VersionedParams(&listOpts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -169,7 +160,6 @@ func (c *resourceFlavors) DeleteCollection(ctx context.Context, opts v1.DeleteOp
 func (c *resourceFlavors) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.ResourceFlavor, err error) {
 	result = &v1beta1.ResourceFlavor{}
 	err = c.client.Patch(pt).
-		Namespace(c.ns).
 		Resource("resourceflavors").
 		Name(name).
 		SubResource(subresources...).
@@ -196,7 +186,6 @@ func (c *resourceFlavors) Apply(ctx context.Context, resourceFlavor *kueuev1beta
 	}
 	result = &v1beta1.ResourceFlavor{}
 	err = c.client.Patch(types.ApplyPatchType).
-		Namespace(c.ns).
 		Resource("resourceflavors").
 		Name(*name).
 		VersionedParams(&patchOpts, scheme.ParameterCodec).
