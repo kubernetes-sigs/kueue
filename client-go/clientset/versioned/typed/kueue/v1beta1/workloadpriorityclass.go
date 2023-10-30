@@ -35,7 +35,7 @@ import (
 // WorkloadPriorityClassesGetter has a method to return a WorkloadPriorityClassInterface.
 // A group's client should implement this interface.
 type WorkloadPriorityClassesGetter interface {
-	WorkloadPriorityClasses(namespace string) WorkloadPriorityClassInterface
+	WorkloadPriorityClasses() WorkloadPriorityClassInterface
 }
 
 // WorkloadPriorityClassInterface has methods to work with WorkloadPriorityClass resources.
@@ -55,14 +55,12 @@ type WorkloadPriorityClassInterface interface {
 // workloadPriorityClasses implements WorkloadPriorityClassInterface
 type workloadPriorityClasses struct {
 	client rest.Interface
-	ns     string
 }
 
 // newWorkloadPriorityClasses returns a WorkloadPriorityClasses
-func newWorkloadPriorityClasses(c *KueueV1beta1Client, namespace string) *workloadPriorityClasses {
+func newWorkloadPriorityClasses(c *KueueV1beta1Client) *workloadPriorityClasses {
 	return &workloadPriorityClasses{
 		client: c.RESTClient(),
-		ns:     namespace,
 	}
 }
 
@@ -70,7 +68,6 @@ func newWorkloadPriorityClasses(c *KueueV1beta1Client, namespace string) *worklo
 func (c *workloadPriorityClasses) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1beta1.WorkloadPriorityClass, err error) {
 	result = &v1beta1.WorkloadPriorityClass{}
 	err = c.client.Get().
-		Namespace(c.ns).
 		Resource("workloadpriorityclasses").
 		Name(name).
 		VersionedParams(&options, scheme.ParameterCodec).
@@ -87,7 +84,6 @@ func (c *workloadPriorityClasses) List(ctx context.Context, opts v1.ListOptions)
 	}
 	result = &v1beta1.WorkloadPriorityClassList{}
 	err = c.client.Get().
-		Namespace(c.ns).
 		Resource("workloadpriorityclasses").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -104,7 +100,6 @@ func (c *workloadPriorityClasses) Watch(ctx context.Context, opts v1.ListOptions
 	}
 	opts.Watch = true
 	return c.client.Get().
-		Namespace(c.ns).
 		Resource("workloadpriorityclasses").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -115,7 +110,6 @@ func (c *workloadPriorityClasses) Watch(ctx context.Context, opts v1.ListOptions
 func (c *workloadPriorityClasses) Create(ctx context.Context, workloadPriorityClass *v1beta1.WorkloadPriorityClass, opts v1.CreateOptions) (result *v1beta1.WorkloadPriorityClass, err error) {
 	result = &v1beta1.WorkloadPriorityClass{}
 	err = c.client.Post().
-		Namespace(c.ns).
 		Resource("workloadpriorityclasses").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Body(workloadPriorityClass).
@@ -128,7 +122,6 @@ func (c *workloadPriorityClasses) Create(ctx context.Context, workloadPriorityCl
 func (c *workloadPriorityClasses) Update(ctx context.Context, workloadPriorityClass *v1beta1.WorkloadPriorityClass, opts v1.UpdateOptions) (result *v1beta1.WorkloadPriorityClass, err error) {
 	result = &v1beta1.WorkloadPriorityClass{}
 	err = c.client.Put().
-		Namespace(c.ns).
 		Resource("workloadpriorityclasses").
 		Name(workloadPriorityClass.Name).
 		VersionedParams(&opts, scheme.ParameterCodec).
@@ -141,7 +134,6 @@ func (c *workloadPriorityClasses) Update(ctx context.Context, workloadPriorityCl
 // Delete takes name of the workloadPriorityClass and deletes it. Returns an error if one occurs.
 func (c *workloadPriorityClasses) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
 	return c.client.Delete().
-		Namespace(c.ns).
 		Resource("workloadpriorityclasses").
 		Name(name).
 		Body(&opts).
@@ -156,7 +148,6 @@ func (c *workloadPriorityClasses) DeleteCollection(ctx context.Context, opts v1.
 		timeout = time.Duration(*listOpts.TimeoutSeconds) * time.Second
 	}
 	return c.client.Delete().
-		Namespace(c.ns).
 		Resource("workloadpriorityclasses").
 		VersionedParams(&listOpts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -169,7 +160,6 @@ func (c *workloadPriorityClasses) DeleteCollection(ctx context.Context, opts v1.
 func (c *workloadPriorityClasses) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.WorkloadPriorityClass, err error) {
 	result = &v1beta1.WorkloadPriorityClass{}
 	err = c.client.Patch(pt).
-		Namespace(c.ns).
 		Resource("workloadpriorityclasses").
 		Name(name).
 		SubResource(subresources...).
@@ -196,7 +186,6 @@ func (c *workloadPriorityClasses) Apply(ctx context.Context, workloadPriorityCla
 	}
 	result = &v1beta1.WorkloadPriorityClass{}
 	err = c.client.Patch(types.ApplyPatchType).
-		Namespace(c.ns).
 		Resource("workloadpriorityclasses").
 		Name(*name).
 		VersionedParams(&patchOpts, scheme.ParameterCodec).

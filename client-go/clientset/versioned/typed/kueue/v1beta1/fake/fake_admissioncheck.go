@@ -34,7 +34,6 @@ import (
 // FakeAdmissionChecks implements AdmissionCheckInterface
 type FakeAdmissionChecks struct {
 	Fake *FakeKueueV1beta1
-	ns   string
 }
 
 var admissionchecksResource = v1beta1.SchemeGroupVersion.WithResource("admissionchecks")
@@ -44,8 +43,7 @@ var admissionchecksKind = v1beta1.SchemeGroupVersion.WithKind("AdmissionCheck")
 // Get takes name of the admissionCheck, and returns the corresponding admissionCheck object, and an error if there is any.
 func (c *FakeAdmissionChecks) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1beta1.AdmissionCheck, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewGetAction(admissionchecksResource, c.ns, name), &v1beta1.AdmissionCheck{})
-
+		Invokes(testing.NewRootGetAction(admissionchecksResource, name), &v1beta1.AdmissionCheck{})
 	if obj == nil {
 		return nil, err
 	}
@@ -55,8 +53,7 @@ func (c *FakeAdmissionChecks) Get(ctx context.Context, name string, options v1.G
 // List takes label and field selectors, and returns the list of AdmissionChecks that match those selectors.
 func (c *FakeAdmissionChecks) List(ctx context.Context, opts v1.ListOptions) (result *v1beta1.AdmissionCheckList, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewListAction(admissionchecksResource, admissionchecksKind, c.ns, opts), &v1beta1.AdmissionCheckList{})
-
+		Invokes(testing.NewRootListAction(admissionchecksResource, admissionchecksKind, opts), &v1beta1.AdmissionCheckList{})
 	if obj == nil {
 		return nil, err
 	}
@@ -77,15 +74,13 @@ func (c *FakeAdmissionChecks) List(ctx context.Context, opts v1.ListOptions) (re
 // Watch returns a watch.Interface that watches the requested admissionChecks.
 func (c *FakeAdmissionChecks) Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
 	return c.Fake.
-		InvokesWatch(testing.NewWatchAction(admissionchecksResource, c.ns, opts))
-
+		InvokesWatch(testing.NewRootWatchAction(admissionchecksResource, opts))
 }
 
 // Create takes the representation of a admissionCheck and creates it.  Returns the server's representation of the admissionCheck, and an error, if there is any.
 func (c *FakeAdmissionChecks) Create(ctx context.Context, admissionCheck *v1beta1.AdmissionCheck, opts v1.CreateOptions) (result *v1beta1.AdmissionCheck, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewCreateAction(admissionchecksResource, c.ns, admissionCheck), &v1beta1.AdmissionCheck{})
-
+		Invokes(testing.NewRootCreateAction(admissionchecksResource, admissionCheck), &v1beta1.AdmissionCheck{})
 	if obj == nil {
 		return nil, err
 	}
@@ -95,8 +90,7 @@ func (c *FakeAdmissionChecks) Create(ctx context.Context, admissionCheck *v1beta
 // Update takes the representation of a admissionCheck and updates it. Returns the server's representation of the admissionCheck, and an error, if there is any.
 func (c *FakeAdmissionChecks) Update(ctx context.Context, admissionCheck *v1beta1.AdmissionCheck, opts v1.UpdateOptions) (result *v1beta1.AdmissionCheck, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewUpdateAction(admissionchecksResource, c.ns, admissionCheck), &v1beta1.AdmissionCheck{})
-
+		Invokes(testing.NewRootUpdateAction(admissionchecksResource, admissionCheck), &v1beta1.AdmissionCheck{})
 	if obj == nil {
 		return nil, err
 	}
@@ -107,8 +101,7 @@ func (c *FakeAdmissionChecks) Update(ctx context.Context, admissionCheck *v1beta
 // Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
 func (c *FakeAdmissionChecks) UpdateStatus(ctx context.Context, admissionCheck *v1beta1.AdmissionCheck, opts v1.UpdateOptions) (*v1beta1.AdmissionCheck, error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewUpdateSubresourceAction(admissionchecksResource, "status", c.ns, admissionCheck), &v1beta1.AdmissionCheck{})
-
+		Invokes(testing.NewRootUpdateSubresourceAction(admissionchecksResource, "status", admissionCheck), &v1beta1.AdmissionCheck{})
 	if obj == nil {
 		return nil, err
 	}
@@ -118,14 +111,13 @@ func (c *FakeAdmissionChecks) UpdateStatus(ctx context.Context, admissionCheck *
 // Delete takes name of the admissionCheck and deletes it. Returns an error if one occurs.
 func (c *FakeAdmissionChecks) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
 	_, err := c.Fake.
-		Invokes(testing.NewDeleteActionWithOptions(admissionchecksResource, c.ns, name, opts), &v1beta1.AdmissionCheck{})
-
+		Invokes(testing.NewRootDeleteActionWithOptions(admissionchecksResource, name, opts), &v1beta1.AdmissionCheck{})
 	return err
 }
 
 // DeleteCollection deletes a collection of objects.
 func (c *FakeAdmissionChecks) DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error {
-	action := testing.NewDeleteCollectionAction(admissionchecksResource, c.ns, listOpts)
+	action := testing.NewRootDeleteCollectionAction(admissionchecksResource, listOpts)
 
 	_, err := c.Fake.Invokes(action, &v1beta1.AdmissionCheckList{})
 	return err
@@ -134,8 +126,7 @@ func (c *FakeAdmissionChecks) DeleteCollection(ctx context.Context, opts v1.Dele
 // Patch applies the patch and returns the patched admissionCheck.
 func (c *FakeAdmissionChecks) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.AdmissionCheck, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewPatchSubresourceAction(admissionchecksResource, c.ns, name, pt, data, subresources...), &v1beta1.AdmissionCheck{})
-
+		Invokes(testing.NewRootPatchSubresourceAction(admissionchecksResource, name, pt, data, subresources...), &v1beta1.AdmissionCheck{})
 	if obj == nil {
 		return nil, err
 	}
@@ -156,8 +147,7 @@ func (c *FakeAdmissionChecks) Apply(ctx context.Context, admissionCheck *kueuev1
 		return nil, fmt.Errorf("admissionCheck.Name must be provided to Apply")
 	}
 	obj, err := c.Fake.
-		Invokes(testing.NewPatchSubresourceAction(admissionchecksResource, c.ns, *name, types.ApplyPatchType, data), &v1beta1.AdmissionCheck{})
-
+		Invokes(testing.NewRootPatchSubresourceAction(admissionchecksResource, *name, types.ApplyPatchType, data), &v1beta1.AdmissionCheck{})
 	if obj == nil {
 		return nil, err
 	}
@@ -179,8 +169,7 @@ func (c *FakeAdmissionChecks) ApplyStatus(ctx context.Context, admissionCheck *k
 		return nil, fmt.Errorf("admissionCheck.Name must be provided to Apply")
 	}
 	obj, err := c.Fake.
-		Invokes(testing.NewPatchSubresourceAction(admissionchecksResource, c.ns, *name, types.ApplyPatchType, data, "status"), &v1beta1.AdmissionCheck{})
-
+		Invokes(testing.NewRootPatchSubresourceAction(admissionchecksResource, *name, types.ApplyPatchType, data, "status"), &v1beta1.AdmissionCheck{})
 	if obj == nil {
 		return nil, err
 	}

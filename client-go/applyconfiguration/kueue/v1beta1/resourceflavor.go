@@ -33,10 +33,9 @@ type ResourceFlavorApplyConfiguration struct {
 
 // ResourceFlavor constructs an declarative configuration of the ResourceFlavor type for use with
 // apply.
-func ResourceFlavor(name, namespace string) *ResourceFlavorApplyConfiguration {
+func ResourceFlavor(name string) *ResourceFlavorApplyConfiguration {
 	b := &ResourceFlavorApplyConfiguration{}
 	b.WithName(name)
-	b.WithNamespace(namespace)
 	b.WithKind("ResourceFlavor")
 	b.WithAPIVersion("kueue.x-k8s.io/v1beta1")
 	return b
