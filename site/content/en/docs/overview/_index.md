@@ -22,6 +22,19 @@ Kueue APIs allow you to express:
 
 A core design principle for Kueue is to avoid duplicating mature functionality in Kubernetes components and well-established third-party controllers. Autoscaling, pod-to-node scheduling and job lifecycle management are the responsibility of cluster-autoscaler, kube-scheduler and kube-controller-manager, respectively. Advanced admission control can be delegated to controllers such as gatekeeper.
 
+## Features overview
+
+- **Job management:** support job queueing based on priorities with different strategies: `StrictFIFO` and `BestEffortFIFO`
+- **Resource management:** support resource fair sharing and [preemption](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#preemption) with a variety of policies between different tenants
+- **Dynamic resource reclaim:** a mechanism help to improve resource utilization
+- **Resource flavor fungibility:** quota borrowing or preemption in ClusterQueue and Cohort
+- **Integrations:** native support for a plenty of popular jobs, e.g. `BatctJob`, `Kubeflow Jobs`, `RayJob`, `jobSet`,  plain `Pod`
+- **System insight:** build-in prometheus metrics to help monitor the state of the system, as well as Conditions
+- **AdmissionChecks:** a mechanism for internal or external components to influence whether a workload can be admitted
+- **Advanced autoscaling support:** Integration with cluster-autoscaler's provisioningRequest via admissionChecks
+- **Sequential admission:** a simple implementation of all-or-nothing scheduling
+- **Partial admission:** support *min_available_pods* semantic scheduling
+
 ## High-level Kueue operation
 
 ![High Level Kueue Operation](/images/theory-of-operation.svg)
