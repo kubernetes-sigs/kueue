@@ -70,7 +70,7 @@ Learn more about:
 - Kueue [concepts](https://kueue.sigs.k8s.io/docs/concepts).
 - Common and advanced [tasks](https://kueue.sigs.k8s.io/docs/tasks).
 
-## Feature
+## Features overview
 - Resource fair sharing: you can define unused resources that can be borrowed by other tenants.
 - Resource flavors and fungibility: you can define multiple flavors or variants of a resource. Jobs will be assigned to flavors that are still available.
 - Job management with queueing strategies: `StrictFIFO` and `BestEffortFIFO`.
