@@ -33,34 +33,34 @@ import (
 
 var _ = ginkgo.Describe("Multikueue", func() {
 	var (
-		leaderNs  *corev1.Namespace
+		managerNs *corev1.Namespace
 		worker1Ns *corev1.Namespace
 		worker2Ns *corev1.Namespace
 
-		leaderMultikueueSecret *corev1.Secret
+		managerMultikueueSecret *corev1.Secret
 	)
 	ginkgo.BeforeEach(func() {
-		leaderNs = &corev1.Namespace{
+		managerNs = &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "multikueue-",
 			},
 		}
-		worker1Ns = leaderNs.DeepCopy()
-		worker2Ns = leaderNs.DeepCopy()
-		gomega.Expect(leader.client.Create(leader.ctx, leaderNs)).To(gomega.Succeed())
-		gomega.Expect(worker1.client.Create(worker1.ctx, worker1Ns)).To(gomega.Succeed())
-		gomega.Expect(worker2.client.Create(worker1.ctx, worker2Ns)).To(gomega.Succeed())
+		worker1Ns = managerNs.DeepCopy()
+		worker2Ns = managerNs.DeepCopy()
+		gomega.Expect(managerCluster.client.Create(managerCluster.ctx, managerNs)).To(gomega.Succeed())
+		gomega.Expect(worker1Cluster.client.Create(worker1Cluster.ctx, worker1Ns)).To(gomega.Succeed())
+		gomega.Expect(worker2Cluster.client.Create(worker1Cluster.ctx, worker2Ns)).To(gomega.Succeed())
 
-		w1Kubeconfig, err := worker1.kubeConfigBytes()
+		w1Kubeconfig, err := worker1Cluster.kubeConfigBytes()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		w2Kubeconfig, err := worker2.kubeConfigBytes()
+		w2Kubeconfig, err := worker2Cluster.kubeConfigBytes()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		leaderMultikueueSecret = &corev1.Secret{
+		managerMultikueueSecret = &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "multikueue",
-				Namespace: leaderNs.Name,
+				Namespace: managerNs.Name,
 			},
 			Data: map[string][]byte{
 				"worker1.kubeconfig": w1Kubeconfig,
@@ -68,13 +68,13 @@ var _ = ginkgo.Describe("Multikueue", func() {
 			},
 		}
 
-		gomega.Expect(leader.client.Create(leader.ctx, leaderMultikueueSecret)).To(gomega.Succeed())
+		gomega.Expect(managerCluster.client.Create(managerCluster.ctx, managerMultikueueSecret)).To(gomega.Succeed())
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(leader.ctx, leader.client, leaderNs)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteNamespace(worker1.ctx, worker1.client, worker1Ns)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteNamespace(worker2.ctx, worker2.client, worker2Ns)).To(gomega.Succeed())
+		gomega.Expect(util.DeleteNamespace(managerCluster.ctx, managerCluster.client, managerNs)).To(gomega.Succeed())
+		gomega.Expect(util.DeleteNamespace(worker1Cluster.ctx, worker1Cluster.client, worker1Ns)).To(gomega.Succeed())
+		gomega.Expect(util.DeleteNamespace(worker2Cluster.ctx, worker2Cluster.client, worker2Ns)).To(gomega.Succeed())
 	})
 
 	ginkgo.When("Using multiple clusters", func() {
@@ -82,33 +82,33 @@ var _ = ginkgo.Describe("Multikueue", func() {
 			wl := utiltesting.MakeWorkload("wl", (*ns).Name).Obj()
 			gomega.Expect(c.client.Create(c.ctx, wl)).To(gomega.Succeed())
 		},
-			ginkgo.Entry("leader", &leader, &leaderNs),
-			ginkgo.Entry("worker1", &worker1, &worker1Ns),
-			ginkgo.Entry("worker2", &worker2, &worker2Ns),
+			ginkgo.Entry("manager", &managerCluster, &managerNs),
+			ginkgo.Entry("worker1", &worker1Cluster, &worker1Ns),
+			ginkgo.Entry("worker2", &worker2Cluster, &worker2Ns),
 		)
 
 		ginkgo.DescribeTable("Cluster kubeconfig propagation", func(c *cluster, key string, ns **corev1.Namespace) {
 			readSecret := &corev1.Secret{}
-			gomega.Expect(leader.client.Get(leader.ctx, client.ObjectKeyFromObject(leaderMultikueueSecret), readSecret)).To(gomega.Succeed())
+			gomega.Expect(managerCluster.client.Get(managerCluster.ctx, client.ObjectKeyFromObject(managerMultikueueSecret), readSecret)).To(gomega.Succeed())
 
 			cfg, err := clientcmd.RESTConfigFromKubeConfig(readSecret.Data[key])
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(cfg).To(gomega.BeComparableTo(c.cfg, cmpopts.IgnoreFields(rest.Config{}, "QPS", "Burst")))
 
-			remClient, err := client.New(cfg, client.Options{Scheme: leader.client.Scheme()})
+			remClient, err := client.New(cfg, client.Options{Scheme: managerCluster.client.Scheme()})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			// create an wl with the remote client
 			wl := utiltesting.MakeWorkload("wl", (*ns).Name).Obj()
-			gomega.Expect(remClient.Create(leader.ctx, wl)).To(gomega.Succeed())
+			gomega.Expect(remClient.Create(managerCluster.ctx, wl)).To(gomega.Succeed())
 
 			createdWl := &kueue.Workload{}
 			gomega.Expect(c.client.Get(c.ctx, client.ObjectKeyFromObject(wl), createdWl)).To(gomega.Succeed())
 			gomega.Expect(createdWl).To(gomega.BeComparableTo(wl))
 
 		},
-			ginkgo.Entry("worker1", &worker1, "worker1.kubeconfig", &worker1Ns),
-			ginkgo.Entry("worker2", &worker2, "worker2.kubeconfig", &worker2Ns),
+			ginkgo.Entry("worker1", &worker1Cluster, "worker1.kubeconfig", &worker1Ns),
+			ginkgo.Entry("worker2", &worker2Cluster, "worker2.kubeconfig", &worker2Ns),
 		)
 	})
 })

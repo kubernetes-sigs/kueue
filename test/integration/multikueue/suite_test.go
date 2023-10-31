@@ -75,9 +75,9 @@ func (c *cluster) kubeConfigBytes() ([]byte, error) {
 }
 
 var (
-	leader  cluster
-	worker1 cluster
-	worker2 cluster
+	managerCluster cluster
+	worker1Cluster cluster
+	worker2Cluster cluster
 )
 
 func TestScheduler(t *testing.T) {
@@ -100,15 +100,15 @@ func createCluster(setupFnc framework.ManagerSetup) cluster {
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	leader = createCluster(managerSetup)
-	worker1 = createCluster(managerSetup)
-	worker2 = createCluster(managerSetup)
+	managerCluster = createCluster(managerSetup)
+	worker1Cluster = createCluster(managerSetup)
+	worker2Cluster = createCluster(managerSetup)
 })
 
 var _ = ginkgo.AfterSuite(func() {
-	worker2.fwk.Teardown()
-	worker1.fwk.Teardown()
-	leader.fwk.Teardown()
+	worker2Cluster.fwk.Teardown()
+	worker1Cluster.fwk.Teardown()
+	managerCluster.fwk.Teardown()
 })
 
 func managerSetup(mgr manager.Manager, ctx context.Context) {

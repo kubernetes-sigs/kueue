@@ -25,15 +25,9 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	visibility "sigs.k8s.io/kueue/apis/visibility/v1alpha1"
-	kueueclientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	visibilityv1alpha1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1alpha1"
-	kueuetest "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
 	//+kubebuilder:scaffold:imports
 )
@@ -61,47 +55,10 @@ func TestAPIs(t *testing.T) {
 	)
 }
 
-func CreateClientUsingCluster() client.Client {
-	cfg := config.GetConfigOrDie()
-	gomega.ExpectWithOffset(1, cfg).NotTo(gomega.BeNil())
-
-	kueueClient, err := kueueclientset.NewForConfig(cfg)
-	if err != nil {
-		panic(err)
-	}
-	visibilityClient = kueueClient.VisibilityV1alpha1()
-
-	err = kueue.AddToScheme(scheme.Scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
-
-	err = visibility.AddToScheme(scheme.Scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
-
-	// +kubebuilder:scaffold:scheme
-	client, err := client.New(cfg, client.Options{Scheme: scheme.Scheme})
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
-
-	cfg.Impersonate.UserName = "system:serviceaccount:kueue-system:default"
-	impersonatedKueueClient, err := kueueclientset.NewForConfig(cfg)
-	if err != nil {
-		panic(err)
-	}
-	impersonatedVisibilityClient = impersonatedKueueClient.VisibilityV1alpha1()
-
-	return client
-}
-
-func KueueReadyForTesting(client client.Client) {
-	// To verify that webhooks are ready, let's create a simple resourceflavor
-	resourceKueue := kueuetest.MakeResourceFlavor("default").Obj()
-	gomega.Eventually(func() error {
-		return client.Create(context.Background(), resourceKueue)
-	}, Timeout, Interval).Should(gomega.Succeed())
-	util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, resourceKueue, true)
-}
-
 var _ = ginkgo.BeforeSuite(func() {
-	k8sClient = CreateClientUsingCluster()
+	k8sClient = util.CreateClientUsingCluster("")
+	visibilityClient = util.CreateVisibilityClient("")
+	impersonatedVisibilityClient = util.CreateVisibilityClient("system:serviceaccount:kueue-system:default")
 	ctx = context.Background()
-	KueueReadyForTesting(k8sClient)
+	util.KueueReadyForTesting(ctx, k8sClient)
 })
