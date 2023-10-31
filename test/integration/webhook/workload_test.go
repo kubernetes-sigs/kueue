@@ -157,6 +157,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			ginkgo.By("Creating a new Workload")
 			workload := testing.MakeWorkload(workloadName, ns.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, workload)).Should(gomega.Succeed())
+			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, workload, testing.MakeAdmission("cq").Obj())).Should(gomega.Succeed())
 
 			ginkgo.By("Updating podSet")
 			gomega.Eventually(func() error {
