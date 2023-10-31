@@ -83,19 +83,6 @@ Learn more about:
 - Kueue [concepts](https://kueue.sigs.k8s.io/docs/concepts).
 - Common and advanced [tasks](https://kueue.sigs.k8s.io/docs/tasks).
 
-<<<<<<< HEAD
-## Features overview
-- Resource fair sharing: you can define unused resources that can be borrowed by other tenants.
-- Resource flavors and fungibility: you can define multiple flavors or variants of a resource. Jobs will be assigned to flavors that are still available.
-- Job management with queueing strategies: `StrictFIFO` and `BestEffortFIFO`.
-- [Preemption](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#preemption) within ClusterQueue or cohort, based on [Pod PriorityClass](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/#priorityclass), [Workload PriorityClass](https://kueue.sigs.k8s.io/docs/concepts/workload_priority_class/) and [resource flavor order](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#flavorfungibility).
-- Support for the `BatchJob`, `JobSet`, `KubeFlow`, `RayJob`, `Pod(WIP)`.
-- The Workload API abstraction allows you to integrate a third-party job API with Kueue.
-- [Prometheus metrics](https://github.com/kubernetes-sigs/kueue/blob/v0.2.1/docs/reference/metrics.md) to monitor health of the system and the status of ClusterQueues.
-- Documentation website https://kueue.sigs.k8s.io/docs/.
-
-=======
->>>>>>> c4c1475 (move Feature overview upto the first part)
 ## Architecture
 
 <!-- TODO(#64) Remove links to google docs once the contents have been migrated to this repo -->
