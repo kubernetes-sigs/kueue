@@ -15,6 +15,19 @@ created) and when it should stop (as in active pods should be deleted).
 
 Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) to learn more.
 
+## Features overview
+
+- **Job management:** support job queueing based on priorities with different strategies: `StrictFIFO` and `BestEffortFIFO`
+- **Resource management:** support resource fair sharing and [preemption](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#preemption) with a variety of policies between different tenants
+- **Dynamic resource reclaim:** a mechanism help to improve resource utilization
+- **Resource flavor fungibility:** quota borrowing or preemption in ClusterQueue and Cohort
+- **Integrations:** native support for a plenty of popular jobs, e.g. `BatctJob`, `Kubeflow Jobs`, `RayJob`, `jobSet`,  plain `Pod`
+- **System insight:** build-in prometheus metrics to help monitor the state of the system, as well as Conditions
+- **AdmissionChecks:** a mechanism for internal or external components to influence whether a workload can be admitted
+- **Advanced autoscaling support:** Integration with cluster-autoscaler's provisioningRequest via admissionChecks
+- **Sequential admission:** a simple implementation of all-or-nothing scheduling
+- **Partial admission:** support *min_available_pods* semantic scheduling
+
 ## Production Readiness status
 
 - ✔️ API version: v1beta1, respecting [Kubernetes Deprecation Policy](https://kubernetes.io/docs/reference/using-api/deprecation-policy/)
@@ -70,6 +83,7 @@ Learn more about:
 - Kueue [concepts](https://kueue.sigs.k8s.io/docs/concepts).
 - Common and advanced [tasks](https://kueue.sigs.k8s.io/docs/tasks).
 
+<<<<<<< HEAD
 ## Features overview
 - Resource fair sharing: you can define unused resources that can be borrowed by other tenants.
 - Resource flavors and fungibility: you can define multiple flavors or variants of a resource. Jobs will be assigned to flavors that are still available.
@@ -80,6 +94,8 @@ Learn more about:
 - [Prometheus metrics](https://github.com/kubernetes-sigs/kueue/blob/v0.2.1/docs/reference/metrics.md) to monitor health of the system and the status of ClusterQueues.
 - Documentation website https://kueue.sigs.k8s.io/docs/.
 
+=======
+>>>>>>> c4c1475 (move Feature overview upto the first part)
 ## Architecture
 
 <!-- TODO(#64) Remove links to google docs once the contents have been migrated to this repo -->
