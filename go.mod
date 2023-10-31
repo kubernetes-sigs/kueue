@@ -3,13 +3,13 @@ module sigs.k8s.io/kueue
 go 1.21
 
 require (
-	github.com/go-logr/logr v1.2.4
+	github.com/go-logr/logr v1.3.0
 	github.com/google/go-cmp v0.6.0
 	github.com/kubeflow/common v0.4.7
 	github.com/kubeflow/mpi-operator v0.4.0
 	github.com/kubeflow/training-operator v1.7.0-rc.0
 	github.com/onsi/ginkgo/v2 v2.13.0
-	github.com/onsi/gomega v1.28.0
+	github.com/onsi/gomega v1.29.0
 	github.com/open-policy-agent/cert-controller v0.10.0
 	github.com/prometheus/client_golang v1.17.0
 	github.com/prometheus/client_model v0.5.0
@@ -17,17 +17,17 @@ require (
 	go.uber.org/zap v1.26.0
 	k8s.io/api v0.28.3
 	k8s.io/apimachinery v0.28.3
-	k8s.io/apiserver v0.28.2
+	k8s.io/apiserver v0.28.3
 	k8s.io/autoscaler/cluster-autoscaler v0.0.0-20230925095857-cf8c507d2421
 	k8s.io/client-go v0.28.3
 	k8s.io/code-generator v0.28.3
-	k8s.io/component-base v0.28.2
+	k8s.io/component-base v0.28.3
 	k8s.io/component-helpers v0.28.3
 	k8s.io/klog/v2 v2.100.1
 	k8s.io/utils v0.0.0-20230726121419-3b25d923346b
 	sigs.k8s.io/controller-runtime v0.16.2
 	sigs.k8s.io/jobset v0.2.3
-	sigs.k8s.io/structured-merge-diff/v4 v4.3.0
+	sigs.k8s.io/structured-merge-diff/v4 v4.4.0
 )
 
 require (

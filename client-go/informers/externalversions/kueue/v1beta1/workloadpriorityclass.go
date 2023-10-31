@@ -41,33 +41,32 @@ type WorkloadPriorityClassInformer interface {
 type workloadPriorityClassInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
 	tweakListOptions internalinterfaces.TweakListOptionsFunc
-	namespace        string
 }
 
 // NewWorkloadPriorityClassInformer constructs a new informer for WorkloadPriorityClass type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewWorkloadPriorityClassInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredWorkloadPriorityClassInformer(client, namespace, resyncPeriod, indexers, nil)
+func NewWorkloadPriorityClassInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
+	return NewFilteredWorkloadPriorityClassInformer(client, resyncPeriod, indexers, nil)
 }
 
 // NewFilteredWorkloadPriorityClassInformer constructs a new informer for WorkloadPriorityClass type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewFilteredWorkloadPriorityClassInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
+func NewFilteredWorkloadPriorityClassInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
 		&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.KueueV1beta1().WorkloadPriorityClasses(namespace).List(context.TODO(), options)
+				return client.KueueV1beta1().WorkloadPriorityClasses().List(context.TODO(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.KueueV1beta1().WorkloadPriorityClasses(namespace).Watch(context.TODO(), options)
+				return client.KueueV1beta1().WorkloadPriorityClasses().Watch(context.TODO(), options)
 			},
 		},
 		&kueuev1beta1.WorkloadPriorityClass{},
@@ -77,7 +76,7 @@ func NewFilteredWorkloadPriorityClassInformer(client versioned.Interface, namesp
 }
 
 func (f *workloadPriorityClassInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredWorkloadPriorityClassInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+	return NewFilteredWorkloadPriorityClassInformer(client, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
 }
 
 func (f *workloadPriorityClassInformer) Informer() cache.SharedIndexInformer {

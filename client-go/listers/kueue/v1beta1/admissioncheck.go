@@ -30,8 +30,9 @@ type AdmissionCheckLister interface {
 	// List lists all AdmissionChecks in the indexer.
 	// Objects returned here must be treated as read-only.
 	List(selector labels.Selector) (ret []*v1beta1.AdmissionCheck, err error)
-	// AdmissionChecks returns an object that can list and get AdmissionChecks.
-	AdmissionChecks(namespace string) AdmissionCheckNamespaceLister
+	// Get retrieves the AdmissionCheck from the index for a given name.
+	// Objects returned here must be treated as read-only.
+	Get(name string) (*v1beta1.AdmissionCheck, error)
 	AdmissionCheckListerExpansion
 }
 
@@ -53,41 +54,9 @@ func (s *admissionCheckLister) List(selector labels.Selector) (ret []*v1beta1.Ad
 	return ret, err
 }
 
-// AdmissionChecks returns an object that can list and get AdmissionChecks.
-func (s *admissionCheckLister) AdmissionChecks(namespace string) AdmissionCheckNamespaceLister {
-	return admissionCheckNamespaceLister{indexer: s.indexer, namespace: namespace}
-}
-
-// AdmissionCheckNamespaceLister helps list and get AdmissionChecks.
-// All objects returned here must be treated as read-only.
-type AdmissionCheckNamespaceLister interface {
-	// List lists all AdmissionChecks in the indexer for a given namespace.
-	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1beta1.AdmissionCheck, err error)
-	// Get retrieves the AdmissionCheck from the indexer for a given namespace and name.
-	// Objects returned here must be treated as read-only.
-	Get(name string) (*v1beta1.AdmissionCheck, error)
-	AdmissionCheckNamespaceListerExpansion
-}
-
-// admissionCheckNamespaceLister implements the AdmissionCheckNamespaceLister
-// interface.
-type admissionCheckNamespaceLister struct {
-	indexer   cache.Indexer
-	namespace string
-}
-
-// List lists all AdmissionChecks in the indexer for a given namespace.
-func (s admissionCheckNamespaceLister) List(selector labels.Selector) (ret []*v1beta1.AdmissionCheck, err error) {
-	err = cache.ListAllByNamespace(s.indexer, s.namespace, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1beta1.AdmissionCheck))
-	})
-	return ret, err
-}
-
-// Get retrieves the AdmissionCheck from the indexer for a given namespace and name.
-func (s admissionCheckNamespaceLister) Get(name string) (*v1beta1.AdmissionCheck, error) {
-	obj, exists, err := s.indexer.GetByKey(s.namespace + "/" + name)
+// Get retrieves the AdmissionCheck from the index for a given name.
+func (s *admissionCheckLister) Get(name string) (*v1beta1.AdmissionCheck, error) {
+	obj, exists, err := s.indexer.GetByKey(name)
 	if err != nil {
 		return nil, err
 	}

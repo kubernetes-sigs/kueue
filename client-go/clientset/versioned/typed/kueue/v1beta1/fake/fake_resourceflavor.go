@@ -34,7 +34,6 @@ import (
 // FakeResourceFlavors implements ResourceFlavorInterface
 type FakeResourceFlavors struct {
 	Fake *FakeKueueV1beta1
-	ns   string
 }
 
 var resourceflavorsResource = v1beta1.SchemeGroupVersion.WithResource("resourceflavors")
@@ -44,8 +43,7 @@ var resourceflavorsKind = v1beta1.SchemeGroupVersion.WithKind("ResourceFlavor")
 // Get takes name of the resourceFlavor, and returns the corresponding resourceFlavor object, and an error if there is any.
 func (c *FakeResourceFlavors) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1beta1.ResourceFlavor, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewGetAction(resourceflavorsResource, c.ns, name), &v1beta1.ResourceFlavor{})
-
+		Invokes(testing.NewRootGetAction(resourceflavorsResource, name), &v1beta1.ResourceFlavor{})
 	if obj == nil {
 		return nil, err
 	}
@@ -55,8 +53,7 @@ func (c *FakeResourceFlavors) Get(ctx context.Context, name string, options v1.G
 // List takes label and field selectors, and returns the list of ResourceFlavors that match those selectors.
 func (c *FakeResourceFlavors) List(ctx context.Context, opts v1.ListOptions) (result *v1beta1.ResourceFlavorList, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewListAction(resourceflavorsResource, resourceflavorsKind, c.ns, opts), &v1beta1.ResourceFlavorList{})
-
+		Invokes(testing.NewRootListAction(resourceflavorsResource, resourceflavorsKind, opts), &v1beta1.ResourceFlavorList{})
 	if obj == nil {
 		return nil, err
 	}
@@ -77,15 +74,13 @@ func (c *FakeResourceFlavors) List(ctx context.Context, opts v1.ListOptions) (re
 // Watch returns a watch.Interface that watches the requested resourceFlavors.
 func (c *FakeResourceFlavors) Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
 	return c.Fake.
-		InvokesWatch(testing.NewWatchAction(resourceflavorsResource, c.ns, opts))
-
+		InvokesWatch(testing.NewRootWatchAction(resourceflavorsResource, opts))
 }
 
 // Create takes the representation of a resourceFlavor and creates it.  Returns the server's representation of the resourceFlavor, and an error, if there is any.
 func (c *FakeResourceFlavors) Create(ctx context.Context, resourceFlavor *v1beta1.ResourceFlavor, opts v1.CreateOptions) (result *v1beta1.ResourceFlavor, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewCreateAction(resourceflavorsResource, c.ns, resourceFlavor), &v1beta1.ResourceFlavor{})
-
+		Invokes(testing.NewRootCreateAction(resourceflavorsResource, resourceFlavor), &v1beta1.ResourceFlavor{})
 	if obj == nil {
 		return nil, err
 	}
@@ -95,8 +90,7 @@ func (c *FakeResourceFlavors) Create(ctx context.Context, resourceFlavor *v1beta
 // Update takes the representation of a resourceFlavor and updates it. Returns the server's representation of the resourceFlavor, and an error, if there is any.
 func (c *FakeResourceFlavors) Update(ctx context.Context, resourceFlavor *v1beta1.ResourceFlavor, opts v1.UpdateOptions) (result *v1beta1.ResourceFlavor, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewUpdateAction(resourceflavorsResource, c.ns, resourceFlavor), &v1beta1.ResourceFlavor{})
-
+		Invokes(testing.NewRootUpdateAction(resourceflavorsResource, resourceFlavor), &v1beta1.ResourceFlavor{})
 	if obj == nil {
 		return nil, err
 	}
@@ -106,14 +100,13 @@ func (c *FakeResourceFlavors) Update(ctx context.Context, resourceFlavor *v1beta
 // Delete takes name of the resourceFlavor and deletes it. Returns an error if one occurs.
 func (c *FakeResourceFlavors) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
 	_, err := c.Fake.
-		Invokes(testing.NewDeleteActionWithOptions(resourceflavorsResource, c.ns, name, opts), &v1beta1.ResourceFlavor{})
-
+		Invokes(testing.NewRootDeleteActionWithOptions(resourceflavorsResource, name, opts), &v1beta1.ResourceFlavor{})
 	return err
 }
 
 // DeleteCollection deletes a collection of objects.
 func (c *FakeResourceFlavors) DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error {
-	action := testing.NewDeleteCollectionAction(resourceflavorsResource, c.ns, listOpts)
+	action := testing.NewRootDeleteCollectionAction(resourceflavorsResource, listOpts)
 
 	_, err := c.Fake.Invokes(action, &v1beta1.ResourceFlavorList{})
 	return err
@@ -122,8 +115,7 @@ func (c *FakeResourceFlavors) DeleteCollection(ctx context.Context, opts v1.Dele
 // Patch applies the patch and returns the patched resourceFlavor.
 func (c *FakeResourceFlavors) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.ResourceFlavor, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewPatchSubresourceAction(resourceflavorsResource, c.ns, name, pt, data, subresources...), &v1beta1.ResourceFlavor{})
-
+		Invokes(testing.NewRootPatchSubresourceAction(resourceflavorsResource, name, pt, data, subresources...), &v1beta1.ResourceFlavor{})
 	if obj == nil {
 		return nil, err
 	}
@@ -144,8 +136,7 @@ func (c *FakeResourceFlavors) Apply(ctx context.Context, resourceFlavor *kueuev1
 		return nil, fmt.Errorf("resourceFlavor.Name must be provided to Apply")
 	}
 	obj, err := c.Fake.
-		Invokes(testing.NewPatchSubresourceAction(resourceflavorsResource, c.ns, *name, types.ApplyPatchType, data), &v1beta1.ResourceFlavor{})
-
+		Invokes(testing.NewRootPatchSubresourceAction(resourceflavorsResource, *name, types.ApplyPatchType, data), &v1beta1.ResourceFlavor{})
 	if obj == nil {
 		return nil, err
 	}

@@ -41,33 +41,32 @@ type ResourceFlavorInformer interface {
 type resourceFlavorInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
 	tweakListOptions internalinterfaces.TweakListOptionsFunc
-	namespace        string
 }
 
 // NewResourceFlavorInformer constructs a new informer for ResourceFlavor type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewResourceFlavorInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredResourceFlavorInformer(client, namespace, resyncPeriod, indexers, nil)
+func NewResourceFlavorInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
+	return NewFilteredResourceFlavorInformer(client, resyncPeriod, indexers, nil)
 }
 
 // NewFilteredResourceFlavorInformer constructs a new informer for ResourceFlavor type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewFilteredResourceFlavorInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
+func NewFilteredResourceFlavorInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
 		&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.KueueV1beta1().ResourceFlavors(namespace).List(context.TODO(), options)
+				return client.KueueV1beta1().ResourceFlavors().List(context.TODO(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.KueueV1beta1().ResourceFlavors(namespace).Watch(context.TODO(), options)
+				return client.KueueV1beta1().ResourceFlavors().Watch(context.TODO(), options)
 			},
 		},
 		&kueuev1beta1.ResourceFlavor{},
@@ -77,7 +76,7 @@ func NewFilteredResourceFlavorInformer(client versioned.Interface, namespace str
 }
 
 func (f *resourceFlavorInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredResourceFlavorInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+	return NewFilteredResourceFlavorInformer(client, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
 }
 
 func (f *resourceFlavorInformer) Informer() cache.SharedIndexInformer {

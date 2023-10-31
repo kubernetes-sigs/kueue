@@ -230,3 +230,7 @@ The currently supported features are:
 | `PartialAdmission` | `true` | Beta | 0.5 |  |
 | `ProvisioningACC` | `false` | Alpha | 0.5 |  |
 | `QueueVisibility` | `false` | Alpha | 0.5 |  |
+
+## What's next
+
+- Read the [API reference](/docs/reference/kueue-config.v1beta1/#Configuration) for  `Configuration`
