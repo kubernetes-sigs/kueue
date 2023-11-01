@@ -22,6 +22,19 @@ Kueue APIs allow you to express:
 
 A core design principle for Kueue is to avoid duplicating mature functionality in Kubernetes components and well-established third-party controllers. Autoscaling, pod-to-node scheduling and job lifecycle management are the responsibility of cluster-autoscaler, kube-scheduler and kube-controller-manager, respectively. Advanced admission control can be delegated to controllers such as gatekeeper.
 
+## Features overview
+
+- **Job management:** Support job queueing based on [priorities](/docs/concepts/workload/#priority) with different [strategies](/docs/concepts/cluster_queue/#queueing-strategy): `StrictFIFO` and `BestEffortFIFO`.
+- **Resource management:** Support resource fair sharing and [preemption](/docs/concepts/cluster_queue/#preemption) with a variety of policies between different tenants.
+- **Dynamic resource reclaim:** A mechanism to [release](/docs/concepts/workload/#dynamic-reclaim) quota as the pods of a Job complete.
+- **Resource flavor fungibility:** Quota [borrowing or preemption](/docs/concepts/cluster_queue/#flavorfungibility) in ClusterQueue and Cohort.
+- **Integrations:** Built-in support for popular jobs, e.g. [BatchJob](/docs/tasks/run_jobs/), [Kubeflow training jobs](/docs/tasks/run_kubeflow_jobs/), [RayJob](/docs/tasks/run_rayjobs/), [JobSet](/docs/tasks/run_jobsets/),  [plain Pod](/docs/tasks/run_plain_pods/).
+- **System insight:** Build-in [prometheus metrics](/docs/reference/metrics/) to help monitor the state of the system, as well as Conditions.
+- **AdmissionChecks:** A mechanism for internal or external components to influence whether a workload can be [admitted](/docs/concepts/admission_check/).
+- **Advanced autoscaling support:** Integration with cluster-autoscaler's [provisioningRequest](/docs/admission-check-controllers/provisioning/#job-using-a-provisioningrequest) via admissionChecks.
+- **Sequential admission:** A simple implementation of [all-or-nothing scheduling](/docs/tasks/setup_sequential_admission/).
+- **Partial admission:** Allows jobs to run with a [smaller parallelism](/docs/tasks/run_jobs/#partial-admission), based on available quota, if the application supports it.
+
 ## High-level Kueue operation
 
 ![High Level Kueue Operation](/images/theory-of-operation.svg)
