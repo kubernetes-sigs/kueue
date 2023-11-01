@@ -24,16 +24,16 @@ A core design principle for Kueue is to avoid duplicating mature functionality i
 
 ## Features overview
 
-- **Job management:** Support job queueing based on [priorities](https://kueue.sigs.k8s.io/docs/concepts/workload/#priority) with different [strategies](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#queueing-strategy): `StrictFIFO` and `BestEffortFIFO`.
-- **Resource management:** Support resource fair sharing and [preemption](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#preemption) with a variety of policies between different tenants.
-- **Dynamic resource reclaim:** A mechanism to [release](https://kueue.sigs.k8s.io/docs/concepts/workload/#dynamic-reclaim) quota as the pods of a Job complete.
-- **Resource flavor fungibility:** Quota [borrowing](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#flavorfungibility) or preemption in ClusterQueue and Cohort.
-- **Integrations:** Built-in support for popular jobs, e.g. `BatchJob`, [Kubeflow training jobs](https://kueue.sigs.k8s.io/docs/tasks/run_kubeflow_jobs/), `RayJob`, `JobSet`,  plain `Pod`.
-- **System insight:** Build-in [prometheus metrics](https://kueue.sigs.k8s.io/docs/reference/metrics/) to help monitor the state of the system, as well as Conditions.
-- **AdmissionChecks:** A mechanism for internal or external components to influence whether a workload can be [admitted](https://kueue.sigs.k8s.io/docs/concepts/admission_check/).
-- **Advanced autoscaling support:** Integration with cluster-autoscaler's [provisioningRequest](https://kueue.sigs.k8s.io/docs/admission-check-controllers/provisioning/#job-using-a-provisioningrequest) via admissionChecks.
-- **Sequential admission:** A simple implementation of [all-or-nothing scheduling](https://kueue.sigs.k8s.io/docs/tasks/setup_sequential_admission/).
-- **Partial admission:** Allows jobs to run with a [smaller parallelism](https://kueue.sigs.k8s.io/docs/tasks/run_jobs/#partial-admission), based on available quota, if the application supports it.
+- **Job management:** Support job queueing based on [priorities](/docs/concepts/workload/#priority) with different [strategies](/docs/concepts/cluster_queue/#queueing-strategy): `StrictFIFO` and `BestEffortFIFO`.
+- **Resource management:** Support resource fair sharing and [preemption](/docs/concepts/cluster_queue/#preemption) with a variety of policies between different tenants.
+- **Dynamic resource reclaim:** A mechanism to [release](/docs/concepts/workload/#dynamic-reclaim) quota as the pods of a Job complete.
+- **Resource flavor fungibility:** Quota [borrowing or preemption](/docs/concepts/cluster_queue/#flavorfungibility) in ClusterQueue and Cohort.
+- **Integrations:** Built-in support for popular jobs, e.g. [BatchJob](/docs/tasks/run_jobs/), [Kubeflow training jobs](/docs/tasks/run_kubeflow_jobs/), [RayJob](/docs/tasks/run_rayjobs/), [JobSet](/docs/tasks/run_jobsets/),  [plain Pod](/docs/tasks/run_plain_pods/).
+- **System insight:** Build-in [prometheus metrics](/docs/reference/metrics/) to help monitor the state of the system, as well as Conditions.
+- **AdmissionChecks:** A mechanism for internal or external components to influence whether a workload can be [admitted](/docs/concepts/admission_check/).
+- **Advanced autoscaling support:** Integration with cluster-autoscaler's [provisioningRequest](/docs/admission-check-controllers/provisioning/#job-using-a-provisioningrequest) via admissionChecks.
+- **Sequential admission:** A simple implementation of [all-or-nothing scheduling](/docs/tasks/setup_sequential_admission/).
+- **Partial admission:** Allows jobs to run with a [smaller parallelism](/docs/tasks/run_jobs/#partial-admission), based on available quota, if the application supports it.
 
 ## High-level Kueue operation
 
