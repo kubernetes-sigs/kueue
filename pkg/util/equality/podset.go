@@ -26,14 +26,17 @@ import (
 
 // TODO: Revisit this, maybe we should extend the check to everything that could potentially impact
 // the workload scheduling (priority, nodeSelectors(when suspended), tolerations and maybe more)
-func comparePodTemplate(a, b *corev1.PodSpec) bool {
+func comparePodTemplate(a, b *corev1.PodSpec, checkCount, changePodSpecFields bool) bool {
+	if changePodSpecFields && !equality.Semantic.DeepEqual(a.Tolerations, b.Tolerations) {
+		return false
+	}
 	if !equality.Semantic.DeepEqual(a.InitContainers, b.InitContainers) {
 		return false
 	}
 	return equality.Semantic.DeepEqual(a.Containers, b.Containers)
 }
 
-func ComparePodSets(a, b *kueue.PodSet, checkCount bool) bool {
+func ComparePodSets(a, b *kueue.PodSet, checkCount, changePodSpecFields bool) bool {
 	if checkCount && a.Count != b.Count {
 		return false
 	}
@@ -41,15 +44,15 @@ func ComparePodSets(a, b *kueue.PodSet, checkCount bool) bool {
 		return false
 	}
 
-	return comparePodTemplate(&a.Template.Spec, &b.Template.Spec)
+	return comparePodTemplate(&a.Template.Spec, &b.Template.Spec, checkCount, changePodSpecFields)
 }
 
-func ComparePodSetSlices(a, b []kueue.PodSet, checkCount bool) bool {
+func ComparePodSetSlices(a, b []kueue.PodSet, checkCount, changePodSpecFields bool) bool {
 	if len(a) != len(b) {
 		return false
 	}
 	for i := range a {
-		if !ComparePodSets(&a[i], &b[i], checkCount) {
+		if !ComparePodSets(&a[i], &b[i], checkCount, changePodSpecFields) {
 			return false
 		}
 	}

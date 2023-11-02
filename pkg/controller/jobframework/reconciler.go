@@ -619,12 +619,13 @@ func equivalentToWorkload(job GenericJob, wl *kueue.Workload) bool {
 	jobPodSets := clearMinCountsIfFeatureDisabled(job.PodSets())
 
 	if !workload.CanBePartiallyAdmitted(wl) || !workload.HasQuotaReservation(wl) {
+		changePodSpecFields := job.IsActive() && !job.IsSuspended()
 		// the two sets should fully match.
-		return equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets, true)
+		return equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets, true, changePodSpecFields)
 	}
 
 	// Check everything but the pod counts.
-	if !equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets, false) {
+	if !equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets, false, false) {
 		return false
 	}
 
