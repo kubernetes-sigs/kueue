@@ -136,8 +136,8 @@ func TestHeap_PushOrUpdate(t *testing.T) {
 	h := New(testHeapObjectKeyFunc, compareInts)
 	h.PushOrUpdate(mkHeapObj("foo", 100))
 	h.PushOrUpdate(mkHeapObj("baz", 20))
-	h.PushOrUpdate(mkHeapObj("foo", 1)) // This behaviors as update.
-	h.PushOrUpdate(mkHeapObj("zab", 8)) // This behaviors as add.
+	h.PushOrUpdate(mkHeapObj("foo", 1)) // This manifests as update.
+	h.PushOrUpdate(mkHeapObj("zab", 8)) // This manifests as add.
 
 	if len := len(h.data.items); len != 3 {
 		t.Errorf("unexpected number of items: %d", len)

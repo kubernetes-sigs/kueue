@@ -189,7 +189,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	// if this is a non-standalone job, suspend the job if its parent workload is not found or it is not admitted.
+	// if this is a non-standalone job, suspend the job if its parent workload is not found or not admitted.
 	if !isStandaloneJob {
 		_, finished := job.Finished()
 		if !finished && !job.IsSuspended() {
@@ -389,7 +389,7 @@ func (r *JobReconciler) getParentWorkload(ctx context.Context, job GenericJob, o
 }
 
 // ensureOneWorkload will query for the single matched workload corresponding to job and return it.
-// If there're more than one workload, we should delete the excess ones.
+// If there are more than one workload, we should delete the excess ones.
 // The returned workload could be nil.
 func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
@@ -718,8 +718,8 @@ func generatePodsReadyCondition(job GenericJob, wl *kueue.Workload) metav1.Condi
 	conditionStatus := metav1.ConditionFalse
 	message := "Not all pods are ready or succeeded"
 	// Once PodsReady=True it stays as long as the workload remains admitted to
-	// avoid unnecessary flickering the the condition when the pods transition
-	// Ready to Completed. As pods finish, they transition first into the
+	// avoid unnecessary flickering the condition when the pods transition
+	// from "Ready" to "Completed". As pods finish, they transition first into the
 	// uncountedTerminatedPods staging area, before passing to the
 	// succeeded/failed counters.
 	if workload.IsAdmitted(wl) && (job.PodsReady() || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPodsReady)) {

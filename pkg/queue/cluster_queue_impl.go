@@ -166,7 +166,7 @@ func (c *clusterQueueBase) requeueIfNotPresent(wInfo *workload.Info, immediate b
 }
 
 // QueueInadmissibleWorkloads moves all workloads from inadmissibleWorkloads to heap.
-// If at least one workload is moved, returns true. Otherwise returns false.
+// If at least one workload is moved, returns true, otherwise returns false.
 func (c *clusterQueueBase) QueueInadmissibleWorkloads(ctx context.Context, client client.Client) bool {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()

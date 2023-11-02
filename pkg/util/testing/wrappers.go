@@ -560,7 +560,7 @@ func MakeRuntimeClass(name, handler string) *RuntimeClassWrapper {
 	}}
 }
 
-// PodOverhead adds a Overhead to the RuntimeClass.
+// PodOverhead adds an Overhead to the RuntimeClass.
 func (rc *RuntimeClassWrapper) PodOverhead(resources corev1.ResourceList) *RuntimeClassWrapper {
 	rc.Overhead = &nodev1.Overhead{
 		PodFixed: resources,

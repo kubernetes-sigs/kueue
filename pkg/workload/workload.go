@@ -260,7 +260,7 @@ func (r Requests) scaleDown(f int64) {
 }
 
 // UpdateStatus updates the condition of a workload with ssa,
-// filelManager being set to managerPrefix + "-" + conditionType
+// fieldManager being set to managerPrefix + "-" + conditionType
 func UpdateStatus(ctx context.Context,
 	c client.Client,
 	wl *kueue.Workload,
@@ -413,7 +413,7 @@ func ReclaimablePodsAreEqual(a, b []kueue.ReclaimablePod) bool {
 	return true
 }
 
-// Returns true if the workload is admitted.
+// IsAdmitted returns true if the workload is admitted.
 func IsAdmitted(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadAdmitted)
 }

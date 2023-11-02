@@ -113,7 +113,7 @@ func (podSetInfo *PodSetInfo) Merge(o PodSetInfo) error {
 }
 
 // Merge updates or appends the replica metadata & spec fields based on PodSetInfo.
-// If returns error if there is a conflict.
+// It returns error if there is a conflict.
 func Merge(meta *metav1.ObjectMeta, spec *corev1.PodSpec, info PodSetInfo) error {
 	tmp := PodSetInfo{
 		Annotations:  meta.Annotations,

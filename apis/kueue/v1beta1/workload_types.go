@@ -191,7 +191,7 @@ type AdmissionCheckState struct {
 	// +kubebuilder:validation:Type=string
 	// +kubebuilder:validation:Format=date-time
 	LastTransitionTime metav1.Time `json:"lastTransitionTime"`
-	// message is a human readable message indicating details about the transition.
+	// message is a human-readable message indicating details about the transition.
 	// This may be an empty string.
 	// +required
 	// +kubebuilder:validation:Required

@@ -78,7 +78,7 @@ func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) 
 	return featuregatetesting.SetFeatureGateDuringTest(tb, utilfeature.DefaultFeatureGate, f, value)
 }
 
-// Helper for `utilfeature.DefaultFeatureGate.Enabled()`
+// Enabled helper for `utilfeature.DefaultFeatureGate.Enabled()`
 func Enabled(f featuregate.Feature) bool {
 	return utilfeature.DefaultFeatureGate.Enabled(f)
 }

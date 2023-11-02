@@ -158,7 +158,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 	// 1. Get the heads from the queues, including their desired clusterQueue.
 	// This operation blocks while the queues are empty.
 	headWorkloads := s.queues.Heads(ctx)
-	// No elements means the program is finishing.
+	// No elements, means the program is finishing.
 	if len(headWorkloads) == 0 {
 		return
 	}
@@ -368,7 +368,7 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 // to limits.
 func (s *Scheduler) validateResources(wi *workload.Info) error {
 	podsetsPath := field.NewPath("podSets")
-	// requests should be less then limits.
+	// requests should be less than limits.
 	allReasons := []string{}
 	for i := range wi.Obj.Spec.PodSets {
 		ps := &wi.Obj.Spec.PodSets[i]

@@ -37,7 +37,8 @@ const (
 	// the owner job.
 	JobUIDLabel = "kueue.x-k8s.io/job-uid"
 
-	// The workloadPriorityClass is specified through a label kueue.x-k8s.io/priority-class.
+	// WorkloadPriorityClassLabel is the label key in the workload that holds the
+	// workloadPriorityClass name.
 	// This label is always mutable because it might be useful for the preemption.
 	WorkloadPriorityClassLabel = "kueue.x-k8s.io/priority-class"
 )

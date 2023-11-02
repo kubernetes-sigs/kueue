@@ -190,7 +190,7 @@ func (psa *PodSetAssignment) toAPI() kueue.PodSetAssignment {
 }
 
 // FlavorAssignmentMode describes whether the flavor can be assigned immediately
-// or what needs to happen so it can be assigned.
+// or what needs to happen, so it can be assigned.
 type FlavorAssignmentMode int
 
 // The flavor assigment modes below are ordered from lowest to highest

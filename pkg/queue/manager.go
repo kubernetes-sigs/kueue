@@ -286,7 +286,7 @@ func (m *Manager) addOrUpdateWorkload(w *kueue.Workload) bool {
 }
 
 // RequeueWorkload requeues the workload ensuring that the queue and the
-// workload still exist in the client cache and it's not admitted. It won't
+// workload still exist in the client cache and not admitted. It won't
 // requeue if the workload is already in the queue (possible if the workload was updated).
 func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reason RequeueReason) bool {
 	m.Lock()
@@ -394,7 +394,7 @@ func (m *Manager) QueueInadmissibleWorkloads(ctx context.Context, cqNames sets.S
 // queueAllInadmissibleWorkloadsInCohort moves all workloads in the same
 // cohort with this ClusterQueue from inadmissibleWorkloads to heap. If the
 // cohort of this ClusterQueue is empty, it just moves all workloads in this
-// ClusterQueue. If at least one workload is moved, returns true. Otherwise
+// ClusterQueue. If at least one workload is moved, returns true, otherwise
 // returns false.
 // The events listed below could make workloads in the same cohort admissible.
 // Then queueAllInadmissibleWorkloadsInCohort need to be invoked.

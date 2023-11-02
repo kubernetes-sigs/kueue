@@ -116,7 +116,7 @@ func (c *Cache) newClusterQueue(cq *kueue.ClusterQueue) (*ClusterQueue, error) {
 }
 
 // WaitForPodsReady waits for all admitted workloads to be in the PodsReady condition
-// if podsReadyTracking is enabled. Otherwise returns immediately.
+// if podsReadyTracking is enabled. Otherwise, returns immediately.
 func (c *Cache) WaitForPodsReady(ctx context.Context) {
 	if !c.podsReadyTracking {
 		return
@@ -660,7 +660,7 @@ func (c *Cache) cleanupAssumedState(w *kueue.Workload) {
 	assumedCQName, assumed := c.assumedWorkloads[k]
 	if assumed {
 		// If the workload's assigned ClusterQueue is different from the assumed
-		// one, then we should also cleanup the assumed one.
+		// one, then we should also clean up the assumed one.
 		if workload.HasQuotaReservation(w) && assumedCQName != string(w.Status.Admission.ClusterQueue) {
 			if assumedCQ, exist := c.clusterQueues[assumedCQName]; exist {
 				assumedCQ.deleteWorkload(w)

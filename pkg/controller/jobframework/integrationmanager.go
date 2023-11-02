@@ -140,7 +140,7 @@ func ForEachIntegration(f func(name string, cb IntegrationCallbacks) error) erro
 }
 
 // GetIntegration looks-up the framework identified by name in the currently registered
-// list of frameworks returning it's callbacks and true if found.
+// list of frameworks returning its callbacks and true if found.
 func GetIntegration(name string) (IntegrationCallbacks, bool) {
 	return manager.get(name)
 }
