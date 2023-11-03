@@ -315,7 +315,7 @@ func totalRequestsForAssignment(wl *workload.Info, assignment flavorassigner.Ass
 	return usage
 }
 
-// workloadFits determines if the workload requests would fits given the
+// workloadFits determines if the workload requests would fit given the
 // requestable resources and simulated usage of the ClusterQueue and its cohort,
 // if it belongs to one.
 func workloadFits(wlReq cache.FlavorResourceQuantities, cq *cache.ClusterQueue, allowBorrowing bool) bool {

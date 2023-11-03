@@ -45,8 +45,8 @@ type ClusterQueue interface {
 	Cohort() string
 
 	// AddFromLocalQueue pushes all workloads belonging to this queue to
-	// the ClusterQueue. If at least one workload is added, returns true.
-	// Otherwise returns false.
+	// the ClusterQueue. If at least one workload is added, returns true,
+	// otherwise returns false.
 	AddFromLocalQueue(*LocalQueue) bool
 	// DeleteFromLocalQueue removes all workloads belonging to this queue from
 	// the ClusterQueue.
@@ -73,7 +73,7 @@ type ClusterQueue interface {
 	RequeueIfNotPresent(*workload.Info, RequeueReason) bool
 	// QueueInadmissibleWorkloads moves all workloads put in temporary placeholder stage
 	// to the ClusterQueue. If at least one workload is moved,
-	// returns true. Otherwise returns false.
+	// returns true, otherwise returns false.
 	QueueInadmissibleWorkloads(ctx context.Context, client client.Client) bool
 
 	// Pending returns the total number of pending workloads.
@@ -88,8 +88,8 @@ type ClusterQueue interface {
 	PendingInadmissible() int
 
 	// Dump produces a dump of the current workloads in the heap of
-	// this ClusterQueue. It returns false if the queue is empty.
-	// Otherwise returns true.
+	// this ClusterQueue. It returns false if the queue is empty,
+	// otherwise returns true.
 	Dump() (sets.Set[string], bool)
 	DumpInadmissible() (sets.Set[string], bool)
 	// Snapshot returns a copy of the current workloads in the heap of

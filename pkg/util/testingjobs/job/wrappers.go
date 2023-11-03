@@ -115,7 +115,7 @@ func (j *JobWrapper) Queue(queue string) *JobWrapper {
 	return j.Label(constants.QueueLabel, queue)
 }
 
-// Annotation sets the annotation key and value
+// Label sets the label key and value
 func (j *JobWrapper) Label(key, value string) *JobWrapper {
 	if j.Labels == nil {
 		j.Labels = make(map[string]string)

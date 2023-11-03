@@ -340,7 +340,7 @@ func (r *WorkloadReconciler) Delete(e event.DeleteEvent) bool {
 	ctx := ctrl.LoggerInto(context.Background(), log)
 
 	// When assigning a clusterQueue to a workload, we assume it in the cache. If
-	// the state is unknown, the workload could have been assumed and we need
+	// the state is unknown, the workload could have been assumed, and we need
 	// to clear it from the cache.
 	if workload.HasQuotaReservation(wl) || e.DeleteStateUnknown {
 		// trigger the move of associated inadmissibleWorkloads if required.
@@ -472,7 +472,7 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-// admittedNotReadyWorkload returns as pair of values. The first boolean determines
+// admittedNotReadyWorkload returns as a pair of values. The first boolean determines
 // if the workload is currently counting towards the timeout for PodsReady, i.e.
 // it has the Admitted condition True and the PodsReady condition not equal
 // True (False or not set). The second value is the remaining time to exceed the
@@ -583,7 +583,7 @@ type workloadCqHandler struct {
 
 var _ handler.EventHandler = (*workloadCqHandler)(nil)
 
-// Create is called in response to an create event.
+// Create is called in response to a create event.
 func (w *workloadCqHandler) Create(ctx context.Context, ev event.CreateEvent, wq workqueue.RateLimitingInterface) {
 	if cq, isQueue := ev.Object.(*kueue.ClusterQueue); isQueue {
 		w.queueReconcileForWorkloads(ctx, cq.Name, wq)

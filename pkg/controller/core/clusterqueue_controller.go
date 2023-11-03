@@ -78,7 +78,7 @@ type ClusterQueueReconcilerOptions struct {
 	QueueVisibilityClusterQueuesMaxCount int32
 }
 
-// Option configures the reconciler.
+// ClusterQueueReconcilerOption configures the reconciler.
 type ClusterQueueReconcilerOption func(*ClusterQueueReconcilerOptions)
 
 func WithWatchers(watchers ...ClusterQueueUpdateWatcher) ClusterQueueReconcilerOption {
@@ -208,7 +208,7 @@ func (r *ClusterQueueReconciler) notifyWatchers(oldCQ, newCQ *kueue.ClusterQueue
 	}
 }
 
-// Updates are ignored since they have no impact on the ClusterQueue's readiness.
+// NotifyResourceFlavorUpdate ignores updates since they have no impact on the ClusterQueue's readiness.
 func (r *ClusterQueueReconciler) NotifyResourceFlavorUpdate(oldRF, newRF *kueue.ResourceFlavor) {
 	// if oldRF is nil, it's a create event.
 	if oldRF == nil {

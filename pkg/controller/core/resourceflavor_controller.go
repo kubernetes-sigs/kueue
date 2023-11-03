@@ -185,7 +185,7 @@ func (r *ResourceFlavorReconciler) Generic(e event.GenericEvent) bool {
 }
 
 // NotifyClusterQueueUpdate will listen for the update/delete events of clusterQueues to help
-// verifying whether resourceFlavors are no longer in use by clusterQueues. There're mainly
+// verifying whether resourceFlavors are no longer in use by clusterQueues. There are mainly
 // two reasons for this, 1) a clusterQueue is deleted 2) a clusterQueue is updated with
 // the resourceFlavors in use.
 func (r *ResourceFlavorReconciler) NotifyClusterQueueUpdate(oldCQ, newCQ *kueue.ClusterQueue) {

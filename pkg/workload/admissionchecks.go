@@ -62,7 +62,7 @@ func SyncAdmittedCondition(w *kueue.Workload) bool {
 	return true
 }
 
-// FindStatusCondition - returns a pointer to the check identified by checkName if found in checks.
+// FindAdmissionCheck - returns a pointer to the check identified by checkName if found in checks.
 func FindAdmissionCheck(checks []kueue.AdmissionCheckState, checkName string) *kueue.AdmissionCheckState {
 	for i := range checks {
 		if checks[i].Name == checkName {
@@ -99,7 +99,7 @@ func SetAdmissionCheckState(checks *[]kueue.AdmissionCheckState, newCheck kueue.
 	existingCondition.PodSetUpdates = newCheck.PodSetUpdates
 }
 
-// Returns the list of Rejected admission checks
+// GetRejectedChecks returns the list of Rejected admission checks
 func GetRejectedChecks(wl *kueue.Workload) []string {
 	rejectedChecks := make([]string, 0, len(wl.Status.AdmissionChecks))
 	for i := range wl.Status.AdmissionChecks {
@@ -111,7 +111,7 @@ func GetRejectedChecks(wl *kueue.Workload) []string {
 	return rejectedChecks
 }
 
-// Returns true if all the checks of the workload are ready.
+// HasAllChecksReady returns true if all the checks of the workload are ready.
 func HasAllChecksReady(wl *kueue.Workload) bool {
 	for i := range wl.Status.AdmissionChecks {
 		if wl.Status.AdmissionChecks[i].State != kueue.CheckStateReady {
@@ -121,7 +121,7 @@ func HasAllChecksReady(wl *kueue.Workload) bool {
 	return true
 }
 
-// Returns true if all the mustHaveChecks are present in the workload.
+// HasAllChecks returns true if all the mustHaveChecks are present in the workload.
 func HasAllChecks(wl *kueue.Workload, mustHaveChecks sets.Set[string]) bool {
 	if mustHaveChecks.Len() == 0 {
 		return true
@@ -138,7 +138,7 @@ func HasAllChecks(wl *kueue.Workload, mustHaveChecks sets.Set[string]) bool {
 	return mustHaveChecks.Len() == 0
 }
 
-// Returns true if any of the workloads checks are Retry or Rejected
+// HasRetryOrRejectedChecks returns true if any of the workloads checks are Retry or Rejected
 func HasRetryOrRejectedChecks(wl *kueue.Workload) bool {
 	for i := range wl.Status.AdmissionChecks {
 		state := wl.Status.AdmissionChecks[i].State

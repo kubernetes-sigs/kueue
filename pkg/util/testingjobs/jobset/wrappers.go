@@ -58,7 +58,7 @@ func (j *JobSetWrapper) Obj() *jobsetapi.JobSet {
 	return &j.JobSet
 }
 
-// Returns a DeepCopy of j.
+// DeepCopy returns a DeepCopy of j.
 func (j *JobSetWrapper) DeepCopy() *JobSetWrapper {
 	return &JobSetWrapper{JobSet: *j.JobSet.DeepCopy()}
 }

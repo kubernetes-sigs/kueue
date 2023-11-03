@@ -70,7 +70,7 @@ func MergeResourceListKeepMin(a, b corev1.ResourceList) corev1.ResourceList {
 }
 
 // MergeResourceListKeepSum creates a new ResourceList holding all the values from a and b
-// and resolve potential conflicts by adding up the tow values.
+// and resolve potential conflicts by adding up the two values.
 func MergeResourceListKeepSum(a, b corev1.ResourceList) corev1.ResourceList {
 	return mergeResourceList(a, b, func(a, b resource.Quantity) resource.Quantity {
 		a.Add(b)
