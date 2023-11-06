@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kubectl
+spec:
+  volumes:
+    - name: mk
+      secret:
+        secretName: multikueue
+  containers:
+    - name: kubectl
+      image: bitnami/kubectl:latest
+      env:
+      - name: KUBECONFIG
+        value: /kubeconfig/worker.kubeconfig
+      volumeMounts:
+        - name: mk
+          readOnly: true
+          mountPath: "/kubeconfig"
+      command:
+      - "bin/bash"
+      - "-c"
+      - "sleep 3600"
+  restartPolicy: Never
