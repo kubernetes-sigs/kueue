@@ -17,18 +17,14 @@ limitations under the License.
 package mxjob
 
 import (
-	"github.com/google/go-cmp/cmp/cmpopts"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadmxjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/mxjob"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
@@ -44,10 +40,6 @@ const (
 	instanceKey       = "cloud.provider.com/instance"
 	priorityClassName = "test-priority-class"
 	priorityValue     = 10
-)
-
-var (
-	ignoreConditionTimestamps = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
 )
 
 // +kubebuilder:docs-gen:collapse=Imports
@@ -105,14 +97,6 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 })
 
 var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	type podsReadyTestSpec struct {
-		beforeJobStatus *kftraining.JobStatus
-		beforeCondition *metav1.Condition
-		jobStatus       kftraining.JobStatus
-		suspended       bool
-		wantCondition   *metav1.Condition
-	}
-
 	var (
 		ns            *corev1.Namespace
 		wlLookupKey   types.NamespacedName
@@ -149,107 +133,35 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 	})
 
 	ginkgo.DescribeTable("Single job at different stages of progress towards completion",
-		func(podsReadyTestSpec podsReadyTestSpec) {
-			ginkgo.By("Create a job")
-			job := testingmxjob.MakeMXJob(jobName, ns.Name).Parallelism(2, 2).Obj()
-			jobQueueName := "test-queue"
-			job.Annotations = map[string]string{constants.QueueAnnotation: jobQueueName}
-			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
-			lookupKey := types.NamespacedName{Name: jobName, Namespace: ns.Name}
-			createdJob := &kftraining.MXJob{}
-			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+		func(podsReadyTestSpec kftesting.PodsReadyTestSpec) {
+			kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadmxjob.JobControl)(testingmxjob.MakeMXJob(jobName, ns.Name).Parallelism(2, 2).Obj())}
+			createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadmxjob.JobControl)(&kftraining.MXJob{})}
 
-			ginkgo.By("Fetch the workload created for the job")
-			createdWorkload := &kueue.Workload{}
-			gomega.Eventually(func() error {
-				return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			ginkgo.By("Admit the workload created for the job")
-			admission := testing.MakeAdmission("foo").
-				PodSets(
-					kueue.PodSetAssignment{
-						Name: "Chief",
-						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-							corev1.ResourceCPU: "default",
-						},
-						Count: ptr.To(createdWorkload.Spec.PodSets[0].Count),
-					},
-					kueue.PodSetAssignment{
-						Name: "PS",
-						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-							corev1.ResourceCPU: "default",
-						},
-						Count: ptr.To(createdWorkload.Spec.PodSets[1].Count),
-					},
-					kueue.PodSetAssignment{
-						Name: "Worker",
-						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-							corev1.ResourceCPU: "default",
-						},
-						Count: ptr.To(createdWorkload.Spec.PodSets[2].Count),
-					},
-				).
-				Obj()
-			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
-			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
-			gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-
-			ginkgo.By("Await for the job to be unsuspended")
-			gomega.Eventually(func() *bool {
-				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-				return createdJob.Spec.RunPolicy.Suspend
-			}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(false)))
-
-			if podsReadyTestSpec.beforeJobStatus != nil {
-				ginkgo.By("Update the job status to simulate its initial progress towards completion")
-				createdJob.Status = *podsReadyTestSpec.beforeJobStatus
-				gomega.Expect(k8sClient.Status().Update(ctx, createdJob)).Should(gomega.Succeed())
-				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-			}
-
-			if podsReadyTestSpec.beforeCondition != nil {
-				ginkgo.By("Update the workload status")
-				gomega.Eventually(func() *metav1.Condition {
-					gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-					return apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadPodsReady)
-				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(podsReadyTestSpec.beforeCondition, ignoreConditionTimestamps))
-			}
-
-			ginkgo.By("Update the job status to simulate its progress towards completion")
-			createdJob.Status = podsReadyTestSpec.jobStatus
-			gomega.Expect(k8sClient.Status().Update(ctx, createdJob)).Should(gomega.Succeed())
-			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-
-			if podsReadyTestSpec.suspended {
-				ginkgo.By("Unset admission of the workload to suspend the job")
-				gomega.Eventually(func() error {
-					// the update may need to be retried due to a conflict as the workload gets
-					// also updated due to setting of the job status.
-					if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
-						return err
-					}
-					return util.SetQuotaReservation(ctx, k8sClient, createdWorkload, nil)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
-			}
-
-			ginkgo.By("Verify the PodsReady condition is added")
-			gomega.Eventually(func() *metav1.Condition {
-				gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-				return apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadPodsReady)
-			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(podsReadyTestSpec.wantCondition, ignoreConditionTimestamps))
+			kftesting.JobControllerWhenWaitForPodsReadyEnabled(ctx, k8sClient, kfJob, createdJob, ns, wlLookupKey, podsReadyTestSpec, []kftesting.PodSetsResource{
+				{
+					NodeName:    "Chief",
+					ResourceCPU: "default",
+				},
+				{
+					NodeName:    "PS",
+					ResourceCPU: "default",
+				},
+				{
+					NodeName:    kftraining.MXJobReplicaTypeWorker,
+					ResourceCPU: "default",
+				},
+			})
 		},
-		ginkgo.Entry("No progress", podsReadyTestSpec{
-			wantCondition: &metav1.Condition{
+		ginkgo.Entry("No progress", kftesting.PodsReadyTestSpec{
+			WantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
 				Reason:  "PodsReady",
 				Message: "Not all pods are ready or succeeded",
 			},
 		}),
-		ginkgo.Entry("Running MXJob", podsReadyTestSpec{
-			jobStatus: kftraining.JobStatus{
+		ginkgo.Entry("Running MXJob", kftesting.PodsReadyTestSpec{
+			JobStatus: kftraining.JobStatus{
 				Conditions: []kftraining.JobCondition{
 					{
 						Type:   kftraining.JobRunning,
@@ -258,21 +170,21 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 					},
 				},
 			},
-			wantCondition: &metav1.Condition{
+			WantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
 				Reason:  "PodsReady",
 				Message: "All pods were ready or succeeded since the workload admission",
 			},
 		}),
-		ginkgo.Entry("Running MXJob; PodsReady=False before", podsReadyTestSpec{
-			beforeCondition: &metav1.Condition{
+		ginkgo.Entry("Running MXJob; PodsReady=False before", kftesting.PodsReadyTestSpec{
+			BeforeCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
 				Reason:  "PodsReady",
 				Message: "Not all pods are ready or succeeded",
 			},
-			jobStatus: kftraining.JobStatus{
+			JobStatus: kftraining.JobStatus{
 				Conditions: []kftraining.JobCondition{
 					{
 						Type:   kftraining.JobRunning,
@@ -281,15 +193,15 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 					},
 				},
 			},
-			wantCondition: &metav1.Condition{
+			WantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
 				Reason:  "PodsReady",
 				Message: "All pods were ready or succeeded since the workload admission",
 			},
 		}),
-		ginkgo.Entry("Job suspended; PodsReady=True before", podsReadyTestSpec{
-			beforeJobStatus: &kftraining.JobStatus{
+		ginkgo.Entry("Job suspended; PodsReady=True before", kftesting.PodsReadyTestSpec{
+			BeforeJobStatus: &kftraining.JobStatus{
 				Conditions: []kftraining.JobCondition{
 					{
 						Type:   kftraining.JobRunning,
@@ -298,13 +210,13 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 					},
 				},
 			},
-			beforeCondition: &metav1.Condition{
+			BeforeCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
 				Reason:  "PodsReady",
 				Message: "All pods were ready or succeeded since the workload admission",
 			},
-			jobStatus: kftraining.JobStatus{
+			JobStatus: kftraining.JobStatus{
 				Conditions: []kftraining.JobCondition{
 					{
 						Type:   kftraining.JobRunning,
@@ -313,8 +225,8 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 					},
 				},
 			},
-			suspended: true,
-			wantCondition: &metav1.Condition{
+			Suspended: true,
+			WantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionFalse,
 				Reason:  "PodsReady",
@@ -374,27 +286,31 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 	})
 
 	ginkgo.It("Should schedule jobs as they fit in their ClusterQueue", func() {
-		ginkgo.By("creating localQueue")
 		localQueue = testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 		gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
 
-		ginkgo.By("checking a dev job starts")
-		job := testingmxjob.MakeMXJob("dev-job", ns.Name).Queue(localQueue.Name).
-			Request(kftraining.MXJobReplicaTypeScheduler, corev1.ResourceCPU, "3").
-			Request(kftraining.MXJobReplicaTypeServer, corev1.ResourceCPU, "4").
-			Request(kftraining.MXJobReplicaTypeWorker, corev1.ResourceCPU, "4").
-			Obj()
-		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
-		createdJob := &kftraining.MXJob{}
-		gomega.Eventually(func() *bool {
-			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: job.Name, Namespace: job.Namespace}, createdJob)).
-				Should(gomega.Succeed())
-			return createdJob.Spec.RunPolicy.Suspend
-		}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(false)))
-		gomega.Expect(createdJob.Spec.MXReplicaSpecs[kftraining.MXJobReplicaTypeScheduler].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
-		gomega.Expect(createdJob.Spec.MXReplicaSpecs[kftraining.MXJobReplicaTypeServer].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
-		gomega.Expect(createdJob.Spec.MXReplicaSpecs[kftraining.MXJobReplicaTypeWorker].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
-		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
-		util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadmxjob.JobControl)(
+			testingmxjob.MakeMXJob(jobName, ns.Name).Queue(localQueue.Name).
+				Request(kftraining.MXJobReplicaTypeScheduler, corev1.ResourceCPU, "3").
+				Request(kftraining.MXJobReplicaTypeServer, corev1.ResourceCPU, "4").
+				Request(kftraining.MXJobReplicaTypeWorker, corev1.ResourceCPU, "4").
+				Obj(),
+		)}
+		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadmxjob.JobControl)(&kftraining.MXJob{})}
+
+		kftesting.ShouldScheduleJobsAsTheyFitInTheirClusterQueue(ctx, k8sClient, kfJob, createdJob, ns, clusterQueue, []kftesting.PodSetsResource{
+			{
+				NodeName:    kftraining.MXJobReplicaTypeScheduler,
+				ResourceCPU: kueue.ResourceFlavorReference(spotUntaintedFlavor.Name),
+			},
+			{
+				NodeName:    kftraining.MXJobReplicaTypeServer,
+				ResourceCPU: kueue.ResourceFlavorReference(spotUntaintedFlavor.Name),
+			},
+			{
+				NodeName:    kftraining.MXJobReplicaTypeWorker,
+				ResourceCPU: kueue.ResourceFlavorReference(onDemandFlavor.Name),
+			},
+		})
 	})
 })
