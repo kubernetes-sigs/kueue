@@ -1,21 +1,5 @@
 # KEP-1282: Requeue Strategy
 
-<!--
-This is the title of your KEP. Keep it short, simple, and descriptive. A good
-title can help communicate what the KEP is and should be considered as part of
-any review.
--->
-
-<!--
-A table of contents is helpful for quickly jumping to sections of a KEP and for
-highlighting any additional information provided beyond the standard KEP
-template.
-
-Ensure the TOC is wrapped with
-  <code>&lt;!-- toc --&rt;&lt;!-- /toc --&rt;</code>
-tags, and then generate with `hack/update-toc.sh`.
--->
-
 <!-- toc -->
 - [Summary](#summary)
 - [Motivation](#motivation)
@@ -24,10 +8,13 @@ tags, and then generate with `hack/update-toc.sh`.
 - [Proposal](#proposal)
   - [User Stories (Optional)](#user-stories-optional)
     - [Story 1](#story-1)
-    - [Story 2](#story-2)
-  - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
+  - [API Changes](#api-changes)
+  - [Changes to Queue Sorting](#changes-to-queue-sorting)
+    - [Existing Sorting](#existing-sorting)
+    - [Proposed Sorting](#proposed-sorting)
+    - [Preemption/Preemptor Flapping](#preemptionpreemptor-flapping)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
@@ -151,7 +138,7 @@ func GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
 
 #### Proposed Sorting
 
-Add types that contain information about queue ordering strategy would be added to the `apis/config/<version>` package. For example:
+Add types that contain information about queue ordering strategy to the `apis/config/<version>` package. For example:
 
 ```go
 package v1beta1
