@@ -24,28 +24,21 @@ CODEGEN_PKG=$($GO_CMD list -m -f "{{.Dir}}" k8s.io/code-generator)
 
 cd $(dirname ${BASH_SOURCE[0]})/..
 
-chmod +x "${CODEGEN_PKG}/generate-internal-groups.sh"
-chmod +x "${CODEGEN_PKG}/generate-groups.sh"
-"${CODEGEN_PKG}/generate-groups.sh" \
-  applyconfiguration,client,lister,informer \
-  sigs.k8s.io/kueue/client-go \
-  sigs.k8s.io/kueue/apis \
-  kueue:v1beta1 \
-  --go-header-file ${KUEUE_ROOT}/hack/boilerplate.go.txt
+chmod +x "${CODEGEN_PKG}/kube_codegen.sh"
+source "${CODEGEN_PKG}/kube_codegen.sh"
 
+kube::codegen::gen_helpers \
+  --input-pkg-root sigs.k8s.io/kueue/apis \
+  --output-base "${KUEUE_ROOT}/../../" \
+  --boilerplate ${KUEUE_ROOT}/hack/boilerplate.go.txt
 
-# Future releases of of code-generator add better support for out of GOPATH generation,
-# check https://github.com/kubernetes/code-generator/blob/master/examples/hack/update-codegen.sh for details,
-# for now we should just move the generated code to `client-go`.
-if  [ -d sigs.k8s.io/kueue/client-go ]
-then
-  echo "Out of GOPATH generation, move the generated files to ../client-go"
-  if  [ -d ${KUEUE_ROOT}/client-go ]
-  then
-    rm -r ${KUEUE_ROOT}/client-go
-  fi
-  mv sigs.k8s.io/kueue/client-go ${KUEUE_ROOT}/client-go
-fi
+kube::codegen::gen_client \
+  --input-pkg-root sigs.k8s.io/kueue/apis \
+  --output-pkg-root sigs.k8s.io/kueue/client-go \
+  --output-base "${KUEUE_ROOT}/../../" \
+  --boilerplate ${KUEUE_ROOT}/hack/boilerplate.go.txt \
+  --with-watch \
+  --with-applyconfig
 
 # We need to clean up the go.mod file since code-generator adds temporary library to the go.mod file.
 "${GO_CMD}" mod tidy
