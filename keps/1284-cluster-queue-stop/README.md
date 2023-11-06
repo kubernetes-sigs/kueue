@@ -68,7 +68,7 @@ type ClusterQueueSpec struct {
 	//
 	// - StopNow - Admitted workloads are evictred and Reserving workloads will cancel the reservatio.
 	// - WaitForAdmitted - Admitted workloads will run to completion and Reserving workloads will cancel the reservatio.
-	// - WaitForAdmitted - Admitted and Reserving workloads will run to completion.
+	// - WaitForReserving - Admitted and Reserving workloads will run to completion.
 	//
 	// +optional
 	// +kubebuilder:validation:Enum=StopNow;WaitForAdmitted;WaitForReserving
