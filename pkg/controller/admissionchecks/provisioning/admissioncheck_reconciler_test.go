@@ -20,11 +20,9 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -124,11 +122,9 @@ func TestReconcileAdmissionCheck(t *testing.T) {
 				client: k8sclient,
 			}
 
-			recorder := record.NewBroadcaster().NewRecorder(k8sclient.Scheme(), corev1.EventSource{Component: "admission-checks-controller"})
 			reconciler := acReconciler{
 				client: k8sclient,
 				helper: &helper,
-				record: recorder,
 			}
 
 			req := reconcile.Request{

@@ -219,10 +219,10 @@ func (r *WorkloadReconciler) reconcileSyncAdmissionChecks(ctx context.Context, w
 		log := ctrl.LoggerFrom(ctx)
 		log.V(3).Info("The workload needs admission checks updates", "clusterQueue", klog.KRef("", cqName), "admissionChecks", queueAdmissionChecks)
 		wl.Status.AdmissionChecks = newChecks
-		if err := r.client.Status().Update(ctx, wl); !apierrors.IsNotFound(err) {
-			return true, err
+		if err := r.client.Status().Update(ctx, wl); err != nil {
+			return true, client.IgnoreNotFound(err)
 		}
-		r.record.Eventf(wl, corev1.EventTypeNormal, "WorkloadAdmissionChecksUpdated", "Updated admission checks of the workload %v for clusterQueue %s", workload.Key(wl), cqName)
+		r.record.Eventf(wl, corev1.EventTypeNormal, "AdmissionChecksChanged", "Updated the list of admission checks for the workload, based on the clusterQueue %s", cqName)
 		return true, nil
 	}
 	return false, nil
