@@ -435,19 +435,24 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 				}
 			}
 		}
-		workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, checkState)
-		message := fmt.Sprintf("Admission check %s set state %s", checkState.Name, checkState.State)
-		if checkState.Message != "" {
-			message += fmt.Sprintf(" with message %s", checkState.Message)
+
+		existingCondition := workload.FindAdmissionCheck(wlPatch.Status.AdmissionChecks, checkState.Name)
+		if existingCondition != nil && existingCondition.State != checkState.State {
+			message := fmt.Sprintf("Admission check %s updated state from %s to %s", checkState.Name, existingCondition.State, checkState.State)
+			if checkState.Message != "" {
+				message += fmt.Sprintf(" with message %s", checkState.Message)
+			}
+			recorderMessages = append(recorderMessages, message)
 		}
-		recorderMessages = append(recorderMessages, message)
+
+		workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, checkState)
 	}
 	if updated {
 		if err := c.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(ControllerName), client.ForceOwnership); err != nil {
 			return err
 		}
 		for i := range recorderMessages {
-			c.record.Eventf(wl, corev1.EventTypeNormal, "WorkloadAdmissionChecksUpdated", api.TruncateEventMessage(recorderMessages[i]))
+			c.record.Eventf(wl, corev1.EventTypeNormal, "AdmissionCheckUpdated", api.TruncateEventMessage(recorderMessages[i]))
 		}
 	}
 	return nil
@@ -633,7 +638,6 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 	acReconciler := &acReconciler{
 		client: c.client,
 		helper: c.helper,
-		record: c.record,
 	}
 
 	return ctrl.NewControllerManagedBy(mgr).
