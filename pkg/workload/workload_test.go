@@ -323,7 +323,7 @@ func TestGetQueueOrderTimestamp(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			gotTime := GetQueueOrderTimestamp(tc.wl)
+			gotTime := GetQueueOrderTimestamp(tc.wl, nil)
 			if diff := cmp.Diff(*gotTime, tc.want); diff != "" {
 				t.Errorf("Unexpected time (-want,+got):\n%s", diff)
 			}

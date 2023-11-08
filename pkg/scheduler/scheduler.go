@@ -68,8 +68,7 @@ type Scheduler struct {
 	applyAdmission func(context.Context, *kueue.Workload) error
 }
 
-type options struct {
-}
+type options struct{}
 
 // Option configures the reconciler.
 type Option func(*options)
@@ -353,11 +352,9 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 			}
 			preemptionTargets := s.preemptor.GetTargets(*wl, assignment, snap)
 			if len(preemptionTargets) > 0 {
-
 				return &partialAssignment{assignment: assignment, preemptionTargets: preemptionTargets}, true
 			}
 			return nil, false
-
 		})
 		if pa, found := reducer.Search(); found {
 			return pa.assignment, pa.preemptionTargets
@@ -508,8 +505,8 @@ func (e entryOrdering) Less(i, j int) bool {
 	}
 
 	// 2. FIFO.
-	aComparisonTimestamp := workload.GetQueueOrderTimestamp(a.Obj)
-	bComparisonTimestamp := workload.GetQueueOrderTimestamp(b.Obj)
+	aComparisonTimestamp := workload.GetQueueOrderTimestamp(a.Obj, nil)
+	bComparisonTimestamp := workload.GetQueueOrderTimestamp(b.Obj, nil)
 	return aComparisonTimestamp.Before(bComparisonTimestamp)
 }
 

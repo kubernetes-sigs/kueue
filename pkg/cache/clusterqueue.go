@@ -16,9 +16,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-var (
-	errQueueAlreadyExists = errors.New("queue already exists")
-)
+var errQueueAlreadyExists = errors.New("queue already exists")
 
 // ClusterQueue is the internal implementation of kueue.ClusterQueue that
 // holds admitted workloads.
@@ -35,6 +33,7 @@ type ClusterQueue struct {
 	Preemption        kueue.ClusterQueuePreemption
 	FlavorFungibility kueue.FlavorFungibility
 	AdmissionChecks   sets.Set[string]
+	RequeuingStrategy *kueue.RequeuingStrategy
 	Status            metrics.ClusterQueueStatus
 	// AllocatableResourceGeneration will be increased when some admitted workloads are
 	// deleted, or the resource groups are changed.
@@ -89,7 +88,7 @@ type queue struct {
 	key                string
 	reservingWorkloads int
 	admittedWorkloads  int
-	//TODO: rename this to better distinguish between reserved and "in use" quantities
+	// TODO: rename this to better distinguish between reserved and "in use" quantities
 	usage         FlavorResourceQuantities
 	admittedUsage FlavorResourceQuantities
 }
@@ -168,6 +167,8 @@ func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.
 	} else {
 		c.Preemption = defaultPreemption
 	}
+
+	c.RequeuingStrategy = in.Spec.RequeuingStrategy
 
 	if in.Spec.FlavorFungibility != nil {
 		c.FlavorFungibility = *in.Spec.FlavorFungibility

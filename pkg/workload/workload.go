@@ -35,9 +35,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 )
 
-var (
-	admissionManagedConditions = []string{kueue.WorkloadQuotaReserved, kueue.WorkloadEvicted, kueue.WorkloadAdmitted}
-)
+var admissionManagedConditions = []string{kueue.WorkloadQuotaReserved, kueue.WorkloadEvicted, kueue.WorkloadAdmitted}
 
 type AssigmentClusterQueueState struct {
 	LastAssignedFlavorIdx  []map[corev1.ResourceName]int
@@ -137,7 +135,6 @@ func reclaimableCounts(wl *kueue.Workload) map[string]int32 {
 }
 
 func podSetsCounts(wl *kueue.Workload) map[string]int32 {
-
 	ret := make(map[string]int32, len(wl.Spec.PodSets))
 	for i := range wl.Spec.PodSets {
 		ps := &wl.Spec.PodSets[i]
@@ -267,7 +264,8 @@ func UpdateStatus(ctx context.Context,
 	conditionType string,
 	conditionStatus metav1.ConditionStatus,
 	reason, message string,
-	managerPrefix string) error {
+	managerPrefix string,
+) error {
 	now := metav1.Now()
 	condition := metav1.Condition{
 		Type:               conditionType,
@@ -329,7 +327,7 @@ func SetQuotaReservation(w *kueue.Workload, admission *kueue.Admission) {
 	}
 	apimeta.SetStatusCondition(&w.Status.Conditions, admittedCond)
 
-	//reset Evicted condition if present.
+	// reset Evicted condition if present.
 	if evictedCond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted); evictedCond != nil {
 		evictedCond.Status = metav1.ConditionFalse
 		evictedCond.LastTransitionTime = metav1.Now()
@@ -374,10 +372,27 @@ func ApplyAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workloa
 
 // GetQueueOrderTimestamp return the timestamp to be used by the scheduler. It could
 // be the workload creation time or the last time a PodsReady timeout has occurred.
-func GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
-	if c := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted); c != nil && c.Status == metav1.ConditionTrue && c.Reason == kueue.WorkloadEvictedByPodsReadyTimeout {
-		return &c.LastTransitionTime
+func GetQueueOrderTimestamp(w *kueue.Workload, rs *kueue.RequeuingStrategy) *metav1.Time {
+	evictionCondition := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted)
+	if evictionCondition != nil && evictionCondition.Status == metav1.ConditionTrue {
+		if rs == nil {
+			rs = &kueue.RequeuingStrategy{
+				OnPriorityPreemption: kueue.UseCreationTimestamp,
+				OnPodsReadyTimeout:   kueue.UseEvictionTimestamp,
+			}
+		}
+		switch evictionCondition.Reason {
+		case kueue.WorkloadEvictedByPodsReadyTimeout:
+			if rs.OnPodsReadyTimeout == kueue.UseEvictionTimestamp {
+				return &evictionCondition.LastTransitionTime
+			}
+		case kueue.WorkloadEvictedByPreemption:
+			if rs.OnPriorityPreemption == kueue.UseEvictionTimestamp {
+				return &evictionCondition.LastTransitionTime
+			}
+		}
 	}
+
 	return &w.CreationTimestamp
 }
 

@@ -31,7 +31,7 @@ type ClusterQueueStrictFIFO struct {
 var _ ClusterQueue = &ClusterQueueStrictFIFO{}
 
 func newClusterQueueStrictFIFO(cq *kueue.ClusterQueue) (ClusterQueue, error) {
-	cqImpl := newClusterQueueImpl(keyFunc, queueOrdering)
+	cqImpl := newClusterQueueImpl(keyFunc, queueOrderingFunc(cq.Spec.RequeuingStrategy))
 	cqStrict := &ClusterQueueStrictFIFO{
 		clusterQueueBase: cqImpl,
 	}
@@ -40,23 +40,25 @@ func newClusterQueueStrictFIFO(cq *kueue.ClusterQueue) (ClusterQueue, error) {
 	return cqStrict, err
 }
 
-// queueOrdering is the function used by the clusterQueue heap algorithm
+// queueOrderingFunc returns a function used by the clusterQueue heap algorithm
 // to sort workloads. It sorts workloads based on their priority.
 // When priorities are equal, it uses the workload's creation or eviction
-// time.
-func queueOrdering(a, b interface{}) bool {
-	objA := a.(*workload.Info)
-	objB := b.(*workload.Info)
-	p1 := utilpriority.Priority(objA.Obj)
-	p2 := utilpriority.Priority(objB.Obj)
+// time conditionally based on the provided RequeuingStrategy.
+func queueOrderingFunc(rs *kueue.RequeuingStrategy) func(a, b interface{}) bool {
+	return func(a, b interface{}) bool {
+		objA := a.(*workload.Info)
+		objB := b.(*workload.Info)
+		p1 := utilpriority.Priority(objA.Obj)
+		p2 := utilpriority.Priority(objB.Obj)
 
-	if p1 != p2 {
-		return p1 > p2
+		if p1 != p2 {
+			return p1 > p2
+		}
+
+		tA := workload.GetQueueOrderTimestamp(objA.Obj, rs)
+		tB := workload.GetQueueOrderTimestamp(objB.Obj, rs)
+		return !tB.Before(tA)
 	}
-
-	tA := workload.GetQueueOrderTimestamp(objA.Obj)
-	tB := workload.GetQueueOrderTimestamp(objB.Obj)
-	return !tB.Before(tA)
 }
 
 // RequeueIfNotPresent requeues if the workload is not present.

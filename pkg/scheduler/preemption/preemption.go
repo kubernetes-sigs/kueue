@@ -228,7 +228,7 @@ func findCandidates(wl *kueue.Workload, cq *cache.ClusterQueue, resPerFlv resour
 
 	if cq.Preemption.WithinClusterQueue != kueue.PreemptionPolicyNever {
 		considerSamePrio := (cq.Preemption.WithinClusterQueue == kueue.PreemptionPolicyLowerOrNewerEqualPriority)
-		preemptorTS := workload.GetQueueOrderTimestamp(wl)
+		preemptorTS := workload.GetQueueOrderTimestamp(wl, cq.RequeuingStrategy)
 
 		for _, candidateWl := range cq.Workloads {
 			candidatePriority := priority.Priority(candidateWl.Obj)
@@ -236,7 +236,7 @@ func findCandidates(wl *kueue.Workload, cq *cache.ClusterQueue, resPerFlv resour
 				continue
 			}
 
-			if candidatePriority == wlPriority && !(considerSamePrio && preemptorTS.Before(workload.GetQueueOrderTimestamp(candidateWl.Obj))) {
+			if candidatePriority == wlPriority && !(considerSamePrio && preemptorTS.Before(workload.GetQueueOrderTimestamp(candidateWl.Obj, cq.RequeuingStrategy))) {
 				continue
 			}
 

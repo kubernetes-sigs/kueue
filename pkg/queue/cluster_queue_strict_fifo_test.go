@@ -103,6 +103,7 @@ func TestStrictFIFO(t *testing.T) {
 	t3 := t2.Add(time.Second)
 	for _, tt := range []struct {
 		name     string
+		cqSpec   kueue.ClusterQueueSpec
 		w1       *kueue.Workload
 		w2       *kueue.Workload
 		expected string
@@ -148,7 +149,7 @@ func TestStrictFIFO(t *testing.T) {
 			expected: "w1",
 		},
 		{
-			name: "w1.priority equals w2.priority and w1.create time is earlier than w2.create time but w1 was evicted",
+			name: "w1.priority equals w2.priority and w1.create time is earlier than w2.create time but w1 was evicted due to pods ready ",
 			w1: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:              "w1",
@@ -161,6 +162,97 @@ func TestStrictFIFO(t *testing.T) {
 							Status:             metav1.ConditionTrue,
 							LastTransitionTime: metav1.NewTime(t3),
 							Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+							Message:            "by test",
+						},
+					},
+				},
+			},
+			w2: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "w2",
+					CreationTimestamp: metav1.NewTime(t2),
+				},
+			},
+			expected: "w2",
+		},
+		{
+			name: "w1.priority equals w2.priority and w1.create time is earlier than w2.create time and w1 was evicted due to pods ready but the clusterqueue is configured to ignore the eviction timestamp",
+			cqSpec: kueue.ClusterQueueSpec{
+				RequeuingStrategy: &kueue.RequeuingStrategy{
+					OnPodsReadyTimeout: kueue.UseCreationTimestamp,
+				},
+			},
+			w1: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "w1",
+					CreationTimestamp: metav1.NewTime(t1),
+				},
+				Status: kueue.WorkloadStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadEvicted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(t3),
+							Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+							Message:            "by test",
+						},
+					},
+				},
+			},
+			w2: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "w2",
+					CreationTimestamp: metav1.NewTime(t2),
+				},
+			},
+			expected: "w1",
+		},
+		{
+			name: "w1.priority equals w2.priority and w1.create time is earlier than w2.create time and w1 was evicted due to priority",
+			w1: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "w1",
+					CreationTimestamp: metav1.NewTime(t1),
+				},
+				Status: kueue.WorkloadStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadEvicted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(t3),
+							Reason:             kueue.WorkloadEvictedByPreemption,
+							Message:            "by test",
+						},
+					},
+				},
+			},
+			w2: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "w2",
+					CreationTimestamp: metav1.NewTime(t2),
+				},
+			},
+			expected: "w1",
+		},
+		{
+			name: "w1.priority equals w2.priority and w1.create time is earlier than w2.create time and w1 was evicted due to priority and the clusterqueue is configured to use the eviction timestamp",
+			cqSpec: kueue.ClusterQueueSpec{
+				RequeuingStrategy: &kueue.RequeuingStrategy{
+					OnPriorityPreemption: kueue.UseEvictionTimestamp,
+				},
+			},
+			w1: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:              "w1",
+					CreationTimestamp: metav1.NewTime(t1),
+				},
+				Status: kueue.WorkloadStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadEvicted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(t3),
+							Reason:             kueue.WorkloadEvictedByPreemption,
 							Message:            "by test",
 						},
 					},
@@ -200,10 +292,9 @@ func TestStrictFIFO(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			tt.cqSpec.QueueingStrategy = kueue.StrictFIFO
 			q, err := newClusterQueue(&kueue.ClusterQueue{
-				Spec: kueue.ClusterQueueSpec{
-					QueueingStrategy: kueue.StrictFIFO,
-				},
+				Spec: tt.cqSpec,
 			})
 			if err != nil {
 				t.Fatalf("Failed creating ClusterQueue %v", err)

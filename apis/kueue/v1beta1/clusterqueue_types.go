@@ -65,6 +65,9 @@ type ClusterQueueSpec struct {
 	// +kubebuilder:validation:Enum=StrictFIFO;BestEffortFIFO
 	QueueingStrategy QueueingStrategy `json:"queueingStrategy,omitempty"`
 
+	// RequeuingStrategy specifies how to requeue workloads that were evicted.
+	RequeuingStrategy *RequeuingStrategy `json:"requeuingStrategy,omitempty"`
+
 	// namespaceSelector defines which namespaces are allowed to submit workloads to
 	// this clusterQueue. Beyond this basic support for policy, an policy agent like
 	// Gatekeeper should be used to enforce more advanced policies.
@@ -358,6 +361,27 @@ type ClusterQueuePreemption struct {
 	// +kubebuilder:default=Never
 	// +kubebuilder:validation:Enum=Never;LowerPriority;LowerOrNewerEqualPriority
 	WithinClusterQueue PreemptionPolicy `json:"withinClusterQueue,omitempty"`
+}
+
+type QueueOrderingCriteria string
+
+const (
+	UseEvictionTimestamp = QueueOrderingCriteria("UseEvictionTimestamp")
+	UseCreationTimestamp = QueueOrderingCriteria("UseCreationTimestamp")
+)
+
+type RequeuingStrategy struct {
+	// OnPriorityPreemption specifies what criteria to sort on when a workload is
+	// being requeued after being preempted by a higher priority workload.
+	// +kubebuilder:default=UseCreationTimestamp
+	// +kubebuilder:validation:Enum=UseEvictionTimestamp,UseCreationTimestamp
+	OnPriorityPreemption QueueOrderingCriteria
+	// OnPodsReadyTimeout specifies what criteria to sort on when a workload is
+	// being requeued after being evicted due to some of its Pods failing to
+	// reach a Ready state.
+	// +kubebuilder:default=UseEvictionTimestamp
+	// +kubebuilder:validation:Enum=UseEvictionTimestamp,UseCreationTimestamp
+	OnPodsReadyTimeout QueueOrderingCriteria
 }
 
 //+genclient
