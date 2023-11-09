@@ -79,8 +79,8 @@ github.com/kubeflow/common v0.4.7 h1:zz6QS4k2u2FY838M/FjOtwjJq39MRZVZcvPahRYL97M
 github.com/kubeflow/common v0.4.7/go.mod h1:43MAof/uhpJA2C0urynqatE3oKFQc7m2HLmJty7waqY=
 github.com/kubeflow/mpi-operator v0.4.0 h1:PS4jLoMuRyrk/DHuYkI0D46sQQYpQt375HjOV4KVMFs=
 github.com/kubeflow/mpi-operator v0.4.0/go.mod h1:/A4mTy/RYh2UIgaGUiXUaW70eThjsogu80WbbcZpuMg=
-github.com/kubeflow/training-operator v1.7.0-rc.0 h1:FsOxEKg23XyGD2rgO06rIobdDOqtsP6R6o9ust8Jwi8=
-github.com/kubeflow/training-operator v1.7.0-rc.0/go.mod h1:BZCLX1h06wY3YSeSZZcGYAqI9/nVi7isVCRkfgZe9nE=
+github.com/kubeflow/training-operator v1.7.0 h1:Zh61GlOWrlRi4UFOtJeV+/5REo/OndhwQ25KYd0llzc=
+github.com/kubeflow/training-operator v1.7.0/go.mod h1:BZCLX1h06wY3YSeSZZcGYAqI9/nVi7isVCRkfgZe9nE=
 github.com/mailru/easyjson v0.7.7 h1:UGYAvKxe3sBsEDzO8ZeWOSlIQfWFlxbzLZe7hwFURr0=
 github.com/mailru/easyjson v0.7.7/go.mod h1:xzfreul335JAWq5oZzymOObrkdz5UnU4kGfJJLY9Nlc=
 github.com/matttproud/golang_protobuf_extensions v1.0.4 h1:mmDVorXM7PCGKw94cs5zkfA9PSy5pEvNWRP0ET0TIVo=
