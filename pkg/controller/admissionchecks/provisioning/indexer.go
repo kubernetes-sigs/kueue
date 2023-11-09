@@ -21,12 +21,14 @@ import (
 	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/provisioningrequest/apis/autoscaling.x-k8s.io/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 )
 
@@ -52,23 +54,20 @@ func indexWorkloadsChecks(obj client.Object) []string {
 	return slices.Map(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string { return c.Name })
 }
 
-func indexAdmissionCheckConnfig(obj client.Object) []string {
-	ac, isAc := obj.(*kueue.AdmissionCheck)
-	if !isAc || ac.Spec.ControllerName != ControllerName || !parametersRefValid(ac.Spec.Parameters) {
-		return nil
-	}
-
-	return []string{ac.Spec.Parameters.Name}
-}
-
-func SetupIndexer(ctx context.Context, indexer client.FieldIndexer) error {
+func SetupIndexer(ctx context.Context, indexer client.FieldIndexer, schema *runtime.Scheme) error {
 	if err := indexer.IndexField(ctx, &autoscaling.ProvisioningRequest{}, RequestsOwnedByWorkloadKey, indexRequestsOwner); err != nil {
 		return fmt.Errorf("setting index on provisionRequest owner: %w", err)
 	}
 	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadsWithAdmissionCheckKey, indexWorkloadsChecks); err != nil {
 		return fmt.Errorf("setting index on workloads checks: %w", err)
 	}
-	if err := indexer.IndexField(ctx, &kueue.AdmissionCheck{}, AdmissionCheckUsingConfigKey, indexAdmissionCheckConnfig); err != nil {
+
+	idxFnc, err := admissioncheck.GetIndexerByConfigFnc(ControllerName, &kueue.ProvisioningRequestConfig{}, schema)
+	if err != nil {
+		return err
+	}
+
+	if err := indexer.IndexField(ctx, &kueue.AdmissionCheck{}, AdmissionCheckUsingConfigKey, idxFnc); err != nil {
 		return fmt.Errorf("setting index on admission checks config: %w", err)
 	}
 	return nil

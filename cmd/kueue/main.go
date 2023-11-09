@@ -199,7 +199,7 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 	if features.Enabled(features.ProvisioningACC) {
 		if !provisioning.ServerSupportsProvisioningRequest(mgr) {
 			setupLog.Error(nil, "Provisioning Requests are not supported, skipped admission check controller setup")
-		} else if err := provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer()); err != nil {
+		} else if err := provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer(), mgr.GetScheme()); err != nil {
 			setupLog.Error(err, "Could not setup provisioning indexer")
 			os.Exit(1)
 		}

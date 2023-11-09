@@ -46,6 +46,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -67,9 +68,15 @@ var (
 	MinBackoffSeconds int32 = 60
 )
 
+type provStoreHelper = admissioncheck.ConfigHelper[*kueue.ProvisioningRequestConfig, kueue.ProvisioningRequestConfig]
+
+func newProvStoreHelper(c client.Client) (*provStoreHelper, error) {
+	return admissioncheck.NewConfigHelper[*kueue.ProvisioningRequestConfig](c)
+}
+
 type Controller struct {
 	client client.Client
-	helper *storeHelper
+	helper *provStoreHelper
 	record record.EventRecorder
 }
 
@@ -88,9 +95,6 @@ func NewController(client client.Client, record record.EventRecorder) *Controlle
 	return &Controller{
 		client: client,
 		record: record,
-		helper: &storeHelper{
-			client: client,
-		},
 	}
 }
 
@@ -114,7 +118,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	}
 
 	// get the lists of relevant checks
-	relevantChecks, err := c.helper.FilterChecksForProvReq(ctx, wl.Status.AdmissionChecks)
+	relevantChecks, err := admissioncheck.ChecksWithController(ctx, c.client, wl.Status.AdmissionChecks, ControllerName)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -163,7 +167,7 @@ func (c *Controller) activeOrLastPRForChecks(ctx context.Context, wl *kueue.Work
 			req := &pr
 			// PRs relevant for the admission check
 			if matches(req, wl.Name, checkName) {
-				prc, err := c.helper.ProvReqConfigForAdmissionCheck(ctx, checkName)
+				prc, err := c.helper.ConfigForAdmissionCheck(ctx, checkName)
 				if err == nil && c.reqIsNeeded(ctx, wl, prc) && requestHasParamaters(req, prc) {
 					if currPr, exists := activeOrLastPRForChecks[checkName]; !exists || getAttempt(ctx, currPr, wl.Name, checkName) < getAttempt(ctx, req, wl.Name, checkName) {
 						activeOrLastPRForChecks[checkName] = req
@@ -212,7 +216,7 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 	var requeAfter *time.Duration
 	for _, checkName := range relevantChecks {
 		//get the config
-		prc, err := c.helper.ProvReqConfigForAdmissionCheck(ctx, checkName)
+		prc, err := c.helper.ConfigForAdmissionCheck(ctx, checkName)
 		if err != nil {
 			// the check is not active
 			continue
@@ -442,7 +446,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 	updated := false
 	for _, check := range checks {
 		checkState := *checksMap[check]
-		if prc, err := c.helper.ProvReqConfigForAdmissionCheck(ctx, check); err != nil {
+		if prc, err := c.helper.ConfigForAdmissionCheck(ctx, check); err != nil {
 			// the check is not active
 			if checkState.State != kueue.CheckStatePending || checkState.Message != CheckInactiveMessage {
 				updated = true
@@ -606,7 +610,7 @@ func (a *acHandler) reconcileWorkloadsUsing(ctx context.Context, check string, q
 }
 
 type prcHandler struct {
-	helper            *storeHelper
+	client            client.Client
 	acHandlerOverride func(ctx context.Context, config string, q workqueue.RateLimitingInterface) error
 }
 
@@ -654,10 +658,11 @@ func (p *prcHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueu
 }
 
 func (p *prcHandler) reconcileWorkloadsUsing(ctx context.Context, config string, q workqueue.RateLimitingInterface) error {
-	users, err := p.helper.AdmissionChecksUsingProvReqConfig(ctx, config)
-	if err != nil {
+	list := &kueue.AdmissionCheckList{}
+	if err := p.client.List(ctx, list, client.MatchingFields{AdmissionCheckUsingConfigKey: config}); client.IgnoreNotFound(err) != nil {
 		return err
 	}
+	users := slices.Map(list.Items, func(ac *kueue.AdmissionCheck) string { return ac.Name })
 	for _, user := range users {
 		if p.acHandlerOverride != nil {
 			if err := p.acHandlerOverride(ctx, user, q); err != nil {
@@ -676,14 +681,21 @@ func (p *prcHandler) reconcileWorkloadsUsing(ctx context.Context, config string,
 }
 
 func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
+	helper, err := newProvStoreHelper(c.client)
+	if err != nil {
+		return err
+	}
+
+	c.helper = helper
+
 	ach := &acHandler{
 		client: c.client,
 	}
 	prch := &prcHandler{
-		helper:            c.helper,
+		client:            c.client,
 		acHandlerOverride: ach.reconcileWorkloadsUsing,
 	}
-	err := ctrl.NewControllerManagedBy(mgr).
+	err = ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.Workload{}).
 		Owns(&autoscaling.ProvisioningRequest{}).
 		Watches(&kueue.AdmissionCheck{}, ach).
@@ -694,7 +706,7 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	prcACh := &prcHandler{
-		helper: c.helper,
+		client: c.client,
 	}
 	acReconciler := &acReconciler{
 		client: c.client,

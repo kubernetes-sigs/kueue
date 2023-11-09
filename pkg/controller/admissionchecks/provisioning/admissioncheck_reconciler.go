@@ -30,7 +30,7 @@ import (
 
 type acReconciler struct {
 	client client.Client
-	helper *storeHelper
+	helper *provStoreHelper
 }
 
 var _ reconcile.Reconciler = (*acReconciler)(nil)
@@ -49,11 +49,11 @@ func (a *acReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		Message: "The admission check is active",
 	}
 
-	if !parametersRefValid(ac.Spec.Parameters) {
+	if valid, err := a.helper.IsValidConfigReference(ac.Spec.Parameters); !valid {
 		newCondition.Status = metav1.ConditionFalse
 		newCondition.Reason = "BadParametersRef"
-		newCondition.Message = "Unexpected parameters reference"
-	} else if _, err := a.helper.ProvReqConfig(ctx, ac.Spec.Parameters.Name); err != nil {
+		newCondition.Message = err.Error()
+	} else if _, err := a.helper.ConfigByName(ctx, ac.Spec.Parameters.Name); err != nil {
 		newCondition.Status = metav1.ConditionFalse
 		newCondition.Reason = "UnknownParametersRef"
 		newCondition.Message = err.Error()
