@@ -117,7 +117,7 @@ webhooks:
   {{- end }}
   name: mpod.kb.io
   namespaceSelector:
-    {{- if and (hasKey $integrationsConfig "podOptions") (hasKey $integrationsConfig.podOptions "namespaceSelector") }}
+    {{- if and (hasKey $integrationsConfig "podOptions") (hasKey ($integrationsConfig.podOptions) "namespaceSelector") }}
       {{- toYaml $integrationsConfig.podOptions.namespaceSelector | nindent 4 -}}
     {{- else }}
     matchExpressions:
@@ -321,7 +321,7 @@ webhooks:
   {{- end }}
   name: vpod.kb.io
   namespaceSelector:
-    {{- if and (hasKey $integrationsConfig "podOptions") (hasKey $integrationsConfig.podOptions "namespaceSelector") }}
+    {{- if and (hasKey $integrationsConfig "podOptions") (hasKey ($integrationsConfig.podOptions) "namespaceSelector") }}
       {{- toYaml $integrationsConfig.podOptions.namespaceSelector | nindent 4 -}}
     {{- else }}
     matchExpressions:
