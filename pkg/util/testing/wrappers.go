@@ -76,6 +76,10 @@ func (w *WorkloadWrapper) Obj() *kueue.Workload {
 	return &w.Workload
 }
 
+func (w *WorkloadWrapper) Clone() *WorkloadWrapper {
+	return &WorkloadWrapper{Workload: *w.DeepCopy()}
+}
+
 func (w *WorkloadWrapper) Finalizers(fin ...string) *WorkloadWrapper {
 	w.ObjectMeta.Finalizers = fin
 	return w
@@ -691,6 +695,11 @@ func (ac *AdmissionCheckWrapper) Active(status metav1.ConditionStatus) *Admissio
 		Reason:  "ByTest",
 		Message: "by test",
 	})
+	return ac
+}
+
+func (ac *AdmissionCheckWrapper) Condition(cond metav1.Condition) *AdmissionCheckWrapper {
+	apimeta.SetStatusCondition(&ac.Status.Conditions, cond)
 	return ac
 }
 

@@ -31,6 +31,8 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
@@ -100,15 +102,15 @@ func createCluster(setupFnc framework.ManagerSetup) cluster {
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	managerCluster = createCluster(managerSetup)
+	managerCluster = createCluster(managerAndMultiKueueSetup)
 	worker1Cluster = createCluster(managerSetup)
 	worker2Cluster = createCluster(managerSetup)
 })
 
 var _ = ginkgo.AfterSuite(func() {
-	worker2Cluster.fwk.Teardown()
-	worker1Cluster.fwk.Teardown()
 	managerCluster.fwk.Teardown()
+	worker1Cluster.fwk.Teardown()
+	worker2Cluster.fwk.Teardown()
 })
 
 func managerSetup(mgr manager.Manager, ctx context.Context) {
@@ -127,5 +129,19 @@ func managerSetup(mgr manager.Manager, ctx context.Context) {
 	err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+	reconciler := workloadjob.NewReconciler(
+		mgr.GetClient(),
+		mgr.GetEventRecorderFor(constants.JobControllerName))
+	err = reconciler.SetupWithManager(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = workloadjob.SetupWebhook(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+func managerAndMultiKueueSetup(mgr manager.Manager, ctx context.Context) {
+	managerSetup(mgr, ctx)
+
+	err := multikueue.NewACController(mgr.GetClient()).SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
