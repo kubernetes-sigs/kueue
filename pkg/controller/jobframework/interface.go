@@ -18,6 +18,8 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -82,6 +84,17 @@ type JobWithSkip interface {
 type JobWithPriorityClass interface {
 	// PriorityClass returns the job's priority class name.
 	PriorityClass() string
+}
+
+// ComposableJob interface should be implemented by generic jobs that
+// are composed out of multiple API objects.
+type ComposableJob interface {
+	// Load loads all members of the composable job. If removeFinalizers == true, workload and job finalizers should be removed.
+	Load(ctx context.Context, c client.Client, key types.NamespacedName) (removeFinalizers bool, err error)
+	// ConstructComposableWorkload returns a new Workload that's assembled out of all members of the ComposableJob.
+	ConstructComposableWorkload(ctx context.Context, c client.Client, r record.EventRecorder) (*kueue.Workload, error)
+	// FindMatchingWorkloads returns all related workloads, workload that matches the ComposableJob and duplicates that has to be deleted.
+	FindMatchingWorkloads(ctx context.Context, c client.Client) (match *kueue.Workload, toDelete []*kueue.Workload, err error)
 }
 
 func ParentWorkloadName(job GenericJob) string {

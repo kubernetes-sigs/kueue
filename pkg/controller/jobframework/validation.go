@@ -33,7 +33,7 @@ var (
 
 func ValidateCreateForQueueName(job GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
-	allErrs = append(allErrs, validateLabelAsCRDName(job, constants.QueueLabel)...)
+	allErrs = append(allErrs, ValidateLabelAsCRDName(job, constants.QueueLabel)...)
 	allErrs = append(allErrs, ValidateAnnotationAsCRDName(job, constants.QueueAnnotation)...)
 	return allErrs
 }
@@ -48,7 +48,7 @@ func ValidateAnnotationAsCRDName(job GenericJob, crdNameAnnotation string) field
 	return allErrs
 }
 
-func validateLabelAsCRDName(job GenericJob, crdNameLabel string) field.ErrorList {
+func ValidateLabelAsCRDName(job GenericJob, crdNameLabel string) field.ErrorList {
 	var allErrs field.ErrorList
 	if value, exists := job.Object().GetLabels()[crdNameLabel]; exists {
 		if errs := validation.IsDNS1123Subdomain(value); len(errs) > 0 {

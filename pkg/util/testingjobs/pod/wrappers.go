@@ -17,6 +17,8 @@ limitations under the License.
 package testing
 
 import (
+	"time"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -65,12 +67,24 @@ func (p *PodWrapper) Clone() *PodWrapper {
 }
 
 // Queue updates the queue name of the Pod
-func (p *PodWrapper) Queue(queue string) *PodWrapper {
-	if p.Labels == nil {
-		p.Labels = make(map[string]string)
-	}
-	p.Labels[constants.QueueLabel] = queue
+func (p *PodWrapper) Queue(q string) *PodWrapper {
+	return p.Label(constants.QueueLabel, q)
+}
+
+// Name updated the name of the pod
+func (p *PodWrapper) Name(n string) *PodWrapper {
+	p.ObjectMeta.Name = n
 	return p
+}
+
+// Group updates the pod.GroupNameLabel of the Pod
+func (p *PodWrapper) Group(g string) *PodWrapper {
+	return p.Label("kueue.x-k8s.io/pod-group-name", g)
+}
+
+// GroupTotalCount updates the pod.GroupTotalCountAnnotation of the Pod
+func (p *PodWrapper) GroupTotalCount(gtc string) *PodWrapper {
+	return p.Annotation("kueue.x-k8s.io/pod-group-total-count", gtc)
 }
 
 // Label sets the label of the Pod
@@ -85,6 +99,11 @@ func (p *PodWrapper) Label(k, v string) *PodWrapper {
 func (p *PodWrapper) Annotation(key, content string) *PodWrapper {
 	p.Annotations[key] = content
 	return p
+}
+
+// RoleHash updates the pod.RoleHashAnnotation of the pod
+func (p *PodWrapper) RoleHash(h string) *PodWrapper {
+	return p.Annotation("kueue.x-k8s.io/role-hash", h)
 }
 
 // ParentWorkload sets the parent-workload annotation
@@ -164,5 +183,12 @@ func (p *PodWrapper) StatusConditions(conditions ...corev1.PodCondition) *PodWra
 // StatusPhase updates status phase of the Pod.
 func (p *PodWrapper) StatusPhase(ph corev1.PodPhase) *PodWrapper {
 	p.Pod.Status.Phase = ph
+	return p
+}
+
+// Delete sets a deletion timestamp for the pod object
+func (p *PodWrapper) Delete() *PodWrapper {
+	t := metav1.NewTime(time.Now())
+	p.Pod.DeletionTimestamp = &t
 	return p
 }

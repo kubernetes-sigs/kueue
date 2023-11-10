@@ -18,9 +18,13 @@ package pod
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -36,14 +40,20 @@ import (
 )
 
 const (
-	ManagedLabelKey   = "kueue.x-k8s.io/managed"
-	ManagedLabelValue = "true"
-	PodFinalizer      = ManagedLabelKey
+	ManagedLabelKey           = "kueue.x-k8s.io/managed"
+	ManagedLabelValue         = "true"
+	PodFinalizer              = ManagedLabelKey
+	GroupNameLabel            = "kueue.x-k8s.io/pod-group-name"
+	GroupTotalCountAnnotation = "kueue.x-k8s.io/pod-group-total-count"
+	RoleHashAnnotation        = "kueue.x-k8s.io/role-hash"
 )
 
 var (
-	labelsPath       = field.NewPath("metadata", "labels")
-	managedLabelPath = labelsPath.Key(ManagedLabelKey)
+	labelsPath                    = field.NewPath("metadata", "labels")
+	annotationsPath               = field.NewPath("metadata", "annotations")
+	managedLabelPath              = labelsPath.Key(ManagedLabelKey)
+	groupNameLabelPath            = labelsPath.Key(GroupNameLabel)
+	groupTotalCountAnnotationPath = annotationsPath.Key(GroupTotalCountAnnotation)
 )
 
 type PodWebhook struct {
@@ -77,9 +87,89 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 
 var _ webhook.CustomDefaulter = &PodWebhook{}
 
+func omitKueueLabels(l map[string]string) map[string]string {
+	result := map[string]string{}
+
+	for key, value := range l {
+		if !strings.HasPrefix(key, "kueue.x-k8s.io/") {
+			result[key] = value
+		}
+	}
+	return result
+}
+
+func containersShape(containers []corev1.Container) (result []map[string]interface{}) {
+	for _, c := range containers {
+		result = append(result, map[string]interface{}{
+			"image": c.Image,
+			"resources": map[string]interface{}{
+				"requests": c.Resources.Requests,
+			},
+			"ports": c.Ports,
+		})
+	}
+
+	return result
+}
+
+func volumesShape(volumes []corev1.Volume) (result []corev1.Volume) {
+	for _, v := range volumes {
+		v.Name = ""
+		result = append(result, v)
+	}
+
+	return result
+}
+
+func getRoleHash(p *Pod) (string, error) {
+
+	shape := map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"labels": omitKueueLabels(p.pod.ObjectMeta.Labels),
+		},
+		"spec": map[string]interface{}{
+			"initContainers":            containersShape(p.pod.Spec.InitContainers),
+			"containers":                containersShape(p.pod.Spec.Containers),
+			"nodeSelector":              p.pod.Spec.NodeSelector,
+			"affinity":                  p.pod.Spec.Affinity,
+			"tolerations":               p.pod.Spec.Tolerations,
+			"runtimeClassName":          p.pod.Spec.RuntimeClassName,
+			"priority":                  p.pod.Spec.Priority,
+			"preemptionPolicy":          p.pod.Spec.PreemptionPolicy,
+			"topologySpreadConstraints": p.pod.Spec.TopologySpreadConstraints,
+			"overhead":                  p.pod.Spec.Overhead,
+			"volumes":                   volumesShape(p.pod.Spec.Volumes),
+			"resourceClaims":            p.pod.Spec.ResourceClaims,
+		},
+	}
+
+	shapeJson, err := json.Marshal(shape)
+	if err != nil {
+		return "", err
+	}
+
+	// Trim hash to 8 characters and return
+	return fmt.Sprintf("%x", sha256.Sum256(shapeJson))[:8], nil
+}
+
+// addRoleHash calculates the role hash and adds it to the pod's annotations
+func (p *Pod) addRoleHash() error {
+	if p.pod.Annotations == nil {
+		p.pod.Annotations = make(map[string]string)
+	}
+
+	hash, err := getRoleHash(p)
+	if err != nil {
+		return err
+	}
+
+	p.pod.Annotations[RoleHashAnnotation] = hash
+	return nil
+}
+
 func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	pod := fromObject(obj)
-	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook").WithValues("pod", klog.KObj(pod))
+	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook").WithValues("pod", klog.KObj(&pod.pod))
 	log.V(5).Info("Applying defaults")
 
 	if IsPodOwnerManagedByKueue(pod) {
@@ -92,16 +182,16 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	if err != nil {
 		return fmt.Errorf("failed to parse pod selector: %w", err)
 	}
-	if !podSelector.Matches(labels.Set(pod.GetLabels())) {
+	if !podSelector.Matches(labels.Set(pod.pod.GetLabels())) {
 		return nil
 	}
 
 	// Get pod namespace and check for namespace label selector match
 	ns := corev1.Namespace{}
-	err = w.client.Get(ctx, client.ObjectKey{Name: pod.GetNamespace()}, &ns)
+	err = w.client.Get(ctx, client.ObjectKey{Name: pod.pod.GetNamespace()}, &ns)
 	if err != nil {
 		return fmt.Errorf("failed to run mutating webhook on pod %s, error while getting namespace: %w",
-			pod.GetName(),
+			pod.pod.GetName(),
 			err,
 		)
 	}
@@ -117,17 +207,25 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	if jobframework.QueueName(pod) != "" || w.manageJobsWithoutQueueName {
 		controllerutil.AddFinalizer(pod.Object(), PodFinalizer)
 
-		if pod.Labels == nil {
-			pod.Labels = make(map[string]string)
+		if pod.pod.Labels == nil {
+			pod.pod.Labels = make(map[string]string)
 		}
-		pod.Labels[ManagedLabelKey] = ManagedLabelValue
+		pod.pod.Labels[ManagedLabelKey] = ManagedLabelValue
 
-		if pod.gateIndex() == gateNotFound {
+		if gateIndex(&pod.pod) == gateNotFound {
 			log.V(5).Info("Adding gate")
-			pod.Spec.SchedulingGates = append(pod.Spec.SchedulingGates, corev1.PodSchedulingGate{Name: SchedulingGateName})
+			pod.pod.Spec.SchedulingGates = append(pod.pod.Spec.SchedulingGates, corev1.PodSchedulingGate{Name: SchedulingGateName})
+		}
+
+		if pod.groupName() != "" {
+			if err := pod.addRoleHash(); err != nil {
+				return err
+			}
 		}
 	}
 
+	// copy back to the object
+	pod.pod.DeepCopyInto(obj.(*corev1.Pod))
 	return nil
 }
 
@@ -139,11 +237,13 @@ func (w *PodWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (ad
 	var warnings admission.Warnings
 
 	pod := fromObject(obj)
-	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook").WithValues("pod", klog.KObj(pod))
+	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook").WithValues("pod", klog.KObj(&pod.pod))
 	log.V(5).Info("Validating create")
 	allErrs := jobframework.ValidateCreateForQueueName(pod)
 
 	allErrs = append(allErrs, validateManagedLabel(pod)...)
+
+	allErrs = append(allErrs, validatePodGroupMetadata(pod)...)
 
 	if warn := warningForPodManagedLabel(pod); warn != "" {
 		warnings = append(warnings, warn)
@@ -157,11 +257,15 @@ func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.
 
 	oldPod := fromObject(oldObj)
 	newPod := fromObject(newObj)
-	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook").WithValues("pod", klog.KObj(newPod))
+	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook").WithValues("pod", klog.KObj(&newPod.pod))
 	log.V(5).Info("Validating update")
 	allErrs := jobframework.ValidateUpdateForQueueName(oldPod, newPod)
 
 	allErrs = append(allErrs, validateManagedLabel(newPod)...)
+
+	allErrs = append(allErrs, validation.ValidateImmutableField(newPod.groupName(), oldPod.groupName(), groupNameLabelPath)...)
+
+	allErrs = append(allErrs, validatePodGroupMetadata(newPod)...)
 
 	if warn := warningForPodManagedLabel(newPod); warn != "" {
 		warnings = append(warnings, warn)
@@ -177,7 +281,7 @@ func (w *PodWebhook) ValidateDelete(context.Context, runtime.Object) (admission.
 func validateManagedLabel(pod *Pod) field.ErrorList {
 	var allErrs field.ErrorList
 
-	if managedLabel, ok := pod.GetLabels()[ManagedLabelKey]; ok && managedLabel != ManagedLabelValue {
+	if managedLabel, ok := pod.pod.GetLabels()[ManagedLabelKey]; ok && managedLabel != ManagedLabelValue {
 		return append(allErrs, field.Forbidden(managedLabelPath, fmt.Sprintf("managed label value can only be '%s'", ManagedLabelValue)))
 	}
 
@@ -186,10 +290,44 @@ func validateManagedLabel(pod *Pod) field.ErrorList {
 
 // warningForPodManagedLabel returns a warning message if the pod has a managed label, and it's parent is managed by kueue
 func warningForPodManagedLabel(p *Pod) string {
-	if managedLabel := p.GetLabels()[ManagedLabelKey]; managedLabel == ManagedLabelValue && IsPodOwnerManagedByKueue(p) {
+	if managedLabel := p.pod.GetLabels()[ManagedLabelKey]; managedLabel == ManagedLabelValue && IsPodOwnerManagedByKueue(p) {
 		return fmt.Sprintf("pod owner is managed by kueue, label '%s=%s' might lead to unexpected behaviour",
 			ManagedLabelKey, ManagedLabelValue)
 	}
 
 	return ""
+}
+
+func validatePodGroupMetadata(p *Pod) field.ErrorList {
+	var allErrs field.ErrorList
+
+	gtc, gtcExists := p.pod.GetAnnotations()[GroupTotalCountAnnotation]
+
+	if p.groupName() == "" {
+		if gtcExists {
+			return append(allErrs, field.Required(
+				groupNameLabelPath,
+				fmt.Sprintf("both the '%s' annotation and the '%s' label should be set", GroupTotalCountAnnotation, GroupNameLabel),
+			))
+		}
+	} else {
+		allErrs = append(allErrs, jobframework.ValidateLabelAsCRDName(p, GroupNameLabel)...)
+
+		if !gtcExists {
+			return append(allErrs, field.Required(
+				groupTotalCountAnnotationPath,
+				fmt.Sprintf("both the '%s' annotation and the '%s' label should be set", GroupTotalCountAnnotation, GroupNameLabel),
+			))
+		}
+	}
+
+	if _, err := p.groupTotalCount(); gtcExists && err != nil {
+		return append(allErrs, field.Invalid(
+			groupTotalCountAnnotationPath,
+			gtc,
+			err.Error(),
+		))
+	}
+
+	return allErrs
 }
