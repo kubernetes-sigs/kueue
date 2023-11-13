@@ -1,9 +1,14 @@
 ---
 title: "Adopters"
 linkTitle: "Adopters"
-weight: 10
+weight: 30
+menu:
+  main:
+    weight: 30
 description: >
   Where and how Kueue is used
+aliases:
+- /adopters
 ---
 
 Below is a list of organizations that use Kueue in production along with the integrations they use.
