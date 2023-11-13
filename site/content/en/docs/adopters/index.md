@@ -19,3 +19,4 @@ If you are using Kueue, feel free to open a pull request to add your organizatio
 | [Horizon, Inc.](https://horizon.cc/) | End User | AI training platform | batch/job </br> ... | [@GhangZh](https://github.com/GhangZh) |
 | [FAR AI](https://far.ai/) | End User | AI alignment research nonprofit | batch/job | [@rhaps0dy](https://github.com/rhaps0dy) |
 | [Shopee, Inc.](https://shopee.com/) | End User | Training/batch inference/data processe in AI platform test env | Customized job </br> RayJob </br> ... | [@denkensk](https://github.com/denkensk) |
+| [Mondoo, Inc.](https://mondoo.com) | End User | Helps power Mondoo's hosted security scanner | batch/job | [@jaym](https://github.com/jaym) |
