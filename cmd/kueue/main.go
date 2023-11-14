@@ -226,7 +226,7 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 	// setup provision admission check controller
 	if features.Enabled(features.ProvisioningACC) && provisioning.ServerSupportsProvisioningRequest(mgr) {
 		// A info message is added in setupIndexes if autoscaling is not supported by the cluster
-		if err := provisioning.NewController(mgr.GetClient()).SetupWithManager(mgr); err != nil {
+		if err := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorderFor("kueue-provisioning-request-controller")).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "Could not setup provisioning controller")
 			os.Exit(1)
 		}
