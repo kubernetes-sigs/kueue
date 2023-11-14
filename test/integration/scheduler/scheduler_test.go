@@ -1152,17 +1152,17 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			wl2 := testing.MakeWorkload("wl-2", ns.Name).Priority(1).Queue(devQueue.Name).Request(corev1.ResourceCPU, "9").Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
 			gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
-			util.ExpectPendingWorkloadsMetric(devCQ, 0, 0)
-			util.ExpectReservingActiveWorkloadsMetric(devCQ, 2)
-			util.ExpectAdmittedWorkloadsTotalMetric(devCQ, 2)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl2)
 
 			ginkgo.By("Creating another workload")
 			wl3 := testing.MakeWorkload("wl-3", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "5").Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl3)).Should(gomega.Succeed())
 			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wl1)
-			util.ExpectPendingWorkloadsMetric(prodCQ, 0, 0)
-			util.ExpectReservingActiveWorkloadsMetric(prodCQ, 1)
-			util.ExpectAdmittedWorkloadsTotalMetric(prodCQ, 1)
+
+			util.FinishEvictionForWorkloads(ctx, k8sClient, wl1)
+
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl3,
+				testing.MakeAdmission(prodCQ.Name).Assignment(corev1.ResourceCPU, "on-demand", "5").Obj())
 		})
 	})
 
