@@ -55,7 +55,7 @@ func managerSetup(mgr manager.Manager, ctx context.Context) {
 	err = provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	reconciler := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorderFor("admission-checks-controller"))
+	reconciler := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorderFor("kueue-provisioning-request-controller"))
 	err = reconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
