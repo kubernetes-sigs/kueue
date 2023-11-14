@@ -60,3 +60,17 @@ Create the name of the service account to use
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+FeatureGates
+*/}}
+{{- define "kueue.featureGates" -}}
+{{- $features := "" }}
+{{- range .Values.controllerManager.featureGates }}
+{{- $str := printf "%s=%t," .name .enabled }}
+{{- $features = print $features $str }}
+{{- end }}
+{{- with .Values.controllerManager.featureGates }}
+- --feature-gates={{ $features | trimSuffix "," }}
+{{- end }}
+{{- end }}
