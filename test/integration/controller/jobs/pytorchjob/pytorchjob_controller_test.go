@@ -66,8 +66,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 	})
 
 	var (
-		ns          *corev1.Namespace
-		wlLookupKey types.NamespacedName
+		ns *corev1.Namespace
 	)
 	ginkgo.BeforeEach(func() {
 		ns = &corev1.Namespace{
@@ -76,7 +75,6 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			},
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-		wlLookupKey = types.NamespacedName{Name: workloadpytorchjob.GetWorkloadNameForPyTorchJob(jobName), Namespace: ns.Name}
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -85,7 +83,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 	ginkgo.It("Should reconcile PyTorchJobs", func() {
 		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(testingpytorchjob.MakePyTorchJob(jobName, ns.Name).Obj())}
 		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(&kftraining.PyTorchJob{})}
-		kftesting.ShouldReconcileJob(ctx, k8sClient, kfJob, createdJob, ns, wlLookupKey, []kftesting.PodSetsResource{
+		kftesting.ShouldReconcileJob(ctx, k8sClient, kfJob, createdJob, []kftesting.PodSetsResource{
 			{
 				NodeName:    kftraining.PyTorchJobReplicaTypeMaster,
 				ResourceCPU: "on-demand",
@@ -330,7 +328,6 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns            *corev1.Namespace
-		wlLookupKey   types.NamespacedName
 		defaultFlavor = testing.MakeResourceFlavor("default").Label(instanceKey, "default").Obj()
 	)
 
@@ -357,7 +354,6 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 			},
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-		wlLookupKey = types.NamespacedName{Name: workloadpytorchjob.GetWorkloadNameForPyTorchJob(jobName), Namespace: ns.Name}
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -368,7 +364,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 			kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(testingpytorchjob.MakePyTorchJob(jobName, ns.Name).Parallelism(2).Obj())}
 			createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(&kftraining.PyTorchJob{})}
 
-			kftesting.JobControllerWhenWaitForPodsReadyEnabled(ctx, k8sClient, kfJob, createdJob, ns, wlLookupKey, podsReadyTestSpec, []kftesting.PodSetsResource{
+			kftesting.JobControllerWhenWaitForPodsReadyEnabled(ctx, k8sClient, kfJob, createdJob, podsReadyTestSpec, []kftesting.PodSetsResource{
 				{
 					NodeName:    kftraining.PyTorchJobReplicaTypeMaster,
 					ResourceCPU: "default",
@@ -524,7 +520,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		)}
 		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(&kftraining.PyTorchJob{})}
 
-		kftesting.ShouldScheduleJobsAsTheyFitInTheirClusterQueue(ctx, k8sClient, kfJob, createdJob, ns, clusterQueue, []kftesting.PodSetsResource{
+		kftesting.ShouldScheduleJobsAsTheyFitInTheirClusterQueue(ctx, k8sClient, kfJob, createdJob, clusterQueue, []kftesting.PodSetsResource{
 			{
 				NodeName:    kftraining.PyTorchJobReplicaTypeMaster,
 				ResourceCPU: kueue.ResourceFlavorReference(spotUntaintedFlavor.Name),

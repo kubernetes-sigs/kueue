@@ -22,7 +22,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -60,8 +59,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 	})
 
 	var (
-		ns          *corev1.Namespace
-		wlLookupKey types.NamespacedName
+		ns *corev1.Namespace
 	)
 	ginkgo.BeforeEach(func() {
 		ns = &corev1.Namespace{
@@ -70,7 +68,6 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			},
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-		wlLookupKey = types.NamespacedName{Name: workloadxgboostjob.GetWorkloadNameForXGBoostJob(jobName), Namespace: ns.Name}
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -79,7 +76,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 	ginkgo.It("Should reconcile XGBoostJobs", func() {
 		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadxgboostjob.JobControl)(testingxgboostjob.MakeXGBoostJob(jobName, ns.Name).Obj())}
 		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadxgboostjob.JobControl)(&kftraining.XGBoostJob{})}
-		kftesting.ShouldReconcileJob(ctx, k8sClient, kfJob, createdJob, ns, wlLookupKey, []kftesting.PodSetsResource{
+		kftesting.ShouldReconcileJob(ctx, k8sClient, kfJob, createdJob, []kftesting.PodSetsResource{
 			{
 				NodeName:    kftraining.XGBoostJobReplicaTypeMaster,
 				ResourceCPU: "on-demand",
@@ -95,7 +92,6 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns            *corev1.Namespace
-		wlLookupKey   types.NamespacedName
 		defaultFlavor = testing.MakeResourceFlavor("default").Label(instanceKey, "default").Obj()
 	)
 
@@ -122,7 +118,6 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 			},
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-		wlLookupKey = types.NamespacedName{Name: workloadxgboostjob.GetWorkloadNameForXGBoostJob(jobName), Namespace: ns.Name}
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -132,7 +127,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 		func(podsReadyTestSpec kftesting.PodsReadyTestSpec) {
 			kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadxgboostjob.JobControl)(testingxgboostjob.MakeXGBoostJob(jobName, ns.Name).Parallelism(2).Obj())}
 			createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadxgboostjob.JobControl)(&kftraining.XGBoostJob{})}
-			kftesting.JobControllerWhenWaitForPodsReadyEnabled(ctx, k8sClient, kfJob, createdJob, ns, wlLookupKey, podsReadyTestSpec, []kftesting.PodSetsResource{
+			kftesting.JobControllerWhenWaitForPodsReadyEnabled(ctx, k8sClient, kfJob, createdJob, podsReadyTestSpec, []kftesting.PodSetsResource{
 				{
 					NodeName:    kftraining.XGBoostJobReplicaTypeMaster,
 					ResourceCPU: "default",
@@ -262,7 +257,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		spotUntaintedFlavor = testing.MakeResourceFlavor("spot-untainted").Label(instanceKey, "spot-untainted").Obj()
 		gomega.Expect(k8sClient.Create(ctx, spotUntaintedFlavor)).Should(gomega.Succeed())
 
-		clusterQueue = testing.MakeClusterQueue("cluster-queue").
+		clusterQueue = testing.MakeClusterQueue("dev-clusterqueue").
 			ResourceGroup(
 				*testing.MakeFlavorQuotas("spot-untainted").Resource(corev1.ResourceCPU, "5").Obj(),
 				*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
@@ -287,7 +282,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 				Obj(),
 		)}
 		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadxgboostjob.JobControl)(&kftraining.XGBoostJob{})}
-		kftesting.ShouldScheduleJobsAsTheyFitInTheirClusterQueue(ctx, k8sClient, kfJob, createdJob, ns, clusterQueue, []kftesting.PodSetsResource{
+		kftesting.ShouldScheduleJobsAsTheyFitInTheirClusterQueue(ctx, k8sClient, kfJob, createdJob, clusterQueue, []kftesting.PodSetsResource{
 			{
 				NodeName:    kftraining.XGBoostJobReplicaTypeMaster,
 				ResourceCPU: kueue.ResourceFlavorReference(spotUntaintedFlavor.Name),
