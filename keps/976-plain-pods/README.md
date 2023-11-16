@@ -373,7 +373,8 @@ Once the webhook has marked Pods subject to queuing with the `kueue.x-k8s.io/man
 the Pod reconciler can create the corresponding Workload object to feed the Kueue admission logic.
 
 The Workload will be owned by all Pods. Once all the Pods that own the workload
-are removed, the Workload will continue to exist.
+are deleted (and their finalizers are removed), the Workload will be
+automatically cleaned up.
 
 If individual Pods in the group fail and a replacement Pod comes in,
 the replacement Pod will be added as an owner of the Workload as well.
