@@ -240,6 +240,7 @@ type Integrations struct {
 	//  - "batch/job"
 	//  - "kubeflow.org/mpijob"
 	//  - "ray.io/rayjob"
+	//  - "ray.io/raycluster"
 	//  - "jobset.x-k8s.io/jobset"
 	//  - "kubeflow.org/mxjob"
 	//  - "kubeflow.org/paddlejob"

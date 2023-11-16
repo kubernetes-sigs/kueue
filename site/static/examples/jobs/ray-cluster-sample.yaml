@@ -1,0 +1,72 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: raycluster-sample
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: local-queue
+spec:
+  headGroupSpec:
+    rayStartParams:
+      dashboard-host: 0.0.0.0
+    serviceType: ClusterIP
+    template:
+      metadata:
+        annotations: {}
+      spec:
+        affinity: {}
+        containers:
+        - env: []
+          image: rayproject/ray:2.7.0
+          imagePullPolicy: IfNotPresent
+          name: ray-head
+          resources:
+            limits:
+              cpu: "1"
+              memory: 2G
+            requests:
+              cpu: "1"
+              memory: 2G
+          securityContext: {}
+          volumeMounts:
+          - mountPath: /tmp/ray
+            name: log-volume
+        imagePullSecrets: []
+        nodeSelector: {}
+        tolerations: []
+        volumes:
+        - emptyDir: {}
+          name: log-volume
+  workerGroupSpecs:
+  - groupName: workergroup
+    maxReplicas: 10
+    minReplicas: 1
+    rayStartParams: {}
+    replicas: 4
+    template:
+      metadata:
+        annotations: {}
+      spec:
+        affinity: {}
+        containers:
+        - env: []
+          image: rayproject/ray:2.7.0
+          imagePullPolicy: IfNotPresent
+          name: ray-worker
+          resources:
+            limits:
+              cpu: "1"
+              memory: 1G
+            requests:
+              cpu: "1"
+              memory: 1G
+          securityContext: {}
+          volumeMounts:
+          - mountPath: /tmp/ray
+            name: log-volume
+        imagePullSecrets: []
+        nodeSelector: {}
+        tolerations: []
+        volumes:
+        - emptyDir: {}
+          name: log-volume
