@@ -272,6 +272,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 	})
 
 	ginkgo.It("Should schedule jobs as they fit in their ClusterQueue", func() {
+		ginkgo.By("creating localQueue")
 		localQueue = testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 		gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
 

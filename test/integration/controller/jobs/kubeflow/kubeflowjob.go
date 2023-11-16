@@ -244,7 +244,7 @@ func JobControllerWhenWaitForPodsReadyEnabled(ctx context.Context, k8sClient cli
 
 	ginkgo.By("Fetch the workload created for the job")
 	createdWorkload := &kueue.Workload{}
-	gomega.Eventually(func() error {
+	gomega.EventuallyWithOffset(1, func() error {
 		return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -255,7 +255,7 @@ func JobControllerWhenWaitForPodsReadyEnabled(ctx context.Context, k8sClient cli
 	gomega.ExpectWithOffset(1, k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 
 	ginkgo.By("Await for the job to be unsuspended")
-	gomega.Eventually(func() bool {
+	gomega.EventuallyWithOffset(1, func() bool {
 		gomega.ExpectWithOffset(1, k8sClient.Get(ctx, lookupKey, createdJob.Object())).Should(gomega.Succeed())
 		return createdJob.IsSuspended()
 	}, util.Timeout, util.Interval).Should(gomega.BeFalse())
@@ -269,7 +269,7 @@ func JobControllerWhenWaitForPodsReadyEnabled(ctx context.Context, k8sClient cli
 
 	if podsReadyTestSpec.BeforeCondition != nil {
 		ginkgo.By("Update the workload status")
-		gomega.Eventually(func() *metav1.Condition {
+		gomega.EventuallyWithOffset(1, func() *metav1.Condition {
 			gomega.ExpectWithOffset(1, k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 			return apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadPodsReady)
 		}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(podsReadyTestSpec.BeforeCondition, ignoreConditionTimestamps))
@@ -282,7 +282,7 @@ func JobControllerWhenWaitForPodsReadyEnabled(ctx context.Context, k8sClient cli
 
 	if podsReadyTestSpec.Suspended {
 		ginkgo.By("Unset admission of the workload to suspend the job")
-		gomega.Eventually(func() error {
+		gomega.EventuallyWithOffset(1, func() error {
 			// the update may need to be retried due to a conflict as the workload gets
 			// also updated due to setting of the job status.
 			if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
@@ -294,7 +294,7 @@ func JobControllerWhenWaitForPodsReadyEnabled(ctx context.Context, k8sClient cli
 	}
 
 	ginkgo.By("Verify the PodsReady condition is added")
-	gomega.Eventually(func() *metav1.Condition {
+	gomega.EventuallyWithOffset(1, func() *metav1.Condition {
 		gomega.ExpectWithOffset(1, k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 		return apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadPodsReady)
 	}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(podsReadyTestSpec.WantCondition, ignoreConditionTimestamps))
@@ -303,7 +303,7 @@ func JobControllerWhenWaitForPodsReadyEnabled(ctx context.Context, k8sClient cli
 func ShouldScheduleJobsAsTheyFitInTheirClusterQueue(ctx context.Context, k8sClient client.Client, job, createdJob kubeflowjob.KubeflowJob, clusterQueue *kueue.ClusterQueue, podSetsResources []PodSetsResource) {
 	ginkgo.By("checking a job starts")
 	gomega.ExpectWithOffset(1, k8sClient.Create(ctx, job.Object())).Should(gomega.Succeed())
-	gomega.Eventually(func() bool {
+	gomega.EventuallyWithOffset(1, func() bool {
 		gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(job.Object()), createdJob.Object())).
 			Should(gomega.Succeed())
 		return createdJob.IsSuspended()
