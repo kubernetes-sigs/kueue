@@ -159,6 +159,11 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				return ctrl.Result{}, err
 			}
 		}
+		if !object.GetDeletionTimestamp().IsZero() {
+			if err = r.finalizeJob(ctx, job); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
 		return ctrl.Result{}, nil
 	}
 
