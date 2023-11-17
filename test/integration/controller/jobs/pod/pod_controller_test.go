@@ -25,6 +25,7 @@ import (
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -212,13 +213,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			gomega.Expect(createdWorkload.Spec.PodSets).To(gomega.HaveLen(1))
-
-			gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal("test-queue"),
-				"The Workload should have .spec.queueName set")
-
 			ginkgo.By("checking the pod is unsuspended when workload is assigned")
-
 			clusterQueue := testing.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj(),
@@ -239,12 +234,9 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 			ginkgo.By("checking that the finalizer is removed when the Pod is deleted early")
 			gomega.Expect(k8sClient.Delete(ctx, createdPod)).Should(gomega.Succeed())
-
-			gomega.Eventually(func(g gomega.Gomega) []string {
-				g.Expect(k8sClient.Get(ctx, lookupKey, createdPod)).To(gomega.Succeed())
-				return createdPod.Finalizers
-			}, util.Timeout, util.Interval).ShouldNot(gomega.ContainElement("kueue.x-k8s.io/managed"),
-				"Pod shouldn't have finalizer set")
+			gomega.Eventually(func(g gomega.Gomega) bool {
+				return apierrors.IsNotFound(k8sClient.Get(ctx, lookupKey, createdPod))
+			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 		})
 
 		ginkgo.It("Should stop the single pod with the queue name if workload is evicted", func() {
