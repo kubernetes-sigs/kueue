@@ -194,6 +194,59 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				"Pod shouldn't have finalizer set")
 		})
 
+		ginkgo.It("Should remove finalizers from Pods that are actively deleted after being admitted", func() {
+			pod := testingpod.MakePod(podName, ns.Name).Queue("test-queue").Obj()
+			gomega.Expect(k8sClient.Create(ctx, pod)).Should(gomega.Succeed())
+
+			createdPod := &corev1.Pod{}
+			gomega.Eventually(func() error {
+				return k8sClient.Get(ctx, lookupKey, createdPod)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Expect(createdPod.Finalizers).To(gomega.ContainElement("kueue.x-k8s.io/managed"),
+				"Pod should have finalizer")
+
+			ginkgo.By("checking that workload is created for pod with the queue name")
+			createdWorkload := &kueue.Workload{}
+			gomega.Eventually(func() error {
+				return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Expect(createdWorkload.Spec.PodSets).To(gomega.HaveLen(1))
+
+			gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal("test-queue"),
+				"The Workload should have .spec.queueName set")
+
+			ginkgo.By("checking the pod is unsuspended when workload is assigned")
+
+			clusterQueue := testing.MakeClusterQueue("cluster-queue").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj(),
+				).Obj()
+			admission := testing.MakeAdmission(clusterQueue.Name).
+				Assignment(corev1.ResourceCPU, "default", "1").
+				AssignmentPodCount(createdWorkload.Spec.PodSets[0].Count).
+				Obj()
+			gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+
+			gomega.Eventually(func() []corev1.PodSchedulingGate {
+				if err := k8sClient.Get(ctx, lookupKey, createdPod); err != nil {
+					return nil
+				}
+				return createdPod.Spec.SchedulingGates
+			}, util.Timeout, util.Interval).Should(gomega.BeEmpty())
+
+			ginkgo.By("checking that the finalizer is removed when the Pod is deleted early")
+			gomega.Expect(k8sClient.Delete(ctx, createdPod)).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) []string {
+				g.Expect(k8sClient.Get(ctx, lookupKey, createdPod)).To(gomega.Succeed())
+				return createdPod.Finalizers
+			}, util.Timeout, util.Interval).ShouldNot(gomega.ContainElement("kueue.x-k8s.io/managed"),
+				"Pod shouldn't have finalizer set")
+		})
+
 		ginkgo.It("Should stop the single pod with the queue name if workload is evicted", func() {
 			ginkgo.By("Creating a pod with queue name")
 			pod := testingpod.MakePod(podName, ns.Name).Queue("test-queue").Obj()
