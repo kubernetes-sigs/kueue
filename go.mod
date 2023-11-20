@@ -17,11 +17,11 @@ require (
 	go.uber.org/zap v1.26.0
 	k8s.io/api v0.28.4
 	k8s.io/apimachinery v0.28.4
-	k8s.io/apiserver v0.28.3
+	k8s.io/apiserver v0.28.4
 	k8s.io/autoscaler/cluster-autoscaler v0.0.0-20230925095857-cf8c507d2421
 	k8s.io/client-go v0.28.4
 	k8s.io/code-generator v0.28.4
-	k8s.io/component-base v0.28.3
+	k8s.io/component-base v0.28.4
 	k8s.io/component-helpers v0.28.4
 	k8s.io/klog/v2 v2.100.1
 	k8s.io/utils v0.0.0-20230726121419-3b25d923346b
