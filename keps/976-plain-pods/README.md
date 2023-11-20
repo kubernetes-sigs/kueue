@@ -24,8 +24,8 @@
     - [Groups of Pods created beforehand](#groups-of-pods-created-beforehand)
     - [Groups of pods where driver generates workers](#groups-of-pods-where-driver-generates-workers)
   - [Tracking admitted and finished Pods](#tracking-admitted-and-finished-pods)
-  - [Dynamically reclaiming Quota](#dynamically-reclaiming-quota)
   - [Retrying Failed Pods](#retrying-failed-pods)
+  - [Dynamically reclaiming Quota](#dynamically-reclaiming-quota)
   - [Metrics](#metrics)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
@@ -371,12 +371,11 @@ matchExpressions:
 Once the webhook has marked Pods subject to queuing with the `kueue.x-k8s.io/managed: true` label,
 the Pod reconciler can create the corresponding Workload object to feed the Kueue admission logic.
 
-The Workload will be owned by all Pods. Once all the Pods that own the workload
-are deleted (and their finalizers are removed), the Workload will be
-automatically cleaned up.
+The Workload will be owned by all Pods. Once all the Pods that own the workload are deleted (and
+their finalizers are removed), the Workload will be automatically cleaned up.
 
-If individual Pods in the group fail and a replacement Pod comes in,
-the replacement Pod will be added as an owner of the Workload as well.
+If individual Pods in the group fail and a replacement Pod comes in, the replacement Pod will be
+added as an owner of the Workload as well.
 
 #### Single Pods
 
@@ -537,62 +536,51 @@ spec:
 Pods need to have finalizers so that we can reliably track how many of them run to completion and be
 able to determine when the Workload is Finished.
 
-The Pod reconciler will run in a "composable" mode: a mode where a Workload is
-composed of multiple objects.
-The `jobframework.Reconciler` will be reworked to accomodate this.
+The Pod reconciler will run in a "composable" mode: a mode where a Workload is composed of multiple
+objects. The `jobframework.Reconciler` will be reworked to accomodate this.
 
-After a Workload is admitted, each Pod that owns the workload enters the
-reconciliation loop.
-The reconciliation loop collects all the Pods that are not Failed and constructs
-an in-memory Workload. If there is an existing Workload in the cache and it
-has smaller Pod counters than the in-memory Workload, then it is considered
-unmatching and the Workload is evicted.
+After a Workload is admitted, each Pod that owns the workload enters the reconciliation loop.
+The reconciliation loop collects all the Pods that are not Failed and constructs an in-memory
+Workload. If there is an existing Workload in the cache and it has smaller Pod counters than the
+in-memory Workload, then it is considered unmatching and the Workload is evicted.
 
 In the Pod-group reconciler:
-1. If the Pod is not terminated,
-  create a Workload for the pod group if one does not exist.
-2. If the Pod is terminated and (the Workload doesn't exist or the workload is finished),
-   then remove the finalizer.
-3. Build the in-memory Workload. If its podset counters are greater than the
-  stored Workload, then evict the Workload.
+1. If the Pod is not terminated and doesn't have a deletionTimestamp,
+   create a Workload for the pod group if one does not exist.
+2. Remove Pod finalizers if the Pod is terminated and the Workload is finished, has a deletion
+   timestamp or is finished.
+3. Build the in-memory Workload. If its podset counters are greater than the stored Workload,
+   then evict the Workload.
 4. For gated pods:
-  - remove the gate, set nodeSelector
-5. If the number of terminated pods with a finalizer is greater than or equal to the admission
-  count, and there are no non-terminated Pods, mark the Workload as Finished and remove the
-  finalizers from the Pods.
+   - remove the gate, set nodeSelector
+5. If the number of succeeded pods is equal to the admission count, mark the Workload as Finished
+   and remove the finalizers from the Pods.
 
-Note that we are only removing Pod finalizers once the Workload is finished. This is a simple way
-of managing finalizers, but it might lead to too many Pods lingering in etcd for a long time after
-terminated.
-
-
-### Dynamically reclaiming Quota
-
-Succeeded Pods will note be considered replaceable. In other words, the quota
-from Succeeded Pods will be released by filling [reclaimablePods](https://kueue.sigs.k8s.io/docs/concepts/workload/#dynamic-reclaim)
-in the Workload status.
+Note that we are only removing Pod finalizers once the Workload is finished or if the Pods are
+Failed. This is a simple way of managing finalizers, but it might lead to too many Pods lingering
+in etcd for a long time after terminated.
 
 ### Retrying Failed Pods
 
-The Pod group will generally only be considered finished if all the Pods finish
-with a Succeeded phase.
-This allows the user to send replacement Pods when a Pod in the group fails.
-The Pods need to have a different name, because the Failed ones will stay
-in the apiserver with a finalizer.
+The Pod group will generally only be considered finished if all the Pods finish with a Succeeded
+phase.
+This allows the user to send replacement Pods when a Pod in the group fails or if the group is
+preempted. The replacement Pods can have any name, but they must point to the same pod group.
 
-However, this implies that a group can only succeed. In other words, there is
-no way for the user to declare the group failed and stop retrying.
+To declare that a group is failed, a user can execute one of the following actions:
+1. Issue a Delete for the Workload object. The controller would terminate all running Pods and
+   clean up Pod finalizers.
+2. Add an annotation to any Pod in the group `kueue.x-k8s.io/retriable-in-group: false`.
+  The annotation can be added to an existing Pod or added on creation.
 
-This can be solved by adding an annotation to any Pod in the group:
-`kueue.x-k8s.io/last-in-group: true`.
-The annotation can be added to a Pod that was already terminated or it
-can be added when the user creates the Pod.
-When added on creation, this Pod will run, but it will be considered the last
-attempt.
+  Kueue will consider a group finished if there are no running or pending Pods, and at
+  least one terminated Pod (Failed or Succeeded) has the `retriable-in-group: false` annotation.
 
-As a result, Kueue can consider a group finished if there are no running Pods,
-and at least one terminated Pod (Failed or Succeeded) has the `last-in-group`
-annotation.
+### Dynamically reclaiming Quota
+
+Succeeded Pods will not be considered replaceable. In other words, the quota
+from Succeeded Pods will be released by filling [reclaimablePods](https://kueue.sigs.k8s.io/docs/concepts/workload/#dynamic-reclaim)
+in the Workload status.
 
 ### Metrics
 
@@ -640,11 +628,12 @@ The integration tests should cover the following scenarios:
 
 - Basic webhook test
 - Single Pod queued, admitted and finished.
-- Multiple Pods with one shape:
+- Multiple Pods created beforehand:
   - queued and admitted
   - failed pods recreated can use the same quota
-  - Workload finished when all pods finish Successfully
-  - Workload finished when a Pod with `last-in-group` annotation finishes.
+  - Group finished when all pods finish Successfully
+  - Group finished when a Pod with `retriable-in-group: false` annotation finishes.
+  - Group preempted and resumed.
 - Driver Pod creates workers:
   - queued and admitted.
   - worker pods beyond the count are rejected (deleted)
