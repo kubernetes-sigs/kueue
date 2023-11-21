@@ -245,8 +245,8 @@ k8s.io/apiextensions-apiserver v0.28.2 h1:J6/QRWIKV2/HwBhHRVITMLYoypCoPY1ftigDM0
 k8s.io/apiextensions-apiserver v0.28.2/go.mod h1:5tnkxLGa9nefefYzWuAlWZ7RZYuN/765Au8cWLA6SRg=
 k8s.io/apimachinery v0.28.4 h1:zOSJe1mc+GxuMnFzD4Z/U1wst50X28ZNsn5bhgIIao8=
 k8s.io/apimachinery v0.28.4/go.mod h1:wI37ncBvfAoswfq626yPTe6Bz1c22L7uaJ8dho83mgg=
-k8s.io/apiserver v0.28.3 h1:8Ov47O1cMyeDzTXz0rwcfIIGAP/dP7L8rWbEljRcg5w=
-k8s.io/apiserver v0.28.3/go.mod h1:YIpM+9wngNAv8Ctt0rHG4vQuX/I5rvkEMtZtsxW2rNM=
+k8s.io/apiserver v0.28.4 h1:BJXlaQbAU/RXYX2lRz+E1oPe3G3TKlozMMCZWu5GMgg=
+k8s.io/apiserver v0.28.4/go.mod h1:Idq71oXugKZoVGUUL2wgBCTHbUR+FYTWa4rq9j4n23w=
 k8s.io/autoscaler/cluster-autoscaler v0.0.0-20230925095857-cf8c507d2421 h1:h8E8WHuSP3aArI7k9n/E4r98S5PkXQ+hiQSprylSy7Q=
 k8s.io/autoscaler/cluster-autoscaler v0.0.0-20230925095857-cf8c507d2421/go.mod h1:CIDuB0kVY16I0kzpUJa+eYDbj9xbclVbs8aJtgL3WzA=
 k8s.io/client-go v0.28.4 h1:Np5ocjlZcTrkyRJ3+T3PkXDpe4UpatQxj85+xjaD2wY=
