@@ -431,8 +431,11 @@ scheduling. The list of fields to keep are:
   - `preemptionPolicy`
   - `topologySpreadConstraints`
   - `overhead`
-  - `volumes`
   - `resourceClaims`
+
+Note that fields like `env` and `command` can sometimes change among all the pods of a group and
+they don't influence scheduling, so they are safe to skip. `volumes` can influence scheduling, but
+they can be parameterized, like in StatefulSets, so we will ignore them for now.
 
 A sha256 of the reamining Pod spec will be used as a name for a Workload podSet. The count for the
 podSet will be the number of Pods that match the same sha256. The hash will be calculated by the
