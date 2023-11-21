@@ -335,15 +335,14 @@ spec:
               stopPolicy:
                 description: "stopPolicy - if set the ClusterQueue is considered Inactive,
                   no new reservation being made. \n Depending on its value, its associated
-                  workloads will: \n - StopNow - Admitted workloads are evicted and
-                  Reserving workloads will cancel the reservation. - WaitForAdmitted
-                  - Admitted workloads will run to completion and Reserving workloads
-                  will cancel the reservation. - WaitForAdmitted - Admitted and Reserving
-                  workloads will run to completion."
+                  workloads will: \n - None - Workloads are admitted - HoldAndDrain
+                  - Admitted workloads are evicted and Reserving workloads will cancel
+                  the reservation. - Hold - Admitted workloads will run to completion
+                  and Reserving workloads will cancel the reservation."
                 enum:
-                - StopNow
-                - WaitForAdmitted
-                - WaitForReserving
+                - None
+                - Hold
+                - HoldAndDrain
                 type: string
             type: object
           status:

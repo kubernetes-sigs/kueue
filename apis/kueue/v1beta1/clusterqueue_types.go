@@ -102,12 +102,12 @@ type ClusterQueueSpec struct {
 	//
 	// Depending on its value, its associated workloads will:
 	//
-	// - StopNow - Admitted workloads are evicted and Reserving workloads will cancel the reservation.
-	// - WaitForAdmitted - Admitted workloads will run to completion and Reserving workloads will cancel the reservation.
-	// - WaitForAdmitted - Admitted and Reserving workloads will run to completion.
+	// - None - Workloads are admitted
+	// - HoldAndDrain - Admitted workloads are evicted and Reserving workloads will cancel the reservation.
+	// - Hold - Admitted workloads will run to completion and Reserving workloads will cancel the reservation.
 	//
 	// +optional
-	// +kubebuilder:validation:Enum=StopNow;WaitForAdmitted;WaitForReserving
+	// +kubebuilder:validation:Enum=None;Hold;HoldAndDrain
 	StopPolicy StopPolicy `json:"stopPolicy,omitempty"`
 }
 
@@ -128,9 +128,9 @@ const (
 type StopPolicy string
 
 const (
-	StopNow          StopPolicy = "StopNow"
-	WaitForAdmitted  StopPolicy = "WaitForAdmitted"
-	WaitForReserving StopPolicy = "WaitForReserving"
+	None         StopPolicy = "None"
+	HoldAndDrain StopPolicy = "HoldAndDrain"
+	Hold         StopPolicy = "Hold"
 )
 
 type ResourceGroup struct {

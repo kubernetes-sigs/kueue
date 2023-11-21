@@ -17,10 +17,12 @@ limitations under the License.
 package scheduler
 
 import (
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -1428,5 +1430,85 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.Entry("request under pod limits", testParams{reqCPU: "2", limitCPU: "3", minCPU: "3", limitType: corev1.LimitTypePod, wantedStatus: "didn't satisfy LimitRange constraints:"}),
 			ginkgo.Entry("valid", testParams{reqCPU: "2", limitCPU: "3", minCPU: "1", maxCPU: "4", shouldBeAdmited: true}),
 		)
+	})
+
+	ginkgo.When("Using clusterQueue stop policy", func() {
+		var (
+			cq    *kueue.ClusterQueue
+			queue *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).Should(gomega.Succeed())
+			cq = testing.MakeClusterQueue("cluster-queue").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceCPU, "5", "5").Obj(),
+				).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
+			queue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, queue)).To(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+		})
+
+		ginkgo.It("Should evict workloads when we apply stop policy is drain", func() {
+			ginkgo.By("Creating workload")
+			wl := testing.MakeWorkload("one", ns.Name).Queue(queue.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl)
+			util.ExpectReservingActiveWorkloadsMetric(cq, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(cq, 1)
+
+			ginkgo.By("Stop clusterQueue's with drain")
+			var clusterQueue kueue.ClusterQueue
+			gomega.Eventually(func() error {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &clusterQueue)).To(gomega.Succeed())
+				clusterQueue.Spec.StopPolicy = kueue.HoldAndDrain
+				return k8sClient.Update(ctx, &clusterQueue)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Checking the condition of workload is evicted", func() {
+				createdWl := kueue.Workload{}
+				gomega.Eventually(func() *metav1.Condition {
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
+					return apimeta.FindStatusCondition(createdWl.Status.Conditions, kueue.WorkloadEvicted)
+				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(&metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByClusterQueueStop,
+					Message: "The ClusterQueue is stopped",
+				}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
+			})
+
+			util.FinishEvictionForWorkloads(ctx, k8sClient, wl)
+
+			ginkgo.By("Restart clusterQueue's policy")
+			gomega.Eventually(func() error {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &clusterQueue)).To(gomega.Succeed())
+				clusterQueue.Spec.StopPolicy = ""
+				return k8sClient.Update(ctx, &clusterQueue)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verify the workload should be readmitted", func() {
+				createdWl := kueue.Workload{}
+				gomega.Eventually(func() *metav1.Condition {
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
+					return apimeta.FindStatusCondition(createdWl.Status.Conditions, kueue.WorkloadAdmitted)
+				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(&metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadAdmitted,
+					Message: "The workload is admitted",
+				}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
+			})
+			util.ExpectReservingActiveWorkloadsMetric(cq, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(cq, 2)
+			util.FinishWorkloads(ctx, k8sClient, wl)
+		})
 	})
 })
