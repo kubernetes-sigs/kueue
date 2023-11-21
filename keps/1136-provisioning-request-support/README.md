@@ -107,9 +107,7 @@ OwnerReference).
 
 * Retry ProvisioningRequests with respect to the `RetryConfig` configuration in
 the `ProvisioningRequestConfig`. For each attempt a new provisioning request is
-created with the suffix indicating the attempt number. The attempt number will
-also be kept in ProvisioningRequest annotation:
-`kueue.x-k8s.io/provisioning-request-attempt`. The corresponding admission
+created with the suffix indicating the attempt number. The corresponding admission
 check will remain in the `Pending` state until the retries end.
 
 The definition of `ProvisioningRequestConfig` is relatively simple and is based on
@@ -153,26 +151,6 @@ type ProvisioningRequestConfigSpec struct {
 	// +listType=set
 	// +kubebuilder:validation:MaxItems=100
 	ManagedResources []corev1.ResourceName `json:"managedResources,omitempty"`
-
-	// RetryConfig defines the retry configuration for a provisioning request
-	//
-	// +optional
-	RetryConfig *ProvisioningRequestRetryConfig `json:"retryConfig,omitempty"`
-}
-
-// ProvisioningRequestRetryConfig defines the retry configuration for the provisioning requests
-type ProvisioningRequestRetryConfig struct {
-	// MaxRetries indicates the maximal number of retries for recreating the provisioning request.
-	//
-	// +optional
-	// +kubebuilder:default=3
-	MaxRetries *int32 `json:"maxRetries,omitempty"`
-
-	// DefaultBackoffSeconds indicates the default backoff in seconds. The intervals
-	// between consecutive attempts are determined by expotential growth up to 30min.
-	// +optional
-	// +kubebuilder:default=60
-	DefaultBackoffSeconds *int32 `json:"minBackoffSeconds,omitempty"`
 }
 ```
 
