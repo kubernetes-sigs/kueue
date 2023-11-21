@@ -175,8 +175,9 @@ func TestSchedule(t *testing.T) {
 		},
 	}
 	cases := map[string]struct {
-		workloads      []kueue.Workload
-		admissionError error
+		workloads         []kueue.Workload
+		needScheduleTwice bool
+		admissionError    error
 		// wantAssignments is a summary of all the admissions in the cache after this cycle.
 		wantAssignments map[string]kueue.Admission
 		// wantScheduled is the subset of workloads that got scheduled/admitted in this cycle.
@@ -1110,6 +1111,9 @@ func TestSchedule(t *testing.T) {
 			defer cancel()
 
 			scheduler.schedule(ctx)
+			if tc.needScheduleTwice {
+				scheduler.schedule(ctx)
+			}
 			wg.Wait()
 
 			wantScheduled := make(map[string]kueue.Admission)
@@ -1284,6 +1288,85 @@ func TestEntryOrdering(t *testing.T) {
 	}
 }
 
+func TestClusterQueueUpdate(t *testing.T) {
+	resourceFlavors := []*kueue.ResourceFlavor{
+		{ObjectMeta: metav1.ObjectMeta{Name: "on-demand"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "spot"}},
+	}
+	clusterQueue :=
+		*utiltesting.MakeClusterQueue("eng-alpha").
+			QueueingStrategy(kueue.StrictFIFO).
+			Preemption(kueue.ClusterQueuePreemption{
+				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+			}).
+			FlavorFungibility(kueue.FlavorFungibility{
+				WhenCanPreempt: kueue.Preempt,
+			}).
+			ResourceGroup(
+				*utiltesting.MakeFlavorQuotas("on-demand").
+					Resource(corev1.ResourceCPU, "50", "50").Obj(),
+				*utiltesting.MakeFlavorQuotas("spot").
+					Resource(corev1.ResourceCPU, "100", "0").Obj(),
+			).Obj()
+	newClusterQueue2 :=
+		*utiltesting.MakeClusterQueue("eng-alpha").
+			QueueingStrategy(kueue.StrictFIFO).
+			Preemption(kueue.ClusterQueuePreemption{
+				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+			}).
+			FlavorFungibility(kueue.FlavorFungibility{
+				WhenCanPreempt: kueue.Preempt,
+			}).
+			ResourceGroup(
+				*utiltesting.MakeFlavorQuotas("on-demand").
+					Resource(corev1.ResourceCPU, "100", "50").Obj(),
+				*utiltesting.MakeFlavorQuotas("spot").
+					Resource(corev1.ResourceCPU, "100", "0").Obj(),
+			).Obj()
+	cases := []struct {
+		name                         string
+		cqs                          *kueue.ClusterQueue
+		newcq                        *kueue.ClusterQueue
+		wantLastAssignmentGeneration int64
+	}{
+		{
+			name:                         "RGs not change",
+			cqs:                          &clusterQueue,
+			newcq:                        clusterQueue.DeepCopy(),
+			wantLastAssignmentGeneration: 1,
+		},
+		{
+			name:                         "RGs changed",
+			cqs:                          &clusterQueue,
+			newcq:                        &newClusterQueue2,
+			wantLastAssignmentGeneration: 2,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			clientBuilder := utiltesting.NewClientBuilder().
+				WithObjects(
+					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
+					tc.cqs,
+				)
+			cl := clientBuilder.Build()
+			cqCache := cache.New(cl)
+			// Workloads are loaded into queues or clusterQueues as we add them.
+			for _, rf := range resourceFlavors {
+				cqCache.AddOrUpdateResourceFlavor(rf)
+			}
+			cqCache.AddClusterQueue(context.Background(), tc.cqs)
+			cqCache.UpdateClusterQueue(tc.newcq)
+			snapshot := cqCache.Snapshot()
+			if diff := cmp.Diff(
+				tc.wantLastAssignmentGeneration,
+				snapshot.ClusterQueues["eng-alpha"].AllocatableResourceGeneration); diff != "" {
+				t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestLastSchedulingContext(t *testing.T) {
 	resourceFlavors := []*kueue.ResourceFlavor{
 		{ObjectMeta: metav1.ObjectMeta{Name: "on-demand"}},
@@ -1357,6 +1440,22 @@ func TestLastSchedulingContext(t *testing.T) {
 				*utiltesting.MakeFlavorQuotas("spot").
 					Resource(corev1.ResourceCPU, "100", "0").Obj(),
 			).Obj(),
+		*utiltesting.MakeClusterQueue("cq-with-2-flavors").
+			QueueingStrategy(kueue.StrictFIFO).
+			Preemption(kueue.ClusterQueuePreemption{
+				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				WithinClusterQueue:  kueue.PreemptionPolicyLowerOrNewerEqualPriority,
+			}).
+			FlavorFungibility(kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.Borrow,
+				WhenCanPreempt: kueue.Preempt,
+			}).
+			ResourceGroup(
+				*utiltesting.MakeFlavorQuotas("on-demand").
+					Resource(corev1.ResourceCPU, "2").Obj(),
+				*utiltesting.MakeFlavorQuotas("spot").
+					Resource(corev1.ResourceCPU, "2").Obj()).
+			Obj(),
 	}
 
 	queues := []kueue.LocalQueue{
@@ -1396,6 +1495,15 @@ func TestLastSchedulingContext(t *testing.T) {
 				ClusterQueue: "eng-cohort-theta",
 			},
 		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "sales",
+				Name:      "local-queue-cq-with-2-flavors",
+			},
+			Spec: kueue.LocalQueueSpec{
+				ClusterQueue: "cq-with-2-flavors",
+			},
+		},
 	}
 	wl := utiltesting.MakeWorkload("low-1", "default").
 		Request(corev1.ResourceCPU, "50").
@@ -1412,6 +1520,78 @@ func TestLastSchedulingContext(t *testing.T) {
 		wantAdmissionsOnFirstSchedule  map[string]kueue.Admission
 		wantAdmissionsOnSecondSchedule map[string]kueue.Admission
 	}{
+		{
+			name: "two flavors to schedule",
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("sample-job1", "sales").
+					Queue("local-queue-cq-with-2-flavors").
+					PodSets(*utiltesting.MakePodSet("main", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq-with-2-flavors").Assignment(corev1.ResourceCPU, "on-demand", "1").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("sample-job2", "sales").
+					Queue("local-queue-cq-with-2-flavors").
+					PodSets(*utiltesting.MakePodSet("main", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq-with-2-flavors").Assignment(corev1.ResourceCPU, "on-demand", "1").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("sample-job3", "sales").
+					Queue("local-queue-cq-with-2-flavors").
+					PodSets(*utiltesting.MakePodSet("main", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+			},
+			wantAdmissionsOnSecondSchedule: map[string]kueue.Admission{
+				"sales/sample-job1": {
+					ClusterQueue: "cq-with-2-flavors",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						{
+							Name: "main",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "on-demand",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("1000m"),
+							},
+							Count: ptr.To[int32](1),
+						},
+					},
+				},
+				"sales/sample-job2": {
+					ClusterQueue: "cq-with-2-flavors",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						{
+							Name: "main",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "on-demand",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("1000m"),
+							},
+							Count: ptr.To[int32](1),
+						},
+					},
+				},
+				"sales/sample-job3": {
+					ClusterQueue: "cq-with-2-flavors",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						{
+							Name: "main",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "spot",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("1000m"),
+							},
+							Count: ptr.To[int32](1),
+						},
+					},
+				},
+			},
+		},
 		{
 			name: "scheduling context not changed",
 			cqs:  clusterQueue,

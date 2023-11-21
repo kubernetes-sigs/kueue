@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -200,6 +201,7 @@ func filterQuantities(orig FlavorResourceQuantities, resourceGroups []kueue.Reso
 }
 
 func (c *ClusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
+	oldRG := c.ResourceGroups
 	c.ResourceGroups = make([]ResourceGroup, len(in))
 	for i, rgIn := range in {
 		rg := &c.ResourceGroups[i]
@@ -225,7 +227,9 @@ func (c *ClusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
 			rg.Flavors = append(rg.Flavors, fQuotas)
 		}
 	}
-	c.AllocatableResourceGeneration++
+	if !equality.Semantic.DeepEqual(oldRG, c.ResourceGroups) {
+		c.AllocatableResourceGeneration++
+	}
 	c.UpdateRGByResource()
 }
 
