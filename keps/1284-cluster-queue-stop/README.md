@@ -25,7 +25,7 @@
 <!-- /toc -->
 
 ## Summary
-Add setting in a ClusterQueue that an administrator is able to use in order to to pause new admissions and have the option to cancel current QuotaReservations and Evict admitted workloads.
+Add setting in a ClusterQueue that an administrator is able to use in order to pause new admissions and have the option to cancel current QuotaReservations and Evict admitted workloads.
 
 ## Motivation
 
@@ -37,7 +37,7 @@ Add a setting in a ClusterQueue that an administrator is able to use in order to
 
 ### Non-Goals
 
-Manage the QuotaReservation and Admission of workloads form the same cohort that might borrow resources from the ClusterQueue in question.
+Manage the QuotaReservation and Admission of workloads from the same cohort that might borrow resources from the ClusterQueue in question.
 
 ## Proposal
 
@@ -50,7 +50,7 @@ As a cluster administrator I want to be able to stop the new admissions in a spe
 
 ### Notes/Constraints/Caveats
 Managing the Reservation canceling and Eviction of workloads in other queues from the same cohort that
-are potentially borrowing resources form the stopped queue adds a considerable amount of complexity
+are potentially borrowing resources from the stopped queue adds a considerable amount of complexity
 while having a limited added value, therefore these cases are not covered in this first iteration. 
 
 ### Risks and Mitigations
@@ -72,8 +72,8 @@ type ClusterQueueSpec struct {
 	// - HoldAndDrain - Admitted workloads are evicted and Reserving workloads will cancel the reservation.
 	// - Hold - Admitted workloads will run to completion and Reserving workloads will cancel the reservation.
 	//
-	// +optional
 	// +kubebuilder:validation:Enum=None;Hold;HoldAndDrain
+	// +kubebuilder:default="None"
 	StopPolicy StopPolicy `json:"stopPolicy,omitempty"`
 }
 
@@ -81,8 +81,8 @@ type StopPolicy string
 
 const (
 	None         StopPolicy = "None"
-	HoldAndDrain StopPolicy = "HoldAndDrain"
 	Hold         StopPolicy = "Hold"
+	HoldAndDrain StopPolicy = "HoldAndDrain"
 )
 
 
@@ -113,7 +113,7 @@ To be added depending on the added code complexity.
 
 #### Integration tests
 
-The `cotrollers/core` suite should check:
+The `controllers/core` suite should check:
 
 1. ClusterQueue - Once the `stopPolicy` is set a ClusterQueue becomes Inactive.
 2. Workload - Once its ClusterQueue `stopPolicy` is set, depending on the value:
