@@ -237,7 +237,24 @@ func lastAssignmentOutdated(wl *workload.Info, cq *cache.ClusterQueue) bool {
 // FlavorAssignmentMode.
 func AssignFlavors(log logr.Logger, wl *workload.Info, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, cq *cache.ClusterQueue, counts []int32) Assignment {
 	if wl.LastAssignment != nil && lastAssignmentOutdated(wl, cq) {
+		log.V(6).Info("workload's last assignment is outdated, set wl.LastAssignment to nil",
+			"cq.AllocatableResourceGeneration", cq.AllocatableResourceGeneration,
+			"wl.LastAssignment.ClusterQueueGeneration", wl.LastAssignment.ClusterQueueGeneration)
+		if cq.Cohort != nil {
+			log.V(6).Info("", "cq.Cohort.AllocatableResourceGeneration", cq.Cohort.AllocatableResourceGeneration,
+				"wl.LastAssignment.CohortGeneration", wl.LastAssignment.CohortGeneration)
+		}
 		wl.LastAssignment = nil
+	} else if wl.LastAssignment != nil {
+		log.V(6).Info("workload's last assignment is up to date",
+			"cq.AllocatableResourceGeneration", cq.AllocatableResourceGeneration,
+			"wl.LastAssignment.ClusterQueueGeneration", wl.LastAssignment.ClusterQueueGeneration)
+		if cq.Cohort != nil {
+			log.V(6).Info("", "cq.Cohort.AllocatableResourceGeneration", cq.Cohort.AllocatableResourceGeneration,
+				"wl.LastAssignment.CohortGeneration", wl.LastAssignment.CohortGeneration)
+		}
+	} else {
+		log.V(4).Info("workload's last assignment is nil")
 	}
 
 	if len(counts) == 0 {

@@ -3,6 +3,7 @@ package cache
 import (
 	"errors"
 	"fmt"
+	"reflect"
 
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -200,6 +201,7 @@ func filterQuantities(orig FlavorResourceQuantities, resourceGroups []kueue.Reso
 }
 
 func (c *ClusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
+	oldRG := c.ResourceGroups
 	c.ResourceGroups = make([]ResourceGroup, len(in))
 	for i, rgIn := range in {
 		rg := &c.ResourceGroups[i]
@@ -225,7 +227,9 @@ func (c *ClusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
 			rg.Flavors = append(rg.Flavors, fQuotas)
 		}
 	}
-	c.AllocatableResourceGeneration++
+	if !reflect.DeepEqual(oldRG, c.ResourceGroups) {
+		c.AllocatableResourceGeneration++
+	}
 	c.UpdateRGByResource()
 }
 

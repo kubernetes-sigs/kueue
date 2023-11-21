@@ -1075,6 +1075,36 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, devCQ.Name, dWl1)
 		})
 
+		ginkgo.It("Should try next flavor instead of pending", func() {
+			prodCQ = testing.MakeClusterQueue("prod-cq").
+				Cohort("all").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "2").Obj(),
+					*testing.MakeFlavorQuotas("spot-untainted").Resource(corev1.ResourceCPU, "2").Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, prodCQ)).Should(gomega.Succeed())
+
+			prodQueue := testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodCQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, prodQueue)).Should(gomega.Succeed())
+
+			ginkgo.By("Creating 3 workloads")
+			wl1 := testing.MakeWorkload("wl-1", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
+			wl2 := testing.MakeWorkload("wl-2", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
+			wl3 := testing.MakeWorkload("wl-3", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, wl3)).Should(gomega.Succeed())
+			prodWl1Admission := testing.MakeAdmission(prodCQ.Name).Assignment(corev1.ResourceCPU, "on-demand", "1").Obj()
+			prodWl2Admission := testing.MakeAdmission(prodCQ.Name).Assignment(corev1.ResourceCPU, "on-demand", "1").Obj()
+			prodWl3Admission := testing.MakeAdmission(prodCQ.Name).Assignment(corev1.ResourceCPU, "spot-untainted", "1").Obj()
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1, prodWl1Admission)
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl2, prodWl2Admission)
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl3, prodWl3Admission)
+			util.ExpectPendingWorkloadsMetric(prodCQ, 0, 0)
+			util.ExpectReservingActiveWorkloadsMetric(prodCQ, 3)
+			util.ExpectAdmittedWorkloadsTotalMetric(prodCQ, 3)
+		})
+
 		ginkgo.It("Should try next flavor instead of borrowing", func() {
 			prodCQ = testing.MakeClusterQueue("prod-cq").
 				Cohort("all").
