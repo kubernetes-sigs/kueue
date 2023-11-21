@@ -7,6 +7,7 @@
 - [Proposal](#proposal)
   - [User Stories](#user-stories)
     - [Story 1](#story-1)
+  - [Notes/Constraints/Caveats](#notesconstraintscaveats)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [API/ClusterQueue](#apiclusterqueue)
@@ -47,11 +48,12 @@ Add a new member in the ClusterQueue implementation `stopPolicy` the presence of
 
 As a cluster administrator I want to be able to stop the new admissions in a specific ClusterQueue with the option of Evicting currently admitted Workloads or canceling QuotaReservations.
 
-### Risks and Mitigations
-
+### Notes/Constraints/Caveats
 Managing the Reservation canceling and Eviction of workloads in other queues from the same cohort that
 are potentially borrowing resources form the stopped queue adds a considerable amount of complexity
 while having a limited added value, therefore these cases are not covered in this first iteration. 
+
+### Risks and Mitigations
 
 ## Design Details
 
@@ -66,21 +68,21 @@ type ClusterQueueSpec struct {
 	//
 	// Depending on its value, its associated workloads will:
 	//
-	// - StopNow - Admitted workloads are evictred and Reserving workloads will cancel the reservatio.
-	// - WaitForAdmitted - Admitted workloads will run to completion and Reserving workloads will cancel the reservatio.
-	// - WaitForReserving - Admitted and Reserving workloads will run to completion.
+	// - None - Workloads are admitted
+	// - HoldAndDrain - Admitted workloads are evicted and Reserving workloads will cancel the reservation.
+	// - Hold - Admitted workloads will run to completion and Reserving workloads will cancel the reservation.
 	//
 	// +optional
-	// +kubebuilder:validation:Enum=StopNow;WaitForAdmitted;WaitForReserving
+	// +kubebuilder:validation:Enum=None;Hold;HoldAndDrain
 	StopPolicy StopPolicy `json:"stopPolicy,omitempty"`
 }
 
 type StopPolicy string
 
 const (
-	StopNow StopPolicy = "StopNow"
-	WaitForAdmitted StopPolicy = "WaitForAdmitted"
-	WaitForReserving StopPolicy = "WaitForReserving"
+	None         StopPolicy = "None"
+	HoldAndDrain StopPolicy = "HoldAndDrain"
+	Hold         StopPolicy = "Hold"
 )
 
 
