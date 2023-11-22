@@ -108,7 +108,9 @@ OwnerReference).
 * Retry ProvisioningRequests with respect to the `RetryConfig` configuration in
 the `ProvisioningRequestConfig`. For each attempt a new provisioning request is
 created with the suffix indicating the attempt number. The corresponding admission
-check will remain in the `Pending` state until the retries end.
+check will remain in the `Pending` state until the retries end. The max number
+of retries is 3, and the interval between attempts grows exponentially, starting
+from 1min (1, 2, 4 min).
 
 The definition of `ProvisioningRequestConfig` is relatively simple and is based on
 what can be set in `ProvisioningRequest`.
