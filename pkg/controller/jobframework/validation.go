@@ -34,7 +34,24 @@ var (
 func ValidateCreateForQueueName(job GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, ValidateLabelAsCRDName(job, constants.QueueLabel)...)
+	allErrs = append(allErrs, ValidateLabelAsCRDName(job, constants.PrebuiltWorkloadLabel)...)
+	allErrs = append(allErrs, validateOnlyOneLablel(job, constants.QueueLabel, constants.PrebuiltWorkloadLabel)...)
 	allErrs = append(allErrs, ValidateAnnotationAsCRDName(job, constants.QueueAnnotation)...)
+	return allErrs
+}
+
+func validateOnlyOneLablel(job GenericJob, keys ...string) field.ErrorList {
+	var allErrs field.ErrorList
+	labels := job.Object().GetLabels()
+	keysFound := make([]string, 0, len(labels))
+	for _, lk := range keys {
+		if _, found := labels[lk]; found {
+			keysFound = append(keysFound, lk)
+		}
+	}
+	if len(keysFound) > 1 {
+		allErrs = append(allErrs, field.Invalid(labelsPath, keysFound, "Only one label allowed"))
+	}
 	return allErrs
 }
 
@@ -72,6 +89,12 @@ func ValidateUpdateForQueueName(oldJob, newJob GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
 	if !newJob.IsSuspended() {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(QueueName(oldJob), QueueName(newJob), queueNameLabelPath)...)
+	}
+
+	oldHasPrebuiltWl, oldWlName := prebuiltWorkload(oldJob)
+	newHasPrebuiltWl, newWlName := prebuiltWorkload(newJob)
+	if oldHasPrebuiltWl || newHasPrebuiltWl {
+		allErrs = append(allErrs, apivalidation.ValidateImmutableField(oldWlName, newWlName, labelsPath.Key(constants.PrebuiltWorkloadLabel))...)
 	}
 	return allErrs
 }

@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+	"sigs.k8s.io/kueue/pkg/util/maps"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -187,11 +188,12 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	isStandaloneJob := ParentWorkloadName(job) == ""
+	usePrebuiltWorkload, prebuiltWorkloadName := prebuiltWorkload(job)
 
 	// when manageJobsWithoutQueueName is disabled we only reconcile jobs that have either
 	// queue-name or the parent-workload annotation set.
 	// If the parent-workload annotation is set, it also checks whether the parent job has queue-name label.
-	if !r.manageJobsWithoutQueueName && QueueName(job) == "" {
+	if !r.manageJobsWithoutQueueName && QueueName(job) == "" && !usePrebuiltWorkload {
 		if isStandaloneJob {
 			log.V(3).Info("Neither queue-name label, nor parent-workload annotation is set, ignoring the job",
 				"queueName", QueueName(job), "parentWorkload", ParentWorkloadName(job))
@@ -233,7 +235,22 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// 1. make sure there is only a single existing instance of the workload.
 	// If there's no workload exists and job is unsuspended, we'll stop it immediately.
-	wl, err := r.ensureOneWorkload(ctx, job, object)
+	var wl *kueue.Workload
+
+	if usePrebuiltWorkload {
+		wl, err = r.getPrebuiltWorkload(ctx, job, object, prebuiltWorkloadName)
+		if wl == nil {
+			if !job.IsSuspended() {
+				if stopErr := r.stopJob(ctx, job, object, wl, "missing prebuilt workload"); stopErr != nil {
+					return ctrl.Result{}, stopErr
+				}
+			}
+			return ctrl.Result{}, err
+		}
+	} else {
+		wl, err = r.ensureOneWorkload(ctx, job, object)
+	}
+
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -283,9 +300,11 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// 3. handle workload is nil.
 	if wl == nil {
-		err := r.handleJobWithNoWorkload(ctx, job, object)
-		if err != nil {
-			log.Error(err, "Handling job with no workload")
+		if !usePrebuiltWorkload {
+			err := r.handleJobWithNoWorkload(ctx, job, object)
+			if err != nil {
+				log.Error(err, "Handling job with no workload")
+			}
 		}
 		return ctrl.Result{}, err
 	}
@@ -535,6 +554,41 @@ func FindMatchingWorkloads(ctx context.Context, c client.Client, job GenericJob)
 	}
 
 	return match, toDelete, nil
+}
+func (r *JobReconciler) getPrebuiltWorkload(ctx context.Context, job GenericJob, object client.Object, name string) (*kueue.Workload, error) {
+	wl := &kueue.Workload{}
+	err := r.client.Get(ctx, types.NamespacedName{Name: name, Namespace: object.GetNamespace()}, wl)
+	if err != nil {
+		return nil, client.IgnoreNotFound(err)
+	}
+
+	if !metav1.IsControlledBy(wl, object) {
+		if err := ctrl.SetControllerReference(object, wl, r.client.Scheme()); err != nil {
+			// don't return an error here, since a retry cannot give a different result
+			return nil, nil
+		}
+
+		if errs := validation.IsValidLabelValue(string(object.GetUID())); len(errs) == 0 {
+			wl.Labels = maps.MergeKeepFirst(map[string]string{controllerconsts.JobUIDLabel: string(object.GetUID())}, wl.Labels)
+		}
+
+		if err := r.client.Update(ctx, wl); err != nil {
+			return nil, err
+		}
+	}
+
+	if !equivalentToWorkload(job, wl) {
+		// mark the workload as finished
+		err := workload.UpdateStatus(ctx, r.client, wl,
+			kueue.WorkloadFinished,
+			metav1.ConditionTrue,
+			"OutOfSync",
+			"The prebuilt workload is out of sync with its user job",
+			constants.JobControllerName)
+		return nil, err
+	}
+
+	return wl, nil
 }
 
 // equivalentToWorkload checks if the job corresponds to the workload
