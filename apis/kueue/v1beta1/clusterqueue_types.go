@@ -108,7 +108,8 @@ type ClusterQueueSpec struct {
 	//
 	// +optional
 	// +kubebuilder:validation:Enum=None;Hold;HoldAndDrain
-	StopPolicy StopPolicy `json:"stopPolicy,omitempty"`
+	// +kubebuilder:default="None"
+	StopPolicy *StopPolicy `json:"stopPolicy,omitempty"`
 }
 
 type QueueingStrategy string

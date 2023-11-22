@@ -1468,7 +1468,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			var clusterQueue kueue.ClusterQueue
 			gomega.Eventually(func() error {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &clusterQueue)).To(gomega.Succeed())
-				clusterQueue.Spec.StopPolicy = kueue.HoldAndDrain
+				clusterQueue.Spec.StopPolicy = ptr.To(kueue.HoldAndDrain)
 				return k8sClient.Update(ctx, &clusterQueue)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -1490,7 +1490,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.By("Restart clusterQueue's policy")
 			gomega.Eventually(func() error {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &clusterQueue)).To(gomega.Succeed())
-				clusterQueue.Spec.StopPolicy = ""
+				clusterQueue.Spec.StopPolicy = nil
 				return k8sClient.Update(ctx, &clusterQueue)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 

@@ -158,7 +158,7 @@ func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.
 	}
 	c.NamespaceSelector = nsSelector
 
-	c.isStopped = len(in.Spec.StopPolicy) > 0
+	c.isStopped = ptr.Deref(in.Spec.StopPolicy, kueue.None) != kueue.None
 
 	c.AdmissionChecks = sets.New(in.Spec.AdmissionChecks...)
 

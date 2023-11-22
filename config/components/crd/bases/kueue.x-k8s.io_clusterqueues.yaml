@@ -320,6 +320,7 @@ spec:
                 type: array
                 x-kubernetes-list-type: atomic
               stopPolicy:
+                default: None
                 description: "stopPolicy - if set the ClusterQueue is considered Inactive,
                   no new reservation being made. \n Depending on its value, its associated
                   workloads will: \n - None - Workloads are admitted - HoldAndDrain
