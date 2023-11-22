@@ -216,6 +216,22 @@ func (j *Job) PodSets() []kueue.PodSet {
 	}
 }
 
+// for prebuilt workloads we should preserve the following template labels
+var (
+	labelPrefix         = "batch.kubernetes.io/"
+	jobNameSuffix       = "job-name"
+	controllerUidSuffix = "controller-uid"
+	preservedLabelKeys  = []string{jobNameSuffix, controllerUidSuffix, labelPrefix + jobNameSuffix, labelPrefix + controllerUidSuffix}
+)
+
+func addPreservedLabelsToInfo(labels map[string]string, info *podset.PodSetInfo) {
+	for _, key := range preservedLabelKeys {
+		if v, found := labels[key]; found {
+			info.Labels[key] = v
+		}
+	}
+}
+
 func (j *Job) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
 	j.Spec.Suspend = ptr.To(false)
 	if len(podSetsInfo) != 1 {
@@ -230,6 +246,7 @@ func (j *Job) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
 			j.Spec.Completions = j.Spec.Parallelism
 		}
 	}
+	addPreservedLabelsToInfo(j.Spec.Template.Labels, &info)
 	return podset.Merge(&j.Spec.Template.ObjectMeta, &j.Spec.Template.Spec, info)
 }
 
@@ -247,7 +264,9 @@ func (j *Job) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 			j.Spec.Completions = j.Spec.Parallelism
 		}
 	}
-	changed = podset.RestorePodSpec(&j.Spec.Template.ObjectMeta, &j.Spec.Template.Spec, podSetsInfo[0]) || changed
+	info := podSetsInfo[0]
+	addPreservedLabelsToInfo(j.Spec.Template.Labels, &info)
+	changed = podset.RestorePodSpec(&j.Spec.Template.ObjectMeta, &j.Spec.Template.Spec, info) || changed
 	return changed
 }
 
