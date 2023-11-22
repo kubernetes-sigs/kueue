@@ -34,6 +34,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	visibility "sigs.k8s.io/kueue/apis/visibility/v1alpha1"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/testing"
@@ -684,6 +685,59 @@ var _ = ginkgo.Describe("Kueue", func() {
 					apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadFinished)
 
 			}, util.LongTimeout, util.Interval).Should(gomega.BeTrue())
+		})
+
+		ginkgo.It("Should run with prebuilt workload", func() {
+			// Use a binary that ends.
+			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
+				Label(constants.PrebuiltWorkloadLabel, "prebuilt-wl").
+				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.0.3", []string{"5s"}).
+				Obj()
+			// delete the queue name
+			delete(sampleJob.Labels, constants.QueueLabel)
+			testingjob.SetContainerDefaults(&sampleJob.Spec.Template.Spec.Containers[0])
+
+			wl := testing.MakeWorkload("prebuilt-wl", ns.Name).
+				Queue(localQueue.Name).
+				PodSets(
+					*testing.MakePodSet("main", 1).Containers(sampleJob.Spec.Template.Spec.Containers[0]).Obj(),
+				).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
+
+			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
+
+			createdWorkload := &kueue.Workload{}
+			wlLookupKey := client.ObjectKeyFromObject(wl)
+			createdJob := &batchv1.Job{}
+			jobLookupKey := client.ObjectKeyFromObject(sampleJob)
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, jobLookupKey, createdJob)).To(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(wl.Spec.PodSets[0].Template.Spec.Containers).To(gomega.BeComparableTo(createdJob.Spec.Template.Spec.Containers), "Check the way the job and workload is created")
+				g.Expect(createdWorkload.OwnerReferences).To(gomega.ContainElement(
+					gomega.BeComparableTo(metav1.OwnerReference{
+						Name: sampleJob.Name,
+						UID:  sampleJob.UID,
+					}, cmpopts.IgnoreFields(metav1.OwnerReference{}, "APIVersion", "Kind", "Controller", "BlockOwnerDeletion"))))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			expectJobUnsuspendedWithNodeSelectors(jobKey, map[string]string{
+				"instance-type": "on-demand",
+			})
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), createdWorkload)).To(gomega.Succeed())
+
+				g.Expect(createdWorkload.Status.Conditions).To(gomega.ContainElement(
+					gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  "JobFinished",
+						Message: "Job finished successfully",
+					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should readmit preempted job with priorityClass into a separate flavor", func() {
