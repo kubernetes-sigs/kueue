@@ -27,6 +27,18 @@ import (
 type PendingWorkload struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	// Priority indicates the workload's priority
+	Priority int32 `json:"priority"`
+
+	// LocalQueueName indicates the name of the LocalQueue the workload is submitted to
+	LocalQueueName string `json:"localQueueName"`
+
+	// PositionInClusterQueue indicates the workload's position in the ClusterQueue, starting from 0
+	PositionInClusterQueue int32 `json:"positionInClusterQueue"`
+
+	// PositionInLocalQueue indicates the workload's position in the LocalQueue, starting from 0
+	PositionInLocalQueue int32 `json:"positionInLocalQueue"`
 }
 
 // +genclient
@@ -78,7 +90,7 @@ type PendingWorkloadsSummaryList struct {
 type PendingWorkloadOptions struct {
 	metav1.TypeMeta `json:",inline"`
 
-	// Offset indicates position of the first pending workload that should be fetched starting from 0. 0 by default
+	// Offset indicates position of the first pending workload that should be fetched, starting from 0. 0 by default
 	Offset int64 `json:"offset"`
 
 	// Limit indicates max number of pending workloads that should be fetched. 1000 by default
