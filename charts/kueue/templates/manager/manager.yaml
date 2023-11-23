@@ -39,6 +39,9 @@ spec:
           successThreshold: {{ .Values.controllerManager.livenessProbe.successThreshold }}
         name: manager
         ports:
+        - containerPort: 8082
+          name: visibility
+          protocol: TCP
         - containerPort: 9443
           name: webhook-server
           protocol: TCP

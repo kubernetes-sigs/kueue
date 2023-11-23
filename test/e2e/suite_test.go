@@ -30,14 +30,18 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	visibility "sigs.k8s.io/kueue/apis/visibility/v1alpha1"
+	kueueclientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
+	visibilityv1alpha1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1alpha1"
 	kueuetest "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
 	//+kubebuilder:scaffold:imports
 )
 
 var (
-	k8sClient client.Client
-	ctx       context.Context
+	k8sClient        client.Client
+	ctx              context.Context
+	visibilityClient visibilityv1alpha1.VisibilityV1alpha1Interface
 )
 
 const (
@@ -60,7 +64,16 @@ func CreateClientUsingCluster() client.Client {
 	cfg := config.GetConfigOrDie()
 	gomega.ExpectWithOffset(1, cfg).NotTo(gomega.BeNil())
 
-	err := kueue.AddToScheme(scheme.Scheme)
+	kueueClient, err := kueueclientset.NewForConfig(cfg)
+	if err != nil {
+		panic(err)
+	}
+	visibilityClient = kueueClient.VisibilityV1alpha1()
+
+	err = kueue.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = visibility.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme

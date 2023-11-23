@@ -33,10 +33,19 @@ source "${CODEGEN_PKG}/kube_codegen.sh"
 ln -s .. sigs.k8s.io
 trap "rm sigs.k8s.io" EXIT
 
+# Generating conversion and defaults functions
 kube::codegen::gen_helpers \
   --input-pkg-root sigs.k8s.io/kueue/apis \
   --output-base "${KUEUE_ROOT}" \
   --boilerplate ${KUEUE_ROOT}/hack/boilerplate.go.txt
+
+# Generating OpenAPI for Kueue API extensions
+kube::codegen::gen_openapi \
+  --input-pkg-root sigs.k8s.io/kueue/apis/visibility \
+  --output-pkg-root sigs.k8s.io/kueue/apis/visibility/v1alpha1 \
+  --output-base "${KUEUE_ROOT}" \
+  --update-report \
+  --boilerplate "${KUEUE_ROOT}/hack/boilerplate.go.txt"
 
 kube::codegen::gen_client \
   --input-pkg-root sigs.k8s.io/kueue/apis \

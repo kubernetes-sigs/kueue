@@ -12,6 +12,9 @@ nodes:
     controllerManager:
       extraArgs:
         v: "2"
+    apiServer:
+      extraArgs:
+        enable-aggregator-routing: "true"
 - role: worker
   labels:
     instance-type: on-demand

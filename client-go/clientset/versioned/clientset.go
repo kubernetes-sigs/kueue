@@ -25,22 +25,30 @@ import (
 	rest "k8s.io/client-go/rest"
 	flowcontrol "k8s.io/client-go/util/flowcontrol"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1"
+	visibilityv1alpha1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1alpha1"
 )
 
 type Interface interface {
 	Discovery() discovery.DiscoveryInterface
 	KueueV1beta1() kueuev1beta1.KueueV1beta1Interface
+	VisibilityV1alpha1() visibilityv1alpha1.VisibilityV1alpha1Interface
 }
 
 // Clientset contains the clients for groups.
 type Clientset struct {
 	*discovery.DiscoveryClient
-	kueueV1beta1 *kueuev1beta1.KueueV1beta1Client
+	kueueV1beta1       *kueuev1beta1.KueueV1beta1Client
+	visibilityV1alpha1 *visibilityv1alpha1.VisibilityV1alpha1Client
 }
 
 // KueueV1beta1 retrieves the KueueV1beta1Client
 func (c *Clientset) KueueV1beta1() kueuev1beta1.KueueV1beta1Interface {
 	return c.kueueV1beta1
+}
+
+// VisibilityV1alpha1 retrieves the VisibilityV1alpha1Client
+func (c *Clientset) VisibilityV1alpha1() visibilityv1alpha1.VisibilityV1alpha1Interface {
+	return c.visibilityV1alpha1
 }
 
 // Discovery retrieves the DiscoveryClient
@@ -91,6 +99,10 @@ func NewForConfigAndClient(c *rest.Config, httpClient *http.Client) (*Clientset,
 	if err != nil {
 		return nil, err
 	}
+	cs.visibilityV1alpha1, err = visibilityv1alpha1.NewForConfigAndClient(&configShallowCopy, httpClient)
+	if err != nil {
+		return nil, err
+	}
 
 	cs.DiscoveryClient, err = discovery.NewDiscoveryClientForConfigAndClient(&configShallowCopy, httpClient)
 	if err != nil {
@@ -113,6 +125,7 @@ func NewForConfigOrDie(c *rest.Config) *Clientset {
 func New(c rest.Interface) *Clientset {
 	var cs Clientset
 	cs.kueueV1beta1 = kueuev1beta1.New(c)
+	cs.visibilityV1alpha1 = visibilityv1alpha1.New(c)
 
 	cs.DiscoveryClient = discovery.NewDiscoveryClient(c)
 	return &cs

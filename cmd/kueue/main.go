@@ -62,6 +62,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/pkg/util/useragent"
 	"sigs.k8s.io/kueue/pkg/version"
+	"sigs.k8s.io/kueue/pkg/visibility"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 
 	// Ensure linking of the job controllers.
@@ -174,6 +175,10 @@ func main() {
 	go func() {
 		cCache.CleanUpOnContext(ctx)
 	}()
+
+	if features.Enabled(features.VisibilityOnDemand) {
+		go visibility.CreateAndStartVisibilityServer(queues, ctx)
+	}
 
 	setupScheduler(mgr, cCache, queues)
 
