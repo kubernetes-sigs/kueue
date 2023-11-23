@@ -119,6 +119,7 @@ The `controllers/core` suite should check:
 2. Workload - Once its ClusterQueue `stopPolicy` is set, depending on the value:
 - The Reserving workloads are canceling the reservation.
 - The Admitted workloads get Evicted and the Reserving ones cancel their reservation.
+- New workload is not admitted when cluster queue is inactive
 
 ### Graduation Criteria
 
