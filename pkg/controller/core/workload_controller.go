@@ -233,7 +233,7 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 
 	log := ctrl.LoggerFrom(ctx)
 	if workload.IsAdmitted(wl) {
-		if err != nil || queueStopPolicy != kueue.HoldAndDrain || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.AdmissionCheckActive) {
+		if err != nil || queueStopPolicy != kueue.HoldAndDrain {
 			return false, nil
 		}
 		log.V(3).Info("Workload is evicted because the ClusterQueue is stopped", "clusterQueue", klog.KRef("", cqName))

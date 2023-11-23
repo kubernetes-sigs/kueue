@@ -1456,15 +1456,15 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
-		ginkgo.It("Should evict workloads when we apply stop policy is drain", func() {
-			ginkgo.By("Creating workload")
-			wl := testing.MakeWorkload("one", ns.Name).Queue(queue.Name).Obj()
-			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
-			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl)
+		ginkgo.It("Should evict workloads when stop policy is drain", func() {
+			ginkgo.By("Creating first workload")
+			wl1 := testing.MakeWorkload("one", ns.Name).Queue(queue.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl1)).To(gomega.Succeed())
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+			util.ExpectPendingWorkloadsMetric(cq, 0, 0)
 			util.ExpectReservingActiveWorkloadsMetric(cq, 1)
-			util.ExpectAdmittedWorkloadsTotalMetric(cq, 1)
 
-			ginkgo.By("Stop clusterQueue's with drain")
+			ginkgo.By("Stopping clusterQueue's")
 			var clusterQueue kueue.ClusterQueue
 			gomega.Eventually(func() error {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &clusterQueue)).To(gomega.Succeed())
@@ -1472,10 +1472,12 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				return k8sClient.Update(ctx, &clusterQueue)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
+			util.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusPending)
+
 			ginkgo.By("Checking the condition of workload is evicted", func() {
 				createdWl := kueue.Workload{}
 				gomega.Eventually(func() *metav1.Condition {
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), &createdWl)).To(gomega.Succeed())
 					return apimeta.FindStatusCondition(createdWl.Status.Conditions, kueue.WorkloadEvicted)
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(&metav1.Condition{
 					Type:    kueue.WorkloadEvicted,
@@ -1485,7 +1487,13 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
 			})
 
-			util.FinishEvictionForWorkloads(ctx, k8sClient, wl)
+			util.FinishEvictionForWorkloads(ctx, k8sClient, wl1)
+
+			ginkgo.By("Creating another workload")
+			wl2 := testing.MakeWorkload("two", ns.Name).Queue(queue.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())
+
+			util.ExpectPendingWorkloadsMetric(cq, 0, 2)
 
 			ginkgo.By("Restart clusterQueue's policy")
 			gomega.Eventually(func() error {
@@ -1494,21 +1502,12 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				return k8sClient.Update(ctx, &clusterQueue)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("Verify the workload should be readmitted", func() {
-				createdWl := kueue.Workload{}
-				gomega.Eventually(func() *metav1.Condition {
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
-					return apimeta.FindStatusCondition(createdWl.Status.Conditions, kueue.WorkloadAdmitted)
-				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(&metav1.Condition{
-					Type:    kueue.WorkloadAdmitted,
-					Status:  metav1.ConditionTrue,
-					Reason:  kueue.WorkloadAdmitted,
-					Message: "The workload is admitted",
-				}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
-			})
-			util.ExpectReservingActiveWorkloadsMetric(cq, 1)
-			util.ExpectAdmittedWorkloadsTotalMetric(cq, 2)
-			util.FinishWorkloads(ctx, k8sClient, wl)
+			util.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusActive)
+
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl2)
+			util.ExpectPendingWorkloadsMetric(cq, 0, 0)
+			util.ExpectReservingActiveWorkloadsMetric(cq, 2)
+			util.FinishWorkloads(ctx, k8sClient, wl1, wl2)
 		})
 	})
 })

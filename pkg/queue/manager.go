@@ -112,27 +112,27 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 	return nil
 }
 
-func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) error {
+func (m *Manager) UpdateClusterQueue(ctx context.Context, oldCq, newCq *kueue.ClusterQueue) error {
 	m.Lock()
 	defer m.Unlock()
-	cqImpl, ok := m.clusterQueues[cq.Name]
+	cqImpl, ok := m.clusterQueues[newCq.Name]
 	if !ok {
 		return errClusterQueueDoesNotExist
 	}
 
 	oldCohort := cqImpl.Cohort()
 	// TODO(#8): recreate heap based on a change of queueing policy.
-	if err := cqImpl.Update(cq); err != nil {
+	if err := cqImpl.Update(newCq); err != nil {
 		return err
 	}
 	newCohort := cqImpl.Cohort()
 	if oldCohort != newCohort {
-		m.updateCohort(oldCohort, newCohort, cq.Name)
+		m.updateCohort(oldCohort, newCohort, newCq.Name)
 	}
 
 	// TODO(#8): Selectively move workloads based on the exact event.
-	if m.queueAllInadmissibleWorkloadsInCohort(ctx, cqImpl) {
-		m.reportPendingWorkloads(cq.Name, cqImpl)
+	if m.queueAllInadmissibleWorkloadsInCohort(ctx, cqImpl) || oldCq.Spec.StopPolicy != newCq.Spec.StopPolicy {
+		m.reportPendingWorkloads(newCq.Name, cqImpl)
 		m.Broadcast()
 	}
 

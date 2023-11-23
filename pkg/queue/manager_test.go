@@ -160,7 +160,7 @@ func TestUpdateClusterQueue(t *testing.T) {
 
 	// Put cq2 in the same cohort as cq1.
 	clusterQueues[1].Spec.Cohort = clusterQueues[0].Spec.Cohort
-	if err := manager.UpdateClusterQueue(ctx, clusterQueues[1]); err != nil {
+	if err := manager.UpdateClusterQueue(ctx, clusterQueues[1], clusterQueues[1]); err != nil {
 		t.Fatalf("Failed to update ClusterQueue: %v", err)
 	}
 
