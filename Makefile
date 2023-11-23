@@ -108,7 +108,7 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 		rbac:roleName=manager-role output:rbac:artifacts:config=config/components/rbac\
 		crd:generateEmbeddedObjectMeta=true output:crd:artifacts:config=config/components/crd/bases\
 		webhook output:webhook:artifacts:config=config/components/webhook\
-		paths="./..."
+		paths="./apis/..."
 
 .PHONY: update-helm
 update-helm: manifests yq
@@ -116,7 +116,7 @@ update-helm: manifests yq
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations and client-go libraries.
-	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./apis/..."
 	./hack/update-codegen.sh $(GO_CMD)
 
 .PHONY: fmt

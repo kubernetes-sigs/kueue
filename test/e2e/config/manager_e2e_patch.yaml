@@ -9,4 +9,5 @@ spec:
       containers:
       - name: manager
         imagePullPolicy: IfNotPresent
-
+        args:
+          - "--feature-gates=VisibilityOnDemand=true"

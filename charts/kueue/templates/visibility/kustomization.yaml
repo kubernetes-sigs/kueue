@@ -1,0 +1,4 @@
+resources:
+- apiservice.yaml
+- role_binding.yaml
+- service.yaml

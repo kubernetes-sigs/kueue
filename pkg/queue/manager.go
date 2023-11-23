@@ -571,26 +571,30 @@ func (m *Manager) getClusterQueue(cqName string) ClusterQueue {
 	return m.clusterQueues[cqName]
 }
 
-// UpdateSnapshot computes the new snapshot and replaces if it differs from the
-// previous version. It returns true if the snapshot was actually updated.
-func (m *Manager) UpdateSnapshot(cqName string, maxCount int32) bool {
+// PendingWorkloadsInfo computes a head of the new snapshot. Length of the head is set by the maxCount parameter
+func (m *Manager) PendingWorkloadsInfo(cqName string) []kueue.ClusterQueuePendingWorkload {
+	pendingWlsInfo := make([]kueue.ClusterQueuePendingWorkload, 0)
 	cq := m.getClusterQueue(cqName)
 	if cq == nil {
-		return false
+		return pendingWlsInfo
 	}
-	newSnapshot := make([]kueue.ClusterQueuePendingWorkload, 0)
-	for index, info := range cq.Snapshot() {
-		if int32(index) >= maxCount {
-			break
-		}
+	for _, info := range cq.Snapshot() {
 		if info == nil {
 			continue
 		}
-		newSnapshot = append(newSnapshot, kueue.ClusterQueuePendingWorkload{
+		pendingWlsInfo = append(pendingWlsInfo, kueue.ClusterQueuePendingWorkload{
 			Name:      info.Obj.Name,
 			Namespace: info.Obj.Namespace,
 		})
 	}
+	return pendingWlsInfo
+}
+
+// UpdateSnapshot computes the new snapshot and replaces if it differs from the
+// previous version. It returns true if the snapshot was actually updated.
+func (m *Manager) UpdateSnapshot(cqName string, maxCount int32) bool {
+	pendingWlsInfo := m.PendingWorkloadsInfo(cqName)
+	newSnapshot := pendingWlsInfo[:min(maxCount, int32(len(pendingWlsInfo)))]
 	prevSnapshot := m.GetSnapshot(cqName)
 	if !equality.Semantic.DeepEqual(prevSnapshot, newSnapshot) {
 		m.setSnapshot(cqName, newSnapshot)

@@ -38,6 +38,128 @@ import (
 
 // +kubebuilder:docs-gen:collapse=Imports
 
+var _ = ginkgo.Describe("Kueue visibility server", func() {
+	const defaultFlavor = "default-flavor"
+	var (
+		defaultRF    *kueue.ResourceFlavor
+		localQueue   *kueue.LocalQueue
+		clusterQueue *kueue.ClusterQueue
+		ns           *corev1.Namespace
+		sampleJob1   *batchv1.Job
+		sampleJob2   *batchv1.Job
+	)
+
+	ginkgo.BeforeEach(func() {
+		ns = &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "e2e-",
+			},
+		}
+		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+	})
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+	})
+
+	ginkgo.When("There are pending workloads due to capacity maxed by the admitted job", func() {
+		ginkgo.BeforeEach(func() {
+			defaultRF = testing.MakeResourceFlavor(defaultFlavor).Obj()
+			gomega.Expect(k8sClient.Create(ctx, defaultRF)).Should(gomega.Succeed())
+
+			clusterQueue = testing.MakeClusterQueue("cluster-queue").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas(defaultFlavor).
+						Resource(corev1.ResourceCPU, "1").
+						Obj(),
+				).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).Should(gomega.Succeed())
+
+			localQueue = testing.MakeLocalQueue("main", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
+
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, defaultRF, true)
+		})
+
+		ginkgo.It("Should allow fetching information about pending workloads", func() {
+			ginkgo.By("Verify there are zero pending workloads", func() {
+				gomega.Eventually(func() int {
+					info, err := visibilityClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, clusterQueue.Name, metav1.GetOptions{})
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					return len(info.Items)
+				}, util.Timeout, util.Interval).Should(gomega.Equal(0))
+			})
+
+			ginkgo.By("Schedule a job that when admitted workload blocks the queue", func() {
+				highPriorityClass := testing.MakePriorityClass("high").PriorityValue(100).Obj()
+				gomega.Expect(k8sClient.Create(ctx, highPriorityClass))
+				ginkgo.DeferCleanup(func() {
+					gomega.Expect(k8sClient.Delete(ctx, highPriorityClass)).To(gomega.Succeed())
+				})
+
+				sampleJob1 = testingjob.MakeJob("test-job-1", ns.Name).
+					Queue(localQueue.Name).
+					Image("gcr.io/k8s-staging-perf-tests/sleep:v0.0.3", []string{"60s", "-termination-grace-period", "0s"}).
+					Request(corev1.ResourceCPU, "1").
+					TerimnationGracePeriod(1).
+					BackoffLimit(0).
+					PriorityClass(highPriorityClass.Name).
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, sampleJob1)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Schedule a job which is pending due to lower priority", func() {
+				lowPriorityClass := testing.MakePriorityClass("low").PriorityValue(50).Obj()
+				gomega.Expect(k8sClient.Create(ctx, lowPriorityClass))
+				ginkgo.DeferCleanup(func() {
+					gomega.Expect(k8sClient.Delete(ctx, lowPriorityClass)).To(gomega.Succeed())
+				})
+
+				sampleJob2 = testingjob.MakeJob("test-job-2", ns.Name).
+					Queue(localQueue.Name).
+					Image("gcr.io/k8s-staging-perf-tests/sleep:v0.0.3", []string{"1ms"}).
+					Request(corev1.ResourceCPU, "1").
+					PriorityClass(lowPriorityClass.Name).
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, sampleJob2)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verify there is one pending workload", func() {
+				gomega.Eventually(func() int {
+					info, err := visibilityClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, clusterQueue.Name, metav1.GetOptions{})
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					return len(info.Items)
+				}, util.Timeout, util.Interval).Should(gomega.Equal(1))
+			})
+
+			ginkgo.By("Await for pods to be running", func() {
+				gomega.Eventually(func() int {
+					createdJob := &batchv1.Job{}
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sampleJob1), createdJob)).Should(gomega.Succeed())
+					return int(*createdJob.Status.Ready)
+				}, util.Timeout, util.Interval).Should(gomega.Equal(1))
+			})
+
+			ginkgo.By("Terminate execution of the first workload to release the quota", func() {
+				gomega.Expect(util.DeleteAllPodsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verify there are zero pending workloads, after the second workload is admitted", func() {
+				gomega.Eventually(func() int {
+					info, err := visibilityClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, clusterQueue.Name, metav1.GetOptions{})
+					gomega.Expect(err).NotTo(gomega.HaveOccurred())
+					return len(info.Items)
+				}, util.Timeout, util.Interval).Should(gomega.Equal(0))
+			})
+		})
+	})
+})
+
 var _ = ginkgo.Describe("Kueue", func() {
 	var ns *corev1.Namespace
 	var sampleJob *batchv1.Job

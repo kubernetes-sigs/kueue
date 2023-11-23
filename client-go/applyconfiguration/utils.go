@@ -20,7 +20,9 @@ package applyconfiguration
 import (
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	v1alpha1 "sigs.k8s.io/kueue/apis/visibility/v1alpha1"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta1"
+	visibilityv1alpha1 "sigs.k8s.io/kueue/client-go/applyconfiguration/visibility/v1alpha1"
 )
 
 // ForKind returns an apply configuration type for the given GroupVersionKind, or nil if no
@@ -98,6 +100,14 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.WorkloadSpecApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("WorkloadStatus"):
 		return &kueuev1beta1.WorkloadStatusApplyConfiguration{}
+
+		// Group=visibility.kueue.x-k8s.io, Version=v1alpha1
+	case v1alpha1.SchemeGroupVersion.WithKind("ClusterQueue"):
+		return &visibilityv1alpha1.ClusterQueueApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PendingWorkload"):
+		return &visibilityv1alpha1.PendingWorkloadApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PendingWorkloadsSummary"):
+		return &visibilityv1alpha1.PendingWorkloadsSummaryApplyConfiguration{}
 
 	}
 	return nil
