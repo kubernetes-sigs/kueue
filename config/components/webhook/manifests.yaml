@@ -181,9 +181,9 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /mutate-ray-io-v1alpha1-rayjob
+      path: /mutate-ray-io-v1alpha1-raycluster
   failurePolicy: Fail
-  name: mrayjob.kb.io
+  name: mraycluster.kb.io
   rules:
   - apiGroups:
     - ray.io
@@ -192,7 +192,7 @@ webhooks:
     operations:
     - CREATE
     resources:
-    - rayjobs
+    - rayclusters
   sideEffects: None
 - admissionReviewVersions:
   - v1
@@ -463,9 +463,9 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-ray-io-v1alpha1-rayjob
+      path: /validate-ray-io-v1alpha1-raycluster
   failurePolicy: Fail
-  name: vrayjob.kb.io
+  name: vraycluster.kb.io
   rules:
   - apiGroups:
     - ray.io
@@ -475,7 +475,7 @@ webhooks:
     - CREATE
     - UPDATE
     resources:
-    - rayjobs
+    - rayclusters
   sideEffects: None
 - admissionReviewVersions:
   - v1

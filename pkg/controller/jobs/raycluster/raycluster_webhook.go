@@ -53,7 +53,7 @@ func SetupRayClusterWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/mutate-ray-io-v1alpha1-rayjob,mutating=true,failurePolicy=fail,sideEffects=None,groups=ray.io,resources=rayjobs,verbs=create,versions=v1alpha1,name=mrayjob.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-ray-io-v1alpha1-raycluster,mutating=true,failurePolicy=fail,sideEffects=None,groups=ray.io,resources=rayclusters,verbs=create,versions=v1alpha1,name=mraycluster.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomDefaulter = &RayClusterWebhook{}
 
@@ -66,7 +66,7 @@ func (w *RayClusterWebhook) Default(ctx context.Context, obj runtime.Object) err
 	return nil
 }
 
-// +kubebuilder:webhook:path=/validate-ray-io-v1alpha1-rayjob,mutating=false,failurePolicy=fail,sideEffects=None,groups=ray.io,resources=rayjobs,verbs=create;update,versions=v1alpha1,name=vrayjob.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-ray-io-v1alpha1-raycluster,mutating=false,failurePolicy=fail,sideEffects=None,groups=ray.io,resources=rayclusters,verbs=create;update,versions=v1alpha1,name=vraycluster.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomValidator = &RayClusterWebhook{}
 

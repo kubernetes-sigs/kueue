@@ -394,6 +394,7 @@ rules:
       - ray.io
     resources:
       - rayjobs
+      - rayclusters
     verbs:
       - get
       - list
@@ -404,6 +405,7 @@ rules:
       - ray.io
     resources:
       - rayjobs/status
+      - rayclusters/status
     verbs:
       - get
       - update

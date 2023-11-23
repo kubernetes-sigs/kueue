@@ -51,8 +51,8 @@ func init() {
 }
 
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
-// +kubebuilder:rbac:groups=ray.io,resources=rayjobs,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=ray.io,resources=rayjobs/status,verbs=get;update
+// +kubebuilder:rbac:groups=ray.io,resources=rayclusters,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=ray.io,resources=rayclusters/status,verbs=get;update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
