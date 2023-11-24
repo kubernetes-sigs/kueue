@@ -20,8 +20,8 @@ import (
 	"bytes"
 	"fmt"
 	"os"
-	"reflect"
 
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
@@ -116,15 +116,15 @@ func addLeaderElectionTo(o *ctrl.Options, cfg *configapi.Configuration) {
 		o.LeaderElectionID = cfg.LeaderElection.ResourceName
 	}
 
-	if o.LeaseDuration == nil && !reflect.DeepEqual(cfg.LeaderElection.LeaseDuration, metav1.Duration{}) {
+	if o.LeaseDuration == nil && !equality.Semantic.DeepEqual(cfg.LeaderElection.LeaseDuration, metav1.Duration{}) {
 		o.LeaseDuration = &cfg.LeaderElection.LeaseDuration.Duration
 	}
 
-	if o.RenewDeadline == nil && !reflect.DeepEqual(cfg.LeaderElection.RenewDeadline, metav1.Duration{}) {
+	if o.RenewDeadline == nil && !equality.Semantic.DeepEqual(cfg.LeaderElection.RenewDeadline, metav1.Duration{}) {
 		o.RenewDeadline = &cfg.LeaderElection.RenewDeadline.Duration
 	}
 
-	if o.RetryPeriod == nil && !reflect.DeepEqual(cfg.LeaderElection.RetryPeriod, metav1.Duration{}) {
+	if o.RetryPeriod == nil && !equality.Semantic.DeepEqual(cfg.LeaderElection.RetryPeriod, metav1.Duration{}) {
 		o.RetryPeriod = &cfg.LeaderElection.RetryPeriod.Duration
 	}
 }
