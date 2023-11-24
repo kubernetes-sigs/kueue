@@ -391,3 +391,4 @@ Note that, whenever possible and when the configured policy allows it, Kueue avo
 - Create [local queues](/docs/concepts/local_queue)
 - Create [resource flavors](/docs/concepts/resource_flavor) if you haven't already done so.
 - Learn how to [administer cluster quotas](/docs/tasks/administer_cluster_quotas).
+- Read the [API reference](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-ClusterQueue) for `ClusterQueue`
