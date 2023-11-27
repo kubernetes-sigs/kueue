@@ -24,7 +24,8 @@ resources:
 - localqueue_viewer_role.yaml
 - resourceflavor_editor_role.yaml
 - resourceflavor_viewer_role.yaml
-- pending_workloads_viewer_role.yaml
+- pending_workloads_cq_viewer_role.yaml
+- pending_workloads_lq_viewer_role.yaml
 - workload_editor_role.yaml
 - workload_viewer_role.yaml
 

@@ -28,6 +28,7 @@ import (
 type VisibilityV1alpha1Interface interface {
 	RESTClient() rest.Interface
 	ClusterQueuesGetter
+	LocalQueuesGetter
 }
 
 // VisibilityV1alpha1Client is used to interact with features provided by the visibility.kueue.x-k8s.io group.
@@ -37,6 +38,10 @@ type VisibilityV1alpha1Client struct {
 
 func (c *VisibilityV1alpha1Client) ClusterQueues() ClusterQueueInterface {
 	return newClusterQueues(c)
+}
+
+func (c *VisibilityV1alpha1Client) LocalQueues(namespace string) LocalQueueInterface {
+	return newLocalQueues(c, namespace)
 }
 
 // NewForConfig creates a new VisibilityV1alpha1Client for the given config.

@@ -71,6 +71,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		// Group=visibility.kueue.x-k8s.io, Version=v1alpha1
 	case v1alpha1.SchemeGroupVersion.WithResource("clusterqueues"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Visibility().V1alpha1().ClusterQueues().Informer()}, nil
+	case v1alpha1.SchemeGroupVersion.WithResource("localqueues"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Visibility().V1alpha1().LocalQueues().Informer()}, nil
 
 	}
 

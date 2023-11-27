@@ -47,9 +47,14 @@ func Install(server *genericapiserver.GenericAPIServer, kueueMgr *queue.Manager)
 	apiGroupInfo := genericapiserver.NewDefaultAPIGroupInfo(v1alpha1.GroupVersion.Group, Scheme, ParameterCodec, Codecs)
 	pendingWorkloadsInCqREST := apirest.NewPendingWorkloadsInCqREST(kueueMgr)
 	cqREST := apirest.NewCqREST()
+	pendingWorkloadsInLqREST := apirest.NewPendingWorkloadsInLqREST(kueueMgr)
+	lqREST := apirest.NewLqREST()
+
 	visibilityServerResources := map[string]rest.Storage{
 		"clusterqueues":                  cqREST,
 		"clusterqueues/pendingworkloads": pendingWorkloadsInCqREST,
+		"localqueues":                    lqREST,
+		"localqueues/pendingworkloads":   pendingWorkloadsInLqREST,
 	}
 	apiGroupInfo.VersionedResourcesStorageMap[v1alpha1.GroupVersion.Version] = visibilityServerResources
 	return server.InstallAPIGroups(&apiGroupInfo)

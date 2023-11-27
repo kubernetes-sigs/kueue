@@ -31,6 +31,10 @@ func (c *FakeVisibilityV1alpha1) ClusterQueues() v1alpha1.ClusterQueueInterface 
 	return &FakeClusterQueues{c}
 }
 
+func (c *FakeVisibilityV1alpha1) LocalQueues(namespace string) v1alpha1.LocalQueueInterface {
+	return &FakeLocalQueues{c, namespace}
+}
+
 // RESTClient returns a RESTClient that is used to communicate
 // with API server by this client implementation.
 func (c *FakeVisibilityV1alpha1) RESTClient() rest.Interface {
