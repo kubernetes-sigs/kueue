@@ -28,6 +28,10 @@ import (
 type PendingWorkloadApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:",inline"`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
+	Priority                         *int32  `json:"priority,omitempty"`
+	LocalQueueName                   *string `json:"localQueueName,omitempty"`
+	PositionInClusterQueue           *int32  `json:"positionInClusterQueue,omitempty"`
+	PositionInLocalQueue             *int32  `json:"positionInLocalQueue,omitempty"`
 }
 
 // PendingWorkloadApplyConfiguration constructs an declarative configuration of the PendingWorkload type for use with
@@ -195,4 +199,36 @@ func (b *PendingWorkloadApplyConfiguration) ensureObjectMetaApplyConfigurationEx
 	if b.ObjectMetaApplyConfiguration == nil {
 		b.ObjectMetaApplyConfiguration = &v1.ObjectMetaApplyConfiguration{}
 	}
+}
+
+// WithPriority sets the Priority field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Priority field is set to the value of the last call.
+func (b *PendingWorkloadApplyConfiguration) WithPriority(value int32) *PendingWorkloadApplyConfiguration {
+	b.Priority = &value
+	return b
+}
+
+// WithLocalQueueName sets the LocalQueueName field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the LocalQueueName field is set to the value of the last call.
+func (b *PendingWorkloadApplyConfiguration) WithLocalQueueName(value string) *PendingWorkloadApplyConfiguration {
+	b.LocalQueueName = &value
+	return b
+}
+
+// WithPositionInClusterQueue sets the PositionInClusterQueue field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PositionInClusterQueue field is set to the value of the last call.
+func (b *PendingWorkloadApplyConfiguration) WithPositionInClusterQueue(value int32) *PendingWorkloadApplyConfiguration {
+	b.PositionInClusterQueue = &value
+	return b
+}
+
+// WithPositionInLocalQueue sets the PositionInLocalQueue field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PositionInLocalQueue field is set to the value of the last call.
+func (b *PendingWorkloadApplyConfiguration) WithPositionInLocalQueue(value int32) *PendingWorkloadApplyConfiguration {
+	b.PositionInLocalQueue = &value
+	return b
 }

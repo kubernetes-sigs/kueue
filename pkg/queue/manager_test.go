@@ -1093,22 +1093,36 @@ func TestGetPendingWorkloadsInfo(t *testing.T) {
 
 	cases := map[string]struct {
 		cqName                   string
-		wantPendingWorkloadsInfo []kueue.ClusterQueuePendingWorkload
+		wantPendingWorkloadsInfo []*workload.Info
 	}{
 		"Invalid ClusterQueue name": {
 			cqName:                   "invalid",
-			wantPendingWorkloadsInfo: make([]kueue.ClusterQueuePendingWorkload, 0),
+			wantPendingWorkloadsInfo: nil,
 		},
 		"ClusterQueue with 2 pending workloads": {
 			cqName: "cq",
-			wantPendingWorkloadsInfo: []kueue.ClusterQueuePendingWorkload{
+			wantPendingWorkloadsInfo: []*workload.Info{
 				{
-					Name:      "a",
-					Namespace: "",
+					Obj: &kueue.Workload{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "a",
+							Namespace: "",
+						},
+						Spec: kueue.WorkloadSpec{
+							QueueName: "foo",
+						},
+					},
 				},
 				{
-					Name:      "b",
-					Namespace: "",
+					Obj: &kueue.Workload{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "b",
+							Namespace: "",
+						},
+						Spec: kueue.WorkloadSpec{
+							QueueName: "foo",
+						},
+					},
 				},
 			},
 		},
@@ -1116,7 +1130,12 @@ func TestGetPendingWorkloadsInfo(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			pendingWorkloadsInfo := manager.PendingWorkloadsInfo(tc.cqName)
-			if diff := cmp.Diff(tc.wantPendingWorkloadsInfo, pendingWorkloadsInfo, ignoreTypeMeta); diff != "" {
+			if diff := cmp.Diff(tc.wantPendingWorkloadsInfo, pendingWorkloadsInfo,
+				ignoreTypeMeta,
+				cmpopts.IgnoreFields(metav1.ObjectMeta{}, "CreationTimestamp"),
+				cmpopts.IgnoreFields(kueue.WorkloadSpec{}, "PodSets"),
+				cmpopts.IgnoreFields(workload.Info{}, "TotalRequests"),
+			); diff != "" {
 				t.Errorf("GetPendingWorkloadsInfo returned wrong heads (-want,+got):\n%s", diff)
 			}
 		})

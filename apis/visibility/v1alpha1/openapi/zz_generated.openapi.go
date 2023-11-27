@@ -2631,7 +2631,40 @@ func schema_kueue_apis_visibility_v1alpha1_PendingWorkload(ref common.ReferenceC
 							Ref:     ref("k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta"),
 						},
 					},
+					"priority": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Priority indicates the workload's priority",
+							Default:     0,
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"localQueueName": {
+						SchemaProps: spec.SchemaProps{
+							Description: "LocalQueueName indicates the name of the LocalQueue the workload is submitted to",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"positionInClusterQueue": {
+						SchemaProps: spec.SchemaProps{
+							Description: "PositionInClusterQueue indicates the workload's position in the ClusterQueue, starting from 0",
+							Default:     0,
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"positionInLocalQueue": {
+						SchemaProps: spec.SchemaProps{
+							Description: "PositionInLocalQueue indicates the workload's position in the LocalQueue, starting from 0",
+							Default:     0,
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
 				},
+				Required: []string{"priority", "localQueueName", "positionInClusterQueue", "positionInLocalQueue"},
 			},
 		},
 		Dependencies: []string{
@@ -2662,7 +2695,7 @@ func schema_kueue_apis_visibility_v1alpha1_PendingWorkloadOptions(ref common.Ref
 					},
 					"offset": {
 						SchemaProps: spec.SchemaProps{
-							Description: "Offset indicates position of the first pending workload that should be fetched starting from 0. 0 by default",
+							Description: "Offset indicates position of the first pending workload that should be fetched, starting from 0. 0 by default",
 							Default:     0,
 							Type:        []string{"integer"},
 							Format:      "int64",
