@@ -142,7 +142,7 @@ func (c *clusterQueueBase) requeueIfNotPresent(wInfo *workload.Info, immediate b
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	key := workload.Key(wInfo.Obj)
-	if immediate || c.queueInadmissibleCycle >= c.popCycle {
+	if immediate || c.queueInadmissibleCycle >= c.popCycle || wInfo.LastAssignment.PendingFlavors() {
 		// If the workload was inadmissible, move it back into the queue.
 		inadmissibleWl := c.inadmissibleWorkloads[key]
 		if inadmissibleWl != nil {

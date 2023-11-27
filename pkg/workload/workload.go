@@ -40,21 +40,38 @@ var (
 )
 
 type AssigmentClusterQueueState struct {
-	LastAssignedFlavorIdx  []map[corev1.ResourceName]int
+	LastTriedFlavorIdx     []map[corev1.ResourceName]int
 	CohortGeneration       int64
 	ClusterQueueGeneration int64
 }
 
 func (s *AssigmentClusterQueueState) Clone() *AssigmentClusterQueueState {
 	c := AssigmentClusterQueueState{
-		LastAssignedFlavorIdx:  make([]map[corev1.ResourceName]int, len(s.LastAssignedFlavorIdx)),
+		LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, len(s.LastTriedFlavorIdx)),
 		CohortGeneration:       s.CohortGeneration,
 		ClusterQueueGeneration: s.ClusterQueueGeneration,
 	}
-	for ps, flavorIdx := range s.LastAssignedFlavorIdx {
-		c.LastAssignedFlavorIdx[ps] = maps.Clone(flavorIdx)
+	for ps, flavorIdx := range s.LastTriedFlavorIdx {
+		c.LastTriedFlavorIdx[ps] = maps.Clone(flavorIdx)
 	}
 	return &c
+}
+
+// PendingFlavors returns whether there are pending flavors to try
+// after the last attempt.
+func (s *AssigmentClusterQueueState) PendingFlavors() bool {
+	if s == nil {
+		// This is only reached in unit tests.
+		return false
+	}
+	for _, podSetIdxs := range s.LastTriedFlavorIdx {
+		for _, idx := range podSetIdxs {
+			if idx != -1 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Info holds a Workload object and some pre-processing.

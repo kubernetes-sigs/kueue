@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	corev1 "k8s.io/api/core/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -27,38 +28,71 @@ import (
 )
 
 func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
-	tests := map[RequeueReason]struct {
+	tests := map[string]struct {
+		reason           RequeueReason
+		lastAssignment   *workload.AssigmentClusterQueueState
 		wantInadmissible bool
 	}{
-		RequeueReasonFailedAfterNomination: {
+		"failure after nomination": {
+			reason:           RequeueReasonFailedAfterNomination,
 			wantInadmissible: false,
 		},
-		RequeueReasonNamespaceMismatch: {
+		"namespace doesn't match": {
+			reason:           RequeueReasonNamespaceMismatch,
 			wantInadmissible: true,
 		},
-		RequeueReasonGeneric: {
+		"didn't fit and no pending flavors": {
+			reason: RequeueReasonGeneric,
+			lastAssignment: &workload.AssigmentClusterQueueState{
+				LastTriedFlavorIdx: []map[corev1.ResourceName]int{
+					{
+						corev1.ResourceMemory: -1,
+					},
+					{
+						corev1.ResourceCPU:    -1,
+						corev1.ResourceMemory: -1,
+					},
+				},
+			},
 			wantInadmissible: true,
+		},
+		"didn't fit but pending flavors": {
+			reason: RequeueReasonGeneric,
+			lastAssignment: &workload.AssigmentClusterQueueState{
+				LastTriedFlavorIdx: []map[corev1.ResourceName]int{
+					{
+						corev1.ResourceCPU:    -1,
+						corev1.ResourceMemory: 0,
+					},
+					{
+						corev1.ResourceMemory: 1,
+					},
+				},
+			},
+			wantInadmissible: false,
 		},
 	}
 
-	for reason, test := range tests {
-		t.Run(string(reason), func(t *testing.T) {
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
 			cq, _ := newClusterQueueBestEffortFIFO(&kueue.ClusterQueue{
 				Spec: kueue.ClusterQueueSpec{
 					QueueingStrategy: kueue.StrictFIFO,
 				},
 			})
 			wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
-			if ok := cq.RequeueIfNotPresent(workload.NewInfo(wl), reason); !ok {
+			info := workload.NewInfo(wl)
+			info.LastAssignment = tc.lastAssignment
+			if ok := cq.RequeueIfNotPresent(info, tc.reason); !ok {
 				t.Error("failed to requeue nonexistent workload")
 			}
 
 			_, gotInadmissible := cq.(*ClusterQueueBestEffortFIFO).inadmissibleWorkloads[workload.Key(wl)]
-			if diff := cmp.Diff(test.wantInadmissible, gotInadmissible); diff != "" {
+			if diff := cmp.Diff(tc.wantInadmissible, gotInadmissible); diff != "" {
 				t.Errorf("Unexpected inadmissible status (-want,+got):\n%s", diff)
 			}
 
-			if ok := cq.RequeueIfNotPresent(workload.NewInfo(wl), reason); ok {
+			if ok := cq.RequeueIfNotPresent(workload.NewInfo(wl), tc.reason); ok {
 				t.Error("Re-queued a workload that was already present")
 			}
 		})

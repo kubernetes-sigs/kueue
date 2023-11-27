@@ -220,10 +220,10 @@ func (m FlavorAssignmentMode) String() string {
 }
 
 type FlavorAssignment struct {
-	Name      kueue.ResourceFlavorReference
-	Mode      FlavorAssignmentMode
-	FlavorIdx int
-	borrow    int64
+	Name           kueue.ResourceFlavorReference
+	Mode           FlavorAssignmentMode
+	TriedFlavorIdx int
+	borrow         int64
 }
 
 func lastAssignmentOutdated(wl *workload.Info, cq *cache.ClusterQueue) bool {
@@ -238,6 +238,19 @@ func lastAssignmentOutdated(wl *workload.Info, cq *cache.ClusterQueue) bool {
 func AssignFlavors(log logr.Logger, wl *workload.Info, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, cq *cache.ClusterQueue, counts []int32) Assignment {
 	if wl.LastAssignment != nil && lastAssignmentOutdated(wl, cq) {
 		wl.LastAssignment = nil
+		if logV := log.V(6); logV.Enabled() {
+			keysValues := []any{
+				"cq.AllocatableResourceGeneration", cq.AllocatableResourceGeneration,
+				"wl.LastAssignment.ClusterQueueGeneration", wl.LastAssignment.ClusterQueueGeneration,
+			}
+			if cq.Cohort != nil {
+				keysValues = append(keysValues,
+					"cq.Cohort.AllocatableResourceGeneration", cq.Cohort.AllocatableResourceGeneration,
+					"wl.LastAssignment.CohortGeneration", wl.LastAssignment.CohortGeneration,
+				)
+			}
+			logV.Info("Cleared Worload's last assignment becaused it was outdated", keysValues...)
+		}
 	}
 
 	if len(counts) == 0 {
@@ -256,18 +269,14 @@ func assignFlavors(log logr.Logger, requests []workload.PodSetResources, podSets
 		TotalBorrow: make(cache.FlavorResourceQuantities),
 		PodSets:     make([]PodSetAssignment, 0, len(requests)),
 		Usage:       make(cache.FlavorResourceQuantities),
-	}
-	if lastAssignment != nil {
-		assignment.LastState = *lastAssignment
-	} else {
-		assignment.LastState = workload.AssigmentClusterQueueState{
-			LastAssignedFlavorIdx:  make([]map[corev1.ResourceName]int, 0, len(podSets)),
+		LastState: workload.AssigmentClusterQueueState{
+			LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, 0, len(podSets)),
 			CohortGeneration:       0,
 			ClusterQueueGeneration: cq.AllocatableResourceGeneration,
-		}
-		if cq.Cohort != nil {
-			assignment.LastState.CohortGeneration = cq.Cohort.AllocatableResourceGeneration
-		}
+		},
+	}
+	if cq.Cohort != nil {
+		assignment.LastState.CohortGeneration = cq.Cohort.AllocatableResourceGeneration
 	}
 
 	for i, podSet := range requests {
@@ -297,8 +306,8 @@ func assignFlavors(log logr.Logger, requests []workload.PodSetResources, podSets
 				break
 			}
 			lastFlavorAssignment := -1
-			if lastAssignment != nil && len(lastAssignment.LastAssignedFlavorIdx) > i {
-				idx, ok := lastAssignment.LastAssignedFlavorIdx[i][resName]
+			if lastAssignment != nil && len(lastAssignment.LastTriedFlavorIdx) > i {
+				idx, ok := lastAssignment.LastTriedFlavorIdx[i][resName]
 				if ok {
 					lastFlavorAssignment = idx
 				}
@@ -352,9 +361,9 @@ func (a *Assignment) append(requests workload.Requests, psAssignment *PodSetAssi
 			a.Usage[flvAssignment.Name] = make(map[corev1.ResourceName]int64)
 		}
 		a.Usage[flvAssignment.Name][resource] += requests[resource]
-		flavorIdx[resource] = flvAssignment.FlavorIdx
+		flavorIdx[resource] = flvAssignment.TriedFlavorIdx
 	}
-	a.LastState.LastAssignedFlavorIdx = append(a.LastState.LastAssignedFlavorIdx, flavorIdx)
+	a.LastState.LastTriedFlavorIdx = append(a.LastState.LastTriedFlavorIdx, flavorIdx)
 }
 
 // findFlavorForResourceGroup finds the flavor which can satisfy the resource
@@ -458,9 +467,9 @@ func (a *Assignment) findFlavorForResourceGroup(
 		for _, assignment := range bestAssignment {
 			if flavorIdx == len(rg.Flavors)-1 {
 				// we have reach the last flavor, try from the first flavor next time
-				assignment.FlavorIdx = -1
+				assignment.TriedFlavorIdx = -1
 			} else {
-				assignment.FlavorIdx = flavorIdx
+				assignment.TriedFlavorIdx = flavorIdx
 			}
 		}
 		if bestAssignmentMode == Fit {
