@@ -192,3 +192,9 @@ func (p *PodWrapper) Delete() *PodWrapper {
 	p.Pod.DeletionTimestamp = &t
 	return p
 }
+
+// Volume adds a new volume for the pod object
+func (p *PodWrapper) Volume(v corev1.Volume) *PodWrapper {
+	p.Pod.Spec.Volumes = append(p.Pod.Spec.Volumes, v)
+	return p
+}

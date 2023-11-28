@@ -144,12 +144,13 @@ func TestReconciler(t *testing.T) {
 		Image("", nil)
 
 	testCases := map[string]struct {
-		initObjects     []client.Object
-		pods            []corev1.Pod
-		wantPods        []corev1.Pod
-		workloads       []kueue.Workload
-		wantWorkloads   []kueue.Workload
-		wantErr         error
+		initObjects   []client.Object
+		pods          []corev1.Pod
+		wantPods      []corev1.Pod
+		workloads     []kueue.Workload
+		wantWorkloads []kueue.Workload
+		// wantErrs should be the same length and order as pods
+		wantErrs        []error
 		workloadCmpOpts []cmp.Option
 		// If true, the test will delete workloads before running reconcile
 		deleteWorkloads bool
@@ -210,7 +211,7 @@ func TestReconciler(t *testing.T) {
 					Admitted(true).
 					Obj(),
 			},
-			wantErr:         jobframework.ErrNoMatchingWorkloads,
+			wantErrs:        []error{jobframework.ErrNoMatchingWorkloads},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"the workload is created when queue name is set": {
@@ -966,6 +967,7 @@ func TestReconciler(t *testing.T) {
 					Queue("test-queue").
 					Group("test-group").
 					GroupTotalCount("2").
+					StatusPhase(corev1.PodSucceeded).
 					Obj(),
 			},
 			wantPods: []corev1.Pod{},
@@ -1410,6 +1412,9 @@ func TestReconciler(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			if tc.wantErrs != nil && len(tc.wantErrs) != len(tc.pods) {
+				t.Fatalf("pods and wantErrs in the test should be the same length and order")
+			}
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder()
 			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
@@ -1451,13 +1456,20 @@ func TestReconciler(t *testing.T) {
 			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
 			reconciler := NewReconciler(kClient, recorder)
 
-			for _, pod := range tc.pods {
-				podKey := client.ObjectKeyFromObject(&pod)
+			for i := range tc.pods {
+				podKey := client.ObjectKeyFromObject(&tc.pods[i])
 				_, err := reconciler.Reconcile(ctx, reconcile.Request{
 					NamespacedName: podKey,
 				})
 
-				if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				var wantErr error
+				if tc.wantErrs == nil {
+					wantErr = nil
+				} else {
+					wantErr = tc.wantErrs[i]
+				}
+
+				if diff := cmp.Diff(wantErr, err, cmpopts.EquateErrors()); diff != "" {
 					t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
 				}
 			}
