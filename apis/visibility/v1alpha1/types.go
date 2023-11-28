@@ -50,7 +50,7 @@ type ClusterQueue struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Summary PendingWorkloadsSummary `json:"pendingworkloadsummary"`
+	Summary PendingWorkloadsSummary `json:"pendingWorkloadsSummary"`
 }
 
 // +kubebuilder:object:root=true
