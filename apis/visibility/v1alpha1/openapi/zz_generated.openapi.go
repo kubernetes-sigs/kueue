@@ -2541,14 +2541,14 @@ func schema_kueue_apis_visibility_v1alpha1_ClusterQueue(ref common.ReferenceCall
 							Ref:     ref("k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta"),
 						},
 					},
-					"pendingworkloadsummary": {
+					"pendingWorkloadsSummary": {
 						SchemaProps: spec.SchemaProps{
 							Default: map[string]interface{}{},
 							Ref:     ref("sigs.k8s.io/kueue/apis/visibility/v1alpha1.PendingWorkloadsSummary"),
 						},
 					},
 				},
-				Required: []string{"pendingworkloadsummary"},
+				Required: []string{"pendingWorkloadsSummary"},
 			},
 		},
 		Dependencies: []string{

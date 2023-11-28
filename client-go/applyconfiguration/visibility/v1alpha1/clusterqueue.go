@@ -28,7 +28,7 @@ import (
 type ClusterQueueApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:",inline"`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Summary                          *PendingWorkloadsSummaryApplyConfiguration `json:"pendingworkloadsummary,omitempty"`
+	Summary                          *PendingWorkloadsSummaryApplyConfiguration `json:"pendingWorkloadsSummary,omitempty"`
 }
 
 // ClusterQueue constructs an declarative configuration of the ClusterQueue type for use with
