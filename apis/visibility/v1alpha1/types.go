@@ -61,6 +61,25 @@ type ClusterQueueList struct {
 	Items []ClusterQueue `json:"items"`
 }
 
+// +genclient
+// +kubebuilder:object:root=true
+// +k8s:openapi-gen=true
+// +genclient:method=GetPendingWorkloadsSummary,verb=get,subresource=pendingworkloads,result=sigs.k8s.io/kueue/apis/visibility/v1alpha1.PendingWorkloadsSummary
+type LocalQueue struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Summary PendingWorkloadsSummary `json:"pendingWorkloadsSummary"`
+}
+
+// +kubebuilder:object:root=true
+type LocalQueueList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+
+	Items []LocalQueue `json:"items"`
+}
+
 // +k8s:openapi-gen=true
 // +kubebuilder:object:root=true
 

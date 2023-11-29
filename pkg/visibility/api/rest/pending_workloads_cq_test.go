@@ -32,7 +32,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
-func TestPendingWorkloads(t *testing.T) {
+func TestPendingWorkloadsInCQ(t *testing.T) {
 	const (
 		nsName   = "foo"
 		cqNameA  = "cqA"

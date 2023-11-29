@@ -104,6 +104,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		// Group=visibility.kueue.x-k8s.io, Version=v1alpha1
 	case v1alpha1.SchemeGroupVersion.WithKind("ClusterQueue"):
 		return &visibilityv1alpha1.ClusterQueueApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("LocalQueue"):
+		return &visibilityv1alpha1.LocalQueueApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PendingWorkload"):
 		return &visibilityv1alpha1.PendingWorkloadApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PendingWorkloadsSummary"):

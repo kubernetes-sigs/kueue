@@ -25,6 +25,8 @@ import (
 type Interface interface {
 	// ClusterQueues returns a ClusterQueueInformer.
 	ClusterQueues() ClusterQueueInformer
+	// LocalQueues returns a LocalQueueInformer.
+	LocalQueues() LocalQueueInformer
 }
 
 type version struct {
@@ -41,4 +43,9 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 // ClusterQueues returns a ClusterQueueInformer.
 func (v *version) ClusterQueues() ClusterQueueInformer {
 	return &clusterQueueInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+}
+
+// LocalQueues returns a LocalQueueInformer.
+func (v *version) LocalQueues() LocalQueueInformer {
+	return &localQueueInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }

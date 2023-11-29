@@ -579,6 +579,13 @@ func (m *Manager) PendingWorkloadsInfo(cqName string) []*workload.Info {
 	return cq.Snapshot()
 }
 
+func (m *Manager) ClusterQueueFromLocalQueue(lqName string) (string, error) {
+	if lq, ok := m.localQueues[lqName]; ok {
+		return lq.ClusterQueue, nil
+	}
+	return "", errQueueDoesNotExist
+}
+
 // UpdateSnapshot computes the new snapshot and replaces if it differs from the
 // previous version. It returns true if the snapshot was actually updated.
 func (m *Manager) UpdateSnapshot(cqName string, maxCount int32) bool {
