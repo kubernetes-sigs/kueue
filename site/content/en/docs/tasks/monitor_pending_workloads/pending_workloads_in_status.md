@@ -1,9 +1,9 @@
 ---
-title: "Monitor pending workloads"
+title: "Pending workloads in Status"
 date: 2023-09-27
 weight: 3
 description: >
-  Monitor pending workloads.
+  Pending workloads in Status
 ---
 
 This page shows you how to monitor pending workloads.
