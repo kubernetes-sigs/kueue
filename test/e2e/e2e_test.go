@@ -17,6 +17,7 @@ limitations under the License.
 package e2e
 
 import (
+	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -43,6 +44,13 @@ import (
 
 var _ = ginkgo.Describe("Kueue visibility server", func() {
 	const defaultFlavor = "default-flavor"
+
+	// We do not check workload's Name and its OwnerReference's UID as they are generated at the server-side.
+	var pendingWorkloadsCmpOpts = []cmp.Option{
+		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Name"),
+		cmpopts.IgnoreFields(metav1.OwnerReference{}, "UID"),
+	}
+
 	var (
 		defaultRF         *kueue.ResourceFlavor
 		localQueueA       *kueue.LocalQueue
@@ -212,7 +220,8 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 				wantPendingWorkloads := []visibility.PendingWorkload{
 					{
 						ObjectMeta: metav1.ObjectMeta{
-							Namespace: nsA.Name,
+							Namespace:       nsA.Name,
+							OwnerReferences: defaultOwnerReferenceForJob("lq-a-high-prio"),
 						},
 						Priority:               highPriorityClass.Value,
 						PositionInLocalQueue:   0,
@@ -221,7 +230,8 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{
-							Namespace: nsA.Name,
+							Namespace:       nsA.Name,
+							OwnerReferences: defaultOwnerReferenceForJob("lq-b-mid-prio"),
 						},
 						Priority:               midPriorityClass.Value,
 						PositionInLocalQueue:   0,
@@ -230,7 +240,8 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{
-							Namespace: nsA.Name,
+							Namespace:       nsA.Name,
+							OwnerReferences: defaultOwnerReferenceForJob("lq-b-low-prio"),
 						},
 						Priority:               lowPriorityClass.Value,
 						PositionInLocalQueue:   1,
@@ -242,8 +253,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 					info, err := visibilityClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, clusterQueue.Name, metav1.GetOptions{})
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					return info.Items
-					// We do not check Name as it's generated for workloads
-				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(wantPendingWorkloads, cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Name")))
+				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(wantPendingWorkloads, pendingWorkloadsCmpOpts...))
 			})
 		})
 
@@ -331,7 +341,8 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 				wantPendingWorkloads := []visibility.PendingWorkload{
 					{
 						ObjectMeta: metav1.ObjectMeta{
-							Namespace: nsA.Name,
+							Namespace:       nsA.Name,
+							OwnerReferences: defaultOwnerReferenceForJob("lq-a-high-prio"),
 						},
 						Priority:               highPriorityClass.Value,
 						PositionInLocalQueue:   0,
@@ -343,15 +354,15 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 					info, err := visibilityClient.LocalQueues(nsA.Name).GetPendingWorkloadsSummary(ctx, localQueueA.Name, metav1.GetOptions{})
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					return info.Items
-					// We do not check Name as it's generated for workloads
-				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(wantPendingWorkloads, cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Name")))
+				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(wantPendingWorkloads, pendingWorkloadsCmpOpts...))
 			})
 
 			ginkgo.By("Verify their positions and priorities in LocalQueueB", func() {
 				wantPendingWorkloads := []visibility.PendingWorkload{
 					{
 						ObjectMeta: metav1.ObjectMeta{
-							Namespace: nsA.Name,
+							Namespace:       nsA.Name,
+							OwnerReferences: defaultOwnerReferenceForJob("lq-b-mid-prio"),
 						},
 						Priority:               midPriorityClass.Value,
 						PositionInLocalQueue:   0,
@@ -360,7 +371,8 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{
-							Namespace: nsA.Name,
+							Namespace:       nsA.Name,
+							OwnerReferences: defaultOwnerReferenceForJob("lq-b-low-prio"),
 						},
 						Priority:               lowPriorityClass.Value,
 						PositionInLocalQueue:   1,
@@ -372,8 +384,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 					info, err := visibilityClient.LocalQueues(nsA.Name).GetPendingWorkloadsSummary(ctx, localQueueB.Name, metav1.GetOptions{})
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					return info.Items
-					// We do not check Name as it's generated for workloads
-				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(wantPendingWorkloads, cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Name")))
+				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(wantPendingWorkloads, pendingWorkloadsCmpOpts...))
 			})
 		})
 		ginkgo.It("Should allow fetching information about position of pending workloads from different LocalQueues from different Namespaces", func() {
@@ -424,7 +435,8 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 				wantPendingWorkloads := []visibility.PendingWorkload{
 					{
 						ObjectMeta: metav1.ObjectMeta{
-							Namespace: nsA.Name,
+							Namespace:       nsA.Name,
+							OwnerReferences: defaultOwnerReferenceForJob("lq-a-high-prio"),
 						},
 						Priority:               highPriorityClass.Value,
 						PositionInLocalQueue:   0,
@@ -436,15 +448,15 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 					info, err := visibilityClient.LocalQueues(nsA.Name).GetPendingWorkloadsSummary(ctx, localQueueA.Name, metav1.GetOptions{})
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					return info.Items
-					// We do not check Name as it's generated for workloads
-				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(wantPendingWorkloads, cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Name")))
+				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(wantPendingWorkloads, pendingWorkloadsCmpOpts...))
 			})
 
 			ginkgo.By("Verify their positions and priorities in LocalQueueB", func() {
 				wantPendingWorkloads := []visibility.PendingWorkload{
 					{
 						ObjectMeta: metav1.ObjectMeta{
-							Namespace: nsB.Name,
+							Namespace:       nsB.Name,
+							OwnerReferences: defaultOwnerReferenceForJob("lq-b-mid-prio"),
 						},
 						Priority:               midPriorityClass.Value,
 						PositionInLocalQueue:   0,
@@ -453,7 +465,8 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 					},
 					{
 						ObjectMeta: metav1.ObjectMeta{
-							Namespace: nsB.Name,
+							Namespace:       nsB.Name,
+							OwnerReferences: defaultOwnerReferenceForJob("lq-b-low-prio"),
 						},
 						Priority:               lowPriorityClass.Value,
 						PositionInLocalQueue:   1,
@@ -465,8 +478,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 					info, err := visibilityClient.LocalQueues(nsA.Name).GetPendingWorkloadsSummary(ctx, localQueueB.Name, metav1.GetOptions{})
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					return info.Items
-					// We do not check Name as it's generated for workloads
-				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(wantPendingWorkloads, cmpopts.IgnoreFields(metav1.ObjectMeta{}, "Name")))
+				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(wantPendingWorkloads, pendingWorkloadsCmpOpts...))
 			})
 		})
 	})
@@ -866,4 +878,14 @@ func expectJobUnsuspendedWithNodeSelectors(key types.NamespacedName, ns map[stri
 		gomega.Expect(k8sClient.Get(ctx, key, job)).To(gomega.Succeed())
 		return []any{*job.Spec.Suspend, job.Spec.Template.Spec.NodeSelector}
 	}, util.Timeout, util.Interval).Should(gomega.Equal([]any{false, ns}))
+}
+
+func defaultOwnerReferenceForJob(name string) []metav1.OwnerReference {
+	return []metav1.OwnerReference{
+		{
+			APIVersion: "batch/v1",
+			Kind:       "Job",
+			Name:       name,
+		},
+	}
 }

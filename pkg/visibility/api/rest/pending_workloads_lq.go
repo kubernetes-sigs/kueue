@@ -20,7 +20,6 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/rest"
@@ -86,16 +85,7 @@ func (m *pendingWorkloadsInLqREST) Get(ctx context.Context, name string, opts ru
 				skippedWls++
 			} else {
 				// Add a workload to results
-				wls = append(wls, v1alpha1.PendingWorkload{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      wlInfo.Obj.Name,
-						Namespace: wlInfo.Obj.Namespace,
-					},
-					PositionInClusterQueue: int32(index),
-					Priority:               *wlInfo.Obj.Spec.Priority,
-					LocalQueueName:         name,
-					PositionInLocalQueue:   int32(len(wls) + int(offset)),
-				})
+				wls = append(wls, *newPendingWorkload(wlInfo, int32(len(wls)+int(offset)), index))
 			}
 		}
 	}

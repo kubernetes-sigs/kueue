@@ -19,12 +19,11 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apiserver/pkg/registry/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	v1alpha1 "sigs.k8s.io/kueue/apis/visibility/v1alpha1"
+	"sigs.k8s.io/kueue/apis/visibility/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
 
@@ -78,16 +77,7 @@ func (m *pendingWorkloadsInCqREST) Get(ctx context.Context, name string, opts ru
 
 		if index >= int(offset) {
 			// Add a workload to results
-			wls = append(wls, v1alpha1.PendingWorkload{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      wlInfo.Obj.Name,
-					Namespace: wlInfo.Obj.Namespace,
-				},
-				PositionInClusterQueue: int32(index),
-				Priority:               *wlInfo.Obj.Spec.Priority,
-				LocalQueueName:         queueName,
-				PositionInLocalQueue:   positionInLocalQueue,
-			})
+			wls = append(wls, *newPendingWorkload(wlInfo, positionInLocalQueue, index))
 		}
 	}
 	return &v1alpha1.PendingWorkloadsSummary{Items: wls}, nil
