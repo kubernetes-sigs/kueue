@@ -248,7 +248,7 @@ func (p *Pod) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
-func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, eventMsg string) (bool, error) {
+func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, stopReason jobframework.StopReason, eventMsg string) (bool, error) {
 	var podsInGroup []corev1.Pod
 
 	if p.isGroup {
@@ -258,7 +258,8 @@ func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, 
 	}
 
 	for i := range podsInGroup {
-		if podSuspended(&podsInGroup[i]) || !podsInGroup[i].DeletionTimestamp.IsZero() {
+		// If the workload is being deleted, delete even finished Pods.
+		if !podsInGroup[i].DeletionTimestamp.IsZero() || (stopReason != jobframework.StopReasonWorkloadDeleted && podSuspended(&podsInGroup[i])) {
 			continue
 		}
 		podInGroup := fromObject(&podsInGroup[i])
@@ -293,26 +294,17 @@ func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, 
 		}
 	}
 
-	return true, nil
-}
-
-// hasIssuedAllStops will return true if all pods in the group has been stopped
-func (p *Pod) hasIssuedAllStops() bool {
-	var podsInGroup []corev1.Pod
-
-	if p.isGroup {
-		podsInGroup = p.list.Items
-	} else {
-		podsInGroup = []corev1.Pod{p.pod}
-	}
-
-	for i := range podsInGroup {
-		if podsInGroup[i].ObjectMeta.DeletionTimestamp.IsZero() {
-			return false
+	// If related workload is deleted, the generic reconciler will stop the pod group and finalize the workload.
+	// However, it won't finalize the pods. Since the Stop method for the pod group deletes all the pods in the
+	// group, the pods will be finalized here.
+	if p.isGroup && stopReason == jobframework.StopReasonWorkloadDeleted {
+		err := p.Finalize(ctx, c)
+		if err != nil {
+			return false, err
 		}
 	}
 
-	return true
+	return true, nil
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
@@ -397,15 +389,7 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key types.NamespacedNam
 		return false, err
 	}
 
-	wl, toDelete, err := p.FindMatchingWorkloads(ctx, c)
-	if err != nil {
-		return false, err
-	}
-
-	// If related workload is deleted, the generic reconciler will stop the pod group and finalize the workload.
-	// However, it won't finalize the pods. Since the Stop method for the pod group deletes all the pods in the
-	// group, the pods will be finalized here, on the next reconciliation.
-	return wl == nil && len(toDelete) == 0 && p.hasIssuedAllStops(), nil
+	return false, nil
 }
 
 func (p *Pod) constructGroupPodSets(podsInGroup corev1.PodList) ([]kueue.PodSet, error) {

@@ -122,7 +122,6 @@ func volumesShape(volumes []corev1.Volume) (result []corev1.Volume) {
 }
 
 func getRoleHash(p *Pod) (string, error) {
-
 	shape := map[string]interface{}{
 		"metadata": map[string]interface{}{
 			"labels": omitKueueLabels(p.pod.ObjectMeta.Labels),

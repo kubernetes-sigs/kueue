@@ -246,7 +246,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// and drop the finalizer.
 	if wl != nil && !wl.DeletionTimestamp.IsZero() {
 		log.V(2).Info("The workload is marked for deletion")
-		err := r.stopJob(ctx, job, object, wl, "Workload is deleted")
+		err := r.stopJob(ctx, job, wl, StopReasonWorkloadDeleted, "Workload is deleted")
 		if err != nil {
 			log.Error(err, "Suspending job with deleted workload")
 		}
@@ -311,7 +311,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// 6. handle eviction
 	if evCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted); evCond != nil && evCond.Status == metav1.ConditionTrue {
-		if err := r.stopJob(ctx, job, object, wl, evCond.Message); err != nil {
+		if err := r.stopJob(ctx, job, wl, StopReasonWorkloadEvicted, evCond.Message); err != nil {
 			return ctrl.Result{}, err
 		}
 		if workload.HasQuotaReservation(wl) {
@@ -367,7 +367,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	if !workload.IsAdmitted(wl) {
 		// the job must be suspended if the workload is not yet admitted.
 		log.V(2).Info("Running job is not admitted by a cluster queue, suspending")
-		err := r.stopJob(ctx, job, object, wl, "Not admitted by cluster queue")
+		err := r.stopJob(ctx, job, wl, StopReasonNotAdmitted, "Not admitted by cluster queue")
 		if err != nil {
 			log.Error(err, "Suspending job with non admitted workload")
 		}
@@ -455,7 +455,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 				return nil, fmt.Errorf("finalizing job with no matching workload: %w", err)
 			}
 		} else {
-			if err := r.stopJob(ctx, job, object, w, "No matching Workload"); err != nil {
+			if err := r.stopJob(ctx, job, w, StopReasonNoMatchingWorkload, "No matching Workload"); err != nil {
 				return nil, fmt.Errorf("stopping job with no matching workload: %w", err)
 			}
 		}
@@ -597,14 +597,17 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 
 // stopJob will suspend the job, and also restore node affinity, reset job status if needed.
 // Returns whether any operation was done to stop the job or an error.
-func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload, eventMsg string) error {
+func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.Workload, stopReason StopReason, eventMsg string) error {
+	object := job.Object()
+
 	info := GetPodSetsInfoFromWorkload(wl)
 
 	if jws, implements := job.(JobWithCustomStop); implements {
-		stoppedNow, err := jws.Stop(ctx, r.client, info, eventMsg)
+		stoppedNow, err := jws.Stop(ctx, r.client, info, stopReason, eventMsg)
 		if stoppedNow {
 			r.record.Eventf(object, corev1.EventTypeNormal, "Stopped", eventMsg)
 		}
+
 		return err
 	}
 
