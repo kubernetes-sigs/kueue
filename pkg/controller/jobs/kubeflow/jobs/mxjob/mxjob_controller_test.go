@@ -407,6 +407,18 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		"workload shouldn't be recreated for the completed mx job": {
+			job: testingmxjob.MakeMXJob("mxjob", "ns").
+				Queue("foo").
+				StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: v1.ConditionTrue}).
+				Obj(),
+			workloads: []kueue.Workload{},
+			wantJob: testingmxjob.MakeMXJob("mxjob", "ns").
+				Queue("foo").
+				StatusConditions(kftraining.JobCondition{Type: kftraining.JobSucceeded, Status: v1.ConditionTrue}).
+				Obj(),
+			wantWorkloads: []kueue.Workload{},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

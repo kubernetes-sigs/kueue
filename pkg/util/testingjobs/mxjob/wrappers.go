@@ -197,3 +197,9 @@ func (j *MXJobWrapper) Active(rType kftraining.ReplicaType, c int32) *MXJobWrapp
 	}
 	return j
 }
+
+// StatusConditions updates status conditions of the MXJob.
+func (j *MXJobWrapper) StatusConditions(conditions ...kftraining.JobCondition) *MXJobWrapper {
+	j.Status.Conditions = conditions
+	return j
+}
