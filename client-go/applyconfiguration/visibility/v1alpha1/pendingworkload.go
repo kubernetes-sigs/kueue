@@ -26,7 +26,6 @@ import (
 // PendingWorkloadApplyConfiguration represents an declarative configuration of the PendingWorkload type for use
 // with apply.
 type PendingWorkloadApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:",inline"`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	Priority                         *int32  `json:"priority,omitempty"`
 	LocalQueueName                   *string `json:"localQueueName,omitempty"`
@@ -37,26 +36,7 @@ type PendingWorkloadApplyConfiguration struct {
 // PendingWorkloadApplyConfiguration constructs an declarative configuration of the PendingWorkload type for use with
 // apply.
 func PendingWorkload() *PendingWorkloadApplyConfiguration {
-	b := &PendingWorkloadApplyConfiguration{}
-	b.WithKind("PendingWorkload")
-	b.WithAPIVersion("visibility.kueue.x-k8s.io/v1alpha1")
-	return b
-}
-
-// WithKind sets the Kind field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Kind field is set to the value of the last call.
-func (b *PendingWorkloadApplyConfiguration) WithKind(value string) *PendingWorkloadApplyConfiguration {
-	b.Kind = &value
-	return b
-}
-
-// WithAPIVersion sets the APIVersion field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the APIVersion field is set to the value of the last call.
-func (b *PendingWorkloadApplyConfiguration) WithAPIVersion(value string) *PendingWorkloadApplyConfiguration {
-	b.APIVersion = &value
-	return b
+	return &PendingWorkloadApplyConfiguration{}
 }
 
 // WithName sets the Name field in the declarative configuration to the given value
