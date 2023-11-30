@@ -39,7 +39,6 @@ tags, and then generate with `hack/update-toc.sh`.
   - [API endpoints:](#api-endpoints)
     - [List pending workloads in ClusterQueue](#list-pending-workloads-in-clusterqueue)
     - [List pending workloads in LocalQueue](#list-pending-workloads-in-localqueue)
-    - [Fetch information about a single pending Workload](#fetch-information-about-a-single-pending-workload)
   - [API Objects:](#api-objects)
   - [Future extensions](#future-extensions)
   - [Test Plan](#test-plan)
@@ -91,7 +90,6 @@ Users can observe outdated information, which might not be convenient.
 
 - Support listing pending workloads on positions from X to Y in a ClusterQueue, no matter the size of the queue, and without delay,
 - Support listing pending workloads on positions from X to Y in a LocalQueue, no matter the size of the queue, and without delay,
-- Support fetching information about a specific pending workload, no matter its position in the queue, and without delay,
 - Provide consitent data across all the LocalQueues without hitting `QPS`.
 
 ### Non-Goals
@@ -101,10 +99,10 @@ Users can observe outdated information, which might not be convenient.
 - Provide information about the requested resource for a workload,
 
 ## Proposal
-Add new API exposing information about pending workloads relevant for their position in the queue, along with the position itself. There are three such endpoints:
-1. to list the pending workloads in ClusterQueue
-2. list the pending workloads in LocalQueue, and
-3. get a specific pending workload.
+Add new API exposing information about pending workloads relevant for their position in the queue, along with the position itself. There are two such endpoints:
+1. List the pending workloads in ClusterQueue,
+2. List the pending workloads in LocalQueue,
+
 In order to expose the API endpoints we introduce a new Extension API server.
 
 ### User Stories
@@ -113,7 +111,7 @@ In order to expose the API endpoints we introduce a new Extension API server.
 
 As a user of Kueue with LocalQueue visibility only, I would like to know the position in the ClusterQueue of a workload that I've just submitted, no matter how big the queue is. Knowing the position and assuming stable velocity in the ClusterQueue, would allow me to estimate the arrival time of my workload.
 
-Provided by the [LocalQueue endpoint](#list-all-pending-workloads-in-localqueue) and the [Workload endpoint](#fetch-information-about-a-single-pending-workload).
+Provided by the [LocalQueue endpoint](#list-all-pending-workloads-in-localqueue).
 
 #### Story 2 
 
@@ -187,11 +185,6 @@ GET /apis/visibility.kueue.x-k8s.io/VERSION/clusterqueues/CQ_NAME/pendingworkloa
 #### List pending workloads in LocalQueue
 ```
 GET /apis/visibility.kueue.x-k8s.io/VERSION/namespaces/LQ_NAMESPACE/localqueues/LQ_NAME/pendingworkloads?offset=0&limit=1000
-```
-
-#### Fetch information about a single pending Workload
-```
-GET /apis/visibility.kueue.x-k8s.io/VERSION/namespaces/WL_NAMESPACE/pendingworkloads/WL_NAME
 ```
 
 Those endpoints can be accessed using `kubectl get --raw <ENDPOINT_PATH>` command.
