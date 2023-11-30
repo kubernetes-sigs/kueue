@@ -20,27 +20,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// +kubebuilder:object:root=true
-
-// PendingWorkload is a user-facing representation of a pending workload that summarizes the relevant information for
-// position in the cluster queue.
-type PendingWorkload struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
-
-	// Priority indicates the workload's priority
-	Priority int32 `json:"priority"`
-
-	// LocalQueueName indicates the name of the LocalQueue the workload is submitted to
-	LocalQueueName string `json:"localQueueName"`
-
-	// PositionInClusterQueue indicates the workload's position in the ClusterQueue, starting from 0
-	PositionInClusterQueue int32 `json:"positionInClusterQueue"`
-
-	// PositionInLocalQueue indicates the workload's position in the LocalQueue, starting from 0
-	PositionInLocalQueue int32 `json:"positionInLocalQueue"`
-}
-
 // +genclient
 // +kubebuilder:object:root=true
 // +k8s:openapi-gen=true
@@ -78,6 +57,24 @@ type LocalQueueList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 
 	Items []LocalQueue `json:"items"`
+}
+
+// PendingWorkload is a user-facing representation of a pending workload that summarizes the relevant information for
+// position in the cluster queue.
+type PendingWorkload struct {
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	// Priority indicates the workload's priority
+	Priority int32 `json:"priority"`
+
+	// LocalQueueName indicates the name of the LocalQueue the workload is submitted to
+	LocalQueueName string `json:"localQueueName"`
+
+	// PositionInClusterQueue indicates the workload's position in the ClusterQueue, starting from 0
+	PositionInClusterQueue int32 `json:"positionInClusterQueue"`
+
+	// PositionInLocalQueue indicates the workload's position in the LocalQueue, starting from 0
+	PositionInLocalQueue int32 `json:"positionInLocalQueue"`
 }
 
 // +k8s:openapi-gen=true
