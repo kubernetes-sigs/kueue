@@ -21,7 +21,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apiserver/pkg/endpoints/request"
@@ -398,7 +397,7 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 					}
 				} else {
 					pendingWorkloadsInfo := info.(*visibility.PendingWorkloadsSummary)
-					if diff := cmp.Diff(resp.wantPendingWorkloads, pendingWorkloadsInfo.Items, cmpopts.IgnoreTypes(metav1.TypeMeta{})); diff != "" {
+					if diff := cmp.Diff(resp.wantPendingWorkloads, pendingWorkloadsInfo.Items, cmpopts.EquateEmpty()); diff != "" {
 						t.Errorf("Pending workloads differ: (-want,+got):\n%s", diff)
 					}
 				}

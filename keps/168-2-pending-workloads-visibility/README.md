@@ -222,6 +222,8 @@ type PendingWorkloadsSummary struct {
 }
 ```
 
+A user can easily identify the Job that is an owner of the pending workload. To enable it, the API uses `metav1.OwnerReferences` field to indicate the owner, typically the job created by the user. 
+
 ### Future extensions
 
 The introduced API uses mechanism of subresources. It means, that in the future it can be easily extended by adding additional endpoints related e.g. to admitted workloads. Potentially the endpoint could look like this:
