@@ -53,6 +53,7 @@ ARTIFACTS ?= $(PROJECT_DIR)/bin
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
 BASE_IMAGE ?= gcr.io/distroless/static:nonroot
 BUILDER_IMAGE ?= golang:$(GO_VERSION)
+CGO_ENABLED ?= 0
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION ?= 1.28
@@ -211,6 +212,7 @@ image-build:
 		--platform=$(PLATFORMS) \
 		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
 		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
+		--build-arg CGO_ENABLED=$(CGO_ENABLED) \
 		$(PUSH) \
 		$(IMAGE_BUILD_EXTRA_OPTS) ./
 
