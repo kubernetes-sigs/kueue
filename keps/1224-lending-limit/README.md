@@ -63,8 +63,6 @@ So we want to reserve some resources for a `ClusterQueue`, so that any incoming 
 
 With both BorrowingLimit and LendingLimit configured, one clusterQueue may not be able to borrow up to the limit just because we reserved the lending limit quota of resource.
 
-To reduce confusion, we will recommend to users to only set borrowingLimit or lendingLimit, but not both, even though both will be supported at the same time.
-
 ### Risks and Mitigations
 
 None.
@@ -93,7 +91,7 @@ type ResourceQuota struct {
 
 #### Note
 
-We have considered adding this status field, but deprecated it in the end. Because unused resources from multiple CQs compose a single pool of shareable resources, and we cannot precisely calculate this value.
+We have considered adding this status field, but discarded it. Because unused resources from multiple CQs compose a single pool of shareable resources, we cannot precisely calculate this value.
 
 So there is no concept of A is borrowing from B. A is borrowing from all the unused resource of B, C and any other CQs in the cohort.
 
@@ -145,10 +143,10 @@ After the implementation PR is merged, add the names of the tests here.
   - When cq-b and cq-c's LendingLimit both set:
     - When cq-a's BorrowingLimit unset, cq-a can borrow as much as `(cq-b's LendingLimit + cq-c's LendingLimit)`.
     - When cq-a's BorrowingLimit set, cq-a can borrow as much as `min((cq-b's LendingLimit + cq-c's LendingLimit), cq-a's BorrowingLimit)`.
-- In a ClusterQueue with 2 ResourceFlavors a, b:
-  - When rf-b's LendingLimit set, and FlavorFungibility set to `WhenCanBorrow: Borrow`:
-    - When rf-b's BorrowingLimit unset, cq-a can borrow as much as `cq-b's LendingLimit`.
-    - When rf-b's BorrowingLimit set, cq-a can borrow as much as `min(cq-b's LendingLimit, cq-a's BorrowingLimit)`.
+- In a cohort with 2 ClusterQueues cq-a, cq-b and 2 ResourceFlavors rf-a, rf-b:
+  - When rf-b's LendingLimit set, and cq-a's FlavorFungibility set to `WhenCanBorrow: TryNextFlavor`:
+    - When rf-a's BorrowingLimit unset, cq-a can borrow as much as `rf-b's LendingLimit`.
+    - When rf-a's BorrowingLimit set, cq-a can borrow as much as `min(rf-b's LendingLimit, rf-a's BorrowingLimit)`.
 
 ### Graduation Criteria
 
