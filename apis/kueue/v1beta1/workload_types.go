@@ -59,6 +59,17 @@ type WorkloadSpec struct {
 	// +kubebuilder:default=""
 	// +kubebuilder:validation:Enum=kueue.x-k8s.io/workloadpriorityclass;scheduling.k8s.io/priorityclass;""
 	PriorityClassSource string `json:"priorityClassSource,omitempty"`
+
+	// Active determines if a workload can be admitted into a queue.
+	// Changing active from true to false will evict any running workloads.
+	// Possible values are:
+	//
+	//   - false: indicates that a workload should never be admitted and evicts running workloads
+	//   - true: indicates that a workload can be evaluated for admission into it's respective queue.
+	//
+	// Defaults to true
+	// +kubebuilder:default=true
+	Active *bool `json:"active,omitempty"`
 }
 
 type Admission struct {
@@ -267,6 +278,10 @@ const (
 	// WorkloadEvictedByAdmissionCheck indicates that the workload was evicted
 	// beacuse at least one admission check transitioned to False.
 	WorkloadEvictedByAdmissionCheck = "AdmissionCheck"
+
+	// WorkloadEvictedByDeactivation indicates that the workload was evicted
+	// because spec.active is set to false.
+	WorkloadEvictedByDeactivation = "InactiveWorkload"
 )
 
 // +genclient

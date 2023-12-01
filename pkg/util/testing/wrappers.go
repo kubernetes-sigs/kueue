@@ -102,6 +102,11 @@ func (w *WorkloadWrapper) Queue(q string) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) Active(a bool) *WorkloadWrapper {
+	w.Spec.Active = ptr.To(a)
+	return w
+}
+
 // ReserveQuota sets workload admission and adds a "QuotaReserved" status condition
 func (w *WorkloadWrapper) ReserveQuota(a *kueue.Admission) *WorkloadWrapper {
 	w.Status.Admission = a
