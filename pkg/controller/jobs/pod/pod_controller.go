@@ -575,14 +575,22 @@ func (p *Pod) equivalentToWorkload(wl *kueue.Workload, jobPodSets []kueue.PodSet
 		return false
 	}
 
-	for i := range wl.Spec.PodSets {
-		if i >= len(jobPodSets) {
-			return true
+	// Match the current state of pod sets
+	// to the pod set info in the workload
+	j := -1
+	for i := range jobPodSets {
+		for j++; j < len(wl.Spec.PodSets); j++ {
+			if jobPodSets[i].Name == wl.Spec.PodSets[j].Name {
+				break
+			}
 		}
-		if !workloadFinished && wl.Spec.PodSets[i].Count < jobPodSets[i].Count {
+		// If actual pod set info has a role that workload doesn't have,
+		// consider workload not an equivalent to the pod group
+		if j == len(wl.Spec.PodSets) {
 			return false
 		}
-		if wl.Spec.PodSets[i].Name != jobPodSets[i].Name {
+		// Check counts for found pod sets
+		if !workloadFinished && wl.Spec.PodSets[j].Count < jobPodSets[i].Count {
 			return false
 		}
 	}
