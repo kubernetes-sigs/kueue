@@ -239,6 +239,13 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	if wl != nil && apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
+		// Finalize the job if it's finished
+		if _, finished := job.Finished(); finished {
+			if err := r.finalizeJob(ctx, job); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+
 		return ctrl.Result{}, r.removeFinalizer(ctx, wl)
 	}
 
@@ -258,15 +265,17 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	// 2. handle job is finished.
-	if condition, finished := job.Finished(); finished && wl != nil {
+	if condition, finished := job.Finished(); finished {
+		if wl != nil && !apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
+			err := workload.UpdateStatus(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName)
+			if err != nil && !apierrors.IsNotFound(err) {
+				return ctrl.Result{}, err
+			}
+		}
+
 		// Execute job finalization logic
 		if err := r.finalizeJob(ctx, job); err != nil {
 			return ctrl.Result{}, err
-		}
-
-		err := workload.UpdateStatus(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName)
-		if err != nil {
-			log.Error(err, "Updating workload status")
 		}
 
 		return ctrl.Result{}, nil
@@ -460,11 +469,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			w = toDelete[0]
 		}
 
-		if _, finished := job.Finished(); finished {
-			if err := r.finalizeJob(ctx, job); err != nil {
-				return nil, fmt.Errorf("finalizing job with no matching workload: %w", err)
-			}
-		} else {
+		if _, finished := job.Finished(); !finished {
 			if err := r.stopJob(ctx, job, w, StopReasonNoMatchingWorkload, "No matching Workload"); err != nil {
 				return nil, fmt.Errorf("stopping job with no matching workload: %w", err)
 			}

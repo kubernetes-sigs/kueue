@@ -1658,6 +1658,16 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		"the workload shouldn't be recreated for the completed job": {
+			job: *baseJobWrapper.Clone().
+				Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
+				Obj(),
+			workloads: []kueue.Workload{},
+			wantJob: *baseJobWrapper.Clone().
+				Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
+				Obj(),
+			wantWorkloads: []kueue.Workload{},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
