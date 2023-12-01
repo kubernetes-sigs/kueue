@@ -1874,7 +1874,7 @@ func TestAssignFlavors(t *testing.T) {
 				t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
 			}
 
-			if diff := cmp.Diff(tc.wantAssignment, assignment, cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}), cmpopts.IgnoreFields(Assignment{}, "LastState"), cmpopts.IgnoreFields(FlavorAssignment{}, "FlavorIdx")); diff != "" {
+			if diff := cmp.Diff(tc.wantAssignment, assignment, cmpopts.IgnoreUnexported(Assignment{}, FlavorAssignment{}), cmpopts.IgnoreFields(Assignment{}, "LastState"), cmpopts.IgnoreFields(FlavorAssignment{}, "TriedFlavorIdx")); diff != "" {
 				t.Errorf("Unexpected assignment (-want,+got):\n%s", diff)
 			}
 		})

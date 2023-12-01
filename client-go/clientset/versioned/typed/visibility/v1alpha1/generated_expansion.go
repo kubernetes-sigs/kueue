@@ -18,3 +18,5 @@ limitations under the License.
 package v1alpha1
 
 type ClusterQueueExpansion interface{}
+
+type LocalQueueExpansion interface{}

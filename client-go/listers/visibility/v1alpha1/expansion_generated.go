@@ -20,3 +20,11 @@ package v1alpha1
 // ClusterQueueListerExpansion allows custom methods to be added to
 // ClusterQueueLister.
 type ClusterQueueListerExpansion interface{}
+
+// LocalQueueListerExpansion allows custom methods to be added to
+// LocalQueueLister.
+type LocalQueueListerExpansion interface{}
+
+// LocalQueueNamespaceListerExpansion allows custom methods to be added to
+// LocalQueueNamespaceLister.
+type LocalQueueNamespaceListerExpansion interface{}

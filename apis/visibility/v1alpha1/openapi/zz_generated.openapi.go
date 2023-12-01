@@ -84,6 +84,8 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		"k8s.io/apimachinery/pkg/version.Info":                                   schema_k8sio_apimachinery_pkg_version_Info(ref),
 		"sigs.k8s.io/kueue/apis/visibility/v1alpha1.ClusterQueue":                schema_kueue_apis_visibility_v1alpha1_ClusterQueue(ref),
 		"sigs.k8s.io/kueue/apis/visibility/v1alpha1.ClusterQueueList":            schema_kueue_apis_visibility_v1alpha1_ClusterQueueList(ref),
+		"sigs.k8s.io/kueue/apis/visibility/v1alpha1.LocalQueue":                  schema_kueue_apis_visibility_v1alpha1_LocalQueue(ref),
+		"sigs.k8s.io/kueue/apis/visibility/v1alpha1.LocalQueueList":              schema_kueue_apis_visibility_v1alpha1_LocalQueueList(ref),
 		"sigs.k8s.io/kueue/apis/visibility/v1alpha1.PendingWorkload":             schema_kueue_apis_visibility_v1alpha1_PendingWorkload(ref),
 		"sigs.k8s.io/kueue/apis/visibility/v1alpha1.PendingWorkloadOptions":      schema_kueue_apis_visibility_v1alpha1_PendingWorkloadOptions(ref),
 		"sigs.k8s.io/kueue/apis/visibility/v1alpha1.PendingWorkloadsSummary":     schema_kueue_apis_visibility_v1alpha1_PendingWorkloadsSummary(ref),
@@ -2541,14 +2543,14 @@ func schema_kueue_apis_visibility_v1alpha1_ClusterQueue(ref common.ReferenceCall
 							Ref:     ref("k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta"),
 						},
 					},
-					"pendingworkloadsummary": {
+					"pendingWorkloadsSummary": {
 						SchemaProps: spec.SchemaProps{
 							Default: map[string]interface{}{},
 							Ref:     ref("sigs.k8s.io/kueue/apis/visibility/v1alpha1.PendingWorkloadsSummary"),
 						},
 					},
 				},
-				Required: []string{"pendingworkloadsummary"},
+				Required: []string{"pendingWorkloadsSummary"},
 			},
 		},
 		Dependencies: []string{
@@ -2604,12 +2606,11 @@ func schema_kueue_apis_visibility_v1alpha1_ClusterQueueList(ref common.Reference
 	}
 }
 
-func schema_kueue_apis_visibility_v1alpha1_PendingWorkload(ref common.ReferenceCallback) common.OpenAPIDefinition {
+func schema_kueue_apis_visibility_v1alpha1_LocalQueue(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "PendingWorkload is a user-facing representation of a pending workload that summarizes the relevant information for position in the cluster queue.",
-				Type:        []string{"object"},
+				Type: []string{"object"},
 				Properties: map[string]spec.Schema{
 					"kind": {
 						SchemaProps: spec.SchemaProps{
@@ -2631,7 +2632,116 @@ func schema_kueue_apis_visibility_v1alpha1_PendingWorkload(ref common.ReferenceC
 							Ref:     ref("k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta"),
 						},
 					},
+					"pendingWorkloadsSummary": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref("sigs.k8s.io/kueue/apis/visibility/v1alpha1.PendingWorkloadsSummary"),
+						},
+					},
 				},
+				Required: []string{"pendingWorkloadsSummary"},
+			},
+		},
+		Dependencies: []string{
+			"k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta", "sigs.k8s.io/kueue/apis/visibility/v1alpha1.PendingWorkloadsSummary"},
+	}
+}
+
+func schema_kueue_apis_visibility_v1alpha1_LocalQueueList(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Type: []string{"object"},
+				Properties: map[string]spec.Schema{
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"apiVersion": {
+						SchemaProps: spec.SchemaProps{
+							Description: "APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"metadata": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref("k8s.io/apimachinery/pkg/apis/meta/v1.ListMeta"),
+						},
+					},
+					"items": {
+						SchemaProps: spec.SchemaProps{
+							Type: []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("sigs.k8s.io/kueue/apis/visibility/v1alpha1.LocalQueue"),
+									},
+								},
+							},
+						},
+					},
+				},
+				Required: []string{"items"},
+			},
+		},
+		Dependencies: []string{
+			"k8s.io/apimachinery/pkg/apis/meta/v1.ListMeta", "sigs.k8s.io/kueue/apis/visibility/v1alpha1.LocalQueue"},
+	}
+}
+
+func schema_kueue_apis_visibility_v1alpha1_PendingWorkload(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "PendingWorkload is a user-facing representation of a pending workload that summarizes the relevant information for position in the cluster queue.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"metadata": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref("k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta"),
+						},
+					},
+					"priority": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Priority indicates the workload's priority",
+							Default:     0,
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"localQueueName": {
+						SchemaProps: spec.SchemaProps{
+							Description: "LocalQueueName indicates the name of the LocalQueue the workload is submitted to",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"positionInClusterQueue": {
+						SchemaProps: spec.SchemaProps{
+							Description: "PositionInClusterQueue indicates the workload's position in the ClusterQueue, starting from 0",
+							Default:     0,
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"positionInLocalQueue": {
+						SchemaProps: spec.SchemaProps{
+							Description: "PositionInLocalQueue indicates the workload's position in the LocalQueue, starting from 0",
+							Default:     0,
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+				},
+				Required: []string{"priority", "localQueueName", "positionInClusterQueue", "positionInLocalQueue"},
 			},
 		},
 		Dependencies: []string{
@@ -2662,7 +2772,7 @@ func schema_kueue_apis_visibility_v1alpha1_PendingWorkloadOptions(ref common.Ref
 					},
 					"offset": {
 						SchemaProps: spec.SchemaProps{
-							Description: "Offset indicates position of the first pending workload that should be fetched starting from 0. 0 by default",
+							Description: "Offset indicates position of the first pending workload that should be fetched, starting from 0. 0 by default",
 							Default:     0,
 							Type:        []string{"integer"},
 							Format:      "int64",

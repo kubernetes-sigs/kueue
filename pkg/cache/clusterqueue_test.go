@@ -3,7 +3,9 @@ package cache
 import (
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -264,4 +266,88 @@ func TestCohortCanFit(t *testing.T) {
 		})
 	}
 
+}
+
+func TestClusterQueueUpdate(t *testing.T) {
+	resourceFlavors := []*kueue.ResourceFlavor{
+		{ObjectMeta: metav1.ObjectMeta{Name: "on-demand"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "spot"}},
+	}
+	clusterQueue :=
+		*utiltesting.MakeClusterQueue("eng-alpha").
+			QueueingStrategy(kueue.StrictFIFO).
+			Preemption(kueue.ClusterQueuePreemption{
+				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+			}).
+			FlavorFungibility(kueue.FlavorFungibility{
+				WhenCanPreempt: kueue.Preempt,
+			}).
+			ResourceGroup(
+				*utiltesting.MakeFlavorQuotas("on-demand").
+					Resource(corev1.ResourceCPU, "50", "50").Obj(),
+				*utiltesting.MakeFlavorQuotas("spot").
+					Resource(corev1.ResourceCPU, "100", "0").Obj(),
+			).Obj()
+	newClusterQueue :=
+		*utiltesting.MakeClusterQueue("eng-alpha").
+			QueueingStrategy(kueue.StrictFIFO).
+			Preemption(kueue.ClusterQueuePreemption{
+				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+			}).
+			FlavorFungibility(kueue.FlavorFungibility{
+				WhenCanPreempt: kueue.Preempt,
+			}).
+			ResourceGroup(
+				*utiltesting.MakeFlavorQuotas("on-demand").
+					Resource(corev1.ResourceCPU, "100", "50").Obj(),
+				*utiltesting.MakeFlavorQuotas("spot").
+					Resource(corev1.ResourceCPU, "100", "0").Obj(),
+			).Obj()
+	cases := []struct {
+		name                         string
+		cq                           *kueue.ClusterQueue
+		newcq                        *kueue.ClusterQueue
+		wantLastAssignmentGeneration int64
+	}{
+		{
+			name:                         "RGs not change",
+			cq:                           &clusterQueue,
+			newcq:                        clusterQueue.DeepCopy(),
+			wantLastAssignmentGeneration: 1,
+		},
+		{
+			name:                         "RGs changed",
+			cq:                           &clusterQueue,
+			newcq:                        &newClusterQueue,
+			wantLastAssignmentGeneration: 2,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			clientBuilder := utiltesting.NewClientBuilder().
+				WithObjects(
+					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
+					tc.cq,
+				)
+			cl := clientBuilder.Build()
+			cqCache := New(cl)
+			// Workloads are loaded into queues or clusterQueues as we add them.
+			for _, rf := range resourceFlavors {
+				cqCache.AddOrUpdateResourceFlavor(rf)
+			}
+			if err := cqCache.AddClusterQueue(ctx, tc.cq); err != nil {
+				t.Fatalf("Inserting clusterQueue %s in cache: %v", tc.cq.Name, err)
+			}
+			if err := cqCache.UpdateClusterQueue(tc.newcq); err != nil {
+				t.Fatalf("Updating clusterQueue %s in cache: %v", tc.newcq.Name, err)
+			}
+			snapshot := cqCache.Snapshot()
+			if diff := cmp.Diff(
+				tc.wantLastAssignmentGeneration,
+				snapshot.ClusterQueues["eng-alpha"].AllocatableResourceGeneration); diff != "" {
+				t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
+			}
+		})
+	}
 }

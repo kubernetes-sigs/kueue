@@ -19,12 +19,11 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apiserver/pkg/registry/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	v1alpha1 "sigs.k8s.io/kueue/apis/visibility/v1alpha1"
+	"sigs.k8s.io/kueue/apis/visibility/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
 
@@ -55,7 +54,7 @@ func (m *pendingWorkloadsInCqREST) New() runtime.Object {
 // Destroy implements rest.Storage interface
 func (m *pendingWorkloadsInCqREST) Destroy() {}
 
-// Get implements rest.Getter interface
+// Get implements rest.GetterWithOptions interface
 // It fetches information about pending workloads and returns according to query params
 func (m *pendingWorkloadsInCqREST) Get(ctx context.Context, name string, opts runtime.Object) (runtime.Object, error) {
 	pendingWorkloadOpts, ok := opts.(*v1alpha1.PendingWorkloadOptions)
@@ -66,15 +65,20 @@ func (m *pendingWorkloadsInCqREST) Get(ctx context.Context, name string, opts ru
 	offset := pendingWorkloadOpts.Offset
 
 	wls := make([]v1alpha1.PendingWorkload, 0, limit)
-	allPendingWorkloads := m.queueMgr.PendingWorkloadsInfo(name)
-	for index := offset; index < offset+limit && index < int64(len(allPendingWorkloads)); index++ {
-		wlInfo := allPendingWorkloads[index]
-		wls = append(wls, v1alpha1.PendingWorkload{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      wlInfo.Name,
-				Namespace: wlInfo.Namespace,
-			},
-		})
+	pendingWorkloadsInfo := m.queueMgr.PendingWorkloadsInfo(name)
+	localQueuePositions := make(map[string]int32, 0)
+
+	for index := 0; index < int(offset+limit) && index < len(pendingWorkloadsInfo); index++ {
+		// Update positions in LocalQueue
+		wlInfo := pendingWorkloadsInfo[index]
+		queueName := wlInfo.Obj.Spec.QueueName
+		positionInLocalQueue := localQueuePositions[queueName]
+		localQueuePositions[queueName]++
+
+		if index >= int(offset) {
+			// Add a workload to results
+			wls = append(wls, *newPendingWorkload(wlInfo, positionInLocalQueue, index))
+		}
 	}
 	return &v1alpha1.PendingWorkloadsSummary{Items: wls}, nil
 }

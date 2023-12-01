@@ -1,3 +1,14 @@
+## v0.5.1
+
+Changes since `v0.5.0`:
+
+### Bug or Regression
+
+- Fix client-go libraries bug that can not operate clusterScoped resources like ClusterQueue and ResourceFlavor. (#1294, @tenzen-y)
+- Fixed fungiblity policy `whenCanPreempt: Preempt`. The admission should happen in the flavor for which preemptions were issued. (#1332, @alculquicondor)
+- Fix a bug that plain pods managed by kueue will remain a terminating condition forever. (#1342, @tenzen-y)
+- Fix fungibility policy `Preempt` where it was not able to utilize the next flavor if preemption was not possible. (#1366, @alculquicondor, @KunWuLuan)
+
 ## v0.5.0
 
 Changes since `v0.4.0`:

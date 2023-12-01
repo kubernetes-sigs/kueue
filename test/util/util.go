@@ -19,6 +19,7 @@ package util
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -30,10 +31,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/metrics/testutil"
-
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -107,6 +109,9 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 	if err := c.DeleteAllOf(ctx, &kueue.LocalQueue{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
+	if err := DeleteAllPodsInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
 	if err := DeleteWorkloadsInNamespace(ctx, c, ns); err != nil {
 		return err
 	}
@@ -129,10 +134,31 @@ func DeleteAllJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.N
 }
 
 func DeleteAllPodsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
-	err := c.DeleteAllOf(ctx, &corev1.Pod{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
+	err := c.DeleteAllOf(ctx, &corev1.Pod{}, client.InNamespace(ns.Name))
 	if err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
+
+	lst := corev1.PodList{}
+	err = c.List(ctx, &lst, client.InNamespace(ns.Name))
+	if err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+
+	if len(lst.Items) == 0 {
+		return nil
+	}
+
+	for _, p := range lst.Items {
+		copy := p.DeepCopy()
+		if controllerutil.RemoveFinalizer(copy, pod.PodFinalizer) {
+			err = c.Update(ctx, copy)
+			if err != nil && !apierrors.IsNotFound(err) {
+				return err
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -140,6 +166,31 @@ func DeleteWorkloadsInNamespace(ctx context.Context, c client.Client, ns *corev1
 	if err := c.DeleteAllOf(ctx, &kueue.Workload{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
+
+	gomega.Eventually(func() error {
+		lst := kueue.WorkloadList{}
+		err := c.List(ctx, &lst, client.InNamespace(ns.Name))
+		if err != nil {
+			return err
+		}
+
+		if len(lst.Items) == 0 {
+			return nil
+		}
+
+		for _, p := range lst.Items {
+			copy := p.DeepCopy()
+			if controllerutil.RemoveFinalizer(copy, kueue.ResourceInUseFinalizerName) {
+				err = c.Update(ctx, copy)
+				if err != nil && !apierrors.IsNotFound(err) {
+					return err
+				}
+			}
+		}
+
+		return nil
+	}, time.Second*30, time.Second*5).Should(gomega.Succeed())
+
 	return nil
 }
 
@@ -524,4 +575,22 @@ func VerifyWorkloadPriority(createdWorkload *kueue.Workload, priorityClassName s
 	ginkgo.By("checking the workload is created with priority and priorityName")
 	gomega.ExpectWithOffset(1, createdWorkload.Spec.PriorityClassName).Should(gomega.Equal(priorityClassName))
 	gomega.ExpectWithOffset(1, *createdWorkload.Spec.Priority).Should(gomega.Equal(int32(priorityValue)))
+}
+
+func SetPodsPhase(ctx context.Context, k8sClient client.Client, phase corev1.PodPhase, pods ...*corev1.Pod) {
+	for _, p := range pods {
+		updatedPod := corev1.Pod{}
+		gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &updatedPod)).To(gomega.Succeed())
+		updatedPod.Status.Phase = phase
+		gomega.ExpectWithOffset(1, k8sClient.Status().Update(ctx, &updatedPod)).To(gomega.Succeed())
+	}
+}
+
+func ExpectPodUnsuspendedWithNodeSelectors(ctx context.Context, k8sClient client.Client, key types.NamespacedName, ns map[string]string) {
+	createdPod := &corev1.Pod{}
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, key, createdPod)).To(gomega.Succeed())
+		g.Expect(createdPod.Spec.SchedulingGates).NotTo(gomega.ContainElement(corev1.PodSchedulingGate{Name: pod.SchedulingGateName}))
+		g.Expect(createdPod.Spec.NodeSelector).To(gomega.BeComparableTo(ns))
+	}, Timeout, Interval).Should(gomega.Succeed())
 }

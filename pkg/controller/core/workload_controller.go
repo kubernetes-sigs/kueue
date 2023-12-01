@@ -32,6 +32,7 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -376,6 +377,7 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 	status := workloadStatus(wl)
 	log := r.log.WithValues("workload", klog.KObj(wl), "queue", wl.Spec.QueueName, "status", status)
 	ctx := ctrl.LoggerInto(context.Background(), log)
+	active := ptr.Deref(wl.Spec.Active, true)
 
 	prevQueue := oldWl.Spec.QueueName
 	if prevQueue != wl.Spec.QueueName {
@@ -398,7 +400,10 @@ func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {
 	workload.AdjustResources(ctrl.LoggerInto(ctx, log), r.client, wlCopy)
 
 	switch {
-	case status == finished:
+	case status == finished || !active:
+		if !active {
+			log.V(2).Info("Workload will not be queued because the workload is not active", "workload", klog.KObj(wl))
+		}
 		// The workload could have been in the queues if we missed an event.
 		r.queues.DeleteWorkload(wl)
 

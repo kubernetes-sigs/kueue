@@ -23,26 +23,45 @@ import (
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
-// PendingWorkloadApplyConfiguration represents an declarative configuration of the PendingWorkload type for use
+// LocalQueueApplyConfiguration represents an declarative configuration of the LocalQueue type for use
 // with apply.
-type PendingWorkloadApplyConfiguration struct {
+type LocalQueueApplyConfiguration struct {
+	v1.TypeMetaApplyConfiguration    `json:",inline"`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Priority                         *int32  `json:"priority,omitempty"`
-	LocalQueueName                   *string `json:"localQueueName,omitempty"`
-	PositionInClusterQueue           *int32  `json:"positionInClusterQueue,omitempty"`
-	PositionInLocalQueue             *int32  `json:"positionInLocalQueue,omitempty"`
+	Summary                          *PendingWorkloadsSummaryApplyConfiguration `json:"pendingWorkloadsSummary,omitempty"`
 }
 
-// PendingWorkloadApplyConfiguration constructs an declarative configuration of the PendingWorkload type for use with
+// LocalQueue constructs an declarative configuration of the LocalQueue type for use with
 // apply.
-func PendingWorkload() *PendingWorkloadApplyConfiguration {
-	return &PendingWorkloadApplyConfiguration{}
+func LocalQueue(name, namespace string) *LocalQueueApplyConfiguration {
+	b := &LocalQueueApplyConfiguration{}
+	b.WithName(name)
+	b.WithNamespace(namespace)
+	b.WithKind("LocalQueue")
+	b.WithAPIVersion("visibility.kueue.x-k8s.io/v1alpha1")
+	return b
+}
+
+// WithKind sets the Kind field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Kind field is set to the value of the last call.
+func (b *LocalQueueApplyConfiguration) WithKind(value string) *LocalQueueApplyConfiguration {
+	b.Kind = &value
+	return b
+}
+
+// WithAPIVersion sets the APIVersion field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the APIVersion field is set to the value of the last call.
+func (b *LocalQueueApplyConfiguration) WithAPIVersion(value string) *LocalQueueApplyConfiguration {
+	b.APIVersion = &value
+	return b
 }
 
 // WithName sets the Name field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Name field is set to the value of the last call.
-func (b *PendingWorkloadApplyConfiguration) WithName(value string) *PendingWorkloadApplyConfiguration {
+func (b *LocalQueueApplyConfiguration) WithName(value string) *LocalQueueApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.Name = &value
 	return b
@@ -51,7 +70,7 @@ func (b *PendingWorkloadApplyConfiguration) WithName(value string) *PendingWorkl
 // WithGenerateName sets the GenerateName field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the GenerateName field is set to the value of the last call.
-func (b *PendingWorkloadApplyConfiguration) WithGenerateName(value string) *PendingWorkloadApplyConfiguration {
+func (b *LocalQueueApplyConfiguration) WithGenerateName(value string) *LocalQueueApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.GenerateName = &value
 	return b
@@ -60,7 +79,7 @@ func (b *PendingWorkloadApplyConfiguration) WithGenerateName(value string) *Pend
 // WithNamespace sets the Namespace field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Namespace field is set to the value of the last call.
-func (b *PendingWorkloadApplyConfiguration) WithNamespace(value string) *PendingWorkloadApplyConfiguration {
+func (b *LocalQueueApplyConfiguration) WithNamespace(value string) *LocalQueueApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.Namespace = &value
 	return b
@@ -69,7 +88,7 @@ func (b *PendingWorkloadApplyConfiguration) WithNamespace(value string) *Pending
 // WithUID sets the UID field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the UID field is set to the value of the last call.
-func (b *PendingWorkloadApplyConfiguration) WithUID(value types.UID) *PendingWorkloadApplyConfiguration {
+func (b *LocalQueueApplyConfiguration) WithUID(value types.UID) *LocalQueueApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.UID = &value
 	return b
@@ -78,7 +97,7 @@ func (b *PendingWorkloadApplyConfiguration) WithUID(value types.UID) *PendingWor
 // WithResourceVersion sets the ResourceVersion field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the ResourceVersion field is set to the value of the last call.
-func (b *PendingWorkloadApplyConfiguration) WithResourceVersion(value string) *PendingWorkloadApplyConfiguration {
+func (b *LocalQueueApplyConfiguration) WithResourceVersion(value string) *LocalQueueApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ResourceVersion = &value
 	return b
@@ -87,7 +106,7 @@ func (b *PendingWorkloadApplyConfiguration) WithResourceVersion(value string) *P
 // WithGeneration sets the Generation field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Generation field is set to the value of the last call.
-func (b *PendingWorkloadApplyConfiguration) WithGeneration(value int64) *PendingWorkloadApplyConfiguration {
+func (b *LocalQueueApplyConfiguration) WithGeneration(value int64) *LocalQueueApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.Generation = &value
 	return b
@@ -96,7 +115,7 @@ func (b *PendingWorkloadApplyConfiguration) WithGeneration(value int64) *Pending
 // WithCreationTimestamp sets the CreationTimestamp field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the CreationTimestamp field is set to the value of the last call.
-func (b *PendingWorkloadApplyConfiguration) WithCreationTimestamp(value metav1.Time) *PendingWorkloadApplyConfiguration {
+func (b *LocalQueueApplyConfiguration) WithCreationTimestamp(value metav1.Time) *LocalQueueApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.CreationTimestamp = &value
 	return b
@@ -105,7 +124,7 @@ func (b *PendingWorkloadApplyConfiguration) WithCreationTimestamp(value metav1.T
 // WithDeletionTimestamp sets the DeletionTimestamp field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the DeletionTimestamp field is set to the value of the last call.
-func (b *PendingWorkloadApplyConfiguration) WithDeletionTimestamp(value metav1.Time) *PendingWorkloadApplyConfiguration {
+func (b *LocalQueueApplyConfiguration) WithDeletionTimestamp(value metav1.Time) *LocalQueueApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.DeletionTimestamp = &value
 	return b
@@ -114,7 +133,7 @@ func (b *PendingWorkloadApplyConfiguration) WithDeletionTimestamp(value metav1.T
 // WithDeletionGracePeriodSeconds sets the DeletionGracePeriodSeconds field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the DeletionGracePeriodSeconds field is set to the value of the last call.
-func (b *PendingWorkloadApplyConfiguration) WithDeletionGracePeriodSeconds(value int64) *PendingWorkloadApplyConfiguration {
+func (b *LocalQueueApplyConfiguration) WithDeletionGracePeriodSeconds(value int64) *LocalQueueApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.DeletionGracePeriodSeconds = &value
 	return b
@@ -124,7 +143,7 @@ func (b *PendingWorkloadApplyConfiguration) WithDeletionGracePeriodSeconds(value
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, the entries provided by each call will be put on the Labels field,
 // overwriting an existing map entries in Labels field with the same key.
-func (b *PendingWorkloadApplyConfiguration) WithLabels(entries map[string]string) *PendingWorkloadApplyConfiguration {
+func (b *LocalQueueApplyConfiguration) WithLabels(entries map[string]string) *LocalQueueApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	if b.Labels == nil && len(entries) > 0 {
 		b.Labels = make(map[string]string, len(entries))
@@ -139,7 +158,7 @@ func (b *PendingWorkloadApplyConfiguration) WithLabels(entries map[string]string
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, the entries provided by each call will be put on the Annotations field,
 // overwriting an existing map entries in Annotations field with the same key.
-func (b *PendingWorkloadApplyConfiguration) WithAnnotations(entries map[string]string) *PendingWorkloadApplyConfiguration {
+func (b *LocalQueueApplyConfiguration) WithAnnotations(entries map[string]string) *LocalQueueApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	if b.Annotations == nil && len(entries) > 0 {
 		b.Annotations = make(map[string]string, len(entries))
@@ -153,7 +172,7 @@ func (b *PendingWorkloadApplyConfiguration) WithAnnotations(entries map[string]s
 // WithOwnerReferences adds the given value to the OwnerReferences field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the OwnerReferences field.
-func (b *PendingWorkloadApplyConfiguration) WithOwnerReferences(values ...*v1.OwnerReferenceApplyConfiguration) *PendingWorkloadApplyConfiguration {
+func (b *LocalQueueApplyConfiguration) WithOwnerReferences(values ...*v1.OwnerReferenceApplyConfiguration) *LocalQueueApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	for i := range values {
 		if values[i] == nil {
@@ -167,7 +186,7 @@ func (b *PendingWorkloadApplyConfiguration) WithOwnerReferences(values ...*v1.Ow
 // WithFinalizers adds the given value to the Finalizers field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the Finalizers field.
-func (b *PendingWorkloadApplyConfiguration) WithFinalizers(values ...string) *PendingWorkloadApplyConfiguration {
+func (b *LocalQueueApplyConfiguration) WithFinalizers(values ...string) *LocalQueueApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	for i := range values {
 		b.Finalizers = append(b.Finalizers, values[i])
@@ -175,40 +194,16 @@ func (b *PendingWorkloadApplyConfiguration) WithFinalizers(values ...string) *Pe
 	return b
 }
 
-func (b *PendingWorkloadApplyConfiguration) ensureObjectMetaApplyConfigurationExists() {
+func (b *LocalQueueApplyConfiguration) ensureObjectMetaApplyConfigurationExists() {
 	if b.ObjectMetaApplyConfiguration == nil {
 		b.ObjectMetaApplyConfiguration = &v1.ObjectMetaApplyConfiguration{}
 	}
 }
 
-// WithPriority sets the Priority field in the declarative configuration to the given value
+// WithSummary sets the Summary field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Priority field is set to the value of the last call.
-func (b *PendingWorkloadApplyConfiguration) WithPriority(value int32) *PendingWorkloadApplyConfiguration {
-	b.Priority = &value
-	return b
-}
-
-// WithLocalQueueName sets the LocalQueueName field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the LocalQueueName field is set to the value of the last call.
-func (b *PendingWorkloadApplyConfiguration) WithLocalQueueName(value string) *PendingWorkloadApplyConfiguration {
-	b.LocalQueueName = &value
-	return b
-}
-
-// WithPositionInClusterQueue sets the PositionInClusterQueue field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the PositionInClusterQueue field is set to the value of the last call.
-func (b *PendingWorkloadApplyConfiguration) WithPositionInClusterQueue(value int32) *PendingWorkloadApplyConfiguration {
-	b.PositionInClusterQueue = &value
-	return b
-}
-
-// WithPositionInLocalQueue sets the PositionInLocalQueue field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the PositionInLocalQueue field is set to the value of the last call.
-func (b *PendingWorkloadApplyConfiguration) WithPositionInLocalQueue(value int32) *PendingWorkloadApplyConfiguration {
-	b.PositionInLocalQueue = &value
+// If called multiple times, the Summary field is set to the value of the last call.
+func (b *LocalQueueApplyConfiguration) WithSummary(value *PendingWorkloadsSummaryApplyConfiguration) *LocalQueueApplyConfiguration {
+	b.Summary = value
 	return b
 }

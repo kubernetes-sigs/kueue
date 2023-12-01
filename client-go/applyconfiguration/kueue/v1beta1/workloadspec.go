@@ -25,6 +25,7 @@ type WorkloadSpecApplyConfiguration struct {
 	PriorityClassName   *string                    `json:"priorityClassName,omitempty"`
 	Priority            *int32                     `json:"priority,omitempty"`
 	PriorityClassSource *string                    `json:"priorityClassSource,omitempty"`
+	Active              *bool                      `json:"active,omitempty"`
 }
 
 // WorkloadSpecApplyConfiguration constructs an declarative configuration of the WorkloadSpec type for use with
@@ -75,5 +76,13 @@ func (b *WorkloadSpecApplyConfiguration) WithPriority(value int32) *WorkloadSpec
 // If called multiple times, the PriorityClassSource field is set to the value of the last call.
 func (b *WorkloadSpecApplyConfiguration) WithPriorityClassSource(value string) *WorkloadSpecApplyConfiguration {
 	b.PriorityClassSource = &value
+	return b
+}
+
+// WithActive sets the Active field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Active field is set to the value of the last call.
+func (b *WorkloadSpecApplyConfiguration) WithActive(value bool) *WorkloadSpecApplyConfiguration {
+	b.Active = &value
 	return b
 }
