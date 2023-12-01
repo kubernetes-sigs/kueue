@@ -773,6 +773,109 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					),
 				), "Expected 'Finished' workload condition")
 			})
+
+			ginkgo.It("Should finish the group if one Pod has the `retriable-in-group: false` annotation", func() {
+				ginkgo.By("Creating pods with queue name")
+				pod1 := testingpod.MakePod("test-pod1", ns.Name).
+					Group("test-group").
+					GroupTotalCount("2").
+					Queue("test-queue").
+					Obj()
+				pod2 := testingpod.MakePod("test-pod2", ns.Name).
+					Group("test-group").
+					GroupTotalCount("2").
+					Image("test-image", nil).
+					Queue("test-queue").
+					Obj()
+				pod1LookupKey := client.ObjectKeyFromObject(pod1)
+				pod2LookupKey := client.ObjectKeyFromObject(pod2)
+
+				gomega.Expect(k8sClient.Create(ctx, pod1)).Should(gomega.Succeed())
+				gomega.Expect(k8sClient.Create(ctx, pod2)).Should(gomega.Succeed())
+
+				ginkgo.By("checking that workload is created for the pod group with the queue name")
+				wlLookupKey := types.NamespacedName{
+					Namespace: pod1.Namespace,
+					Name:      "test-group",
+				}
+				createdWorkload := &kueue.Workload{}
+				gomega.Eventually(func() error {
+					return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Expect(createdWorkload.Spec.PodSets).To(gomega.HaveLen(2))
+				gomega.Expect(createdWorkload.Spec.PodSets[0].Count).To(gomega.Equal(int32(1)))
+				gomega.Expect(createdWorkload.Spec.PodSets[1].Count).To(gomega.Equal(int32(1)))
+				gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal("test-queue"), "The Workload should have .spec.queueName set")
+
+				createdPod := &corev1.Pod{}
+				ginkgo.By("checking that all pods in group are unsuspended when workload is admitted", func() {
+					admission := testing.MakeAdmission(clusterQueue.Name, "120fa2c0", "542d5455").
+						Assignment(corev1.ResourceCPU, "default", "1").
+						AssignmentPodCount(2).
+						Obj()
+					gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+
+					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod1LookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
+					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod2LookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
+
+					gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					gomega.Expect(createdWorkload.Status.Conditions).Should(gomega.BeComparableTo(
+						[]metav1.Condition{
+							{Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionTrue},
+							{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue},
+						},
+						wlConditionCmpOpts...,
+					))
+				})
+
+				ginkgo.By("checking that the pod group is not finalized if the group has failed", func() {
+					util.SetPodsPhase(ctx, k8sClient, corev1.PodFailed, pod1, pod2)
+
+					gomega.Consistently(func(g gomega.Gomega) []string {
+						g.Expect(k8sClient.Get(ctx, pod1LookupKey, createdPod)).To(gomega.Succeed())
+						return createdPod.Finalizers
+					}, util.Timeout, util.Interval).Should(gomega.ContainElement("kueue.x-k8s.io/managed"),
+						"Pod should have finalizer")
+
+					gomega.Consistently(func(g gomega.Gomega) []string {
+						g.Expect(k8sClient.Get(ctx, pod2LookupKey, createdPod)).To(gomega.Succeed())
+						return createdPod.Finalizers
+					}, util.Timeout, util.Interval).Should(gomega.ContainElement("kueue.x-k8s.io/managed"),
+						"Pod should have finalizer")
+				})
+
+				ginkgo.By("checking that pod group is finalized when the 'unretriable' annotation is added", func() {
+					// Set 'retriable-in-group' = false annotation for the first pod
+					gomega.Expect(k8sClient.Get(ctx, pod1LookupKey, createdPod)).To(gomega.Succeed())
+					createdPod.Annotations["kueue.x-k8s.io/retriable-in-group"] = "false"
+					gomega.Expect(k8sClient.Update(ctx, createdPod)).To(gomega.Succeed())
+
+					gomega.Eventually(func() []metav1.Condition {
+						err := k8sClient.Get(ctx, wlLookupKey, createdWorkload)
+						if err != nil {
+							return nil
+						}
+						return createdWorkload.Status.Conditions
+					}, util.Timeout, util.Interval).Should(gomega.ContainElement(
+						gomega.BeComparableTo(
+							metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue},
+							wlConditionCmpOpts...,
+						),
+					), "Expected 'Finished' workload condition")
+
+					gomega.Eventually(func(g gomega.Gomega) []string {
+						g.Expect(k8sClient.Get(ctx, pod1LookupKey, createdPod)).To(gomega.Succeed())
+						return createdPod.Finalizers
+					}, util.Timeout, util.Interval).Should(gomega.BeEmpty(), "Expected pod to be finalized")
+
+					gomega.Eventually(func(g gomega.Gomega) []string {
+						g.Expect(k8sClient.Get(ctx, pod2LookupKey, createdPod)).To(gomega.Succeed())
+						return createdPod.Finalizers
+					}, util.Timeout, util.Interval).Should(gomega.BeEmpty(), "Expected pod to be finalized")
+				})
+			})
 		})
 	})
 })

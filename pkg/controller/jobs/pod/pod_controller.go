@@ -48,6 +48,7 @@ import (
 
 const (
 	SchedulingGateName             = "kueue.x-k8s.io/admission"
+	RetriableInGroupAnnotation     = "kueue.x-k8s.io/retriable-in-group"
 	FrameworkName                  = "pod"
 	gateNotFound                   = -1
 	ConditionTypeTerminationTarget = "TerminationTarget"
@@ -116,8 +117,12 @@ func gateIndex(p *corev1.Pod) int {
 	return gateNotFound
 }
 
+func podActive(p *corev1.Pod) bool {
+	return p.Status.Phase != corev1.PodFailed && p.Status.Phase != corev1.PodSucceeded
+}
+
 func podSuspended(p *corev1.Pod) bool {
-	return p.Status.Phase == corev1.PodFailed || p.Status.Phase == corev1.PodSucceeded || gateIndex(p) != gateNotFound
+	return !podActive(p) || gateIndex(p) != gateNotFound
 }
 
 // IsSuspended returns whether the job is suspended or not.
@@ -155,6 +160,8 @@ func (p *Pod) Finished() (metav1.Condition, bool) {
 	hasFailed := false
 	succeededCount := 0
 	groupTotalCount := 0
+	isActive := false
+	unretriableGroup := false
 
 	if !p.isGroup {
 		ph := p.pod.Status.Phase
@@ -166,11 +173,19 @@ func (p *Pod) Finished() (metav1.Condition, bool) {
 			ctrl.Log.V(2).Error(err, "failed to check if pod group is finished")
 			return metav1.Condition{}, false
 		}
-
 		for i := range p.list.Items {
-			ph := p.list.Items[i].Status.Phase
-			if ph == corev1.PodSucceeded {
+			pod := p.list.Items[i]
+
+			if pod.Status.Phase == corev1.PodSucceeded {
 				succeededCount++
+			}
+
+			if pod.Annotations[RetriableInGroupAnnotation] == "false" {
+				unretriableGroup = true
+			}
+
+			if podActive(&pod) {
+				isActive = true
 			}
 		}
 	}
@@ -186,10 +201,11 @@ func (p *Pod) Finished() (metav1.Condition, bool) {
 			condition.Message = "Job failed"
 		}
 	} else {
-		if succeededCount < groupTotalCount {
-			return metav1.Condition{}, false
-		} else {
+
+		if succeededCount == groupTotalCount || (!isActive && unretriableGroup) {
 			condition.Message = fmt.Sprintf("Pods succeeded: %d/%d.", succeededCount, groupTotalCount)
+		} else {
+			return metav1.Condition{}, false
 		}
 	}
 
