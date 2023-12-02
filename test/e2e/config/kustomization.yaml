@@ -5,4 +5,4 @@ resources:
 - ../../../config/default
 
 patches:
-- path: image_pull_policy.yaml
+- path: manager_e2e_patch.yaml

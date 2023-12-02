@@ -62,6 +62,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/pkg/util/useragent"
 	"sigs.k8s.io/kueue/pkg/version"
+	"sigs.k8s.io/kueue/pkg/visibility"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 
 	// Ensure linking of the job controllers.
@@ -175,6 +176,10 @@ func main() {
 		cCache.CleanUpOnContext(ctx)
 	}()
 
+	if features.Enabled(features.VisibilityOnDemand) {
+		go visibility.CreateAndStartVisibilityServer(queues, ctx)
+	}
+
 	setupScheduler(mgr, cCache, queues)
 
 	setupLog.Info("Starting manager")
@@ -226,7 +231,7 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 	// setup provision admission check controller
 	if features.Enabled(features.ProvisioningACC) && provisioning.ServerSupportsProvisioningRequest(mgr) {
 		// A info message is added in setupIndexes if autoscaling is not supported by the cluster
-		if err := provisioning.NewController(mgr.GetClient()).SetupWithManager(mgr); err != nil {
+		if err := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorderFor("kueue-provisioning-request-controller")).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "Could not setup provisioning controller")
 			os.Exit(1)
 		}

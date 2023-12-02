@@ -571,6 +571,21 @@ func (m *Manager) getClusterQueue(cqName string) ClusterQueue {
 	return m.clusterQueues[cqName]
 }
 
+func (m *Manager) PendingWorkloadsInfo(cqName string) []*workload.Info {
+	cq := m.getClusterQueue(cqName)
+	if cq == nil {
+		return nil
+	}
+	return cq.Snapshot()
+}
+
+func (m *Manager) ClusterQueueFromLocalQueue(lqName string) (string, error) {
+	if lq, ok := m.localQueues[lqName]; ok {
+		return lq.ClusterQueue, nil
+	}
+	return "", errQueueDoesNotExist
+}
+
 // UpdateSnapshot computes the new snapshot and replaces if it differs from the
 // previous version. It returns true if the snapshot was actually updated.
 func (m *Manager) UpdateSnapshot(cqName string, maxCount int32) bool {

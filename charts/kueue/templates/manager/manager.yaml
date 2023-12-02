@@ -23,6 +23,7 @@ spec:
       - args:
         - --config=/controller_manager_config.yaml
         - --zap-log-level=2
+        {{- include "kueue.featureGates" . | indent 8 }}
         command:
         - /manager
         image: "{{ .Values.controllerManager.manager.image.repository }}:{{ .Values.controllerManager.manager.image.tag | default .Chart.AppVersion }}"
@@ -38,6 +39,9 @@ spec:
           successThreshold: {{ .Values.controllerManager.livenessProbe.successThreshold }}
         name: manager
         ports:
+        - containerPort: 8082
+          name: visibility
+          protocol: TCP
         - containerPort: 9443
           name: webhook-server
           protocol: TCP

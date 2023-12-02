@@ -29,6 +29,7 @@ import (
 	versioned "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	internalinterfaces "sigs.k8s.io/kueue/client-go/informers/externalversions/internalinterfaces"
 	kueue "sigs.k8s.io/kueue/client-go/informers/externalversions/kueue"
+	visibility "sigs.k8s.io/kueue/client-go/informers/externalversions/visibility"
 )
 
 // SharedInformerOption defines the functional option type for SharedInformerFactory.
@@ -243,8 +244,13 @@ type SharedInformerFactory interface {
 	InformerFor(obj runtime.Object, newFunc internalinterfaces.NewInformerFunc) cache.SharedIndexInformer
 
 	Kueue() kueue.Interface
+	Visibility() visibility.Interface
 }
 
 func (f *sharedInformerFactory) Kueue() kueue.Interface {
 	return kueue.New(f, f.namespace, f.tweakListOptions)
+}
+
+func (f *sharedInformerFactory) Visibility() visibility.Interface {
+	return visibility.New(f, f.namespace, f.tweakListOptions)
 }

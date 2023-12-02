@@ -9,6 +9,9 @@ enablePrometheus: false
 enableCertManager: false
 # Customize controlerManager
 controllerManager:
+ #featureGates:
+ #  - name: PartialAdmission
+ #    enabled: true
   kubeRbacProxy:
     image:
       repository: gcr.io/kubebuilder/kube-rbac-proxy

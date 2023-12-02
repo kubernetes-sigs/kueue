@@ -71,6 +71,16 @@ func (j *JobWrapper) Clone() *JobWrapper {
 	return &JobWrapper{Job: *j.DeepCopy()}
 }
 
+func (j *JobWrapper) BackoffLimit(limit int32) *JobWrapper {
+	j.Spec.BackoffLimit = ptr.To(limit)
+	return j
+}
+
+func (j *JobWrapper) TerimnationGracePeriod(seconds int64) *JobWrapper {
+	j.Spec.Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
+	return j
+}
+
 // Suspend updates the suspend status of the job
 func (j *JobWrapper) Suspend(s bool) *JobWrapper {
 	j.Spec.Suspend = ptr.To(s)

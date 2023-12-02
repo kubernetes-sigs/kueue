@@ -1055,3 +1055,89 @@ type fakeStatusChecker struct{}
 func (c *fakeStatusChecker) ClusterQueueActive(name string) bool {
 	return strings.Contains(name, "active-")
 }
+
+func TestGetPendingWorkloadsInfo(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+
+	clusterQueues := []*kueue.ClusterQueue{
+		utiltesting.MakeClusterQueue("cq").Obj(),
+	}
+	queues := []*kueue.LocalQueue{
+		utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
+	}
+	workloads := []*kueue.Workload{
+		utiltesting.MakeWorkload("a", "").Queue("foo").Creation(now).Obj(),
+		utiltesting.MakeWorkload("b", "").Queue("foo").Creation(now.Add(time.Second)).Obj(),
+	}
+
+	// Setup.
+	scheme := runtime.NewScheme()
+	if err := kueue.AddToScheme(scheme); err != nil {
+		t.Fatalf("Failed adding kueue scheme: %s", err)
+	}
+	ctx := context.Background()
+	manager := NewManager(utiltesting.NewFakeClient(), nil)
+	for _, cq := range clusterQueues {
+		if err := manager.AddClusterQueue(ctx, cq); err != nil {
+			t.Fatalf("Failed adding clusterQueue %s: %v", cq.Name, err)
+		}
+	}
+	for _, q := range queues {
+		if err := manager.AddLocalQueue(ctx, q); err != nil {
+			t.Fatalf("Failed adding queue %s: %v", q.Name, err)
+		}
+	}
+	for _, w := range workloads {
+		manager.AddOrUpdateWorkload(w)
+	}
+
+	cases := map[string]struct {
+		cqName                   string
+		wantPendingWorkloadsInfo []*workload.Info
+	}{
+		"Invalid ClusterQueue name": {
+			cqName:                   "invalid",
+			wantPendingWorkloadsInfo: nil,
+		},
+		"ClusterQueue with 2 pending workloads": {
+			cqName: "cq",
+			wantPendingWorkloadsInfo: []*workload.Info{
+				{
+					Obj: &kueue.Workload{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "a",
+							Namespace: "",
+						},
+						Spec: kueue.WorkloadSpec{
+							QueueName: "foo",
+						},
+					},
+				},
+				{
+					Obj: &kueue.Workload{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "b",
+							Namespace: "",
+						},
+						Spec: kueue.WorkloadSpec{
+							QueueName: "foo",
+						},
+					},
+				},
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			pendingWorkloadsInfo := manager.PendingWorkloadsInfo(tc.cqName)
+			if diff := cmp.Diff(tc.wantPendingWorkloadsInfo, pendingWorkloadsInfo,
+				ignoreTypeMeta,
+				cmpopts.IgnoreFields(metav1.ObjectMeta{}, "CreationTimestamp"),
+				cmpopts.IgnoreFields(kueue.WorkloadSpec{}, "PodSets"),
+				cmpopts.IgnoreFields(workload.Info{}, "TotalRequests"),
+			); diff != "" {
+				t.Errorf("GetPendingWorkloadsInfo returned wrong heads (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
