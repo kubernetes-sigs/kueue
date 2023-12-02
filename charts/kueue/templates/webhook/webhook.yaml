@@ -342,3 +342,58 @@ webhooks:
       resources:
         - pods
   sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: '{{ include "kueue.fullname" . }}-webhook-service'
+      namespace: '{{ .Release.Namespace }}'
+      path: /validate-ray-io-v1alpha1-raycluster
+  failurePolicy: Fail
+  name: vraycluster.kb.io
+  rules:
+  - apiGroups:
+    - ray.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - rayclusters
+  sideEffects: None
+- admissionReviewVersions:
+    - v1
+  clientConfig:
+    service:
+      name: '{{ include "kueue.fullname" . }}-webhook-service'
+      namespace: '{{ .Release.Namespace }}'
+      path: /validate--v1-pod
+  {{- if has "pod" $integrationsConfig.frameworks }}
+  failurePolicy: Fail
+  {{- else }}
+  failurePolicy: Ignore
+  {{- end }}
+  name: vpod.kb.io
+  namespaceSelector:
+    {{- if and (hasKey $integrationsConfig "podOptions") (hasKey ($integrationsConfig.podOptions) "namespaceSelector") }}
+      {{- toYaml $integrationsConfig.podOptions.namespaceSelector | nindent 4 -}}
+    {{- else }}
+    matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: NotIn
+        values:
+          - kube-system
+          - '{{ .Release.Namespace }}'
+    {{- end }}
+  rules:
+    - apiGroups:
+        - ""
+      apiVersions:
+        - v1
+      operations:
+        - CREATE
+        - UPDATE
+      resources:
+        - pods
+  sideEffects: None

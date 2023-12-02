@@ -70,7 +70,7 @@ func (j *RayCluster) Object() client.Object {
 }
 
 func (j *RayCluster) IsSuspended() bool {
-	return false
+	return *j.Spec.WorkerGroupSpecs[0].Replicas == 0
 }
 
 func (j *RayCluster) IsActive() bool {
@@ -78,7 +78,7 @@ func (j *RayCluster) IsActive() bool {
 }
 
 func (j *RayCluster) Suspend() {
-
+	*j.Spec.WorkerGroupSpecs[0].Replicas = 0
 }
 
 func (j *RayCluster) GVK() schema.GroupVersionKind {

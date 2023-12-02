@@ -393,7 +393,6 @@ rules:
   - apiGroups:
       - ray.io
     resources:
-      - rayjobs
       - rayclusters
     verbs:
       - get
@@ -404,8 +403,24 @@ rules:
   - apiGroups:
       - ray.io
     resources:
-      - rayjobs/status
       - rayclusters/status
+    verbs:
+      - get
+      - update
+  - apiGroups:
+      - ray.io
+    resources:
+      - rayjobs
+    verbs:
+      - get
+      - list
+      - patch
+      - update
+      - watch
+  - apiGroups:
+      - ray.io
+    resources:
+      - rayjobs/status
     verbs:
       - get
       - update

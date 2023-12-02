@@ -29,7 +29,7 @@ import (
 // JobWrapper wraps a RayCluster.
 type JobWrapper struct{ rayclusterapi.RayCluster }
 
-// MakeJob creates a wrapper for a suspended rayJob
+// MakeJob creates a wrapper for rayCluster
 func MakeJob(name, ns string) *JobWrapper {
 	return &JobWrapper{rayclusterapi.RayCluster{
 		ObjectMeta: metav1.ObjectMeta{
