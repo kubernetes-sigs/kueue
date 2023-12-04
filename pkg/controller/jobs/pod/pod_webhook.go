@@ -18,8 +18,6 @@ package pod
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -121,43 +119,13 @@ func volumesShape(volumes []corev1.Volume) (result []corev1.Volume) {
 	return result
 }
 
-func getRoleHash(p *Pod) (string, error) {
-	shape := map[string]interface{}{
-		"metadata": map[string]interface{}{
-			"labels": omitKueueLabels(p.pod.ObjectMeta.Labels),
-		},
-		"spec": map[string]interface{}{
-			"initContainers":            containersShape(p.pod.Spec.InitContainers),
-			"containers":                containersShape(p.pod.Spec.Containers),
-			"nodeSelector":              p.pod.Spec.NodeSelector,
-			"affinity":                  p.pod.Spec.Affinity,
-			"tolerations":               p.pod.Spec.Tolerations,
-			"runtimeClassName":          p.pod.Spec.RuntimeClassName,
-			"priority":                  p.pod.Spec.Priority,
-			"preemptionPolicy":          p.pod.Spec.PreemptionPolicy,
-			"topologySpreadConstraints": p.pod.Spec.TopologySpreadConstraints,
-			"overhead":                  p.pod.Spec.Overhead,
-			"volumes":                   volumesShape(p.pod.Spec.Volumes),
-			"resourceClaims":            p.pod.Spec.ResourceClaims,
-		},
-	}
-
-	shapeJson, err := json.Marshal(shape)
-	if err != nil {
-		return "", err
-	}
-
-	// Trim hash to 8 characters and return
-	return fmt.Sprintf("%x", sha256.Sum256(shapeJson))[:8], nil
-}
-
 // addRoleHash calculates the role hash and adds it to the pod's annotations
 func (p *Pod) addRoleHash() error {
 	if p.pod.Annotations == nil {
 		p.pod.Annotations = make(map[string]string)
 	}
 
-	hash, err := getRoleHash(p)
+	hash, err := getRoleHash(p.pod)
 	if err != nil {
 		return err
 	}

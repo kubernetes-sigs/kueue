@@ -321,7 +321,7 @@ func TestGetRoleHash(t *testing.T) {
 
 			var previousHash string
 			for i := range tc.pods {
-				hash, err := getRoleHash(tc.pods[i])
+				hash, err := getRoleHash(tc.pods[i].pod)
 
 				if diff := cmp.Diff(tc.wantErr, err); diff != "" {
 					t.Errorf("Unexpected error (-want,+got):\n%s", diff)

@@ -19,6 +19,8 @@ package pod
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strconv"
@@ -35,6 +37,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -83,9 +86,10 @@ var NewReconciler = jobframework.NewGenericReconciler(
 	}, nil)
 
 type Pod struct {
-	pod     corev1.Pod
-	isGroup bool
-	list    corev1.PodList
+	pod              corev1.Pod
+	isGroup          bool
+	unretriableGroup *bool
+	list             corev1.PodList
 }
 
 var (
@@ -125,6 +129,24 @@ func podSuspended(p *corev1.Pod) bool {
 	return !podActive(p) || gateIndex(p) != gateNotFound
 }
 
+// isUnretriableGroup returns true if at least one pod in the group
+// has a RetriableInGroupAnnotation set to 'false'.
+func (p *Pod) isUnretriableGroup() bool {
+	if p.unretriableGroup != nil {
+		return *p.unretriableGroup
+	}
+
+	for _, pod := range p.list.Items {
+		if pod.Annotations[RetriableInGroupAnnotation] == "false" {
+			p.unretriableGroup = ptr.To(true)
+			return true
+		}
+	}
+
+	p.unretriableGroup = ptr.To(false)
+	return false
+}
+
 // IsSuspended returns whether the job is suspended or not.
 func (p *Pod) IsSuspended() bool {
 	return podSuspended(&p.pod)
@@ -157,19 +179,27 @@ func (p *Pod) RestorePodSetsInfo(nodeSelectors []podset.PodSetInfo) bool {
 // condition represents the workload finished condition.
 func (p *Pod) Finished() (metav1.Condition, bool) {
 	finished := true
-	hasFailed := false
-	succeededCount := 0
-	groupTotalCount := 0
-	isActive := false
-	unretriableGroup := false
+
+	condition := metav1.Condition{
+		Type:    kueue.WorkloadFinished,
+		Status:  metav1.ConditionTrue,
+		Reason:  "JobFinished",
+		Message: "Job finished successfully",
+	}
 
 	if !p.isGroup {
 		ph := p.pod.Status.Phase
 		finished = ph == corev1.PodSucceeded || ph == corev1.PodFailed
-		hasFailed = ph == corev1.PodFailed
+
+		if ph == corev1.PodFailed {
+			condition.Message = "Job failed"
+		}
 	} else {
-		var err error
-		if groupTotalCount, err = p.groupTotalCount(); err != nil {
+		isActive := false
+		succeededCount := 0
+
+		groupTotalCount, err := p.groupTotalCount()
+		if err != nil {
 			ctrl.Log.V(2).Error(err, "failed to check if pod group is finished")
 			return metav1.Condition{}, false
 		}
@@ -180,27 +210,12 @@ func (p *Pod) Finished() (metav1.Condition, bool) {
 				succeededCount++
 			}
 
-			if pod.Annotations[RetriableInGroupAnnotation] == "false" {
-				unretriableGroup = true
-			}
-
 			if podActive(&pod) {
 				isActive = true
 			}
 		}
-	}
-	condition := metav1.Condition{
-		Type:    kueue.WorkloadFinished,
-		Status:  metav1.ConditionTrue,
-		Reason:  "JobFinished",
-		Message: "Job finished successfully",
-	}
 
-	if !p.isGroup {
-		if hasFailed {
-			condition.Message = "Job failed"
-		}
-	} else {
+		unretriableGroup := p.isUnretriableGroup()
 
 		if succeededCount == groupTotalCount || (!isActive && unretriableGroup) {
 			condition.Message = fmt.Sprintf("Pods succeeded: %d/%d.", succeededCount, groupTotalCount)
@@ -388,6 +403,40 @@ func (p *Pod) groupTotalCount() (int, error) {
 	return gtc, nil
 }
 
+func getRoleHash(p corev1.Pod) (string, error) {
+	if roleHash, ok := p.Annotations[RoleHashAnnotation]; ok {
+		return roleHash, nil
+	}
+
+	shape := map[string]interface{}{
+		"metadata": map[string]interface{}{
+			"labels": omitKueueLabels(p.ObjectMeta.Labels),
+		},
+		"spec": map[string]interface{}{
+			"initContainers":            containersShape(p.Spec.InitContainers),
+			"containers":                containersShape(p.Spec.Containers),
+			"nodeSelector":              p.Spec.NodeSelector,
+			"affinity":                  p.Spec.Affinity,
+			"tolerations":               p.Spec.Tolerations,
+			"runtimeClassName":          p.Spec.RuntimeClassName,
+			"priority":                  p.Spec.Priority,
+			"preemptionPolicy":          p.Spec.PreemptionPolicy,
+			"topologySpreadConstraints": p.Spec.TopologySpreadConstraints,
+			"overhead":                  p.Spec.Overhead,
+			"volumes":                   volumesShape(p.Spec.Volumes),
+			"resourceClaims":            p.Spec.ResourceClaims,
+		},
+	}
+
+	shapeJson, err := json.Marshal(shape)
+	if err != nil {
+		return "", err
+	}
+
+	// Trim hash to 8 characters and return
+	return fmt.Sprintf("%x", sha256.Sum256(shapeJson))[:8], nil
+}
+
 // Load loads all pods in the group
 func (p *Pod) Load(ctx context.Context, c client.Client, key types.NamespacedName) (removeFinalizers bool, err error) {
 	if err := c.Get(ctx, key, &p.pod); err != nil {
@@ -443,12 +492,9 @@ func (p *Pod) constructGroupPodSets(podsInGroup corev1.PodList) ([]kueue.PodSet,
 				groupTotalCount, tc))
 		}
 
-		roleHash, ok := podInGroup.Annotations[RoleHashAnnotation]
-		if !ok {
-			roleHash, err = getRoleHash(fromObject(&podInGroup))
-			if err != nil {
-				return nil, fmt.Errorf("failed to calculate role hash for the pod with no '%s' annotation. %w", RoleHashAnnotation, err)
-			}
+		roleHash, err := getRoleHash(podInGroup)
+		if err != nil {
+			return nil, fmt.Errorf("failed to calculate pod role hash: %w", err)
 		}
 
 		podRoleFound := false
@@ -474,6 +520,12 @@ func (p *Pod) constructGroupPodSets(podsInGroup corev1.PodList) ([]kueue.PodSet,
 	return resultPodSets, nil
 }
 
+func filterFailedPods(podList []corev1.Pod) (res []corev1.Pod) {
+	return slices.DeleteFunc(podList, func(p corev1.Pod) bool {
+		return p.Status.Phase == corev1.PodFailed
+	})
+}
+
 func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, r record.EventRecorder) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 	object := p.Object()
@@ -490,7 +542,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 			return nil, err
 		}
 
-		if len(p.list.Items) != groupTotalCount {
+		if len(filterFailedPods(p.list.Items)) != groupTotalCount {
 			errMsg := fmt.Sprintf("'%s' group total count is different from the actual number of pods in the cluster", p.groupName())
 			r.Eventf(object, corev1.EventTypeWarning, "ErrWorkloadCompose", errMsg)
 			return nil, jobframework.UnretryableError(errMsg)
@@ -612,6 +664,36 @@ func (p *Pod) equivalentToWorkload(wl *kueue.Workload, jobPodSets []kueue.PodSet
 	}
 
 	return true
+}
+
+func (p *Pod) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
+	if p.isGroup {
+		var result []kueue.ReclaimablePod
+		for _, pod := range p.list.Items {
+			if pod.Status.Phase == corev1.PodSucceeded || (p.isUnretriableGroup() && !podActive(&pod)) {
+				roleHash, err := getRoleHash(pod)
+				if err != nil {
+					return nil, err
+				}
+
+				roleFound := false
+				for i := range result {
+					if result[i].Name == roleHash {
+						result[i].Count++
+						roleFound = true
+					}
+				}
+
+				if !roleFound {
+					result = append(result, kueue.ReclaimablePod{Name: roleHash, Count: 1})
+				}
+			}
+		}
+
+		return result, nil
+	}
+
+	return []kueue.ReclaimablePod{}, nil
 }
 
 func IsPodOwnerManagedByKueue(p *Pod) bool {

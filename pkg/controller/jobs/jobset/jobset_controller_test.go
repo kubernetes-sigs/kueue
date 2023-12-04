@@ -184,7 +184,10 @@ func TestReclaimablePods(t *testing.T) {
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			jobSet := (*JobSet)(tc.jobSet)
-			got := jobSet.ReclaimablePods()
+			got, err := jobSet.ReclaimablePods()
+			if err != nil {
+				t.Fatalf("Unexpected error: %s", err)
+			}
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("Unexpected Reclaimable pods (-want +got):\n%s", diff)
 			}

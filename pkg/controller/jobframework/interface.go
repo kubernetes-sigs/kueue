@@ -59,7 +59,7 @@ type GenericJob interface {
 
 type JobWithReclaimablePods interface {
 	// ReclaimablePods returns the list of reclaimable pods.
-	ReclaimablePods() []kueue.ReclaimablePod
+	ReclaimablePods() ([]kueue.ReclaimablePod, error)
 }
 
 type StopReason int

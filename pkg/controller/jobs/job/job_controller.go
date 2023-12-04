@@ -188,21 +188,21 @@ func (j *Job) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
-func (j *Job) ReclaimablePods() []kueue.ReclaimablePod {
+func (j *Job) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
 	parallelism := ptr.Deref(j.Spec.Parallelism, 1)
 	if parallelism == 1 || j.Status.Succeeded == 0 {
-		return nil
+		return nil, nil
 	}
 
 	remaining := ptr.Deref(j.Spec.Completions, parallelism) - j.Status.Succeeded
 	if remaining >= parallelism {
-		return nil
+		return nil, nil
 	}
 
 	return []kueue.ReclaimablePod{{
 		Name:  kueue.DefaultPodSetName,
 		Count: parallelism - remaining,
-	}}
+	}}, nil
 }
 
 func (j *Job) PodSets() []kueue.PodSet {
