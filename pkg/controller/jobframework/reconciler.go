@@ -241,7 +241,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		wl, err = r.getPrebuiltWorkload(ctx, job, object, prebuiltWorkloadName)
 		if wl == nil {
 			if !job.IsSuspended() {
-				if stopErr := r.stopJob(ctx, job, object, wl, "missing prebuilt workload"); stopErr != nil {
+				if stopErr := r.stopJob(ctx, job, wl, StopReasonNoMatchingWorkload, "missing prebuilt workload"); stopErr != nil {
 					return ctrl.Result{}, stopErr
 				}
 			}
