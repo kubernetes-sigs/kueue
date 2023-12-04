@@ -91,11 +91,16 @@ var _ reconcile.Reconciler = (*Controller)(nil)
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=provisioningrequestconfigs,verbs=get;list;watch
 
-func NewController(client client.Client, record record.EventRecorder) *Controller {
+func NewController(client client.Client, record record.EventRecorder) (*Controller, error) {
+	helper, err := newProvStoreHelper(client)
+	if err != nil {
+		return nil, err
+	}
 	return &Controller{
 		client: client,
 		record: record,
-	}
+		helper: helper,
+	}, nil
 }
 
 // Reconcile performs a full reconciliation for the object referred to by the Request.
@@ -681,13 +686,6 @@ func (p *prcHandler) reconcileWorkloadsUsing(ctx context.Context, config string,
 }
 
 func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
-	helper, err := newProvStoreHelper(c.client)
-	if err != nil {
-		return err
-	}
-
-	c.helper = helper
-
 	ach := &acHandler{
 		client: c.client,
 	}
@@ -695,7 +693,7 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 		client:            c.client,
 		acHandlerOverride: ach.reconcileWorkloadsUsing,
 	}
-	err = ctrl.NewControllerManagedBy(mgr).
+	err := ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.Workload{}).
 		Owns(&autoscaling.ProvisioningRequest{}).
 		Watches(&kueue.AdmissionCheck{}, ach).

@@ -620,8 +620,7 @@ func TestReconcile(t *testing.T) {
 
 			k8sclient := builder.Build()
 			recorder := record.NewBroadcaster().NewRecorder(k8sclient.Scheme(), corev1.EventSource{Component: "admission-checks-controller"})
-			controller := NewController(k8sclient, recorder)
-			controller.helper, _ = newProvStoreHelper(k8sclient)
+			controller, _ := NewController(k8sclient, recorder)
 
 			req := reconcile.Request{
 				NamespacedName: types.NamespacedName{
