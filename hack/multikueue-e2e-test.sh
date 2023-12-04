@@ -26,7 +26,8 @@ export KIND=$ROOT_DIR/bin/kind
 export YQ=$ROOT_DIR/bin/yq
 export E2E_TEST_IMAGE=gcr.io/k8s-staging-perf-tests/sleep:v0.0.3
 export LEADER_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-leader
-export WORKER_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-worker
+export WORKER1_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-worker1
+export WORKER2_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-worker2
 
 # $1 - cluster name
 function cluster_cleanup {
@@ -47,7 +48,8 @@ function cleanup {
         fi
 
 	cluster_cleanup $LEADER_KIND_CLUSTER_NAME
-	cluster_cleanup $WORKER_KIND_CLUSTER_NAME
+	cluster_cleanup $WORKER1_KIND_CLUSTER_NAME
+	cluster_cleanup $WORKER2_KIND_CLUSTER_NAME
     fi
     (cd config/components/manager && $KUSTOMIZE edit set image controller=gcr.io/k8s-staging-kueue/kueue:main)
 }
@@ -82,12 +84,14 @@ function startup {
 	export GW=$(docker inspect ${LEADER_KIND_CLUSTER_NAME}-control-plane -f '{{.NetworkSettings.Networks.kind.Gateway}}')
 	$YQ e '.networking.apiServerAddress=env(GW)'  $SOURCE_DIR/mk-worker-cluster.yaml > $ARTIFACTS/worker-cluster.yaml
 
-	cluster_create $WORKER_KIND_CLUSTER_NAME $ARTIFACTS/worker-cluster.yaml
+	cluster_create $WORKER1_KIND_CLUSTER_NAME $ARTIFACTS/worker-cluster.yaml
+	cluster_create $WORKER2_KIND_CLUSTER_NAME $ARTIFACTS/worker-cluster.yaml
 
 	# push the worker kubeconfig in a leader's secret
-	$KIND get kubeconfig --name $WORKER_KIND_CLUSTER_NAME  > ${ARTIFACTS}/worker.kubeconfig
+	$KIND get kubeconfig --name $WORKER1_KIND_CLUSTER_NAME  > ${ARTIFACTS}/worker1.kubeconfig
+	$KIND get kubeconfig --name $WORKER2_KIND_CLUSTER_NAME  > ${ARTIFACTS}/worker2.kubeconfig
 	kubectl config use-context kind-${LEADER_KIND_CLUSTER_NAME}
-	kubectl create secret generic multikueue --from-file=${ARTIFACTS}/worker.kubeconfig
+	kubectl create secret generic multikueue --from-file=${ARTIFACTS}/worker1.kubeconfig --from-file=${ARTIFACTS}/worker2.kubeconfig
     fi
 }
 
@@ -102,29 +106,39 @@ function kind_load {
     then
         docker pull $E2E_TEST_IMAGE
         cluster_kind_load $LEADER_KIND_CLUSTER_NAME
-        cluster_kind_load $WORKER_KIND_CLUSTER_NAME
+        cluster_kind_load $WORKER1_KIND_CLUSTER_NAME
+        cluster_kind_load $WORKER2_KIND_CLUSTER_NAME 
     fi
+}
+
+# $1 cluster
+function cluster_kueue_deploy {
+    kubectl config use-context kind-${1}
+    kubectl apply --server-side -k test/e2e/config
 }
 
 function kueue_deploy {
     (cd config/components/manager && $KUSTOMIZE edit set image controller=$IMAGE_TAG)
-    kubectl config use-context kind-${LEADER_KIND_CLUSTER_NAME}
-    kubectl apply --server-side -k test/e2e/config
 
-    kubectl config use-context kind-${WORKER_KIND_CLUSTER_NAME}
-    kubectl apply --server-side -k test/e2e/config
+    cluster_kueue_deploy $LEADER_KIND_CLUSTER_NAME
+    cluster_kueue_deploy $WORKER1_KIND_CLUSTER_NAME
+    cluster_kueue_deploy $WORKER2_KIND_CLUSTER_NAME
 
     #wait for the manager to start
+    # failing a this point might indicate a manifestation of
+    # https://kind.sigs.k8s.io/docs/user/known-issues/#pod-errors-due-to-too-many-open-files
     kubectl config use-context kind-$LEADER_KIND_CLUSTER_NAME
     kubectl wait -n kueue-system deployment kueue-controller-manager --for condition=Available --timeout=120s
-    kubectl config use-context kind-$WORKER_KIND_CLUSTER_NAME
+    kubectl config use-context kind-$WORKER1_KIND_CLUSTER_NAME
+    kubectl wait -n kueue-system deployment kueue-controller-manager --for condition=Available --timeout=120s
+    kubectl config use-context kind-$WORKER2_KIND_CLUSTER_NAME
     kubectl wait -n kueue-system deployment kueue-controller-manager --for condition=Available --timeout=120s
 }
 
 trap cleanup EXIT
 startup
 kind_load
-kueue_deploy
+kueue_deploy 
 
 #TODO: run some actual tests
 #$GINKGO --junit-report=junit.xml --output-dir=$ARTIFACTS -v ./test/multikueue-e2e/...
@@ -136,9 +150,90 @@ kueue_deploy
 sleep 10
 
 kubectl config use-context kind-$LEADER_KIND_CLUSTER_NAME
-kubectl apply -f $SOURCE_DIR/kubectl.yaml
-kubectl wait pods kubectl --for condition=Ready --timeout=180s
-kubectl exec kubectl -- kubectl run testpod --image=$E2E_TEST_IMAGE
-kubectl config use-context kind-$WORKER_KIND_CLUSTER_NAME
+kubectl run kubectl-to-1 --image registry.k8s.io/kubectl:v1.28.4 --overrides=\
+'
+{
+	"spec": {
+		"volumes": [
+			{
+				"name": "mk",
+				"secret": {
+					"secretName": "multikueue"
+				}
+			}
+		],
+		"containers": [
+			{
+				"name": "kubectl",
+				"image": "registry.k8s.io/kubectl:v1.28.4",
+				"env": [
+					{
+						"name": "KUBECONFIG",
+						"value": "/kubeconfig/worker1.kubeconfig"
+					}
+				],
+				"volumeMounts": [
+					{
+						"name": "mk",
+						"mountPath": "/kubeconfig"
+					}
+				], 
+				"args":[
+					"run", 
+					"testpod",
+					"--image='${E2E_TEST_IMAGE}'"
+				]
+			}
+		], 
+		"restartPolicy":"Never"
+	}
+}'
+kubectl run kubectl-to-2 --image registry.k8s.io/kubectl:v1.28.4 --overrides=\
+'
+{
+	"spec": {
+		"volumes": [
+			{
+				"name": "mk",
+				"secret": {
+					"secretName": "multikueue"
+				}
+			}
+		],
+		"containers": [
+			{
+				"name": "kubectl",
+				"image": "registry.k8s.io/kubectl:v1.28.4",
+				"env": [
+					{
+						"name": "KUBECONFIG",
+						"value": "/kubeconfig/worker2.kubeconfig"
+					}
+				],
+				"volumeMounts": [
+					{
+						"name": "mk",
+						"mountPath": "/kubeconfig"
+					}
+				], 
+				"args":[
+					"run", 
+					"testpod",
+					"--image='${E2E_TEST_IMAGE}'"
+				]
+			}
+		], 
+		"restartPolicy":"Never"
+	}
+}'
+kubectl wait pods kubectl-to-1 --for condition=Ready=False --timeout=180s
+kubectl wait pods kubectl-to-2 --for condition=Ready=False --timeout=180s
+
+sleep 10
+
+kubectl config use-context kind-$WORKER1_KIND_CLUSTER_NAME
+kubectl wait pods testpod --for condition=Initialized --timeout=180s || read -p "check it"
+
+kubectl config use-context kind-$WORKER2_KIND_CLUSTER_NAME
 kubectl wait pods testpod --for condition=Initialized --timeout=180s
 

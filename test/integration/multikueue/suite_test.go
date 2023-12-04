@@ -24,6 +24,8 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/clientcmd"
+	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -38,16 +40,44 @@ import (
 	//+kubebuilder:scaffold:imports
 )
 
-var (
-	leaderCfg       *rest.Config
-	k8sLeaderClient client.Client
-	leaderCtx       context.Context
-	leaderFwk       *framework.Framework
+type cluster struct {
+	cfg    *rest.Config
+	client client.Client
+	ctx    context.Context
+	fwk    *framework.Framework
+}
 
-	workerCfg       *rest.Config
-	k8sWorkerClient client.Client
-	workerCtx       context.Context
-	workerFwk       *framework.Framework
+func (c *cluster) kubeConfigBytes() ([]byte, error) {
+	cfg := clientcmdapi.Config{
+		Kind:       "config",
+		APIVersion: "v1",
+		Clusters: map[string]*clientcmdapi.Cluster{
+			"default-cluster": {
+				Server:                   c.cfg.Host,
+				CertificateAuthorityData: c.cfg.CAData,
+			},
+		},
+		AuthInfos: map[string]*clientcmdapi.AuthInfo{
+			"default-user": {
+				ClientCertificateData: c.cfg.CertData,
+				ClientKeyData:         c.cfg.KeyData,
+			},
+		},
+		Contexts: map[string]*clientcmdapi.Context{
+			"default-context": {
+				Cluster:  "default-cluster",
+				AuthInfo: "default-user",
+			},
+		},
+		CurrentContext: "default-context",
+	}
+	return clientcmd.Write(cfg)
+}
+
+var (
+	leader  cluster
+	worker1 cluster
+	worker2 cluster
 )
 
 func TestScheduler(t *testing.T) {
@@ -58,25 +88,27 @@ func TestScheduler(t *testing.T) {
 	)
 }
 
-var _ = ginkgo.BeforeSuite(func() {
-	leaderFwk = &framework.Framework{
+func createCluster(setupFnc framework.ManagerSetup) cluster {
+	c := cluster{}
+	c.fwk = &framework.Framework{
 		CRDPath:     filepath.Join("..", "..", "..", "config", "components", "crd", "bases"),
 		WebhookPath: filepath.Join("..", "..", "..", "config", "components", "webhook"),
 	}
-	leaderCfg = leaderFwk.Init()
-	leaderCtx, k8sLeaderClient = leaderFwk.RunManager(leaderCfg, managerSetup)
+	c.cfg = c.fwk.Init()
+	c.ctx, c.client = c.fwk.RunManager(c.cfg, setupFnc)
+	return c
+}
 
-	workerFwk = &framework.Framework{
-		CRDPath:     filepath.Join("..", "..", "..", "config", "components", "crd", "bases"),
-		WebhookPath: filepath.Join("..", "..", "..", "config", "components", "webhook"),
-	}
-	workerCfg = workerFwk.Init()
-	workerCtx, k8sWorkerClient = workerFwk.RunManager(workerCfg, managerSetup)
+var _ = ginkgo.BeforeSuite(func() {
+	leader = createCluster(managerSetup)
+	worker1 = createCluster(managerSetup)
+	worker2 = createCluster(managerSetup)
 })
 
 var _ = ginkgo.AfterSuite(func() {
-	workerFwk.Teardown()
-	leaderFwk.Teardown()
+	worker2.fwk.Teardown()
+	worker1.fwk.Teardown()
+	leader.fwk.Teardown()
 })
 
 func managerSetup(mgr manager.Manager, ctx context.Context) {
