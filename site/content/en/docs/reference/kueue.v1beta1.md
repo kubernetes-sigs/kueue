@@ -1607,6 +1607,20 @@ Workload's PriorityClass can accept the name of a pod priorityClass or a workloa
 When using pod PriorityClass, a priorityClassSource field has the scheduling.k8s.io/priorityclass value.</p>
 </td>
 </tr>
+<tr><td><code>active</code> <B>[Required]</B><br/>
+<code>bool</code>
+</td>
+<td>
+   <p>Active determines if a workload can be admitted into a queue.
+Changing active from true to false will evict any running workloads.
+Possible values are:</p>
+<ul>
+<li>false: indicates that a workload should never be admitted and evicts running workloads</li>
+<li>true: indicates that a workload can be evaluated for admission into it's respective queue.</li>
+</ul>
+<p>Defaults to true</p>
+</td>
+</tr>
 </tbody>
 </table>
 
