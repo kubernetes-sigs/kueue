@@ -9,7 +9,7 @@ description: >
 
 AdmissionChecks are a mechanism that allows Kueue to consider additional criteria before admitting a Workload.
 When a ClusterQueue has AdmissionChecks configured, each of the checks has to provide a
-positive signal to the Workload before it can be [Admitted](docs/concepts/#admission).
+positive signal to the Workload before it can be [Admitted](https://kueue.sigs.k8s.io/docs/concepts#admission).
 
 ## Components
 
