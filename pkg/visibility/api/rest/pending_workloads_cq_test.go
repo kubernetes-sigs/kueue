@@ -73,15 +73,16 @@ func TestPendingWorkloadsInCQ(t *testing.T) {
 				utiltesting.MakeLocalQueue(lqNameA, nsName).ClusterQueue(cqNameA).Obj(),
 			},
 			workloads: []*kueue.Workload{
-				utiltesting.MakeWorkload("a", nsName).Queue(lqNameA).Priority(highPrio).Obj(),
-				utiltesting.MakeWorkload("b", nsName).Queue(lqNameA).Priority(lowPrio).Obj(),
+				utiltesting.MakeWorkload("a", nsName).Queue(lqNameA).Priority(highPrio).Creation(now).Obj(),
+				utiltesting.MakeWorkload("b", nsName).Queue(lqNameA).Priority(lowPrio).Creation(now).Obj(),
 			},
 			queryParams: defaultQueryParams,
 			wantPendingWorkloads: []visibility.PendingWorkload{
 				{
 					ObjectMeta: v1.ObjectMeta{
-						Name:      "a",
-						Namespace: nsName,
+						Name:              "a",
+						Namespace:         nsName,
+						CreationTimestamp: v1.NewTime(now),
 					},
 					LocalQueueName:         lqNameA,
 					Priority:               highPrio,
@@ -90,8 +91,9 @@ func TestPendingWorkloadsInCQ(t *testing.T) {
 				},
 				{
 					ObjectMeta: v1.ObjectMeta{
-						Name:      "b",
-						Namespace: nsName,
+						Name:              "b",
+						Namespace:         nsName,
+						CreationTimestamp: v1.NewTime(now),
 					},
 					LocalQueueName:         lqNameA,
 					Priority:               lowPrio,
@@ -118,8 +120,9 @@ func TestPendingWorkloadsInCQ(t *testing.T) {
 			wantPendingWorkloads: []visibility.PendingWorkload{
 				{
 					ObjectMeta: v1.ObjectMeta{
-						Name:      "lqA-high-prio",
-						Namespace: nsName,
+						Name:              "lqA-high-prio",
+						Namespace:         nsName,
+						CreationTimestamp: v1.NewTime(now),
 					},
 					LocalQueueName:         lqNameA,
 					Priority:               highPrio,
@@ -128,8 +131,9 @@ func TestPendingWorkloadsInCQ(t *testing.T) {
 				},
 				{
 					ObjectMeta: v1.ObjectMeta{
-						Name:      "lqB-high-prio",
-						Namespace: nsName,
+						Name:              "lqB-high-prio",
+						Namespace:         nsName,
+						CreationTimestamp: v1.NewTime(now.Add(time.Second)),
 					},
 					LocalQueueName:         lqNameB,
 					Priority:               highPrio,
@@ -138,8 +142,9 @@ func TestPendingWorkloadsInCQ(t *testing.T) {
 				},
 				{
 					ObjectMeta: v1.ObjectMeta{
-						Name:      "lqA-low-prio",
-						Namespace: nsName,
+						Name:              "lqA-low-prio",
+						Namespace:         nsName,
+						CreationTimestamp: v1.NewTime(now),
 					},
 					LocalQueueName:         lqNameA,
 					Priority:               lowPrio,
@@ -148,8 +153,9 @@ func TestPendingWorkloadsInCQ(t *testing.T) {
 				},
 				{
 					ObjectMeta: v1.ObjectMeta{
-						Name:      "lqB-low-prio",
-						Namespace: nsName,
+						Name:              "lqB-low-prio",
+						Namespace:         nsName,
+						CreationTimestamp: v1.NewTime(now.Add(time.Second)),
 					},
 					LocalQueueName:         lqNameB,
 					Priority:               lowPrio,
@@ -176,8 +182,9 @@ func TestPendingWorkloadsInCQ(t *testing.T) {
 			wantPendingWorkloads: []visibility.PendingWorkload{
 				{
 					ObjectMeta: v1.ObjectMeta{
-						Name:      "a",
-						Namespace: nsName,
+						Name:              "a",
+						Namespace:         nsName,
+						CreationTimestamp: v1.NewTime(now),
 					},
 					LocalQueueName:         lqNameA,
 					Priority:               highPrio,
@@ -186,8 +193,9 @@ func TestPendingWorkloadsInCQ(t *testing.T) {
 				},
 				{
 					ObjectMeta: v1.ObjectMeta{
-						Name:      "b",
-						Namespace: nsName,
+						Name:              "b",
+						Namespace:         nsName,
+						CreationTimestamp: v1.NewTime(now.Add(time.Second)),
 					},
 					LocalQueueName:         lqNameA,
 					Priority:               highPrio,
@@ -215,8 +223,9 @@ func TestPendingWorkloadsInCQ(t *testing.T) {
 			wantPendingWorkloads: []visibility.PendingWorkload{
 				{
 					ObjectMeta: v1.ObjectMeta{
-						Name:      "b",
-						Namespace: nsName,
+						Name:              "b",
+						Namespace:         nsName,
+						CreationTimestamp: v1.NewTime(now.Add(time.Second)),
 					},
 					LocalQueueName:         lqNameA,
 					Priority:               highPrio,
@@ -225,8 +234,9 @@ func TestPendingWorkloadsInCQ(t *testing.T) {
 				},
 				{
 					ObjectMeta: v1.ObjectMeta{
-						Name:      "c",
-						Namespace: nsName,
+						Name:              "c",
+						Namespace:         nsName,
+						CreationTimestamp: v1.NewTime(now.Add(time.Second * 2)),
 					},
 					LocalQueueName:         lqNameA,
 					Priority:               highPrio,
@@ -254,8 +264,9 @@ func TestPendingWorkloadsInCQ(t *testing.T) {
 			wantPendingWorkloads: []visibility.PendingWorkload{
 				{
 					ObjectMeta: v1.ObjectMeta{
-						Name:      "b",
-						Namespace: nsName,
+						Name:              "b",
+						Namespace:         nsName,
+						CreationTimestamp: v1.NewTime(now.Add(time.Second)),
 					},
 					LocalQueueName:         lqNameA,
 					Priority:               highPrio,

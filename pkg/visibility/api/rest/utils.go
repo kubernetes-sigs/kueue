@@ -33,9 +33,10 @@ func newPendingWorkload(wlInfo *workload.Info, positionInLq int32, positionInCq 
 	}
 	return &v1alpha1.PendingWorkload{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:            wlInfo.Obj.Name,
-			Namespace:       wlInfo.Obj.Namespace,
-			OwnerReferences: ownerReferences,
+			Name:              wlInfo.Obj.Name,
+			Namespace:         wlInfo.Obj.Namespace,
+			OwnerReferences:   ownerReferences,
+			CreationTimestamp: wlInfo.Obj.CreationTimestamp,
 		},
 		PositionInClusterQueue: int32(positionInCq),
 		Priority:               *wlInfo.Obj.Spec.Priority,
