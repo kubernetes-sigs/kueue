@@ -233,7 +233,7 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 
 	log := ctrl.LoggerFrom(ctx)
 	if workload.IsAdmitted(wl) {
-		if err != nil || queueStopPolicy != kueue.HoldAndDrain {
+		if queueStopPolicy != kueue.HoldAndDrain {
 			return false, nil
 		}
 		log.V(3).Info("Workload is evicted because the ClusterQueue is stopped", "clusterQueue", klog.KRef("", cqName))
@@ -242,15 +242,15 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 		return true, client.IgnoreNotFound(err)
 	}
 
-	if !workload.IsAdmitted(wl) && (err != nil || !queue.DeletionTimestamp.IsZero()) {
+	if err != nil || !queue.DeletionTimestamp.IsZero() {
 		log.V(3).Info("Workload is inadmissible because the ClusterQueue is terminating or missing", "clusterQueue", klog.KRef("", cqName))
 		workload.UnsetQuotaReservationWithCondition(wl, "Inadmissible", fmt.Sprintf("ClusterQueue %s is terminating or missing", cqName))
 		return true, workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
 	}
 
-	if queueStopPolicy == kueue.HoldAndDrain || queueStopPolicy == kueue.Hold {
+	if queueStopPolicy != kueue.None {
 		log.V(3).Info("Workload is inadmissible because the ClusterQueue is stopped", "clusterQueue", klog.KRef("", cqName))
-		workload.UnsetQuotaReservationWithCondition(wl, "Inadmissible", fmt.Sprintf("ClusterQueue %s is terminating or missing", cqName))
+		workload.UnsetQuotaReservationWithCondition(wl, "Inadmissible", fmt.Sprintf("ClusterQueue %s is stopped", cqName))
 		return true, workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
 	}
 

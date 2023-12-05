@@ -3,6 +3,7 @@ package cache
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -266,16 +267,18 @@ func (c *ClusterQueue) inactiveReason() (string, string) {
 	case terminating:
 		return "Terminating", "Can't admit new workloads; clusterQueue is terminating"
 	case pending:
-		switch {
-		case c.hasMissingFlavors && c.hasMissingOrInactiveAdmissionChecks:
-			return "FlavorNotFoundAndCheckNotFoundOrInactive", "Can't admit new workloads; some resourceFlavors are not found and admissionChecks are not found or inactive"
-		case c.hasMissingFlavors:
-			return "FlavorNotFound", "Can't admit new workloads; some resourceFlavors are not found"
-		case c.hasMissingOrInactiveAdmissionChecks:
-			return "CheckNotFoundOrInactive", "Can't admit new workloads; some admissionChecks are not found or inactive"
-		default:
-			return "Stopped", "Can't admit new workloads; the ClusterQueue is Stopped"
+		reasons := make([]string, 0, 3)
+		if c.isStopped {
+			reasons = append(reasons, "Stopped")
 		}
+		if c.hasMissingFlavors {
+			reasons = append(reasons, "FlavorNotFound")
+		}
+		if c.hasMissingOrInactiveAdmissionChecks {
+			reasons = append(reasons, "CheckNotFoundOrInactive")
+		}
+
+		return strings.Join(reasons, "_"), strings.Join([]string{"Can't admit new workloads:", strings.Join(reasons, ", ")}, " ")
 	}
 	return "Ready", "Can admit new flavors"
 }

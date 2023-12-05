@@ -202,7 +202,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 						Type:    kueue.ClusterQueueActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "FlavorNotFound",
-						Message: "Can't admit new workloads; some resourceFlavors are not found",
+						Message: "Can't admit new workloads: FlavorNotFound",
 					},
 				},
 			}, ignoreConditionTimestamps, ignorePendingWorkloadsStatus))
@@ -597,7 +597,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 					Type:    kueue.ClusterQueueActive,
 					Status:  metav1.ConditionFalse,
 					Reason:  "FlavorNotFound",
-					Message: "Can't admit new workloads; some resourceFlavors are not found",
+					Message: "Can't admit new workloads: FlavorNotFound",
 				},
 			}, ignoreConditionTimestamps))
 
@@ -613,7 +613,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 					Type:    kueue.ClusterQueueActive,
 					Status:  metav1.ConditionFalse,
 					Reason:  "FlavorNotFound",
-					Message: "Can't admit new workloads; some resourceFlavors are not found",
+					Message: "Can't admit new workloads: FlavorNotFound",
 				},
 			}, ignoreConditionTimestamps))
 
@@ -653,7 +653,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 					Type:    kueue.ClusterQueueActive,
 					Status:  metav1.ConditionFalse,
 					Reason:  "CheckNotFoundOrInactive",
-					Message: "Can't admit new workloads; some admissionChecks are not found or inactive",
+					Message: "Can't admit new workloads: CheckNotFoundOrInactive",
 				},
 			}, ignoreConditionTimestamps))
 
@@ -670,7 +670,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 					Type:    kueue.ClusterQueueActive,
 					Status:  metav1.ConditionFalse,
 					Reason:  "CheckNotFoundOrInactive",
-					Message: "Can't admit new workloads; some admissionChecks are not found or inactive",
+					Message: "Can't admit new workloads: CheckNotFoundOrInactive",
 				},
 			}, ignoreConditionTimestamps))
 
@@ -686,7 +686,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 					Type:    kueue.ClusterQueueActive,
 					Status:  metav1.ConditionFalse,
 					Reason:  "CheckNotFoundOrInactive",
-					Message: "Can't admit new workloads; some admissionChecks are not found or inactive",
+					Message: "Can't admit new workloads: CheckNotFoundOrInactive",
 				},
 			}, ignoreConditionTimestamps))
 

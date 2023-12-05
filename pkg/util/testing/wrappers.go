@@ -483,6 +483,11 @@ func (c *ClusterQueueWrapper) FlavorFungibility(p kueue.FlavorFungibility) *Clus
 	return c
 }
 
+func (c *ClusterQueueWrapper) StopPoicy(p kueue.StopPolicy) *ClusterQueueWrapper {
+	c.Spec.StopPolicy = &p
+	return c
+}
+
 // FlavorQuotasWrapper wraps a FlavorQuotas object.
 type FlavorQuotasWrapper struct{ kueue.FlavorQuotas }
 

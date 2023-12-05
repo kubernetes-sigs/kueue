@@ -98,6 +98,9 @@ type ClusterQueue interface {
 	// Info returns workload.Info for the workload key.
 	// Users of this method should not modify the returned object.
 	Info(string) *workload.Info
+
+	// Returns true if the queue is active
+	Active() bool
 }
 
 var registry = map[kueue.QueueingStrategy]func(cq *kueue.ClusterQueue) (ClusterQueue, error){
