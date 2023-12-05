@@ -117,7 +117,8 @@ func TestConfigHelper(t *testing.T) {
 				builder = builder.WithObjects(tc.config)
 			}
 			client := builder.Build()
-			ctx := context.Background()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
 			helper, err := NewConfigHelper[*kueue.ProvisioningRequestConfig](client)
 
@@ -185,7 +186,6 @@ func TestIndexerFunc(t *testing.T) {
 }
 
 func TestFilterCheckStates(t *testing.T) {
-
 	cases := map[string]struct {
 		admissionchecks []kueue.AdmissionCheck
 		states          []kueue.AdmissionCheckState
@@ -229,7 +229,8 @@ func TestFilterCheckStates(t *testing.T) {
 				builder = builder.WithLists(&kueue.AdmissionCheckList{Items: tc.admissionchecks})
 			}
 			client := builder.Build()
-			ctx := context.Background()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
 			gotResult, _ := FilterForController(ctx, client, tc.states, "test-controller")
 

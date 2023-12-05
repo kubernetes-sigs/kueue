@@ -62,8 +62,8 @@ func (ch *ConfigHelper[PtrT, T]) newConfigPtr() PtrT {
 	return PtrT(new(T))
 }
 
-// IsValidConfigReference - checks if the provided reference is addressing an object specific to this helper.
-func (ch *ConfigHelper[PtrT, T]) IsValidConfigReference(ref *kueue.AdmissionCheckParametersReference) (bool, error) {
+// isValidConfigReference - checks if the provided reference is addressing an object specific to this helper.
+func (ch *ConfigHelper[PtrT, T]) isValidConfigReference(ref *kueue.AdmissionCheckParametersReference) (bool, error) {
 	return refValidForGK(ref, ch.gk)
 }
 
@@ -78,7 +78,7 @@ func (ch *ConfigHelper[PtrT, T]) ConfigByName(ctx context.Context, name string) 
 
 // ConfigFromRef - get the config identified by ref if valid.
 func (ch *ConfigHelper[PtrT, T]) ConfigFromRef(ctx context.Context, ref *kueue.AdmissionCheckParametersReference) (PtrT, error) {
-	if isValid, err := ch.IsValidConfigReference(ref); !isValid {
+	if isValid, err := ch.isValidConfigReference(ref); !isValid {
 		return nil, err
 	}
 	return ch.ConfigByName(ctx, ref.Name)

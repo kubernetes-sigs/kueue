@@ -83,7 +83,7 @@ func TestReconcileAdmissionCheck(t *testing.T) {
 			wantCondition: &metav1.Condition{
 				Type:    kueue.AdmissionCheckActive,
 				Status:  metav1.ConditionFalse,
-				Reason:  "UnknownParametersRef",
+				Reason:  "BadParametersRef",
 				Message: "provisioningrequestconfigs.kueue.x-k8s.io \"config1\" not found",
 			},
 		},
