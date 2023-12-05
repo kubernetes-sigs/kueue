@@ -39,13 +39,13 @@ type objAsPtr[T any] interface {
 	*T
 }
 
-type ConfigHelper[PtrConfT objAsPtr[ConfT], ConfT any] struct {
+type ConfigHelper[PtrT objAsPtr[T], T any] struct {
 	gk     schema.GroupKind
 	client client.Client
 }
 
-func NewConfigHelper[PtrConfT objAsPtr[ConfT], ConfT any](c client.Client) (*ConfigHelper[PtrConfT, ConfT], error) {
-	helper := ConfigHelper[PtrConfT, ConfT]{
+func NewConfigHelper[PtrT objAsPtr[T], T any](c client.Client) (*ConfigHelper[PtrT, T], error) {
+	helper := ConfigHelper[PtrT, T]{
 		client: c,
 	}
 
@@ -58,17 +58,17 @@ func NewConfigHelper[PtrConfT objAsPtr[ConfT], ConfT any](c client.Client) (*Con
 	return &helper, nil
 }
 
-func (ch *ConfigHelper[PtrConfT, ConfT]) newConfigPtr() PtrConfT {
-	return PtrConfT(new(ConfT))
+func (ch *ConfigHelper[PtrT, T]) newConfigPtr() PtrT {
+	return PtrT(new(T))
 }
 
 // IsValidConfigReference - checks if the provided reference is addressing an object specific to this helper.
-func (ch *ConfigHelper[PtrConfT, ConfT]) IsValidConfigReference(ref *kueue.AdmissionCheckParametersReference) (bool, error) {
+func (ch *ConfigHelper[PtrT, T]) IsValidConfigReference(ref *kueue.AdmissionCheckParametersReference) (bool, error) {
 	return refValidForGK(ref, ch.gk)
 }
 
 // ConfigByName - get the config identified by its name
-func (ch *ConfigHelper[PtrConfT, ConfT]) ConfigByName(ctx context.Context, name string) (PtrConfT, error) {
+func (ch *ConfigHelper[PtrT, T]) ConfigByName(ctx context.Context, name string) (PtrT, error) {
 	configPtr := ch.newConfigPtr()
 	if err := ch.client.Get(ctx, types.NamespacedName{Name: name}, configPtr); err != nil {
 		return nil, err
@@ -77,7 +77,7 @@ func (ch *ConfigHelper[PtrConfT, ConfT]) ConfigByName(ctx context.Context, name 
 }
 
 // ConfigFromRef - get the config identified by ref if valid.
-func (ch *ConfigHelper[PtrConfT, ConfT]) ConfigFromRef(ctx context.Context, ref *kueue.AdmissionCheckParametersReference) (PtrConfT, error) {
+func (ch *ConfigHelper[PtrT, T]) ConfigFromRef(ctx context.Context, ref *kueue.AdmissionCheckParametersReference) (PtrT, error) {
 	if isValid, err := ch.IsValidConfigReference(ref); !isValid {
 		return nil, err
 	}
@@ -86,7 +86,7 @@ func (ch *ConfigHelper[PtrConfT, ConfT]) ConfigFromRef(ctx context.Context, ref 
 
 // ConfigForAdmissionCheck - get the configuration of the admission check identified by its name if it uses the
 // helpers configuration type.
-func (ch *ConfigHelper[PtrConfT, ConfT]) ConfigForAdmissionCheck(ctx context.Context, checkName string) (PtrConfT, error) {
+func (ch *ConfigHelper[PtrT, T]) ConfigForAdmissionCheck(ctx context.Context, checkName string) (PtrT, error) {
 	ac := &kueue.AdmissionCheck{}
 	if err := ch.client.Get(ctx, types.NamespacedName{Name: checkName}, ac); err != nil {
 		return nil, err
