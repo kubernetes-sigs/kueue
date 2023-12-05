@@ -452,8 +452,8 @@ webhook and stored as an annotation: `kueue.x-k8s.io/role-hash`.
 
 We can only build the Workload object once we observe the number of Pods defined by the
 `kueue.x-k8s.io/pod-group-total-count` annotation.
-If there are more non-terminated Pods than the annotation declares, the reconciler deletes the Pods with the
-highest `creationTimestamp` and removes their finalizers, prior to creating the Workload object.
+If there are more Pending, Running or Succeeded Pods than the annotation declares, the reconciler
+deletes the Pods with the highest `creationTimestamp` and removes their finalizers, prior to creating the Workload object.
 Similarly, when the group has been admitted, the reconciler will detect and delete any extra Pods per role.
 
 If Pods with the same `pod-group-name` have different values for the `pod-group-total-count`
@@ -652,6 +652,8 @@ The integration tests should cover the following scenarios:
   - Group finished when all pods finish Successfully
   - Group finished when a Pod with `retriable-in-group: false` annotation finishes.
   - Group preempted and resumed.
+  - Excess pods before admission, youngest pods are deleted.
+  - Excess pods after admission, youngest pods per role are deleted.
 - Driver Pod creates workers:
   - queued and admitted.
   - worker pods beyond the count are rejected (deleted)
