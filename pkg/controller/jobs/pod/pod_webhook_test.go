@@ -536,6 +536,41 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
+		"retriable in group annotation is removed": {
+			oldPod: testingpod.MakePod("test-pod", "test-ns").
+				Group("test-group").
+				GroupTotalCount("2").
+				Annotation("kueue.x-k8s.io/retriable-in-group", "false").
+				Obj(),
+			newPod: testingpod.MakePod("test-pod", "test-ns").
+				Group("test-group").
+				GroupTotalCount("2").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "metadata.annotations[kueue.x-k8s.io/retriable-in-group]",
+				},
+			}.ToAggregate(),
+		},
+		"retriable in group annotation is changed from false to true": {
+			oldPod: testingpod.MakePod("test-pod", "test-ns").
+				Group("test-group").
+				GroupTotalCount("2").
+				Annotation("kueue.x-k8s.io/retriable-in-group", "false").
+				Obj(),
+			newPod: testingpod.MakePod("test-pod", "test-ns").
+				Group("test-group").
+				GroupTotalCount("2").
+				Annotation("kueue.x-k8s.io/retriable-in-group", "true").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "metadata.annotations[kueue.x-k8s.io/retriable-in-group]",
+				},
+			}.ToAggregate(),
+		},
 	}
 
 	for name, tc := range testCases {

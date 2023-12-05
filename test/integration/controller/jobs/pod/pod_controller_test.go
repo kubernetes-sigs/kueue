@@ -314,43 +314,6 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 			})
 
-			ginkgo.When("Pod owner is managed by Kueue", func() {
-				var pod *corev1.Pod
-				ginkgo.BeforeEach(func() {
-					pod = testingpod.MakePod(podName, ns.Name).
-						Queue("test-queue").
-						OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
-						Obj()
-				})
-
-				ginkgo.It("Should skip the pod", func() {
-					gomega.Expect(k8sClient.Create(ctx, pod)).Should(gomega.Succeed())
-
-					createdPod := &corev1.Pod{}
-					gomega.Eventually(func() error {
-						return k8sClient.Get(ctx, lookupKey, createdPod)
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-					gomega.Expect(createdPod.Spec.SchedulingGates).NotTo(
-						gomega.ContainElement(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}),
-						"Pod shouldn't have scheduling gate",
-					)
-
-					gomega.Expect(createdPod.Labels).NotTo(
-						gomega.HaveKeyWithValue("kueue.x-k8s.io/managed", "true"),
-						"Pod shouldn't have the label",
-					)
-
-					gomega.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement("kueue.x-k8s.io/managed"),
-						"Pod shouldn't have finalizer")
-
-					ginkgo.By(fmt.Sprintf("checking that workload '%s' is not created", wlLookupKey))
-					createdWorkload := &kueue.Workload{}
-
-					gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(testing.BeNotFoundError())
-				})
-			})
-
 			ginkgo.When("the queue has admission checks", func() {
 				var (
 					ns             *corev1.Namespace
@@ -846,11 +809,23 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						"Pod should have finalizer")
 				})
 
-				ginkgo.By("checking that pod group is finalized when the 'unretriable' annotation is added", func() {
-					// Set 'retriable-in-group' = false annotation for the first pod
-					gomega.Expect(k8sClient.Get(ctx, pod1LookupKey, createdPod)).To(gomega.Succeed())
-					createdPod.Annotations["kueue.x-k8s.io/retriable-in-group"] = "false"
-					gomega.Expect(k8sClient.Update(ctx, createdPod)).To(gomega.Succeed())
+				// Create replacement pod with 'retriable-in-group' = false annotation
+				replacementPod2 := testingpod.MakePod("replacement-test-pod2", ns.Name).
+					Group("test-group").
+					GroupTotalCount("2").
+					Image("test-image", nil).
+					Annotation("kueue.x-k8s.io/retriable-in-group", "false").
+					Queue("test-queue").
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, replacementPod2)).Should(gomega.Succeed())
+				replacementPod2LookupKey := client.ObjectKeyFromObject(replacementPod2)
+
+				ginkgo.By("checking that unretriable replacement pod is allowed to run", func() {
+					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, replacementPod2LookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
+				})
+
+				ginkgo.By("checking that pod group is finalized when unretriable pod has failed", func() {
+					util.SetPodsPhase(ctx, k8sClient, corev1.PodFailed, replacementPod2)
 
 					gomega.Eventually(func() []metav1.Condition {
 						err := k8sClient.Get(ctx, wlLookupKey, createdWorkload)
@@ -874,7 +849,49 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						g.Expect(k8sClient.Get(ctx, pod2LookupKey, createdPod)).To(gomega.Succeed())
 						return createdPod.Finalizers
 					}, util.Timeout, util.Interval).Should(gomega.BeEmpty(), "Expected pod to be finalized")
+
+					gomega.Eventually(func(g gomega.Gomega) []string {
+						g.Expect(k8sClient.Get(ctx, replacementPod2LookupKey, createdPod)).To(gomega.Succeed())
+						return createdPod.Finalizers
+					}, util.Timeout, util.Interval).Should(gomega.BeEmpty(), "Expected pod to be finalized")
 				})
+			})
+		})
+
+		ginkgo.When("Pod owner is managed by Kueue", func() {
+			var pod *corev1.Pod
+			ginkgo.BeforeEach(func() {
+				pod = testingpod.MakePod(podName, ns.Name).
+					Queue("test-queue").
+					OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
+					Obj()
+			})
+
+			ginkgo.It("Should skip the pod", func() {
+				gomega.Expect(k8sClient.Create(ctx, pod)).Should(gomega.Succeed())
+
+				createdPod := &corev1.Pod{}
+				gomega.Eventually(func() error {
+					return k8sClient.Get(ctx, lookupKey, createdPod)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Expect(createdPod.Spec.SchedulingGates).NotTo(
+					gomega.ContainElement(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}),
+					"Pod shouldn't have scheduling gate",
+				)
+
+				gomega.Expect(createdPod.Labels).NotTo(
+					gomega.HaveKeyWithValue("kueue.x-k8s.io/managed", "true"),
+					"Pod shouldn't have the label",
+				)
+
+				gomega.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement("kueue.x-k8s.io/managed"),
+					"Pod shouldn't have finalizer")
+
+				ginkgo.By(fmt.Sprintf("checking that workload '%s' is not created", wlLookupKey))
+				createdWorkload := &kueue.Workload{}
+
+				gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(testing.BeNotFoundError())
 			})
 		})
 	})

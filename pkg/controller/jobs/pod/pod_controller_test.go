@@ -1886,7 +1886,6 @@ func TestReconciler(t *testing.T) {
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
 					Admitted(true).
 					ReclaimablePods(
-						kueue.ReclaimablePod{Name: "b990493b", Count: 1},
 						kueue.ReclaimablePod{Name: "4389b941", Count: 1},
 					).
 					Obj(),

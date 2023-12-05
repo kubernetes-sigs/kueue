@@ -51,7 +51,6 @@ import (
 
 const (
 	SchedulingGateName             = "kueue.x-k8s.io/admission"
-	RetriableInGroupAnnotation     = "kueue.x-k8s.io/retriable-in-group"
 	FrameworkName                  = "pod"
 	gateNotFound                   = -1
 	ConditionTypeTerminationTarget = "TerminationTarget"
@@ -129,6 +128,10 @@ func podSuspended(p *corev1.Pod) bool {
 	return !podActive(p) || gateIndex(p) != gateNotFound
 }
 
+func isUnretriablePod(pod corev1.Pod) bool {
+	return pod.Annotations[RetriableInGroupAnnotation] == "false"
+}
+
 // isUnretriableGroup returns true if at least one pod in the group
 // has a RetriableInGroupAnnotation set to 'false'.
 func (p *Pod) isUnretriableGroup() bool {
@@ -137,7 +140,7 @@ func (p *Pod) isUnretriableGroup() bool {
 	}
 
 	for _, pod := range p.list.Items {
-		if pod.Annotations[RetriableInGroupAnnotation] == "false" {
+		if isUnretriablePod(pod) {
 			p.unretriableGroup = ptr.To(true)
 			return true
 		}
@@ -194,34 +197,33 @@ func (p *Pod) Finished() (metav1.Condition, bool) {
 		if ph == corev1.PodFailed {
 			condition.Message = "Job failed"
 		}
+
+		return condition, finished
+	}
+	isActive := false
+	succeededCount := 0
+
+	groupTotalCount, err := p.groupTotalCount()
+	if err != nil {
+		ctrl.Log.V(2).Error(err, "failed to check if pod group is finished")
+		return metav1.Condition{}, false
+	}
+	for _, pod := range p.list.Items {
+		if pod.Status.Phase == corev1.PodSucceeded {
+			succeededCount++
+		}
+
+		if podActive(&pod) {
+			isActive = true
+		}
+	}
+
+	unretriableGroup := p.isUnretriableGroup()
+
+	if succeededCount == groupTotalCount || (!isActive && unretriableGroup) {
+		condition.Message = fmt.Sprintf("Pods succeeded: %d/%d.", succeededCount, groupTotalCount)
 	} else {
-		isActive := false
-		succeededCount := 0
-
-		groupTotalCount, err := p.groupTotalCount()
-		if err != nil {
-			ctrl.Log.V(2).Error(err, "failed to check if pod group is finished")
-			return metav1.Condition{}, false
-		}
-		for i := range p.list.Items {
-			pod := p.list.Items[i]
-
-			if pod.Status.Phase == corev1.PodSucceeded {
-				succeededCount++
-			}
-
-			if podActive(&pod) {
-				isActive = true
-			}
-		}
-
-		unretriableGroup := p.isUnretriableGroup()
-
-		if succeededCount == groupTotalCount || (!isActive && unretriableGroup) {
-			condition.Message = fmt.Sprintf("Pods succeeded: %d/%d.", succeededCount, groupTotalCount)
-		} else {
-			return metav1.Condition{}, false
-		}
+		return metav1.Condition{}, false
 	}
 
 	return condition, finished
@@ -520,12 +522,6 @@ func (p *Pod) constructGroupPodSets(podsInGroup corev1.PodList) ([]kueue.PodSet,
 	return resultPodSets, nil
 }
 
-func filterFailedPods(podList []corev1.Pod) (res []corev1.Pod) {
-	return slices.DeleteFunc(podList, func(p corev1.Pod) bool {
-		return p.Status.Phase == corev1.PodFailed
-	})
-}
-
 func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, r record.EventRecorder) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 	object := p.Object()
@@ -542,7 +538,14 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 			return nil, err
 		}
 
-		if len(filterFailedPods(p.list.Items)) != groupTotalCount {
+		podCount := 0
+		for i := range p.list.Items {
+			if p.list.Items[i].Status.Phase != corev1.PodFailed {
+				podCount++
+			}
+		}
+
+		if podCount != groupTotalCount {
 			errMsg := fmt.Sprintf("'%s' group total count is different from the actual number of pods in the cluster", p.groupName())
 			r.Eventf(object, corev1.EventTypeWarning, "ErrWorkloadCompose", errMsg)
 			return nil, jobframework.UnretryableError(errMsg)
@@ -667,33 +670,33 @@ func (p *Pod) equivalentToWorkload(wl *kueue.Workload, jobPodSets []kueue.PodSet
 }
 
 func (p *Pod) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
-	if p.isGroup {
-		var result []kueue.ReclaimablePod
-		for _, pod := range p.list.Items {
-			if pod.Status.Phase == corev1.PodSucceeded || (p.isUnretriableGroup() && !podActive(&pod)) {
-				roleHash, err := getRoleHash(pod)
-				if err != nil {
-					return nil, err
-				}
-
-				roleFound := false
-				for i := range result {
-					if result[i].Name == roleHash {
-						result[i].Count++
-						roleFound = true
-					}
-				}
-
-				if !roleFound {
-					result = append(result, kueue.ReclaimablePod{Name: roleHash, Count: 1})
-				}
-			}
-		}
-
-		return result, nil
+	if !p.isGroup {
+		return []kueue.ReclaimablePod{}, nil
 	}
 
-	return []kueue.ReclaimablePod{}, nil
+	var result []kueue.ReclaimablePod
+	for _, pod := range p.list.Items {
+		if pod.Status.Phase == corev1.PodSucceeded {
+			roleHash, err := getRoleHash(pod)
+			if err != nil {
+				return nil, err
+			}
+
+			roleFound := false
+			for i := range result {
+				if result[i].Name == roleHash {
+					result[i].Count++
+					roleFound = true
+				}
+			}
+
+			if !roleFound {
+				result = append(result, kueue.ReclaimablePod{Name: roleHash, Count: 1})
+			}
+		}
+	}
+
+	return result, nil
 }
 
 func IsPodOwnerManagedByKueue(p *Pod) bool {

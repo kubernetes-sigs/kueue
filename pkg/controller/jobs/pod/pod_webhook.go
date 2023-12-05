@@ -38,20 +38,22 @@ import (
 )
 
 const (
-	ManagedLabelKey           = "kueue.x-k8s.io/managed"
-	ManagedLabelValue         = "true"
-	PodFinalizer              = ManagedLabelKey
-	GroupNameLabel            = "kueue.x-k8s.io/pod-group-name"
-	GroupTotalCountAnnotation = "kueue.x-k8s.io/pod-group-total-count"
-	RoleHashAnnotation        = "kueue.x-k8s.io/role-hash"
+	ManagedLabelKey            = "kueue.x-k8s.io/managed"
+	ManagedLabelValue          = "true"
+	PodFinalizer               = ManagedLabelKey
+	GroupNameLabel             = "kueue.x-k8s.io/pod-group-name"
+	GroupTotalCountAnnotation  = "kueue.x-k8s.io/pod-group-total-count"
+	RoleHashAnnotation         = "kueue.x-k8s.io/role-hash"
+	RetriableInGroupAnnotation = "kueue.x-k8s.io/retriable-in-group"
 )
 
 var (
-	labelsPath                    = field.NewPath("metadata", "labels")
-	annotationsPath               = field.NewPath("metadata", "annotations")
-	managedLabelPath              = labelsPath.Key(ManagedLabelKey)
-	groupNameLabelPath            = labelsPath.Key(GroupNameLabel)
-	groupTotalCountAnnotationPath = annotationsPath.Key(GroupTotalCountAnnotation)
+	labelsPath                     = field.NewPath("metadata", "labels")
+	annotationsPath                = field.NewPath("metadata", "annotations")
+	managedLabelPath               = labelsPath.Key(ManagedLabelKey)
+	groupNameLabelPath             = labelsPath.Key(GroupNameLabel)
+	groupTotalCountAnnotationPath  = annotationsPath.Key(GroupTotalCountAnnotation)
+	retriableInGroupAnnotationPath = annotationsPath.Key(RetriableInGroupAnnotation)
 )
 
 type PodWebhook struct {
@@ -234,6 +236,8 @@ func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.
 
 	allErrs = append(allErrs, validatePodGroupMetadata(newPod)...)
 
+	allErrs = append(allErrs, validateUpdateForRetriableInGroupAnnotation(oldPod, newPod)...)
+
 	if warn := warningForPodManagedLabel(newPod); warn != "" {
 		warnings = append(warnings, warn)
 	}
@@ -297,4 +301,14 @@ func validatePodGroupMetadata(p *Pod) field.ErrorList {
 	}
 
 	return allErrs
+}
+
+func validateUpdateForRetriableInGroupAnnotation(oldPod, newPod *Pod) field.ErrorList {
+	if newPod.groupName() != "" && isUnretriablePod(oldPod.pod) && !isUnretriablePod(newPod.pod) {
+		return field.ErrorList{
+			field.Forbidden(retriableInGroupAnnotationPath, "unretriable pod group can't be converted to retriable"),
+		}
+	}
+
+	return field.ErrorList{}
 }
