@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -31,22 +30,21 @@ import (
 )
 
 var (
-	ErrNilParametersRef = errors.New("nil parameters reference")
+	ErrNilParametersRef = errors.New("missing parameters reference")
 	ErrBadParametersRef = errors.New("bad parameters reference")
 )
 
-type ConfigHelper[PtrConfT interface {
+type objAsPtr[T any] interface {
 	client.Object
-	*ConfT
-}, ConfT any] struct {
+	*T
+}
+
+type ConfigHelper[PtrConfT objAsPtr[ConfT], ConfT any] struct {
 	gk     schema.GroupKind
 	client client.Client
 }
 
-func NewConfigHelper[PtrConfT interface {
-	client.Object
-	*ConfT
-}, ConfT any](c client.Client) (*ConfigHelper[PtrConfT, ConfT], error) {
+func NewConfigHelper[PtrConfT objAsPtr[ConfT], ConfT any](c client.Client) (*ConfigHelper[PtrConfT, ConfT], error) {
 	helper := ConfigHelper[PtrConfT, ConfT]{
 		client: c,
 	}
@@ -60,41 +58,41 @@ func NewConfigHelper[PtrConfT interface {
 	return &helper, nil
 }
 
-func (sh *ConfigHelper[PtrConfT, ConfT]) newConfigPtr() PtrConfT {
+func (ch *ConfigHelper[PtrConfT, ConfT]) newConfigPtr() PtrConfT {
 	return PtrConfT(new(ConfT))
 }
 
 // IsValidConfigReference - checks if the provided reference is addressing an object specific to this helper.
-func (sh *ConfigHelper[PtrConfT, ConfT]) IsValidConfigReference(ref *kueue.AdmissionCheckParametersReference) (bool, error) {
-	return refValidForGK(ref, sh.gk)
+func (ch *ConfigHelper[PtrConfT, ConfT]) IsValidConfigReference(ref *kueue.AdmissionCheckParametersReference) (bool, error) {
+	return refValidForGK(ref, ch.gk)
 }
 
 // ConfigByName - get the config identified by its name
-func (sh *ConfigHelper[PtrConfT, ConfT]) ConfigByName(ctx context.Context, name string) (PtrConfT, error) {
-	configPtr := sh.newConfigPtr()
-	if err := sh.client.Get(ctx, types.NamespacedName{Name: name}, configPtr); err != nil {
+func (ch *ConfigHelper[PtrConfT, ConfT]) ConfigByName(ctx context.Context, name string) (PtrConfT, error) {
+	configPtr := ch.newConfigPtr()
+	if err := ch.client.Get(ctx, types.NamespacedName{Name: name}, configPtr); err != nil {
 		return nil, err
 	}
 	return configPtr, nil
 }
 
 // ConfigFromRef - get the config identified by ref if valid.
-func (sh *ConfigHelper[PtrConfT, ConfT]) ConfigFromRef(ctx context.Context, ref *kueue.AdmissionCheckParametersReference) (PtrConfT, error) {
-	if isValid, err := sh.IsValidConfigReference(ref); !isValid {
+func (ch *ConfigHelper[PtrConfT, ConfT]) ConfigFromRef(ctx context.Context, ref *kueue.AdmissionCheckParametersReference) (PtrConfT, error) {
+	if isValid, err := ch.IsValidConfigReference(ref); !isValid {
 		return nil, err
 	}
-	return sh.ConfigByName(ctx, ref.Name)
+	return ch.ConfigByName(ctx, ref.Name)
 }
 
 // ConfigForAdmissionCheck - get the configuration of the admission check identified by its name if it uses the
 // helpers configuration type.
-func (sh *ConfigHelper[PtrConfT, ConfT]) ConfigForAdmissionCheck(ctx context.Context, checkName string) (PtrConfT, error) {
+func (ch *ConfigHelper[PtrConfT, ConfT]) ConfigForAdmissionCheck(ctx context.Context, checkName string) (PtrConfT, error) {
 	ac := &kueue.AdmissionCheck{}
-	if err := sh.client.Get(ctx, types.NamespacedName{Name: checkName}, ac); err != nil {
+	if err := ch.client.Get(ctx, types.NamespacedName{Name: checkName}, ac); err != nil {
 		return nil, err
 	}
 
-	return sh.ConfigFromRef(ctx, ac.Spec.Parameters)
+	return ch.ConfigFromRef(ctx, ac.Spec.Parameters)
 }
 
 func refValidForGK(ref *kueue.AdmissionCheckParametersReference, gk schema.GroupKind) (bool, error) {
@@ -115,13 +113,8 @@ func refValidForGK(ref *kueue.AdmissionCheckParametersReference, gk schema.Group
 	return true, nil
 }
 
-func GetIndexerByConfigFnc(ControllerName string, cfgObj client.Object, schema *runtime.Scheme) (client.IndexerFunc, error) {
-	gvk, err := apiutil.GVKForObject(cfgObj, schema)
-	if err != nil {
-		return nil, err
-	}
+func IndexerByConfigFunction(ControllerName string, gvk schema.GroupVersionKind) client.IndexerFunc {
 	gk := gvk.GroupKind()
-
 	return func(obj client.Object) []string {
 		ac, isAc := obj.(*kueue.AdmissionCheck)
 		if !isAc || ac == nil || ac.Spec.ControllerName != ControllerName {
@@ -131,12 +124,11 @@ func GetIndexerByConfigFnc(ControllerName string, cfgObj client.Object, schema *
 			return nil
 		}
 		return []string{ac.Spec.Parameters.Name}
-	}, nil
-
+	}
 }
 
-// ChecksWithController - returns a list of check names controlled by ControllerName.
-func ChecksWithController(ctx context.Context, c client.Client, states []kueue.AdmissionCheckState, ControllerName string) ([]string, error) {
+// FilterForController - returns a list of check names controlled by ControllerName.
+func FilterForController(ctx context.Context, c client.Client, states []kueue.AdmissionCheckState, ControllerName string) ([]string, error) {
 	var retActive []string
 	for _, state := range states {
 		ac := &kueue.AdmissionCheck{}

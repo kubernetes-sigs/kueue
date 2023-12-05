@@ -30,7 +30,7 @@ import (
 
 type acReconciler struct {
 	client client.Client
-	helper *provStoreHelper
+	helper *provisioningConfigHelper
 }
 
 var _ reconcile.Reconciler = (*acReconciler)(nil)

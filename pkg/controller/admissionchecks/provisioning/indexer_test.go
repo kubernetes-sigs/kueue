@@ -58,7 +58,7 @@ func getClientBuilder() (*fake.ClientBuilder, context.Context) {
 			Name: TestNamespace,
 		},
 	})
-	_ = SetupIndexer(ctx, utiltesting.AsIndexer(builder), scheme)
+	_ = SetupIndexer(ctx, utiltesting.AsIndexer(builder))
 	return builder, ctx
 }
 

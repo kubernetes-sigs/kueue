@@ -21,7 +21,6 @@ import (
 	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/provisioningrequest/apis/autoscaling.x-k8s.io/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
@@ -36,6 +35,10 @@ const (
 	RequestsOwnedByWorkloadKey     = "metadata.ownedByWorkload"
 	WorkloadsWithAdmissionCheckKey = "status.admissionChecks"
 	AdmissionCheckUsingConfigKey   = "spec.provisioningRequestConfig"
+)
+
+var (
+	configGVK = kueue.GroupVersion.WithKind(ConfigKind)
 )
 
 func indexRequestsOwner(obj client.Object) []string {
@@ -54,7 +57,7 @@ func indexWorkloadsChecks(obj client.Object) []string {
 	return slices.Map(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string { return c.Name })
 }
 
-func SetupIndexer(ctx context.Context, indexer client.FieldIndexer, schema *runtime.Scheme) error {
+func SetupIndexer(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &autoscaling.ProvisioningRequest{}, RequestsOwnedByWorkloadKey, indexRequestsOwner); err != nil {
 		return fmt.Errorf("setting index on provisionRequest owner: %w", err)
 	}
@@ -62,12 +65,7 @@ func SetupIndexer(ctx context.Context, indexer client.FieldIndexer, schema *runt
 		return fmt.Errorf("setting index on workloads checks: %w", err)
 	}
 
-	idxFnc, err := admissioncheck.GetIndexerByConfigFnc(ControllerName, &kueue.ProvisioningRequestConfig{}, schema)
-	if err != nil {
-		return err
-	}
-
-	if err := indexer.IndexField(ctx, &kueue.AdmissionCheck{}, AdmissionCheckUsingConfigKey, idxFnc); err != nil {
+	if err := indexer.IndexField(ctx, &kueue.AdmissionCheck{}, AdmissionCheckUsingConfigKey, admissioncheck.IndexerByConfigFunction(ControllerName, configGVK)); err != nil {
 		return fmt.Errorf("setting index on admission checks config: %w", err)
 	}
 	return nil

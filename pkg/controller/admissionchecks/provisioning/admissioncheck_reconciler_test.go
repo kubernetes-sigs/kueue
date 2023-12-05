@@ -48,7 +48,7 @@ func TestReconcileAdmissionCheck(t *testing.T) {
 				Type:    kueue.AdmissionCheckActive,
 				Status:  metav1.ConditionFalse,
 				Reason:  "BadParametersRef",
-				Message: "nil parameters reference",
+				Message: "missing parameters reference",
 			},
 		},
 		"bad ref group": {
@@ -119,7 +119,11 @@ func TestReconcileAdmissionCheck(t *testing.T) {
 
 			k8sclient := builder.Build()
 
-			helper, _ := newProvStoreHelper(k8sclient)
+			helper, err := newProvisioningConfigHelper(k8sclient)
+			if err != nil {
+				t.Errorf("unable to create the config helper: %s", err)
+				return
+			}
 			reconciler := acReconciler{
 				client: k8sclient,
 				helper: helper,

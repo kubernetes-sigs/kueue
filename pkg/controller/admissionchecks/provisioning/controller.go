@@ -68,15 +68,15 @@ var (
 	MinBackoffSeconds int32 = 60
 )
 
-type provStoreHelper = admissioncheck.ConfigHelper[*kueue.ProvisioningRequestConfig, kueue.ProvisioningRequestConfig]
+type provisioningConfigHelper = admissioncheck.ConfigHelper[*kueue.ProvisioningRequestConfig, kueue.ProvisioningRequestConfig]
 
-func newProvStoreHelper(c client.Client) (*provStoreHelper, error) {
+func newProvisioningConfigHelper(c client.Client) (*provisioningConfigHelper, error) {
 	return admissioncheck.NewConfigHelper[*kueue.ProvisioningRequestConfig](c)
 }
 
 type Controller struct {
 	client client.Client
-	helper *provStoreHelper
+	helper *provisioningConfigHelper
 	record record.EventRecorder
 }
 
@@ -92,7 +92,7 @@ var _ reconcile.Reconciler = (*Controller)(nil)
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=provisioningrequestconfigs,verbs=get;list;watch
 
 func NewController(client client.Client, record record.EventRecorder) (*Controller, error) {
-	helper, err := newProvStoreHelper(client)
+	helper, err := newProvisioningConfigHelper(client)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +123,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	}
 
 	// get the lists of relevant checks
-	relevantChecks, err := admissioncheck.ChecksWithController(ctx, c.client, wl.Status.AdmissionChecks, ControllerName)
+	relevantChecks, err := admissioncheck.FilterForController(ctx, c.client, wl.Status.AdmissionChecks, ControllerName)
 	if err != nil {
 		return reconcile.Result{}, err
 	}

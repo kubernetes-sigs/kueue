@@ -173,11 +173,7 @@ func TestIndexerFunc(t *testing.T) {
 				panic(err)
 			}
 
-			indexFnc, err := GetIndexerByConfigFnc("test-controller", &kueue.ProvisioningRequestConfig{}, scheme)
-
-			if err != nil {
-				t.Fatalf("cannot built the helper: %s", err)
-			}
+			indexFnc := IndexerByConfigFunction("test-controller", kueue.GroupVersion.WithKind("ProvisioningRequestConfig"))
 
 			gotResult := indexFnc(tc.admissioncheck)
 
@@ -235,7 +231,7 @@ func TestFilterCheckStates(t *testing.T) {
 			client := builder.Build()
 			ctx := context.Background()
 
-			gotResult, _ := ChecksWithController(ctx, client, tc.states, "test-controller")
+			gotResult, _ := FilterForController(ctx, client, tc.states, "test-controller")
 
 			if diff := cmp.Diff(tc.wantResult, gotResult); diff != "" {
 				t.Errorf("unexpected result (-want/+got):\n%s", diff)

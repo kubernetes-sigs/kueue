@@ -52,7 +52,7 @@ func managerSetup(mgr manager.Manager, ctx context.Context) {
 	err := autoscaling.AddToScheme(mgr.GetScheme())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer(), mgr.GetScheme())
+	err = provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	reconciler, err := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorderFor("kueue-provisioning-request-controller"))
