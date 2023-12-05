@@ -150,11 +150,9 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 		ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Admitted by clusterQueue %v", clusterQueue.Name))
 		return ok
 	}, util.Timeout, util.Interval).Should(gomega.BeTrue())
-	gomega.Expect(len(createdJob.KFJobControl.ReplicaSpecs()[podSetsResources[0].NodeName].Template.Spec.NodeSelector)).Should(gomega.Equal(1))
-	gomega.Expect(createdJob.KFJobControl.ReplicaSpecs()[podSetsResources[0].NodeName].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
-	for _, psr := range podSetsResources[1:] {
-		gomega.Expect(len(createdJob.KFJobControl.ReplicaSpecs()[psr.NodeName].Template.Spec.NodeSelector)).Should(gomega.Equal(1))
-		gomega.Expect(createdJob.KFJobControl.ReplicaSpecs()[psr.NodeName].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotFlavor.Name))
+	for _, psr := range podSetsResources {
+		gomega.Expect(createdJob.KFJobControl.ReplicaSpecs()[psr.RoleName].Template.Spec.NodeSelector).
+			To(gomega.BeComparableTo(map[string]string{instanceKey: string(psr.ResourceCPU)}))
 	}
 	gomega.Eventually(func() bool {
 		if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
@@ -199,11 +197,9 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 		}
 		return !createdJob.IsSuspended()
 	}, util.Timeout, util.Interval).Should(gomega.BeTrue())
-	gomega.Expect(len(createdJob.KFJobControl.ReplicaSpecs()[podSetsResources[0].NodeName].Template.Spec.NodeSelector)).Should(gomega.Equal(1))
-	gomega.Expect(createdJob.KFJobControl.ReplicaSpecs()[podSetsResources[0].NodeName].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
-	for _, psr := range podSetsResources[1:] {
-		gomega.Expect(len(createdJob.KFJobControl.ReplicaSpecs()[psr.NodeName].Template.Spec.NodeSelector)).Should(gomega.Equal(1))
-		gomega.Expect(createdJob.KFJobControl.ReplicaSpecs()[psr.NodeName].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotFlavor.Name))
+	for _, psr := range podSetsResources {
+		gomega.Expect(createdJob.KFJobControl.ReplicaSpecs()[psr.RoleName].Template.Spec.NodeSelector).
+			To(gomega.BeComparableTo(map[string]string{instanceKey: string(psr.ResourceCPU)}))
 	}
 	gomega.Eventually(func() bool {
 		if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
@@ -309,14 +305,14 @@ func ShouldScheduleJobsAsTheyFitInTheirClusterQueue(ctx context.Context, k8sClie
 		return createdJob.IsSuspended()
 	}, util.Timeout, util.Interval).Should(gomega.BeFalse())
 	for _, psr := range podSetsResources {
-		gomega.ExpectWithOffset(1, createdJob.KFJobControl.ReplicaSpecs()[psr.NodeName].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(string(psr.ResourceCPU)))
+		gomega.ExpectWithOffset(1, createdJob.KFJobControl.ReplicaSpecs()[psr.RoleName].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(string(psr.ResourceCPU)))
 	}
 	util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 	util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 }
 
 type PodSetsResource struct {
-	NodeName    kftraining.ReplicaType
+	RoleName    kftraining.ReplicaType
 	ResourceCPU kueue.ResourceFlavorReference
 }
 
@@ -324,7 +320,7 @@ func CreatePodSetAssigment(createdWorkload *kueue.Workload, podSetsResource []Po
 	pda := []kueue.PodSetAssignment{}
 	for i, psr := range podSetsResource {
 		pda = append(pda, kueue.PodSetAssignment{
-			Name: string(psr.NodeName),
+			Name: string(psr.RoleName),
 			Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 				corev1.ResourceCPU: psr.ResourceCPU,
 			},
@@ -337,7 +333,7 @@ func CreatePodSetAssigment(createdWorkload *kueue.Workload, podSetsResource []Po
 func workerPodSetsCount(wl *kueue.Workload, podSetsResources []PodSetsResource) int32 {
 	idx := -1
 	for i, psr := range podSetsResources {
-		if psr.NodeName == ReplicaTypeWorker {
+		if psr.RoleName == ReplicaTypeWorker {
 			idx = i
 		}
 	}

@@ -317,7 +317,6 @@ func TestReconciler(t *testing.T) {
 		wantJob           *kftraining.MXJob
 		wantWorkloads     []kueue.Workload
 		wantErr           error
-		focus             bool
 	}{
 		"workload is created with podsets": {
 			reconcilerOptions: []jobframework.Option{
@@ -411,7 +410,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"when workload is admitted, job gets node selectors": {
-			focus: true,
 			flavors: []kueue.ResourceFlavor{
 				*utiltesting.MakeResourceFlavor("default").Obj(),
 				*utiltesting.MakeResourceFlavor("on-demand").Label("provisioning", "on-demand").Obj(),

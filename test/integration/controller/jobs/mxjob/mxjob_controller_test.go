@@ -78,15 +78,15 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 		kftesting.ShouldReconcileJob(ctx, k8sClient, kfJob, createdJob, []kftesting.PodSetsResource{
 			{
-				NodeName:    kftraining.MXJobReplicaTypeScheduler,
+				RoleName:    kftraining.MXJobReplicaTypeScheduler,
 				ResourceCPU: "on-demand",
 			},
 			{
-				NodeName:    kftraining.MXJobReplicaTypeServer,
+				RoleName:    kftraining.MXJobReplicaTypeServer,
 				ResourceCPU: "spot",
 			},
 			{
-				NodeName:    kftraining.MXJobReplicaTypeWorker,
+				RoleName:    kftraining.MXJobReplicaTypeWorker,
 				ResourceCPU: "spot",
 			},
 		})
@@ -134,15 +134,15 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 
 			kftesting.JobControllerWhenWaitForPodsReadyEnabled(ctx, k8sClient, kfJob, createdJob, podsReadyTestSpec, []kftesting.PodSetsResource{
 				{
-					NodeName:    kftraining.MXJobReplicaTypeScheduler,
+					RoleName:    kftraining.MXJobReplicaTypeScheduler,
 					ResourceCPU: "default",
 				},
 				{
-					NodeName:    kftraining.MXJobReplicaTypeServer,
+					RoleName:    kftraining.MXJobReplicaTypeServer,
 					ResourceCPU: "default",
 				},
 				{
-					NodeName:    kftraining.MXJobReplicaTypeWorker,
+					RoleName:    kftraining.MXJobReplicaTypeWorker,
 					ResourceCPU: "default",
 				},
 			})
@@ -296,15 +296,15 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 
 		kftesting.ShouldScheduleJobsAsTheyFitInTheirClusterQueue(ctx, k8sClient, kfJob, createdJob, clusterQueue, []kftesting.PodSetsResource{
 			{
-				NodeName:    kftraining.MXJobReplicaTypeScheduler,
+				RoleName:    kftraining.MXJobReplicaTypeScheduler,
 				ResourceCPU: kueue.ResourceFlavorReference(spotUntaintedFlavor.Name),
 			},
 			{
-				NodeName:    kftraining.MXJobReplicaTypeServer,
+				RoleName:    kftraining.MXJobReplicaTypeServer,
 				ResourceCPU: kueue.ResourceFlavorReference(spotUntaintedFlavor.Name),
 			},
 			{
-				NodeName:    kftraining.MXJobReplicaTypeWorker,
+				RoleName:    kftraining.MXJobReplicaTypeWorker,
 				ResourceCPU: kueue.ResourceFlavorReference(onDemandFlavor.Name),
 			},
 		})

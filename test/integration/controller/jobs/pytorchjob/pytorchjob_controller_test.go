@@ -85,11 +85,11 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadpytorchjob.JobControl)(&kftraining.PyTorchJob{})}
 		kftesting.ShouldReconcileJob(ctx, k8sClient, kfJob, createdJob, []kftesting.PodSetsResource{
 			{
-				NodeName:    kftraining.PyTorchJobReplicaTypeMaster,
+				RoleName:    kftraining.PyTorchJobReplicaTypeMaster,
 				ResourceCPU: "on-demand",
 			},
 			{
-				NodeName:    kftraining.PyTorchJobReplicaTypeWorker,
+				RoleName:    kftraining.PyTorchJobReplicaTypeWorker,
 				ResourceCPU: "spot",
 			},
 		})
@@ -366,11 +366,11 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 
 			kftesting.JobControllerWhenWaitForPodsReadyEnabled(ctx, k8sClient, kfJob, createdJob, podsReadyTestSpec, []kftesting.PodSetsResource{
 				{
-					NodeName:    kftraining.PyTorchJobReplicaTypeMaster,
+					RoleName:    kftraining.PyTorchJobReplicaTypeMaster,
 					ResourceCPU: "default",
 				},
 				{
-					NodeName:    kftraining.PyTorchJobReplicaTypeWorker,
+					RoleName:    kftraining.PyTorchJobReplicaTypeWorker,
 					ResourceCPU: "default",
 				},
 			})
@@ -523,11 +523,11 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 
 		kftesting.ShouldScheduleJobsAsTheyFitInTheirClusterQueue(ctx, k8sClient, kfJob, createdJob, clusterQueue, []kftesting.PodSetsResource{
 			{
-				NodeName:    kftraining.PyTorchJobReplicaTypeMaster,
+				RoleName:    kftraining.PyTorchJobReplicaTypeMaster,
 				ResourceCPU: kueue.ResourceFlavorReference(spotUntaintedFlavor.Name),
 			},
 			{
-				NodeName:    kftraining.PyTorchJobReplicaTypeWorker,
+				RoleName:    kftraining.PyTorchJobReplicaTypeWorker,
 				ResourceCPU: kueue.ResourceFlavorReference(onDemandFlavor.Name),
 			},
 		})
