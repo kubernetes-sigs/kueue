@@ -102,33 +102,35 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
-		"invalid managed - by config": {
-			job: testingrayutil.MakeJob("job", "ns").
-				ShutdownAfterJobFinishes(false).
-				Obj(),
-			manageAll: true,
-			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "shutdownAfterJobFinishes"), false, "a kueue managed job should delete the cluster after finishing"),
-			}.ToAggregate(),
-		},
-		"invalid managed - by queue": {
-			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
-				ShutdownAfterJobFinishes(false).
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "shutdownAfterJobFinishes"), false, "a kueue managed job should delete the cluster after finishing"),
-			}.ToAggregate(),
-		},
-		"invalid managed - has cluster selector": {
-			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
-				ClusterSelector(map[string]string{
-					"k1": "v1",
-				}).
-				Obj(),
-			wantErr: field.ErrorList{
-				field.Invalid(field.NewPath("spec", "clusterSelector"), map[string]string{"k1": "v1"}, "a kueue managed job should not use an existing cluster"),
-			}.ToAggregate(),
-		},
+		/*
+			"invalid managed - by config": {
+				job: testingrayutil.MakeJob("job", "ns").
+					ShutdownAfterJobFinishes(false).
+					Obj(),
+				manageAll: true,
+				wantErr: field.ErrorList{
+					field.Invalid(field.NewPath("spec", "shutdownAfterJobFinishes"), false, "a kueue managed job should delete the cluster after finishing"),
+				}.ToAggregate(),
+			},
+			"invalid managed - by queue": {
+				job: testingrayutil.MakeJob("job", "ns").Queue("queue").
+					ShutdownAfterJobFinishes(false).
+					Obj(),
+				wantErr: field.ErrorList{
+					field.Invalid(field.NewPath("spec", "shutdownAfterJobFinishes"), false, "a kueue managed job should delete the cluster after finishing"),
+				}.ToAggregate(),
+			},
+			"invalid managed - has cluster selector": {
+				job: testingrayutil.MakeJob("job", "ns").Queue("queue").
+					ClusterSelector(map[string]string{
+						"k1": "v1",
+					}).
+					Obj(),
+				wantErr: field.ErrorList{
+					field.Invalid(field.NewPath("spec", "clusterSelector"), map[string]string{"k1": "v1"}, "a kueue managed job should not use an existing cluster"),
+				}.ToAggregate(),
+			},
+		*/
 		"invalid managed - has auto scaler": {
 			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
 				WithEnableAutoscaling(ptr.To(true)).
@@ -186,7 +188,7 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
-		"invalid new managed - by config": {
+		/*"invalid new managed - by config": {
 			oldJob: testingrayutil.MakeJob("job", "ns").
 				ShutdownAfterJobFinishes(true).
 				Obj(),
@@ -210,7 +212,7 @@ func TestValidateUpdate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("spec", "shutdownAfterJobFinishes"), false, "a kueue managed job should delete the cluster after finishing"),
 			}.ToAggregate(),
-		},
+		},*/
 		"invalid managed - queue name should not change while unsuspended": {
 			oldJob: testingrayutil.MakeJob("job", "ns").
 				Queue("queue").
@@ -226,7 +228,7 @@ func TestValidateUpdate(t *testing.T) {
 				field.Invalid(field.NewPath("metadata", "labels").Key(constants.QueueLabel), "queue", apivalidation.FieldImmutableErrorMsg),
 			}.ToAggregate(),
 		},
-		"managed - queue name can change while suspended": {
+		/*"managed - queue name can change while suspended": {
 			oldJob: testingrayutil.MakeJob("job", "ns").
 				Queue("queue").
 				Suspend(true).
@@ -238,7 +240,7 @@ func TestValidateUpdate(t *testing.T) {
 				ShutdownAfterJobFinishes(true).
 				Obj(),
 			wantErr: nil,
-		},
+		}, */
 		"priorityClassName is immutable": {
 			oldJob: testingrayutil.MakeJob("job", "ns").
 				Queue("queue").

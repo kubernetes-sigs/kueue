@@ -88,14 +88,13 @@ func (w *RayClusterWebhook) validateCreate(job *rayclusterapi.RayCluster) field.
 
 		// Should always delete the cluster after the sob has ended, otherwise it will continue to the queue's resources.
 		//if !spec.ShutdownAfterJobFinishes {
-		//		allErrors = append(allErrors, field.Invalid(specPath.Child("shutdownAfterJobFinishes"), spec.ShutdownAfterJobFinishes, "a kueue managed job should delete the cluster after finishing"))
+		//	allErrors = append(allErrors, field.Invalid(specPath.Child("shutdownAfterJobFinishes"), spec.ShutdownAfterJobFinishes, "a kueue managed job should delete the cluster after finishing"))
 		//}
 
 		// Should not want existing cluster. Keuue (workload) should be able to control the admission of the actual work, not only the trigger.
 		//if len(spec.ClusterSelector) > 0 {
-		//	allErrors = append(allErrors, field.Invalid(specPath.Child("clusterSelector"), spec.ClusterSelector, "a kueue managed job should not use an existing cluster"))
+		//	allErrors = append(allErrors, field.Invalid(specPath.Child("HeadGroupSpec.Replicas"), spec.HeadGroupSpec.Replicas, "a kueue managed job should not use an existing cluster"))
 		//}
-
 		clusterSpec := spec
 		clusterSpecPath := specPath.Child("rayClusterSpec")
 

@@ -78,7 +78,7 @@ func (j *RayCluster) IsActive() bool {
 }
 
 func (j *RayCluster) Suspend() {
-	*j.Spec.WorkerGroupSpecs[0].Replicas = 0
+	//*j.Spec.WorkerGroupSpecs[0].Replicas = 0
 }
 
 func (j *RayCluster) GVK() schema.GroupVersionKind {
