@@ -237,7 +237,7 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 			return false, nil
 		}
 		log.V(3).Info("Workload is evicted because the ClusterQueue is stopped", "clusterQueue", klog.KRef("", cqName))
-		workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByClusterQueueStop, "The ClusterQueue is stopped")
+		workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByClusterQueueStopped, "The ClusterQueue is stopped")
 		err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
 		return true, client.IgnoreNotFound(err)
 	}

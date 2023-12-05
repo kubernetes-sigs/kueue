@@ -396,11 +396,11 @@ kind: ClusterQueue
 metadata:
   name: "team-a-cq"
 spec:
-  stopPolicy: Halt
+  stopPolicy: Hold
 ```
 
 The example above will stop the admission of new workloads in the ClusterQueue while allowing the already admitted workloads to finish.
-The `HaltAndDrain` will have a similar effect but, in addition, it will trigger the eviction of the admitted workloads.
+The `HoldAndDrain` will have a similar effect but, in addition, it will trigger the eviction of the admitted workloads.
 
 If set to `None` or `spec.stopPolicy` is removed the ClusterQueue will to normal admission behaviour.
 

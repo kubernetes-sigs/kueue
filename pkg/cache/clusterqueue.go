@@ -278,7 +278,11 @@ func (c *ClusterQueue) inactiveReason() (string, string) {
 			reasons = append(reasons, "CheckNotFoundOrInactive")
 		}
 
-		return strings.Join(reasons, "_"), strings.Join([]string{"Can't admit new workloads:", strings.Join(reasons, ", ")}, " ")
+		if len(reasons) == 0 {
+			return "Unknown", "Can't admit new workloads."
+		}
+
+		return reasons[0], strings.Join([]string{"Can't admit new workloads:", strings.Join(reasons, ", ")}, " ")
 	}
 	return "Ready", "Can admit new flavors"
 }

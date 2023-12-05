@@ -1481,7 +1481,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(&metav1.Condition{
 					Type:    kueue.WorkloadEvicted,
 					Status:  metav1.ConditionTrue,
-					Reason:  kueue.WorkloadEvictedByClusterQueueStop,
+					Reason:  kueue.WorkloadEvictedByClusterQueueStopped,
 					Message: "The ClusterQueue is stopped",
 				}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
 			})

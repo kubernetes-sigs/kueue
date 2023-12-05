@@ -97,7 +97,7 @@ type ClusterQueueSpec struct {
 	// +optional
 	AdmissionChecks []string `json:"admissionChecks,omitempty"`
 
-	// stopPolicy - if set the ClusterQueue is considered Inactive, no new reservation being
+	// stopPolicy - if set to a value different than None, the ClusterQueue is considered Inactive, no new reservation being
 	// made.
 	//
 	// Depending on its value, its associated workloads will:

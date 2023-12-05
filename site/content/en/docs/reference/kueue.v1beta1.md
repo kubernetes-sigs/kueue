@@ -697,7 +697,7 @@ lower priority first.</p>
 <a href="#kueue-x-k8s-io-v1beta1-StopPolicy"><code>StopPolicy</code></a>
 </td>
 <td>
-   <p>stopPolicy - if set the ClusterQueue is considered Inactive, no new reservation being
+   <p>stopPolicy - if set to a value different than None, the ClusterQueue is considered Inactive, no new reservation being
 made.</p>
 <p>Depending on its value, its associated workloads will:</p>
 <ul>

@@ -3085,7 +3085,6 @@ func TestClusterQueuesUsingAdmissionChecks(t *testing.T) {
 }
 
 func TestClusterQueueReadiness(t *testing.T) {
-
 	baseFalvor := utiltesting.MakeResourceFlavor("flavor1").Obj()
 	baseCheck := utiltesting.MakeAdmissionCheck("check1").Active(metav1.ConditionTrue).Obj()
 	baseQueue := utiltesting.MakeClusterQueue("queue1").
@@ -3142,7 +3141,7 @@ func TestClusterQueueReadiness(t *testing.T) {
 			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
-			wantReason:       "FlavorNotFound_CheckNotFoundOrInactive",
+			wantReason:       "FlavorNotFound",
 			wantMessage:      "Can't admit new workloads: FlavorNotFound, CheckNotFoundOrInactive",
 		},
 		"terminating": {
@@ -3167,7 +3166,7 @@ func TestClusterQueueReadiness(t *testing.T) {
 			wantActive:       true,
 		},
 		"stopped": {
-			clusterQueues:    []*kueue.ClusterQueue{utiltesting.MakeClusterQueue("queue1").StopPoicy(kueue.HoldAndDrain).Obj()},
+			clusterQueues:    []*kueue.ClusterQueue{utiltesting.MakeClusterQueue("queue1").StopPolicy(kueue.HoldAndDrain).Obj()},
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
 			wantReason:       "Stopped",

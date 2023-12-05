@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -179,6 +180,64 @@ func TestUpdateClusterQueue(t *testing.T) {
 	}
 	if diff := cmp.Diff(wantActiveWorkloads, activeWorkloads); diff != "" {
 		t.Errorf("Unexpected active workloads (-want +got):\n%s", diff)
+	}
+}
+
+// TestClusterQueueToActive tests that managers cond gets a broadcast when
+// a cluster queue becomes active.
+func TestClusterQueueToActive(t *testing.T) {
+	stoppedCq := utiltesting.MakeClusterQueue("cq1").Cohort("alpha").Condition(kueue.ClusterQueueActive, metav1.ConditionFalse, "ByTest", "by test").Obj()
+	runningCq := utiltesting.MakeClusterQueue("cq1").Cohort("alpha").Condition(kueue.ClusterQueueActive, metav1.ConditionTrue, "ByTest", "by test").Obj()
+	ctx := context.Background()
+	cl := utiltesting.NewFakeClient(
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: defaultNamespace}},
+	)
+	manager := NewManager(cl, nil)
+
+	wgCounterStart := sync.WaitGroup{}
+	wgCounterStart.Add(1)
+	wgCounterEnd := sync.WaitGroup{}
+	wgCounterEnd.Add(1)
+	condRec := make(chan struct{})
+	counterCtx, counterCancel := context.WithCancel(ctx)
+	go func() {
+		manager.cond.L.Lock()
+		defer manager.cond.L.Unlock()
+		wgCounterStart.Done()
+		defer wgCounterEnd.Done()
+		manager.cond.Wait()
+		select {
+		case <-counterCtx.Done():
+			// the context was canceled before cond.Wait()
+		default:
+			condRec <- struct{}{}
+		}
+	}()
+	wgCounterStart.Wait()
+	go manager.CleanUpOnContext(counterCtx)
+
+	if err := manager.AddClusterQueue(ctx, stoppedCq); err != nil {
+		t.Fatalf("Failed adding clusterQueue %v", err)
+	}
+
+	if err := manager.UpdateClusterQueue(ctx, runningCq); err != nil {
+		t.Fatalf("Failed to update ClusterQueue: %v", err)
+	}
+
+	gotCondBeforeCleanup := false
+	select {
+	case <-condRec:
+		gotCondBeforeCleanup = true
+	case <-time.After(100 * time.Millisecond):
+		//nothing
+	}
+
+	counterCancel()
+	wgCounterEnd.Wait()
+
+	if !gotCondBeforeCleanup {
+		t.Fatalf("m.Broadcast was not called before cleanup")
+
 	}
 }
 
