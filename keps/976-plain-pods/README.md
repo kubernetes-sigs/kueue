@@ -13,6 +13,7 @@
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
     - [Skipping Pods belonging to queued objects](#skipping-pods-belonging-to-queued-objects)
     - [Pods replaced on failure](#pods-replaced-on-failure)
+    - [Controllers creating too many Pods](#controllers-creating-too-many-pods)
   - [Risks and Mitigations](#risks-and-mitigations)
     - [Increased memory usage](#increased-memory-usage)
     - [Limited size for annotation values](#limited-size-for-annotation-values)
@@ -281,6 +282,14 @@ quota until it can determine that the whole Workload finished (all pods are term
 In other words, Kueue won't support [dynamically reclaiming quota](https://github.com/kubernetes-sigs/kueue/issues/78)
 for plain Pods.
 
+#### Controllers creating too many Pods
+
+Due to the declarative nature of Kubernetes, it is possible that controllers face race conditions when creating Pods,
+leading to the accidental creation of more Pods than declared in the group size, specially when reacting to failed
+Pods.
+
+The Pod group reconciler will react to additional Pods by deleting the additional Pods that were created last.
+
 ### Risks and Mitigations
 
 #### Increased memory usage
@@ -443,10 +452,13 @@ webhook and stored as an annotation: `kueue.x-k8s.io/role-hash`.
 
 We can only build the Workload object once we observe the number of Pods defined by the
 `kueue.x-k8s.io/pod-group-total-count` annotation.
+If there are more non-terminated Pods than the annotation declares, the reconciler deletes the Pods with the
+highest `creationTimestamp` and removes their finalizers, prior to creating the Workload object.
+Similarly, when the group has been admitted, the reconciler will detect and delete any extra Pods per role.
 
 If Pods with the same `pod-group-name` have different values for the `pod-group-total-count`
-annotation, or if Kueue observes a different amount of Pods than the count, it will not create a
-Workload object and it will emit an event for the Pod indicating the reason.
+annotation, the reconciler will not create a Workload object and it will emit an event for the Pod
+indicating the reason.
 
 The Workload for the Pod in [story 2](#story-2) would look as follows:
 
@@ -672,6 +684,7 @@ Major milestones might include:
 -->
 
 - Sep 29th: Implemented single Pod support (story 1) [#1103](https://github.com/kubernetes-sigs/kueue/pulls/1103).
+- Nov 24th: Implemented support for groups of Pods (story 2) [#1319](https://github.com/kubernetes-sigs/kueue/pulls/1319)
 
 ## Drawbacks
 
