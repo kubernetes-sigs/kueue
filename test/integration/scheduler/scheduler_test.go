@@ -22,7 +22,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -1478,7 +1477,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				createdWl := kueue.Workload{}
 				gomega.Eventually(func() *metav1.Condition {
 					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), &createdWl)).To(gomega.Succeed())
-					return apimeta.FindStatusCondition(createdWl.Status.Conditions, kueue.WorkloadEvicted)
+					return meta.FindStatusCondition(createdWl.Status.Conditions, kueue.WorkloadEvicted)
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(&metav1.Condition{
 					Type:    kueue.WorkloadEvicted,
 					Status:  metav1.ConditionTrue,
