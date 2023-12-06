@@ -237,7 +237,6 @@ func TestClusterQueueToActive(t *testing.T) {
 
 	if !gotCondBeforeCleanup {
 		t.Fatalf("m.Broadcast was not called before cleanup")
-
 	}
 }
 

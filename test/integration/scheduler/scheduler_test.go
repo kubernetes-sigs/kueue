@@ -1463,7 +1463,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectPendingWorkloadsMetric(cq, 0, 0)
 			util.ExpectReservingActiveWorkloadsMetric(cq, 1)
 
-			ginkgo.By("Stopping clusterQueue's")
+			ginkgo.By("Stopping the ClusterQueue")
 			var clusterQueue kueue.ClusterQueue
 			gomega.Eventually(func() error {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &clusterQueue)).To(gomega.Succeed())
@@ -1494,7 +1494,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			util.ExpectPendingWorkloadsMetric(cq, 0, 2)
 
-			ginkgo.By("Restart clusterQueue's policy")
+			ginkgo.By("Restart the ClusterQueue by removing its stopPolicy")
 			gomega.Eventually(func() error {
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &clusterQueue)).To(gomega.Succeed())
 				clusterQueue.Spec.StopPolicy = nil
