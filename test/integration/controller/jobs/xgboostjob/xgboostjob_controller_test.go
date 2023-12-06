@@ -78,11 +78,11 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadxgboostjob.JobControl)(&kftraining.XGBoostJob{})}
 		kftesting.ShouldReconcileJob(ctx, k8sClient, kfJob, createdJob, []kftesting.PodSetsResource{
 			{
-				NodeName:    kftraining.XGBoostJobReplicaTypeMaster,
+				RoleName:    kftraining.XGBoostJobReplicaTypeMaster,
 				ResourceCPU: "on-demand",
 			},
 			{
-				NodeName:    kftraining.XGBoostJobReplicaTypeWorker,
+				RoleName:    kftraining.XGBoostJobReplicaTypeWorker,
 				ResourceCPU: "spot",
 			},
 		})
@@ -129,11 +129,11 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 			createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadxgboostjob.JobControl)(&kftraining.XGBoostJob{})}
 			kftesting.JobControllerWhenWaitForPodsReadyEnabled(ctx, k8sClient, kfJob, createdJob, podsReadyTestSpec, []kftesting.PodSetsResource{
 				{
-					NodeName:    kftraining.XGBoostJobReplicaTypeMaster,
+					RoleName:    kftraining.XGBoostJobReplicaTypeMaster,
 					ResourceCPU: "default",
 				},
 				{
-					NodeName:    kftraining.XGBoostJobReplicaTypeWorker,
+					RoleName:    kftraining.XGBoostJobReplicaTypeWorker,
 					ResourceCPU: "default",
 				},
 			})
@@ -285,11 +285,11 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		createdJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadxgboostjob.JobControl)(&kftraining.XGBoostJob{})}
 		kftesting.ShouldScheduleJobsAsTheyFitInTheirClusterQueue(ctx, k8sClient, kfJob, createdJob, clusterQueue, []kftesting.PodSetsResource{
 			{
-				NodeName:    kftraining.XGBoostJobReplicaTypeMaster,
+				RoleName:    kftraining.XGBoostJobReplicaTypeMaster,
 				ResourceCPU: kueue.ResourceFlavorReference(spotUntaintedFlavor.Name),
 			},
 			{
-				NodeName:    kftraining.XGBoostJobReplicaTypeWorker,
+				RoleName:    kftraining.XGBoostJobReplicaTypeWorker,
 				ResourceCPU: kueue.ResourceFlavorReference(onDemandFlavor.Name),
 			},
 		})

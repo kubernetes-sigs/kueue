@@ -79,15 +79,15 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 		kftesting.ShouldReconcileJob(ctx, k8sClient, kfJob, createdJob, []kftesting.PodSetsResource{
 			{
-				NodeName:    kftraining.TFJobReplicaTypeChief,
+				RoleName:    kftraining.TFJobReplicaTypeChief,
 				ResourceCPU: "on-demand",
 			},
 			{
-				NodeName:    kftraining.TFJobReplicaTypePS,
+				RoleName:    kftraining.TFJobReplicaTypePS,
 				ResourceCPU: "spot",
 			},
 			{
-				NodeName:    kftraining.TFJobReplicaTypeWorker,
+				RoleName:    kftraining.TFJobReplicaTypeWorker,
 				ResourceCPU: "spot",
 			},
 		})
@@ -135,15 +135,15 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 
 			kftesting.JobControllerWhenWaitForPodsReadyEnabled(ctx, k8sClient, kfJob, createdJob, podsReadyTestSpec, []kftesting.PodSetsResource{
 				{
-					NodeName:    kftraining.TFJobReplicaTypeChief,
+					RoleName:    kftraining.TFJobReplicaTypeChief,
 					ResourceCPU: "default",
 				},
 				{
-					NodeName:    kftraining.TFJobReplicaTypePS,
+					RoleName:    kftraining.TFJobReplicaTypePS,
 					ResourceCPU: "default",
 				},
 				{
-					NodeName:    kftraining.TFJobReplicaTypeWorker,
+					RoleName:    kftraining.TFJobReplicaTypeWorker,
 					ResourceCPU: "default",
 				},
 			})
@@ -297,15 +297,15 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 
 		kftesting.ShouldScheduleJobsAsTheyFitInTheirClusterQueue(ctx, k8sClient, kfJob, createdJob, clusterQueue, []kftesting.PodSetsResource{
 			{
-				NodeName:    kftraining.TFJobReplicaTypeChief,
+				RoleName:    kftraining.TFJobReplicaTypeChief,
 				ResourceCPU: kueue.ResourceFlavorReference(spotUntaintedFlavor.Name),
 			},
 			{
-				NodeName:    kftraining.TFJobReplicaTypePS,
+				RoleName:    kftraining.TFJobReplicaTypePS,
 				ResourceCPU: kueue.ResourceFlavorReference(spotUntaintedFlavor.Name),
 			},
 			{
-				NodeName:    kftraining.TFJobReplicaTypeWorker,
+				RoleName:    kftraining.TFJobReplicaTypeWorker,
 				ResourceCPU: kueue.ResourceFlavorReference(onDemandFlavor.Name),
 			},
 		})
