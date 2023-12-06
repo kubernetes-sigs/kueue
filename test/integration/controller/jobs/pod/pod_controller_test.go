@@ -314,6 +314,43 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 			})
 
+			ginkgo.When("Pod owner is managed by Kueue", func() {
+				var pod *corev1.Pod
+				ginkgo.BeforeEach(func() {
+					pod = testingpod.MakePod(podName, ns.Name).
+						Queue("test-queue").
+						OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
+						Obj()
+				})
+
+				ginkgo.It("Should skip the pod", func() {
+					gomega.Expect(k8sClient.Create(ctx, pod)).Should(gomega.Succeed())
+
+					createdPod := &corev1.Pod{}
+					gomega.Eventually(func() error {
+						return k8sClient.Get(ctx, lookupKey, createdPod)
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+					gomega.Expect(createdPod.Spec.SchedulingGates).NotTo(
+						gomega.ContainElement(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}),
+						"Pod shouldn't have scheduling gate",
+					)
+
+					gomega.Expect(createdPod.Labels).NotTo(
+						gomega.HaveKeyWithValue("kueue.x-k8s.io/managed", "true"),
+						"Pod shouldn't have the label",
+					)
+
+					gomega.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement("kueue.x-k8s.io/managed"),
+						"Pod shouldn't have finalizer")
+
+					ginkgo.By(fmt.Sprintf("checking that workload '%s' is not created", wlLookupKey))
+					createdWorkload := &kueue.Workload{}
+
+					gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(testing.BeNotFoundError())
+				})
+			})
+
 			ginkgo.When("the queue has admission checks", func() {
 				var (
 					ns             *corev1.Namespace
@@ -855,43 +892,6 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						return createdPod.Finalizers
 					}, util.Timeout, util.Interval).Should(gomega.BeEmpty(), "Expected pod to be finalized")
 				})
-			})
-		})
-
-		ginkgo.When("Pod owner is managed by Kueue", func() {
-			var pod *corev1.Pod
-			ginkgo.BeforeEach(func() {
-				pod = testingpod.MakePod(podName, ns.Name).
-					Queue("test-queue").
-					OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
-					Obj()
-			})
-
-			ginkgo.It("Should skip the pod", func() {
-				gomega.Expect(k8sClient.Create(ctx, pod)).Should(gomega.Succeed())
-
-				createdPod := &corev1.Pod{}
-				gomega.Eventually(func() error {
-					return k8sClient.Get(ctx, lookupKey, createdPod)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-				gomega.Expect(createdPod.Spec.SchedulingGates).NotTo(
-					gomega.ContainElement(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}),
-					"Pod shouldn't have scheduling gate",
-				)
-
-				gomega.Expect(createdPod.Labels).NotTo(
-					gomega.HaveKeyWithValue("kueue.x-k8s.io/managed", "true"),
-					"Pod shouldn't have the label",
-				)
-
-				gomega.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement("kueue.x-k8s.io/managed"),
-					"Pod shouldn't have finalizer")
-
-				ginkgo.By(fmt.Sprintf("checking that workload '%s' is not created", wlLookupKey))
-				createdWorkload := &kueue.Workload{}
-
-				gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(testing.BeNotFoundError())
 			})
 		})
 	})
