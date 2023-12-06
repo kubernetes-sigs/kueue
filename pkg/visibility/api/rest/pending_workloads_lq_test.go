@@ -21,6 +21,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"k8s.io/apimachinery/pkg/api/errors"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apiserver/pkg/endpoints/request"
@@ -31,17 +32,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
-
-type req struct {
-	nsName      string
-	queueName   string
-	queryParams *visibility.PendingWorkloadOptions
-}
-
-type resp struct {
-	wantErr              error
-	wantPendingWorkloads []visibility.PendingWorkload
-}
 
 func TestPendingWorkloadsInLQ(t *testing.T) {
 	const (
@@ -73,7 +63,9 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 		clusterQueues []*kueue.ClusterQueue
 		queues        []*kueue.LocalQueue
 		workloads     []*kueue.Workload
-		wantResponse  map[req]*resp
+		req           *req
+		wantResp      *resp
+		wantErrMatch  func(error) bool
 	}{
 		"single ClusterQueue and single LocalQueue setup with two workloads and default query parameters": {
 			clusterQueues: []*kueue.ClusterQueue{
@@ -86,39 +78,38 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 				utiltesting.MakeWorkload("a", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now).Obj(),
 				utiltesting.MakeWorkload("b", nsNameA).Queue(lqNameA).Priority(lowPrio).Creation(now).Obj(),
 			},
-			wantResponse: map[req]*resp{
-				{
-					nsName:      nsNameA,
-					queueName:   lqNameA,
-					queryParams: defaultQueryParams,
-				}: {
-					wantPendingWorkloads: []visibility.PendingWorkload{
-						{
-							ObjectMeta: v1.ObjectMeta{
-								Name:              "a",
-								Namespace:         nsNameA,
-								CreationTimestamp: v1.NewTime(now),
-							},
-							LocalQueueName:         lqNameA,
-							Priority:               highPrio,
-							PositionInClusterQueue: 0,
-							PositionInLocalQueue:   0,
+			req: &req{
+				nsName:      nsNameA,
+				queueName:   lqNameA,
+				queryParams: defaultQueryParams,
+			},
+			wantResp: &resp{
+				wantPendingWorkloads: []visibility.PendingWorkload{
+					{
+						ObjectMeta: v1.ObjectMeta{
+							Name:              "a",
+							Namespace:         nsNameA,
+							CreationTimestamp: v1.NewTime(now),
 						},
-						{
-							ObjectMeta: v1.ObjectMeta{
-								Name:              "b",
-								Namespace:         nsNameA,
-								CreationTimestamp: v1.NewTime(now),
-							},
-							LocalQueueName:         lqNameA,
-							Priority:               lowPrio,
-							PositionInClusterQueue: 1,
-							PositionInLocalQueue:   1,
-						}},
-				},
+						LocalQueueName:         lqNameA,
+						Priority:               highPrio,
+						PositionInClusterQueue: 0,
+						PositionInLocalQueue:   0,
+					},
+					{
+						ObjectMeta: v1.ObjectMeta{
+							Name:              "b",
+							Namespace:         nsNameA,
+							CreationTimestamp: v1.NewTime(now),
+						},
+						LocalQueueName:         lqNameA,
+						Priority:               lowPrio,
+						PositionInClusterQueue: 1,
+						PositionInLocalQueue:   1,
+					}},
 			},
 		},
-		"single ClusterQueue and two LocalQueue setup with four workloads and default query parameters": {
+		"single ClusterQueue and two LocalQueue setup with four workloads and default query parameters; LocalQueue A request": {
 			clusterQueues: []*kueue.ClusterQueue{
 				utiltesting.MakeClusterQueue(cqNameA).Obj(),
 			},
@@ -132,68 +123,84 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 				utiltesting.MakeWorkload("lqB-high-prio", nsNameA).Queue(lqNameB).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
 				utiltesting.MakeWorkload("lqB-low-prio", nsNameA).Queue(lqNameB).Priority(lowPrio).Creation(now.Add(time.Second)).Obj(),
 			},
-			wantResponse: map[req]*resp{
-				{
-					nsName:      nsNameA,
-					queueName:   lqNameA,
-					queryParams: defaultQueryParams,
-				}: {
-					wantPendingWorkloads: []visibility.PendingWorkload{
-						{
-							ObjectMeta: v1.ObjectMeta{
-								Name:              "lqA-high-prio",
-								Namespace:         nsNameA,
-								CreationTimestamp: v1.NewTime(now),
-							},
-							LocalQueueName:         lqNameA,
-							Priority:               highPrio,
-							PositionInClusterQueue: 0,
-							PositionInLocalQueue:   0,
+			req: &req{
+				nsName:      nsNameA,
+				queueName:   lqNameA,
+				queryParams: defaultQueryParams,
+			},
+			wantResp: &resp{
+				wantPendingWorkloads: []visibility.PendingWorkload{
+					{
+						ObjectMeta: v1.ObjectMeta{
+							Name:              "lqA-high-prio",
+							Namespace:         nsNameA,
+							CreationTimestamp: v1.NewTime(now),
 						},
-						{
-							ObjectMeta: v1.ObjectMeta{
-								Name:              "lqA-low-prio",
-								Namespace:         nsNameA,
-								CreationTimestamp: v1.NewTime(now),
-							},
-							LocalQueueName:         lqNameA,
-							Priority:               lowPrio,
-							PositionInClusterQueue: 2,
-							PositionInLocalQueue:   1,
-						}},
-				},
-				{
-					nsName:      nsNameA,
-					queueName:   lqNameB,
-					queryParams: defaultQueryParams,
-				}: {
-					wantPendingWorkloads: []visibility.PendingWorkload{
-						{
-							ObjectMeta: v1.ObjectMeta{
-								Name:              "lqB-high-prio",
-								Namespace:         nsNameA,
-								CreationTimestamp: v1.NewTime(now.Add(time.Second)),
-							},
-							LocalQueueName:         lqNameB,
-							Priority:               highPrio,
-							PositionInClusterQueue: 1,
-							PositionInLocalQueue:   0,
+						LocalQueueName:         lqNameA,
+						Priority:               highPrio,
+						PositionInClusterQueue: 0,
+						PositionInLocalQueue:   0,
+					},
+					{
+						ObjectMeta: v1.ObjectMeta{
+							Name:              "lqA-low-prio",
+							Namespace:         nsNameA,
+							CreationTimestamp: v1.NewTime(now),
 						},
-						{
-							ObjectMeta: v1.ObjectMeta{
-								Name:              "lqB-low-prio",
-								Namespace:         nsNameA,
-								CreationTimestamp: v1.NewTime(now.Add(time.Second)),
-							},
-							LocalQueueName:         lqNameB,
-							Priority:               lowPrio,
-							PositionInClusterQueue: 3,
-							PositionInLocalQueue:   1,
-						}},
+						LocalQueueName:         lqNameA,
+						Priority:               lowPrio,
+						PositionInClusterQueue: 2,
+						PositionInLocalQueue:   1,
+					}},
+			},
+		},
+		"single ClusterQueue and two LocalQueue setup with four workloads and default query parameters; LocalQueue B request": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue(cqNameA).Obj(),
+			},
+			queues: []*kueue.LocalQueue{
+				utiltesting.MakeLocalQueue(lqNameA, nsNameA).ClusterQueue(cqNameA).Obj(),
+				utiltesting.MakeLocalQueue(lqNameB, nsNameA).ClusterQueue(cqNameA).Obj(),
+			},
+			workloads: []*kueue.Workload{
+				utiltesting.MakeWorkload("lqA-high-prio", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now).Obj(),
+				utiltesting.MakeWorkload("lqA-low-prio", nsNameA).Queue(lqNameA).Priority(lowPrio).Creation(now).Obj(),
+				utiltesting.MakeWorkload("lqB-high-prio", nsNameA).Queue(lqNameB).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
+				utiltesting.MakeWorkload("lqB-low-prio", nsNameA).Queue(lqNameB).Priority(lowPrio).Creation(now.Add(time.Second)).Obj(),
+			},
+			req: &req{
+				nsName:      nsNameA,
+				queueName:   lqNameB,
+				queryParams: defaultQueryParams,
+			},
+			wantResp: &resp{
+				wantPendingWorkloads: []visibility.PendingWorkload{
+					{
+						ObjectMeta: v1.ObjectMeta{
+							Name:              "lqB-high-prio",
+							Namespace:         nsNameA,
+							CreationTimestamp: v1.NewTime(now.Add(time.Second)),
+						},
+						LocalQueueName:         lqNameB,
+						Priority:               highPrio,
+						PositionInClusterQueue: 1,
+						PositionInLocalQueue:   0,
+					},
+					{
+						ObjectMeta: v1.ObjectMeta{
+							Name:              "lqB-low-prio",
+							Namespace:         nsNameA,
+							CreationTimestamp: v1.NewTime(now.Add(time.Second)),
+						},
+						LocalQueueName:         lqNameB,
+						Priority:               lowPrio,
+						PositionInClusterQueue: 3,
+						PositionInLocalQueue:   1,
+					},
 				},
 			},
 		},
-		"two Namespaces, two ClusterQueue and two LocalQueue setup with four workloads and default query parameters": {
+		"two Namespaces, two ClusterQueue and two LocalQueue setup with four workloads and default query parameters, LocalQueue A request": {
 			clusterQueues: []*kueue.ClusterQueue{
 				utiltesting.MakeClusterQueue(cqNameA).Obj(),
 				utiltesting.MakeClusterQueue(cqNameB).Obj(),
@@ -208,68 +215,86 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 				utiltesting.MakeWorkload("lqB-high-prio", nsNameB).Queue(lqNameB).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
 				utiltesting.MakeWorkload("lqB-low-prio", nsNameB).Queue(lqNameB).Priority(lowPrio).Creation(now.Add(time.Second)).Obj(),
 			},
-			wantResponse: map[req]*resp{
-				{
-					nsName:      nsNameA,
-					queueName:   lqNameA,
-					queryParams: defaultQueryParams,
-				}: {
-					wantPendingWorkloads: []visibility.PendingWorkload{
-						{
-							ObjectMeta: v1.ObjectMeta{
-								Name:              "lqA-high-prio",
-								Namespace:         nsNameA,
-								CreationTimestamp: v1.NewTime(now),
-							},
-							LocalQueueName:         lqNameA,
-							Priority:               highPrio,
-							PositionInClusterQueue: 0,
-							PositionInLocalQueue:   0,
+			req: &req{
+				nsName:      nsNameA,
+				queueName:   lqNameA,
+				queryParams: defaultQueryParams,
+			},
+			wantResp: &resp{
+				wantPendingWorkloads: []visibility.PendingWorkload{
+					{
+						ObjectMeta: v1.ObjectMeta{
+							Name:              "lqA-high-prio",
+							Namespace:         nsNameA,
+							CreationTimestamp: v1.NewTime(now),
 						},
-						{
-							ObjectMeta: v1.ObjectMeta{
-								Name:              "lqA-low-prio",
-								Namespace:         nsNameA,
-								CreationTimestamp: v1.NewTime(now),
-							},
-							LocalQueueName:         lqNameA,
-							Priority:               lowPrio,
-							PositionInClusterQueue: 1,
-							PositionInLocalQueue:   1,
-						}},
-				},
-				{
-					nsName:      nsNameB,
-					queueName:   lqNameB,
-					queryParams: defaultQueryParams,
-				}: {
-					wantPendingWorkloads: []visibility.PendingWorkload{
-						{
-							ObjectMeta: v1.ObjectMeta{
-								Name:              "lqB-high-prio",
-								Namespace:         nsNameB,
-								CreationTimestamp: v1.NewTime(now.Add(time.Second)),
-							},
-							LocalQueueName:         lqNameB,
-							Priority:               highPrio,
-							PositionInClusterQueue: 0,
-							PositionInLocalQueue:   0,
+						LocalQueueName:         lqNameA,
+						Priority:               highPrio,
+						PositionInClusterQueue: 0,
+						PositionInLocalQueue:   0,
+					},
+					{
+						ObjectMeta: v1.ObjectMeta{
+							Name:              "lqA-low-prio",
+							Namespace:         nsNameA,
+							CreationTimestamp: v1.NewTime(now),
 						},
-						{
-							ObjectMeta: v1.ObjectMeta{
-								Name:              "lqB-low-prio",
-								Namespace:         nsNameB,
-								CreationTimestamp: v1.NewTime(now.Add(time.Second)),
-							},
-							LocalQueueName:         lqNameB,
-							Priority:               lowPrio,
-							PositionInClusterQueue: 1,
-							PositionInLocalQueue:   1,
-						}},
+						LocalQueueName:         lqNameA,
+						Priority:               lowPrio,
+						PositionInClusterQueue: 1,
+						PositionInLocalQueue:   1,
+					},
 				},
 			},
 		},
-		"valid query parameters set": {
+		"two Namespaces, two ClusterQueue and two LocalQueue setup with four workloads and default query parameters, LocalQueue B request": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue(cqNameA).Obj(),
+				utiltesting.MakeClusterQueue(cqNameB).Obj(),
+			},
+			queues: []*kueue.LocalQueue{
+				utiltesting.MakeLocalQueue(lqNameA, nsNameA).ClusterQueue(cqNameA).Obj(),
+				utiltesting.MakeLocalQueue(lqNameB, nsNameB).ClusterQueue(cqNameB).Obj(),
+			},
+			workloads: []*kueue.Workload{
+				utiltesting.MakeWorkload("lqA-high-prio", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now).Obj(),
+				utiltesting.MakeWorkload("lqA-low-prio", nsNameA).Queue(lqNameA).Priority(lowPrio).Creation(now).Obj(),
+				utiltesting.MakeWorkload("lqB-high-prio", nsNameB).Queue(lqNameB).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
+				utiltesting.MakeWorkload("lqB-low-prio", nsNameB).Queue(lqNameB).Priority(lowPrio).Creation(now.Add(time.Second)).Obj(),
+			},
+			req: &req{
+				nsName:      nsNameB,
+				queueName:   lqNameB,
+				queryParams: defaultQueryParams,
+			},
+			wantResp: &resp{
+				wantPendingWorkloads: []visibility.PendingWorkload{
+					{
+						ObjectMeta: v1.ObjectMeta{
+							Name:              "lqB-high-prio",
+							Namespace:         nsNameB,
+							CreationTimestamp: v1.NewTime(now.Add(time.Second)),
+						},
+						LocalQueueName:         lqNameB,
+						Priority:               highPrio,
+						PositionInClusterQueue: 0,
+						PositionInLocalQueue:   0,
+					},
+					{
+						ObjectMeta: v1.ObjectMeta{
+							Name:              "lqB-low-prio",
+							Namespace:         nsNameB,
+							CreationTimestamp: v1.NewTime(now.Add(time.Second)),
+						},
+						LocalQueueName:         lqNameB,
+						Priority:               lowPrio,
+						PositionInClusterQueue: 1,
+						PositionInLocalQueue:   1,
+					},
+				},
+			},
+		},
+		"limit query parameter set": {
 			clusterQueues: []*kueue.ClusterQueue{
 				utiltesting.MakeClusterQueue(cqNameA).Obj(),
 			},
@@ -281,105 +306,132 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 				utiltesting.MakeWorkload("b", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
 				utiltesting.MakeWorkload("c", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now.Add(time.Second * 2)).Obj(),
 			},
-			wantResponse: map[req]*resp{
-				// Only limit is set
-				{
-					nsName:    nsNameA,
-					queueName: lqNameA,
-					queryParams: &visibility.PendingWorkloadOptions{
-						Limit: 2,
-					},
-				}: {
-					wantPendingWorkloads: []visibility.PendingWorkload{
-						{
-							ObjectMeta: v1.ObjectMeta{
-								Name:              "a",
-								Namespace:         nsNameA,
-								CreationTimestamp: v1.NewTime(now),
-							},
-							LocalQueueName:         lqNameA,
-							Priority:               highPrio,
-							PositionInClusterQueue: 0,
-							PositionInLocalQueue:   0,
-						},
-						{
-							ObjectMeta: v1.ObjectMeta{
-								Name:              "b",
-								Namespace:         nsNameA,
-								CreationTimestamp: v1.NewTime(now.Add(time.Second)),
-							},
-							LocalQueueName:         lqNameA,
-							Priority:               highPrio,
-							PositionInClusterQueue: 1,
-							PositionInLocalQueue:   1,
-						}},
+			req: &req{
+				nsName:    nsNameA,
+				queueName: lqNameA,
+				queryParams: &visibility.PendingWorkloadOptions{
+					Limit: 2,
 				},
-				// Only offset is set
-				{
-					nsName:    nsNameA,
-					queueName: lqNameA,
-					queryParams: &visibility.PendingWorkloadOptions{
-						Offset: 1,
-						Limit:  constants.DefaultPendingWorkloadsLimit,
-					},
-				}: {
-					wantPendingWorkloads: []visibility.PendingWorkload{
-						{
-							ObjectMeta: v1.ObjectMeta{
-								Name:              "b",
-								Namespace:         nsNameA,
-								CreationTimestamp: v1.NewTime(now.Add(time.Second)),
-							},
-							LocalQueueName:         lqNameA,
-							Priority:               highPrio,
-							PositionInClusterQueue: 1,
-							PositionInLocalQueue:   1,
+			},
+			wantResp: &resp{
+				wantPendingWorkloads: []visibility.PendingWorkload{
+					{
+						ObjectMeta: v1.ObjectMeta{
+							Name:              "a",
+							Namespace:         nsNameA,
+							CreationTimestamp: v1.NewTime(now),
 						},
-						{
-							ObjectMeta: v1.ObjectMeta{
-								Name:              "c",
-								Namespace:         nsNameA,
-								CreationTimestamp: v1.NewTime(now.Add(time.Second * 2)),
-							},
-							LocalQueueName:         lqNameA,
-							Priority:               highPrio,
-							PositionInClusterQueue: 2,
-							PositionInLocalQueue:   2,
-						}},
-				},
-				// Both limit and offset are set
-				{
-					nsName:    nsNameA,
-					queueName: lqNameA,
-					queryParams: &visibility.PendingWorkloadOptions{
-						Offset: 1,
-						Limit:  1,
+						LocalQueueName:         lqNameA,
+						Priority:               highPrio,
+						PositionInClusterQueue: 0,
+						PositionInLocalQueue:   0,
 					},
-				}: {
-					wantPendingWorkloads: []visibility.PendingWorkload{
-						{
-							ObjectMeta: v1.ObjectMeta{
-								Name:              "b",
-								Namespace:         nsNameA,
-								CreationTimestamp: v1.NewTime(now.Add(time.Second)),
-							},
-							LocalQueueName:         lqNameA,
-							Priority:               highPrio,
-							PositionInClusterQueue: 1,
-							PositionInLocalQueue:   1,
-						}},
+					{
+						ObjectMeta: v1.ObjectMeta{
+							Name:              "b",
+							Namespace:         nsNameA,
+							CreationTimestamp: v1.NewTime(now.Add(time.Second)),
+						},
+						LocalQueueName:         lqNameA,
+						Priority:               highPrio,
+						PositionInClusterQueue: 1,
+						PositionInLocalQueue:   1,
+					},
 				},
 			},
 		},
-		"invalid queue name": {
-			wantResponse: map[req]*resp{
-				{
-					queueName:   "invalid",
-					queryParams: defaultQueryParams,
-				}: {
-					wantErr: errQueueDoesNotExist,
+		"offset query parameter set": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue(cqNameA).Obj(),
+			},
+			queues: []*kueue.LocalQueue{
+				utiltesting.MakeLocalQueue(lqNameA, nsNameA).ClusterQueue(cqNameA).Obj(),
+			},
+			workloads: []*kueue.Workload{
+				utiltesting.MakeWorkload("a", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now).Obj(),
+				utiltesting.MakeWorkload("b", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
+				utiltesting.MakeWorkload("c", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now.Add(time.Second * 2)).Obj(),
+			},
+			req: &req{
+				nsName:    nsNameA,
+				queueName: lqNameA,
+				queryParams: &visibility.PendingWorkloadOptions{
+					Offset: 1,
+					Limit:  constants.DefaultPendingWorkloadsLimit,
 				},
 			},
+			wantResp: &resp{
+				wantPendingWorkloads: []visibility.PendingWorkload{
+					{
+						ObjectMeta: v1.ObjectMeta{
+							Name:              "b",
+							Namespace:         nsNameA,
+							CreationTimestamp: v1.NewTime(now.Add(time.Second)),
+						},
+						LocalQueueName:         lqNameA,
+						Priority:               highPrio,
+						PositionInClusterQueue: 1,
+						PositionInLocalQueue:   1,
+					},
+					{
+						ObjectMeta: v1.ObjectMeta{
+							Name:              "c",
+							Namespace:         nsNameA,
+							CreationTimestamp: v1.NewTime(now.Add(time.Second * 2)),
+						},
+						LocalQueueName:         lqNameA,
+						Priority:               highPrio,
+						PositionInClusterQueue: 2,
+						PositionInLocalQueue:   2,
+					},
+				},
+			},
+		},
+		"limit and offset query parameters set": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue(cqNameA).Obj(),
+			},
+			queues: []*kueue.LocalQueue{
+				utiltesting.MakeLocalQueue(lqNameA, nsNameA).ClusterQueue(cqNameA).Obj(),
+			},
+			workloads: []*kueue.Workload{
+				utiltesting.MakeWorkload("a", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now).Obj(),
+				utiltesting.MakeWorkload("b", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now.Add(time.Second)).Obj(),
+				utiltesting.MakeWorkload("c", nsNameA).Queue(lqNameA).Priority(highPrio).Creation(now.Add(time.Second * 2)).Obj(),
+			},
+			req: &req{
+				nsName:    nsNameA,
+				queueName: lqNameA,
+				queryParams: &visibility.PendingWorkloadOptions{
+					Offset: 1,
+					Limit:  1,
+				},
+			},
+			wantResp: &resp{
+				wantPendingWorkloads: []visibility.PendingWorkload{
+					{
+						ObjectMeta: v1.ObjectMeta{
+							Name:              "b",
+							Namespace:         nsNameA,
+							CreationTimestamp: v1.NewTime(now.Add(time.Second)),
+						},
+						LocalQueueName:         lqNameA,
+						Priority:               highPrio,
+						PositionInClusterQueue: 1,
+						PositionInLocalQueue:   1,
+					},
+				},
+			},
+		},
+		"nonexistent queue name": {
+			req: &req{
+				queueName:   "nonexistent-queue",
+				queryParams: defaultQueryParams,
+			},
+			wantResp: &resp{
+				wantErr: errors.NewNotFound(visibility.Resource("localqueue"), "invalid-name"),
+			},
+			wantErrMatch: errors.IsNotFound,
 		},
 	}
 	for name, tc := range cases {
@@ -403,18 +455,18 @@ func TestPendingWorkloadsInLQ(t *testing.T) {
 				manager.AddOrUpdateWorkload(w)
 			}
 
-			for req, resp := range tc.wantResponse {
-				ctx := request.WithNamespace(ctx, req.nsName)
-				info, err := pendingWorkloadsInLqRest.Get(ctx, req.queueName, req.queryParams)
-				if err != nil {
-					if diff := cmp.Diff(resp.wantErr, err, cmpopts.EquateErrors()); diff != "" {
-						t.Errorf("Error differs: (-want,+got):\n%s", diff)
-					}
-				} else {
-					pendingWorkloadsInfo := info.(*visibility.PendingWorkloadsSummary)
-					if diff := cmp.Diff(resp.wantPendingWorkloads, pendingWorkloadsInfo.Items, cmpopts.EquateEmpty()); diff != "" {
-						t.Errorf("Pending workloads differ: (-want,+got):\n%s", diff)
-					}
+			ctx = request.WithNamespace(ctx, tc.req.nsName)
+			info, err := pendingWorkloadsInLqRest.Get(ctx, tc.req.queueName, tc.req.queryParams)
+			if tc.wantErrMatch != nil {
+				if !tc.wantErrMatch(err) {
+					t.Errorf("Error differs: (-want,+got):\n%s", cmp.Diff(tc.wantResp.wantErr.Error(), err.Error()))
+				}
+			} else if err != nil {
+				t.Error(err)
+			} else {
+				pendingWorkloadsInfo := info.(*visibility.PendingWorkloadsSummary)
+				if diff := cmp.Diff(tc.wantResp.wantPendingWorkloads, pendingWorkloadsInfo.Items, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("Pending workloads differ: (-want,+got):\n%s", diff)
 				}
 			}
 		})

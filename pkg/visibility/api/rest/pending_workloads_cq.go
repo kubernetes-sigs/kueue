@@ -19,6 +19,7 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apiserver/pkg/registry/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -66,6 +67,10 @@ func (m *pendingWorkloadsInCqREST) Get(ctx context.Context, name string, opts ru
 
 	wls := make([]v1alpha1.PendingWorkload, 0, limit)
 	pendingWorkloadsInfo := m.queueMgr.PendingWorkloadsInfo(name)
+	if pendingWorkloadsInfo == nil {
+		return nil, errors.NewNotFound(v1alpha1.Resource("clusterqueue"), name)
+	}
+
 	localQueuePositions := make(map[string]int32, 0)
 
 	for index := 0; index < int(offset+limit) && index < len(pendingWorkloadsInfo); index++ {
