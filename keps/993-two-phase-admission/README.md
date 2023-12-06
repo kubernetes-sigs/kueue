@@ -256,9 +256,9 @@ The controller implementing a particular check should:
 
 ### Preemption Admission Check Controller
 
-In this proposal, the time to evict the preemption candidates varies based on the preemptor state
-the scheduler will not issue the eviction during it's process instead it will set a `Pending` admission check
-that is manged by a new built-in admission check controller.
+In this proposal, the time to evict the preemption candidates varies based on the preemptor state.
+The scheduler will not issue the eviction during it's process instead it will set a `Pending` admission check
+that is manged by a single instance of a new built-in admission check controller.
 
 The **Preemption Admission Check Controller** will:
 
@@ -271,7 +271,7 @@ The preemption controller uses the kueue cache, since it needs to check the stat
 At every run the controller will get the list of workloads pending preemption.
 
 The workloads pending preemption are divided into:
-- `preemtingLetaer` - Workloads having at least one check that uses AfterCheckPassedOrOnDemand policy with the state `pending`.
+- `preemtingLeter` - Workloads having at least one check that uses AfterCheckPassedOrOnDemand policy with the state `pending`.
 - `preemtingNow` - Workloads that expect to be able to issue evictions or potentially change their preemption state in the current cycle.
 
 Then:
@@ -286,7 +286,9 @@ Then:
         - Issue the eviction to the candidates.
         - Add it to the snapshot
       - If the updated list is empty, meaning the preemption cannot be done.
-        - Set its admission check to `Ready`
+        - Set its admission check to `Retry`, the quota reservation will be lost and the workload placed in the queue waiting for a new QuotaReservation.
+
+**NOTE** The list of candidates is picked out from the list of workloads holding a QuotaReservation, regardless if they are fully Admitted or not.
 
 ### Test Plan
 
