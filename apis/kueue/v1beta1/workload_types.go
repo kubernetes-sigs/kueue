@@ -276,8 +276,12 @@ const (
 	WorkloadEvictedByPodsReadyTimeout = "PodsReadyTimeout"
 
 	// WorkloadEvictedByAdmissionCheck indicates that the workload was evicted
-	// beacuse at least one admission check transitioned to False.
+	// because at least one admission check transitioned to False.
 	WorkloadEvictedByAdmissionCheck = "AdmissionCheck"
+
+	// WorkloadEvictedByClusterQueueStopped indicates that the workload was evicted
+	// because the ClusterQueue is Stopped.
+	WorkloadEvictedByClusterQueueStopped = "ClusterQueueStopped"
 
 	// WorkloadEvictedByDeactivation indicates that the workload was evicted
 	// because spec.active is set to false.

@@ -386,6 +386,24 @@ And Kueue triggers preemption only after Kueue determines that the remaining Res
 
 Note that, whenever possible and when the configured policy allows it, Kueue avoids preemptions if it can fit a Workload by borrowing.
 
+## StopPolicy
+
+StopPolicy allows a cluster administrator to temporary stop the admission of workloads within a ClusterQueue by setting its value in the [spec](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-ClusterQueueSpec) like:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: "team-a-cq"
+spec:
+  stopPolicy: Hold
+```
+
+The example above will stop the admission of new workloads in the ClusterQueue while allowing the already admitted workloads to finish.
+The `HoldAndDrain` will have a similar effect but, in addition, it will trigger the eviction of the admitted workloads.
+
+If set to `None` or `spec.stopPolicy` is removed the ClusterQueue will to normal admission behavior.
+
 ## What's next?
 
 - Create [local queues](/docs/concepts/local_queue)

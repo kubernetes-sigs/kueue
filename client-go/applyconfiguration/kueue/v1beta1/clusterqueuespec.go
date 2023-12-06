@@ -32,6 +32,7 @@ type ClusterQueueSpecApplyConfiguration struct {
 	FlavorFungibility *FlavorFungibilityApplyConfiguration      `json:"flavorFungibility,omitempty"`
 	Preemption        *ClusterQueuePreemptionApplyConfiguration `json:"preemption,omitempty"`
 	AdmissionChecks   []string                                  `json:"admissionChecks,omitempty"`
+	StopPolicy        *kueuev1beta1.StopPolicy                  `json:"stopPolicy,omitempty"`
 }
 
 // ClusterQueueSpecApplyConfiguration constructs an declarative configuration of the ClusterQueueSpec type for use with
@@ -100,5 +101,13 @@ func (b *ClusterQueueSpecApplyConfiguration) WithAdmissionChecks(values ...strin
 	for i := range values {
 		b.AdmissionChecks = append(b.AdmissionChecks, values[i])
 	}
+	return b
+}
+
+// WithStopPolicy sets the StopPolicy field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the StopPolicy field is set to the value of the last call.
+func (b *ClusterQueueSpecApplyConfiguration) WithStopPolicy(value kueuev1beta1.StopPolicy) *ClusterQueueSpecApplyConfiguration {
+	b.StopPolicy = &value
 	return b
 }

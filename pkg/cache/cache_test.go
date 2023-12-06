@@ -3085,7 +3085,6 @@ func TestClusterQueuesUsingAdmissionChecks(t *testing.T) {
 }
 
 func TestClusterQueueReadiness(t *testing.T) {
-
 	baseFalvor := utiltesting.MakeResourceFlavor("flavor1").Obj()
 	baseCheck := utiltesting.MakeAdmissionCheck("check1").Active(metav1.ConditionTrue).Obj()
 	baseQueue := utiltesting.MakeClusterQueue("queue1").
@@ -3119,7 +3118,7 @@ func TestClusterQueueReadiness(t *testing.T) {
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
 			wantReason:       "FlavorNotFound",
-			wantMessage:      "Can't admit new workloads; some resourceFlavors are not found",
+			wantMessage:      "Can't admit new workloads: FlavorNotFound",
 		},
 		"check not found": {
 			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
@@ -3127,7 +3126,7 @@ func TestClusterQueueReadiness(t *testing.T) {
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
 			wantReason:       "CheckNotFoundOrInactive",
-			wantMessage:      "Can't admit new workloads; some admissionChecks are not found or inactive",
+			wantMessage:      "Can't admit new workloads: CheckNotFoundOrInactive",
 		},
 		"check inactive": {
 			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
@@ -3136,14 +3135,14 @@ func TestClusterQueueReadiness(t *testing.T) {
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
 			wantReason:       "CheckNotFoundOrInactive",
-			wantMessage:      "Can't admit new workloads; some admissionChecks are not found or inactive",
+			wantMessage:      "Can't admit new workloads: CheckNotFoundOrInactive",
 		},
 		"flavor and check not found": {
 			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
-			wantReason:       "FlavorNotFoundAndCheckNotFoundOrInactive",
-			wantMessage:      "Can't admit new workloads; some resourceFlavors are not found and admissionChecks are not found or inactive",
+			wantReason:       "FlavorNotFound",
+			wantMessage:      "Can't admit new workloads: FlavorNotFound, CheckNotFoundOrInactive",
 		},
 		"terminating": {
 			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
@@ -3165,6 +3164,13 @@ func TestClusterQueueReadiness(t *testing.T) {
 			wantReason:       "Ready",
 			wantMessage:      "Can admit new workloads",
 			wantActive:       true,
+		},
+		"stopped": {
+			clusterQueues:    []*kueue.ClusterQueue{utiltesting.MakeClusterQueue("queue1").StopPolicy(kueue.HoldAndDrain).Obj()},
+			clusterQueueName: "queue1",
+			wantStatus:       metav1.ConditionFalse,
+			wantReason:       "Stopped",
+			wantMessage:      "Can't admit new workloads: Stopped",
 		},
 	}
 

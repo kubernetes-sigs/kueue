@@ -41,6 +41,7 @@ type clusterQueueBase struct {
 	heap              heap.Heap
 	cohort            string
 	namespaceSelector labels.Selector
+	active            bool
 
 	// inadmissibleWorkloads are workloads that have been tried at least once and couldn't be admitted.
 	inadmissibleWorkloads map[string]*workload.Info
@@ -67,12 +68,15 @@ func newClusterQueueImpl(keyFunc func(obj interface{}) string, lessFunc func(a, 
 }
 
 func (c *clusterQueueBase) Update(apiCQ *kueue.ClusterQueue) error {
+	c.rwm.Lock()
+	defer c.rwm.Unlock()
 	c.cohort = apiCQ.Spec.Cohort
 	nsSelector, err := metav1.LabelSelectorAsSelector(apiCQ.Spec.NamespaceSelector)
 	if err != nil {
 		return err
 	}
 	c.namespaceSelector = nsSelector
+	c.active = apimeta.IsStatusConditionTrue(apiCQ.Status.Conditions, kueue.ClusterQueueActive)
 	return nil
 }
 
@@ -275,4 +279,10 @@ func (c *clusterQueueBase) totalElements() []*workload.Info {
 		elements = append(elements, e)
 	}
 	return elements
+}
+
+func (c *clusterQueueBase) Active() bool {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
+	return c.active
 }

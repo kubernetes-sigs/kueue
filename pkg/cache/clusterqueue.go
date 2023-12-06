@@ -3,6 +3,7 @@ package cache
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -49,6 +50,7 @@ type ClusterQueue struct {
 	hasMissingFlavors                   bool
 	hasMissingOrInactiveAdmissionChecks bool
 	admittedWorkloadsCount              int
+	isStopped                           bool
 }
 
 // Cohort is a set of ClusterQueues that can borrow resources from each other.
@@ -157,6 +159,8 @@ func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.
 	}
 	c.NamespaceSelector = nsSelector
 
+	c.isStopped = ptr.Deref(in.Spec.StopPolicy, kueue.None) != kueue.None
+
 	c.AdmissionChecks = sets.New(in.Spec.AdmissionChecks...)
 
 	c.Usage = filterQuantities(c.Usage, in.Spec.ResourceGroups)
@@ -246,7 +250,7 @@ func (c *ClusterQueue) UpdateRGByResource() {
 
 func (c *ClusterQueue) updateQueueStatus() {
 	status := active
-	if c.hasMissingFlavors || c.hasMissingOrInactiveAdmissionChecks {
+	if c.hasMissingFlavors || c.hasMissingOrInactiveAdmissionChecks || c.isStopped {
 		status = pending
 	}
 	if c.Status == terminating {
@@ -263,15 +267,22 @@ func (c *ClusterQueue) inactiveReason() (string, string) {
 	case terminating:
 		return "Terminating", "Can't admit new workloads; clusterQueue is terminating"
 	case pending:
-		switch {
-		case c.hasMissingFlavors && c.hasMissingOrInactiveAdmissionChecks:
-			return "FlavorNotFoundAndCheckNotFoundOrInactive", "Can't admit new workloads; some resourceFlavors are not found and admissionChecks are not found or inactive"
-		case c.hasMissingFlavors:
-			return "FlavorNotFound", "Can't admit new workloads; some resourceFlavors are not found"
-		default:
-			return "CheckNotFoundOrInactive", "Can't admit new workloads; some admissionChecks are not found or inactive"
-
+		reasons := make([]string, 0, 3)
+		if c.isStopped {
+			reasons = append(reasons, "Stopped")
 		}
+		if c.hasMissingFlavors {
+			reasons = append(reasons, "FlavorNotFound")
+		}
+		if c.hasMissingOrInactiveAdmissionChecks {
+			reasons = append(reasons, "CheckNotFoundOrInactive")
+		}
+
+		if len(reasons) == 0 {
+			return "Unknown", "Can't admit new workloads."
+		}
+
+		return reasons[0], strings.Join([]string{"Can't admit new workloads:", strings.Join(reasons, ", ")}, " ")
 	}
 	return "Ready", "Can admit new flavors"
 }
