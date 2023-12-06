@@ -230,6 +230,7 @@ The currently supported features are:
 | `PartialAdmission` | `true` | Beta | 0.5 |  |
 | `ProvisioningACC` | `false` | Alpha | 0.5 |  |
 | `QueueVisibility` | `false` | Alpha | 0.5 |  |
+| `VisibilityOnDemand` | `false` | Alpha | 0.6 | |
 
 ## What's next
 
