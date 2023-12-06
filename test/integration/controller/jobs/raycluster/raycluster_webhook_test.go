@@ -68,7 +68,6 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 		ginkgo.It("invalid configuration shutdown after job finishes", func() {
 			job := testingjob.MakeJob(jobName, ns.Name).
 				Queue("queue-name").
-				ShutdownAfterJobFinishes(false).
 				Obj()
 			err := k8sClient.Create(ctx, job)
 			gomega.Expect(err).Should(gomega.HaveOccurred())

@@ -98,7 +98,6 @@ func TestValidateCreate(t *testing.T) {
 	}{
 		"invalid unmanaged": {
 			job: testingrayutil.MakeJob("job", "ns").
-				ShutdownAfterJobFinishes(false).
 				Obj(),
 			wantErr: nil,
 		},
@@ -181,10 +180,8 @@ func TestValidateUpdate(t *testing.T) {
 	}{
 		"invalid unmanaged": {
 			oldJob: testingrayutil.MakeJob("job", "ns").
-				ShutdownAfterJobFinishes(true).
 				Obj(),
 			newJob: testingrayutil.MakeJob("job", "ns").
-				ShutdownAfterJobFinishes(false).
 				Obj(),
 			wantErr: nil,
 		},
@@ -217,12 +214,10 @@ func TestValidateUpdate(t *testing.T) {
 			oldJob: testingrayutil.MakeJob("job", "ns").
 				Queue("queue").
 				Suspend(false).
-				ShutdownAfterJobFinishes(true).
 				Obj(),
 			newJob: testingrayutil.MakeJob("job", "ns").
 				Queue("queue2").
 				Suspend(false).
-				ShutdownAfterJobFinishes(true).
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(field.NewPath("metadata", "labels").Key(constants.QueueLabel), "queue", apivalidation.FieldImmutableErrorMsg),

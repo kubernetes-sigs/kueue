@@ -112,14 +112,9 @@ func (j *JobWrapper) RequestHead(name corev1.ResourceName, quantity string) *Job
 	return j
 }
 
-func (j *JobWrapper) ShutdownAfterJobFinishes(value bool) *JobWrapper {
-	//j.Spec.ShutdownAfterJobFinishes = value
-	return j
-}
-
-func (j *JobWrapper) ClusterSelector(value map[string]string) *JobWrapper {
-	//j.Spec.ClusterSelector = value
-	return j
+// Clone returns deep copy of the Job.
+func (j *JobWrapper) Clone() *JobWrapper {
+	return &JobWrapper{RayCluster: *j.DeepCopy()}
 }
 
 func (j *JobWrapper) WithEnableAutoscaling(value *bool) *JobWrapper {
