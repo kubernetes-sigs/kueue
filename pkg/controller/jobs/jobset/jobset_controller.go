@@ -178,9 +178,9 @@ func (j *JobSet) PodsReady() bool {
 	return replicas == readyReplicas
 }
 
-func (j *JobSet) ReclaimablePods() []kueue.ReclaimablePod {
+func (j *JobSet) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
 	if len(j.Status.ReplicatedJobsStatus) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	ret := make([]kueue.ReclaimablePod, 0, len(j.Spec.ReplicatedJobs))
@@ -197,7 +197,7 @@ func (j *JobSet) ReclaimablePods() []kueue.ReclaimablePod {
 			}
 		}
 	}
-	return ret
+	return ret, nil
 }
 
 func podsCountPerReplica(rj *jobsetapi.ReplicatedJob) int32 {

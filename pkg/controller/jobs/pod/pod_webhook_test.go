@@ -321,7 +321,7 @@ func TestGetRoleHash(t *testing.T) {
 
 			var previousHash string
 			for i := range tc.pods {
-				hash, err := getRoleHash(tc.pods[i])
+				hash, err := getRoleHash(tc.pods[i].pod)
 
 				if diff := cmp.Diff(tc.wantErr, err); diff != "" {
 					t.Errorf("Unexpected error (-want,+got):\n%s", diff)
@@ -533,6 +533,41 @@ func TestValidateUpdate(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
 					Field: "metadata.labels[kueue.x-k8s.io/pod-group-name]",
+				},
+			}.ToAggregate(),
+		},
+		"retriable in group annotation is removed": {
+			oldPod: testingpod.MakePod("test-pod", "test-ns").
+				Group("test-group").
+				GroupTotalCount("2").
+				Annotation("kueue.x-k8s.io/retriable-in-group", "false").
+				Obj(),
+			newPod: testingpod.MakePod("test-pod", "test-ns").
+				Group("test-group").
+				GroupTotalCount("2").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "metadata.annotations[kueue.x-k8s.io/retriable-in-group]",
+				},
+			}.ToAggregate(),
+		},
+		"retriable in group annotation is changed from false to true": {
+			oldPod: testingpod.MakePod("test-pod", "test-ns").
+				Group("test-group").
+				GroupTotalCount("2").
+				Annotation("kueue.x-k8s.io/retriable-in-group", "false").
+				Obj(),
+			newPod: testingpod.MakePod("test-pod", "test-ns").
+				Group("test-group").
+				GroupTotalCount("2").
+				Annotation("kueue.x-k8s.io/retriable-in-group", "true").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "metadata.annotations[kueue.x-k8s.io/retriable-in-group]",
 				},
 			}.ToAggregate(),
 		},
