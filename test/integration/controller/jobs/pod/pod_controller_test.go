@@ -187,11 +187,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					),
 				), "Expected 'Finished' workload condition")
 
-				gomega.Eventually(func(g gomega.Gomega) []string {
-					g.Expect(k8sClient.Get(ctx, lookupKey, createdPod)).To(gomega.Succeed())
-					return createdPod.Finalizers
-				}, util.Timeout, util.Interval).ShouldNot(gomega.ContainElement("kueue.x-k8s.io/managed"),
-					"Pod shouldn't have finalizer set")
+				util.ExpectPodsFinalized(ctx, k8sClient, lookupKey)
 			})
 
 			ginkgo.It("Should remove finalizers from Pods that are actively deleted after being admitted", func() {
@@ -513,7 +509,6 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				gomega.Expect(createdWorkload.Spec.PodSets[1].Count).To(gomega.Equal(int32(1)))
 				gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal("test-queue"), "The Workload should have .spec.queueName set")
 
-				createdPod := &corev1.Pod{}
 				ginkgo.By("checking that all pods in group are unsuspended when workload is admitted", func() {
 					admission := testing.MakeAdmission(clusterQueue.Name, "120fa2c0", "542d5455").
 						Assignment(corev1.ResourceCPU, "default", "1").
@@ -551,15 +546,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						),
 					), "Expected 'Finished' workload condition")
 
-					gomega.Eventually(func(g gomega.Gomega) []string {
-						g.Expect(k8sClient.Get(ctx, pod1LookupKey, createdPod)).To(gomega.Succeed())
-						return createdPod.Finalizers
-					}, util.Timeout, util.Interval).Should(gomega.BeEmpty(), "Expected pod to be finalized")
-
-					gomega.Eventually(func(g gomega.Gomega) []string {
-						g.Expect(k8sClient.Get(ctx, pod2LookupKey, createdPod)).To(gomega.Succeed())
-						return createdPod.Finalizers
-					}, util.Timeout, util.Interval).Should(gomega.BeEmpty(), "Expected pod to be finalized")
+					util.ExpectPodsFinalized(ctx, k8sClient, pod1LookupKey, pod2LookupKey)
 				})
 			})
 
@@ -756,12 +743,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, replacementPodLookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
 
 				util.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, replacementPod)
-				gomega.Eventually(func(g gomega.Gomega) []string {
-					g.Expect(k8sClient.Get(ctx, replacementPodLookupKey, createdPod)).To(gomega.Succeed())
-					return createdPod.Finalizers
-				}, util.Timeout, util.Interval).ShouldNot(gomega.ContainElement("kueue.x-k8s.io/managed"),
-					"Pod shouldn't have the kueue finalizer")
-				gomega.Expect(createdPod.Status.Phase).To(gomega.Equal(corev1.PodSucceeded))
+				util.ExpectPodsFinalized(ctx, k8sClient, replacementPodLookupKey)
 
 				gomega.Eventually(func(g gomega.Gomega) []metav1.Condition {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
@@ -877,20 +859,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						),
 					), "Expected 'Finished' workload condition")
 
-					gomega.Eventually(func(g gomega.Gomega) []string {
-						g.Expect(k8sClient.Get(ctx, pod1LookupKey, createdPod)).To(gomega.Succeed())
-						return createdPod.Finalizers
-					}, util.Timeout, util.Interval).Should(gomega.BeEmpty(), "Expected pod to be finalized")
-
-					gomega.Eventually(func(g gomega.Gomega) []string {
-						g.Expect(k8sClient.Get(ctx, pod2LookupKey, createdPod)).To(gomega.Succeed())
-						return createdPod.Finalizers
-					}, util.Timeout, util.Interval).Should(gomega.BeEmpty(), "Expected pod to be finalized")
-
-					gomega.Eventually(func(g gomega.Gomega) []string {
-						g.Expect(k8sClient.Get(ctx, replacementPod2LookupKey, createdPod)).To(gomega.Succeed())
-						return createdPod.Finalizers
-					}, util.Timeout, util.Interval).Should(gomega.BeEmpty(), "Expected pod to be finalized")
+					util.ExpectPodsFinalized(ctx, k8sClient, pod1LookupKey, pod2LookupKey, replacementPod2LookupKey)
 				})
 			})
 		})
@@ -1068,14 +1037,12 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Orde
 
 		ginkgo.By("checking pods are finalized", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(role1Pod1), createdPod)).Should(gomega.Succeed())
-				g.Expect(createdPod.Finalizers).To(gomega.BeEmpty(), "Pod should be finalized")
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(role1Pod2), createdPod)).Should(gomega.Succeed())
-				g.Expect(createdPod.Finalizers).To(gomega.BeEmpty(), "Pod should be finalized")
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(role2Pod1), createdPod)).Should(gomega.Succeed())
-				g.Expect(createdPod.Finalizers).To(gomega.BeEmpty(), "Pod should be finalized")
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(role2Pod2), createdPod)).Should(gomega.Succeed())
-				g.Expect(createdPod.Finalizers).To(gomega.BeEmpty(), "Pod should be finalized")
+				util.ExpectPodsFinalized(ctx, k8sClient,
+					client.ObjectKeyFromObject(role1Pod1),
+					client.ObjectKeyFromObject(role1Pod2),
+					client.ObjectKeyFromObject(role2Pod1),
+					client.ObjectKeyFromObject(role2Pod2),
+				)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})

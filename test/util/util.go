@@ -594,3 +594,13 @@ func ExpectPodUnsuspendedWithNodeSelectors(ctx context.Context, k8sClient client
 		g.Expect(createdPod.Spec.NodeSelector).To(gomega.BeComparableTo(ns))
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
+
+func ExpectPodsFinalized(ctx context.Context, k8sClient client.Client, keys ...types.NamespacedName) {
+	for _, key := range keys {
+		createdPod := &corev1.Pod{}
+		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) []string {
+			g.Expect(k8sClient.Get(ctx, key, createdPod)).To(gomega.Succeed())
+			return createdPod.Finalizers
+		}, Timeout, Interval).Should(gomega.BeEmpty(), "Expected pod to be finalized")
+	}
+}

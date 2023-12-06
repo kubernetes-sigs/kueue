@@ -1606,7 +1606,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads:   []kueue.Workload{},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
-		"pod group is considered finished if unretriable pod in group has failed": {
+		"pod group is considered finished if there is an unretriable pod and no running pods": {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -1792,102 +1792,6 @@ func TestReconciler(t *testing.T) {
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
 					Admitted(true).
 					ReclaimablePods(kueue.ReclaimablePod{Name: "4389b941", Count: 1}).
-					Obj(),
-			},
-			workloadCmpOpts: defaultWorkloadCmpOpts,
-		},
-		"reclaimable pods updated for unretriable pod group": {
-			pods: []corev1.Pod{
-				*basePodWrapper.
-					Clone().
-					Label("kueue.x-k8s.io/managed", "true").
-					KueueFinalizer().
-					Group("test-group").
-					GroupTotalCount("3").
-					StatusPhase(corev1.PodFailed).
-					Obj(),
-				*basePodWrapper.
-					Clone().
-					Name("pod2").
-					Label("kueue.x-k8s.io/managed", "true").
-					Annotation("kueue.x-k8s.io/retriable-in-group", "false").
-					KueueFinalizer().
-					Group("test-group").
-					GroupTotalCount("3").
-					StatusPhase(corev1.PodRunning).
-					Obj(),
-				*basePodWrapper.
-					Clone().
-					Name("pod3").
-					Label("kueue.x-k8s.io/managed", "true").
-					KueueFinalizer().
-					Group("test-group").
-					Image("test-image-role2", nil).
-					GroupTotalCount("3").
-					StatusPhase(corev1.PodSucceeded).
-					Obj(),
-			},
-			wantPods: []corev1.Pod{
-				*basePodWrapper.
-					Clone().
-					Label("kueue.x-k8s.io/managed", "true").
-					KueueFinalizer().
-					Group("test-group").
-					GroupTotalCount("3").
-					StatusPhase(corev1.PodFailed).
-					Obj(),
-				*basePodWrapper.
-					Clone().
-					Name("pod2").
-					Label("kueue.x-k8s.io/managed", "true").
-					Annotation("kueue.x-k8s.io/retriable-in-group", "false").
-					KueueFinalizer().
-					Group("test-group").
-					GroupTotalCount("3").
-					StatusPhase(corev1.PodRunning).
-					Obj(),
-				*basePodWrapper.
-					Clone().
-					Name("pod3").
-					Label("kueue.x-k8s.io/managed", "true").
-					KueueFinalizer().
-					Group("test-group").
-					Image("test-image-role2", nil).
-					GroupTotalCount("3").
-					StatusPhase(corev1.PodSucceeded).
-					Obj(),
-			},
-			workloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
-					PodSets(
-						*utiltesting.MakePodSet("4389b941", 1).
-							Request(corev1.ResourceCPU, "1").
-							Obj(),
-						*utiltesting.MakePodSet("b990493b", 2).
-							Request(corev1.ResourceCPU, "1").
-							Obj(),
-					).
-					Queue("user-queue").
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
-					Admitted(true).
-					Obj(),
-			},
-			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
-					PodSets(
-						*utiltesting.MakePodSet("4389b941", 1).
-							Request(corev1.ResourceCPU, "1").
-							Obj(),
-						*utiltesting.MakePodSet("b990493b", 2).
-							Request(corev1.ResourceCPU, "1").
-							Obj(),
-					).
-					Queue("user-queue").
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
-					Admitted(true).
-					ReclaimablePods(
-						kueue.ReclaimablePod{Name: "4389b941", Count: 1},
-					).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
