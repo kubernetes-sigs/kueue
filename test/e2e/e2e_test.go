@@ -23,7 +23,9 @@ import (
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -139,7 +141,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 
 		ginkgo.It("Should allow fetching information about pending workloads in ClusterQueue", func() {
 			ginkgo.By("Verify there are zero pending workloads", func() {
-				info, err := visibilityClient.LocalQueues(nsA.Name).GetPendingWorkloadsSummary(ctx, localQueueA.Name, metav1.GetOptions{})
+				info, err := visibilityClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, clusterQueue.Name, metav1.GetOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				gomega.Expect(len(info.Items)).Should(gomega.Equal(0))
 			})
@@ -480,6 +482,97 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 					gomega.Expect(err).NotTo(gomega.HaveOccurred())
 					return info.Items
 				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(wantPendingWorkloads, pendingWorkloadsCmpOpts...))
+			})
+		})
+	})
+
+	ginkgo.When("A subject is bound to kueue-batch-admin-role", func() {
+		var clusterRoleBinding *rbacv1.ClusterRoleBinding
+
+		ginkgo.BeforeEach(func() {
+			clusterRoleBinding = &rbacv1.ClusterRoleBinding{
+				ObjectMeta: metav1.ObjectMeta{Name: "read-pending-workloads"},
+				RoleRef:    rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: "kueue-batch-admin-role"},
+				Subjects: []rbacv1.Subject{
+					{Name: "default", APIGroup: "", Namespace: "kueue-system", Kind: rbacv1.ServiceAccountKind},
+				},
+			}
+			gomega.Expect(k8sClient.Create(ctx, clusterRoleBinding)).Should(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(k8sClient.Delete(ctx, clusterRoleBinding)).To(gomega.Succeed())
+		})
+
+		ginkgo.It("Should return an appropriate error", func() {
+			ginkgo.By("Returning a ResourceNotFound error for a nonexistent ClusterQueue", func() {
+				_, err := impersonatedVisibilityClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, "non-existent", metav1.GetOptions{})
+				statusErr, ok := err.(*errors.StatusError)
+				gomega.Expect(ok).To(gomega.Equal(true))
+				gomega.Expect(statusErr.ErrStatus.Reason).To(gomega.Equal(metav1.StatusReasonNotFound))
+			})
+			ginkgo.By("Returning a ResourceNotFound error for a nonexistent LocalQueue", func() {
+				_, err := impersonatedVisibilityClient.LocalQueues(nsA.Name).GetPendingWorkloadsSummary(ctx, "non-existent", metav1.GetOptions{})
+				statusErr, ok := err.(*errors.StatusError)
+				gomega.Expect(ok).To(gomega.Equal(true))
+				gomega.Expect(statusErr.ErrStatus.Reason).To(gomega.Equal(metav1.StatusReasonNotFound))
+			})
+		})
+	})
+
+	ginkgo.When("A subject is bound to kueue-batch-user-role, but not to kueue-batch-admin-role", func() {
+		var roleBinding *rbacv1.RoleBinding
+
+		ginkgo.BeforeEach(func() {
+			roleBinding = &rbacv1.RoleBinding{
+				ObjectMeta: metav1.ObjectMeta{Name: "read-pending-workloads", Namespace: nsA.Name},
+				RoleRef:    rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: "kueue-batch-user-role"},
+				Subjects: []rbacv1.Subject{
+					{Name: "default", APIGroup: "", Namespace: "kueue-system", Kind: rbacv1.ServiceAccountKind},
+				},
+			}
+			gomega.Expect(k8sClient.Create(ctx, roleBinding)).Should(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(k8sClient.Delete(ctx, roleBinding)).To(gomega.Succeed())
+		})
+
+		ginkgo.It("Should return an appropriate error", func() {
+			ginkgo.By("Returning a Forbidden error due to insufficient permissions for the ClusterQueue request", func() {
+				_, err := impersonatedVisibilityClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, "non-existent", metav1.GetOptions{})
+				statusErr, ok := err.(*errors.StatusError)
+				gomega.Expect(ok).To(gomega.Equal(true))
+				gomega.Expect(statusErr.ErrStatus.Reason).To(gomega.Equal(metav1.StatusReasonForbidden))
+			})
+			ginkgo.By("Returning a ResourceNotFound error for a nonexistent LocalQueue", func() {
+				_, err := impersonatedVisibilityClient.LocalQueues(nsA.Name).GetPendingWorkloadsSummary(ctx, "non-existent", metav1.GetOptions{})
+				statusErr, ok := err.(*errors.StatusError)
+				gomega.Expect(ok).To(gomega.Equal(true))
+				gomega.Expect(statusErr.ErrStatus.Reason).To(gomega.Equal(metav1.StatusReasonNotFound))
+			})
+			ginkgo.By("Returning a Forbidden error due to insufficient permissions for the LocalQueue request in different namespace", func() {
+				_, err := impersonatedVisibilityClient.LocalQueues("default").GetPendingWorkloadsSummary(ctx, "non-existent", metav1.GetOptions{})
+				statusErr, ok := err.(*errors.StatusError)
+				gomega.Expect(ok).To(gomega.Equal(true))
+				gomega.Expect(statusErr.ErrStatus.Reason).To(gomega.Equal(metav1.StatusReasonForbidden))
+			})
+		})
+	})
+
+	ginkgo.When("A subject is not bound to kueue-batch-user-role, nor to kueue-batch-admin-role", func() {
+		ginkgo.It("Should return an appropriate error", func() {
+			ginkgo.By("Returning a Forbidden error due to insufficient permissions for the ClusterQueue request", func() {
+				_, err := impersonatedVisibilityClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, "non-existent", metav1.GetOptions{})
+				statusErr, ok := err.(*errors.StatusError)
+				gomega.Expect(ok).To(gomega.Equal(true))
+				gomega.Expect(statusErr.ErrStatus.Reason).To(gomega.Equal(metav1.StatusReasonForbidden))
+			})
+			ginkgo.By("Returning a Forbidden error due to insufficient permissions for the LocalQueue request", func() {
+				_, err := impersonatedVisibilityClient.LocalQueues(nsA.Name).GetPendingWorkloadsSummary(ctx, "non-existent", metav1.GetOptions{})
+				statusErr, ok := err.(*errors.StatusError)
+				gomega.Expect(ok).To(gomega.Equal(true))
+				gomega.Expect(statusErr.ErrStatus.Reason).To(gomega.Equal(metav1.StatusReasonForbidden))
 			})
 		})
 	})
