@@ -585,9 +585,6 @@ Succeeded Pods will not be considered replaceable. In other words, the quota
 from Succeeded Pods will be released by filling [reclaimablePods](https://kueue.sigs.k8s.io/docs/concepts/workload/#dynamic-reclaim)
 in the Workload status.
 
-The quota from Failed Pods will also be released when there is a pod with
-the annotation `kueue.x-k8s.io/retriable-in-group` set to false.
-
 ### Metrics
 
 In addition to the existing metrics for workloads, it could be beneficial to track gated and
