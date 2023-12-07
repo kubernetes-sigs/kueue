@@ -31,6 +31,7 @@ var (
 	parentWorkloadKeyPath         = annotationsPath.Key(constants.ParentWorkloadAnnotation)
 	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
 	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
+	supportedPrebuiltWlJobGVKs    = sets.New("batch/v1, Kind=Job")
 )
 
 func ValidateCreateForQueueName(job GenericJob) field.ErrorList {
@@ -42,9 +43,8 @@ func ValidateCreateForQueueName(job GenericJob) field.ErrorList {
 
 	// this rule should be relaxed when its confirmed that running wit a prebuilt wl is fully supported by each integration
 	if _, hasPrebuilt := job.Object().GetLabels()[constants.PrebuiltWorkloadLabel]; hasPrebuilt {
-		supportedJobGVKs := sets.New("batch/v1, Kind=Job")
 		gvk := job.GVK().String()
-		if !supportedJobGVKs.Has(gvk) {
+		if !supportedPrebuiltWlJobGVKs.Has(gvk) {
 			allErrs = append(allErrs, field.Forbidden(labelsPath.Key(constants.PrebuiltWorkloadLabel), fmt.Sprintf("Is not supported for %q", gvk)))
 		}
 	}

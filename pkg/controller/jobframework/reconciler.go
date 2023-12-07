@@ -188,7 +188,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	isStandaloneJob := ParentWorkloadName(job) == ""
-	usePrebuiltWorkload, prebuiltWorkloadName := prebuiltWorkload(job)
+	usePrebuiltWorkload, _ := prebuiltWorkload(job)
 
 	// when manageJobsWithoutQueueName is disabled we only reconcile jobs that have either
 	// queue-name or the parent-workload annotation set.
@@ -235,22 +235,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// 1. make sure there is only a single existing instance of the workload.
 	// If there's no workload exists and job is unsuspended, we'll stop it immediately.
-	var wl *kueue.Workload
-
-	if usePrebuiltWorkload {
-		wl, err = r.getPrebuiltWorkload(ctx, job, object, prebuiltWorkloadName)
-		if wl == nil {
-			if !job.IsSuspended() {
-				if stopErr := r.stopJob(ctx, job, wl, StopReasonNoMatchingWorkload, "missing prebuilt workload"); stopErr != nil {
-					return ctrl.Result{}, stopErr
-				}
-			}
-			return ctrl.Result{}, err
-		}
-	} else {
-		wl, err = r.ensureOneWorkload(ctx, job, object)
-	}
-
+	wl, err := r.ensureOneWorkload(ctx, job, object)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -300,11 +285,9 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// 3. handle workload is nil.
 	if wl == nil {
-		if !usePrebuiltWorkload {
-			err := r.handleJobWithNoWorkload(ctx, job, object)
-			if err != nil {
-				log.Error(err, "Handling job with no workload")
-			}
+		err := r.handleJobWithNoWorkload(ctx, job, object)
+		if err != nil {
+			log.Error(err, "Handling job with no workload")
 		}
 		return ctrl.Result{}, err
 	}
@@ -458,6 +441,11 @@ func (r *JobReconciler) getParentWorkload(ctx context.Context, job GenericJob, o
 func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 
+	if usePrebuiltWorkload, prebuiltWorkloadName := prebuiltWorkload(job); usePrebuiltWorkload {
+		wl, getErr := r.getPrebuiltWorkload(ctx, job, object, prebuiltWorkloadName)
+		return wl, getErr
+	}
+
 	// Find a matching workload first if there is one.
 	var toDelete []*kueue.Workload
 	var match *kueue.Workload
@@ -555,6 +543,7 @@ func FindMatchingWorkloads(ctx context.Context, c client.Client, job GenericJob)
 
 	return match, toDelete, nil
 }
+
 func (r *JobReconciler) getPrebuiltWorkload(ctx context.Context, job GenericJob, object client.Object, name string) (*kueue.Workload, error) {
 	wl := &kueue.Workload{}
 	err := r.client.Get(ctx, types.NamespacedName{Name: name, Namespace: object.GetNamespace()}, wl)
@@ -834,9 +823,21 @@ func (r *JobReconciler) getPodSetsInfoFromStatus(ctx context.Context, w *kueue.W
 func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job GenericJob, object client.Object) error {
 	log := ctrl.LoggerFrom(ctx)
 
+	// Stop the job if not already suspended
+	if !job.IsSuspended() {
+		if stopErr := r.stopJob(ctx, job, nil, StopReasonNoMatchingWorkload, "missing workload"); stopErr != nil {
+			return stopErr
+		}
+	}
+
 	// Wait until there are no active pods.
 	if job.IsActive() {
 		log.V(2).Info("Job is suspended but still has active pods, waiting")
+		return nil
+	}
+
+	if usePrebuiltWorkload, _ := prebuiltWorkload(job); usePrebuiltWorkload {
+		log.V(2).Info("Skip workload creation for job with prebuilt workload")
 		return nil
 	}
 
