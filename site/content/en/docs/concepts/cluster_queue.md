@@ -196,7 +196,7 @@ semantics:
   for one flavor.
 
 You can influence some semantics of flavor selection and borrowing
-by setting a [`flavorFungibility`](/docs/concepts/cluster_queue#FlavorFungibility) in ClusterQueue.
+by setting a [`flavorFungibility`](/docs/concepts/cluster_queue#flavorfungibility) in ClusterQueue.
 
 ### Borrowing example
 
