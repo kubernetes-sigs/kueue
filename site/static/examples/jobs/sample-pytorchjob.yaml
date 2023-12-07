@@ -4,7 +4,7 @@ metadata:
   name: pytorch-simple
   namespace: default
   labels:
-    kueue.x-k8s.io/queue-name: user-queue
+    kueue.x-k8s.io/queue-name: main
 spec:
   pytorchReplicaSpecs:
     Master:

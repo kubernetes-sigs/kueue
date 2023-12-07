@@ -5,4 +5,10 @@ resources:
 - ../../../config/default
 
 patches:
-- path: manager_e2e_patch.yaml
+  - path: manager_e2e_patch.yaml
+    target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: kueue-controller-manager
+      namespace: kueue-system

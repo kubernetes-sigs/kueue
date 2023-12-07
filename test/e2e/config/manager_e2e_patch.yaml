@@ -1,13 +1,6 @@
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: controller-manager
-  namespace: system
-spec:
-  template:
-    spec:
-      containers:
-      - name: manager
-        imagePullPolicy: IfNotPresent
-        args:
-          - "--feature-gates=VisibilityOnDemand=true"
+- op: replace
+  path: /spec/template/spec/containers/0/imagePullPolicy
+  value: IfNotPresent
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --feature-gates=VisibilityOnDemand=true

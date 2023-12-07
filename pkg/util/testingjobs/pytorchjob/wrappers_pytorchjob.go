@@ -82,6 +82,14 @@ func MakePyTorchJob(name, ns string) *PyTorchJobWrapper {
 	}}
 }
 
+func (j *PyTorchJobWrapper) Image(img string, args []string) *PyTorchJobWrapper {
+	j.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template.Spec.Containers[0].Image = img
+	j.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template.Spec.Containers[0].Args = args
+	j.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template.Spec.Containers[0].Image = img
+	j.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template.Spec.Containers[0].Args = args
+	return j
+}
+
 // PriorityClass updates job priorityclass.
 func (j *PyTorchJobWrapper) PriorityClass(pc string) *PyTorchJobWrapper {
 	if j.Spec.RunPolicy.SchedulingPolicy == nil {

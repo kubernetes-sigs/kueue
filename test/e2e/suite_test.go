@@ -19,6 +19,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"os"
 	"testing"
 	"time"
@@ -72,6 +73,9 @@ func CreateClientUsingCluster() client.Client {
 	visibilityClient = kueueClient.VisibilityV1alpha1()
 
 	err = kueue.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = kftraining.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = visibility.AddToScheme(scheme.Scheme)

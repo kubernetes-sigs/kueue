@@ -19,6 +19,7 @@ package e2e
 import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
@@ -31,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	visibility "sigs.k8s.io/kueue/apis/visibility/v1alpha1"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
@@ -686,6 +686,32 @@ var _ = ginkgo.Describe("Kueue", func() {
 			}, util.LongTimeout, util.Interval).Should(gomega.BeTrue())
 		})
 
+		ginkgo.FIt("Should unsuspend a PyTorchJob and set nodeSelectors", func() {
+			// Use a binary that ends.
+			//sampleJob := testingpytorchjob.MakePyTorchJob("test-job", ns.Name).
+			//	Image("gcr.io/k8s-staging-perf-tests/sleep:v0.0.3", []string{"2s"}).
+			//	Queue(localQueue.Name).
+			//	Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "0.3").
+			//	Request(kftraining.PyTorchJobReplicaTypeWorker, corev1.ResourceCPU, "0.3").
+			//	Obj()
+			//gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
+
+			//time.Sleep(time.Minute * 100)
+			createdWorkload := &kueue.Workload{}
+			jobKey = types.NamespacedName{Name: "pytorch-simple", Namespace: "default"}
+			expectPyTorchJobUnsuspendedWithNodeSelectors(jobKey, map[string]string{
+				"instance-type": "on-demand",
+			})
+			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(jobKey.Name), Namespace: ns.Name}
+			gomega.Eventually(func() bool {
+				if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
+					return false
+				}
+				return workload.HasQuotaReservation(createdWorkload) &&
+					apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadFinished)
+			}, util.LongTimeout, util.Interval).Should(gomega.BeTrue())
+		})
+
 		ginkgo.It("Should readmit preempted job with priorityClass into a separate flavor", func() {
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
@@ -972,6 +998,18 @@ func expectJobUnsuspendedWithNodeSelectors(key types.NamespacedName, ns map[stri
 		gomega.Expect(k8sClient.Get(ctx, key, job)).To(gomega.Succeed())
 		return []any{*job.Spec.Suspend, job.Spec.Template.Spec.NodeSelector}
 	}, util.Timeout, util.Interval).Should(gomega.Equal([]any{false, ns}))
+}
+
+func expectPyTorchJobUnsuspendedWithNodeSelectors(key types.NamespacedName, ns map[string]string) {
+	job := &kftraining.PyTorchJob{}
+	gomega.EventuallyWithOffset(1, func() []any {
+		gomega.Expect(k8sClient.Get(ctx, key, job)).To(gomega.Succeed())
+		return []any{
+			*job.Spec.RunPolicy.Suspend,
+			job.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster].Template.Spec.NodeSelector,
+			job.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker].Template.Spec.NodeSelector,
+		}
+	}, util.Timeout, util.Interval).Should(gomega.Equal([]any{false, ns, ns}))
 }
 
 func defaultOwnerReferenceForJob(name string) []metav1.OwnerReference {

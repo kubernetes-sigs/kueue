@@ -63,8 +63,12 @@ function kind_load {
 }
 
 function kueue_deploy {
+    kubectl apply -k github.com/kubeflow/training-operator/manifests/base/crds?ref=master
     (cd config/components/manager && $KUSTOMIZE edit set image controller=$IMAGE_TAG)
     kubectl apply --server-side -k test/e2e/config
+    kubectl wait -n kueue-system --for=condition=available deployment/kueue-controller-manager --timeout=120s
+    sleep 30
+    kubectl apply -f site/static/examples/jobs/sample-pytorchjob.yaml
 }
 
 trap cleanup EXIT
