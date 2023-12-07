@@ -824,10 +824,8 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	log := ctrl.LoggerFrom(ctx)
 
 	// Stop the job if not already suspended
-	if !job.IsSuspended() {
-		if stopErr := r.stopJob(ctx, job, nil, StopReasonNoMatchingWorkload, "missing workload"); stopErr != nil {
-			return stopErr
-		}
+	if stopErr := r.stopJob(ctx, job, nil, StopReasonNoMatchingWorkload, "missing workload"); stopErr != nil {
+		return stopErr
 	}
 
 	// Wait until there are no active pods.
