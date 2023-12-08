@@ -62,11 +62,10 @@ func (j *KubeflowJob) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error 
 	for index := range podSetsInfo {
 		replicaType := orderedReplicaTypes[index]
 		info := podSetsInfo[index]
-		replica := &j.KFJobControl.ReplicaSpecs()[replicaType].Template
-		if err := podset.Merge(&replica.ObjectMeta, &replica.Spec, info); err != nil {
+		err := podset.Merge(&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta, &j.KFJobControl.ReplicaSpecs()[replicaType].Template.Spec, info)
+		if err != nil {
 			return err
 		}
-
 	}
 	return nil
 }
@@ -76,8 +75,7 @@ func (j *KubeflowJob) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 	changed := false
 	for index, info := range podSetsInfo {
 		replicaType := orderedReplicaTypes[index]
-		replica := &j.KFJobControl.ReplicaSpecs()[replicaType].Template
-		changed = podset.RestorePodSpec(&replica.ObjectMeta, &replica.Spec, info) || changed
+		changed = podset.RestorePodSpec(&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta, &j.KFJobControl.ReplicaSpecs()[replicaType].Template.Spec, info) || changed
 	}
 	return changed
 }
