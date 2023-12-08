@@ -271,7 +271,7 @@ The preemption controller uses the kueue cache, since it needs to check the stat
 At every run the controller will get the list of workloads pending preemption.
 
 The workloads pending preemption are divided into:
-- `preemtingLeter` - Workloads having at least one check that uses AfterCheckPassedOrOnDemand policy with the state `pending`.
+- `preemtingLater` - Workloads having at least one check that uses AfterCheckPassedOrOnDemand policy with the state `pending`.
 - `preemtingNow` - Workloads that expect to be able to issue evictions or potentially change their preemption state in the current cycle.
 
 Then:
