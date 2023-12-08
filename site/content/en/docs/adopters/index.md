@@ -26,5 +26,6 @@ If you are using Kueue, feel free to open a pull request to add your organizatio
 | [Shopee, Inc.](https://shopee.com/) | End User | Training/batch inference/data processe in AI platform test env | Customized job </br> RayJob </br> ... | [@denkensk](https://github.com/denkensk) |
 | [Mondoo, Inc.](https://mondoo.com) | End User | Helps power Mondoo's hosted security scanner | batch/job | [@jaym](https://github.com/jaym) |
 | [Google Cloud](https://cloud.google.com/) | Provider | Part of [kit for training ML workloads on TPUs][gcmldemo] | JobSet | [@mrozacki](https://github.com/mrozacki) |
+| [Onna Technologies, Inc](https://onna.com) | End User | Unstructured Data Management Platform | batch/job </br> | [@gitcarbs](https://github.com/gitcarbs) |
 
 [gcmldemo]: https://cloud.google.com/blog/products/compute/the-worlds-largest-distributed-llm-training-job-on-tpu-v5e
