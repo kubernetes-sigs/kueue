@@ -28,8 +28,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/provisioningrequest/apis/autoscaling.x-k8s.io/v1beta1"
-	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -247,6 +247,7 @@ func TestReconcile(t *testing.T) {
 		wantRequests         map[string]*autoscaling.ProvisioningRequest
 		wantTemplates        map[string]*corev1.PodTemplate
 		wantRequestsNotFound []string
+		wantEvents           []utiltesting.EventRecord
 	}{
 		"unrelated workload": {
 			workload: utiltesting.MakeWorkload("wl", "ns").Obj(),
@@ -293,6 +294,14 @@ func TestReconcile(t *testing.T) {
 				baseTemplate1.Name: baseTemplate1.DeepCopy(),
 				baseTemplate2.Name: baseTemplate2.DeepCopy(),
 			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   "A new provisioning request \"wl-check1-1\" was created",
+				},
+			},
 		},
 		"remove unnecessary requests": {
 			workload: baseWorkload.DeepCopy(),
@@ -314,6 +323,14 @@ func TestReconcile(t *testing.T) {
 			},
 			wantWorkloads:        map[string]*kueue.Workload{baseWorkload.Name: baseWorkload.DeepCopy()},
 			wantRequestsNotFound: []string{"wl-check2"},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   "A new provisioning request \"wl-check1-1\" was created",
+				},
+			},
 		},
 		"missing one template": {
 			workload:  baseWorkload.DeepCopy(),
@@ -374,6 +391,14 @@ func TestReconcile(t *testing.T) {
 			wantTemplates: map[string]*corev1.PodTemplate{
 				baseTemplate1.Name: baseTemplate1.DeepCopy(),
 				baseTemplate2.Name: baseTemplate2.DeepCopy(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   "A new provisioning request \"wl-check1-1\" was created",
+				},
 			},
 		},
 		"request removed on workload finished": {
@@ -580,6 +605,14 @@ func TestReconcile(t *testing.T) {
 			wantTemplates: map[string]*corev1.PodTemplate{
 				baseTemplate2.Name: baseTemplate2.DeepCopy(),
 			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   "A new provisioning request \"wl-check1-1\" was created",
+				},
+			},
 		},
 		"when the request is removed while the check is ready": {
 			workload: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
@@ -597,6 +630,14 @@ func TestReconcile(t *testing.T) {
 			configs: []kueue.ProvisioningRequestConfig{*baseConfig.DeepCopy()},
 			wantWorkloads: map[string]*kueue.Workload{
 				baseWorkload.Name: baseWorkload.DeepCopy(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   "A new provisioning request \"wl-check1-1\" was created",
+				},
 			},
 		},
 	}
@@ -619,7 +660,7 @@ func TestReconcile(t *testing.T) {
 			)
 
 			k8sclient := builder.Build()
-			recorder := record.NewBroadcaster().NewRecorder(k8sclient.Scheme(), corev1.EventSource{Component: "admission-checks-controller"})
+			recorder := &utiltesting.EventTestRecorder{}
 			controller, _ := NewController(k8sclient, recorder)
 
 			req := reconcile.Request{
@@ -629,6 +670,7 @@ func TestReconcile(t *testing.T) {
 				},
 			}
 			_, gotReconcileError := controller.Reconcile(ctx, req)
+
 			if diff := cmp.Diff(tc.wantReconcileError, gotReconcileError); diff != "" {
 				t.Errorf("unexpected reconcile error (-want/+got):\n%s", diff)
 			}
@@ -676,6 +718,9 @@ func TestReconcile(t *testing.T) {
 				}
 			}
 
+			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
+				t.Errorf("unexpected events (-want/+got):\n%s", diff)
+			}
 		})
 	}
 

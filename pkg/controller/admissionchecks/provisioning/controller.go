@@ -287,6 +287,7 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 			if err := c.client.Create(ctx, req); err != nil {
 				return nil, err
 			}
+			c.record.Eventf(wl, corev1.EventTypeNormal, "ProvisioningRequestCreated", "A new provisioning request %q was created", req.Name)
 			activeOrLastPRForChecks[checkName] = req
 		}
 		if err := c.syncProvisionRequestsPodTemplates(ctx, wl, requestName, prc); err != nil {
