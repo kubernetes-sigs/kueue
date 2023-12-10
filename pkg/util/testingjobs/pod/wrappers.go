@@ -121,13 +121,18 @@ func (p *PodWrapper) KueueSchedulingGate() *PodWrapper {
 	return p
 }
 
-// KueueFinalizer adds kueue finalizer to the Pod
-func (p *PodWrapper) KueueFinalizer() *PodWrapper {
+// Finalizer adds a finalizer to the Pod
+func (p *PodWrapper) Finalizer(f string) *PodWrapper {
 	if p.ObjectMeta.Finalizers == nil {
 		p.ObjectMeta.Finalizers = make([]string, 0)
 	}
-	p.ObjectMeta.Finalizers = append(p.ObjectMeta.Finalizers, "kueue.x-k8s.io/managed")
+	p.ObjectMeta.Finalizers = append(p.ObjectMeta.Finalizers, f)
 	return p
+}
+
+// KueueFinalizer adds kueue finalizer to the Pod
+func (p *PodWrapper) KueueFinalizer() *PodWrapper {
+	return p.Finalizer("kueue.x-k8s.io/managed")
 }
 
 // NodeSelector adds a node selector to the Pod.
@@ -183,6 +188,13 @@ func (p *PodWrapper) StatusConditions(conditions ...corev1.PodCondition) *PodWra
 // StatusPhase updates status phase of the Pod.
 func (p *PodWrapper) StatusPhase(ph corev1.PodPhase) *PodWrapper {
 	p.Pod.Status.Phase = ph
+	return p
+}
+
+// CreationTimestamp sets a creation timestamp for the pod object
+func (p *PodWrapper) CreationTimestamp(t time.Time) *PodWrapper {
+	timestamp := metav1.NewTime(t)
+	p.Pod.CreationTimestamp = timestamp
 	return p
 }
 

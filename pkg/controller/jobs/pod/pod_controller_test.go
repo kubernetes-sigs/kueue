@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -1792,6 +1793,204 @@ func TestReconciler(t *testing.T) {
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
 					Admitted(true).
 					ReclaimablePods(kueue.ReclaimablePod{Name: "4389b941", Count: 1}).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"excess pods before wl creation, youngest pods are deleted": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Group("test-group").
+					GroupTotalCount("1").
+					CreationTimestamp(time.Date(2022, 9, 15, 11, 0, 0, 0, time.UTC)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Group("test-group").
+					GroupTotalCount("1").
+					CreationTimestamp(time.Date(2022, 9, 15, 15, 0, 0, 0, time.UTC)).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Group("test-group").
+					GroupTotalCount("1").
+					CreationTimestamp(time.Date(2022, 9, 15, 11, 0, 0, 0, time.UTC)).
+					Obj(),
+			},
+			workloads: []kueue.Workload{},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltesting.MakePodSet("b990493b", 1).
+							Request(corev1.ResourceCPU, "1").
+							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							Obj(),
+					).
+					Queue("user-queue").
+					Priority(0).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"excess pods before admission, youngest pods are deleted": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Date(2022, 9, 15, 11, 0, 0, 0, time.UTC)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Date(2022, 9, 15, 11, 0, 0, 0, time.UTC)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod3").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Group("test-group").
+					CreationTimestamp(time.Date(2022, 9, 15, 15, 0, 0, 0, time.UTC)).
+					GroupTotalCount("2").
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Date(2022, 9, 15, 11, 0, 0, 0, time.UTC)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Date(2022, 9, 15, 11, 0, 0, 0, time.UTC)).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").
+					PodSets(
+						*utiltesting.MakePodSet("b990493b", 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").
+					PodSets(
+						*utiltesting.MakePodSet("b990493b", 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"excess pods after admission, youngest pods are deleted": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Date(2022, 9, 15, 11, 0, 0, 0, time.UTC)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Date(2022, 9, 15, 11, 0, 0, 0, time.UTC)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod3").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Group("test-group").
+					CreationTimestamp(time.Date(2022, 9, 15, 15, 0, 0, 0, time.UTC)).
+					GroupTotalCount("2").
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Date(2022, 9, 15, 11, 0, 0, 0, time.UTC)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("2").
+					CreationTimestamp(time.Date(2022, 9, 15, 11, 0, 0, 0, time.UTC)).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").
+					PodSets(
+						*utiltesting.MakePodSet("b990493b", 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
+					Admitted(true).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").
+					PodSets(
+						*utiltesting.MakePodSet("b990493b", 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
+					Admitted(true).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
