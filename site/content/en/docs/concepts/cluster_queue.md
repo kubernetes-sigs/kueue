@@ -129,16 +129,45 @@ in the `.spec.namespaceSelector` field.
 To allow workloads from all namespaces, set the empty selector `{}` to the
 `spec.namespaceSelector` field.
 
-A sample `namespaceSelector` looks like the following:
+There are multiple ways to allow specific namespaces access to a Cluster Queue. A sample `namespaceSelector` using `matchLabels` to match the workload to a namespace `team-a` looks like the following:
 
 ```yaml
 namespaceSelector:
-  matchExpressions:
-  - key: team
-    operator: In
-    values:
-    - team-a
+  matchLabels:
+    kubernetes.io/metadata.name: team-a
 ```
+
+Here `kubernetes.io/metadata.name: team-a` refers to an immutable label `kubernetes.io/metadata.name` that the Kubernetes control plane sets on all namespaces. The value of the label is the namespace name, in this case `team-a`.
+
+However, `matchLabels` can take any key that matches a label present in the Namespace objects. For example, let's assume `team-a` and `team-b` are in a cohort `team-a-b` and the user defined label `research-cohort: team-a-b` is present on both namespaces like so:
+
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: team-a
+  labels:
+    research-cohort: team-a-b
+```
+
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: team-b
+  labels:
+    research-cohort: team-a-b
+```
+
+A namespaceSelector configuration allowing both namespaces to submit Jobs to this ClusterQueue would look something like this:
+
+```yaml
+namespaceSelector:
+  matchLabels:
+    research-cohort: team-a-b
+```
+
+Another way to configure `namespaceSelector` is using `matchExpressions`. See [Kubernetes documentation](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#resources-that-support-set-based-requirements) for more details.
 
 ## Queueing strategy
 
