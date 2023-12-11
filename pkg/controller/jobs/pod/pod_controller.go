@@ -25,7 +25,6 @@ import (
 	"slices"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -814,7 +813,7 @@ func (p *Pod) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
 
 func IsPodOwnerManagedByKueue(p *Pod) bool {
 	if owner := metav1.GetControllerOf(&p.pod); owner != nil {
-		return jobframework.IsOwnerManagedByKueue(owner) || (owner.Kind == "RayCluster" && (strings.HasPrefix(owner.APIVersion, "ray.io/v1alpha1") || strings.HasPrefix(owner.APIVersion, "ray.io/v1")))
+		return jobframework.IsOwnerManagedByKueue(owner)
 	}
 	return false
 }

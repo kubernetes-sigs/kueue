@@ -42,11 +42,12 @@ const (
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:  SetupIndexes,
-		NewReconciler: NewReconciler,
-		SetupWebhook:  SetupRayJobWebhook,
-		JobType:       &rayv1.RayJob{},
-		AddToScheme:   rayv1.AddToScheme,
+		SetupIndexes:           SetupIndexes,
+		NewReconciler:          NewReconciler,
+		SetupWebhook:           SetupRayJobWebhook,
+		JobType:                &rayv1.RayJob{},
+		AddToScheme:            rayv1.AddToScheme,
+		IsManagingObjectsOwner: isRayJob,
 	}))
 }
 
@@ -61,6 +62,12 @@ func init() {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 
 var NewReconciler = jobframework.NewGenericReconciler(func() jobframework.GenericJob { return &RayJob{} }, nil)
+
+func isRayJob(owner *metav1.OwnerReference) bool {
+	return owner.Kind == "RayCluster" &&
+		(strings.HasPrefix(owner.APIVersion, "ray.io/v1alpha1") ||
+			strings.HasPrefix(owner.APIVersion, "ray.io/v1"))
+}
 
 type RayJob rayv1.RayJob
 
