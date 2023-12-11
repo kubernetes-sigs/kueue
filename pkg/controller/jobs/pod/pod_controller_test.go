@@ -1995,6 +1995,66 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
+		"deletion of excess pod is blocked by another controller": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Group("test-group").
+					GroupTotalCount("1").
+					CreationTimestamp(time.Date(2022, 9, 15, 11, 0, 0, 0, time.UTC)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueSchedulingGate().
+					Finalizer("kubernetes").
+					Group("test-group").
+					GroupTotalCount("1").
+					CreationTimestamp(time.Date(2022, 9, 15, 15, 0, 0, 0, time.UTC)).
+					Delete().
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Group("test-group").
+					GroupTotalCount("1").
+					CreationTimestamp(time.Date(2022, 9, 15, 11, 0, 0, 0, time.UTC)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueSchedulingGate().
+					Finalizer("kubernetes").
+					Group("test-group").
+					GroupTotalCount("1").
+					CreationTimestamp(time.Date(2022, 9, 15, 15, 0, 0, 0, time.UTC)).
+					Delete().
+					Obj(),
+			},
+			workloads: []kueue.Workload{},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltesting.MakePodSet("b990493b", 1).
+							Request(corev1.ResourceCPU, "1").
+							SchedulingGates(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}).
+							Obj(),
+					).
+					Queue("user-queue").
+					Priority(0).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
 	}
 
 	for name, tc := range testCases {
