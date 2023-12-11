@@ -2280,9 +2280,9 @@ func TestIsPodOwnerManagedByQueue(t *testing.T) {
 			},
 			wantRes: false,
 		},
-		"ray.io/v1alpha1/RayCluster": {
+		"ray.io/v1/RayCluster": {
 			ownerReference: metav1.OwnerReference{
-				APIVersion: "ray.io/v1alpha1",
+				APIVersion: "ray.io/v1",
 				Controller: ptr.To(true),
 				Kind:       "RayCluster",
 			},

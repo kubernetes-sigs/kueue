@@ -20,7 +20,7 @@ import (
 	"context"
 	"strings"
 
-	rayjobapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -32,7 +32,7 @@ import (
 )
 
 var (
-	gvk = rayjobapi.GroupVersion.WithKind("RayJob")
+	gvk = rayv1.GroupVersion.WithKind("RayJob")
 )
 
 const (
@@ -45,8 +45,8 @@ func init() {
 		SetupIndexes:  SetupIndexes,
 		NewReconciler: NewReconciler,
 		SetupWebhook:  SetupRayJobWebhook,
-		JobType:       &rayjobapi.RayJob{},
-		AddToScheme:   rayjobapi.AddToScheme,
+		JobType:       &rayv1.RayJob{},
+		AddToScheme:   rayv1.AddToScheme,
 	}))
 }
 
@@ -62,12 +62,12 @@ func init() {
 
 var NewReconciler = jobframework.NewGenericReconciler(func() jobframework.GenericJob { return &RayJob{} }, nil)
 
-type RayJob rayjobapi.RayJob
+type RayJob rayv1.RayJob
 
 var _ jobframework.GenericJob = (*RayJob)(nil)
 
 func (j *RayJob) Object() client.Object {
-	return (*rayjobapi.RayJob)(j)
+	return (*rayv1.RayJob)(j)
 }
 
 func (j *RayJob) IsSuspended() bool {
@@ -75,7 +75,7 @@ func (j *RayJob) IsSuspended() bool {
 }
 
 func (j *RayJob) IsActive() bool {
-	return j.Status.JobDeploymentStatus != rayjobapi.JobDeploymentStatusSuspended
+	return j.Status.JobDeploymentStatus != rayv1.JobDeploymentStatusSuspended
 }
 
 func (j *RayJob) Suspend() {
@@ -166,11 +166,11 @@ func (j *RayJob) Finished() (metav1.Condition, bool) {
 		Message: j.Status.Message,
 	}
 
-	return condition, j.Status.JobStatus == rayjobapi.JobStatusFailed || j.Status.JobStatus == rayjobapi.JobStatusSucceeded
+	return condition, j.Status.JobStatus == rayv1.JobStatusFailed || j.Status.JobStatus == rayv1.JobStatusSucceeded
 }
 
 func (j *RayJob) PodsReady() bool {
-	return j.Status.RayClusterStatus.State == rayjobapi.Ready
+	return j.Status.RayClusterStatus.State == rayv1.Ready
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {

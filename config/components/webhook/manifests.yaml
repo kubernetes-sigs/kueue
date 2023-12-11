@@ -181,14 +181,14 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /mutate-ray-io-v1alpha1-rayjob
+      path: /mutate-ray-io-v1-rayjob
   failurePolicy: Fail
   name: mrayjob.kb.io
   rules:
   - apiGroups:
     - ray.io
     apiVersions:
-    - v1alpha1
+    - v1
     operations:
     - CREATE
     resources:
@@ -444,14 +444,14 @@ webhooks:
     service:
       name: webhook-service
       namespace: system
-      path: /validate-ray-io-v1alpha1-rayjob
+      path: /validate-ray-io-v1-rayjob
   failurePolicy: Fail
   name: vrayjob.kb.io
   rules:
   - apiGroups:
     - ray.io
     apiVersions:
-    - v1alpha1
+    - v1
     operations:
     - CREATE
     - UPDATE
