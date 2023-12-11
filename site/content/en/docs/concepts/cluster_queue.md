@@ -129,15 +129,25 @@ in the `.spec.namespaceSelector` field.
 To allow workloads from all namespaces, set the empty selector `{}` to the
 `spec.namespaceSelector` field.
 
-A sample `namespaceSelector` looks like the following:
+A sample `namespaceSelector` using `matchLabels` to match the workload to a namespace `team-a` looks like the following:
+
+```yaml
+namespaceSelector:
+  matchLabels:
+    kubernetes.io/metadata.name: team-a
+```
+
+A sample `namespaceSelector` using `matchExpressions` to match the workload to namespaces `team-a`, `team-b` and `team-c` looks like the following:
 
 ```yaml
 namespaceSelector:
   matchExpressions:
-  - key: team
+  - key: kubernetes.io/metadata.name
     operator: In
     values:
     - team-a
+    - team-b
+    - team-c
 ```
 
 ## Queueing strategy
