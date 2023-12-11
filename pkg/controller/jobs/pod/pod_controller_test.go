@@ -144,6 +144,8 @@ func TestReconciler(t *testing.T) {
 		Request(corev1.ResourceCPU, "1").
 		Image("", nil)
 
+	now := time.Now()
+
 	testCases := map[string]struct {
 		initObjects   []client.Object
 		pods          []corev1.Pod
@@ -1806,7 +1808,7 @@ func TestReconciler(t *testing.T) {
 					KueueSchedulingGate().
 					Group("test-group").
 					GroupTotalCount("1").
-					CreationTimestamp(time.Date(2022, 9, 15, 11, 0, 0, 0, time.UTC)).
+					CreationTimestamp(now).
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -1816,7 +1818,7 @@ func TestReconciler(t *testing.T) {
 					KueueSchedulingGate().
 					Group("test-group").
 					GroupTotalCount("1").
-					CreationTimestamp(time.Date(2022, 9, 15, 15, 0, 0, 0, time.UTC)).
+					CreationTimestamp(now.Add(time.Minute)).
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
@@ -1827,7 +1829,7 @@ func TestReconciler(t *testing.T) {
 					KueueSchedulingGate().
 					Group("test-group").
 					GroupTotalCount("1").
-					CreationTimestamp(time.Date(2022, 9, 15, 11, 0, 0, 0, time.UTC)).
+					CreationTimestamp(now).
 					Obj(),
 			},
 			workloads: []kueue.Workload{},
@@ -1854,7 +1856,7 @@ func TestReconciler(t *testing.T) {
 					KueueSchedulingGate().
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Date(2022, 9, 15, 11, 0, 0, 0, time.UTC)).
+					CreationTimestamp(now).
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -1864,7 +1866,7 @@ func TestReconciler(t *testing.T) {
 					KueueSchedulingGate().
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Date(2022, 9, 15, 11, 0, 0, 0, time.UTC)).
+					CreationTimestamp(now.Add(time.Minute)).
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -1873,7 +1875,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
-					CreationTimestamp(time.Date(2022, 9, 15, 15, 0, 0, 0, time.UTC)).
+					CreationTimestamp(now.Add(time.Minute * 2)).
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -1885,7 +1887,7 @@ func TestReconciler(t *testing.T) {
 					KueueSchedulingGate().
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Date(2022, 9, 15, 11, 0, 0, 0, time.UTC)).
+					CreationTimestamp(now).
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -1895,7 +1897,7 @@ func TestReconciler(t *testing.T) {
 					KueueSchedulingGate().
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Date(2022, 9, 15, 11, 0, 0, 0, time.UTC)).
+					CreationTimestamp(now.Add(time.Minute)).
 					Obj(),
 			},
 			workloads: []kueue.Workload{
@@ -1928,7 +1930,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Date(2022, 9, 15, 11, 0, 0, 0, time.UTC)).
+					CreationTimestamp(now).
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -1937,7 +1939,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Date(2022, 9, 15, 11, 0, 0, 0, time.UTC)).
+					CreationTimestamp(now.Add(time.Minute)).
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -1946,7 +1948,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					KueueSchedulingGate().
 					Group("test-group").
-					CreationTimestamp(time.Date(2022, 9, 15, 15, 0, 0, 0, time.UTC)).
+					CreationTimestamp(now.Add(time.Minute * 2)).
 					GroupTotalCount("2").
 					Obj(),
 			},
@@ -1957,7 +1959,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Date(2022, 9, 15, 11, 0, 0, 0, time.UTC)).
+					CreationTimestamp(now).
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -1966,7 +1968,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
-					CreationTimestamp(time.Date(2022, 9, 15, 11, 0, 0, 0, time.UTC)).
+					CreationTimestamp(now.Add(time.Minute)).
 					Obj(),
 			},
 			workloads: []kueue.Workload{
@@ -2004,7 +2006,7 @@ func TestReconciler(t *testing.T) {
 					KueueSchedulingGate().
 					Group("test-group").
 					GroupTotalCount("1").
-					CreationTimestamp(time.Date(2022, 9, 15, 11, 0, 0, 0, time.UTC)).
+					CreationTimestamp(now).
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -2014,7 +2016,7 @@ func TestReconciler(t *testing.T) {
 					Finalizer("kubernetes").
 					Group("test-group").
 					GroupTotalCount("1").
-					CreationTimestamp(time.Date(2022, 9, 15, 15, 0, 0, 0, time.UTC)).
+					CreationTimestamp(now.Add(time.Minute)).
 					Delete().
 					Obj(),
 			},
@@ -2026,7 +2028,7 @@ func TestReconciler(t *testing.T) {
 					KueueSchedulingGate().
 					Group("test-group").
 					GroupTotalCount("1").
-					CreationTimestamp(time.Date(2022, 9, 15, 11, 0, 0, 0, time.UTC)).
+					CreationTimestamp(now).
 					Obj(),
 				*basePodWrapper.
 					Clone().
@@ -2036,7 +2038,7 @@ func TestReconciler(t *testing.T) {
 					Finalizer("kubernetes").
 					Group("test-group").
 					GroupTotalCount("1").
-					CreationTimestamp(time.Date(2022, 9, 15, 15, 0, 0, 0, time.UTC)).
+					CreationTimestamp(now.Add(time.Minute)).
 					Delete().
 					Obj(),
 			},

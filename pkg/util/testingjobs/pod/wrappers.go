@@ -193,7 +193,7 @@ func (p *PodWrapper) StatusPhase(ph corev1.PodPhase) *PodWrapper {
 
 // CreationTimestamp sets a creation timestamp for the pod object
 func (p *PodWrapper) CreationTimestamp(t time.Time) *PodWrapper {
-	timestamp := metav1.NewTime(t)
+	timestamp := metav1.NewTime(t).Rfc3339Copy()
 	p.Pod.CreationTimestamp = timestamp
 	return p
 }
