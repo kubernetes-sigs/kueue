@@ -1922,7 +1922,9 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
-		"excess pods after admission, youngest pods are deleted": {
+		// In this case, group-total-count is equal to the number of pods in the cluster.
+		// But one of the roles is missing, and another role has an excess pod.
+		"excess pods in pod set after admission, youngest pods are deleted": {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -1935,15 +1937,6 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
-					Label("kueue.x-k8s.io/managed", "true").
-					KueueFinalizer().
-					Group("test-group").
-					GroupTotalCount("2").
-					CreationTimestamp(now.Add(time.Minute)).
-					Obj(),
-				*basePodWrapper.
-					Clone().
-					Name("pod3").
 					Label("kueue.x-k8s.io/managed", "true").
 					KueueFinalizer().
 					KueueSchedulingGate().
@@ -1961,20 +1954,14 @@ func TestReconciler(t *testing.T) {
 					GroupTotalCount("2").
 					CreationTimestamp(now).
 					Obj(),
-				*basePodWrapper.
-					Clone().
-					Name("pod2").
-					Label("kueue.x-k8s.io/managed", "true").
-					KueueFinalizer().
-					Group("test-group").
-					GroupTotalCount("2").
-					CreationTimestamp(now.Add(time.Minute)).
-					Obj(),
 			},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet("b990493b", 2).
+						*utiltesting.MakePodSet("aaf269e6", 1).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltesting.MakePodSet("b990493b", 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -1986,7 +1973,10 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltesting.MakePodSet("b990493b", 2).
+						*utiltesting.MakePodSet("aaf269e6", 1).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltesting.MakePodSet("b990493b", 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -1997,6 +1987,8 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
+		// If an excess pod is already deleted and finalized, but an external finalizer blocks
+		// pod deletion, kueue should ignore such a pod, when creating a workload.
 		"deletion of excess pod is blocked by another controller": {
 			pods: []corev1.Pod{
 				*basePodWrapper.

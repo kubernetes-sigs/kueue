@@ -559,16 +559,11 @@ func (p *Pod) activePods() []corev1.Pod {
 }
 
 // cleanupExcessPods will delete and finalize pods created last if the number of
-// activePods is greater than the group-total-count annotation value.
-func (p *Pod) cleanupExcessPods(ctx context.Context, c client.Client, activePods []corev1.Pod) error {
+// activePods is greater than the totalCount value.
+func (p *Pod) cleanupExcessPods(ctx context.Context, c client.Client, totalCount int, activePods []corev1.Pod) error {
 	log := ctrl.LoggerFrom(ctx)
 
-	groupTotalCount, err := p.groupTotalCount()
-	if err != nil {
-		return err
-	}
-
-	extraPodsCount := len(activePods) - groupTotalCount
+	extraPodsCount := len(activePods) - totalCount
 
 	if extraPodsCount <= 0 {
 		return nil
@@ -654,8 +649,13 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		return nil, err
 	}
 
+	groupTotalCount, err := p.groupTotalCount()
+	if err != nil {
+		return nil, err
+	}
+
 	// Cleanup extra pods if there's any
-	err = p.cleanupExcessPods(ctx, c, activePods)
+	err = p.cleanupExcessPods(ctx, c, groupTotalCount, activePods)
 	if err != nil {
 		return nil, err
 	}
@@ -701,9 +701,27 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client) (*kueu
 		return nil, nil, err
 	}
 
-	err := p.cleanupExcessPods(ctx, c, p.activePods())
-	if err != nil {
-		return nil, nil, err
+	// Cleanup excess pods for each workload pod set (role)
+	activePods := p.activePods()
+	for _, ps := range workload.Spec.PodSets {
+		// Find all the active pods of the role
+		var roleActivePods []corev1.Pod
+		for _, activePod := range activePods {
+			roleHash, err := getRoleHash(activePod)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to calculate pod role hash: %w", err)
+			}
+
+			if ps.Name == roleHash {
+				roleActivePods = append(roleActivePods, activePod)
+			}
+		}
+
+		// Cleanup excess pods of the role
+		err := p.cleanupExcessPods(ctx, c, int(ps.Count), roleActivePods)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
 	jobPodSets, err := p.constructGroupPodSets()
