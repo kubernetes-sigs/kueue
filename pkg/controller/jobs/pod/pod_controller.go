@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -88,7 +89,6 @@ type Pod struct {
 	pod              corev1.Pod
 	isGroup          bool
 	unretriableGroup *bool
-	activePodsCount  *int
 	list             corev1.PodList
 }
 
@@ -502,14 +502,14 @@ func (p *Pod) constructGroupPodSets() ([]kueue.PodSet, error) {
 }
 
 // validatePodGroupMetadata validates metadata of all members of the pod group
-func (p *Pod) validatePodGroupMetadata(r record.EventRecorder) error {
+func (p *Pod) validatePodGroupMetadata(r record.EventRecorder, activePods []corev1.Pod) error {
 	groupTotalCount, err := p.groupTotalCount()
 	if err != nil {
 		return err
 	}
 	originalQueue := jobframework.QueueName(p)
 
-	if p.countActivePods() < groupTotalCount {
+	if len(activePods) < groupTotalCount {
 		errMsg := fmt.Sprintf("'%s' group total count is less than the actual number of pods in the cluster", p.groupName())
 		r.Eventf(p.Object(), corev1.EventTypeWarning, "ErrWorkloadCompose", errMsg)
 		return jobframework.UnretryableError(errMsg)
@@ -545,27 +545,22 @@ func (p *Pod) validatePodGroupMetadata(r record.EventRecorder) error {
 	return nil
 }
 
-// countActivePods returns a count of non-failed pods in the group
-func (p *Pod) countActivePods() int {
-	if p.activePodsCount != nil {
-		return *p.activePodsCount
-	}
-
+// activePods returns a slice of non-failed pods in the group
+func (p *Pod) activePods() []corev1.Pod {
 	// Filter all failed pods
-	activePodsCount := 0
+	activePods := make([]corev1.Pod, 0, len(p.list.Items))
 	for _, pod := range p.list.Items {
 		if pod.Status.Phase != corev1.PodFailed {
-			activePodsCount++
+			activePods = append(activePods, pod)
 		}
 	}
 
-	p.activePodsCount = &activePodsCount
-	return activePodsCount
+	return activePods
 }
 
 // cleanupExcessPods will delete and finalize pods created last if the number of
 // activePods is greater than the group-total-count annotation value.
-func (p *Pod) cleanupExcessPods(ctx context.Context, c client.Client) error {
+func (p *Pod) cleanupExcessPods(ctx context.Context, c client.Client, activePods []corev1.Pod) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	groupTotalCount, err := p.groupTotalCount()
@@ -573,40 +568,41 @@ func (p *Pod) cleanupExcessPods(ctx context.Context, c client.Client) error {
 		return err
 	}
 
-	extraPods := p.countActivePods() - groupTotalCount
+	extraPodsCount := len(activePods) - groupTotalCount
 
-	for i := extraPods; i > 0; i-- {
-		// Find the active pod created last
-		latestCreatedPodIdx := 0
-		for i := 1; i < len(p.list.Items); i++ {
-			latestCreatedPod := p.list.Items[latestCreatedPodIdx]
-			podInGroup := p.list.Items[i]
+	if extraPodsCount <= 0 {
+		return nil
+	}
 
-			if podInGroup.Status.Phase == corev1.PodFailed {
-				continue
-			}
+	// Sort active pods by creation timestamp
+	sort.SliceStable(activePods, func(i, j int) bool {
+		return activePods[i].ObjectMeta.CreationTimestamp.Before(&activePods[j].ObjectMeta.CreationTimestamp)
+	})
 
-			if latestCreatedPod.Status.Phase == corev1.PodFailed ||
-				latestCreatedPod.ObjectMeta.CreationTimestamp.Before(&podInGroup.ObjectMeta.CreationTimestamp) {
-				latestCreatedPodIdx = i
-			}
-		}
+	// Extract all the latest created extra pods
+	extraPods := activePods[len(activePods)-extraPodsCount:]
 
-		// Finalize and delete the active pod created last
-		if controllerutil.RemoveFinalizer(&p.list.Items[latestCreatedPodIdx], PodFinalizer) {
-			log.V(3).Info("Finalizing excess pod in group", "ExcessPod.Name", p.list.Items[latestCreatedPodIdx].Name)
-			if err := c.Update(ctx, &p.list.Items[latestCreatedPodIdx]); err != nil {
+	// Finalize and delete the active pods created last
+	for _, extraPod := range extraPods {
+		if controllerutil.RemoveFinalizer(&extraPod, PodFinalizer) {
+			log.V(3).Info("Finalizing excess pod in group", "ExcessPod.Name", extraPod.Name)
+			if err := c.Update(ctx, &extraPod); err != nil {
 				return err
 			}
 		}
-		if p.list.Items[latestCreatedPodIdx].ObjectMeta.DeletionTimestamp.IsZero() {
-			log.V(3).Info("Deleting excess pod in group", "ExcessPod.Name", p.list.Items[latestCreatedPodIdx].Name)
-			if err := c.Delete(ctx, &p.list.Items[latestCreatedPodIdx]); err != nil {
+		if extraPod.ObjectMeta.DeletionTimestamp.IsZero() {
+			log.V(3).Info("Deleting excess pod in group", "ExcessPod.Name", extraPod.Name)
+			if err := c.Delete(ctx, &extraPod); err != nil {
 				return err
 			}
 		}
 
-		p.list.Items = append(p.list.Items[:latestCreatedPodIdx], p.list.Items[latestCreatedPodIdx+1:]...)
+		// Remove excess pod from the group list
+		for i := range p.list.Items {
+			if p.list.Items[i].Name == extraPod.Name && p.list.Items[i].Namespace == extraPod.Namespace {
+				p.list.Items = append(p.list.Items[:i], p.list.Items[i+1:]...)
+			}
+		}
 	}
 
 	return nil
@@ -651,13 +647,15 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		return wl, nil
 	}
 
-	err := p.validatePodGroupMetadata(r)
+	activePods := p.activePods()
+
+	err := p.validatePodGroupMetadata(r, activePods)
 	if err != nil {
 		return nil, err
 	}
 
 	// Cleanup extra pods if there's any
-	err = p.cleanupExcessPods(ctx, c)
+	err = p.cleanupExcessPods(ctx, c, activePods)
 	if err != nil {
 		return nil, err
 	}
@@ -703,7 +701,7 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client) (*kueu
 		return nil, nil, err
 	}
 
-	err := p.cleanupExcessPods(ctx, c)
+	err := p.cleanupExcessPods(ctx, c, p.activePods())
 	if err != nil {
 		return nil, nil, err
 	}
