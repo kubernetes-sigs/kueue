@@ -29,16 +29,7 @@ export MANAGER_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-manager
 export WORKER1_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-worker1
 export WORKER2_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-worker2
 
-# $1 - cluster name
-function cluster_cleanup {
-	kubectl config use-context kind-$1
-        kubectl logs -n kube-system kube-scheduler-$1-control-plane > $ARTIFACTS/$1-kube-scheduler.log || true
-        kubectl logs -n kube-system kube-controller-manager-$1-control-plane > $ARTIFACTS/$1-kube-controller-manager.log || true
-        kubectl logs -n kueue-system deployment/kueue-controller-manager > $ARTIFACTS/$1-kueue-controller-manager.log || true
-        kubectl describe pods -n kueue-system > $ARTIFACTS/$1-kueue-system-pods.log || true
-        kubectl describe pods > $ARTIFACTS/$1-default-pods.log || true
-        $KIND delete cluster --name $1
-}
+source ${SOURCE_DIR}/e2e-common.sh
 
 function cleanup {
     if [ $CREATE_KIND_CLUSTER == 'true' ]
@@ -55,16 +46,6 @@ function cleanup {
 }
 
 
-# $1 cluster name
-# $2 cluster kind config
-function cluster_create {
-        $KIND create cluster --name $1 --image $E2E_KIND_VERSION --config $2 --wait 1m -v 5  > $ARTIFACTS/$1-create.log 2>&1 \
-		||  { echo "unable to start the $1 cluster "; cat $ARTIFACTS/$1-create.log ; }
-	kubectl config use-context kind-$1
-        kubectl get nodes > $ARTIFACTS/$1-nodes.log || true
-        kubectl describe pods -n kube-system > $ARTIFACTS/$1-system-pods.log || true
-}
-
 function startup {
     if [ $CREATE_KIND_CLUSTER == 'true' ]
     then
@@ -72,7 +53,7 @@ function startup {
             mkdir -p "$ARTIFACTS"
         fi
 
-	cluster_create $MANAGER_KIND_CLUSTER_NAME $SOURCE_DIR/mk-manager-cluster.yaml
+	cluster_create $MANAGER_KIND_CLUSTER_NAME $SOURCE_DIR/multikueue/manager-cluster.kind.yaml
 
 	# NOTE: for local setup, make sure that your firewalk allows tcp from manager to the GW ip
 	# eg. ufw `sudo ufw allow from 172.18.0.0/16 proto tcp to 172.18.0.1`
@@ -82,7 +63,7 @@ function startup {
 
 	# have the worker forward the api to the docker gateway address instead of lo
 	export GW=$(docker inspect ${MANAGER_KIND_CLUSTER_NAME}-control-plane -f '{{.NetworkSettings.Networks.kind.Gateway}}')
-	$YQ e '.networking.apiServerAddress=env(GW)'  $SOURCE_DIR/mk-worker-cluster.yaml > $ARTIFACTS/worker-cluster.yaml
+	$YQ e '.networking.apiServerAddress=env(GW)'  $SOURCE_DIR/multikueue/worker-cluster.kind.yaml > $ARTIFACTS/worker-cluster.yaml
 
 	cluster_create $WORKER1_KIND_CLUSTER_NAME $ARTIFACTS/worker-cluster.yaml
 	cluster_create $WORKER2_KIND_CLUSTER_NAME $ARTIFACTS/worker-cluster.yaml
@@ -95,12 +76,6 @@ function startup {
     fi
 }
 
-# $1 cluster
-function cluster_kind_load {
-        $KIND load docker-image $E2E_TEST_IMAGE --name $1
-        $KIND load docker-image $IMAGE_TAG --name $1
-}
-
 function kind_load {
     if [ $CREATE_KIND_CLUSTER == 'true' ]
     then
@@ -109,12 +84,6 @@ function kind_load {
         cluster_kind_load $WORKER1_KIND_CLUSTER_NAME
         cluster_kind_load $WORKER2_KIND_CLUSTER_NAME 
     fi
-}
-
-# $1 cluster
-function cluster_kueue_deploy {
-    kubectl config use-context kind-${1}
-    kubectl apply --server-side -k test/e2e/config
 }
 
 function kueue_deploy {
