@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
@@ -194,14 +195,21 @@ func TestSchedule(t *testing.T) {
 
 		// disable partial admission
 		disablePartialAdmission bool
+
+		// ignored if empty, the Message is ignored (it contains the duration)
+		wantEvents []utiltesting.EventRecord
 	}{
-		"workload fits in single clusterQueue": {
+		"workload fits in single clusterQueue, with check state ready": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("foo", "sales").
 					Queue("main").
 					PodSets(*utiltesting.MakePodSet("one", 10).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+					}).
 					Obj(),
 			},
 			wantAssignments: map[string]kueue.Admission{
@@ -222,6 +230,57 @@ func TestSchedule(t *testing.T) {
 				},
 			},
 			wantScheduled: []string{"sales/foo"},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "sales", Name: "foo"},
+					Reason:    "QuotaReserved",
+					EventType: corev1.EventTypeNormal,
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "sales", Name: "foo"},
+					Reason:    "Admitted",
+					EventType: corev1.EventTypeNormal,
+				},
+			},
+		},
+		"workload fits in single clusterQueue, with check state pending": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("foo", "sales").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 10).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStatePending,
+					}).
+					Obj(),
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"sales/foo": {
+					ClusterQueue: "sales",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						{
+							Name: "one",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "default",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("10000m"),
+							},
+							Count: ptr.To[int32](10),
+						},
+					},
+				},
+			},
+			wantScheduled: []string{"sales/foo"},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "sales", Name: "foo"},
+					Reason:    "QuotaReserved",
+					EventType: corev1.EventTypeNormal,
+				},
+			},
 		},
 		"error during admission": {
 			workloads: []kueue.Workload{
@@ -1044,7 +1103,7 @@ func TestSchedule(t *testing.T) {
 				defer features.SetFeatureGateDuringTest(t, features.PartialAdmission, false)()
 			}
 			ctx, _ := utiltesting.ContextWithLog(t)
-			scheme := runtime.NewScheme()
+			//scheme := runtime.NewScheme()
 
 			allQueues := append(queues, tc.additionalLocalQueues...)
 			allClusterQueues := append(clusterQueues, tc.additionalClusterQueues...)
@@ -1058,9 +1117,7 @@ func TestSchedule(t *testing.T) {
 					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "sales", Labels: map[string]string{"dep": "sales"}}},
 				)
 			cl := clientBuilder.Build()
-			broadcaster := record.NewBroadcaster()
-			recorder := broadcaster.NewRecorder(scheme,
-				corev1.EventSource{Component: constants.AdmissionName})
+			recorder := &utiltesting.EventRecorder{}
 			cqCache := cache.New(cl)
 			qManager := queue.NewManager(cl, cqCache)
 			// Workloads are loaded into queues or clusterQueues as we add them.
@@ -1107,10 +1164,10 @@ func TestSchedule(t *testing.T) {
 
 			ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
 			go qManager.CleanUpOnContext(ctx)
-			defer cancel()
 
 			scheduler.schedule(ctx)
 			wg.Wait()
+			cancel()
 
 			wantScheduled := make(map[string]kueue.Admission)
 			for _, key := range tc.wantScheduled {
@@ -1152,6 +1209,12 @@ func TestSchedule(t *testing.T) {
 			qDumpInadmissible := qManager.DumpInadmissible()
 			if diff := cmp.Diff(tc.wantInadmissibleLeft, qDumpInadmissible); diff != "" {
 				t.Errorf("Unexpected elements left in inadmissible workloads (-want,+got):\n%s", diff)
+			}
+
+			if len(tc.wantEvents) > 0 {
+				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")); diff != "" {
+					t.Errorf("unexpected events (-want/+got):\n%s", diff)
+				}
 			}
 		})
 	}

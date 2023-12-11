@@ -19,6 +19,7 @@ package testing
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -76,6 +77,7 @@ type EventRecord struct {
 }
 
 type EventRecorder struct {
+	lock           sync.Mutex
 	RecordedEvents []EventRecord
 }
 
@@ -88,6 +90,8 @@ func (tr *EventRecorder) Eventf(object runtime.Object, eventtype, reason, messag
 }
 
 func (tr *EventRecorder) AnnotatedEventf(targetObject runtime.Object, annotations map[string]string, eventtype, reason, messageFmt string, args ...interface{}) {
+	tr.lock.Lock()
+	defer tr.lock.Unlock()
 	key := types.NamespacedName{}
 	if cobj, iscobj := targetObject.(client.Object); iscobj {
 		key = client.ObjectKeyFromObject(cobj)
