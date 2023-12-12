@@ -1,4 +1,4 @@
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 networking:
-  apiServerAddress: "172.17.0.1"
+  apiServerAddress: "FILLED_AT_RUNTIME"

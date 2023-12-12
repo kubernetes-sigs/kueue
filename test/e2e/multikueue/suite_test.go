@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright 2023 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -35,11 +34,6 @@ var (
 	k8sWorker1Client client.Client
 	k8sWorker2Client client.Client
 	ctx              context.Context
-)
-
-const (
-	Timeout  = time.Minute
-	Interval = time.Millisecond * 250
 )
 
 func TestAPIs(t *testing.T) {

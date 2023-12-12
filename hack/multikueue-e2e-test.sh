@@ -55,7 +55,7 @@ function startup {
 
 	cluster_create $MANAGER_KIND_CLUSTER_NAME $SOURCE_DIR/multikueue/manager-cluster.kind.yaml
 
-	# NOTE: for local setup, make sure that your firewalk allows tcp from manager to the GW ip
+	# NOTE: for local setup, make sure that your firewall allows tcp from manager to the GW ip
 	# eg. ufw `sudo ufw allow from 172.18.0.0/16 proto tcp to 172.18.0.1`
 	#
 	# eg. iptables    `sudo iptables --append INPUT --protocol tcp --src 172.18.0.0/16 --dst 172.18.0.1 --jump ACCEPT
@@ -99,4 +99,4 @@ startup
 kind_load
 kueue_deploy 
 
-$GINKGO --junit-report=junit.xml --output-dir=$ARTIFACTS -v ./test/mke2e/... 
+$GINKGO --junit-report=junit.xml --output-dir=$ARTIFACTS -v ./test/e2e/multikueue/... 

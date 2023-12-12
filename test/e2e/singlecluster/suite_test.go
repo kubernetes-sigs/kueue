@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -37,11 +36,6 @@ var (
 	ctx                          context.Context
 	visibilityClient             visibilityv1alpha1.VisibilityV1alpha1Interface
 	impersonatedVisibilityClient visibilityv1alpha1.VisibilityV1alpha1Interface
-)
-
-const (
-	Timeout  = time.Minute
-	Interval = time.Millisecond * 250
 )
 
 func TestAPIs(t *testing.T) {
