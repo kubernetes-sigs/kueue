@@ -38,6 +38,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -570,7 +571,7 @@ func (p *Pod) cleanupExcessPods(ctx context.Context, c client.Client, totalCount
 	}
 
 	// Sort active pods by creation timestamp
-	sort.SliceStable(activePods, func(i, j int) bool {
+	sort.Slice(activePods, func(i, j int) bool {
 		return activePods[i].ObjectMeta.CreationTimestamp.Before(&activePods[j].ObjectMeta.CreationTimestamp)
 	})
 
@@ -580,25 +581,35 @@ func (p *Pod) cleanupExcessPods(ctx context.Context, c client.Client, totalCount
 	// Finalize and delete the active pods created last
 	for _, extraPod := range extraPods {
 		if controllerutil.RemoveFinalizer(&extraPod, PodFinalizer) {
-			log.V(3).Info("Finalizing excess pod in group", "ExcessPod.Name", extraPod.Name)
+			log.V(3).Info("Finalizing excess pod in group", "excessPod", klog.KObj(&extraPod))
 			if err := c.Update(ctx, &extraPod); err != nil {
 				return err
 			}
 		}
 		if extraPod.ObjectMeta.DeletionTimestamp.IsZero() {
-			log.V(3).Info("Deleting excess pod in group", "ExcessPod.Name", extraPod.Name)
+			log.V(3).Info("Deleting excess pod in group", "excessPod", klog.KObj(&extraPod))
 			if err := c.Delete(ctx, &extraPod); err != nil {
 				return err
 			}
 		}
+	}
 
-		// Remove excess pod from the group list
-		for i := range p.list.Items {
-			if p.list.Items[i].Name == extraPod.Name && p.list.Items[i].Namespace == extraPod.Namespace {
-				p.list.Items = append(p.list.Items[:i], p.list.Items[i+1:]...)
+	// Remove excess pods from the group list
+	newPodsInGroup := make([]corev1.Pod, 0, len(p.list.Items)-len(extraPods))
+	for i := range p.list.Items {
+		found := false
+		for j := range extraPods {
+			if p.list.Items[i].Name == extraPods[j].Name && p.list.Items[i].Namespace == extraPods[j].Namespace {
+				found = true
+				break
 			}
 		}
+
+		if !found {
+			newPodsInGroup = append(newPodsInGroup, p.list.Items[i])
+		}
 	}
+	p.list.Items = newPodsInGroup
 
 	return nil
 }
