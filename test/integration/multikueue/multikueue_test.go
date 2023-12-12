@@ -45,10 +45,20 @@ var _ = ginkgo.Describe("Multikueue", func() {
 				GenerateName: "multikueue-",
 			},
 		}
-		worker1Ns = managerNs.DeepCopy()
-		worker2Ns = managerNs.DeepCopy()
 		gomega.Expect(managerCluster.client.Create(managerCluster.ctx, managerNs)).To(gomega.Succeed())
+
+		worker1Ns = &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: managerNs.Name,
+			},
+		}
 		gomega.Expect(worker1Cluster.client.Create(worker1Cluster.ctx, worker1Ns)).To(gomega.Succeed())
+
+		worker2Ns = &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: managerNs.Name,
+			},
+		}
 		gomega.Expect(worker2Cluster.client.Create(worker1Cluster.ctx, worker2Ns)).To(gomega.Succeed())
 
 		w1Kubeconfig, err := worker1Cluster.kubeConfigBytes()
@@ -78,15 +88,6 @@ var _ = ginkgo.Describe("Multikueue", func() {
 	})
 
 	ginkgo.When("Using multiple clusters", func() {
-		ginkgo.DescribeTable("Create workload in cluster", func(c *cluster, ns **corev1.Namespace) {
-			wl := utiltesting.MakeWorkload("wl", (*ns).Name).Obj()
-			gomega.Expect(c.client.Create(c.ctx, wl)).To(gomega.Succeed())
-		},
-			ginkgo.Entry("manager", &managerCluster, &managerNs),
-			ginkgo.Entry("worker1", &worker1Cluster, &worker1Ns),
-			ginkgo.Entry("worker2", &worker2Cluster, &worker2Ns),
-		)
-
 		ginkgo.DescribeTable("Cluster kubeconfig propagation", func(c *cluster, key string, ns **corev1.Namespace) {
 			readSecret := &corev1.Secret{}
 			gomega.Expect(managerCluster.client.Get(managerCluster.ctx, client.ObjectKeyFromObject(managerMultikueueSecret), readSecret)).To(gomega.Succeed())
