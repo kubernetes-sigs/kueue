@@ -299,7 +299,7 @@ func TestReconcile(t *testing.T) {
 					Key:       client.ObjectKeyFromObject(baseWorkload),
 					EventType: corev1.EventTypeNormal,
 					Reason:    "ProvisioningRequestCreated",
-					Message:   "A new provisioning request \"wl-check1-1\" was created",
+					Message:   "Created ProvisioningRequest: \"wl-check1-1\"",
 				},
 			},
 		},
@@ -328,7 +328,7 @@ func TestReconcile(t *testing.T) {
 					Key:       client.ObjectKeyFromObject(baseWorkload),
 					EventType: corev1.EventTypeNormal,
 					Reason:    "ProvisioningRequestCreated",
-					Message:   "A new provisioning request \"wl-check1-1\" was created",
+					Message:   "Created ProvisioningRequest: \"wl-check1-1\"",
 				},
 			},
 		},
@@ -397,7 +397,7 @@ func TestReconcile(t *testing.T) {
 					Key:       client.ObjectKeyFromObject(baseWorkload),
 					EventType: corev1.EventTypeNormal,
 					Reason:    "ProvisioningRequestCreated",
-					Message:   "A new provisioning request \"wl-check1-1\" was created",
+					Message:   "Created ProvisioningRequest: \"wl-check1-1\"",
 				},
 			},
 		},
@@ -610,7 +610,7 @@ func TestReconcile(t *testing.T) {
 					Key:       client.ObjectKeyFromObject(baseWorkload),
 					EventType: corev1.EventTypeNormal,
 					Reason:    "ProvisioningRequestCreated",
-					Message:   "A new provisioning request \"wl-check1-1\" was created",
+					Message:   "Created ProvisioningRequest: \"wl-check1-1\"",
 				},
 			},
 		},
@@ -636,7 +636,7 @@ func TestReconcile(t *testing.T) {
 					Key:       client.ObjectKeyFromObject(baseWorkload),
 					EventType: corev1.EventTypeNormal,
 					Reason:    "ProvisioningRequestCreated",
-					Message:   "A new provisioning request \"wl-check1-1\" was created",
+					Message:   "Created ProvisioningRequest: \"wl-check1-1\"",
 				},
 			},
 		},
@@ -670,7 +670,6 @@ func TestReconcile(t *testing.T) {
 				},
 			}
 			_, gotReconcileError := controller.Reconcile(ctx, req)
-
 			if diff := cmp.Diff(tc.wantReconcileError, gotReconcileError); diff != "" {
 				t.Errorf("unexpected reconcile error (-want/+got):\n%s", diff)
 			}
