@@ -1208,7 +1208,7 @@ func TestEntryOrdering(t *testing.T) {
 			Info: workload.Info{
 				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
 					Name:              "new_high_pri",
-					CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
+					CreationTimestamp: metav1.NewTime(now.Add(4 * time.Second)),
 				}, Spec: kueue.WorkloadSpec{
 					Priority: ptr.To[int32](1),
 				}},
@@ -1232,7 +1232,7 @@ func TestEntryOrdering(t *testing.T) {
 				Obj: &kueue.Workload{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:              "evicted_borrowing",
-						CreationTimestamp: metav1.NewTime(now),
+						CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
 					},
 					Status: kueue.WorkloadStatus{
 						Conditions: []metav1.Condition{
@@ -1273,14 +1273,31 @@ func TestEntryOrdering(t *testing.T) {
 			},
 		},
 	}
-	sort.Sort(entryOrdering(input))
-	order := make([]string, len(input))
-	for i, e := range input {
-		order[i] = e.Obj.Name
-	}
-	wantOrder := []string{"new_high_pri", "old", "recently_evicted", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing"}
-	if diff := cmp.Diff(wantOrder, order); diff != "" {
-		t.Errorf("Unexpected order (-want,+got):\n%s", diff)
+	for _, tc := range []struct {
+		name            string
+		prioritySorting bool
+		wantOrder       []string
+	}{
+		{
+			name:            "Priority sorting is enabled (default)",
+			prioritySorting: true,
+			wantOrder:       []string{"new_high_pri", "old", "recently_evicted", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing"},
+		},
+		{
+			name:            "Priority sorting is disabled",
+			prioritySorting: false,
+			wantOrder:       []string{"old", "recently_evicted", "new", "new_high_pri", "old_borrowing", "evicted_borrowing", "high_pri_borrowing", "new_borrowing"},
+		},
+	} {
+		features.SetFeatureGateDuringTest(t, features.PrioritySortingWithinCohort, tc.prioritySorting)
+		sort.Sort(entryOrdering(input))
+		order := make([]string, len(input))
+		for i, e := range input {
+			order[i] = e.Obj.Name
+		}
+		if diff := cmp.Diff(tc.wantOrder, order); diff != "" {
+			t.Errorf("%s: Unexpected order (-want,+got):\n%s", tc.name, diff)
+		}
 	}
 }
 

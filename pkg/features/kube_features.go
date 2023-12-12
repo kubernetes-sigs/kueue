@@ -62,6 +62,13 @@ const (
 	//
 	// Enables Kueue visibility on demand
 	VisibilityOnDemand featuregate.Feature = "VisibilityOnDemand"
+
+	// owner: @yaroslava-serdiuk
+	// kep: https://github.com/kubernetes-sigs/kueue/issues/1283
+	// beta: v0.6
+	//
+	// Enable priority sorting within the cohort.
+	PrioritySortingWithinCohort featuregate.Feature = "PrioritySortingWithinCohort"
 )
 
 func init() {
@@ -75,11 +82,12 @@ func init() {
 // Entries are separated from each other with blank lines to avoid sweeping gofmt changes
 // when adding or removing one entry.
 var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
-	PartialAdmission:   {Default: true, PreRelease: featuregate.Beta},
-	QueueVisibility:    {Default: false, PreRelease: featuregate.Alpha},
-	FlavorFungibility:  {Default: true, PreRelease: featuregate.Beta},
-	ProvisioningACC:    {Default: false, PreRelease: featuregate.Alpha},
-	VisibilityOnDemand: {Default: false, PreRelease: featuregate.Alpha},
+	PartialAdmission:            {Default: true, PreRelease: featuregate.Beta},
+	QueueVisibility:             {Default: false, PreRelease: featuregate.Alpha},
+	FlavorFungibility:           {Default: true, PreRelease: featuregate.Beta},
+	ProvisioningACC:             {Default: false, PreRelease: featuregate.Alpha},
+	VisibilityOnDemand:          {Default: false, PreRelease: featuregate.Alpha},
+	PrioritySortingWithinCohort: {Default: true, PreRelease: featuregate.Beta},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) func() {

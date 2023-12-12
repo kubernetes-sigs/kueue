@@ -170,7 +170,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 	// 3. Calculate requirements (resource flavors, borrowing) for admitting workloads.
 	entries := s.nominate(ctx, headWorkloads, snapshot)
 
-	// 4. Sort entries based on borrowing and timestamps.
+	// 4. Sort entries based on borrowing, priorities (if enabled) and timestamps.
 	sort.Sort(entryOrdering(entries))
 
 	// 5. Admit entries, ensuring that no more than one workload gets
@@ -500,14 +500,16 @@ func (e entryOrdering) Less(i, j int) bool {
 		return !aBorrows
 	}
 
-	// 2. Higher priority first.
-	p1 := priority.Priority(a.Obj)
-	p2 := priority.Priority(b.Obj)
-	if p1 != p2 {
-		return p1 > p2
+	// 2. Higher priority first if not disabled.
+	if features.Enabled(features.PrioritySortingWithinCohort) {
+		p1 := priority.Priority(a.Obj)
+		p2 := priority.Priority(b.Obj)
+		if p1 != p2 {
+			return p1 > p2
+		}
 	}
 
-	// 2. FIFO.
+	// 3. FIFO.
 	aComparisonTimestamp := workload.GetQueueOrderTimestamp(a.Obj)
 	bComparisonTimestamp := workload.GetQueueOrderTimestamp(b.Obj)
 	return aComparisonTimestamp.Before(bComparisonTimestamp)
