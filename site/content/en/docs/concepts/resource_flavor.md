@@ -14,7 +14,7 @@ Resources in a cluster are typically not homogeneous. Resources could differ in:
 - brands and models (for example, Radeon 7000 versus Nvidia A100 versus T4 GPUs)
 
 A ResourceFlavor is an object that represents these resource variations and
-allows you to associate them with cluster nodes through labels and taints.
+allows you to associate them with cluster nodes through labels, taints and tolerations.
 
 **Note**: If the resources in your cluster are homogeneous, you can use 
 an [empty ResourceFlavor](#empty-resourceflavor) instead of adding labels to custom ResourceFlavors.
@@ -33,6 +33,10 @@ spec:
   - effect: NoSchedule
     key: spot
     value: "true"
+  tolerations:
+  - key: "spot-taint"
+    operator: "Exists"
+    effect: "NoSchedule"
 ```
 
 You can use the `.metadata.name` field to reference a ResourceFlavor from a
@@ -60,14 +64,21 @@ that Kueue selected, Kueue performs the following steps:
    cannot be assigned to a Workload's podSet.
 
 
-2. Once the Workload is admitted, Kueue adds the ResourceFlavor labels to the
-  `.nodeSelector` of the underlying Workload Pod templates. This occurs if the Workload
-   didn't specify the `ResourceFlavor` labels already as part of its nodeSelector.
+2. Once the Workload is admitted:
+   - Kueue adds the ResourceFlavor labels to the
+    `.nodeSelector` of the underlying Workload Pod templates. This occurs if the Workload
+     didn't specify the `ResourceFlavor` labels already as part of its nodeSelector.
 
-   For example, for a [batch/v1.Job](https://kubernetes.io/docs/concepts/workloads/controllers/job/),
-   Kueue adds the labels to the `.spec.template.spec.nodeSelector` field. This
-   guarantees that the workload's Pods can only be scheduled on the nodes
-   targeted by the flavor that Kueue assigned to the Workload.
+     For example, for a [batch/v1.Job](https://kubernetes.io/docs/concepts/workloads/controllers/job/),
+     Kueue adds the labels to the `.spec.template.spec.nodeSelector` field. This
+     guarantees that the workload's Pods can only be scheduled on the nodes
+     targeted by the flavor that Kueue assigned to the Workload.
+   
+   - Kueue adds the tolerations to the underlying Workload Pod templates.
+
+     For example, for a [batch/v1.Job](https://kubernetes.io/docs/concepts/workloads/controllers/job/),
+     Kueue adds the tolerations to the `.spec.template.spec.tolerations` field. This allows that the 
+     workloads Pods to be scheduled on nodes having specific taints.
 
 ## ResourceFlavor taints
 
