@@ -559,7 +559,10 @@ func FindMatchingWorkloads(ctx context.Context, c client.Client, job GenericJob)
 func (r *JobReconciler) ensurePrebuiltWorkloadOwnership(ctx context.Context, wl *kueue.Workload, object client.Object) (bool, error) {
 	if !metav1.IsControlledBy(wl, object) {
 		if err := ctrl.SetControllerReference(object, wl, r.client.Scheme()); err != nil {
-			// don't return an error here, since a retry cannot give a different result
+			// don't return an error here, since a retry cannot give a different result,
+			// log the error.
+			log := ctrl.LoggerFrom(ctx)
+			log.Error(err, "Cannot take ownership of the workload")
 			return false, nil
 		}
 
