@@ -442,8 +442,20 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 	log := ctrl.LoggerFrom(ctx)
 
 	if usePrebuiltWorkload, prebuiltWorkloadName := prebuiltWorkload(job); usePrebuiltWorkload {
-		wl, getErr := r.getPrebuiltWorkload(ctx, job, object, prebuiltWorkloadName)
-		return wl, getErr
+		wl := &kueue.Workload{}
+		err := r.client.Get(ctx, types.NamespacedName{Name: prebuiltWorkloadName, Namespace: object.GetNamespace()}, wl)
+		if err != nil {
+			return nil, client.IgnoreNotFound(err)
+		}
+
+		if owns, err := r.ensurePrebuiltWorkloadOwnership(ctx, wl, object); !owns || err != nil {
+			return nil, err
+		}
+
+		if inSync, err := r.ensurePrebuiltWorkloadInSync(ctx, wl, job); !inSync || err != nil {
+			return nil, err
+		}
+		return wl, nil
 	}
 
 	// Find a matching workload first if there is one.
@@ -544,17 +556,11 @@ func FindMatchingWorkloads(ctx context.Context, c client.Client, job GenericJob)
 	return match, toDelete, nil
 }
 
-func (r *JobReconciler) getPrebuiltWorkload(ctx context.Context, job GenericJob, object client.Object, name string) (*kueue.Workload, error) {
-	wl := &kueue.Workload{}
-	err := r.client.Get(ctx, types.NamespacedName{Name: name, Namespace: object.GetNamespace()}, wl)
-	if err != nil {
-		return nil, client.IgnoreNotFound(err)
-	}
-
+func (r *JobReconciler) ensurePrebuiltWorkloadOwnership(ctx context.Context, wl *kueue.Workload, object client.Object) (bool, error) {
 	if !metav1.IsControlledBy(wl, object) {
 		if err := ctrl.SetControllerReference(object, wl, r.client.Scheme()); err != nil {
 			// don't return an error here, since a retry cannot give a different result
-			return nil, nil
+			return false, nil
 		}
 
 		if errs := validation.IsValidLabelValue(string(object.GetUID())); len(errs) == 0 {
@@ -562,10 +568,13 @@ func (r *JobReconciler) getPrebuiltWorkload(ctx context.Context, job GenericJob,
 		}
 
 		if err := r.client.Update(ctx, wl); err != nil {
-			return nil, err
+			return false, err
 		}
 	}
+	return true, nil
+}
 
+func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *kueue.Workload, job GenericJob) (bool, error) {
 	if !equivalentToWorkload(job, wl) {
 		// mark the workload as finished
 		err := workload.UpdateStatus(ctx, r.client, wl,
@@ -574,10 +583,9 @@ func (r *JobReconciler) getPrebuiltWorkload(ctx context.Context, job GenericJob,
 			"OutOfSync",
 			"The prebuilt workload is out of sync with its user job",
 			constants.JobControllerName)
-		return nil, err
+		return false, err
 	}
-
-	return wl, nil
+	return true, nil
 }
 
 // equivalentToWorkload checks if the job corresponds to the workload
