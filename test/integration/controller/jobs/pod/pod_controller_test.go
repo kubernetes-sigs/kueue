@@ -18,6 +18,7 @@ package pod
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -860,6 +861,92 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					), "Expected 'Finished' workload condition")
 
 					util.ExpectPodsFinalized(ctx, k8sClient, pod1LookupKey, pod2LookupKey, replacementPod2LookupKey)
+				})
+			})
+
+			ginkgo.It("Should finalize and delete excess pods", func() {
+				ginkgo.By("Creating pods with queue name")
+				pod1 := testingpod.MakePod("test-pod1", ns.Name).
+					Group("test-group").
+					GroupTotalCount("2").
+					Queue("test-queue").
+					Obj()
+				pod2 := testingpod.MakePod("test-pod2", ns.Name).
+					Group("test-group").
+					GroupTotalCount("2").
+					Image("test-image", nil).
+					Queue("test-queue").
+					Obj()
+				excessBasePod := testingpod.MakePod("excess-pod", ns.Name).
+					Group("test-group").
+					GroupTotalCount("2").
+					Image("test-image", nil).
+					Queue("test-queue")
+
+				pod1LookupKey := client.ObjectKeyFromObject(pod1)
+				pod2LookupKey := client.ObjectKeyFromObject(pod2)
+				excessPodLookupKey := client.ObjectKeyFromObject(excessBasePod.Obj())
+
+				gomega.Expect(k8sClient.Create(ctx, pod1)).Should(gomega.Succeed())
+				gomega.Expect(k8sClient.Create(ctx, pod2)).Should(gomega.Succeed())
+
+				ginkgo.By("checking that workload is created")
+				wlLookupKey := types.NamespacedName{
+					Namespace: pod1.Namespace,
+					Name:      "test-group",
+				}
+				createdWorkload := &kueue.Workload{}
+				gomega.Eventually(func() error {
+					return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Expect(createdWorkload.Spec.PodSets).To(gomega.HaveLen(2))
+				gomega.Expect(createdWorkload.Spec.PodSets[0].Count).To(gomega.Equal(int32(1)))
+				gomega.Expect(createdWorkload.Spec.PodSets[1].Count).To(gomega.Equal(int32(1)))
+				gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal("test-queue"), "The Workload should have .spec.queueName set")
+
+				createdPod := &corev1.Pod{}
+				ginkgo.By("checking that excess pod is deleted before admission", func() {
+					// Make sure that at least a second passes between
+					// creation of pods to avoid flaky behavior.
+					time.Sleep(time.Second * 1)
+
+					excessPod := excessBasePod.Clone().Obj()
+					gomega.Expect(k8sClient.Create(ctx, excessPod)).Should(gomega.Succeed())
+
+					gomega.Eventually(func() error {
+						return k8sClient.Get(ctx, excessPodLookupKey, createdPod)
+					}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
+				})
+
+				ginkgo.By("checking that all pods in group are unsuspended when workload is admitted", func() {
+					admission := testing.MakeAdmission(clusterQueue.Name, "120fa2c0", "542d5455").
+						Assignment(corev1.ResourceCPU, "default", "1").
+						AssignmentPodCount(2).
+						Obj()
+					gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+
+					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod1LookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
+					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod2LookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
+
+					gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					gomega.Expect(createdWorkload.Status.Conditions).Should(gomega.BeComparableTo(
+						[]metav1.Condition{
+							{Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionTrue},
+							{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue},
+						},
+						wlConditionCmpOpts...,
+					))
+				})
+
+				ginkgo.By("checking that excess pod is deleted after admission", func() {
+					excessPod := excessBasePod.Clone().Obj()
+					gomega.Expect(k8sClient.Create(ctx, excessPod)).Should(gomega.Succeed())
+
+					gomega.Eventually(func() error {
+						return k8sClient.Get(ctx, excessPodLookupKey, createdPod)
+					}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
 				})
 			})
 		})
