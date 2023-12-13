@@ -110,13 +110,13 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				PodSets(
 					*testing.MakePodSet("ps1", 3).
 						Request(corev1.ResourceCPU, "1").
-						Image("image").
+						Image("iamge").
 						Obj(),
 					*testing.MakePodSet("ps2", 6).
 						Request(corev1.ResourceCPU, "500m").
 						Request(customResourceOne, "1").
 						Limit(customResourceOne, "1").
-						Image("image").
+						Image("iamge").
 						Obj(),
 				).
 				Obj()
@@ -544,7 +544,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			})
 		})
 
-		ginkgo.It("Should set the workload running after the provisioning request deleted", func() {
+		ginkgo.It("Should let a running workload to continue after the provisioning request deleted", func() {
 			updatedWl := &kueue.Workload{}
 			ginkgo.By("Setting the admission check to the workload", func() {
 				gomega.Eventually(func() error {
@@ -558,7 +558,6 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			})
 
 			ginkgo.By("Setting the quota reservation to the workload", func() {
-				updatedWl := &kueue.Workload{}
 				gomega.Eventually(func() error {
 					err := k8sClient.Get(ctx, wlKey, updatedWl)
 					if err != nil {
@@ -570,13 +569,34 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 			})
 
 			createdRequest := &autoscaling.ProvisioningRequest{}
+			provReqKey := types.NamespacedName{
+				Namespace: wlKey.Namespace,
+				Name:      provisioning.GetProvisioningRequestName(wlKey.Name, ac.Name, 1),
+			}
+
 			ginkgo.By("Checking that the provision request is created", func() {
-				provReqKey := types.NamespacedName{
-					Namespace: wlKey.Namespace,
-					Name:      provisioning.GetProvisioningRequestName(wlKey.Name, ac.Name, 1),
-				}
 				gomega.Eventually(func() error {
 					return k8sClient.Get(ctx, provReqKey, createdRequest)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Setting the provision request as Provisioned", func() {
+				gomega.Eventually(func() error {
+					apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+						Type:   autoscaling.Provisioned,
+						Status: metav1.ConditionTrue,
+						Reason: autoscaling.Provisioned,
+					})
+					return k8sClient.Status().Update(ctx, createdRequest)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking the admission check is ready", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+					state := workload.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, ac.Name)
+					g.Expect(state).NotTo(gomega.BeNil())
+					g.Expect(state.State).To(gomega.Equal(kueue.CheckStateReady))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -597,13 +617,13 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
 			})
 
-			ginkgo.By("Checking the workload is running", func() {
-				updatedWl := &kueue.Workload{}
+			ginkgo.By("Checking the workload remains admitted", func() {
 				gomega.Eventually(func() error {
 					err := k8sClient.Get(ctx, wlKey, updatedWl)
 					if err != nil {
 						return err
 					}
+					util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, string(updatedWl.Status.Admission.ClusterQueue), updatedWl)
 					return nil
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -657,13 +677,13 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Ordered, ginkgo.ContinueOnFailure
 				PodSets(
 					*testing.MakePodSet("ps1", 3).
 						Request(corev1.ResourceCPU, "1").
-						Image("image").
+						Image("iamge").
 						Obj(),
 					*testing.MakePodSet("ps2", 6).
 						Request(corev1.ResourceCPU, "500m").
 						Request(customResourceOne, "1").
 						Limit(customResourceOne, "1").
-						Image("image").
+						Image("iamge").
 						Obj(),
 				).
 				Obj()
