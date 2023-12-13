@@ -75,19 +75,19 @@ type EventRecord struct {
 	// add annotations if ever needed
 }
 
-type EventTestRecorder struct {
+type EventRecorder struct {
 	RecordedEvents []EventRecord
 }
 
-func (tr *EventTestRecorder) Event(object runtime.Object, eventtype, reason, message string) {
+func (tr *EventRecorder) Event(object runtime.Object, eventtype, reason, message string) {
 	tr.Eventf(object, eventtype, reason, message)
 }
 
-func (tr *EventTestRecorder) Eventf(object runtime.Object, eventtype, reason, messageFmt string, args ...interface{}) {
+func (tr *EventRecorder) Eventf(object runtime.Object, eventtype, reason, messageFmt string, args ...interface{}) {
 	tr.AnnotatedEventf(object, nil, eventtype, reason, messageFmt, args...)
 }
 
-func (tr *EventTestRecorder) AnnotatedEventf(targetObject runtime.Object, annotations map[string]string, eventtype, reason, messageFmt string, args ...interface{}) {
+func (tr *EventRecorder) AnnotatedEventf(targetObject runtime.Object, annotations map[string]string, eventtype, reason, messageFmt string, args ...interface{}) {
 	key := types.NamespacedName{}
 	if cobj, iscobj := targetObject.(client.Object); iscobj {
 		key = client.ObjectKeyFromObject(cobj)

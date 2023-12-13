@@ -299,7 +299,7 @@ func TestReconcile(t *testing.T) {
 					Key:       client.ObjectKeyFromObject(baseWorkload),
 					EventType: corev1.EventTypeNormal,
 					Reason:    "ProvisioningRequestCreated",
-					Message:   "Created ProvisioningRequest: \"wl-check1-1\"",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
 				},
 			},
 		},
@@ -328,7 +328,7 @@ func TestReconcile(t *testing.T) {
 					Key:       client.ObjectKeyFromObject(baseWorkload),
 					EventType: corev1.EventTypeNormal,
 					Reason:    "ProvisioningRequestCreated",
-					Message:   "Created ProvisioningRequest: \"wl-check1-1\"",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
 				},
 			},
 		},
@@ -397,7 +397,7 @@ func TestReconcile(t *testing.T) {
 					Key:       client.ObjectKeyFromObject(baseWorkload),
 					EventType: corev1.EventTypeNormal,
 					Reason:    "ProvisioningRequestCreated",
-					Message:   "Created ProvisioningRequest: \"wl-check1-1\"",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
 				},
 			},
 		},
@@ -610,7 +610,7 @@ func TestReconcile(t *testing.T) {
 					Key:       client.ObjectKeyFromObject(baseWorkload),
 					EventType: corev1.EventTypeNormal,
 					Reason:    "ProvisioningRequestCreated",
-					Message:   "Created ProvisioningRequest: \"wl-check1-1\"",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
 				},
 			},
 		},
@@ -636,7 +636,7 @@ func TestReconcile(t *testing.T) {
 					Key:       client.ObjectKeyFromObject(baseWorkload),
 					EventType: corev1.EventTypeNormal,
 					Reason:    "ProvisioningRequestCreated",
-					Message:   "Created ProvisioningRequest: \"wl-check1-1\"",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
 				},
 			},
 		},
@@ -660,7 +660,7 @@ func TestReconcile(t *testing.T) {
 			)
 
 			k8sclient := builder.Build()
-			recorder := &utiltesting.EventTestRecorder{}
+			recorder := &utiltesting.EventRecorder{}
 			controller, _ := NewController(k8sclient, recorder)
 
 			req := reconcile.Request{
