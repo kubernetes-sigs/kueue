@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -37,6 +38,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -173,7 +175,7 @@ func (p *Pod) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
 }
 
 // RestorePodSetsInfo will restore the original node affinity and podSet counts of the job.
-func (p *Pod) RestorePodSetsInfo(nodeSelectors []podset.PodSetInfo) bool {
+func (p *Pod) RestorePodSetsInfo(_ []podset.PodSetInfo) bool {
 	// Not implemented since Pods cannot be updated, they can only be terminated.
 	return false
 }
@@ -381,6 +383,8 @@ func (p *Pod) groupName() string {
 	return p.Object().GetLabels()[GroupNameLabel]
 }
 
+// groupTotalCount returns the value of GroupTotalCountAnnotation for the pod being reconciled at the moment.
+// It doesn't check if the whole group has the same total group count annotation value.
 func (p *Pod) groupTotalCount() (int, error) {
 	if p.groupName() == "" {
 		return 0, fmt.Errorf("pod doesn't have a '%s' label", GroupNameLabel)
@@ -405,6 +409,8 @@ func (p *Pod) groupTotalCount() (int, error) {
 	return gtc, nil
 }
 
+// getRoleHash will filter all the fields of the pod that are relevant to admission (pod role) and return a sha256
+// checksum of those fields. This is used to group the pods of the same roles when interacting with the workload.
 func getRoleHash(p corev1.Pod) (string, error) {
 	if roleHash, ok := p.Annotations[RoleHashAnnotation]; ok {
 		return roleHash, nil
@@ -459,39 +465,13 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key types.NamespacedNam
 	return false, nil
 }
 
-func (p *Pod) constructGroupPodSets(podsInGroup corev1.PodList) ([]kueue.PodSet, error) {
-	groupTotalCount, err := p.groupTotalCount()
-	if err != nil {
-		return nil, err
-	}
-	originalQueue := jobframework.QueueName(p)
-
+func (p *Pod) constructGroupPodSets() ([]kueue.PodSet, error) {
 	var resultPodSets []kueue.PodSet
 
-	for _, podInGroup := range podsInGroup.Items {
+	for _, podInGroup := range p.list.Items {
 		// Skip failed pods
 		if podInGroup.Status.Phase == corev1.PodFailed {
 			continue
-		}
-
-		if podInGroupQueue := jobframework.QueueNameForObject(&podInGroup); podInGroupQueue != originalQueue {
-			return nil, jobframework.UnretryableError(fmt.Sprintf("pods '%s' and '%s' has different queue names: %s!=%s",
-				p.pod.GetName(), podInGroup.GetName(),
-				originalQueue, podInGroupQueue))
-		}
-
-		tc, err := strconv.Atoi(podInGroup.GetAnnotations()[GroupTotalCountAnnotation])
-		if err != nil {
-			return nil, fmt.Errorf("failed to extract '%s' annotation from the pod '%s': %w",
-				GroupTotalCountAnnotation,
-				podInGroup.GetName(),
-				err)
-		}
-		if tc != groupTotalCount {
-			return nil, jobframework.UnretryableError(fmt.Sprintf("pods '%s' and '%s' has different '%s' values: %d!=%d",
-				p.pod.GetName(), podInGroup.GetName(),
-				GroupTotalCountAnnotation,
-				groupTotalCount, tc))
 		}
 
 		roleHash, err := getRoleHash(podInGroup)
@@ -522,47 +502,121 @@ func (p *Pod) constructGroupPodSets(podsInGroup corev1.PodList) ([]kueue.PodSet,
 	return resultPodSets, nil
 }
 
-func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, r record.EventRecorder) (*kueue.Workload, error) {
-	log := ctrl.LoggerFrom(ctx)
-	object := p.Object()
+// validatePodGroupMetadata validates metadata of all members of the pod group
+func (p *Pod) validatePodGroupMetadata(r record.EventRecorder, activePods []corev1.Pod) error {
+	groupTotalCount, err := p.groupTotalCount()
+	if err != nil {
+		return err
+	}
+	originalQueue := jobframework.QueueName(p)
 
-	var (
-		podSets []kueue.PodSet
-	)
+	if len(activePods) < groupTotalCount {
+		errMsg := fmt.Sprintf("'%s' group total count is less than the actual number of pods in the cluster", p.groupName())
+		r.Eventf(p.Object(), corev1.EventTypeWarning, "ErrWorkloadCompose", errMsg)
+		return jobframework.UnretryableError(errMsg)
+	}
 
-	if !p.isGroup {
-		podSets = p.PodSets()
-	} else {
-		groupTotalCount, err := p.groupTotalCount()
+	for _, podInGroup := range p.list.Items {
+		// Skip failed pods
+		if podInGroup.Status.Phase == corev1.PodFailed {
+			continue
+		}
+
+		if podInGroupQueue := jobframework.QueueNameForObject(&podInGroup); podInGroupQueue != originalQueue {
+			return jobframework.UnretryableError(fmt.Sprintf("pods '%s' and '%s' has different queue names: %s!=%s",
+				p.pod.GetName(), podInGroup.GetName(),
+				originalQueue, podInGroupQueue))
+		}
+
+		tc, err := strconv.Atoi(podInGroup.GetAnnotations()[GroupTotalCountAnnotation])
 		if err != nil {
-			return nil, err
+			return fmt.Errorf("failed to extract '%s' annotation from the pod '%s': %w",
+				GroupTotalCountAnnotation,
+				podInGroup.GetName(),
+				err)
 		}
-
-		podCount := 0
-		for i := range p.list.Items {
-			if p.list.Items[i].Status.Phase != corev1.PodFailed {
-				podCount++
-			}
-		}
-
-		if podCount != groupTotalCount {
-			errMsg := fmt.Sprintf("'%s' group total count is different from the actual number of pods in the cluster", p.groupName())
-			r.Eventf(object, corev1.EventTypeWarning, "ErrWorkloadCompose", errMsg)
-			return nil, jobframework.UnretryableError(errMsg)
-		}
-
-		podSets, err = p.constructGroupPodSets(p.list)
-		if err != nil {
-			if jobframework.IsUnretryableError(err) {
-				r.Eventf(object, corev1.EventTypeWarning, "ErrWorkloadCompose", err.Error())
-			}
-			return nil, err
-		}
-
-		if len(podSets) > 8 {
-			return nil, jobframework.UnretryableError(errMsgIncorrectGroupRoleCount)
+		if tc != groupTotalCount {
+			return jobframework.UnretryableError(fmt.Sprintf("pods '%s' and '%s' has different '%s' values: %d!=%d",
+				p.pod.GetName(), podInGroup.GetName(),
+				GroupTotalCountAnnotation,
+				groupTotalCount, tc))
 		}
 	}
+
+	return nil
+}
+
+// activePods returns a slice of non-failed pods in the group
+func (p *Pod) activePods() []corev1.Pod {
+	// Filter all failed pods
+	activePods := make([]corev1.Pod, 0, len(p.list.Items))
+	for _, pod := range p.list.Items {
+		if pod.Status.Phase != corev1.PodFailed {
+			activePods = append(activePods, pod)
+		}
+	}
+
+	return activePods
+}
+
+// cleanupExcessPods will delete and finalize pods created last if the number of
+// activePods is greater than the totalCount value.
+func (p *Pod) cleanupExcessPods(ctx context.Context, c client.Client, totalCount int, activePods []corev1.Pod) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	extraPodsCount := len(activePods) - totalCount
+
+	if extraPodsCount <= 0 {
+		return nil
+	}
+
+	// Sort active pods by creation timestamp
+	sort.Slice(activePods, func(i, j int) bool {
+		return activePods[i].ObjectMeta.CreationTimestamp.Before(&activePods[j].ObjectMeta.CreationTimestamp)
+	})
+
+	// Extract all the latest created extra pods
+	extraPods := activePods[len(activePods)-extraPodsCount:]
+
+	// Finalize and delete the active pods created last
+	for _, extraPod := range extraPods {
+		if controllerutil.RemoveFinalizer(&extraPod, PodFinalizer) {
+			log.V(3).Info("Finalizing excess pod in group", "excessPod", klog.KObj(&extraPod))
+			if err := c.Update(ctx, &extraPod); err != nil {
+				return err
+			}
+		}
+		if extraPod.ObjectMeta.DeletionTimestamp.IsZero() {
+			log.V(3).Info("Deleting excess pod in group", "excessPod", klog.KObj(&extraPod))
+			if err := c.Delete(ctx, &extraPod); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Remove excess pods from the group list
+	newPodsInGroup := make([]corev1.Pod, 0, len(p.list.Items)-len(extraPods))
+	for i := range p.list.Items {
+		found := false
+		for j := range extraPods {
+			if p.list.Items[i].Name == extraPods[j].Name && p.list.Items[i].Namespace == extraPods[j].Namespace {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			newPodsInGroup = append(newPodsInGroup, p.list.Items[i])
+		}
+	}
+	p.list.Items = newPodsInGroup
+
+	return nil
+}
+
+func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, r record.EventRecorder) (*kueue.Workload, error) {
+	object := p.Object()
+	log := ctrl.LoggerFrom(ctx)
 
 	wl := &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
@@ -571,14 +625,16 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 			Finalizers: []string{kueue.ResourceInUseFinalizerName},
 		},
 		Spec: kueue.WorkloadSpec{
-			PodSets:   podSets,
 			QueueName: jobframework.QueueName(p),
 		},
 	}
 
+	// Construct workload for a single pod
 	if !p.isGroup {
+		wl.Spec.PodSets = p.PodSets()
+
 		wl.Name = jobframework.GetWorkloadNameForOwnerWithGVK(p.pod.GetName(), p.GVK())
-		jobUid := string(p.Object().GetUID())
+		jobUid := string(object.GetUID())
 		if errs := validation.IsValidLabelValue(jobUid); len(errs) == 0 {
 			wl.Labels[controllerconsts.JobUIDLabel] = jobUid
 		} else {
@@ -590,15 +646,48 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		}
 
 		// add the controller ref
-		if err := controllerutil.SetControllerReference(p.Object(), wl, c.Scheme()); err != nil {
+		if err := controllerutil.SetControllerReference(object, wl, c.Scheme()); err != nil {
 			return nil, err
 		}
-	} else {
-		wl.Name = p.groupName()
-		for _, pod := range p.list.Items {
-			if err := controllerutil.SetOwnerReference(&pod, wl, c.Scheme()); err != nil {
-				return nil, err
-			}
+
+		return wl, nil
+	}
+
+	activePods := p.activePods()
+
+	err := p.validatePodGroupMetadata(r, activePods)
+	if err != nil {
+		return nil, err
+	}
+
+	groupTotalCount, err := p.groupTotalCount()
+	if err != nil {
+		return nil, err
+	}
+
+	// Cleanup extra pods if there's any
+	err = p.cleanupExcessPods(ctx, c, groupTotalCount, activePods)
+	if err != nil {
+		return nil, err
+	}
+
+	// Construct workload for a pod group
+	wl.Spec.PodSets, err = p.constructGroupPodSets()
+	if err != nil {
+		if jobframework.IsUnretryableError(err) {
+			r.Eventf(object, corev1.EventTypeWarning, "ErrWorkloadCompose", err.Error())
+		}
+		return nil, err
+	}
+
+	if len(wl.Spec.PodSets) > 8 {
+		return nil, jobframework.UnretryableError(errMsgIncorrectGroupRoleCount)
+	}
+
+	wl.Name = p.groupName()
+	for _, pod := range p.list.Items {
+		if err := controllerutil.SetOwnerReference(&pod, wl, c.Scheme()); err != nil {
+			return nil, err
 		}
 	}
 
@@ -623,7 +712,30 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client) (*kueu
 		return nil, nil, err
 	}
 
-	jobPodSets, err := p.constructGroupPodSets(p.list)
+	// Cleanup excess pods for each workload pod set (role)
+	activePods := p.activePods()
+	for _, ps := range workload.Spec.PodSets {
+		// Find all the active pods of the role
+		var roleActivePods []corev1.Pod
+		for _, activePod := range activePods {
+			roleHash, err := getRoleHash(activePod)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to calculate pod role hash: %w", err)
+			}
+
+			if ps.Name == roleHash {
+				roleActivePods = append(roleActivePods, activePod)
+			}
+		}
+
+		// Cleanup excess pods of the role
+		err := p.cleanupExcessPods(ctx, c, int(ps.Count), roleActivePods)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	jobPodSets, err := p.constructGroupPodSets()
 	if err != nil {
 		return nil, nil, err
 	}

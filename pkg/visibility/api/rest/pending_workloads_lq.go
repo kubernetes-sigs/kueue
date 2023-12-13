@@ -16,10 +16,10 @@ package rest
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/rest"
@@ -40,8 +40,6 @@ type pendingWorkloadsInLqREST struct {
 var _ rest.Storage = &pendingWorkloadsInLqREST{}
 var _ rest.GetterWithOptions = &pendingWorkloadsInLqREST{}
 var _ rest.Scoper = &pendingWorkloadsInLqREST{}
-
-var errQueueDoesNotExist = errors.New("queue doesn't exist")
 
 func NewPendingWorkloadsInLqREST(kueueMgr *queue.Manager) *pendingWorkloadsInLqREST {
 	return &pendingWorkloadsInLqREST{
@@ -71,7 +69,7 @@ func (m *pendingWorkloadsInLqREST) Get(ctx context.Context, name string, opts ru
 	namespace := genericapirequest.NamespaceValue(ctx)
 	cqName, err := m.queueMgr.ClusterQueueFromLocalQueue(fmt.Sprintf("%s/%s", namespace, name))
 	if err != nil {
-		return nil, errQueueDoesNotExist
+		return nil, errors.NewNotFound(v1alpha1.Resource("localqueue"), name)
 	}
 
 	wls := make([]v1alpha1.PendingWorkload, 0, limit)

@@ -39,9 +39,10 @@ import (
 )
 
 var (
-	k8sClient        client.Client
-	ctx              context.Context
-	visibilityClient visibilityv1alpha1.VisibilityV1alpha1Interface
+	k8sClient                    client.Client
+	ctx                          context.Context
+	visibilityClient             visibilityv1alpha1.VisibilityV1alpha1Interface
+	impersonatedVisibilityClient visibilityv1alpha1.VisibilityV1alpha1Interface
 )
 
 const (
@@ -79,6 +80,14 @@ func CreateClientUsingCluster() client.Client {
 	// +kubebuilder:scaffold:scheme
 	client, err := client.New(cfg, client.Options{Scheme: scheme.Scheme})
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	cfg.Impersonate.UserName = "system:serviceaccount:kueue-system:default"
+	impersonatedKueueClient, err := kueueclientset.NewForConfig(cfg)
+	if err != nil {
+		panic(err)
+	}
+	impersonatedVisibilityClient = impersonatedKueueClient.VisibilityV1alpha1()
+
 	return client
 }
 

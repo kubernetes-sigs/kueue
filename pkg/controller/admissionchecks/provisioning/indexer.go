@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 )
 
@@ -34,6 +35,10 @@ const (
 	RequestsOwnedByWorkloadKey     = "metadata.ownedByWorkload"
 	WorkloadsWithAdmissionCheckKey = "status.admissionChecks"
 	AdmissionCheckUsingConfigKey   = "spec.provisioningRequestConfig"
+)
+
+var (
+	configGVK = kueue.GroupVersion.WithKind(ConfigKind)
 )
 
 func indexRequestsOwner(obj client.Object) []string {
@@ -52,15 +57,6 @@ func indexWorkloadsChecks(obj client.Object) []string {
 	return slices.Map(wl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) string { return c.Name })
 }
 
-func indexAdmissionCheckConnfig(obj client.Object) []string {
-	ac, isAc := obj.(*kueue.AdmissionCheck)
-	if !isAc || ac.Spec.ControllerName != ControllerName || !parametersRefValid(ac.Spec.Parameters) {
-		return nil
-	}
-
-	return []string{ac.Spec.Parameters.Name}
-}
-
 func SetupIndexer(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &autoscaling.ProvisioningRequest{}, RequestsOwnedByWorkloadKey, indexRequestsOwner); err != nil {
 		return fmt.Errorf("setting index on provisionRequest owner: %w", err)
@@ -68,7 +64,8 @@ func SetupIndexer(ctx context.Context, indexer client.FieldIndexer) error {
 	if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadsWithAdmissionCheckKey, indexWorkloadsChecks); err != nil {
 		return fmt.Errorf("setting index on workloads checks: %w", err)
 	}
-	if err := indexer.IndexField(ctx, &kueue.AdmissionCheck{}, AdmissionCheckUsingConfigKey, indexAdmissionCheckConnfig); err != nil {
+
+	if err := indexer.IndexField(ctx, &kueue.AdmissionCheck{}, AdmissionCheckUsingConfigKey, admissioncheck.IndexerByConfigFunction(ControllerName, configGVK)); err != nil {
 		return fmt.Errorf("setting index on admission checks config: %w", err)
 	}
 	return nil
