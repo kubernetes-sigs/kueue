@@ -1164,10 +1164,10 @@ func TestSchedule(t *testing.T) {
 
 			ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
 			go qManager.CleanUpOnContext(ctx)
+			defer cancel()
 
 			scheduler.schedule(ctx)
 			wg.Wait()
-			cancel()
 
 			wantScheduled := make(map[string]kueue.Admission)
 			for _, key := range tc.wantScheduled {
