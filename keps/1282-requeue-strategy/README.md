@@ -14,7 +14,6 @@
   - [Changes to Queue Sorting](#changes-to-queue-sorting)
     - [Existing Sorting](#existing-sorting)
     - [Proposed Sorting](#proposed-sorting)
-    - [Preemption/Preemptor Flapping](#preemptionpreemptor-flapping)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
@@ -27,19 +26,21 @@
 
 ## Summary
 
-Introduce new options that allow administrators to configure how Workloads are placed back in the queue after being after being evicted.
+Introduce new options that allow administrators to configure how Workloads are placed back in the queue after being after being evicted due to readiness checks.
 
 ## Motivation
 
 ### Goals
 
-Allow administrators to configure requeuing behavior based on the reason the Workload is being requeued.
+* Allowing administrators to configure requeuing behavior to ensure fair resource sharing after workloads fail to start running after they have been admitted.
 
 ### Non-Goals
 
+* Providing options for how to sort requeued workloads after priority-based evictions (no user stories).
+
 ## Proposal
 
-Make queue placement after preemption configurable at the level of Kueue configuration.
+Make queue placement after pod-readiness eviction configurable at the level of Kueue configuration.
 
 ### User Stories (Optional)
 
@@ -74,12 +75,12 @@ Consider including folks who also work outside the SIG or subproject.
 
 ### API Changes
 
-Add additional fields to the Kueue ConfigMap to allow administrators to specify what timestamp to consider during queue sorting based on the reason for eviction.
+Add an additional field to the Kueue ConfigMap to allow administrators to specify what timestamp to consider during queue sorting (under the pre-existing waitForPodsReady block).
 
 Possible settings:
 
-* `UseEvictionTimestamp` (Back of queue)
-* `UseCreationTimestamp` (Front of queue)
+* `Eviction` (Back of queue)
+* `Creation` (Front of queue)
 
 ```yaml
 kind: ConfigMap
@@ -91,155 +92,21 @@ data:
     apiVersion: config.kueue.x-k8s.io/v1beta1
     kind: Configuration
     # ...
-    requeueStrategy:
-      priorityPreemption: UseEvictionTimestamp
-      podsReadyTimeout: UseCreationTimestamp
+    waitForPodsReady:
+      requeuingTimestamp: Creation | Eviction # <-- New field
 ```
 
 ### Changes to Queue Sorting
 
 #### Existing Sorting
 
-Currently, workloads within a ClusterQueue are sorted based on 1. Priority and 2. Timestamp of Creation/Eviction.
-
-```go
-package queue
-
-// ...
-
-func queueOrdering(a, b interface{}) bool {
-	objA := a.(*workload.Info)
-	objB := b.(*workload.Info)
-	p1 := utilpriority.Priority(objA.Obj)
-	p2 := utilpriority.Priority(objB.Obj)
-
-	if p1 != p2 {
-		return p1 > p2
-	}
-
-	tA := workload.GetQueueOrderTimestamp(objA.Obj)
-	tB := workload.GetQueueOrderTimestamp(objB.Obj)
-	return !tB.Before(tA)
-}
-```
-
-```go
-package workload
-
-// ...
-
-func GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
-	if c := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted); c != nil && c.Status == metav1.ConditionTrue && c.Reason == kueue.WorkloadEvictedByPodsReadyTimeout {
-		return &c.LastTransitionTime
-	}
-	return &w.CreationTimestamp
-}
-```
+Currently, workloads within a ClusterQueue are sorted based on 1. Priority and 2. Timestamp of eviction - if evicted, otherwise time of creation.
 
 #### Proposed Sorting
 
-Add types that contain information about queue ordering strategy to the `apis/config/<version>` package. For example:
+The `pkg/workload` package could be modified to include a conditional (`if evictionReason == kueue.WorkloadEvictedByPodsReadyTimeout`) that controls which timestamp to return based on the configured ordering strategy. The same sorting logic would also be used when sorting the heads of queues.
 
-```go
-package v1beta1
-
-// ...
-
-type QueueOrderingCriteria string
-
-const (
-  OrderOnEvictionTimestamp = QueueOrderingCriteria("UseEvictionTimestamp")
-  OrderOnCreationTimestamp = QueueOrderingCriteria("UseCreationTimestamp")
-)
-
-type QueueOrderingStrategy struct{
-  RequeueOnPriorityPreemption QueueOrderingCriteria
-  RequeueOnPodsReadyTimeout   QueueOrderingCriteria
-}
-```
-
-The `pkg/workload` package could have the `GetQueueOrderTimestamp` function modified to include conditionals that control which timestamp to return based on the configured ordering strategy.
-
-```go
-func GetQueueOrderTimestamp(w *kueue.Workload, s QueueOrderingStrategy) *metav1.Time {
-  switch getEvictionReason(w) {
-    case kueue.WorkloadEvictedByPodsReadyTimeout:
-      if s.RequeueOnPodsReadyTimeout == OrderOnEvictionTimestamp {
-        return &c.LastTransitionTime
-      } else {
-        return &c.CreationTimestamp
-      }
-    case kueue.WorkloadEvictedByPreemption:
-      if s.RequeueOnPriorityPreemption == OrderOnEvictionTimestamp {
-        return &c.LastTransitionTime
-      } else {
-        return &c.CreationTimestamp
-      }
-    default:
-      return &w.CreationTimestamp
-  }
-}
-
-// ...
-
-func getEvictionReason(w *kueue.Workload) string {
-	if c := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted); c != nil && c.Status == metav1.ConditionTrue {
-    return c.Reason
-  }
-  return ""
-}
-```
-
-#### Preemption/Preemptor Flapping
-
-To address the [following concern](https://github.com/kubernetes-sigs/kueue/issues/1282#issue-1966106166):
-
-> The case of preemption might be more tricky: we want the preempted jobs to be readmitted as soon as possible. But if a job is waiting for more than one job to be preempted and the queueing strategy is BestEffortFIFO, we don't want the preempted pods to take the head of the queue.
-> Maybe we need to hold them until the preemptor job is admitted, and then they should use the regular priority.
-
-The `pkg/queue` package could have the existing `queueOrderingFunc()` modified to add sorting based on who is the preemptor (might need to add a condition to the Workload to track this).
-
-
-```go
-package queue 
-
-// ...
-
-func queueOrderingFunc(s kueue.QueueOrderingStrategy) func(interface{}, interface{}) bool {
-  return func(a, b interface{}) bool {
-    objA := a.(*workload.Info)
-    objB := b.(*workload.Info)
-    p1 := utilpriority.Priority(objA.Obj)
-    p2 := utilpriority.Priority(objB.Obj)
-    
-    if p1 != p2 {
-      return p1 > p2
-    }
-    
-    // Make sure a workload does not jump ahead of a preempting workload.
-    pre1 := workload.IsPreemptor(objA.Obj)
-    pre2 := workload.IsPreemptor(objB.Obj)
-    if pre1 != pre2 {
-      return pre1
-    }
-    
-    tA := workload.GetQueueOrderTimestamp(objA.Obj, s)
-    tB := workload.GetQueueOrderTimestamp(objB.Obj, s)
-    return !tB.Before(tA)
-  }
-}
-```
-
-```go
-package workload
-
-// ...
-
-func IsPreemptor(w *kueue.Workload, s QueueOrderingStrategy) *metav1.Time {
-  c := apimeta.FindStatusCondition(w.Status.Conditions, /* TODO: Condition */)
-  return c != nil && c.Status == metav1.ConditionTrue && c.Reason == /* TODO: Reason */
-}
-```
+Update the `apis/config/<version>` package to include `Creation` and `Eviction` constants.
 
 ### Test Plan
 
@@ -256,12 +123,13 @@ implementing this enhancement to ensure the enhancements have also solid foundat
 
 #### Unit Tests
 
-Most of the test covarage should probably live inside of `pkd/queue`. Additional test cases should be added that test different requeuing configurations.
+Most of the test coverage should probably live inside of `pkd/queue`. Additional test cases should be added that test different requeuing configurations.
 
 - `pkg/queue`: `Nov 2 2023` - `33.9%`
 
 #### Integration tests
 
+- Add integration test that matches user story 1.
 - Add an integration test to detect if flapping associated with preempted workloads being readmitted before the preemptor workload when `priorityPreemption: UseEvictionTimestamp` is set.
 
 ### Graduation Criteria
@@ -297,10 +165,10 @@ Major milestones might include:
 
 ## Drawbacks
 
-When used with `StrictFIFO`, the `podsReadyTimeout: UseCreationTimestamp` (front of queue) policy could lead to a blocked queue. This was called out in the issue that set the hardcoded [back-of-queue behavior](https://github.com/kubernetes-sigs/kueue/issues/599). This could be mitigated by recommending administrators select `BestEffortFIFO` when using this setting.
+When used with `StrictFIFO`, the `requeuingTimestamp: Creation` (front of queue) policy could lead to a blocked queue. This was called out in the issue that set the hardcoded [back-of-queue behavior](https://github.com/kubernetes-sigs/kueue/issues/599). This could be mitigated by recommending administrators select `BestEffortFIFO` when using this setting.
 
 ## Alternatives
 
-The same concepts could be exposed to users based on `FrontOfQueue` or `BackOfQueue` settings instead of `UseCreationTimestamp` and `UseEvictionTimestamp`. These terms would imply that the workload would be prioritized over higher priority workloads in the queue. This is probably not desired (would likely lead to rapid preemption upon admission when preemption based on priority is enabled).
+The same concepts could be exposed to users based on `FrontOfQueue` or `BackOfQueue` settings instead of `Creation` and `Eviction` timestamps. These terms would imply that the workload would be prioritized over higher priority workloads in the queue. This is probably not desired (would likely lead to rapid preemption upon admission when preemption based on priority is enabled).
 
-These concepts could be configured in the ClusterQueue resource. This alternative would increase flexibility. Without a clear need for this level of granularity, it might be better to set these options at the controller level as proposed here to increase the grokability of the overall system.
+These concepts could be configured in the ClusterQueue resource. This alternative would increase flexibility. Without a clear need for this level of granularity, it might be better to set these options at the controller level where `waitForPodsReady` settings already exist. Furthermore, configuring these settings at the ClusterQueue level introduces the question of what timestamp to use when sorting the heads of all ClusterQueues.
