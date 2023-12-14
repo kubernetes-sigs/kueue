@@ -833,9 +833,12 @@ func (r *JobReconciler) getPodSetsInfoFromStatus(ctx context.Context, w *kueue.W
 func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job GenericJob, object client.Object) error {
 	log := ctrl.LoggerFrom(ctx)
 
-	// Stop the job if not already suspended
-	if stopErr := r.stopJob(ctx, job, nil, StopReasonNoMatchingWorkload, "missing workload"); stopErr != nil {
-		return stopErr
+	usePrebuiltWorkload, _ := prebuiltWorkload(job)
+	if usePrebuiltWorkload {
+		// Stop the job if not already suspended
+		if stopErr := r.stopJob(ctx, job, nil, StopReasonNoMatchingWorkload, "missing workload"); stopErr != nil {
+			return stopErr
+		}
 	}
 
 	// Wait until there are no active pods.
@@ -844,7 +847,7 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 		return nil
 	}
 
-	if usePrebuiltWorkload, _ := prebuiltWorkload(job); usePrebuiltWorkload {
+	if usePrebuiltWorkload {
 		log.V(2).Info("Skip workload creation for job with prebuilt workload")
 		return nil
 	}
