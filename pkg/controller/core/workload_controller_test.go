@@ -17,16 +17,23 @@ limitations under the License.
 package core
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/queue"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func TestAdmittedNotReadyWorkload(t *testing.T) {
@@ -286,6 +293,66 @@ func TestSyncCheckStates(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantStates, gotStates, opts...); diff != "" {
 				t.Errorf("Unexpected conditions, (want-/got+): %s", diff)
+			}
+		})
+	}
+}
+
+func TestReconcile(t *testing.T) {
+	cases := map[string]struct {
+		workload   *kueue.Workload
+		wantError  error
+		wantEvents []utiltesting.EventRecord
+	}{
+		"admit": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+				}).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: "Normal",
+					Reason:    "Admitted",
+				},
+			},
+		},
+		"already admited": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+				}).
+				Obj(),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			objs := []client.Object{tc.workload}
+			clientBuilder := utiltesting.NewClientBuilder().WithObjects(objs...).WithStatusSubresource(objs...)
+			cl := clientBuilder.Build()
+			recorder := &utiltesting.EventRecorder{}
+
+			cqCache := cache.New(cl)
+			qManager := queue.NewManager(cl, cqCache)
+			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder)
+
+			ctx, ctxCancel := context.WithCancel(context.Background())
+			defer ctxCancel()
+
+			_, gotError := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(tc.workload)})
+
+			if diff := cmp.Diff(tc.wantError, gotError); diff != "" {
+				t.Errorf("unexpected reconcile error (-want/+got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")); diff != "" {
+				t.Errorf("unexpected events (-want/+got):\n%s", diff)
 			}
 		})
 	}

@@ -23,6 +23,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/queue"
 )
 
@@ -61,7 +62,10 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 	if err := cqRec.SetupWithManager(mgr); err != nil {
 		return "ClusterQueue", err
 	}
-	if err := NewWorkloadReconciler(mgr.GetClient(), qManager, cc, WithWorkloadUpdateWatchers(qRec, cqRec), WithPodsReadyTimeout(podsReadyTimeout(cfg))).SetupWithManager(mgr); err != nil {
+	if err := NewWorkloadReconciler(mgr.GetClient(), qManager, cc,
+		mgr.GetEventRecorderFor(constants.WorkloadControllerName),
+		WithWorkloadUpdateWatchers(qRec, cqRec),
+		WithPodsReadyTimeout(podsReadyTimeout(cfg))).SetupWithManager(mgr); err != nil {
 		return "Workload", err
 	}
 	return "", nil

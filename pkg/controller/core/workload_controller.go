@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -95,9 +96,10 @@ type WorkloadReconciler struct {
 	client           client.Client
 	watchers         []WorkloadUpdateWatcher
 	podsReadyTimeout *time.Duration
+	recorder         record.EventRecorder
 }
 
-func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *cache.Cache, opts ...Option) *WorkloadReconciler {
+func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *cache.Cache, recorder record.EventRecorder, opts ...Option) *WorkloadReconciler {
 	options := defaultOptions
 	for _, opt := range opts {
 		opt(&options)
@@ -110,6 +112,7 @@ func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *c
 		cache:            cache,
 		watchers:         options.watchers,
 		podsReadyTimeout: options.podsReadyTimeout,
+		recorder:         recorder,
 	}
 }
 
@@ -153,7 +156,15 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if workload.SyncAdmittedCondition(&wl) {
-		return ctrl.Result{}, workload.ApplyAdmissionStatus(ctx, r.client, &wl, true)
+		if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true); err != nil {
+			return ctrl.Result{}, err
+		}
+		if workload.IsAdmitted(&wl) {
+			c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+			r.recorder.Eventf(&wl, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was %.0fs", wl.Status.Admission.ClusterQueue, time.Since(c.LastTransitionTime.Time).Seconds())
+
+		}
+		return ctrl.Result{}, nil
 	}
 
 	if workload.HasQuotaReservation(&wl) {
