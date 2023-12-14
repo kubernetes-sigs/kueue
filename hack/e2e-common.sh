@@ -19,9 +19,7 @@
 # $1 - cluster name
 function cluster_cleanup {
 	kubectl config use-context kind-$1
-        kubectl logs -n kube-system kube-scheduler-$1-control-plane > $ARTIFACTS/$1-kube-scheduler.log || true
-        kubectl logs -n kube-system kube-controller-manager-$1-control-plane > $ARTIFACTS/$1-kube-controller-manager.log || true
-        kubectl logs -n kueue-system deployment/kueue-controller-manager > $ARTIFACTS/$1-kueue-controller-manager.log || true
+        $KIND export logs $ARTIFACTS --name $1 || true
         kubectl describe pods -n kueue-system > $ARTIFACTS/$1-kueue-system-pods.log || true
         kubectl describe pods > $ARTIFACTS/$1-default-pods.log || true
         $KIND delete cluster --name $1
