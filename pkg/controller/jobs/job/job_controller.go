@@ -211,11 +211,11 @@ var (
 	// the legacy names are no longer defined in the api, only in k/2/apis/batch
 	legacyJobNameLabel       = "job-name"
 	legacyControllerUidLabel = "controller-uid"
-	mangedLabels             = []string{legacyJobNameLabel, legacyControllerUidLabel, batchv1.JobNameLabel, batchv1.ControllerUidLabel}
+	managedLabels            = []string{legacyJobNameLabel, legacyControllerUidLabel, batchv1.JobNameLabel, batchv1.ControllerUidLabel}
 )
 
 func cleanManagedLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
-	for _, managedLabel := range mangedLabels {
+	for _, managedLabel := range managedLabels {
 		delete(pt.Labels, managedLabel)
 	}
 	return pt
@@ -264,7 +264,7 @@ func (j *Job) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 		}
 	}
 	info := podSetsInfo[0]
-	for _, mangedLabel := range mangedLabels {
+	for _, mangedLabel := range managedLabels {
 		if v, found := j.Spec.Template.Labels[mangedLabel]; found {
 			if info.Labels == nil {
 				info.Labels = map[string]string{mangedLabel: v}

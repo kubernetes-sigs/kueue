@@ -445,7 +445,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Admitting the workload , the job should unsuspend", func() {
+			ginkgo.By("Admitting the workload, the job should unsuspend", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdWl := kueue.Workload{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())

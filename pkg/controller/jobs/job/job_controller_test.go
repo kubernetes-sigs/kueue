@@ -416,8 +416,6 @@ func TestReconciler(t *testing.T) {
 		wantJob           batchv1.Job
 		wantWorkloads     []kueue.Workload
 		wantErr           error
-		checkWlOwner      bool
-		skipOwnerUpdates  bool
 	}{
 		"when workload is admitted the PodSetUpdates are propagated to job": {
 			job: *baseJobWrapper.Clone().
@@ -1696,7 +1694,6 @@ func TestReconciler(t *testing.T) {
 				Label(controllerconsts.PrebuiltWorkloadLabel, "missing-workload").
 				UID("test-uid").
 				Obj(),
-			skipOwnerUpdates: true,
 		},
 		"when the prebuilt workload exists its owner info is updated": {
 			job: *baseJobWrapper.
@@ -1732,8 +1729,6 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(batchv1.SchemeGroupVersion.String(), "Job", "job", "test-uid", true, true).
 					Obj(),
 			},
-			checkWlOwner:     true,
-			skipOwnerUpdates: true,
 		},
 		"when the prebuilt workload is owned by another object": {
 			job: *baseJobWrapper.
@@ -1767,8 +1762,6 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(batchv1.SchemeGroupVersion.String(), "Job", "other-job", "other-uid", true, true).
 					Obj(),
 			},
-			checkWlOwner:     true,
-			skipOwnerUpdates: true,
 		},
 		"when the prebuilt workload is not equivalent to the job": {
 			job: *baseJobWrapper.
@@ -1810,8 +1803,6 @@ func TestReconciler(t *testing.T) {
 					}).
 					Obj(),
 			},
-			checkWlOwner:     true,
-			skipOwnerUpdates: true,
 		},
 	}
 	for name, tc := range cases {
@@ -1829,9 +1820,13 @@ func TestReconciler(t *testing.T) {
 				kcBuilder = kcBuilder.WithStatusSubresource(&tc.workloads[i])
 			}
 
+			// For prebuilt workloads we are skipping the ownership setup in the test body and
+			// expect the reconciler to do it.
+			_, useesPrebuiltWorkload := tc.job.Labels[controllerconsts.PrebuiltWorkloadLabel]
+
 			kClient := kcBuilder.Build()
 			for i := range tc.workloads {
-				if !tc.skipOwnerUpdates {
+				if !useesPrebuiltWorkload {
 					if err := ctrl.SetControllerReference(&tc.job, &tc.workloads[i], kClient.Scheme()); err != nil {
 						t.Fatalf("Could not setup owner reference in Workloads: %v", err)
 					}
@@ -1864,7 +1859,7 @@ func TestReconciler(t *testing.T) {
 			}
 
 			wlCheckOpts := workloadCmpOpts
-			if tc.checkWlOwner {
+			if useesPrebuiltWorkload {
 				wlCheckOpts = workloadCmpOptsWithOwner
 			}
 
