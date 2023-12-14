@@ -5,9 +5,11 @@ authors:
 status: implementable
 creation-date: 2023-11-10
 reviewers:
-  - 
+  - trasc
+  - mimowo
+
 approvers:
-  - 
+  - mwielgus
 
 # The target maturity stage in the current dev cycle for this KEP.
 stage: stable

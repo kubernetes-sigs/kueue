@@ -28,7 +28,7 @@ tags, and then generate with `hack/update-toc.sh`.
 - [Design Details](#design-details)
   - [Version](#version)
   - [Describe](#describe)
-  - [List](#list)
+  - [List (get)](#list-get)
   - [Stop](#stop)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
@@ -59,7 +59,6 @@ Impement basic kueue CLI commands that was described in PRD:
 - List admitted/pending workloads
 - List all ClusterQueues.
 - Describe ClusterQueue.
-- Stop Workload.
 - Stop ClusterQueue.
 
 ### Non-Goals
@@ -69,10 +68,10 @@ Impement basic kueue CLI commands that was described in PRD:
 We propose creating a Kubectl plugin that exposes kueue specific information. The main command-line interactions will take the following shape:
 
 ```bash
-$kubectl kueue <type> <command> <name> <flags> <options>
+$kubectl kueue <command> <type> <name> <flags> <options>
 ```
 
-Set of supported commands: `list`, `describe`, `stop`.
+Set of supported commands: `get`, `describe`, `stop`.
 Set of supported types: `workload`, `clusterqueue`, `localqueue`.
 Sets of supported flags are different for each command/type.
 
@@ -86,11 +85,11 @@ As a user submitting workloads, I want to easily see the status of an entire Wor
 
 ```bash
 # List workloads in the cluster.
-$kubectl kueue workloads list
+$kubectl kueue get workloads
 # Describe particular workload.
-$kubeclt kueue workloads describe <name>
+$kubeclt kueue describe workloads <name>
 # Display state and conditions to see what could be wrong with workload.
-$kubeclt kueue workloads describe <name> --status
+$kubeclt kueue describe workloads <name> --status
 
 ```
 
@@ -99,11 +98,10 @@ $kubeclt kueue workloads describe <name> --status
 As a cluster admin I want to have an easy way to manage cluster queues:
 
 ```bash
-$kubectl kueue clusterqueue stop <queue-name>
+$kubectl kueue stop clusterqueue <queue-name>
 ```
 
 ### Risks and Mitigations
-
 
 ## Design Details
 
@@ -131,7 +129,7 @@ kueue:v0.5.0
 ### Describe
 
 ```bash
-$kubectl kueue workloads describe job-team-a --namespace=team-a --status
+$kubectl kueue describe workloads job-team-a --namespace=team-a --status
 State: Pending
 Status
   Conditions:
@@ -141,7 +139,7 @@ Status
     Status:                False
     Type:                  QuotaReserved
 
-$kubectl kueue workload describe job-team-a --namespace team-a --spec
+$kubectl kueue describe workload job-team-a --namespace team-a --spec
 Spec:
   Pod Sets:
     Count:  3
@@ -195,21 +193,21 @@ For ClusterQueue the Status field might look confusing. For example for misconfi
 
 Since the logic for the `State` field is complex, we need to make sure it's well tested and be able to identify when the logic should be updated. The proposal is to have a dedicated test for `State` next to the API definition.
 
-### List
+### List (get)
 
 ```bash
-$kubectl kueue worlkoads list --clusterqueue=cq
-| Namespace | Name     |  Queue  | ClusterQueue | Pods |   State   | Age
-|-----------|----------|---------|--------------|------|-----------|-----
-| default   | wl-1     | queue-1 |   cq         |   2  | Admitted  | 2h
-| default   | wl-2     | queue-2 |   cq         |   5  | Pending   | 2h
+$kubectl kueue get worlkoads  --clusterqueue=cq
+Namespace    Name      Queue    ClusterQueue   Pods  State     Age
+
+default      wl-1      queue-1  cq             2     Admitted  2h
+default      wl-2      queue-2  cq             5     Pending   2h
 
 
 $kubectl kueue clusterqueue list
-| Name             | Cohort   |  State  | PENDING WORKLOADS
-|------------------|----------|---------|-------------------
-| cluster-queue-1  | cohort   | Active  | 2  
-| cluster-queue-2  |          | Error   | 0    
+ Name             Cohort    State     PENDING   WORKLOADS
+
+cluster-queue-1   cohort    Active    2  
+cluster-queue-2             Error     0    
 
 ```
 
@@ -218,15 +216,10 @@ The command will support --state, --cohort, --clusterqueue, --namespace flags wh
 
 ### Stop
 
-```bash
-$kubectl kueue worlkoad stop workload-name --clusterqueue cluster-queue-name
-...Done
-
-$kubectl kueue clusterqueue stop cluster-queue-name
+```
+$kubectl kueue stop clusterqueue cluster-queue-name
 ...Done
 ```
-
-At the moment this fuctionality is not supported and will be added later when the needed API is introduced (<https://github.com/kubernetes-sigs/kueue/issues/1284>, <https://github.com/kubernetes-sigs/kueue/issues/1091>).
 
 ### Test Plan
 
