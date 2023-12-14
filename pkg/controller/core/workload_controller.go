@@ -133,6 +133,10 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(2).Info("Reconciling Workload")
 
+	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
+		return ctrl.Result{}, nil
+	}
+
 	if rejectedChecks := workload.GetRejectedChecks(&wl); len(rejectedChecks) > 0 {
 		// Finish the workload
 		log.V(3).Info("Workload has Rejected admission checks, Finish with failure")
