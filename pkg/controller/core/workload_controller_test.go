@@ -320,7 +320,7 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
-		"admited": {
+		"already admited": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 				Admitted(true).
