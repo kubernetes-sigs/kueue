@@ -54,6 +54,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/noop"
+	"sigs.k8s.io/kueue/pkg/debugger"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/queue"
@@ -160,6 +161,7 @@ func main() {
 		setupLog.Error(err, "Unable to setup indexes")
 		os.Exit(1)
 	}
+	debugger.NewDumper(cCache, queues).ListenForSignal(ctx)
 
 	serverVersionFetcher := setupServerVersionFetcher(mgr, kubeConfig)
 

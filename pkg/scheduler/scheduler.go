@@ -167,6 +167,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 
 	// 2. Take a snapshot of the cache.
 	snapshot := s.cache.Snapshot()
+	logSnapshotIfVerbose(log, &snapshot)
 
 	// 3. Calculate requirements (resource flavors, borrowing) for admitting workloads.
 	entries := s.nominate(ctx, headWorkloads, snapshot)
@@ -245,11 +246,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 	// 6. Requeue the heads that were not scheduled.
 	result := metrics.AdmissionResultInadmissible
 	for _, e := range entries {
-		log.V(3).Info("Workload evaluated for admission",
-			"workload", klog.KObj(e.Obj),
-			"clusterQueue", klog.KRef("", e.ClusterQueue),
-			"status", e.status,
-			"reason", e.inadmissibleMsg)
+		logAdmissionAttemptIfVerbose(log, &e)
 		if e.status != assumed {
 			s.requeueAndUpdate(log, ctx, e)
 		} else {

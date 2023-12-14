@@ -27,7 +27,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -221,29 +220,29 @@ func (c *clusterQueueBase) Pop() *workload.Info {
 	return info.(*workload.Info)
 }
 
-func (c *clusterQueueBase) Dump() (sets.Set[string], bool) {
+func (c *clusterQueueBase) Dump() ([]string, bool) {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
 	if c.heap.Len() == 0 {
 		return nil, false
 	}
-	elements := make(sets.Set[string], c.heap.Len())
-	for _, e := range c.heap.List() {
+	elements := make([]string, c.heap.Len())
+	for i, e := range c.heap.List() {
 		info := e.(*workload.Info)
-		elements.Insert(workload.Key(info.Obj))
+		elements[i] = workload.Key(info.Obj)
 	}
 	return elements, true
 }
 
-func (c *clusterQueueBase) DumpInadmissible() (sets.Set[string], bool) {
+func (c *clusterQueueBase) DumpInadmissible() ([]string, bool) {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
 	if len(c.inadmissibleWorkloads) == 0 {
 		return nil, false
 	}
-	elements := make(sets.Set[string], len(c.inadmissibleWorkloads))
+	elements := make([]string, 0, len(c.inadmissibleWorkloads))
 	for _, info := range c.inadmissibleWorkloads {
-		elements.Insert(workload.Key(info.Obj))
+		elements = append(elements, workload.Key(info.Obj))
 	}
 	return elements, true
 }

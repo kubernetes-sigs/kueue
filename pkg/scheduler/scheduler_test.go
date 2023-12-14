@@ -51,6 +51,10 @@ const (
 	queueingTimeout = time.Second
 )
 
+var cmpDump = []cmp.Option{
+	cmpopts.SortSlices(func(a, b string) bool { return a < b }),
+}
+
 func TestSchedule(t *testing.T) {
 	resourceFlavors := []*kueue.ResourceFlavor{
 		{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
@@ -183,9 +187,9 @@ func TestSchedule(t *testing.T) {
 		// wantScheduled is the subset of workloads that got scheduled/admitted in this cycle.
 		wantScheduled []string
 		// wantLeft is the workload keys that are left in the queues after this cycle.
-		wantLeft map[string]sets.Set[string]
+		wantLeft map[string][]string
 		// wantInadmissibleLeft is the workload keys that are left in the inadmissible state after this cycle.
-		wantInadmissibleLeft map[string]sets.Set[string]
+		wantInadmissibleLeft map[string][]string
 		// wantPreempted is the keys of the workloads that get preempted in the scheduling cycle.
 		wantPreempted sets.Set[string]
 
@@ -292,8 +296,8 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 			},
 			admissionError: errors.New("admission"),
-			wantLeft: map[string]sets.Set[string]{
-				"sales": sets.New("sales/foo"),
+			wantLeft: map[string][]string{
+				"sales": {"sales/foo"},
 			},
 		},
 		"single clusterQueue full": {
@@ -328,8 +332,8 @@ func TestSchedule(t *testing.T) {
 					},
 				},
 			},
-			wantLeft: map[string]sets.Set[string]{
-				"sales": sets.New("sales/new"),
+			wantLeft: map[string][]string{
+				"sales": {"sales/new"},
 			},
 		},
 		"failed to match clusterQueue selector": {
@@ -341,8 +345,8 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantInadmissibleLeft: map[string]sets.Set[string]{
-				"eng-alpha": sets.New("sales/new"),
+			wantInadmissibleLeft: map[string][]string{
+				"eng-alpha": {"sales/new"},
 			},
 		},
 		"admit in different cohorts": {
@@ -522,8 +526,8 @@ func TestSchedule(t *testing.T) {
 				},
 			},
 			wantScheduled: []string{"eng-alpha/new"},
-			wantLeft: map[string]sets.Set[string]{
-				"eng-beta": sets.New("eng-beta/new"),
+			wantLeft: map[string][]string{
+				"eng-beta": {"eng-beta/new"},
 			},
 		},
 		"can borrow if cohort was assigned and will not result in overadmission": {
@@ -594,8 +598,8 @@ func TestSchedule(t *testing.T) {
 					ReserveQuota(utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "spot", "1000m").Obj()).
 					Obj(),
 			},
-			wantLeft: map[string]sets.Set[string]{
-				"eng-alpha": sets.New("eng-alpha/can-reclaim"),
+			wantLeft: map[string][]string{
+				"eng-alpha": {"eng-alpha/can-reclaim"},
 			},
 			wantAssignments: map[string]kueue.Admission{
 				"eng-beta/user-spot":       *utiltesting.MakeAdmission("eng-beta").Assignment(corev1.ResourceCPU, "spot", "1000m").Obj(),
@@ -631,9 +635,9 @@ func TestSchedule(t *testing.T) {
 					ReserveQuota(utiltesting.MakeAdmission("eng-alpha").Assignment(corev1.ResourceCPU, "on-demand", "60000m").Obj()).
 					Obj(),
 			},
-			wantLeft: map[string]sets.Set[string]{
+			wantLeft: map[string][]string{
 				// Preemptor is not admitted in this cycle.
-				"eng-beta": sets.New("eng-beta/preemptor"),
+				"eng-beta": {"eng-beta/preemptor"},
 			},
 			wantPreempted: sets.New("eng-alpha/borrower", "eng-beta/low-2"),
 			wantAssignments: map[string]kueue.Admission{
@@ -651,8 +655,8 @@ func TestSchedule(t *testing.T) {
 					Request("example.com/gpu", "1").
 					Obj(),
 			},
-			wantLeft: map[string]sets.Set[string]{
-				"eng-alpha": sets.New("eng-alpha/new"),
+			wantLeft: map[string][]string{
+				"eng-alpha": {"eng-alpha/new"},
 			},
 		},
 		"not enough resources to borrow, fallback to next flavor": {
@@ -719,8 +723,8 @@ func TestSchedule(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 			},
-			wantLeft: map[string]sets.Set[string]{
-				"flavor-nonexistent-cq": sets.New("sales/foo"),
+			wantLeft: map[string][]string{
+				"flavor-nonexistent-cq": {"sales/foo"},
 			},
 		},
 		"no overadmission while borrowing": {
@@ -835,8 +839,8 @@ func TestSchedule(t *testing.T) {
 				"eng-alpha/new-alpha": *utiltesting.MakeAdmission("eng-alpha", "one").Assignment(corev1.ResourceCPU, "on-demand", "1").AssignmentPodCount(1).Obj(),
 			},
 			wantScheduled: []string{"eng-beta/new", "eng-alpha/new-alpha"},
-			wantLeft: map[string]sets.Set[string]{
-				"eng-gamma": sets.New("eng-gamma/new-gamma"),
+			wantLeft: map[string][]string{
+				"eng-gamma": {"eng-gamma/new-gamma"},
 			},
 		},
 		"partial admission single variable pod set": {
@@ -904,8 +908,8 @@ func TestSchedule(t *testing.T) {
 				},
 			},
 			wantPreempted: sets.New("eng-beta/old"),
-			wantLeft: map[string]sets.Set[string]{
-				"eng-beta": sets.New("eng-beta/new"),
+			wantLeft: map[string][]string{
+				"eng-beta": {"eng-beta/new"},
 			},
 		},
 		"partial admission multiple variable pod sets": {
@@ -985,8 +989,8 @@ func TestSchedule(t *testing.T) {
 					).
 					Obj(),
 			},
-			wantLeft: map[string]sets.Set[string]{
-				"sales": sets.New("sales/new"),
+			wantLeft: map[string][]string{
+				"sales": {"sales/new"},
 			},
 			disablePartialAdmission: true,
 		},
@@ -1091,8 +1095,8 @@ func TestSchedule(t *testing.T) {
 					Assignment("r1", "default", "16").AssignmentPodCount(1).
 					Obj(),
 			},
-			wantLeft: map[string]sets.Set[string]{
-				"cq2": sets.New("sales/wl2"),
+			wantLeft: map[string][]string{
+				"cq2": {"sales/wl2"},
 			},
 		},
 	}
@@ -1202,11 +1206,11 @@ func TestSchedule(t *testing.T) {
 			}
 
 			qDump := qManager.Dump()
-			if diff := cmp.Diff(tc.wantLeft, qDump); diff != "" {
+			if diff := cmp.Diff(tc.wantLeft, qDump, cmpDump...); diff != "" {
 				t.Errorf("Unexpected elements left in the queue (-want,+got):\n%s", diff)
 			}
 			qDumpInadmissible := qManager.DumpInadmissible()
-			if diff := cmp.Diff(tc.wantInadmissibleLeft, qDumpInadmissible); diff != "" {
+			if diff := cmp.Diff(tc.wantInadmissibleLeft, qDumpInadmissible, cmpDump...); diff != "" {
 				t.Errorf("Unexpected elements left in inadmissible workloads (-want,+got):\n%s", diff)
 			}
 
@@ -1782,8 +1786,8 @@ func TestRequeueAndUpdate(t *testing.T) {
 	cases := []struct {
 		name             string
 		e                entry
-		wantWorkloads    map[string]sets.Set[string]
-		wantInadmissible map[string]sets.Set[string]
+		wantWorkloads    map[string][]string
+		wantInadmissible map[string][]string
 		wantStatus       kueue.WorkloadStatus
 	}{
 		{
@@ -1801,8 +1805,8 @@ func TestRequeueAndUpdate(t *testing.T) {
 					},
 				},
 			},
-			wantInadmissible: map[string]sets.Set[string]{
-				"cq": sets.New(workload.Key(w1)),
+			wantInadmissible: map[string][]string{
+				"cq": {workload.Key(w1)},
 			},
 		},
 		{
@@ -1811,8 +1815,8 @@ func TestRequeueAndUpdate(t *testing.T) {
 				status:          assumed,
 				inadmissibleMsg: "",
 			},
-			wantWorkloads: map[string]sets.Set[string]{
-				"cq": sets.New(workload.Key(w1)),
+			wantWorkloads: map[string][]string{
+				"cq": {workload.Key(w1)},
 			},
 		},
 		{
@@ -1821,8 +1825,8 @@ func TestRequeueAndUpdate(t *testing.T) {
 				status:          nominated,
 				inadmissibleMsg: "failed to admit workload",
 			},
-			wantWorkloads: map[string]sets.Set[string]{
-				"cq": sets.New(workload.Key(w1)),
+			wantWorkloads: map[string][]string{
+				"cq": {workload.Key(w1)},
 			},
 		},
 		{
@@ -1831,8 +1835,8 @@ func TestRequeueAndUpdate(t *testing.T) {
 				status:          skipped,
 				inadmissibleMsg: "cohort used in this cycle",
 			},
-			wantWorkloads: map[string]sets.Set[string]{
-				"cq": sets.New(workload.Key(w1)),
+			wantWorkloads: map[string][]string{
+				"cq": {workload.Key(w1)},
 			},
 		},
 	}
@@ -1871,12 +1875,12 @@ func TestRequeueAndUpdate(t *testing.T) {
 			scheduler.requeueAndUpdate(log, ctx, tc.e)
 
 			qDump := qManager.Dump()
-			if diff := cmp.Diff(tc.wantWorkloads, qDump); diff != "" {
+			if diff := cmp.Diff(tc.wantWorkloads, qDump, cmpDump...); diff != "" {
 				t.Errorf("Unexpected elements in the cluster queue (-want,+got):\n%s", diff)
 			}
 
 			inadmissibleDump := qManager.DumpInadmissible()
-			if diff := cmp.Diff(tc.wantInadmissible, inadmissibleDump); diff != "" {
+			if diff := cmp.Diff(tc.wantInadmissible, inadmissibleDump, cmpDump...); diff != "" {
 				t.Errorf("Unexpected elements in the inadmissible stage of the cluster queue (-want,+got):\n%s", diff)
 			}
 
