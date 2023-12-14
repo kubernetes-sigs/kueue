@@ -257,8 +257,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		if err != nil {
 			log.Error(err, "Suspending job with deleted workload")
 		}
-
-		if err == nil && wl != nil {
+		if wl != nil {
 			err = r.removeFinalizer(ctx, wl)
 		}
 		return ctrl.Result{}, err
