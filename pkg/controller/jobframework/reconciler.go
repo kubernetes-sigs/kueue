@@ -188,12 +188,11 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	isStandaloneJob := ParentWorkloadName(job) == ""
-	usePrebuiltWorkload, _ := prebuiltWorkload(job)
 
 	// when manageJobsWithoutQueueName is disabled we only reconcile jobs that have either
 	// queue-name or the parent-workload annotation set.
 	// If the parent-workload annotation is set, it also checks whether the parent job has queue-name label.
-	if !r.manageJobsWithoutQueueName && QueueName(job) == "" && !usePrebuiltWorkload {
+	if !r.manageJobsWithoutQueueName && QueueName(job) == "" {
 		if isStandaloneJob {
 			log.V(3).Info("Neither queue-name label, nor parent-workload annotation is set, ignoring the job",
 				"queueName", QueueName(job), "parentWorkload", ParentWorkloadName(job))

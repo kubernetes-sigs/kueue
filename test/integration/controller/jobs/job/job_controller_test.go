@@ -385,6 +385,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 	ginkgo.When("A prebuilt workload is used", func() {
 		ginkgo.It("Should get suspended if the workload is not found", func() {
 			job := testingjob.MakeJob("job", ns.Name).
+				Queue("main").
 				Label(constants.PrebuiltWorkloadLabel, "missing-workload").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
@@ -414,6 +415,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			job := testingjob.MakeJob("job", ns.Name).
+				Queue("main").
 				Label(constants.PrebuiltWorkloadLabel, "wl").
 				Containers(*container.DeepCopy()).
 				Obj()

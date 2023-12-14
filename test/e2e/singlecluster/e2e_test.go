@@ -693,8 +693,6 @@ var _ = ginkgo.Describe("Kueue", func() {
 				Label(constants.PrebuiltWorkloadLabel, "prebuilt-wl").
 				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.0.3", []string{"5s"}).
 				Obj()
-			// delete the queue name
-			delete(sampleJob.Labels, constants.QueueLabel)
 			testingjob.SetContainerDefaults(&sampleJob.Spec.Template.Spec.Containers[0])
 
 			wl := testing.MakeWorkload("prebuilt-wl", ns.Name).
