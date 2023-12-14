@@ -1103,7 +1103,6 @@ func TestSchedule(t *testing.T) {
 				defer features.SetFeatureGateDuringTest(t, features.PartialAdmission, false)()
 			}
 			ctx, _ := utiltesting.ContextWithLog(t)
-			//scheme := runtime.NewScheme()
 
 			allQueues := append(queues, tc.additionalLocalQueues...)
 			allClusterQueues := append(clusterQueues, tc.additionalClusterQueues...)
