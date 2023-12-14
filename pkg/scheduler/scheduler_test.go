@@ -1351,15 +1351,17 @@ func TestEntryOrdering(t *testing.T) {
 			wantOrder:       []string{"old", "recently_evicted", "new", "new_high_pri", "old_borrowing", "evicted_borrowing", "high_pri_borrowing", "new_borrowing"},
 		},
 	} {
-		features.SetFeatureGateDuringTest(t, features.PrioritySortingWithinCohort, tc.prioritySorting)
-		sort.Sort(entryOrdering(input))
-		order := make([]string, len(input))
-		for i, e := range input {
-			order[i] = e.Obj.Name
-		}
-		if diff := cmp.Diff(tc.wantOrder, order); diff != "" {
-			t.Errorf("%s: Unexpected order (-want,+got):\n%s", tc.name, diff)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			t.Cleanup(features.SetFeatureGateDuringTest(t, features.PrioritySortingWithinCohort, tc.prioritySorting))
+			sort.Sort(entryOrdering(input))
+			order := make([]string, len(input))
+			for i, e := range input {
+				order[i] = e.Obj.Name
+			}
+			if diff := cmp.Diff(tc.wantOrder, order); diff != "" {
+				t.Errorf("%s: Unexpected order (-want,+got):\n%s", tc.name, diff)
+			}
+		})
 	}
 }
 
