@@ -175,7 +175,7 @@ in the cohort to run both workloads at the same time.
 
 If the preemption is allowed for workloads of any priorities
 (as when `.preemption.reclaimWithinCohort` equals `Any`)
-then the following flopping happens: workload A preempts workload B, then p
+then the following flopping happens: workload A preempts workload B, then
 preempted workload B returns to the queue and preempts workload A to make progress.
 This repeats, and none of the workloads can make any progress.
 
@@ -224,17 +224,19 @@ const (
 type BorrowWithinCohort struct {
 	// policy determines the policy for preemption to reclaim quota within cohort while borrowing.
 	// Possible values are:
-	// - `Never` (default): do not reclaim quota within ClusterQueue while borrowing.
-	// - `LowerPriority`: allow preempting workloads to reclaim quota within the cohort,
-	//    but only by preempting lower-priority workloads.
+	// - `Never` (default): do not allow for preemption, in other
+	//    ClusterQueues within the cohort, for a borrowing workload.
+	// - `LowerPriority`: allow preemption, in other ClusterQueues
+	//    within the cohort, for a borrowing workload, but only if
+	//    the preempted workloads are of lower priority.
 	//
 	// +kubebuilder:default=Never
 	// +kubebuilder:validation:Enum=Never;LowerPriority
 	Policy BorrowWithinCohortPolicy `json:"policy,omitempty"`
 
-	// maxPriorityThreshold allows to restrict the set of workloads for preemption
-	// to reclaim quota within the cohort, to only workloads with priority below
-	// or equal the specified level.
+	// maxPriorityThreshold allows to restrict the set of workloads which
+	// might be preempted by a borrowing workload, to only workloads with
+	// priority below or equal the specified level.
 	//
 	// +optional
 	MaxPriorityThreshold *int32 `json:"maxPriorityThreshold,omitempty"`
@@ -245,7 +247,7 @@ type BorrowWithinCohort struct {
 
 There are main modifications:
 - in the [`fitsResourceQuota`](https://github.com/kubernetes-sigs/kueue/blob/main/pkg/scheduler/flavorassigner/flavorassigner.go#L551)
-  we return `FlavorFungibilityPolicy.Preempt` when the workload does not fit, but
+  we return `FlavorFungibilityMode=Preempt` when the workload does not fit, but
   there is enough quota within the cohort
 - modify the [`GetTargets`](https://github.com/kubernetes-sigs/kueue/blob/53d4b657655aff5df3748e65b4226cf11e50eeba/pkg/scheduler/preemption/preemption.go#L77)
 and the [`minimalPreemptions`](https://github.com/kubernetes-sigs/kueue/blob/53d4b657655aff5df3748e65b4226cf11e50eeba/pkg/scheduler/preemption/preemption.go#L159) functions
