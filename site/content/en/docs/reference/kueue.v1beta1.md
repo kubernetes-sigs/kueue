@@ -13,6 +13,7 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1beta1.
 - [AdmissionCheck](#kueue-x-k8s-io-v1beta1-AdmissionCheck)
 - [ClusterQueue](#kueue-x-k8s-io-v1beta1-ClusterQueue)
 - [LocalQueue](#kueue-x-k8s-io-v1beta1-LocalQueue)
+- [MultiKueueConfig](#kueue-x-k8s-io-v1beta1-MultiKueueConfig)
 - [ProvisioningRequestConfig](#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfig)
 - [ResourceFlavor](#kueue-x-k8s-io-v1beta1-ResourceFlavor)
 - [Workload](#kueue-x-k8s-io-v1beta1-Workload)
@@ -111,6 +112,33 @@ description: Generated API reference documentation for kueue.x-k8s.io/v1beta1.
 </tr>
 <tr><td><code>status</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta1-LocalQueueStatus"><code>LocalQueueStatus</code></a>
+</td>
+<td>
+   <span class="text-muted">No description provided.</span></td>
+</tr>
+</tbody>
+</table>
+
+## `MultiKueueConfig`     {#kueue-x-k8s-io-v1beta1-MultiKueueConfig}
+    
+
+**Appears in:**
+
+
+
+<p>MultiKueueConfig is the Schema for the provisioningrequestconfig API</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+<tr><td><code>apiVersion</code><br/>string</td><td><code>kueue.x-k8s.io/v1beta1</code></td></tr>
+<tr><td><code>kind</code><br/>string</td><td><code>MultiKueueConfig</code></td></tr>
+    
+  
+<tr><td><code>spec</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-MultiKueueConfigSpec"><code>MultiKueueConfigSpec</code></a>
 </td>
 <td>
    <span class="text-muted">No description provided.</span></td>
@@ -975,6 +1003,41 @@ There could be up to 16 resources.</p>
 </tbody>
 </table>
 
+## `KubeconfigRef`     {#kueue-x-k8s-io-v1beta1-KubeconfigRef}
+    
+
+**Appears in:**
+
+- [MultiKueueCluster](#kueue-x-k8s-io-v1beta1-MultiKueueCluster)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>secretName</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <span class="text-muted">No description provided.</span></td>
+</tr>
+<tr><td><code>secretNamespace</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <span class="text-muted">No description provided.</span></td>
+</tr>
+<tr><td><code>configKey</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <span class="text-muted">No description provided.</span></td>
+</tr>
+</tbody>
+</table>
+
 ## `LocalQueueFlavorUsage`     {#kueue-x-k8s-io-v1beta1-LocalQueueFlavorUsage}
     
 
@@ -1124,6 +1187,61 @@ workloads assigned to this LocalQueue.</p>
 <td>
    <p>flavorsUsage are the used quotas, by flavor currently in use by the
 workloads assigned to this LocalQueue.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `MultiKueueCluster`     {#kueue-x-k8s-io-v1beta1-MultiKueueCluster}
+    
+
+**Appears in:**
+
+- [MultiKueueConfigSpec](#kueue-x-k8s-io-v1beta1-MultiKueueConfigSpec)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <span class="text-muted">No description provided.</span></td>
+</tr>
+<tr><td><code>kubeconfigRef</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-KubeconfigRef"><code>KubeconfigRef</code></a>
+</td>
+<td>
+   <span class="text-muted">No description provided.</span></td>
+</tr>
+</tbody>
+</table>
+
+## `MultiKueueConfigSpec`     {#kueue-x-k8s-io-v1beta1-MultiKueueConfigSpec}
+    
+
+**Appears in:**
+
+- [MultiKueueConfig](#kueue-x-k8s-io-v1beta1-MultiKueueConfig)
+
+
+<p>MultiKueueConfigSpec defines the desired state of MultiKueueConfig</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>clusters</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-MultiKueueCluster"><code>[]MultiKueueCluster</code></a>
+</td>
+<td>
+   <p>clusters contains the list of configurations for using worker clusters.</p>
 </td>
 </tr>
 </tbody>

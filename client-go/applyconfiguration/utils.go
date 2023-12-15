@@ -62,6 +62,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.FlavorQuotasApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("FlavorUsage"):
 		return &kueuev1beta1.FlavorUsageApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("KubeconfigRef"):
+		return &kueuev1beta1.KubeconfigRefApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("LocalQueue"):
 		return &kueuev1beta1.LocalQueueApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("LocalQueueFlavorUsage"):
@@ -72,6 +74,12 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.LocalQueueSpecApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("LocalQueueStatus"):
 		return &kueuev1beta1.LocalQueueStatusApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("MultiKueueCluster"):
+		return &kueuev1beta1.MultiKueueClusterApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("MultiKueueConfig"):
+		return &kueuev1beta1.MultiKueueConfigApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("MultiKueueConfigSpec"):
+		return &kueuev1beta1.MultiKueueConfigSpecApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("PodSet"):
 		return &kueuev1beta1.PodSetApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("PodSetAssignment"):

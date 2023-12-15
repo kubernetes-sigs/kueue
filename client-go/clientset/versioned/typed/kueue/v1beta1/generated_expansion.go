@@ -23,6 +23,8 @@ type ClusterQueueExpansion interface{}
 
 type LocalQueueExpansion interface{}
 
+type MultiKueueConfigExpansion interface{}
+
 type ProvisioningRequestConfigExpansion interface{}
 
 type ResourceFlavorExpansion interface{}
