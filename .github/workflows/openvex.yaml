@@ -14,4 +14,4 @@ jobs:
       - uses: openvex/generate-vex@31b415924ea0d72ed5f2640f1dee59dea6c2770b
         name: Run vexctl
         with:
-            product: pkg:generic/hello@${{ env.RELEASE_VERSION }}
+            product: pkg:golang/sigs.k8s.io/kueue@${{ env.RELEASE_VERSION }}
