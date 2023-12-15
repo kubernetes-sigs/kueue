@@ -264,13 +264,9 @@ func (j *Job) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 		}
 	}
 	info := podSetsInfo[0]
-	for _, mangedLabel := range managedLabels {
-		if v, found := j.Spec.Template.Labels[mangedLabel]; found {
-			if info.Labels == nil {
-				info.Labels = map[string]string{mangedLabel: v}
-			} else {
-				info.Labels[mangedLabel] = v
-			}
+	for _, managedLabel := range managedLabels {
+		if v, found := j.Spec.Template.Labels[managedLabel]; found {
+			info.AddOrUpdateLabel(managedLabel, v)
 		}
 	}
 	changed = podset.RestorePodSpec(&j.Spec.Template.ObjectMeta, &j.Spec.Template.Spec, info) || changed

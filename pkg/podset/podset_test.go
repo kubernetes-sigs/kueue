@@ -306,3 +306,48 @@ func TestMergeRestore(t *testing.T) {
 		})
 	}
 }
+
+func TestAddOrUpdateLabel(t *testing.T) {
+	cases := map[string]struct {
+		info     PodSetInfo
+		k, v     string
+		wantInfo PodSetInfo
+	}{
+		"add to nil labels": {
+			info: PodSetInfo{},
+			k:    "key",
+			v:    "value",
+			wantInfo: PodSetInfo{
+				Labels: map[string]string{"key": "value"},
+			},
+		},
+		"add": {
+			info: PodSetInfo{
+				Labels: map[string]string{"other-key": "other-value"},
+			},
+			k: "key",
+			v: "value",
+			wantInfo: PodSetInfo{
+				Labels: map[string]string{"other-key": "other-value", "key": "value"},
+			},
+		},
+		"update": {
+			info: PodSetInfo{
+				Labels: map[string]string{"key": "value"},
+			},
+			k: "key",
+			v: "updated-value",
+			wantInfo: PodSetInfo{
+				Labels: map[string]string{"key": "updated-value"},
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			tc.info.AddOrUpdateLabel(tc.k, tc.v)
+			if diff := cmp.Diff(tc.wantInfo, tc.info, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected info (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
