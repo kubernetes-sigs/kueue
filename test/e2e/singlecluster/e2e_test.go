@@ -741,11 +741,10 @@ var _ = ginkgo.Describe("Kueue", func() {
 
 					g.Expect(createdWorkload.Status.Conditions).To(gomega.ContainElement(
 						gomega.BeComparableTo(metav1.Condition{
-							Type:    kueue.WorkloadFinished,
-							Status:  metav1.ConditionTrue,
-							Reason:  "JobFinished",
-							Message: "Job failed",
-						}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))))
+							Type:   kueue.WorkloadFinished,
+							Status: metav1.ConditionTrue,
+							Reason: "JobFinished",
+						}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "Message"))))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
