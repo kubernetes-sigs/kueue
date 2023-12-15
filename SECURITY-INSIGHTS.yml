@@ -14,8 +14,7 @@ project-lifecycle:
     https://github.com/kubernetes-sigs/kueue/blob/9464e42a54d67f785e2e19b8c8bbd4471cd283ad/README.md?plain=1#L98
   bug-fixes-only: false
   core-maintainers:
-    - 'https://github.com/alculquicondor'
-    - 'https://github.com/tenzen-y'
+    - https://github.com/kubernetes-sigs/kueue/blob/main/OWNERS
   release-cycle: 'https://github.com/kubernetes-sigs/kueue/blob/main/RELEASE.md'
   release-process: >-
     https://github.com/kubernetes-sigs/kueue/blob/main/.github/ISSUE_TEMPLATE/NEW_RELEASE.md
