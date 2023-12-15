@@ -18,11 +18,13 @@ package core
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/stretchr/testify/mock"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	testingclock "k8s.io/utils/clock/testing"
@@ -30,10 +32,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	ctrl "sigs.k8s.io/controller-runtime"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/test/util"
 )
 
 func TestAdmittedNotReadyWorkload(t *testing.T) {
@@ -294,6 +298,109 @@ func TestSyncCheckStates(t *testing.T) {
 			if diff := cmp.Diff(tc.wantStates, gotStates, opts...); diff != "" {
 				t.Errorf("Unexpected conditions, (want-/got+): %s", diff)
 			}
+		})
+	}
+}
+
+func TestFinalizer(t *testing.T) {
+	now := time.Now()
+
+	testCases := map[string]struct {
+		workload      kueue.Workload
+		expectRequeue bool
+		expectError   bool
+		setupMock     func(mockClient *util.MockClient)
+		assert        func(t *testing.T, mockClient *util.MockClient)
+	}{
+		"Workload with WorkloadFinished=True and existing Finalizer; remove Finalizer": {
+			workload: kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Finalizers: []string{kueue.ResourceInUseFinalizerName},
+				},
+				Status: kueue.WorkloadStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadFinished,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(now),
+						},
+					},
+				},
+			},
+			expectRequeue: false,
+			expectError:   false,
+			setupMock: func(mockClient *util.MockClient) {
+				mockClient.On("Update", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			},
+			assert: func(t *testing.T, mockClient *util.MockClient) {
+				mockClient.AssertCalled(t, "Update", mock.Anything, mock.MatchedBy(func(workload *kueue.Workload) bool {
+					return len(workload.ObjectMeta.Finalizers) == 0
+				}), mock.Anything)
+			},
+		},
+		"Workload with WorkloadFinished=True and existing Finalizer, removing fails, retry; remove Finalizer": {
+			workload: kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Finalizers: []string{kueue.ResourceInUseFinalizerName},
+				},
+				Status: kueue.WorkloadStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadFinished,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(now),
+						},
+					},
+				},
+			},
+			expectRequeue: false,
+			expectError:   true,
+			setupMock: func(mockClient *util.MockClient) {
+				mockClient.On("Update", mock.Anything, mock.Anything, mock.Anything).Return(errors.New("test"))
+			},
+			assert: func(t *testing.T, mockClient *util.MockClient) {
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			mockClient := new(util.MockClient)
+
+			mockClient.On("Get", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+				workload := args.Get(2).(*kueue.Workload)
+				*workload = tc.workload
+			}).Return(nil)
+
+			tc.setupMock(mockClient)
+
+			wRec := WorkloadReconciler{client: mockClient}
+
+			req := ctrl.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      "test",
+					Namespace: "test",
+				},
+			}
+
+			res, err := wRec.Reconcile(context.TODO(), req)
+			if tc.expectError && err == nil {
+				t.Errorf("Expected error, but got none")
+			}
+
+			if !tc.expectError && err != nil {
+				t.Errorf("Unexpected error: %v", err)
+			}
+
+			if tc.expectRequeue && !res.Requeue {
+				t.Errorf("Expected requeue, but got none")
+			}
+
+			if !tc.expectRequeue && res.Requeue {
+				t.Errorf("Expected no requeue, but got one")
+			}
+
+			tc.assert(t, mockClient)
 		})
 	}
 }

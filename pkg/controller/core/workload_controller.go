@@ -35,6 +35,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -134,7 +135,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	log.V(2).Info("Reconciling Workload")
 
 	if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
-		return ctrl.Result{}, nil
+		return ctrl.Result{}, r.removeFinalizer(ctx, &wl)
 	}
 
 	if rejectedChecks := workload.GetRejectedChecks(&wl); len(rejectedChecks) > 0 {
@@ -388,6 +389,13 @@ func (r *WorkloadReconciler) Delete(e event.DeleteEvent) bool {
 		r.queues.DeleteWorkload(wl)
 	}
 	return true
+}
+
+func (r *WorkloadReconciler) removeFinalizer(ctx context.Context, wl *kueue.Workload) error {
+	if controllerutil.RemoveFinalizer(wl, kueue.ResourceInUseFinalizerName) {
+		return r.client.Update(ctx, wl)
+	}
+	return nil
 }
 
 func (r *WorkloadReconciler) Update(e event.UpdateEvent) bool {

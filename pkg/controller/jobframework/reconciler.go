@@ -255,16 +255,10 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		log.V(2).Info("The workload is marked for deletion")
 		err := r.stopJob(ctx, job, wl, StopReasonWorkloadDeleted, "Workload is deleted")
 		if err != nil {
-			if !apierrors.IsNotFound(err) {
-				return ctrl.Result{}, err
+			if apierrors.IsNotFound(err) {
+				log.Error(err, "Suspending job with deleted workload")
 			}
-			log.Error(err, "Suspending job with deleted workload")
-		}
-		if wl != nil {
-			err := r.removeFinalizer(ctx, wl)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
+			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
 	}
