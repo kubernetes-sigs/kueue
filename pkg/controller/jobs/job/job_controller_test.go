@@ -26,7 +26,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -415,6 +415,7 @@ func TestReconciler(t *testing.T) {
 		priorityClasses   []client.Object
 		wantJob           batchv1.Job
 		wantWorkloads     []kueue.Workload
+		wantEvents        []utiltesting.EventRecord
 		wantErr           error
 	}{
 		"when workload is admitted the PodSetUpdates are propagated to job": {
@@ -462,6 +463,14 @@ func TestReconciler(t *testing.T) {
 						},
 					}).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Started",
+					Message:   "Admitted by clusterQueue cq",
+				},
 			},
 		},
 		"when workload is admitted and spec.active is set to false, the workload's conditions is set to Evicted": {
@@ -584,6 +593,14 @@ func TestReconciler(t *testing.T) {
 						},
 					}).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "The workload is deactivated",
+				},
 			},
 		},
 		"when job is initially suspended, the Workload has active=false and it's not admitted, " +
@@ -1046,6 +1063,14 @@ func TestReconciler(t *testing.T) {
 					}).
 					Obj(),
 			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Started",
+					Message:   "Admitted by clusterQueue cq",
+				},
+			},
 		},
 		"suspended job with matching admitted workload is unsuspended": {
 			reconcilerOptions: []jobframework.Option{
@@ -1070,6 +1095,14 @@ func TestReconciler(t *testing.T) {
 					Admitted(true).
 					Obj(),
 			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Started",
+					Message:   "Admitted by clusterQueue cq",
+				},
+			},
 		},
 		"non-matching admitted workload is deleted": {
 			reconcilerOptions: []jobframework.Option{
@@ -1085,6 +1118,14 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantErr: jobframework.ErrNoMatchingWorkloads,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "DeletedWorkload",
+					Message:   "Deleted not matching Workload: ns/a",
+				},
+			},
 		},
 		"non-matching non-admitted workload is updated": {
 			reconcilerOptions: []jobframework.Option{
@@ -1104,6 +1145,14 @@ func TestReconciler(t *testing.T) {
 					Queue("foo").
 					Priority(0).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "UpdatedWorkload",
+					Message:   "Updated not matching Workload for suspended job: ns/a",
+				},
 			},
 		},
 		"suspended job with partial admission and admitted workload is unsuspended": {
@@ -1138,6 +1187,14 @@ func TestReconciler(t *testing.T) {
 					Admitted(true).
 					Obj(),
 			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Started",
+					Message:   "Admitted by clusterQueue cq",
+				},
+			},
 		},
 		"unsuspended job with partial admission and non-matching admitted workload is suspended and workload is deleted": {
 			reconcilerOptions: []jobframework.Option{
@@ -1163,6 +1220,20 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantErr: jobframework.ErrNoMatchingWorkloads,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "No matching Workload",
+				},
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "DeletedWorkload",
+					Message:   "Deleted not matching Workload: ns/a",
+				},
+			},
 		},
 		"the workload is created when queue name is set": {
 			job: *baseJobWrapper.
@@ -1185,6 +1256,20 @@ func TestReconciler(t *testing.T) {
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "No matching Workload",
+				},
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/job-job-ed7d5",
+				},
 			},
 		},
 		"the workload is updated when queue name has changed for suspended job": {
@@ -1273,6 +1358,20 @@ func TestReconciler(t *testing.T) {
 					Labels(map[string]string{}).
 					Obj(),
 			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "No matching Workload",
+				},
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/job-job-ed7d5",
+				},
+			},
 		},
 		"the workload is not created when queue name is not set": {
 			job: *utiltestingjob.MakeJob("job", "ns").
@@ -1310,6 +1409,14 @@ func TestReconciler(t *testing.T) {
 				Clone().
 				ParentWorkload("unit-test").
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Suspended",
+					Message:   "Kueue managed child job suspended",
+				},
+			},
 		},
 		"non-standalone job is not suspended if its parent workload is admitted": {
 			reconcilerOptions: []jobframework.Option{
@@ -1362,6 +1469,14 @@ func TestReconciler(t *testing.T) {
 				*utiltesting.MakeWorkload("parent-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Suspended",
+					Message:   "Kueue managed child job suspended",
+				},
 			},
 		},
 		"non-standalone job is not suspended if its parent workload is admitted and queue name is set": {
@@ -1424,6 +1539,14 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantErr: jobframework.ErrExtraWorkloads,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "DeletedWorkload",
+					Message:   "Deleted not matching Workload: ns/second-workload",
+				},
+			},
 		},
 		"when workload is evicted, suspend, reset startTime and restore node affinity": {
 			job: *baseJobWrapper.Clone().
@@ -1458,6 +1581,13 @@ func TestReconciler(t *testing.T) {
 						Status: metav1.ConditionTrue,
 					}).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+				},
 			},
 		},
 		"when workload is evicted but suspended, reset startTime and restore node affinity": {
@@ -1579,6 +1709,14 @@ func TestReconciler(t *testing.T) {
 					}).
 					Obj(),
 			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "FinishedWorkload",
+					Message:   "Workload 'ns/a' is declared finished",
+				},
+			},
 		},
 		"the workload is created when queue name is set, with workloadPriorityClass": {
 			job: *baseJobWrapper.
@@ -1609,6 +1747,20 @@ func TestReconciler(t *testing.T) {
 					}).
 					Obj(),
 			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "No matching Workload",
+				},
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/job-job-ed7d5",
+				},
+			},
 		},
 		"the workload is created when queue name is set, with PriorityClass": {
 			job: *baseJobWrapper.
@@ -1638,6 +1790,20 @@ func TestReconciler(t *testing.T) {
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "No matching Workload",
+				},
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/job-job-ed7d5",
+				},
 			},
 		},
 		"the workload is created when queue name is set, with workloadPriorityClass and PriorityClass": {
@@ -1670,6 +1836,20 @@ func TestReconciler(t *testing.T) {
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "No matching Workload",
+				},
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/job-job-ed7d5",
+				},
 			},
 		},
 		"the workload shouldn't be recreated for the completed job": {
@@ -1835,7 +2015,8 @@ func TestReconciler(t *testing.T) {
 					t.Fatalf("Could not create workload: %v", err)
 				}
 			}
-			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
+			//recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
+			recorder := &utiltesting.EventRecorder{}
 			reconciler := NewReconciler(kClient, recorder, tc.reconcilerOptions...)
 
 			jobKey := client.ObjectKeyFromObject(&tc.job)
@@ -1865,6 +2046,10 @@ func TestReconciler(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, wlCheckOpts...); diff != "" {
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
+				t.Errorf("unexpected events (-want/+got):\n%s", diff)
 			}
 		})
 	}

@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -255,6 +256,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			}
 		}
 
+		r.record.Eventf(object, corev1.EventTypeNormal, "FinishedWorkload",
+			"Workload '%s' is declared finished", workload.Key(wl))
 		return ctrl.Result{}, workload.RemoveFinalizer(ctx, r.client, wl)
 	}
 
@@ -657,7 +660,7 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 	}
 
 	r.record.Eventf(object, corev1.EventTypeNormal, "UpdatedWorkload",
-		"Updated not matching Workload for suspended job: %v", wl)
+		"Updated not matching Workload for suspended job: %v", klog.KObj(wl))
 	return newWl, nil
 }
 
