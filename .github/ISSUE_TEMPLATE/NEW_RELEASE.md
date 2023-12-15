@@ -45,7 +45,7 @@ Please do not remove items from the checklist
 - [ ] Run the [openvex action](https://github.com/kubernetes-sigs/kueue/actions/workflows/openvex.yaml) to generate openvex data. The action will add the file to the release artifacts.
 - [ ] For major or minor releases, merge the `main` branch into the `website` branch to publish the updated documentation.
 - [ ] Send an announcement email to `sig-scheduling@kubernetes.io` and `wg-batch@kubernetes.io` with the subject `[ANNOUNCE] kueue $VERSION is released`. Link: <!-- example https://groups.google.com/a/kubernetes.io/g/wg-batch/c/-gZOrSnwDV4 -->
-- [ ] Update `README.md`, `CHANGELOG`, `site/config.toml`, `charts/kueue/Chart.yaml` (`appVersion`) and `charts/kueue/values.yaml` (`controllerManager.manager.image.tag`,`SECURITY-INSIGHTS.yml`) in `main` branch: <!-- example #774 -->
+- [ ] Update `README.md`, `CHANGELOG`, `site/config.toml`, `charts/kueue/Chart.yaml` (`appVersion`) and `charts/kueue/values.yaml` (`controllerManager.manager.image.tag`,`SECURITY-INSIGHTS.yaml`) in `main` branch: <!-- example #774 -->
 - [ ] For a major or minor release, prepare the repo for the next version:
   - [ ] create an unannotated _devel_ tag in the
         `main` branch, on the first commit that gets merged after the release
