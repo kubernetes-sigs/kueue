@@ -29,6 +29,7 @@ metadata:
   name: sample-job
   namespace: team-a
 spec:
+  active: true
   queueName: team-a-queue
   podSets:
   - count: 3
@@ -45,6 +46,10 @@ spec:
               memory: 200Mi
         restartPolicy: Never
 ```
+## Active
+
+You can stop or resume a running workload by setting the [Active](/docs/reference/kueue.v1.beta1#kueue-x-k8s-io-v1beta1-WorkloadSpec) field. The active field determines if a workload can be admitted into a queue or continue running, if already admitted.
+Changing `.spec.Active` from true to false will cause a running workload to be evicted and not be requeued.
 
 ## Queue name
 
