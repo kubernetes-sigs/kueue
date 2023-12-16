@@ -46,7 +46,7 @@ security-testing:
     comment: dependabot interval set to "weekly"
 security-contacts:
   - type: email
-    value: acondor@google.com
+    value: kueue-alerts@kubernetes.io
     primary: true
   - type: email
     value: security-discuss-private@kubernetes.io
