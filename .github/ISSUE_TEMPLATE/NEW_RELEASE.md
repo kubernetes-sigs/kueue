@@ -46,11 +46,11 @@ Please do not remove items from the checklist
 - [ ] For major or minor releases, merge the `main` branch into the `website` branch to publish the updated documentation.
 - [ ] Send an announcement email to `sig-scheduling@kubernetes.io` and `wg-batch@kubernetes.io` with the subject `[ANNOUNCE] kueue $VERSION is released`.   <!--Link: example https://groups.google.com/a/kubernetes.io/g/wg-batch/c/-gZOrSnwDV4 -->
 - [ ] Update the below files with respective values in `main` branch : 
-- Latest version in `README.md`
-- Release notes in the `CHANGELOG`
-- `version` in `site/config.toml`
-- `appVersion` in `charts/kueue/Chart.yaml` 
-- `last-updated`, `last-reviewed`, `commit-hash`, `project-release` in `SECURITY-INSIGHTS.yaml`
+  - Latest version in `README.md`
+  - Release notes in the `CHANGELOG`
+  - `version` in `site/config.toml`
+  - `appVersion` in `charts/kueue/Chart.yaml` 
+  - `last-updated`, `last-reviewed`, `commit-hash`, `project-release` in `SECURITY-INSIGHTS.yaml`
 - [ ] For a major or minor release, prepare the repo for the next version:
   - [ ] create an unannotated _devel_ tag in the
         `main` branch, on the first commit that gets merged after the release
