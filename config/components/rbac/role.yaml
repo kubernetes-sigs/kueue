@@ -43,6 +43,13 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - pods/finalizers
+  verbs:
+  - get
+  - update
+- apiGroups:
+  - ""
+  resources:
   - pods/status
   verbs:
   - get
@@ -141,6 +148,13 @@ rules:
 - apiGroups:
   - jobset.x-k8s.io
   resources:
+  - jobsets/finalizers
+  verbs:
+  - get
+  - update
+- apiGroups:
+  - jobset.x-k8s.io
+  resources:
   - jobsets/status
   verbs:
   - get
@@ -155,6 +169,13 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - kubeflow.org
+  resources:
+  - mpijobs/finalizers
+  verbs:
+  - get
+  - update
 - apiGroups:
   - kubeflow.org
   resources:
@@ -175,6 +196,13 @@ rules:
 - apiGroups:
   - kubeflow.org
   resources:
+  - mxjobs/finalizers
+  verbs:
+  - get
+  - update
+- apiGroups:
+  - kubeflow.org
+  resources:
   - mxjobs/status
   verbs:
   - get
@@ -189,6 +217,13 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - kubeflow.org
+  resources:
+  - paddlejobs/finalizers
+  verbs:
+  - get
+  - update
 - apiGroups:
   - kubeflow.org
   resources:
@@ -209,6 +244,13 @@ rules:
 - apiGroups:
   - kubeflow.org
   resources:
+  - pytorchjobs/finalizers
+  verbs:
+  - get
+  - update
+- apiGroups:
+  - kubeflow.org
+  resources:
   - pytorchjobs/status
   verbs:
   - get
@@ -226,6 +268,13 @@ rules:
 - apiGroups:
   - kubeflow.org
   resources:
+  - tfjobs/finalizers
+  verbs:
+  - get
+  - update
+- apiGroups:
+  - kubeflow.org
+  resources:
   - tfjobs/status
   verbs:
   - get
@@ -240,6 +289,13 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - kubeflow.org
+  resources:
+  - xgboostjobs/finalizers
+  verbs:
+  - get
+  - update
 - apiGroups:
   - kubeflow.org
   resources:
@@ -401,6 +457,13 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - ray.io
+  resources:
+  - rayjobs/finalizers
+  verbs:
+  - get
+  - update
 - apiGroups:
   - ray.io
   resources:
