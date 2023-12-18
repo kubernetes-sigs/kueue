@@ -5,10 +5,13 @@ on:
         type: string
         required: true
 
+permissions: {}
+
 jobs:
   test_bom_action:
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: write
     name: Install bom and generate SBOM
     steps:
       - name: Set tag name
@@ -20,7 +23,7 @@ jobs:
         uses: kubernetes-sigs/release-actions/setup-bom@main
       - name: Checkout repository
         uses: actions/checkout@v4
-      - name: Generage SBOM
+      - name: Generate SBOM
         run: |
           bom generate -o /tmp/kueue.spdx .
           cd /tmp
