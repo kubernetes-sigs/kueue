@@ -263,8 +263,8 @@ github.com/onsi/ginkgo/v2 v2.13.2 h1:Bi2gGVkfn6gQcjNjZJVO8Gf0FHzMPf2phUei9tejVMs
 github.com/onsi/ginkgo/v2 v2.13.2/go.mod h1:XStQ8QcGwLyF4HdfcZB8SFOS/MWCgDuXMSBe6zrvLgM=
 github.com/onsi/gomega v1.30.0 h1:hvMK7xYz4D3HapigLTeGdId/NcfQx1VHMJc60ew99+8=
 github.com/onsi/gomega v1.30.0/go.mod h1:9sxs+SwGrKI0+PWe4Fxa9tFQQBG5xSsSbMXOI8PPpoQ=
-github.com/open-policy-agent/cert-controller v0.10.0 h1:9hBJsnpHsBqKR7VVtOHW19mk/a1vQvje6+QSJeRHuDg=
-github.com/open-policy-agent/cert-controller v0.10.0/go.mod h1:4uRbBLY5DsPOog+a9pqk3JLxuuhrWsbUedQW65HcLTI=
+github.com/open-policy-agent/cert-controller v0.9.0 h1:jB+humawvIt3FMPsyPISe8Ru4P1dokJ94OOTKy/SGAc=
+github.com/open-policy-agent/cert-controller v0.9.0/go.mod h1:4uRbBLY5DsPOog+a9pqk3JLxuuhrWsbUedQW65HcLTI=
 github.com/open-policy-agent/frameworks/constraint v0.0.0-20230822235116-f0b62fe1e4c4 h1:5dum5SLEz+95JDLkMls7Z7IDPjvSq3UhJSFe4f5einQ=
 github.com/open-policy-agent/frameworks/constraint v0.0.0-20230822235116-f0b62fe1e4c4/go.mod h1:54/KzLMvA5ndBVpm7B1OjLeV0cUtTLTz2bZ2OtydLpU=
 github.com/pkg/errors v0.8.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
@@ -740,8 +740,8 @@ sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.1.2 h1:trsWhjU5jZrx6U
 sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.1.2/go.mod h1:+qG7ISXqCDVVcyO8hLn12AKVYYUjM7ftlqsqmrhMZE0=
 sigs.k8s.io/controller-runtime v0.16.3 h1:2TuvuokmfXvDUamSx1SuAOO3eTyye+47mJCigwG62c4=
 sigs.k8s.io/controller-runtime v0.16.3/go.mod h1:j7bialYoSn142nv9sCOJmQgDXQXxnroFU4VnX/brVJ0=
-sigs.k8s.io/jobset v0.3.0 h1:nudyLW5+2zFrMaFSr5teF7CuS55UOJyz8NbVBNtNP+0=
-sigs.k8s.io/jobset v0.3.0/go.mod h1:x3pw53wKIxq5fFz7/WacV1Exd9fTHa530szVXBdo9OE=
+sigs.k8s.io/jobset v0.2.3 h1:5yw8Wet9aaF98PmQaDt8B75+Bf4p6qMGA5K6nmrY40U=
+sigs.k8s.io/jobset v0.2.3/go.mod h1:TtoXVVVihyYvZoefYtpVDeLzJVI9wsPHEB8b9xTgex4=
 sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd h1:EDPBXCAspyGV4jQlpZSudPeMmr1bNJefnuqLsRAsHZo=
 sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd/go.mod h1:B8JuhiUyNFVKdsE8h686QcCxMaH6HrOAZj4vswFpcB0=
 sigs.k8s.io/structured-merge-diff/v4 v4.4.1 h1:150L+0vs/8DA78h1u02ooW1/fFq/Lwr+sGiqlzvrtq4=

@@ -42,7 +42,7 @@ var TestPodSpec = corev1.PodSpec{
 
 type ReplicatedJobRequirements struct {
 	Name        string
-	Replicas    int32
+	Replicas    int
 	Parallelism int32
 	Completions int32
 }

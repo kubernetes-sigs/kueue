@@ -10,7 +10,7 @@ require (
 	github.com/kubeflow/training-operator v1.7.0
 	github.com/onsi/ginkgo/v2 v2.13.2
 	github.com/onsi/gomega v1.30.0
-	github.com/open-policy-agent/cert-controller v0.10.0
+	github.com/open-policy-agent/cert-controller v0.9.0
 	github.com/prometheus/client_golang v1.17.0
 	github.com/prometheus/client_model v0.5.0
 	github.com/ray-project/kuberay/ray-operator v1.0.0
@@ -28,7 +28,7 @@ require (
 	k8s.io/metrics v0.28.4
 	k8s.io/utils v0.0.0-20230726121419-3b25d923346b
 	sigs.k8s.io/controller-runtime v0.16.3
-	sigs.k8s.io/jobset v0.3.0
+	sigs.k8s.io/jobset v0.2.3
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1
 )
 
