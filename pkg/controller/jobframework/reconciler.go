@@ -233,7 +233,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 					log.Error(err, "suspending child job failed")
 					return ctrl.Result{}, err
 				}
-				r.record.Eventf(object, corev1.EventTypeNormal, "Suspended", "Kueue managed child job suspended")
+				r.record.Eventf(object, corev1.EventTypeNormal, Suspended, "Kueue managed child job suspended")
 			}
 		}
 		return ctrl.Result{}, nil
@@ -256,7 +256,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			}
 		}
 
-		r.record.Eventf(object, corev1.EventTypeNormal, "FinishedWorkload",
+		r.record.Eventf(object, corev1.EventTypeNormal, FinishedWorkload,
 			"Workload '%s' is declared finished", workload.Key(wl))
 		return ctrl.Result{}, workload.RemoveFinalizer(ctx, r.client, wl)
 	}
@@ -530,7 +530,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		}
 		if err == nil {
 			existedWls++
-			r.record.Eventf(object, corev1.EventTypeNormal, "DeletedWorkload",
+			r.record.Eventf(object, corev1.EventTypeNormal, DeletedWorkload,
 				"Deleted not matching Workload: %v", wlKey)
 		}
 	}
@@ -659,7 +659,7 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 		return nil, fmt.Errorf("updating existed workload: %w", err)
 	}
 
-	r.record.Eventf(object, corev1.EventTypeNormal, "UpdatedWorkload",
+	r.record.Eventf(object, corev1.EventTypeNormal, UpdatedWorkload,
 		"Updated not matching Workload for suspended job: %v", klog.KObj(wl))
 	return newWl, nil
 }
@@ -685,7 +685,7 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 		}
 	}
 
-	r.record.Eventf(object, corev1.EventTypeNormal, "Started",
+	r.record.Eventf(object, corev1.EventTypeNormal, Started,
 		"Admitted by clusterQueue %v", wl.Status.Admission.ClusterQueue)
 
 	return nil
@@ -701,7 +701,7 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 	if jws, implements := job.(JobWithCustomStop); implements {
 		stoppedNow, err := jws.Stop(ctx, r.client, info, stopReason, eventMsg)
 		if stoppedNow {
-			r.record.Eventf(object, corev1.EventTypeNormal, "Stopped", eventMsg)
+			r.record.Eventf(object, corev1.EventTypeNormal, Stopped, eventMsg)
 		}
 
 		return err
@@ -719,7 +719,7 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 		return err
 	}
 
-	r.record.Eventf(object, corev1.EventTypeNormal, "Stopped", eventMsg)
+	r.record.Eventf(object, corev1.EventTypeNormal, Stopped, eventMsg)
 	return nil
 }
 
@@ -879,7 +879,7 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	if err = r.client.Create(ctx, wl); err != nil {
 		return err
 	}
-	r.record.Eventf(object, corev1.EventTypeNormal, "CreatedWorkload",
+	r.record.Eventf(object, corev1.EventTypeNormal, CreatedWorkload,
 		"Created Workload: %v", workload.Key(wl))
 	return nil
 }

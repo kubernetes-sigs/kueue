@@ -614,7 +614,7 @@ func (p *Pod) validatePodGroupMetadata(r record.EventRecorder, activePods []core
 
 	if len(activePods) < groupTotalCount {
 		errMsg := fmt.Sprintf("'%s' group total count is less than the actual number of pods in the cluster", podGroupName(p.pod))
-		r.Eventf(p.Object(), corev1.EventTypeWarning, "ErrWorkloadCompose", errMsg)
+		r.Eventf(p.Object(), corev1.EventTypeWarning, jobframework.ErrWorkloadCompose, errMsg)
 		return jobframework.UnretryableError(errMsg)
 	}
 
@@ -782,7 +782,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 	wl.Spec.PodSets, err = p.constructGroupPodSets()
 	if err != nil {
 		if jobframework.IsUnretryableError(err) {
-			r.Eventf(object, corev1.EventTypeWarning, "ErrWorkloadCompose", err.Error())
+			r.Eventf(object, corev1.EventTypeWarning, jobframework.ErrWorkloadCompose, err.Error())
 		}
 		return nil, err
 	}
