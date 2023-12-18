@@ -14,9 +14,11 @@ limitations under the License.
 package jobframework
 
 import (
+	"fmt"
 	"strings"
 
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
@@ -29,12 +31,22 @@ var (
 	parentWorkloadKeyPath         = annotationsPath.Key(constants.ParentWorkloadAnnotation)
 	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
 	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
+	supportedPrebuiltWlJobGVKs    = sets.New("batch/v1, Kind=Job")
 )
 
 func ValidateCreateForQueueName(job GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, ValidateLabelAsCRDName(job, constants.QueueLabel)...)
+	allErrs = append(allErrs, ValidateLabelAsCRDName(job, constants.PrebuiltWorkloadLabel)...)
 	allErrs = append(allErrs, ValidateAnnotationAsCRDName(job, constants.QueueAnnotation)...)
+
+	// this rule should be relaxed when its confirmed that running wit a prebuilt wl is fully supported by each integration
+	if _, hasPrebuilt := job.Object().GetLabels()[constants.PrebuiltWorkloadLabel]; hasPrebuilt {
+		gvk := job.GVK().String()
+		if !supportedPrebuiltWlJobGVKs.Has(gvk) {
+			allErrs = append(allErrs, field.Forbidden(labelsPath.Key(constants.PrebuiltWorkloadLabel), fmt.Sprintf("Is not supported for %q", gvk)))
+		}
+	}
 	return allErrs
 }
 
@@ -73,6 +85,10 @@ func ValidateUpdateForQueueName(oldJob, newJob GenericJob) field.ErrorList {
 	if !newJob.IsSuspended() {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(QueueName(oldJob), QueueName(newJob), queueNameLabelPath)...)
 	}
+
+	oldWlName, _ := prebuiltWorkload(oldJob)
+	newWlName, _ := prebuiltWorkload(newJob)
+	allErrs = append(allErrs, apivalidation.ValidateImmutableField(oldWlName, newWlName, labelsPath.Key(constants.PrebuiltWorkloadLabel))...)
 	return allErrs
 }
 

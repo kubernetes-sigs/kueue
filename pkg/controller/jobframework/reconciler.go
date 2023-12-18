@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+	"sigs.k8s.io/kueue/pkg/util/maps"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -439,6 +440,23 @@ func (r *JobReconciler) getParentWorkload(ctx context.Context, job GenericJob, o
 func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 
+	if prebuiltWorkloadName, usePrebuiltWorkload := prebuiltWorkload(job); usePrebuiltWorkload {
+		wl := &kueue.Workload{}
+		err := r.client.Get(ctx, types.NamespacedName{Name: prebuiltWorkloadName, Namespace: object.GetNamespace()}, wl)
+		if err != nil {
+			return nil, client.IgnoreNotFound(err)
+		}
+
+		if owns, err := r.ensurePrebuiltWorkloadOwnership(ctx, wl, object); !owns || err != nil {
+			return nil, err
+		}
+
+		if inSync, err := r.ensurePrebuiltWorkloadInSync(ctx, wl, job); !inSync || err != nil {
+			return nil, err
+		}
+		return wl, nil
+	}
+
 	// Find a matching workload first if there is one.
 	var toDelete []*kueue.Workload
 	var match *kueue.Workload
@@ -535,6 +553,41 @@ func FindMatchingWorkloads(ctx context.Context, c client.Client, job GenericJob)
 	}
 
 	return match, toDelete, nil
+}
+
+func (r *JobReconciler) ensurePrebuiltWorkloadOwnership(ctx context.Context, wl *kueue.Workload, object client.Object) (bool, error) {
+	if !metav1.IsControlledBy(wl, object) {
+		if err := ctrl.SetControllerReference(object, wl, r.client.Scheme()); err != nil {
+			// don't return an error here, since a retry cannot give a different result,
+			// log the error.
+			log := ctrl.LoggerFrom(ctx)
+			log.Error(err, "Cannot take ownership of the workload")
+			return false, nil
+		}
+
+		if errs := validation.IsValidLabelValue(string(object.GetUID())); len(errs) == 0 {
+			wl.Labels = maps.MergeKeepFirst(map[string]string{controllerconsts.JobUIDLabel: string(object.GetUID())}, wl.Labels)
+		}
+
+		if err := r.client.Update(ctx, wl); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *kueue.Workload, job GenericJob) (bool, error) {
+	if !equivalentToWorkload(job, wl) {
+		// mark the workload as finished
+		err := workload.UpdateStatus(ctx, r.client, wl,
+			kueue.WorkloadFinished,
+			metav1.ConditionTrue,
+			"OutOfSync",
+			"The prebuilt workload is out of sync with its user job",
+			constants.JobControllerName)
+		return false, err
+	}
+	return true, nil
 }
 
 // equivalentToWorkload checks if the job corresponds to the workload
@@ -780,9 +833,22 @@ func (r *JobReconciler) getPodSetsInfoFromStatus(ctx context.Context, w *kueue.W
 func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job GenericJob, object client.Object) error {
 	log := ctrl.LoggerFrom(ctx)
 
+	_, usePrebuiltWorkload := prebuiltWorkload(job)
+	if usePrebuiltWorkload {
+		// Stop the job if not already suspended
+		if stopErr := r.stopJob(ctx, job, nil, StopReasonNoMatchingWorkload, "missing workload"); stopErr != nil {
+			return stopErr
+		}
+	}
+
 	// Wait until there are no active pods.
 	if job.IsActive() {
 		log.V(2).Info("Job is suspended but still has active pods, waiting")
+		return nil
+	}
+
+	if usePrebuiltWorkload {
+		log.V(2).Info("Skip workload creation for job with prebuilt workload")
 		return nil
 	}
 

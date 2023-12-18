@@ -205,11 +205,27 @@ func (j *Job) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
 	}}, nil
 }
 
+// The following labels are managed internally by batch/job controller, we should not
+// propagate them to the workload.
+var (
+	// the legacy names are no longer defined in the api, only in k/2/apis/batch
+	legacyJobNameLabel       = "job-name"
+	legacyControllerUidLabel = "controller-uid"
+	managedLabels            = []string{legacyJobNameLabel, legacyControllerUidLabel, batchv1.JobNameLabel, batchv1.ControllerUidLabel}
+)
+
+func cleanManagedLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
+	for _, managedLabel := range managedLabels {
+		delete(pt.Labels, managedLabel)
+	}
+	return pt
+}
+
 func (j *Job) PodSets() []kueue.PodSet {
 	return []kueue.PodSet{
 		{
 			Name:     kueue.DefaultPodSetName,
-			Template: *j.Spec.Template.DeepCopy(),
+			Template: *cleanManagedLabels(j.Spec.Template.DeepCopy()),
 			Count:    j.podsCount(),
 			MinCount: j.minPodsCount(),
 		},
@@ -247,7 +263,13 @@ func (j *Job) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 			j.Spec.Completions = j.Spec.Parallelism
 		}
 	}
-	changed = podset.RestorePodSpec(&j.Spec.Template.ObjectMeta, &j.Spec.Template.Spec, podSetsInfo[0]) || changed
+	info := podSetsInfo[0]
+	for _, managedLabel := range managedLabels {
+		if v, found := j.Spec.Template.Labels[managedLabel]; found {
+			info.AddOrUpdateLabel(managedLabel, v)
+		}
+	}
+	changed = podset.RestorePodSpec(&j.Spec.Template.ObjectMeta, &j.Spec.Template.Spec, info) || changed
 	return changed
 }
 

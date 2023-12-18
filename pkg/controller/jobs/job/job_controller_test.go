@@ -378,6 +378,20 @@ var (
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 		cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"),
 	}
+	workloadCmpOptsWithOwner = []cmp.Option{
+		cmpopts.EquateEmpty(),
+		cmpopts.SortSlices(func(a, b kueue.Workload) bool {
+			return a.Name < b.Name
+		}),
+		cmpopts.SortSlices(func(a, b metav1.Condition) bool {
+			return a.Type < b.Type
+		}),
+		cmpopts.IgnoreFields(
+			kueue.Workload{}, "TypeMeta", "ObjectMeta.Name", "ObjectMeta.ResourceVersion",
+		),
+		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
+		cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"),
+	}
 )
 
 func TestReconciler(t *testing.T) {
@@ -1668,6 +1682,128 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			wantWorkloads: []kueue.Workload{},
 		},
+		"when the prebuilt workload is missing, no new one is created and the job is suspended": {
+			job: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				Label(controllerconsts.PrebuiltWorkloadLabel, "missing-workload").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Label(controllerconsts.PrebuiltWorkloadLabel, "missing-workload").
+				UID("test-uid").
+				Obj(),
+		},
+		"when the prebuilt workload exists its owner info is updated": {
+			job: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
+				UID("test-uid").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("prebuilt-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					Queue("test-queue").
+					PriorityClass("test-wpc").
+					Priority(100).
+					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("prebuilt-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					Queue("test-queue").
+					PriorityClass("test-wpc").
+					Priority(100).
+					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					OwnerReference(batchv1.SchemeGroupVersion.String(), "Job", "job", "test-uid", true, true).
+					Obj(),
+			},
+		},
+		"when the prebuilt workload is owned by another object": {
+			job: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
+				UID("test-uid").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("prebuilt-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					Queue("test-queue").
+					PriorityClass("test-wpc").
+					Priority(100).
+					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					OwnerReference(batchv1.SchemeGroupVersion.String(), "Job", "other-job", "other-uid", true, true).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("prebuilt-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					Queue("test-queue").
+					PriorityClass("test-wpc").
+					Priority(100).
+					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					OwnerReference(batchv1.SchemeGroupVersion.String(), "Job", "other-job", "other-uid", true, true).
+					Obj(),
+			},
+		},
+		"when the prebuilt workload is not equivalent to the job": {
+			job: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Label(controllerconsts.PrebuiltWorkloadLabel, "prebuilt-workload").
+				UID("test-uid").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("prebuilt-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					Queue("test-queue").
+					PriorityClass("test-wpc").
+					Priority(100).
+					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("prebuilt-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					Queue("test-queue").
+					PriorityClass("test-wpc").
+					Priority(100).
+					PriorityClassSource(constants.WorkloadPriorityClassSource).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					OwnerReference(batchv1.SchemeGroupVersion.String(), "Job", "job", "test-uid", true, true).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  "OutOfSync",
+						Message: "The prebuilt workload is out of sync with its user job",
+					}).
+					Obj(),
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -1684,10 +1820,16 @@ func TestReconciler(t *testing.T) {
 				kcBuilder = kcBuilder.WithStatusSubresource(&tc.workloads[i])
 			}
 
+			// For prebuilt workloads we are skipping the ownership setup in the test body and
+			// expect the reconciler to do it.
+			_, useesPrebuiltWorkload := tc.job.Labels[controllerconsts.PrebuiltWorkloadLabel]
+
 			kClient := kcBuilder.Build()
 			for i := range tc.workloads {
-				if err := ctrl.SetControllerReference(&tc.job, &tc.workloads[i], kClient.Scheme()); err != nil {
-					t.Fatalf("Could not setup owner reference in Workloads: %v", err)
+				if !useesPrebuiltWorkload {
+					if err := ctrl.SetControllerReference(&tc.job, &tc.workloads[i], kClient.Scheme()); err != nil {
+						t.Fatalf("Could not setup owner reference in Workloads: %v", err)
+					}
 				}
 				if err := kClient.Create(ctx, &tc.workloads[i]); err != nil {
 					t.Fatalf("Could not create workload: %v", err)
@@ -1715,7 +1857,13 @@ func TestReconciler(t *testing.T) {
 			if err := kClient.List(ctx, &gotWorkloads); err != nil {
 				t.Fatalf("Could not get Workloads after reconcile: %v", err)
 			}
-			if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, workloadCmpOpts...); diff != "" {
+
+			wlCheckOpts := workloadCmpOpts
+			if useesPrebuiltWorkload {
+				wlCheckOpts = workloadCmpOptsWithOwner
+			}
+
+			if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, wlCheckOpts...); diff != "" {
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
 			}
 		})

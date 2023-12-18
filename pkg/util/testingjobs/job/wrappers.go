@@ -206,6 +206,11 @@ func (j *JobWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersi
 	return j
 }
 
+func (j *JobWrapper) Containers(containers ...corev1.Container) *JobWrapper {
+	j.Spec.Template.Spec.Containers = containers
+	return j
+}
+
 // UID updates the uid of the job.
 func (j *JobWrapper) UID(uid string) *JobWrapper {
 	j.ObjectMeta.UID = types.UID(uid)
@@ -228,4 +233,18 @@ func (j *JobWrapper) Active(c int32) *JobWrapper {
 func (j *JobWrapper) Condition(c batchv1.JobCondition) *JobWrapper {
 	j.Status.Conditions = append(j.Status.Conditions, c)
 	return j
+}
+
+func SetContainerDefaults(c *corev1.Container) {
+	if c.TerminationMessagePath == "" {
+		c.TerminationMessagePath = "/dev/termination-log"
+	}
+
+	if c.TerminationMessagePolicy == "" {
+		c.TerminationMessagePolicy = corev1.TerminationMessageReadFile
+	}
+
+	if c.ImagePullPolicy == "" {
+		c.ImagePullPolicy = corev1.PullIfNotPresent
+	}
 }
