@@ -247,7 +247,7 @@ type BorrowWithinCohort struct {
 
 There are main modifications:
 - in the [`fitsResourceQuota`](https://github.com/kubernetes-sigs/kueue/blob/main/pkg/scheduler/flavorassigner/flavorassigner.go#L551)
-  we return `FlavorFungibilityMode=Preempt` when the workload does not fit, but
+  we return `FlavorAssignmentMode=Preempt` when the workload does not fit, but
   there is enough quota within the cohort
 - modify the [`GetTargets`](https://github.com/kubernetes-sigs/kueue/blob/53d4b657655aff5df3748e65b4226cf11e50eeba/pkg/scheduler/preemption/preemption.go#L77)
 and the [`minimalPreemptions`](https://github.com/kubernetes-sigs/kueue/blob/53d4b657655aff5df3748e65b4226cf11e50eeba/pkg/scheduler/preemption/preemption.go#L159) functions
