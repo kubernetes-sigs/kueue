@@ -86,8 +86,8 @@ func ValidateUpdateForQueueName(oldJob, newJob GenericJob) field.ErrorList {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(QueueName(oldJob), QueueName(newJob), queueNameLabelPath)...)
 	}
 
-	_, oldWlName := prebuiltWorkload(oldJob)
-	_, newWlName := prebuiltWorkload(newJob)
+	oldWlName, _ := prebuiltWorkload(oldJob)
+	newWlName, _ := prebuiltWorkload(newJob)
 	allErrs = append(allErrs, apivalidation.ValidateImmutableField(oldWlName, newWlName, labelsPath.Key(constants.PrebuiltWorkloadLabel))...)
 	return allErrs
 }

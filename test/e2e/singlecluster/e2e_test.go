@@ -699,6 +699,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				testingjob.SetContainerDefaults(&sampleJob.Spec.Template.Spec.Containers[0])
 
 				wl = testing.MakeWorkload("prebuilt-wl", ns.Name).
+					Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue(localQueue.Name).
 					PodSets(
 						*testing.MakePodSet("main", 1).Containers(sampleJob.Spec.Template.Spec.Containers[0]).Obj(),
@@ -739,7 +740,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			ginkgo.By("Await for jobs completion", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), createdWorkload)).To(gomega.Succeed())
-
+					g.Expect(createdWorkload.Finalizers).NotTo(gomega.ContainElement(kueue.ResourceInUseFinalizerName))
 					g.Expect(createdWorkload.Status.Conditions).To(gomega.ContainElement(
 						gomega.BeComparableTo(metav1.Condition{
 							Type:   kueue.WorkloadFinished,

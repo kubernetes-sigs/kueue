@@ -130,7 +130,7 @@ func workloadPriorityClassName(job GenericJob) string {
 	return ""
 }
 
-func prebuiltWorkload(job GenericJob) (bool, string) {
+func prebuiltWorkload(job GenericJob) (string, bool) {
 	name, found := job.Object().GetLabels()[constants.PrebuiltWorkloadLabel]
-	return found, name
+	return name, found
 }
