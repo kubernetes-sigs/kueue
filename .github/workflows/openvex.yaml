@@ -5,8 +5,12 @@ on:
         type: string
         required: true
 
+permissions: {}
+
 jobs:
   vexctl:
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     steps:
       - name: Set tag name
@@ -21,7 +25,7 @@ jobs:
         with:
           product: pkg:golang/sigs.k8s.io/kueue@${{ env.TAG }}
           file: /tmp/kueve.vex.json
-      - name: Upload SBOM
+      - name: Upload openvex data
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
