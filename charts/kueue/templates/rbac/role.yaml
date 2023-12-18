@@ -133,12 +133,14 @@ rules:
       - flowschemas
     verbs:
       - list
+      - watch
   - apiGroups:
       - flowcontrol.apiserver.k8s.io
     resources:
       - prioritylevelconfigurations
     verbs:
       - list
+      - watch
   - apiGroups:
       - jobset.x-k8s.io
     resources:
