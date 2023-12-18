@@ -27,8 +27,8 @@ require (
 	k8s.io/kube-openapi v0.0.0-20230918164632-68afd615200d
 	k8s.io/metrics v0.28.4
 	k8s.io/utils v0.0.0-20230726121419-3b25d923346b
-	sigs.k8s.io/controller-runtime v0.16.2
-	sigs.k8s.io/jobset v0.2.3
+	sigs.k8s.io/controller-runtime v0.16.3
+	sigs.k8s.io/jobset v0.3.0
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1
 )
 
@@ -117,7 +117,7 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/apiextensions-apiserver v0.28.2 // indirect
+	k8s.io/apiextensions-apiserver v0.28.3 // indirect
 	k8s.io/gengo v0.0.0-20230829151522-9cce18d56c01 // indirect
 	k8s.io/kms v0.28.4 // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.1.2 // indirect
