@@ -26,6 +26,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -365,9 +366,29 @@ func TestReconciler(t *testing.T) {
 						*utiltesting.MakePodSet("worker", 10).Request(v1.ResourceCPU, "5").Obj(),
 					).
 					ReserveQuota(utiltesting.MakeAdmission("cq").
-						AssignmentPodCount(1).
-						AssignmentPodCount(5).
-						AssignmentPodCount(10).
+						PodSets(
+							kueue.PodSetAssignment{
+								Name: "scheduler",
+								Flavors: map[v1.ResourceName]kueue.ResourceFlavorReference{
+									v1.ResourceCPU: "default",
+								},
+								Count: ptr.To[int32](1),
+							},
+							kueue.PodSetAssignment{
+								Name: "server",
+								Flavors: map[v1.ResourceName]kueue.ResourceFlavorReference{
+									v1.ResourceCPU: "default",
+								},
+								Count: ptr.To[int32](2),
+							},
+							kueue.PodSetAssignment{
+								Name: "worker",
+								Flavors: map[v1.ResourceName]kueue.ResourceFlavorReference{
+									v1.ResourceCPU: "default",
+								},
+								Count: ptr.To[int32](5),
+							},
+						).
 						Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
@@ -397,9 +418,29 @@ func TestReconciler(t *testing.T) {
 						*utiltesting.MakePodSet("worker", 10).Request(v1.ResourceCPU, "5").Obj(),
 					).
 					ReserveQuota(utiltesting.MakeAdmission("cq").
-						AssignmentPodCount(1).
-						AssignmentPodCount(5).
-						AssignmentPodCount(10).
+						PodSets(
+							kueue.PodSetAssignment{
+								Name: "scheduler",
+								Flavors: map[v1.ResourceName]kueue.ResourceFlavorReference{
+									v1.ResourceCPU: "default",
+								},
+								Count: ptr.To[int32](1),
+							},
+							kueue.PodSetAssignment{
+								Name: "server",
+								Flavors: map[v1.ResourceName]kueue.ResourceFlavorReference{
+									v1.ResourceCPU: "default",
+								},
+								Count: ptr.To[int32](2),
+							},
+							kueue.PodSetAssignment{
+								Name: "worker",
+								Flavors: map[v1.ResourceName]kueue.ResourceFlavorReference{
+									v1.ResourceCPU: "default",
+								},
+								Count: ptr.To[int32](5),
+							},
+						).
 						Obj()).
 					Admitted(true).
 					Condition(metav1.Condition{
