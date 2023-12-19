@@ -24,7 +24,10 @@ const (
 	Timeout = time.Second * 30
 	// LongTimeout is meant for E2E tests when waiting for complex operations
 	// such as running pods to completion.
-	LongTimeout        = time.Second * 45
+	LongTimeout = 45 * time.Second
+	// StartupTimeout is meant to be used for waiting for Kueue to startup, given
+	// that cert updates can take up to 2 minutes to propagate to the filesystem.
+	StartUpTimeout     = 3 * time.Minute
 	ConsistentDuration = time.Second * 3
 	Interval           = time.Millisecond * 250
 )

@@ -62,6 +62,6 @@ func KueueReadyForTesting(ctx context.Context, client client.Client) {
 	resourceKueue := utiltesting.MakeResourceFlavor("default").Obj()
 	gomega.Eventually(func() error {
 		return client.Create(context.Background(), resourceKueue)
-	}, LongTimeout, Interval).Should(gomega.Succeed())
+	}, StartUpTimeout, Interval).Should(gomega.Succeed())
 	ExpectResourceFlavorToBeDeleted(ctx, client, resourceKueue, true)
 }

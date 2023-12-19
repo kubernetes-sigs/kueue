@@ -917,7 +917,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 					}
 					return slices.ToMap(createdWorkload.Status.AdmissionChecks, func(i int) (string, string) { return createdWorkload.Status.AdmissionChecks[i].Name, "" })
 
-				}, util.LongTimeout, util.Interval).Should(gomega.BeComparableTo(map[string]string{"check1": ""}))
+				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(map[string]string{"check1": ""}))
 			})
 
 			ginkgo.By("waiting for the workload to be assigned", func() {
@@ -984,7 +984,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 					}
 					return slices.ToMap(createdWorkload.Status.AdmissionChecks, func(i int) (string, string) { return createdWorkload.Status.AdmissionChecks[i].Name, "" })
 
-				}, util.LongTimeout, util.Interval).Should(gomega.BeComparableTo(map[string]string{"check1": ""}))
+				}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(map[string]string{"check1": ""}))
 			})
 
 			ginkgo.By("setting the check as successful", func() {
