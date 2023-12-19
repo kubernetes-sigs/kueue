@@ -76,7 +76,7 @@ func (j *JobWrapper) BackoffLimit(limit int32) *JobWrapper {
 	return j
 }
 
-func (j *JobWrapper) TerimnationGracePeriod(seconds int64) *JobWrapper {
+func (j *JobWrapper) TerminationGracePeriod(seconds int64) *JobWrapper {
 	j.Spec.Template.Spec.TerminationGracePeriodSeconds = ptr.To(seconds)
 	return j
 }

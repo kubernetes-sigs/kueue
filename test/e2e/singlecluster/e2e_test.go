@@ -122,11 +122,14 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 					Queue(localQueueA.Name).
 					Image("gcr.io/k8s-staging-perf-tests/sleep:v0.0.3", []string{"60s", "-termination-grace-period", "0s"}).
 					Request(corev1.ResourceCPU, "1").
-					TerimnationGracePeriod(1).
+					TerminationGracePeriod(1).
 					BackoffLimit(0).
 					PriorityClass(highPriorityClass.Name).
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, blockingJob)).Should(gomega.Succeed())
+			})
+			ginkgo.By("Ensure the workload is admitted, by awaiting until the job is unsuspended", func() {
+				expectJobUnsuspended(client.ObjectKeyFromObject(blockingJob))
 			})
 		})
 		ginkgo.AfterEach(func() {
@@ -694,7 +697,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 					Label(constants.PrebuiltWorkloadLabel, "prebuilt-wl").
 					Image("gcr.io/k8s-staging-perf-tests/sleep:v0.0.3", []string{"5s", "-termination-grace-period", "0s"}).
 					BackoffLimit(0).
-					TerimnationGracePeriod(1).
+					TerminationGracePeriod(1).
 					Obj()
 				testingjob.SetContainerDefaults(&sampleJob.Spec.Template.Spec.Containers[0])
 
@@ -1030,6 +1033,14 @@ var _ = ginkgo.Describe("Kueue", func() {
 		})
 	})
 })
+
+func expectJobUnsuspended(key types.NamespacedName) {
+	job := &batchv1.Job{}
+	gomega.EventuallyWithOffset(1, func() *bool {
+		gomega.Expect(k8sClient.Get(ctx, key, job)).To(gomega.Succeed())
+		return job.Spec.Suspend
+	}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(false)))
+}
 
 func expectJobUnsuspendedWithNodeSelectors(key types.NamespacedName, ns map[string]string) {
 	job := &batchv1.Job{}
