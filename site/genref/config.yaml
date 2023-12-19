@@ -5,12 +5,12 @@ hiddenMemberFields:
 apis:
   - name: kueue
     title: Kueue API
-    package: ../..
+    package: sigs.k8s.io/kueue
     path: apis/kueue/v1beta1
 
   - name: kueue-config
     title: Kueue Configuration API
-    package: ../..
+    package: sigs.k8s.io/kueue
     path: apis/config/v1beta1
 
 externalPackages:
