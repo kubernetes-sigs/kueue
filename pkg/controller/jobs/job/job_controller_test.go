@@ -2015,7 +2015,6 @@ func TestReconciler(t *testing.T) {
 					t.Fatalf("Could not create workload: %v", err)
 				}
 			}
-			//recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
 			recorder := &utiltesting.EventRecorder{}
 			reconciler := NewReconciler(kClient, recorder, tc.reconcilerOptions...)
 
