@@ -1,0 +1,63 @@
+header:
+  schema-version: 1.0.0
+  expiration-date: '2024-09-28T01:00:00.000Z'
+  last-updated: '2023-12-15'
+  last-reviewed: '2023-12-15'
+  commit-hash: 4dbf78ebc006ee5f668c0a74876ef8d6db9485be
+  project-url: 'https://github.com/kubernetes-sigs/kueue'
+  project-release: 0.5.1
+  changelog: 'https://github.com/kubernetes-sigs/kueue/tree/main/CHANGELOG'
+  license: 'https://github.com/kubernetes-sigs/kueue/blob/main/LICENSE'
+project-lifecycle:
+  status: active
+  roadmap: >-
+    https://github.com/kubernetes-sigs/kueue/blob/9464e42a54d67f785e2e19b8c8bbd4471cd283ad/README.md?plain=1#L98
+  bug-fixes-only: false
+  core-maintainers:
+    - https://github.com/kubernetes-sigs/kueue/blob/main/OWNERS
+  release-cycle: 'https://github.com/kubernetes-sigs/kueue/blob/main/RELEASE.md'
+  release-process: >-
+    https://github.com/kubernetes-sigs/kueue/blob/main/.github/ISSUE_TEMPLATE/NEW_RELEASE.md
+contribution-policy:
+  accepts-pull-requests: true
+  accepts-automated-pull-requests: true
+  contributing-policy: 'https://github.com/kubernetes-sigs/kueue/blob/main/CONTRIBUTING.md'
+  code-of-conduct: >-
+    https://github.com/kubernetes-sigs/kueue/blob/9464e42a54d67f785e2e19b8c8bbd4471cd283ad/code-of-conduct.md
+documentation:
+  - 'https://kueue.sigs.k8s.io/docs/'
+distribution-points:
+  - >-
+    https://github.com/kubernetes-sigs/kueue/releases/download/v0.5.1/manifests.yaml
+security-artifacts:
+  threat-model:
+    threat-model-created: false
+  self-assessment:
+    self-assessment-created: false
+security-testing:
+  - tool-type: sca
+    tool-name: Dependabot
+    tool-version: '2'
+    tool-url: 'https://github.com/dependabot'
+    integration:
+      ad-hoc: false
+      ci: true
+      before-release: true
+    comment: dependabot interval set to "weekly"
+security-contacts:
+  - type: email
+    value: kueue-alerts@kubernetes.io
+    primary: true
+  - type: email
+    value: security-discuss-private@kubernetes.io
+    primary: false
+vulnerability-reporting:
+  accepts-vulnerability-reports: true
+  email-contact: security@kubernetes.io
+  Security-policy: 'https://kubernetes.io/security/'
+  bug-bounty-available: true
+  bug-bounty-url: 'https://hackerone.com/kubernetes'
+dependencies:
+  third-party-packages: true
+  dependencies-lists:
+    - 'https://github.com/kubernetes-sigs/kueue/blob/main/go.mod'
