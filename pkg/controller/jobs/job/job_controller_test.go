@@ -1874,6 +1874,14 @@ func TestReconciler(t *testing.T) {
 				Label(controllerconsts.PrebuiltWorkloadLabel, "missing-workload").
 				UID("test-uid").
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "missing workload",
+				},
+			},
 		},
 		"when the prebuilt workload exists its owner info is updated": {
 			job: *baseJobWrapper.
@@ -1909,6 +1917,14 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(batchv1.SchemeGroupVersion.String(), "Job", "job", "test-uid", true, true).
 					Obj(),
 			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "Not admitted by cluster queue",
+				},
+			},
 		},
 		"when the prebuilt workload is owned by another object": {
 			job: *baseJobWrapper.
@@ -1941,6 +1957,14 @@ func TestReconciler(t *testing.T) {
 					PriorityClassSource(constants.WorkloadPriorityClassSource).
 					OwnerReference(batchv1.SchemeGroupVersion.String(), "Job", "other-job", "other-uid", true, true).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "missing workload",
+				},
 			},
 		},
 		"when the prebuilt workload is not equivalent to the job": {
@@ -1982,6 +2006,14 @@ func TestReconciler(t *testing.T) {
 						Message: "The prebuilt workload is out of sync with its user job",
 					}).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "missing workload",
+				},
 			},
 		},
 	}
