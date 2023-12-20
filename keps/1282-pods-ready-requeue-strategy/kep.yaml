@@ -1,4 +1,4 @@
-title: Requeue Strategy
+title: Pods Ready Requeue Strategy
 kep-number: 1282
 authors:
   - "@nstogner"

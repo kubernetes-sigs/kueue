@@ -1,4 +1,4 @@
-# KEP-1282: Requeue Strategy
+# KEP-1282: Pods Ready Requeue Strategy
 
 <!-- toc -->
 - [Summary](#summary)
@@ -130,7 +130,7 @@ Most of the test coverage should probably live inside of `pkd/queue`. Additional
 #### Integration tests
 
 - Add integration test that matches user story 1.
-- Add an integration test to detect if flapping associated with preempted workloads being readmitted before the preemptor workload when `priorityPreemption: UseEvictionTimestamp` is set.
+- Add an integration test to detect if flapping associated with preempted workloads being readmitted before the preemptor workload when `requeuingTimestamp: Creation` is set.
 
 ### Graduation Criteria
 
@@ -165,10 +165,10 @@ Major milestones might include:
 
 ## Drawbacks
 
-When used with `StrictFIFO`, the `requeuingTimestamp: Creation` (front of queue) policy could lead to a blocked queue. This was called out in the issue that set the hardcoded [back-of-queue behavior](https://github.com/kubernetes-sigs/kueue/issues/599). This could be mitigated by recommending administrators select `BestEffortFIFO` when using this setting.
+* When used with `StrictFIFO`, the `requeuingTimestamp: Creation` (front of queue) policy could lead to a blocked queue. This was called out in the issue that set the hardcoded [back-of-queue behavior](https://github.com/kubernetes-sigs/kueue/issues/599). This could be mitigated by recommending administrators select `BestEffortFIFO` when using this setting.
+* Pods that never become ready due to invalid images will constantly be requeued to the front of the queue when the creation timestamp is used. [See Kubernetes issue](https://github.com/kubernetes/kubernetes/issues/122300).
 
 ## Alternatives
 
-The same concepts could be exposed to users based on `FrontOfQueue` or `BackOfQueue` settings instead of `Creation` and `Eviction` timestamps. These terms would imply that the workload would be prioritized over higher priority workloads in the queue. This is probably not desired (would likely lead to rapid preemption upon admission when preemption based on priority is enabled).
-
-These concepts could be configured in the ClusterQueue resource. This alternative would increase flexibility. Without a clear need for this level of granularity, it might be better to set these options at the controller level where `waitForPodsReady` settings already exist. Furthermore, configuring these settings at the ClusterQueue level introduces the question of what timestamp to use when sorting the heads of all ClusterQueues.
+* The same concepts could be exposed to users based on `FrontOfQueue` or `BackOfQueue` settings instead of `Creation` and `Eviction` timestamps. These terms would imply that the workload would be prioritized over higher priority workloads in the queue. This is probably not desired (would likely lead to rapid preemption upon admission when preemption based on priority is enabled).
+* These concepts could be configured in the ClusterQueue resource. This alternative would increase flexibility. Without a clear need for this level of granularity, it might be better to set these options at the controller level where `waitForPodsReady` settings already exist. Furthermore, configuring these settings at the ClusterQueue level introduces the question of what timestamp to use when sorting the heads of all ClusterQueues.
