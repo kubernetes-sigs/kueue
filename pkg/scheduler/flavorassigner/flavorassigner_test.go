@@ -1049,12 +1049,7 @@ func TestAssignFlavors(t *testing.T) {
 						Count: 1,
 					},
 				},
-				TotalBorrow: cache.FlavorResourceQuantities{
-					"default": {
-						corev1.ResourceCPU:    8_000,
-						corev1.ResourceMemory: 3 * utiltesting.Gi,
-					},
-				},
+				Borrowing: true,
 				Usage: cache.FlavorResourceQuantities{
 					"default": map[corev1.ResourceName]int64{
 						corev1.ResourceCPU:    10000,
@@ -1713,7 +1708,7 @@ func TestAssignFlavors(t *testing.T) {
 			},
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
-				TotalBorrow: cache.FlavorResourceQuantities{"one": {"cpu": 1000}},
+				Borrowing: true,
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
@@ -1829,9 +1824,7 @@ func TestAssignFlavors(t *testing.T) {
 			},
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
-				TotalBorrow: cache.FlavorResourceQuantities{
-					"one": {corev1.ResourceCPU: 1000},
-				},
+				Borrowing: true,
 				PodSets: []PodSetAssignment{{
 					Name: "main",
 					Flavors: ResourceAssignment{
