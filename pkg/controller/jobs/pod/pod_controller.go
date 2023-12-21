@@ -43,6 +43,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -60,7 +61,8 @@ const (
 )
 
 var (
-	gvk = corev1.SchemeGroupVersion.WithKind("Pod")
+	gvk                          = corev1.SchemeGroupVersion.WithKind("Pod")
+	errIncorrectReconcileRequest = fmt.Errorf("event handler error: got a single pod reconcile request for a pod group")
 )
 
 func init() {
@@ -85,7 +87,14 @@ func init() {
 var NewReconciler = jobframework.NewGenericReconciler(
 	func() jobframework.GenericJob {
 		return &Pod{}
-	}, nil)
+	},
+	func(c client.Client) (handler.EventHandler, string) {
+		return &podEventHandler{client: c}, "v1_pod"
+	},
+	func(c client.Client) handler.EventHandler {
+		return &parentWorkloadHandler{client: c}
+	},
+)
 
 type Pod struct {
 	pod              corev1.Pod
@@ -156,7 +165,17 @@ func (p *Pod) isUnretriableGroup() bool {
 
 // IsSuspended returns whether the job is suspended or not.
 func (p *Pod) IsSuspended() bool {
-	return podSuspended(&p.pod)
+	if !p.isGroup {
+		return podSuspended(&p.pod)
+	}
+
+	for i := range p.list.Items {
+		if podSuspended(&p.list.Items[i]) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Suspend will suspend the job.
@@ -164,16 +183,73 @@ func (p *Pod) Suspend() {
 	// Not implemented because this is not called when JobWithCustomStop is implemented.
 }
 
-// RunWithPodSetsInfo will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
-func (p *Pod) RunWithPodSetsInfo(podSetsInfo []podset.PodSetInfo) error {
-	if p.groupName() == "" && len(podSetsInfo) != 1 {
-		return fmt.Errorf("%w: expecting 1 pod set got %d", podset.ErrInvalidPodsetInfo, len(podSetsInfo))
-	}
-	idx := gateIndex(&p.pod)
+// ungatePod removes the kueue scheduling gate from the pod.
+// Returns true if the pod has been ungated and false otherwise.
+func ungatePod(pod *corev1.Pod) bool {
+	idx := gateIndex(pod)
 	if idx != gateNotFound {
-		p.pod.Spec.SchedulingGates = append(p.pod.Spec.SchedulingGates[:idx], p.pod.Spec.SchedulingGates[idx+1:]...)
+		pod.Spec.SchedulingGates = append(pod.Spec.SchedulingGates[:idx], pod.Spec.SchedulingGates[idx+1:]...)
+		return true
 	}
-	return podset.Merge(&p.pod.ObjectMeta, &p.pod.Spec, podSetsInfo[0])
+
+	return false
+}
+
+// Run will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
+func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	if !p.isGroup {
+		if len(podSetsInfo) != 1 {
+			return fmt.Errorf("%w: expecting 1 pod set got %d", podset.ErrInvalidPodsetInfo, len(podSetsInfo))
+		}
+
+		if ungated := ungatePod(&p.pod); !ungated {
+			return nil
+		}
+
+		if err := podset.Merge(&p.pod.ObjectMeta, &p.pod.Spec, podSetsInfo[0]); err != nil {
+			return err
+		}
+
+		return c.Update(ctx, &p.pod)
+	}
+
+	for _, podInGroup := range p.list.Items {
+		if ungated := ungatePod(&podInGroup); !ungated {
+			continue
+		}
+
+		roleHash, err := getRoleHash(podInGroup)
+		if err != nil {
+			return err
+		}
+
+		podSetIndex := slices.IndexFunc(podSetsInfo, func(info podset.PodSetInfo) bool {
+			return info.Name == roleHash
+		})
+		if podSetIndex == -1 {
+			return fmt.Errorf("%w: podSetInfo with the name '%s' is not found", podset.ErrInvalidPodsetInfo, roleHash)
+		}
+
+		err = podset.Merge(&podInGroup.ObjectMeta, &podInGroup.Spec, podSetsInfo[podSetIndex])
+		if err != nil {
+			return err
+		}
+
+		log.V(3).Info("Starting pod in group", "podInGroup", klog.KObj(&podInGroup))
+		if err := c.Update(ctx, &podInGroup); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// RunWithPodSetsInfo will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
+func (p *Pod) RunWithPodSetsInfo(_ []podset.PodSetInfo) error {
+	// Not implemented because this is not called when JobWithCustomRun is implemented.
+	return fmt.Errorf("RunWithPodSetsInfo is not implemented for the Pod object")
 }
 
 // RestorePodSetsInfo will restore the original node affinity and podSet counts of the job.
@@ -449,20 +525,36 @@ func getRoleHash(p corev1.Pod) (string, error) {
 
 // Load loads all pods in the group
 func (p *Pod) Load(ctx context.Context, c client.Client, key types.NamespacedName) (removeFinalizers bool, err error) {
-	if err := c.Get(ctx, key, &p.pod); err != nil {
-		return apierrors.IsNotFound(err), err
-	}
-	p.isFound = true
-	groupName := p.groupName()
-	p.isGroup = groupName != ""
-	if !p.isGroup {
+	nsKey := strings.Split(key.Namespace, "/")
+
+	if len(nsKey) == 1 {
+		if err := c.Get(ctx, key, &p.pod); err != nil {
+			return apierrors.IsNotFound(err), err
+		}
+		p.isFound = true
+
+		// If the key.Namespace doesn't contain a "group/" prefix, even though
+		// the pod has a group name, there's something wrong with the event handler.
+		if p.groupName() != "" {
+			return false, errIncorrectReconcileRequest
+		}
+
 		return !p.pod.DeletionTimestamp.IsZero(), nil
 	}
 
+	p.isGroup = true
+
+	key.Namespace = nsKey[1]
+
 	if err := c.List(ctx, &p.list, client.MatchingLabels{
-		GroupNameLabel: groupName,
+		GroupNameLabel: key.Name,
 	}, client.InNamespace(key.Namespace)); err != nil {
 		return false, err
+	}
+
+	if len(p.list.Items) > 0 {
+		p.isFound = true
+		p.pod = p.list.Items[0]
 	}
 
 	return false, nil

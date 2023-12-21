@@ -100,6 +100,9 @@ type JobWithPriorityClass interface {
 type ComposableJob interface {
 	// Load loads all members of the composable job. If removeFinalizers == true, workload and job finalizers should be removed.
 	Load(ctx context.Context, c client.Client, key types.NamespacedName) (removeFinalizers bool, err error)
+	// Run unsuspends all members of the ComposableJob and injects the node affinity with podSet
+	// counts extracting from workload to all members of the ComposableJob.
+	Run(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo) error
 	// ConstructComposableWorkload returns a new Workload that's assembled out of all members of the ComposableJob.
 	ConstructComposableWorkload(ctx context.Context, c client.Client, r record.EventRecorder) (*kueue.Workload, error)
 	// FindMatchingWorkloads returns all related workloads, workload that matches the ComposableJob and duplicates that has to be deleted.

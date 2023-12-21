@@ -60,7 +60,7 @@ func init() {
 
 var NewReconciler = jobframework.NewGenericReconciler(func() jobframework.GenericJob {
 	return &kubeflowjob.KubeflowJob{KFJobControl: (*JobControl)(&kftraining.XGBoostJob{})}
-}, nil)
+}, nil, nil)
 
 func isXGBoostJob(owner *metav1.OwnerReference) bool {
 	return owner.Kind == kftraining.XGBoostJobKind && strings.HasPrefix(owner.APIVersion, kftraining.SchemeGroupVersion.Group)

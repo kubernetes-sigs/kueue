@@ -539,7 +539,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod1LookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
-					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod2LookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
+					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod2LookupKey, nil)
 
 					gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					gomega.Expect(createdWorkload.Status.Conditions).Should(gomega.BeComparableTo(
@@ -817,7 +817,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod1LookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
-					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod2LookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
+					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod2LookupKey, nil)
 
 					gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					gomega.Expect(createdWorkload.Status.Conditions).Should(gomega.BeComparableTo(
@@ -835,13 +835,13 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					gomega.Consistently(func(g gomega.Gomega) []string {
 						g.Expect(k8sClient.Get(ctx, pod1LookupKey, createdPod)).To(gomega.Succeed())
 						return createdPod.Finalizers
-					}, util.Timeout, util.Interval).Should(gomega.ContainElement("kueue.x-k8s.io/managed"),
+					}, util.ConsistentDuration, util.Interval).Should(gomega.ContainElement("kueue.x-k8s.io/managed"),
 						"Pod should have finalizer")
 
 					gomega.Consistently(func(g gomega.Gomega) []string {
 						g.Expect(k8sClient.Get(ctx, pod2LookupKey, createdPod)).To(gomega.Succeed())
 						return createdPod.Finalizers
-					}, util.Timeout, util.Interval).Should(gomega.ContainElement("kueue.x-k8s.io/managed"),
+					}, util.ConsistentDuration, util.Interval).Should(gomega.ContainElement("kueue.x-k8s.io/managed"),
 						"Pod should have finalizer")
 				})
 
@@ -857,7 +857,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				replacementPod2LookupKey := client.ObjectKeyFromObject(replacementPod2)
 
 				ginkgo.By("checking that unretriable replacement pod is allowed to run", func() {
-					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, replacementPod2LookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
+					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, replacementPod2LookupKey, nil)
 				})
 
 				ginkgo.By("checking that pod group is finalized when unretriable pod has failed", func() {
@@ -944,7 +944,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod1LookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
-					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod2LookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
+					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod2LookupKey, nil)
 
 					gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					gomega.Expect(createdWorkload.Status.Conditions).Should(gomega.BeComparableTo(

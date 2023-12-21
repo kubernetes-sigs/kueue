@@ -78,7 +78,7 @@ func init() {
 var NewReconciler = jobframework.NewGenericReconciler(
 	func() jobframework.GenericJob {
 		return &Job{}
-	}, func(c client.Client) handler.EventHandler {
+	}, nil, func(c client.Client) handler.EventHandler {
 		return &parentWorkloadHandler{client: c}
 	},
 )
