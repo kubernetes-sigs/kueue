@@ -20,75 +20,66 @@ import (
 	"context"
 	"fmt"
 
-	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayv1alpha1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
-
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/noop"
 )
 
-type RayJobWebhook struct {
+type RayJobWebhookV1alpha1 struct {
 	manageJobsWithoutQueueName bool
 }
 
-// SetupRayJobWebhook configures the webhook for RayJob.
-func SetupRayJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
+// SetupRayJobWebhookV1alpha1 configures the webhook for RayJob.
+func SetupRayJobWebhookV1alpha1(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.DefaultOptions
 	for _, opt := range opts {
 		opt(&options)
 	}
-	wh := &RayJobWebhook{
+	wh := &RayJobWebhookV1alpha1{
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 	}
-
-	// NOOP the v1alpha1 webhook and let the v1 one manage the admission, as it's configured
-	// with the Equivalent match policy, and will handle the requests.
-	if err := noop.SetupWebhook(mgr, rayJobV1alpha1Callbacks.JobType); err != nil {
-		return err
-	}
-
 	return ctrl.NewWebhookManagedBy(mgr).
-		For(&rayv1.RayJob{}).
+		For(&rayv1alpha1.RayJob{}).
 		WithDefaulter(wh).
 		WithValidator(wh).
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/mutate-ray-io-v1-rayjob,mutating=true,matchPolicy=Equivalent,failurePolicy=fail,sideEffects=None,groups=ray.io,resources=rayjobs,verbs=create,versions=v1,name=mrayjob.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-ray-io-v1alpha1-rayjob,mutating=true,matchPolicy=Exact,failurePolicy=fail,sideEffects=None,groups=ray.io,resources=rayjobs,verbs=create,versions=v1alpha1,name=mrayjobv1alpha1.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomDefaulter = &RayJobWebhook{}
+var _ webhook.CustomDefaulter = &RayJobWebhookV1alpha1{}
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
-func (w *RayJobWebhook) Default(ctx context.Context, obj runtime.Object) error {
-	job := obj.(*rayv1.RayJob)
+func (w *RayJobWebhookV1alpha1) Default(ctx context.Context, obj runtime.Object) error {
+	job := obj.(*rayv1alpha1.RayJob)
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
 	log.V(5).Info("Applying defaults", "job", klog.KObj(job))
-	jobframework.ApplyDefaultForSuspend((*RayJob)(job), w.manageJobsWithoutQueueName)
+	jobframework.ApplyDefaultForSuspend((*RayJobV1alpha1)(job), w.manageJobsWithoutQueueName)
 	return nil
 }
 
-// +kubebuilder:webhook:path=/validate-ray-io-v1-rayjob,mutating=false,matchPolicy=Equivalent,failurePolicy=fail,sideEffects=None,groups=ray.io,resources=rayjobs,verbs=create;update,versions=v1,name=vrayjob.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-ray-io-v1alpha1-rayjob,mutating=false,matchPolicy=Exact,failurePolicy=fail,sideEffects=None,groups=ray.io,resources=rayjobs,verbs=create;update,versions=v1alpha1,name=vrayjobv1alpha1.kb.io,admissionReviewVersions=v1
 
-var _ webhook.CustomValidator = &RayJobWebhook{}
+var _ webhook.CustomValidator = &RayJobWebhookV1alpha1{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *RayJobWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	job := obj.(*rayv1.RayJob)
+func (w *RayJobWebhookV1alpha1) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+	job := obj.(*rayv1alpha1.RayJob)
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
 	log.Info("Validating create", "job", klog.KObj(job))
 	return nil, w.validateCreate(job).ToAggregate()
 }
 
-func (w *RayJobWebhook) validateCreate(job *rayv1.RayJob) field.ErrorList {
+func (w *RayJobWebhookV1alpha1) validateCreate(job *rayv1alpha1.RayJob) field.ErrorList {
 	var allErrors field.ErrorList
-	kueueJob := (*RayJob)(job)
+	kueueJob := (*RayJobV1alpha1)(job)
 
 	if w.manageJobsWithoutQueueName || jobframework.QueueName(kueueJob) != "" {
 		spec := &job.Spec
@@ -130,21 +121,21 @@ func (w *RayJobWebhook) validateCreate(job *rayv1.RayJob) field.ErrorList {
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *RayJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	oldJob := oldObj.(*rayv1.RayJob)
-	newJob := newObj.(*rayv1.RayJob)
+func (w *RayJobWebhookV1alpha1) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
+	oldJob := oldObj.(*rayv1alpha1.RayJob)
+	newJob := newObj.(*rayv1alpha1.RayJob)
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
-	if w.manageJobsWithoutQueueName || jobframework.QueueName((*RayJob)(newJob)) != "" {
+	if w.manageJobsWithoutQueueName || jobframework.QueueName((*RayJobV1alpha1)(newJob)) != "" {
 		log.Info("Validating update", "job", klog.KObj(newJob))
-		allErrors := jobframework.ValidateUpdateForQueueName((*RayJob)(oldJob), (*RayJob)(newJob))
+		allErrors := jobframework.ValidateUpdateForQueueName((*RayJobV1alpha1)(oldJob), (*RayJobV1alpha1)(newJob))
 		allErrors = append(allErrors, w.validateCreate(newJob)...)
-		allErrors = append(allErrors, jobframework.ValidateUpdateForWorkloadPriorityClassName((*RayJob)(oldJob), (*RayJob)(newJob))...)
+		allErrors = append(allErrors, jobframework.ValidateUpdateForWorkloadPriorityClassName((*RayJobV1alpha1)(oldJob), (*RayJobV1alpha1)(newJob))...)
 		return nil, allErrors.ToAggregate()
 	}
 	return nil, nil
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
-func (w *RayJobWebhook) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+func (w *RayJobWebhookV1alpha1) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	return nil, nil
 }

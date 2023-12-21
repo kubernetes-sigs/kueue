@@ -147,24 +147,24 @@ func Encode(scheme *runtime.Scheme, cfg *configapi.Configuration) (string, error
 
 // Load returns a set of controller options and configuration from the given file, if the config file path is empty
 // it used the default configapi values.
-func Load(scheme *runtime.Scheme, configFile string) (ctrl.Options, configapi.Configuration, error) {
+func Load(scheme *runtime.Scheme, configFile string) (ctrl.Options, *configapi.Configuration, error) {
 	var err error
 	options := ctrl.Options{
 		Scheme: scheme,
 	}
 
-	cfg := configapi.Configuration{}
+	cfg := &configapi.Configuration{}
 	if configFile == "" {
-		scheme.Default(&cfg)
+		scheme.Default(cfg)
 	} else {
-		err := fromFile(configFile, scheme, &cfg)
+		err := fromFile(configFile, scheme, cfg)
 		if err != nil {
 			return options, cfg, err
 		}
 	}
-	if err := validate(&cfg).ToAggregate(); err != nil {
+	if err := validate(cfg).ToAggregate(); err != nil {
 		return options, cfg, err
 	}
-	addTo(&options, &cfg)
+	addTo(&options, cfg)
 	return options, cfg, err
 }

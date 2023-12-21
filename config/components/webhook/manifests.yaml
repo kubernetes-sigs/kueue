@@ -183,12 +183,33 @@ webhooks:
       namespace: system
       path: /mutate-ray-io-v1-rayjob
   failurePolicy: Fail
+  matchPolicy: Equivalent
   name: mrayjob.kb.io
   rules:
   - apiGroups:
     - ray.io
     apiVersions:
     - v1
+    operations:
+    - CREATE
+    resources:
+    - rayjobs
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /mutate-ray-io-v1alpha1-rayjob
+  failurePolicy: Fail
+  matchPolicy: Exact
+  name: mrayjobv1alpha1.kb.io
+  rules:
+  - apiGroups:
+    - ray.io
+    apiVersions:
+    - v1alpha1
     operations:
     - CREATE
     resources:
@@ -446,12 +467,34 @@ webhooks:
       namespace: system
       path: /validate-ray-io-v1-rayjob
   failurePolicy: Fail
+  matchPolicy: Equivalent
   name: vrayjob.kb.io
   rules:
   - apiGroups:
     - ray.io
     apiVersions:
     - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - rayjobs
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-ray-io-v1alpha1-rayjob
+  failurePolicy: Fail
+  matchPolicy: Exact
+  name: vrayjobv1alpha1.kb.io
+  rules:
+  - apiGroups:
+    - ray.io
+    apiVersions:
+    - v1alpha1
     operations:
     - CREATE
     - UPDATE

@@ -22,13 +22,16 @@ import (
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/discovery"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/podset"
+	discoveryutil "sigs.k8s.io/kueue/pkg/util/discovery"
 )
 
 var (
@@ -41,14 +44,39 @@ const (
 )
 
 func init() {
-	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:           SetupIndexes,
-		NewReconciler:          NewReconciler,
-		SetupWebhook:           SetupRayJobWebhook,
-		JobType:                &rayv1.RayJob{},
-		AddToScheme:            rayv1.AddToScheme,
-		IsManagingObjectsOwner: isRayJob,
-	}))
+	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName,
+		func(dc discovery.DiscoveryInterface) (jobframework.IntegrationCallbacks, error) {
+			if res, err := discoveryutil.HasAPIResourceForGVK(dc, gvk); err != nil {
+				return jobframework.IntegrationCallbacks{}, err
+			} else if !res {
+				if res, err = discoveryutil.HasAPIResourceForGVK(dc, gvkV1alpha1); err != nil {
+					return jobframework.IntegrationCallbacks{}, err
+				} else if res {
+					// Use Ray v1alpha1 integration only when v1 is not available
+					return rayJobV1alpha1Callbacks, nil
+				}
+			}
+			// Otherwise use the Ray v1 integration
+			return rayJobV1Callbacks, nil
+		},
+	))
+}
+
+var rayJobV1Callbacks = jobframework.IntegrationCallbacks{
+	SetupIndexes:           SetupIndexes,
+	NewReconciler:          NewReconciler,
+	SetupWebhook:           SetupRayJobWebhook,
+	JobType:                &rayv1.RayJob{},
+	AddToScheme:            addToScheme,
+	IsManagingObjectsOwner: isRayJob,
+}
+
+func addToScheme(s *runtime.Scheme) error {
+	// It's needed to register the v1alpha1 types for the v1alpha1 NOOP webhook
+	if err := rayJobV1alpha1Callbacks.AddToScheme(s); err != nil {
+		return err
+	}
+	return rayv1.AddToScheme(s)
 }
 
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update

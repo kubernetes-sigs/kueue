@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -33,12 +34,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	"k8s.io/apimachinery/pkg/util/validation/field"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/provisioningrequest/apis/autoscaling.x-k8s.io/v1beta1"
 	"k8s.io/client-go/discovery"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -83,15 +82,6 @@ func init() {
 	utilruntime.Must(kueue.AddToScheme(scheme))
 	utilruntime.Must(configapi.AddToScheme(scheme))
 	utilruntime.Must(autoscaling.AddToScheme(scheme))
-	// Add any additional framework integration types.
-	utilruntime.Must(
-		jobframework.ForEachIntegration(func(_ string, cb jobframework.IntegrationCallbacks) error {
-			if cb.AddToScheme != nil {
-				return cb.AddToScheme(scheme)
-			}
-			return nil
-		}),
-	)
 
 	// +kubebuilder:scaffold:scheme
 }
@@ -120,13 +110,13 @@ func main() {
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	setupLog.Info("Initializing", "gitVersion", version.GitVersion, "gitCommit", version.GitCommit)
 
+	metrics.Register()
+
 	options, cfg, err := apply(configFile)
 	if err != nil {
 		setupLog.Error(err, "Unable to load the configuration")
 		os.Exit(1)
 	}
-
-	metrics.Register()
 
 	kubeConfig := ctrl.GetConfigOrDie()
 	if kubeConfig.UserAgent == "" {
@@ -135,6 +125,38 @@ func main() {
 	kubeConfig.QPS = *cfg.ClientConnection.QPS
 	kubeConfig.Burst = int(*cfg.ClientConnection.Burst)
 	setupLog.V(2).Info("K8S Client", "qps", kubeConfig.QPS, "burst", kubeConfig.Burst)
+
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(kubeConfig)
+	if err != nil {
+		setupLog.Error(err, "Unable to create the discovery client")
+		os.Exit(1)
+	}
+
+	// Set up framework integration providers
+	if err := jobframework.SetupProviders(discoveryClient); err != nil {
+		setupLog.Error(err, "Unable to setup integration providers")
+		os.Exit(1)
+	}
+
+	// Validate the configuration now that the integration providers have been set up
+	err = validate(cfg)
+	if err != nil {
+		setupLog.Error(err, "Invalid configuration")
+		os.Exit(1)
+	}
+
+	// Add any additional framework integration types
+	err = jobframework.ForEachIntegration(func(_ string, cb jobframework.IntegrationCallbacks) error {
+		if cb.AddToScheme != nil {
+			return cb.AddToScheme(scheme)
+		}
+		return nil
+	})
+	if err != nil {
+		setupLog.Error(err, "Unable to add framework integration types")
+		os.Exit(1)
+	}
+
 	mgr, err := ctrl.NewManager(kubeConfig, options)
 	if err != nil {
 		setupLog.Error(err, "Unable to start manager")
@@ -152,22 +174,22 @@ func main() {
 		close(certsReady)
 	}
 
-	cCache := cache.New(mgr.GetClient(), cache.WithPodsReadyTracking(blockForPodsReady(&cfg)))
+	cCache := cache.New(mgr.GetClient(), cache.WithPodsReadyTracking(blockForPodsReady(cfg)))
 	queues := queue.NewManager(mgr.GetClient(), cCache)
 
 	ctx := ctrl.SetupSignalHandler()
-	if err := setupIndexes(ctx, mgr, &cfg); err != nil {
+	if err := setupIndexes(ctx, mgr, cfg); err != nil {
 		setupLog.Error(err, "Unable to setup indexes")
 		os.Exit(1)
 	}
 
-	serverVersionFetcher := setupServerVersionFetcher(mgr, kubeConfig)
+	serverVersionFetcher := setupServerVersionFetcher(mgr, discoveryClient)
 
 	setupProbeEndpoints(mgr)
 	// Cert won't be ready until manager starts, so start a goroutine here which
 	// will block until the cert is ready before setting up the controllers.
 	// Controllers who register after manager starts will start directly.
-	go setupControllers(mgr, cCache, queues, certsReady, &cfg, serverVersionFetcher)
+	go setupControllers(mgr, cCache, queues, certsReady, cfg, serverVersionFetcher)
 
 	go func() {
 		queues.CleanUpOnContext(ctx)
@@ -306,6 +328,7 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 		return nil
 	})
 	if err != nil {
+		setupLog.Error(err, "Could not setup controllers")
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
@@ -338,13 +361,7 @@ func setupScheduler(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager
 	}
 }
 
-func setupServerVersionFetcher(mgr ctrl.Manager, kubeConfig *rest.Config) *kubeversion.ServerVersionFetcher {
-	discoveryClient, err := discovery.NewDiscoveryClientForConfig(kubeConfig)
-	if err != nil {
-		setupLog.Error(err, "Unable to create the discovery client")
-		os.Exit(1)
-	}
-
+func setupServerVersionFetcher(mgr ctrl.Manager, discoveryClient discovery.DiscoveryInterface) *kubeversion.ServerVersionFetcher {
 	serverVersionFetcher := kubeversion.NewServerVersionFetcher(discoveryClient)
 
 	if err := mgr.Add(serverVersionFetcher); err != nil {
@@ -368,12 +385,22 @@ func waitForPodsReady(cfg *configapi.Configuration) bool {
 	return cfg.WaitForPodsReady != nil && cfg.WaitForPodsReady.Enable
 }
 
-func apply(configFile string) (ctrl.Options, configapi.Configuration, error) {
+func apply(configFile string) (ctrl.Options, *configapi.Configuration, error) {
 	options, cfg, err := config.Load(scheme, configFile)
 	if err != nil {
 		return options, cfg, err
 	}
 
+	cfgStr, err := config.Encode(scheme, cfg)
+	if err != nil {
+		return options, cfg, err
+	}
+	setupLog.Info("Successfully loaded configuration", "config", cfgStr)
+
+	return options, cfg, nil
+}
+
+func validate(cfg *configapi.Configuration) error {
 	if cfg.Integrations != nil {
 		var errorlist field.ErrorList
 		availableFrameworks := jobframework.GetIntegrationsList()
@@ -384,18 +411,10 @@ func apply(configFile string) (ctrl.Options, configapi.Configuration, error) {
 			}
 		}
 		if len(errorlist) > 0 {
-			err := errorlist.ToAggregate()
-			return options, cfg, err
+			return errorlist.ToAggregate()
 		}
 	}
-
-	cfgStr, err := config.Encode(scheme, &cfg)
-	if err != nil {
-		return options, cfg, err
-	}
-	setupLog.Info("Successfully loaded configuration", "config", cfgStr)
-
-	return options, cfg, nil
+	return nil
 }
 
 func isFrameworkEnabled(cfg *configapi.Configuration, name string) bool {

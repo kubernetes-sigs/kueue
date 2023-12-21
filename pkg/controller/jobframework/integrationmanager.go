@@ -24,6 +24,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -62,9 +63,16 @@ type IntegrationCallbacks struct {
 	IsManagingObjectsOwner func(ref *metav1.OwnerReference) bool
 }
 
+type IntegrationProvider = func(discoveryInterface discovery.DiscoveryInterface) (IntegrationCallbacks, error)
+
+type Integration interface {
+	IntegrationCallbacks | IntegrationProvider
+}
+
 type integrationManager struct {
 	names        []string
 	integrations map[string]IntegrationCallbacks
+	providers    map[string]IntegrationProvider
 }
 
 var manager integrationManager
@@ -86,11 +94,23 @@ func (m *integrationManager) register(name string, cb IntegrationCallbacks) erro
 	}
 
 	if cb.JobType == nil {
-		return fmt.Errorf("%w \"WebhookType\" for %q", errMissingMadatoryField, name)
+		return fmt.Errorf("%w \"JobType\" for %q", errMissingMadatoryField, name)
 	}
 
 	m.integrations[name] = cb
 	m.names = append(m.names, name)
+
+	return nil
+}
+
+func (m *integrationManager) registerProvider(name string, provider IntegrationProvider) error {
+	if m.providers == nil {
+		m.providers = make(map[string]IntegrationProvider)
+	}
+	if _, exists := m.providers[name]; exists {
+		return fmt.Errorf("%w %q", errDuplicateFrameworkName, name)
+	}
+	m.providers[name] = provider
 
 	return nil
 }
@@ -126,11 +146,30 @@ func (m *integrationManager) getCallbacksForOwner(ownerRef *metav1.OwnerReferenc
 	return nil
 }
 
+func SetupProviders(discoveryClient discovery.DiscoveryInterface) error {
+	for name, provider := range manager.providers {
+		if integration, err := provider(discoveryClient); err != nil {
+			return err
+		} else {
+			if err := manager.register(name, integration); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // RegisterIntegration registers a new framework, returns an error when
 // attempting to register multiple frameworks with the same name of if a
 // mandatory callback is missing.
-func RegisterIntegration(name string, cb IntegrationCallbacks) error {
-	return manager.register(name, cb)
+func RegisterIntegration[T Integration](name string, integration T) error {
+	switch i := (interface{})(integration).(type) {
+	case IntegrationCallbacks:
+		return manager.register(name, i)
+	case IntegrationProvider:
+		return manager.registerProvider(name, i)
+	}
+	return fmt.Errorf("unsupported integration type")
 }
 
 // ForEachIntegration loops through the registered list of frameworks calling f,
