@@ -69,7 +69,6 @@ func (h *podEventHandler) queueReconcileForPod(ctx context.Context, object clien
 	}
 
 	log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(p))
-	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(5).Info("Queueing reconcile for pod")
 
 	q.Add(reconcileRequestForPod(p))
