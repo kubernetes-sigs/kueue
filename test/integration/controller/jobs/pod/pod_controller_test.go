@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -947,6 +948,60 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					gomega.Eventually(func() error {
 						return k8sClient.Get(ctx, excessPodLookupKey, createdPod)
 					}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
+				})
+			})
+
+			ginkgo.It("Should finalize workload if pods are absent", func() {
+				ginkgo.By("Creating pods with queue name")
+				pod1 := testingpod.MakePod("test-pod1", ns.Name).
+					Group("test-group").
+					GroupTotalCount("2").
+					Queue("test-queue").
+					Obj()
+				pod2 := testingpod.MakePod("test-pod2", ns.Name).
+					Group("test-group").
+					GroupTotalCount("2").
+					Image("test-image", nil).
+					Queue("test-queue").
+					Obj()
+
+				gomega.Expect(k8sClient.Create(ctx, pod1)).Should(gomega.Succeed())
+				gomega.Expect(k8sClient.Create(ctx, pod2)).Should(gomega.Succeed())
+
+				ginkgo.By("checking that workload is created for the pod group with the queue name")
+				wlLookupKey := types.NamespacedName{
+					Namespace: pod1.Namespace,
+					Name:      "test-group",
+				}
+				createdWorkload := &kueue.Workload{}
+				gomega.Eventually(func() error {
+					return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Expect(createdWorkload.Spec.PodSets).To(gomega.HaveLen(2))
+				gomega.Expect(createdWorkload.Spec.PodSets[0].Count).To(gomega.Equal(int32(1)))
+				gomega.Expect(createdWorkload.Spec.PodSets[1].Count).To(gomega.Equal(int32(1)))
+				gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal("test-queue"), "The Workload should have .spec.queueName set")
+				gomega.Expect(createdWorkload.ObjectMeta.Finalizers).To(gomega.ContainElement("kueue.x-k8s.io/resource-in-use"),
+					"The Workload should have the finalizer")
+
+				ginkgo.By("checking that workload is finalized when all pods in the group are deleted", func() {
+					createdPod := corev1.Pod{}
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod1), &createdPod)).To(gomega.Succeed())
+					controllerutil.RemoveFinalizer(&createdPod, "kueue.x-k8s.io/managed")
+					gomega.Expect(k8sClient.Update(ctx, &createdPod)).To(gomega.Succeed())
+					gomega.Expect(k8sClient.Delete(ctx, &createdPod)).To(gomega.Succeed())
+
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod2), &createdPod)).To(gomega.Succeed())
+					controllerutil.RemoveFinalizer(&createdPod, "kueue.x-k8s.io/managed")
+					gomega.Expect(k8sClient.Update(ctx, &createdPod)).To(gomega.Succeed())
+					gomega.Expect(k8sClient.Delete(ctx, &createdPod)).To(gomega.Succeed())
+
+					createdWorkload := &kueue.Workload{}
+					gomega.Eventually(func(g gomega.Gomega) []string {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+						return createdWorkload.Finalizers
+					}, util.Timeout, util.Interval).Should(gomega.BeEmpty(), "Expected workload to be finalized")
 				})
 			})
 		})
