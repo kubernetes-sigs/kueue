@@ -30,7 +30,7 @@ spec:
     - name: "default-flavor"
       resources:
       - name: "cpu"
-        nominalQuota: 9  
+        nominalQuota: 9
       - name: "memory"
         nominalQuota: 36Gi
       - name: "pods"
@@ -63,7 +63,7 @@ Kueue assigns the first flavor in the ClusterQueue's `.spec.resourceGroups[*].fl
 list that has enough unused `nominalQuota` quota in the ClusterQueue or the
 ClusterQueue's [cohort](#cohort).
 
-Since `pods` resource name is [reserved](/docs/conceps/workload#reserved-resource-names) and it's value
+Since `pods` resource name is [reserved](/docs/concepts/workload/#reserved-resource-names) and it's value
 is computed by Kueue in the during [admission](/docs/concepts#admission), not provided by the [batch user](/docs/tasks/#batch-user),
 it could be used by the [batch administrators](/docs/tasks#batch-administrator) to limit the number of zero or very
 small resource requesting workloads admitted at the same time.
@@ -72,7 +72,7 @@ small resource requesting workloads admitted at the same time.
 
 It is possible that multiple resources in a ClusterQueue have the same flavors.
 This is typical for `cpu` and `memory`, where the flavors are generally tied to
-a machine family or VM availability policies. To tie two or more resources to 
+a machine family or VM availability policies. To tie two or more resources to
 the same set of flavors, you can list them in the same resource group.
 
 An example of a ClusterQueue with multiple resource groups looks like the following:
@@ -176,7 +176,7 @@ When a ClusterQueue is part of a cohort, Kueue satisfies the following admission
 semantics:
 
 - When assigning flavors, Kueue goes through the list of flavors in the
-  relevant ResourceGroup inside ClusterQueue's 
+  relevant ResourceGroup inside ClusterQueue's
   (`.spec.resourceGroups[*].flavors`). For each flavor, Kueue attempts
   to fit a Workload's pod set according to the quota defined in the
   ClusterQueue for the flavor and the unused quota in the cohort.
@@ -187,7 +187,7 @@ semantics:
      ClusterQueue; or
   2. Is less than or equal to the sum of unused `nominalQuota` for the flavor in
      the ClusterQueues in the cohort, and
-  3. Is less than or equal to the unused `nominalQuota + borrowingLimit` for 
+  3. Is less than or equal to the unused `nominalQuota + borrowingLimit` for
      the flavor in the ClusterQueue.
   In Kueue, when (2) and (3) are satisfied, but not (1), this is called
   _borrowing quota_.
@@ -201,7 +201,6 @@ by setting a [`flavorFungibility`](/docs/concepts/cluster_queue#flavorfungibilit
 ### Borrowing example
 
 Assume you created the following two ClusterQueues:
-
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -217,7 +216,7 @@ spec:
     - name: "default-flavor"
       resources:
       - name: "cpu"
-        nominalQuota: 9  
+        nominalQuota: 9
       - name: "memory"
         nominalQuota: 36Gi
 ```
@@ -236,7 +235,7 @@ spec:
     - name: "default-flavor"
       resources:
       - name: "cpu"
-        nominalQuota: 12  
+        nominalQuota: 12
       - name: "memory"
         nominalQuota: 48Gi
 ```
@@ -274,7 +273,7 @@ spec:
     - name: "default-flavor"
       resources:
       - name: "cpu"
-        nominalQuota: 9  
+        nominalQuota: 9
         borrowingLimit: 1
 ```
 
@@ -292,16 +291,16 @@ spec:
     - name: "default-flavor"
       resources:
       - name: "cpu"
-        nominalQuota: 12  
+        nominalQuota: 12
 ```
 
-In this case, because we set borrowingLimit in ClusterQueue `team-a-cq`, if 
-ClusterQueue `team-b-cq` has no admitted Workloads, then ClusterQueue `team-a-cq` 
-can admit Workloads with resources adding up to `9+1=10` CPUs. 
+In this case, because we set borrowingLimit in ClusterQueue `team-a-cq`, if
+ClusterQueue `team-b-cq` has no admitted Workloads, then ClusterQueue `team-a-cq`
+can admit Workloads with resources adding up to `9+1=10` CPUs.
 
-If, for a given flavor/resource, the `borrowingLimit` field is empty or null, 
-a ClusterQueue can borrow up to the sum of nominal quotas from all the 
-ClusterQueues in the cohort. So for the yamls listed above, `team-b-cq` can 
+If, for a given flavor/resource, the `borrowingLimit` field is empty or null,
+a ClusterQueue can borrow up to the sum of nominal quotas from all the
+ClusterQueues in the cohort. So for the yamls listed above, `team-b-cq` can
 borrow `12+9` CPUs.
 
 ## Preemption
@@ -348,6 +347,7 @@ The fields above do the following:
 Note that an incoming Workload can preempt Workloads both within the
 ClusterQueue and the cohort. Kueue implements heuristics to preempt as few
 Workloads as possible, preferring Workloads with these characteristics:
+
 - Workloads belonging to ClusterQueues that are borrowing quota.
 - Workloads with the lowest priority.
 - Workloads that have been admitted more recently.
@@ -362,6 +362,7 @@ preemptions or borrowing in a flavor before trying to accommodate the Workload i
 setting the `flavorFungibility` field.
 
 A configuration for a ClusterQueue that configures this behavior looks like the following:
+
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
@@ -374,6 +375,7 @@ spec:
 ```
 
 The fields above do the following:
+
 - `whenCanBorrow` determines whether a workload should stop finding a better assignment if it can get enough resource by borrowing in current ResourceFlavor. The possible values are:
   - `Borrow` (default): ClusterQueue stops finding a better assignment.
   - `TryNextFlavor`: ClusterQueue tries the next ResourceFlavor to see if the workload can get a better assignment.
@@ -381,7 +383,7 @@ The fields above do the following:
   - `Preempt`: ClusterQueue stops trying preemption in current ResourceFlavor and starts from the next one if preempting failed.
   - `TryNextFlavor` (default): ClusterQueue tries the next ResourceFlavor to see if the workload can fit in the ResourceFlavor.
 
-By default, the incoming workload stops trying the next flavor if the workload can get enough borrowed resources. 
+By default, the incoming workload stops trying the next flavor if the workload can get enough borrowed resources.
 And Kueue triggers preemption only after Kueue determines that the remaining ResourceFlavors can't fit the workload.
 
 Note that, whenever possible and when the configured policy allows it, Kueue avoids preemptions if it can fit a Workload by borrowing.
