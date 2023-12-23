@@ -64,7 +64,7 @@ func (p *Preemptor) OverrideApply(f func(context.Context, *kueue.Workload) error
 }
 
 func candidatesOnlyFromQueue(candidates []*workload.Info, clusterQueue string) []*workload.Info {
-	result := make([]*workload.Info, 0)
+	result := make([]*workload.Info, 0, len(candidates))
 	for _, wi := range candidates {
 		if wi.ClusterQueue == clusterQueue {
 			result = append(result, wi)
@@ -94,8 +94,8 @@ func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assig
 	// trying to preempt more own workloads and borrow at the same time.
 
 	if len(sameQueueCandidates) == len(candidates) {
-		// There is no risk of preemption of workloads from the other queue,
-		// so we can try borrowing.
+		// There is no need of preemption of workloads from other queues,
+		// so we'll try borrowing.
 		targets = minimalPreemptions(&wl, assignment, snapshot, resPerFlv, candidates, true)
 	} else {
 		// There is a risk of preemption of workloads from the other queue in the
@@ -159,6 +159,7 @@ func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workloa
 func minimalPreemptions(wl *workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot, resPerFlv resourcesPerFlavor, candidates []*workload.Info, allowBorrowing bool) []*workload.Info {
 	wlReq := totalRequestsForAssignment(wl, assignment)
 	cq := snapshot.ClusterQueues[wl.ClusterQueue]
+
 	// Simulate removing all candidates from the ClusterQueue and cohort.
 	var targets []*workload.Info
 	fits := false
@@ -181,6 +182,7 @@ func minimalPreemptions(wl *workload.Info, assignment flavorassigner.Assignment,
 		}
 		return nil
 	}
+
 	// In the reverse order, check if any of the workloads can be added back.
 	for i := len(targets) - 2; i >= 0; i-- {
 		snapshot.AddWorkload(targets[i])
@@ -196,6 +198,7 @@ func minimalPreemptions(wl *workload.Info, assignment flavorassigner.Assignment,
 	for _, t := range targets {
 		snapshot.AddWorkload(t)
 	}
+
 	return targets
 }
 
@@ -334,12 +337,17 @@ func workloadFits(wlReq cache.FlavorResourceQuantities, cq *cache.ClusterQueue, 
 			}
 			for rName, rReq := range flvReq {
 				limit := flvQuotas.Resources[rName].Nominal
-				if flvQuotas.Resources[rName].BorrowingLimit != nil && allowBorrowing {
+
+				// No need to check whether cohort is nil here because when borrowingLimit
+				// is non nil, cohort is always non nil.
+				if allowBorrowing && flvQuotas.Resources[rName].BorrowingLimit != nil {
 					limit += *flvQuotas.Resources[rName].BorrowingLimit
 				}
+
 				if cqResUsage[rName]+rReq > limit {
 					return false
 				}
+
 				if cq.Cohort != nil && cohortResUsage[rName]+rReq > cohortResRequestable[rName] {
 					return false
 				}
