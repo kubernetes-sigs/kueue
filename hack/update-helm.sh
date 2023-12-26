@@ -33,7 +33,7 @@ EXCLUDE_FILES='kustomization.yaml'
 
 # Copy all YAML files from the source directory to the destination directory
 cp ${SRC_CRD_DIR}/*.yaml ${DEST_CRD_DIR}
-cp ${SRC_VISIBILITY_DIR}/*.yaml ${DEST_VISIBILITY_DIR}
+find $SRC_VISIBILITY_DIR -name "*.yaml" $(printf "! -name %s " $EXCLUDE_FILES) -exec cp "{}" $DEST_VISIBILITY_DIR \;
 find $SRC_RBAC_DIR -name "*.yaml" $(printf "! -name %s " $EXCLUDE_FILES) -exec cp "{}" $DEST_RBAC_DIR \;
 
 search_cert_line="  annotations:"
