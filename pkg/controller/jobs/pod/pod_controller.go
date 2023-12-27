@@ -89,6 +89,7 @@ var NewReconciler = jobframework.NewGenericReconciler(
 
 type Pod struct {
 	pod              corev1.Pod
+	isFound          bool
 	isGroup          bool
 	unretriableGroup *bool
 	list             corev1.PodList
@@ -373,8 +374,8 @@ func (p *Pod) Finalize(ctx context.Context, c client.Client) error {
 }
 
 func (p *Pod) Skip() bool {
-	// Skip pod reconciliation, if managed label is not set
-	if v, ok := p.pod.GetLabels()[ManagedLabelKey]; !ok || v != ManagedLabelValue {
+	// Skip pod reconciliation, if pod is found, and it's managed label is not set or incorrect.
+	if v, ok := p.pod.GetLabels()[ManagedLabelKey]; p.isFound && (!ok || v != ManagedLabelValue) {
 		return true
 	}
 	return false
@@ -451,6 +452,7 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key types.NamespacedNam
 	if err := c.Get(ctx, key, &p.pod); err != nil {
 		return apierrors.IsNotFound(err), err
 	}
+	p.isFound = true
 	groupName := p.groupName()
 	p.isGroup = groupName != ""
 	if !p.isGroup {
