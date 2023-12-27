@@ -26,27 +26,24 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
-var AdmissionTaintKey = "kueue.x-k8s.io/kueue-admission"
-
 const (
-	ControllerName = "kueue-podtaintstolerations"
+	ControllerName    = "kueue-podtaintstolerations"
+	AdmissionTaintKey = "kueue.x-k8s.io/kueue-admission"
+	FrameworkName     = "core/pod"
 )
 
 var (
-	GVK = corev1.SchemeGroupVersion.WithKind("Pod")
-
-	FrameworkName = "core/pod"
+	GVK           = corev1.SchemeGroupVersion.WithKind("Pod")
+	NewReconciler = jobframework.NewGenericReconciler(func() jobframework.GenericJob { return &Pod{} }, nil)
 )
-
-var NewReconciler = jobframework.NewGenericReconciler(func() jobframework.GenericJob { return &Pod{} }, nil)
-
-type Pod corev1.Pod
 
 var (
 	_ jobframework.GenericJob           = (*Pod)(nil)
 	_ jobframework.JobWithCustomStop    = (*Pod)(nil)
 	_ jobframework.JobWithPriorityClass = (*Pod)(nil)
 )
+
+type Pod corev1.Pod
 
 func (j *Pod) Object() client.Object {
 	return (*corev1.Pod)(j)
