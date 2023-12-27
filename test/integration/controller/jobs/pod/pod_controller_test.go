@@ -324,7 +324,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 		})
 
-		ginkgo.FIt("Should finalize workload if pod is absent", func() {
+		ginkgo.It("Should finalize workload if pod is absent", func() {
 			pod := testingpod.MakePod(podName, ns.Name).Queue("test-queue").Obj()
 			gomega.Expect(k8sClient.Create(ctx, pod)).Should(gomega.Succeed())
 
