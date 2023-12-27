@@ -139,7 +139,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	err := r.client.Get(ctx, req.NamespacedName, object)
 
-	if jws, implements := job.(JobWithSkip); implements {
+	if jws, implements := job.(JobWithSkip); implements && !apierrors.IsNotFound(err) {
 		if jws.Skip() {
 			return ctrl.Result{}, nil
 		}

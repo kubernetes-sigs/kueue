@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -321,6 +322,54 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				),
 			))
 
+		})
+
+		ginkgo.FIt("Should finalize workload if pod is absent", func() {
+			pod := testingpod.MakePod(podName, ns.Name).Queue("test-queue").Obj()
+			gomega.Expect(k8sClient.Create(ctx, pod)).Should(gomega.Succeed())
+
+			createdPod := &corev1.Pod{}
+			gomega.Eventually(func() error {
+				return k8sClient.Get(ctx, lookupKey, createdPod)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Expect(createdPod.Spec.SchedulingGates).To(
+				gomega.ContainElement(corev1.PodSchedulingGate{Name: "kueue.x-k8s.io/admission"}),
+				"Pod should have scheduling gate",
+			)
+
+			gomega.Expect(createdPod.Labels).To(
+				gomega.HaveKeyWithValue("kueue.x-k8s.io/managed", "true"),
+				"Pod should have the label",
+			)
+
+			gomega.Expect(createdPod.Finalizers).To(gomega.ContainElement("kueue.x-k8s.io/managed"),
+				"Pod should have finalizer")
+
+			ginkgo.By("checking that workload is created for pod with the queue name")
+			createdWorkload := &kueue.Workload{}
+			gomega.Eventually(func() error {
+				return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Expect(createdWorkload.Spec.PodSets).To(gomega.HaveLen(1))
+
+			gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal("test-queue"),
+				"The Workload should have .spec.queueName set")
+
+			gomega.Expect(createdWorkload.ObjectMeta.Finalizers).To(gomega.ContainElement("kueue.x-k8s.io/resource-in-use"),
+				"The Workload should have the finalizer")
+
+			ginkgo.By("checking that workload is finalized when the pod is deleted")
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), createdPod)).To(gomega.Succeed())
+			controllerutil.RemoveFinalizer(createdPod, "kueue.x-k8s.io/managed")
+			gomega.Expect(k8sClient.Update(ctx, createdPod)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Delete(ctx, createdPod)).To(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) []string {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				return createdWorkload.Finalizers
+			}, util.Timeout, util.Interval).Should(gomega.BeEmpty(), "Expected workload to be finalized")
 		})
 
 		ginkgo.When("Pod owner is managed by Kueue", func() {
