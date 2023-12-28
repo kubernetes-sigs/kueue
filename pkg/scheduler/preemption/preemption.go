@@ -94,7 +94,7 @@ func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assig
 	// trying to preempt more own workloads and borrow at the same time.
 
 	if len(sameQueueCandidates) == len(candidates) {
-		// There is no need of preemption of workloads from other queues,
+		// There is no possible preemption of workloads from other queues,
 		// so we'll try borrowing.
 		targets = minimalPreemptions(&wl, assignment, snapshot, resPerFlv, candidates, true)
 	} else {
