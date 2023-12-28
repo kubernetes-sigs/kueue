@@ -104,6 +104,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					*testing.MakeFlavorQuotas("spot-tainted").Resource(corev1.ResourceCPU, "5", "5").Obj(),
 					*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
 				).
+				Cohort("prod-cohort").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, prodClusterQ)).Should(gomega.Succeed())
 
@@ -617,6 +618,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				if err != nil {
 					return err
 				}
+				updatedCq.Spec.Cohort = "cohort"
 				updatedCq.Spec.ResourceGroups[0].Flavors[0].Resources[0] = kueue.ResourceQuota{
 					Name:           corev1.ResourceCPU,
 					NominalQuota:   resource.MustParse("6"),
@@ -759,6 +761,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					*testing.MakeFlavorQuotas("spot-tainted").Resource(corev1.ResourceCPU, "5", "5").Obj(),
 					*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
 				).
+				Cohort("cohort").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, cq)).Should(gomega.Succeed())
 
@@ -1221,6 +1224,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					},
 				}).
 				ResourceGroup(*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5", "0").Obj()).
+				Cohort("strict-fifo-cohort").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, strictFIFOClusterQ)).Should(gomega.Succeed())
 			matchingNS = &corev1.Namespace{
@@ -1444,6 +1448,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					*testing.MakeFlavorQuotas("on-demand").
 						Resource(corev1.ResourceCPU, "5", "5").Obj(),
 				).
+				Cohort("cohort").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, cq)).To(gomega.Succeed())
 			queue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()

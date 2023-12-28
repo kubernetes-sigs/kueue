@@ -78,6 +78,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			clusterQueue = testing.MakeClusterQueue("clusterqueue").
 				ResourceGroup(*testing.MakeFlavorQuotas(onDemandFlavor.Name).
 					Resource(corev1.ResourceCPU, "5", "5").Obj()).
+				Cohort("cohort").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
@@ -134,6 +135,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			clusterQueue = testing.MakeClusterQueue("clusterqueue").
 				ResourceGroup(*testing.MakeFlavorQuotas(onDemandFlavor.Name).
 					Resource(corev1.ResourceCPU, "5", "5").Obj()).
+				Cohort("cohort").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
@@ -190,6 +192,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			clusterQueue = testing.MakeClusterQueue("clusterqueue").
 				ResourceGroup(*testing.MakeFlavorQuotas(onDemandFlavor.Name).
 					Resource(corev1.ResourceCPU, "5", "5").Obj()).
+				Cohort("cohort").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
@@ -292,6 +295,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			clusterQueue = testing.MakeClusterQueue("clusterqueue").
 				ResourceGroup(*testing.MakeFlavorQuotas(onDemandFlavor.Name).
 					Resource(corev1.ResourceCPU, "5", "5").Obj()).
+				Cohort("cohort").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
@@ -356,6 +360,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			clusterQueue = testing.MakeClusterQueue("clusterqueue").
 				ResourceGroup(*testing.MakeFlavorQuotas(onDemandFlavor.Name).
 					Resource(corev1.ResourceCPU, "5", "5").Obj()).
+				Cohort("cohort").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
@@ -451,6 +456,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			clusterQueue = testing.MakeClusterQueue("clusterqueue").
 				ResourceGroup(*testing.MakeFlavorQuotas(onDemandFlavor.Name).
 					Resource(corev1.ResourceCPU, "5", "5").Obj()).
+				Cohort("cohort").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
@@ -542,6 +548,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			clusterQueue = testing.MakeClusterQueue("clusterqueue").
 				ResourceGroup(*testing.MakeFlavorQuotas(onDemandFlavor.Name).
 					Resource(corev1.ResourceCPU, "5", "5").Obj()).
+				Cohort("cohort").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()

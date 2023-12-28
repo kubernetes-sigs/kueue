@@ -36,7 +36,8 @@ import (
 )
 
 const (
-	isNegativeErrorMsg string = `must be greater than or equal to 0`
+	isNegativeErrorMsg     string = `must be greater than or equal to 0`
+	borrowingLimitErrorMsg string = `must be nil when cohort is nil`
 )
 
 type ClusterQueueWebhook struct{}
@@ -112,7 +113,7 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	if len(cq.Spec.Cohort) != 0 {
 		allErrs = append(allErrs, validateNameReference(cq.Spec.Cohort, path.Child("cohort"))...)
 	}
-	allErrs = append(allErrs, validateResourceGroups(cq.Spec.ResourceGroups, path.Child("resourceGroups"))...)
+	allErrs = append(allErrs, validateResourceGroups(cq.Spec.ResourceGroups, cq, path.Child("resourceGroups"))...)
 	allErrs = append(allErrs,
 		validation.ValidateLabelSelector(cq.Spec.NamespaceSelector, validation.LabelSelectorValidationOptions{}, path.Child("namespaceSelector"))...)
 
@@ -130,7 +131,7 @@ func ValidateClusterQueueUpdate(newObj, oldObj *kueue.ClusterQueue) field.ErrorL
 	return allErrs
 }
 
-func validateResourceGroups(resourceGroups []kueue.ResourceGroup, path *field.Path) field.ErrorList {
+func validateResourceGroups(resourceGroups []kueue.ResourceGroup, cq *kueue.ClusterQueue, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 	seenResources := sets.New[corev1.ResourceName]()
 	seenFlavors := sets.New[kueue.ResourceFlavorReference]()
@@ -148,7 +149,7 @@ func validateResourceGroups(resourceGroups []kueue.ResourceGroup, path *field.Pa
 		}
 		for j, fqs := range rg.Flavors {
 			path := path.Child("flavors").Index(j)
-			allErrs = append(allErrs, validateFlavorQuotas(fqs, rg.CoveredResources, path)...)
+			allErrs = append(allErrs, validateFlavorQuotas(fqs, rg.CoveredResources, cq, path)...)
 			if seenFlavors.Has(fqs.Name) {
 				allErrs = append(allErrs, field.Duplicate(path.Child("name"), fqs.Name))
 			} else {
@@ -159,7 +160,7 @@ func validateResourceGroups(resourceGroups []kueue.ResourceGroup, path *field.Pa
 	return allErrs
 }
 
-func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []corev1.ResourceName, path *field.Path) field.ErrorList {
+func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []corev1.ResourceName, cq *kueue.ClusterQueue, path *field.Path) field.ErrorList {
 	allErrs := validateNameReference(string(flavorQuotas.Name), path.Child("name"))
 	if len(flavorQuotas.Resources) != len(coveredResources) {
 		allErrs = append(allErrs, field.Invalid(path.Child("resources"), field.OmitValueType{}, "must have the same number of resources as the coveredResources"))
@@ -176,6 +177,7 @@ func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []co
 		allErrs = append(allErrs, validateResourceQuantity(rq.NominalQuota, path.Child("nominalQuota"))...)
 		if rq.BorrowingLimit != nil {
 			allErrs = append(allErrs, validateResourceQuantity(*rq.BorrowingLimit, path.Child("borrowingLimit"))...)
+			allErrs = append(allErrs, validateBorrowingLimit(*rq.BorrowingLimit, cq, path.Child("borrowingLimit"))...)
 		}
 	}
 	return allErrs
@@ -186,6 +188,15 @@ func validateResourceQuantity(value resource.Quantity, fldPath *field.Path) fiel
 	var allErrs field.ErrorList
 	if value.Cmp(resource.Quantity{}) < 0 {
 		allErrs = append(allErrs, field.Invalid(fldPath, value.String(), isNegativeErrorMsg))
+	}
+	return allErrs
+}
+
+// validateBorrowingLimit enforces that BorrowingLimit is nil when cohort is nil
+func validateBorrowingLimit(borrow resource.Quantity, cq *kueue.ClusterQueue, fldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	if len(cq.Spec.Cohort) == 0 {
+		allErrs = append(allErrs, field.Invalid(fldPath, borrow.String(), borrowingLimitErrorMsg))
 	}
 	return allErrs
 }
