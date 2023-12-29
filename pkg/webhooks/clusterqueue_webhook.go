@@ -113,7 +113,7 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	if len(cq.Spec.Cohort) != 0 {
 		allErrs = append(allErrs, validateNameReference(cq.Spec.Cohort, path.Child("cohort"))...)
 	}
-	allErrs = append(allErrs, validateResourceGroups(cq.Spec.ResourceGroups, cq, path.Child("resourceGroups"))...)
+	allErrs = append(allErrs, validateResourceGroups(cq.Spec.ResourceGroups, cq.Spec.Cohort, path.Child("resourceGroups"))...)
 	allErrs = append(allErrs,
 		validation.ValidateLabelSelector(cq.Spec.NamespaceSelector, validation.LabelSelectorValidationOptions{}, path.Child("namespaceSelector"))...)
 
@@ -131,7 +131,7 @@ func ValidateClusterQueueUpdate(newObj, oldObj *kueue.ClusterQueue) field.ErrorL
 	return allErrs
 }
 
-func validateResourceGroups(resourceGroups []kueue.ResourceGroup, cq *kueue.ClusterQueue, path *field.Path) field.ErrorList {
+func validateResourceGroups(resourceGroups []kueue.ResourceGroup, cohort string, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 	seenResources := sets.New[corev1.ResourceName]()
 	seenFlavors := sets.New[kueue.ResourceFlavorReference]()
@@ -149,7 +149,7 @@ func validateResourceGroups(resourceGroups []kueue.ResourceGroup, cq *kueue.Clus
 		}
 		for j, fqs := range rg.Flavors {
 			path := path.Child("flavors").Index(j)
-			allErrs = append(allErrs, validateFlavorQuotas(fqs, rg.CoveredResources, len(cq.Spec.Cohort), path)...)
+			allErrs = append(allErrs, validateFlavorQuotas(fqs, rg.CoveredResources, cohort, path)...)
 			if seenFlavors.Has(fqs.Name) {
 				allErrs = append(allErrs, field.Duplicate(path.Child("name"), fqs.Name))
 			} else {
@@ -160,7 +160,7 @@ func validateResourceGroups(resourceGroups []kueue.ResourceGroup, cq *kueue.Clus
 	return allErrs
 }
 
-func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []corev1.ResourceName, length int, path *field.Path) field.ErrorList {
+func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []corev1.ResourceName, cohort string, path *field.Path) field.ErrorList {
 	allErrs := validateNameReference(string(flavorQuotas.Name), path.Child("name"))
 	if len(flavorQuotas.Resources) != len(coveredResources) {
 		allErrs = append(allErrs, field.Invalid(path.Child("resources"), field.OmitValueType{}, "must have the same number of resources as the coveredResources"))
@@ -177,7 +177,7 @@ func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []co
 		allErrs = append(allErrs, validateResourceQuantity(rq.NominalQuota, path.Child("nominalQuota"))...)
 		if rq.BorrowingLimit != nil {
 			allErrs = append(allErrs, validateResourceQuantity(*rq.BorrowingLimit, path.Child("borrowingLimit"))...)
-			allErrs = append(allErrs, validateBorrowingLimit(*rq.BorrowingLimit, length, path.Child("borrowingLimit"))...)
+			allErrs = append(allErrs, validateBorrowingLimit(*rq.BorrowingLimit, cohort, path.Child("borrowingLimit"))...)
 		}
 	}
 	return allErrs
@@ -193,9 +193,9 @@ func validateResourceQuantity(value resource.Quantity, fldPath *field.Path) fiel
 }
 
 // validateBorrowingLimit enforces that BorrowingLimit must be nil when cohort is empty
-func validateBorrowingLimit(borrow resource.Quantity, length int, fldPath *field.Path) field.ErrorList {
+func validateBorrowingLimit(borrow resource.Quantity, cohort string, fldPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
-	if length == 0 {
+	if len(cohort) == 0 {
 		allErrs = append(allErrs, field.Invalid(fldPath, borrow.String(), borrowingLimitErrorMsg))
 	}
 	return allErrs
