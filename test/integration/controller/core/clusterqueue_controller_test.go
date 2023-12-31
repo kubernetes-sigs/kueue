@@ -557,6 +557,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 					*testing.MakeFlavorQuotas(flavorCPUArchA).Resource(corev1.ResourceCPU, "5", "5").Obj(),
 					*testing.MakeFlavorQuotas(flavorCPUArchB).Resource(corev1.ResourceCPU, "5", "5").Obj(),
 				).
+				Cohort("bar-cohort").
 				AdmissionChecks("check1", "check2").
 				Obj()
 
@@ -825,6 +826,7 @@ var _ = ginkgo.Describe("ClusterQueue controller with queue visibility is enable
 					*testing.MakeFlavorQuotas(flavorOnDemand).
 						Resource(corev1.ResourceCPU, "5", "5").Obj(),
 				).
+				Cohort("cohort").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
 			localQueue = testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()

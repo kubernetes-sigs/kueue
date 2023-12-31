@@ -107,6 +107,7 @@ func TestValidateClusterQueue(t *testing.T) {
 			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*testingutil.MakeFlavorQuotas("x86").Resource("cpu", "1", "0").Obj()).
+				Cohort("cohort").
 				Obj(),
 		},
 		{
@@ -114,9 +115,20 @@ func TestValidateClusterQueue(t *testing.T) {
 			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").
 				ResourceGroup(
 					*testingutil.MakeFlavorQuotas("x86").Resource("cpu", "1", "-1").Obj()).
+				Cohort("cohort").
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(resourceGroupsPath.Index(0).Child("flavors").Index(0).Child("resources").Index(0).Child("borrowingLimit"), "-1", ""),
+			},
+		},
+		{
+			name: "flavor quota with borrowingLimit and nil cohort",
+			clusterQueue: testingutil.MakeClusterQueue("cluster-queue").
+				ResourceGroup(
+					*testingutil.MakeFlavorQuotas("x86").Resource("cpu", "1", "1").Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(resourceGroupsPath.Index(0).Child("flavors").Index(0).Child("resources").Index(0).Child("borrowingLimit"), "1", borrowingLimitErrorMsg),
 			},
 		},
 		{
