@@ -176,8 +176,9 @@ func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []co
 		}
 		allErrs = append(allErrs, validateResourceQuantity(rq.NominalQuota, path.Child("nominalQuota"))...)
 		if rq.BorrowingLimit != nil {
-			allErrs = append(allErrs, validateResourceQuantity(*rq.BorrowingLimit, path.Child("borrowingLimit"))...)
-			allErrs = append(allErrs, validateBorrowingLimit(*rq.BorrowingLimit, cohort, path.Child("borrowingLimit"))...)
+			borrowingLimitPath := path.Child("borrowingLimit")
+			allErrs = append(allErrs, validateResourceQuantity(*rq.BorrowingLimit, borrowingLimitPath)...)
+			allErrs = append(allErrs, validateBorrowingLimit(*rq.BorrowingLimit, cohort, borrowingLimitPath)...)
 		}
 	}
 	return allErrs
