@@ -20,23 +20,18 @@ jobs:
           TAG=${{ github.event.inputs.tag }}
           echo "TAG=$TAG" >> "$GITHUB_ENV"
       - name: Install bom
-        uses: kubernetes-sigs/release-actions/setup-bom@main
+        uses: kubernetes-sigs/release-actions/setup-bom@v0.1.2
       - name: Checkout repository
         uses: actions/checkout@v4
       - name: Generate SBOM
+        shell: bash
         run: |
           bom generate -o /tmp/kueue.spdx .
           cd /tmp
           tar zcf sbom.tar.gz *.spdx
-      - name: Generate SBOM hash
-        shell: bash
-        run: |
-          # sha256sum generates sha256 hash for sbom.
-          # base64 -w0 encodes to base64 and outputs on a single line.
-          # sha256sum /tmp/sbom.tar.gz ... | base64 -w0
-          echo "hashes=$(sha256sum /tmp/sbom.tar.gz | base64 -w0)" >> "$GITHUB_OUTPUT"
       - name: Upload SBOM
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
           gh release upload $TAG /tmp/sbom.tar.gz
