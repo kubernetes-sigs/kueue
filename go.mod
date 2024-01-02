@@ -28,7 +28,7 @@ require (
 	k8s.io/metrics v0.28.4
 	k8s.io/utils v0.0.0-20230726121419-3b25d923346b
 	sigs.k8s.io/controller-runtime v0.16.3
-	sigs.k8s.io/jobset v0.3.0
+	sigs.k8s.io/jobset v0.3.1
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1
 )
 
