@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/util/api"
@@ -393,11 +394,19 @@ func ApplyAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workloa
 	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.AdmissionName))
 }
 
+type Ordering struct {
+	PodsReadyRequeuingTimestamp config.RequeuingTimestamp
+}
+
 // GetQueueOrderTimestamp return the timestamp to be used by the scheduler. It could
 // be the workload creation time or the last time a PodsReady timeout has occurred.
-func GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
-	if c := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted); c != nil && c.Status == metav1.ConditionTrue && c.Reason == kueue.WorkloadEvictedByPodsReadyTimeout {
-		return &c.LastTransitionTime
+func (o Ordering) GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
+	if o.PodsReadyRequeuingTimestamp == config.Eviction || o.PodsReadyRequeuingTimestamp == "" {
+		if c := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted); c != nil &&
+			c.Status == metav1.ConditionTrue &&
+			c.Reason == kueue.WorkloadEvictedByPodsReadyTimeout {
+			return &c.LastTransitionTime
+		}
 	}
 	return &w.CreationTimestamp
 }

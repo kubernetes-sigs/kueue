@@ -56,12 +56,13 @@ func TestSchedulerWithWaitForPodsReady(t *testing.T) {
 	)
 }
 
-func managerAndSchedulerSetupWithTimeoutAdmission(mgr manager.Manager, ctx context.Context, value time.Duration, blockAdmission bool) {
+func managerAndSchedulerSetupWithTimeoutAdmission(mgr manager.Manager, ctx context.Context, value time.Duration, blockAdmission bool, requeuingTimestamp config.RequeuingTimestamp) {
 	cfg := config.Configuration{
 		WaitForPodsReady: &config.WaitForPodsReady{
-			Enable:         true,
-			BlockAdmission: &blockAdmission,
-			Timeout:        &metav1.Duration{Duration: value},
+			Enable:             true,
+			BlockAdmission:     &blockAdmission,
+			Timeout:            &metav1.Duration{Duration: value},
+			RequeuingTimestamp: requeuingTimestamp,
 		},
 	}
 
@@ -69,7 +70,10 @@ func managerAndSchedulerSetupWithTimeoutAdmission(mgr manager.Manager, ctx conte
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	cCache := cache.New(mgr.GetClient(), cache.WithPodsReadyTracking(cfg.WaitForPodsReady.Enable && cfg.WaitForPodsReady.BlockAdmission != nil && *cfg.WaitForPodsReady.BlockAdmission))
-	queues := queue.NewManager(mgr.GetClient(), cCache)
+	queues := queue.NewManager(
+		mgr.GetClient(), cCache,
+		queue.WithPodsReadyRequeuingTimestamp(cfg.WaitForPodsReady.RequeuingTimestamp),
+	)
 
 	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &cfg)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
@@ -80,7 +84,10 @@ func managerAndSchedulerSetupWithTimeoutAdmission(mgr manager.Manager, ctx conte
 	err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))
+	sched := scheduler.New(
+		queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName),
+		scheduler.WithPodsReadyRequeuingTimestamp(cfg.WaitForPodsReady.RequeuingTimestamp),
+	)
 	err = sched.Start(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }

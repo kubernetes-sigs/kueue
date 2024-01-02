@@ -29,6 +29,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
@@ -323,7 +324,7 @@ func TestGetQueueOrderTimestamp(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			gotTime := GetQueueOrderTimestamp(tc.wl)
+			gotTime := Ordering{PodsReadyRequeuingTimestamp: config.Eviction}.GetQueueOrderTimestamp(tc.wl)
 			if diff := cmp.Diff(*gotTime, tc.want); diff != "" {
 				t.Errorf("Unexpected time (-want,+got):\n%s", diff)
 			}

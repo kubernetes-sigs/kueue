@@ -24,8 +24,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
-
-	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 )
 
 const (
@@ -38,9 +36,10 @@ const (
 	DefaultLeaderElectionID                             = "c1f6bfd2.kueue.x-k8s.io"
 	DefaultClientConnectionQPS                  float32 = 20.0
 	DefaultClientConnectionBurst                int32   = 30
-	defaultPodsReadyTimeout                             = 5 * time.Minute
+	DefaultPodsReadyTimeout                             = 5 * time.Minute
 	DefaultQueueVisibilityUpdateIntervalSeconds int32   = 5
 	DefaultClusterQueuesMaxCount                int32   = 10
+	DefaultJobFrameworkName                             = "batch/job"
 )
 
 func addDefaultingFuncs(scheme *runtime.Scheme) error {
@@ -102,7 +101,7 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	}
 	if cfg.WaitForPodsReady != nil {
 		if cfg.WaitForPodsReady.Timeout == nil {
-			cfg.WaitForPodsReady.Timeout = &metav1.Duration{Duration: defaultPodsReadyTimeout}
+			cfg.WaitForPodsReady.Timeout = &metav1.Duration{Duration: DefaultPodsReadyTimeout}
 		}
 		if cfg.WaitForPodsReady.BlockAdmission == nil {
 			defaultBlockAdmission := true
@@ -111,12 +110,15 @@ func SetDefaults_Configuration(cfg *Configuration) {
 			}
 			cfg.WaitForPodsReady.BlockAdmission = &defaultBlockAdmission
 		}
+		if cfg.WaitForPodsReady.RequeuingTimestamp == "" {
+			cfg.WaitForPodsReady.RequeuingTimestamp = Eviction
+		}
 	}
 	if cfg.Integrations == nil {
 		cfg.Integrations = &Integrations{}
 	}
 	if cfg.Integrations.Frameworks == nil {
-		cfg.Integrations.Frameworks = []string{job.FrameworkName}
+		cfg.Integrations.Frameworks = []string{DefaultJobFrameworkName}
 	}
 	if cfg.QueueVisibility == nil {
 		cfg.QueueVisibility = &QueueVisibility{}

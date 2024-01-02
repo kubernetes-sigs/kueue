@@ -54,6 +54,8 @@ type clusterQueueBase struct {
 	// QueueInadmissibleWorkloads is called.
 	queueInadmissibleCycle int64
 
+	lessFunc func(a, b interface{}) bool
+
 	rwm sync.RWMutex
 }
 
@@ -62,6 +64,7 @@ func newClusterQueueImpl(keyFunc func(obj interface{}) string, lessFunc func(a, 
 		heap:                   heap.New(keyFunc, lessFunc),
 		inadmissibleWorkloads:  make(map[string]*workload.Info),
 		queueInadmissibleCycle: -1,
+		lessFunc:               lessFunc,
 		rwm:                    sync.RWMutex{},
 	}
 }
@@ -250,7 +253,7 @@ func (c *clusterQueueBase) DumpInadmissible() ([]string, bool) {
 func (c *clusterQueueBase) Snapshot() []*workload.Info {
 	elements := c.totalElements()
 	sort.Slice(elements, func(i, j int) bool {
-		return queueOrdering(elements[i], elements[j])
+		return c.lessFunc(elements[i], elements[j])
 	})
 	return elements
 }

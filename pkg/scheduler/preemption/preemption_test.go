@@ -975,7 +975,7 @@ func TestPreemption(t *testing.T) {
 			broadcaster := record.NewBroadcaster()
 			scheme := runtime.NewScheme()
 			recorder := broadcaster.NewRecorder(scheme, corev1.EventSource{Component: constants.AdmissionName})
-			preemptor := New(cl, recorder)
+			preemptor := New(cl, workload.Ordering{}, recorder)
 			preemptor.applyPreemption = func(ctx context.Context, w *kueue.Workload) error {
 				lock.Lock()
 				gotPreempted.Insert(workload.Key(w))

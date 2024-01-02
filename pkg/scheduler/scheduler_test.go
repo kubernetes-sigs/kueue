@@ -37,7 +37,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -1196,7 +1196,7 @@ func TestSchedule(t *testing.T) {
 			wantAssignments: map[string]kueue.Admission{
 				"eng-alpha/admitted_a": {
 					ClusterQueue: "cq_a",
-					PodSetAssignments: []v1beta1.PodSetAssignment{
+					PodSetAssignments: []kueue.PodSetAssignment{
 						{
 							Name: "main",
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -1211,7 +1211,7 @@ func TestSchedule(t *testing.T) {
 				},
 				"eng-beta/b": {
 					ClusterQueue: "cq_b",
-					PodSetAssignments: []v1beta1.PodSetAssignment{
+					PodSetAssignments: []kueue.PodSetAssignment{
 						{
 							Name: "main",
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
@@ -1465,24 +1465,42 @@ func TestEntryOrdering(t *testing.T) {
 		},
 	}
 	for _, tc := range []struct {
-		name            string
-		prioritySorting bool
-		wantOrder       []string
+		name             string
+		prioritySorting  bool
+		workloadOrdering workload.Ordering
+		wantOrder        []string
 	}{
 		{
-			name:            "Priority sorting is enabled (default)",
-			prioritySorting: true,
-			wantOrder:       []string{"new_high_pri", "old", "recently_evicted", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing"},
+			name:             "Priority sorting is enabled (default) using pods-ready Eviction timestamp (default)",
+			prioritySorting:  true,
+			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.Eviction},
+			wantOrder:        []string{"new_high_pri", "old", "recently_evicted", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing"},
 		},
 		{
-			name:            "Priority sorting is disabled",
-			prioritySorting: false,
-			wantOrder:       []string{"old", "recently_evicted", "new", "new_high_pri", "old_borrowing", "evicted_borrowing", "high_pri_borrowing", "new_borrowing"},
+			name:             "Priority sorting is enabled (default) using pods-ready Creation timestamp",
+			prioritySorting:  true,
+			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.Creation},
+			wantOrder:        []string{"new_high_pri", "recently_evicted", "old", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing"},
+		},
+		{
+			name:             "Priority sorting is disabled using pods-ready Eviction timestamp",
+			prioritySorting:  false,
+			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.Eviction},
+			wantOrder:        []string{"old", "recently_evicted", "new", "new_high_pri", "old_borrowing", "evicted_borrowing", "high_pri_borrowing", "new_borrowing"},
+		},
+		{
+			name:             "Priority sorting is disabled using pods-ready Creation timestamp",
+			prioritySorting:  false,
+			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.Creation},
+			wantOrder:        []string{"recently_evicted", "old", "new", "new_high_pri", "old_borrowing", "evicted_borrowing", "high_pri_borrowing", "new_borrowing"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Cleanup(features.SetFeatureGateDuringTest(t, features.PrioritySortingWithinCohort, tc.prioritySorting))
-			sort.Sort(entryOrdering(input))
+			sort.Sort(entryOrdering{
+				entries:          input,
+				workloadOrdering: tc.workloadOrdering},
+			)
 			order := make([]string, len(input))
 			for i, e := range input {
 				order[i] = e.Obj.Name

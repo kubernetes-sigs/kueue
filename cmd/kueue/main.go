@@ -154,7 +154,7 @@ func main() {
 	}
 
 	cCache := cache.New(mgr.GetClient(), cache.WithPodsReadyTracking(blockForPodsReady(&cfg)))
-	queues := queue.NewManager(mgr.GetClient(), cCache)
+	queues := queue.NewManager(mgr.GetClient(), cCache, queue.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(&cfg)))
 
 	ctx := ctrl.SetupSignalHandler()
 	if err := setupIndexes(ctx, mgr, &cfg); err != nil {
@@ -182,7 +182,7 @@ func main() {
 		go visibility.CreateAndStartVisibilityServer(queues, ctx)
 	}
 
-	setupScheduler(mgr, cCache, queues)
+	setupScheduler(mgr, cCache, queues, &cfg)
 
 	setupLog.Info("Starting manager")
 	if err := mgr.Start(ctx); err != nil {
@@ -327,12 +327,13 @@ func setupProbeEndpoints(mgr ctrl.Manager) {
 	}
 }
 
-func setupScheduler(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager) {
+func setupScheduler(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, cfg *configapi.Configuration) {
 	sched := scheduler.New(
 		queues,
 		cCache,
 		mgr.GetClient(),
 		mgr.GetEventRecorderFor(constants.AdmissionName),
+		scheduler.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(cfg)),
 	)
 	if err := mgr.Add(sched); err != nil {
 		setupLog.Error(err, "Unable to add scheduler to manager")
@@ -368,6 +369,13 @@ func blockForPodsReady(cfg *configapi.Configuration) bool {
 
 func waitForPodsReady(cfg *configapi.Configuration) bool {
 	return cfg.WaitForPodsReady != nil && cfg.WaitForPodsReady.Enable
+}
+
+func podsReadyRequeuingTimestamp(cfg *configapi.Configuration) configapi.RequeuingTimestamp {
+	if cfg.WaitForPodsReady != nil {
+		return cfg.WaitForPodsReady.RequeuingTimestamp
+	}
+	return ""
 }
 
 func apply(configFile string) (ctrl.Options, configapi.Configuration, error) {

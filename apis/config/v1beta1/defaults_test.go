@@ -14,7 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1beta1
+// Use _test package to avoid import cycles while still asserting that
+// constants match expected values from other packages (i.e. job.FrameworkName).
+package v1beta1_test
 
 import (
 	"testing"
@@ -25,6 +27,7 @@ import (
 	componentconfigv1alpha1 "k8s.io/component-base/config/v1alpha1"
 	"k8s.io/utils/ptr"
 
+	"sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 )
 
@@ -37,24 +40,24 @@ const (
 )
 
 func TestSetDefaults_Configuration(t *testing.T) {
-	defaultCtrlManagerConfigurationSpec := ControllerManager{
-		Webhook: ControllerWebhook{
-			Port: ptr.To(DefaultWebhookPort),
+	defaultCtrlManagerConfigurationSpec := v1beta1.ControllerManager{
+		Webhook: v1beta1.ControllerWebhook{
+			Port: ptr.To(v1beta1.DefaultWebhookPort),
 		},
-		Metrics: ControllerMetrics{
-			BindAddress: DefaultMetricsBindAddress,
+		Metrics: v1beta1.ControllerMetrics{
+			BindAddress: v1beta1.DefaultMetricsBindAddress,
 		},
-		Health: ControllerHealth{
-			HealthProbeBindAddress: DefaultHealthProbeBindAddress,
+		Health: v1beta1.ControllerHealth{
+			HealthProbeBindAddress: v1beta1.DefaultHealthProbeBindAddress,
 		},
 	}
-	defaultClientConnection := &ClientConnection{
-		QPS:   ptr.To(DefaultClientConnectionQPS),
-		Burst: ptr.To(DefaultClientConnectionBurst),
+	defaultClientConnection := &v1beta1.ClientConnection{
+		QPS:   ptr.To(v1beta1.DefaultClientConnectionQPS),
+		Burst: ptr.To(v1beta1.DefaultClientConnectionBurst),
 	}
-	defaultIntegrations := &Integrations{
+	defaultIntegrations := &v1beta1.Integrations{
 		Frameworks: []string{job.FrameworkName},
-		PodOptions: &PodIntegrationOptions{
+		PodOptions: &v1beta1.PodIntegrationOptions{
 			NamespaceSelector: &metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
 					{
@@ -67,16 +70,16 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			PodSelector: &metav1.LabelSelector{},
 		},
 	}
-	defaultQueueVisibility := &QueueVisibility{
-		UpdateIntervalSeconds: DefaultQueueVisibilityUpdateIntervalSeconds,
-		ClusterQueues: &ClusterQueueVisibility{
+	defaultQueueVisibility := &v1beta1.QueueVisibility{
+		UpdateIntervalSeconds: v1beta1.DefaultQueueVisibilityUpdateIntervalSeconds,
+		ClusterQueues: &v1beta1.ClusterQueueVisibility{
 			MaxCount: 10,
 		},
 	}
 
-	overwriteNamespaceIntegrations := &Integrations{
+	overwriteNamespaceIntegrations := &v1beta1.Integrations{
 		Frameworks: []string{job.FrameworkName},
-		PodOptions: &PodIntegrationOptions{
+		PodOptions: &v1beta1.PodIntegrationOptions{
 			NamespaceSelector: &metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
 					{
@@ -90,23 +93,23 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		},
 	}
 
-	podsReadyTimeoutTimeout := metav1.Duration{Duration: defaultPodsReadyTimeout}
+	podsReadyTimeoutTimeout := metav1.Duration{Duration: v1beta1.DefaultPodsReadyTimeout}
 	podsReadyTimeoutOverwrite := metav1.Duration{Duration: time.Minute}
 
 	testCases := map[string]struct {
-		original *Configuration
-		want     *Configuration
+		original *v1beta1.Configuration
+		want     *v1beta1.Configuration
 	}{
 		"defaulting namespace": {
-			original: &Configuration{
-				InternalCertManagement: &InternalCertManagement{
+			original: &v1beta1.Configuration{
+				InternalCertManagement: &v1beta1.InternalCertManagement{
 					Enable: ptr.To(false),
 				},
 			},
-			want: &Configuration{
-				Namespace:         ptr.To(DefaultNamespace),
+			want: &v1beta1.Configuration{
+				Namespace:         ptr.To(v1beta1.DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
-				InternalCertManagement: &InternalCertManagement{
+				InternalCertManagement: &v1beta1.InternalCertManagement{
 					Enable: ptr.To(false),
 				},
 				ClientConnection: defaultClientConnection,
@@ -115,34 +118,34 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 		},
 		"defaulting ControllerManager": {
-			original: &Configuration{
-				ControllerManager: ControllerManager{
+			original: &v1beta1.Configuration{
+				ControllerManager: v1beta1.ControllerManager{
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
 						LeaderElect: ptr.To(true),
 					},
 				},
-				InternalCertManagement: &InternalCertManagement{
+				InternalCertManagement: &v1beta1.InternalCertManagement{
 					Enable: ptr.To(false),
 				},
 			},
-			want: &Configuration{
-				Namespace: ptr.To(DefaultNamespace),
-				ControllerManager: ControllerManager{
-					Webhook: ControllerWebhook{
-						Port: ptr.To(DefaultWebhookPort),
+			want: &v1beta1.Configuration{
+				Namespace: ptr.To(v1beta1.DefaultNamespace),
+				ControllerManager: v1beta1.ControllerManager{
+					Webhook: v1beta1.ControllerWebhook{
+						Port: ptr.To(v1beta1.DefaultWebhookPort),
 					},
-					Metrics: ControllerMetrics{
-						BindAddress: DefaultMetricsBindAddress,
+					Metrics: v1beta1.ControllerMetrics{
+						BindAddress: v1beta1.DefaultMetricsBindAddress,
 					},
-					Health: ControllerHealth{
-						HealthProbeBindAddress: DefaultHealthProbeBindAddress,
+					Health: v1beta1.ControllerHealth{
+						HealthProbeBindAddress: v1beta1.DefaultHealthProbeBindAddress,
 					},
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
 						LeaderElect:  ptr.To(true),
-						ResourceName: DefaultLeaderElectionID,
+						ResourceName: v1beta1.DefaultLeaderElectionID,
 					},
 				},
-				InternalCertManagement: &InternalCertManagement{
+				InternalCertManagement: &v1beta1.InternalCertManagement{
 					Enable: ptr.To(false),
 				},
 				ClientConnection: defaultClientConnection,
@@ -151,15 +154,15 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 		},
 		"should not default ControllerManager": {
-			original: &Configuration{
-				ControllerManager: ControllerManager{
-					Webhook: ControllerWebhook{
+			original: &v1beta1.Configuration{
+				ControllerManager: v1beta1.ControllerManager{
+					Webhook: v1beta1.ControllerWebhook{
 						Port: ptr.To(overwriteWebhookPort),
 					},
-					Metrics: ControllerMetrics{
+					Metrics: v1beta1.ControllerMetrics{
 						BindAddress: overwriteMetricBindAddress,
 					},
-					Health: ControllerHealth{
+					Health: v1beta1.ControllerHealth{
 						HealthProbeBindAddress: overwriteHealthProbeBindAddress,
 					},
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
@@ -167,22 +170,22 @@ func TestSetDefaults_Configuration(t *testing.T) {
 						ResourceName: overwriteLeaderElectionID,
 					},
 				},
-				InternalCertManagement: &InternalCertManagement{
+				InternalCertManagement: &v1beta1.InternalCertManagement{
 					Enable: ptr.To(false),
 				},
 				Integrations:    defaultIntegrations,
 				QueueVisibility: defaultQueueVisibility,
 			},
-			want: &Configuration{
-				Namespace: ptr.To(DefaultNamespace),
-				ControllerManager: ControllerManager{
-					Webhook: ControllerWebhook{
+			want: &v1beta1.Configuration{
+				Namespace: ptr.To(v1beta1.DefaultNamespace),
+				ControllerManager: v1beta1.ControllerManager{
+					Webhook: v1beta1.ControllerWebhook{
 						Port: ptr.To(overwriteWebhookPort),
 					},
-					Metrics: ControllerMetrics{
+					Metrics: v1beta1.ControllerMetrics{
 						BindAddress: overwriteMetricBindAddress,
 					},
-					Health: ControllerHealth{
+					Health: v1beta1.ControllerHealth{
 						HealthProbeBindAddress: overwriteHealthProbeBindAddress,
 					},
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
@@ -190,7 +193,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 						ResourceName: overwriteLeaderElectionID,
 					},
 				},
-				InternalCertManagement: &InternalCertManagement{
+				InternalCertManagement: &v1beta1.InternalCertManagement{
 					Enable: ptr.To(false),
 				},
 				ClientConnection: defaultClientConnection,
@@ -199,33 +202,33 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 		},
 		"should not set LeaderElectionID": {
-			original: &Configuration{
-				ControllerManager: ControllerManager{
+			original: &v1beta1.Configuration{
+				ControllerManager: v1beta1.ControllerManager{
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
 						LeaderElect: ptr.To(false),
 					},
 				},
-				InternalCertManagement: &InternalCertManagement{
+				InternalCertManagement: &v1beta1.InternalCertManagement{
 					Enable: ptr.To(false),
 				},
 			},
-			want: &Configuration{
-				Namespace: ptr.To(DefaultNamespace),
-				ControllerManager: ControllerManager{
-					Webhook: ControllerWebhook{
-						Port: ptr.To(DefaultWebhookPort),
+			want: &v1beta1.Configuration{
+				Namespace: ptr.To(v1beta1.DefaultNamespace),
+				ControllerManager: v1beta1.ControllerManager{
+					Webhook: v1beta1.ControllerWebhook{
+						Port: ptr.To(v1beta1.DefaultWebhookPort),
 					},
-					Metrics: ControllerMetrics{
-						BindAddress: DefaultMetricsBindAddress,
+					Metrics: v1beta1.ControllerMetrics{
+						BindAddress: v1beta1.DefaultMetricsBindAddress,
 					},
-					Health: ControllerHealth{
-						HealthProbeBindAddress: DefaultHealthProbeBindAddress,
+					Health: v1beta1.ControllerHealth{
+						HealthProbeBindAddress: v1beta1.DefaultHealthProbeBindAddress,
 					},
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
 						LeaderElect: ptr.To(false),
 					},
 				},
-				InternalCertManagement: &InternalCertManagement{
+				InternalCertManagement: &v1beta1.InternalCertManagement{
 					Enable: ptr.To(false),
 				},
 				ClientConnection: defaultClientConnection,
@@ -234,16 +237,16 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 		},
 		"defaulting InternalCertManagement": {
-			original: &Configuration{
+			original: &v1beta1.Configuration{
 				Namespace: ptr.To(overwriteNamespace),
 			},
-			want: &Configuration{
+			want: &v1beta1.Configuration{
 				Namespace:         ptr.To(overwriteNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
-				InternalCertManagement: &InternalCertManagement{
+				InternalCertManagement: &v1beta1.InternalCertManagement{
 					Enable:             ptr.To(true),
-					WebhookServiceName: ptr.To(DefaultWebhookServiceName),
-					WebhookSecretName:  ptr.To(DefaultWebhookSecretName),
+					WebhookServiceName: ptr.To(v1beta1.DefaultWebhookServiceName),
+					WebhookSecretName:  ptr.To(v1beta1.DefaultWebhookSecretName),
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     overwriteNamespaceIntegrations,
@@ -251,16 +254,16 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 		},
 		"should not default InternalCertManagement": {
-			original: &Configuration{
+			original: &v1beta1.Configuration{
 				Namespace: ptr.To(overwriteNamespace),
-				InternalCertManagement: &InternalCertManagement{
+				InternalCertManagement: &v1beta1.InternalCertManagement{
 					Enable: ptr.To(false),
 				},
 			},
-			want: &Configuration{
+			want: &v1beta1.Configuration{
 				Namespace:         ptr.To(overwriteNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
-				InternalCertManagement: &InternalCertManagement{
+				InternalCertManagement: &v1beta1.InternalCertManagement{
 					Enable: ptr.To(false),
 				},
 				ClientConnection: defaultClientConnection,
@@ -269,23 +272,23 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 		},
 		"should not default values in custom ClientConnection": {
-			original: &Configuration{
+			original: &v1beta1.Configuration{
 				Namespace: ptr.To(overwriteNamespace),
-				InternalCertManagement: &InternalCertManagement{
+				InternalCertManagement: &v1beta1.InternalCertManagement{
 					Enable: ptr.To(false),
 				},
-				ClientConnection: &ClientConnection{
+				ClientConnection: &v1beta1.ClientConnection{
 					QPS:   ptr.To[float32](123.0),
 					Burst: ptr.To[int32](456),
 				},
 			},
-			want: &Configuration{
+			want: &v1beta1.Configuration{
 				Namespace:         ptr.To(overwriteNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
-				InternalCertManagement: &InternalCertManagement{
+				InternalCertManagement: &v1beta1.InternalCertManagement{
 					Enable: ptr.To(false),
 				},
-				ClientConnection: &ClientConnection{
+				ClientConnection: &v1beta1.ClientConnection{
 					QPS:   ptr.To[float32](123.0),
 					Burst: ptr.To[int32](456),
 				},
@@ -294,17 +297,17 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 		},
 		"should default empty custom ClientConnection": {
-			original: &Configuration{
+			original: &v1beta1.Configuration{
 				Namespace: ptr.To(overwriteNamespace),
-				InternalCertManagement: &InternalCertManagement{
+				InternalCertManagement: &v1beta1.InternalCertManagement{
 					Enable: ptr.To(false),
 				},
-				ClientConnection: &ClientConnection{},
+				ClientConnection: &v1beta1.ClientConnection{},
 			},
-			want: &Configuration{
+			want: &v1beta1.Configuration{
 				Namespace:         ptr.To(overwriteNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
-				InternalCertManagement: &InternalCertManagement{
+				InternalCertManagement: &v1beta1.InternalCertManagement{
 					Enable: ptr.To(false),
 				},
 				ClientConnection: defaultClientConnection,
@@ -313,23 +316,24 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 		},
 		"defaulting waitForPodsReady.timeout": {
-			original: &Configuration{
-				WaitForPodsReady: &WaitForPodsReady{
+			original: &v1beta1.Configuration{
+				WaitForPodsReady: &v1beta1.WaitForPodsReady{
 					Enable: true,
 				},
-				InternalCertManagement: &InternalCertManagement{
+				InternalCertManagement: &v1beta1.InternalCertManagement{
 					Enable: ptr.To(false),
 				},
 			},
-			want: &Configuration{
-				WaitForPodsReady: &WaitForPodsReady{
-					Enable:         true,
-					BlockAdmission: ptr.To(true),
-					Timeout:        &podsReadyTimeoutTimeout,
+			want: &v1beta1.Configuration{
+				WaitForPodsReady: &v1beta1.WaitForPodsReady{
+					Enable:             true,
+					BlockAdmission:     ptr.To(true),
+					Timeout:            &podsReadyTimeoutTimeout,
+					RequeuingTimestamp: v1beta1.Eviction,
 				},
-				Namespace:         ptr.To(DefaultNamespace),
+				Namespace:         ptr.To(v1beta1.DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
-				InternalCertManagement: &InternalCertManagement{
+				InternalCertManagement: &v1beta1.InternalCertManagement{
 					Enable: ptr.To(false),
 				},
 				ClientConnection: defaultClientConnection,
@@ -338,23 +342,24 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 		},
 		"set waitForPodsReady.blockAdmission to false when enable is false": {
-			original: &Configuration{
-				WaitForPodsReady: &WaitForPodsReady{
+			original: &v1beta1.Configuration{
+				WaitForPodsReady: &v1beta1.WaitForPodsReady{
 					Enable: false,
 				},
-				InternalCertManagement: &InternalCertManagement{
+				InternalCertManagement: &v1beta1.InternalCertManagement{
 					Enable: ptr.To(false),
 				},
 			},
-			want: &Configuration{
-				WaitForPodsReady: &WaitForPodsReady{
-					Enable:         false,
-					BlockAdmission: ptr.To(false),
-					Timeout:        &podsReadyTimeoutTimeout,
+			want: &v1beta1.Configuration{
+				WaitForPodsReady: &v1beta1.WaitForPodsReady{
+					Enable:             false,
+					BlockAdmission:     ptr.To(false),
+					Timeout:            &podsReadyTimeoutTimeout,
+					RequeuingTimestamp: v1beta1.Eviction,
 				},
-				Namespace:         ptr.To(DefaultNamespace),
+				Namespace:         ptr.To(v1beta1.DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
-				InternalCertManagement: &InternalCertManagement{
+				InternalCertManagement: &v1beta1.InternalCertManagement{
 					Enable: ptr.To(false),
 				},
 				ClientConnection: defaultClientConnection,
@@ -362,25 +367,27 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				QueueVisibility:  defaultQueueVisibility,
 			},
 		},
-		"respecting provided waitForPodsReady.timeout": {
-			original: &Configuration{
-				WaitForPodsReady: &WaitForPodsReady{
-					Enable:  true,
-					Timeout: &podsReadyTimeoutOverwrite,
+		"respecting provided waitForPodsReady values": {
+			original: &v1beta1.Configuration{
+				WaitForPodsReady: &v1beta1.WaitForPodsReady{
+					Enable:             true,
+					Timeout:            &podsReadyTimeoutOverwrite,
+					RequeuingTimestamp: v1beta1.Creation,
 				},
-				InternalCertManagement: &InternalCertManagement{
+				InternalCertManagement: &v1beta1.InternalCertManagement{
 					Enable: ptr.To(false),
 				},
 			},
-			want: &Configuration{
-				WaitForPodsReady: &WaitForPodsReady{
-					Enable:         true,
-					BlockAdmission: ptr.To(true),
-					Timeout:        &podsReadyTimeoutOverwrite,
+			want: &v1beta1.Configuration{
+				WaitForPodsReady: &v1beta1.WaitForPodsReady{
+					Enable:             true,
+					BlockAdmission:     ptr.To(true),
+					Timeout:            &podsReadyTimeoutOverwrite,
+					RequeuingTimestamp: v1beta1.Creation,
 				},
-				Namespace:         ptr.To(DefaultNamespace),
+				Namespace:         ptr.To(v1beta1.DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
-				InternalCertManagement: &InternalCertManagement{
+				InternalCertManagement: &v1beta1.InternalCertManagement{
 					Enable: ptr.To(false),
 				},
 				ClientConnection: defaultClientConnection,
@@ -389,22 +396,22 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 		},
 		"integrations": {
-			original: &Configuration{
-				InternalCertManagement: &InternalCertManagement{
+			original: &v1beta1.Configuration{
+				InternalCertManagement: &v1beta1.InternalCertManagement{
 					Enable: ptr.To(false),
 				},
-				Integrations: &Integrations{
+				Integrations: &v1beta1.Integrations{
 					Frameworks: []string{"a", "b"},
 				},
 			},
-			want: &Configuration{
-				Namespace:         ptr.To(DefaultNamespace),
+			want: &v1beta1.Configuration{
+				Namespace:         ptr.To(v1beta1.DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
-				InternalCertManagement: &InternalCertManagement{
+				InternalCertManagement: &v1beta1.InternalCertManagement{
 					Enable: ptr.To(false),
 				},
 				ClientConnection: defaultClientConnection,
-				Integrations: &Integrations{
+				Integrations: &v1beta1.Integrations{
 					Frameworks: []string{"a", "b"},
 					PodOptions: defaultIntegrations.PodOptions,
 				},
@@ -412,28 +419,28 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 		},
 		"queue visibility": {
-			original: &Configuration{
-				InternalCertManagement: &InternalCertManagement{
+			original: &v1beta1.Configuration{
+				InternalCertManagement: &v1beta1.InternalCertManagement{
 					Enable: ptr.To(false),
 				},
-				QueueVisibility: &QueueVisibility{
+				QueueVisibility: &v1beta1.QueueVisibility{
 					UpdateIntervalSeconds: 10,
-					ClusterQueues: &ClusterQueueVisibility{
+					ClusterQueues: &v1beta1.ClusterQueueVisibility{
 						MaxCount: 0,
 					},
 				},
 			},
-			want: &Configuration{
-				Namespace:         ptr.To(DefaultNamespace),
+			want: &v1beta1.Configuration{
+				Namespace:         ptr.To(v1beta1.DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
-				InternalCertManagement: &InternalCertManagement{
+				InternalCertManagement: &v1beta1.InternalCertManagement{
 					Enable: ptr.To(false),
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
-				QueueVisibility: &QueueVisibility{
+				QueueVisibility: &v1beta1.QueueVisibility{
 					UpdateIntervalSeconds: 10,
-					ClusterQueues: &ClusterQueueVisibility{
+					ClusterQueues: &v1beta1.ClusterQueueVisibility{
 						MaxCount: 0,
 					},
 				},
@@ -443,7 +450,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			SetDefaults_Configuration(tc.original)
+			v1beta1.SetDefaults_Configuration(tc.original)
 			if diff := cmp.Diff(tc.want, tc.original); diff != "" {
 				t.Errorf("unexpected error (-want,+got):\n%s", diff)
 			}
