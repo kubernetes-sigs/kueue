@@ -25,7 +25,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -193,7 +192,7 @@ func TestClusterQueueImpl(t *testing.T) {
 		workloadsToUpdate                 []*kueue.Workload
 		workloadsToDelete                 []*kueue.Workload
 		queueInadmissibleWorkloads        bool
-		wantActiveWorkloads               sets.Set[string]
+		wantActiveWorkloads               []string
 		wantPending                       int
 		wantInadmissibleWorkloadsRequeued bool
 	}{
@@ -202,27 +201,27 @@ func TestClusterQueueImpl(t *testing.T) {
 			inadmissibleWorkloadsToRequeue: []*workload.Info{},
 			workloadsToUpdate:              []*kueue.Workload{updatedWorkloads[0]},
 			workloadsToDelete:              []*kueue.Workload{workloads[0]},
-			wantActiveWorkloads:            sets.New(workload.Key(workloads[1])),
+			wantActiveWorkloads:            []string{workload.Key(workloads[1])},
 			wantPending:                    1,
 		},
 		"re-queue inadmissible workload": {
 			workloadsToAdd:                 []*kueue.Workload{workloads[0]},
 			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[1])},
-			wantActiveWorkloads:            sets.New(workload.Key(workloads[0])),
+			wantActiveWorkloads:            []string{workload.Key(workloads[0])},
 			wantPending:                    2,
 		},
 		"re-queue admissible workload that was inadmissible": {
 			workloadsToAdd:                 []*kueue.Workload{workloads[0]},
 			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[1])},
 			admissibleWorkloadsToRequeue:   []*workload.Info{workload.NewInfo(workloads[1])},
-			wantActiveWorkloads:            sets.New(workload.Key(workloads[0]), workload.Key(workloads[1])),
+			wantActiveWorkloads:            []string{workload.Key(workloads[0]), workload.Key(workloads[1])},
 			wantPending:                    2,
 		},
 		"re-queue inadmissible workload and flush": {
 			workloadsToAdd:                    []*kueue.Workload{workloads[0]},
 			inadmissibleWorkloadsToRequeue:    []*workload.Info{workload.NewInfo(workloads[1])},
 			queueInadmissibleWorkloads:        true,
-			wantActiveWorkloads:               sets.New(workload.Key(workloads[0]), workload.Key(workloads[1])),
+			wantActiveWorkloads:               []string{workload.Key(workloads[0]), workload.Key(workloads[1])},
 			wantPending:                       2,
 			wantInadmissibleWorkloadsRequeued: true,
 		},
@@ -230,14 +229,14 @@ func TestClusterQueueImpl(t *testing.T) {
 			workloadsToAdd:                 []*kueue.Workload{workloads[0]},
 			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[2])},
 			queueInadmissibleWorkloads:     true,
-			wantActiveWorkloads:            sets.New(workload.Key(workloads[0])),
+			wantActiveWorkloads:            []string{workload.Key(workloads[0])},
 			wantPending:                    2,
 		},
 		"update inadmissible workload": {
 			workloadsToAdd:                 []*kueue.Workload{workloads[0]},
 			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[1])},
 			workloadsToUpdate:              []*kueue.Workload{updatedWorkloads[1]},
-			wantActiveWorkloads:            sets.New(workload.Key(workloads[0]), workload.Key(workloads[1])),
+			wantActiveWorkloads:            []string{workload.Key(workloads[0]), workload.Key(workloads[1])},
 			wantPending:                    2,
 		},
 		"delete inadmissible workload": {
@@ -245,7 +244,7 @@ func TestClusterQueueImpl(t *testing.T) {
 			inadmissibleWorkloadsToRequeue: []*workload.Info{workload.NewInfo(workloads[1])},
 			workloadsToDelete:              []*kueue.Workload{workloads[1]},
 			queueInadmissibleWorkloads:     true,
-			wantActiveWorkloads:            sets.New(workload.Key(workloads[0])),
+			wantActiveWorkloads:            []string{workload.Key(workloads[0])},
 			wantPending:                    1,
 		},
 		"update inadmissible workload without changes": {
@@ -304,7 +303,7 @@ func TestClusterQueueImpl(t *testing.T) {
 			}
 
 			gotWorkloads, _ := cq.Dump()
-			if diff := cmp.Diff(test.wantActiveWorkloads, gotWorkloads); diff != "" {
+			if diff := cmp.Diff(test.wantActiveWorkloads, gotWorkloads, cmpDump...); diff != "" {
 				t.Errorf("Unexpected active workloads in cluster foo (-want,+got):\n%s", diff)
 			}
 			if got := cq.Pending(); got != test.wantPending {
@@ -327,10 +326,10 @@ func TestQueueInadmissibleWorkloadsDuringScheduling(t *testing.T) {
 	ctx := context.Background()
 	cq.PushOrUpdate(workload.NewInfo(wl))
 
-	wantActiveWorkloads := sets.New(workload.Key(wl))
+	wantActiveWorkloads := []string{workload.Key(wl)}
 
 	activeWorkloads, _ := cq.Dump()
-	if diff := cmp.Diff(wantActiveWorkloads, activeWorkloads); diff != "" {
+	if diff := cmp.Diff(wantActiveWorkloads, activeWorkloads, cmpDump...); diff != "" {
 		t.Errorf("Unexpected active workloads before events (-want,+got):\n%s", diff)
 	}
 
@@ -340,8 +339,8 @@ func TestQueueInadmissibleWorkloadsDuringScheduling(t *testing.T) {
 	cq.requeueIfNotPresent(head, false)
 
 	activeWorkloads, _ = cq.Dump()
-	wantActiveWorkloads = sets.New(workload.Key(wl))
-	if diff := cmp.Diff(wantActiveWorkloads, activeWorkloads); diff != "" {
+	wantActiveWorkloads = []string{workload.Key(wl)}
+	if diff := cmp.Diff(wantActiveWorkloads, activeWorkloads, cmpDump...); diff != "" {
 		t.Errorf("Unexpected active workloads after scheduling with requeueing (-want,+got):\n%s", diff)
 	}
 
@@ -350,7 +349,7 @@ func TestQueueInadmissibleWorkloadsDuringScheduling(t *testing.T) {
 	cq.requeueIfNotPresent(head, false)
 	activeWorkloads, _ = cq.Dump()
 	wantActiveWorkloads = nil
-	if diff := cmp.Diff(wantActiveWorkloads, activeWorkloads); diff != "" {
+	if diff := cmp.Diff(wantActiveWorkloads, activeWorkloads, cmpDump...); diff != "" {
 		t.Errorf("Unexpected active workloads after scheduling (-want,+got):\n%s", diff)
 	}
 }

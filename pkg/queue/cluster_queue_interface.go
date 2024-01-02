@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 
-	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -90,8 +89,8 @@ type ClusterQueue interface {
 	// Dump produces a dump of the current workloads in the heap of
 	// this ClusterQueue. It returns false if the queue is empty,
 	// otherwise returns true.
-	Dump() (sets.Set[string], bool)
-	DumpInadmissible() (sets.Set[string], bool)
+	Dump() ([]string, bool)
+	DumpInadmissible() ([]string, bool)
 	// Snapshot returns a copy of the current workloads in the heap of
 	// this ClusterQueue.
 	Snapshot() []*workload.Info

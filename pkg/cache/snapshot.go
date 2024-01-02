@@ -17,10 +17,13 @@ limitations under the License.
 package cache
 
 import (
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/klog/v2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -49,6 +52,32 @@ func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	updateUsage(wl, cq.Usage, 1)
 	if cq.Cohort != nil {
 		updateUsage(wl, cq.Cohort.Usage, 1)
+	}
+}
+
+func (s *Snapshot) Log(log logr.Logger) {
+	cohorts := make(map[string]*Cohort)
+	for name, cq := range s.ClusterQueues {
+		cohortName := "<none>"
+		if cq.Cohort != nil {
+			cohorts[cq.Name] = cq.Cohort
+			cohortName = cq.Cohort.Name
+		}
+
+		log.Info("Found ClusterQueue",
+			"clusterQueue", klog.KRef("", name),
+			"cohort", cohortName,
+			"resourceGroups", cq.ResourceGroups,
+			"usage", cq.Usage,
+			"workloads", maps.Keys(cq.Workloads),
+		)
+	}
+	for name, cohort := range cohorts {
+		log.Info("Found cohort",
+			"cohort", name,
+			"resources", cohort.RequestableResources,
+			"usage", cohort.Usage,
+		)
 	}
 }
 

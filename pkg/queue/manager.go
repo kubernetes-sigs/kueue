@@ -457,46 +457,6 @@ func (m *Manager) Heads(ctx context.Context) []workload.Info {
 	}
 }
 
-// Dump is a dump of the queues and it's elements (unordered).
-// Only use for testing purposes.
-func (m *Manager) Dump() map[string]sets.Set[string] {
-	m.Lock()
-	defer m.Unlock()
-	if len(m.clusterQueues) == 0 {
-		return nil
-	}
-	dump := make(map[string]sets.Set[string], len(m.clusterQueues))
-	for key, cq := range m.clusterQueues {
-		if elements, ok := cq.Dump(); ok {
-			dump[key] = elements
-		}
-	}
-	if len(dump) == 0 {
-		return nil
-	}
-	return dump
-}
-
-// DumpInadmissible is a dump of the inadmissible workloads list.
-// Only use for testing purposes.
-func (m *Manager) DumpInadmissible() map[string]sets.Set[string] {
-	m.Lock()
-	defer m.Unlock()
-	if len(m.clusterQueues) == 0 {
-		return nil
-	}
-	dump := make(map[string]sets.Set[string], len(m.clusterQueues))
-	for key, cq := range m.clusterQueues {
-		if elements, ok := cq.DumpInadmissible(); ok {
-			dump[key] = elements
-		}
-	}
-	if len(dump) == 0 {
-		return nil
-	}
-	return dump
-}
-
 func (m *Manager) heads() []workload.Info {
 	var workloads []workload.Info
 	for cqName, cq := range m.clusterQueues {
