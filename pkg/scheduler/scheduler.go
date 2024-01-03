@@ -204,7 +204,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			}
 			// Even if the workload will not be admitted after this point, due to preemption pending or other failures,
 			// we should still account for its usage.
-			cycleCohortsUsage.add(cq.Cohort.Name, e.assignment.Usage)
+			cycleCohortsUsage.add(cq.Cohort.Name, resourcesToReserve(e, cq))
 		}
 		log := log.WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue))
 		ctx := ctrl.LoggerInto(ctx, log)
@@ -319,6 +319,38 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 	return entries
 }
 
+// resourcesToReserve calculates how much of the available resources in cq/cohort assignment should be reserved.
+func resourcesToReserve(e *entry, cq *cache.ClusterQueue) cache.FlavorResourceQuantities {
+	if e.assignment.RepresentativeMode() != flavorassigner.Preempt {
+		return e.assignment.Usage
+	}
+	reservedUsage := make(cache.FlavorResourceQuantities)
+	for flavor, resourceUsage := range e.assignment.Usage {
+		reservedUsage[flavor] = make(map[corev1.ResourceName]int64)
+		for resource, usage := range resourceUsage {
+			rg := cq.RGByResource[resource]
+			cqQuota := cache.ResourceQuota{}
+			for _, cqFlavor := range rg.Flavors {
+				if cqFlavor.Name == flavor {
+					cqQuota = *cqFlavor.Resources[resource]
+					break
+				}
+			}
+			if !e.assignment.Borrowing {
+				reservedUsage[flavor][resource] = max(0, min(usage, cqQuota.Nominal-cq.Usage[flavor][resource]))
+			} else {
+				if cqQuota.BorrowingLimit == nil {
+					reservedUsage[flavor][resource] = usage
+				} else {
+					reservedUsage[flavor][resource] = min(usage, cqQuota.Nominal+*cqQuota.BorrowingLimit-cq.Usage[flavor][resource])
+				}
+			}
+
+		}
+	}
+	return reservedUsage
+}
+
 type partialAssignment struct {
 	assignment        flavorassigner.Assignment
 	preemptionTargets []*workload.Info
@@ -327,7 +359,7 @@ type partialAssignment struct {
 func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cache.Snapshot) (flavorassigner.Assignment, []*workload.Info) {
 	cq := snap.ClusterQueues[wl.ClusterQueue]
 	fullAssignment := flavorassigner.AssignFlavors(log, wl, snap.ResourceFlavors, cq, nil)
-	var fullAssignmentTargets []*workload.Info
+	var faPreemtionTargets []*workload.Info
 
 	arm := fullAssignment.RepresentativeMode()
 	if arm == flavorassigner.Fit {
@@ -335,12 +367,12 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 	}
 
 	if arm == flavorassigner.Preempt {
-		fullAssignmentTargets = s.preemptor.GetTargets(*wl, fullAssignment, snap)
+		faPreemtionTargets = s.preemptor.GetTargets(*wl, fullAssignment, snap)
 	}
 
 	// if the feature gate is not enabled or we can preempt
-	if !features.Enabled(features.PartialAdmission) || len(fullAssignmentTargets) > 0 {
-		return fullAssignment, fullAssignmentTargets
+	if !features.Enabled(features.PartialAdmission) || len(faPreemtionTargets) > 0 {
+		return fullAssignment, faPreemtionTargets
 	}
 
 	if wl.CanBePartiallyAdmitted() {
@@ -528,7 +560,7 @@ func (s *Scheduler) requeueAndUpdate(log logr.Logger, ctx context.Context, e ent
 	added := s.queues.RequeueWorkload(ctx, &e.Info, e.requeueReason)
 	log.V(2).Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", e.ClusterQueue), "queue", klog.KRef(e.Obj.Namespace, e.Obj.Spec.QueueName), "requeueReason", e.requeueReason, "added", added)
 
-	if e.status == notNominated {
+	if e.status == notNominated || e.status == skipped {
 		workload.UnsetQuotaReservationWithCondition(e.Obj, "Pending", e.inadmissibleMsg)
 		err := workload.ApplyAdmissionStatus(ctx, s.client, e.Obj, true)
 		if err != nil {
