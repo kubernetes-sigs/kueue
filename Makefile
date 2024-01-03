@@ -204,13 +204,14 @@ build:
 run: manifests generate fmt vet ## Run a controller from your host.
 	$(GO_CMD) run ./main.go
 
-# Build the container image
+# Build the multiplatform container image locally.
 .PHONY: image-local-build
 image-local-build:
 	BUILDER=$(shell $(DOCKER_BUILDX_CMD) create --use)
 	$(MAKE) image-build PUSH=$(PUSH)
 	$(DOCKER_BUILDX_CMD) rm $$BUILDER
 
+# Build the multiplatform container image locally and push to repo.
 .PHONY: image-local-push
 image-local-push: PUSH=--push
 image-local-push: image-local-build
@@ -229,6 +230,7 @@ image-build:
 image-push: PUSH=--push
 image-push: image-build
 
+# Build an amd64 image that can be used for Kind E2E tests.
 .PHONY: kind-image-build
 kind-image-build: PLATFORMS=linux/amd64
 kind-image-build: IMAGE_BUILD_EXTRA_OPTS=--load
@@ -283,6 +285,15 @@ artifacts: kustomize yq helm
 	$(YQ)  e  '.controllerManager.manager.image.repository = "$(STAGING_IMAGE_REGISTRY)/$(IMAGE_NAME)" | .controllerManager.manager.image.tag = "main" | .controllerManager.manager.image.pullPolicy = "Always"' -i charts/kueue/values.yaml
 
 ##@ Tools
+
+# Build an image that can be used with kubectl debug
+# Developers don't need to build this image, as it will be available as gcr.io/k8s-staging-kueue/debug
+.PHONY: debug-image-push
+debug-image-push:
+	$(IMAGE_BUILD_CMD) -t $(STAGING_IMAGE_REGISTRY)/debug:$(GIT_TAG) \
+		--platform=$(PLATFORMS) \
+		--push ./hack/debugpod
+
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 GOLANGCI_LINT = $(PROJECT_DIR)/bin/golangci-lint
 .PHONY: golangci-lint
