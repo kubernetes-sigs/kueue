@@ -23,6 +23,7 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/testing"
@@ -33,6 +34,7 @@ const (
 	lowPriority int32 = iota - 1
 	midPriority
 	highPriority
+	veryHighPriority
 )
 
 var _ = ginkgo.Describe("Preemption", func() {
@@ -352,6 +354,222 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, alphaCQ.Name, alphaMidWl)
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, gammaCQ.Name, gammaMidWl)
+		})
+	})
+
+	ginkgo.Context("When most quota is in a shared ClusterQueue in a cohort", func() {
+		var (
+			aStandardCQ, aBestEffortCQ, bStandardCQ, sharedCQ *kueue.ClusterQueue
+			aStandardLQ, aBestEffortLQ, bStandardLQ           *kueue.LocalQueue
+			oneFlavor, fallbackFlavor                         *kueue.ResourceFlavor
+		)
+
+		ginkgo.BeforeEach(func() {
+			oneFlavor = testing.MakeResourceFlavor("one").Obj()
+			gomega.Expect(k8sClient.Create(ctx, oneFlavor)).To(gomega.Succeed())
+
+			fallbackFlavor = testing.MakeResourceFlavor("fallback").Obj()
+			gomega.Expect(k8sClient.Create(ctx, fallbackFlavor)).To(gomega.Succeed())
+
+			aStandardCQ = testing.MakeClusterQueue("a-standard-cq").
+				Cohort("all").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("one").Resource(corev1.ResourceCPU, "1", "5").Obj(),
+					*testing.MakeFlavorQuotas("fallback").Resource(corev1.ResourceCPU, "10", "0").Obj(),
+				).
+				FlavorFungibility(kueue.FlavorFungibility{
+					WhenCanBorrow:  kueue.Borrow,
+					WhenCanPreempt: kueue.Preempt,
+				}).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+					BorrowWithinCohort: &kueue.BorrowWithinCohort{
+						Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
+						MaxPriorityThreshold: ptr.To(midPriority),
+					},
+				}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, aStandardCQ)).To(gomega.Succeed())
+			aStandardLQ = testing.MakeLocalQueue("a-standard-lq", ns.Name).ClusterQueue(aStandardCQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, aStandardLQ)).To(gomega.Succeed())
+
+			aBestEffortCQ = testing.MakeClusterQueue("a-best-effort-cq").
+				Cohort("all").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("one").Resource(corev1.ResourceCPU, "1", "5").Obj(),
+					*testing.MakeFlavorQuotas("fallback").Resource(corev1.ResourceCPU, "10", "0").Obj(),
+				).
+				FlavorFungibility(kueue.FlavorFungibility{
+					WhenCanBorrow:  kueue.Borrow,
+					WhenCanPreempt: kueue.Preempt,
+				}).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+					BorrowWithinCohort: &kueue.BorrowWithinCohort{
+						Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
+					},
+				}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, aBestEffortCQ)).To(gomega.Succeed())
+			aBestEffortLQ = testing.MakeLocalQueue("a-best-effort-lq", ns.Name).ClusterQueue(aBestEffortCQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, aBestEffortLQ)).To(gomega.Succeed())
+
+			bStandardCQ = testing.MakeClusterQueue("b-standard-cq").
+				Cohort("all").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("one").Resource(corev1.ResourceCPU, "1", "5").Obj(),
+					*testing.MakeFlavorQuotas("fallback").Resource(corev1.ResourceCPU, "10", "0").Obj(),
+				).
+				FlavorFungibility(kueue.FlavorFungibility{
+					WhenCanBorrow:  kueue.Borrow,
+					WhenCanPreempt: kueue.Preempt,
+				}).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+					BorrowWithinCohort: &kueue.BorrowWithinCohort{
+						Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
+						MaxPriorityThreshold: ptr.To(midPriority),
+					},
+				}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, bStandardCQ)).To(gomega.Succeed())
+			bStandardLQ = testing.MakeLocalQueue("b-standard-lq", ns.Name).ClusterQueue(bStandardCQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, bStandardLQ)).To(gomega.Succeed())
+
+			sharedCQ = testing.MakeClusterQueue("shared-cq").
+				Cohort("all").
+				ResourceGroup(*testing.MakeFlavorQuotas("one").Resource(corev1.ResourceCPU, "5").Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, sharedCQ)).To(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, aStandardCQ, true)
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, aBestEffortCQ, true)
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, bStandardCQ, true)
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, sharedCQ, true)
+			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, oneFlavor, true)
+			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, fallbackFlavor, true)
+		})
+
+		ginkgo.It("Should allow a higher-priority workload to preempt a lower priority workload", func() {
+			ginkgo.By("Create a low priority workload which requires borrowing")
+			aBestEffortLowWl := testing.MakeWorkload("a-best-effort-low", ns.Name).
+				Queue(aBestEffortLQ.Name).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "5").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, aBestEffortLowWl)).To(gomega.Succeed())
+
+			ginkgo.By("Await for the a-best-effort-low workload to be admitted")
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, aBestEffortLowWl,
+				testing.MakeAdmission(aBestEffortCQ.Name).Assignment(corev1.ResourceCPU, "one", "5").Obj(),
+			)
+
+			ginkgo.By("Create the a-standard-high workload")
+			aStandardHighWl := testing.MakeWorkload("a-standard-high", ns.Name).
+				Queue(aStandardLQ.Name).
+				Priority(highPriority).
+				Request(corev1.ResourceCPU, "5").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, aStandardHighWl)).To(gomega.Succeed())
+
+			ginkgo.By("Finish eviction fo the a-best-effort-low workload")
+			util.FinishEvictionForWorkloads(ctx, k8sClient, aBestEffortLowWl)
+
+			ginkgo.By("Verify the a-standard-high workload is admitted")
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, aStandardHighWl,
+				testing.MakeAdmission(aStandardCQ.Name).Assignment(corev1.ResourceCPU, "one", "5").Obj(),
+			)
+
+			ginkgo.By("Verify the a-best-effort-low workload is re-admitted, but using flavor 2")
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, aBestEffortLowWl,
+				testing.MakeAdmission(aBestEffortCQ.Name).Assignment(corev1.ResourceCPU, "fallback", "5").Obj(),
+			)
+		})
+
+		ginkgo.It("Should not allow a lower-priority workload to preempt a higher priority workload", func() {
+			ginkgo.By("Create a high priority workload which requires borrowing")
+			aStandardHighWl := testing.MakeWorkload("a-standard-high", ns.Name).
+				Queue(aStandardLQ.Name).
+				Priority(highPriority).
+				Request(corev1.ResourceCPU, "5").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, aStandardHighWl)).To(gomega.Succeed())
+
+			ginkgo.By("Await for the a-standard-high workload to be admitted")
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, aStandardHighWl,
+				testing.MakeAdmission(aStandardCQ.Name).Assignment(corev1.ResourceCPU, "one", "5").Obj(),
+			)
+
+			aBestEffortLowWl := testing.MakeWorkload("a-best-effort-low", ns.Name).
+				Queue(aBestEffortLQ.Name).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "5").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, aBestEffortLowWl)).To(gomega.Succeed())
+
+			ginkgo.By("Verify the a-best-effort-low is admitted using the second flavor, as it couldn't preempt in the first")
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, aBestEffortLowWl,
+				testing.MakeAdmission(aBestEffortCQ.Name).Assignment(corev1.ResourceCPU, "fallback", "5").Obj(),
+			)
+		})
+
+		ginkgo.It("Should not allow a higher-priority workload to preempt a lower-priority workload, if above the threshold", func() {
+			ginkgo.By("Create a high priority workload which requires borrowing")
+			aStandardHighWl := testing.MakeWorkload("a-standard-high", ns.Name).
+				Queue(aStandardLQ.Name).
+				Priority(highPriority).
+				Request(corev1.ResourceCPU, "5").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, aStandardHighWl)).To(gomega.Succeed())
+
+			ginkgo.By("Await for the a-standard-high workload to be admitted")
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, aStandardHighWl,
+				testing.MakeAdmission(aStandardCQ.Name).Assignment(corev1.ResourceCPU, "one", "5").Obj(),
+			)
+
+			ginkgo.By("Create the b-standard-very-high workload")
+			bStandardVeryHighWl := testing.MakeWorkload("b-standard-very-high", ns.Name).
+				Queue(bStandardLQ.Name).
+				Priority(veryHighPriority).
+				Request(corev1.ResourceCPU, "5").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, bStandardVeryHighWl)).To(gomega.Succeed())
+
+			ginkgo.By("Verify the b-standard-very-high is admitted using the second flavor, as it couldn't preempt in the first")
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, bStandardVeryHighWl,
+				testing.MakeAdmission(bStandardCQ.Name).Assignment(corev1.ResourceCPU, "fallback", "5").Obj(),
+			)
+		})
+
+		ginkgo.It("Should not allow a higher-priority workload to preempt a lower-priority workload, if the low priority one is not borrowing", func() {
+			ginkgo.By("Create a low priority workload which does not borrowing")
+			aBestEffortLowWl := testing.MakeWorkload("a-best-effort-low", ns.Name).
+				Queue(aBestEffortLQ.Name).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, aBestEffortLowWl)).To(gomega.Succeed())
+
+			ginkgo.By("Await for the a-best-effort-low workload to be admitted")
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, aBestEffortLowWl,
+				testing.MakeAdmission(aBestEffortCQ.Name).Assignment(corev1.ResourceCPU, "one", "1").Obj(),
+			)
+
+			ginkgo.By("Create the a-standard-high workload")
+			aStandardHighWl := testing.MakeWorkload("a-standard-high", ns.Name).
+				Queue(aStandardLQ.Name).
+				Priority(veryHighPriority).
+				Request(corev1.ResourceCPU, "8").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, aStandardHighWl)).To(gomega.Succeed())
+
+			ginkgo.By("Verify the a-best-effort-low is admitted using the second flavor, as it couldn't preempt in the first")
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, aStandardHighWl,
+				testing.MakeAdmission(aStandardCQ.Name).Assignment(corev1.ResourceCPU, "fallback", "8").Obj(),
+			)
 		})
 	})
 

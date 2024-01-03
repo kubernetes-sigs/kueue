@@ -366,6 +366,10 @@ type ClusterQueuePreemption struct {
 	// +kubebuilder:validation:Enum=Never;LowerPriority;Any
 	ReclaimWithinCohort PreemptionPolicy `json:"reclaimWithinCohort,omitempty"`
 
+	// borrowWithinCohort provides configuration to allow preemption within
+	// cohort while borrowing.
+	BorrowWithinCohort *BorrowWithinCohort `json:"borrowWithinCohort,omitempty"`
+
 	// withinClusterQueue determines whether a pending Workload that doesn't fit
 	// within the nominal quota for its ClusterQueue, can preempt active Workloads in
 	// the ClusterQueue. The possible values are:
@@ -380,6 +384,36 @@ type ClusterQueuePreemption struct {
 	// +kubebuilder:default=Never
 	// +kubebuilder:validation:Enum=Never;LowerPriority;LowerOrNewerEqualPriority
 	WithinClusterQueue PreemptionPolicy `json:"withinClusterQueue,omitempty"`
+}
+
+type BorrowWithinCohortPolicy string
+
+const (
+	BorrowWithinCohortPolicyNever         BorrowWithinCohortPolicy = "Never"
+	BorrowWithinCohortPolicyLowerPriority BorrowWithinCohortPolicy = "LowerPriority"
+)
+
+// BorrowWithinCohort contains configuration which allows to preempt workloads
+// within cohort while borrowing.
+type BorrowWithinCohort struct {
+	// policy determines the policy for preemption to reclaim quota within cohort while borrowing.
+	// Possible values are:
+	// - `Never` (default): do not allow for preemption, in other
+	//    ClusterQueues within the cohort, for a borrowing workload.
+	// - `LowerPriority`: allow preemption, in other ClusterQueues
+	//    within the cohort, for a borrowing workload, but only if
+	//    the preempted workloads are of lower priority.
+	//
+	// +kubebuilder:default=Never
+	// +kubebuilder:validation:Enum=Never;LowerPriority
+	Policy BorrowWithinCohortPolicy `json:"policy,omitempty"`
+
+	// maxPriorityThreshold allows to restrict the set of workloads which
+	// might be preempted by a borrowing workload, to only workloads with
+	// priority below or equal the specified level.
+	//
+	// +optional
+	MaxPriorityThreshold *int32 `json:"maxPriorityThreshold,omitempty"`
 }
 
 //+genclient

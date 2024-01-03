@@ -24,6 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testing"
@@ -32,6 +33,7 @@ import (
 func TestValidateClusterQueue(t *testing.T) {
 	specPath := field.NewPath("spec")
 	resourceGroupsPath := specPath.Child("resourceGroups")
+	preemptionPath := specPath.Child("preemption")
 
 	testcases := []struct {
 		name         string
@@ -316,6 +318,42 @@ func TestValidateClusterQueue(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Duplicate(resourceGroupsPath.Index(1).Child("flavors").Index(0).Child("name"), nil),
+			},
+		},
+		{
+			name: "invalid preemption due to reclaimWithinCohort=Never, while borrowWithinCohort!=nil",
+			clusterQueue: &kueue.ClusterQueue{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "cluster-queue",
+				},
+				Spec: kueue.ClusterQueueSpec{
+					Preemption: &kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyNever,
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				field.Invalid(preemptionPath, nil, ""),
+			},
+		},
+		{
+			name: "valid preemption with borrowWithinCohort",
+			clusterQueue: &kueue.ClusterQueue{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "cluster-queue",
+				},
+				Spec: kueue.ClusterQueueSpec{
+					Preemption: &kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
+							MaxPriorityThreshold: ptr.To[int32](10),
+						},
+					},
+				},
 			},
 		},
 	}

@@ -90,6 +90,9 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 						Preemption: &kueue.ClusterQueuePreemption{
 							WithinClusterQueue:  kueue.PreemptionPolicyNever,
 							ReclaimWithinCohort: kueue.PreemptionPolicyNever,
+							BorrowWithinCohort: &kueue.BorrowWithinCohort{
+								Policy: kueue.BorrowWithinCohortPolicyNever,
+							},
 						},
 					},
 				},
@@ -104,6 +107,10 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 						Preemption: &kueue.ClusterQueuePreemption{
 							WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 							ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+							BorrowWithinCohort: &kueue.BorrowWithinCohort{
+								Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
+								MaxPriorityThreshold: ptr.To[int32](100),
+							},
 						},
 					},
 				},
@@ -119,6 +126,10 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 						Preemption: &kueue.ClusterQueuePreemption{
 							WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 							ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+							BorrowWithinCohort: &kueue.BorrowWithinCohort{
+								Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
+								MaxPriorityThreshold: ptr.To[int32](100),
+							},
 						},
 					},
 				},

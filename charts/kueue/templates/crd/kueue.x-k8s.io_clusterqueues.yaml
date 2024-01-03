@@ -176,6 +176,31 @@ spec:
                   of Workloads to preempt to accomomdate the pending Workload, preempting
                   Workloads with lower priority first."
                 properties:
+                  borrowWithinCohort:
+                    description: borrowWithinCohort provides configuration to allow
+                      preemption within cohort while borrowing.
+                    properties:
+                      maxPriorityThreshold:
+                        description: maxPriorityThreshold allows to restrict the set
+                          of workloads which might be preempted by a borrowing workload,
+                          to only workloads with priority below or equal the specified
+                          level.
+                        format: int32
+                        type: integer
+                      policy:
+                        default: Never
+                        description: 'policy determines the policy for preemption
+                          to reclaim quota within cohort while borrowing. Possible
+                          values are: - `Never` (default): do not allow for preemption,
+                          in other ClusterQueues within the cohort, for a borrowing
+                          workload. - `LowerPriority`: allow preemption, in other
+                          ClusterQueues within the cohort, for a borrowing workload,
+                          but only if the preempted workloads are of lower priority.'
+                        enum:
+                        - Never
+                        - LowerPriority
+                        type: string
+                    type: object
                   reclaimWithinCohort:
                     default: Never
                     description: "reclaimWithinCohort determines whether a pending
