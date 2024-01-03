@@ -410,7 +410,7 @@ type BorrowWithinCohort struct {
 
 	// maxPriorityThreshold allows to restrict the set of workloads which
 	// might be preempted by a borrowing workload, to only workloads with
-	// priority below or equal the specified level.
+	// priority less than or equal to the specified threshold priority.
 	//
 	// +optional
 	MaxPriorityThreshold *int32 `json:"maxPriorityThreshold,omitempty"`

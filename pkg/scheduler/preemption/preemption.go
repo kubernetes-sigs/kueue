@@ -75,7 +75,7 @@ func candidatesOnlyFromQueue(candidates []*workload.Info, clusterQueue string) [
 }
 
 // GetTargets returns the list of workloads that should be evicted in order to make room for wl.
-func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot, borrowWithinCohort *kueue.BorrowWithinCohort) []*workload.Info {
+func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot) []*workload.Info {
 	resPerFlv := resourcesRequiringPreemption(assignment)
 	cq := snapshot.ClusterQueues[wl.ClusterQueue]
 
@@ -102,6 +102,7 @@ func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assig
 		// There is a risk of preemption of workloads from the other queue in the
 		// cohort, proceeding without borrowing.
 		var allowBorrowingBelowPriority *int32
+		borrowWithinCohort := cq.Preemption.BorrowWithinCohort
 		allowBorrowing := borrowWithinCohort != nil && borrowWithinCohort.Policy != kueue.BorrowWithinCohortPolicyNever
 		if allowBorrowing {
 			allowBorrowingBelowPriority = ptr.To(priority.Priority(wl.Obj))
@@ -178,7 +179,18 @@ func minimalPreemptions(wl *workload.Info, assignment flavorassigner.Assignment,
 			continue
 		}
 		if cq != candCQ && allowBorrowingBelowPriority != nil && priority.Priority(candWl.Obj) >= *allowBorrowingBelowPriority {
-			// we have exceeded the priority threshold, so preemption while borrowing is no longer possible
+			// We set allowBorrowing=false if there is a candidate with priority
+			// exceeding allowBorrowingBelowPriority added to targets.
+			//
+			// We need to be careful mutating allowBorrowing. We rely on the
+			// fact that once there is a candidate exceeding the priority added
+			// to targets, then at least one such candidate is present in the
+			// final set of targets (after the second phase of the function).
+			//
+			// This is true, because the candidates are ordered according
+			// to priorities (from lowest to highest, using candidatesOrdering),
+			// and the last added target is not removed in the second phase of
+			// the function.
 			allowBorrowing = false
 		}
 		snapshot.RemoveWorkload(candWl)

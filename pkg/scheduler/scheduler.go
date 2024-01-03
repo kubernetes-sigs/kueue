@@ -310,7 +310,7 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		} else if err := s.validateLimitRange(ctx, &w); err != nil {
 			e.inadmissibleMsg = err.Error()
 		} else {
-			e.assignment, e.preemptionTargets = s.getAssignments(log, &e.Info, &snap, cq.Preemption.BorrowWithinCohort)
+			e.assignment, e.preemptionTargets = s.getAssignments(log, &e.Info, &snap)
 			e.inadmissibleMsg = e.assignment.Message()
 			e.Info.LastAssignment = &e.assignment.LastState
 		}
@@ -324,7 +324,7 @@ type partialAssignment struct {
 	preemptionTargets []*workload.Info
 }
 
-func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cache.Snapshot, borrowWithinCohort *kueue.BorrowWithinCohort) (flavorassigner.Assignment, []*workload.Info) {
+func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cache.Snapshot) (flavorassigner.Assignment, []*workload.Info) {
 	cq := snap.ClusterQueues[wl.ClusterQueue]
 	fullAssignment := flavorassigner.AssignFlavors(log, wl, snap.ResourceFlavors, cq, nil)
 	var fullAssignmentTargets []*workload.Info
@@ -335,7 +335,7 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 	}
 
 	if arm == flavorassigner.Preempt {
-		fullAssignmentTargets = s.preemptor.GetTargets(*wl, fullAssignment, snap, borrowWithinCohort)
+		fullAssignmentTargets = s.preemptor.GetTargets(*wl, fullAssignment, snap)
 	}
 
 	// if the feature gate is not enabled or we can preempt
@@ -349,7 +349,7 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 			if assignment.RepresentativeMode() == flavorassigner.Fit {
 				return &partialAssignment{assignment: assignment}, true
 			}
-			preemptionTargets := s.preemptor.GetTargets(*wl, assignment, snap, borrowWithinCohort)
+			preemptionTargets := s.preemptor.GetTargets(*wl, assignment, snap)
 			if len(preemptionTargets) > 0 {
 
 				return &partialAssignment{assignment: assignment, preemptionTargets: preemptionTargets}, true

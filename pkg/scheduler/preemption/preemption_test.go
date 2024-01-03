@@ -809,12 +809,17 @@ func TestPreemption(t *testing.T) {
 			},
 			wantPreempted: sets.New("/wl2"),
 		},
-		"preempt while borrowing in cohort": {
+		"use BorrowWithinCohort; allow preempting a lower-priority workload from another ClusterQueue while borrowing": {
 			admitted: []kueue.Workload{
 				*utiltesting.MakeWorkload("a_best_effort_low", "").
 					Priority(-1).
 					Request(corev1.ResourceCPU, "10").
 					ReserveQuota(utiltesting.MakeAdmission("a_best_effort").Assignment(corev1.ResourceCPU, "default", "10000m").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b_best_effort_low", "").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuota(utiltesting.MakeAdmission("b_best_effort").Assignment(corev1.ResourceCPU, "default", "1000m").Obj()).
 					Obj(),
 			},
 			incoming: utiltesting.MakeWorkload("in", "").
@@ -829,7 +834,7 @@ func TestPreemption(t *testing.T) {
 			}),
 			wantPreempted: sets.New("/a_best_effort_low"),
 		},
-		"don't preempt while borrowing a lower priority workload, if above MaxPriorityThreshold": {
+		"use BorrowWithinCohort; don't allow preempting a lower-priority workload with priority above MaxPriorityThreshold, if borrowing is required even after the preemption": {
 			admitted: []kueue.Workload{
 				*utiltesting.MakeWorkload("b_standard", "").
 					Priority(1).
@@ -849,7 +854,7 @@ func TestPreemption(t *testing.T) {
 				},
 			}),
 		},
-		"allow for preemption while borrowing above MaxPriorityThreshold if we don't need to borrow after that": {
+		"use BorrowWithinCohort; allow preempting a lower-priority workload with priority above MaxPriorityThreshold, if borrowing is not required after the preemption": {
 			admitted: []kueue.Workload{
 				// this admitted workload consumes all resources so it needs to be preempted to run a new workload
 				*utiltesting.MakeWorkload("b_standard", "").
@@ -872,7 +877,7 @@ func TestPreemption(t *testing.T) {
 			}),
 			wantPreempted: sets.New("/b_standard"),
 		},
-		"don't allow for preemption from the same ClusterQueue, if disabled": {
+		"use BorrowWithinCohort; don't allow for preemption of lower-priority workload from the same ClusterQueue": {
 			admitted: []kueue.Workload{
 				*utiltesting.MakeWorkload("a_standard", "").
 					Priority(1).
@@ -929,7 +934,7 @@ func TestPreemption(t *testing.T) {
 			wlInfo := workload.NewInfo(tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
 			targetClusterQueue := snapshot.ClusterQueues[wlInfo.ClusterQueue]
-			targets := preemptor.GetTargets(*wlInfo, tc.assignment, &snapshot, targetClusterQueue.Preemption.BorrowWithinCohort)
+			targets := preemptor.GetTargets(*wlInfo, tc.assignment, &snapshot)
 			preempted, err := preemptor.IssuePreemptions(ctx, targets, targetClusterQueue)
 			if err != nil {
 				t.Fatalf("Failed doing preemption")

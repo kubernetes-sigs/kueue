@@ -551,10 +551,15 @@ func fitsResourceQuota(fName kueue.ResourceFlavorReference, rName corev1.Resourc
 		// ClusterQueue are preempted.
 		mode = Preempt
 	}
+	cohortAvailable := rQuota.Nominal
+	if cq.Cohort != nil {
+		cohortAvailable = cq.Cohort.RequestableResources[fName][rName]
+	}
+
 	if cq.Preemption.BorrowWithinCohort != nil && cq.Preemption.BorrowWithinCohort.Policy != kueue.BorrowWithinCohortPolicyNever {
 		// when preemption with borrowing is enabled, we can succeeded admitting the
 		// workload if preemption is used.
-		if rQuota.BorrowingLimit != nil && val <= rQuota.Nominal+*rQuota.BorrowingLimit {
+		if rQuota.BorrowingLimit != nil && val <= rQuota.Nominal+*rQuota.BorrowingLimit && val <= cohortAvailable {
 			mode = Preempt
 			borrow = val > rQuota.Nominal
 		}
@@ -565,10 +570,8 @@ func fitsResourceQuota(fName kueue.ResourceFlavorReference, rName corev1.Resourc
 	}
 
 	cohortUsed := used
-	cohortAvailable := rQuota.Nominal
 	if cq.Cohort != nil {
 		cohortUsed = cq.Cohort.Usage[fName][rName]
-		cohortAvailable = cq.Cohort.RequestableResources[fName][rName]
 	}
 
 	lack := cohortUsed + val - cohortAvailable
