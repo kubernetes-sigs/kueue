@@ -186,7 +186,7 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 			pod.pod.Spec.SchedulingGates = append(pod.pod.Spec.SchedulingGates, corev1.PodSchedulingGate{Name: SchedulingGateName})
 		}
 
-		if pod.groupName() != "" {
+		if podGroupName(pod.pod) != "" {
 			if err := pod.addRoleHash(); err != nil {
 				return err
 			}
@@ -232,7 +232,7 @@ func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.
 
 	allErrs = append(allErrs, validateManagedLabel(newPod)...)
 
-	allErrs = append(allErrs, validation.ValidateImmutableField(newPod.groupName(), oldPod.groupName(), groupNameLabelPath)...)
+	allErrs = append(allErrs, validation.ValidateImmutableField(podGroupName(newPod.pod), podGroupName(oldPod.pod), groupNameLabelPath)...)
 
 	allErrs = append(allErrs, validatePodGroupMetadata(newPod)...)
 
@@ -274,7 +274,7 @@ func validatePodGroupMetadata(p *Pod) field.ErrorList {
 
 	gtc, gtcExists := p.pod.GetAnnotations()[GroupTotalCountAnnotation]
 
-	if p.groupName() == "" {
+	if podGroupName(p.pod) == "" {
 		if gtcExists {
 			return append(allErrs, field.Required(
 				groupNameLabelPath,
@@ -304,7 +304,7 @@ func validatePodGroupMetadata(p *Pod) field.ErrorList {
 }
 
 func validateUpdateForRetriableInGroupAnnotation(oldPod, newPod *Pod) field.ErrorList {
-	if newPod.groupName() != "" && isUnretriablePod(oldPod.pod) && !isUnretriablePod(newPod.pod) {
+	if podGroupName(newPod.pod) != "" && isUnretriablePod(oldPod.pod) && !isUnretriablePod(newPod.pod) {
 		return field.ErrorList{
 			field.Forbidden(retriableInGroupAnnotationPath, "unretriable pod group can't be converted to retriable"),
 		}

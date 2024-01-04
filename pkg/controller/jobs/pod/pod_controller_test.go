@@ -84,12 +84,12 @@ func TestPodsReady(t *testing.T) {
 
 func TestRun(t *testing.T) {
 	testCases := map[string]struct {
-		pods                 []*corev1.Pod
+		pods                 []corev1.Pod
 		runInfo, restoreInfo []podset.PodSetInfo
 		wantErr              error
 	}{
 		"pod set info > 1 for the single pod": {
-			pods:    []*corev1.Pod{testingpod.MakePod("test-pod", "test-namespace").Obj()},
+			pods:    []corev1.Pod{*testingpod.MakePod("test-pod", "test-namespace").Obj()},
 			runInfo: make([]podset.PodSetInfo, 2),
 			wantErr: podset.ErrInvalidPodsetInfo,
 		},
@@ -97,7 +97,7 @@ func TestRun(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			pod := fromObject(tc.pods[0])
+			pod := fromObject(&tc.pods[0])
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder()
@@ -105,12 +105,7 @@ func TestRun(t *testing.T) {
 				t.Fatalf("Could not setup indexes: %v", err)
 			}
 
-			kcBuilder := clientBuilder
-			for i := range tc.pods {
-				kcBuilder = kcBuilder.WithObjects(tc.pods[i])
-			}
-
-			kClient := kcBuilder.Build()
+			kClient := clientBuilder.WithLists(&corev1.PodList{Items: tc.pods}).Build()
 
 			gotErr := pod.Run(ctx, kClient, tc.runInfo)
 

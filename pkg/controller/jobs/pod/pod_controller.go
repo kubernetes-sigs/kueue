@@ -425,7 +425,7 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 }
 
 func (p *Pod) Finalize(ctx context.Context, c client.Client) error {
-	groupName := p.groupName()
+	groupName := podGroupName(p.pod)
 
 	var podsInGroup corev1.PodList
 	if groupName == "" {
@@ -457,14 +457,16 @@ func (p *Pod) Skip() bool {
 	return false
 }
 
-func (p *Pod) groupName() string {
-	return p.Object().GetLabels()[GroupNameLabel]
+// podGroupName returns a value of GroupNameLabel for the pod object.
+// Returns an empty string if there's no such label.
+func podGroupName(p corev1.Pod) string {
+	return p.GetLabels()[GroupNameLabel]
 }
 
 // groupTotalCount returns the value of GroupTotalCountAnnotation for the pod being reconciled at the moment.
 // It doesn't check if the whole group has the same total group count annotation value.
 func (p *Pod) groupTotalCount() (int, error) {
-	if p.groupName() == "" {
+	if podGroupName(p.pod) == "" {
 		return 0, fmt.Errorf("pod doesn't have a '%s' label", GroupNameLabel)
 	}
 
@@ -535,7 +537,7 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key types.NamespacedNam
 
 		// If the key.Namespace doesn't contain a "group/" prefix, even though
 		// the pod has a group name, there's something wrong with the event handler.
-		if p.groupName() != "" {
+		if podGroupName(p.pod) != "" {
 			return false, errIncorrectReconcileRequest
 		}
 
@@ -606,7 +608,7 @@ func (p *Pod) validatePodGroupMetadata(r record.EventRecorder, activePods []core
 	originalQueue := jobframework.QueueName(p)
 
 	if len(activePods) < groupTotalCount {
-		errMsg := fmt.Sprintf("'%s' group total count is less than the actual number of pods in the cluster", p.groupName())
+		errMsg := fmt.Sprintf("'%s' group total count is less than the actual number of pods in the cluster", podGroupName(p.pod))
 		r.Eventf(p.Object(), corev1.EventTypeWarning, "ErrWorkloadCompose", errMsg)
 		return jobframework.UnretryableError(errMsg)
 	}
@@ -779,7 +781,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		return nil, jobframework.UnretryableError(errMsgIncorrectGroupRoleCount)
 	}
 
-	wl.Name = p.groupName()
+	wl.Name = podGroupName(p.pod)
 	for _, pod := range p.list.Items {
 		if err := controllerutil.SetOwnerReference(&pod, wl, c.Scheme()); err != nil {
 			return nil, err
@@ -791,7 +793,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 
 func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client) (*kueue.Workload, []*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
-	groupName := p.groupName()
+	groupName := podGroupName(p.pod)
 
 	if groupName == "" {
 		return jobframework.FindMatchingWorkloads(ctx, c, p)
@@ -799,7 +801,7 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client) (*kueu
 
 	// Find a matching workload first if there is one.
 	workload := &kueue.Workload{}
-	if err := c.Get(ctx, types.NamespacedName{Name: p.groupName(), Namespace: p.pod.GetNamespace()}, workload); err != nil {
+	if err := c.Get(ctx, types.NamespacedName{Name: groupName, Namespace: p.pod.GetNamespace()}, workload); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, nil, nil
 		}
@@ -845,7 +847,7 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client) (*kueu
 func (p *Pod) equivalentToWorkload(wl *kueue.Workload, jobPodSets []kueue.PodSet) bool {
 	workloadFinished := apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished)
 
-	if wl.GetName() != p.groupName() {
+	if wl.GetName() != podGroupName(p.pod) {
 		return false
 	}
 

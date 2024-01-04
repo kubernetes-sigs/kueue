@@ -118,7 +118,7 @@ func (h *parentWorkloadHandler) queueReconcileForChildPod(ctx context.Context, o
 			return
 		}
 
-		if groupName := fromObject(&parentPod).groupName(); groupName == "" {
+		if groupName := podGroupName(parentPod); groupName == "" {
 			log.V(5).Info("Queueing reconcile for the single pod", "pod", klog.KObj(&parentPod))
 			q.Add(reconcile.Request{
 				NamespacedName: types.NamespacedName{
