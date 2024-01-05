@@ -47,5 +47,4 @@ A _platform developer_ integrates Kueue with other software and/or contributes t
 
 As a platform developer, you can learn how to:
 - [Integrate a custom Job with Kueue](/docs/tasks/integrate_a_custom_job).
-- [Submit Kueue jobs from Python](/docs/tasks/run_python_jobs).
 - [Enable pprof endpoints](/docs/tasks/enabling_pprof_endpoints).
