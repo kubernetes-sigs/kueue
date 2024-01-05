@@ -472,7 +472,9 @@ func shouldTryNextFlavor(representativeMode FlavorAssignmentMode, flavorFungibil
 	policyPreempt := flavorFungibility.WhenCanPreempt
 	policyBorrow := flavorFungibility.WhenCanBorrow
 	if representativeMode == Preempt && policyPreempt == kueue.Preempt {
-		return false
+		if !needsBorrowing || policyBorrow == kueue.Borrow {
+			return false
+		}
 	}
 
 	if representativeMode == Fit && needsBorrowing && policyBorrow == kueue.Borrow {
@@ -534,11 +536,13 @@ func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.Set[string]) nodeaffi
 
 // fitsResourceQuota returns how this flavor could be assigned to the resource,
 // according to the remaining quota in the ClusterQueue and cohort.
-// If it fits, also returns any borrowing required.
+// If it fits, also returns if borrowing required. Similarly, it returns information
+// if borrowing is required when preempting.
 // If the flavor doesn't satisfy limits immediately (when waiting or preemption
 // could help), it returns a Status with reasons.
 func fitsResourceQuota(fName kueue.ResourceFlavorReference, rName corev1.ResourceName, val int64, cq *cache.ClusterQueue, rQuota *cache.ResourceQuota) (FlavorAssignmentMode, bool, *Status) {
 	var status Status
+	var borrow bool
 	used := cq.Usage[fName][rName]
 	mode := NoFit
 	if val <= rQuota.Nominal {
@@ -547,16 +551,27 @@ func fitsResourceQuota(fName kueue.ResourceFlavorReference, rName corev1.Resourc
 		// ClusterQueue are preempted.
 		mode = Preempt
 	}
+	cohortAvailable := rQuota.Nominal
+	if cq.Cohort != nil {
+		cohortAvailable = cq.Cohort.RequestableResources[fName][rName]
+	}
+
+	if cq.Preemption.BorrowWithinCohort != nil && cq.Preemption.BorrowWithinCohort.Policy != kueue.BorrowWithinCohortPolicyNever {
+		// when preemption with borrowing is enabled, we can succeeded admitting the
+		// workload if preemption is used.
+		if (rQuota.BorrowingLimit == nil || val <= rQuota.Nominal+*rQuota.BorrowingLimit) && val <= cohortAvailable {
+			mode = Preempt
+			borrow = val > rQuota.Nominal
+		}
+	}
 	if rQuota.BorrowingLimit != nil && used+val > rQuota.Nominal+*rQuota.BorrowingLimit {
 		status.append(fmt.Sprintf("borrowing limit for %s in flavor %s exceeded", rName, fName))
-		return mode, false, &status
+		return mode, borrow, &status
 	}
 
 	cohortUsed := used
-	cohortAvailable := rQuota.Nominal
 	if cq.Cohort != nil {
 		cohortUsed = cq.Cohort.Usage[fName][rName]
-		cohortAvailable = cq.Cohort.RequestableResources[fName][rName]
 	}
 
 	lack := cohortUsed + val - cohortAvailable
@@ -574,7 +589,7 @@ func fitsResourceQuota(fName kueue.ResourceFlavorReference, rName corev1.Resourc
 		}
 	}
 	status.append(msg)
-	return mode, false, &status
+	return mode, borrow, &status
 }
 
 func filterRequestedResources(req workload.Requests, allowList sets.Set[corev1.ResourceName]) workload.Requests {

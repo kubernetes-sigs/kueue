@@ -68,6 +68,11 @@ func (w *ClusterQueueWebhook) Default(ctx context.Context, obj runtime.Object) e
 			ReclaimWithinCohort: kueue.PreemptionPolicyNever,
 		}
 	}
+	if cq.Spec.Preemption.BorrowWithinCohort == nil {
+		cq.Spec.Preemption.BorrowWithinCohort = &kueue.BorrowWithinCohort{
+			Policy: kueue.BorrowWithinCohortPolicyNever,
+		}
+	}
 	if cq.Spec.FlavorFungibility == nil {
 		cq.Spec.FlavorFungibility = &kueue.FlavorFungibility{
 			WhenCanBorrow:  kueue.Borrow,
@@ -116,7 +121,9 @@ func ValidateClusterQueue(cq *kueue.ClusterQueue) field.ErrorList {
 	allErrs = append(allErrs, validateResourceGroups(cq.Spec.ResourceGroups, cq.Spec.Cohort, path.Child("resourceGroups"))...)
 	allErrs = append(allErrs,
 		validation.ValidateLabelSelector(cq.Spec.NamespaceSelector, validation.LabelSelectorValidationOptions{}, path.Child("namespaceSelector"))...)
-
+	if cq.Spec.Preemption != nil {
+		allErrs = append(allErrs, validatePreemption(cq.Spec.Preemption, path.Child("preemption"))...)
+	}
 	return allErrs
 }
 
@@ -128,6 +135,14 @@ func ValidateClusterQueueUpdate(newObj, oldObj *kueue.ClusterQueue) field.ErrorL
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, ValidateClusterQueue(newObj)...)
 	allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.QueueingStrategy, oldObj.Spec.QueueingStrategy, field.NewPath("spec", "queueingStrategy"))...)
+	return allErrs
+}
+
+func validatePreemption(preemption *kueue.ClusterQueuePreemption, path *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	if preemption.ReclaimWithinCohort == kueue.PreemptionPolicyNever && preemption.BorrowWithinCohort.Policy != kueue.BorrowWithinCohortPolicyNever {
+		allErrs = append(allErrs, field.Invalid(path, preemption, "reclaimWithinCohort=Never and borrowWithinCohort.Policy!=Never"))
+	}
 	return allErrs
 }
 

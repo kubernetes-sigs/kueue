@@ -42,6 +42,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.AdmissionCheckStateApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("AdmissionCheckStatus"):
 		return &kueuev1beta1.AdmissionCheckStatusApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("BorrowWithinCohort"):
+		return &kueuev1beta1.BorrowWithinCohortApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ClusterQueue"):
 		return &kueuev1beta1.ClusterQueueApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ClusterQueuePendingWorkload"):

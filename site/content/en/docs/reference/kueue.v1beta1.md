@@ -437,6 +437,64 @@ current state.</p>
 </tbody>
 </table>
 
+## `BorrowWithinCohort`     {#kueue-x-k8s-io-v1beta1-BorrowWithinCohort}
+    
+
+**Appears in:**
+
+- [ClusterQueuePreemption](#kueue-x-k8s-io-v1beta1-ClusterQueuePreemption)
+
+
+<p>BorrowWithinCohort contains configuration which allows to preempt workloads
+within cohort while borrowing.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>policy</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-BorrowWithinCohortPolicy"><code>BorrowWithinCohortPolicy</code></a>
+</td>
+<td>
+   <p>policy determines the policy for preemption to reclaim quota within cohort while borrowing.
+Possible values are:</p>
+<ul>
+<li><code>Never</code> (default): do not allow for preemption, in other
+ClusterQueues within the cohort, for a borrowing workload.</li>
+<li><code>LowerPriority</code>: allow preemption, in other ClusterQueues
+within the cohort, for a borrowing workload, but only if
+the preempted workloads are of lower priority.</li>
+</ul>
+</td>
+</tr>
+<tr><td><code>maxPriorityThreshold</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>maxPriorityThreshold allows to restrict the set of workloads which
+might be preempted by a borrowing workload, to only workloads with
+priority less than or equal to the specified threshold priority.
+When the threshold is not specified, then any workload satisfying the
+policy can be preempted by the borrowing workload.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `BorrowWithinCohortPolicy`     {#kueue-x-k8s-io-v1beta1-BorrowWithinCohortPolicy}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [BorrowWithinCohort](#kueue-x-k8s-io-v1beta1-BorrowWithinCohort)
+
+
+
+
+
 ## `CheckState`     {#kueue-x-k8s-io-v1beta1-CheckState}
     
 (Alias of `string`)
@@ -547,6 +605,14 @@ lower priority than the pending Workload.</li>
 ClusterQueue, preempt any Workload in the cohort, irrespective of
 priority.</li>
 </ul>
+</td>
+</tr>
+<tr><td><code>borrowWithinCohort</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1beta1-BorrowWithinCohort"><code>BorrowWithinCohort</code></a>
+</td>
+<td>
+   <p>borrowWithinCohort provides configuration to allow preemption within
+cohort while borrowing.</p>
 </td>
 </tr>
 <tr><td><code>withinClusterQueue</code> <B>[Required]</B><br/>

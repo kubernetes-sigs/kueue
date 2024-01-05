@@ -29,6 +29,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -85,7 +86,6 @@ func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assig
 	sort.Slice(candidates, candidatesOrdering(candidates, cq.Name, time.Now()))
 
 	sameQueueCandidates := candidatesOnlyFromQueue(candidates, wl.ClusterQueue)
-	var targets []*workload.Info
 
 	// To avoid flapping, Kueue only allows preemption of workloads from the same
 	// queue if borrowing. Preemption of workloads from queues can happen only
@@ -96,19 +96,29 @@ func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assig
 	if len(sameQueueCandidates) == len(candidates) {
 		// There is no possible preemption of workloads from other queues,
 		// so we'll try borrowing.
-		targets = minimalPreemptions(&wl, assignment, snapshot, resPerFlv, candidates, true)
-	} else {
-		// There is a risk of preemption of workloads from the other queue in the
-		// cohort, proceeding without borrowing.
-		targets = minimalPreemptions(&wl, assignment, snapshot, resPerFlv, candidates, false)
-		if len(targets) == 0 {
-			// Another attempt. This time only candidates from the same queue, but
-			// with borrowing. The previous attempt didn't try borrowing and had broader
-			// scope of preemption.
-			targets = minimalPreemptions(&wl, assignment, snapshot, resPerFlv, sameQueueCandidates, true)
-		}
+		return minimalPreemptions(&wl, assignment, snapshot, resPerFlv, candidates, true, nil)
 	}
 
+	// There is a potential of preemption of workloads from the other queue in the
+	// cohort. We proceed with borrowing only if the dedicated policy
+	// (borrowWithinCohort) is enabled. This ensures the preempted workloads
+	// have lower priority, and so they will not preempt the preemptor when
+	// requeued.
+	borrowWithinCohort := cq.Preemption.BorrowWithinCohort
+	if borrowWithinCohort != nil && borrowWithinCohort.Policy != kueue.BorrowWithinCohortPolicyNever {
+		allowBorrowingBelowPriority := ptr.To(priority.Priority(wl.Obj))
+		if borrowWithinCohort.MaxPriorityThreshold != nil && *borrowWithinCohort.MaxPriorityThreshold < *allowBorrowingBelowPriority {
+			allowBorrowingBelowPriority = ptr.To(*borrowWithinCohort.MaxPriorityThreshold + 1)
+		}
+		return minimalPreemptions(&wl, assignment, snapshot, resPerFlv, candidates, true, allowBorrowingBelowPriority)
+	}
+	targets := minimalPreemptions(&wl, assignment, snapshot, resPerFlv, candidates, false, nil)
+	if len(targets) == 0 {
+		// Another attempt. This time only candidates from the same queue, but
+		// with borrowing. The previous attempt didn't try borrowing and had broader
+		// scope of preemption.
+		targets = minimalPreemptions(&wl, assignment, snapshot, resPerFlv, sameQueueCandidates, true, nil)
+	}
 	return targets
 }
 
@@ -156,7 +166,7 @@ func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workloa
 // Once the Workload fits, the heuristic tries to add Workloads back, in the
 // reverse order in which they were removed, while the incoming Workload still
 // fits.
-func minimalPreemptions(wl *workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot, resPerFlv resourcesPerFlavor, candidates []*workload.Info, allowBorrowing bool) []*workload.Info {
+func minimalPreemptions(wl *workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot, resPerFlv resourcesPerFlavor, candidates []*workload.Info, allowBorrowing bool, allowBorrowingBelowPriority *int32) []*workload.Info {
 	wlReq := totalRequestsForAssignment(wl, assignment)
 	cq := snapshot.ClusterQueues[wl.ClusterQueue]
 
@@ -167,6 +177,21 @@ func minimalPreemptions(wl *workload.Info, assignment flavorassigner.Assignment,
 		candCQ := snapshot.ClusterQueues[candWl.ClusterQueue]
 		if cq != candCQ && !cqIsBorrowing(candCQ, resPerFlv) {
 			continue
+		}
+		if cq != candCQ && allowBorrowingBelowPriority != nil && priority.Priority(candWl.Obj) >= *allowBorrowingBelowPriority {
+			// We set allowBorrowing=false if there is a candidate with priority
+			// exceeding allowBorrowingBelowPriority added to targets.
+			//
+			// We need to be careful mutating allowBorrowing. We rely on the
+			// fact that once there is a candidate exceeding the priority added
+			// to targets, then at least one such candidate is present in the
+			// final set of targets (after the second phase of the function).
+			//
+			// This is true, because the candidates are ordered according
+			// to priorities (from lowest to highest, using candidatesOrdering),
+			// and the last added target is not removed in the second phase of
+			// the function.
+			allowBorrowing = false
 		}
 		snapshot.RemoveWorkload(candWl)
 		targets = append(targets, candWl)
