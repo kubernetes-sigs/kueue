@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/metrics/testutil"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -202,6 +203,18 @@ func DeleteRuntimeClass(ctx context.Context, c client.Client, runtimeClass *node
 		return err
 	}
 	return nil
+}
+
+func UnholdQueue(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue) {
+	gomega.EventuallyWithOffset(1, func() error {
+		var cqCopy kueue.ClusterQueue
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &cqCopy)).To(gomega.Succeed())
+		if ptr.Deref(cqCopy.Spec.StopPolicy, kueue.None) == kueue.None {
+			return nil
+		}
+		cq.Spec.StopPolicy = ptr.To(kueue.None)
+		return k8sClient.Update(ctx, &cqCopy)
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 func FinishWorkloads(ctx context.Context, k8sClient client.Client, workloads ...*kueue.Workload) {

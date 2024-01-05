@@ -403,12 +403,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				util.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 5)
 				util.ExpectReservingActiveWorkloadsMetric(prodClusterQ, 0)
 
-				gomega.Eventually(func() error {
-					var cq kueue.ClusterQueue
-					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodClusterQ), &cq)).To(gomega.Succeed())
-					cq.Spec.StopPolicy = ptr.To(kueue.None)
-					return k8sClient.Update(ctx, &cq)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.UnholdQueue(ctx, k8sClient, prodClusterQ)
 
 				ginkgo.By("checking the workloads with lower priority do not get admitted")
 				util.ExpectWorkloadsToBePending(ctx, k8sClient, wlLow, wlMid1, wlMid2)

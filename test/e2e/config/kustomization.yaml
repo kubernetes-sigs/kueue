@@ -12,3 +12,10 @@ patches:
     kind: Deployment
     name: kueue-controller-manager
     namespace: kueue-system
+
+configMapGenerator:
+- behavior: merge
+  files:
+  - controller_manager_config.yaml
+  name: kueue-manager-config
+  namespace: kueue-system
