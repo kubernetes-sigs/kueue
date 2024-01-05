@@ -475,7 +475,9 @@ the preempted workloads are of lower priority.</li>
 <td>
    <p>maxPriorityThreshold allows to restrict the set of workloads which
 might be preempted by a borrowing workload, to only workloads with
-priority less than or equal to the specified threshold priority.</p>
+priority less than or equal to the specified threshold priority.
+When the threshold is not specified, then any workload satisfying the
+policy can be preempted by the borrowing workload.</p>
 </td>
 </tr>
 </tbody>

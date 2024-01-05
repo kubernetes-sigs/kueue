@@ -86,7 +86,6 @@ func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assig
 	sort.Slice(candidates, candidatesOrdering(candidates, cq.Name, time.Now()))
 
 	sameQueueCandidates := candidatesOnlyFromQueue(candidates, wl.ClusterQueue)
-	var targets []*workload.Info
 
 	// To avoid flapping, Kueue only allows preemption of workloads from the same
 	// queue if borrowing. Preemption of workloads from queues can happen only
@@ -97,28 +96,30 @@ func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assig
 	if len(sameQueueCandidates) == len(candidates) {
 		// There is no possible preemption of workloads from other queues,
 		// so we'll try borrowing.
-		targets = minimalPreemptions(&wl, assignment, snapshot, resPerFlv, candidates, true, nil)
-	} else {
-		// There is a risk of preemption of workloads from the other queue in the
-		// cohort, proceeding without borrowing.
-		var allowBorrowingBelowPriority *int32
-		borrowWithinCohort := cq.Preemption.BorrowWithinCohort
-		allowBorrowing := borrowWithinCohort != nil && borrowWithinCohort.Policy != kueue.BorrowWithinCohortPolicyNever
-		if allowBorrowing {
-			allowBorrowingBelowPriority = ptr.To(priority.Priority(wl.Obj))
-			if borrowWithinCohort.MaxPriorityThreshold != nil && *borrowWithinCohort.MaxPriorityThreshold < *allowBorrowingBelowPriority {
-				allowBorrowingBelowPriority = ptr.To(*borrowWithinCohort.MaxPriorityThreshold + 1)
-			}
-		}
-		targets = minimalPreemptions(&wl, assignment, snapshot, resPerFlv, candidates, allowBorrowing, allowBorrowingBelowPriority)
-		if len(targets) == 0 && !allowBorrowing {
-			// Another attempt. This time only candidates from the same queue, but
-			// with borrowing. The previous attempt didn't try borrowing and had broader
-			// scope of preemption.
-			targets = minimalPreemptions(&wl, assignment, snapshot, resPerFlv, sameQueueCandidates, true, nil)
-		}
+		return minimalPreemptions(&wl, assignment, snapshot, resPerFlv, candidates, true, nil)
 	}
 
+	// There is a risk of preemption of workloads from the other queue in the
+	// cohort. We proceed with borrowing only if the dedicated policy
+	// (borrowWithinCohort) is enabled. This ensures the preempted workloads
+	// have lower priority, and so they will not preempt the preemptor when
+	// requeued.
+	var allowBorrowingBelowPriority *int32
+	borrowWithinCohort := cq.Preemption.BorrowWithinCohort
+	allowBorrowing := borrowWithinCohort != nil && borrowWithinCohort.Policy != kueue.BorrowWithinCohortPolicyNever
+	if allowBorrowing {
+		allowBorrowingBelowPriority = ptr.To(priority.Priority(wl.Obj))
+		if borrowWithinCohort.MaxPriorityThreshold != nil && *borrowWithinCohort.MaxPriorityThreshold < *allowBorrowingBelowPriority {
+			allowBorrowingBelowPriority = ptr.To(*borrowWithinCohort.MaxPriorityThreshold + 1)
+		}
+	}
+	targets := minimalPreemptions(&wl, assignment, snapshot, resPerFlv, candidates, allowBorrowing, allowBorrowingBelowPriority)
+	if len(targets) == 0 && !allowBorrowing {
+		// Another attempt. This time only candidates from the same queue, but
+		// with borrowing. The previous attempt didn't try borrowing and had broader
+		// scope of preemption.
+		targets = minimalPreemptions(&wl, assignment, snapshot, resPerFlv, sameQueueCandidates, true, nil)
+	}
 	return targets
 }
 
