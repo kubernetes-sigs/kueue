@@ -99,7 +99,7 @@ func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assig
 		return minimalPreemptions(&wl, assignment, snapshot, resPerFlv, candidates, true, nil)
 	}
 
-	// There is a risk of preemption of workloads from the other queue in the
+	// There is a potential of preemption of workloads from the other queue in the
 	// cohort. We proceed with borrowing only if the dedicated policy
 	// (borrowWithinCohort) is enabled. This ensures the preempted workloads
 	// have lower priority, and so they will not preempt the preemptor when

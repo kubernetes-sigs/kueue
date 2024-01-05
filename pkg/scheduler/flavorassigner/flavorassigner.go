@@ -559,7 +559,7 @@ func fitsResourceQuota(fName kueue.ResourceFlavorReference, rName corev1.Resourc
 	if cq.Preemption.BorrowWithinCohort != nil && cq.Preemption.BorrowWithinCohort.Policy != kueue.BorrowWithinCohortPolicyNever {
 		// when preemption with borrowing is enabled, we can succeeded admitting the
 		// workload if preemption is used.
-		if (rQuota.BorrowingLimit == nil || rQuota.BorrowingLimit != nil && val <= rQuota.Nominal+*rQuota.BorrowingLimit) && val <= cohortAvailable {
+		if (rQuota.BorrowingLimit == nil || val <= rQuota.Nominal+*rQuota.BorrowingLimit) && val <= cohortAvailable {
 			mode = Preempt
 			borrow = val > rQuota.Nominal
 		}
