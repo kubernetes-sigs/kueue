@@ -17,7 +17,7 @@ require (
 	go.uber.org/zap v1.26.0
 	k8s.io/api v0.28.5
 	k8s.io/apimachinery v0.28.5
-	k8s.io/apiserver v0.28.4
+	k8s.io/apiserver v0.28.5
 	k8s.io/autoscaler/cluster-autoscaler v0.0.0-20230925095857-cf8c507d2421
 	k8s.io/client-go v0.28.5
 	k8s.io/code-generator v0.28.5
@@ -119,7 +119,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/apiextensions-apiserver v0.28.3 // indirect
 	k8s.io/gengo v0.0.0-20230829151522-9cce18d56c01 // indirect
-	k8s.io/kms v0.28.4 // indirect
+	k8s.io/kms v0.28.5 // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.1.2 // indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/yaml v1.3.0 // indirect
