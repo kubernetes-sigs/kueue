@@ -701,10 +701,6 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal("test-queue"), "The Workload should have .spec.queueName set")
 
 				ginkgo.By("checking that pod is unsuspended when workload is admitted")
-				clusterQueue := testing.MakeClusterQueue("cluster-queue").
-					ResourceGroup(
-						*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj(),
-					).Obj()
 				admission := testing.MakeAdmission(clusterQueue.Name, "120fa2c0").
 					Assignment(corev1.ResourceCPU, "default", "1").
 					AssignmentPodCount(createdWorkload.Spec.PodSets[0].Count).
