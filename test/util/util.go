@@ -212,7 +212,7 @@ func UnholdQueue(ctx context.Context, k8sClient client.Client, cq *kueue.Cluster
 		if ptr.Deref(cqCopy.Spec.StopPolicy, kueue.None) == kueue.None {
 			return nil
 		}
-		cq.Spec.StopPolicy = ptr.To(kueue.None)
+		cqCopy.Spec.StopPolicy = ptr.To(kueue.None)
 		return k8sClient.Update(ctx, &cqCopy)
 	}, Timeout, Interval).Should(gomega.Succeed())
 }

@@ -22,10 +22,14 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/version"
+	"k8s.io/client-go/discovery"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	podtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util"
@@ -40,6 +44,9 @@ var _ = ginkgo.Describe("Pod groups", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
+		if kubeVersion().LessThan(kubeversion.KubeVersion1_27) {
+			ginkgo.Skip("Unsupported in versions older than 1.27")
+		}
 		ns = &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: "pod-e2e-",
@@ -126,3 +133,13 @@ var _ = ginkgo.Describe("Pod groups", func() {
 		})
 	})
 })
+
+func kubeVersion() *version.Version {
+	cfg, err := config.GetConfigWithContext("")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	discoveryClient, err := discovery.NewDiscoveryClientForConfig(cfg)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	v, err := kubeversion.FetchServerVersion(discoveryClient)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return v
+}
