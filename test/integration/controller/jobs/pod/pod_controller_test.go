@@ -26,6 +26,7 @@ import (
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -236,80 +237,98 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
 			})
 
-			ginkgo.It("Should stop the single pod with the queue name if workload is evicted", func() {
-				ginkgo.By("Creating a pod with queue name")
-				pod := testingpod.MakePod(podName, ns.Name).Queue("test-queue").Obj()
-				gomega.Expect(k8sClient.Create(ctx, pod)).Should(gomega.Succeed())
+			ginkgo.When("A workload is evicted", func() {
+				const finalizerName = "kueue.x-k8s.io/integration-test"
+				var pod *corev1.Pod
 
-				createdPod := &corev1.Pod{}
-				gomega.Eventually(func() error {
-					return k8sClient.Get(ctx, lookupKey, createdPod)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				ginkgo.BeforeEach(func() {
+					// A pod must have a dedicated finalizer since we need to verify the pod status
+					// after a workload is evicted.
+					pod = testingpod.MakePod(podName, ns.Name).Queue("test-queue").Finalizer(finalizerName).Obj()
+					ginkgo.By("Creating a pod with queue name")
+					gomega.Expect(k8sClient.Create(ctx, pod)).Should(gomega.Succeed())
+				})
+				ginkgo.AfterEach(func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, lookupKey, pod)).Should(gomega.Succeed())
+						controllerutil.RemoveFinalizer(pod, finalizerName)
+						g.Expect(k8sClient.Update(ctx, pod)).Should(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					gomega.Eventually(func() bool {
+						return apierrors.IsNotFound(k8sClient.Get(ctx, lookupKey, &corev1.Pod{}))
+					}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+				})
 
-				ginkgo.By("checking that workload is created for pod with the queue name")
-				createdWorkload := &kueue.Workload{}
-				gomega.Eventually(func() error {
-					return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				ginkgo.It("Should stop the single pod with the queue name", func() {
+					createdPod := &corev1.Pod{}
+					gomega.Eventually(func() error {
+						return k8sClient.Get(ctx, lookupKey, createdPod)
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				gomega.Expect(createdWorkload.Spec.PodSets).To(gomega.HaveLen(1))
+					ginkgo.By("checking that workload is created for pod with the queue name")
+					createdWorkload := &kueue.Workload{}
+					gomega.Eventually(func() error {
+						return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal("test-queue"), "The Workload should have .spec.queueName set")
+					gomega.Expect(createdWorkload.Spec.PodSets).To(gomega.HaveLen(1))
 
-				ginkgo.By("checking that pod is unsuspended when workload is admitted")
-				clusterQueue := testing.MakeClusterQueue("cluster-queue").
-					ResourceGroup(
-						*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj(),
-					).Obj()
-				admission := testing.MakeAdmission(clusterQueue.Name).
-					Assignment(corev1.ResourceCPU, "default", "1").
-					AssignmentPodCount(createdWorkload.Spec.PodSets[0].Count).
-					Obj()
-				gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
-				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+					gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal("test-queue"), "The Workload should have .spec.queueName set")
 
-				util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, lookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
+					ginkgo.By("checking that pod is unsuspended when workload is admitted")
+					clusterQueue := testing.MakeClusterQueue("cluster-queue").
+						ResourceGroup(
+							*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj(),
+						).Obj()
+					admission := testing.MakeAdmission(clusterQueue.Name).
+						Assignment(corev1.ResourceCPU, "default", "1").
+						AssignmentPodCount(createdWorkload.Spec.PodSets[0].Count).
+						Obj()
+					gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
+					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
-				gomega.Eventually(func(g gomega.Gomega) {
-					ok, err := testing.CheckLatestEvent(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Admitted by clusterQueue %v", clusterQueue.Name))
-					g.Expect(err).NotTo(gomega.HaveOccurred())
-					g.Expect(ok).To(gomega.BeTrue())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, lookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
 
-				gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				gomega.Expect(createdWorkload.Status.Conditions).Should(gomega.BeComparableTo(
-					[]metav1.Condition{
-						{Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionTrue},
-						{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue},
-					},
-					wlConditionCmpOpts...,
-				))
+					gomega.Eventually(func(g gomega.Gomega) {
+						ok, err := testing.CheckLatestEvent(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Admitted by clusterQueue %v", clusterQueue.Name))
+						g.Expect(err).NotTo(gomega.HaveOccurred())
+						g.Expect(ok).To(gomega.BeTrue())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				ginkgo.By("checking that pod is stopped when workload is evicted")
-
-				gomega.Expect(
-					workload.UpdateStatus(ctx, k8sClient, createdWorkload, kueue.WorkloadEvicted, metav1.ConditionTrue,
-						kueue.WorkloadEvictedByPreemption, "By test", "evict"),
-				).Should(gomega.Succeed())
-				util.FinishEvictionForWorkloads(ctx, k8sClient, createdWorkload)
-
-				gomega.Eventually(func(g gomega.Gomega) bool {
-					g.Expect(k8sClient.Get(ctx, lookupKey, createdPod)).To(gomega.Succeed())
-					return createdPod.DeletionTimestamp.IsZero()
-				}, util.Timeout, util.Interval).Should(gomega.BeFalse(), "Expected pod to be deleted")
-
-				gomega.Expect(createdPod.Status.Conditions).Should(gomega.ContainElement(
-					gomega.BeComparableTo(
-						corev1.PodCondition{
-							Type:    "TerminationTarget",
-							Status:  "True",
-							Reason:  "StoppedByKueue",
-							Message: "By test",
+					gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					gomega.Expect(createdWorkload.Status.Conditions).Should(gomega.BeComparableTo(
+						[]metav1.Condition{
+							{Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionTrue},
+							{Type: kueue.WorkloadAdmitted, Status: metav1.ConditionTrue},
 						},
-						cmpopts.IgnoreFields(corev1.PodCondition{}, "LastTransitionTime"),
-					),
-				))
+						wlConditionCmpOpts...,
+					))
 
+					ginkgo.By("checking that pod is stopped when workload is evicted")
+
+					gomega.Expect(
+						workload.UpdateStatus(ctx, k8sClient, createdWorkload, kueue.WorkloadEvicted, metav1.ConditionTrue,
+							kueue.WorkloadEvictedByPreemption, "By test", "evict"),
+					).Should(gomega.Succeed())
+					util.FinishEvictionForWorkloads(ctx, k8sClient, createdWorkload)
+
+					gomega.Eventually(func(g gomega.Gomega) bool {
+						g.Expect(k8sClient.Get(ctx, lookupKey, createdPod)).To(gomega.Succeed())
+						return createdPod.DeletionTimestamp.IsZero()
+					}, util.Timeout, util.Interval).Should(gomega.BeFalse(), "Expected pod to be deleted")
+
+					gomega.Expect(createdPod.Status.Conditions).Should(gomega.ContainElement(
+						gomega.BeComparableTo(
+							corev1.PodCondition{
+								Type:    "TerminationTarget",
+								Status:  "True",
+								Reason:  "StoppedByKueue",
+								Message: "By test",
+							},
+							cmpopts.IgnoreFields(corev1.PodCondition{}, "LastTransitionTime"),
+						),
+					))
+				})
 			})
 
 			ginkgo.When("Pod owner is managed by Kueue", func() {
