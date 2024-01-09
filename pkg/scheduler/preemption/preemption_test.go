@@ -102,6 +102,30 @@ func TestPreemption(t *testing.T) {
 				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 			}).
 			Obj(),
+		utiltesting.MakeClusterQueue("d1").
+			Cohort("cohort-no-limits").
+			ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "6").
+				Resource(corev1.ResourceMemory, "3Gi").
+				Obj(),
+			).
+			Preemption(kueue.ClusterQueuePreemption{
+				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+			}).
+			Obj(),
+		utiltesting.MakeClusterQueue("d2").
+			Cohort("cohort-no-limits").
+			ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "6").
+				Resource(corev1.ResourceMemory, "3Gi").
+				Obj(),
+			).
+			Preemption(kueue.ClusterQueuePreemption{
+				WithinClusterQueue:  kueue.PreemptionPolicyNever,
+				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+			}).
+			Obj(),
 		utiltesting.MakeClusterQueue("l1").
 			Cohort("legion").
 			ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
@@ -539,6 +563,37 @@ func TestPreemption(t *testing.T) {
 				},
 			}),
 			wantPreempted: sets.New("/c1-low"),
+		},
+		"preempting locally and borrowing same resource in cohort; no borrowing limit in the cohort": {
+			admitted: []kueue.Workload{
+				*utiltesting.MakeWorkload("d1-med", "").
+					Priority(0).
+					Request(corev1.ResourceCPU, "4").
+					ReserveQuota(utiltesting.MakeAdmission("d1").Assignment(corev1.ResourceCPU, "default", "4").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("d1-low", "").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "4").
+					ReserveQuota(utiltesting.MakeAdmission("d1").Assignment(corev1.ResourceCPU, "default", "4").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("d2-low-1", "").
+					Priority(-1).
+					Request(corev1.ResourceCPU, "4").
+					ReserveQuota(utiltesting.MakeAdmission("d2").Assignment(corev1.ResourceCPU, "default", "4").Obj()).
+					Obj(),
+			},
+			incoming: utiltesting.MakeWorkload("in", "").
+				Priority(1).
+				Request(corev1.ResourceCPU, "4").
+				Obj(),
+			targetCQ: "d1",
+			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
+				corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+					Name: "default",
+					Mode: flavorassigner.Preempt,
+				},
+			}),
+			wantPreempted: sets.New("/d1-low"),
 		},
 		"preempting locally and borrowing other resources in cohort, with cohort candidates": {
 			admitted: []kueue.Workload{
