@@ -335,24 +335,21 @@ func workloadFits(wlReq cache.FlavorResourceQuantities, cq *cache.ClusterQueue, 
 			for rName, rReq := range flvReq {
 				resource := flvQuotas.Resources[rName]
 
-				if cq.Cohort != nil {
-					if allowBorrowing {
-						// When resource.BorrowingLimit == nil there is no borrowing
-						// limit, so we can skip the check.
-						if resource.BorrowingLimit != nil {
-							if cqResUsage[rName]+rReq > resource.Nominal+*resource.BorrowingLimit {
-								return false
-							}
-						}
-					}
-					if cohortResUsage[rName]+rReq > cohortResRequestable[rName] {
-						return false
-					}
-				}
 				if cq.Cohort == nil || !allowBorrowing {
 					if cqResUsage[rName]+rReq > resource.Nominal {
 						return false
 					}
+				} else {
+					// When resource.BorrowingLimit == nil there is no borrowing
+					// limit, so we can skip the check.
+					if resource.BorrowingLimit != nil {
+						if cqResUsage[rName]+rReq > resource.Nominal+*resource.BorrowingLimit {
+							return false
+						}
+					}
+				}
+				if cq.Cohort != nil && cohortResUsage[rName]+rReq > cohortResRequestable[rName] {
+					return false
 				}
 			}
 		}
