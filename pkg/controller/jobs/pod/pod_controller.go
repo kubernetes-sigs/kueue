@@ -58,6 +58,8 @@ const (
 	gateNotFound                   = -1
 	ConditionTypeTerminationTarget = "TerminationTarget"
 	errMsgIncorrectGroupRoleCount  = "pod group can't include more than 8 roles"
+	IsGroupWorkloadAnnotationKey   = "kueue.x-k8s.io/is-group-workload"
+	IsGroupWorkloadAnnotationValue = "true"
 )
 
 var (
@@ -89,10 +91,10 @@ var NewReconciler = jobframework.NewGenericReconciler(
 		return &Pod{}
 	},
 	func(c client.Client) (handler.EventHandler, string) {
-		return &podEventHandler{client: c}, "v1_pod"
+		return &podEventHandler{}, "v1_pod"
 	},
 	func(c client.Client) handler.EventHandler {
-		return &parentWorkloadHandler{client: c}
+		return &parentWorkloadHandler{}
 	},
 )
 
@@ -526,11 +528,11 @@ func getRoleHash(p corev1.Pod) (string, error) {
 }
 
 // Load loads all pods in the group
-func (p *Pod) Load(ctx context.Context, c client.Client, key types.NamespacedName) (removeFinalizers bool, err error) {
+func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedName) (removeFinalizers bool, err error) {
 	nsKey := strings.Split(key.Namespace, "/")
 
 	if len(nsKey) == 1 {
-		if err := c.Get(ctx, key, &p.pod); err != nil {
+		if err := c.Get(ctx, *key, &p.pod); err != nil {
 			return apierrors.IsNotFound(err), err
 		}
 		p.isFound = true
@@ -557,9 +559,12 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key types.NamespacedNam
 	if len(p.list.Items) > 0 {
 		p.isFound = true
 		p.pod = p.list.Items[0]
+		key.Name = p.pod.Name
 	}
 
-	return false, nil
+	// If none of the pods in group are found,
+	// the respective workload should be finalized
+	return !p.isFound, nil
 }
 
 func (p *Pod) constructGroupPodSets() ([]kueue.PodSet, error) {
@@ -752,6 +757,11 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 
 	activePods := p.activePods()
 
+	if wl.Annotations == nil {
+		wl.Annotations = make(map[string]string)
+	}
+	wl.Annotations[IsGroupWorkloadAnnotationKey] = IsGroupWorkloadAnnotationValue
+
 	err := p.validatePodGroupMetadata(r, activePods)
 	if err != nil {
 		return nil, err
@@ -789,6 +799,36 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 	}
 
 	return wl, nil
+}
+
+func (p *Pod) ListChildWorkloads(ctx context.Context, c client.Client, key types.NamespacedName) (*kueue.WorkloadList, error) {
+	log := ctrl.LoggerFrom(ctx)
+
+	workloads := &kueue.WorkloadList{}
+
+	// Get related workloads for the pod group
+	if p.isGroup {
+		workload := &kueue.Workload{}
+		if err := c.Get(ctx, types.NamespacedName{Name: key.Name, Namespace: key.Namespace}, workload); err != nil {
+			if apierrors.IsNotFound(err) {
+				return workloads, nil
+			}
+			log.Error(err, "Unable to get related workload for the pod group")
+			return nil, err
+		}
+
+		workloads.Items = []kueue.Workload{*workload}
+		return workloads, nil
+	}
+
+	// List related workloads for the single pod
+	if err := c.List(ctx, workloads, client.InNamespace(key.Namespace),
+		client.MatchingFields{jobframework.GetOwnerKey(p.pod.GroupVersionKind()): key.Name}); err != nil {
+		log.Error(err, "Unable to get related workload for the single pod")
+		return nil, err
+	}
+
+	return workloads, nil
 }
 
 func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client) (*kueue.Workload, []*kueue.Workload, error) {

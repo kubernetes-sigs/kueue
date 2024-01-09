@@ -464,6 +464,7 @@ func TestReconciler(t *testing.T) {
 					).
 					Queue("user-queue").
 					Priority(0).
+					Annotations(map[string]string{"kueue.x-k8s.io/is-group-workload": "true"}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -1450,6 +1451,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("b990493b", 2).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					Priority(0).
+					Annotations(map[string]string{"kueue.x-k8s.io/is-group-workload": "true"}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -1664,6 +1666,7 @@ func TestReconciler(t *testing.T) {
 					).
 					Queue("user-queue").
 					Priority(0).
+					Annotations(map[string]string{"kueue.x-k8s.io/is-group-workload": "true"}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -1949,6 +1952,7 @@ func TestReconciler(t *testing.T) {
 					).
 					Queue("user-queue").
 					Priority(0).
+					Annotations(map[string]string{"kueue.x-k8s.io/is-group-workload": "true"}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -2151,6 +2155,7 @@ func TestReconciler(t *testing.T) {
 					).
 					Queue("user-queue").
 					Priority(0).
+					Annotations(map[string]string{"kueue.x-k8s.io/is-group-workload": "true"}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,

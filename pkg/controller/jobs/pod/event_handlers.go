@@ -5,7 +5,8 @@ import (
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -18,7 +19,7 @@ import (
 )
 
 var (
-	errWlOwnersNotFound = fmt.Errorf("unable to find any workload owners")
+	errFailedRefAPIVersionParse = fmt.Errorf("could not parse single pod OwnerReference APIVersion")
 )
 
 func reconcileRequestForPod(p *corev1.Pod) reconcile.Request {
@@ -42,9 +43,7 @@ func reconcileRequestForPod(p *corev1.Pod) reconcile.Request {
 
 // podEventHandler will convert reconcile requests for pods in group from "<namespace>/<pod-name>" to
 // "group/<namespace>/<group-name>".
-type podEventHandler struct {
-	client client.Client
-}
+type podEventHandler struct{}
 
 func (h *podEventHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.RateLimitingInterface) {
 	h.queueReconcileForPod(ctx, e.Object, q)
@@ -74,9 +73,7 @@ func (h *podEventHandler) queueReconcileForPod(ctx context.Context, object clien
 	q.Add(reconcileRequestForPod(p))
 }
 
-type parentWorkloadHandler struct {
-	client client.Client
-}
+type parentWorkloadHandler struct{}
 
 func (h *parentWorkloadHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.RateLimitingInterface) {
 	h.queueReconcileForChildPod(ctx, e.Object, q)
@@ -98,47 +95,45 @@ func (h *parentWorkloadHandler) queueReconcileForChildPod(ctx context.Context, o
 		return
 	}
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(w))
-	ctx = ctrl.LoggerInto(ctx, log)
 
 	if len(w.ObjectMeta.OwnerReferences) == 0 {
 		return
 	}
 	log.V(5).Info("Queueing reconcile for parent pods")
 
-	for _, ownerRef := range w.ObjectMeta.OwnerReferences {
-		var parentPod corev1.Pod
-
-		err := h.client.Get(ctx, types.NamespacedName{Name: ownerRef.Name, Namespace: w.ObjectMeta.Namespace}, &parentPod)
-
-		if err != nil {
-			if apierrors.IsNotFound(err) {
-				continue
-			}
-			log.Error(err, "Unable to get parent pod")
-			return
-		}
-
-		if groupName := podGroupName(parentPod); groupName == "" {
-			log.V(5).Info("Queueing reconcile for the single pod", "pod", klog.KObj(&parentPod))
-			q.Add(reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      parentPod.Name,
-					Namespace: w.Namespace,
-				},
-			})
-			return
-		} else {
-			log.V(5).Info("Queueing reconcile for the pod group", "groupName", groupName, "namespace", w.Namespace)
-			q.Add(reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      groupName,
-					Namespace: fmt.Sprintf("group/%s", w.Namespace),
-				},
-			})
-			return
-		}
-
+	// Compose request for a pod group if workload has an "is-group-workload" annotation
+	if w.Annotations[IsGroupWorkloadAnnotationKey] == IsGroupWorkloadAnnotationValue {
+		log.V(5).Info("Queueing reconcile for the pod group", "groupName", w.Name, "namespace", w.Namespace)
+		q.Add(reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      w.Name,
+				Namespace: fmt.Sprintf("group/%s", w.Namespace),
+			},
+		})
+		return
 	}
 
-	log.Error(errWlOwnersNotFound, "Unable to queue reconcile for workload parent pods")
+	// Get controller reference to a single pod object
+	if ref := metav1.GetControllerOf(object); ref != nil {
+		log.V(5).Info("Queueing reconcile for the single pod", "ControllerReference", ref)
+
+		// Parse the Group out of the OwnerReference to compare it to what was parsed out of the requested OwnerType
+		refGV, err := schema.ParseGroupVersion(ref.APIVersion)
+		if err != nil {
+			log.Error(errFailedRefAPIVersionParse, "failed to enqueue single pod request", "APIVersion", ref.APIVersion)
+			return
+		}
+
+		// Check if the OwnerReference is pointing to a Pod object.
+		if ref.Kind == "Pod" && refGV.Group == "" {
+			// Match found - add a Request for the object referred to in the OwnerReference
+			q.Add(reconcile.Request{NamespacedName: types.NamespacedName{
+				Name:      ref.Name,
+				Namespace: object.GetNamespace(),
+			}})
+			return
+		}
+	}
+
+	return
 }

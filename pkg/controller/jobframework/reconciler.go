@@ -145,7 +145,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	dropFinalizers := false
 	if cJob, isComposable := job.(ComposableJob); isComposable {
-		dropFinalizers, err = cJob.Load(ctx, r.client, req.NamespacedName)
+		dropFinalizers, err = cJob.Load(ctx, r.client, &req.NamespacedName)
 	} else {
 		err = r.client.Get(ctx, req.NamespacedName, object)
 		dropFinalizers = apierrors.IsNotFound(err) || !object.GetDeletionTimestamp().IsZero()
@@ -159,11 +159,21 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	if dropFinalizers {
 		// Remove workload finalizer
-		workloads := kueue.WorkloadList{}
-		if err := r.client.List(ctx, &workloads, client.InNamespace(req.Namespace),
-			client.MatchingFields{getOwnerKey(job.GVK()): req.Name}); err != nil {
-			log.Error(err, "Unable to list child workloads")
-			return ctrl.Result{}, err
+		workloads := &kueue.WorkloadList{}
+
+		if cJob, isComposable := job.(ComposableJob); isComposable {
+			var err error
+			workloads, err = cJob.ListChildWorkloads(ctx, r.client, req.NamespacedName)
+			if err != nil {
+				log.Error(err, "Removing finalizer")
+				return ctrl.Result{}, err
+			}
+		} else {
+			if err := r.client.List(ctx, workloads, client.InNamespace(req.Namespace),
+				client.MatchingFields{GetOwnerKey(job.GVK()): req.Name}); err != nil {
+				log.Error(err, "Unable to list child workloads")
+				return ctrl.Result{}, err
+			}
 		}
 		for i := range workloads.Items {
 			err := r.removeFinalizer(ctx, &workloads.Items[i])
@@ -542,7 +552,7 @@ func FindMatchingWorkloads(ctx context.Context, c client.Client, job GenericJob)
 
 	workloads := &kueue.WorkloadList{}
 	if err := c.List(ctx, workloads, client.InNamespace(object.GetNamespace()),
-		client.MatchingFields{getOwnerKey(job.GVK()): object.GetName()}); err != nil {
+		client.MatchingFields{GetOwnerKey(job.GVK()): object.GetName()}); err != nil {
 		return nil, nil, err
 	}
 
