@@ -142,8 +142,9 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return ctrl.Result{}, nil
 	}
 
-	if rejectedChecks := workload.GetRejectedChecks(&wl); len(rejectedChecks) > 0 {
-		// Finish the workload
+	// If the workload has rejected admission checks and is not admitted mark it as finished.
+	// If it has rejected admission checks and is admitted, continue the reconcile in  order to trigger its eviction.
+	if rejectedChecks := workload.GetRejectedChecks(&wl); len(rejectedChecks) > 0 && !workload.IsAdmitted(&wl) {
 		log.V(3).Info("Workload has Rejected admission checks, Finish with failure")
 		err := workload.UpdateStatus(ctx, r.client, &wl, kueue.WorkloadFinished,
 			metav1.ConditionTrue,
