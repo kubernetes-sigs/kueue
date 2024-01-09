@@ -30,8 +30,10 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -613,13 +615,14 @@ func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.ClusterQueue{}).
+		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
 		Watches(&corev1.Namespace{}, &nsHandler).
 		WatchesRawSource(&source.Channel{Source: r.wlUpdateCh}, &wHandler).
 		WatchesRawSource(&source.Channel{Source: r.rfUpdateCh}, &rfHandler).
 		WatchesRawSource(&source.Channel{Source: r.acUpdateCh}, &acHandler).
 		WatchesRawSource(&source.Channel{Source: r.snapUpdateCh}, &snapHandler).
 		WithEventFilter(r).
-		Complete(r)
+		Complete(WithLeadingManager(mgr, r))
 }
 
 func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
