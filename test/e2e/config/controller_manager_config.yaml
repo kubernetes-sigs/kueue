@@ -1,0 +1,26 @@
+apiVersion: config.kueue.x-k8s.io/v1beta1
+kind: Configuration
+leaderElection:
+  leaderElect: true
+controller:
+  groupKindConcurrency:
+    Job.batch: 5
+    LocalQueue.kueue.x-k8s.io: 1
+    ClusterQueue.kueue.x-k8s.io: 1
+    ResourceFlavor.kueue.x-k8s.io: 1
+    Workload.kueue.x-k8s.io: 1
+clientConnection:
+  qps: 50
+  burst: 100
+integrations:
+  frameworks:
+  - "batch/job"
+  - "kubeflow.org/mpijob"
+  - "ray.io/rayjob"
+  - "jobset.x-k8s.io/jobset"
+  - "kubeflow.org/mxjob"
+  - "kubeflow.org/paddlejob"
+  - "kubeflow.org/pytorchjob"
+  - "kubeflow.org/tfjob"
+  - "kubeflow.org/xgboostjob"
+  - "pod"

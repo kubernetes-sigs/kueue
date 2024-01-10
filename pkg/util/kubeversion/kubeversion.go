@@ -79,21 +79,26 @@ func (s *ServerVersionFetcher) Start(ctx context.Context) error {
 
 // FetchServerVersion gets API server version
 func (s *ServerVersionFetcher) FetchServerVersion() error {
-	clusterVersionInfo, err := s.dc.ServerVersion()
+	v, err := FetchServerVersion(s.dc)
 	if err != nil {
 		return err
 	}
 	s.rwm.Lock()
 	defer s.rwm.Unlock()
-	serverVersion, err := versionutil.ParseSemantic(clusterVersionInfo.String())
-	if err == nil {
-		s.serverVersion = serverVersion
-	}
-	return err
+	s.serverVersion = v
+	return nil
 }
 
 func (s *ServerVersionFetcher) GetServerVersion() versionutil.Version {
 	s.rwm.RLock()
 	defer s.rwm.RUnlock()
 	return *s.serverVersion
+}
+
+func FetchServerVersion(d discovery.DiscoveryInterface) (*versionutil.Version, error) {
+	clusterVersionInfo, err := d.ServerVersion()
+	if err != nil {
+		return nil, err
+	}
+	return versionutil.ParseSemantic(clusterVersionInfo.String())
 }

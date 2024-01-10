@@ -14,9 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package testing
+package pod
 
 import (
+	"fmt"
+	"strconv"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -59,6 +61,17 @@ func MakePod(name, ns string) *PodWrapper {
 // Obj returns the inner Pod.
 func (p *PodWrapper) Obj() *corev1.Pod {
 	return &p.Pod
+}
+
+// Group returns multiple pods that form a pod group, based on the original wrapper.
+func (p *PodWrapper) MakeGroup(count int) []*corev1.Pod {
+	var pods []*corev1.Pod
+	for i := 0; i < count; i++ {
+		pod := p.Clone().Group(p.Pod.Name).GroupTotalCount(strconv.Itoa(count))
+		pod.Pod.Name += fmt.Sprintf("-%d", i)
+		pods = append(pods, pod.Obj())
+	}
+	return pods
 }
 
 // Clone returns deep copy of the Pod.

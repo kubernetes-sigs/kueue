@@ -44,6 +44,10 @@ function cluster_kind_load {
 # $1 cluster
 function cluster_kueue_deploy {
     kubectl config use-context kind-${1}
-    kubectl apply --server-side -k test/e2e/config
+    if [[ $E2E_KIND_VERSION = *1.26* ]]; then
+        kubectl apply --server-side -k test/e2e/config_1_26
+    else
+        kubectl apply --server-side -k test/e2e/config
+    fi
 }
 
