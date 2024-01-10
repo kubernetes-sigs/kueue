@@ -1686,6 +1686,14 @@ func TestReconciler(t *testing.T) {
 					}).
 					Obj(),
 			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "FinishedWorkload",
+					Message:   "Workload 'ns/a' is declared finished",
+				},
+			},
 		},
 		"when the workload is finished, its finalizer is removed": {
 			job: *baseJobWrapper.Clone().Obj(),
@@ -1708,14 +1716,6 @@ func TestReconciler(t *testing.T) {
 						Status: metav1.ConditionTrue,
 					}).
 					Obj(),
-			},
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
-					EventType: "Normal",
-					Reason:    "FinishedWorkload",
-					Message:   "Workload 'ns/a' is declared finished",
-				},
 			},
 		},
 		"the workload is created when queue name is set, with workloadPriorityClass": {

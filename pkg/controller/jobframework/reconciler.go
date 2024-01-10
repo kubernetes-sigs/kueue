@@ -283,6 +283,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			if err != nil && !apierrors.IsNotFound(err) {
 				return ctrl.Result{}, err
 			}
+			r.record.Eventf(object, corev1.EventTypeNormal, FinishedWorkload,
+				"Workload '%s' is declared finished", workload.Key(wl))
 		}
 
 		// Execute job finalization logic

@@ -307,6 +307,7 @@ var (
 			kueue.Workload{}, "TypeMeta", "ObjectMeta.ResourceVersion",
 		),
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
+		cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
 	}
 )
 
@@ -392,6 +393,39 @@ func TestReconcile(t *testing.T) {
 				OwnerReference(batchv1.SchemeGroupVersion.String(), "Job", "job", "test-uid", true, true).
 				DeletionTimestamp(testStartTime).
 				Obj(),
+		},
+		"workload with rejected checks": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				OwnerReference("ownerapi", "ownerkind", "ownername", "owneruid", true, true).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateRejected,
+				}).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				OwnerReference("ownerapi", "ownerkind", "ownername", "owneruid", true, true).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateRejected,
+				}).
+				Condition(metav1.Condition{
+					Type:    "Finished",
+					Status:  "True",
+					Reason:  "AdmissionChecksRejected",
+					Message: "Admission checks [check] are rejected",
+				}).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "ownername"},
+					EventType: "Normal",
+					Reason:    "WorkloadFinished",
+				},
+			},
 		},
 	}
 	for name, tc := range cases {
