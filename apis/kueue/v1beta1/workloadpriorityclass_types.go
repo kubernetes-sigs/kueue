@@ -20,12 +20,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-//+genclient
-//+genclient:nonNamespaced
-//+kubebuilder:object:root=true
-//+kubebuilder:storageversion
-//+kubebuilder:resource:scope=Cluster
-//+kubebuilder:printcolumn:name="Value",JSONPath=".value",type=integer,description="Value of workloadPriorityClass's Priority"
+// +genclient
+// +genclient:nonNamespaced
+// +kubebuilder:object:root=true
+// +kubebuilder:storageversion
+// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:printcolumn:name="Value",JSONPath=".value",type=integer,description="Value of workloadPriorityClass's Priority"
 
 // WorkloadPriorityClass is the Schema for the workloadPriorityClass API
 type WorkloadPriorityClass struct {
@@ -43,7 +43,7 @@ type WorkloadPriorityClass struct {
 	Description string `json:"description,omitempty"`
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
 // WorkloadPriorityClassList contains a list of WorkloadPriorityClass
 type WorkloadPriorityClassList struct {
