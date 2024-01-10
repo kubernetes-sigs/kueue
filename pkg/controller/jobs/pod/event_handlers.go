@@ -134,6 +134,4 @@ func (h *parentWorkloadHandler) queueReconcileForChildPod(ctx context.Context, o
 			return
 		}
 	}
-
-	return
 }
