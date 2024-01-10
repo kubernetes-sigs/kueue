@@ -57,11 +57,11 @@ type ProvisioningRequestConfigSpec struct {
 // +kubebuilder:validation:MaxLength=255
 type Parameter string
 
-//+genclient
-//+genclient:nonNamespaced
-//+kubebuilder:object:root=true
-//+kubebuilder:storageversion
-//+kubebuilder:resource:scope=Cluster
+// +genclient
+// +genclient:nonNamespaced
+// +kubebuilder:object:root=true
+// +kubebuilder:storageversion
+// +kubebuilder:resource:scope=Cluster
 
 // ProvisioningRequestConfig is the Schema for the provisioningrequestconfig API
 type ProvisioningRequestConfig struct {
@@ -71,7 +71,7 @@ type ProvisioningRequestConfig struct {
 	Spec ProvisioningRequestConfigSpec `json:"spec,omitempty"`
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
 // ProvisioningRequestConfigList contains a list of ProvisioningRequestConfig
 type ProvisioningRequestConfigList struct {

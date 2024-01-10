@@ -94,12 +94,12 @@ const (
 	AdmissionCheckActive string = "Active"
 )
 
-//+genclient
-//+genclient:nonNamespaced
-//+kubebuilder:object:root=true
-//+kubebuilder:storageversion
-//+kubebuilder:subresource:status
-//+kubebuilder:resource:scope=Cluster
+// +genclient
+// +genclient:nonNamespaced
+// +kubebuilder:object:root=true
+// +kubebuilder:storageversion
+// +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Cluster
 
 // AdmissionCheck is the Schema for the admissionchecks API
 type AdmissionCheck struct {
@@ -110,7 +110,7 @@ type AdmissionCheck struct {
 	Status AdmissionCheckStatus `json:"status,omitempty"`
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
 // AdmissionCheckList contains a list of AdmissionCheck
 type AdmissionCheckList struct {
