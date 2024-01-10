@@ -145,14 +145,14 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 		log.V(5).Info("Pod owner is managed by kueue, skipping")
 		return nil
 	}
-
+	podMatch := false
 	// Check for pod label selector match
 	podSelector, err := metav1.LabelSelectorAsSelector(w.podSelector)
 	if err != nil {
 		return fmt.Errorf("failed to parse pod selector: %w", err)
 	}
-	if !podSelector.Matches(labels.Set(pod.pod.GetLabels())) {
-		return nil
+	if podSelector.Matches(labels.Set(pod.pod.GetLabels())) {
+		podMatch = true
 	}
 
 	// Get pod namespace and check for namespace label selector match
@@ -169,7 +169,10 @@ func (w *PodWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	if err != nil {
 		return fmt.Errorf("failed to parse namespace selector: %w", err)
 	}
-	if !nsSelector.Matches(labels.Set(ns.GetLabels())) {
+	if nsSelector.Matches(labels.Set(ns.GetLabels())) {
+		podMatch = true
+	}
+	if !podMatch {
 		return nil
 	}
 

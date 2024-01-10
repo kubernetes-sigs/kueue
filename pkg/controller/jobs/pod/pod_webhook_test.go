@@ -73,6 +73,19 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				Obj(),
 		},
+		"pod with queue nil pod selector": {
+			initObjects: []client.Object{defaultNamespace},
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				Obj(),
+			namespaceSelector: defaultNamespaceSelector,
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				Label("kueue.x-k8s.io/managed", "true").
+				KueueSchedulingGate().
+				KueueFinalizer().
+				Obj(),
+		},
 		"pod with queue matching ns selector": {
 			initObjects: []client.Object{defaultNamespace},
 			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
