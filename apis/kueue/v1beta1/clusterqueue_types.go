@@ -115,12 +115,12 @@ type ClusterQueueSpec struct {
 type QueueingStrategy string
 
 const (
-	// StrictFIFO means that workloads are ordered strictly by creation time.
+	// StrictFIFO means that workloads of the same priority are ordered strictly by creation time.
 	// Older workloads that can't be admitted will block admitting newer
 	// workloads even if they fit available quota.
 	StrictFIFO QueueingStrategy = "StrictFIFO"
 
-	// BestEffortFIFO means that workloads are ordered by creation time,
+	// BestEffortFIFO means that workloads of the same priority are ordered by creation time,
 	// however older workloads that can't be admitted will not block
 	// admitting newer workloads that fit existing quota.
 	BestEffortFIFO QueueingStrategy = "BestEffortFIFO"

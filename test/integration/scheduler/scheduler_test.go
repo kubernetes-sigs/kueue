@@ -1226,9 +1226,11 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		var (
 			strictFIFOClusterQ *kueue.ClusterQueue
 			matchingNS         *corev1.Namespace
+			chName             string
 		)
 
 		ginkgo.BeforeEach(func() {
+			chName = "cohort"
 			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).Should(gomega.Succeed())
 			strictFIFOClusterQ = testing.MakeClusterQueue("strict-fifo-cq").
 				QueueingStrategy(kueue.StrictFIFO).
@@ -1242,7 +1244,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 					},
 				}).
 				ResourceGroup(*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5", "0").Obj()).
-				Cohort("strict-fifo-cohort").
+				Cohort(chName).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, strictFIFOClusterQ)).Should(gomega.Succeed())
 			matchingNS = &corev1.Namespace{
@@ -1313,6 +1315,80 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, strictFIFOClusterQ.Name, wl1, wl3)
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
 			util.ExpectPendingWorkloadsMetric(strictFIFOClusterQ, 0, 1)
+		})
+
+		ginkgo.It("Pending workload with StrictFIFO doesn't block other CQ from borrowing from a third CQ", func() {
+			ginkgo.By("Creating ClusterQueues and LocalQueues")
+			cqTeamA := testing.MakeClusterQueue("team-a").
+				ResourceGroup(*testing.MakeFlavorQuotas(onDemandFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj()).
+				Cohort(chName).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, cqTeamA)).Should(gomega.Succeed())
+			defer func() {
+				gomega.Expect(util.DeleteNamespace(ctx, k8sClient, matchingNS)).To(gomega.Succeed())
+				util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cqTeamA, true)
+			}()
+
+			strictFIFOLocalQueue := testing.MakeLocalQueue("strict-fifo-q", matchingNS.Name).ClusterQueue(strictFIFOClusterQ.Name).Obj()
+			lqTeamA := testing.MakeLocalQueue("team-a-lq", matchingNS.Name).ClusterQueue(cqTeamA.Name).Obj()
+
+			gomega.Expect(k8sClient.Create(ctx, strictFIFOLocalQueue)).Should(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, lqTeamA)).Should(gomega.Succeed())
+
+			cqSharedResources := testing.MakeClusterQueue("shared-resources").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas(onDemandFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj()).
+				Cohort(chName).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, cqSharedResources)).Should(gomega.Succeed())
+			defer func() {
+				gomega.Expect(util.DeleteNamespace(ctx, k8sClient, matchingNS)).To(gomega.Succeed())
+				util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, cqSharedResources, true)
+			}()
+
+			ginkgo.By("Creating workloads")
+			admittedWl1 := testing.MakeWorkload("wl", matchingNS.Name).Queue(strictFIFOLocalQueue.
+				Name).Request(corev1.ResourceCPU, "3").Priority(10).Obj()
+			gomega.Expect(k8sClient.Create(ctx, admittedWl1)).Should(gomega.Succeed())
+
+			admittedWl2 := testing.MakeWorkload("player1-a", matchingNS.Name).Queue(lqTeamA.
+				Name).Request(corev1.ResourceCPU, "5").Priority(1).Obj()
+			gomega.Expect(k8sClient.Create(ctx, admittedWl2)).Should(gomega.Succeed())
+
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, admittedWl1, admittedWl2)
+			gomega.Eventually(func() error {
+				var cq kueue.ClusterQueue
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqTeamA), &cq)).To(gomega.Succeed())
+				cq.Spec.StopPolicy = ptr.To(kueue.Hold)
+				return k8sClient.Update(ctx, &cq)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			// pendingWl exceed nominal+borrowing quota and cannot preempt due to low priority.
+			pendingWl := testing.MakeWorkload("pending-wl", matchingNS.Name).Queue(strictFIFOLocalQueue.
+				Name).Request(corev1.ResourceCPU, "3").Priority(9).Obj()
+			gomega.Expect(k8sClient.Create(ctx, pendingWl)).Should(gomega.Succeed())
+
+			// borrowingWL can borrow shared resources, so it should be scheduled even if workloads
+			// in other cluster queues are waiting to reclaim nominal resources.
+			borrowingWl := testing.MakeWorkload("player2-a", matchingNS.Name).Queue(lqTeamA.
+				Name).Request(corev1.ResourceCPU, "5").Priority(11).Obj()
+			gomega.Expect(k8sClient.Create(ctx, borrowingWl)).Should(gomega.Succeed())
+
+			// blockedWL wants to borrow resources from strictFIFO CQ, but should be blocked
+			// from borrowing because there is a pending workload in strictFIFO CQ.
+			blockedWl := testing.MakeWorkload("player3-a", matchingNS.Name).Queue(lqTeamA.
+				Name).Request(corev1.ResourceCPU, "1").Priority(10).Obj()
+			gomega.Expect(k8sClient.Create(ctx, blockedWl)).Should(gomega.Succeed())
+
+			gomega.Eventually(func() error {
+				var cq kueue.ClusterQueue
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqTeamA), &cq)).To(gomega.Succeed())
+				cq.Spec.StopPolicy = ptr.To(kueue.None)
+				return k8sClient.Update(ctx, &cq)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, pendingWl, blockedWl)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, borrowingWl)
 		})
 	})
 

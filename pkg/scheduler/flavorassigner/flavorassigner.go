@@ -51,6 +51,7 @@ type Assignment struct {
 	representativeMode *FlavorAssignmentMode
 }
 
+// Borrows return whether assigment requires borrowing.
 func (a *Assignment) Borrows() bool {
 	return a.Borrowing
 }
@@ -198,7 +199,7 @@ type FlavorAssignmentMode int
 const (
 	// NoFit means that there is not enough quota to assign this flavor.
 	NoFit FlavorAssignmentMode = iota
-	// Preempt means that there is not enough unused min quota in the ClusterQueue
+	// Preempt means that there is not enough unused nominal quota in the ClusterQueue
 	// or cohort. Preempting other workloads in the CluserQueue or cohort, or
 	// waiting for them to finish might make it possible to assign this flavor.
 	Preempt
@@ -231,7 +232,7 @@ func lastAssignmentOutdated(wl *workload.Info, cq *cache.ClusterQueue) bool {
 		(cq.Cohort != nil && cq.Cohort.AllocatableResourceGeneration > wl.LastAssignment.CohortGeneration)
 }
 
-// AssignFlavors assigns flavors for each of the resources requested in each pod set.
+// AssignFlavors assigns a flavor to each of the resources requested in each pod set.
 // The result for each pod set is accompanied with reasons why the flavor can't
 // be assigned immediately. Each assigned flavor is accompanied with a
 // FlavorAssignmentMode.
@@ -546,7 +547,7 @@ func fitsResourceQuota(fName kueue.ResourceFlavorReference, rName corev1.Resourc
 	used := cq.Usage[fName][rName]
 	mode := NoFit
 	if val <= rQuota.Nominal {
-		// The request can be satisfied by the min quota, assuming quota is
+		// The request can be satisfied by the nominal quota, assuming quota is
 		// reclaimed from the cohort or assuming all active workloads in the
 		// ClusterQueue are preempted.
 		mode = Preempt
