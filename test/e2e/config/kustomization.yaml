@@ -4,6 +4,10 @@ kind: Kustomization
 resources:
 - ../../../config/default
 
+replicas:
+- name: kueue-controller-manager
+  count: 2
+
 patches:
 - path: manager_e2e_patch.yaml
   target:
