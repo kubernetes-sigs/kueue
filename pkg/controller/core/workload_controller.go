@@ -144,27 +144,27 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 
 	// If the workload has rejected admission checks and is not admitted mark it as finished.
 	// If it has rejected admission checks and is admitted, continue the reconcile in  order to trigger its eviction.
-	if rejectedChecks := workload.GetRejectedChecks(&wl); len(rejectedChecks) > 0 && !workload.IsAdmitted(&wl) {
-		log.V(3).Info("Workload has Rejected admission checks, Finish with failure")
-		err := workload.UpdateStatus(ctx, r.client, &wl, kueue.WorkloadFinished,
-			metav1.ConditionTrue,
-			"AdmissionChecksRejected",
-			fmt.Sprintf("Admission checks %v are rejected", rejectedChecks),
-			constants.KueueName)
-
-		if err == nil {
-			for _, owner := range wl.OwnerReferences {
-				uowner := unstructured.Unstructured{}
-				uowner.SetKind(owner.Kind)
-				uowner.SetAPIVersion(owner.APIVersion)
-				uowner.SetName(owner.Name)
-				uowner.SetNamespace(wl.Namespace)
-				uowner.SetUID(owner.UID)
-				r.recorder.Eventf(&uowner, corev1.EventTypeNormal, "WorkloadFinished", "Admission checks %v are rejected", rejectedChecks)
+	if !workload.IsAdmitted(&wl) && (!apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) || !workload.HasQuotaReservation(&wl)) {
+		if rejectedChecks := workload.GetRejectedChecks(&wl); len(rejectedChecks) > 0 {
+			log.V(3).Info("Workload has Rejected admission checks, Finish with failure")
+			err := workload.UpdateStatus(ctx, r.client, &wl, kueue.WorkloadFinished,
+				metav1.ConditionTrue,
+				"AdmissionChecksRejected",
+				fmt.Sprintf("Admission checks %v are rejected", rejectedChecks),
+				constants.KueueName)
+			if err == nil {
+				for _, owner := range wl.OwnerReferences {
+					uowner := unstructured.Unstructured{}
+					uowner.SetKind(owner.Kind)
+					uowner.SetAPIVersion(owner.APIVersion)
+					uowner.SetName(owner.Name)
+					uowner.SetNamespace(wl.Namespace)
+					uowner.SetUID(owner.UID)
+					r.recorder.Eventf(&uowner, corev1.EventTypeNormal, "WorkloadFinished", "Admission checks %v are rejected", rejectedChecks)
+				}
 			}
+			return ctrl.Result{}, err
 		}
-
-		return ctrl.Result{}, err
 	}
 
 	cqName, cqOk := r.queues.ClusterQueueForWorkload(&wl)
@@ -175,22 +175,22 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	}
 
 	if workload.SyncAdmittedCondition(&wl) {
-		if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true); err != nil {
-			return ctrl.Result{}, err
-		}
-		if workload.IsAdmitted(&wl) {
+		//If it used to be admitted, don't update the status, trigger the eviction first
+		if !workload.IsAdmitted(&wl) {
+			if evictionTriggered, err := r.reconcileCheckBasedEviction(ctx, &wl); evictionTriggered || err != nil {
+				return ctrl.Result{}, err
+			}
+		} else {
+			if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true); err != nil {
+				return ctrl.Result{}, err
+			}
 			c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 			r.recorder.Eventf(&wl, corev1.EventTypeNormal, "Admitted", "Admitted by ClusterQueue %v, wait time since reservation was %.0fs", wl.Status.Admission.ClusterQueue, time.Since(c.LastTransitionTime.Time).Seconds())
-
 		}
 		return ctrl.Result{}, nil
 	}
 
 	if workload.HasQuotaReservation(&wl) {
-		if evictionTriggered, err := r.reconcileCheckBasedEviction(ctx, &wl); evictionTriggered || err != nil {
-			return ctrl.Result{}, err
-		}
-
 		if updated, err := r.reconcileOnClusterQueueActiveState(ctx, &wl, cqName); updated || err != nil {
 			return ctrl.Result{}, err
 		}
