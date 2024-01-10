@@ -206,14 +206,14 @@ func DeleteRuntimeClass(ctx context.Context, c client.Client, runtimeClass *node
 }
 
 func UnholdQueue(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue) {
-	gomega.EventuallyWithOffset(1, func() error {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		var cqCopy kueue.ClusterQueue
-		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &cqCopy)).To(gomega.Succeed())
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &cqCopy)).To(gomega.Succeed())
 		if ptr.Deref(cqCopy.Spec.StopPolicy, kueue.None) == kueue.None {
-			return nil
+			return
 		}
 		cqCopy.Spec.StopPolicy = ptr.To(kueue.None)
-		return k8sClient.Update(ctx, &cqCopy)
+		g.Expect(k8sClient.Update(ctx, &cqCopy)).To(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
