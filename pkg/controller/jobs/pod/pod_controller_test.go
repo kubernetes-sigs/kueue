@@ -149,18 +149,15 @@ func TestReconciler(t *testing.T) {
 	now := time.Now()
 
 	testCases := map[string]struct {
-		initObjects   []client.Object
-		pods          []corev1.Pod
-		wantPods      []corev1.Pod
-		workloads     []kueue.Workload
-		wantWorkloads []kueue.Workload
-		// wantErrs should be the same length and order as pods
-		wantErrs        []error
+		initObjects     []client.Object
+		pods            []corev1.Pod
+		wantPods        []corev1.Pod
+		workloads       []kueue.Workload
+		wantWorkloads   []kueue.Workload
+		wantErr         error
 		workloadCmpOpts []cmp.Option
 		// If true, the test will delete workloads before running reconcile
 		deleteWorkloads bool
-		// Names of pods, for which reconcile should be skipped
-		skipReconcileForPods map[string]struct{}
 	}{
 		"scheduling gate is removed and node selector is added if workload is admitted": {
 			initObjects: []client.Object{
@@ -218,7 +215,7 @@ func TestReconciler(t *testing.T) {
 					Admitted(true).
 					Obj(),
 			},
-			wantErrs:        []error{jobframework.ErrNoMatchingWorkloads},
+			wantErr:         jobframework.ErrNoMatchingWorkloads,
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"the workload is created when queue name is set": {
@@ -721,7 +718,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltesting.MakePodSet("b990493b", 2).
 							Request(corev1.ResourceCPU, "1").
@@ -1232,7 +1229,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltesting.MakePodSet("b990493b", 2).
 							Request(corev1.ResourceCPU, "1").
@@ -1670,10 +1667,6 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
-			// On the second reconciliation, the generic reconciler will try to update reclaimable
-			// pods. Since that operation uses server-side apply, which the fake client doesn't
-			// support, we're skipping reconcile for the second pod.
-			skipReconcileForPods: map[string]struct{}{"pod2": {}},
 		},
 		"if there's not enough non-failed pods in the group, workload should not be recreated": {
 			pods: []corev1.Pod{
@@ -2164,9 +2157,6 @@ func TestReconciler(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			if tc.wantErrs != nil && len(tc.wantErrs) != len(tc.pods) {
-				t.Fatalf("pods and wantErrs in the test should be the same length and order")
-			}
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder()
 			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
@@ -2208,24 +2198,11 @@ func TestReconciler(t *testing.T) {
 			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
 			reconciler := NewReconciler(kClient, recorder)
 
-			for i := range tc.pods {
-				if _, ok := tc.skipReconcileForPods[tc.pods[i].Name]; ok {
-					continue
-				}
+			podReconcileRequest := reconcileRequestForPod(&tc.pods[0])
+			_, err := reconciler.Reconcile(ctx, podReconcileRequest)
 
-				podReconcileRequest := reconcileRequestForPod(&tc.pods[i])
-				_, err := reconciler.Reconcile(ctx, podReconcileRequest)
-
-				var wantErr error
-				if tc.wantErrs == nil {
-					wantErr = nil
-				} else {
-					wantErr = tc.wantErrs[i]
-				}
-
-				if diff := cmp.Diff(wantErr, err, cmpopts.EquateErrors()); diff != "" {
-					t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
-				}
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
 			}
 
 			var gotPods corev1.PodList
