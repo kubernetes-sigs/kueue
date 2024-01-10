@@ -20,7 +20,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/client-go/discovery"
@@ -82,24 +81,22 @@ var _ = ginkgo.Describe("Pod groups", func() {
 		})
 
 		ginkgo.It("should admit group that fits", func() {
-			g1 := podtesting.MakePod("g1", ns.Name).
+			group := podtesting.MakePod("group", ns.Name).
 				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
 				Queue(lq.Name).
 				Request(corev1.ResourceCPU, "1").
 				MakeGroup(2)
-			g1Key := client.ObjectKey{Namespace: ns.Name, Name: "g1"}
-			for _, p := range g1 {
+			gKey := client.ObjectKey{Namespace: ns.Name, Name: "group"}
+			for _, p := range group {
 				gomega.Expect(k8sClient.Create(ctx, p)).To(gomega.Succeed())
 				gomega.Expect(p.Spec.SchedulingGates).
 					To(gomega.ContainElement(corev1.PodSchedulingGate{
 						Name: pod.SchedulingGateName}))
 			}
 			ginkgo.By("Starting admission", func() {
-				util.UnholdQueue(ctx, k8sClient, cq)
-
 				// Verify that the Pods start with the appropriate selector.
 				gomega.Eventually(func(g gomega.Gomega) {
-					for _, origPod := range g1 {
+					for _, origPod := range group {
 						var p corev1.Pod
 						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
 						g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
@@ -108,27 +105,65 @@ var _ = ginkgo.Describe("Pod groups", func() {
 						}))
 					}
 				}).Should(gomega.Succeed())
-				// Verify that the Workload finishes.
-				gomega.Eventually(func(g gomega.Gomega) {
-					var wl kueue.Workload
-					g.Expect(k8sClient.Get(ctx, g1Key, &wl)).To(gomega.Succeed())
-					g.Expect(apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished)).
-						To(gomega.BeTrueBecause("it's finished"))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				util.ExpectWorkloadToFinish(ctx, k8sClient, gKey)
 			})
 
 			ginkgo.By("Deleting finished Pods", func() {
-				for _, p := range g1 {
+				for _, p := range group {
 					gomega.Expect(k8sClient.Delete(ctx, p)).To(gomega.Succeed())
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
-					for _, p := range g1 {
+					for _, p := range group {
 						var pCopy corev1.Pod
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &pCopy)).To(testing.BeNotFoundError())
 					}
 					var wl kueue.Workload
-					g.Expect(k8sClient.Get(ctx, g1Key, &wl)).Should(testing.BeNotFoundError())
+					g.Expect(k8sClient.Get(ctx, gKey, &wl)).Should(testing.BeNotFoundError())
 				}, util.Timeout, util.Interval)
+			})
+		})
+
+		ginkgo.It("Should only admit a complete group", func() {
+			group := podtesting.MakePod("group", ns.Name).
+				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
+				Queue(lq.Name).
+				Request(corev1.ResourceCPU, "1").
+				MakeGroup(3)
+
+			ginkgo.By("Incomplete group should not start", func() {
+				// Create incomplete group.
+				for _, p := range group[:2] {
+					gomega.Expect(k8sClient.Create(ctx, p.DeepCopy())).To(gomega.Succeed())
+				}
+				gomega.Consistently(func(g gomega.Gomega) {
+					for _, origPod := range group[:2] {
+						var p corev1.Pod
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
+						g.Expect(p.Spec.SchedulingGates).
+							To(gomega.ContainElement(corev1.PodSchedulingGate{
+								Name: pod.SchedulingGateName}))
+					}
+				}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			})
+			ginkgo.By("Incomplete group can be deleted", func() {
+				for _, p := range group[:2] {
+					gomega.Expect(k8sClient.Delete(ctx, p)).To(gomega.Succeed())
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					for _, origPod := range group[:2] {
+						var p corev1.Pod
+						err := k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)
+						g.Expect(err).To(testing.BeNotFoundError())
+					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+			ginkgo.By("Complete group runs successfully", func() {
+				for _, p := range group {
+					gomega.Expect(k8sClient.Create(ctx, p.DeepCopy())).To(gomega.Succeed())
+				}
+
+				util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKey{Namespace: ns.Name, Name: "group"})
 			})
 		})
 	})
