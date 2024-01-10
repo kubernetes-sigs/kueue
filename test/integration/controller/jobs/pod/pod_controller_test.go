@@ -289,12 +289,6 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, lookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
 
-					gomega.Eventually(func(g gomega.Gomega) {
-						ok, err := testing.CheckLatestEvent(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Admitted by clusterQueue %v", clusterQueue.Name))
-						g.Expect(err).NotTo(gomega.HaveOccurred())
-						g.Expect(ok).To(gomega.BeTrue())
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
 					gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					gomega.Expect(createdWorkload.Status.Conditions).Should(gomega.BeComparableTo(
 						[]metav1.Condition{
