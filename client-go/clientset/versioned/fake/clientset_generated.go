@@ -24,6 +24,8 @@ import (
 	fakediscovery "k8s.io/client-go/discovery/fake"
 	"k8s.io/client-go/testing"
 	clientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
+	kueuev1alpha1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1alpha1"
+	fakekueuev1alpha1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1alpha1/fake"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1"
 	fakekueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1/fake"
 	visibilityv1alpha1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1alpha1"
@@ -79,6 +81,11 @@ var (
 	_ clientset.Interface = &Clientset{}
 	_ testing.FakeClient  = &Clientset{}
 )
+
+// KueueV1alpha1 retrieves the KueueV1alpha1Client
+func (c *Clientset) KueueV1alpha1() kueuev1alpha1.KueueV1alpha1Interface {
+	return &fakekueuev1alpha1.FakeKueueV1alpha1{Fake: &c.Fake}
+}
 
 // KueueV1beta1 retrieves the KueueV1beta1Client
 func (c *Clientset) KueueV1beta1() kueuev1beta1.KueueV1beta1Interface {

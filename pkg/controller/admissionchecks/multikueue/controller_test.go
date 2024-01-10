@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
@@ -58,7 +59,7 @@ func TestReconcile(t *testing.T) {
 		checks       []kueue.AdmissionCheck
 		controllers  map[string]*remoteController
 		reconcileFor string
-		configs      []kueue.MultiKueueConfig
+		configs      []kueuealpha.MultiKueueConfig
 		secrets      []corev1.Secret
 
 		wantChecks      []kueue.AdmissionCheck
@@ -103,14 +104,14 @@ func TestReconcile(t *testing.T) {
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			},
-			configs: []kueue.MultiKueueConfig{
+			configs: []kueuealpha.MultiKueueConfig{
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "config1"},
-					Spec: kueue.MultiKueueConfigSpec{
-						Clusters: []kueue.MultiKueueCluster{
+					Spec: kueuealpha.MultiKueueConfigSpec{
+						Clusters: []kueuealpha.MultiKueueCluster{
 							{
 								Name: "worker1",
-								KubeconfigRef: kueue.KubeconfigRef{
+								KubeconfigRef: kueuealpha.KubeconfigRef{
 									SecretNamespace: TestNamespace,
 									SecretName:      "secret1",
 									ConfigKey:       "kubeconfig",
@@ -141,14 +142,14 @@ func TestReconcile(t *testing.T) {
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			},
-			configs: []kueue.MultiKueueConfig{
+			configs: []kueuealpha.MultiKueueConfig{
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "config1"},
-					Spec: kueue.MultiKueueConfigSpec{
-						Clusters: []kueue.MultiKueueCluster{
+					Spec: kueuealpha.MultiKueueConfigSpec{
+						Clusters: []kueuealpha.MultiKueueCluster{
 							{
 								Name: "worker1",
-								KubeconfigRef: kueue.KubeconfigRef{
+								KubeconfigRef: kueuealpha.KubeconfigRef{
 									SecretNamespace: TestNamespace,
 									SecretName:      "secret1",
 									ConfigKey:       "kubeconfig",
@@ -184,14 +185,14 @@ func TestReconcile(t *testing.T) {
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			},
-			configs: []kueue.MultiKueueConfig{
+			configs: []kueuealpha.MultiKueueConfig{
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "config1"},
-					Spec: kueue.MultiKueueConfigSpec{
-						Clusters: []kueue.MultiKueueCluster{
+					Spec: kueuealpha.MultiKueueConfigSpec{
+						Clusters: []kueuealpha.MultiKueueCluster{
 							{
 								Name: "worker1",
-								KubeconfigRef: kueue.KubeconfigRef{
+								KubeconfigRef: kueuealpha.KubeconfigRef{
 									SecretNamespace: TestNamespace,
 									SecretName:      "secret1",
 									ConfigKey:       "kubeconfig",
@@ -230,14 +231,14 @@ func TestReconcile(t *testing.T) {
 					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			},
-			configs: []kueue.MultiKueueConfig{
+			configs: []kueuealpha.MultiKueueConfig{
 				{
 					ObjectMeta: metav1.ObjectMeta{Name: "config1"},
-					Spec: kueue.MultiKueueConfigSpec{
-						Clusters: []kueue.MultiKueueCluster{
+					Spec: kueuealpha.MultiKueueConfigSpec{
+						Clusters: []kueuealpha.MultiKueueCluster{
 							{
 								Name: "worker1",
-								KubeconfigRef: kueue.KubeconfigRef{
+								KubeconfigRef: kueuealpha.KubeconfigRef{
 									SecretNamespace: TestNamespace,
 									SecretName:      "secret1",
 									ConfigKey:       "kubeconfig",
@@ -285,7 +286,7 @@ func TestReconcile(t *testing.T) {
 
 			builder = builder.WithLists(
 				&kueue.AdmissionCheckList{Items: tc.checks},
-				&kueue.MultiKueueConfigList{Items: tc.configs},
+				&kueuealpha.MultiKueueConfigList{Items: tc.configs},
 				&corev1.SecretList{Items: tc.secrets},
 			)
 

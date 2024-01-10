@@ -23,6 +23,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/slices"
@@ -39,17 +40,17 @@ var (
 )
 
 func indexUsingKubeConfigs(obj client.Object) []string {
-	cfg, isCfg := obj.(*kueue.MultiKueueConfig)
+	cfg, isCfg := obj.(*kueuealpha.MultiKueueConfig)
 	if !isCfg || len(cfg.Spec.Clusters) == 0 {
 		return nil
 	}
-	return slices.Map(cfg.Spec.Clusters, func(c *kueue.MultiKueueCluster) string {
+	return slices.Map(cfg.Spec.Clusters, func(c *kueuealpha.MultiKueueCluster) string {
 		return strings.Join([]string{c.KubeconfigRef.SecretNamespace, c.KubeconfigRef.SecretName}, "/")
 	})
 }
 
 func SetupIndexer(ctx context.Context, indexer client.FieldIndexer) error {
-	if err := indexer.IndexField(ctx, &kueue.MultiKueueConfig{}, UsingKubeConfigs, indexUsingKubeConfigs); err != nil {
+	if err := indexer.IndexField(ctx, &kueuealpha.MultiKueueConfig{}, UsingKubeConfigs, indexUsingKubeConfigs); err != nil {
 		return fmt.Errorf("setting index on checks config used kubeconfig: %w", err)
 	}
 	if err := indexer.IndexField(ctx, &kueue.AdmissionCheck{}, AdmissionCheckUsingConfigKey, admissioncheck.IndexerByConfigFunction(ControllerName, configGVK)); err != nil {

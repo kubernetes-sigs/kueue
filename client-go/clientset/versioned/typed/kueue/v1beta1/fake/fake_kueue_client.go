@@ -39,10 +39,6 @@ func (c *FakeKueueV1beta1) LocalQueues(namespace string) v1beta1.LocalQueueInter
 	return &FakeLocalQueues{c, namespace}
 }
 
-func (c *FakeKueueV1beta1) MultiKueueConfigs() v1beta1.MultiKueueConfigInterface {
-	return &FakeMultiKueueConfigs{c}
-}
-
 func (c *FakeKueueV1beta1) ProvisioningRequestConfigs() v1beta1.ProvisioningRequestConfigInterface {
 	return &FakeProvisioningRequestConfigs{c}
 }

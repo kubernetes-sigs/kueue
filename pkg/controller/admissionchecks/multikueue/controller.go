@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 )
@@ -47,10 +48,10 @@ const (
 	ControllerName = "kueue.x-k8s.io/multikueue"
 )
 
-type multiKueueStoreHelper = admissioncheck.ConfigHelper[*kueue.MultiKueueConfig, kueue.MultiKueueConfig]
+type multiKueueStoreHelper = admissioncheck.ConfigHelper[*kueuealpha.MultiKueueConfig, kueuealpha.MultiKueueConfig]
 
 func newMultiKueueStoreHelper(c client.Client) (*multiKueueStoreHelper, error) {
-	return admissioncheck.NewConfigHelper[*kueue.MultiKueueConfig](c)
+	return admissioncheck.NewConfigHelper[*kueuealpha.MultiKueueConfig](c)
 }
 
 type AcReconciler struct {
@@ -177,7 +178,7 @@ func (a *AcReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	return reconcile.Result{}, nil
 }
 
-func (cc *AcReconciler) getKubeConfigs(ctx context.Context, spec *kueue.MultiKueueConfigSpec) (map[string][]byte, error) {
+func (cc *AcReconciler) getKubeConfigs(ctx context.Context, spec *kueuealpha.MultiKueueConfigSpec) (map[string][]byte, error) {
 	ret := make(map[string][]byte, len(spec.Clusters))
 	for _, c := range spec.Clusters {
 		ref := c.KubeconfigRef
@@ -249,7 +250,7 @@ func (a *AcReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.AdmissionCheck{}).
-		Watches(&kueue.MultiKueueConfig{}, &mkcHandler{client: a.client}).
+		Watches(&kueuealpha.MultiKueueConfig{}, &mkcHandler{client: a.client}).
 		Watches(&corev1.Secret{}, &secretHandler{client: a.client}).
 		Complete(a)
 }
@@ -261,7 +262,7 @@ type mkcHandler struct {
 var _ handler.EventHandler = (*mkcHandler)(nil)
 
 func (m *mkcHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.RateLimitingInterface) {
-	mkc, isMKC := event.Object.(*kueue.MultiKueueConfig)
+	mkc, isMKC := event.Object.(*kueuealpha.MultiKueueConfig)
 	if !isMKC {
 		return
 	}
@@ -272,8 +273,8 @@ func (m *mkcHandler) Create(ctx context.Context, event event.CreateEvent, q work
 }
 
 func (m *mkcHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.RateLimitingInterface) {
-	oldMKC, isOldMKC := event.ObjectOld.(*kueue.MultiKueueConfig)
-	newMKC, isNewMKC := event.ObjectNew.(*kueue.MultiKueueConfig)
+	oldMKC, isOldMKC := event.ObjectOld.(*kueuealpha.MultiKueueConfig)
+	newMKC, isNewMKC := event.ObjectNew.(*kueuealpha.MultiKueueConfig)
 	if !isOldMKC || !isNewMKC || equality.Semantic.DeepEqual(oldMKC.Spec.Clusters, newMKC.Spec.Clusters) {
 		return
 	}
@@ -284,7 +285,7 @@ func (m *mkcHandler) Update(ctx context.Context, event event.UpdateEvent, q work
 }
 
 func (m *mkcHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.RateLimitingInterface) {
-	mkc, isMKC := event.Object.(*kueue.MultiKueueConfig)
+	mkc, isMKC := event.Object.(*kueuealpha.MultiKueueConfig)
 	if !isMKC {
 		return
 	}
@@ -295,7 +296,7 @@ func (m *mkcHandler) Delete(ctx context.Context, event event.DeleteEvent, q work
 }
 
 func (m *mkcHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.RateLimitingInterface) {
-	mkc, isMKC := event.Object.(*kueue.MultiKueueConfig)
+	mkc, isMKC := event.Object.(*kueuealpha.MultiKueueConfig)
 	if !isMKC {
 		return
 	}
@@ -355,7 +356,7 @@ func (s *secretHandler) Generic(ctx context.Context, event event.GenericEvent, q
 }
 
 func (s *secretHandler) queue(ctx context.Context, obj client.Object, q workqueue.RateLimitingInterface) error {
-	users := &kueue.MultiKueueConfigList{}
+	users := &kueuealpha.MultiKueueConfigList{}
 	secret, isSecret := obj.(*corev1.Secret)
 	if !isSecret {
 		return errors.New("not a secret")

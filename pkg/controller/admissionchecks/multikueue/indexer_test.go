@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -46,6 +47,9 @@ func getClientBuilder() (*fake.ClientBuilder, context.Context) {
 	if err := kueue.AddToScheme(scheme); err != nil {
 		panic(err)
 	}
+	if err := kueuealpha.AddToScheme(scheme); err != nil {
+		panic(err)
+	}
 
 	ctx := context.Background()
 	builder := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&corev1.Namespace{
@@ -59,13 +63,13 @@ func getClientBuilder() (*fake.ClientBuilder, context.Context) {
 
 func TestMultikueConfigUsingKubeconfig(t *testing.T) {
 	cases := map[string]struct {
-		configs       []*kueue.MultiKueueConfig
+		configs       []*kueuealpha.MultiKueueConfig
 		filter        client.ListOption
 		wantListError error
 		wantList      []string
 	}{
 		"no clusters": {
-			configs: []*kueue.MultiKueueConfig{
+			configs: []*kueuealpha.MultiKueueConfig{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: "default",
@@ -76,16 +80,16 @@ func TestMultikueConfigUsingKubeconfig(t *testing.T) {
 			filter: client.MatchingFields{UsingKubeConfigs: TestNamespace + "/secret1"},
 		},
 		"single cluster, single match": {
-			configs: []*kueue.MultiKueueConfig{
+			configs: []*kueuealpha.MultiKueueConfig{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: "default",
 						Name:      "config1",
 					},
-					Spec: kueue.MultiKueueConfigSpec{
-						Clusters: []kueue.MultiKueueCluster{
+					Spec: kueuealpha.MultiKueueConfigSpec{
+						Clusters: []kueuealpha.MultiKueueCluster{
 							{
-								KubeconfigRef: kueue.KubeconfigRef{
+								KubeconfigRef: kueuealpha.KubeconfigRef{
 									SecretNamespace: TestNamespace,
 									SecretName:      "secret1",
 								},
@@ -98,16 +102,16 @@ func TestMultikueConfigUsingKubeconfig(t *testing.T) {
 			wantList: []string{"config1"},
 		},
 		"single cluster, no match": {
-			configs: []*kueue.MultiKueueConfig{
+			configs: []*kueuealpha.MultiKueueConfig{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: "default",
 						Name:      "config1",
 					},
-					Spec: kueue.MultiKueueConfigSpec{
-						Clusters: []kueue.MultiKueueCluster{
+					Spec: kueuealpha.MultiKueueConfigSpec{
+						Clusters: []kueuealpha.MultiKueueCluster{
 							{
-								KubeconfigRef: kueue.KubeconfigRef{
+								KubeconfigRef: kueuealpha.KubeconfigRef{
 									SecretNamespace: TestNamespace,
 									SecretName:      "secret2",
 								},
@@ -119,22 +123,22 @@ func TestMultikueConfigUsingKubeconfig(t *testing.T) {
 			filter: client.MatchingFields{UsingKubeConfigs: TestNamespace + "/secret1"},
 		},
 		"multiple clusters, single match": {
-			configs: []*kueue.MultiKueueConfig{
+			configs: []*kueuealpha.MultiKueueConfig{
 				{
 					ObjectMeta: metav1.ObjectMeta{
 						Namespace: "default",
 						Name:      "config1",
 					},
-					Spec: kueue.MultiKueueConfigSpec{
-						Clusters: []kueue.MultiKueueCluster{
+					Spec: kueuealpha.MultiKueueConfigSpec{
+						Clusters: []kueuealpha.MultiKueueCluster{
 							{
-								KubeconfigRef: kueue.KubeconfigRef{
+								KubeconfigRef: kueuealpha.KubeconfigRef{
 									SecretNamespace: TestNamespace,
 									SecretName:      "secret0",
 								},
 							},
 							{
-								KubeconfigRef: kueue.KubeconfigRef{
+								KubeconfigRef: kueuealpha.KubeconfigRef{
 									SecretNamespace: TestNamespace,
 									SecretName:      "secret1",
 								},
@@ -157,14 +161,14 @@ func TestMultikueConfigUsingKubeconfig(t *testing.T) {
 				}
 			}
 
-			lst := &kueue.MultiKueueConfigList{}
+			lst := &kueuealpha.MultiKueueConfigList{}
 
 			gotListErr := k8sclient.List(ctx, lst, client.InNamespace("default"), tc.filter)
 			if diff := cmp.Diff(tc.wantListError, gotListErr); diff != "" {
 				t.Errorf("unexpected list error (-want/+got):\n%s", diff)
 			}
 
-			gotList := slices.Map(lst.Items, func(pr *kueue.MultiKueueConfig) string { return pr.Name })
+			gotList := slices.Map(lst.Items, func(pr *kueuealpha.MultiKueueConfig) string { return pr.Name })
 			if diff := cmp.Diff(tc.wantList, gotList, cmpopts.EquateEmpty(), cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
 				t.Errorf("unexpected list (-want/+got):\n%s", diff)
 			}

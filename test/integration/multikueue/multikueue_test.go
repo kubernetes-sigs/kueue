@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
@@ -43,7 +44,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 		worker2Ns *corev1.Namespace
 
 		managerMultikueueSecret *corev1.Secret
-		managerMultiKueueConfig *kueue.MultiKueueConfig
+		managerMultiKueueConfig *kueuealpha.MultiKueueConfig
 		managerAc               *kueue.AdmissionCheck
 		managerCq               *kueue.ClusterQueue
 		managerLq               *kueue.LocalQueue
@@ -95,15 +96,15 @@ var _ = ginkgo.Describe("Multikueue", func() {
 
 		gomega.Expect(managerCluster.client.Create(managerCluster.ctx, managerMultikueueSecret)).To(gomega.Succeed())
 
-		managerMultiKueueConfig = &kueue.MultiKueueConfig{
+		managerMultiKueueConfig = &kueuealpha.MultiKueueConfig{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "multikueueconfig",
 			},
-			Spec: kueue.MultiKueueConfigSpec{
-				Clusters: []kueue.MultiKueueCluster{
+			Spec: kueuealpha.MultiKueueConfigSpec{
+				Clusters: []kueuealpha.MultiKueueCluster{
 					{
 						Name: "worker1",
-						KubeconfigRef: kueue.KubeconfigRef{
+						KubeconfigRef: kueuealpha.KubeconfigRef{
 							SecretName:      "multikueue",
 							SecretNamespace: managerNs.Name,
 							ConfigKey:       "worker1.kubeconfig",
@@ -111,7 +112,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 					},
 					{
 						Name: "worker2",
-						KubeconfigRef: kueue.KubeconfigRef{
+						KubeconfigRef: kueuealpha.KubeconfigRef{
 							SecretName:      "multikueue",
 							SecretNamespace: managerNs.Name,
 							ConfigKey:       "worker2.kubeconfig",
