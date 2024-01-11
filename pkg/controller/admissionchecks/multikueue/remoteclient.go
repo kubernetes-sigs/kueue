@@ -87,7 +87,6 @@ func (rc *remoteController) UpdateConfig(ctx context.Context, kubeConfigs map[st
 }
 
 func (cc *remoteController) IsActive() bool {
-	//TODO improve the logic
 	return cc != nil && len(cc.remoteClients) > 0
 }
 
@@ -100,7 +99,7 @@ type remoteClient struct {
 	watchItf     watch.Interface
 	kubeconfig   []byte
 
-	// for testing only
+	// For testing only.
 	restConfigFromKubeConfigOverride func([]byte) (*rest.Config, error)
 	newWithWatchOverride             func(config *rest.Config, options client.Options) (client.WithWatch, error)
 }
@@ -115,6 +114,8 @@ func newRemoteClient(watchCtx context.Context, localClient client.Client, wlUpda
 	return rc
 }
 
+// setConfig - will try to recreate the k8s client and restart watching if the new config is different than
+// the one currently used.
 func (rc *remoteClient) setConfig(kubeconfig []byte) error {
 	if equality.Semantic.DeepEqual(kubeconfig, rc.kubeconfig) {
 		return nil

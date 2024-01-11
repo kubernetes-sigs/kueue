@@ -54,17 +54,22 @@ func newMultiKueueStoreHelper(c client.Client) (*multiKueueStoreHelper, error) {
 	return admissioncheck.NewConfigHelper[*kueuealpha.MultiKueueConfig](c)
 }
 
+// AcReconciler implements the reconciler for all the admission checks controlled by multikueue.
+// Its main tasks being to:
+// - Maintain the list of remote controllers associated to each admission checks.
+// - Maintain the active state of the admission checks.
 type AcReconciler struct {
 	client client.Client
 	helper *multiKueueStoreHelper
 
-	lock        sync.RWMutex
+	lock sync.RWMutex
+	// The list of remote controllers, indexed by the admission checks name.
 	controllers map[string]*remoteController
 	wlUpdateCh  chan event.GenericEvent
 
 	rootContext context.Context
 
-	// for testing only
+	// For testing only.
 	updateConfigOverride func(ctx context.Context, rc *remoteController, kubeconfigs map[string][]byte) error
 }
 

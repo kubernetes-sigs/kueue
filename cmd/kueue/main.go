@@ -270,7 +270,6 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 		jobframework.WithWaitForPodsReady(waitForPodsReady(cfg)),
 		jobframework.WithKubeServerVersion(serverVersionFetcher),
 	}
-
 	err := jobframework.ForEachIntegration(func(name string, cb jobframework.IntegrationCallbacks) error {
 		log := setupLog.WithValues("jobFrameworkName", name)
 		if isFrameworkEnabled(cfg, name) {

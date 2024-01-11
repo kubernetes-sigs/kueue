@@ -45,7 +45,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 
 		managerMultikueueSecret *corev1.Secret
 		managerMultiKueueConfig *kueuealpha.MultiKueueConfig
-		managerAc               *kueue.AdmissionCheck
+		multikueueAC            *kueue.AdmissionCheck
 		managerCq               *kueue.ClusterQueue
 		managerLq               *kueue.LocalQueue
 
@@ -123,15 +123,15 @@ var _ = ginkgo.Describe("Multikueue", func() {
 		}
 		gomega.Expect(managerCluster.client.Create(managerCluster.ctx, managerMultiKueueConfig)).Should(gomega.Succeed())
 
-		managerAc = utiltesting.MakeAdmissionCheck("ac1").
+		multikueueAC = utiltesting.MakeAdmissionCheck("ac1").
 			ControllerName(multikueue.ControllerName).
 			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", managerMultiKueueConfig.Name).
 			Obj()
-		gomega.Expect(managerCluster.client.Create(managerCluster.ctx, managerAc)).Should(gomega.Succeed())
+		gomega.Expect(managerCluster.client.Create(managerCluster.ctx, multikueueAC)).Should(gomega.Succeed())
 
 		ginkgo.By("wait for check active", func() {
 			updatetedAc := kueue.AdmissionCheck{}
-			acKey := client.ObjectKeyFromObject(managerAc)
+			acKey := client.ObjectKeyFromObject(multikueueAC)
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerCluster.client.Get(managerCluster.ctx, acKey, &updatetedAc)).To(gomega.Succeed())
 				cond := apimeta.FindStatusCondition(updatetedAc.Status.Conditions, kueue.AdmissionCheckActive)
@@ -142,7 +142,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 		})
 
 		managerCq = utiltesting.MakeClusterQueue("q1").
-			AdmissionChecks(managerAc.Name).
+			AdmissionChecks(multikueueAC.Name).
 			Obj()
 		gomega.Expect(managerCluster.client.Create(managerCluster.ctx, managerCq)).Should(gomega.Succeed())
 
@@ -167,7 +167,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 		util.ExpectClusterQueueToBeDeleted(managerCluster.ctx, managerCluster.client, managerCq, true)
 		util.ExpectClusterQueueToBeDeleted(worker1Cluster.ctx, worker1Cluster.client, worker1Cq, true)
 		util.ExpectClusterQueueToBeDeleted(worker2Cluster.ctx, worker2Cluster.client, worker2Cq, true)
-		util.ExpectAdmissionCheckToBeDeleted(managerCluster.ctx, managerCluster.client, managerAc, true)
+		util.ExpectAdmissionCheckToBeDeleted(managerCluster.ctx, managerCluster.client, multikueueAC, true)
 		gomega.Expect(managerCluster.client.Delete(managerCluster.ctx, managerMultiKueueConfig)).To(gomega.Succeed())
 	})
 
@@ -209,7 +209,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerCluster.client.Get(managerCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				acs := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, managerAc.Name)
+				acs := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, multikueueAC.Name)
 				g.Expect(acs).NotTo(gomega.BeNil())
 				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
 				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))

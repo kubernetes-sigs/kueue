@@ -71,17 +71,7 @@ func (b *batchJobAdaptor) CopyStatusRemoteObject(ctx context.Context, localClien
 	if err != nil {
 		return err
 	}
-	localJob.Status = batchv1.JobStatus{
-		Conditions:       remoteJob.Status.Conditions,
-		StartTime:        remoteJob.Status.StartTime,
-		CompletionTime:   remoteJob.Status.CompletionTime,
-		Active:           remoteJob.Status.Active,
-		Succeeded:        remoteJob.Status.Succeeded,
-		Failed:           remoteJob.Status.Failed,
-		Terminating:      remoteJob.Status.Terminating,
-		CompletedIndexes: remoteJob.Status.CompletedIndexes,
-		FailedIndexes:    remoteJob.Status.FailedIndexes,
-	}
+	localJob.Status = remoteJob.Status
 	return localClient.Status().Update(ctx, &localJob)
 }
 

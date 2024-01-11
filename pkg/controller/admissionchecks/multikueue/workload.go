@@ -158,7 +158,7 @@ func (a *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload) (*w
 		return nil, err
 	}
 
-	//TODO: what if we have more than one delegation admissioncheck? len(relevantChecks) > 1
+	// If the are more than 1 multikueue admission checks (len(relevantChecks) > 1), skip this workload.
 	if len(relevantChecks) == 0 {
 		return nil, nil
 	}
@@ -172,8 +172,7 @@ func (a *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload) (*w
 		return nil, errors.New("remote controller is not active")
 	}
 
-	// lookup the adaptor
-	// TODO: going forward we should not continue if an adaptor is not found
+	// Lookup the adaptor.
 	var adaptor jobAdaptor
 	controllerKey := types.NamespacedName{}
 	if controller := metav1.GetControllerOf(local); controller != nil {
@@ -261,8 +260,9 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 		outOfSync := group.local == nil || !equality.Semantic.DeepEqual(group.local.Spec, remWl.Spec)
 		notReservingRemote := hasReserving && reservingRemote != rem
 		if outOfSync || notReservingRemote {
-			if err := group.RemoveRemoteObjects(ctx, rem); err != nil {
+			if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, rem)); err != nil {
 				log.V(2).Error(err, "Deleting out of sync remote objects", "remote", rem)
+				return err
 			}
 		}
 	}
@@ -272,11 +272,13 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 		acs := workload.FindAdmissionCheck(group.local.Status.AdmissionChecks, group.acName)
 		if err := group.adaptor.CreateRemoteObject(ctx, a.acr.client, group.rc.remoteClients[reservingRemote].client, group.controllerKey, group.local.Name); err != nil {
 			log.V(2).Error(err, "creating remote controller object", "remote", reservingRemote)
-			// we should retry this
+			// We'll retry this in the next reconcile.
 			return err
 		}
 
 		if acs.State != kueue.CheckStateRetry {
+			// For now, the admission check is keept in pending to avoid the execution in the
+			// local cluster.
 			acs.State = kueue.CheckStatePending
 			// update the message
 			acs.Message = fmt.Sprintf("The workload got reservation on %q", reservingRemote)
