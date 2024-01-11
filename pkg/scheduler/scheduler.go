@@ -339,11 +339,7 @@ func resourcesToReserve(e *entry, cq *cache.ClusterQueue) cache.FlavorResourceQu
 			if !e.assignment.Borrowing {
 				reservedUsage[flavor][resource] = max(0, min(usage, cqQuota.Nominal-cq.Usage[flavor][resource]))
 			} else {
-				if cqQuota.BorrowingLimit == nil {
-					reservedUsage[flavor][resource] = usage
-				} else {
-					reservedUsage[flavor][resource] = min(usage, cqQuota.Nominal+*cqQuota.BorrowingLimit-cq.Usage[flavor][resource])
-				}
+				reservedUsage[flavor][resource] = usage
 			}
 
 		}

@@ -2025,7 +2025,7 @@ func TestResourcesToReserve(t *testing.T) {
 				kueue.ResourceFlavorReference("model-b"):   {"gpu": 10},
 			},
 			wantReserved: cache.FlavorResourceQuantities{
-				kueue.ResourceFlavorReference("spot"):    {corev1.ResourceMemory: 40},
+				kueue.ResourceFlavorReference("spot"):    {corev1.ResourceMemory: 50},
 				kueue.ResourceFlavorReference("model-b"): {"gpu": 2},
 			},
 		},
