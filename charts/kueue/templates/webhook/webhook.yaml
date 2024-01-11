@@ -85,6 +85,25 @@ webhooks:
     - jobs
   sideEffects: None
 - admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: '{{ include "kueue.fullname" . }}-webhook-service'
+      namespace: '{{ .Release.Namespace }}'
+      path: /mutate-jobset-x-k8s-io-v1alpha2-jobset
+  failurePolicy: Fail
+  name: mjobset.kb.io
+  rules:
+  - apiGroups:
+    - jobset.x-k8s.io
+    apiVersions:
+    - v1alpha2
+    operations:
+    - CREATE
+    resources:
+    - jobsets
+  sideEffects: None
+- admissionReviewVersions:
     - v1
   clientConfig:
     service:
@@ -199,6 +218,25 @@ webhooks:
     - mpijobs
   sideEffects: None
 - admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: '{{ include "kueue.fullname" . }}-webhook-service'
+      namespace: '{{ .Release.Namespace }}'
+      path: /mutate-ray-io-v1alpha1-rayjob
+  failurePolicy: Fail
+  name: mrayjob.kb.io
+  rules:
+    - apiGroups:
+        - ray.io
+      apiVersions:
+        - v1alpha1
+      operations:
+        - CREATE
+      resources:
+        - rayjobs
+  sideEffects: None
+- admissionReviewVersions:
     - v1
   clientConfig:
     service:
@@ -241,6 +279,26 @@ metadata:
     cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert
   namespace: '{{ .Release.Namespace }}'
 webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: '{{ include "kueue.fullname" . }}-webhook-service'
+      namespace: '{{ .Release.Namespace }}'
+      path: /validate-kueue-x-k8s-io-v1beta1-admissioncheck
+  failurePolicy: Fail
+  name: vadmissioncheck.kb.io
+  rules:
+  - apiGroups:
+    - kueue.x-k8s.io
+    apiVersions:
+    - v1beta1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - admissionchecks
+  sideEffects: None
 - admissionReviewVersions:
   - v1
   clientConfig:
