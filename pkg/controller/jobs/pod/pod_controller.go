@@ -135,12 +135,12 @@ func gateIndex(p *corev1.Pod) int {
 	return gateNotFound
 }
 
-func podActive(p *corev1.Pod) bool {
-	return p.Status.Phase != corev1.PodFailed && p.Status.Phase != corev1.PodSucceeded
+func isPodTerminated(p *corev1.Pod) bool {
+	return p.Status.Phase == corev1.PodFailed || p.Status.Phase == corev1.PodSucceeded
 }
 
 func podSuspended(p *corev1.Pod) bool {
-	return !podActive(p) || gateIndex(p) != gateNotFound
+	return isPodTerminated(p) || gateIndex(p) != gateNotFound
 }
 
 func isUnretriablePod(pod corev1.Pod) bool {
@@ -295,7 +295,7 @@ func (p *Pod) Finished() (metav1.Condition, bool) {
 			succeededCount++
 		}
 
-		if podActive(&pod) {
+		if !isPodTerminated(&pod) {
 			isActive = true
 		}
 	}
@@ -571,8 +571,7 @@ func (p *Pod) constructGroupPodSets() ([]kueue.PodSet, error) {
 	var resultPodSets []kueue.PodSet
 
 	for _, podInGroup := range p.list.Items {
-		// Skip failed pods
-		if podInGroup.Status.Phase == corev1.PodFailed {
+		if !isPodActive(&podInGroup) {
 			continue
 		}
 
@@ -648,17 +647,25 @@ func (p *Pod) validatePodGroupMetadata(r record.EventRecorder, activePods []core
 	return nil
 }
 
-// activePods returns a slice of non-failed pods in the group
+// activePods returns a slice of active pods in the group
 func (p *Pod) activePods() []corev1.Pod {
-	// Filter all failed pods
 	activePods := make([]corev1.Pod, 0, len(p.list.Items))
 	for _, pod := range p.list.Items {
-		if pod.Status.Phase != corev1.PodFailed {
+		if isPodActive(&pod) {
 			activePods = append(activePods, pod)
 		}
 	}
 
 	return activePods
+}
+
+// isPodActive returns whether the Pod can eventually run, is Running or Succeeded.
+// A Pod cannot run if it's gated and has a deletionTimestamp.
+func isPodActive(p *corev1.Pod) bool {
+	if p.DeletionTimestamp != nil && len(p.Spec.SchedulingGates) > 0 {
+		return false
+	}
+	return p.Status.Phase != corev1.PodFailed
 }
 
 // cleanupExcessPods will delete and finalize pods created last if the number of
@@ -753,6 +760,10 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		}
 
 		return wl, nil
+	}
+
+	if err := p.finalizeInactivePods(ctx, c); err != nil {
+		return nil, err
 	}
 
 	activePods := p.activePods()
@@ -946,6 +957,20 @@ func (p *Pod) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
 	}
 
 	return result, nil
+}
+
+func (p *Pod) finalizeInactivePods(ctx context.Context, c client.Client) error {
+	for _, p := range p.list.Items {
+		if isPodActive(&p) {
+			continue
+		}
+		if controllerutil.RemoveFinalizer(&p, PodFinalizer) {
+			if err := c.Update(ctx, &p); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func IsPodOwnerManagedByKueue(p *Pod) bool {
