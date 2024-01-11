@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -250,7 +251,7 @@ func (h *qCQHandler) addLocalQueueToWorkQueue(ctx context.Context, cq *kueue.Clu
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *LocalQueueReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *LocalQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) error {
 	queueCQHandler := qCQHandler{
 		client: r.client,
 	}
@@ -260,7 +261,7 @@ func (r *LocalQueueReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		WatchesRawSource(&source.Channel{Source: r.wlUpdateCh}, &qWorkloadHandler{}).
 		Watches(&kueue.ClusterQueue{}, &queueCQHandler).
 		WithEventFilter(r).
-		Complete(WithLeadingManager(mgr, r))
+		Complete(WithLeadingManager(mgr, r, cfg))
 }
 
 func (r *LocalQueueReconciler) UpdateStatusIfChanged(

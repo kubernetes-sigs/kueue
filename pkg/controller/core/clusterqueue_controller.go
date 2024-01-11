@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -596,7 +597,7 @@ func (h *cqSnapshotHandler) Generic(_ context.Context, e event.GenericEvent, q w
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) error {
 	wHandler := cqWorkloadHandler{
 		qManager: r.qManager,
 	}
@@ -622,7 +623,7 @@ func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		WatchesRawSource(&source.Channel{Source: r.acUpdateCh}, &acHandler).
 		WatchesRawSource(&source.Channel{Source: r.snapUpdateCh}, &snapHandler).
 		WithEventFilter(r).
-		Complete(WithLeadingManager(mgr, r))
+		Complete(WithLeadingManager(mgr, r, cfg))
 }
 
 func (r *ClusterQueueReconciler) updateCqStatusIfChanged(

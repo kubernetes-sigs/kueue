@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/queue"
@@ -251,7 +252,7 @@ func (h *cqHandler) Generic(_ context.Context, e event.GenericEvent, q workqueue
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *ResourceFlavorReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *ResourceFlavorReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) error {
 	handler := cqHandler{
 		cache: r.cache,
 	}
@@ -260,7 +261,7 @@ func (r *ResourceFlavorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
 		WatchesRawSource(&source.Channel{Source: r.cqUpdateCh}, &handler).
 		WithEventFilter(r).
-		Complete(WithLeadingManager(mgr, r))
+		Complete(WithLeadingManager(mgr, r, cfg))
 }
 
 func resourceFlavors(cq *kueue.ClusterQueue) sets.Set[kueue.ResourceFlavorReference] {
