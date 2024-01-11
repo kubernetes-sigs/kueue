@@ -23,6 +23,8 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	batchv1 "k8s.io/api/batch/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	testingclock "k8s.io/utils/clock/testing"
@@ -298,11 +300,23 @@ func TestSyncCheckStates(t *testing.T) {
 	}
 }
 
+var (
+	workloadCmpOpts = []cmp.Option{
+		cmpopts.EquateEmpty(),
+		cmpopts.IgnoreFields(
+			kueue.Workload{}, "TypeMeta", "ObjectMeta.ResourceVersion",
+		),
+		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
+	}
+)
+
 func TestReconcile(t *testing.T) {
+	testStartTime := time.Now()
 	cases := map[string]struct {
-		workload   *kueue.Workload
-		wantError  error
-		wantEvents []utiltesting.EventRecord
+		workload     *kueue.Workload
+		wantWorkload *kueue.Workload
+		wantError    error
+		wantEvents   []utiltesting.EventRecord
 	}{
 		"admit": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
@@ -310,6 +324,19 @@ func TestReconcile(t *testing.T) {
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateReady,
+				}).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+				}).
+				Condition(metav1.Condition{
+					Type:    "Admitted",
+					Status:  "True",
+					Reason:  "Admitted",
+					Message: "The workload is admitted",
 				}).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
@@ -320,7 +347,7 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
-		"already admited": {
+		"already admitted": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 				Admitted(true).
@@ -328,6 +355,42 @@ func TestReconcile(t *testing.T) {
 					Name:  "check",
 					State: kueue.CheckStateReady,
 				}).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+				}).
+				Obj(),
+		},
+		"remove finalizer for finished workload": {
+			workload: utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				Condition(metav1.Condition{
+					Type:   "Finished",
+					Status: "True",
+				}).
+				DeletionTimestamp(testStartTime).
+				Obj(),
+			wantWorkload: nil,
+		},
+		"don't remove finalizer for owned finished workload": {
+			workload: utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				Condition(metav1.Condition{
+					Type:   "Finished",
+					Status: "True",
+				}).
+				OwnerReference(batchv1.SchemeGroupVersion.String(), "Job", "job", "test-uid", true, true).
+				DeletionTimestamp(testStartTime).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				Condition(metav1.Condition{
+					Type:   "Finished",
+					Status: "True",
+				}).
+				OwnerReference(batchv1.SchemeGroupVersion.String(), "Job", "job", "test-uid", true, true).
+				DeletionTimestamp(testStartTime).
 				Obj(),
 		},
 	}
@@ -349,6 +412,18 @@ func TestReconcile(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantError, gotError); diff != "" {
 				t.Errorf("unexpected reconcile error (-want/+got):\n%s", diff)
+			}
+
+			gotWorkload := &kueue.Workload{}
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(tc.workload), gotWorkload); err != nil {
+				if tc.wantWorkload != nil && !errors.IsNotFound(err) {
+					t.Fatalf("Could not get Workloads after reconcile: %v", err)
+				}
+				gotWorkload = nil
+			}
+
+			if diff := cmp.Diff(tc.wantWorkload, gotWorkload, workloadCmpOpts...); diff != "" {
+				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
 			}
 
 			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")); diff != "" {

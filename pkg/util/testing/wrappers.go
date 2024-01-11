@@ -231,6 +231,12 @@ func (w *WorkloadWrapper) Annotations(kv map[string]string) *WorkloadWrapper {
 	return w
 }
 
+// DeletionTimestamp sets a deletion timestamp for the workload.
+func (w *WorkloadWrapper) DeletionTimestamp(t time.Time) *WorkloadWrapper {
+	w.Workload.DeletionTimestamp = ptr.To(metav1.NewTime(t).Rfc3339Copy())
+	return w
+}
+
 type PodSetWrapper struct{ kueue.PodSet }
 
 func MakePodSet(name string, count int) *PodSetWrapper {

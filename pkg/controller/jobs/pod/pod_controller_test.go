@@ -990,8 +990,7 @@ func TestReconciler(t *testing.T) {
 					Admitted(true).
 					Obj(),
 			},
-			wantWorkloads:   []kueue.Workload{},
-			workloadCmpOpts: defaultWorkloadCmpOpts,
+			workloadCmpOpts: append(defaultWorkloadCmpOpts, cmpopts.IgnoreFields(kueue.Workload{}, "ObjectMeta.DeletionTimestamp")),
 			deleteWorkloads: true,
 		},
 		"replacement pod should be started for pod group of size 1": {
