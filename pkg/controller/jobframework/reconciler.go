@@ -256,7 +256,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			}
 		}
 
-		r.record.Eventf(object, corev1.EventTypeNormal, FinishedWorkload,
+		r.record.Eventf(object, corev1.EventTypeNormal, ReasonFinishedWorkload,
 			"Workload '%s' is declared finished", workload.Key(wl))
 		return ctrl.Result{}, workload.RemoveFinalizer(ctx, r.client, wl)
 	}
