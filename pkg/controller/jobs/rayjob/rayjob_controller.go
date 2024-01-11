@@ -60,7 +60,7 @@ func init() {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 
-var NewReconciler = jobframework.NewGenericReconciler(func() jobframework.GenericJob { return &RayJob{} }, nil)
+var NewReconciler = jobframework.NewGenericReconciler(func() jobframework.GenericJob { return &RayJob{} }, nil, nil)
 
 type RayJob rayjobapi.RayJob
 

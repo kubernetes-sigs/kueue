@@ -82,15 +82,14 @@ func TestPodsReady(t *testing.T) {
 	}
 }
 
-func TestRunWithPodSetsInfo(t *testing.T) {
+func TestRun(t *testing.T) {
 	testCases := map[string]struct {
-		pod                  *corev1.Pod
+		pods                 []corev1.Pod
 		runInfo, restoreInfo []podset.PodSetInfo
-		wantPod              *corev1.Pod
 		wantErr              error
 	}{
-		"pod set info > 1": {
-			pod:     testingpod.MakePod("test-pod", "test-namespace").Obj(),
+		"pod set info > 1 for the single pod": {
+			pods:    []corev1.Pod{*testingpod.MakePod("test-pod", "test-namespace").Obj()},
 			runInfo: make([]podset.PodSetInfo, 2),
 			wantErr: podset.ErrInvalidPodsetInfo,
 		},
@@ -98,17 +97,20 @@ func TestRunWithPodSetsInfo(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			pod := fromObject(tc.pod)
+			pod := fromObject(&tc.pods[0])
 
-			gotErr := pod.RunWithPodSetsInfo(tc.runInfo)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			clientBuilder := utiltesting.NewClientBuilder()
+			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
+				t.Fatalf("Could not setup indexes: %v", err)
+			}
+
+			kClient := clientBuilder.WithLists(&corev1.PodList{Items: tc.pods}).Build()
+
+			gotErr := pod.Run(ctx, kClient, tc.runInfo)
 
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("error mismatch (-want +got):\n%s", diff)
-			}
-			if tc.wantErr == nil {
-				if diff := cmp.Diff(tc.wantPod.Spec, tc.pod.Spec); diff != "" {
-					t.Errorf("pod spec mismatch (-want +got):\n%s", diff)
-				}
 			}
 		})
 	}
@@ -147,18 +149,15 @@ func TestReconciler(t *testing.T) {
 	now := time.Now()
 
 	testCases := map[string]struct {
-		initObjects   []client.Object
-		pods          []corev1.Pod
-		wantPods      []corev1.Pod
-		workloads     []kueue.Workload
-		wantWorkloads []kueue.Workload
-		// wantErrs should be the same length and order as pods
-		wantErrs        []error
+		initObjects     []client.Object
+		pods            []corev1.Pod
+		wantPods        []corev1.Pod
+		workloads       []kueue.Workload
+		wantWorkloads   []kueue.Workload
+		wantErr         error
 		workloadCmpOpts []cmp.Option
 		// If true, the test will delete workloads before running reconcile
 		deleteWorkloads bool
-		// Names of pods, for which reconcile should be skipped
-		skipReconcileForPods map[string]struct{}
 	}{
 		"scheduling gate is removed and node selector is added if workload is admitted": {
 			initObjects: []client.Object{
@@ -216,7 +215,7 @@ func TestReconciler(t *testing.T) {
 					Admitted(true).
 					Obj(),
 			},
-			wantErrs:        []error{jobframework.ErrNoMatchingWorkloads},
+			wantErr:         jobframework.ErrNoMatchingWorkloads,
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"the workload is created when queue name is set": {
@@ -462,6 +461,7 @@ func TestReconciler(t *testing.T) {
 					).
 					Queue("user-queue").
 					Priority(0).
+					Annotations(map[string]string{"kueue.x-k8s.io/is-group-workload": "true"}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -581,7 +581,7 @@ func TestReconciler(t *testing.T) {
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet("b990493b", 2).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuota(
-						utiltesting.MakeAdmission("cq").
+						utiltesting.MakeAdmission("cq", "b990493b").
 							Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
 							AssignmentPodCount(2).
 							Obj(),
@@ -593,7 +593,7 @@ func TestReconciler(t *testing.T) {
 				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet("b990493b", 2).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuota(
-						utiltesting.MakeAdmission("cq").
+						utiltesting.MakeAdmission("cq", "b990493b").
 							Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
 							AssignmentPodCount(2).
 							Obj(),
@@ -718,7 +718,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltesting.MakePodSet("b990493b", 2).
 							Request(corev1.ResourceCPU, "1").
@@ -1040,7 +1040,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Queue("user-queue").
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq", "b990493b").AssignmentPodCount(1).Obj()).
 					Admitted(true).
 					Obj(),
 			},
@@ -1052,7 +1052,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Queue("user-queue").
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq", "b990493b").AssignmentPodCount(1).Obj()).
 					Admitted(true).
 					Obj(),
 			},
@@ -1104,8 +1104,9 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Queue("user-queue").
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(3).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq", "b990493b").AssignmentPodCount(3).Obj()).
 					Admitted(true).
+					ReclaimablePods(kueue.ReclaimablePod{Name: "b990493b", Count: 1}).
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
@@ -1152,12 +1153,13 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Queue("user-queue").
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(3).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq", "b990493b").AssignmentPodCount(3).Obj()).
 					ReclaimablePods(kueue.ReclaimablePod{
 						Name:  "b990493b",
 						Count: 1,
 					}).
 					Admitted(true).
+					ReclaimablePods(kueue.ReclaimablePod{Name: "b990493b", Count: 1}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -1229,7 +1231,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("test-group", "ns").
+				*utiltesting.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltesting.MakePodSet("b990493b", 2).
 							Request(corev1.ResourceCPU, "1").
@@ -1448,6 +1450,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet("b990493b", 2).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue("test-queue").
 					Priority(0).
+					Annotations(map[string]string{"kueue.x-k8s.io/is-group-workload": "true"}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -1662,13 +1665,10 @@ func TestReconciler(t *testing.T) {
 					).
 					Queue("user-queue").
 					Priority(0).
+					Annotations(map[string]string{"kueue.x-k8s.io/is-group-workload": "true"}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
-			// On the second reconciliation, the generic reconciler will try to update reclaimable
-			// pods. Since that operation uses server-side apply, which the fake client doesn't
-			// support, we're skipping reconcile for the second pod.
-			skipReconcileForPods: map[string]struct{}{"pod2": {}},
 		},
 		"if there's not enough non-failed pods in the group, workload should not be recreated": {
 			pods: []corev1.Pod{
@@ -1947,6 +1947,7 @@ func TestReconciler(t *testing.T) {
 					).
 					Queue("user-queue").
 					Priority(0).
+					Annotations(map[string]string{"kueue.x-k8s.io/is-group-workload": "true"}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -2149,6 +2150,7 @@ func TestReconciler(t *testing.T) {
 					).
 					Queue("user-queue").
 					Priority(0).
+					Annotations(map[string]string{"kueue.x-k8s.io/is-group-workload": "true"}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -2157,9 +2159,6 @@ func TestReconciler(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			if tc.wantErrs != nil && len(tc.wantErrs) != len(tc.pods) {
-				t.Fatalf("pods and wantErrs in the test should be the same length and order")
-			}
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder()
 			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
@@ -2201,26 +2200,11 @@ func TestReconciler(t *testing.T) {
 			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
 			reconciler := NewReconciler(kClient, recorder)
 
-			for i := range tc.pods {
-				podKey := client.ObjectKeyFromObject(&tc.pods[i])
-				if _, ok := tc.skipReconcileForPods[podKey.Name]; ok {
-					continue
-				}
+			podReconcileRequest := reconcileRequestForPod(&tc.pods[0])
+			_, err := reconciler.Reconcile(ctx, podReconcileRequest)
 
-				_, err := reconciler.Reconcile(ctx, reconcile.Request{
-					NamespacedName: podKey,
-				})
-
-				var wantErr error
-				if tc.wantErrs == nil {
-					wantErr = nil
-				} else {
-					wantErr = tc.wantErrs[i]
-				}
-
-				if diff := cmp.Diff(wantErr, err, cmpopts.EquateErrors()); diff != "" {
-					t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
-				}
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
 			}
 
 			var gotPods corev1.PodList

@@ -226,6 +226,11 @@ func (w *WorkloadWrapper) OwnerReference(apiVersion, kind, name, uid string, con
 	return w
 }
 
+func (w *WorkloadWrapper) Annotations(kv map[string]string) *WorkloadWrapper {
+	w.ObjectMeta.Annotations = kv
+	return w
+}
+
 type PodSetWrapper struct{ kueue.PodSet }
 
 func MakePodSet(name string, count int) *PodSetWrapper {

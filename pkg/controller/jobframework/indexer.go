@@ -23,7 +23,7 @@ import (
 )
 
 func SetupWorkloadOwnerIndex(ctx context.Context, indexer client.FieldIndexer, gvk schema.GroupVersionKind) error {
-	return indexer.IndexField(ctx, &kueue.Workload{}, getOwnerKey(gvk), func(o client.Object) []string {
+	return indexer.IndexField(ctx, &kueue.Workload{}, GetOwnerKey(gvk), func(o client.Object) []string {
 		// grab the Workload object, extract the owner...
 		wl := o.(*kueue.Workload)
 		if len(wl.OwnerReferences) == 0 {
