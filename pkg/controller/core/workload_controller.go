@@ -149,7 +149,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 
-	// If the workload is not admitted update its admitted condition if necessary.
+	// If the workload is admitted, updating the status here will set the Admitted condition to
+	// false before the workloads eviction.
 	if !workload.IsAdmitted(&wl) && workload.SyncAdmittedCondition(&wl) {
 		if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true); err != nil {
 			return ctrl.Result{}, err
@@ -173,7 +174,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		return r.reconcileNotReadyTimeout(ctx, req, &wl)
 	}
 
-	// If the workload has rejected admission checks mark it as finished.
+	// At this point the workload is not Admitted, if it has rejected admission checks mark it as finished.
 	if rejectedChecks := workload.GetRejectedChecks(&wl); len(rejectedChecks) > 0 {
 		log.V(3).Info("Workload has Rejected admission checks, Finish with failure")
 		err := workload.UpdateStatus(ctx, r.client, &wl, kueue.WorkloadFinished,
