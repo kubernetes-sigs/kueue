@@ -42,7 +42,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/maps"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/util/slices"
-	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -512,7 +511,13 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		}
 
 		if _, finished := job.Finished(); !finished {
-			if err := r.stopJob(ctx, job, w, StopReasonNoMatchingWorkload, "No matching Workload"); err != nil {
+			var msg string
+			if w == nil {
+				msg = "Missing Workload, No restore PodSet info provided"
+			} else {
+				msg = "No matching Workload, Restore PodSet info provided from an out of sync Workload"
+			}
+			if err := r.stopJob(ctx, job, w, StopReasonNoMatchingWorkload, msg); err != nil {
 				return nil, fmt.Errorf("stopping job with no matching workload: %w", err)
 			}
 		}
@@ -716,7 +721,7 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 	if jws, implements := job.(JobWithCustomStop); implements {
 		stoppedNow, err := jws.Stop(ctx, r.client, info, stopReason, eventMsg)
 		if stoppedNow {
-			r.record.Eventf(object, corev1.EventTypeNormal, ReasonStopped, eventMsg)
+			r.record.Event(object, corev1.EventTypeNormal, ReasonStopped, eventMsg)
 		}
 
 		return err
@@ -734,7 +739,7 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 		return err
 	}
 
-	r.record.Eventf(object, corev1.EventTypeNormal, ReasonStopped, eventMsg)
+	r.record.Event(object, corev1.EventTypeNormal, ReasonStopped, eventMsg)
 	return nil
 }
 
@@ -934,7 +939,7 @@ func GetPodSetsInfoFromWorkload(wl *kueue.Workload) []podset.PodSetInfo {
 		return nil
 	}
 
-	return utilslices.Map(wl.Spec.PodSets, podset.FromPodSet)
+	return slices.Map(wl.Spec.PodSets, podset.FromPodSet)
 
 }
 

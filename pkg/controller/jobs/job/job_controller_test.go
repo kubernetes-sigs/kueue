@@ -25,7 +25,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -1226,7 +1225,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "Stopped",
-					Message:   "No matching Workload",
+					Message:   "No matching Workload, Restore PodSet info provided from an out of sync Workload",
 				},
 				{
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
@@ -1263,7 +1262,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "Stopped",
-					Message:   "No matching Workload",
+					Message:   "Missing Workload, No restore PodSet info provided",
 				},
 				{
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
@@ -1364,7 +1363,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "Stopped",
-					Message:   "No matching Workload",
+					Message:   "Missing Workload, No restore PodSet info provided",
 				},
 				{
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
@@ -1761,7 +1760,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "Stopped",
-					Message:   "No matching Workload",
+					Message:   "Missing Workload, No restore PodSet info provided",
 				},
 				{
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
@@ -1805,7 +1804,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "Stopped",
-					Message:   "No matching Workload",
+					Message:   "Missing Workload, No restore PodSet info provided",
 				},
 				{
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
@@ -1851,7 +1850,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "Stopped",
-					Message:   "No matching Workload",
+					Message:   "Missing Workload, No restore PodSet info provided",
 				},
 				{
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
@@ -2027,13 +2026,13 @@ func TestReconciler(t *testing.T) {
 		},
 		"the workload is not admitted and tolerations change": {
 			job: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
-				Key:      "tolarationkey2",
+				Key:      "tolerationkey2",
 				Operator: corev1.TolerationOpExists,
 				Effect:   corev1.TaintEffectNoSchedule,
 			}).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
-				Key:      "tolarationkey2",
+				Key:      "tolerationkey2",
 				Operator: corev1.TolerationOpExists,
 				Effect:   corev1.TaintEffectNoSchedule,
 			}).Obj(),
@@ -2044,7 +2043,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltesting.MakePodSet("main", 10).
 							Toleration(corev1.Toleration{
-								Key:      "tolarationkey1",
+								Key:      "tolerationkey1",
 								Operator: corev1.TolerationOpExists,
 								Effect:   corev1.TaintEffectNoSchedule,
 							}).
@@ -2064,7 +2063,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltesting.MakePodSet("main", 10).
 							Toleration(corev1.Toleration{
-								Key:      "tolarationkey2",
+								Key:      "tolerationkey2",
 								Operator: corev1.TolerationOpExists,
 								Effect:   corev1.TaintEffectNoSchedule,
 							}).
@@ -2077,17 +2076,25 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					Obj(),
 			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "UpdatedWorkload",
+					Message:   "Updated not matching Workload for suspended job: ns/job-job-ed7d5",
+				},
+			},
 		},
 		"the workload is admitted and tolerations change": {
 			job: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
-				Key:      "tolarationkey2",
+				Key:      "tolerationkey2",
 				Operator: corev1.TolerationOpExists,
 				Effect:   corev1.TaintEffectNoSchedule,
 			}).
 				Suspend(false).
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
-				Key:      "tolarationkey1",
+				Key:      "tolerationkey1",
 				Operator: corev1.TolerationOpExists,
 				Effect:   corev1.TaintEffectNoSchedule,
 			}).Obj(),
@@ -2098,7 +2105,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(
 						*utiltesting.MakePodSet("main", 10).
 							Toleration(corev1.Toleration{
-								Key:      "tolarationkey1",
+								Key:      "tolerationkey1",
 								Operator: corev1.TolerationOpExists,
 								Effect:   corev1.TaintEffectNoSchedule,
 							}).
@@ -2111,12 +2118,26 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
 						Name: "main",
-						Flavors: map[v1.ResourceName]kueue.ResourceFlavorReference{
-							v1.ResourceCPU: "default",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "default",
 						},
 						Count: ptr.To[int32](10),
 					}).Obj()).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "No matching Workload, Restore PodSet info provided from an out of sync Workload",
+				},
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "DeletedWorkload",
+					Message:   "Deleted not matching Workload: ns/job-job-ed7d5",
+				},
 			},
 			wantErr: jobframework.ErrNoMatchingWorkloads,
 		},
