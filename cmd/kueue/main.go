@@ -210,9 +210,11 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 		}
 	}
 
-	if err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer()); err != nil {
-		setupLog.Error(err, "Could not setup multikueue indexer")
-		os.Exit(1)
+	if features.Enabled(features.MultiKueue) {
+		if err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer()); err != nil {
+			setupLog.Error(err, "Could not setup multikueue indexer")
+			os.Exit(1)
+		}
 	}
 
 	err = jobframework.ForEachIntegration(func(name string, cb jobframework.IntegrationCallbacks) error {
@@ -253,9 +255,11 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 		}
 	}
 
-	if err := multikueue.NewACController(mgr.GetClient()).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "Could not setup delagate controller")
-		os.Exit(1)
+	if features.Enabled(features.MultiKueue) {
+		if err := multikueue.NewACController(mgr.GetClient()).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "Could not setup delagate controller")
+			os.Exit(1)
+		}
 	}
 
 	manageJobsWithoutQueueName := cfg.ManageJobsWithoutQueueName
