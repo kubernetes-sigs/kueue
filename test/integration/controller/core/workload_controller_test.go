@@ -322,7 +322,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("setting a rejected check conditions the workload should be evicted", func() {
+			ginkgo.By("setting a rejected check conditions the workload should be evicted and admission condition kept", func() {
 				gomega.Eventually(func() error {
 					gomega.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
 					workload.SetAdmissionCheckState(&createdWl.Status.AdmissionChecks, kueue.AdmissionCheckState{
@@ -335,12 +335,20 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Ordered, ginkgo.ContinueOn
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
-					g.Expect(createdWl.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
-						Type:    kueue.WorkloadEvicted,
-						Status:  metav1.ConditionTrue,
-						Reason:  "AdmissionCheck",
-						Message: "At least one admission check is false",
-					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))))
+					g.Expect(createdWl.Status.Conditions).To(gomega.ContainElements(
+						gomega.BeComparableTo(metav1.Condition{
+							Type:    kueue.WorkloadEvicted,
+							Status:  metav1.ConditionTrue,
+							Reason:  "AdmissionCheck",
+							Message: "At least one admission check is false",
+						}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")),
+						gomega.BeComparableTo(metav1.Condition{
+							Type:    kueue.WorkloadAdmitted,
+							Status:  metav1.ConditionTrue,
+							Reason:  "Admitted",
+							Message: "The workload is admitted",
+						}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")),
+					))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
