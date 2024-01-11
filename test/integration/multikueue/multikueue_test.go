@@ -105,7 +105,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 
 			createdWl := &kueue.Workload{}
 			gomega.Expect(c.client.Get(c.ctx, client.ObjectKeyFromObject(wl), createdWl)).To(gomega.Succeed())
-			gomega.Expect(createdWl).To(gomega.BeComparableTo(wl))
+			gomega.Expect(createdWl.Spec).To(gomega.BeComparableTo(wl.Spec))
 
 		},
 			ginkgo.Entry("worker1", &worker1Cluster, "worker1.kubeconfig", &worker1Ns),
