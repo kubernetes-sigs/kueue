@@ -1104,8 +1104,9 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Queue("user-queue").
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(3).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq", "b990493b").AssignmentPodCount(3).Obj()).
 					Admitted(true).
+					ReclaimablePods(kueue.ReclaimablePod{Name: "b990493b", Count: 1}).
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
@@ -1152,12 +1153,13 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Queue("user-queue").
-					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(3).Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("cq", "b990493b").AssignmentPodCount(3).Obj()).
 					ReclaimablePods(kueue.ReclaimablePod{
 						Name:  "b990493b",
 						Count: 1,
 					}).
 					Admitted(true).
+					ReclaimablePods(kueue.ReclaimablePod{Name: "b990493b", Count: 1}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
