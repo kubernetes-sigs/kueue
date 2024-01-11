@@ -152,13 +152,13 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			constants.KueueName)
 
 		if err == nil {
-			if own := metav1.GetControllerOf(&wl); own != nil {
+			for _, owner := range wl.OwnerReferences {
 				uowner := unstructured.Unstructured{}
-				uowner.SetKind(own.Kind)
-				uowner.SetAPIVersion(own.APIVersion)
-				uowner.SetName(own.Name)
+				uowner.SetKind(owner.Kind)
+				uowner.SetAPIVersion(owner.APIVersion)
+				uowner.SetName(owner.Name)
 				uowner.SetNamespace(wl.Namespace)
-				uowner.SetUID(own.UID)
+				uowner.SetUID(owner.UID)
 				r.recorder.Eventf(&uowner, corev1.EventTypeNormal, "WorkloadFinished", "Admission checks %v are rejected", rejectedChecks)
 			}
 		}
