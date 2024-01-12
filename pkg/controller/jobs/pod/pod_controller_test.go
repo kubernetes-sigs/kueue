@@ -406,7 +406,7 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
-		"finalizer is removed for finished pod without matching workload": {
+		"finalizer is removed for finished pod without matching workload, new workload shouldn't be created": {
 			pod: *basePodWrapper.
 				Clone().
 				Label("kueue.x-k8s.io/managed", "true").
@@ -418,15 +418,8 @@ func TestReconciler(t *testing.T) {
 				Label("kueue.x-k8s.io/managed", "true").
 				StatusPhase(corev1.PodSucceeded).
 				Obj(),
-			workloads: []kueue.Workload{},
-			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
-					Labels(map[string]string{"kueue.x-k8s.io/job-uid": "test-uid"}).
-					Queue("user-queue").
-					Priority(0).
-					Obj(),
-			},
+			workloads:       []kueue.Workload{},
+			wantWorkloads:   []kueue.Workload{},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 	}
@@ -585,7 +578,7 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 	}
 
 	// Workload should be finished after the second reconcile
-	wantWl := *utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+	wantWl := *utiltesting.MakeWorkload("unit-test", "ns").
 		PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 		ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
 		Admitted(true).
