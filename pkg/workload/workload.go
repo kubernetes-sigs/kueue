@@ -310,6 +310,9 @@ func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message stri
 	}
 	apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
 	wl.Status.Admission = nil
+
+	// Reset the admitted condition if necessary.
+	_ = SyncAdmittedCondition(wl)
 }
 
 // BaseSSAWorkload creates a new object based on the input workload that
