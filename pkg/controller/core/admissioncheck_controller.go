@@ -226,5 +226,5 @@ func (r *AdmissionCheckReconciler) SetupWithManager(mgr ctrl.Manager, cfg *confi
 		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
 		WatchesRawSource(&source.Channel{Source: r.cqUpdateCh}, &handler).
 		WithEventFilter(r).
-		Complete(WithLeadingManager(mgr, r, cfg))
+		Complete(WithLeadingManager(mgr, r, &kueue.AdmissionCheck{}, cfg))
 }

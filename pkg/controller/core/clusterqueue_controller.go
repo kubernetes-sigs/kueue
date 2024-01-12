@@ -623,7 +623,7 @@ func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.
 		WatchesRawSource(&source.Channel{Source: r.acUpdateCh}, &acHandler).
 		WatchesRawSource(&source.Channel{Source: r.snapUpdateCh}, &snapHandler).
 		WithEventFilter(r).
-		Complete(WithLeadingManager(mgr, r, cfg))
+		Complete(WithLeadingManager(mgr, r, &kueue.ClusterQueue{}, cfg))
 }
 
 func (r *ClusterQueueReconciler) updateCqStatusIfChanged(

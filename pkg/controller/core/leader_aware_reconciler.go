@@ -23,6 +23,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
@@ -47,7 +48,7 @@ const defaultRequeueDuration = 15 * time.Second
 //     in the non-leading replicas.
 //   - Transition to actually reconciling requests in the replica that may acquire
 //     the leader election lease, in case the previously leading replica failed to renew it.
-func WithLeadingManager(mgr ctrl.Manager, reconciler reconcile.Reconciler, cfg *config.Configuration) reconcile.Reconciler {
+func WithLeadingManager(mgr ctrl.Manager, reconciler reconcile.Reconciler, obj client.Object, cfg *config.Configuration) reconcile.Reconciler {
 	// Do not decorate the reconciler if leader election is disabled
 	if cfg.LeaderElection == nil || !ptr.Deref(cfg.LeaderElection.LeaderElect, false) {
 		return reconciler
@@ -63,14 +64,18 @@ func WithLeadingManager(mgr ctrl.Manager, reconciler reconcile.Reconciler, cfg *
 
 	return &leaderAwareReconciler{
 		elected:         mgr.Elected(),
+		client:          mgr.GetClient(),
 		delegate:        reconciler,
+		object:          obj,
 		requeueDuration: requeueDuration,
 	}
 }
 
 type leaderAwareReconciler struct {
 	elected         <-chan struct{}
+	client          client.Client
 	delegate        reconcile.Reconciler
+	object          client.Object
 	requeueDuration time.Duration
 }
 
@@ -82,6 +87,10 @@ func (r *leaderAwareReconciler) Reconcile(ctx context.Context, request reconcile
 		// The manager has been elected leader, delegate reconciliation to the provided reconciler.
 		return r.delegate.Reconcile(ctx, request)
 	default:
+		if err := r.client.Get(ctx, request.NamespacedName, r.object); err != nil {
+			// Discard request if not found, to prevent from re-enqueueing indefinitely.
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
 		// The manager hasn't been elected leader yet, requeue the reconciliation request
 		// to prevent against any missed / discarded events over the period it takes
 		// to fail over a new leading replica, which can take as much as the configured

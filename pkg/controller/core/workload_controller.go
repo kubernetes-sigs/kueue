@@ -502,7 +502,7 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 		Watches(&nodev1.RuntimeClass{}, ruh).
 		Watches(&kueue.ClusterQueue{}, &workloadCqHandler{client: r.client}).
 		WithEventFilter(r).
-		Complete(WithLeadingManager(mgr, r, cfg))
+		Complete(WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
 }
 
 // admittedNotReadyWorkload returns as a pair of values. The first boolean determines

@@ -261,7 +261,7 @@ func (r *LocalQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Co
 		WatchesRawSource(&source.Channel{Source: r.wlUpdateCh}, &qWorkloadHandler{}).
 		Watches(&kueue.ClusterQueue{}, &queueCQHandler).
 		WithEventFilter(r).
-		Complete(WithLeadingManager(mgr, r, cfg))
+		Complete(WithLeadingManager(mgr, r, &kueue.LocalQueue{}, cfg))
 }
 
 func (r *LocalQueueReconciler) UpdateStatusIfChanged(
