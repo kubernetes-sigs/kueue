@@ -394,10 +394,8 @@ func TestReconcile(t *testing.T) {
 				DeletionTimestamp(testStartTime).
 				Obj(),
 		},
-		"workload with rejected checks": {
+		"unadmitted workload with rejected checks": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
-				Admitted(true).
 				OwnerReference("ownerapi", "ownerkind", "ownername", "owneruid", true, true).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
@@ -405,8 +403,6 @@ func TestReconcile(t *testing.T) {
 				}).
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
-				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
-				Admitted(true).
 				OwnerReference("ownerapi", "ownerkind", "ownername", "owneruid", true, true).
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
@@ -426,6 +422,32 @@ func TestReconcile(t *testing.T) {
 					Reason:    "WorkloadFinished",
 				},
 			},
+		},
+		"admitted workload with rejected checks": {
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				OwnerReference("ownerapi", "ownerkind", "ownername", "owneruid", true, true).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateRejected,
+				}).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				OwnerReference("ownerapi", "ownerkind", "ownername", "owneruid", true, true).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateRejected,
+				}).
+				Condition(metav1.Condition{
+					Type:    "Evicted",
+					Status:  "True",
+					Reason:  "AdmissionCheck",
+					Message: "At least one admission check is false",
+				}).
+				Obj(),
 		},
 	}
 	for name, tc := range cases {
