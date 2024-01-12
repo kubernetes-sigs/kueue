@@ -37,6 +37,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -1098,6 +1099,137 @@ func TestSchedule(t *testing.T) {
 			},
 			wantLeft: map[string][]string{
 				"cq2": {"sales/wl2"},
+			},
+		},
+		"preemption while borrowing, workload waiting for preemption should not block a borrowing workload in another CQ": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("cq_shared").
+					Cohort("preemption-while-borrowing").
+					ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "4", "0").Obj()).
+					Obj(),
+				*utiltesting.MakeClusterQueue("cq_a").
+					Cohort("preemption-while-borrowing").
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
+						},
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "0", "3").Obj(),
+					).
+					Obj(),
+				*utiltesting.MakeClusterQueue("cq_b").
+					Cohort("preemption-while-borrowing").
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
+						},
+					}).
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "0").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "eng-alpha",
+						Name:      "lq_a",
+					},
+					Spec: kueue.LocalQueueSpec{
+						ClusterQueue: "cq_a",
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "eng-beta",
+						Name:      "lq_b",
+					},
+					Spec: kueue.LocalQueueSpec{
+						ClusterQueue: "cq_b",
+					},
+				},
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "eng-alpha").
+					Queue("lq_a").
+					Creation(time.Now().Add(time.Second)).
+					PodSets(*utiltesting.MakePodSet("main", 1).
+						Request(corev1.ResourceCPU, "3").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b", "eng-beta").
+					Queue("lq_b").
+					Creation(time.Now().Add(time.Second)).
+					PodSets(*utiltesting.MakePodSet("main", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("admitted_a", "eng-alpha").
+					Queue("lq_a").
+					PodSets(
+						*utiltesting.MakePodSet("main", 1).
+							Request(corev1.ResourceCPU, "2").
+							Obj(),
+					).
+					ReserveQuota(utiltesting.MakeAdmission("cq_a").
+						PodSets(
+							kueue.PodSetAssignment{
+								Name: "main",
+								Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+									corev1.ResourceCPU: "default",
+								},
+								ResourceUsage: corev1.ResourceList{
+									corev1.ResourceCPU: resource.MustParse("2"),
+								},
+								Count: ptr.To[int32](1),
+							},
+						).
+						Obj()).
+					Obj(),
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"eng-alpha/admitted_a": {
+					ClusterQueue: "cq_a",
+					PodSetAssignments: []v1beta1.PodSetAssignment{
+						{
+							Name: "main",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "default",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("2"),
+							},
+							Count: ptr.To[int32](1),
+						},
+					},
+				},
+				"eng-beta/b": {
+					ClusterQueue: "cq_b",
+					PodSetAssignments: []v1beta1.PodSetAssignment{
+						{
+							Name: "main",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "default",
+							},
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("1"),
+							},
+							Count: ptr.To[int32](1),
+						},
+					},
+				},
+			},
+			wantScheduled: []string{
+				"eng-beta/b",
+			},
+			wantInadmissibleLeft: map[string][]string{
+				"cq_a": {"eng-alpha/a"},
 			},
 		},
 	}
