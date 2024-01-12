@@ -26,6 +26,7 @@ import (
 	nodev1 "k8s.io/api/node/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/record"
@@ -149,6 +150,19 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 			"AdmissionChecksRejected",
 			fmt.Sprintf("Admission checks %v are rejected", rejectedChecks),
 			constants.KueueName)
+
+		if err == nil {
+			for _, owner := range wl.OwnerReferences {
+				uowner := unstructured.Unstructured{}
+				uowner.SetKind(owner.Kind)
+				uowner.SetAPIVersion(owner.APIVersion)
+				uowner.SetName(owner.Name)
+				uowner.SetNamespace(wl.Namespace)
+				uowner.SetUID(owner.UID)
+				r.recorder.Eventf(&uowner, corev1.EventTypeNormal, "WorkloadFinished", "Admission checks %v are rejected", rejectedChecks)
+			}
+		}
+
 		return ctrl.Result{}, err
 	}
 
