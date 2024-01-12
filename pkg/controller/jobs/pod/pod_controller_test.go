@@ -1388,7 +1388,7 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
-		"deleted pods in group should not be finalized if matching workload is not found": {
+		"deleted pods in group should not be finalized if the workload doesn't match": {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -1669,7 +1669,7 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
-		"if there's not enough non-failed pods in the group, workload should not be recreated": {
+		"if there's not enough non-failed pods in the group, workload should not be created": {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -1702,7 +1702,6 @@ func TestReconciler(t *testing.T) {
 					Clone().
 					Name("pod2").
 					Label("kueue.x-k8s.io/managed", "true").
-					KueueFinalizer().
 					Group("test-group").
 					GroupTotalCount("2").
 					StatusPhase(corev1.PodFailed).
@@ -2153,6 +2152,32 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"deleted pods in incomplete group are finalized": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("p1").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Group("group").
+					GroupTotalCount("3").
+					StatusPhase(corev1.PodPending).
+					Delete().
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("p2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Group("group").
+					GroupTotalCount("3").
+					StatusPhase(corev1.PodPending).
+					Delete().
+					Obj(),
+			},
 		},
 	}
 
