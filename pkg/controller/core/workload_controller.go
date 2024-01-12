@@ -149,7 +149,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		}
 	}
 
-	// If the workload is admitted, updating the status here will set the Admitted condition to
+	// If the workload is admitted, updating the status here would set the Admitted condition to
 	// false before the workloads eviction.
 	if !workload.IsAdmitted(&wl) && workload.SyncAdmittedCondition(&wl) {
 		if err := workload.ApplyAdmissionStatus(ctx, r.client, &wl, true); err != nil {
