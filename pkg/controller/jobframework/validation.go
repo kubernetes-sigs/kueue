@@ -31,7 +31,7 @@ var (
 	parentWorkloadKeyPath         = annotationsPath.Key(constants.ParentWorkloadAnnotation)
 	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
 	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
-	supportedPrebuiltWlJobGVKs    = sets.New("batch/v1, Kind=Job")
+	supportedPrebuiltWlJobGVKs    = sets.New("batch/v1, Kind=Job", "jobset.x-k8s.io/v1alpha2, Kind=JobSet")
 )
 
 func ValidateCreateForQueueName(job GenericJob) field.ErrorList {
@@ -86,8 +86,8 @@ func ValidateUpdateForQueueName(oldJob, newJob GenericJob) field.ErrorList {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(QueueName(oldJob), QueueName(newJob), queueNameLabelPath)...)
 	}
 
-	oldWlName, _ := prebuiltWorkload(oldJob)
-	newWlName, _ := prebuiltWorkload(newJob)
+	oldWlName, _ := PrebuiltWorkload(oldJob)
+	newWlName, _ := PrebuiltWorkload(newJob)
 	allErrs = append(allErrs, apivalidation.ValidateImmutableField(oldWlName, newWlName, labelsPath.Key(constants.PrebuiltWorkloadLabel))...)
 	return allErrs
 }

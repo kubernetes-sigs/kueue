@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
@@ -58,6 +59,20 @@ func (w *JobSetWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	jobSet := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("jobset-webhook")
 	log.V(5).Info("Applying defaults", "jobset", klog.KObj(jobSet))
+
+	if wlName, hasPrebuilt := jobframework.PrebuiltWorkload(jobSet); hasPrebuilt {
+		for i := range jobSet.Spec.ReplicatedJobs {
+			rjTemplate := &jobSet.Spec.ReplicatedJobs[i].Template
+			if rjTemplate.Annotations == nil {
+				rjTemplate.Annotations = map[string]string{
+					constants.ParentWorkloadAnnotation: wlName,
+				}
+			} else {
+				rjTemplate.Annotations[constants.ParentWorkloadAnnotation] = wlName
+			}
+		}
+	}
+
 	jobframework.ApplyDefaultForSuspend(jobSet, w.manageJobsWithoutQueueName)
 	return nil
 }
