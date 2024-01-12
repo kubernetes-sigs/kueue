@@ -571,7 +571,7 @@ func (p *Pod) constructGroupPodSets() ([]kueue.PodSet, error) {
 	var resultPodSets []kueue.PodSet
 
 	for _, podInGroup := range p.list.Items {
-		if !isPodActive(&podInGroup) {
+		if !isPodRunnableOrSucceeded(&podInGroup) {
 			continue
 		}
 
@@ -647,11 +647,11 @@ func (p *Pod) validatePodGroupMetadata(r record.EventRecorder, activePods []core
 	return nil
 }
 
-// activePods returns a slice of active pods in the group
-func (p *Pod) activePods() []corev1.Pod {
+// runnableOrSucceededPods returns a slice of active pods in the group
+func (p *Pod) runnableOrSucceededPods() []corev1.Pod {
 	activePods := make([]corev1.Pod, 0, len(p.list.Items))
 	for _, pod := range p.list.Items {
-		if isPodActive(&pod) {
+		if isPodRunnableOrSucceeded(&pod) {
 			activePods = append(activePods, pod)
 		}
 	}
@@ -659,9 +659,9 @@ func (p *Pod) activePods() []corev1.Pod {
 	return activePods
 }
 
-// isPodActive returns whether the Pod can eventually run, is Running or Succeeded.
+// isPodRunnableOrSucceeded returns whether the Pod can eventually run, is Running or Succeeded.
 // A Pod cannot run if it's gated and has a deletionTimestamp.
-func isPodActive(p *corev1.Pod) bool {
+func isPodRunnableOrSucceeded(p *corev1.Pod) bool {
 	if p.DeletionTimestamp != nil && len(p.Spec.SchedulingGates) > 0 {
 		return false
 	}
@@ -762,11 +762,11 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		return wl, nil
 	}
 
-	if err := p.finalizeInactivePods(ctx, c); err != nil {
+	if err := p.finalizeNonRunnableNorSucceededPods(ctx, c); err != nil {
 		return nil, err
 	}
 
-	activePods := p.activePods()
+	activePods := p.runnableOrSucceededPods()
 
 	if wl.Annotations == nil {
 		wl.Annotations = make(map[string]string)
@@ -861,7 +861,7 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client) (*kueu
 	}
 
 	// Cleanup excess pods for each workload pod set (role)
-	activePods := p.activePods()
+	activePods := p.runnableOrSucceededPods()
 	for _, ps := range workload.Spec.PodSets {
 		// Find all the active pods of the role
 		var roleActivePods []corev1.Pod
@@ -959,9 +959,9 @@ func (p *Pod) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
 	return result, nil
 }
 
-func (p *Pod) finalizeInactivePods(ctx context.Context, c client.Client) error {
+func (p *Pod) finalizeNonRunnableNorSucceededPods(ctx context.Context, c client.Client) error {
 	for _, p := range p.list.Items {
-		if isPodActive(&p) {
+		if isPodRunnableOrSucceeded(&p) {
 			continue
 		}
 		if controllerutil.RemoveFinalizer(&p, PodFinalizer) {

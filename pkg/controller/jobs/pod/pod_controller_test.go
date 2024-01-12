@@ -2157,8 +2157,8 @@ func TestReconciler(t *testing.T) {
 		"deleted pods in incomplete group are finalized": {
 			pods: []corev1.Pod{
 				*basePodWrapper.
-					Name("p1").
 					Clone().
+					Name("p1").
 					Label("kueue.x-k8s.io/managed", "true").
 					KueueFinalizer().
 					KueueSchedulingGate().
@@ -2168,8 +2168,8 @@ func TestReconciler(t *testing.T) {
 					Delete().
 					Obj(),
 				*basePodWrapper.
-					Name("p2").
 					Clone().
+					Name("p2").
 					Label("kueue.x-k8s.io/managed", "true").
 					KueueFinalizer().
 					KueueSchedulingGate().
