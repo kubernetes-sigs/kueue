@@ -28,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -149,6 +150,7 @@ func TestReconciler(t *testing.T) {
 	now := time.Now()
 
 	testCases := map[string]struct {
+		reconcileKey    *types.NamespacedName
 		initObjects     []client.Object
 		pods            []corev1.Pod
 		wantPods        []corev1.Pod
@@ -2179,6 +2181,21 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		"finalize workload for non existent pod": {
+			reconcileKey: &types.NamespacedName{Namespace: "ns", Name: "deleted_pod"},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").
+					OwnerReference("v1", "Pod", "deleted_pod", "", true, true).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").
+					OwnerReference("v1", "Pod", "deleted_pod", "", true, true).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
 	}
 
 	for name, tc := range testCases {
@@ -2224,8 +2241,13 @@ func TestReconciler(t *testing.T) {
 			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
 			reconciler := NewReconciler(kClient, recorder)
 
-			podReconcileRequest := reconcileRequestForPod(&tc.pods[0])
-			_, err := reconciler.Reconcile(ctx, podReconcileRequest)
+			var reconcileRequest reconcile.Request
+			if tc.reconcileKey != nil {
+				reconcileRequest.NamespacedName = *tc.reconcileKey
+			} else {
+				reconcileRequest = reconcileRequestForPod(&tc.pods[0])
+			}
+			_, err := reconciler.Reconcile(ctx, reconcileRequest)
 
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
