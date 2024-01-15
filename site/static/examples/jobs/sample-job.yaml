@@ -13,7 +13,7 @@ spec:
     spec:
       containers:
       - name: dummy-job
-        image: gcr.io/k8s-staging-perf-tests/sleep:v0.0.3
+        image: gcr.io/k8s-staging-perf-tests/sleep:v0.1.0
         args: ["30s"]
         resources:
           requests:

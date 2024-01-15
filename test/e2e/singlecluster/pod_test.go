@@ -83,7 +83,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 
 		ginkgo.It("should admit group that fits", func() {
 			g1 := podtesting.MakePod("g1", ns.Name).
-				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.0.3", []string{"1s"}).
+				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
 				Queue(lq.Name).
 				Request(corev1.ResourceCPU, "1").
 				MakeGroup(2)
