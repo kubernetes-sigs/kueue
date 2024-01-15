@@ -50,8 +50,11 @@ type wlReconciler struct {
 var _ reconcile.Reconciler = (*wlReconciler)(nil)
 
 type jobAdaptor interface {
+	// Creates the Job object in the worker cluster using remote client.
 	CreateRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName string) error
+	// Copy the status from the job in the worker cluster to the local one.
 	CopyStatusRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName) error
+	// Deletes the Job in the worker cluster.
 	DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error
 }
 
@@ -60,7 +63,7 @@ type wlGroup struct {
 	remotes       map[string]*kueue.Workload
 	rc            *remoteController
 	acName        string
-	adaptor       jobAdaptor
+	jobAdaptor    jobAdaptor
 	controllerKey types.NamespacedName
 }
 
@@ -109,7 +112,7 @@ func (group *wlGroup) RemoveRemoteObjects(ctx context.Context, rem string) error
 	if remWl == nil {
 		return nil
 	}
-	if err := group.adaptor.DeleteRemoteObject(ctx, group.rc.remoteClients[rem].client, group.controllerKey); err != nil {
+	if err := group.jobAdaptor.DeleteRemoteObject(ctx, group.rc.remoteClients[rem].client, group.controllerKey); err != nil {
 		return fmt.Errorf("deleting remote controller object: %w", err)
 	}
 
@@ -191,7 +194,7 @@ func (a *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload) (*w
 		remotes:       make(map[string]*kueue.Workload, len(rController.remoteClients)),
 		rc:            rController,
 		acName:        relevantChecks[0],
-		adaptor:       adaptor,
+		jobAdaptor:    adaptor,
 		controllerKey: controllerKey,
 	}
 
@@ -229,8 +232,8 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 		//NOTE: we can have a race condition setting the wl status here and it being updated by the job controller
 		// it should not be problematic but the "From remote xxxx:" could be lost ....
 
-		if group.adaptor != nil {
-			if err := group.adaptor.CopyStatusRemoteObject(ctx, a.acr.client, group.rc.remoteClients[remote].client, group.controllerKey); err != nil {
+		if group.jobAdaptor != nil {
+			if err := group.jobAdaptor.CopyStatusRemoteObject(ctx, a.acr.client, group.rc.remoteClients[remote].client, group.controllerKey); err != nil {
 				log.V(2).Error(err, "copying remote controller status", "remote", remote)
 				// we should retry this
 				return err
@@ -270,7 +273,7 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 	// 2. get the first reserving
 	if hasReserving {
 		acs := workload.FindAdmissionCheck(group.local.Status.AdmissionChecks, group.acName)
-		if err := group.adaptor.CreateRemoteObject(ctx, a.acr.client, group.rc.remoteClients[reservingRemote].client, group.controllerKey, group.local.Name); err != nil {
+		if err := group.jobAdaptor.CreateRemoteObject(ctx, a.acr.client, group.rc.remoteClients[reservingRemote].client, group.controllerKey, group.local.Name); err != nil {
 			log.V(2).Error(err, "creating remote controller object", "remote", reservingRemote)
 			// We'll retry this in the next reconcile.
 			return err

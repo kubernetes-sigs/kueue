@@ -29,6 +29,12 @@ type batchJobAdaptor struct{}
 
 var _ jobAdaptor = (*batchJobAdaptor)(nil)
 
+var (
+	// The list of labels that need to be removed before creating the job in the worker cluster.
+	cleanupLabels = []string{"job-name", "controller-uid", "batch.kubernetes.io/job-name",
+		"batch.kubernetes.io/controller-uid"}
+)
+
 func (b *batchJobAdaptor) CreateRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName string) error {
 	localJob := batchv1.Job{}
 	err := localClient.Get(ctx, key, &localJob)
@@ -44,11 +50,10 @@ func (b *batchJobAdaptor) CreateRemoteObject(ctx context.Context, localClient cl
 	// cleanup
 	// drop the selector
 	remoteJob.Spec.Selector = nil
-	// drop the job labels in the template
-	delete(remoteJob.Spec.Template.Labels, "job-name")
-	delete(remoteJob.Spec.Template.Labels, "controller-uid")
-	delete(remoteJob.Spec.Template.Labels, "batch.kubernetes.io/job-name")
-	delete(remoteJob.Spec.Template.Labels, "batch.kubernetes.io/controller-uid")
+	// drop the templates cleanup labels
+	for _, cl := range cleanupLabels {
+		delete(remoteJob.Spec.Template.Labels, cl)
+	}
 
 	// add the prebuilt workload
 	if remoteJob.Labels == nil {

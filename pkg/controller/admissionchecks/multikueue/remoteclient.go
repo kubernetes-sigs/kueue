@@ -36,7 +36,9 @@ type remoteController struct {
 	remoteClients map[string]*remoteClient
 	wlUpdateCh    chan<- event.GenericEvent
 
-	// for testing only
+	// For unit testing only. There is now need of creating fully functional remote clients in the unit tests
+	// and creating valid kubeconfig content is not trivial.
+	// The full client creation and usage is validated in the integration and e2e tests.
 	restConfigFromKubeConfigOverride func([]byte) (*rest.Config, error)
 	newWithWatchOverride             func(config *rest.Config, options client.Options) (client.WithWatch, error)
 }

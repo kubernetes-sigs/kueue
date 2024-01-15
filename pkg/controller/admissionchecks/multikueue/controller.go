@@ -69,7 +69,9 @@ type AcReconciler struct {
 
 	rootContext context.Context
 
-	// For testing only.
+	// For unit testing only. There is now need of creating fully functional remote clients in the unit tests
+	// and creating valid kubeconfig content is not trivial.
+	// The full client creation and usage is validated in the integration and e2e tests.
 	updateConfigOverride func(ctx context.Context, rc *remoteController, kubeconfigs map[string][]byte) error
 }
 
