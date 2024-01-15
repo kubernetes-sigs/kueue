@@ -211,7 +211,7 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 	}
 
 	if features.Enabled(features.MultiKueue) {
-		if err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer()); err != nil {
+		if err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), *cfg.Namespace); err != nil {
 			setupLog.Error(err, "Could not setup multikueue indexer")
 			os.Exit(1)
 		}
@@ -256,7 +256,7 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 	}
 
 	if features.Enabled(features.MultiKueue) {
-		if err := multikueue.NewACController(mgr.GetClient()).SetupWithManager(mgr); err != nil {
+		if err := multikueue.NewACController(mgr.GetClient(), *cfg.Namespace).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "Could not setup delagate controller")
 			os.Exit(1)
 		}

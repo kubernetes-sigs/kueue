@@ -43,11 +43,12 @@ var _ = ginkgo.Describe("Multikueue", func() {
 		worker1Ns *corev1.Namespace
 		worker2Ns *corev1.Namespace
 
-		managerMultikueueSecret *corev1.Secret
-		managerMultiKueueConfig *kueuealpha.MultiKueueConfig
-		multikueueAC            *kueue.AdmissionCheck
-		managerCq               *kueue.ClusterQueue
-		managerLq               *kueue.LocalQueue
+		managerMultikueueSecret1 *corev1.Secret
+		managerMultikueueSecret2 *corev1.Secret
+		managerMultiKueueConfig  *kueuealpha.MultiKueueConfig
+		multikueueAC             *kueue.AdmissionCheck
+		managerCq                *kueue.ClusterQueue
+		managerLq                *kueue.LocalQueue
 
 		worker1Cq *kueue.ClusterQueue
 		worker1Lq *kueue.LocalQueue
@@ -83,18 +84,27 @@ var _ = ginkgo.Describe("Multikueue", func() {
 		w2Kubeconfig, err := worker2Cluster.kubeConfigBytes()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		managerMultikueueSecret = &corev1.Secret{
+		managerMultikueueSecret1 = &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "multikueue",
-				Namespace: managerNs.Name,
+				Name:      "multikueue1",
+				Namespace: managersConfigNamespace.Name,
 			},
 			Data: map[string][]byte{
-				"worker1.kubeconfig": w1Kubeconfig,
-				"worker2.kubeconfig": w2Kubeconfig,
+				kueuealpha.MultiKueueConfigSecretKey: w1Kubeconfig,
 			},
 		}
+		gomega.Expect(managerCluster.client.Create(managerCluster.ctx, managerMultikueueSecret1)).To(gomega.Succeed())
 
-		gomega.Expect(managerCluster.client.Create(managerCluster.ctx, managerMultikueueSecret)).To(gomega.Succeed())
+		managerMultikueueSecret2 = &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "multikueue2",
+				Namespace: managersConfigNamespace.Name,
+			},
+			Data: map[string][]byte{
+				kueuealpha.MultiKueueConfigSecretKey: w2Kubeconfig,
+			},
+		}
+		gomega.Expect(managerCluster.client.Create(managerCluster.ctx, managerMultikueueSecret2)).To(gomega.Succeed())
 
 		managerMultiKueueConfig = &kueuealpha.MultiKueueConfig{
 			ObjectMeta: metav1.ObjectMeta{
@@ -105,17 +115,13 @@ var _ = ginkgo.Describe("Multikueue", func() {
 					{
 						Name: "worker1",
 						KubeconfigRef: kueuealpha.KubeconfigRef{
-							SecretName:      "multikueue",
-							SecretNamespace: managerNs.Name,
-							ConfigKey:       "worker1.kubeconfig",
+							SecretName: "multikueue1",
 						},
 					},
 					{
 						Name: "worker2",
 						KubeconfigRef: kueuealpha.KubeconfigRef{
-							SecretName:      "multikueue",
-							SecretNamespace: managerNs.Name,
-							ConfigKey:       "worker2.kubeconfig",
+							SecretName: "multikueue2",
 						},
 					},
 				},

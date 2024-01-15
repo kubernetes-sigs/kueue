@@ -244,7 +244,7 @@ func TestWlReconcile(t *testing.T) {
 			manageBuilder = manageBuilder.WithObjects(utiltesting.MakeAdmissionCheck("ac1").ControllerName(ControllerName).Obj())
 
 			managerClient := manageBuilder.Build()
-			acr := NewACController(managerClient)
+			acr := NewACController(managerClient, TestNamespace)
 
 			rc := newRemoteController(ctx, managerClient, nil)
 

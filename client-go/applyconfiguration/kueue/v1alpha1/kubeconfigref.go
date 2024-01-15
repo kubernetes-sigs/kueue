@@ -20,9 +20,7 @@ package v1alpha1
 // KubeconfigRefApplyConfiguration represents an declarative configuration of the KubeconfigRef type for use
 // with apply.
 type KubeconfigRefApplyConfiguration struct {
-	SecretName      *string `json:"secretName,omitempty"`
-	SecretNamespace *string `json:"secretNamespace,omitempty"`
-	ConfigKey       *string `json:"configKey,omitempty"`
+	SecretName *string `json:"secretName,omitempty"`
 }
 
 // KubeconfigRefApplyConfiguration constructs an declarative configuration of the KubeconfigRef type for use with
@@ -36,21 +34,5 @@ func KubeconfigRef() *KubeconfigRefApplyConfiguration {
 // If called multiple times, the SecretName field is set to the value of the last call.
 func (b *KubeconfigRefApplyConfiguration) WithSecretName(value string) *KubeconfigRefApplyConfiguration {
 	b.SecretName = &value
-	return b
-}
-
-// WithSecretNamespace sets the SecretNamespace field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the SecretNamespace field is set to the value of the last call.
-func (b *KubeconfigRefApplyConfiguration) WithSecretNamespace(value string) *KubeconfigRefApplyConfiguration {
-	b.SecretNamespace = &value
-	return b
-}
-
-// WithConfigKey sets the ConfigKey field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the ConfigKey field is set to the value of the last call.
-func (b *KubeconfigRefApplyConfiguration) WithConfigKey(value string) *KubeconfigRefApplyConfiguration {
-	b.ConfigKey = &value
 	return b
 }

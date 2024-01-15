@@ -112,9 +112,7 @@ func TestReconcile(t *testing.T) {
 							{
 								Name: "worker1",
 								KubeconfigRef: kueuealpha.KubeconfigRef{
-									SecretNamespace: TestNamespace,
-									SecretName:      "secret1",
-									ConfigKey:       "kubeconfig",
+									SecretName: "secret1",
 								},
 							},
 						},
@@ -150,9 +148,7 @@ func TestReconcile(t *testing.T) {
 							{
 								Name: "worker1",
 								KubeconfigRef: kueuealpha.KubeconfigRef{
-									SecretNamespace: TestNamespace,
-									SecretName:      "secret1",
-									ConfigKey:       "kubeconfig",
+									SecretName: "secret1",
 								},
 							},
 						},
@@ -193,9 +189,7 @@ func TestReconcile(t *testing.T) {
 							{
 								Name: "worker1",
 								KubeconfigRef: kueuealpha.KubeconfigRef{
-									SecretNamespace: TestNamespace,
-									SecretName:      "secret1",
-									ConfigKey:       "kubeconfig",
+									SecretName: "secret1",
 								},
 							},
 						},
@@ -239,9 +233,7 @@ func TestReconcile(t *testing.T) {
 							{
 								Name: "worker1",
 								KubeconfigRef: kueuealpha.KubeconfigRef{
-									SecretNamespace: TestNamespace,
-									SecretName:      "secret1",
-									ConfigKey:       "kubeconfig",
+									SecretName: "secret1",
 								},
 							},
 						},
@@ -296,7 +288,7 @@ func TestReconcile(t *testing.T) {
 
 			c := builder.Build()
 
-			reconciler := NewACController(c)
+			reconciler := NewACController(c, TestNamespace)
 			if len(tc.controllers) > 0 {
 				reconciler.controllers = tc.controllers
 			}

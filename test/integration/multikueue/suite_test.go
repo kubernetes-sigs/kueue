@@ -23,6 +23,8 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
@@ -77,9 +79,10 @@ func (c *cluster) kubeConfigBytes() ([]byte, error) {
 }
 
 var (
-	managerCluster cluster
-	worker1Cluster cluster
-	worker2Cluster cluster
+	managerCluster          cluster
+	worker1Cluster          cluster
+	worker2Cluster          cluster
+	managersConfigNamespace *corev1.Namespace
 )
 
 func TestScheduler(t *testing.T) {
@@ -142,6 +145,13 @@ func managerSetup(mgr manager.Manager, ctx context.Context) {
 func managerAndMultiKueueSetup(mgr manager.Manager, ctx context.Context) {
 	managerSetup(mgr, ctx)
 
-	err := multikueue.NewACController(mgr.GetClient()).SetupWithManager(mgr)
+	managersConfigNamespace = &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "kueue-system",
+		},
+	}
+	gomega.Expect(mgr.GetClient().Create(ctx, managersConfigNamespace)).To(gomega.Succeed())
+
+	err := multikueue.NewACController(mgr.GetClient(), managersConfigNamespace.Name).SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }

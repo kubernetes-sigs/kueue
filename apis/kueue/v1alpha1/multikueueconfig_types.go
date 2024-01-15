@@ -20,6 +20,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+const (
+	MultiKueueConfigSecretKey = "kubeconfig"
+)
+
 // MultiKueueConfigSpec defines the desired state of MultiKueueConfig
 type MultiKueueConfigSpec struct {
 	// clusters contains the list of configurations for using worker clusters.
@@ -37,9 +41,7 @@ type MultiKueueCluster struct {
 }
 
 type KubeconfigRef struct {
-	SecretName      string `json:"secretName"`
-	SecretNamespace string `json:"secretNamespace"`
-	ConfigKey       string `json:"configKey"`
+	SecretName string `json:"secretName"`
 }
 
 //+genclient

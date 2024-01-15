@@ -57,7 +57,7 @@ func getClientBuilder() (*fake.ClientBuilder, context.Context) {
 			Name: TestNamespace,
 		},
 	})
-	_ = SetupIndexer(ctx, utiltesting.AsIndexer(builder))
+	_ = SetupIndexer(ctx, utiltesting.AsIndexer(builder), TestNamespace)
 	return builder, ctx
 }
 
@@ -90,8 +90,7 @@ func TestMultikueConfigUsingKubeconfig(t *testing.T) {
 						Clusters: []kueuealpha.MultiKueueCluster{
 							{
 								KubeconfigRef: kueuealpha.KubeconfigRef{
-									SecretNamespace: TestNamespace,
-									SecretName:      "secret1",
+									SecretName: "secret1",
 								},
 							},
 						},
@@ -112,8 +111,7 @@ func TestMultikueConfigUsingKubeconfig(t *testing.T) {
 						Clusters: []kueuealpha.MultiKueueCluster{
 							{
 								KubeconfigRef: kueuealpha.KubeconfigRef{
-									SecretNamespace: TestNamespace,
-									SecretName:      "secret2",
+									SecretName: "secret2",
 								},
 							},
 						},
@@ -133,14 +131,12 @@ func TestMultikueConfigUsingKubeconfig(t *testing.T) {
 						Clusters: []kueuealpha.MultiKueueCluster{
 							{
 								KubeconfigRef: kueuealpha.KubeconfigRef{
-									SecretNamespace: TestNamespace,
-									SecretName:      "secret0",
+									SecretName: "secret0",
 								},
 							},
 							{
 								KubeconfigRef: kueuealpha.KubeconfigRef{
-									SecretNamespace: TestNamespace,
-									SecretName:      "secret1",
+									SecretName: "secret1",
 								},
 							},
 						},

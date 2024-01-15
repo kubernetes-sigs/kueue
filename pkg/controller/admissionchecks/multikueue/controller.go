@@ -59,8 +59,9 @@ func newMultiKueueStoreHelper(c client.Client) (*multiKueueStoreHelper, error) {
 // - Maintain the list of remote controllers associated to each admission checks.
 // - Maintain the active state of the admission checks.
 type AcReconciler struct {
-	client client.Client
-	helper *multiKueueStoreHelper
+	client          client.Client
+	helper          *multiKueueStoreHelper
+	configNamespace string
 
 	lock sync.RWMutex
 	// The list of remote controllers, indexed by the admission checks name.
@@ -191,7 +192,7 @@ func (cc *AcReconciler) getKubeConfigs(ctx context.Context, spec *kueuealpha.Mul
 		ref := c.KubeconfigRef
 		sec := corev1.Secret{}
 		secretObjKey := types.NamespacedName{
-			Namespace: ref.SecretNamespace,
+			Namespace: cc.configNamespace,
 			Name:      ref.SecretName,
 		}
 		err := cc.client.Get(ctx, secretObjKey, &sec)
@@ -199,9 +200,9 @@ func (cc *AcReconciler) getKubeConfigs(ctx context.Context, spec *kueuealpha.Mul
 			return nil, fmt.Errorf("getting kubeconfig secret for %q: %w", c.Name, err)
 		}
 
-		kconfigBytes, found := sec.Data[ref.ConfigKey]
+		kconfigBytes, found := sec.Data[kueuealpha.MultiKueueConfigSecretKey]
 		if !found {
-			return nil, fmt.Errorf("getting kubeconfig secret for %q: key %q not found in secret %q", c.Name, ref.ConfigKey, ref.SecretName)
+			return nil, fmt.Errorf("getting kubeconfig secret for %q: key %q not found in secret %q", c.Name, kueuealpha.MultiKueueConfigSecretKey, ref.SecretName)
 		}
 		ret[c.Name] = kconfigBytes
 	}
@@ -214,11 +215,12 @@ func (cc *AcReconciler) getKubeConfigs(ctx context.Context, spec *kueuealpha.Mul
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueconfigs,verbs=get;list;watch
 
-func NewACController(c client.Client) *AcReconciler {
+func NewACController(c client.Client, namespace string) *AcReconciler {
 	return &AcReconciler{
-		client:      c,
-		controllers: make(map[string]*remoteController),
-		wlUpdateCh:  make(chan event.GenericEvent, 10),
+		client:          c,
+		configNamespace: namespace,
+		controllers:     make(map[string]*remoteController),
+		wlUpdateCh:      make(chan event.GenericEvent, 10),
 	}
 }
 

@@ -23,17 +23,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	kueuejob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 )
 
 type batchJobAdaptor struct{}
 
 var _ jobAdaptor = (*batchJobAdaptor)(nil)
-
-var (
-	// The list of labels that need to be removed before creating the job in the worker cluster.
-	cleanupLabels = []string{"job-name", "controller-uid", "batch.kubernetes.io/job-name",
-		"batch.kubernetes.io/controller-uid"}
-)
 
 func (b *batchJobAdaptor) CreateRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName string) error {
 	localJob := batchv1.Job{}
@@ -51,7 +46,7 @@ func (b *batchJobAdaptor) CreateRemoteObject(ctx context.Context, localClient cl
 	// drop the selector
 	remoteJob.Spec.Selector = nil
 	// drop the templates cleanup labels
-	for _, cl := range cleanupLabels {
+	for _, cl := range kueuejob.ManagedLabels {
 		delete(remoteJob.Spec.Template.Labels, cl)
 	}
 

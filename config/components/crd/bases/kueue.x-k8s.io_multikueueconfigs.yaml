@@ -42,16 +42,10 @@ spec:
                   properties:
                     kubeconfigRef:
                       properties:
-                        configKey:
-                          type: string
                         secretName:
                           type: string
-                        secretNamespace:
-                          type: string
                       required:
-                      - configKey
                       - secretName
-                      - secretNamespace
                       type: object
                     name:
                       type: string
