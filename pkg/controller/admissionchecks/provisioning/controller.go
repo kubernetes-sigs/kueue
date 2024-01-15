@@ -159,8 +159,8 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 func (c *Controller) activeOrLastPRForChecks(ctx context.Context, wl *kueue.Workload, relevantChecks []string, ownedPrs []autoscaling.ProvisioningRequest) map[string]*autoscaling.ProvisioningRequest {
 	activeOrLastPRForChecks := make(map[string]*autoscaling.ProvisioningRequest)
 	for _, checkName := range relevantChecks {
-		for _, pr := range ownedPrs {
-			req := &pr
+		for i := range ownedPrs {
+			req := &ownedPrs[i]
 			// PRs relevant for the admission check
 			if matches(req, wl.Name, checkName) {
 				prc, err := c.helper.ProvReqConfigForAdmissionCheck(ctx, checkName)
