@@ -58,6 +58,7 @@ var cmpDump = []cmp.Option{
 }
 
 func TestSchedule(t *testing.T) {
+	now := time.Now()
 	resourceFlavors := []*kueue.ResourceFlavor{
 		{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
 		{ObjectMeta: metav1.ObjectMeta{Name: "on-demand"}},
@@ -733,21 +734,21 @@ func TestSchedule(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("new", "eng-beta").
 					Queue("main").
-					Creation(time.Now().Add(-2 * time.Second)).
+					Creation(now.Add(-2 * time.Second)).
 					PodSets(*utiltesting.MakePodSet("one", 50).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("new-alpha", "eng-alpha").
 					Queue("main").
-					Creation(time.Now().Add(-time.Second)).
+					Creation(now.Add(-time.Second)).
 					PodSets(*utiltesting.MakePodSet("one", 1).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("new-gamma", "eng-gamma").
 					Queue("main").
-					Creation(time.Now()).
+					Creation(now).
 					PodSets(*utiltesting.MakePodSet("one", 50).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
@@ -1158,14 +1159,14 @@ func TestSchedule(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "eng-alpha").
 					Queue("lq_a").
-					Creation(time.Now().Add(time.Second)).
+					Creation(now.Add(time.Second)).
 					PodSets(*utiltesting.MakePodSet("main", 1).
 						Request(corev1.ResourceCPU, "3").
 						Obj()).
 					Obj(),
 				*utiltesting.MakeWorkload("b", "eng-beta").
 					Queue("lq_b").
-					Creation(time.Now().Add(time.Second)).
+					Creation(now.Add(2 * time.Second)).
 					PodSets(*utiltesting.MakePodSet("main", 1).
 						Request(corev1.ResourceCPU, "1").
 						Obj()).
