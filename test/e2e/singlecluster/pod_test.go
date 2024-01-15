@@ -176,7 +176,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				MakeGroup(3)
 
 			// First pod runs for much longer, so that there is time to terminate it.
-			group[0].Spec.Containers[0].Args = []string{"--termination-code=1", "10m"}
+			group[0].Spec.Containers[0].Args = []string{"-termination-code=1", "10m"}
 
 			ginkgo.By("Group starts", func() {
 				for _, p := range group {
