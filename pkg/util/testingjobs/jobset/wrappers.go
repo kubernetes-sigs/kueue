@@ -45,6 +45,7 @@ type ReplicatedJobRequirements struct {
 	Replicas    int32
 	Parallelism int32
 	Completions int32
+	Annotations map[string]string
 }
 
 // MakeJobSet creates a wrapper for a suspended JobSet
@@ -68,6 +69,7 @@ func (j *JobSetWrapper) ReplicatedJobs(replicatedJobs ...ReplicatedJobRequiremen
 	j.Spec.ReplicatedJobs = make([]jobsetapi.ReplicatedJob, len(replicatedJobs))
 	for index, req := range replicatedJobs {
 		jt := jobsetutil.MakeJobTemplate("", "").PodSpec(TestPodSpec).Obj()
+		jt.Annotations = req.Annotations
 		jt.Spec.Parallelism = ptr.To(req.Parallelism)
 		jt.Spec.Completions = ptr.To(req.Completions)
 		j.Spec.ReplicatedJobs[index] = jobsetutil.MakeReplicatedJob(req.Name).Job(jt).Replicas(req.Replicas).Obj()
@@ -81,13 +83,18 @@ func (j *JobSetWrapper) Suspend(s bool) *JobSetWrapper {
 	return j
 }
 
-// Queue updates the queue name of the JobSet.
-func (j *JobSetWrapper) Queue(queue string) *JobSetWrapper {
+// Label sets a label to the JobSet.
+func (j *JobSetWrapper) Label(k, v string) *JobSetWrapper {
 	if j.Labels == nil {
 		j.Labels = make(map[string]string)
 	}
-	j.Labels[constants.QueueLabel] = queue
+	j.Labels[k] = v
 	return j
+}
+
+// Queue updates the queue name of the JobSet.
+func (j *JobSetWrapper) Queue(queue string) *JobSetWrapper {
+	return j.Label(constants.QueueLabel, queue)
 }
 
 // Request adds a resource request to the first container of the target replicatedJob.

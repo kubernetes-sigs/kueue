@@ -53,6 +53,11 @@ func TestValidateCreate(t *testing.T) {
 			job:     testingutil.MakeJobSet("job", "default").Queue("queue_name").Obj(),
 			wantErr: field.ErrorList{field.Invalid(queueNameLabelPath, "queue_name", invalidRFC1123Message)}.ToAggregate(),
 		},
+		{
+			name:    "with prebuilt workload",
+			job:     testingutil.MakeJobSet("job", "default").Queue("queue").Label(constants.PrebuiltWorkloadLabel, "prebuilt-workload").Obj(),
+			wantErr: nil,
+		},
 	}
 
 	for _, tc := range testcases {
@@ -62,6 +67,77 @@ func TestValidateCreate(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validateCreate() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestDefault(t *testing.T) {
+	testcases := []struct {
+		name    string
+		job     *jobset.JobSet
+		wantJob *jobset.JobSet
+	}{
+		{
+			name: "propagate prebuilt wl name in parent workload annotation",
+			job: testingutil.MakeJobSet("job", "default").Queue("queue").
+				Label(constants.PrebuiltWorkloadLabel, "prebuilt-workload").
+				ReplicatedJobs(
+					testingutil.ReplicatedJobRequirements{
+						Name:        "rj1",
+						Replicas:    1,
+						Parallelism: 2,
+						Completions: 3,
+						Annotations: map[string]string{
+							"other-annotation": "val",
+						},
+					},
+					testingutil.ReplicatedJobRequirements{
+						Name:        "rj2",
+						Replicas:    1,
+						Parallelism: 2,
+						Completions: 3,
+					},
+				).
+				Obj(),
+			wantJob: testingutil.MakeJobSet("job", "default").Queue("queue").
+				Label(constants.PrebuiltWorkloadLabel, "prebuilt-workload").
+				ReplicatedJobs(
+					testingutil.ReplicatedJobRequirements{
+						Name:        "rj1",
+						Replicas:    1,
+						Parallelism: 2,
+						Completions: 3,
+						Annotations: map[string]string{
+							"other-annotation":                 "val",
+							constants.ParentWorkloadAnnotation: "prebuilt-workload",
+						},
+					},
+					testingutil.ReplicatedJobRequirements{
+						Name:        "rj2",
+						Replicas:    1,
+						Parallelism: 2,
+						Completions: 3,
+						Annotations: map[string]string{
+							constants.ParentWorkloadAnnotation: "prebuilt-workload",
+						},
+					},
+				).
+				Obj(),
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			jsw := &JobSetWebhook{}
+			gotErr := jsw.Default(context.Background(), tc.job)
+
+			if gotErr != nil {
+				t.Errorf("unexpected Default error: %s", gotErr)
+			}
+
+			if diff := cmp.Diff(tc.wantJob, tc.job); diff != "" {
+				t.Errorf("unexpected jobset after Default (-want +got):\n%s", diff)
 			}
 		})
 	}

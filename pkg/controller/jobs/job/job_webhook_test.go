@@ -480,6 +480,16 @@ func TestDefault(t *testing.T) {
 			manageJobsWithoutQueueName: true,
 			want:                       testingutil.MakeJob("job", "default").Obj(),
 		},
+		"don't replace parent workload name in annotations": {
+			job: testingutil.MakeJob("child-job", "default").
+				OwnerReference("parent-job", kubeflow.SchemeGroupVersionKind).
+				ParentWorkload("prebuilt-workload").
+				Obj(),
+			want: testingutil.MakeJob("child-job", "default").
+				OwnerReference("parent-job", kubeflow.SchemeGroupVersionKind).
+				ParentWorkload("prebuilt-workload").
+				Obj(),
+		},
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
