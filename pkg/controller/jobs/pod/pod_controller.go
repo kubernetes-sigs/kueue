@@ -834,7 +834,7 @@ func (p *Pod) ListChildWorkloads(ctx context.Context, c client.Client, key types
 
 	// List related workloads for the single pod
 	if err := c.List(ctx, workloads, client.InNamespace(key.Namespace),
-		client.MatchingFields{jobframework.GetOwnerKey(p.pod.GroupVersionKind()): key.Name}); err != nil {
+		client.MatchingFields{jobframework.GetOwnerKey(gvk): key.Name}); err != nil {
 		log.Error(err, "Unable to get related workload for the single pod")
 		return nil, err
 	}
