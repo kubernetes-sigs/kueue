@@ -23,7 +23,7 @@ ROOT_DIR=$SOURCE_DIR/..
 export KUSTOMIZE=$ROOT_DIR/bin/kustomize
 export GINKGO=$ROOT_DIR/bin/ginkgo
 export KIND=$ROOT_DIR/bin/kind
-export E2E_TEST_IMAGE=gcr.io/k8s-staging-perf-tests/sleep:v0.0.3
+export E2E_TEST_IMAGE=gcr.io/k8s-staging-perf-tests/sleep:v0.1.0
 
 source ${SOURCE_DIR}/e2e-common.sh
 

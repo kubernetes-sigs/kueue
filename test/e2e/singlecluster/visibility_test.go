@@ -111,7 +111,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 			ginkgo.By("Schedule a job that when admitted workload blocks the queue", func() {
 				blockingJob = testingjob.MakeJob("test-job-1", nsA.Name).
 					Queue(localQueueA.Name).
-					Image("gcr.io/k8s-staging-perf-tests/sleep:v0.0.3", []string{"60s", "-termination-grace-period", "0s"}).
+					Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1m"}).
 					Request(corev1.ResourceCPU, "1").
 					TerminationGracePeriod(1).
 					BackoffLimit(0).
@@ -144,7 +144,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 			ginkgo.By("Schedule a job which is pending due to lower priority", func() {
 				sampleJob2 = testingjob.MakeJob("test-job-2", nsA.Name).
 					Queue(localQueueA.Name).
-					Image("gcr.io/k8s-staging-perf-tests/sleep:v0.0.3", []string{"1ms"}).
+					Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
 					Request(corev1.ResourceCPU, "1").
 					PriorityClass(lowPriorityClass.Name).
 					Obj()
@@ -206,7 +206,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 				for _, jobCase := range jobCases {
 					job := testingjob.MakeJob(jobCase.JobName, nsA.Name).
 						Queue(jobCase.LocalQueueName).
-						Image("gcr.io/k8s-staging-perf-tests/sleep:v0.0.3", []string{"1ms"}).
+						Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
 						Request(corev1.ResourceCPU, "1").
 						PriorityClass(jobCase.JobPrioClassName).
 						Obj()
@@ -265,7 +265,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 			ginkgo.By("Schedule a job which is pending due to lower priority", func() {
 				sampleJob2 = testingjob.MakeJob("test-job-2", nsA.Name).
 					Queue(localQueueA.Name).
-					Image("gcr.io/k8s-staging-perf-tests/sleep:v0.0.3", []string{"1ms"}).
+					Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
 					Request(corev1.ResourceCPU, "1").
 					PriorityClass(lowPriorityClass.Name).
 					Obj()
@@ -327,7 +327,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 				for _, jobCase := range jobCases {
 					job := testingjob.MakeJob(jobCase.JobName, nsA.Name).
 						Queue(jobCase.LocalQueueName).
-						Image("gcr.io/k8s-staging-perf-tests/sleep:v0.0.3", []string{"1ms"}).
+						Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
 						Request(corev1.ResourceCPU, "1").
 						PriorityClass(jobCase.JobPrioClassName).
 						Obj()
@@ -421,7 +421,7 @@ var _ = ginkgo.Describe("Kueue visibility server", func() {
 				for _, jobCase := range jobCases {
 					job := testingjob.MakeJob(jobCase.JobName, jobCase.nsName).
 						Queue(jobCase.LocalQueueName).
-						Image("gcr.io/k8s-staging-perf-tests/sleep:v0.0.3", []string{"1ms"}).
+						Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
 						Request(corev1.ResourceCPU, "1").
 						PriorityClass(jobCase.JobPrioClassName).
 						Obj()

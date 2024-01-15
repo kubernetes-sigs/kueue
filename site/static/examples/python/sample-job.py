@@ -25,7 +25,7 @@ def get_parser():
     parser.add_argument(
         "--image",
         help="container image to use",
-        default="gcr.io/k8s-staging-perf-tests/sleep:v0.0.3",
+        default="gcr.io/k8s-staging-perf-tests/sleep:v0.1.0",
     )
     parser.add_argument(
         "--args",
