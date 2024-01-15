@@ -74,7 +74,7 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Applying defaults", "job", klog.KObj(job))
 
-	// While using prebuilt workloads, the owner job may sat the parent workload to a different one
+	// While using prebuilt workloads, the owner job may set the parent workload to a different one
 	// then the one generated from its name.
 	if owner := metav1.GetControllerOf(job); owner != nil && jobframework.IsOwnerManagedByKueue(owner) && jobframework.ParentWorkloadName(job) == "" {
 		if job.Annotations == nil {

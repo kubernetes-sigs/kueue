@@ -53,6 +53,11 @@ func TestValidateCreate(t *testing.T) {
 			job:     testingutil.MakeJobSet("job", "default").Queue("queue_name").Obj(),
 			wantErr: field.ErrorList{field.Invalid(queueNameLabelPath, "queue_name", invalidRFC1123Message)}.ToAggregate(),
 		},
+		{
+			name:    "with prebuilt workload",
+			job:     testingutil.MakeJobSet("job", "default").Queue("queue").Label(constants.PrebuiltWorkloadLabel, "prebuilt-workload").Obj(),
+			wantErr: nil,
+		},
 	}
 
 	for _, tc := range testcases {

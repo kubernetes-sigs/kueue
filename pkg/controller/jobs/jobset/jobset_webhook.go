@@ -61,7 +61,7 @@ func (w *JobSetWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log.V(5).Info("Applying defaults", "jobset", klog.KObj(jobSet))
 
 	// If a prebuilt workload is used, propagate the name to it's replicated job templates.
-	if wlName, hasPrebuilt := jobframework.PrebuiltWorkload(jobSet); hasPrebuilt {
+	if wlName, hasPrebuilt := jobframework.PrebuiltWorkloadFor(jobSet); hasPrebuilt {
 		for i := range jobSet.Spec.ReplicatedJobs {
 			rjTemplate := &jobSet.Spec.ReplicatedJobs[i].Template
 			if rjTemplate.Annotations == nil {
