@@ -74,38 +74,26 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	}
 }
 
-func managerAndSchedulerSetup(cfg *config.Configuration) framework.ManagerSetup {
+func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	return func(mgr manager.Manager, ctx context.Context) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		var queueOpts []queue.Option
-		if cfg.WaitForPodsReady != nil {
-			queueOpts = append(queueOpts, queue.WithPodsReadyRequeuingTimestamp(cfg.WaitForPodsReady.RequeuingTimestamp))
-		}
 		cCache := cache.New(mgr.GetClient())
-		queues := queue.NewManager(mgr.GetClient(), cCache, queueOpts...)
+		queues := queue.NewManager(mgr.GetClient(), cCache)
 
-		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg)
+		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &config.Configuration{})
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
-		var jobOpts []jobframework.Option
-		if cfg.WaitForPodsReady != nil {
-			jobOpts = append(jobOpts, jobframework.WithWaitForPodsReady(cfg.WaitForPodsReady.Enable))
-		}
 		err = job.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = job.NewReconciler(mgr.GetClient(),
-			mgr.GetEventRecorderFor(constants.JobControllerName), jobOpts...).SetupWithManager(mgr)
+			mgr.GetEventRecorderFor(constants.JobControllerName), opts...).SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = job.SetupWebhook(mgr, jobOpts...)
+		err = job.SetupWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		var schOpts []scheduler.Option
-		if cfg.WaitForPodsReady != nil {
-			schOpts = append(schOpts, scheduler.WithPodsReadyRequeuingTimestamp(cfg.WaitForPodsReady.RequeuingTimestamp))
-		}
-		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName), schOpts...)
+		sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))
 		err = sched.Start(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}

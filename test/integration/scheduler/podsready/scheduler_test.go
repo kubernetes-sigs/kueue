@@ -107,7 +107,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 
 		ginkgo.BeforeEach(func() {
 			podsReadyTimeout = time.Minute
-			requeuingTimestamp = config.Eviction
+			requeuingTimestamp = config.EvictionTimestamp
 		})
 
 		ginkgo.It("Should unblock admission of new workloads in other ClusterQueues once the admitted workload exceeds timeout", func() {
@@ -179,7 +179,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 
 		ginkgo.BeforeEach(func() {
 			podsReadyTimeout = 3 * time.Second
-			requeuingTimestamp = config.Eviction
+			requeuingTimestamp = config.EvictionTimestamp
 		})
 
 		ginkgo.It("Should requeue a workload which exceeded the timeout to reach PodsReady=True", func() {
@@ -379,7 +379,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 
 		ginkgo.BeforeEach(func() {
 			podsReadyTimeout = 3 * time.Second
-			requeuingTimestamp = config.Creation
+			requeuingTimestamp = config.CreationTimestamp
 		})
 
 		ginkgo.It("Should prioritize workloads submitted earlier", func() {
@@ -487,7 +487,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 
 		ginkgo.BeforeEach(func() {
 			podsReadyTimeout = time.Minute
-			requeuingTimestamp = config.Eviction
+			requeuingTimestamp = config.EvictionTimestamp
 		})
 
 		ginkgo.It("Should not block admission of one new workload if two are considered in the same scheduling cycle", func() {
@@ -520,7 +520,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 	var _ = ginkgo.Context("Short PodsReady timeout", func() {
 		ginkgo.BeforeEach(func() {
 			podsReadyTimeout = 3 * time.Second
-			requeuingTimestamp = config.Eviction
+			requeuingTimestamp = config.EvictionTimestamp
 		})
 
 		ginkgo.It("Should re-admit a timed out workload", func() {
@@ -544,7 +544,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 
 		ginkgo.BeforeEach(func() {
 			podsReadyTimeout = 3 * time.Second
-			requeuingTimestamp = config.Creation
+			requeuingTimestamp = config.CreationTimestamp
 		})
 
 		ginkgo.It("Should keep the evicted workload at the front of the queue", func() {

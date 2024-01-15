@@ -502,7 +502,7 @@ integrations:
 					Enable:             true,
 					BlockAdmission:     ptr.To(true),
 					Timeout:            &metav1.Duration{Duration: 5 * time.Minute},
-					RequeuingTimestamp: configapi.Eviction,
+					RequeuingTimestamp: ptr.To(configapi.EvictionTimestamp),
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,

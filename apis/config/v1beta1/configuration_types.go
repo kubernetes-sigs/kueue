@@ -195,17 +195,17 @@ type WaitForPodsReady struct {
 
 	// RequeuingTimestamp defines the timestamp used for requeuing a Workload
 	// that was evicted due to Pod readiness. Defaults to Eviction (back of queue).
-	RequeuingTimestamp RequeuingTimestamp `json:"requeuingTimestamp,omitempty"`
+	RequeuingTimestamp *RequeuingTimestamp `json:"requeuingTimestamp,omitempty"`
 }
 
 type RequeuingTimestamp string
 
 const (
-	// Creation timestamp (from Workload .metadata.creationTimestamp).
-	Creation RequeuingTimestamp = "Creation"
+	// CreationTimestamp timestamp (from Workload .metadata.creationTimestamp).
+	CreationTimestamp RequeuingTimestamp = "Creation"
 
-	// Eviction timestamp (from Workload .status.conditions).
-	Eviction RequeuingTimestamp = "Eviction"
+	// EvictionTimestamp timestamp (from Workload .status.conditions).
+	EvictionTimestamp RequeuingTimestamp = "Eviction"
 )
 
 type InternalCertManagement struct {

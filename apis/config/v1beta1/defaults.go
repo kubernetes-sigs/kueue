@@ -36,7 +36,7 @@ const (
 	DefaultLeaderElectionID                             = "c1f6bfd2.kueue.x-k8s.io"
 	DefaultClientConnectionQPS                  float32 = 20.0
 	DefaultClientConnectionBurst                int32   = 30
-	DefaultPodsReadyTimeout                             = 5 * time.Minute
+	defaultPodsReadyTimeout                             = 5 * time.Minute
 	DefaultQueueVisibilityUpdateIntervalSeconds int32   = 5
 	DefaultClusterQueuesMaxCount                int32   = 10
 	DefaultJobFrameworkName                             = "batch/job"
@@ -101,7 +101,7 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	}
 	if cfg.WaitForPodsReady != nil {
 		if cfg.WaitForPodsReady.Timeout == nil {
-			cfg.WaitForPodsReady.Timeout = &metav1.Duration{Duration: DefaultPodsReadyTimeout}
+			cfg.WaitForPodsReady.Timeout = &metav1.Duration{Duration: defaultPodsReadyTimeout}
 		}
 		if cfg.WaitForPodsReady.BlockAdmission == nil {
 			defaultBlockAdmission := true
@@ -110,8 +110,9 @@ func SetDefaults_Configuration(cfg *Configuration) {
 			}
 			cfg.WaitForPodsReady.BlockAdmission = &defaultBlockAdmission
 		}
-		if cfg.WaitForPodsReady.RequeuingTimestamp == "" {
-			cfg.WaitForPodsReady.RequeuingTimestamp = Eviction
+		if cfg.WaitForPodsReady.RequeuingTimestamp == nil {
+			defaultRequeuingTimestamp := EvictionTimestamp
+			cfg.WaitForPodsReady.RequeuingTimestamp = &defaultRequeuingTimestamp
 		}
 	}
 	if cfg.Integrations == nil {

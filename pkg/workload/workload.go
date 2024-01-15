@@ -401,7 +401,7 @@ type Ordering struct {
 // GetQueueOrderTimestamp return the timestamp to be used by the scheduler. It could
 // be the workload creation time or the last time a PodsReady timeout has occurred.
 func (o Ordering) GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
-	if o.PodsReadyRequeuingTimestamp == config.Eviction || o.PodsReadyRequeuingTimestamp == "" {
+	if o.PodsReadyRequeuingTimestamp == config.EvictionTimestamp {
 		if c := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted); c != nil &&
 			c.Status == metav1.ConditionTrue &&
 			c.Reason == kueue.WorkloadEvictedByPodsReadyTimeout {

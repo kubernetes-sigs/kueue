@@ -19,7 +19,6 @@ package job
 import (
 	"fmt"
 	"maps"
-	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
@@ -35,7 +34,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -1075,7 +1073,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 			CRDPath: crdPath,
 		}
 		cfg = fwk.Init()
-		ctx, k8sClient = fwk.RunManager(cfg, managerAndSchedulerSetup(&config.Configuration{}))
+		ctx, k8sClient = fwk.RunManager(cfg, managerAndSchedulerSetup())
 	})
 	ginkgo.AfterAll(func() {
 		fwk.Teardown()
@@ -1802,159 +1800,6 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		})
-	})
-})
-
-var _ = ginkgo.Describe("Job controller interacting with scheduler with waitForPodsReadyx configured", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	var (
-		ns                 *corev1.Namespace
-		equivalentFlavorA  *kueue.ResourceFlavor
-		equivalentFlavorB  *kueue.ResourceFlavor
-		equivalentClusterQ *kueue.ClusterQueue
-		equivalentLocalQ   *kueue.LocalQueue
-
-		waitForPodsReadyTimeout = 6 * time.Second
-	)
-
-	ginkgo.BeforeAll(func() {
-		fwk = &framework.Framework{
-			CRDPath: crdPath,
-		}
-		cfg = fwk.Init()
-		ctx, k8sClient = fwk.RunManager(cfg, managerAndSchedulerSetup(&config.Configuration{
-			WaitForPodsReady: &config.WaitForPodsReady{
-				Enable:             true,
-				Timeout:            &metav1.Duration{Duration: waitForPodsReadyTimeout},
-				RequeuingTimestamp: config.Creation,
-			},
-		}))
-	})
-	ginkgo.AfterAll(func() {
-		fwk.Teardown()
-	})
-
-	ginkgo.BeforeEach(func() {
-		ns = &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: "core-",
-			},
-		}
-		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-
-		equivalentFlavorA = testing.MakeResourceFlavor("equivalent-flavor-a").
-			Label(instanceKey, "equivalent-flavor-a").Obj()
-		gomega.Expect(k8sClient.Create(ctx, equivalentFlavorA)).Should(gomega.Succeed())
-
-		equivalentFlavorB = testing.MakeResourceFlavor("equivalent-flavor-b").
-			Label(instanceKey, "equivalent-flavor-b").Obj()
-		gomega.Expect(k8sClient.Create(ctx, equivalentFlavorB)).Should(gomega.Succeed())
-
-		equivalentClusterQ = testing.MakeClusterQueue("equivalent-cq").
-			Cohort("equivalent").
-			ResourceGroup(
-				*testing.MakeFlavorQuotas("equivalent-flavor-a").Resource(corev1.ResourceCPU, "5").Obj(),
-				*testing.MakeFlavorQuotas("equivalent-flavor-b").Resource(corev1.ResourceCPU, "5").Obj(),
-			).Obj()
-		gomega.Expect(k8sClient.Create(ctx, equivalentClusterQ)).Should(gomega.Succeed())
-	})
-
-	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, equivalentClusterQ, true)
-		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, equivalentFlavorA, true)
-		util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, equivalentFlavorB, true)
-	})
-
-	ginkgo.It("Should schedule jobs as they fit in their ClusterQueue", func() {
-		ginkgo.By("creating localQueues")
-		equivalentLocalQ = testing.MakeLocalQueue("equivalent", ns.Name).ClusterQueue(equivalentClusterQ.Name).Obj()
-		gomega.Expect(k8sClient.Create(ctx, equivalentLocalQ)).Should(gomega.Succeed())
-
-		ginkgo.By("checking the first job starts")
-		// A request of 5 CPUs will fit in the first flavor.
-		equivJob1 := testingjob.MakeJob("equiv-job1", ns.Name).Queue(equivalentLocalQ.Name).Request(corev1.ResourceCPU, "5").Obj()
-		gomega.Expect(k8sClient.Create(ctx, equivJob1)).Should(gomega.Succeed())
-		lookupKey1 := types.NamespacedName{Name: equivJob1.Name, Namespace: equivJob1.Namespace}
-		createdEquivJob1 := &batchv1.Job{}
-		gomega.Eventually(func() *bool {
-			gomega.Expect(k8sClient.Get(ctx, lookupKey1, createdEquivJob1)).Should(gomega.Succeed())
-			return createdEquivJob1.Spec.Suspend
-		}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(false)))
-		gomega.Expect(createdEquivJob1.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(equivalentFlavorA.Name))
-		util.ExpectPendingWorkloadsMetric(equivalentClusterQ, 0, 0)
-
-		time.Sleep(time.Second)
-
-		ginkgo.By("checking the second job starts")
-		// A request of 5 CPUs will fit in the second flavor.
-		equivJob2 := testingjob.MakeJob("equiv-job2", ns.Name).Queue(equivalentLocalQ.Name).Request(corev1.ResourceCPU, "5").Obj()
-		gomega.Expect(k8sClient.Create(ctx, equivJob2)).Should(gomega.Succeed())
-		lookupKey2 := types.NamespacedName{Name: equivJob2.Name, Namespace: equivJob2.Namespace}
-		createdEquivJob2 := &batchv1.Job{}
-		gomega.Eventually(func() *bool {
-			gomega.Expect(k8sClient.Get(ctx, lookupKey2, createdEquivJob2)).Should(gomega.Succeed())
-			return createdEquivJob2.Spec.Suspend
-		}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(false)))
-		gomega.Expect(createdEquivJob2.Spec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(equivalentFlavorB.Name))
-		util.ExpectPendingWorkloadsMetric(equivalentClusterQ, 0, 0)
-
-		time.Sleep(time.Second)
-
-		equivJob3 := testingjob.MakeJob("equiv-job3", ns.Name).Queue(equivalentLocalQ.Name).Request(corev1.ResourceCPU, "5").Obj()
-		gomega.Expect(k8sClient.Create(ctx, equivJob3)).Should(gomega.Succeed())
-
-		time.Sleep(time.Second)
-
-		equivJob4 := testingjob.MakeJob("equiv-job4", ns.Name).Queue(equivalentLocalQ.Name).Request(corev1.ResourceCPU, "5").Obj()
-		gomega.Expect(k8sClient.Create(ctx, equivJob4)).Should(gomega.Succeed())
-
-		lookupKey3 := types.NamespacedName{Name: equivJob3.Name, Namespace: equivJob3.Namespace}
-		createdEquivJob3 := &batchv1.Job{}
-
-		ginkgo.By("checking the third job is not yet admitted")
-		gomega.Consistently(func() *bool {
-			gomega.Expect(k8sClient.Get(ctx, lookupKey3, createdEquivJob3)).Should(gomega.Succeed())
-			return createdEquivJob3.Spec.Suspend
-		}, "1s").Should(gomega.Equal(ptr.To(true)))
-
-		lookupKey4 := types.NamespacedName{Name: equivJob4.Name, Namespace: equivJob4.Namespace}
-		createdEquivJob4 := &batchv1.Job{}
-
-		ginkgo.By("checking the forth job is not yet admitted")
-		gomega.Consistently(func() *bool {
-			gomega.Expect(k8sClient.Get(ctx, lookupKey4, createdEquivJob4)).Should(gomega.Succeed())
-			return createdEquivJob4.Spec.Suspend
-		}, "1s").Should(gomega.Equal(ptr.To(true)))
-
-		util.ExpectPendingWorkloadsMetric(equivalentClusterQ, 0, 2)
-
-		gomega.Eventually(func() error {
-			gomega.Expect(k8sClient.Get(ctx, lookupKey1, createdEquivJob1)).Should(gomega.Succeed())
-			createdEquivJob1.Status.Conditions = append(createdEquivJob1.Status.Conditions,
-				batchv1.JobCondition{
-					Type:               batchv1.JobComplete,
-					Status:             corev1.ConditionTrue,
-					LastProbeTime:      metav1.Now(),
-					LastTransitionTime: metav1.Now(),
-				})
-			return k8sClient.Status().Update(ctx, createdEquivJob1)
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-		time.Sleep(waitForPodsReadyTimeout)
-
-		ginkgo.By("Checking the second job gets evicted by wait-for-pods-ready")
-		wlKey2 := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(equivJob2.Name), Namespace: equivJob2.Namespace}
-		gomega.Eventually(func(g gomega.Gomega) {
-			wl := &kueue.Workload{}
-			g.Expect(k8sClient.Get(ctx, wlKey2, wl)).Should(gomega.Succeed())
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).Should(gomega.Succeed())
-			evictedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)
-			gomega.Expect(evictedCond).ShouldNot(gomega.BeNil())
-		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
-
-		ginkgo.By("Checking that the forth job is still suspended")
-		gomega.Expect(k8sClient.Get(ctx, lookupKey4, createdEquivJob4)).Should(gomega.Succeed())
-		gomega.Expect(createdEquivJob4.Spec.Suspend).Should(gomega.Equal(ptr.To(true)))
 	})
 })
 

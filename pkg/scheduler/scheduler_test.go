@@ -1473,25 +1473,25 @@ func TestEntryOrdering(t *testing.T) {
 		{
 			name:             "Priority sorting is enabled (default) using pods-ready Eviction timestamp (default)",
 			prioritySorting:  true,
-			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.Eviction},
+			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
 			wantOrder:        []string{"new_high_pri", "old", "recently_evicted", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing"},
 		},
 		{
 			name:             "Priority sorting is enabled (default) using pods-ready Creation timestamp",
 			prioritySorting:  true,
-			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.Creation},
+			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.CreationTimestamp},
 			wantOrder:        []string{"new_high_pri", "recently_evicted", "old", "new", "high_pri_borrowing", "old_borrowing", "evicted_borrowing", "new_borrowing"},
 		},
 		{
 			name:             "Priority sorting is disabled using pods-ready Eviction timestamp",
 			prioritySorting:  false,
-			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.Eviction},
+			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
 			wantOrder:        []string{"old", "recently_evicted", "new", "new_high_pri", "old_borrowing", "evicted_borrowing", "high_pri_borrowing", "new_borrowing"},
 		},
 		{
 			name:             "Priority sorting is disabled using pods-ready Creation timestamp",
 			prioritySorting:  false,
-			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.Creation},
+			workloadOrdering: workload.Ordering{PodsReadyRequeuingTimestamp: config.CreationTimestamp},
 			wantOrder:        []string{"recently_evicted", "old", "new", "new_high_pri", "old_borrowing", "evicted_borrowing", "high_pri_borrowing", "new_borrowing"},
 		},
 	} {

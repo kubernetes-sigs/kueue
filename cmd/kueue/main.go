@@ -372,10 +372,10 @@ func waitForPodsReady(cfg *configapi.Configuration) bool {
 }
 
 func podsReadyRequeuingTimestamp(cfg *configapi.Configuration) configapi.RequeuingTimestamp {
-	if cfg.WaitForPodsReady != nil {
-		return cfg.WaitForPodsReady.RequeuingTimestamp
+	if cfg.WaitForPodsReady != nil && cfg.WaitForPodsReady.RequeuingTimestamp != nil {
+		return *cfg.WaitForPodsReady.RequeuingTimestamp
 	}
-	return ""
+	return configapi.EvictionTimestamp
 }
 
 func apply(configFile string) (ctrl.Options, configapi.Configuration, error) {

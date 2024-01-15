@@ -29,7 +29,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -50,7 +49,7 @@ type options struct {
 type Option func(*options)
 
 var defaultOptions = options{
-	podsReadyRequeuingTimestamp: config.Eviction,
+	podsReadyRequeuingTimestamp: config.EvictionTimestamp,
 }
 
 // WithPodsReadyRequeuingTimestamp sets the timestamp that is used for ordering

@@ -25,6 +25,7 @@ import (
 	"github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -62,7 +63,7 @@ func managerAndSchedulerSetupWithTimeoutAdmission(mgr manager.Manager, ctx conte
 			Enable:             true,
 			BlockAdmission:     &blockAdmission,
 			Timeout:            &metav1.Duration{Duration: value},
-			RequeuingTimestamp: requeuingTimestamp,
+			RequeuingTimestamp: ptr.To(requeuingTimestamp),
 		},
 	}
 
@@ -72,7 +73,7 @@ func managerAndSchedulerSetupWithTimeoutAdmission(mgr manager.Manager, ctx conte
 	cCache := cache.New(mgr.GetClient(), cache.WithPodsReadyTracking(cfg.WaitForPodsReady.Enable && cfg.WaitForPodsReady.BlockAdmission != nil && *cfg.WaitForPodsReady.BlockAdmission))
 	queues := queue.NewManager(
 		mgr.GetClient(), cCache,
-		queue.WithPodsReadyRequeuingTimestamp(cfg.WaitForPodsReady.RequeuingTimestamp),
+		queue.WithPodsReadyRequeuingTimestamp(requeuingTimestamp),
 	)
 
 	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &cfg)
@@ -86,7 +87,7 @@ func managerAndSchedulerSetupWithTimeoutAdmission(mgr manager.Manager, ctx conte
 
 	sched := scheduler.New(
 		queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName),
-		scheduler.WithPodsReadyRequeuingTimestamp(cfg.WaitForPodsReady.RequeuingTimestamp),
+		scheduler.WithPodsReadyRequeuingTimestamp(requeuingTimestamp),
 	)
 	err = sched.Start(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())

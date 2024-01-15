@@ -39,7 +39,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
-
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -70,7 +69,6 @@ type Scheduler struct {
 	// Stubs.
 	applyAdmission func(context.Context, *kueue.Workload) error
 
-	//podsReadyRequeuingTimestamp config.RequeuingTimestamp
 	workloadOrdering workload.Ordering
 }
 
@@ -82,7 +80,7 @@ type options struct {
 type Option func(*options)
 
 var defaultOptions = options{
-	podsReadyRequeuingTimestamp: config.Eviction,
+	podsReadyRequeuingTimestamp: config.EvictionTimestamp,
 }
 
 // WithPodsReadyRequeuingTimestamp sets the timestamp that is used for ordering
@@ -540,21 +538,21 @@ type entryOrdering struct {
 	workloadOrdering workload.Ordering
 }
 
-func (eo entryOrdering) Len() int {
-	return len(eo.entries)
+func (e entryOrdering) Len() int {
+	return len(e.entries)
 }
 
-func (eo entryOrdering) Swap(i, j int) {
-	eo.entries[i], eo.entries[j] = eo.entries[j], eo.entries[i]
+func (e entryOrdering) Swap(i, j int) {
+	e.entries[i], e.entries[j] = e.entries[j], e.entries[i]
 }
 
 // Less is the ordering criteria:
 // 1. request under nominal quota before borrowing.
 // 2. higher priority first.
 // 3. FIFO on eviction or creation timestamp.
-func (eo entryOrdering) Less(i, j int) bool {
-	a := eo.entries[i]
-	b := eo.entries[j]
+func (e entryOrdering) Less(i, j int) bool {
+	a := e.entries[i]
+	b := e.entries[j]
 
 	// 1. Request under nominal quota.
 	aBorrows := a.assignment.Borrows()
@@ -573,8 +571,8 @@ func (eo entryOrdering) Less(i, j int) bool {
 	}
 
 	// 3. FIFO.
-	aComparisonTimestamp := eo.workloadOrdering.GetQueueOrderTimestamp(a.Obj)
-	bComparisonTimestamp := eo.workloadOrdering.GetQueueOrderTimestamp(b.Obj)
+	aComparisonTimestamp := e.workloadOrdering.GetQueueOrderTimestamp(a.Obj)
+	bComparisonTimestamp := e.workloadOrdering.GetQueueOrderTimestamp(b.Obj)
 	return aComparisonTimestamp.Before(bComparisonTimestamp)
 }
 

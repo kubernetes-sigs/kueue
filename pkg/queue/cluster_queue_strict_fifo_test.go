@@ -35,14 +35,14 @@ const (
 )
 
 func TestFIFOClusterQueue(t *testing.T) {
-	q, err := newClusterQueue(
-		&kueue.ClusterQueue{
-			Spec: kueue.ClusterQueueSpec{
-				QueueingStrategy: kueue.StrictFIFO,
-			},
+	q, err := newClusterQueue(&kueue.ClusterQueue{
+		Spec: kueue.ClusterQueueSpec{
+			QueueingStrategy: kueue.StrictFIFO,
 		},
-		workload.Ordering{PodsReadyRequeuingTimestamp: config.Eviction},
-	)
+	},
+		workload.Ordering{
+			PodsReadyRequeuingTimestamp: config.EvictionTimestamp,
+		})
 	if err != nil {
 		t.Fatalf("Failed creating ClusterQueue %v", err)
 	}
@@ -205,7 +205,7 @@ func TestStrictFIFO(t *testing.T) {
 				},
 			},
 			workloadOrdering: &workload.Ordering{
-				PodsReadyRequeuingTimestamp: config.Creation,
+				PodsReadyRequeuingTimestamp: config.CreationTimestamp,
 			},
 			expected: "w1",
 		},
@@ -237,16 +237,14 @@ func TestStrictFIFO(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.workloadOrdering == nil {
 				// The default ordering:
-				tt.workloadOrdering = &workload.Ordering{PodsReadyRequeuingTimestamp: config.Eviction}
+				tt.workloadOrdering = &workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp}
 			}
-			q, err := newClusterQueue(
-				&kueue.ClusterQueue{
-					Spec: kueue.ClusterQueueSpec{
-						QueueingStrategy: kueue.StrictFIFO,
-					},
+			q, err := newClusterQueue(&kueue.ClusterQueue{
+				Spec: kueue.ClusterQueueSpec{
+					QueueingStrategy: kueue.StrictFIFO,
 				},
-				*tt.workloadOrdering,
-			)
+			},
+				*tt.workloadOrdering)
 			if err != nil {
 				t.Fatalf("Failed creating ClusterQueue %v", err)
 			}
@@ -288,7 +286,7 @@ func TestStrictFIFORequeueIfNotPresent(t *testing.T) {
 						QueueingStrategy: kueue.StrictFIFO,
 					},
 				},
-				workload.Ordering{PodsReadyRequeuingTimestamp: config.Eviction},
+				workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
 			)
 			wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
 			if ok := cq.RequeueIfNotPresent(workload.NewInfo(wl), reason); !ok {

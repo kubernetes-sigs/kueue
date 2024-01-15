@@ -82,7 +82,7 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 						QueueingStrategy: kueue.StrictFIFO,
 					},
 				},
-				workload.Ordering{PodsReadyRequeuingTimestamp: config.Eviction},
+				workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
 			)
 			wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
 			info := workload.NewInfo(wl)
