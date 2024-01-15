@@ -513,9 +513,9 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		if _, finished := job.Finished(); !finished {
 			var msg string
 			if w == nil {
-				msg = "Missing Workload, No restore PodSet info provided"
+				msg = "Missing Workload; unable to restore pod templates"
 			} else {
-				msg = "No matching Workload, Restore PodSet info provided from an out of sync Workload"
+				msg = "No matching Workload; restoring pod templates according to existent Workload"
 			}
 			if err := r.stopJob(ctx, job, w, StopReasonNoMatchingWorkload, msg); err != nil {
 				return nil, fmt.Errorf("stopping job with no matching workload: %w", err)
@@ -614,7 +614,7 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *ku
 }
 
 // get the expected podsets during the job execution, returns nil if the workload has no reservation or
-// the admission dose not fit.
+// the admission does not match.
 func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Workload) []kueue.PodSet {
 	if !workload.HasQuotaReservation(wl) {
 		return nil
@@ -659,6 +659,10 @@ func equivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 		if equality.ComparePodSetSlices(jobPodSets, runningPodSets) {
 			return true
 		}
+		// If the workload is admitted but the job is suspended, do the check
+		// against the non-running info.
+		// This might allow some violating jobs to pass equivalency checks, but their
+		// workloads would be invalidated in the next sync after unsuspending.
 		return job.IsSuspended() && equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets)
 	}
 
