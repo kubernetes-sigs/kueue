@@ -26,6 +26,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -202,6 +203,26 @@ func (w *WorkloadWrapper) Labels(l map[string]string) *WorkloadWrapper {
 
 func (w *WorkloadWrapper) AdmissionChecks(checks ...kueue.AdmissionCheckState) *WorkloadWrapper {
 	w.Status.AdmissionChecks = checks
+	return w
+}
+
+func (w *WorkloadWrapper) OwnerReference(apiVersion, kind, name, uid string, controller, blockDeletion bool) *WorkloadWrapper {
+	w.OwnerReferences = []metav1.OwnerReference{
+		{
+			APIVersion:         apiVersion,
+			Kind:               kind,
+			Name:               name,
+			UID:                types.UID(uid),
+			Controller:         &controller,
+			BlockOwnerDeletion: &blockDeletion,
+		},
+	}
+	return w
+}
+
+// DeletionTimestamp sets a deletion timestamp for the workload.
+func (w *WorkloadWrapper) DeletionTimestamp(t time.Time) *WorkloadWrapper {
+	w.Workload.DeletionTimestamp = ptr.To(metav1.NewTime(t).Rfc3339Copy())
 	return w
 }
 

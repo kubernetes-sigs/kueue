@@ -28,7 +28,6 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -153,7 +152,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, err
 		}
 		for i := range workloads.Items {
-			err := r.removeFinalizer(ctx, &workloads.Items[i])
+			err := workload.RemoveFinalizer(ctx, r.client, &workloads.Items[i])
 			if client.IgnoreNotFound(err) != nil {
 				log.Error(err, "Removing finalizer")
 				return ctrl.Result{}, err
@@ -231,7 +230,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			}
 		}
 
-		return ctrl.Result{}, r.removeFinalizer(ctx, wl)
+		return ctrl.Result{}, workload.RemoveFinalizer(ctx, r.client, wl)
 	}
 
 	// 1.1 If the workload is pending deletion, suspend the job if needed
@@ -244,7 +243,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 
 		if err == nil && wl != nil {
-			err = r.removeFinalizer(ctx, wl)
+			err = workload.RemoveFinalizer(ctx, r.client, wl)
 		}
 		return ctrl.Result{}, err
 	}
@@ -447,14 +446,14 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 
 	// Delete duplicate workload instances.
 	existedWls := 0
-	for i := range toDelete {
-		wlKey := workload.Key(toDelete[i])
-		err := r.removeFinalizer(ctx, toDelete[i])
+	for _, wl := range toDelete {
+		wlKey := workload.Key(wl)
+		err := workload.RemoveFinalizer(ctx, r.client, wl)
 		if err != nil && !apierrors.IsNotFound(err) {
 			return nil, fmt.Errorf("failed to remove workload finalizer for: %w ", err)
 		}
 
-		err = r.client.Delete(ctx, toDelete[i])
+		err = r.client.Delete(ctx, wl)
 		if err != nil && !apierrors.IsNotFound(err) {
 			return nil, fmt.Errorf("deleting not matching workload: %w", err)
 		}
@@ -571,13 +570,6 @@ func (r *JobReconciler) finalizeJob(ctx context.Context, job GenericJob) error {
 		}
 	}
 
-	return nil
-}
-
-func (r *JobReconciler) removeFinalizer(ctx context.Context, wl *kueue.Workload) error {
-	if controllerutil.RemoveFinalizer(wl, kueue.ResourceInUseFinalizerName) {
-		return r.client.Update(ctx, wl)
-	}
 	return nil
 }
 
