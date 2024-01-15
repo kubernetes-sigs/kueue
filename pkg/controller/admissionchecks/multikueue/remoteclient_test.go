@@ -46,7 +46,6 @@ func testNewWithWatch(config *rest.Config, options client.Options) (client.WithW
 		return b.Build(), nil
 	}
 	return nil, fmt.Errorf("nil config")
-
 }
 
 func newTestClient(config string) *remoteClient {
@@ -145,7 +144,6 @@ func TestUpdateConfig(t *testing.T) {
 				cmp.Comparer(func(a, b remoteClient) bool { return string(a.kubeconfig) == string(b.kubeconfig) })); diff != "" {
 				t.Errorf("unexpected controllers (-want/+got):\n%s", diff)
 			}
-
 		})
 	}
 }

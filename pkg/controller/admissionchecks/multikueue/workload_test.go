@@ -36,7 +36,6 @@ import (
 )
 
 func TestWlReconcile(t *testing.T) {
-
 	objCheckOpts := []cmp.Option{
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
 		cmpopts.EquateEmpty(),
@@ -306,7 +305,6 @@ func TestWlReconcile(t *testing.T) {
 			if diff := cmp.Diff(tc.wantWorker1Jobs, gotWorker1Job.Items, objCheckOpts...); diff != "" {
 				t.Errorf("unexpected worker1 jobs (-want/+got):\n%s", diff)
 			}
-
 		})
 	}
 }

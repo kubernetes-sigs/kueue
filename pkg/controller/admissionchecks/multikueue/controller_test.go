@@ -54,7 +54,6 @@ func updateConfigOverride(_ context.Context, rc *remoteController, kubeconfigs m
 }
 
 func TestReconcile(t *testing.T) {
-
 	cases := map[string]struct {
 		checks       []kueue.AdmissionCheck
 		controllers  map[string]*remoteController

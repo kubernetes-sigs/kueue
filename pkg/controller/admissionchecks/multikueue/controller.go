@@ -166,7 +166,6 @@ func (a *AcReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		newCondition.Status = metav1.ConditionTrue
 		newCondition.Reason = "Active"
 		newCondition.Message = "The admission check is active"
-
 	} else {
 		newCondition.Status = metav1.ConditionFalse
 		newCondition.Reason = "Inactive"

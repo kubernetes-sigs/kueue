@@ -190,46 +190,65 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Queue(managerLq.Name).
 				Request("cpu", "2").
 				Request("memory", "1G").
-				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.0.3", []string{"5s"}).
+				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.0.3", []string{"1s"}).
 				Obj()
-			gomega.Expect(k8sManagerClient.Create(ctx, job)).Should(gomega.Succeed())
+
+			ginkgo.By("Creating the job", func() {
+				gomega.Expect(k8sManagerClient.Create(ctx, job)).Should(gomega.Succeed())
+			})
 
 			createdLeaderWorkload := &kueue.Workload{}
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name), Namespace: managerNs.Name}
 
 			// the execution should be given to the worker
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
-				g.Expect(workload.FindAdmissionCheck(createdLeaderWorkload.Status.AdmissionChecks, multiKueueAc.Name)).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
-					Name:    multiKueueAc.Name,
-					State:   kueue.CheckStatePending,
-					Message: `The workload got reservation on "worker1"`,
-				}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
+			ginkgo.By("Waiting to be admitted in worker1", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
+					g.Expect(workload.FindAdmissionCheck(createdLeaderWorkload.Status.AdmissionChecks, multiKueueAc.Name)).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
+						Name:    multiKueueAc.Name,
+						State:   kueue.CheckStatePending,
+						Message: `The workload got reservation on "worker1"`,
+					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
 
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			ginkgo.By("Waiting for the job to finish ", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
 
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
+					g.Expect(apimeta.FindStatusCondition(createdLeaderWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  "JobFinished",
+						Message: `From remote "worker1": Job finished successfully`,
+					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
 
-				g.Expect(apimeta.FindStatusCondition(createdLeaderWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
-					Type:    kueue.WorkloadFinished,
-					Status:  metav1.ConditionTrue,
-					Reason:  "JobFinished",
-					Message: `From remote "worker1": Job finished successfully`,
-				}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			ginkgo.By("The job remains completed", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					createdJob := &batchv1.Job{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
+					g.Expect(ptr.Deref(createdJob.Spec.Suspend, false)).To(gomega.BeTrue())
+					g.Expect(createdJob.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
+						batchv1.JobCondition{
+							Type:   batchv1.JobComplete,
+							Status: corev1.ConditionTrue,
+						},
+						cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime"))))
+				}, util.ConsistentDuration, util.Timeout).Should(gomega.Succeed())
+			})
 
-			gomega.Consistently(func(g gomega.Gomega) {
-				createdJob := &batchv1.Job{}
-				g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
-				g.Expect(ptr.Deref(createdJob.Spec.Suspend, false)).To(gomega.BeTrue())
-				g.Expect(createdJob.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
-					batchv1.JobCondition{
-						Type:   batchv1.JobComplete,
-						Status: corev1.ConditionTrue,
-					},
-					cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime"))))
-			}, util.ConsistentDuration, util.Timeout).Should(gomega.Succeed())
+			ginkgo.By("Checking no objects are left in the worker clusters", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					workerWl := &kueue.Workload{}
+					g.Expect(k8sWorker1Client.Get(ctx, wlLookupKey, workerWl)).To(utiltesting.BeNotFoundError())
+					g.Expect(k8sWorker2Client.Get(ctx, wlLookupKey, workerWl)).To(utiltesting.BeNotFoundError())
+					workerJob := &batchv1.Job{}
+					g.Expect(k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(job), workerJob)).To(utiltesting.BeNotFoundError())
+					g.Expect(k8sWorker2Client.Get(ctx, client.ObjectKeyFromObject(job), workerJob)).To(utiltesting.BeNotFoundError())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
 		})
 	})
 })
