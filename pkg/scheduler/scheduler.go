@@ -221,7 +221,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 					e.requeueReason = queue.RequeueReasonPendingPreemption
 				}
 			} else {
-				log.V(2).Info("Workload requires preemption, but there are no candidate workloads allowed for preemption", "preemptionReclaimWithinCohort", cq.Preemption.ReclaimWithinCohort, "preemptionWithinClusterQueue", cq.Preemption.WithinClusterQueue)
+				log.V(2).Info("Workload requires preemption, but there are no candidate workloads allowed for preemption", "preemption", cq.Preemption)
 			}
 			continue
 		}
