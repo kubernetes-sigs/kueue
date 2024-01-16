@@ -233,7 +233,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 					log.Error(err, "suspending child job failed")
 					return ctrl.Result{}, err
 				}
-				r.record.Eventf(object, corev1.EventTypeNormal, ReasonSuspended, "Kueue managed child job suspended")
+				r.record.Event(object, corev1.EventTypeNormal, ReasonSuspended, "Kueue managed child job suspended")
 			}
 		}
 		return ctrl.Result{}, nil
