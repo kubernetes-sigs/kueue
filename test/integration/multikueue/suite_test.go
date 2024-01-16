@@ -152,6 +152,6 @@ func managerAndMultiKueueSetup(mgr manager.Manager, ctx context.Context) {
 	}
 	gomega.Expect(mgr.GetClient().Create(ctx, managersConfigNamespace)).To(gomega.Succeed())
 
-	err := multikueue.NewACController(mgr.GetClient(), managersConfigNamespace.Name).SetupWithManager(mgr)
+	err := multikueue.SetupControllers(mgr, managersConfigNamespace.Name)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }

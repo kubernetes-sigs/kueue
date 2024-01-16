@@ -14,7 +14,25 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// +kubebuilder:object:generate=true
-// +groupName=kueue.x-k8s.io
+package multikueue
 
-package v1alpha1
+import ctrl "sigs.k8s.io/controller-runtime"
+
+func SetupControllers(mgr ctrl.Manager, namespace string) error {
+	helper, err := newMultiKueueStoreHelper(mgr.GetClient())
+	if err != nil {
+		return err
+	}
+
+	a := newACController(mgr.GetClient(), helper, namespace)
+	err = a.setupWithManager(mgr)
+	if err != nil {
+		return err
+	}
+
+	wlRec := &wlReconciler{
+		acr: a,
+	}
+
+	return wlRec.setupWithManager(mgr)
+}

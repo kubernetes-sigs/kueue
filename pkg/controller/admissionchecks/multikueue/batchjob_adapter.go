@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright 2024 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,11 +26,11 @@ import (
 	kueuejob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 )
 
-type batchJobAdaptor struct{}
+type batchJobAdapter struct{}
 
-var _ jobAdaptor = (*batchJobAdaptor)(nil)
+var _ jobAdapter = (*batchJobAdapter)(nil)
 
-func (b *batchJobAdaptor) CreateRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName string) error {
+func (b *batchJobAdapter) CreateRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName string) error {
 	localJob := batchv1.Job{}
 	err := localClient.Get(ctx, key, &localJob)
 	if err != nil {
@@ -59,7 +59,7 @@ func (b *batchJobAdaptor) CreateRemoteObject(ctx context.Context, localClient cl
 	return remoteClient.Create(ctx, &remoteJob)
 }
 
-func (b *batchJobAdaptor) CopyStatusRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName) error {
+func (b *batchJobAdapter) CopyStatusRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName) error {
 	localJob := batchv1.Job{}
 	err := localClient.Get(ctx, key, &localJob)
 	if err != nil {
@@ -75,7 +75,7 @@ func (b *batchJobAdaptor) CopyStatusRemoteObject(ctx context.Context, localClien
 	return localClient.Status().Update(ctx, &localJob)
 }
 
-func (b *batchJobAdaptor) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
+func (b *batchJobAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
 	job := batchv1.Job{}
 	err := remoteClient.Get(ctx, key, &job)
 	if err != nil {

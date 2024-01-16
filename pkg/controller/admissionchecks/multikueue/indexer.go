@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright 2024 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -46,7 +46,7 @@ func getIndexUsingKubeConfigs(configNamespace string) func(obj client.Object) []
 			return nil
 		}
 		return slices.Map(cfg.Spec.Clusters, func(c *kueuealpha.MultiKueueCluster) string {
-			return strings.Join([]string{configNamespace, c.KubeconfigRef.SecretName}, "/")
+			return strings.Join([]string{configNamespace, c.KubeconfigRef.Location}, "/")
 		})
 	}
 }

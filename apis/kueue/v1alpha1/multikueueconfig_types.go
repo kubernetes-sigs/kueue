@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright 2024 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -40,8 +40,26 @@ type MultiKueueCluster struct {
 	KubeconfigRef KubeconfigRef `json:"kubeconfigRef"`
 }
 
+type LocationType string
+
+const (
+	// Location is the name of the secret inside the namespace in which the kueue controller
+	// manager is running. The config should be stored in the "kubeconfig" key.
+	SecretLocationType LocationType = "Secret"
+)
+
 type KubeconfigRef struct {
-	SecretName string `json:"secretName"`
+	// Name of the cluster inside the given KubeConfig.
+	Name string `json:"name"`
+
+	// Location of the KubeConfig.
+	Location string `json:"location"`
+
+	// Type of the KubeConfig location.
+	//
+	// +kubebuilder:default=Secret
+	// +kubebuilder:validation:Enum=Secret
+	LocationType LocationType `json:"locationType"`
 }
 
 //+genclient

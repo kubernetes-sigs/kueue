@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright 2024 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,7 +17,6 @@ limitations under the License.
 package multikueue
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
@@ -39,7 +38,7 @@ func testRemoteController() *remoteController {
 	}
 }
 
-func updateConfigOverride(_ context.Context, rc *remoteController, kubeconfigs map[string][]byte) error {
+func updateConfigOverride(rc *remoteController, kubeconfigs map[string][]byte) error {
 	rc.remoteClients = make(map[string]*remoteClient, len(kubeconfigs))
 	for k, v := range kubeconfigs {
 		if string(v) == "invalid" {
@@ -95,6 +94,43 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"unsupported location type": {
+			reconcileFor: "ac1",
+			checks: []kueue.AdmissionCheck{
+				*utiltesting.MakeAdmissionCheck("ac1").
+					ControllerName(ControllerName).
+					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Obj(),
+			},
+			configs: []kueuealpha.MultiKueueConfig{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "config1"},
+					Spec: kueuealpha.MultiKueueConfigSpec{
+						Clusters: []kueuealpha.MultiKueueCluster{
+							{
+								Name: "worker1",
+								KubeconfigRef: kueuealpha.KubeconfigRef{
+									Location:     "secret1",
+									LocationType: "OtherType",
+								},
+							},
+						},
+					},
+				},
+			},
+			wantChecks: []kueue.AdmissionCheck{
+				*utiltesting.MakeAdmissionCheck("ac1").
+					ControllerName(ControllerName).
+					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Condition(metav1.Condition{
+						Type:    kueue.AdmissionCheckActive,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Inactive",
+						Message: `Cannot load kubeconfigs: unsupported location type "OtherType"`,
+					}).
+					Obj(),
+			},
+		},
 		"missing kubeconfig secret": {
 			reconcileFor: "ac1",
 			checks: []kueue.AdmissionCheck{
@@ -111,7 +147,8 @@ func TestReconcile(t *testing.T) {
 							{
 								Name: "worker1",
 								KubeconfigRef: kueuealpha.KubeconfigRef{
-									SecretName: "secret1",
+									Location:     "secret1",
+									LocationType: kueuealpha.SecretLocationType,
 								},
 							},
 						},
@@ -147,7 +184,8 @@ func TestReconcile(t *testing.T) {
 							{
 								Name: "worker1",
 								KubeconfigRef: kueuealpha.KubeconfigRef{
-									SecretName: "secret1",
+									Location:     "secret1",
+									LocationType: kueuealpha.SecretLocationType,
 								},
 							},
 						},
@@ -188,7 +226,8 @@ func TestReconcile(t *testing.T) {
 							{
 								Name: "worker1",
 								KubeconfigRef: kueuealpha.KubeconfigRef{
-									SecretName: "secret1",
+									Location:     "secret1",
+									LocationType: kueuealpha.SecretLocationType,
 								},
 							},
 						},
@@ -232,7 +271,8 @@ func TestReconcile(t *testing.T) {
 							{
 								Name: "worker1",
 								KubeconfigRef: kueuealpha.KubeconfigRef{
-									SecretName: "secret1",
+									Location:     "secret1",
+									LocationType: kueuealpha.SecretLocationType,
 								},
 							},
 						},
@@ -287,11 +327,11 @@ func TestReconcile(t *testing.T) {
 
 			c := builder.Build()
 
-			reconciler := NewACController(c, TestNamespace)
+			helper, _ := newMultiKueueStoreHelper(c)
+			reconciler := newACController(c, helper, TestNamespace)
 			if len(tc.controllers) > 0 {
 				reconciler.controllers = tc.controllers
 			}
-			reconciler.helper, _ = newMultiKueueStoreHelper(c)
 			reconciler.updateConfigOverride = updateConfigOverride
 			_ = reconciler.Start(ctx)
 

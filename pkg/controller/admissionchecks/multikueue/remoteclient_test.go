@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright 2024 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -134,7 +134,7 @@ func TestUpdateConfig(t *testing.T) {
 			remCtrl.restConfigFromKubeConfigOverride = testRestConfigFromKubeConfig
 			remCtrl.newWithWatchOverride = testNewWithWatch
 
-			gotErr := remCtrl.UpdateConfig(ctx, tc.kubeconfigs)
+			gotErr := remCtrl.UpdateConfig(tc.kubeconfigs)
 			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("unexpected error (-want/+got):\n%s", diff)
 			}

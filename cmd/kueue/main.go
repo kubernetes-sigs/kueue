@@ -256,8 +256,8 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 	}
 
 	if features.Enabled(features.MultiKueue) {
-		if err := multikueue.NewACController(mgr.GetClient(), *cfg.Namespace).SetupWithManager(mgr); err != nil {
-			setupLog.Error(err, "Could not setup delagate controller")
+		if err := multikueue.SetupControllers(mgr, *cfg.Namespace); err != nil {
+			setupLog.Error(err, "Could not setup MultiKueue controller")
 			os.Exit(1)
 		}
 	}

@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright 2024 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -54,7 +54,7 @@ func newRemoteController(watchCtx context.Context, localClient client.Client, wl
 	return ret
 }
 
-func (rc *remoteController) UpdateConfig(ctx context.Context, kubeConfigs map[string][]byte) error {
+func (rc *remoteController) UpdateConfig(kubeConfigs map[string][]byte) error {
 	if rc.remoteClients == nil {
 		rc.remoteClients = make(map[string]*remoteClient, len(kubeConfigs))
 	}
@@ -162,7 +162,7 @@ func (rc *remoteClient) setConfig(kubeconfig []byte) error {
 
 	go func() {
 		for r := range witf.ResultChan() {
-			rc.queueWorkloadEvent(rc.rootWatchCtx, r)
+			rc.queueWorkloadEvent(watchCtx, r)
 		}
 	}()
 

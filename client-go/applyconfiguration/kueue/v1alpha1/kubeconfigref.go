@@ -17,10 +17,16 @@ limitations under the License.
 
 package v1alpha1
 
+import (
+	v1alpha1 "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+)
+
 // KubeconfigRefApplyConfiguration represents an declarative configuration of the KubeconfigRef type for use
 // with apply.
 type KubeconfigRefApplyConfiguration struct {
-	SecretName *string `json:"secretName,omitempty"`
+	Name         *string                `json:"name,omitempty"`
+	Location     *string                `json:"location,omitempty"`
+	LocationType *v1alpha1.LocationType `json:"locationType,omitempty"`
 }
 
 // KubeconfigRefApplyConfiguration constructs an declarative configuration of the KubeconfigRef type for use with
@@ -29,10 +35,26 @@ func KubeconfigRef() *KubeconfigRefApplyConfiguration {
 	return &KubeconfigRefApplyConfiguration{}
 }
 
-// WithSecretName sets the SecretName field in the declarative configuration to the given value
+// WithName sets the Name field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the SecretName field is set to the value of the last call.
-func (b *KubeconfigRefApplyConfiguration) WithSecretName(value string) *KubeconfigRefApplyConfiguration {
-	b.SecretName = &value
+// If called multiple times, the Name field is set to the value of the last call.
+func (b *KubeconfigRefApplyConfiguration) WithName(value string) *KubeconfigRefApplyConfiguration {
+	b.Name = &value
+	return b
+}
+
+// WithLocation sets the Location field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Location field is set to the value of the last call.
+func (b *KubeconfigRefApplyConfiguration) WithLocation(value string) *KubeconfigRefApplyConfiguration {
+	b.Location = &value
+	return b
+}
+
+// WithLocationType sets the LocationType field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the LocationType field is set to the value of the last call.
+func (b *KubeconfigRefApplyConfiguration) WithLocationType(value v1alpha1.LocationType) *KubeconfigRefApplyConfiguration {
+	b.LocationType = &value
 	return b
 }

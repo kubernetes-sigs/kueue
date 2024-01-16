@@ -154,11 +154,14 @@ type MultiKueueCluster struct {
     Status MultiKueueClusterStatus `json:"status,omitempty"`
 }
 
+type LocationType string
+
 const (
     // Location is the path on the disk.
     PathLocationType LocationType = "Path"
     
-    // Location is the name of the secret inside kueue-system namespace.
+	// Location is the name of the secret inside the namespace in which the kueue controller
+	// manager is running. The config should be stored in the "kubeconfig" key.
     SecretLocationType LocationType = "Secret"
 )
 
@@ -169,12 +172,15 @@ type MultiKueueClusterSpec {
 
 type KubeConfig struct {
     // Name of the cluster inside the given KubeConfig.
-    Name string `json:"configName"`
+    Name string `json:"name"`
     
     // Location of the KubeConfig.
     Location string `json:"location"`
     
-    // Type of the KubeConfig location.
+	// Type of the KubeConfig location.
+	//
+	// +kubebuilder:default=Secret
+	// +kubebuilder:validation:Enum=Secret
     LocationType LocationType `json:"locationType"`
 }
 

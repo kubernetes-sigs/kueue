@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright 2024 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -37,7 +37,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -54,11 +53,11 @@ func newMultiKueueStoreHelper(c client.Client) (*multiKueueStoreHelper, error) {
 	return admissioncheck.NewConfigHelper[*kueuealpha.MultiKueueConfig](c)
 }
 
-// AcReconciler implements the reconciler for all the admission checks controlled by multikueue.
+// ACReconciler implements the reconciler for all the admission checks controlled by multikueue.
 // Its main tasks being to:
 // - Maintain the list of remote controllers associated to each admission checks.
 // - Maintain the active state of the admission checks.
-type AcReconciler struct {
+type ACReconciler struct {
 	client          client.Client
 	helper          *multiKueueStoreHelper
 	configNamespace string
@@ -73,13 +72,13 @@ type AcReconciler struct {
 	// For unit testing only. There is now need of creating fully functional remote clients in the unit tests
 	// and creating valid kubeconfig content is not trivial.
 	// The full client creation and usage is validated in the integration and e2e tests.
-	updateConfigOverride func(ctx context.Context, rc *remoteController, kubeconfigs map[string][]byte) error
+	updateConfigOverride func(rc *remoteController, kubeconfigs map[string][]byte) error
 }
 
-var _ reconcile.Reconciler = (*AcReconciler)(nil)
-var _ manager.Runnable = (*AcReconciler)(nil)
+var _ reconcile.Reconciler = (*ACReconciler)(nil)
+var _ manager.Runnable = (*ACReconciler)(nil)
 
-func (a *AcReconciler) controllerFor(acName string) (*remoteController, bool) {
+func (a *ACReconciler) controllerFor(acName string) (*remoteController, bool) {
 	a.lock.RLock()
 	defer a.lock.RUnlock()
 
@@ -87,7 +86,7 @@ func (a *AcReconciler) controllerFor(acName string) (*remoteController, bool) {
 	return c, f
 }
 
-func (a *AcReconciler) setControllerFor(acName string, c *remoteController) {
+func (a *ACReconciler) setControllerFor(acName string, c *remoteController) {
 	a.lock.Lock()
 	defer a.lock.Unlock()
 
@@ -101,12 +100,12 @@ func (a *AcReconciler) setControllerFor(acName string, c *remoteController) {
 	}
 }
 
-func (a *AcReconciler) Start(ctx context.Context) error {
+func (a *ACReconciler) Start(ctx context.Context) error {
 	a.rootContext = ctx
 	return nil
 }
 
-func (a *AcReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	ac := &kueue.AdmissionCheck{}
 	if err := a.client.Get(ctx, req.NamespacedName, ac); err != nil || ac.Spec.ControllerName != ControllerName {
@@ -142,9 +141,9 @@ func (a *AcReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 
 			var err error
 			if a.updateConfigOverride != nil {
-				err = a.updateConfigOverride(ctx, cc, kubeconfigs)
+				err = a.updateConfigOverride(cc, kubeconfigs)
 			} else {
-				err = cc.UpdateConfig(ctx, kubeconfigs)
+				err = cc.UpdateConfig(kubeconfigs)
 			}
 
 			if err != nil {
@@ -177,7 +176,7 @@ func (a *AcReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		apimeta.SetStatusCondition(&ac.Status.Conditions, newCondition)
 		err := a.client.Status().Update(ctx, ac)
 		if err != nil {
-			log.V(2).Error(err, "Updateing check condition", "newCondition", newCondition)
+			log.V(2).Error(err, "Updating check condition", "newCondition", newCondition)
 		}
 		return reconcile.Result{}, err
 	}
@@ -185,14 +184,19 @@ func (a *AcReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	return reconcile.Result{}, nil
 }
 
-func (cc *AcReconciler) getKubeConfigs(ctx context.Context, spec *kueuealpha.MultiKueueConfigSpec) (map[string][]byte, error) {
+func (cc *ACReconciler) getKubeConfigs(ctx context.Context, spec *kueuealpha.MultiKueueConfigSpec) (map[string][]byte, error) {
 	ret := make(map[string][]byte, len(spec.Clusters))
 	for _, c := range spec.Clusters {
 		ref := c.KubeconfigRef
 		sec := corev1.Secret{}
+
+		if ref.LocationType != kueuealpha.SecretLocationType {
+			return nil, fmt.Errorf("unsupported location type %q", ref.LocationType)
+		}
+
 		secretObjKey := types.NamespacedName{
 			Namespace: cc.configNamespace,
-			Name:      ref.SecretName,
+			Name:      ref.Location,
 		}
 		err := cc.client.Get(ctx, secretObjKey, &sec)
 		if err != nil {
@@ -201,7 +205,7 @@ func (cc *AcReconciler) getKubeConfigs(ctx context.Context, spec *kueuealpha.Mul
 
 		kconfigBytes, found := sec.Data[kueuealpha.MultiKueueConfigSecretKey]
 		if !found {
-			return nil, fmt.Errorf("getting kubeconfig secret for %q: key %q not found in secret %q", c.Name, kueuealpha.MultiKueueConfigSecretKey, ref.SecretName)
+			return nil, fmt.Errorf("getting kubeconfig secret for %q: key %q not found in secret %q", c.Name, kueuealpha.MultiKueueConfigSecretKey, ref.Location)
 		}
 		ret[c.Name] = kconfigBytes
 	}
@@ -214,44 +218,19 @@ func (cc *AcReconciler) getKubeConfigs(ctx context.Context, spec *kueuealpha.Mul
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueconfigs,verbs=get;list;watch
 
-func NewACController(c client.Client, namespace string) *AcReconciler {
-	return &AcReconciler{
+func newACController(c client.Client, helper *multiKueueStoreHelper, namespace string) *ACReconciler {
+	return &ACReconciler{
 		client:          c,
+		helper:          helper,
 		configNamespace: namespace,
 		controllers:     make(map[string]*remoteController),
 		wlUpdateCh:      make(chan event.GenericEvent, 10),
 	}
+
 }
 
-func (a *AcReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	helper, err := newMultiKueueStoreHelper(a.client)
-	if err != nil {
-		return err
-	}
-	a.helper = helper
-
-	wlRec := &wlReconciler{
-		acr: a,
-	}
-
-	syncHndl := handler.Funcs{
-		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
-			q.Add(reconcile.Request{NamespacedName: types.NamespacedName{
-				Namespace: e.Object.GetNamespace(),
-				Name:      e.Object.GetName(),
-			}})
-		},
-	}
-
-	err = ctrl.NewControllerManagedBy(mgr).
-		For(&kueue.Workload{}).
-		WatchesRawSource(&source.Channel{Source: a.wlUpdateCh}, syncHndl).
-		Complete(wlRec)
-	if err != nil {
-		return err
-	}
-
-	err = mgr.Add(a)
+func (a *ACReconciler) setupWithManager(mgr ctrl.Manager) error {
+	err := mgr.Add(a)
 	if err != nil {
 		return err
 	}

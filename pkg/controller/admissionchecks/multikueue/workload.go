@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright 2024 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -27,10 +27,14 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -38,18 +42,18 @@ import (
 )
 
 var (
-	adaptors = map[string]jobAdaptor{
-		"batch/v1.Job": &batchJobAdaptor{},
+	adapters = map[string]jobAdapter{
+		"batch/v1.Job": &batchJobAdapter{},
 	}
 )
 
 type wlReconciler struct {
-	acr *AcReconciler
+	acr *ACReconciler
 }
 
 var _ reconcile.Reconciler = (*wlReconciler)(nil)
 
-type jobAdaptor interface {
+type jobAdapter interface {
 	// Creates the Job object in the worker cluster using remote client.
 	CreateRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName string) error
 	// Copy the status from the job in the worker cluster to the local one.
@@ -63,7 +67,7 @@ type wlGroup struct {
 	remotes       map[string]*kueue.Workload
 	rc            *remoteController
 	acName        string
-	jobAdaptor    jobAdaptor
+	jobAdapter    jobAdapter
 	controllerKey types.NamespacedName
 }
 
@@ -107,26 +111,26 @@ func (g *wlGroup) RemoteFinishedCondition() (*metav1.Condition, string) {
 	return bestMatch, bestMatchRemote
 }
 
-func (group *wlGroup) RemoveRemoteObjects(ctx context.Context, rem string) error {
-	remWl := group.remotes[rem]
+func (group *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error {
+	remWl := group.remotes[cluster]
 	if remWl == nil {
 		return nil
 	}
-	if err := group.jobAdaptor.DeleteRemoteObject(ctx, group.rc.remoteClients[rem].client, group.controllerKey); err != nil {
+	if err := group.jobAdapter.DeleteRemoteObject(ctx, group.rc.remoteClients[cluster].client, group.controllerKey); err != nil {
 		return fmt.Errorf("deleting remote controller object: %w", err)
 	}
 
 	if controllerutil.RemoveFinalizer(remWl, kueue.ResourceInUseFinalizerName) {
-		if err := group.rc.remoteClients[rem].client.Update(ctx, remWl); err != nil {
+		if err := group.rc.remoteClients[cluster].client.Update(ctx, remWl); err != nil {
 			return fmt.Errorf("removing remote workloads finalizeer: %w", err)
 		}
 	}
 
-	err := group.rc.remoteClients[rem].client.Delete(ctx, remWl)
+	err := group.rc.remoteClients[cluster].client.Delete(ctx, remWl)
 	if client.IgnoreNotFound(err) != nil {
 		return fmt.Errorf("deleting remote workload: %w", err)
 	}
-	group.remotes[rem] = nil
+	group.remotes[cluster] = nil
 	return nil
 }
 
@@ -175,17 +179,17 @@ func (a *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload) (*w
 		return nil, errors.New("remote controller is not active")
 	}
 
-	// Lookup the adaptor.
-	var adaptor jobAdaptor
+	// Lookup the adapter.
+	var adapter jobAdapter
 	controllerKey := types.NamespacedName{}
 	if controller := metav1.GetControllerOf(local); controller != nil {
-		adaptorKey := strings.Join([]string{controller.APIVersion, controller.Kind}, ".")
-		adaptor = adaptors[adaptorKey]
+		adapterKey := strings.Join([]string{controller.APIVersion, controller.Kind}, ".")
+		adapter = adapters[adapterKey]
 		controllerKey.Namespace = local.Namespace
 		controllerKey.Name = controller.Name
 	}
 
-	if adaptor == nil {
+	if adapter == nil {
 		return nil, nil
 	}
 
@@ -194,7 +198,7 @@ func (a *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload) (*w
 		remotes:       make(map[string]*kueue.Workload, len(rController.remoteClients)),
 		rc:            rController,
 		acName:        relevantChecks[0],
-		jobAdaptor:    adaptor,
+		jobAdapter:    adapter,
 		controllerKey: controllerKey,
 	}
 
@@ -232,14 +236,14 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 		//NOTE: we can have a race condition setting the wl status here and it being updated by the job controller
 		// it should not be problematic but the "From remote xxxx:" could be lost ....
 
-		if group.jobAdaptor != nil {
-			if err := group.jobAdaptor.CopyStatusRemoteObject(ctx, a.acr.client, group.rc.remoteClients[remote].client, group.controllerKey); err != nil {
+		if group.jobAdapter != nil {
+			if err := group.jobAdapter.CopyStatusRemoteObject(ctx, a.acr.client, group.rc.remoteClients[remote].client, group.controllerKey); err != nil {
 				log.V(2).Error(err, "copying remote controller status", "remote", remote)
 				// we should retry this
 				return err
 			}
 		} else {
-			log.V(3).Info("Group with no adaptor, skip owner status copy", "remote", remote)
+			log.V(3).Info("Group with no adapter, skip owner status copy", "remote", remote)
 		}
 
 		// copy the status to the local one
@@ -273,7 +277,7 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 	// 2. get the first reserving
 	if hasReserving {
 		acs := workload.FindAdmissionCheck(group.local.Status.AdmissionChecks, group.acName)
-		if err := group.jobAdaptor.CreateRemoteObject(ctx, a.acr.client, group.rc.remoteClients[reservingRemote].client, group.controllerKey, group.local.Name); err != nil {
+		if err := group.jobAdapter.CreateRemoteObject(ctx, a.acr.client, group.rc.remoteClients[reservingRemote].client, group.controllerKey, group.local.Name); err != nil {
 			log.V(2).Error(err, "creating remote controller object", "remote", reservingRemote)
 			// We'll retry this in the next reconcile.
 			return err
@@ -308,6 +312,22 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 		}
 	}
 	return nil
+}
+
+func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
+	syncHndl := handler.Funcs{
+		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
+			q.Add(reconcile.Request{NamespacedName: types.NamespacedName{
+				Namespace: e.Object.GetNamespace(),
+				Name:      e.Object.GetName(),
+			}})
+		},
+	}
+
+	return ctrl.NewControllerManagedBy(mgr).
+		For(&kueue.Workload{}).
+		WatchesRawSource(&source.Channel{Source: w.acr.wlUpdateCh}, syncHndl).
+		Complete(w)
 }
 
 func cleanObjectMeta(orig *metav1.ObjectMeta) metav1.ObjectMeta {

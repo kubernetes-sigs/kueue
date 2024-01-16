@@ -92,13 +92,15 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					{
 						Name: "worker1",
 						KubeconfigRef: kueuealpha.KubeconfigRef{
-							SecretName: "multikueue1",
+							Location:     "multikueue1",
+							LocationType: kueuealpha.SecretLocationType,
 						},
 					},
 					{
 						Name: "worker2",
 						KubeconfigRef: kueuealpha.KubeconfigRef{
-							SecretName: "multikueue2",
+							Location:     "multikueue2",
+							LocationType: kueuealpha.SecretLocationType,
 						},
 					},
 				},

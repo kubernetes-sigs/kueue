@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The Kubernetes Authors.
+Copyright 2024 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -90,7 +90,7 @@ func TestMultikueConfigUsingKubeconfig(t *testing.T) {
 						Clusters: []kueuealpha.MultiKueueCluster{
 							{
 								KubeconfigRef: kueuealpha.KubeconfigRef{
-									SecretName: "secret1",
+									Location: "secret1",
 								},
 							},
 						},
@@ -111,7 +111,7 @@ func TestMultikueConfigUsingKubeconfig(t *testing.T) {
 						Clusters: []kueuealpha.MultiKueueCluster{
 							{
 								KubeconfigRef: kueuealpha.KubeconfigRef{
-									SecretName: "secret2",
+									Location: "secret2",
 								},
 							},
 						},
@@ -131,12 +131,12 @@ func TestMultikueConfigUsingKubeconfig(t *testing.T) {
 						Clusters: []kueuealpha.MultiKueueCluster{
 							{
 								KubeconfigRef: kueuealpha.KubeconfigRef{
-									SecretName: "secret0",
+									Location: "secret0",
 								},
 							},
 							{
 								KubeconfigRef: kueuealpha.KubeconfigRef{
-									SecretName: "secret1",
+									Location: "secret1",
 								},
 							},
 						},

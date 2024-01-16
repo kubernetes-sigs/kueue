@@ -55,10 +55,22 @@ spec:
                   properties:
                     kubeconfigRef:
                       properties:
-                        secretName:
+                        location:
+                          description: Location of the KubeConfig.
+                          type: string
+                        locationType:
+                          default: Secret
+                          description: Type of the KubeConfig location.
+                          enum:
+                          - Secret
+                          type: string
+                        name:
+                          description: Name of the cluster inside the given KubeConfig.
                           type: string
                       required:
-                      - secretName
+                      - location
+                      - locationType
+                      - name
                       type: object
                     name:
                       type: string
