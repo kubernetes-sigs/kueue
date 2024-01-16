@@ -24,3 +24,8 @@ integrations:
   - "kubeflow.org/tfjob"
   - "kubeflow.org/xgboostjob"
   - "pod"
+controller:
+  groupKindConcurrency:
+    Job.batch: 5
+    Pod.: 5
+    Workload.kueue.x-k8s.io: 5
