@@ -192,7 +192,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				Queue(managerLq.Name).
 				Request("cpu", "2").
 				Request("memory", "1G").
-				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.0.3", []string{"1s"}).
+				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
 				Obj()
 
 			ginkgo.By("Creating the job", func() {
