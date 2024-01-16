@@ -65,7 +65,7 @@ E2E_TARGET ?= ./test/e2e/...
 E2E_KIND_VERSION ?= kindest/node:v1.28.0
 
 # E2E_K8S_VERSIONS sets the list of k8s versions included in test-e2e-all
-E2E_K8S_VERSIONS ?= 1.24.15 1.25.11 1.26.6 1.27.3 1.28.0
+E2E_K8S_VERSIONS ?= 1.26.12 1.27.9 1.28.5 1.29.0
 
 # For local testing, we should allow user to use different kind cluster name
 # Default will delete default kind cluster
@@ -328,7 +328,7 @@ gotestsum: ## Download gotestsum locally if necessary.
 KIND = $(PROJECT_DIR)/bin/kind
 .PHONY: kind
 kind:
-	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kind@v0.18.0
+	@GOBIN=$(PROJECT_DIR)/bin GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kind@v0.20.0
 
 YQ = $(PROJECT_DIR)/bin/yq
 .PHONY: yq
