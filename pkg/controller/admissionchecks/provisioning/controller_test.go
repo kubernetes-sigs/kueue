@@ -661,7 +661,10 @@ func TestReconcile(t *testing.T) {
 
 			k8sclient := builder.Build()
 			recorder := &utiltesting.EventRecorder{}
-			controller, _ := NewController(k8sclient, recorder)
+			controller, err := NewController(k8sclient, recorder)
+			if err != nil {
+				t.Fatalf("Setting up the provisioning request controller: %v", err)
+			}
 
 			req := reconcile.Request{
 				NamespacedName: types.NamespacedName{
@@ -723,4 +726,137 @@ func TestReconcile(t *testing.T) {
 		})
 	}
 
+}
+
+func TestActiveOrLastPRForChecks(t *testing.T) {
+	baseWorkload := utiltesting.MakeWorkload("wl", TestNamespace).
+		PodSets(
+			*utiltesting.MakePodSet("main", 4).
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+		).
+		ReserveQuota(utiltesting.MakeAdmission("q1").PodSets(
+			kueue.PodSetAssignment{
+				Name: "main",
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+					corev1.ResourceCPU: "flv1",
+				},
+				ResourceUsage: map[corev1.ResourceName]resource.Quantity{
+					corev1.ResourceCPU: resource.MustParse("4"),
+				},
+				Count: ptr.To[int32](4),
+			},
+		).
+			Obj()).
+		AdmissionChecks(kueue.AdmissionCheckState{
+			Name:  "check",
+			State: kueue.CheckStatePending,
+		}, kueue.AdmissionCheckState{
+			Name:  "not-provisioning",
+			State: kueue.CheckStatePending,
+		}).
+		Obj()
+	baseConfig := &kueue.ProvisioningRequestConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "config1",
+		},
+		Spec: kueue.ProvisioningRequestConfigSpec{
+			ProvisioningClassName: "class1",
+			Parameters: map[string]kueue.Parameter{
+				"p1": "v1",
+			},
+		},
+	}
+
+	baseRequest := autoscaling.ProvisioningRequest{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: TestNamespace,
+			Name:      "wl-check-1",
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					Name: "wl",
+				},
+			},
+		},
+		Spec: autoscaling.ProvisioningRequestSpec{
+			PodSets: []autoscaling.PodSet{
+				{
+					PodTemplateRef: autoscaling.Reference{
+						Name: "ppt-wl-check-1-ps1",
+					},
+					Count: 4,
+				},
+			},
+			ProvisioningClassName: "class1",
+			Parameters: map[string]autoscaling.Parameter{
+				"p1": "v1",
+			},
+		},
+	}
+	pr1Failed := baseRequest.DeepCopy()
+	pr1Failed = requestWithCondition(pr1Failed, autoscaling.Failed, metav1.ConditionTrue)
+	pr2Created := baseRequest.DeepCopy()
+	pr2Created.Name = "wl-check-2"
+
+	baseCheck := utiltesting.MakeAdmissionCheck("check").
+		ControllerName(ControllerName).
+		Parameters(kueue.GroupVersion.Group, ConfigKind, "config1").
+		Obj()
+
+	cases := map[string]struct {
+		requests   []autoscaling.ProvisioningRequest
+		wantResult map[string]*autoscaling.ProvisioningRequest
+	}{
+		"no provisioning requests": {},
+		"two provisioning requests; 1 then 2": {
+			requests: []autoscaling.ProvisioningRequest{
+				*pr1Failed.DeepCopy(),
+				*pr2Created.DeepCopy(),
+			},
+			wantResult: map[string]*autoscaling.ProvisioningRequest{
+				"check": pr2Created.DeepCopy(),
+			},
+		},
+		"two provisioning requests; 2 then 1": {
+			requests: []autoscaling.ProvisioningRequest{
+				*pr2Created.DeepCopy(),
+				*pr1Failed.DeepCopy(),
+			},
+			wantResult: map[string]*autoscaling.ProvisioningRequest{
+				"check": pr2Created.DeepCopy(),
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			workload := baseWorkload.DeepCopy()
+			relevantChecks := []string{"check"}
+			checks := []kueue.AdmissionCheck{*baseCheck.DeepCopy()}
+			configs := []kueue.ProvisioningRequestConfig{*baseConfig.DeepCopy()}
+
+			builder, ctx := getClientBuilder()
+
+			builder = builder.WithObjects(workload)
+			builder = builder.WithStatusSubresource(workload)
+
+			builder = builder.WithLists(
+				&autoscaling.ProvisioningRequestList{Items: tc.requests},
+				&kueue.ProvisioningRequestConfigList{Items: configs},
+				&kueue.AdmissionCheckList{Items: checks},
+			)
+
+			k8sclient := builder.Build()
+			recorder := &utiltesting.EventRecorder{}
+			controller, err := NewController(k8sclient, recorder)
+			if err != nil {
+				t.Fatalf("Setting up the provisioning request controller: %v", err)
+			}
+
+			gotResult := controller.activeOrLastPRForChecks(ctx, workload, relevantChecks, tc.requests)
+			if diff := cmp.Diff(tc.wantResult, gotResult, reqCmpOptions...); diff != "" {
+				t.Errorf("unexpected request %q (-want/+got):\n%s", name, diff)
+			}
+		})
+	}
 }
