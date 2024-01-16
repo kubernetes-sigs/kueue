@@ -153,7 +153,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			ginkgo.By("Create the pebuilt workload and the job adopting it", func() {
 				sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 					Label(constants.PrebuiltWorkloadLabel, "prebuilt-wl").
-					Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"5s", "-termination-grace-period", "0s"}).
+					Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"5s"}).
 					BackoffLimit(0).
 					TerminationGracePeriod(1).
 					Obj()
