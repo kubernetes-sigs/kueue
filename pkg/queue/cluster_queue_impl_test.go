@@ -37,13 +37,13 @@ const (
 )
 
 var (
-	defaultQueueOrdering = queueOrderingFunc(workload.Ordering{
+	defaultQueueOrderingFunc = queueOrderingFunc(workload.Ordering{
 		PodsReadyRequeuingTimestamp: config.EvictionTimestamp,
 	})
 )
 
 func Test_PushOrUpdate(t *testing.T) {
-	cq := newClusterQueueImpl(keyFunc, defaultQueueOrdering)
+	cq := newClusterQueueImpl(keyFunc, defaultQueueOrderingFunc)
 	wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
 	if cq.Pending() != 0 {
 		t.Error("ClusterQueue should be empty")
@@ -63,7 +63,7 @@ func Test_PushOrUpdate(t *testing.T) {
 }
 
 func Test_Pop(t *testing.T) {
-	cq := newClusterQueueImpl(keyFunc, defaultQueueOrdering)
+	cq := newClusterQueueImpl(keyFunc, defaultQueueOrderingFunc)
 	now := time.Now()
 	wl1 := workload.NewInfo(utiltesting.MakeWorkload("workload-1", defaultNamespace).Creation(now).Obj())
 	wl2 := workload.NewInfo(utiltesting.MakeWorkload("workload-2", defaultNamespace).Creation(now.Add(time.Second)).Obj())
@@ -86,7 +86,7 @@ func Test_Pop(t *testing.T) {
 }
 
 func Test_Delete(t *testing.T) {
-	cq := newClusterQueueImpl(keyFunc, defaultQueueOrdering)
+	cq := newClusterQueueImpl(keyFunc, defaultQueueOrderingFunc)
 	wl1 := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
 	wl2 := utiltesting.MakeWorkload("workload-2", defaultNamespace).Obj()
 	cq.PushOrUpdate(workload.NewInfo(wl1))
@@ -107,7 +107,7 @@ func Test_Delete(t *testing.T) {
 }
 
 func Test_Info(t *testing.T) {
-	cq := newClusterQueueImpl(keyFunc, defaultQueueOrdering)
+	cq := newClusterQueueImpl(keyFunc, defaultQueueOrderingFunc)
 	wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
 	if info := cq.Info(keyFunc(workload.NewInfo(wl))); info != nil {
 		t.Error("workload doesn't exist")
@@ -119,7 +119,7 @@ func Test_Info(t *testing.T) {
 }
 
 func Test_AddFromLocalQueue(t *testing.T) {
-	cq := newClusterQueueImpl(keyFunc, defaultQueueOrdering)
+	cq := newClusterQueueImpl(keyFunc, defaultQueueOrderingFunc)
 	wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
 	queue := &LocalQueue{
 		items: map[string]*workload.Info{
@@ -137,7 +137,7 @@ func Test_AddFromLocalQueue(t *testing.T) {
 }
 
 func Test_DeleteFromLocalQueue(t *testing.T) {
-	cq := newClusterQueueImpl(keyFunc, defaultQueueOrdering)
+	cq := newClusterQueueImpl(keyFunc, defaultQueueOrderingFunc)
 	q := utiltesting.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj()
 	qImpl := newLocalQueue(q)
 	wl1 := utiltesting.MakeWorkload("wl1", "").Queue(q.Name).Obj()
@@ -267,7 +267,7 @@ func TestClusterQueueImpl(t *testing.T) {
 
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			cq := newClusterQueueImpl(keyFunc, defaultQueueOrdering)
+			cq := newClusterQueueImpl(keyFunc, defaultQueueOrderingFunc)
 
 			err := cq.Update(utiltesting.MakeClusterQueue("cq").
 				NamespaceSelector(&metav1.LabelSelector{
@@ -321,7 +321,7 @@ func TestClusterQueueImpl(t *testing.T) {
 }
 
 func TestQueueInadmissibleWorkloadsDuringScheduling(t *testing.T) {
-	cq := newClusterQueueImpl(keyFunc, defaultQueueOrdering)
+	cq := newClusterQueueImpl(keyFunc, defaultQueueOrderingFunc)
 	cq.namespaceSelector = labels.Everything()
 	wl := utiltesting.MakeWorkload("workload-1", defaultNamespace).Obj()
 	cl := utiltesting.NewFakeClient(

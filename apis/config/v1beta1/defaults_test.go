@@ -51,7 +51,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		Burst: ptr.To(DefaultClientConnectionBurst),
 	}
 	defaultIntegrations := &Integrations{
-		Frameworks: []string{DefaultJobFrameworkName},
+		Frameworks: []string{defaultJobFrameworkName},
 		PodOptions: &PodIntegrationOptions{
 			NamespaceSelector: &metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -73,7 +73,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 	}
 
 	overwriteNamespaceIntegrations := &Integrations{
-		Frameworks: []string{DefaultJobFrameworkName},
+		Frameworks: []string{defaultJobFrameworkName},
 		PodOptions: &PodIntegrationOptions{
 			NamespaceSelector: &metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -310,7 +310,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				QueueVisibility:  defaultQueueVisibility,
 			},
 		},
-		"defaulting waitForPodsReady.*": {
+		"defaulting waitForPodsReady values": {
 			original: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
 					Enable: true,

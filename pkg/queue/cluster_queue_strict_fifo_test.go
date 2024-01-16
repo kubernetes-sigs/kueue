@@ -35,11 +35,12 @@ const (
 )
 
 func TestFIFOClusterQueue(t *testing.T) {
-	q, err := newClusterQueue(&kueue.ClusterQueue{
-		Spec: kueue.ClusterQueueSpec{
-			QueueingStrategy: kueue.StrictFIFO,
+	q, err := newClusterQueue(
+		&kueue.ClusterQueue{
+			Spec: kueue.ClusterQueueSpec{
+				QueueingStrategy: kueue.StrictFIFO,
+			},
 		},
-	},
 		workload.Ordering{
 			PodsReadyRequeuingTimestamp: config.EvictionTimestamp,
 		})
@@ -239,11 +240,12 @@ func TestStrictFIFO(t *testing.T) {
 				// The default ordering:
 				tt.workloadOrdering = &workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp}
 			}
-			q, err := newClusterQueue(&kueue.ClusterQueue{
-				Spec: kueue.ClusterQueueSpec{
-					QueueingStrategy: kueue.StrictFIFO,
+			q, err := newClusterQueue(
+				&kueue.ClusterQueue{
+					Spec: kueue.ClusterQueueSpec{
+						QueueingStrategy: kueue.StrictFIFO,
+					},
 				},
-			},
 				*tt.workloadOrdering)
 			if err != nil {
 				t.Fatalf("Failed creating ClusterQueue %v", err)

@@ -383,12 +383,25 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 		})
 
 		ginkgo.It("Should prioritize workloads submitted earlier", func() {
-			localQueueName := "eviction-creation-lq"
+			// Build a standalone cluster queue with just enough capacity for a single workload.
+			// (Avoid using prod/dev queues to avoid borrowing)
+			standaloneClusterQ := testing.MakeClusterQueue("standalone-cq").
+				ResourceGroup(*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, standaloneClusterQ)).Should(gomega.Succeed())
+			defer func() {
+				gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, standaloneClusterQ)).Should(gomega.Succeed())
+			}()
 
-			// the workloads are created with a 5 cpu resource requirement to ensure only one can fit at a given time
-			wl1 := testing.MakeWorkload("prod1", ns.Name).Queue(localQueueName).Request(corev1.ResourceCPU, "5").Obj()
-			wl2 := testing.MakeWorkload("prod2", ns.Name).Queue(localQueueName).Request(corev1.ResourceCPU, "5").Obj()
-			wl3 := testing.MakeWorkload("prod3", ns.Name).Queue(localQueueName).Request(corev1.ResourceCPU, "5").Obj()
+			standaloneQueue := testing.MakeLocalQueue("standalone-queue", ns.Name).ClusterQueue(standaloneClusterQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, standaloneQueue)).Should(gomega.Succeed())
+			defer func() {
+				gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, standaloneQueue)).Should(gomega.Succeed())
+			}()
+
+			// the workloads are created with a 1 cpu resource requirement to ensure only one can fit at a given time
+			wl1 := testing.MakeWorkload("wl-1", ns.Name).Queue(standaloneQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
+			wl2 := testing.MakeWorkload("wl-2", ns.Name).Queue(standaloneQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
 
 			ginkgo.By("create the workloads", func() {
 				// since metav1.Time has only second resolution, wait one second between
@@ -396,28 +409,19 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 				gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
 				time.Sleep(time.Second)
 				gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
-				time.Sleep(time.Second)
-				gomega.Expect(k8sClient.Create(ctx, wl3)).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("create the local queue to start admission", func() {
-				lq := testing.MakeLocalQueue(localQueueName, ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
-				gomega.Expect(k8sClient.Create(ctx, lq)).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("waiting for the first workload to be admitted", func() {
-				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wl1)
+				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, standaloneClusterQ.Name, wl1)
 			})
 
-			ginkgo.By("waiting the timeout, the first workload should be evicted and the second should be admitted", func() {
-				time.Sleep(podsReadyTimeout)
+			ginkgo.By("finishing the eviction of the first workload, and checking that it is readmitted", func() {
 				util.FinishEvictionForWorkloads(ctx, k8sClient, wl1)
-				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wl2)
+				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, standaloneClusterQ.Name, wl1)
 			})
 
-			ginkgo.By("finishing the second workload, the first one should be readmitted instead of the third", func() {
-				util.FinishWorkloads(ctx, k8sClient, wl2)
-				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wl1)
+			ginkgo.By("checking that the second workload is still pending", func() {
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
 			})
 		})
 	})
@@ -548,11 +552,25 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 		})
 
 		ginkgo.It("Should keep the evicted workload at the front of the queue", func() {
-			localQueueName := "eviction-creation-lq"
+			// Build a standalone cluster queue with just enough capacity for a single workload.
+			// (Avoid using prod/dev queues to avoid borrowing)
+			standaloneClusterQ := testing.MakeClusterQueue("standalone-cq").
+				ResourceGroup(*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, standaloneClusterQ)).Should(gomega.Succeed())
+			defer func() {
+				gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, standaloneClusterQ)).Should(gomega.Succeed())
+			}()
 
-			// the workloads are created with a 5 cpu resource requirement to ensure only one can fit at a given time
-			wl1 := testing.MakeWorkload("prod1", ns.Name).Queue(localQueueName).Request(corev1.ResourceCPU, "5").Obj()
-			wl2 := testing.MakeWorkload("prod2", ns.Name).Queue(localQueueName).Request(corev1.ResourceCPU, "5").Obj()
+			standaloneQueue := testing.MakeLocalQueue("standalone-queue", ns.Name).ClusterQueue(standaloneClusterQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, standaloneQueue)).Should(gomega.Succeed())
+			defer func() {
+				gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, standaloneQueue)).Should(gomega.Succeed())
+			}()
+
+			// the workloads are created with a 1 cpu resource requirement to ensure only one can fit at a given time
+			wl1 := testing.MakeWorkload("wl-1", ns.Name).Queue(standaloneQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
+			wl2 := testing.MakeWorkload("wl-2", ns.Name).Queue(standaloneQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
 
 			ginkgo.By("create the workloads", func() {
 				// since metav1.Time has only second resolution, wait one second between
@@ -562,19 +580,17 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 				gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("create the local queue to start admission", func() {
-				lq := testing.MakeLocalQueue(localQueueName, ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
-				gomega.Expect(k8sClient.Create(ctx, lq)).Should(gomega.Succeed())
-			})
-
 			ginkgo.By("waiting for the first workload to be admitted", func() {
-				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wl1)
+				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, standaloneClusterQ.Name, wl1)
 			})
 
-			ginkgo.By("waiting the timeout, the first workload should be evicted and readmitted", func() {
-				time.Sleep(podsReadyTimeout)
+			ginkgo.By("finishing the eviction of the first workload and asserting that it is readmitted", func() {
 				util.FinishEvictionForWorkloads(ctx, k8sClient, wl1)
-				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wl1)
+				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, standaloneClusterQ.Name, wl1)
+			})
+
+			ginkgo.By("checking that the second workload is still pending", func() {
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
 			})
 		})
 	})

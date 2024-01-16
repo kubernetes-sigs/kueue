@@ -39,7 +39,7 @@ const (
 	defaultPodsReadyTimeout                             = 5 * time.Minute
 	DefaultQueueVisibilityUpdateIntervalSeconds int32   = 5
 	DefaultClusterQueuesMaxCount                int32   = 10
-	DefaultJobFrameworkName                             = "batch/job"
+	defaultJobFrameworkName                             = "batch/job"
 )
 
 func addDefaultingFuncs(scheme *runtime.Scheme) error {
@@ -111,15 +111,14 @@ func SetDefaults_Configuration(cfg *Configuration) {
 			cfg.WaitForPodsReady.BlockAdmission = &defaultBlockAdmission
 		}
 		if cfg.WaitForPodsReady.RequeuingTimestamp == nil {
-			defaultRequeuingTimestamp := EvictionTimestamp
-			cfg.WaitForPodsReady.RequeuingTimestamp = &defaultRequeuingTimestamp
+			cfg.WaitForPodsReady.RequeuingTimestamp = ptr.To(EvictionTimestamp)
 		}
 	}
 	if cfg.Integrations == nil {
 		cfg.Integrations = &Integrations{}
 	}
 	if cfg.Integrations.Frameworks == nil {
-		cfg.Integrations.Frameworks = []string{DefaultJobFrameworkName}
+		cfg.Integrations.Frameworks = []string{defaultJobFrameworkName}
 	}
 	if cfg.QueueVisibility == nil {
 		cfg.QueueVisibility = &QueueVisibility{}
