@@ -17,10 +17,12 @@ import (
 	"fmt"
 	"strings"
 
+	batchv1 "k8s.io/api/batch/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 )
@@ -31,7 +33,8 @@ var (
 	parentWorkloadKeyPath         = annotationsPath.Key(constants.ParentWorkloadAnnotation)
 	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
 	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
-	supportedPrebuiltWlJobGVKs    = sets.New("batch/v1, Kind=Job", "jobset.x-k8s.io/v1alpha2, Kind=JobSet")
+	supportedPrebuiltWlJobGVKs    = sets.New(batchv1.SchemeGroupVersion.WithKind("Job").String(),
+		jobset.SchemeGroupVersion.WithKind("JobSet").String())
 )
 
 func ValidateCreateForQueueName(job GenericJob) field.ErrorList {
