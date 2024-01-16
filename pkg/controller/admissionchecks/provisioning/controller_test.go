@@ -661,7 +661,10 @@ func TestReconcile(t *testing.T) {
 
 			k8sclient := builder.Build()
 			recorder := &utiltesting.EventRecorder{}
-			controller, _ := NewController(k8sclient, recorder)
+			controller, err := NewController(k8sclient, recorder)
+			if err != nil {
+				t.Fatalf("Setting up the provisioning request controller: %v", err)
+			}
 
 			req := reconcile.Request{
 				NamespacedName: types.NamespacedName{
@@ -845,7 +848,10 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 
 			k8sclient := builder.Build()
 			recorder := &utiltesting.EventRecorder{}
-			controller, _ := NewController(k8sclient, recorder)
+			controller, err := NewController(k8sclient, recorder)
+			if err != nil {
+				t.Fatalf("Setting up the provisioning request controller: %v", err)
+			}
 
 			gotResult := controller.activeOrLastPRForChecks(ctx, workload, relevantChecks, tc.requests)
 			if diff := cmp.Diff(tc.wantResult, gotResult, reqCmpOptions...); diff != "" {
