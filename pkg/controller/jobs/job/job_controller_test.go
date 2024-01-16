@@ -1225,7 +1225,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "Stopped",
-					Message:   "No matching Workload",
+					Message:   "No matching Workload; restoring pod templates according to existent Workload",
 				},
 				{
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
@@ -1262,7 +1262,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "Stopped",
-					Message:   "No matching Workload",
+					Message:   "Missing Workload; unable to restore pod templates",
 				},
 				{
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
@@ -1363,7 +1363,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "Stopped",
-					Message:   "No matching Workload",
+					Message:   "Missing Workload; unable to restore pod templates",
 				},
 				{
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
@@ -1760,7 +1760,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "Stopped",
-					Message:   "No matching Workload",
+					Message:   "Missing Workload; unable to restore pod templates",
 				},
 				{
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
@@ -1804,7 +1804,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "Stopped",
-					Message:   "No matching Workload",
+					Message:   "Missing Workload; unable to restore pod templates",
 				},
 				{
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
@@ -1850,7 +1850,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "Stopped",
-					Message:   "No matching Workload",
+					Message:   "Missing Workload; unable to restore pod templates",
 				},
 				{
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
@@ -2024,6 +2024,173 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		"the workload is not admitted and tolerations change": {
+			job: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
+				Key:      "tolerationkey2",
+				Operator: corev1.TolerationOpExists,
+				Effect:   corev1.TaintEffectNoSchedule,
+			}).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
+				Key:      "tolerationkey2",
+				Operator: corev1.TolerationOpExists,
+				Effect:   corev1.TaintEffectNoSchedule,
+			}).Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name), "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Queue("foo").
+					PodSets(
+						*utiltesting.MakePodSet("main", 10).
+							Toleration(corev1.Toleration{
+								Key:      "tolerationkey1",
+								Operator: corev1.TolerationOpExists,
+								Effect:   corev1.TaintEffectNoSchedule,
+							}).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "",
+					}).
+					Priority(0).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name), "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Queue("foo").
+					PodSets(
+						*utiltesting.MakePodSet("main", 10).
+							Toleration(corev1.Toleration{
+								Key:      "tolerationkey2",
+								Operator: corev1.TolerationOpExists,
+								Effect:   corev1.TaintEffectNoSchedule,
+							}).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "",
+					}).
+					Priority(0).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "UpdatedWorkload",
+					Message:   "Updated not matching Workload for suspended job: ns/job-job-ed7d5",
+				},
+			},
+		},
+		"the workload is admitted and tolerations change": {
+			job: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
+				Key:      "tolerationkey2",
+				Operator: corev1.TolerationOpExists,
+				Effect:   corev1.TaintEffectNoSchedule,
+			}).
+				Suspend(false).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
+				Key:      "tolerationkey1",
+				Operator: corev1.TolerationOpExists,
+				Effect:   corev1.TaintEffectNoSchedule,
+			}).Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name), "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Queue("foo").
+					PodSets(
+						*utiltesting.MakePodSet("main", 10).
+							Toleration(corev1.Toleration{
+								Key:      "tolerationkey1",
+								Operator: corev1.TolerationOpExists,
+								Effect:   corev1.TaintEffectNoSchedule,
+							}).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "",
+					}).
+					Priority(0).
+					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
+						Name: "main",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "default",
+						},
+						Count: ptr.To[int32](10),
+					}).Obj()).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "No matching Workload; restoring pod templates according to existent Workload",
+				},
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "DeletedWorkload",
+					Message:   "Deleted not matching Workload: ns/job-job-ed7d5",
+				},
+			},
+			wantErr: jobframework.ErrNoMatchingWorkloads,
+		},
+		"the workload is admitted, job still suspended and tolerations change": {
+			job: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
+				Key:      "tolerationkey2",
+				Operator: corev1.TolerationOpExists,
+				Effect:   corev1.TaintEffectNoSchedule,
+			}).
+				Suspend(true).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().Toleration(corev1.Toleration{
+				Key:      "tolerationkey2",
+				Operator: corev1.TolerationOpExists,
+				Effect:   corev1.TaintEffectNoSchedule,
+			}).Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name), "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Queue("foo").
+					PodSets(
+						*utiltesting.MakePodSet("main", 10).
+							Toleration(corev1.Toleration{
+								Key:      "tolerationkey1",
+								Operator: corev1.TolerationOpExists,
+								Effect:   corev1.TaintEffectNoSchedule,
+							}).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "",
+					}).
+					Priority(0).
+					ReserveQuota(utiltesting.MakeAdmission("cq").PodSets(kueue.PodSetAssignment{
+						Name: "main",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "default",
+						},
+						Count: ptr.To[int32](10),
+					}).Obj()).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "DeletedWorkload",
+					Message:   "Deleted not matching Workload: ns/job-job-ed7d5",
+				},
+			},
+			wantErr: jobframework.ErrNoMatchingWorkloads,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -2032,7 +2199,7 @@ func TestReconciler(t *testing.T) {
 			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
 			}
-			objs := append(tc.priorityClasses, &tc.job)
+			objs := append(tc.priorityClasses, &tc.job, utiltesting.MakeResourceFlavor("default").Obj())
 			kcBuilder := clientBuilder.
 				WithObjects(objs...)
 
