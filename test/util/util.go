@@ -137,13 +137,13 @@ func DeleteAllJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.N
 func DeleteAllPodsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
 	err := c.DeleteAllOf(ctx, &corev1.Pod{}, client.InNamespace(ns.Name))
 	if err != nil && !apierrors.IsNotFound(err) {
-		return err
+		return fmt.Errorf("deleting all Pods in namespace %q: %w", ns.Name, err)
 	}
 
 	lst := corev1.PodList{}
 	err = c.List(ctx, &lst, client.InNamespace(ns.Name))
 	if err != nil && !apierrors.IsNotFound(err) {
-		return err
+		return fmt.Errorf("listing Pods with a finalizer in namespace %q: %w", ns.Name, err)
 	}
 
 	if len(lst.Items) == 0 {
@@ -155,7 +155,7 @@ func DeleteAllPodsInNamespace(ctx context.Context, c client.Client, ns *corev1.N
 		if controllerutil.RemoveFinalizer(copy, pod.PodFinalizer) {
 			err = c.Update(ctx, copy)
 			if err != nil && !apierrors.IsNotFound(err) {
-				return err
+				return fmt.Errorf("removing finalizer: %w", err)
 			}
 		}
 	}
