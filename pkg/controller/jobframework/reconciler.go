@@ -613,7 +613,7 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *ku
 	return true, nil
 }
 
-// get the expected podsets during the job execution, returns nil if the workload has no reservation or
+// expectedRunningPodSets gets the expected podsets during the job execution, returns nil if the workload has no reservation or
 // the admission does not match.
 func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Workload) []kueue.PodSet {
 	if !workload.HasQuotaReservation(wl) {

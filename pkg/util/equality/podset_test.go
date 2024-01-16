@@ -86,7 +86,7 @@ func TestComparePodSetSlices(t *testing.T) {
 			}).Obj()},
 			wantEqual: false,
 		},
-		"different count when checked": {
+		"different count": {
 			a:         []kueue.PodSet{*utiltestting.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
 			b:         []kueue.PodSet{*utiltestting.MakePodSet("ps", 20).SetMinimumCount(5).Obj()},
 			wantEqual: false,
