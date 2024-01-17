@@ -18,7 +18,9 @@ package jobset
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 	jobsetutil "sigs.k8s.io/jobset/pkg/util/testing"
@@ -46,6 +48,8 @@ type ReplicatedJobRequirements struct {
 	Parallelism int32
 	Completions int32
 	Annotations map[string]string
+	Image       string
+	Args        []string
 }
 
 // MakeJobSet creates a wrapper for a suspended JobSet
@@ -72,6 +76,15 @@ func (j *JobSetWrapper) ReplicatedJobs(replicatedJobs ...ReplicatedJobRequiremen
 		jt.Annotations = req.Annotations
 		jt.Spec.Parallelism = ptr.To(req.Parallelism)
 		jt.Spec.Completions = ptr.To(req.Completions)
+		if len(req.Image) > 0 {
+			jt.Spec.Template.Spec.Containers = []corev1.Container{
+				{
+					Name:  "c",
+					Image: req.Image,
+					Args:  req.Args,
+				},
+			}
+		}
 		j.Spec.ReplicatedJobs[index] = jobsetutil.MakeReplicatedJob(req.Name).Job(jt).Replicas(req.Replicas).Obj()
 	}
 	return j
@@ -101,8 +114,7 @@ func (j *JobSetWrapper) Queue(queue string) *JobSetWrapper {
 func (j *JobSetWrapper) Request(replicatedJobName string, r corev1.ResourceName, v string) *JobSetWrapper {
 	for i, replicatedJob := range j.Spec.ReplicatedJobs {
 		if replicatedJob.Name == replicatedJobName {
-			_, ok := j.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.Containers[0].Resources.Requests[r]
-			if !ok {
+			if j.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.Containers[0].Resources.Requests == nil {
 				j.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.Containers[0].Resources.Requests = map[corev1.ResourceName]resource.Quantity{}
 			}
 			j.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
@@ -131,5 +143,11 @@ func (j *JobSetWrapper) WorkloadPriorityClass(wpc string) *JobSetWrapper {
 // JobsStatus updates JobSet status.
 func (j *JobSetWrapper) JobsStatus(statuses ...jobsetapi.ReplicatedJobStatus) *JobSetWrapper {
 	j.Status.ReplicatedJobsStatus = statuses
+	return j
+}
+
+// Condition adds a condition
+func (j *JobSetWrapper) Condition(c metav1.Condition) *JobSetWrapper {
+	apimeta.SetStatusCondition(&j.Status.Conditions, c)
 	return j
 }
