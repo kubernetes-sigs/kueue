@@ -231,6 +231,7 @@ The currently supported features are:
 | `ProvisioningACC` | `false` | Alpha | 0.5 |  |
 | `QueueVisibility` | `false` | Alpha | 0.5 |  |
 | `VisibilityOnDemand` | `false` | Alpha | 0.6 | |
+| `PrioritySortingWithinCohort` | `true` | Beta | 0.6 |  |
 
 ## What's next
 
