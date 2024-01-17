@@ -23,7 +23,7 @@ package v1beta1
 
 import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
+	runtime "k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/component-base/config/v1alpha1"
 	timex "time"
 )

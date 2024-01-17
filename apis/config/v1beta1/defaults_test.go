@@ -38,6 +38,14 @@ const (
 
 func TestSetDefaults_Configuration(t *testing.T) {
 	defaultCtrlManagerConfigurationSpec := ControllerManager{
+		LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
+			LeaderElect:   ptr.To(true),
+			LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
+			RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
+			RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
+			ResourceLock:  "leases",
+			ResourceName:  "c1f6bfd2.kueue.x-k8s.io",
+		},
 		Webhook: ControllerWebhook{
 			Port: ptr.To(DefaultWebhookPort),
 		},
@@ -138,8 +146,12 @@ func TestSetDefaults_Configuration(t *testing.T) {
 						HealthProbeBindAddress: DefaultHealthProbeBindAddress,
 					},
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect:  ptr.To(true),
-						ResourceName: DefaultLeaderElectionID,
+						LeaderElect:   ptr.To(true),
+						LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
+						RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
+						RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
+						ResourceLock:  "leases",
+						ResourceName:  DefaultLeaderElectionID,
 					},
 				},
 				InternalCertManagement: &InternalCertManagement{
@@ -163,8 +175,12 @@ func TestSetDefaults_Configuration(t *testing.T) {
 						HealthProbeBindAddress: overwriteHealthProbeBindAddress,
 					},
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect:  ptr.To(true),
-						ResourceName: overwriteLeaderElectionID,
+						LeaderElect:   ptr.To(true),
+						LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
+						RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
+						RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
+						ResourceLock:  "leases",
+						ResourceName:  overwriteLeaderElectionID,
 					},
 				},
 				InternalCertManagement: &InternalCertManagement{
@@ -186,8 +202,12 @@ func TestSetDefaults_Configuration(t *testing.T) {
 						HealthProbeBindAddress: overwriteHealthProbeBindAddress,
 					},
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect:  ptr.To(true),
-						ResourceName: overwriteLeaderElectionID,
+						LeaderElect:   ptr.To(true),
+						LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
+						RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
+						RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
+						ResourceLock:  "leases",
+						ResourceName:  overwriteLeaderElectionID,
 					},
 				},
 				InternalCertManagement: &InternalCertManagement{
@@ -222,7 +242,12 @@ func TestSetDefaults_Configuration(t *testing.T) {
 						HealthProbeBindAddress: DefaultHealthProbeBindAddress,
 					},
 					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect: ptr.To(false),
+						LeaderElect:   ptr.To(false),
+						LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
+						RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
+						RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
+						ResourceLock:  "leases",
+						ResourceName:  "c1f6bfd2.kueue.x-k8s.io",
 					},
 				},
 				InternalCertManagement: &InternalCertManagement{

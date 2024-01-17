@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
@@ -262,8 +263,12 @@ integrations:
 		Metrics: metricsserver.Options{
 			BindAddress: configapi.DefaultMetricsBindAddress,
 		},
-		LeaderElectionID: configapi.DefaultLeaderElectionID,
-		LeaderElection:   true,
+		LeaderElection:             true,
+		LeaderElectionID:           configapi.DefaultLeaderElectionID,
+		LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
+		LeaseDuration:              ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
+		RenewDeadline:              ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
+		RetryPeriod:                ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 		WebhookServer: &webhook.DefaultServer{
 			Options: webhook.Options{
 				Port: configapi.DefaultWebhookPort,
@@ -340,8 +345,12 @@ integrations:
 				Metrics: metricsserver.Options{
 					BindAddress: configapi.DefaultMetricsBindAddress,
 				},
-				LeaderElectionID: "",
-				LeaderElection:   false,
+				LeaderElection:             true,
+				LeaderElectionID:           configapi.DefaultLeaderElectionID,
+				LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
+				LeaseDuration:              ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
+				RenewDeadline:              ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
+				RetryPeriod:                ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
@@ -409,8 +418,12 @@ integrations:
 				Metrics: metricsserver.Options{
 					BindAddress: ":38080",
 				},
-				LeaderElection:   true,
-				LeaderElectionID: "test-id",
+				LeaderElection:             true,
+				LeaderElectionID:           "test-id",
+				LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
+				LeaseDuration:              ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
+				RenewDeadline:              ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
+				RetryPeriod:                ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: 9444,
@@ -473,13 +486,18 @@ integrations:
 				Integrations:               defaultIntegrations,
 				QueueVisibility:            defaultQueueVisibility,
 			},
+
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
 				Metrics: metricsserver.Options{
 					BindAddress: configapi.DefaultMetricsBindAddress,
 				},
-				LeaderElectionID: "",
-				LeaderElection:   false,
+				LeaderElectionID:           configapi.DefaultLeaderElectionID,
+				LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
+				LeaseDuration:              ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
+				RenewDeadline:              ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
+				RetryPeriod:                ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
+				LeaderElection:             false,
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
@@ -512,6 +530,12 @@ integrations:
 				Metrics: metricsserver.Options{
 					BindAddress: configapi.DefaultMetricsBindAddress,
 				},
+				LeaderElection:             true,
+				LeaderElectionID:           configapi.DefaultLeaderElectionID,
+				LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
+				LeaseDuration:              ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
+				RenewDeadline:              ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
+				RetryPeriod:                ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
@@ -623,6 +647,12 @@ integrations:
 				Metrics: metricsserver.Options{
 					BindAddress: configapi.DefaultMetricsBindAddress,
 				},
+				LeaderElection:             true,
+				LeaderElectionID:           configapi.DefaultLeaderElectionID,
+				LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
+				LeaseDuration:              ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
+				RenewDeadline:              ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
+				RetryPeriod:                ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
@@ -655,6 +685,12 @@ integrations:
 				Metrics: metricsserver.Options{
 					BindAddress: configapi.DefaultMetricsBindAddress,
 				},
+				LeaderElection:             true,
+				LeaderElectionID:           configapi.DefaultLeaderElectionID,
+				LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
+				LeaseDuration:              ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
+				RenewDeadline:              ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
+				RetryPeriod:                ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
@@ -706,6 +742,12 @@ integrations:
 				Metrics: metricsserver.Options{
 					BindAddress: configapi.DefaultMetricsBindAddress,
 				},
+				LeaderElection:             true,
+				LeaderElectionID:           configapi.DefaultLeaderElectionID,
+				LeaderElectionResourceLock: resourcelock.LeasesResourceLock,
+				LeaseDuration:              ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
+				RenewDeadline:              ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
+				RetryPeriod:                ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
 				WebhookServer: &webhook.DefaultServer{
 					Options: webhook.Options{
 						Port: configapi.DefaultWebhookPort,
@@ -783,6 +825,15 @@ func TestEncode(t *testing.T) {
 				},
 				"health": map[string]any{
 					"healthProbeBindAddress": configapi.DefaultHealthProbeBindAddress,
+				},
+				"leaderElection": map[string]any{
+					"leaderElect":       true,
+					"leaseDuration":     configapi.DefaultLeaderElectionLeaseDuration.String(),
+					"renewDeadline":     configapi.DefaultLeaderElectionRenewDeadline.String(),
+					"retryPeriod":       configapi.DefaultLeaderElectionRetryPeriod.String(),
+					"resourceLock":      resourcelock.LeasesResourceLock,
+					"resourceName":      configapi.DefaultLeaderElectionID,
+					"resourceNamespace": "",
 				},
 				"internalCertManagement": map[string]any{
 					"enable":             true,
