@@ -46,15 +46,25 @@ var ignorePendingWorkloadsStatus = cmpopts.IgnoreFields(kueue.ClusterQueueStatus
 
 var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 
+	const (
+		defaultPodsReadyTimeout   = 3 * time.Second
+		defaultRequeuingTimestamp = config.EvictionTimestamp
+	)
+
 	var (
-		defaultFlavor      *kueue.ResourceFlavor
-		podsReadyTimeout   time.Duration
-		requeuingTimestamp config.RequeuingTimestamp
-		ns                 *corev1.Namespace
-		prodClusterQ       *kueue.ClusterQueue
-		devClusterQ        *kueue.ClusterQueue
-		prodQueue          *kueue.LocalQueue
-		devQueue           *kueue.LocalQueue
+		// Values changed by tests (and reset after each):
+		podsReadyTimeout   = defaultPodsReadyTimeout
+		requeuingTimestamp = defaultRequeuingTimestamp
+	)
+
+	var (
+		// Values referenced by tests:
+		defaultFlavor *kueue.ResourceFlavor
+		ns            *corev1.Namespace
+		prodClusterQ  *kueue.ClusterQueue
+		devClusterQ   *kueue.ClusterQueue
+		prodQueue     *kueue.LocalQueue
+		devQueue      *kueue.LocalQueue
 	)
 
 	ginkgo.JustBeforeEach(func() {
@@ -101,13 +111,16 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, prodClusterQ, true)
 		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, devClusterQ, true)
 		fwk.Teardown()
+
+		// Reset values that are changed by tests.
+		podsReadyTimeout = defaultPodsReadyTimeout
+		requeuingTimestamp = defaultRequeuingTimestamp
 	})
 
 	ginkgo.Context("Long PodsReady timeout", func() {
 
 		ginkgo.BeforeEach(func() {
 			podsReadyTimeout = time.Minute
-			requeuingTimestamp = config.EvictionTimestamp
 		})
 
 		ginkgo.It("Should unblock admission of new workloads in other ClusterQueues once the admitted workload exceeds timeout", func() {
@@ -179,7 +192,6 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 
 		ginkgo.BeforeEach(func() {
 			podsReadyTimeout = 3 * time.Second
-			requeuingTimestamp = config.EvictionTimestamp
 		})
 
 		ginkgo.It("Should requeue a workload which exceeded the timeout to reach PodsReady=True", func() {
@@ -383,7 +395,6 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			podsReadyTimeout = 3 * time.Second
 			requeuingTimestamp = config.CreationTimestamp
 		})
 
@@ -436,15 +447,25 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 
 var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 
+	const (
+		defaultPodsReadyTimeout   = 3 * time.Second
+		defaultRequeuingTimestamp = config.EvictionTimestamp
+	)
+
 	var (
-		defaultFlavor      *kueue.ResourceFlavor
-		podsReadyTimeout   time.Duration
-		requeuingTimestamp config.RequeuingTimestamp
-		ns                 *corev1.Namespace
-		prodClusterQ       *kueue.ClusterQueue
-		devClusterQ        *kueue.ClusterQueue
-		prodQueue          *kueue.LocalQueue
-		devQueue           *kueue.LocalQueue
+		// Values changed by tests (and reset after each):
+		podsReadyTimeout   = defaultPodsReadyTimeout
+		requeuingTimestamp = defaultRequeuingTimestamp
+	)
+
+	var (
+		// Values referenced by tests:
+		defaultFlavor *kueue.ResourceFlavor
+		ns            *corev1.Namespace
+		prodClusterQ  *kueue.ClusterQueue
+		devClusterQ   *kueue.ClusterQueue
+		prodQueue     *kueue.LocalQueue
+		devQueue      *kueue.LocalQueue
 	)
 
 	ginkgo.JustBeforeEach(func() {
@@ -491,13 +512,16 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, prodClusterQ, true)
 		util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, devClusterQ, true)
 		fwk.Teardown()
+
+		// Reset values that are changed by tests.
+		podsReadyTimeout = defaultPodsReadyTimeout
+		requeuingTimestamp = defaultRequeuingTimestamp
 	})
 
 	ginkgo.Context("Long PodsReady timeout", func() {
 
 		ginkgo.BeforeEach(func() {
 			podsReadyTimeout = time.Minute
-			requeuingTimestamp = config.EvictionTimestamp
 		})
 
 		ginkgo.It("Should not block admission of one new workload if two are considered in the same scheduling cycle", func() {
@@ -530,7 +554,6 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 	var _ = ginkgo.Context("Short PodsReady timeout", func() {
 		ginkgo.BeforeEach(func() {
 			podsReadyTimeout = 3 * time.Second
-			requeuingTimestamp = config.EvictionTimestamp
 		})
 
 		ginkgo.It("Should re-admit a timed out workload", func() {
@@ -558,7 +581,6 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 		)
 
 		ginkgo.BeforeEach(func() {
-			podsReadyTimeout = 3 * time.Second
 			requeuingTimestamp = config.CreationTimestamp
 		})
 
