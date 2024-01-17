@@ -596,7 +596,7 @@ and defaults to true otherwise.</p>
 </td>
 <td>
    <p>RequeuingTimestamp defines the timestamp used for requeuing a Workload
-that was evicted due to Pod readiness. Defaults to Eviction (back of queue).</p>
+that was evicted due to Pod readiness. Defaults to Eviction.</p>
 </td>
 </tr>
 </tbody>

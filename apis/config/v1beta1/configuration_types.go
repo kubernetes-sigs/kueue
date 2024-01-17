@@ -194,7 +194,7 @@ type WaitForPodsReady struct {
 	BlockAdmission *bool `json:"blockAdmission,omitempty"`
 
 	// RequeuingTimestamp defines the timestamp used for requeuing a Workload
-	// that was evicted due to Pod readiness. Defaults to Eviction (back of queue).
+	// that was evicted due to Pod readiness. Defaults to Eviction.
 	RequeuingTimestamp *RequeuingTimestamp `json:"requeuingTimestamp,omitempty"`
 }
 

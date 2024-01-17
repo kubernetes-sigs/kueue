@@ -377,28 +377,34 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 
 	var _ = ginkgo.Context("Requeuing timestamp set to Creation", func() {
 
+		var (
+			standaloneClusterQ *kueue.ClusterQueue
+			standaloneQueue    *kueue.LocalQueue
+		)
+
 		ginkgo.BeforeEach(func() {
 			podsReadyTimeout = 3 * time.Second
 			requeuingTimestamp = config.CreationTimestamp
 		})
 
-		ginkgo.It("Should prioritize workloads submitted earlier", func() {
+		ginkgo.JustBeforeEach(func() {
 			// Build a standalone cluster queue with just enough capacity for a single workload.
 			// (Avoid using prod/dev queues to avoid borrowing)
-			standaloneClusterQ := testing.MakeClusterQueue("standalone-cq").
+			standaloneClusterQ = testing.MakeClusterQueue("standalone-cq").
 				ResourceGroup(*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj()).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, standaloneClusterQ)).Should(gomega.Succeed())
-			defer func() {
-				gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, standaloneClusterQ)).Should(gomega.Succeed())
-			}()
 
-			standaloneQueue := testing.MakeLocalQueue("standalone-queue", ns.Name).ClusterQueue(standaloneClusterQ.Name).Obj()
+			standaloneQueue = testing.MakeLocalQueue("standalone-queue", ns.Name).ClusterQueue(standaloneClusterQ.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, standaloneQueue)).Should(gomega.Succeed())
-			defer func() {
-				gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, standaloneQueue)).Should(gomega.Succeed())
-			}()
+		})
 
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, standaloneClusterQ)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, standaloneQueue)).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should prioritize workloads submitted earlier", func() {
 			// the workloads are created with a 1 cpu resource requirement to ensure only one can fit at a given time
 			wl1 := testing.MakeWorkload("wl-1", ns.Name).Queue(standaloneQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
 			wl2 := testing.MakeWorkload("wl-2", ns.Name).Queue(standaloneQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
@@ -546,28 +552,34 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 
 	var _ = ginkgo.Context("Requeuing timestamp set to Creation", func() {
 
+		var (
+			standaloneClusterQ *kueue.ClusterQueue
+			standaloneQueue    *kueue.LocalQueue
+		)
+
 		ginkgo.BeforeEach(func() {
 			podsReadyTimeout = 3 * time.Second
 			requeuingTimestamp = config.CreationTimestamp
 		})
 
-		ginkgo.It("Should keep the evicted workload at the front of the queue", func() {
+		ginkgo.JustBeforeEach(func() {
 			// Build a standalone cluster queue with just enough capacity for a single workload.
 			// (Avoid using prod/dev queues to avoid borrowing)
-			standaloneClusterQ := testing.MakeClusterQueue("standalone-cq").
+			standaloneClusterQ = testing.MakeClusterQueue("standalone-cq").
 				ResourceGroup(*testing.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj()).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, standaloneClusterQ)).Should(gomega.Succeed())
-			defer func() {
-				gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, standaloneClusterQ)).Should(gomega.Succeed())
-			}()
 
-			standaloneQueue := testing.MakeLocalQueue("standalone-queue", ns.Name).ClusterQueue(standaloneClusterQ.Name).Obj()
+			standaloneQueue = testing.MakeLocalQueue("standalone-queue", ns.Name).ClusterQueue(standaloneClusterQ.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, standaloneQueue)).Should(gomega.Succeed())
-			defer func() {
-				gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, standaloneQueue)).Should(gomega.Succeed())
-			}()
+		})
 
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, standaloneClusterQ)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteLocalQueue(ctx, k8sClient, standaloneQueue)).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should keep the evicted workload at the front of the queue", func() {
 			// the workloads are created with a 1 cpu resource requirement to ensure only one can fit at a given time
 			wl1 := testing.MakeWorkload("wl-1", ns.Name).Queue(standaloneQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
 			wl2 := testing.MakeWorkload("wl-2", ns.Name).Queue(standaloneQueue.Name).Request(corev1.ResourceCPU, "1").Obj()
