@@ -29,6 +29,10 @@ export MANAGER_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-manager
 export WORKER1_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-worker1
 export WORKER2_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-worker2
 
+export JOBSET_MANIFEST=https://github.com/kubernetes-sigs/jobset/releases/download/${JOBSET_VERSION}/manifests.yaml
+export JOBSET_IMAGE=registry.k8s.io/jobset/jobset:${JOBSET_VERSION}
+export JOBSET_CRDS=${ROOT_DIR}/dep-crds/jobset-operator/
+
 source ${SOURCE_DIR}/e2e-common.sh
 
 function cleanup {
@@ -65,7 +69,9 @@ function startup {
 	export GW=$(docker inspect ${MANAGER_KIND_CLUSTER_NAME}-control-plane -f '{{.NetworkSettings.Networks.kind.Gateway}}')
 	$YQ e '.networking.apiServerAddress=env(GW)'  $SOURCE_DIR/multikueue/worker-cluster.kind.yaml > $ARTIFACTS/worker-cluster.yaml
 
+
 	cluster_create $WORKER1_KIND_CLUSTER_NAME $ARTIFACTS/worker-cluster.yaml
+	
 	cluster_create $WORKER2_KIND_CLUSTER_NAME $ARTIFACTS/worker-cluster.yaml
 
 	# push the worker kubeconfig in a manager's secret
@@ -78,6 +84,13 @@ function startup {
     fi
 }
 
+
+#$1 - cluster name
+function istall_jobset {
+	kubectl config use-context kind-${1}
+	kubectl apply --server-side -f https://github.com/kubernetes-sigs/jobset/releases/download/$JOBSET_VERSION/manifests.yaml
+}
+
 function kind_load {
     if [ $CREATE_KIND_CLUSTER == 'true' ]
     then
@@ -85,6 +98,25 @@ function kind_load {
         cluster_kind_load $MANAGER_KIND_CLUSTER_NAME
         cluster_kind_load $WORKER1_KIND_CLUSTER_NAME
         cluster_kind_load $WORKER2_KIND_CLUSTER_NAME 
+
+
+	# JOBSET SETUP
+	# MANAGER
+	kubectl config use-context kind-${MANAGER_KIND_CLUSTER_NAME}
+	kubectl apply --server-side -f ${JOBSET_CRDS}/*
+
+	#WORKERS
+	docker pull registry.k8s.io/jobset/jobset:$JOBSET_VERSION
+
+	cluster_kind_load_image $WORKER1_KIND_CLUSTER_NAME $JOBSET_IMAGE
+	kubectl config use-context kind-${WORKER1_KIND_CLUSTER_NAME}
+	kubectl apply --server-side -f $JOBSET_MANIFEST
+
+	cluster_kind_load_image $WORKER2_KIND_CLUSTER_NAME $JOBSET_IMAGE
+	kubectl config use-context kind-${WORKER2_KIND_CLUSTER_NAME}
+	kubectl apply --server-side -f $JOBSET_MANIFEST
+
+
     fi
 }
 
