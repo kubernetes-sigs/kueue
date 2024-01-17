@@ -19,13 +19,13 @@ package util
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -140,25 +140,24 @@ func DeleteAllPodsInNamespace(ctx context.Context, c client.Client, ns *corev1.N
 		return fmt.Errorf("deleting all Pods in namespace %q: %w", ns.Name, err)
 	}
 
-	lst := corev1.PodList{}
-	err = c.List(ctx, &lst, client.InNamespace(ns.Name))
-	if err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("listing Pods with a finalizer in namespace %q: %w", ns.Name, err)
-	}
+	gomega.Eventually(func() error {
+		lst := corev1.PodList{}
+		err := c.List(ctx, &lst, client.InNamespace(ns.Name))
+		if err != nil && !errors.IsNotFound(err) {
+			return fmt.Errorf("listing Pods with a finalizer in namespace %q: %w", ns.Name, err)
+		}
 
-	if len(lst.Items) == 0 {
-		return nil
-	}
-
-	for _, p := range lst.Items {
-		copy := p.DeepCopy()
-		if controllerutil.RemoveFinalizer(copy, pod.PodFinalizer) {
-			err = c.Update(ctx, copy)
-			if err != nil && !apierrors.IsNotFound(err) {
-				return fmt.Errorf("removing finalizer: %w", err)
+		for _, p := range lst.Items {
+			if controllerutil.RemoveFinalizer(&p, pod.PodFinalizer) {
+				err = c.Update(ctx, &p)
+				if err != nil && !apierrors.IsNotFound(err) {
+					return fmt.Errorf("removing finalizer: %w", err)
+				}
 			}
 		}
-	}
+
+		return nil
+	}, LongTimeout, Interval).Should(gomega.Succeed())
 
 	return nil
 }
@@ -171,26 +170,21 @@ func DeleteWorkloadsInNamespace(ctx context.Context, c client.Client, ns *corev1
 	gomega.Eventually(func() error {
 		lst := kueue.WorkloadList{}
 		err := c.List(ctx, &lst, client.InNamespace(ns.Name))
-		if err != nil {
-			return err
+		if err != nil && !errors.IsNotFound(err) {
+			return fmt.Errorf("listing Workloads with a finalizer in namespace %q: %w", ns.Name, err)
 		}
 
-		if len(lst.Items) == 0 {
-			return nil
-		}
-
-		for _, p := range lst.Items {
-			copy := p.DeepCopy()
-			if controllerutil.RemoveFinalizer(copy, kueue.ResourceInUseFinalizerName) {
-				err = c.Update(ctx, copy)
+		for _, wl := range lst.Items {
+			if controllerutil.RemoveFinalizer(&wl, kueue.ResourceInUseFinalizerName) {
+				err = c.Update(ctx, &wl)
 				if err != nil && !apierrors.IsNotFound(err) {
-					return err
+					return fmt.Errorf("removing finalizer: %w", err)
 				}
 			}
 		}
 
 		return nil
-	}, time.Second*30, time.Second*5).Should(gomega.Succeed())
+	}, LongTimeout, Interval).Should(gomega.Succeed())
 
 	return nil
 }
