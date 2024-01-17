@@ -198,7 +198,7 @@ func ungatePod(pod *corev1.Pod) bool {
 }
 
 // Run will inject the node affinity and podSet counts extracting from workload to job and unsuspend it.
-func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo) error {
+func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, recorder record.EventRecorder, msg string) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	if !p.isGroup {
@@ -214,7 +214,14 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 			return err
 		}
 
-		return c.Update(ctx, &p.pod)
+		err := c.Update(ctx, &p.pod)
+		if err != nil {
+			return err
+		}
+		if recorder != nil {
+			recorder.Event(&p.pod, corev1.EventTypeNormal, jobframework.ReasonStarted, msg)
+		}
+		return nil
 	}
 
 	for _, podInGroup := range p.list.Items {
@@ -242,6 +249,9 @@ func (p *Pod) Run(ctx context.Context, c client.Client, podSetsInfo []podset.Pod
 		log.V(3).Info("Starting pod in group", "podInGroup", klog.KObj(&podInGroup))
 		if err := c.Update(ctx, &podInGroup); err != nil {
 			return err
+		}
+		if recorder != nil {
+			recorder.Event(&podInGroup, corev1.EventTypeNormal, jobframework.ReasonStarted, msg)
 		}
 	}
 

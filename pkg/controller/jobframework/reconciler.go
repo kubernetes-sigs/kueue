@@ -694,9 +694,10 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 	if err != nil {
 		return err
 	}
+	msg := fmt.Sprintf("Admitted by clusterQueue %v", wl.Status.Admission.ClusterQueue)
 
 	if cj, implements := job.(ComposableJob); implements {
-		if err := cj.Run(ctx, r.client, info); err != nil {
+		if err := cj.Run(ctx, r.client, info, r.record, msg); err != nil {
 			return err
 		}
 	} else {
@@ -707,10 +708,8 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 		if err := r.client.Update(ctx, object); err != nil {
 			return err
 		}
+		r.record.Event(object, corev1.EventTypeNormal, ReasonStarted, msg)
 	}
-
-	r.record.Eventf(object, corev1.EventTypeNormal, ReasonStarted,
-		"Admitted by clusterQueue %v", wl.Status.Admission.ClusterQueue)
 
 	return nil
 }
