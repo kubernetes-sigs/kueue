@@ -227,21 +227,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("The job remains completed", func() {
-				gomega.Consistently(func(g gomega.Gomega) {
-					createdJob := &batchv1.Job{}
-					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
-					g.Expect(ptr.Deref(createdJob.Spec.Suspend, false)).To(gomega.BeTrue())
-					g.Expect(createdJob.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
-						batchv1.JobCondition{
-							Type:   batchv1.JobComplete,
-							Status: corev1.ConditionTrue,
-						},
-						cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime"))))
-				}, util.ConsistentDuration, util.Timeout).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Checking no objects are left in the worker clusters", func() {
+			ginkgo.By("Checking no objects are left in the worker clusters and the job is completed", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					workerWl := &kueue.Workload{}
 					g.Expect(k8sWorker1Client.Get(ctx, wlLookupKey, workerWl)).To(utiltesting.BeNotFoundError())
@@ -250,6 +236,16 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(job), workerJob)).To(utiltesting.BeNotFoundError())
 					g.Expect(k8sWorker2Client.Get(ctx, client.ObjectKeyFromObject(job), workerJob)).To(utiltesting.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				createdJob := &batchv1.Job{}
+				gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
+				gomega.Expect(ptr.Deref(createdJob.Spec.Suspend, false)).To(gomega.BeTrue())
+				gomega.Expect(createdJob.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
+					batchv1.JobCondition{
+						Type:   batchv1.JobComplete,
+						Status: corev1.ConditionTrue,
+					},
+					cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime"))))
 			})
 		})
 	})

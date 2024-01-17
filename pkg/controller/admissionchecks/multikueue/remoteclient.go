@@ -18,16 +18,18 @@ package multikueue
 
 import (
 	"context"
+	"fmt"
 
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/watch"
-	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
+
+type clientWithWatchBuilder func(config []byte, options client.Options) (client.WithWatch, error)
 
 type remoteController struct {
 	localClient   client.Client
@@ -39,8 +41,7 @@ type remoteController struct {
 	// For unit testing only. There is now need of creating fully functional remote clients in the unit tests
 	// and creating valid kubeconfig content is not trivial.
 	// The full client creation and usage is validated in the integration and e2e tests.
-	restConfigFromKubeConfigOverride func([]byte) (*rest.Config, error)
-	newWithWatchOverride             func(config *rest.Config, options client.Options) (client.WithWatch, error)
+	builderOverride clientWithWatchBuilder
 }
 
 func newRemoteController(watchCtx context.Context, localClient client.Client, wlUpdateCh chan<- event.GenericEvent) *remoteController {
@@ -63,7 +64,7 @@ func (rc *remoteController) UpdateConfig(kubeConfigs map[string][]byte) error {
 		if kubeconfig, found := kubeConfigs[clusterName]; found {
 			if err := c.setConfig(kubeconfig); err != nil {
 				delete(rc.remoteClients, clusterName)
-				return err
+				return fmt.Errorf("cluster %q: %w", clusterName, err)
 			}
 		} else {
 			c.watchCancel()
@@ -75,11 +76,10 @@ func (rc *remoteController) UpdateConfig(kubeConfigs map[string][]byte) error {
 		if _, found := rc.remoteClients[clusterName]; !found {
 			c := newRemoteClient(rc.watchCtx, rc.localClient, rc.wlUpdateCh)
 
-			c.restConfigFromKubeConfigOverride = rc.restConfigFromKubeConfigOverride
-			c.newWithWatchOverride = rc.newWithWatchOverride
+			c.builderOverride = rc.builderOverride
 
 			if err := c.setConfig(kubeconfig); err != nil {
-				return err
+				return fmt.Errorf("cluster %q: %w", clusterName, err)
 			}
 			rc.remoteClients[clusterName] = c
 		}
@@ -101,9 +101,10 @@ type remoteClient struct {
 	watchItf     watch.Interface
 	kubeconfig   []byte
 
-	// For testing only.
-	restConfigFromKubeConfigOverride func([]byte) (*rest.Config, error)
-	newWithWatchOverride             func(config *rest.Config, options client.Options) (client.WithWatch, error)
+	// For unit testing only. There is now need of creating fully functional remote clients in the unit tests
+	// and creating valid kubeconfig content is not trivial.
+	// The full client creation and usage is validated in the integration and e2e tests.
+	builderOverride clientWithWatchBuilder
 }
 
 func newRemoteClient(watchCtx context.Context, localClient client.Client, wlUpdateCh chan<- event.GenericEvent) *remoteClient {
@@ -114,6 +115,14 @@ func newRemoteClient(watchCtx context.Context, localClient client.Client, wlUpda
 	}
 
 	return rc
+}
+
+func newClientWithWatch(kubeconfig []byte, options client.Options) (client.WithWatch, error) {
+	restConfig, err := clientcmd.RESTConfigFromKubeConfig(kubeconfig)
+	if err != nil {
+		return nil, err
+	}
+	return client.NewWithWatch(restConfig, options)
 }
 
 // setConfig - will try to recreate the k8s client and restart watching if the new config is different than
@@ -128,24 +137,11 @@ func (rc *remoteClient) setConfig(kubeconfig []byte) error {
 		rc.watchCancel = nil
 	}
 
-	var err error
-	var cfg *rest.Config
-
-	if rc.restConfigFromKubeConfigOverride != nil {
-		cfg, err = rc.restConfigFromKubeConfigOverride(kubeconfig)
-	} else {
-		cfg, err = clientcmd.RESTConfigFromKubeConfig(kubeconfig)
+	builder := newClientWithWatch
+	if rc.builderOverride != nil {
+		builder = rc.builderOverride
 	}
-	if err != nil {
-		return err
-	}
-
-	var remoteClient client.WithWatch
-	if rc.newWithWatchOverride != nil {
-		remoteClient, err = rc.newWithWatchOverride(cfg, client.Options{Scheme: rc.localClient.Scheme()})
-	} else {
-		remoteClient, err = client.NewWithWatch(cfg, client.Options{Scheme: rc.localClient.Scheme()})
-	}
+	remoteClient, err := builder(kubeconfig, client.Options{Scheme: rc.localClient.Scheme()})
 	if err != nil {
 		return err
 	}

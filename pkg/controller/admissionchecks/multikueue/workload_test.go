@@ -85,7 +85,7 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
-		"wl without reservation , clears the workload objects": {
+		"wl without reservation, clears the workload objects": {
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
 				*baseWorklodBuilder.Clone().
@@ -234,7 +234,6 @@ func TestWlReconcile(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-
 			manageBuilder, ctx := getClientBuilder()
 
 			manageBuilder = manageBuilder.WithLists(&kueue.WorkloadList{Items: tc.managersWorkloads}, &batchv1.JobList{Items: tc.managersJobs})

@@ -67,12 +67,15 @@ type ACReconciler struct {
 	controllers map[string]*remoteController
 	wlUpdateCh  chan event.GenericEvent
 
+	// rootContext - holds the context passed by the controller-runtime on Start.
+	// It's used to create child contexts for MultiKueueClusters client watch routines
+	// that will gracefully end when the controller-manager stops.
 	rootContext context.Context
 
 	// For unit testing only. There is now need of creating fully functional remote clients in the unit tests
 	// and creating valid kubeconfig content is not trivial.
 	// The full client creation and usage is validated in the integration and e2e tests.
-	updateConfigOverride func(rc *remoteController, kubeconfigs map[string][]byte) error
+	builderOverride clientWithWatchBuilder
 }
 
 var _ reconcile.Reconciler = (*ACReconciler)(nil)
@@ -95,9 +98,9 @@ func (a *ACReconciler) setControllerFor(acName string, c *remoteController) {
 	}
 	if c != nil {
 		a.controllers[acName] = c
-	} else {
-		delete(a.controllers, acName)
+		return
 	}
+	delete(a.controllers, acName)
 }
 
 func (a *ACReconciler) Start(ctx context.Context) error {
@@ -126,31 +129,28 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 
 	log.V(2).Info("Reconcile AdmissionCheck")
 	if cfg, err := a.helper.ConfigFromRef(ctx, ac.Spec.Parameters); err != nil {
-		inactiveReason = fmt.Sprintf("Cannot load AC config: %s", err.Error())
+		inactiveReason = fmt.Sprintf("Cannot load the AdmissionChecks parameters: %s", err.Error())
 	} else {
 		kubeconfigs, err := a.getKubeConfigs(ctx, &cfg.Spec)
 		if err != nil {
 			a.setControllerFor(ac.Name, nil)
 			inactiveReason = fmt.Sprintf("Cannot load kubeconfigs: %s", err.Error())
 		} else {
-			cc, existing := a.controllerFor(ac.Name)
+			remoteCtrl, existing := a.controllerFor(ac.Name)
 			if !existing {
-				cc = newRemoteController(a.rootContext, a.client, a.wlUpdateCh)
-				a.setControllerFor(ac.Name, cc)
+				remoteCtrl = newRemoteController(a.rootContext, a.client, a.wlUpdateCh)
+				if a.builderOverride != nil {
+					remoteCtrl.builderOverride = a.builderOverride
+				}
+				a.setControllerFor(ac.Name, remoteCtrl)
 			}
 
-			var err error
-			if a.updateConfigOverride != nil {
-				err = a.updateConfigOverride(cc, kubeconfigs)
-			} else {
-				err = cc.UpdateConfig(kubeconfigs)
-			}
-
+			err := remoteCtrl.UpdateConfig(kubeconfigs)
 			if err != nil {
-				inactiveReason = fmt.Sprintf("Cannot start remote controller: %s", err.Error())
+				inactiveReason = fmt.Sprintf("Cannot start MultiKueueClusters controller: %s", err.Error())
 				a.setControllerFor(ac.Name, nil)
 			} else {
-				remCtrl = cc
+				remCtrl = remoteCtrl
 			}
 		}
 	}
@@ -189,10 +189,6 @@ func (cc *ACReconciler) getKubeConfigs(ctx context.Context, spec *kueuealpha.Mul
 	for _, c := range spec.Clusters {
 		ref := c.KubeconfigRef
 		sec := corev1.Secret{}
-
-		if ref.LocationType != kueuealpha.SecretLocationType {
-			return nil, fmt.Errorf("unsupported location type %q", ref.LocationType)
-		}
 
 		secretObjKey := types.NamespacedName{
 			Namespace: cc.configNamespace,
@@ -267,7 +263,7 @@ func (m *mkcHandler) Update(ctx context.Context, event event.UpdateEvent, q work
 	}
 
 	if err := queueReconcileForConfigUsers(ctx, oldMKC.Name, m.client, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on delete event", "multiKueueConfig", klog.KObj(oldMKC))
+		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on update event", "multiKueueConfig", klog.KObj(oldMKC))
 	}
 }
 
@@ -332,7 +328,7 @@ func (s *secretHandler) Update(ctx context.Context, event event.UpdateEvent, q w
 
 func (s *secretHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.RateLimitingInterface) {
 	if err := s.queue(ctx, event.Object, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on update event", "secret", klog.KObj(event.Object))
+		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on delete event", "secret", klog.KObj(event.Object))
 	}
 }
 

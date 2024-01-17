@@ -188,7 +188,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 		createdWorkload := &kueue.Workload{}
 		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name), Namespace: managerNs.Name}
 
-		ginkgo.By("setting workload reservation in the master", func() {
+		ginkgo.By("setting workload reservation in the management cluster", func() {
 			admission := utiltesting.MakeAdmission(managerCq.Name).Obj()
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerCluster.client.Get(managerCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
@@ -207,7 +207,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("setting workload reservation in worker1, acs is update on master amd worker2 wl is removed", func() {
+		ginkgo.By("setting workload reservation in worker1, acs is updated in manager amd worker2 wl is removed", func() {
 			admission := utiltesting.MakeAdmission(managerCq.Name).Obj()
 
 			gomega.Eventually(func(g gomega.Gomega) {

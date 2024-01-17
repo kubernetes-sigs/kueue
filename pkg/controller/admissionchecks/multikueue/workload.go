@@ -20,12 +20,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
+	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -43,7 +44,7 @@ import (
 
 var (
 	adapters = map[string]jobAdapter{
-		"batch/v1.Job": &batchJobAdapter{},
+		batchv1.SchemeGroupVersion.WithKind("Job").String(): &batchJobAdapter{},
 	}
 )
 
@@ -111,26 +112,26 @@ func (g *wlGroup) RemoteFinishedCondition() (*metav1.Condition, string) {
 	return bestMatch, bestMatchRemote
 }
 
-func (group *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error {
-	remWl := group.remotes[cluster]
+func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error {
+	remWl := g.remotes[cluster]
 	if remWl == nil {
 		return nil
 	}
-	if err := group.jobAdapter.DeleteRemoteObject(ctx, group.rc.remoteClients[cluster].client, group.controllerKey); err != nil {
+	if err := g.jobAdapter.DeleteRemoteObject(ctx, g.rc.remoteClients[cluster].client, g.controllerKey); err != nil {
 		return fmt.Errorf("deleting remote controller object: %w", err)
 	}
 
 	if controllerutil.RemoveFinalizer(remWl, kueue.ResourceInUseFinalizerName) {
-		if err := group.rc.remoteClients[cluster].client.Update(ctx, remWl); err != nil {
+		if err := g.rc.remoteClients[cluster].client.Update(ctx, remWl); err != nil {
 			return fmt.Errorf("removing remote workloads finalizeer: %w", err)
 		}
 	}
 
-	err := group.rc.remoteClients[cluster].client.Delete(ctx, remWl)
+	err := g.rc.remoteClients[cluster].client.Delete(ctx, remWl)
 	if client.IgnoreNotFound(err) != nil {
 		return fmt.Errorf("deleting remote workload: %w", err)
 	}
-	group.remotes[cluster] = nil
+	g.remotes[cluster] = nil
 	return nil
 }
 
@@ -183,7 +184,7 @@ func (a *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload) (*w
 	var adapter jobAdapter
 	controllerKey := types.NamespacedName{}
 	if controller := metav1.GetControllerOf(local); controller != nil {
-		adapterKey := strings.Join([]string{controller.APIVersion, controller.Kind}, ".")
+		adapterKey := schema.FromAPIVersionAndKind(controller.APIVersion, controller.Kind).String()
 		adapter = adapters[adapterKey]
 		controllerKey.Namespace = local.Namespace
 		controllerKey.Name = controller.Name
@@ -226,24 +227,24 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 		for rem := range group.remotes {
 			if err := group.RemoveRemoteObjects(ctx, rem); err != nil {
 				errs = append(errs, err)
-				log.V(2).Error(err, "Deleting remote workload", "remote", rem)
+				log.V(2).Error(err, "Deleting remote workload", "workerCluster", rem)
 			}
 		}
 		return errors.Join(errs...)
 	}
 
 	if remoteFinishedCond, remote := group.RemoteFinishedCondition(); remoteFinishedCond != nil {
-		//NOTE: we can have a race condition setting the wl status here and it being updated by the job controller
+		// NOTE: we can have a race condition setting the wl status here and it being updated by the job controller
 		// it should not be problematic but the "From remote xxxx:" could be lost ....
 
 		if group.jobAdapter != nil {
 			if err := group.jobAdapter.CopyStatusRemoteObject(ctx, a.acr.client, group.rc.remoteClients[remote].client, group.controllerKey); err != nil {
-				log.V(2).Error(err, "copying remote controller status", "remote", remote)
+				log.V(2).Error(err, "copying remote controller status", "workerCluster", remote)
 				// we should retry this
 				return err
 			}
 		} else {
-			log.V(3).Info("Group with no adapter, skip owner status copy", "remote", remote)
+			log.V(3).Info("Group with no adapter, skip owner status copy", "workerCluster", remote)
 		}
 
 		// copy the status to the local one
@@ -259,7 +260,7 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 
 	hasReserving, reservingRemote := group.FirstReserving()
 
-	// 1. delete all workloads that are out of sync or are not in the chosen worker
+	// 2. delete all workloads that are out of sync or are not in the chosen worker
 	for rem, remWl := range group.remotes {
 		if remWl == nil {
 			continue
@@ -274,7 +275,7 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 		}
 	}
 
-	// 2. get the first reserving
+	// 3. get the first reserving
 	if hasReserving {
 		acs := workload.FindAdmissionCheck(group.local.Status.AdmissionChecks, group.acName)
 		if err := group.jobAdapter.CreateRemoteObject(ctx, a.acr.client, group.rc.remoteClients[reservingRemote].client, group.controllerKey, group.local.Name); err != nil {
@@ -283,7 +284,7 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 			return err
 		}
 
-		if acs.State != kueue.CheckStateRetry {
+		if acs.State != kueue.CheckStateRetry && acs.State != kueue.CheckStateRejected {
 			// For now, the admission check is keept in pending to avoid the execution in the
 			// local cluster.
 			acs.State = kueue.CheckStatePending

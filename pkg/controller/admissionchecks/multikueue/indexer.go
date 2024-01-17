@@ -35,8 +35,7 @@ const (
 )
 
 var (
-	configKind = "MultiKueueConfig"
-	configGVK  = kueue.GroupVersion.WithKind(configKind)
+	configGVK = kueue.GroupVersion.WithKind("MultiKueueConfig")
 )
 
 func getIndexUsingKubeConfigs(configNamespace string) func(obj client.Object) []string {

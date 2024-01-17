@@ -164,7 +164,7 @@ func TestMultikueConfigUsingKubeconfig(t *testing.T) {
 				t.Errorf("unexpected list error (-want/+got):\n%s", diff)
 			}
 
-			gotList := slices.Map(lst.Items, func(pr *kueuealpha.MultiKueueConfig) string { return pr.Name })
+			gotList := slices.Map(lst.Items, func(mkc *kueuealpha.MultiKueueConfig) string { return mkc.Name })
 			if diff := cmp.Diff(tc.wantList, gotList, cmpopts.EquateEmpty(), cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
 				t.Errorf("unexpected list (-want/+got):\n%s", diff)
 			}

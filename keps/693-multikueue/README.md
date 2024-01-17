@@ -160,8 +160,8 @@ const (
     // Location is the path on the disk.
     PathLocationType LocationType = "Path"
     
-	// Location is the name of the secret inside the namespace in which the kueue controller
-	// manager is running. The config should be stored in the "kubeconfig" key.
+    // Location is the name of the secret inside the namespace in which the kueue controller
+    // manager is running. The config should be stored in the "kubeconfig" key.
     SecretLocationType LocationType = "Secret"
 )
 
@@ -177,10 +177,10 @@ type KubeConfig struct {
     // Location of the KubeConfig.
     Location string `json:"location"`
     
-	// Type of the KubeConfig location.
-	//
-	// +kubebuilder:default=Secret
-	// +kubebuilder:validation:Enum=Secret
+    // Type of the KubeConfig location.
+    //
+    // +kubebuilder:default=Secret
+    // +kubebuilder:validation:Enum=Secret
     LocationType LocationType `json:"locationType"`
 }
 

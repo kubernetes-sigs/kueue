@@ -18,12 +18,10 @@ package multikueue
 
 import (
 	"errors"
-	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -31,32 +29,23 @@ var (
 	errInvalidConfig = errors.New("invalid kubeconfig")
 )
 
-func testRestConfigFromKubeConfig(kubeconfig []byte) (*rest.Config, error) {
+func fakeClientBuilder(kubeconfig []byte, options client.Options) (client.WithWatch, error) {
 	if string(kubeconfig) == "invalid" {
 		return nil, errInvalidConfig
-	} else {
-		return &rest.Config{}, nil
 	}
-
-}
-
-func testNewWithWatch(config *rest.Config, options client.Options) (client.WithWatch, error) {
-	if config != nil {
-		b, _ := getClientBuilder()
-		return b.Build(), nil
-	}
-	return nil, fmt.Errorf("nil config")
+	b, _ := getClientBuilder()
+	return b.Build(), nil
 }
 
 func newTestClient(config string) *remoteClient {
 	b, ctx := getClientBuilder()
 	localClient := b.Build()
 	ret := &remoteClient{
-		kubeconfig:                       []byte(config),
-		newWithWatchOverride:             testNewWithWatch,
-		restConfigFromKubeConfigOverride: testRestConfigFromKubeConfig,
-		localClient:                      localClient,
-		rootWatchCtx:                     ctx,
+		kubeconfig:   []byte(config),
+		localClient:  localClient,
+		rootWatchCtx: ctx,
+
+		builderOverride: fakeClientBuilder,
 	}
 	ret.watchCancel = func() {
 		ret.kubeconfig = []byte(string(ret.kubeconfig) + " canceled")
@@ -82,7 +71,7 @@ func TestUpdateConfig(t *testing.T) {
 				},
 			},
 		},
-		"update client  with valid config": {
+		"update client with valid config": {
 			remoteClients: map[string]*remoteClient{
 				"worker1": newTestClient("worker1 old kubeconfig"),
 			},
@@ -95,7 +84,7 @@ func TestUpdateConfig(t *testing.T) {
 				},
 			},
 		},
-		"update client  with invalid config": {
+		"update client with invalid config": {
 			remoteClients: map[string]*remoteClient{
 				"worker1": newTestClient("worker1 old kubeconfig"),
 			},
@@ -122,7 +111,6 @@ func TestUpdateConfig(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-
 			builder, ctx := getClientBuilder()
 			c := builder.Build()
 
@@ -131,8 +119,7 @@ func TestUpdateConfig(t *testing.T) {
 				remCtrl.remoteClients = tc.remoteClients
 			}
 
-			remCtrl.restConfigFromKubeConfigOverride = testRestConfigFromKubeConfig
-			remCtrl.newWithWatchOverride = testNewWithWatch
+			remCtrl.builderOverride = fakeClientBuilder
 
 			gotErr := remCtrl.UpdateConfig(tc.kubeconfigs)
 			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {

@@ -17,7 +17,6 @@ limitations under the License.
 package multikueue
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -36,20 +35,6 @@ func testRemoteController() *remoteController {
 	return &remoteController{
 		watchCancel: func() {},
 	}
-}
-
-func updateConfigOverride(rc *remoteController, kubeconfigs map[string][]byte) error {
-	rc.remoteClients = make(map[string]*remoteClient, len(kubeconfigs))
-	for k, v := range kubeconfigs {
-		if string(v) == "invalid" {
-			return fmt.Errorf("invalid config for cluster %q", k)
-		} else {
-			rc.remoteClients[k] = &remoteClient{
-				kubeconfig: v,
-			}
-		}
-	}
-	return nil
 }
 
 func TestReconcile(t *testing.T) {
@@ -89,45 +74,21 @@ func TestReconcile(t *testing.T) {
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "Inactive",
-						Message: `Cannot load AC config: multikueueconfigs.kueue.x-k8s.io "config1" not found`,
+						Message: `Cannot load the AdmissionChecks parameters: multikueueconfigs.kueue.x-k8s.io "config1" not found`,
 					}).
 					Obj(),
 			},
 		},
-		"unsupported location type": {
+		"unmanaged": {
 			reconcileFor: "ac1",
 			checks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
-					ControllerName(ControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					ControllerName("not-multikueue").
 					Obj(),
-			},
-			configs: []kueuealpha.MultiKueueConfig{
-				{
-					ObjectMeta: metav1.ObjectMeta{Name: "config1"},
-					Spec: kueuealpha.MultiKueueConfigSpec{
-						Clusters: []kueuealpha.MultiKueueCluster{
-							{
-								Name: "worker1",
-								KubeconfigRef: kueuealpha.KubeconfigRef{
-									Location:     "secret1",
-									LocationType: "OtherType",
-								},
-							},
-						},
-					},
-				},
 			},
 			wantChecks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
-					ControllerName(ControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
-					Condition(metav1.Condition{
-						Type:    kueue.AdmissionCheckActive,
-						Status:  metav1.ConditionFalse,
-						Reason:  "Inactive",
-						Message: `Cannot load kubeconfigs: unsupported location type "OtherType"`,
-					}).
+					ControllerName("not-multikueue").
 					Obj(),
 			},
 		},
@@ -250,7 +211,7 @@ func TestReconcile(t *testing.T) {
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "Inactive",
-						Message: `Cannot start remote controller: invalid config for cluster "worker1"`,
+						Message: `Cannot start MultiKueueClusters controller: cluster "worker1": invalid kubeconfig`,
 					}).
 					Obj(),
 			},
@@ -332,7 +293,7 @@ func TestReconcile(t *testing.T) {
 			if len(tc.controllers) > 0 {
 				reconciler.controllers = tc.controllers
 			}
-			reconciler.updateConfigOverride = updateConfigOverride
+			reconciler.builderOverride = fakeClientBuilder
 			_ = reconciler.Start(ctx)
 
 			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor}})
@@ -342,7 +303,7 @@ func TestReconcile(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantControllers, reconciler.controllers, cmpopts.EquateEmpty(),
 				cmp.AllowUnexported(remoteController{}),
-				cmpopts.IgnoreFields(remoteController{}, "localClient", "watchCancel", "watchCtx", "wlUpdateCh"),
+				cmpopts.IgnoreFields(remoteController{}, "localClient", "watchCancel", "watchCtx", "wlUpdateCh", "builderOverride"),
 				cmp.Comparer(func(a, b remoteClient) bool { return string(a.kubeconfig) == string(b.kubeconfig) })); diff != "" {
 				t.Errorf("unexpected controllers (-want/+got):\n%s", diff)
 			}
