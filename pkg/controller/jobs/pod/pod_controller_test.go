@@ -108,7 +108,7 @@ func TestRun(t *testing.T) {
 
 			kClient := clientBuilder.WithLists(&corev1.PodList{Items: tc.pods}).Build()
 
-			gotErr := pod.Run(ctx, kClient, tc.runInfo)
+			gotErr := pod.Run(ctx, kClient, tc.runInfo, nil, "")
 
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("error mismatch (-want +got):\n%s", diff)

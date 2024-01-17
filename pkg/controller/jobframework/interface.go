@@ -102,7 +102,7 @@ type ComposableJob interface {
 	Load(ctx context.Context, c client.Client, key *types.NamespacedName) (removeFinalizers bool, err error)
 	// Run unsuspends all members of the ComposableJob and injects the node affinity with podSet
 	// counts extracting from workload to all members of the ComposableJob.
-	Run(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo) error
+	Run(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, r record.EventRecorder, msg string) error
 	// ConstructComposableWorkload returns a new Workload that's assembled out of all members of the ComposableJob.
 	ConstructComposableWorkload(ctx context.Context, c client.Client, r record.EventRecorder) (*kueue.Workload, error)
 	// ListChildWorkloads returns all workloads related to the composable job
