@@ -207,7 +207,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("setting workload reservation in worker1, acs is updated in manager amd worker2 wl is removed", func() {
+		ginkgo.By("setting workload reservation in worker1, AC state is updated in manager and worker2 wl is removed", func() {
 			admission := utiltesting.MakeAdmission(managerCq.Name).Obj()
 
 			gomega.Eventually(func(g gomega.Gomega) {
