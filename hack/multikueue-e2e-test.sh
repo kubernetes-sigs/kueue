@@ -72,7 +72,9 @@ function startup {
 	$KIND get kubeconfig --name $WORKER1_KIND_CLUSTER_NAME  > ${ARTIFACTS}/worker1.kubeconfig
 	$KIND get kubeconfig --name $WORKER2_KIND_CLUSTER_NAME  > ${ARTIFACTS}/worker2.kubeconfig
 	kubectl config use-context kind-${MANAGER_KIND_CLUSTER_NAME}
-	kubectl create secret generic multikueue --from-file=${ARTIFACTS}/worker1.kubeconfig --from-file=${ARTIFACTS}/worker2.kubeconfig
+	kubectl create namespace kueue-system
+	kubectl create secret generic multikueue1 -n kueue-system --from-file=kubeconfig=${ARTIFACTS}/worker1.kubeconfig
+	kubectl create secret generic multikueue2 -n kueue-system --from-file=kubeconfig=${ARTIFACTS}/worker2.kubeconfig
     fi
 }
 

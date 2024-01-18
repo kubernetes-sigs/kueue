@@ -403,6 +403,14 @@ rules:
   - apiGroups:
       - kueue.x-k8s.io
     resources:
+      - multikueueconfigs
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - kueue.x-k8s.io
+    resources:
       - provisioningrequestconfigs
     verbs:
       - get

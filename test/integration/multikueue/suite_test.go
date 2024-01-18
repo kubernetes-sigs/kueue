@@ -23,6 +23,8 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
@@ -31,6 +33,8 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
@@ -75,9 +79,10 @@ func (c *cluster) kubeConfigBytes() ([]byte, error) {
 }
 
 var (
-	managerCluster cluster
-	worker1Cluster cluster
-	worker2Cluster cluster
+	managerCluster          cluster
+	worker1Cluster          cluster
+	worker2Cluster          cluster
+	managersConfigNamespace *corev1.Namespace
 )
 
 func TestScheduler(t *testing.T) {
@@ -100,15 +105,15 @@ func createCluster(setupFnc framework.ManagerSetup) cluster {
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	managerCluster = createCluster(managerSetup)
+	managerCluster = createCluster(managerAndMultiKueueSetup)
 	worker1Cluster = createCluster(managerSetup)
 	worker2Cluster = createCluster(managerSetup)
 })
 
 var _ = ginkgo.AfterSuite(func() {
-	worker2Cluster.fwk.Teardown()
-	worker1Cluster.fwk.Teardown()
 	managerCluster.fwk.Teardown()
+	worker1Cluster.fwk.Teardown()
+	worker2Cluster.fwk.Teardown()
 })
 
 func managerSetup(mgr manager.Manager, ctx context.Context) {
@@ -127,5 +132,26 @@ func managerSetup(mgr manager.Manager, ctx context.Context) {
 	err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+	reconciler := workloadjob.NewReconciler(
+		mgr.GetClient(),
+		mgr.GetEventRecorderFor(constants.JobControllerName))
+	err = reconciler.SetupWithManager(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = workloadjob.SetupWebhook(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+}
+
+func managerAndMultiKueueSetup(mgr manager.Manager, ctx context.Context) {
+	managerSetup(mgr, ctx)
+
+	managersConfigNamespace = &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "kueue-system",
+		},
+	}
+	gomega.Expect(mgr.GetClient().Create(ctx, managersConfigNamespace)).To(gomega.Succeed())
+
+	err := multikueue.SetupControllers(mgr, managersConfigNamespace.Name)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }

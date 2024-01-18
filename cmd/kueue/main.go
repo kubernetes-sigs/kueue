@@ -45,10 +45,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/config"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -82,6 +84,7 @@ func init() {
 	utilruntime.Must(schedulingv1.AddToScheme(scheme))
 
 	utilruntime.Must(kueue.AddToScheme(scheme))
+	utilruntime.Must(kueuealpha.AddToScheme(scheme))
 	utilruntime.Must(configapi.AddToScheme(scheme))
 	utilruntime.Must(autoscaling.AddToScheme(scheme))
 	// Add any additional framework integration types.
@@ -207,6 +210,13 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 		}
 	}
 
+	if features.Enabled(features.MultiKueue) {
+		if err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), *cfg.Namespace); err != nil {
+			setupLog.Error(err, "Could not setup multikueue indexer")
+			os.Exit(1)
+		}
+	}
+
 	err = jobframework.ForEachIntegration(func(name string, cb jobframework.IntegrationCallbacks) error {
 		if isFrameworkEnabled(cfg, name) {
 			if err := cb.SetupIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
@@ -241,6 +251,13 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 
 		if err := ctrl.SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "Could not setup provisioning controller")
+			os.Exit(1)
+		}
+	}
+
+	if features.Enabled(features.MultiKueue) {
+		if err := multikueue.SetupControllers(mgr, *cfg.Namespace); err != nil {
+			setupLog.Error(err, "Could not setup MultiKueue controller")
 			os.Exit(1)
 		}
 	}

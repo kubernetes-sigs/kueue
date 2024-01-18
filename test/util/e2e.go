@@ -10,6 +10,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	visibility "sigs.k8s.io/kueue/apis/visibility/v1alpha1"
 	kueueclientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
@@ -26,6 +27,9 @@ func CreateClientUsingCluster(kContext string) client.Client {
 	gomega.ExpectWithOffset(1, cfg).NotTo(gomega.BeNil())
 
 	err = kueue.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = kueuealpha.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = visibility.AddToScheme(scheme.Scheme)

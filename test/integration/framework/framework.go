@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
@@ -84,6 +85,9 @@ func (f *Framework) Init() *rest.Config {
 
 func (f *Framework) RunManager(cfg *rest.Config, managerSetup ManagerSetup) (context.Context, client.Client) {
 	err := kueue.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = kueuealpha.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = kubeflow.AddToScheme(scheme.Scheme)
