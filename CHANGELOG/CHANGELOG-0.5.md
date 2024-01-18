@@ -1,3 +1,20 @@
+## v0.5.2
+
+Changes since `v0.5.1`:
+
+### Bug or Regression
+
+- Add Missing RBAC on integration finalizers sub-resources (#1486, @astefanutti)
+- Added event for QuotaReserved and fixed event for Admitted to trigger when admission checks complete (#1436, @trasc)
+- Avoid recreating a Workload for a finished Job and finalize a job when the workload is declared finished. (#1572, @alculquicondor)
+- Fix a bug in the pod integration where a Workload can be left with a finalizer when a pod is not found. (#1524, @achernevskii)
+- Remove finalizer from Workloads that are orphaned (have no owners). (#1523, @achernevskii, @woehrl01, @trasc)
+- Add Mutating WebhookConfigurations for the AdmissionCheck, RayJob, and JobSet to helm charts (#1570, @B1F030)
+- Add Validating/Mutating WebhookConfigurations for the KubeflowJobs like PyTorchJob (#1462, @tenzen-y)
+- Add events for transitions of the provisioning AdmissionCheck (#1394, @stuton)
+- Support for retry of provisioning request. (#1595, @mimowo)
+- Webhooks are served in non-leading replicas (#1511, @astefanutti)
+
 ## v0.5.1
 
 Changes since `v0.5.0`:
