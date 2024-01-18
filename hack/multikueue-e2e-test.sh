@@ -69,9 +69,7 @@ function startup {
 	export GW=$(docker inspect ${MANAGER_KIND_CLUSTER_NAME}-control-plane -f '{{.NetworkSettings.Networks.kind.Gateway}}')
 	$YQ e '.networking.apiServerAddress=env(GW)'  $SOURCE_DIR/multikueue/worker-cluster.kind.yaml > $ARTIFACTS/worker-cluster.yaml
 
-
 	cluster_create $WORKER1_KIND_CLUSTER_NAME $ARTIFACTS/worker-cluster.yaml
-	
 	cluster_create $WORKER2_KIND_CLUSTER_NAME $ARTIFACTS/worker-cluster.yaml
 
 	# push the worker kubeconfig in a manager's secret
@@ -86,9 +84,9 @@ function startup {
 
 
 #$1 - cluster name
-function istall_jobset {
+function install_jobset {
 	kubectl config use-context kind-${1}
-	kubectl apply --server-side -f https://github.com/kubernetes-sigs/jobset/releases/download/$JOBSET_VERSION/manifests.yaml
+	kubectl apply --server-side -f ${JOBSET_MANIFEST}
 }
 
 function kind_load {
@@ -109,14 +107,10 @@ function kind_load {
 	docker pull registry.k8s.io/jobset/jobset:$JOBSET_VERSION
 
 	cluster_kind_load_image $WORKER1_KIND_CLUSTER_NAME $JOBSET_IMAGE
-	kubectl config use-context kind-${WORKER1_KIND_CLUSTER_NAME}
-	kubectl apply --server-side -f $JOBSET_MANIFEST
+	install_jobset $WORKER1_KIND_CLUSTER_NAME
 
 	cluster_kind_load_image $WORKER2_KIND_CLUSTER_NAME $JOBSET_IMAGE
-	kubectl config use-context kind-${WORKER2_KIND_CLUSTER_NAME}
-	kubectl apply --server-side -f $JOBSET_MANIFEST
-
-
+	install_jobset $WORKER2_KIND_CLUSTER_NAME
     fi
 }
 
