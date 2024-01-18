@@ -17,7 +17,8 @@ import (
 	"context"
 	"fmt"
 
-	rayclusterapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
@@ -27,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
@@ -34,9 +36,9 @@ type RayClusterWebhook struct {
 	manageJobsWithoutQueueName bool
 }
 
-// SetupRayClusterWebhook configures the webhook for rayclusterapi RayCluster.
+// SetupRayClusterWebhook configures the webhook for rayv1 RayCluster.
 func SetupRayClusterWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
-	options := jobframework.DefaultOptions
+	options := jobframework.ProcessOptions(opts...)
 	for _, opt := range opts {
 		opt(&options)
 	}
@@ -44,7 +46,7 @@ func SetupRayClusterWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 	}
 	return ctrl.NewWebhookManagedBy(mgr).
-		For(&rayclusterapi.RayCluster{}).
+		For(&rayv1.RayCluster{}).
 		WithDefaulter(wh).
 		WithValidator(wh).
 		Complete()
@@ -56,9 +58,24 @@ var _ webhook.CustomDefaulter = &RayClusterWebhook{}
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
 func (w *RayClusterWebhook) Default(ctx context.Context, obj runtime.Object) error {
-	job := obj.(*rayclusterapi.RayCluster)
+	job := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("raycluster-webhook")
 	log.V(10).Info("Applying defaults", "job", klog.KObj(job))
+
+	// We don't want to double count for a ray cluster created by a RayJob
+	if owner := metav1.GetControllerOf(job.Object()); owner != nil && jobframework.IsOwnerManagedByKueue(owner) {
+		log.Info("RayCluster is owned by RayJob")
+		if job.Annotations == nil {
+			job.Annotations = make(map[string]string)
+		}
+		if pwName, err := jobframework.GetWorkloadNameForOwnerRef(owner); err != nil {
+			return err
+		} else {
+			job.Annotations[constants.ParentWorkloadAnnotation] = pwName
+		}
+		return nil
+	}
+
 	jobframework.ApplyDefaultForSuspend((*RayCluster)(job), w.manageJobsWithoutQueueName)
 	return nil
 }
@@ -69,22 +86,19 @@ var _ webhook.CustomValidator = &RayClusterWebhook{}
 
 // ValidateCreate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *RayClusterWebhook) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
-	job := obj.(*rayclusterapi.RayCluster)
+	job := obj.(*rayv1.RayCluster)
 	log := ctrl.LoggerFrom(ctx).WithName("raycluster-webhook")
 	log.V(10).Info("Validating create", "job", klog.KObj(job))
 	return nil, w.validateCreate(job).ToAggregate()
 }
 
-func (w *RayClusterWebhook) validateCreate(job *rayclusterapi.RayCluster) field.ErrorList {
+func (w *RayClusterWebhook) validateCreate(job *rayv1.RayCluster) field.ErrorList {
 	var allErrors field.ErrorList
 	kueueJob := (*RayCluster)(job)
 
 	if w.manageJobsWithoutQueueName || jobframework.QueueName(kueueJob) != "" {
 		spec := &job.Spec
 		specPath := field.NewPath("spec")
-
-		// Should not want existing cluster. Keuue (workload) should be able to control the admission of the actual work, not only the trigger.
-		// ADD check
 
 		// TODO revisit once Support dynamically sized (elastic) jobs #77 is implemented
 		// Should not use auto scaler. Once the resources are reserved by queue the cluster should do it's best to use them.
@@ -111,8 +125,8 @@ func (w *RayClusterWebhook) validateCreate(job *rayclusterapi.RayCluster) field.
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *RayClusterWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
-	oldJob := oldObj.(*rayclusterapi.RayCluster)
-	newJob := newObj.(*rayclusterapi.RayCluster)
+	oldJob := oldObj.(*rayv1.RayCluster)
+	newJob := newObj.(*rayv1.RayCluster)
 	log := ctrl.LoggerFrom(ctx).WithName("raycluster-webhook")
 	if w.manageJobsWithoutQueueName || jobframework.QueueName((*RayCluster)(newJob)) != "" {
 		log.Info("Validating update", "job", klog.KObj(newJob))

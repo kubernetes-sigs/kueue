@@ -17,7 +17,7 @@ limitations under the License.
 package raycluster
 
 import (
-	rayclusterapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -27,21 +27,22 @@ import (
 )
 
 // ClusterWrapper wraps a RayCluster.
-type ClusterWrapper struct{ rayclusterapi.RayCluster }
+type ClusterWrapper struct{ rayv1.RayCluster }
 
 // MakeCluster creates a wrapper for rayCluster
 func MakeCluster(name, ns string) *ClusterWrapper {
-	return &ClusterWrapper{rayclusterapi.RayCluster{
+	return &ClusterWrapper{rayv1.RayCluster{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
 			Namespace:   ns,
 			Annotations: make(map[string]string, 1),
 		},
-		Spec: rayclusterapi.RayClusterSpec{
-			HeadGroupSpec: rayclusterapi.HeadGroupSpec{
+		Spec: rayv1.RayClusterSpec{
+			HeadGroupSpec: rayv1.HeadGroupSpec{
 				RayStartParams: map[string]string{"p1": "v1"},
 				Template: corev1.PodTemplateSpec{
 					Spec: corev1.PodSpec{
+						NodeSelector: map[string]string{},
 						Containers: []corev1.Container{
 							{
 								Name: "head-container",
@@ -50,7 +51,7 @@ func MakeCluster(name, ns string) *ClusterWrapper {
 					},
 				},
 			},
-			WorkerGroupSpecs: []rayclusterapi.WorkerGroupSpec{
+			WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 				{
 					GroupName:      "workers-group-0",
 					Replicas:       ptr.To[int32](1),
@@ -73,8 +74,14 @@ func MakeCluster(name, ns string) *ClusterWrapper {
 	}}
 }
 
+// NodeSelector adds a node selector to the job's head.
+func (j *ClusterWrapper) NodeSelectorHeadGroup(k, v string) *ClusterWrapper {
+	j.Spec.HeadGroupSpec.Template.Spec.NodeSelector[k] = v
+	return j
+}
+
 // Obj returns the inner Job.
-func (j *ClusterWrapper) Obj() *rayclusterapi.RayCluster {
+func (j *ClusterWrapper) Obj() *rayv1.RayCluster {
 	return &j.RayCluster
 }
 
@@ -123,12 +130,12 @@ func (j *ClusterWrapper) WithEnableAutoscaling(value *bool) *ClusterWrapper {
 	return j
 }
 
-func (j *ClusterWrapper) WithWorkerGroups(workers ...rayclusterapi.WorkerGroupSpec) *ClusterWrapper {
+func (j *ClusterWrapper) WithWorkerGroups(workers ...rayv1.WorkerGroupSpec) *ClusterWrapper {
 	j.Spec.WorkerGroupSpecs = workers
 	return j
 }
 
-func (j *ClusterWrapper) WithHeadGroupSpec(value rayclusterapi.HeadGroupSpec) *ClusterWrapper {
+func (j *ClusterWrapper) WithHeadGroupSpec(value rayv1.HeadGroupSpec) *ClusterWrapper {
 	j.Spec.HeadGroupSpec = value
 	return j
 }

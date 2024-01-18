@@ -477,30 +477,6 @@ rules:
   - apiGroups:
       - ray.io
     resources:
-      - rayjobs
-    verbs:
-      - get
-      - list
-      - patch
-      - update
-      - watch
-  - apiGroups:
-      - ray.io
-    resources:
-      - rayjobs/finalizers
-    verbs:
-      - get
-      - update
-  - apiGroups:
-      - ray.io
-    resources:
-      - rayjobs/status
-    verbs:
-      - get
-      - update
-  - apiGroups:
-      - ray.io
-    resources:
       - rayclusters
     verbs:
       - get
@@ -525,7 +501,7 @@ rules:
   - apiGroups:
       - ray.io
     resources:
-      - rayclusters
+      - rayjobs
     verbs:
       - get
       - list
@@ -535,7 +511,14 @@ rules:
   - apiGroups:
       - ray.io
     resources:
-      - rayclusters/status
+      - rayjobs/finalizers
+    verbs:
+      - get
+      - update
+  - apiGroups:
+      - ray.io
+    resources:
+      - rayjobs/status
     verbs:
       - get
       - update

@@ -21,7 +21,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	rayclusterapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,8 +29,10 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 )
@@ -38,7 +40,7 @@ import (
 var (
 	jobCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
-		cmpopts.IgnoreFields(rayclusterapi.RayCluster{}, "TypeMeta", "ObjectMeta"),
+		cmpopts.IgnoreFields(rayv1.RayCluster{}, "TypeMeta", "ObjectMeta"),
 	}
 	workloadCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
@@ -58,18 +60,158 @@ func TestReconciler(t *testing.T) {
 
 	cases := map[string]struct {
 		reconcilerOptions []jobframework.Option
-		job               rayclusterapi.RayCluster
+		job               rayv1.RayCluster
+		initObjects       []client.Object
 		workloads         []kueue.Workload
 		priorityClasses   []client.Object
-		wantJob           rayclusterapi.RayCluster
+		wantJob           rayv1.RayCluster
 		wantWorkloads     []kueue.Workload
+		runInfo           []podset.PodSetInfo
 		wantErr           error
 	}{
 		"when workload is admitted, cluster is unsuspended": {
+			initObjects: []client.Object{
+				utiltesting.MakeResourceFlavor("unit-test-flavor").Label("kubernetes.io/arch", "arm64").Obj(),
+			},
 			job: *baseJobWrapper.Clone().
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
 				Suspend(false).
+				NodeSelectorHeadGroup("kubernetes.io/arch", "arm64").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						kueue.PodSet{
+							Name:  "head",
+							Count: int32(1),
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+
+									RestartPolicy: corev1.RestartPolicyNever,
+									Containers: []corev1.Container{
+										{
+											Name: "head-container",
+											Resources: corev1.ResourceRequirements{
+												Requests: make(corev1.ResourceList),
+											},
+										},
+									},
+								},
+							},
+						},
+						kueue.PodSet{
+							Name:  "workers-group-0",
+							Count: int32(1),
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									RestartPolicy: corev1.RestartPolicyNever,
+
+									Containers: []corev1.Container{
+										{
+											Name: "worker-container",
+											Resources: corev1.ResourceRequirements{
+												Requests: corev1.ResourceList{
+													corev1.ResourceCPU: resource.MustParse("10"),
+												},
+											},
+										},
+									},
+								},
+							},
+						}).
+					Request(corev1.ResourceCPU, "10").
+					ReserveQuota(
+						utiltesting.MakeAdmission("cq", "head", "workers-group-0").
+							Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+							AssignmentPodCount(1).
+							Obj(),
+					).
+					Admitted(true).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "head",
+							},
+							{
+								Name: "workers-group-0",
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(kueue.PodSet{
+						Name:  "head",
+						Count: int32(1),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								RestartPolicy: corev1.RestartPolicyNever,
+								Containers: []corev1.Container{
+									{
+										Name: "head-container",
+										Resources: corev1.ResourceRequirements{
+											Requests: make(corev1.ResourceList),
+										},
+									},
+								},
+							},
+						},
+					},
+						kueue.PodSet{
+							Name:  "workers-group-0",
+							Count: int32(1),
+							Template: corev1.PodTemplateSpec{
+								Spec: corev1.PodSpec{
+									RestartPolicy: corev1.RestartPolicyNever,
+									Containers: []corev1.Container{
+										{
+											Name: "worker-container",
+											Resources: corev1.ResourceRequirements{
+												Requests: make(corev1.ResourceList),
+											},
+										},
+									},
+								},
+							},
+						}).
+					ReserveQuota(
+						utiltesting.MakeAdmission("cq", "head", "workers-group-0").
+							Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+							AssignmentPodCount(1).
+							Obj(),
+					).
+					Admitted(true).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "check",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "head",
+							},
+							{
+								Name: "workers-group-0",
+							},
+						},
+					}).
+					Obj(),
+			},
+		},
+		"when workload is admitted but workload's conditions is Evicted, suspend it and restore node selector": {
+			initObjects: []client.Object{
+				utiltesting.MakeResourceFlavor("unit-test-flavor").Label("kubernetes.io/arch", "arm64").Obj(),
+			},
+			job: *baseJobWrapper.Clone().
+				Suspend(false).
+				NodeSelectorHeadGroup("kubernetes.io/arch", "arm64").
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				Suspend(true).
 				Obj(),
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test", "ns").
@@ -113,26 +255,16 @@ func TestReconciler(t *testing.T) {
 						},
 					).
 					Request(corev1.ResourceCPU, "10").
-					ReserveQuota(utiltesting.MakeAdmission("cq", "head", "workers-group-0").
-						AssignmentPodCount(1).Obj()).
-					Admitted(true).
-					AdmissionCheck(kueue.AdmissionCheckState{
-						Name:  "check",
-						State: kueue.CheckStateReady,
-						PodSetUpdates: []kueue.PodSetUpdate{
-							{
-								Name: "head",
-							},
-							{
-								Name: "workers-group-0",
-							},
-						},
+					ReserveQuota(utiltesting.MakeAdmission("cq", "head", "workers-group-0").AssignmentPodCount(1).Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadEvicted,
+						Status: metav1.ConditionTrue,
 					}).
+					Admitted(true).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("a", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						kueue.PodSet{
 							Name:  "head",
@@ -169,18 +301,21 @@ func TestReconciler(t *testing.T) {
 							},
 						}).
 					ReserveQuota(utiltesting.MakeAdmission("cq", "head", "workers-group-0").AssignmentPodCount(1).Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadEvicted,
+						Status: metav1.ConditionTrue,
+					}).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionFalse,
+						Reason: "Pending",
+					}).
 					Admitted(true).
-					AdmissionCheck(kueue.AdmissionCheckState{
-						Name:  "check",
-						State: kueue.CheckStateReady,
-						PodSetUpdates: []kueue.PodSetUpdate{
-							{
-								Name: "head",
-							},
-							{
-								Name: "workers-group-0",
-							},
-						},
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  "NoReservation",
+						Message: "The workload has no reservation",
 					}).
 					Obj(),
 			},
@@ -188,19 +323,21 @@ func TestReconciler(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+
 			ctx, _ := utiltesting.ContextWithLog(t)
-			clientBuilder := utiltesting.NewClientBuilder(rayclusterapi.AddToScheme)
+			clientBuilder := utiltesting.NewClientBuilder(rayv1.AddToScheme)
 
 			if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
 			}
 			objs := append(tc.priorityClasses, &tc.job)
-			kcBuilder := clientBuilder.
-				WithObjects(objs...)
+			kcBuilder := clientBuilder.WithObjects(objs...)
 
 			for i := range tc.workloads {
 				kcBuilder = kcBuilder.WithStatusSubresource(&tc.workloads[i])
 			}
+
+			kcBuilder = clientBuilder.WithObjects(tc.initObjects...)
 
 			kClient := kcBuilder.Build()
 			for i := range tc.workloads {
@@ -222,7 +359,7 @@ func TestReconciler(t *testing.T) {
 				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
 			}
 
-			var gotJob rayclusterapi.RayCluster
+			var gotJob rayv1.RayCluster
 			if err := kClient.Get(ctx, jobKey, &gotJob); err != nil {
 				t.Fatalf("Could not get Job after reconcile: %v", err)
 			}

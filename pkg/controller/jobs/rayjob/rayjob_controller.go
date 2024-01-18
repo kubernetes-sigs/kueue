@@ -183,5 +183,5 @@ func GetWorkloadNameForRayJob(jobName string) string {
 }
 
 func isRayJob(owner *metav1.OwnerReference) bool {
-	return owner.Kind == "RayJob" && strings.HasPrefix(owner.APIVersion, "ray.io/v1alpha1")
+	return owner.Kind == "RayJob" && (strings.HasPrefix(owner.APIVersion, "ray.io/v1alpha1") || strings.HasPrefix(owner.APIVersion, "ray.io/v1"))
 }

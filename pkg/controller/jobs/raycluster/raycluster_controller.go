@@ -17,8 +17,9 @@ import (
 	"context"
 	"strings"
 
-	rayclusterapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/utils/ptr"
@@ -30,7 +31,7 @@ import (
 )
 
 var (
-	gvk = rayclusterapi.GroupVersion.WithKind("RayCluster")
+	gvk = rayv1.GroupVersion.WithKind("RayCluster")
 )
 
 const (
@@ -43,8 +44,8 @@ func init() {
 		SetupIndexes:           SetupIndexes,
 		NewReconciler:          NewReconciler,
 		SetupWebhook:           SetupRayClusterWebhook,
-		JobType:                &rayclusterapi.RayCluster{},
-		AddToScheme:            rayclusterapi.AddToScheme,
+		JobType:                &rayv1.RayCluster{},
+		AddToScheme:            rayv1.AddToScheme,
 		IsManagingObjectsOwner: isRayCluster,
 	}))
 }
@@ -59,14 +60,14 @@ func init() {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 // +kubebuilder:rbac:groups=ray.io,resources=rayclusters/finalizers,verbs=get;update
 
-var NewReconciler = jobframework.NewGenericReconciler(func() jobframework.GenericJob { return &RayCluster{} }, nil, nil)
+var NewReconciler = jobframework.NewGenericReconcilerFactory(func() jobframework.GenericJob { return &RayCluster{} })
 
-type RayCluster rayclusterapi.RayCluster
+type RayCluster rayv1.RayCluster
 
 var _ jobframework.GenericJob = (*RayCluster)(nil)
 
 func (j *RayCluster) Object() client.Object {
-	return (*rayclusterapi.RayCluster)(j)
+	return (*rayv1.RayCluster)(j)
 }
 
 func (j *RayCluster) IsSuspended() bool {
@@ -74,7 +75,7 @@ func (j *RayCluster) IsSuspended() bool {
 }
 
 func (j *RayCluster) IsActive() bool {
-	return j.Status.State == rayclusterapi.Ready
+	return j.Status.State == rayv1.Ready
 }
 
 func (j *RayCluster) Suspend() {
@@ -170,7 +171,7 @@ func (j *RayCluster) Finished() (metav1.Condition, bool) {
 }
 
 func (j *RayCluster) PodsReady() bool {
-	return j.Status.State == rayclusterapi.Ready
+	return j.Status.State == rayv1.Ready
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
@@ -183,4 +184,8 @@ func GetWorkloadNameForRayCluster(jobName string) string {
 
 func isRayCluster(owner *metav1.OwnerReference) bool {
 	return owner.Kind == "RayCluster" && strings.HasPrefix(owner.APIVersion, "ray.io/v1")
+}
+
+func fromObject(o runtime.Object) *RayCluster {
+	return (*RayCluster)(o.(*rayv1.RayCluster))
 }

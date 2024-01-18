@@ -5,7 +5,6 @@ metadata:
   name: '{{ include "kueue.fullname" . }}-raycluster-viewer-role'
   labels:
     rbac.kueue.x-k8s.io/batch-admin: "true"
-    rbac.kueue.x-k8s.io/batch-user: "true"
 rules:
   - apiGroups:
       - ray.io

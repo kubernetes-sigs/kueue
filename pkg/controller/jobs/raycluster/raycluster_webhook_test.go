@@ -19,7 +19,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	rayclusterapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
@@ -35,8 +35,8 @@ var (
 
 func TestValidateDefault(t *testing.T) {
 	testcases := map[string]struct {
-		oldJob    *rayclusterapi.RayCluster
-		newJob    *rayclusterapi.RayCluster
+		oldJob    *rayv1.RayCluster
+		newJob    *rayv1.RayCluster
 		manageAll bool
 	}{
 		"unmanaged": {
@@ -85,11 +85,11 @@ func TestValidateDefault(t *testing.T) {
 }
 
 func TestValidateCreate(t *testing.T) {
-	worker := rayclusterapi.WorkerGroupSpec{}
-	bigWorkerGroup := []rayclusterapi.WorkerGroupSpec{worker, worker, worker, worker, worker, worker, worker, worker}
+	worker := rayv1.WorkerGroupSpec{}
+	bigWorkerGroup := []rayv1.WorkerGroupSpec{worker, worker, worker, worker, worker, worker, worker, worker}
 
 	testcases := map[string]struct {
-		job       *rayclusterapi.RayCluster
+		job       *rayv1.RayCluster
 		manageAll bool
 		wantErr   error
 	}{
@@ -116,7 +116,7 @@ func TestValidateCreate(t *testing.T) {
 		},
 		"worker group uses head name": {
 			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
-				WithWorkerGroups(rayclusterapi.WorkerGroupSpec{
+				WithWorkerGroups(rayv1.WorkerGroupSpec{
 					GroupName: headGroupPodSetName,
 				}).
 				Obj(),
@@ -141,8 +141,8 @@ func TestValidateCreate(t *testing.T) {
 
 func TestValidateUpdate(t *testing.T) {
 	testcases := map[string]struct {
-		oldJob    *rayclusterapi.RayCluster
-		newJob    *rayclusterapi.RayCluster
+		oldJob    *rayv1.RayCluster
+		newJob    *rayv1.RayCluster
 		manageAll bool
 		wantErr   error
 	}{
