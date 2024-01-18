@@ -73,23 +73,23 @@ func (h *podEventHandler) queueReconcileForPod(ctx context.Context, object clien
 	q.Add(reconcileRequestForPod(p))
 }
 
-type parentWorkloadHandler struct{}
+type workloadHandler struct{}
 
-func (h *parentWorkloadHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.RateLimitingInterface) {
+func (h *workloadHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.RateLimitingInterface) {
 	h.queueReconcileForChildPod(ctx, e.Object, q)
 }
 
-func (h *parentWorkloadHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.RateLimitingInterface) {
+func (h *workloadHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.RateLimitingInterface) {
 	h.queueReconcileForChildPod(ctx, e.ObjectNew, q)
 }
 
-func (h *parentWorkloadHandler) Delete(context.Context, event.DeleteEvent, workqueue.RateLimitingInterface) {
+func (h *workloadHandler) Delete(context.Context, event.DeleteEvent, workqueue.RateLimitingInterface) {
 }
 
-func (h *parentWorkloadHandler) Generic(ctx context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
+func (h *workloadHandler) Generic(ctx context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
 }
 
-func (h *parentWorkloadHandler) queueReconcileForChildPod(ctx context.Context, object client.Object, q workqueue.RateLimitingInterface) {
+func (h *workloadHandler) queueReconcileForChildPod(ctx context.Context, object client.Object, q workqueue.RateLimitingInterface) {
 	w, ok := object.(*kueue.Workload)
 	if !ok {
 		return

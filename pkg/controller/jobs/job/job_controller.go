@@ -32,9 +32,9 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -75,11 +75,11 @@ func init() {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 
-var NewReconciler = jobframework.NewGenericReconciler(
+var NewReconciler = jobframework.NewGenericReconcilerFactory(
 	func() jobframework.GenericJob {
 		return &Job{}
-	}, nil, func(c client.Client) handler.EventHandler {
-		return &parentWorkloadHandler{client: c}
+	}, func(b *builder.Builder, c client.Client) *builder.Builder {
+		return b.Watches(&kueue.Workload{}, &parentWorkloadHandler{client: c})
 	},
 )
 

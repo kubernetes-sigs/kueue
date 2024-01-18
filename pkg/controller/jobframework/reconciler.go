@@ -29,8 +29,8 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -946,25 +946,24 @@ func GetPodSetsInfoFromWorkload(wl *kueue.Workload) []podset.PodSetInfo {
 
 }
 
-// NewGenericReconciler creates a new reconciler factory for a concrete GenericJob type.
+type ReconcilerSetup func(*builder.Builder, client.Client) *builder.Builder
+
+// NewGenericReconcilerFactory creates a new reconciler factory for a concrete GenericJob type.
 // newJob should return a new empty job.
-// newWorkloadHandler it's optional, if added it should return a new workload event handler.
-func NewGenericReconciler(newJob func() GenericJob, newJobEventHandler func(client.Client) (handler.EventHandler, string), newWorkloadHandler func(client.Client) handler.EventHandler) ReconcilerFactory {
+func NewGenericReconcilerFactory(newJob func() GenericJob, setup ...ReconcilerSetup) ReconcilerFactory {
 	return func(client client.Client, record record.EventRecorder, opts ...Option) JobReconcilerInterface {
 		return &genericReconciler{
-			jr:                 NewReconciler(client, record, opts...),
-			newJob:             newJob,
-			newJobEventHandler: newJobEventHandler,
-			newWorkloadHandler: newWorkloadHandler,
+			jr:     NewReconciler(client, record, opts...),
+			newJob: newJob,
+			setup:  setup,
 		}
 	}
 }
 
 type genericReconciler struct {
-	jr                 *JobReconciler
-	newJob             func() GenericJob
-	newJobEventHandler func(client.Client) (handler.EventHandler, string)
-	newWorkloadHandler func(client.Client) handler.EventHandler
+	jr     *JobReconciler
+	newJob func() GenericJob
+	setup  []ReconcilerSetup
 }
 
 func (r *genericReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -972,16 +971,11 @@ func (r *genericReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 }
 
 func (r *genericReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	b := ctrl.NewControllerManagedBy(mgr)
-	if r.newJobEventHandler == nil {
-		b = b.For(r.newJob().Object()).Owns(&kueue.Workload{})
-	} else {
-		eventHandler, name := r.newJobEventHandler(mgr.GetClient())
-		b = b.Watches(r.newJob().Object(), eventHandler).
-			Named(name)
-	}
-	if r.newWorkloadHandler != nil {
-		b = b.Watches(&kueue.Workload{}, r.newWorkloadHandler(mgr.GetClient()))
+	b := ctrl.NewControllerManagedBy(mgr).
+		For(r.newJob().Object()).Owns(&kueue.Workload{})
+	c := mgr.GetClient()
+	for _, f := range r.setup {
+		b = f(b, c)
 	}
 	return b.Complete(r)
 }
