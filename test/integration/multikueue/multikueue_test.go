@@ -48,6 +48,8 @@ var _ = ginkgo.Describe("Multikueue", func() {
 
 		managerMultikueueSecret1 *corev1.Secret
 		managerMultikueueSecret2 *corev1.Secret
+		managerClusterWorker1    *kueuealpha.MultiKueueCluster
+		managerClusterWorker2    *kueuealpha.MultiKueueCluster
 		managerMultiKueueConfig  *kueuealpha.MultiKueueConfig
 		multikueueAC             *kueue.AdmissionCheck
 		managerCq                *kueue.ClusterQueue
@@ -109,29 +111,13 @@ var _ = ginkgo.Describe("Multikueue", func() {
 		}
 		gomega.Expect(managerCluster.client.Create(managerCluster.ctx, managerMultikueueSecret2)).To(gomega.Succeed())
 
-		managerMultiKueueConfig = &kueuealpha.MultiKueueConfig{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "multikueueconfig",
-			},
-			Spec: kueuealpha.MultiKueueConfigSpec{
-				Clusters: []kueuealpha.MultiKueueCluster{
-					{
-						Name: "worker1",
-						KubeconfigRef: kueuealpha.KubeconfigRef{
-							Location:     "multikueue1",
-							LocationType: kueuealpha.SecretLocationType,
-						},
-					},
-					{
-						Name: "worker2",
-						KubeconfigRef: kueuealpha.KubeconfigRef{
-							Location:     "multikueue2",
-							LocationType: kueuealpha.SecretLocationType,
-						},
-					},
-				},
-			},
-		}
+		managerClusterWorker1 = utiltesting.MakeMultiKueueCluster("worker1").Secret("worker1", managerMultikueueSecret1.Name).Obj()
+		gomega.Expect(managerCluster.client.Create(managerCluster.ctx, managerClusterWorker1)).To(gomega.Succeed())
+
+		managerClusterWorker2 = utiltesting.MakeMultiKueueCluster("worker2").Secret("worker2", managerMultikueueSecret2.Name).Obj()
+		gomega.Expect(managerCluster.client.Create(managerCluster.ctx, managerClusterWorker2)).To(gomega.Succeed())
+
+		managerMultiKueueConfig = utiltesting.MakeMultiKueueConfig("multikueueconfig").Clusters(managerClusterWorker1.Name, managerClusterWorker2.Name).Obj()
 		gomega.Expect(managerCluster.client.Create(managerCluster.ctx, managerMultiKueueConfig)).Should(gomega.Succeed())
 
 		multikueueAC = utiltesting.MakeAdmissionCheck("ac1").
@@ -179,6 +165,8 @@ var _ = ginkgo.Describe("Multikueue", func() {
 		util.ExpectClusterQueueToBeDeleted(worker2Cluster.ctx, worker2Cluster.client, worker2Cq, true)
 		util.ExpectAdmissionCheckToBeDeleted(managerCluster.ctx, managerCluster.client, multikueueAC, true)
 		gomega.Expect(managerCluster.client.Delete(managerCluster.ctx, managerMultiKueueConfig)).To(gomega.Succeed())
+		gomega.Expect(managerCluster.client.Delete(managerCluster.ctx, managerClusterWorker1)).To(gomega.Succeed())
+		gomega.Expect(managerCluster.client.Delete(managerCluster.ctx, managerClusterWorker2)).To(gomega.Succeed())
 		gomega.Expect(managerCluster.client.Delete(managerCluster.ctx, managerMultikueueSecret1)).To(gomega.Succeed())
 		gomega.Expect(managerCluster.client.Delete(managerCluster.ctx, managerMultikueueSecret2)).To(gomega.Succeed())
 	})

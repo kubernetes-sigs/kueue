@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
@@ -745,4 +746,65 @@ func (p *WorkloadPriorityClassWrapper) PriorityValue(v int32) *WorkloadPriorityC
 // Obj returns the inner WorkloadPriorityClass.
 func (p *WorkloadPriorityClassWrapper) Obj() *kueue.WorkloadPriorityClass {
 	return &p.WorkloadPriorityClass
+}
+
+type MultiKueueConfigWrapper struct {
+	kueuealpha.MultiKueueConfig
+}
+
+func MakeMultiKueueConfig(name string) *MultiKueueConfigWrapper {
+	return &MultiKueueConfigWrapper{
+		MultiKueueConfig: kueuealpha.MultiKueueConfig{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: name,
+			},
+		},
+	}
+}
+
+func (mkc *MultiKueueConfigWrapper) Obj() *kueuealpha.MultiKueueConfig {
+	return &mkc.MultiKueueConfig
+}
+
+func (mkc *MultiKueueConfigWrapper) Clusters(clusters ...string) *MultiKueueConfigWrapper {
+	mkc.Spec.Clusters = append(mkc.Spec.Clusters, clusters...)
+	return mkc
+}
+
+type MultiKueueClusterWrapper struct {
+	kueuealpha.MultiKueueCluster
+}
+
+func MakeMultiKueueCluster(name string) *MultiKueueClusterWrapper {
+	return &MultiKueueClusterWrapper{
+		MultiKueueCluster: kueuealpha.MultiKueueCluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: name,
+			},
+		},
+	}
+}
+
+func (mkc *MultiKueueClusterWrapper) Obj() *kueuealpha.MultiKueueCluster {
+	return &mkc.MultiKueueCluster
+}
+
+func (mkc *MultiKueueClusterWrapper) Secret(name, secretName string) *MultiKueueClusterWrapper {
+	mkc.Spec.KubeconfigRef = kueuealpha.KubeconfigRef{
+		Name:         name,
+		Location:     secretName,
+		LocationType: kueuealpha.SecretLocationType,
+	}
+	return mkc
+}
+
+func (mkc *MultiKueueClusterWrapper) Active(state metav1.ConditionStatus, reason, message string) *MultiKueueClusterWrapper {
+	cond := metav1.Condition{
+		Type:    kueuealpha.MultiKueueClusterActive,
+		Status:  state,
+		Reason:  reason,
+		Message: message,
+	}
+	apimeta.SetStatusCondition(&mkc.Status.Conditions, cond)
+	return mkc
 }
