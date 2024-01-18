@@ -324,6 +324,9 @@ metadata:
 spec:
   preemption:
     reclaimWithinCohort: Any
+    borrowWithinCohort:
+      policy: LowerPriority
+      maxPriorityThreshold: 100
     withinClusterQueue: LowerPriority
 ```
 
@@ -339,6 +342,16 @@ The fields above do the following:
   - `Any`: if the pending Workload fits within the nominal quota of its
     ClusterQueue, preempt any Workload in the cohort, irrespective of
     priority.
+
+- `borrowWithinCohort` determines whether a pending Workload can preempt
+  Workloads from other ClusterQueues if the workload requires borrowing. This
+  field requires to specify `policy` sub-field with possible values:
+  - `Never` (default): do not preempt Workloads in the cohort if borrowing is required.
+  - `LowerPriority`: if the pending Workload requires borrowing, only preempt
+    Workloads in the cohort that have lower priority than the pending Workload.
+  This preemption policy is only supported when `reclaimWithinCohort` is enabled (different than `Never`).
+  Additionally, only workloads up to the priority indicated by
+  `maxPriorityThreshold` can be preempted in that scenario.
 
 - `withinClusterQueue` determines whether a pending Workload that doesn't fit
   within the nominal quota for its ClusterQueue, can preempt active Workloads in
