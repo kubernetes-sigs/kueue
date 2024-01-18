@@ -58,9 +58,9 @@ func init() {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 
-var NewReconciler = jobframework.NewGenericReconciler(func() jobframework.GenericJob {
-	return &kubeflowjob.KubeflowJob{KFJobControl: (*JobControl)(&kftraining.MXJob{})}
-}, nil, nil)
+var NewReconciler = jobframework.NewGenericReconcilerFactory(func() jobframework.GenericJob {
+	return &kubeflowjob.KubeflowJob{KFJobControl: &JobControl{}}
+})
 
 func isMXJob(owner *metav1.OwnerReference) bool {
 	return owner.Kind == kftraining.MXJobKind && strings.HasPrefix(owner.APIVersion, kftraining.SchemeGroupVersion.Group)

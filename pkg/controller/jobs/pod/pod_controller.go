@@ -43,7 +43,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -86,17 +85,26 @@ func init() {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 
-var NewReconciler = jobframework.NewGenericReconciler(
-	func() jobframework.GenericJob {
-		return &Pod{}
-	},
-	func(c client.Client) (handler.EventHandler, string) {
-		return &podEventHandler{}, "v1_pod"
-	},
-	func(c client.Client) handler.EventHandler {
-		return &parentWorkloadHandler{}
-	},
-)
+type Reconciler struct {
+	*jobframework.JobReconciler
+}
+
+func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	return r.ReconcileGenericJob(ctx, req, &Pod{})
+}
+
+func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		Watches(&corev1.Pod{}, &podEventHandler{}).Named("v1_pod").
+		Watches(&kueue.Workload{}, &workloadHandler{}).
+		Complete(r)
+}
+
+func NewReconciler(c client.Client, record record.EventRecorder, opts ...jobframework.Option) jobframework.JobReconcilerInterface {
+	return &Reconciler{
+		JobReconciler: jobframework.NewReconciler(c, record, opts...),
+	}
+}
 
 type Pod struct {
 	pod              corev1.Pod
