@@ -38,12 +38,11 @@ func fakeClientBuilder(kubeconfig []byte, options client.Options) (client.WithWa
 }
 
 func newTestClient(config string) *remoteClient {
-	b, ctx := getClientBuilder()
+	b, _ := getClientBuilder()
 	localClient := b.Build()
 	ret := &remoteClient{
-		kubeconfig:   []byte(config),
-		localClient:  localClient,
-		rootWatchCtx: ctx,
+		kubeconfig:  []byte(config),
+		localClient: localClient,
 
 		builderOverride: fakeClientBuilder,
 	}

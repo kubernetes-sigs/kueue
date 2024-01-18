@@ -146,7 +146,6 @@ var _ = ginkgo.Describe("Multikueue", func() {
 				g.Expect(cond).NotTo(gomega.BeNil())
 				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue), "Reason: %s, Message: %q", cond.Reason, cond.Status)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
 		})
 
 		managerCq = utiltesting.MakeClusterQueue("q1").
