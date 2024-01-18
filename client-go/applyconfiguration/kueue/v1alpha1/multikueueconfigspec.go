@@ -20,7 +20,7 @@ package v1alpha1
 // MultiKueueConfigSpecApplyConfiguration represents an declarative configuration of the MultiKueueConfigSpec type for use
 // with apply.
 type MultiKueueConfigSpecApplyConfiguration struct {
-	Clusters []MultiKueueClusterApplyConfiguration `json:"clusters,omitempty"`
+	Clusters []string `json:"clusters,omitempty"`
 }
 
 // MultiKueueConfigSpecApplyConfiguration constructs an declarative configuration of the MultiKueueConfigSpec type for use with
@@ -32,12 +32,9 @@ func MultiKueueConfigSpec() *MultiKueueConfigSpecApplyConfiguration {
 // WithClusters adds the given value to the Clusters field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the Clusters field.
-func (b *MultiKueueConfigSpecApplyConfiguration) WithClusters(values ...*MultiKueueClusterApplyConfiguration) *MultiKueueConfigSpecApplyConfiguration {
+func (b *MultiKueueConfigSpecApplyConfiguration) WithClusters(values ...string) *MultiKueueConfigSpecApplyConfiguration {
 	for i := range values {
-		if values[i] == nil {
-			panic("nil value passed to WithClusters")
-		}
-		b.Clusters = append(b.Clusters, *values[i])
+		b.Clusters = append(b.Clusters, values[i])
 	}
 	return b
 }

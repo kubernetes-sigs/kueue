@@ -24,21 +24,9 @@ const (
 	MultiKueueConfigSecretKey = "kubeconfig"
 )
 
-// MultiKueueConfigSpec defines the desired state of MultiKueueConfig
-type MultiKueueConfigSpec struct {
-	// clusters contains the list of configurations for using worker clusters.
-	//
-	// +listType=map
-	// +listMapKey=name
-	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=100
-	Clusters []MultiKueueCluster `json:"clusters"`
-}
-
-type MultiKueueCluster struct {
-	Name          string        `json:"name"`
-	KubeconfigRef KubeconfigRef `json:"kubeconfigRef"`
-}
+const (
+	MultiKueueClusterActive = "Active"
+)
 
 type LocationType string
 
@@ -62,13 +50,56 @@ type KubeconfigRef struct {
 	LocationType LocationType `json:"locationType"`
 }
 
+type MultiKueueClusterSpec struct {
+	KubeconfigRef KubeconfigRef `json:"kubeconfigRef"`
+}
+
+type MultiKueueClusterStatus struct {
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
+}
+
+//+genclient
+//+genclient:nonNamespaced
+//+kubebuilder:object:root=true
+//+kubebuilder:storageversion
+//+kubebuilder:subresource:status
+//+kubebuilder:resource:scope=Cluster
+
+// MultiKueueCluster is the Schema for the multikueue API
+type MultiKueueCluster struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec   MultiKueueClusterSpec   `json:"spec,omitempty"`
+	Status MultiKueueClusterStatus `json:"status,omitempty"`
+}
+
+//+kubebuilder:object:root=true
+
+// MultiKueueClusterList contains a list of MultiKueueCluster
+type MultiKueueClusterList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []MultiKueueCluster `json:"items"`
+}
+
+// MultiKueueConfigSpec defines the desired state of MultiKueueConfig
+type MultiKueueConfigSpec struct {
+	// List of MultiKueueClusters names where the workloads from the ClusterQueue should be distributed.
+	//
+	// +listType=set
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=100
+	Clusters []string `json:"clusters"`
+}
+
 //+genclient
 //+genclient:nonNamespaced
 //+kubebuilder:object:root=true
 //+kubebuilder:storageversion
 //+kubebuilder:resource:scope=Cluster
 
-// MultiKueueConfig is the Schema for the provisioningrequestconfig API
+// MultiKueueConfig is the Schema for the multikueue API
 type MultiKueueConfig struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -86,5 +117,5 @@ type MultiKueueConfigList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&MultiKueueConfig{}, &MultiKueueConfigList{})
+	SchemeBuilder.Register(&MultiKueueConfig{}, &MultiKueueConfigList{}, &MultiKueueCluster{}, &MultiKueueClusterList{})
 }

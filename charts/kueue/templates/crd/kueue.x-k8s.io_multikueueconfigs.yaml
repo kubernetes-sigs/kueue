@@ -30,8 +30,7 @@ spec:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: MultiKueueConfig is the Schema for the provisioningrequestconfig
-          API
+        description: MultiKueueConfig is the Schema for the multikueue API
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
@@ -49,41 +48,14 @@ spec:
             description: MultiKueueConfigSpec defines the desired state of MultiKueueConfig
             properties:
               clusters:
-                description: clusters contains the list of configurations for using
-                  worker clusters.
+                description: List of MultiKueueClusters names where the workloads
+                  from the ClusterQueue should be distributed.
                 items:
-                  properties:
-                    kubeconfigRef:
-                      properties:
-                        location:
-                          description: Location of the KubeConfig.
-                          type: string
-                        locationType:
-                          default: Secret
-                          description: Type of the KubeConfig location.
-                          enum:
-                          - Secret
-                          type: string
-                        name:
-                          description: Name of the cluster inside the given KubeConfig.
-                          type: string
-                      required:
-                      - location
-                      - locationType
-                      - name
-                      type: object
-                    name:
-                      type: string
-                  required:
-                  - kubeconfigRef
-                  - name
-                  type: object
+                  type: string
                 maxItems: 100
                 minItems: 1
                 type: array
-                x-kubernetes-list-map-keys:
-                - name
-                x-kubernetes-list-type: map
+                x-kubernetes-list-type: set
             required:
             - clusters
             type: object

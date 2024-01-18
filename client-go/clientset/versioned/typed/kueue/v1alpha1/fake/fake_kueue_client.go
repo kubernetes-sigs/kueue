@@ -27,6 +27,10 @@ type FakeKueueV1alpha1 struct {
 	*testing.Fake
 }
 
+func (c *FakeKueueV1alpha1) MultiKueueClusters() v1alpha1.MultiKueueClusterInterface {
+	return &FakeMultiKueueClusters{c}
+}
+
 func (c *FakeKueueV1alpha1) MultiKueueConfigs() v1alpha1.MultiKueueConfigInterface {
 	return &FakeMultiKueueConfigs{c}
 }
