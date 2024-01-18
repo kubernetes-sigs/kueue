@@ -23,6 +23,7 @@ import (
 	configv1alpha1 "k8s.io/component-base/config/v1alpha1"
 )
 
+// +k8s:defaulter-gen=true
 // +kubebuilder:object:root=true
 
 // Configuration is the Schema for the kueueconfigurations API
