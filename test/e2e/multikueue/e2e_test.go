@@ -280,14 +280,20 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			wlLookupKey := types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet.Name), Namespace: managerNs.Name}
 
 			// the execution should be given to the worker
-			ginkgo.By("Waiting to be admitted in worker1", func() {
+			ginkgo.By("Waiting to be admitted in worker1 and manager", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
 					g.Expect(workload.FindAdmissionCheck(createdLeaderWorkload.Status.AdmissionChecks, multiKueueAc.Name)).To(gomega.BeComparableTo(&kueue.AdmissionCheckState{
 						Name:    multiKueueAc.Name,
-						State:   kueue.CheckStatePending,
+						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}, cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime")))
+					g.Expect(apimeta.FindStatusCondition(createdLeaderWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeComparableTo(&metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Admitted",
+						Message: "The workload is admitted",
+					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -316,7 +322,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 				createdJobSet := &jobset.JobSet{}
 				gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(jobSet), createdJobSet)).To(gomega.Succeed())
-				gomega.Expect(ptr.Deref(createdJobSet.Spec.Suspend, false)).To(gomega.BeTrue())
+				gomega.Expect(ptr.Deref(createdJobSet.Spec.Suspend, true)).To(gomega.BeFalse())
 				gomega.Expect(createdJobSet.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
 					metav1.Condition{
 						Type:    string(jobset.JobSetCompleted),

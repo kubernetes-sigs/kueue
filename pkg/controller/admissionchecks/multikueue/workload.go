@@ -63,6 +63,12 @@ type jobAdapter interface {
 	CopyStatusRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName) error
 	// Deletes the Job in the worker cluster.
 	DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error
+	// KeepAdmissionCheckPending returns true if the state of the multikueue admission check should be
+	// kept Pending while the job runs in a worker. This might be needed to keep the managers job
+	// suspended and not start the execution locally.
+	// Going forward, if the job management is controlled at object label, this should get a workload
+	// reference as argument.
+	KeepAdmissionCheckPending() bool
 }
 
 type wlGroup struct {
@@ -287,9 +293,11 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 		}
 
 		if acs.State != kueue.CheckStateRetry && acs.State != kueue.CheckStateRejected {
-			// For now, the admission check is keept in pending to avoid the execution in the
-			// local cluster.
-			acs.State = kueue.CheckStatePending
+			if group.jobAdapter.KeepAdmissionCheckPending() {
+				acs.State = kueue.CheckStatePending
+			} else {
+				acs.State = kueue.CheckStateReady
+			}
 			// update the message
 			acs.Message = fmt.Sprintf("The workload got reservation on %q", reservingRemote)
 			wlPatch := workload.BaseSSAWorkload(group.local)

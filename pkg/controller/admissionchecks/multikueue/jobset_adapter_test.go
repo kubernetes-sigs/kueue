@@ -82,7 +82,7 @@ func TestWlReconcileJobset(t *testing.T) {
 				*baseWorklodBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
-						State:   kueue.CheckStatePending,
+						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					OwnerReference("jobset.x-k8s.io/v1alpha2", "JobSet", "jobset1", "uid1", true, true).
@@ -110,7 +110,7 @@ func TestWlReconcileJobset(t *testing.T) {
 				*baseWorklodBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
-						State:   kueue.CheckStatePending,
+						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					OwnerReference("jobset.x-k8s.io/v1alpha2", "JobSet", "jobset1", "uid1", true, true).
@@ -139,7 +139,7 @@ func TestWlReconcileJobset(t *testing.T) {
 				*baseWorklodBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
-						State:   kueue.CheckStatePending,
+						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					OwnerReference("jobset.x-k8s.io/v1alpha2", "JobSet", "jobset1", "uid1", true, true).
@@ -172,7 +172,7 @@ func TestWlReconcileJobset(t *testing.T) {
 				*baseWorklodBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
-						State:   kueue.CheckStatePending,
+						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					OwnerReference("jobset.x-k8s.io/v1alpha2", "JobSet", "jobset1", "uid1", true, true).
@@ -204,7 +204,7 @@ func TestWlReconcileJobset(t *testing.T) {
 				*baseWorklodBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
-						State:   kueue.CheckStatePending,
+						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
 					OwnerReference("jobset.x-k8s.io/v1alpha2", "JobSet", "jobset1", "uid1", true, true).

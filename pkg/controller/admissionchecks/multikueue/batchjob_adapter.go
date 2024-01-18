@@ -83,3 +83,7 @@ func (b *batchJobAdapter) DeleteRemoteObject(ctx context.Context, remoteClient c
 	}
 	return client.IgnoreNotFound(remoteClient.Delete(ctx, &job))
 }
+
+func (b *batchJobAdapter) KeepAdmissionCheckPending() bool {
+	return true
+}

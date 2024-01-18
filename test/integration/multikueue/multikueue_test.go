@@ -312,7 +312,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("setting workload reservation in worker1, acs is updated in manager amd worker2 wl is removed", func() {
+		ginkgo.By("setting workload reservation in worker1, the workload is admitted in manager amd worker2 wl is removed", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1Cluster.client.Get(worker1Cluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				g.Expect(util.SetQuotaReservation(worker1Cluster.ctx, worker1Cluster.client, createdWorkload, admission)).To(gomega.Succeed())
@@ -322,8 +322,16 @@ var _ = ginkgo.Describe("Multikueue", func() {
 				g.Expect(managerCluster.client.Get(managerCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				acs := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, multikueueAC.Name)
 				g.Expect(acs).NotTo(gomega.BeNil())
-				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStatePending))
+				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
 				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
+
+				g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeComparableTo(&metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionTrue,
+					Reason:  "Admitted",
+					Message: "The workload is admitted",
+				}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
+
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {

@@ -74,3 +74,7 @@ func (b *jobsetAdapter) DeleteRemoteObject(ctx context.Context, remoteClient cli
 	}
 	return client.IgnoreNotFound(remoteClient.Delete(ctx, &job))
 }
+
+func (b *jobsetAdapter) KeepAdmissionCheckPending() bool {
+	return false
+}
