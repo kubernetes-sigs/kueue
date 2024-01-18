@@ -85,6 +85,7 @@ function startup {
 
 #$1 - cluster name
 function install_jobset {
+	cluster_kind_load_image ${1} ${JOBSET_IMAGE}
 	kubectl config use-context kind-${1}
 	kubectl apply --server-side -f ${JOBSET_MANIFEST}
 }
@@ -105,11 +106,7 @@ function kind_load {
 
 	#WORKERS
 	docker pull registry.k8s.io/jobset/jobset:$JOBSET_VERSION
-
-	cluster_kind_load_image $WORKER1_KIND_CLUSTER_NAME $JOBSET_IMAGE
 	install_jobset $WORKER1_KIND_CLUSTER_NAME
-
-	cluster_kind_load_image $WORKER2_KIND_CLUSTER_NAME $JOBSET_IMAGE
 	install_jobset $WORKER2_KIND_CLUSTER_NAME
     fi
 }
