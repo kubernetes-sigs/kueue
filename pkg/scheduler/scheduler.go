@@ -38,6 +38,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -67,28 +68,45 @@ type Scheduler struct {
 	preemptor               *preemption.Preemptor
 	// Stubs.
 	applyAdmission func(context.Context, *kueue.Workload) error
+
+	workloadOrdering workload.Ordering
 }
 
 type options struct {
+	podsReadyRequeuingTimestamp config.RequeuingTimestamp
 }
 
 // Option configures the reconciler.
 type Option func(*options)
 
-var defaultOptions = options{}
+var defaultOptions = options{
+	podsReadyRequeuingTimestamp: config.EvictionTimestamp,
+}
+
+// WithPodsReadyRequeuingTimestamp sets the timestamp that is used for ordering
+// workloads that have been requeued due to the PodsReady condition.
+func WithPodsReadyRequeuingTimestamp(ts config.RequeuingTimestamp) Option {
+	return func(o *options) {
+		o.podsReadyRequeuingTimestamp = ts
+	}
+}
 
 func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder record.EventRecorder, opts ...Option) *Scheduler {
 	options := defaultOptions
 	for _, opt := range opts {
 		opt(&options)
 	}
+	wo := workload.Ordering{
+		PodsReadyRequeuingTimestamp: options.podsReadyRequeuingTimestamp,
+	}
 	s := &Scheduler{
 		queues:                  queues,
 		cache:                   cache,
 		client:                  cl,
 		recorder:                recorder,
-		preemptor:               preemption.New(cl, recorder),
+		preemptor:               preemption.New(cl, wo, recorder),
 		admissionRoutineWrapper: routine.DefaultWrapper,
+		workloadOrdering:        wo,
 	}
 	s.applyAdmission = s.applyAdmissionWithSSA
 	return s
@@ -173,7 +191,10 @@ func (s *Scheduler) schedule(ctx context.Context) {
 	entries := s.nominate(ctx, headWorkloads, snapshot)
 
 	// 4. Sort entries based on borrowing, priorities (if enabled) and timestamps.
-	sort.Sort(entryOrdering(entries))
+	sort.Sort(entryOrdering{
+		entries:          entries,
+		workloadOrdering: s.workloadOrdering,
+	})
 
 	// 5. Admit entries, ensuring that no more than one workload gets
 	// admitted by a cohort (if borrowing).
@@ -512,14 +533,17 @@ func (s *Scheduler) applyAdmissionWithSSA(ctx context.Context, w *kueue.Workload
 	return workload.ApplyAdmissionStatus(ctx, s.client, w, false)
 }
 
-type entryOrdering []entry
+type entryOrdering struct {
+	entries          []entry
+	workloadOrdering workload.Ordering
+}
 
 func (e entryOrdering) Len() int {
-	return len(e)
+	return len(e.entries)
 }
 
 func (e entryOrdering) Swap(i, j int) {
-	e[i], e[j] = e[j], e[i]
+	e.entries[i], e.entries[j] = e.entries[j], e.entries[i]
 }
 
 // Less is the ordering criteria:
@@ -527,8 +551,8 @@ func (e entryOrdering) Swap(i, j int) {
 // 2. higher priority first.
 // 3. FIFO on eviction or creation timestamp.
 func (e entryOrdering) Less(i, j int) bool {
-	a := e[i]
-	b := e[j]
+	a := e.entries[i]
+	b := e.entries[j]
 
 	// 1. Request under nominal quota.
 	aBorrows := a.assignment.Borrows()
@@ -547,8 +571,8 @@ func (e entryOrdering) Less(i, j int) bool {
 	}
 
 	// 3. FIFO.
-	aComparisonTimestamp := workload.GetQueueOrderTimestamp(a.Obj)
-	bComparisonTimestamp := workload.GetQueueOrderTimestamp(b.Obj)
+	aComparisonTimestamp := e.workloadOrdering.GetQueueOrderTimestamp(a.Obj)
+	bComparisonTimestamp := e.workloadOrdering.GetQueueOrderTimestamp(b.Obj)
 	return aComparisonTimestamp.Before(bComparisonTimestamp)
 }
 

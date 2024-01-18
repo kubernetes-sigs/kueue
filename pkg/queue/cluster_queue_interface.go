@@ -102,16 +102,16 @@ type ClusterQueue interface {
 	Active() bool
 }
 
-var registry = map[kueue.QueueingStrategy]func(cq *kueue.ClusterQueue) (ClusterQueue, error){
+var registry = map[kueue.QueueingStrategy]func(cq *kueue.ClusterQueue, wo workload.Ordering) (ClusterQueue, error){
 	kueue.StrictFIFO:     newClusterQueueStrictFIFO,
 	kueue.BestEffortFIFO: newClusterQueueBestEffortFIFO,
 }
 
-func newClusterQueue(cq *kueue.ClusterQueue) (ClusterQueue, error) {
+func newClusterQueue(cq *kueue.ClusterQueue, wo workload.Ordering) (ClusterQueue, error) {
 	strategy := cq.Spec.QueueingStrategy
 	f, exist := registry[strategy]
 	if !exist {
 		return nil, fmt.Errorf("invalid QueueingStrategy %q", cq.Spec.QueueingStrategy)
 	}
-	return f(cq)
+	return f(cq, wo)
 }

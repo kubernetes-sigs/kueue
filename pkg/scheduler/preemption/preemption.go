@@ -47,14 +47,17 @@ type Preemptor struct {
 	client   client.Client
 	recorder record.EventRecorder
 
+	workloadOrdering workload.Ordering
+
 	// stubs
 	applyPreemption func(context.Context, *kueue.Workload) error
 }
 
-func New(cl client.Client, recorder record.EventRecorder) *Preemptor {
+func New(cl client.Client, workloadOrdering workload.Ordering, recorder record.EventRecorder) *Preemptor {
 	p := &Preemptor{
-		client:   cl,
-		recorder: recorder,
+		client:           cl,
+		recorder:         recorder,
+		workloadOrdering: workloadOrdering,
 	}
 	p.applyPreemption = p.applyPreemptionWithSSA
 	return p
@@ -79,7 +82,7 @@ func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assig
 	resPerFlv := resourcesRequiringPreemption(assignment)
 	cq := snapshot.ClusterQueues[wl.ClusterQueue]
 
-	candidates := findCandidates(wl.Obj, cq, resPerFlv)
+	candidates := findCandidates(wl.Obj, p.workloadOrdering, cq, resPerFlv)
 	if len(candidates) == 0 {
 		return nil
 	}
@@ -250,13 +253,13 @@ func resourcesRequiringPreemption(assignment flavorassigner.Assignment) resource
 // findCandidates obtains candidates for preemption within the ClusterQueue and
 // cohort that respect the preemption policy and are using a resource that the
 // preempting workload needs.
-func findCandidates(wl *kueue.Workload, cq *cache.ClusterQueue, resPerFlv resourcesPerFlavor) []*workload.Info {
+func findCandidates(wl *kueue.Workload, wo workload.Ordering, cq *cache.ClusterQueue, resPerFlv resourcesPerFlavor) []*workload.Info {
 	var candidates []*workload.Info
 	wlPriority := priority.Priority(wl)
 
 	if cq.Preemption.WithinClusterQueue != kueue.PreemptionPolicyNever {
 		considerSamePrio := (cq.Preemption.WithinClusterQueue == kueue.PreemptionPolicyLowerOrNewerEqualPriority)
-		preemptorTS := workload.GetQueueOrderTimestamp(wl)
+		preemptorTS := wo.GetQueueOrderTimestamp(wl)
 
 		for _, candidateWl := range cq.Workloads {
 			candidatePriority := priority.Priority(candidateWl.Obj)
@@ -264,7 +267,7 @@ func findCandidates(wl *kueue.Workload, cq *cache.ClusterQueue, resPerFlv resour
 				continue
 			}
 
-			if candidatePriority == wlPriority && !(considerSamePrio && preemptorTS.Before(workload.GetQueueOrderTimestamp(candidateWl.Obj))) {
+			if candidatePriority == wlPriority && !(considerSamePrio && preemptorTS.Before(wo.GetQueueOrderTimestamp(candidateWl.Obj))) {
 				continue
 			}
 

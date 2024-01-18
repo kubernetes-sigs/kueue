@@ -192,7 +192,21 @@ type WaitForPodsReady struct {
 	// until the jobs reach the PodsReady=true condition. It defaults to false if Enable is false
 	// and defaults to true otherwise.
 	BlockAdmission *bool `json:"blockAdmission,omitempty"`
+
+	// RequeuingTimestamp defines the timestamp used for requeuing a Workload
+	// that was evicted due to Pod readiness. Defaults to Eviction.
+	RequeuingTimestamp *RequeuingTimestamp `json:"requeuingTimestamp,omitempty"`
 }
+
+type RequeuingTimestamp string
+
+const (
+	// CreationTimestamp timestamp (from Workload .metadata.creationTimestamp).
+	CreationTimestamp RequeuingTimestamp = "Creation"
+
+	// EvictionTimestamp timestamp (from Workload .status.conditions).
+	EvictionTimestamp RequeuingTimestamp = "Eviction"
+)
 
 type InternalCertManagement struct {
 

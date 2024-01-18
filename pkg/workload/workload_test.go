@@ -29,6 +29,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
@@ -272,17 +273,26 @@ func TestUpdateWorkloadStatus(t *testing.T) {
 }
 
 func TestGetQueueOrderTimestamp(t *testing.T) {
+	var (
+		evictionOrdering = Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp}
+		creationOrdering = Ordering{PodsReadyRequeuingTimestamp: config.CreationTimestamp}
+	)
+
 	creationTime := metav1.Now()
 	conditionTime := metav1.NewTime(time.Now().Add(time.Hour))
+
 	cases := map[string]struct {
 		wl   *kueue.Workload
-		want metav1.Time
+		want map[Ordering]metav1.Time
 	}{
 		"no condition": {
 			wl: utiltesting.MakeWorkload("name", "ns").
 				Creation(creationTime.Time).
 				Obj(),
-			want: creationTime,
+			want: map[Ordering]metav1.Time{
+				evictionOrdering: creationTime,
+				creationOrdering: creationTime,
+			},
 		},
 		"evicted by preemption": {
 			wl: utiltesting.MakeWorkload("name", "ns").
@@ -294,7 +304,10 @@ func TestGetQueueOrderTimestamp(t *testing.T) {
 					Reason:             kueue.WorkloadEvictedByPreemption,
 				}).
 				Obj(),
-			want: creationTime,
+			want: map[Ordering]metav1.Time{
+				evictionOrdering: creationTime,
+				creationOrdering: creationTime,
+			},
 		},
 		"evicted by PodsReady timeout": {
 			wl: utiltesting.MakeWorkload("name", "ns").
@@ -306,7 +319,10 @@ func TestGetQueueOrderTimestamp(t *testing.T) {
 					Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
 				}).
 				Obj(),
-			want: conditionTime,
+			want: map[Ordering]metav1.Time{
+				evictionOrdering: conditionTime,
+				creationOrdering: creationTime,
+			},
 		},
 		"after eviction": {
 			wl: utiltesting.MakeWorkload("name", "ns").
@@ -318,14 +334,19 @@ func TestGetQueueOrderTimestamp(t *testing.T) {
 					Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
 				}).
 				Obj(),
-			want: creationTime,
+			want: map[Ordering]metav1.Time{
+				evictionOrdering: creationTime,
+				creationOrdering: creationTime,
+			},
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			gotTime := GetQueueOrderTimestamp(tc.wl)
-			if diff := cmp.Diff(*gotTime, tc.want); diff != "" {
-				t.Errorf("Unexpected time (-want,+got):\n%s", diff)
+			for ordering, want := range tc.want {
+				gotTime := ordering.GetQueueOrderTimestamp(tc.wl)
+				if diff := cmp.Diff(*gotTime, want); diff != "" {
+					t.Errorf("Unexpected time (-want,+got):\n%s", diff)
+				}
 			}
 		})
 	}

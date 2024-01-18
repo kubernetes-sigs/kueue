@@ -24,8 +24,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	componentconfigv1alpha1 "k8s.io/component-base/config/v1alpha1"
 	"k8s.io/utils/ptr"
-
-	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 )
 
 const (
@@ -53,7 +51,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		Burst: ptr.To(DefaultClientConnectionBurst),
 	}
 	defaultIntegrations := &Integrations{
-		Frameworks: []string{job.FrameworkName},
+		Frameworks: []string{defaultJobFrameworkName},
 		PodOptions: &PodIntegrationOptions{
 			NamespaceSelector: &metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -75,7 +73,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 	}
 
 	overwriteNamespaceIntegrations := &Integrations{
-		Frameworks: []string{job.FrameworkName},
+		Frameworks: []string{defaultJobFrameworkName},
 		PodOptions: &PodIntegrationOptions{
 			NamespaceSelector: &metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -312,7 +310,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				QueueVisibility:  defaultQueueVisibility,
 			},
 		},
-		"defaulting waitForPodsReady.timeout": {
+		"defaulting waitForPodsReady values": {
 			original: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
 					Enable: true,
@@ -323,9 +321,10 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
-					Enable:         true,
-					BlockAdmission: ptr.To(true),
-					Timeout:        &podsReadyTimeoutTimeout,
+					Enable:             true,
+					BlockAdmission:     ptr.To(true),
+					Timeout:            &podsReadyTimeoutTimeout,
+					RequeuingTimestamp: ptr.To(EvictionTimestamp),
 				},
 				Namespace:         ptr.To(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
@@ -348,9 +347,10 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
-					Enable:         false,
-					BlockAdmission: ptr.To(false),
-					Timeout:        &podsReadyTimeoutTimeout,
+					Enable:             false,
+					BlockAdmission:     ptr.To(false),
+					Timeout:            &podsReadyTimeoutTimeout,
+					RequeuingTimestamp: ptr.To(EvictionTimestamp),
 				},
 				Namespace:         ptr.To(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
@@ -362,11 +362,12 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				QueueVisibility:  defaultQueueVisibility,
 			},
 		},
-		"respecting provided waitForPodsReady.timeout": {
+		"respecting provided waitForPodsReady values": {
 			original: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
-					Enable:  true,
-					Timeout: &podsReadyTimeoutOverwrite,
+					Enable:             true,
+					Timeout:            &podsReadyTimeoutOverwrite,
+					RequeuingTimestamp: ptr.To(CreationTimestamp),
 				},
 				InternalCertManagement: &InternalCertManagement{
 					Enable: ptr.To(false),
@@ -374,9 +375,10 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
-					Enable:         true,
-					BlockAdmission: ptr.To(true),
-					Timeout:        &podsReadyTimeoutOverwrite,
+					Enable:             true,
+					BlockAdmission:     ptr.To(true),
+					Timeout:            &podsReadyTimeoutOverwrite,
+					RequeuingTimestamp: ptr.To(CreationTimestamp),
 				},
 				Namespace:         ptr.To(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,

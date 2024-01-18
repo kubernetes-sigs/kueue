@@ -24,8 +24,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
-
-	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 )
 
 const (
@@ -41,6 +39,7 @@ const (
 	defaultPodsReadyTimeout                             = 5 * time.Minute
 	DefaultQueueVisibilityUpdateIntervalSeconds int32   = 5
 	DefaultClusterQueuesMaxCount                int32   = 10
+	defaultJobFrameworkName                             = "batch/job"
 )
 
 func addDefaultingFuncs(scheme *runtime.Scheme) error {
@@ -111,12 +110,15 @@ func SetDefaults_Configuration(cfg *Configuration) {
 			}
 			cfg.WaitForPodsReady.BlockAdmission = &defaultBlockAdmission
 		}
+		if cfg.WaitForPodsReady.RequeuingTimestamp == nil {
+			cfg.WaitForPodsReady.RequeuingTimestamp = ptr.To(EvictionTimestamp)
+		}
 	}
 	if cfg.Integrations == nil {
 		cfg.Integrations = &Integrations{}
 	}
 	if cfg.Integrations.Frameworks == nil {
-		cfg.Integrations.Frameworks = []string{job.FrameworkName}
+		cfg.Integrations.Frameworks = []string{defaultJobFrameworkName}
 	}
 	if cfg.QueueVisibility == nil {
 		cfg.QueueVisibility = &QueueVisibility{}

@@ -537,6 +537,18 @@ Defaults to 5.</p>
 </tbody>
 </table>
 
+## `RequeuingTimestamp`     {#RequeuingTimestamp}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [WaitForPodsReady](#WaitForPodsReady)
+
+
+
+
+
 ## `WaitForPodsReady`     {#WaitForPodsReady}
     
 
@@ -577,6 +589,14 @@ is cancelled and requeued in the same cluster queue. Defaults to 5min.</p>
    <p>BlockAdmission when true, cluster queue will block admissions for all subsequent jobs
 until the jobs reach the PodsReady=true condition. It defaults to false if Enable is false
 and defaults to true otherwise.</p>
+</td>
+</tr>
+<tr><td><code>requeuingTimestamp</code> <B>[Required]</B><br/>
+<a href="#RequeuingTimestamp"><code>RequeuingTimestamp</code></a>
+</td>
+<td>
+   <p>RequeuingTimestamp defines the timestamp used for requeuing a Workload
+that was evicted due to Pod readiness. Defaults to Eviction.</p>
 </td>
 </tr>
 </tbody>
