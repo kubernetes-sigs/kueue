@@ -345,6 +345,7 @@ The fields above do the following:
   - `Never` (default): do not preempt Workloads in the cohort if borrowing is required.
   - `LowerPriority`: if the pending Workload requires borrowing, only preempt
     Workloads in the cohort that have lower priority than the pending Workload.
+  This preemption policy is only supported when `reclaimWithinCohort` is enabled (different than `Never`).
   Additionally, only workloads up to the priority indicated by
   `maxPriorityThreshold` can be preempted in that scenario.
 
