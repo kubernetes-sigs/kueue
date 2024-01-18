@@ -36,7 +36,7 @@ Please do not remove items from the checklist
   - Triggers prow to build and publish a staging container image
       `gcr.io/k8s-staging-kueue/kueue:$VERSION`
 - [ ] Submit a PR against [k8s.io](https://github.com/kubernetes/k8s.io),
-      updating `k8s.gcr.io/images/k8s-staging-kueue/images.yaml` to
+      updating `registry.k8s.io/images/k8s-staging-kueue/images.yaml` to
       [promote the container images](https://github.com/kubernetes/k8s.io/tree/main/k8s.gcr.io#image-promoter)
       to production: <!-- example kubernetes/k8s.io#3612-->
 - [ ] Wait for the PR to be merged and verify that the image `registry.k8s.io/kueue/kueue:$VERSION` is available.
