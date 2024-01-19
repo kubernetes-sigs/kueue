@@ -59,6 +59,9 @@ kubernetes/enhancements#4370 implemented or Job controller disabled.
 * Support for cluster role sharing (worker & manager insinde one cluster)
 is out of scope for this KEP. We will get back to the topic once 
 kubernetes/enhancements#4370 is merged and becomes a wider standard.
+* distribute running Jobs across multiple clusters, and reconcile partial
+results in the Job objects on the management cluster (each Job will run on
+a single worker cluster).
 
 ## Proposal
 
