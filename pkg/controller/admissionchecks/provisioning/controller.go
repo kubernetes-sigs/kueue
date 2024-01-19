@@ -229,6 +229,11 @@ func (c *Controller) syncOwnedProvisionRequest(ctx context.Context, wl *kueue.Wo
 		if !c.reqIsNeeded(ctx, wl, prc) {
 			continue
 		}
+		if ac := workload.FindAdmissionCheck(wl.Status.AdmissionChecks, checkName); ac != nil && ac.State == kueue.CheckStateReady {
+			log.V(2).Info("Skip syncing of the ProvReq for admission check which is Ready", "workload", klog.KObj(wl), "admissionCheck", checkName)
+			continue
+		}
+
 		oldPr, exists := activeOrLastPRForChecks[checkName]
 		attempt := int32(1)
 		shouldCreatePr := false
