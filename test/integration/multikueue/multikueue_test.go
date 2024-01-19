@@ -305,17 +305,17 @@ var _ = ginkgo.Describe("Multikueue", func() {
 			managerWl := &kueue.Workload{}
 			gomega.Expect(managerCluster.client.Get(managerCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(worker1Cluster.client.Get(worker1Cluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
 				g.Expect(worker2Cluster.client.Get(worker2Cluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
+				g.Expect(worker1Cluster.client.Get(worker1Cluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("setting workload reservation in worker1, the workload is admitted in manager amd worker2 wl is removed", func() {
+		ginkgo.By("setting workload reservation in worker2, the workload is admitted in manager amd worker1 wl is removed", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(worker1Cluster.client.Get(worker1Cluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				g.Expect(util.SetQuotaReservation(worker1Cluster.ctx, worker1Cluster.client, createdWorkload, admission)).To(gomega.Succeed())
+				g.Expect(worker2Cluster.client.Get(worker2Cluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(util.SetQuotaReservation(worker2Cluster.ctx, worker2Cluster.client, createdWorkload, admission)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -323,7 +323,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 				acs := workload.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, multikueueAC.Name)
 				g.Expect(acs).NotTo(gomega.BeNil())
 				g.Expect(acs.State).To(gomega.Equal(kueue.CheckStateReady))
-				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker1"`))
+				g.Expect(acs.Message).To(gomega.Equal(`The workload got reservation on "worker2"`))
 
 				g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeComparableTo(&metav1.Condition{
 					Type:    kueue.WorkloadAdmitted,
@@ -335,21 +335,21 @@ var _ = ginkgo.Describe("Multikueue", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(worker2Cluster.client.Get(worker2Cluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
+				g.Expect(worker1Cluster.client.Get(worker1Cluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("finishing the worker jobSet", func() {
+		ginkgo.By("finishing the worker jobSet, the mangers wl is marked as finished and the worker2 wl removed", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdJobSet := jobset.JobSet{}
-				g.Expect(worker1Cluster.client.Get(worker1Cluster.ctx, client.ObjectKeyFromObject(jobSet), &createdJobSet)).To(gomega.Succeed())
+				g.Expect(worker2Cluster.client.Get(worker2Cluster.ctx, client.ObjectKeyFromObject(jobSet), &createdJobSet)).To(gomega.Succeed())
 				apimeta.SetStatusCondition(&createdJobSet.Status.Conditions, metav1.Condition{
 					Type:    string(jobset.JobSetCompleted),
 					Status:  metav1.ConditionTrue,
 					Reason:  "ByTest",
 					Message: "by test",
 				})
-				g.Expect(worker1Cluster.client.Status().Update(worker1Cluster.ctx, &createdJobSet)).To(gomega.Succeed())
+				g.Expect(worker2Cluster.client.Status().Update(worker2Cluster.ctx, &createdJobSet)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -359,13 +359,13 @@ var _ = ginkgo.Describe("Multikueue", func() {
 					Type:    kueue.WorkloadFinished,
 					Status:  metav1.ConditionTrue,
 					Reason:  "JobSetFinished",
-					Message: `From remote "worker1": JobSet finished successfully`,
+					Message: `From remote "worker2": JobSet finished successfully`,
 				}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdWorkload := &kueue.Workload{}
-				g.Expect(worker1Cluster.client.Get(worker1Cluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
+				g.Expect(worker2Cluster.client.Get(worker2Cluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 
 		})

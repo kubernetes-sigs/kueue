@@ -43,11 +43,10 @@ func TestWlReconcileJobset(t *testing.T) {
 		cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
 	}
 
-	baseWorklodBuilder := utiltesting.MakeWorkload("wl1", TestNamespace)
+	baseWorkloadBuilder := utiltesting.MakeWorkload("wl1", TestNamespace)
 	baseJobSetBuilder := testingjobset.MakeJobSet("jobset1", TestNamespace)
 
 	cases := map[string]struct {
-		reconcileFor      string
 		managersWorkloads []kueue.Workload
 		managersJobSets   []jobset.JobSet
 		worker1Workloads  []kueue.Workload
@@ -59,10 +58,9 @@ func TestWlReconcileJobset(t *testing.T) {
 		wantWorker1Workloads  []kueue.Workload
 		wantWorker1JobSets    []jobset.JobSet
 	}{
-		"remote wl with reservation": {
-			reconcileFor: "wl1",
+		"remote wl with reservation, multikueue AC is marked Ready": {
 			managersWorkloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().
+				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					OwnerReference("jobset.x-k8s.io/v1alpha2", "JobSet", "jobset1", "uid1", true, true).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
@@ -74,12 +72,12 @@ func TestWlReconcileJobset(t *testing.T) {
 			},
 
 			worker1Workloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().
+				*baseWorkloadBuilder.Clone().
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			wantManagersWorkloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().
+				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
 						State:   kueue.CheckStateReady,
@@ -94,7 +92,7 @@ func TestWlReconcileJobset(t *testing.T) {
 			},
 
 			wantWorker1Workloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().
+				*baseWorkloadBuilder.Clone().
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
@@ -104,10 +102,9 @@ func TestWlReconcileJobset(t *testing.T) {
 					Obj(),
 			},
 		},
-		"remote wl is finished": {
-			reconcileFor: "wl1",
+		"remote wl is finished, the local workload and JobSet are marked completed ": {
 			managersWorkloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().
+				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
 						State:   kueue.CheckStateReady,
@@ -130,13 +127,13 @@ func TestWlReconcileJobset(t *testing.T) {
 			},
 
 			worker1Workloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().
+				*baseWorkloadBuilder.Clone().
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: "by test"}).
 					Obj(),
 			},
 			wantManagersWorkloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().
+				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
 						State:   kueue.CheckStateReady,
@@ -154,7 +151,7 @@ func TestWlReconcileJobset(t *testing.T) {
 			},
 
 			wantWorker1Workloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().
+				*baseWorkloadBuilder.Clone().
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: "by test"}).
 					Obj(),
@@ -166,10 +163,9 @@ func TestWlReconcileJobset(t *testing.T) {
 					Obj(),
 			},
 		},
-		"remove remote objects": {
-			reconcileFor: "wl1",
+		"the local JobSet is marked finished, the remote objects are removed": {
 			managersWorkloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().
+				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
 						State:   kueue.CheckStateReady,
@@ -195,13 +191,13 @@ func TestWlReconcileJobset(t *testing.T) {
 			},
 
 			worker1Workloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().
+				*baseWorkloadBuilder.Clone().
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: "by test"}).
 					Obj(),
 			},
 			wantManagersWorkloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().
+				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
 						State:   kueue.CheckStateReady,
@@ -249,9 +245,9 @@ func TestWlReconcileJobset(t *testing.T) {
 				acr: acr,
 			}
 
-			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor, Namespace: TestNamespace}})
-			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("unexpected error (-want/+got):\n%s", diff)
+			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "wl1", Namespace: TestNamespace}})
+			if gotErr != nil {
+				t.Errorf("unexpected error: %s", gotErr)
 			}
 
 			gotManagersWokloads := &kueue.WorkloadList{}

@@ -44,7 +44,7 @@ func TestWlReconcile(t *testing.T) {
 		cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
 	}
 
-	baseWorklodBuilder := utiltesting.MakeWorkload("wl1", TestNamespace)
+	baseWorkloadBuilder := utiltesting.MakeWorkload("wl1", TestNamespace)
 	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace)
 
 	cases := map[string]struct {
@@ -66,21 +66,21 @@ func TestWlReconcile(t *testing.T) {
 		"unmanaged wl (no ac) is ignored": {
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().Obj(),
+				*baseWorkloadBuilder.Clone().Obj(),
 			},
 			wantManagersWorkloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().Obj(),
+				*baseWorkloadBuilder.Clone().Obj(),
 			},
 		},
 		"unmanaged wl (no parent) is ignored": {
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().
+				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					Obj(),
 			},
 			wantManagersWorkloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().
+				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					Obj(),
 			},
@@ -88,16 +88,16 @@ func TestWlReconcile(t *testing.T) {
 		"wl without reservation, clears the workload objects": {
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().
+				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					OwnerReference("batch/v1", "Job", "job1", "uid1", true, true).
 					Obj(),
 			},
 			worker1Workloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().Obj(),
+				*baseWorkloadBuilder.Clone().Obj(),
 			},
 			wantManagersWorkloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().
+				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					OwnerReference("batch/v1", "Job", "job1", "uid1", true, true).
 					Obj(),
@@ -106,27 +106,27 @@ func TestWlReconcile(t *testing.T) {
 		"wl with reservation, creates remote wl": {
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().
+				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					OwnerReference("batch/v1", "Job", "job1", "uid1", true, true).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			wantManagersWorkloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().
+				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					OwnerReference("batch/v1", "Job", "job1", "uid1", true, true).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			wantWorker1Workloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().Obj(),
+				*baseWorkloadBuilder.Clone().Obj(),
 			},
 		},
 		"remote wl with reservation": {
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().
+				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					OwnerReference("batch/v1", "Job", "job1", "uid1", true, true).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
@@ -138,12 +138,12 @@ func TestWlReconcile(t *testing.T) {
 			},
 
 			worker1Workloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().
+				*baseWorkloadBuilder.Clone().
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			wantManagersWorkloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().
+				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
 						State:   kueue.CheckStatePending,
@@ -158,7 +158,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 
 			wantWorker1Workloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().
+				*baseWorkloadBuilder.Clone().
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
@@ -168,10 +168,10 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
-		"remote wl is finished": {
+		"remote wl is finished, the local workload and Job are marked completed ": {
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().
+				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
 						State:   kueue.CheckStatePending,
@@ -194,13 +194,13 @@ func TestWlReconcile(t *testing.T) {
 			},
 
 			worker1Workloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().
+				*baseWorkloadBuilder.Clone().
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: "by test"}).
 					Obj(),
 			},
 			wantManagersWorkloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().
+				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
 						State:   kueue.CheckStatePending,
@@ -218,7 +218,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 
 			wantWorker1Workloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().
+				*baseWorkloadBuilder.Clone().
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: "by test"}).
 					Obj(),
@@ -230,10 +230,10 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
-		"remote remote objects": {
+		"the local Job is marked finished, the remote objects are removed": {
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().
+				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
 						State:   kueue.CheckStatePending,
@@ -259,13 +259,13 @@ func TestWlReconcile(t *testing.T) {
 			},
 
 			worker1Workloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().
+				*baseWorkloadBuilder.Clone().
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: "by test"}).
 					Obj(),
 			},
 			wantManagersWorkloads: []kueue.Workload{
-				*baseWorklodBuilder.Clone().
+				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
 						State:   kueue.CheckStatePending,
