@@ -712,8 +712,8 @@ k8s.io/autoscaler/cluster-autoscaler v0.0.0-20230925095857-cf8c507d2421 h1:h8E8W
 k8s.io/autoscaler/cluster-autoscaler v0.0.0-20230925095857-cf8c507d2421/go.mod h1:CIDuB0kVY16I0kzpUJa+eYDbj9xbclVbs8aJtgL3WzA=
 k8s.io/client-go v0.28.5 h1:6UNmc33vuJhh3+SAOEKku3QnKa+DtPKGnhO2MR0IEbk=
 k8s.io/client-go v0.28.5/go.mod h1:+pt086yx1i0HAlHzM9S+RZQDqdlzuXFl4hY01uhpcpA=
-k8s.io/code-generator v0.28.5 h1:6LXs+I/LOMGNLVI7z8xImLjI98o9vcwiHiQY6PyqpmU=
-k8s.io/code-generator v0.28.5/go.mod h1:OQAfl6bZikQ/tK6faJ18Vyzo54rUII2NmjurHyiN1g4=
+k8s.io/code-generator v0.28.6 h1:5RnSOAvdcvuhqAp7LV5I2wwE/9DgEz2vV2llA78ubV8=
+k8s.io/code-generator v0.28.6/go.mod h1:IaYGMqYjgj0zE3L9mnHo7hIL9GkY08GvGyyracaIxTA=
 k8s.io/component-base v0.28.5 h1:uFCW7USa8Fpme8dVtn2ZrdVaUPBRDwYJ+kNrV9OO1Cc=
 k8s.io/component-base v0.28.5/go.mod h1:gw2d8O28okS9RrsPuJnD2mFl2It0HH9neHiGi2xoXcY=
 k8s.io/component-helpers v0.28.5 h1:m5exEWY9K09MZbBZxijH53Y/bGwEqi8P2YDCxJgqRqk=
