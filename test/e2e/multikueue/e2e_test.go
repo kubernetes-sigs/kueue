@@ -195,6 +195,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 	ginkgo.When("Creating a multikueue admission check", func() {
 		ginkgo.It("Should run a job on worker if admitted", func() {
+			// Since it requires 2 CPU, this job can only be admitted in worker 1.
 			job := testingjob.MakeJob("job", managerNs.Name).
 				Queue(managerLq.Name).
 				Request("cpu", "2").
@@ -256,6 +257,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 		})
 		ginkgo.It("Should run a jobSet on worker if admitted", func() {
+			// Since it requires 2 CPU in total, this jobset can only be admitted in worker 1.
 			jobSet := testingjobset.MakeJobSet("job-set", managerNs.Name).
 				Queue(managerLq.Name).
 				ReplicatedJobs(

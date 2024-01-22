@@ -66,8 +66,6 @@ type jobAdapter interface {
 	// KeepAdmissionCheckPending returns true if the state of the multikueue admission check should be
 	// kept Pending while the job runs in a worker. This might be needed to keep the managers job
 	// suspended and not start the execution locally.
-	// Going forward, if the job management is controlled at object label, this should get a workload
-	// reference as argument.
 	KeepAdmissionCheckPending() bool
 }
 
