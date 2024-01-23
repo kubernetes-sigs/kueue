@@ -34,6 +34,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var (
@@ -112,6 +113,12 @@ func TestReconcile(t *testing.T) {
 			State: kueue.CheckStatePending,
 		}).
 		Obj()
+
+	baseWorkloadWithCheck1Ready := baseWorkload.DeepCopy()
+	workload.SetAdmissionCheckState(&baseWorkloadWithCheck1Ready.Status.AdmissionChecks, kueue.AdmissionCheckState{
+		Name:  "check1",
+		State: kueue.CheckStateReady,
+	})
 
 	baseFlavor1 := utiltesting.MakeResourceFlavor("flv1").Label("f1l1", "v1").
 		Toleration(corev1.Toleration{
@@ -581,22 +588,17 @@ func TestReconcile(t *testing.T) {
 				baseTemplate2.Name: baseTemplate2.DeepCopy(),
 			},
 		},
-		"when the request is removed while the check is ready": {
-			workload: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
-				AdmissionChecks(kueue.AdmissionCheckState{
-					Name:  "check1",
-					State: kueue.CheckStateReady,
-				}, kueue.AdmissionCheckState{
-					Name:  "not-provisioning",
-					State: kueue.CheckStatePending,
-				}).
-				Obj(),
-
-			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
-			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
-			configs: []kueue.ProvisioningRequestConfig{*baseConfig.DeepCopy()},
+		"when the request is removed while the check is ready; don't create the ProvReq and keep Ready state": {
+			workload: baseWorkloadWithCheck1Ready.DeepCopy(),
+			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:  []kueue.ProvisioningRequestConfig{*baseConfig.DeepCopy()},
 			wantWorkloads: map[string]*kueue.Workload{
-				baseWorkload.Name: baseWorkload.DeepCopy(),
+				baseWorkload.Name: baseWorkloadWithCheck1Ready.DeepCopy(),
+			},
+			wantRequestsNotFound: []string{
+				GetProvisioningRequestName("wl", "check1", 1),
+				GetProvisioningRequestName("wl", "check2", 1),
 			},
 		},
 	}
