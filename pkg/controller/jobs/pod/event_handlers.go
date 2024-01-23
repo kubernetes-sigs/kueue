@@ -57,11 +57,25 @@ func (h *podEventHandler) Update(ctx context.Context, e event.UpdateEvent, q wor
 }
 
 func (h *podEventHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.RateLimitingInterface) {
-	h.queueReconcileForPod(ctx, e.Object, q)
+	p, ok := e.Object.(*corev1.Pod)
+	if !ok {
+		return
+	}
+
+	log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(p))
+
+	if g, isGroup := p.Labels[GroupNameLabel]; isGroup {
+		// If the watch was temporarily unavailable, it is possible that the object reported in the event still
+		// has a finalizer, but we can consider this Pod cleaned up, as it is being deleted.
+		h.cleanedUpPodsExpectations.ObservedUID(log, types.NamespacedName{Namespace: p.Namespace, Name: g}, p.UID)
+	}
+
+	log.V(5).Info("Queueing reconcile for pod")
+
+	q.Add(reconcileRequestForPod(p))
 }
 
 func (h *podEventHandler) Generic(ctx context.Context, e event.GenericEvent, q workqueue.RateLimitingInterface) {
-	h.queueReconcileForPod(ctx, e.Object, q)
 }
 
 func (h *podEventHandler) queueReconcileForPod(ctx context.Context, object client.Object, q workqueue.RateLimitingInterface) {
