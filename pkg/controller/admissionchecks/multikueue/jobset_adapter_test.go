@@ -21,21 +21,20 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 )
 
-func TestWlReconcile(t *testing.T) {
+func TestWlReconcileJobset(t *testing.T) {
 	objCheckOpts := []cmp.Option{
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
 		cmpopts.EquateEmpty(),
@@ -45,96 +44,31 @@ func TestWlReconcile(t *testing.T) {
 	}
 
 	baseWorkloadBuilder := utiltesting.MakeWorkload("wl1", TestNamespace)
-	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace)
+	baseJobSetBuilder := testingjobset.MakeJobSet("jobset1", TestNamespace)
 
 	cases := map[string]struct {
-		reconcileFor      string
 		managersWorkloads []kueue.Workload
-		managersJobs      []batchv1.Job
+		managersJobSets   []jobset.JobSet
 		worker1Workloads  []kueue.Workload
-		worker1Jobs       []batchv1.Job
+		worker1JobSets    []jobset.JobSet
 
 		wantError             error
 		wantManagersWorkloads []kueue.Workload
-		wantManagersJobs      []batchv1.Job
+		wantManagersJobsSets  []jobset.JobSet
 		wantWorker1Workloads  []kueue.Workload
-		wantWorker1Jobs       []batchv1.Job
+		wantWorker1JobSets    []jobset.JobSet
 	}{
-		"missing workload": {
-			reconcileFor: "missing workload",
-		},
-		"unmanaged wl (no ac) is ignored": {
-			reconcileFor: "wl1",
-			managersWorkloads: []kueue.Workload{
-				*baseWorkloadBuilder.Clone().Obj(),
-			},
-			wantManagersWorkloads: []kueue.Workload{
-				*baseWorkloadBuilder.Clone().Obj(),
-			},
-		},
-		"unmanaged wl (no parent) is ignored": {
-			reconcileFor: "wl1",
+		"remote wl with reservation, multikueue AC is marked Ready": {
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
-					Obj(),
-			},
-			wantManagersWorkloads: []kueue.Workload{
-				*baseWorkloadBuilder.Clone().
-					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
-					Obj(),
-			},
-		},
-		"wl without reservation, clears the workload objects": {
-			reconcileFor: "wl1",
-			managersWorkloads: []kueue.Workload{
-				*baseWorkloadBuilder.Clone().
-					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
-					OwnerReference("batch/v1", "Job", "job1", "uid1", true, true).
-					Obj(),
-			},
-			worker1Workloads: []kueue.Workload{
-				*baseWorkloadBuilder.Clone().Obj(),
-			},
-			wantManagersWorkloads: []kueue.Workload{
-				*baseWorkloadBuilder.Clone().
-					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
-					OwnerReference("batch/v1", "Job", "job1", "uid1", true, true).
-					Obj(),
-			},
-		},
-		"wl with reservation, creates remote wl": {
-			reconcileFor: "wl1",
-			managersWorkloads: []kueue.Workload{
-				*baseWorkloadBuilder.Clone().
-					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
-					OwnerReference("batch/v1", "Job", "job1", "uid1", true, true).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
-					Obj(),
-			},
-			wantManagersWorkloads: []kueue.Workload{
-				*baseWorkloadBuilder.Clone().
-					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
-					OwnerReference("batch/v1", "Job", "job1", "uid1", true, true).
-					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
-					Obj(),
-			},
-			wantWorker1Workloads: []kueue.Workload{
-				*baseWorkloadBuilder.Clone().Obj(),
-			},
-		},
-		"remote wl with reservation": {
-			reconcileFor: "wl1",
-			managersWorkloads: []kueue.Workload{
-				*baseWorkloadBuilder.Clone().
-					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
-					OwnerReference("batch/v1", "Job", "job1", "uid1", true, true).
+					OwnerReference("jobset.x-k8s.io/v1alpha2", "JobSet", "jobset1", "uid1", true, true).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 
-			managersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().Obj(),
+			managersJobSets: []jobset.JobSet{
+				*baseJobSetBuilder.DeepCopy().Obj(),
 			},
 
 			worker1Workloads: []kueue.Workload{
@@ -146,15 +80,15 @@ func TestWlReconcile(t *testing.T) {
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
-						State:   kueue.CheckStatePending,
+						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
-					OwnerReference("batch/v1", "Job", "job1", "uid1", true, true).
+					OwnerReference("jobset.x-k8s.io/v1alpha2", "JobSet", "jobset1", "uid1", true, true).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
-			wantManagersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().Obj(),
+			wantManagersJobsSets: []jobset.JobSet{
+				*baseJobSetBuilder.DeepCopy().Obj(),
 			},
 
 			wantWorker1Workloads: []kueue.Workload{
@@ -162,34 +96,33 @@ func TestWlReconcile(t *testing.T) {
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
-			wantWorker1Jobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
+			wantWorker1JobSets: []jobset.JobSet{
+				*baseJobSetBuilder.DeepCopy().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Obj(),
 			},
 		},
-		"remote wl is finished, the local workload and Job are marked completed ": {
-			reconcileFor: "wl1",
+		"remote wl is finished, the local workload and JobSet are marked completed ": {
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
-						State:   kueue.CheckStatePending,
+						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
-					OwnerReference("batch/v1", "Job", "job1", "uid1", true, true).
+					OwnerReference("jobset.x-k8s.io/v1alpha2", "JobSet", "jobset1", "uid1", true, true).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 
-			managersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().Obj(),
+			managersJobSets: []jobset.JobSet{
+				*baseJobSetBuilder.DeepCopy().Obj(),
 			},
 
-			worker1Jobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
+			worker1JobSets: []jobset.JobSet{
+				*baseJobSetBuilder.DeepCopy().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
+					Condition(metav1.Condition{Type: string(jobset.JobSetCompleted), Status: metav1.ConditionTrue}).
 					Obj(),
 			},
 
@@ -203,17 +136,17 @@ func TestWlReconcile(t *testing.T) {
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
-						State:   kueue.CheckStatePending,
+						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
-					OwnerReference("batch/v1", "Job", "job1", "uid1", true, true).
+					OwnerReference("jobset.x-k8s.io/v1alpha2", "JobSet", "jobset1", "uid1", true, true).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: `From remote "worker1": by test`}).
 					Obj(),
 			},
-			wantManagersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
-					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
+			wantManagersJobsSets: []jobset.JobSet{
+				*baseJobSetBuilder.DeepCopy().
+					Condition(metav1.Condition{Type: string(jobset.JobSetCompleted), Status: metav1.ConditionTrue}).
 					Obj(),
 			},
 
@@ -223,38 +156,37 @@ func TestWlReconcile(t *testing.T) {
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: "by test"}).
 					Obj(),
 			},
-			wantWorker1Jobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
+			wantWorker1JobSets: []jobset.JobSet{
+				*baseJobSetBuilder.DeepCopy().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
+					Condition(metav1.Condition{Type: string(jobset.JobSetCompleted), Status: metav1.ConditionTrue}).
 					Obj(),
 			},
 		},
-		"the local Job is marked finished, the remote objects are removed": {
-			reconcileFor: "wl1",
+		"the local JobSet is marked finished, the remote objects are removed": {
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
-						State:   kueue.CheckStatePending,
+						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
-					OwnerReference("batch/v1", "Job", "job1", "uid1", true, true).
+					OwnerReference("jobset.x-k8s.io/v1alpha2", "JobSet", "jobset1", "uid1", true, true).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: `From remote "worker1": by test`}).
 					Obj(),
 			},
 
-			managersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
-					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
+			managersJobSets: []jobset.JobSet{
+				*baseJobSetBuilder.DeepCopy().
+					Condition(metav1.Condition{Type: string(jobset.JobSetCompleted), Status: metav1.ConditionTrue}).
 					Obj(),
 			},
 
-			worker1Jobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
+			worker1JobSets: []jobset.JobSet{
+				*baseJobSetBuilder.DeepCopy().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
-					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
+					Condition(metav1.Condition{Type: string(jobset.JobSetCompleted), Status: metav1.ConditionTrue}).
 					Obj(),
 			},
 
@@ -268,17 +200,17 @@ func TestWlReconcile(t *testing.T) {
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:    "ac1",
-						State:   kueue.CheckStatePending,
+						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
-					OwnerReference("batch/v1", "Job", "job1", "uid1", true, true).
+					OwnerReference("jobset.x-k8s.io/v1alpha2", "JobSet", "jobset1", "uid1", true, true).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: `From remote "worker1": by test`}).
 					Obj(),
 			},
-			wantManagersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
-					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
+			wantManagersJobsSets: []jobset.JobSet{
+				*baseJobSetBuilder.DeepCopy().
+					Condition(metav1.Condition{Type: string(jobset.JobSetCompleted), Status: metav1.ConditionTrue}).
 					Obj(),
 			},
 		},
@@ -288,9 +220,9 @@ func TestWlReconcile(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			manageBuilder, ctx := getClientBuilder()
 
-			manageBuilder = manageBuilder.WithLists(&kueue.WorkloadList{Items: tc.managersWorkloads}, &batchv1.JobList{Items: tc.managersJobs})
+			manageBuilder = manageBuilder.WithLists(&kueue.WorkloadList{Items: tc.managersWorkloads}, &jobset.JobSetList{Items: tc.managersJobSets})
 			manageBuilder = manageBuilder.WithStatusSubresource(slices.Map(tc.managersWorkloads, func(w *kueue.Workload) client.Object { return w })...)
-			manageBuilder = manageBuilder.WithStatusSubresource(slices.Map(tc.managersJobs, func(w *batchv1.Job) client.Object { return w })...)
+			manageBuilder = manageBuilder.WithStatusSubresource(slices.Map(tc.managersJobSets, func(w *jobset.JobSet) client.Object { return w })...)
 			manageBuilder = manageBuilder.WithObjects(utiltesting.MakeAdmissionCheck("ac1").ControllerName(ControllerName).Obj())
 
 			managerClient := manageBuilder.Build()
@@ -299,7 +231,7 @@ func TestWlReconcile(t *testing.T) {
 			rc := newRemoteController(ctx, managerClient, nil)
 
 			worker1Builder, _ := getClientBuilder()
-			worker1Builder = worker1Builder.WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}, &batchv1.JobList{Items: tc.worker1Jobs})
+			worker1Builder = worker1Builder.WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}, &jobset.JobSetList{Items: tc.worker1JobSets})
 			worker1Client := worker1Builder.Build()
 
 			w1remoteClient := newRemoteClient(managerClient, nil)
@@ -313,9 +245,9 @@ func TestWlReconcile(t *testing.T) {
 				acr: acr,
 			}
 
-			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor, Namespace: TestNamespace}})
-			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("unexpected error (-want/+got):\n%s", diff)
+			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "wl1", Namespace: TestNamespace}})
+			if gotErr != nil {
+				t.Errorf("unexpected error: %s", gotErr)
 			}
 
 			gotManagersWokloads := &kueue.WorkloadList{}
@@ -337,23 +269,23 @@ func TestWlReconcile(t *testing.T) {
 			if diff := cmp.Diff(tc.wantWorker1Workloads, gotWorker1Wokloads.Items, objCheckOpts...); diff != "" {
 				t.Errorf("unexpected manangers workloads (-want/+got):\n%s", diff)
 			}
-			gotManagersJobs := &batchv1.JobList{}
+			gotManagersJobs := &jobset.JobSetList{}
 			err = managerClient.List(ctx, gotManagersJobs)
 			if err != nil {
 				t.Error("unexpected list managers jobs error")
 			}
 
-			if diff := cmp.Diff(tc.wantManagersJobs, gotManagersJobs.Items, objCheckOpts...); diff != "" {
+			if diff := cmp.Diff(tc.wantManagersJobsSets, gotManagersJobs.Items, objCheckOpts...); diff != "" {
 				t.Errorf("unexpected manangers jobs (-want/+got):\n%s", diff)
 			}
 
-			gotWorker1Job := &batchv1.JobList{}
+			gotWorker1Job := &jobset.JobSetList{}
 			err = worker1Client.List(ctx, gotWorker1Job)
 			if err != nil {
 				t.Error("unexpected list managers jobs error")
 			}
 
-			if diff := cmp.Diff(tc.wantWorker1Jobs, gotWorker1Job.Items, objCheckOpts...); diff != "" {
+			if diff := cmp.Diff(tc.wantWorker1JobSets, gotWorker1Job.Items, objCheckOpts...); diff != "" {
 				t.Errorf("unexpected worker1 jobs (-want/+got):\n%s", diff)
 			}
 		})

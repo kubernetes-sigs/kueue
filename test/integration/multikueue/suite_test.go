@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -98,6 +99,7 @@ func createCluster(setupFnc framework.ManagerSetup) cluster {
 	c.fwk = &framework.Framework{
 		CRDPath:     filepath.Join("..", "..", "..", "config", "components", "crd", "bases"),
 		WebhookPath: filepath.Join("..", "..", "..", "config", "components", "webhook"),
+		DepCRDPaths: []string{filepath.Join("..", "..", "..", "dep-crds", "jobset-operator")},
 	}
 	c.cfg = c.fwk.Init()
 	c.ctx, c.client = c.fwk.RunManager(c.cfg, setupFnc)
@@ -132,13 +134,25 @@ func managerSetup(mgr manager.Manager, ctx context.Context) {
 	err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	reconciler := workloadjob.NewReconciler(
+	jobReconciler := workloadjob.NewReconciler(
 		mgr.GetClient(),
 		mgr.GetEventRecorderFor(constants.JobControllerName))
-	err = reconciler.SetupWithManager(mgr)
+	err = jobReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = workloadjob.SetupWebhook(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = workloadjobset.SetupIndexes(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	jobsetReconciler := workloadjobset.NewReconciler(
+		mgr.GetClient(),
+		mgr.GetEventRecorderFor(constants.JobControllerName))
+	err = jobsetReconciler.SetupWithManager(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = workloadjobset.SetupJobSetWebhook(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 

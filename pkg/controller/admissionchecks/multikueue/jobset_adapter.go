@@ -18,36 +18,27 @@ package multikueue
 import (
 	"context"
 
-	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	kueuejob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 )
 
-type batchJobAdapter struct{}
+type jobsetAdapter struct{}
 
-var _ jobAdapter = (*batchJobAdapter)(nil)
+var _ jobAdapter = (*jobsetAdapter)(nil)
 
-func (b *batchJobAdapter) CreateRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName string) error {
-	localJob := batchv1.Job{}
+func (b *jobsetAdapter) CreateRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName string) error {
+	localJob := jobset.JobSet{}
 	err := localClient.Get(ctx, key, &localJob)
 	if err != nil {
 		return err
 	}
 
-	remoteJob := batchv1.Job{
+	remoteJob := jobset.JobSet{
 		ObjectMeta: cleanObjectMeta(&localJob.ObjectMeta),
 		Spec:       *localJob.Spec.DeepCopy(),
-	}
-
-	// cleanup
-	// drop the selector
-	remoteJob.Spec.Selector = nil
-	// drop the templates cleanup labels
-	for _, cl := range kueuejob.ManagedLabels {
-		delete(remoteJob.Spec.Template.Labels, cl)
 	}
 
 	// add the prebuilt workload
@@ -59,14 +50,14 @@ func (b *batchJobAdapter) CreateRemoteObject(ctx context.Context, localClient cl
 	return remoteClient.Create(ctx, &remoteJob)
 }
 
-func (b *batchJobAdapter) CopyStatusRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName) error {
-	localJob := batchv1.Job{}
+func (b *jobsetAdapter) CopyStatusRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName) error {
+	localJob := jobset.JobSet{}
 	err := localClient.Get(ctx, key, &localJob)
 	if err != nil {
 		return client.IgnoreNotFound(err)
 	}
 
-	remoteJob := batchv1.Job{}
+	remoteJob := jobset.JobSet{}
 	err = remoteClient.Get(ctx, key, &remoteJob)
 	if err != nil {
 		return err
@@ -75,8 +66,8 @@ func (b *batchJobAdapter) CopyStatusRemoteObject(ctx context.Context, localClien
 	return localClient.Status().Update(ctx, &localJob)
 }
 
-func (b *batchJobAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
-	job := batchv1.Job{}
+func (b *jobsetAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
+	job := jobset.JobSet{}
 	err := remoteClient.Get(ctx, key, &job)
 	if err != nil {
 		return client.IgnoreNotFound(err)
@@ -84,6 +75,6 @@ func (b *batchJobAdapter) DeleteRemoteObject(ctx context.Context, remoteClient c
 	return client.IgnoreNotFound(remoteClient.Delete(ctx, &job))
 }
 
-func (b *batchJobAdapter) KeepAdmissionCheckPending() bool {
-	return true
+func (b *jobsetAdapter) KeepAdmissionCheckPending() bool {
+	return false
 }

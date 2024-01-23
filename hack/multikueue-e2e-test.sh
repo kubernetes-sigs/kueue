@@ -29,6 +29,10 @@ export MANAGER_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-manager
 export WORKER1_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-worker1
 export WORKER2_KIND_CLUSTER_NAME=${KIND_CLUSTER_NAME}-worker2
 
+export JOBSET_MANIFEST=https://github.com/kubernetes-sigs/jobset/releases/download/${JOBSET_VERSION}/manifests.yaml
+export JOBSET_IMAGE=registry.k8s.io/jobset/jobset:${JOBSET_VERSION}
+export JOBSET_CRDS=${ROOT_DIR}/dep-crds/jobset-operator/
+
 source ${SOURCE_DIR}/e2e-common.sh
 
 function cleanup {
@@ -38,9 +42,9 @@ function cleanup {
             mkdir -p "$ARTIFACTS"
         fi
 
-	cluster_cleanup $MANAGER_KIND_CLUSTER_NAME
-	cluster_cleanup $WORKER1_KIND_CLUSTER_NAME
-	cluster_cleanup $WORKER2_KIND_CLUSTER_NAME
+        cluster_cleanup $MANAGER_KIND_CLUSTER_NAME
+        cluster_cleanup $WORKER1_KIND_CLUSTER_NAME
+        cluster_cleanup $WORKER2_KIND_CLUSTER_NAME
     fi
     (cd config/components/manager && $KUSTOMIZE edit set image controller=gcr.io/k8s-staging-kueue/kueue:main)
 }
@@ -53,29 +57,37 @@ function startup {
             mkdir -p "$ARTIFACTS"
         fi
 
-	cluster_create $MANAGER_KIND_CLUSTER_NAME $SOURCE_DIR/multikueue/manager-cluster.kind.yaml
+        cluster_create $MANAGER_KIND_CLUSTER_NAME $SOURCE_DIR/multikueue/manager-cluster.kind.yaml
 
-	# NOTE: for local setup, make sure that your firewall allows tcp from manager to the GW ip
-	# eg. ufw `sudo ufw allow from 172.18.0.0/16 proto tcp to 172.18.0.1`
-	#
-	# eg. iptables    `sudo iptables --append INPUT --protocol tcp --src 172.18.0.0/16 --dst 172.18.0.1 --jump ACCEPT
-	#                  sudo iptables --append OUTPUT --protocol tcp --src 172.18.0.1 --dst 172.18.0./0/16 --jump ACCEPT`
+    # NOTE: for local setup, make sure that your firewall allows tcp from manager to the GW ip
+    # eg. ufw `sudo ufw allow from 172.18.0.0/16 proto tcp to 172.18.0.1`
+    #
+    # eg. iptables    `sudo iptables --append INPUT --protocol tcp --src 172.18.0.0/16 --dst 172.18.0.1 --jump ACCEPT
+    #                  sudo iptables --append OUTPUT --protocol tcp --src 172.18.0.1 --dst 172.18.0./0/16 --jump ACCEPT`
 
-	# have the worker forward the api to the docker gateway address instead of lo
-	export GW=$(docker inspect ${MANAGER_KIND_CLUSTER_NAME}-control-plane -f '{{.NetworkSettings.Networks.kind.Gateway}}')
-	$YQ e '.networking.apiServerAddress=env(GW)'  $SOURCE_DIR/multikueue/worker-cluster.kind.yaml > $ARTIFACTS/worker-cluster.yaml
+    # have the worker forward the api to the docker gateway address instead of lo
+    export GW=$(docker inspect ${MANAGER_KIND_CLUSTER_NAME}-control-plane -f '{{.NetworkSettings.Networks.kind.Gateway}}')
+    $YQ e '.networking.apiServerAddress=env(GW)'  $SOURCE_DIR/multikueue/worker-cluster.kind.yaml > $ARTIFACTS/worker-cluster.yaml
 
-	cluster_create $WORKER1_KIND_CLUSTER_NAME $ARTIFACTS/worker-cluster.yaml
-	cluster_create $WORKER2_KIND_CLUSTER_NAME $ARTIFACTS/worker-cluster.yaml
+    cluster_create $WORKER1_KIND_CLUSTER_NAME $ARTIFACTS/worker-cluster.yaml
+    cluster_create $WORKER2_KIND_CLUSTER_NAME $ARTIFACTS/worker-cluster.yaml
 
-	# push the worker kubeconfig in a manager's secret
-	$KIND get kubeconfig --name $WORKER1_KIND_CLUSTER_NAME  > ${ARTIFACTS}/worker1.kubeconfig
-	$KIND get kubeconfig --name $WORKER2_KIND_CLUSTER_NAME  > ${ARTIFACTS}/worker2.kubeconfig
-	kubectl config use-context kind-${MANAGER_KIND_CLUSTER_NAME}
-	kubectl create namespace kueue-system
-	kubectl create secret generic multikueue1 -n kueue-system --from-file=kubeconfig=${ARTIFACTS}/worker1.kubeconfig
-	kubectl create secret generic multikueue2 -n kueue-system --from-file=kubeconfig=${ARTIFACTS}/worker2.kubeconfig
+    # push the worker kubeconfig in a manager's secret
+    $KIND get kubeconfig --name $WORKER1_KIND_CLUSTER_NAME  > ${ARTIFACTS}/worker1.kubeconfig
+    $KIND get kubeconfig --name $WORKER2_KIND_CLUSTER_NAME  > ${ARTIFACTS}/worker2.kubeconfig
+    kubectl config use-context kind-${MANAGER_KIND_CLUSTER_NAME}
+    kubectl create namespace kueue-system
+    kubectl create secret generic multikueue1 -n kueue-system --from-file=kubeconfig=${ARTIFACTS}/worker1.kubeconfig
+    kubectl create secret generic multikueue2 -n kueue-system --from-file=kubeconfig=${ARTIFACTS}/worker2.kubeconfig
     fi
+}
+
+
+#$1 - cluster name
+function install_jobset {
+    cluster_kind_load_image ${1} ${JOBSET_IMAGE}
+    kubectl config use-context kind-${1}
+    kubectl apply --server-side -f ${JOBSET_MANIFEST}
 }
 
 function kind_load {
@@ -85,6 +97,19 @@ function kind_load {
         cluster_kind_load $MANAGER_KIND_CLUSTER_NAME
         cluster_kind_load $WORKER1_KIND_CLUSTER_NAME
         cluster_kind_load $WORKER2_KIND_CLUSTER_NAME 
+
+
+    # JOBSET SETUP
+    # MANAGER
+    # Only install the CRDs and not the controller to be able to
+    # have JobSets admitted without execution in the manager cluster.
+    kubectl config use-context kind-${MANAGER_KIND_CLUSTER_NAME}
+    kubectl apply --server-side -f ${JOBSET_CRDS}/*
+
+    #WORKERS
+    docker pull registry.k8s.io/jobset/jobset:$JOBSET_VERSION
+    install_jobset $WORKER1_KIND_CLUSTER_NAME
+    install_jobset $WORKER2_KIND_CLUSTER_NAME
     fi
 }
 
@@ -101,4 +126,4 @@ startup
 kind_load
 kueue_deploy 
 
-$GINKGO $GINKGO_ARGS --junit-report=junit.xml --output-dir=$ARTIFACTS -v ./test/e2e/multikueue/... 
+$GINKGO $GINKGO_ARGS --junit-report=junit.xml --output-dir=$ARTIFACTS -v ./test/e2e/multikueue/...

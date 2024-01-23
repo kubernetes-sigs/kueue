@@ -37,8 +37,14 @@ function cluster_create {
 
 # $1 cluster
 function cluster_kind_load {
-        $KIND load docker-image $E2E_TEST_IMAGE --name $1
-        $KIND load docker-image $IMAGE_TAG --name $1
+	cluster_kind_load_image $1 $E2E_TEST_IMAGE
+	cluster_kind_load_image $1 $IMAGE_TAG
+}
+
+# $1 cluster
+# $2 image
+function cluster_kind_load_image {
+        $KIND load docker-image $2 --name $1
 }
 
 # $1 cluster
