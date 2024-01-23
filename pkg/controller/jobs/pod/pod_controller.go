@@ -728,13 +728,13 @@ func (p *Pod) cleanupExcessPods(ctx context.Context, c client.Client, totalCount
 		pj := &activePods[j]
 		iFin := slices.Contains(pi.Finalizers, PodFinalizer)
 		jFin := slices.Contains(pj.Finalizers, PodFinalizer)
-		// Keep pods that have a finalizer
+		// Prefer to keep pods that have a finalizer.
 		if iFin != jFin {
 			return iFin
 		}
 		iGated := gateIndex(pi) != gateNotFound
 		jGated := gateIndex(pj) != gateNotFound
-		// keep pods that aren't gated.
+		// Prefer to keep pods that aren't gated.
 		if iGated != jGated {
 			return !iGated
 		}
