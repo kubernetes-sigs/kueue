@@ -44,7 +44,7 @@ func getIndexUsingKubeConfigs(configNamespace string) func(obj client.Object) []
 		if !isCluster {
 			return nil
 		}
-		return []string{strings.Join([]string{configNamespace, cluster.Spec.KubeconfigRef.Location}, "/")}
+		return []string{strings.Join([]string{configNamespace, cluster.Spec.KubeConfig.Location}, "/")}
 	}
 }
 

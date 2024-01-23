@@ -121,6 +121,9 @@ func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, ev watch.Event) 
 
 	localWl := &kueue.Workload{}
 	if err := rc.localClient.Get(ctx, client.ObjectKeyFromObject(wl), localWl); err == nil {
+		if !apierrors.IsNotFound(err) {
+			ctrl.LoggerFrom(ctx).Error(err, "reading local workload")
+		}
 		rc.wlUpdateCh <- event.GenericEvent{Object: localWl}
 	}
 }
@@ -164,7 +167,7 @@ func (c *clustersReconciler) stopAndRemoveCluster(clusterName string) {
 	}
 }
 
-func (c *clustersReconciler) setRemoteClientConfig(clusterName string, kubeconfig []byte) error {
+func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterName string, kubeconfig []byte) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -178,6 +181,7 @@ func (c *clustersReconciler) setRemoteClientConfig(clusterName string, kubeconfi
 	}
 
 	if err := client.setConfig(c.rootContext, kubeconfig); err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "reading local workload")
 		delete(c.clients, clusterName)
 		return err
 	}
@@ -194,6 +198,7 @@ func (a *clustersReconciler) controllerFor(acName string) (*remoteClient, bool) 
 
 func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	cluster := &kueuealpha.MultiKueueCluster{}
+	log := ctrl.LoggerFrom(ctx)
 
 	err := c.client.Get(ctx, req.NamespacedName, cluster)
 	if client.IgnoreNotFound(err) != nil {
@@ -202,26 +207,27 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 
 	if err != nil || !cluster.DeletionTimestamp.IsZero() {
 		c.stopAndRemoveCluster(req.Name)
-		// notify ac reconcilere
 		return reconcile.Result{}, nil
 	}
 
 	// get the kubeconfig
-	kubeConfig, retry, err := c.getKubeConfig(ctx, &cluster.Spec.KubeconfigRef)
+	kubeConfig, retry, err := c.getKubeConfig(ctx, &cluster.Spec.KubeConfig)
 	if retry {
 		return reconcile.Result{}, nil
 	}
 	if err != nil {
+		log.Error(err, "reading kubeconfig")
 		return reconcile.Result{}, c.updateStatus(ctx, cluster, false, "BadConfig", err.Error())
 	}
 
-	if err := c.setRemoteClientConfig(cluster.Name, kubeConfig); err != nil {
+	if err := c.setRemoteClientConfig(ctx, cluster.Name, kubeConfig); err != nil {
+		log.Error(err, "setting kubeconfig")
 		return reconcile.Result{}, c.updateStatus(ctx, cluster, false, "ClientConnectionFailed", err.Error())
 	}
 	return reconcile.Result{}, c.updateStatus(ctx, cluster, true, "Active", "Connected")
 }
 
-func (c *clustersReconciler) getKubeConfig(ctx context.Context, ref *kueuealpha.KubeconfigRef) ([]byte, bool, error) {
+func (c *clustersReconciler) getKubeConfig(ctx context.Context, ref *kueuealpha.KubeConfig) ([]byte, bool, error) {
 	sec := corev1.Secret{}
 	secretObjKey := types.NamespacedName{
 		Namespace: c.configNamespace,

@@ -20,7 +20,7 @@ package v1alpha1
 // MultiKueueClusterSpecApplyConfiguration represents an declarative configuration of the MultiKueueClusterSpec type for use
 // with apply.
 type MultiKueueClusterSpecApplyConfiguration struct {
-	KubeconfigRef *KubeconfigRefApplyConfiguration `json:"kubeconfigRef,omitempty"`
+	KubeConfig *KubeConfigApplyConfiguration `json:"kubeconfigRef,omitempty"`
 }
 
 // MultiKueueClusterSpecApplyConfiguration constructs an declarative configuration of the MultiKueueClusterSpec type for use with
@@ -29,10 +29,10 @@ func MultiKueueClusterSpec() *MultiKueueClusterSpecApplyConfiguration {
 	return &MultiKueueClusterSpecApplyConfiguration{}
 }
 
-// WithKubeconfigRef sets the KubeconfigRef field in the declarative configuration to the given value
+// WithKubeConfig sets the KubeConfig field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the KubeconfigRef field is set to the value of the last call.
-func (b *MultiKueueClusterSpecApplyConfiguration) WithKubeconfigRef(value *KubeconfigRefApplyConfiguration) *MultiKueueClusterSpecApplyConfiguration {
-	b.KubeconfigRef = value
+// If called multiple times, the KubeConfig field is set to the value of the last call.
+func (b *MultiKueueClusterSpecApplyConfiguration) WithKubeConfig(value *KubeConfigApplyConfiguration) *MultiKueueClusterSpecApplyConfiguration {
+	b.KubeConfig = value
 	return b
 }

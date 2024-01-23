@@ -36,7 +36,7 @@ const (
 	SecretLocationType LocationType = "Secret"
 )
 
-type KubeconfigRef struct {
+type KubeConfig struct {
 	// Name of the cluster inside the given KubeConfig.
 	Name string `json:"name"`
 
@@ -51,19 +51,20 @@ type KubeconfigRef struct {
 }
 
 type MultiKueueClusterSpec struct {
-	KubeconfigRef KubeconfigRef `json:"kubeconfigRef"`
+	// Information how to connect to the cluster.
+	KubeConfig KubeConfig `json:"kubeconfigRef"`
 }
 
 type MultiKueueClusterStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 
-//+genclient
-//+genclient:nonNamespaced
-//+kubebuilder:object:root=true
-//+kubebuilder:storageversion
-//+kubebuilder:subresource:status
-//+kubebuilder:resource:scope=Cluster
+// +genclient
+// +genclient:nonNamespaced
+// +kubebuilder:object:root=true
+// +kubebuilder:storageversion
+// +kubebuilder:subresource:status
+// +kubebuilder:resource:scope=Cluster
 
 // MultiKueueCluster is the Schema for the multikueue API
 type MultiKueueCluster struct {
@@ -74,7 +75,7 @@ type MultiKueueCluster struct {
 	Status MultiKueueClusterStatus `json:"status,omitempty"`
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
 // MultiKueueClusterList contains a list of MultiKueueCluster
 type MultiKueueClusterList struct {
@@ -93,11 +94,11 @@ type MultiKueueConfigSpec struct {
 	Clusters []string `json:"clusters"`
 }
 
-//+genclient
-//+genclient:nonNamespaced
-//+kubebuilder:object:root=true
-//+kubebuilder:storageversion
-//+kubebuilder:resource:scope=Cluster
+// +genclient
+// +genclient:nonNamespaced
+// +kubebuilder:object:root=true
+// +kubebuilder:storageversion
+// +kubebuilder:resource:scope=Cluster
 
 // MultiKueueConfig is the Schema for the multikueue API
 type MultiKueueConfig struct {
@@ -107,7 +108,7 @@ type MultiKueueConfig struct {
 	Spec MultiKueueConfigSpec `json:"spec,omitempty"`
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
 // MultiKueueConfigList contains a list of MultiKueueConfig
 type MultiKueueConfigList struct {

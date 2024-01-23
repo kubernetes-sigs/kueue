@@ -65,39 +65,31 @@ func getClientBuilder() (*fake.ClientBuilder, context.Context) {
 	return builder, ctx
 }
 
-func TestMultikueConfigUsingKubeconfig(t *testing.T) {
+func TestListMultikueClustersUsingKubeconfig(t *testing.T) {
 	cases := map[string]struct {
-		configs       []*kueuealpha.MultiKueueCluster
+		clusters      []*kueuealpha.MultiKueueCluster
 		filter        client.ListOption
 		wantListError error
 		wantList      []string
 	}{
 		"no clusters": {
-			configs: []*kueuealpha.MultiKueueCluster{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Namespace: "default",
-						Name:      "name",
-					},
-				},
-			},
 			filter: client.MatchingFields{UsingKubeConfigs: TestNamespace + "/secret1"},
 		},
 		"single cluster, single match": {
-			configs: []*kueuealpha.MultiKueueCluster{
+			clusters: []*kueuealpha.MultiKueueCluster{
 				utiltesting.MakeMultiKueueCluster("cluster1").Secret("", "secret1").Obj(),
 			},
 			filter:   client.MatchingFields{UsingKubeConfigs: TestNamespace + "/secret1"},
 			wantList: []string{"cluster1"},
 		},
 		"single cluster, no match": {
-			configs: []*kueuealpha.MultiKueueCluster{
+			clusters: []*kueuealpha.MultiKueueCluster{
 				utiltesting.MakeMultiKueueCluster("cluster2").Secret("", "secret2").Obj(),
 			},
 			filter: client.MatchingFields{UsingKubeConfigs: TestNamespace + "/secret1"},
 		},
 		"multiple clusters, single match": {
-			configs: []*kueuealpha.MultiKueueCluster{
+			clusters: []*kueuealpha.MultiKueueCluster{
 				utiltesting.MakeMultiKueueCluster("cluster1").Secret("", "secret1").Obj(),
 				utiltesting.MakeMultiKueueCluster("cluster2").Secret("", "secret2").Obj(),
 			},
@@ -109,7 +101,7 @@ func TestMultikueConfigUsingKubeconfig(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			builder, ctx := getClientBuilder()
 			k8sclient := builder.Build()
-			for _, req := range tc.configs {
+			for _, req := range tc.clusters {
 				if err := k8sclient.Create(ctx, req); err != nil {
 					t.Errorf("Unable to create %s request: %v", client.ObjectKeyFromObject(req), err)
 				}
@@ -123,6 +115,63 @@ func TestMultikueConfigUsingKubeconfig(t *testing.T) {
 			}
 
 			gotList := slices.Map(lst.Items, func(mkc *kueuealpha.MultiKueueCluster) string { return mkc.Name })
+			if diff := cmp.Diff(tc.wantList, gotList, cmpopts.EquateEmpty(), cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+				t.Errorf("unexpected list (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestListMultikueConfigsUsingMultikueueClusters(t *testing.T) {
+	cases := map[string]struct {
+		configs       []*kueuealpha.MultiKueueConfig
+		filter        client.ListOption
+		wantListError error
+		wantList      []string
+	}{
+		"no configs": {
+			filter: client.MatchingFields{UsingMultiKueueClusters: "cluster1"},
+		},
+		"single config, single match": {
+			configs: []*kueuealpha.MultiKueueConfig{
+				utiltesting.MakeMultiKueueConfig("config1").Clusters("cluster1", "cluster2").Obj(),
+			},
+			filter:   client.MatchingFields{UsingMultiKueueClusters: "cluster2"},
+			wantList: []string{"config1"},
+		},
+		"single config, no match": {
+			configs: []*kueuealpha.MultiKueueConfig{
+				utiltesting.MakeMultiKueueConfig("config2").Clusters("cluster2").Obj(),
+			},
+			filter: client.MatchingFields{UsingMultiKueueClusters: "cluster1"},
+		},
+		"multiple configs, single match": {
+			configs: []*kueuealpha.MultiKueueConfig{
+				utiltesting.MakeMultiKueueConfig("config1").Clusters("cluster1", "cluster2").Obj(),
+				utiltesting.MakeMultiKueueConfig("config2").Clusters("cluster2").Obj(),
+			},
+			filter:   client.MatchingFields{UsingMultiKueueClusters: "cluster1"},
+			wantList: []string{"config1"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			builder, ctx := getClientBuilder()
+			k8sclient := builder.Build()
+			for _, config := range tc.configs {
+				if err := k8sclient.Create(ctx, config); err != nil {
+					t.Errorf("Unable to create %s config: %v", client.ObjectKeyFromObject(config), err)
+				}
+			}
+
+			lst := &kueuealpha.MultiKueueConfigList{}
+
+			gotListErr := k8sclient.List(ctx, lst, tc.filter)
+			if diff := cmp.Diff(tc.wantListError, gotListErr); diff != "" {
+				t.Errorf("unexpected list error (-want/+got):\n%s", diff)
+			}
+
+			gotList := slices.Map(lst.Items, func(mkc *kueuealpha.MultiKueueConfig) string { return mkc.Name })
 			if diff := cmp.Diff(tc.wantList, gotList, cmpopts.EquateEmpty(), cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
 				t.Errorf("unexpected list (-want/+got):\n%s", diff)
 			}

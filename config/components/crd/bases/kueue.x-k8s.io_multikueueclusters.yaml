@@ -34,6 +34,7 @@ spec:
           spec:
             properties:
               kubeconfigRef:
+                description: Information how to connect to the cluster.
                 properties:
                   location:
                     description: Location of the KubeConfig.

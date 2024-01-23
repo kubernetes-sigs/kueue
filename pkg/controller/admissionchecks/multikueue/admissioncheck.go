@@ -65,12 +65,10 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
-	active := true
 	inactiveReason := ""
 
 	log.V(2).Info("Reconcile AdmissionCheck")
 	if cfg, err := a.helper.ConfigFromRef(ctx, ac.Spec.Parameters); err != nil {
-		active = false
 		inactiveReason = fmt.Sprintf("Cannot load the AdmissionChecks parameters: %s", err.Error())
 	} else {
 		var missingClusters []string
@@ -80,6 +78,7 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 			cluster := &kueuealpha.MultiKueueCluster{}
 			err := a.client.Get(ctx, types.NamespacedName{Name: clusterName}, cluster)
 			if client.IgnoreNotFound(err) != nil {
+				log.Error(err, "reading cluster", "multiKueueCluster", clusterName)
 				return reconcile.Result{}, err
 			}
 
@@ -94,23 +93,18 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 
 		var messageParts []string
 		if len(missingClusters) > 0 {
-			active = false
 			messageParts = []string{fmt.Sprintf("Missing clusters: %v", missingClusters)}
 		}
 		if len(inactiveClusters) > 0 {
-			active = false
 			messageParts = append(messageParts, fmt.Sprintf("Inactive clusters: %v", inactiveClusters))
 		}
 		inactiveReason = strings.Join(messageParts, ", ")
 	}
 
 	newCondition := metav1.Condition{
-		Type:    kueue.AdmissionCheckActive,
-		Status:  metav1.ConditionTrue,
-		Reason:  "Active",
-		Message: "The admission check is active",
+		Type: kueue.AdmissionCheckActive,
 	}
-	if active {
+	if len(inactiveReason) == 0 {
 		newCondition.Status = metav1.ConditionTrue
 		newCondition.Reason = "Active"
 		newCondition.Message = "The admission check is active"
@@ -167,7 +161,7 @@ func (m *mkConfigHandler) Create(ctx context.Context, event event.CreateEvent, q
 	}
 
 	if err := queueReconcileForConfigUsers(ctx, mkc.Name, m.client, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on create event", "multiKueueConfig", klog.KObj(mkc))
+		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on create event", "multiKueueConfig", klog.KObj(mkc))
 	}
 }
 
@@ -179,7 +173,7 @@ func (m *mkConfigHandler) Update(ctx context.Context, event event.UpdateEvent, q
 	}
 
 	if err := queueReconcileForConfigUsers(ctx, oldMKC.Name, m.client, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on update event", "multiKueueConfig", klog.KObj(oldMKC))
+		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on update event", "multiKueueConfig", klog.KObj(oldMKC))
 	}
 }
 
@@ -190,7 +184,7 @@ func (m *mkConfigHandler) Delete(ctx context.Context, event event.DeleteEvent, q
 	}
 
 	if err := queueReconcileForConfigUsers(ctx, mkc.Name, m.client, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on delete event", "multiKueueConfig", klog.KObj(mkc))
+		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on delete event", "multiKueueConfig", klog.KObj(mkc))
 	}
 }
 
@@ -201,7 +195,7 @@ func (m *mkConfigHandler) Generic(ctx context.Context, event event.GenericEvent,
 	}
 
 	if err := queueReconcileForConfigUsers(ctx, mkc.Name, m.client, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on generic event", "multiKueueConfig", klog.KObj(mkc))
+		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on generic event", "multiKueueConfig", klog.KObj(mkc))
 	}
 }
 
@@ -237,7 +231,7 @@ func (m *mkClusterHandler) Create(ctx context.Context, event event.CreateEvent, 
 	}
 
 	if err := queueReconcileForConfigUsers(ctx, mkc.Name, m.client, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on create event", "multiKueueConfig", klog.KObj(mkc))
+		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on create event", "multiKueueConfig", klog.KObj(mkc))
 	}
 }
 
@@ -252,7 +246,7 @@ func (m *mkClusterHandler) Update(ctx context.Context, event event.UpdateEvent, 
 	newActive := apimeta.IsStatusConditionTrue(newMKC.Status.Conditions, kueuealpha.MultiKueueClusterActive)
 	if oldActive != newActive {
 		if err := m.queue(ctx, newMKC, q); err != nil {
-			ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on update event", "multiKueueCluster", klog.KObj(oldMKC))
+			ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on update event", "multiKueueCluster", klog.KObj(oldMKC))
 		}
 	}
 }
@@ -264,7 +258,7 @@ func (m *mkClusterHandler) Delete(ctx context.Context, event event.DeleteEvent, 
 	}
 
 	if err := m.queue(ctx, mkc, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on delete event", "multiKueueCluster", klog.KObj(mkc))
+		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on delete event", "multiKueueCluster", klog.KObj(mkc))
 	}
 }
 
@@ -275,7 +269,7 @@ func (m *mkClusterHandler) Generic(ctx context.Context, event event.GenericEvent
 	}
 
 	if err := m.queue(ctx, mkc, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on generic event", "multiKueueCluster", klog.KObj(mkc))
+		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on generic event", "multiKueueCluster", klog.KObj(mkc))
 	}
 }
 
