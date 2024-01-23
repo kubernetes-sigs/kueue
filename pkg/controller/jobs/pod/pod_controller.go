@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
 const (
@@ -65,6 +66,7 @@ const (
 var (
 	gvk                          = corev1.SchemeGroupVersion.WithKind("Pod")
 	errIncorrectReconcileRequest = fmt.Errorf("event handler error: got a single pod reconcile request for a pod group")
+	errPendingOps                = jobframework.UnretryableError("waiting to observe previous operations on pods")
 )
 
 func init() {
@@ -88,31 +90,36 @@ func init() {
 
 type Reconciler struct {
 	*jobframework.JobReconciler
+	expectationsStore *expectationsStore
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	return r.ReconcileGenericJob(ctx, req, &Pod{})
+	return r.ReconcileGenericJob(ctx, req, &Pod{excessPodExpectations: r.expectationsStore})
 }
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		Watches(&corev1.Pod{}, &podEventHandler{}).Named("v1_pod").
+		Watches(&corev1.Pod{}, &podEventHandler{cleanedUpPodsExpectations: r.expectationsStore}).Named("v1_pod").
 		Watches(&kueue.Workload{}, &workloadHandler{}).
 		Complete(r)
 }
 
 func NewReconciler(c client.Client, record record.EventRecorder, opts ...jobframework.Option) jobframework.JobReconcilerInterface {
 	return &Reconciler{
-		JobReconciler: jobframework.NewReconciler(c, record, opts...),
+		JobReconciler:     jobframework.NewReconciler(c, record, opts...),
+		expectationsStore: newUIDExpectations("finalizedPods"),
 	}
 }
 
 type Pod struct {
-	pod              corev1.Pod
-	isFound          bool
-	isGroup          bool
-	unretriableGroup *bool
-	list             corev1.PodList
+	pod                   corev1.Pod
+	key                   types.NamespacedName
+	isFound               bool
+	isGroup               bool
+	unretriableGroup      *bool
+	list                  corev1.PodList
+	excessPodExpectations *expectationsStore
+	satisfiedExcessPods   bool
 }
 
 var (
@@ -576,6 +583,11 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedNa
 	p.isGroup = true
 
 	key.Namespace = nsKey[1]
+	p.key = *key
+
+	// Check the expectations before listing pods, otherwise a new pod can sneak in
+	// and update the expectations after we've retrieved active pods from the store.
+	p.satisfiedExcessPods = p.excessPodExpectations.Satisfied(ctrl.LoggerFrom(ctx), *key)
 
 	if err := c.List(ctx, &p.list, client.MatchingLabels{
 		GroupNameLabel: key.Name,
@@ -705,14 +717,34 @@ func (p *Pod) cleanupExcessPods(ctx context.Context, c client.Client, totalCount
 	if extraPodsCount <= 0 {
 		return nil
 	}
+	// Do not clean up more pods until observing previous operations
+	if !p.satisfiedExcessPods {
+		return errPendingOps
+	}
 
 	// Sort active pods by creation timestamp
 	sort.Slice(activePods, func(i, j int) bool {
-		return activePods[i].ObjectMeta.CreationTimestamp.Before(&activePods[j].ObjectMeta.CreationTimestamp)
+		pi := &activePods[i]
+		pj := &activePods[j]
+		iFin := slices.Contains(pi.Finalizers, PodFinalizer)
+		jFin := slices.Contains(pj.Finalizers, PodFinalizer)
+		// Prefer to keep pods that have a finalizer.
+		if iFin != jFin {
+			return iFin
+		}
+		iGated := gateIndex(pi) != gateNotFound
+		jGated := gateIndex(pj) != gateNotFound
+		// Prefer to keep pods that aren't gated.
+		if iGated != jGated {
+			return !iGated
+		}
+		return pi.ObjectMeta.CreationTimestamp.Before(&pj.ObjectMeta.CreationTimestamp)
 	})
 
 	// Extract all the latest created extra pods
 	extraPods := activePods[len(activePods)-extraPodsCount:]
+	extraPodsUIDs := utilslices.Map(extraPods, func(p *corev1.Pod) types.UID { return p.UID })
+	p.excessPodExpectations.ExpectUIDs(log, p.key, extraPodsUIDs)
 
 	// Finalize and delete the active pods created last
 
@@ -721,12 +753,18 @@ func (p *Pod) cleanupExcessPods(ctx context.Context, c client.Client, totalCount
 		if controllerutil.RemoveFinalizer(&pod, PodFinalizer) {
 			log.V(3).Info("Finalizing excess pod in group", "excessPod", klog.KObj(&pod))
 			if err := c.Update(ctx, &pod); err != nil {
+				// We won't observe this cleanup in the event handler.
+				p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
 				return err
 			}
 		}
 		if pod.ObjectMeta.DeletionTimestamp.IsZero() {
 			log.V(3).Info("Deleting excess pod in group", "excessPod", klog.KObj(&pod))
-			return c.Delete(ctx, &pod)
+			if err := c.Delete(ctx, &pod); err != nil {
+				// We won't observe this cleanup in the event handler.
+				p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
+				return err
+			}
 		}
 		return nil
 	})
