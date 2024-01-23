@@ -339,7 +339,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("finishing the worker jobSet, the mangers wl is marked as finished and the worker2 wl removed", func() {
+		ginkgo.By("finishing the worker jobSet, the manager's wl is marked as finished and the worker2 wl removed", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdJobSet := jobset.JobSet{}
 				g.Expect(worker2Cluster.client.Get(worker2Cluster.ctx, client.ObjectKeyFromObject(jobSet), &createdJobSet)).To(gomega.Succeed())
