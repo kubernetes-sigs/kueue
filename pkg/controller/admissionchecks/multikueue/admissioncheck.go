@@ -39,7 +39,9 @@ import (
 )
 
 const (
-	ControllerName = "kueue.x-k8s.io/multikueue"
+	ControllerName        = "kueue.x-k8s.io/multikueue"
+	SingleInstanceReason  = "MultiKueue"
+	SingleInstanceMessage = "only one multikueue managed admission check can be used in one ClusterQueue"
 )
 
 type multiKueueStoreHelper = admissioncheck.ConfigHelper[*kueuealpha.MultiKueueConfig, kueuealpha.MultiKueueConfig]
@@ -120,9 +122,23 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		}
 	}
 
+	needsUpdate := false
 	oldCondition := apimeta.FindStatusCondition(ac.Status.Conditions, kueue.AdmissionCheckActive)
 	if !cmpConditionState(oldCondition, &newCondition) {
 		apimeta.SetStatusCondition(&ac.Status.Conditions, newCondition)
+		needsUpdate = true
+	}
+	if !apimeta.IsStatusConditionTrue(ac.Status.Conditions, kueue.AdmissionChecksSingleInstanceInClusterQueue) {
+		apimeta.SetStatusCondition(&ac.Status.Conditions, metav1.Condition{
+			Type:    kueue.AdmissionChecksSingleInstanceInClusterQueue,
+			Status:  metav1.ConditionTrue,
+			Reason:  SingleInstanceReason,
+			Message: SingleInstanceMessage,
+		})
+		needsUpdate = true
+	}
+
+	if needsUpdate {
 		err := a.client.Status().Update(ctx, ac)
 		if err != nil {
 			log.V(2).Error(err, "Updating check condition", "newCondition", newCondition)

@@ -90,6 +90,12 @@ const (
 	// AdmissionCheckActive indicates that the controller of the admission check is
 	// ready to evaluate the checks states
 	AdmissionCheckActive string = "Active"
+
+	// AdmissionChecksSingleInstanceInClusterQueue indicates if the AdmissionCheck should be the only
+	// one managed by the same Controller in a ClusterQueue.
+	// Having multiple AdmissionChecks managed by the same Controller of which at least one has this
+	// set to true will cause the ClusterQueue to be marked as Inactive.
+	AdmissionChecksSingleInstanceInClusterQueue string = "SingleInstanceInClusterQueue"
 )
 
 // +genclient

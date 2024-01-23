@@ -65,12 +65,13 @@ type ClusterQueue struct {
 	// The following fields are not populated in a snapshot.
 
 	// Key is localQueue's key (namespace/name).
-	localQueues                         map[string]*queue
-	podsReadyTracking                   bool
-	hasMissingFlavors                   bool
-	hasMissingOrInactiveAdmissionChecks bool
-	admittedWorkloadsCount              int
-	isStopped                           bool
+	localQueues                                map[string]*queue
+	podsReadyTracking                          bool
+	hasMissingFlavors                          bool
+	hasMissingOrInactiveAdmissionChecks        bool
+	hasMultipleSingleInstanceControllersChecks bool
+	admittedWorkloadsCount                     int
+	isStopped                                  bool
 }
 
 // Cohort is a set of ClusterQueues that can borrow resources from each other.
@@ -294,7 +295,7 @@ func (c *ClusterQueue) UpdateRGByResource() {
 
 func (c *ClusterQueue) updateQueueStatus() {
 	status := active
-	if c.hasMissingFlavors || c.hasMissingOrInactiveAdmissionChecks || c.isStopped {
+	if c.hasMissingFlavors || c.hasMissingOrInactiveAdmissionChecks || c.isStopped || c.hasMultipleSingleInstanceControllersChecks {
 		status = pending
 	}
 	if c.Status == terminating {
@@ -320,6 +321,10 @@ func (c *ClusterQueue) inactiveReason() (string, string) {
 		}
 		if c.hasMissingOrInactiveAdmissionChecks {
 			reasons = append(reasons, "CheckNotFoundOrInactive")
+		}
+
+		if c.hasMultipleSingleInstanceControllersChecks {
+			reasons = append(reasons, "MultipleSingleInstanceControllerChecks")
 		}
 
 		if len(reasons) == 0 {
@@ -368,15 +373,41 @@ func (c *ClusterQueue) updateLabelKeys(flavors map[kueue.ResourceFlavorReference
 // updateWithAdmissionChecks updates a ClusterQueue based on the passed AdmissionChecks set.
 func (c *ClusterQueue) updateWithAdmissionChecks(checks map[string]AdmissionCheck) {
 	hasMissing := false
+	controllersChecks := make(map[string][]string, len(c.AdmissionChecks))
+	singleInstanceControllers := sets.New[string]()
 	for acName := range c.AdmissionChecks {
-		if ac, found := checks[acName]; !found || !ac.Active {
+		if ac, found := checks[acName]; !found {
 			hasMissing = true
-			break
+		} else {
+			if !ac.Active {
+				hasMissing = true
+			}
+			controllersChecks[ac.Controller] = append(controllersChecks[ac.Controller], acName)
+			if ac.SingleInstanceInClusterQueue {
+				singleInstanceControllers.Insert(ac.Controller)
+			}
 		}
 	}
 
+	update := false
 	if hasMissing != c.hasMissingOrInactiveAdmissionChecks {
 		c.hasMissingOrInactiveAdmissionChecks = hasMissing
+		update = true
+	}
+
+	hasMultipleSICC := false
+	for controller, checks := range controllersChecks {
+		if singleInstanceControllers.Has(controller) && len(checks) > 1 {
+			hasMultipleSICC = true
+		}
+	}
+
+	if c.hasMultipleSingleInstanceControllersChecks != hasMultipleSICC {
+		c.hasMultipleSingleInstanceControllersChecks = hasMultipleSICC
+		update = true
+	}
+
+	if update {
 		c.updateQueueStatus()
 	}
 }

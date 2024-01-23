@@ -460,3 +460,163 @@ func TestClusterQueueUpdate(t *testing.T) {
 		})
 	}
 }
+
+func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
+	cq := utiltesting.MakeClusterQueue("cq").
+		AdmissionChecks("check1", "check2", "check3").
+		Obj()
+
+	testcases := []struct {
+		name            string
+		cqStatus        metrics.ClusterQueueStatus
+		admissionChecks map[string]AdmissionCheck
+		wantStatus      metrics.ClusterQueueStatus
+		wantReason      string
+	}{
+		{
+			name:     "Pending clusterQueue updated valid AC list",
+			cqStatus: pending,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: "controller1",
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+				"check3": {
+					Active:     true,
+					Controller: "controller3",
+				},
+			},
+			wantStatus: active,
+			wantReason: "Ready",
+		},
+		{
+			name:     "Active clusterQueue updated with not found AC",
+			cqStatus: active,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: "controller1",
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+			},
+			wantStatus: pending,
+			wantReason: "CheckNotFoundOrInactive",
+		},
+		{
+			name:     "Active clusterQueue updated with inactive AC",
+			cqStatus: active,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: "controller1",
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+				"check3": {
+					Active:     false,
+					Controller: "controller3",
+				},
+			},
+			wantStatus: pending,
+			wantReason: "CheckNotFoundOrInactive",
+		},
+		{
+			name:     "Active clusterQueue updated with duplicate single instance AC Controller",
+			cqStatus: active,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:                       true,
+					Controller:                   "controller1",
+					SingleInstanceInClusterQueue: true,
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+				"check3": {
+					Active:                       true,
+					Controller:                   "controller2",
+					SingleInstanceInClusterQueue: true,
+				},
+			},
+			wantStatus: pending,
+			wantReason: "MultipleSingleInstanceControllerChecks",
+		},
+		{
+			name:     "Terminating clusterQueue updated with valid AC list",
+			cqStatus: terminating,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: "controller1",
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+				"check3": {
+					Active:     true,
+					Controller: "controller3",
+				},
+			},
+			wantStatus: terminating,
+			wantReason: "Terminating",
+		},
+		{
+			name:     "Terminating clusterQueue updated with not found AC",
+			cqStatus: terminating,
+			admissionChecks: map[string]AdmissionCheck{
+				"check1": {
+					Active:     true,
+					Controller: "controller1",
+				},
+				"check2": {
+					Active:     true,
+					Controller: "controller2",
+				},
+			},
+			wantStatus: terminating,
+			wantReason: "Terminating",
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			cache := New(utiltesting.NewFakeClient())
+			cq, err := cache.newClusterQueue(cq)
+			if err != nil {
+				t.Fatalf("failed to new clusterQueue %v", err)
+			}
+
+			cq.Status = tc.cqStatus
+
+			// Align the admission check related internals to the desired Status.
+			if tc.cqStatus == active {
+				cq.hasMultipleSingleInstanceControllersChecks = false
+				cq.hasMissingOrInactiveAdmissionChecks = false
+			} else {
+				cq.hasMultipleSingleInstanceControllersChecks = true
+				cq.hasMissingOrInactiveAdmissionChecks = true
+			}
+			cq.updateWithAdmissionChecks(tc.admissionChecks)
+
+			if cq.Status != tc.wantStatus {
+				t.Errorf("got different status, want: %v, got: %v", tc.wantStatus, cq.Status)
+			}
+
+			gotReason, _ := cq.inactiveReason()
+			if diff := cmp.Diff(tc.wantReason, gotReason); diff != "" {
+				t.Errorf("Unexpected inactiveReason (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
