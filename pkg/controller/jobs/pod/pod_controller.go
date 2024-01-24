@@ -23,14 +23,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -468,17 +466,16 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
 }
 
-func CanSupportIntegration(log logr.Logger, opts ...jobframework.Option) bool {
+func CanSupportIntegration(opts ...jobframework.Option) (bool, error) {
 	options := jobframework.DefaultOptions
 	for _, opt := range opts {
 		opt(&options)
 	}
 	v := options.KubeServerVersion.GetServerVersion()
 	if v.String() == "" || v.LessThan(kubeversion.KubeVersion1_27) {
-		log.Error(errPodNoSupportKubeVersion, "Failed to configure reconcilers", "kubernetesVersion", v)
-		os.Exit(1)
+		return false, fmt.Errorf("kubernetesVersion %q: %w", v.String(), errPodNoSupportKubeVersion)
 	}
-	return true
+	return true, nil
 }
 
 func (p *Pod) Finalize(ctx context.Context, c client.Client) error {

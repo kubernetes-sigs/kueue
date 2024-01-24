@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
@@ -63,7 +62,7 @@ type IntegrationCallbacks struct {
 	IsManagingObjectsOwner func(ref *metav1.OwnerReference) bool
 	// CanSupportIntegration returns true if the integration meets any additional condition
 	// like the Kubernetes version.
-	CanSupportIntegration func(log logr.Logger, opts ...Option) bool
+	CanSupportIntegration func(opts ...Option) (bool, error)
 }
 
 type integrationManager struct {
@@ -91,10 +90,6 @@ func (m *integrationManager) register(name string, cb IntegrationCallbacks) erro
 
 	if cb.JobType == nil {
 		return fmt.Errorf("%w \"WebhookType\" for %q", errMissingMandatoryField, name)
-	}
-
-	if cb.CanSupportIntegration == nil {
-		return fmt.Errorf("%w \"CanSupportIntegration\" for %q", errMissingMandatoryField, name)
 	}
 
 	m.integrations[name] = cb

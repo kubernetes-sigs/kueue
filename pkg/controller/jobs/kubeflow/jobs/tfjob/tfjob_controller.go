@@ -44,7 +44,6 @@ func init() {
 		JobType:                &kftraining.TFJob{},
 		AddToScheme:            kftraining.AddToScheme,
 		IsManagingObjectsOwner: isTFJob,
-		CanSupportIntegration:  jobframework.CanAlwaysSupportIntegration,
 	}))
 }
 

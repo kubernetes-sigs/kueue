@@ -276,7 +276,13 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 	}
 	err := jobframework.ForEachIntegration(func(name string, cb jobframework.IntegrationCallbacks) error {
 		log := setupLog.WithValues("jobFrameworkName", name)
-		if isFrameworkEnabled(cfg, name) && cb.CanSupportIntegration(log, opts...) {
+		if isFrameworkEnabled(cfg, name) {
+			if cb.CanSupportIntegration != nil {
+				if canSupport, err := cb.CanSupportIntegration(opts...); !canSupport || err != nil {
+					setupLog.Error(err, "Failed to configure reconcilers")
+					os.Exit(1)
+				}
+			}
 			gvk, err := apiutil.GVKForObject(cb.JobType, mgr.GetScheme())
 			if err != nil {
 				return err

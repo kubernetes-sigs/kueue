@@ -48,7 +48,6 @@ func init() {
 		JobType:                &kubeflow.MPIJob{},
 		AddToScheme:            kubeflow.AddToScheme,
 		IsManagingObjectsOwner: isMPIJob,
-		CanSupportIntegration:  jobframework.CanAlwaysSupportIntegration,
 	}))
 }
 

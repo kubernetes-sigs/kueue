@@ -22,7 +22,6 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -49,8 +48,8 @@ func testAddToScheme(*runtime.Scheme) error {
 	return nil
 }
 
-func testCanSupportIntegration(logr.Logger, ...Option) bool {
-	return true
+func testCanSupportIntegration(...Option) (bool, error) {
+	return true, nil
 }
 
 var (
@@ -181,12 +180,20 @@ func TestRegister(t *testing.T) {
 			integrationName: "newFramework",
 			integrationCallbacks: IntegrationCallbacks{
 				NewReconciler: testNewReconciler,
+				AddToScheme:   testAddToScheme,
 				SetupWebhook:  testSetupWebhook,
 				JobType:       &corev1.Pod{},
 				SetupIndexes:  testSetupIndexes,
 			},
-			wantError: errMissingMandatoryField,
-			wantList:  []string{},
+			wantError: nil,
+			wantList:  []string{"newFramework"},
+			wantCallbacks: IntegrationCallbacks{
+				NewReconciler: testNewReconciler,
+				AddToScheme:   testAddToScheme,
+				SetupWebhook:  testSetupWebhook,
+				JobType:       &corev1.Pod{},
+				SetupIndexes:  testSetupIndexes,
+			},
 		},
 	}
 
