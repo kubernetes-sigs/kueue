@@ -4,7 +4,7 @@ ARG BASE_IMAGE=gcr.io/distroless/static:nonroot
 # Build the manager binary
 FROM --platform=${BUILDPLATFORM} ${BUILDER_IMAGE} AS builder
 
-ARG CGO_ENABLED
+ARG CGO_ENABLED=1
 ARG TARGETARCH
 
 WORKDIR /workspace
