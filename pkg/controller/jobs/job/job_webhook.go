@@ -49,10 +49,7 @@ type JobWebhook struct {
 
 // SetupWebhook configures the webhook for batchJob.
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
-	options := jobframework.DefaultOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
+	options := jobframework.ProcessOptions(opts...)
 	wh := &JobWebhook{
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 		kubeServerVersion:          options.KubeServerVersion,

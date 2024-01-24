@@ -467,10 +467,7 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 }
 
 func CanSupportIntegration(opts ...jobframework.Option) (bool, error) {
-	options := jobframework.DefaultOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
+	options := jobframework.ProcessOptions(opts...)
 	v := options.KubeServerVersion.GetServerVersion()
 	if v.String() == "" || v.LessThan(kubeversion.KubeVersion1_27) {
 		return false, fmt.Errorf("kubernetesVersion %q: %w", v.String(), errPodNoSupportKubeVersion)

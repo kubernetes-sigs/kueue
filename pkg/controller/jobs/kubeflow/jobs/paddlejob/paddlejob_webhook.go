@@ -36,10 +36,7 @@ type PaddleJobWebhook struct {
 
 // SetupPaddleJobWebhook configures the webhook for kubeflow PaddleJob.
 func SetupPaddleJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
-	options := jobframework.DefaultOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
+	options := jobframework.ProcessOptions(opts...)
 	wh := &PaddleJobWebhook{
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 	}

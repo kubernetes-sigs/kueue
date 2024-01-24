@@ -70,10 +70,7 @@ type PodWebhook struct {
 
 // SetupWebhook configures the webhook for pods.
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
-	options := jobframework.DefaultOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
+	options := jobframework.ProcessOptions(opts...)
 	podOpts, err := getPodOptions(options.IntegrationOptions)
 	if err != nil {
 		return err

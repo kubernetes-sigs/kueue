@@ -36,10 +36,7 @@ type TFJobWebhook struct {
 
 // SetupTFJobWebhook configures the webhook for kubeflow TFJob.
 func SetupTFJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
-	options := jobframework.DefaultOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
+	options := jobframework.ProcessOptions(opts...)
 	wh := &TFJobWebhook{
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 	}

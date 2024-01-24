@@ -76,6 +76,14 @@ type Options struct {
 // Option configures the reconciler.
 type Option func(*Options)
 
+func ProcessOptions(opts ...Option) Options {
+	options := defaultOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+	return options
+}
+
 // WithManageJobsWithoutQueueName indicates if the controller should reconcile
 // jobs that don't set the queue name annotation.
 func WithManageJobsWithoutQueueName(f bool) Option {
@@ -110,16 +118,13 @@ func WithIntegrationOptions(integrationName string, opts any) Option {
 	}
 }
 
-var DefaultOptions = Options{}
+var defaultOptions = Options{}
 
 func NewReconciler(
 	client client.Client,
 	record record.EventRecorder,
 	opts ...Option) *JobReconciler {
-	options := DefaultOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
+	options := ProcessOptions(opts...)
 
 	return &JobReconciler{
 		client:                     client,
