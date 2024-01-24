@@ -36,6 +36,13 @@ var (
 	errFailedMappingResource = errors.New("restMapper failed mapping resource")
 )
 
+// SetupControllers setups all controllers and webhooks for integrations.
+// When the platform developers implement a separate kueue-manager to manage the in-house custom jobs,
+// they can easily setup controllers and webhooks for the in-house custom jobs.
+// You need to pass arguments to this function in accordance with the following notes:
+//   - mgr: You should pass the initialized Manager.
+//   - certsReady: When you use the kueue's internal cert management, you should pass the not closed channel.
+//     When you don't use the kueue's internal cert management, you should pass the closed channel.
 func SetupControllers(mgr ctrl.Manager, log logr.Logger, certsReady chan struct{}, opts ...Option) error {
 	// The controllers won't work until the webhooks are operating, and the webhook won't work until the
 	// certs are all in place.
@@ -84,6 +91,11 @@ func SetupControllers(mgr ctrl.Manager, log logr.Logger, certsReady chan struct{
 	})
 }
 
+// SetupIndexes setups the indexers for integrations.
+// When the platform developers implement a separate kueue-manager to manage the in-house custom jobs,
+// they can easily setup indexers for the in-house custom jobs.
+// You need to pass arguments to this function in accordance with the following notes:
+//   - indexer: You should pass the indexer got from the Manager.
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer, opts ...Option) error {
 	options := ProcessOptions(opts...)
 	return ForEachIntegration(func(name string, cb IntegrationCallbacks) error {
