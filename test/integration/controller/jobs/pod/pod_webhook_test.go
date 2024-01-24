@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/discovery"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -51,13 +52,15 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 			ctx, k8sClient = fwk.RunManager(cfg, managerSetup(
 				jobframework.WithManageJobsWithoutQueueName(false),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
-				jobframework.WithPodSelector(&metav1.LabelSelector{}),
-				jobframework.WithPodNamespaceSelector(&metav1.LabelSelector{
-					MatchExpressions: []metav1.LabelSelectorRequirement{
-						{
-							Key:      "kubernetes.io/metadata.name",
-							Operator: metav1.LabelSelectorOpNotIn,
-							Values:   []string{"kube-system", "kueue-system"},
+				jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
+					PodSelector: &metav1.LabelSelector{},
+					NamespaceSelector: &metav1.LabelSelector{
+						MatchExpressions: []metav1.LabelSelectorRequirement{
+							{
+								Key:      "kubernetes.io/metadata.name",
+								Operator: metav1.LabelSelectorOpNotIn,
+								Values:   []string{"kube-system", "kueue-system"},
+							},
 						},
 					},
 				}),
@@ -189,13 +192,15 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 			ctx, k8sClient = fwk.RunManager(cfg, managerSetup(
 				jobframework.WithManageJobsWithoutQueueName(true),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
-				jobframework.WithPodSelector(&metav1.LabelSelector{}),
-				jobframework.WithPodNamespaceSelector(&metav1.LabelSelector{
-					MatchExpressions: []metav1.LabelSelectorRequirement{
-						{
-							Key:      "kubernetes.io/metadata.name",
-							Operator: metav1.LabelSelectorOpNotIn,
-							Values:   []string{"kube-system", "kueue-system"},
+				jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
+					PodSelector: &metav1.LabelSelector{},
+					NamespaceSelector: &metav1.LabelSelector{
+						MatchExpressions: []metav1.LabelSelectorRequirement{
+							{
+								Key:      "kubernetes.io/metadata.name",
+								Operator: metav1.LabelSelectorOpNotIn,
+								Values:   []string{"kube-system", "kueue-system"},
+							},
 						},
 					},
 				}),

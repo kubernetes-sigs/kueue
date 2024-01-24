@@ -21,6 +21,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -49,6 +50,7 @@ import (
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
@@ -67,14 +69,16 @@ var (
 	gvk                          = corev1.SchemeGroupVersion.WithKind("Pod")
 	errIncorrectReconcileRequest = fmt.Errorf("event handler error: got a single pod reconcile request for a pod group")
 	errPendingOps                = jobframework.UnretryableError("waiting to observe previous operations on pods")
+	errPodNoSupportKubeVersion   = errors.New("pod integration only supported in Kubernetes 1.27 or newer")
 )
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:  SetupIndexes,
-		NewReconciler: NewReconciler,
-		SetupWebhook:  SetupWebhook,
-		JobType:       &corev1.Pod{},
+		SetupIndexes:          SetupIndexes,
+		NewReconciler:         NewReconciler,
+		SetupWebhook:          SetupWebhook,
+		JobType:               &corev1.Pod{},
+		CanSupportIntegration: CanSupportIntegration,
 	}))
 }
 
@@ -460,6 +464,15 @@ func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, 
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
+}
+
+func CanSupportIntegration(opts ...jobframework.Option) (bool, error) {
+	options := jobframework.ProcessOptions(opts...)
+	v := options.KubeServerVersion.GetServerVersion()
+	if v.String() == "" || v.LessThan(kubeversion.KubeVersion1_27) {
+		return false, fmt.Errorf("kubernetesVersion %q: %w", v.String(), errPodNoSupportKubeVersion)
+	}
+	return true, nil
 }
 
 func (p *Pod) Finalize(ctx context.Context, c client.Client) error {
