@@ -3,7 +3,7 @@ ARG BASE_IMAGE
 # Build the manager binary
 FROM --platform=${BUILDPLATFORM} ${BUILDER_IMAGE} as builder
 
-ARG CGO_ENABLED
+ARG CGO_ENABLED=1
 ARG TARGETARCH
 
 WORKDIR /workspace
