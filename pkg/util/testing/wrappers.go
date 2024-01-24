@@ -26,6 +26,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
@@ -216,11 +217,11 @@ func (w *WorkloadWrapper) AdmissionChecks(checks ...kueue.AdmissionCheckState) *
 	return w
 }
 
-func (w *WorkloadWrapper) OwnerReference(apiVersion, kind, name, uid string, controller, blockDeletion bool) *WorkloadWrapper {
+func (w *WorkloadWrapper) OwnerReference(gvk schema.GroupVersionKind, name, uid string, controller, blockDeletion bool) *WorkloadWrapper {
 	w.OwnerReferences = []metav1.OwnerReference{
 		{
-			APIVersion:         apiVersion,
-			Kind:               kind,
+			APIVersion:         gvk.GroupVersion().String(),
+			Kind:               gvk.Kind,
 			Name:               name,
 			UID:                types.UID(uid),
 			Controller:         &controller,

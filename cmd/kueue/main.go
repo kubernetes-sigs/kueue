@@ -19,7 +19,6 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"os"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -30,7 +29,6 @@ import (
 	"go.uber.org/zap/zapcore"
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -40,7 +38,6 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
@@ -55,7 +52,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/noop"
 	"sigs.k8s.io/kueue/pkg/debugger"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -216,23 +212,16 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 		}
 	}
 
-	err = jobframework.ForEachIntegration(func(name string, cb jobframework.IntegrationCallbacks) error {
-		if isFrameworkEnabled(cfg, name) {
-			if err := cb.SetupIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
-				return fmt.Errorf("integration %s: %w", name, err)
-			}
-		}
-		return nil
-	})
-	return err
+	opts := []jobframework.Option{
+		jobframework.WithEnabledFrameworks(cfg.Integrations),
+	}
+	return jobframework.SetupIndexes(ctx, mgr.GetFieldIndexer(), opts...)
 }
 
 func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher) {
 	// The controllers won't work until the webhooks are operating, and the webhook won't work until the
 	// certs are all in place.
-	setupLog.Info("Waiting for certificate generation to complete")
-	<-certsReady
-	setupLog.Info("Certs ready")
+	cert.WaitForCertsReady(setupLog, certsReady)
 
 	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg); err != nil {
 		setupLog.Error(err, "Unable to create controller", "controller", failedCtrl)
@@ -261,61 +250,21 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 		}
 	}
 
-	manageJobsWithoutQueueName := cfg.ManageJobsWithoutQueueName
-
 	if failedWebhook, err := webhooks.Setup(mgr); err != nil {
 		setupLog.Error(err, "Unable to create webhook", "webhook", failedWebhook)
 		os.Exit(1)
 	}
 
 	opts := []jobframework.Option{
-		jobframework.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName),
-		jobframework.WithWaitForPodsReady(waitForPodsReady(cfg)),
+		jobframework.WithManageJobsWithoutQueueName(cfg.ManageJobsWithoutQueueName),
+		jobframework.WithWaitForPodsReady(cfg.WaitForPodsReady),
 		jobframework.WithKubeServerVersion(serverVersionFetcher),
 		jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), cfg.Integrations.PodOptions),
+		jobframework.WithEnabledFrameworks(cfg.Integrations),
+		jobframework.WithManagerName(constants.KueueName),
 	}
-	err := jobframework.ForEachIntegration(func(name string, cb jobframework.IntegrationCallbacks) error {
-		log := setupLog.WithValues("jobFrameworkName", name)
-		if isFrameworkEnabled(cfg, name) {
-			if cb.CanSupportIntegration != nil {
-				if canSupport, err := cb.CanSupportIntegration(opts...); !canSupport || err != nil {
-					setupLog.Error(err, "Failed to configure reconcilers")
-					os.Exit(1)
-				}
-			}
-			gvk, err := apiutil.GVKForObject(cb.JobType, mgr.GetScheme())
-			if err != nil {
-				return err
-			}
-			if _, err = mgr.GetRESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version); err != nil {
-				if !meta.IsNoMatchError(err) {
-					return err
-				}
-				log.Info("No matching API in the server for job framework, skipped setup of controller and webhook")
-			} else {
-				if err = cb.NewReconciler(
-					mgr.GetClient(),
-					mgr.GetEventRecorderFor(fmt.Sprintf("%s-%s-controller", name, constants.KueueName)),
-					opts...,
-				).SetupWithManager(mgr); err != nil {
-					log.Error(err, "Unable to create controller")
-					return err
-				}
-				if err = cb.SetupWebhook(mgr, opts...); err != nil {
-					log.Error(err, "Unable to create webhook")
-					return err
-				}
-				log.Info("Set up controller and webhook for job framework")
-				return nil
-			}
-		}
-		if err := noop.SetupWebhook(mgr, cb.JobType); err != nil {
-			log.Error(err, "Unable to create noop webhook")
-			return err
-		}
-		return nil
-	})
-	if err != nil {
+	if err := jobframework.SetupControllers(mgr, setupLog, opts...); err != nil {
+		setupLog.Error(err, "Unable to create controller or webhook", "kubernetesVersion", serverVersionFetcher.GetServerVersion())
 		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
@@ -414,13 +363,4 @@ func apply(configFile string) (ctrl.Options, configapi.Configuration, error) {
 	setupLog.Info("Successfully loaded configuration", "config", cfgStr)
 
 	return options, cfg, nil
-}
-
-func isFrameworkEnabled(cfg *configapi.Configuration, name string) bool {
-	for _, framework := range cfg.Integrations.Frameworks {
-		if framework == name {
-			return true
-		}
-	}
-	return false
 }

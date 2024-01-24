@@ -25,9 +25,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
-
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -337,7 +337,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 			DepCRDPaths: []string{pytorchCrdPath},
 		}
 		cfg := fwk.Init()
-		ctx, k8sClient = fwk.RunManager(cfg, managerSetup(jobframework.WithWaitForPodsReady(true)))
+		ctx, k8sClient = fwk.RunManager(cfg, managerSetup(jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{Enable: true})))
 
 		ginkgo.By("Create a resource flavor")
 		gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).Should(gomega.Succeed())

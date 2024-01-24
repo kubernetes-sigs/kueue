@@ -62,7 +62,7 @@ func TestWlReconcileJobset(t *testing.T) {
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
-					OwnerReference("jobset.x-k8s.io/v1alpha2", "JobSet", "jobset1", "uid1", true, true).
+					OwnerReference(jobset.SchemeGroupVersion.WithKind("JobSet"), "jobset1", "uid1", true, true).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
@@ -83,7 +83,7 @@ func TestWlReconcileJobset(t *testing.T) {
 						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
-					OwnerReference("jobset.x-k8s.io/v1alpha2", "JobSet", "jobset1", "uid1", true, true).
+					OwnerReference(jobset.SchemeGroupVersion.WithKind("JobSet"), "jobset1", "uid1", true, true).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
@@ -110,7 +110,7 @@ func TestWlReconcileJobset(t *testing.T) {
 						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
-					OwnerReference("jobset.x-k8s.io/v1alpha2", "JobSet", "jobset1", "uid1", true, true).
+					OwnerReference(jobset.SchemeGroupVersion.WithKind("JobSet"), "jobset1", "uid1", true, true).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
@@ -139,7 +139,7 @@ func TestWlReconcileJobset(t *testing.T) {
 						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
-					OwnerReference("jobset.x-k8s.io/v1alpha2", "JobSet", "jobset1", "uid1", true, true).
+					OwnerReference(jobset.SchemeGroupVersion.WithKind("JobSet"), "jobset1", "uid1", true, true).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: `From remote "worker1": by test`}).
 					Obj(),
@@ -171,7 +171,7 @@ func TestWlReconcileJobset(t *testing.T) {
 						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
-					OwnerReference("jobset.x-k8s.io/v1alpha2", "JobSet", "jobset1", "uid1", true, true).
+					OwnerReference(jobset.SchemeGroupVersion.WithKind("JobSet"), "jobset1", "uid1", true, true).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: `From remote "worker1": by test`}).
 					Obj(),
@@ -203,7 +203,7 @@ func TestWlReconcileJobset(t *testing.T) {
 						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
-					OwnerReference("jobset.x-k8s.io/v1alpha2", "JobSet", "jobset1", "uid1", true, true).
+					OwnerReference(jobset.SchemeGroupVersion.WithKind("JobSet"), "jobset1", "uid1", true, true).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: `From remote "worker1": by test`}).
 					Obj(),
