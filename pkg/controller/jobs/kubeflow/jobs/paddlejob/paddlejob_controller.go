@@ -44,6 +44,7 @@ func init() {
 		JobType:                &kftraining.PaddleJob{},
 		AddToScheme:            kftraining.AddToScheme,
 		IsManagingObjectsOwner: isPaddleJob,
+		CanSupportIntegration:  jobframework.CanAlwaysSupportIntegration,
 	}))
 }
 

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
@@ -32,7 +33,7 @@ import (
 
 var (
 	errDuplicateFrameworkName = errors.New("duplicate framework name")
-	errMissingMadatoryField   = errors.New("mandatory field missing")
+	errMissingMandatoryField  = errors.New("mandatory field missing")
 )
 
 type JobReconcilerInterface interface {
@@ -60,6 +61,9 @@ type IntegrationCallbacks struct {
 	// managed by this integration
 	// (this callback is optional)
 	IsManagingObjectsOwner func(ref *metav1.OwnerReference) bool
+	// CanSupportIntegration returns true if the integration meets any additional condition
+	// like the Kubernetes version.
+	CanSupportIntegration func(log logr.Logger, opts ...Option) bool
 }
 
 type integrationManager struct {
@@ -78,15 +82,19 @@ func (m *integrationManager) register(name string, cb IntegrationCallbacks) erro
 	}
 
 	if cb.NewReconciler == nil {
-		return fmt.Errorf("%w \"NewReconciler\" for %q", errMissingMadatoryField, name)
+		return fmt.Errorf("%w \"NewReconciler\" for %q", errMissingMandatoryField, name)
 	}
 
 	if cb.SetupWebhook == nil {
-		return fmt.Errorf("%w \"SetupWebhook\" for %q", errMissingMadatoryField, name)
+		return fmt.Errorf("%w \"SetupWebhook\" for %q", errMissingMandatoryField, name)
 	}
 
 	if cb.JobType == nil {
-		return fmt.Errorf("%w \"WebhookType\" for %q", errMissingMadatoryField, name)
+		return fmt.Errorf("%w \"WebhookType\" for %q", errMissingMandatoryField, name)
+	}
+
+	if cb.CanSupportIntegration == nil {
+		return fmt.Errorf("%w \"CanSupportIntegration\" for %q", errMissingMandatoryField, name)
 	}
 
 	m.integrations[name] = cb

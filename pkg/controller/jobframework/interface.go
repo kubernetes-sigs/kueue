@@ -16,6 +16,7 @@ package jobframework
 import (
 	"context"
 
+	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -138,4 +139,8 @@ func workloadPriorityClassName(job GenericJob) string {
 func PrebuiltWorkloadFor(job GenericJob) (string, bool) {
 	name, found := job.Object().GetLabels()[constants.PrebuiltWorkloadLabel]
 	return name, found
+}
+
+func CanAlwaysSupportIntegration(logr.Logger, ...Option) bool {
+	return true
 }

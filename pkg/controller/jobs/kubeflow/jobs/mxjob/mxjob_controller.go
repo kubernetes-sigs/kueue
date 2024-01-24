@@ -44,6 +44,7 @@ func init() {
 		JobType:                &kftraining.MXJob{},
 		AddToScheme:            kftraining.AddToScheme,
 		IsManagingObjectsOwner: isMXJob,
+		CanSupportIntegration:  jobframework.CanAlwaysSupportIntegration,
 	}))
 }
 

@@ -42,11 +42,12 @@ const (
 
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
-		SetupIndexes:  SetupIndexes,
-		NewReconciler: NewReconciler,
-		SetupWebhook:  SetupRayJobWebhook,
-		JobType:       &rayjobapi.RayJob{},
-		AddToScheme:   rayjobapi.AddToScheme,
+		SetupIndexes:          SetupIndexes,
+		NewReconciler:         NewReconciler,
+		SetupWebhook:          SetupRayJobWebhook,
+		JobType:               &rayjobapi.RayJob{},
+		AddToScheme:           rayjobapi.AddToScheme,
+		CanSupportIntegration: jobframework.CanAlwaysSupportIntegration,
 	}))
 }
 

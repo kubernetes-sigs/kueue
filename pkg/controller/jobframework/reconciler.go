@@ -69,8 +69,8 @@ type Options struct {
 	ManageJobsWithoutQueueName bool
 	WaitForPodsReady           bool
 	KubeServerVersion          *kubeversion.ServerVersionFetcher
-	PodNamespaceSelector       *metav1.LabelSelector
-	PodSelector                *metav1.LabelSelector
+	// IntegrationOptions key is "$GROUP/$VERSION, Kind=$KIND".
+	IntegrationOptions map[string]any
 }
 
 // Option configures the reconciler.
@@ -99,19 +99,14 @@ func WithKubeServerVersion(v *kubeversion.ServerVersionFetcher) Option {
 	}
 }
 
-// WithPodNamespaceSelector adds rules to reconcile pods only in particular
-// namespaces.
-func WithPodNamespaceSelector(s *metav1.LabelSelector) Option {
+// WithIntegrationOptions adds integrations options like podOptions.
+// The second arg, `opts` should be recognized as any option struct.
+func WithIntegrationOptions(integrationName string, opts any) Option {
 	return func(o *Options) {
-		o.PodNamespaceSelector = s
-	}
-}
-
-// WithPodSelector adds rules to reconcile pods only with particular
-// labels.
-func WithPodSelector(s *metav1.LabelSelector) Option {
-	return func(o *Options) {
-		o.PodSelector = s
+		if len(o.IntegrationOptions) == 0 {
+			o.IntegrationOptions = make(map[string]any)
+		}
+		o.IntegrationOptions[integrationName] = opts
 	}
 }
 

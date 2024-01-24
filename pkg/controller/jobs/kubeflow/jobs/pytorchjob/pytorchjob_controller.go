@@ -44,6 +44,7 @@ func init() {
 		JobType:                &kftraining.PyTorchJob{},
 		AddToScheme:            kftraining.AddToScheme,
 		IsManagingObjectsOwner: isPyTorchJob,
+		CanSupportIntegration:  jobframework.CanAlwaysSupportIntegration,
 	}))
 }
 

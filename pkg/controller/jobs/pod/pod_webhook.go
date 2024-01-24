@@ -18,6 +18,7 @@ package pod
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -34,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
@@ -54,6 +56,9 @@ var (
 	groupNameLabelPath             = labelsPath.Key(GroupNameLabel)
 	groupTotalCountAnnotationPath  = annotationsPath.Key(GroupTotalCountAnnotation)
 	retriableInGroupAnnotationPath = annotationsPath.Key(RetriableInGroupAnnotation)
+
+	errPodOptsTypeAssertion = errors.New("options are not of type PodIntegrationOptions")
+	errPodOptsNotFound      = errors.New("podIntegrationOptions not found in options")
 )
 
 type PodWebhook struct {
@@ -69,17 +74,33 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	for _, opt := range opts {
 		opt(&options)
 	}
+	podOpts, err := getPodOptions(options.IntegrationOptions)
+	if err != nil {
+		return err
+	}
 	wh := &PodWebhook{
 		client:                     mgr.GetClient(),
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
-		namespaceSelector:          options.PodNamespaceSelector,
-		podSelector:                options.PodSelector,
+		namespaceSelector:          podOpts.NamespaceSelector,
+		podSelector:                podOpts.PodSelector,
 	}
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(&corev1.Pod{}).
 		WithDefaulter(wh).
 		WithValidator(wh).
 		Complete()
+}
+
+func getPodOptions(integrationOpts map[string]any) (configapi.PodIntegrationOptions, error) {
+	opts, ok := integrationOpts[corev1.SchemeGroupVersion.WithKind("Pod").String()]
+	if !ok {
+		return configapi.PodIntegrationOptions{}, errPodOptsNotFound
+	}
+	podOpts, ok := opts.(*configapi.PodIntegrationOptions)
+	if !ok {
+		return configapi.PodIntegrationOptions{}, fmt.Errorf("%w, got %T", errPodOptsTypeAssertion, opts)
+	}
+	return *podOpts, nil
 }
 
 // +kubebuilder:webhook:path=/mutate--v1-pod,mutating=true,failurePolicy=fail,sideEffects=None,groups="",resources=pods,verbs=create,versions=v1,name=mpod.kb.io,admissionReviewVersions=v1

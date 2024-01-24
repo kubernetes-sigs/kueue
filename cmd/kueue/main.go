@@ -18,7 +18,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -29,6 +28,7 @@ import (
 
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	corev1 "k8s.io/api/core/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -74,9 +74,8 @@ import (
 )
 
 var (
-	scheme            = runtime.NewScheme()
-	setupLog          = ctrl.Log.WithName("setup")
-	errPodIntegration = errors.New("pod integration only supported in Kubernetes 1.27 or newer")
+	scheme   = runtime.NewScheme()
+	setupLog = ctrl.Log.WithName("setup")
 )
 
 func init() {
@@ -273,10 +272,11 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 		jobframework.WithManageJobsWithoutQueueName(manageJobsWithoutQueueName),
 		jobframework.WithWaitForPodsReady(waitForPodsReady(cfg)),
 		jobframework.WithKubeServerVersion(serverVersionFetcher),
+		jobframework.WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), cfg.Integrations.PodOptions),
 	}
 	err := jobframework.ForEachIntegration(func(name string, cb jobframework.IntegrationCallbacks) error {
 		log := setupLog.WithValues("jobFrameworkName", name)
-		if isFrameworkEnabled(cfg, name) {
+		if isFrameworkEnabled(cfg, name) && cb.CanSupportIntegration(log, opts...) {
 			gvk, err := apiutil.GVKForObject(cb.JobType, mgr.GetScheme())
 			if err != nil {
 				return err
@@ -294,21 +294,6 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 				).SetupWithManager(mgr); err != nil {
 					log.Error(err, "Unable to create controller")
 					return err
-				}
-				if name == "pod" {
-					v := serverVersionFetcher.GetServerVersion()
-					if v.String() == "" || v.LessThan(kubeversion.KubeVersion1_27) {
-						setupLog.Error(errPodIntegration,
-							"Failed to configure reconcilers",
-							"kubernetesVersion", v)
-						os.Exit(1)
-					}
-
-					opts = append(
-						opts,
-						jobframework.WithPodNamespaceSelector(cfg.Integrations.PodOptions.NamespaceSelector),
-						jobframework.WithPodSelector(cfg.Integrations.PodOptions.PodSelector),
-					)
 				}
 				if err = cb.SetupWebhook(mgr, opts...); err != nil {
 					log.Error(err, "Unable to create webhook")

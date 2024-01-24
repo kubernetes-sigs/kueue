@@ -22,6 +22,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -48,13 +49,18 @@ func testAddToScheme(*runtime.Scheme) error {
 	return nil
 }
 
+func testCanSupportIntegration(logr.Logger, ...Option) bool {
+	return true
+}
+
 var (
 	testIntegrationCallbacks = IntegrationCallbacks{
-		NewReconciler: testNewReconciler,
-		SetupWebhook:  testSetupWebhook,
-		JobType:       &corev1.Pod{},
-		SetupIndexes:  testSetupIndexes,
-		AddToScheme:   testAddToScheme,
+		NewReconciler:         testNewReconciler,
+		SetupWebhook:          testSetupWebhook,
+		JobType:               &corev1.Pod{},
+		SetupIndexes:          testSetupIndexes,
+		AddToScheme:           testAddToScheme,
+		CanSupportIntegration: testCanSupportIntegration,
 	}
 )
 
@@ -97,46 +103,50 @@ func TestRegister(t *testing.T) {
 			manager:         &integrationManager{},
 			integrationName: "newFramework",
 			integrationCallbacks: IntegrationCallbacks{
-				SetupWebhook: testSetupWebhook,
-				JobType:      &corev1.Pod{},
-				SetupIndexes: testSetupIndexes,
-				AddToScheme:  testAddToScheme,
+				SetupWebhook:          testSetupWebhook,
+				JobType:               &corev1.Pod{},
+				SetupIndexes:          testSetupIndexes,
+				AddToScheme:           testAddToScheme,
+				CanSupportIntegration: testCanSupportIntegration,
 			},
-			wantError: errMissingMadatoryField,
+			wantError: errMissingMandatoryField,
 			wantList:  []string{},
 		},
 		"missing SetupWebhook": {
 			manager:         &integrationManager{},
 			integrationName: "newFramework",
 			integrationCallbacks: IntegrationCallbacks{
-				NewReconciler: testNewReconciler,
-				JobType:       &corev1.Pod{},
-				SetupIndexes:  testSetupIndexes,
-				AddToScheme:   testAddToScheme,
+				NewReconciler:         testNewReconciler,
+				JobType:               &corev1.Pod{},
+				SetupIndexes:          testSetupIndexes,
+				AddToScheme:           testAddToScheme,
+				CanSupportIntegration: testCanSupportIntegration,
 			},
-			wantError: errMissingMadatoryField,
+			wantError: errMissingMandatoryField,
 			wantList:  []string{},
 		},
 		"missing JobType": {
 			manager:         &integrationManager{},
 			integrationName: "newFramework",
 			integrationCallbacks: IntegrationCallbacks{
-				NewReconciler: testNewReconciler,
-				SetupWebhook:  testSetupWebhook,
-				SetupIndexes:  testSetupIndexes,
-				AddToScheme:   testAddToScheme,
+				NewReconciler:         testNewReconciler,
+				SetupWebhook:          testSetupWebhook,
+				SetupIndexes:          testSetupIndexes,
+				AddToScheme:           testAddToScheme,
+				CanSupportIntegration: testCanSupportIntegration,
 			},
-			wantError: errMissingMadatoryField,
+			wantError: errMissingMandatoryField,
 			wantList:  []string{},
 		},
 		"missing SetupIndexes": {
 			manager:         &integrationManager{},
 			integrationName: "newFramework",
 			integrationCallbacks: IntegrationCallbacks{
-				NewReconciler: testNewReconciler,
-				SetupWebhook:  testSetupWebhook,
-				JobType:       &corev1.Pod{},
-				AddToScheme:   testAddToScheme,
+				NewReconciler:         testNewReconciler,
+				SetupWebhook:          testSetupWebhook,
+				JobType:               &corev1.Pod{},
+				AddToScheme:           testAddToScheme,
+				CanSupportIntegration: testCanSupportIntegration,
 			},
 			wantError: nil,
 			wantList:  []string{"newFramework"},
@@ -151,10 +161,11 @@ func TestRegister(t *testing.T) {
 			manager:         &integrationManager{},
 			integrationName: "newFramework",
 			integrationCallbacks: IntegrationCallbacks{
-				NewReconciler: testNewReconciler,
-				SetupWebhook:  testSetupWebhook,
-				JobType:       &corev1.Pod{},
-				SetupIndexes:  testSetupIndexes,
+				NewReconciler:         testNewReconciler,
+				SetupWebhook:          testSetupWebhook,
+				JobType:               &corev1.Pod{},
+				SetupIndexes:          testSetupIndexes,
+				CanSupportIntegration: testCanSupportIntegration,
 			},
 			wantError: nil,
 			wantList:  []string{"newFramework"},
@@ -164,6 +175,18 @@ func TestRegister(t *testing.T) {
 				JobType:       &corev1.Pod{},
 				SetupIndexes:  testSetupIndexes,
 			},
+		},
+		"missing CanSupportIntegration": {
+			manager:         &integrationManager{},
+			integrationName: "newFramework",
+			integrationCallbacks: IntegrationCallbacks{
+				NewReconciler: testNewReconciler,
+				SetupWebhook:  testSetupWebhook,
+				JobType:       &corev1.Pod{},
+				SetupIndexes:  testSetupIndexes,
+			},
+			wantError: errMissingMandatoryField,
+			wantList:  []string{},
 		},
 	}
 
