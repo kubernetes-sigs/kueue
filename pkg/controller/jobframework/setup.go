@@ -29,7 +29,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobs/noop"
-	"sigs.k8s.io/kueue/pkg/util/cert"
 )
 
 var (
@@ -39,14 +38,13 @@ var (
 // SetupControllers setups all controllers and webhooks for integrations.
 // When the platform developers implement a separate kueue-manager to manage the in-house custom jobs,
 // they can easily setup controllers and webhooks for the in-house custom jobs.
-// You need to pass arguments to this function in accordance with the following notes:
-//   - mgr: You should pass the initialized Manager.
-//   - certsReady: When you use the kueue's internal cert management, you should pass the not closed channel.
-//     When you don't use the kueue's internal cert management, you should pass the closed channel.
-func SetupControllers(mgr ctrl.Manager, log logr.Logger, certsReady chan struct{}, opts ...Option) error {
-	// The controllers won't work until the webhooks are operating, and the webhook won't work until the
-	// certs are all in place.
-	cert.WaitForCertsReady(log, certsReady)
+//
+// Note that the first argument, "mgr" must be initialized on the outside of this function.
+// In addition, if the manager uses the kueue's internal cert management for the webhooks,
+// this function needs to be called after the certs get ready because the controllers won't work
+// until the webhooks are operating, and the webhook won't work until the
+// certs are all in place.
+func SetupControllers(mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
 	options := ProcessOptions(opts...)
 
 	return ForEachIntegration(func(name string, cb IntegrationCallbacks) error {
@@ -94,8 +92,8 @@ func SetupControllers(mgr ctrl.Manager, log logr.Logger, certsReady chan struct{
 // SetupIndexes setups the indexers for integrations.
 // When the platform developers implement a separate kueue-manager to manage the in-house custom jobs,
 // they can easily setup indexers for the in-house custom jobs.
-// You need to pass arguments to this function in accordance with the following notes:
-//   - indexer: You should pass the indexer got from the Manager.
+//
+// Note that the second argument, "indexer" needs to be the fieldIndexer obtained from the Manager.
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer, opts ...Option) error {
 	options := ProcessOptions(opts...)
 	return ForEachIntegration(func(name string, cb IntegrationCallbacks) error {

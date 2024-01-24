@@ -98,9 +98,7 @@ func TestSetupControllers(t *testing.T) {
 				t.Fatalf("Failed to setup manager: %v", err)
 			}
 
-			certsReady := make(chan struct{})
-			close(certsReady)
-			gotError := SetupControllers(mgr, logger, certsReady, tc.opts...)
+			gotError := SetupControllers(mgr, logger, tc.opts...)
 			if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected error from SetupControllers (-want,+got):\n%s", diff)
 			}
