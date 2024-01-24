@@ -221,9 +221,7 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher) {
 	// The controllers won't work until the webhooks are operating, and the webhook won't work until the
 	// certs are all in place.
-	setupLog.Info("Waiting for certificate generation to complete")
-	<-certsReady
-	setupLog.Info("Certs ready")
+	cert.WaitForCertsReady(setupLog, certsReady)
 
 	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg); err != nil {
 		setupLog.Error(err, "Unable to create controller", "controller", failedCtrl)
