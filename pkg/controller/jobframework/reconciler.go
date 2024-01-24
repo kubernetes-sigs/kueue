@@ -24,6 +24,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
@@ -32,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
@@ -71,6 +73,8 @@ type Options struct {
 	KubeServerVersion          *kubeversion.ServerVersionFetcher
 	// IntegrationOptions key is "$GROUP/$VERSION, Kind=$KIND".
 	IntegrationOptions map[string]any
+	EnabledFrameworks  sets.Set[string]
+	ManagerName        string
 }
 
 // Option configures the reconciler.
@@ -95,9 +99,9 @@ func WithManageJobsWithoutQueueName(f bool) Option {
 // WithWaitForPodsReady indicates if the controller should add the PodsReady
 // condition to the workload when the corresponding job has all pods ready
 // or succeeded.
-func WithWaitForPodsReady(f bool) Option {
+func WithWaitForPodsReady(w *configapi.WaitForPodsReady) Option {
 	return func(o *Options) {
-		o.WaitForPodsReady = f
+		o.WaitForPodsReady = w != nil && w.Enable
 	}
 }
 
@@ -115,6 +119,23 @@ func WithIntegrationOptions(integrationName string, opts any) Option {
 			o.IntegrationOptions = make(map[string]any)
 		}
 		o.IntegrationOptions[integrationName] = opts
+	}
+}
+
+// WithEnabledFrameworks adds framework names enabled in the ConfigAPI.
+func WithEnabledFrameworks(i *configapi.Integrations) Option {
+	return func(o *Options) {
+		if i == nil || len(i.Frameworks) == 0 {
+			return
+		}
+		o.EnabledFrameworks = sets.New(i.Frameworks...)
+	}
+}
+
+// WithManagerName adds the kueue's manager name.
+func WithManagerName(n string) Option {
+	return func(o *Options) {
+		o.ManagerName = n
 	}
 }
 

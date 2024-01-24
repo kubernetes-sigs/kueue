@@ -117,7 +117,7 @@ func TestProcessOptions(t *testing.T) {
 		"all options are passed": {
 			inputOpts: []Option{
 				WithManageJobsWithoutQueueName(true),
-				WithWaitForPodsReady(true),
+				WithWaitForPodsReady(&configapi.WaitForPodsReady{Enable: true}),
 				WithKubeServerVersion(&kubeversion.ServerVersionFetcher{}),
 				WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
 					PodSelector: &metav1.LabelSelector{},

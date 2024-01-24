@@ -2360,13 +2360,13 @@ func TestReconciler(t *testing.T) {
 			reconcileKey: &types.NamespacedName{Namespace: "ns", Name: "deleted_pod"},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").
-					OwnerReference("v1", "Pod", "deleted_pod", "", true, true).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "deleted_pod", "", true, true).
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("test-group", "ns").
-					OwnerReference("v1", "Pod", "deleted_pod", "", true, true).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "deleted_pod", "", true, true).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
