@@ -40,6 +40,7 @@ As a batch user, you can learn how to:
 - [Run a Kueue managed KubeRay RayJob](/docs/tasks/run_rayjobs).
 - [Submit Kueue jobs from Python](/docs/tasks/run_python_jobs).
 - [Run a Kueue managed plain Pod](/docs/tasks/run_plain_pods).
+- [Run a Kueue managed JobSet](/docs/tasks/run_jobsets).
 
 ### Platform developer
 
