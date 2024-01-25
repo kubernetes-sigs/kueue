@@ -103,7 +103,7 @@ func TestListMultikueClustersUsingKubeconfig(t *testing.T) {
 			k8sclient := builder.Build()
 			for _, req := range tc.clusters {
 				if err := k8sclient.Create(ctx, req); err != nil {
-					t.Errorf("Unable to create %s request: %v", client.ObjectKeyFromObject(req), err)
+					t.Fatalf("Unable to create %s cluster: %v", client.ObjectKeyFromObject(req), err)
 				}
 			}
 
@@ -160,7 +160,7 @@ func TestListMultikueConfigsUsingMultikueueClusters(t *testing.T) {
 			k8sclient := builder.Build()
 			for _, config := range tc.configs {
 				if err := k8sclient.Create(ctx, config); err != nil {
-					t.Errorf("Unable to create %s config: %v", client.ObjectKeyFromObject(config), err)
+					t.Fatalf("Unable to create %s config: %v", client.ObjectKeyFromObject(config), err)
 				}
 			}
 

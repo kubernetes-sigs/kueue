@@ -20,7 +20,7 @@ package v1alpha1
 // MultiKueueClusterSpecApplyConfiguration represents an declarative configuration of the MultiKueueClusterSpec type for use
 // with apply.
 type MultiKueueClusterSpecApplyConfiguration struct {
-	KubeConfig *KubeConfigApplyConfiguration `json:"kubeconfigRef,omitempty"`
+	KubeConfig *KubeConfigApplyConfiguration `json:"kubeConfig,omitempty"`
 }
 
 // MultiKueueClusterSpecApplyConfiguration constructs an declarative configuration of the MultiKueueClusterSpec type for use with

@@ -213,7 +213,7 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 	// get the kubeconfig
 	kubeConfig, retry, err := c.getKubeConfig(ctx, &cluster.Spec.KubeConfig)
 	if retry {
-		return reconcile.Result{}, nil
+		return reconcile.Result{}, err
 	}
 	if err != nil {
 		log.Error(err, "reading kubeconfig")

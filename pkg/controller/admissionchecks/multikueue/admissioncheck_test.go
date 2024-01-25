@@ -129,6 +129,35 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"missing and inactive cluster": {
+			reconcileFor: "ac1",
+			checks: []kueue.AdmissionCheck{
+				*utiltesting.MakeAdmissionCheck("ac1").
+					ControllerName(ControllerName).
+					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Obj(),
+			},
+			configs: []kueuealpha.MultiKueueConfig{
+				*utiltesting.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2", "worker3").Obj(),
+			},
+
+			clusters: []kueuealpha.MultiKueueCluster{
+				*utiltesting.MakeMultiKueueCluster("worker1").Active(metav1.ConditionFalse, "ByTest", "by test").Obj(),
+				*utiltesting.MakeMultiKueueCluster("worker2").Active(metav1.ConditionTrue, "ByTest", "by test").Obj(),
+			},
+			wantChecks: []kueue.AdmissionCheck{
+				*utiltesting.MakeAdmissionCheck("ac1").
+					ControllerName(ControllerName).
+					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Condition(metav1.Condition{
+						Type:    kueue.AdmissionCheckActive,
+						Status:  metav1.ConditionFalse,
+						Reason:  "Inactive",
+						Message: "Missing clusters: [worker3], Inactive clusters: [worker1]",
+					}).
+					Obj(),
+			},
+		},
 		"active": {
 			reconcileFor: "ac1",
 			checks: []kueue.AdmissionCheck{

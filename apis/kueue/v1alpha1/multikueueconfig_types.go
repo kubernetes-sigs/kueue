@@ -52,10 +52,15 @@ type KubeConfig struct {
 
 type MultiKueueClusterSpec struct {
 	// Information how to connect to the cluster.
-	KubeConfig KubeConfig `json:"kubeconfigRef"`
+	KubeConfig KubeConfig `json:"kubeConfig"`
 }
 
 type MultiKueueClusterStatus struct {
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	// +patchStrategy=merge
+	// +patchMergeKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 }
 
