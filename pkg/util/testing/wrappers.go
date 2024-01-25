@@ -797,6 +797,15 @@ func (mkc *MultiKueueClusterWrapper) KubeConfig(secretName string) *MultiKueueCl
 	return mkc
 }
 
+func (mkc *MultiKueueClusterWrapper) Path(name, path string) *MultiKueueClusterWrapper {
+	mkc.Spec.KubeConfig = kueuealpha.KubeConfig{
+		Name:         name,
+		Location:     path,
+		LocationType: kueuealpha.PathLocationType,
+	}
+	return mkc
+}
+
 func (mkc *MultiKueueClusterWrapper) Active(state metav1.ConditionStatus, reason, message string) *MultiKueueClusterWrapper {
 	cond := metav1.Condition{
 		Type:    kueuealpha.MultiKueueClusterActive,

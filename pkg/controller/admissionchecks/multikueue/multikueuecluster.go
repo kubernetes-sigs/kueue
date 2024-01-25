@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 
@@ -220,6 +221,7 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 	}
 	if err != nil {
 		log.Error(err, "reading kubeconfig")
+		c.stopAndRemoveCluster(req.Name)
 		return reconcile.Result{}, c.updateStatus(ctx, cluster, false, "BadConfig", err.Error())
 	}
 
@@ -231,10 +233,18 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 }
 
 func (c *clustersReconciler) getKubeConfig(ctx context.Context, ref *kueuealpha.KubeConfig) ([]byte, bool, error) {
+	if ref.LocationType == kueuealpha.SecretLocationType {
+		return c.getKubeConfigFromSecret(ctx, ref.Location)
+	}
+	// Otherwise it's path
+	return c.getKubeConfigFromPath(ref.Location)
+}
+
+func (c *clustersReconciler) getKubeConfigFromSecret(ctx context.Context, secretName string) ([]byte, bool, error) {
 	sec := corev1.Secret{}
 	secretObjKey := types.NamespacedName{
 		Namespace: c.configNamespace,
-		Name:      ref.Location,
+		Name:      secretName,
 	}
 	err := c.localClient.Get(ctx, secretObjKey, &sec)
 	if err != nil {
@@ -243,10 +253,15 @@ func (c *clustersReconciler) getKubeConfig(ctx context.Context, ref *kueuealpha.
 
 	kconfigBytes, found := sec.Data[kueuealpha.MultiKueueConfigSecretKey]
 	if !found {
-		return nil, false, fmt.Errorf("key %q not found in secret %q", kueuealpha.MultiKueueConfigSecretKey, ref.Location)
+		return nil, false, fmt.Errorf("key %q not found in secret %q", kueuealpha.MultiKueueConfigSecretKey, secretName)
 	}
 
 	return kconfigBytes, false, nil
+}
+
+func (c *clustersReconciler) getKubeConfigFromPath(path string) ([]byte, bool, error) {
+	content, err := os.ReadFile(path)
+	return content, false, err
 }
 
 func (c *clustersReconciler) updateStatus(ctx context.Context, cluster *kueuealpha.MultiKueueCluster, active bool, reason, message string) error {

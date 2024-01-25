@@ -99,7 +99,7 @@ func TestUpdateConfig(t *testing.T) {
 				},
 			},
 		},
-		"update client with valid config": {
+		"update client with valid secret config": {
 			reconcileFor: "worker1",
 			clusters: []kueuealpha.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").KubeConfig("worker1").Obj(),
@@ -119,7 +119,24 @@ func TestUpdateConfig(t *testing.T) {
 				},
 			},
 		},
-		"update client with invalid config": {
+		"update client with valid path config": {
+			reconcileFor: "worker1",
+			clusters: []kueuealpha.MultiKueueCluster{
+				*utiltesting.MakeMultiKueueCluster("worker1").Path("w1", "testdata/worker1KubeConfig").Obj(),
+			},
+			remoteClients: map[string]*remoteClient{
+				"worker1": newTestClient("worker1 old kubeconfig"),
+			},
+			wantClusters: []kueuealpha.MultiKueueCluster{
+				*utiltesting.MakeMultiKueueCluster("worker1").Path("w1", "testdata/worker1KubeConfig").Active(metav1.ConditionTrue, "Active", "Connected").Obj(),
+			},
+			wantRemoteClients: map[string]*remoteClient{
+				"worker1": {
+					kubeconfig: []byte("worker1 kubeconfig"),
+				},
+			},
+		},
+		"update client with invalid secret config": {
 			reconcileFor: "worker1",
 			clusters: []kueuealpha.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").KubeConfig("worker1").Obj(),
@@ -132,6 +149,18 @@ func TestUpdateConfig(t *testing.T) {
 			},
 			wantClusters: []kueuealpha.MultiKueueCluster{
 				*utiltesting.MakeMultiKueueCluster("worker1").KubeConfig("worker1").Active(metav1.ConditionFalse, "ClientConnectionFailed", "invalid kubeconfig").Obj(),
+			},
+		},
+		"update client with invalid path config": {
+			reconcileFor: "worker1",
+			clusters: []kueuealpha.MultiKueueCluster{
+				*utiltesting.MakeMultiKueueCluster("worker1").Path("w1", "").Obj(),
+			},
+			remoteClients: map[string]*remoteClient{
+				"worker1": newTestClient("worker1 old kubeconfig"),
+			},
+			wantClusters: []kueuealpha.MultiKueueCluster{
+				*utiltesting.MakeMultiKueueCluster("worker1").Path("w1", "").Active(metav1.ConditionFalse, "BadConfig", "open : no such file or directory").Obj(),
 			},
 		},
 		"missing cluster is removed": {
