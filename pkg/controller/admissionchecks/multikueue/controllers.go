@@ -16,15 +16,45 @@ limitations under the License.
 
 package multikueue
 
-import ctrl "sigs.k8s.io/controller-runtime"
+import (
+	"time"
 
-func SetupControllers(mgr ctrl.Manager, namespace string) error {
+	ctrl "sigs.k8s.io/controller-runtime"
+)
+
+const (
+	defaultGCInterval = time.Minute
+)
+
+type SetupOptions struct {
+	gcInterval time.Duration
+}
+
+type SetupOption func(o *SetupOptions)
+
+// WithGCInterval - sets the interval between two garbage collection runs.
+// If 0 the garbage collection is disabled.
+func WithGCInterval(i time.Duration) SetupOption {
+	return func(o *SetupOptions) {
+		o.gcInterval = i
+	}
+}
+
+func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) error {
+	options := &SetupOptions{
+		gcInterval: defaultGCInterval,
+	}
+
+	for _, o := range opts {
+		o(options)
+	}
+
 	helper, err := newMultiKueueStoreHelper(mgr.GetClient())
 	if err != nil {
 		return err
 	}
 
-	cRec := newClustersReconciler(mgr.GetClient(), namespace)
+	cRec := newClustersReconciler(mgr.GetClient(), namespace, options.gcInterval)
 	err = cRec.setupWithManager(mgr)
 	if err != nil {
 		return err

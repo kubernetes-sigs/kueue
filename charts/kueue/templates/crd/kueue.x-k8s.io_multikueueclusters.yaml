@@ -66,6 +66,15 @@ spec:
                 - location
                 - locationType
                 type: object
+              origin:
+                default: multikueue
+                description: A label value used to track the creator of workloads
+                  in the worker cluster.
+                maxLength: 63
+                type: string
+                x-kubernetes-validations:
+                - message: Value is immutable
+                  rule: self == oldSelf
             required:
             - kubeConfig
             type: object

@@ -67,6 +67,9 @@ type Configuration struct {
 	// QueueVisibility is configuration to expose the information about the top
 	// pending workloads.
 	QueueVisibility *QueueVisibility `json:"queueVisibility,omitempty"`
+
+	// MultiKueue controls the behaviour of the MultiKueue AdmissionCheck Controller.
+	MultiKueue *MultiKueue `json:"multiKueue,omitempty"`
 }
 
 type ControllerManager struct {
@@ -197,6 +200,13 @@ type WaitForPodsReady struct {
 	// RequeuingTimestamp defines the timestamp used for requeuing a Workload
 	// that was evicted due to Pod readiness. Defaults to Eviction.
 	RequeuingTimestamp *RequeuingTimestamp `json:"requeuingTimestamp,omitempty"`
+}
+
+type MultiKueue struct {
+	// GCTimeout defines the timeout between two consecutive garbage collection runs.
+	// Defaults to 1min. If 0, the garbage collection is disabled.
+	// +optional
+	GCTimeout *metav1.Duration `json:"gcTimeout,omitempty"`
 }
 
 type RequeuingTimestamp string

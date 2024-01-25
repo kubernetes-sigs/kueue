@@ -44,6 +44,7 @@ const (
 	DefaultQueueVisibilityUpdateIntervalSeconds int32   = 5
 	DefaultClusterQueuesMaxCount                int32   = 10
 	defaultJobFrameworkName                             = "batch/job"
+	DefaultMultiKueueGCTimeout                          = time.Minute
 )
 
 func getOperatorNamespace() string {
@@ -160,5 +161,12 @@ func SetDefaults_Configuration(cfg *Configuration) {
 
 	if cfg.Integrations.PodOptions.PodSelector == nil {
 		cfg.Integrations.PodOptions.PodSelector = &metav1.LabelSelector{}
+	}
+
+	if cfg.MultiKueue == nil {
+		cfg.MultiKueue = &MultiKueue{}
+	}
+	if cfg.MultiKueue.GCTimeout == nil {
+		cfg.MultiKueue.GCTimeout = &metav1.Duration{Duration: DefaultMultiKueueGCTimeout}
 	}
 }

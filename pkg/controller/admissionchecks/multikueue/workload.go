@@ -52,6 +52,10 @@ var (
 	errNoActiveClusters = errors.New("no active clusters")
 )
 
+const (
+	MultiKueueOriginLabelKey = "kueue.x-k8s.io/multikueue-origin"
+)
+
 type wlReconciler struct {
 	client   client.Client
 	helper   *multiKueueStoreHelper
@@ -329,7 +333,7 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 	// finally - create missing workloads
 	for rem, remWl := range group.remotes {
 		if remWl == nil {
-			clone := cloneForCreate(group.local)
+			clone := cloneForCreate(group.local, group.remoteClients[rem].origin)
 			err := group.remoteClients[rem].client.Create(ctx, clone)
 			if err != nil {
 				// just log the error for a single remote
@@ -375,9 +379,13 @@ func cleanObjectMeta(orig *metav1.ObjectMeta) metav1.ObjectMeta {
 	}
 }
 
-func cloneForCreate(orig *kueue.Workload) *kueue.Workload {
+func cloneForCreate(orig *kueue.Workload, origin string) *kueue.Workload {
 	remoteWl := &kueue.Workload{}
 	remoteWl.ObjectMeta = cleanObjectMeta(&orig.ObjectMeta)
+	if remoteWl.Labels == nil {
+		remoteWl.Labels = make(map[string]string)
+	}
+	remoteWl.Labels[MultiKueueOriginLabelKey] = origin
 	orig.Spec.DeepCopyInto(&remoteWl.Spec)
 	return remoteWl
 }
