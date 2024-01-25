@@ -36,10 +36,12 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -506,17 +508,18 @@ func (r *WorkloadReconciler) notifyWatchers(oldWl, newWl *kueue.Workload) {
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) error {
 	ruh := &resourceUpdatesHandler{
 		r: r,
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.Workload{}).
+		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
 		Watches(&corev1.LimitRange{}, ruh).
 		Watches(&nodev1.RuntimeClass{}, ruh).
 		Watches(&kueue.ClusterQueue{}, &workloadCqHandler{client: r.client}).
 		WithEventFilter(r).
-		Complete(r)
+		Complete(WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
 }
 
 // admittedNotReadyWorkload returns as a pair of values. The first boolean determines

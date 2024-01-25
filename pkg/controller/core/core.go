@@ -33,15 +33,15 @@ const updateChBuffer = 10
 // controller that failed to create and an error, if any.
 func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache, cfg *config.Configuration) (string, error) {
 	rfRec := NewResourceFlavorReconciler(mgr.GetClient(), qManager, cc)
-	if err := rfRec.SetupWithManager(mgr); err != nil {
+	if err := rfRec.SetupWithManager(mgr, cfg); err != nil {
 		return "ResourceFlavor", err
 	}
 	acRec := NewAdmissionCheckReconciler(mgr.GetClient(), qManager, cc)
-	if err := acRec.SetupWithManager(mgr); err != nil {
+	if err := acRec.SetupWithManager(mgr, cfg); err != nil {
 		return "AdmissionCheck", err
 	}
 	qRec := NewLocalQueueReconciler(mgr.GetClient(), qManager, cc)
-	if err := qRec.SetupWithManager(mgr); err != nil {
+	if err := qRec.SetupWithManager(mgr, cfg); err != nil {
 		return "LocalQueue", err
 	}
 
@@ -59,13 +59,13 @@ func SetupControllers(mgr ctrl.Manager, qManager *queue.Manager, cc *cache.Cache
 	}
 	rfRec.AddUpdateWatcher(cqRec)
 	acRec.AddUpdateWatchers(cqRec)
-	if err := cqRec.SetupWithManager(mgr); err != nil {
+	if err := cqRec.SetupWithManager(mgr, cfg); err != nil {
 		return "ClusterQueue", err
 	}
 	if err := NewWorkloadReconciler(mgr.GetClient(), qManager, cc,
 		mgr.GetEventRecorderFor(constants.WorkloadControllerName),
 		WithWorkloadUpdateWatchers(qRec, cqRec),
-		WithPodsReadyTimeout(podsReadyTimeout(cfg))).SetupWithManager(mgr); err != nil {
+		WithPodsReadyTimeout(podsReadyTimeout(cfg))).SetupWithManager(mgr, cfg); err != nil {
 		return "Workload", err
 	}
 	return "", nil
