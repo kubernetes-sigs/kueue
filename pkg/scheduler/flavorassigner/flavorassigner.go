@@ -237,7 +237,6 @@ func lastAssignmentOutdated(wl *workload.Info, cq *cache.ClusterQueue) bool {
 // FlavorAssignmentMode.
 func AssignFlavors(log logr.Logger, wl *workload.Info, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, cq *cache.ClusterQueue, counts []int32) Assignment {
 	if wl.LastAssignment != nil && lastAssignmentOutdated(wl, cq) {
-		wl.LastAssignment = nil
 		if logV := log.V(6); logV.Enabled() {
 			keysValues := []any{
 				"cq.AllocatableResourceGeneration", cq.AllocatableResourceGeneration,
@@ -249,8 +248,9 @@ func AssignFlavors(log logr.Logger, wl *workload.Info, resourceFlavors map[kueue
 					"wl.LastAssignment.CohortGeneration", wl.LastAssignment.CohortGeneration,
 				)
 			}
-			logV.Info("Cleared Worload's last assignment becaused it was outdated", keysValues...)
+			logV.Info("Clearing Workload's last assignment because it was outdated", keysValues...)
 		}
+		wl.LastAssignment = nil
 	}
 
 	if len(counts) == 0 {
