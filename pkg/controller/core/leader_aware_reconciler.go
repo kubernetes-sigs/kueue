@@ -44,7 +44,7 @@ import (
 //     the leader election lease, in case the previously leading replica failed to renew it.
 func WithLeadingManager(mgr ctrl.Manager, reconciler reconcile.Reconciler, obj client.Object, cfg *config.Configuration) reconcile.Reconciler {
 	// Do not decorate the reconciler if leader election is disabled
-	if !ptr.Deref(cfg.LeaderElection.LeaderElect, false) {
+	if cfg.LeaderElection == nil || !ptr.Deref(cfg.LeaderElection.LeaderElect, false) {
 		return reconciler
 	}
 

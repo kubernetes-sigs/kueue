@@ -58,7 +58,7 @@ func TestSchedulerWithWaitForPodsReady(t *testing.T) {
 }
 
 func managerAndSchedulerSetupWithTimeoutAdmission(mgr manager.Manager, ctx context.Context, value time.Duration, blockAdmission bool, requeuingTimestamp config.RequeuingTimestamp) {
-	cfg := config.Configuration{
+	cfg := &config.Configuration{
 		WaitForPodsReady: &config.WaitForPodsReady{
 			Enable:             true,
 			BlockAdmission:     &blockAdmission,
@@ -66,6 +66,7 @@ func managerAndSchedulerSetupWithTimeoutAdmission(mgr manager.Manager, ctx conte
 			RequeuingTimestamp: ptr.To(requeuingTimestamp),
 		},
 	}
+	mgr.GetScheme().Default(cfg)
 
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -76,7 +77,7 @@ func managerAndSchedulerSetupWithTimeoutAdmission(mgr manager.Manager, ctx conte
 		queue.WithPodsReadyRequeuingTimestamp(requeuingTimestamp),
 	)
 
-	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &cfg)
+	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 	failedWebhook, err := webhooks.Setup(mgr)
