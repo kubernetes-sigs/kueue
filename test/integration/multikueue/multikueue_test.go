@@ -133,7 +133,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, acKey, &updatetedAc)).To(gomega.Succeed())
 				cond := apimeta.FindStatusCondition(updatetedAc.Status.Conditions, kueue.AdmissionCheckActive)
 				g.Expect(cond).NotTo(gomega.BeNil())
-				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue), "Reason: %s, Message: %q", cond.Reason, cond.Status)
+				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionTrue), "Reason: %s, Message: %q", cond.Reason, cond.Message)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 

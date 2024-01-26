@@ -57,8 +57,10 @@ func newTestClient(config string) *remoteClient {
 
 		builderOverride: fakeClientBuilder,
 	}
-	ret.watchCancel = func() {
-		ret.kubeconfig = []byte(string(ret.kubeconfig) + " canceled")
+	ret.watchCancel = map[string]func(){
+		"test": func() {
+			ret.kubeconfig = []byte(string(ret.kubeconfig) + " canceled")
+		},
 	}
 	return ret
 }
@@ -195,6 +197,7 @@ func TestUpdateConfig(t *testing.T) {
 			c := builder.Build()
 
 			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin)
+			reconciler.rootContext = ctx
 
 			if len(tc.remoteClients) > 0 {
 				reconciler.remoteClients = tc.remoteClients

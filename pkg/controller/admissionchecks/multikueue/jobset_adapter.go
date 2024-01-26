@@ -17,7 +17,9 @@ package multikueue
 
 import (
 	"context"
+	"errors"
 
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
@@ -77,4 +79,24 @@ func (b *jobsetAdapter) DeleteRemoteObject(ctx context.Context, remoteClient cli
 
 func (b *jobsetAdapter) KeepAdmissionCheckPending() bool {
 	return false
+}
+
+var _ multiKueueWatcher = (*jobsetAdapter)(nil)
+
+func (*jobsetAdapter) GetEmptyList() client.ObjectList {
+	return &jobset.JobSetList{}
+}
+
+func (*jobsetAdapter) GetEventsWorkloadKey(o runtime.Object) (types.NamespacedName, error) {
+	jobSet, isJobSet := o.(*jobset.JobSet)
+	if !isJobSet {
+		return types.NamespacedName{}, errors.New("not a jobset")
+	}
+
+	prebuiltWl, hasPrebuiltWorkload := jobSet.Labels[constants.PrebuiltWorkloadLabel]
+	if !hasPrebuiltWorkload {
+		return types.NamespacedName{}, errors.New("no prebuilt workload found")
+	}
+
+	return types.NamespacedName{Name: prebuiltWl, Namespace: jobSet.Namespace}, nil
 }
