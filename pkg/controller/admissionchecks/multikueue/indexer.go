@@ -35,7 +35,7 @@ const (
 )
 
 var (
-	configGVK = kueue.GroupVersion.WithKind("MultiKueueConfig")
+	configGVK = kueuealpha.GroupVersion.WithKind("MultiKueueConfig")
 )
 
 func getIndexUsingKubeConfigs(configNamespace string) func(obj client.Object) []string {
@@ -58,10 +58,10 @@ func indexUsingMultiKueueClusters(obj client.Object) []string {
 
 func SetupIndexer(ctx context.Context, indexer client.FieldIndexer, configNamespace string) error {
 	if err := indexer.IndexField(ctx, &kueuealpha.MultiKueueCluster{}, UsingKubeConfigs, getIndexUsingKubeConfigs(configNamespace)); err != nil {
-		return fmt.Errorf("setting index on clusters config used kubeconfig: %w", err)
+		return fmt.Errorf("setting index on clusters using kubeconfig: %w", err)
 	}
 	if err := indexer.IndexField(ctx, &kueuealpha.MultiKueueConfig{}, UsingMultiKueueClusters, indexUsingMultiKueueClusters); err != nil {
-		return fmt.Errorf("setting index on checks config used clusters: %w", err)
+		return fmt.Errorf("setting index on configs using clusters: %w", err)
 	}
 	if err := indexer.IndexField(ctx, &kueue.AdmissionCheck{}, AdmissionCheckUsingConfigKey, admissioncheck.IndexerByConfigFunction(ControllerName, configGVK)); err != nil {
 		return fmt.Errorf("setting index on admission checks config: %w", err)

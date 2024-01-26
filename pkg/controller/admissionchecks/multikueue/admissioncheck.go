@@ -115,7 +115,7 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	}
 
 	oldCondition := apimeta.FindStatusCondition(ac.Status.Conditions, kueue.AdmissionCheckActive)
-	if oldCondition == nil || oldCondition.Status != newCondition.Status || oldCondition.Reason != newCondition.Reason || oldCondition.Message != newCondition.Message {
+	if !cmpConditionState(oldCondition, &newCondition) {
 		apimeta.SetStatusCondition(&ac.Status.Conditions, newCondition)
 		err := a.client.Status().Update(ctx, ac)
 		if err != nil {
@@ -225,13 +225,13 @@ type mkClusterHandler struct {
 var _ handler.EventHandler = (*mkClusterHandler)(nil)
 
 func (m *mkClusterHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.RateLimitingInterface) {
-	mkc, isMKC := event.Object.(*kueuealpha.MultiKueueConfig)
+	mkc, isMKC := event.Object.(*kueuealpha.MultiKueueCluster)
 	if !isMKC {
 		return
 	}
 
 	if err := queueReconcileForConfigUsers(ctx, mkc.Name, m.client, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on create event", "multiKueueConfig", klog.KObj(mkc))
+		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on create event", "multiKueueCluster", klog.KObj(mkc))
 	}
 }
 
@@ -242,9 +242,9 @@ func (m *mkClusterHandler) Update(ctx context.Context, event event.UpdateEvent, 
 		return
 	}
 
-	oldActive := apimeta.IsStatusConditionTrue(oldMKC.Status.Conditions, kueuealpha.MultiKueueClusterActive)
-	newActive := apimeta.IsStatusConditionTrue(newMKC.Status.Conditions, kueuealpha.MultiKueueClusterActive)
-	if oldActive != newActive {
+	oldActive := apimeta.FindStatusCondition(oldMKC.Status.Conditions, kueuealpha.MultiKueueClusterActive)
+	newActive := apimeta.FindStatusCondition(newMKC.Status.Conditions, kueuealpha.MultiKueueClusterActive)
+	if !cmpConditionState(oldActive, newActive) {
 		if err := m.queue(ctx, newMKC, q); err != nil {
 			ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on update event", "multiKueueCluster", klog.KObj(oldMKC))
 		}
@@ -285,4 +285,14 @@ func (m *mkClusterHandler) queue(ctx context.Context, cluster *kueuealpha.MultiK
 		}
 	}
 	return nil
+}
+
+func cmpConditionState(a, b *metav1.Condition) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Status == b.Status && a.Reason == b.Reason && a.Message == b.Message
 }

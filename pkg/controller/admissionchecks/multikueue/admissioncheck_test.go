@@ -48,13 +48,13 @@ func TestReconcile(t *testing.T) {
 			checks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			},
 			wantChecks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Condition(metav1.Condition{
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionFalse,
@@ -82,7 +82,7 @@ func TestReconcile(t *testing.T) {
 			checks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			},
 			configs: []kueuealpha.MultiKueueConfig{
@@ -91,7 +91,7 @@ func TestReconcile(t *testing.T) {
 			wantChecks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Condition(metav1.Condition{
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionFalse,
@@ -106,7 +106,7 @@ func TestReconcile(t *testing.T) {
 			checks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			},
 			configs: []kueuealpha.MultiKueueConfig{
@@ -119,7 +119,7 @@ func TestReconcile(t *testing.T) {
 			wantChecks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Condition(metav1.Condition{
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionFalse,
@@ -134,7 +134,7 @@ func TestReconcile(t *testing.T) {
 			checks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			},
 			configs: []kueuealpha.MultiKueueConfig{
@@ -148,7 +148,7 @@ func TestReconcile(t *testing.T) {
 			wantChecks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Condition(metav1.Condition{
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionFalse,
@@ -163,7 +163,7 @@ func TestReconcile(t *testing.T) {
 			checks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			},
 			configs: []kueuealpha.MultiKueueConfig{
@@ -175,7 +175,7 @@ func TestReconcile(t *testing.T) {
 			wantChecks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Condition(metav1.Condition{
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionTrue,

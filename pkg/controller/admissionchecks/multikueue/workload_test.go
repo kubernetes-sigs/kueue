@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/util/slices"
@@ -294,7 +295,7 @@ func TestWlReconcile(t *testing.T) {
 			manageBuilder = manageBuilder.WithObjects(
 				utiltesting.MakeMultiKueueConfig("config1").Clusters("worker1").Obj(),
 				utiltesting.MakeAdmissionCheck("ac1").ControllerName(ControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			)
 
@@ -308,7 +309,7 @@ func TestWlReconcile(t *testing.T) {
 
 			w1remoteClient := newRemoteClient(managerClient, nil)
 			w1remoteClient.client = worker1Client
-			cRec.clients["worker1"] = w1remoteClient
+			cRec.remoteClients["worker1"] = w1remoteClient
 
 			helper, _ := newMultiKueueStoreHelper(managerClient)
 			reconciler := newWlReconciler(managerClient, helper, cRec)

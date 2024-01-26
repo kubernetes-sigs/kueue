@@ -52,7 +52,7 @@ spec:
                   from the ClusterQueue should be distributed.
                 items:
                   type: string
-                maxItems: 100
+                maxItems: 10
                 minItems: 1
                 type: array
                 x-kubernetes-list-type: set

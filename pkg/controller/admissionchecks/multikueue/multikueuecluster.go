@@ -121,23 +121,24 @@ func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, ev watch.Event) 
 
 	localWl := &kueue.Workload{}
 	if err := rc.localClient.Get(ctx, client.ObjectKeyFromObject(wl), localWl); err == nil {
+		rc.wlUpdateCh <- event.GenericEvent{Object: localWl}
+	} else {
 		if !apierrors.IsNotFound(err) {
 			ctrl.LoggerFrom(ctx).Error(err, "reading local workload")
 		}
-		rc.wlUpdateCh <- event.GenericEvent{Object: localWl}
 	}
 }
 
 // clustersReconciler implements the reconciler for all MultiKueueClusters.
 // Its main task being to maintain the list of remote clients associated to each MultiKueueCluster.
 type clustersReconciler struct {
-	client          client.Client
+	localClient     client.Client
 	configNamespace string
 
 	lock sync.RWMutex
-	// The list of remote clients, indexed by the cluster name.
-	clients    map[string]*remoteClient
-	wlUpdateCh chan event.GenericEvent
+	// The list of remote remoteClients, indexed by the cluster name.
+	remoteClients map[string]*remoteClient
+	wlUpdateCh    chan event.GenericEvent
 
 	// rootContext - holds the context passed by the controller-runtime on Start.
 	// It's used to create child contexts for MultiKueueClusters client watch routines
@@ -161,9 +162,9 @@ func (c *clustersReconciler) Start(ctx context.Context) error {
 func (c *clustersReconciler) stopAndRemoveCluster(clusterName string) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
-	if rc, found := c.clients[clusterName]; found {
+	if rc, found := c.remoteClients[clusterName]; found {
 		rc.watchCancel()
-		delete(c.clients, clusterName)
+		delete(c.remoteClients, clusterName)
 	}
 }
 
@@ -171,18 +172,18 @@ func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterN
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	client, found := c.clients[clusterName]
+	client, found := c.remoteClients[clusterName]
 	if !found {
-		client = newRemoteClient(c.client, c.wlUpdateCh)
+		client = newRemoteClient(c.localClient, c.wlUpdateCh)
 		if c.builderOverride != nil {
 			client.builderOverride = c.builderOverride
 		}
-		c.clients[clusterName] = client
+		c.remoteClients[clusterName] = client
 	}
 
 	if err := client.setConfig(c.rootContext, kubeconfig); err != nil {
-		ctrl.LoggerFrom(ctx).Error(err, "reading local workload")
-		delete(c.clients, clusterName)
+		ctrl.LoggerFrom(ctx).Error(err, "failed to set kubeConfig in the remote client")
+		delete(c.remoteClients, clusterName)
 		return err
 	}
 	return nil
@@ -192,7 +193,7 @@ func (a *clustersReconciler) controllerFor(acName string) (*remoteClient, bool) 
 	a.lock.RLock()
 	defer a.lock.RUnlock()
 
-	c, f := a.clients[acName]
+	c, f := a.remoteClients[acName]
 	return c, f
 }
 
@@ -200,10 +201,12 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 	cluster := &kueuealpha.MultiKueueCluster{}
 	log := ctrl.LoggerFrom(ctx)
 
-	err := c.client.Get(ctx, req.NamespacedName, cluster)
+	err := c.localClient.Get(ctx, req.NamespacedName, cluster)
 	if client.IgnoreNotFound(err) != nil {
 		return reconcile.Result{}, err
 	}
+
+	log.V(2).Info("Reconcile MultiKueueCluster")
 
 	if err != nil || !cluster.DeletionTimestamp.IsZero() {
 		c.stopAndRemoveCluster(req.Name)
@@ -233,7 +236,7 @@ func (c *clustersReconciler) getKubeConfig(ctx context.Context, ref *kueuealpha.
 		Namespace: c.configNamespace,
 		Name:      ref.Location,
 	}
-	err := c.client.Get(ctx, secretObjKey, &sec)
+	err := c.localClient.Get(ctx, secretObjKey, &sec)
 	if err != nil {
 		return nil, !apierrors.IsNotFound(err), err
 	}
@@ -257,14 +260,14 @@ func (c *clustersReconciler) updateStatus(ctx context.Context, cluster *kueuealp
 		newCondition.Status = metav1.ConditionTrue
 	}
 
-	// if the cluster is connected and remains that way, skip the status update
+	// if the condition is up to date
 	oldCondition := apimeta.FindStatusCondition(cluster.Status.Conditions, kueuealpha.MultiKueueClusterActive)
-	if active && oldCondition != nil && oldCondition.Status == metav1.ConditionTrue {
+	if cmpConditionState(oldCondition, &newCondition) {
 		return nil
 	}
 
 	apimeta.SetStatusCondition(&cluster.Status.Conditions, newCondition)
-	return c.client.Status().Update(ctx, cluster)
+	return c.localClient.Status().Update(ctx, cluster)
 }
 
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
@@ -273,9 +276,9 @@ func (c *clustersReconciler) updateStatus(ctx context.Context, cluster *kueuealp
 
 func newClustersReconciler(c client.Client, namespace string) *clustersReconciler {
 	return &clustersReconciler{
-		client:          c,
+		localClient:     c,
 		configNamespace: namespace,
-		clients:         make(map[string]*remoteClient),
+		remoteClients:   make(map[string]*remoteClient),
 		wlUpdateCh:      make(chan event.GenericEvent, 10),
 	}
 }
@@ -288,7 +291,7 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueuealpha.MultiKueueCluster{}).
-		Watches(&corev1.Secret{}, &secretHandler{client: c.client}).
+		Watches(&corev1.Secret{}, &secretHandler{client: c.localClient}).
 		Complete(c)
 }
 

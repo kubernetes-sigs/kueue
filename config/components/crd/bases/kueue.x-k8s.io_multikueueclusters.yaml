@@ -37,7 +37,10 @@ spec:
                 description: Information how to connect to the cluster.
                 properties:
                   location:
-                    description: Location of the KubeConfig.
+                    description: "Location of the KubeConfig. \n If LocationType is
+                      Secret then Location is the name of the secret inside the namespace
+                      in which the kueue controller manager is running. The config
+                      should be stored in the \"kubeconfig\" key."
                     type: string
                   locationType:
                     default: Secret

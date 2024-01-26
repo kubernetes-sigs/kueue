@@ -65,7 +65,7 @@ func getClientBuilder() (*fake.ClientBuilder, context.Context) {
 	return builder, ctx
 }
 
-func TestListMultikueClustersUsingKubeconfig(t *testing.T) {
+func TestListMultiKueueClustersUsingKubeConfig(t *testing.T) {
 	cases := map[string]struct {
 		clusters      []*kueuealpha.MultiKueueCluster
 		filter        client.ListOption
@@ -77,21 +77,21 @@ func TestListMultikueClustersUsingKubeconfig(t *testing.T) {
 		},
 		"single cluster, single match": {
 			clusters: []*kueuealpha.MultiKueueCluster{
-				utiltesting.MakeMultiKueueCluster("cluster1").Secret("", "secret1").Obj(),
+				utiltesting.MakeMultiKueueCluster("cluster1").KubeConfig("", "secret1").Obj(),
 			},
 			filter:   client.MatchingFields{UsingKubeConfigs: TestNamespace + "/secret1"},
 			wantList: []string{"cluster1"},
 		},
 		"single cluster, no match": {
 			clusters: []*kueuealpha.MultiKueueCluster{
-				utiltesting.MakeMultiKueueCluster("cluster2").Secret("", "secret2").Obj(),
+				utiltesting.MakeMultiKueueCluster("cluster2").KubeConfig("", "secret2").Obj(),
 			},
 			filter: client.MatchingFields{UsingKubeConfigs: TestNamespace + "/secret1"},
 		},
 		"multiple clusters, single match": {
 			clusters: []*kueuealpha.MultiKueueCluster{
-				utiltesting.MakeMultiKueueCluster("cluster1").Secret("", "secret1").Obj(),
-				utiltesting.MakeMultiKueueCluster("cluster2").Secret("", "secret2").Obj(),
+				utiltesting.MakeMultiKueueCluster("cluster1").KubeConfig("", "secret1").Obj(),
+				utiltesting.MakeMultiKueueCluster("cluster2").KubeConfig("", "secret2").Obj(),
 			},
 			filter:   client.MatchingFields{UsingKubeConfigs: TestNamespace + "/secret1"},
 			wantList: []string{"cluster1"},
@@ -103,7 +103,7 @@ func TestListMultikueClustersUsingKubeconfig(t *testing.T) {
 			k8sclient := builder.Build()
 			for _, req := range tc.clusters {
 				if err := k8sclient.Create(ctx, req); err != nil {
-					t.Fatalf("Unable to create %s cluster: %v", client.ObjectKeyFromObject(req), err)
+					t.Fatalf("Unable to create %q cluster: %v", client.ObjectKeyFromObject(req), err)
 				}
 			}
 
@@ -122,7 +122,7 @@ func TestListMultikueClustersUsingKubeconfig(t *testing.T) {
 	}
 }
 
-func TestListMultikueConfigsUsingMultikueueClusters(t *testing.T) {
+func TestListMultiKueueConfigsUsingMultiKueueClusters(t *testing.T) {
 	cases := map[string]struct {
 		configs       []*kueuealpha.MultiKueueConfig
 		filter        client.ListOption
@@ -160,7 +160,7 @@ func TestListMultikueConfigsUsingMultikueueClusters(t *testing.T) {
 			k8sclient := builder.Build()
 			for _, config := range tc.configs {
 				if err := k8sclient.Create(ctx, config); err != nil {
-					t.Fatalf("Unable to create %s config: %v", client.ObjectKeyFromObject(config), err)
+					t.Fatalf("Unable to create %q config: %v", client.ObjectKeyFromObject(config), err)
 				}
 			}
 

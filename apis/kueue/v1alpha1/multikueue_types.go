@@ -22,10 +22,7 @@ import (
 
 const (
 	MultiKueueConfigSecretKey = "kubeconfig"
-)
-
-const (
-	MultiKueueClusterActive = "Active"
+	MultiKueueClusterActive   = "Active"
 )
 
 type LocationType string
@@ -41,6 +38,9 @@ type KubeConfig struct {
 	Name string `json:"name"`
 
 	// Location of the KubeConfig.
+	//
+	// If LocationType is Secret then Location is the name of the secret inside the namespace in
+	// which the kueue controller manager is running. The config should be stored in the "kubeconfig" key.
 	Location string `json:"location"`
 
 	// Type of the KubeConfig location.
@@ -95,7 +95,7 @@ type MultiKueueConfigSpec struct {
 	//
 	// +listType=set
 	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=100
+	// +kubebuilder:validation:MaxItems=10
 	Clusters []string `json:"clusters"`
 }
 

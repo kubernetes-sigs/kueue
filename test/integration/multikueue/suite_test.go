@@ -86,7 +86,7 @@ var (
 	managersConfigNamespace *corev1.Namespace
 )
 
-func TestScheduler(t *testing.T) {
+func TestMultiKueue(t *testing.T) {
 	gomega.RegisterFailHandler(ginkgo.Fail)
 
 	ginkgo.RunSpecs(t,
@@ -166,6 +166,9 @@ func managerAndMultiKueueSetup(mgr manager.Manager, ctx context.Context) {
 	}
 	gomega.Expect(mgr.GetClient().Create(ctx, managersConfigNamespace)).To(gomega.Succeed())
 
-	err := multikueue.SetupControllers(mgr, managersConfigNamespace.Name)
+	err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
