@@ -88,6 +88,9 @@ use of this API to implement queuing semantics for Pods.
 - Support for advanced Pod retry policies
 
   Kueue shouldn't re-implement core functionalities that are already available in the Job API.
+  In particular, Kueue does not re-create failed pods.
+  More specifically, in case of re-admission after preemption, it does not
+  re-create pods it deleted.
 
 - Tracking usage of Pods that were not queued through Kueue.
 
