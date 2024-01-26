@@ -20,7 +20,6 @@ import (
 	"context"
 	"time"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -28,11 +27,6 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 )
-
-// defaultRequeueDuration defaults the duration used by non-leading replicas
-// to requeue events, so no events are missed over the period it takes for
-// leader election to fail over a new replica.
-const defaultRequeueDuration = 15 * time.Second
 
 // WithLeadingManager returns a decorating reconcile.Reconciler that discards reconciliation requests
 // for the controllers that are started with the controller.Options.NeedLeaderElection
@@ -50,16 +44,8 @@ const defaultRequeueDuration = 15 * time.Second
 //     the leader election lease, in case the previously leading replica failed to renew it.
 func WithLeadingManager(mgr ctrl.Manager, reconciler reconcile.Reconciler, obj client.Object, cfg *config.Configuration) reconcile.Reconciler {
 	// Do not decorate the reconciler if leader election is disabled
-	if cfg.LeaderElection == nil || !ptr.Deref(cfg.LeaderElection.LeaderElect, false) {
+	if !ptr.Deref(cfg.LeaderElection.LeaderElect, false) {
 		return reconciler
-	}
-
-	// Default to the recommended lease duration, that's used for core components
-	requeueDuration := defaultRequeueDuration
-	// Otherwise used the configured lease duration for the manager
-	zero := metav1.Duration{}
-	if duration := cfg.LeaderElection.LeaseDuration; duration != zero {
-		requeueDuration = duration.Duration
 	}
 
 	return &leaderAwareReconciler{
@@ -67,15 +53,18 @@ func WithLeadingManager(mgr ctrl.Manager, reconciler reconcile.Reconciler, obj c
 		client:          mgr.GetClient(),
 		delegate:        reconciler,
 		object:          obj,
-		requeueDuration: requeueDuration,
+		requeueDuration: cfg.LeaderElection.LeaseDuration.Duration,
 	}
 }
 
 type leaderAwareReconciler struct {
-	elected         <-chan struct{}
-	client          client.Client
-	delegate        reconcile.Reconciler
-	object          client.Object
+	elected  <-chan struct{}
+	client   client.Client
+	delegate reconcile.Reconciler
+	object   client.Object
+	// the duration used by non-leading replicas to requeue events,
+	// so no events are missed over the period it takes for
+	// leader election to fail over a new replica.
 	requeueDuration time.Duration
 }
 
