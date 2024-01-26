@@ -24,7 +24,6 @@ import (
 // KubeConfigApplyConfiguration represents an declarative configuration of the KubeConfig type for use
 // with apply.
 type KubeConfigApplyConfiguration struct {
-	Name         *string                `json:"name,omitempty"`
 	Location     *string                `json:"location,omitempty"`
 	LocationType *v1alpha1.LocationType `json:"locationType,omitempty"`
 }
@@ -33,14 +32,6 @@ type KubeConfigApplyConfiguration struct {
 // apply.
 func KubeConfig() *KubeConfigApplyConfiguration {
 	return &KubeConfigApplyConfiguration{}
-}
-
-// WithName sets the Name field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Name field is set to the value of the last call.
-func (b *KubeConfigApplyConfiguration) WithName(value string) *KubeConfigApplyConfiguration {
-	b.Name = &value
-	return b
 }
 
 // WithLocation sets the Location field in the declarative configuration to the given value

@@ -61,13 +61,9 @@ spec:
                     enum:
                     - Secret
                     type: string
-                  name:
-                    description: Name of the cluster inside the given KubeConfig.
-                    type: string
                 required:
                 - location
                 - locationType
-                - name
                 type: object
             required:
             - kubeConfig

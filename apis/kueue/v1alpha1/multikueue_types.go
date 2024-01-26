@@ -34,9 +34,6 @@ const (
 )
 
 type KubeConfig struct {
-	// Name of the cluster inside the given KubeConfig.
-	Name string `json:"name"`
-
 	// Location of the KubeConfig.
 	//
 	// If LocationType is Secret then Location is the name of the secret inside the namespace in

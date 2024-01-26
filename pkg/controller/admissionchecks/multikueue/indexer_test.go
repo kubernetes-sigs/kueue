@@ -77,21 +77,21 @@ func TestListMultiKueueClustersUsingKubeConfig(t *testing.T) {
 		},
 		"single cluster, single match": {
 			clusters: []*kueuealpha.MultiKueueCluster{
-				utiltesting.MakeMultiKueueCluster("cluster1").KubeConfig("", "secret1").Obj(),
+				utiltesting.MakeMultiKueueCluster("cluster1").KubeConfig("secret1").Obj(),
 			},
 			filter:   client.MatchingFields{UsingKubeConfigs: TestNamespace + "/secret1"},
 			wantList: []string{"cluster1"},
 		},
 		"single cluster, no match": {
 			clusters: []*kueuealpha.MultiKueueCluster{
-				utiltesting.MakeMultiKueueCluster("cluster2").KubeConfig("", "secret2").Obj(),
+				utiltesting.MakeMultiKueueCluster("cluster2").KubeConfig("secret2").Obj(),
 			},
 			filter: client.MatchingFields{UsingKubeConfigs: TestNamespace + "/secret1"},
 		},
 		"multiple clusters, single match": {
 			clusters: []*kueuealpha.MultiKueueCluster{
-				utiltesting.MakeMultiKueueCluster("cluster1").KubeConfig("", "secret1").Obj(),
-				utiltesting.MakeMultiKueueCluster("cluster2").KubeConfig("", "secret2").Obj(),
+				utiltesting.MakeMultiKueueCluster("cluster1").KubeConfig("secret1").Obj(),
+				utiltesting.MakeMultiKueueCluster("cluster2").KubeConfig("secret2").Obj(),
 			},
 			filter:   client.MatchingFields{UsingKubeConfigs: TestNamespace + "/secret1"},
 			wantList: []string{"cluster1"},

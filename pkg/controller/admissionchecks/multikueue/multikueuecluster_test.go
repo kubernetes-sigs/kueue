@@ -85,13 +85,13 @@ func TestUpdateConfig(t *testing.T) {
 		"new valid client is added": {
 			reconcileFor: "worker1",
 			clusters: []kueuealpha.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").KubeConfig("w1", "worker1").Obj(),
+				*utiltesting.MakeMultiKueueCluster("worker1").KubeConfig("worker1").Obj(),
 			},
 			secrets: []corev1.Secret{
 				makeTestSecret("worker1", "worker1 kubeconfig"),
 			},
 			wantClusters: []kueuealpha.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").KubeConfig("w1", "worker1").Active(metav1.ConditionTrue, "Active", "Connected").Obj(),
+				*utiltesting.MakeMultiKueueCluster("worker1").KubeConfig("worker1").Active(metav1.ConditionTrue, "Active", "Connected").Obj(),
 			},
 			wantRemoteClients: map[string]*remoteClient{
 				"worker1": {
@@ -102,7 +102,7 @@ func TestUpdateConfig(t *testing.T) {
 		"update client with valid config": {
 			reconcileFor: "worker1",
 			clusters: []kueuealpha.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").KubeConfig("w1", "worker1").Obj(),
+				*utiltesting.MakeMultiKueueCluster("worker1").KubeConfig("worker1").Obj(),
 			},
 			secrets: []corev1.Secret{
 				makeTestSecret("worker1", "worker1 kubeconfig"),
@@ -111,7 +111,7 @@ func TestUpdateConfig(t *testing.T) {
 				"worker1": newTestClient("worker1 old kubeconfig"),
 			},
 			wantClusters: []kueuealpha.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").KubeConfig("w1", "worker1").Active(metav1.ConditionTrue, "Active", "Connected").Obj(),
+				*utiltesting.MakeMultiKueueCluster("worker1").KubeConfig("worker1").Active(metav1.ConditionTrue, "Active", "Connected").Obj(),
 			},
 			wantRemoteClients: map[string]*remoteClient{
 				"worker1": {
@@ -122,7 +122,7 @@ func TestUpdateConfig(t *testing.T) {
 		"update client with invalid config": {
 			reconcileFor: "worker1",
 			clusters: []kueuealpha.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").KubeConfig("w1", "worker1").Obj(),
+				*utiltesting.MakeMultiKueueCluster("worker1").KubeConfig("worker1").Obj(),
 			},
 			secrets: []corev1.Secret{
 				makeTestSecret("worker1", "invalid"),
@@ -131,20 +131,20 @@ func TestUpdateConfig(t *testing.T) {
 				"worker1": newTestClient("worker1 old kubeconfig"),
 			},
 			wantClusters: []kueuealpha.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").KubeConfig("w1", "worker1").Active(metav1.ConditionFalse, "ClientConnectionFailed", "invalid kubeconfig").Obj(),
+				*utiltesting.MakeMultiKueueCluster("worker1").KubeConfig("worker1").Active(metav1.ConditionFalse, "ClientConnectionFailed", "invalid kubeconfig").Obj(),
 			},
 		},
 		"missing cluster is removed": {
 			reconcileFor: "worker2",
 			clusters: []kueuealpha.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").KubeConfig("w1", "worker1").Obj(),
+				*utiltesting.MakeMultiKueueCluster("worker1").KubeConfig("worker1").Obj(),
 			},
 			remoteClients: map[string]*remoteClient{
 				"worker1": newTestClient("worker1 kubeconfig"),
 				"worker2": newTestClient("worker2 kubeconfig"),
 			},
 			wantClusters: []kueuealpha.MultiKueueCluster{
-				*utiltesting.MakeMultiKueueCluster("worker1").KubeConfig("w1", "worker1").Obj(),
+				*utiltesting.MakeMultiKueueCluster("worker1").KubeConfig("worker1").Obj(),
 			},
 			wantRemoteClients: map[string]*remoteClient{
 				"worker1": {
