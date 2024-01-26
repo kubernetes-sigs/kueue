@@ -19,9 +19,9 @@
     - [Existing Sorting](#existing-sorting)
     - [Proposed Sorting](#proposed-sorting)
   - [Exponential Backoff Mechanism](#exponential-backoff-mechanism)
-  - [Evaluation of Maximum Retry Conditions](#evaluation-of-maximum-retry-conditions)
-    - [MaxBackOffRetryCount](#maxbackoffretrycount)
-    - [MaxBackOffRetryTimeout](#maxbackoffretrytimeout)
+  - [Evaluation of BackOffLimits](#evaluation-of-backofflimits)
+    - [backOffLimitCount](#backofflimitcount)
+    - [backOffLimitTimeout](#backofflimittimeout)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
@@ -128,20 +128,20 @@ type RequeuingStrategy struct {
 	// +optional
 	Timestamp *RequeuingTimestamp `json:"timestamp,omitempty"`
 	
-	// maxBackOffRetryCount defines the maximum number of requeuing retries.
+	// backOffLimitCount defines the maximum number of requeuing retries.
 	// When the number is reached, the workload is deactivated.	
 	//
 	// Defaults to null. 
 	// +optional
-	MaxBackOffRetryCount *int32 `json:"maxBackOffRetryCount,omitempty"`
+	BackOffLimitCount *int32 `json:"backOffLimitCount,omitempty"`
     
-	// maxBackOffRetryTimeout defines the time for a workload that 
+	// backOffLimitTimeout defines the time for a workload that 
 	// has once been admitted to reach the PodsReady=true condition. 
 	// When the time is reached, the workload is deactivated.
 	// 	
 	// Defaults to null.
 	// +optional
-	MaxBackOffRetryTimeout *int32 `json:"maxBackOffRetryTimeout,omitempty"`
+	BackOffLimitTimeout *int32 `json:"backOffLimitTimeout,omitempty"`
 }
 
 type RequeuingTimestamp string
@@ -186,31 +186,31 @@ Update the `apis/config/<version>` package to include `Creation` and `Eviction` 
 
 ### Exponential Backoff Mechanism
 
-When the kueueConfig `maxBackOffRetryCount` or `maxBackOffRetryTimeout` is set and there are evicted workloads by waitForPodsReady,
+When the kueueConfig `backOffLimitCount` or `backOffLimitTimeout` is set and there are evicted workloads by waitForPodsReady,
 the queueManager returns evicted workloads that an exponential backoff duration finished and other workloads as a headWorkloads.
 
 The queueManager calculates an exponential backoff duration by [the Step function](https://pkg.go.dev/k8s.io/apimachinery/pkg/util/wait@v0.29.1#Backoff.Step).
 
-### Evaluation of Maximum Retry Conditions
+### Evaluation of BackOffLimits
 
-#### MaxBackOffRetryCount
+#### backOffLimitCount
 
 When a workload eviction is issued with `PodsReadyTimeout` condition, 
 a workload `.status.requeuedCount` is incremented by 1 each time　in the workload controller.
 
-After that, when a workload `.status.requeudCount` reaches the kueueConfig `.waitForPodsReady.requeueingStrategy.maxBackOffRetryCount`,
+After that, when a workload `.status.requeudCount` reaches the kueueConfig `.waitForPodsReady.requeueingStrategy.backOffLimitCount`,
 a workload is deactivated by setting false to `.spec.active` instead of be suspended in the jobframework reconciler.
 
-#### MaxBackOffRetryTimeout
+#### backOffLimitTimeout
 
-When a workload's duration $currentTime - queueOrderingTimestamp$ reaches the kueueConfig `waitForPodsReady.requeueingStrategy.maxBackOffRetryTimeout`,
+When a workload's duration $currentTime - queueOrderingTimestamp$ reaches the kueueConfig `waitForPodsReady.requeueingStrategy.backOffLimitTimeout`,
 the workload controller and the queueManager sets false to `.spec.active`.
 After that, the jobframework reconciler deactivates a workload.
 
 Before the jobframework reconciler deactivates a workload, 
 the workload controller sets false to `.spec.active` after the workload reconciler checks if a workload is finished.
 In addition, when the kueue scheduler gets headWorkloads from clusterQueues,
-if the queueManager finds the workloads exceeding `maxBackOffRetryTimeout` and sets false to workload `.spec.active`.
+if the queueManager finds the workloads exceeding `backOffLimitTimeout` and sets false to workload `.spec.active`.
 
 ### Test Plan
 
