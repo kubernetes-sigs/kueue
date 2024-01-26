@@ -13,7 +13,7 @@ require (
 	github.com/open-policy-agent/cert-controller v0.10.1
 	github.com/prometheus/client_golang v1.18.0
 	github.com/prometheus/client_model v0.5.0
-	github.com/ray-project/kuberay/ray-operator v1.0.0
+	github.com/ray-project/kuberay/ray-operator v0.0.0-20240120000125-c45d959a2e14
 	go.uber.org/zap v1.26.0
 	k8s.io/api v0.28.6
 	k8s.io/apimachinery v0.28.6
@@ -117,7 +117,7 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/apiextensions-apiserver v0.28.3 // indirect
+	k8s.io/apiextensions-apiserver v0.28.4 // indirect
 	k8s.io/gengo v0.0.0-20230829151522-9cce18d56c01 // indirect
 	k8s.io/kms v0.28.6 // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.1.2 // indirect
