@@ -23,6 +23,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/client-go/discovery"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -279,10 +280,11 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			})
 
 			defaultPriorityGroup := podtesting.MakePod("default-priority-group", ns.Name).
-				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"-termination-code=1", "10m"}).
+				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"-termination-code=1", "10min"}).
 				Queue(lq.Name).
 				Request(corev1.ResourceCPU, "2").
 				MakeGroup(2)
+			defaultGroupKey := client.ObjectKey{Namespace: ns.Name, Name: "default-priority-group"}
 
 			ginkgo.By("Default-priority group starts", func() {
 				for _, p := range defaultPriorityGroup {
@@ -305,7 +307,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				MakeGroup(2)
 			highGroupKey := client.ObjectKey{Namespace: ns.Name, Name: "high-priority-group"}
 
-			ginkgo.By("High-priority group starts", func() {
+			ginkgo.By("Create the high-priority group", func() {
 				for _, p := range highPriorityGroup {
 					gomega.Expect(k8sClient.Create(ctx, p.DeepCopy())).To(gomega.Succeed())
 				}
@@ -318,27 +320,53 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("High priority group completes", func() {
+			ginkgo.By("The default priority workload is preempted", func() {
+				var updatedWorkload kueue.Workload
+				gomega.Expect(k8sClient.Get(ctx, defaultGroupKey, &updatedWorkload)).To(gomega.Succeed())
+				util.ExpectWorkloadsToBePreempted(ctx, k8sClient, &updatedWorkload)
+			})
+
+			replacementPods := make(map[types.NamespacedName]types.NamespacedName, len(defaultPriorityGroup))
+			ginkgo.By("Create replacement pods as soon as the default-priority pods are Failed", func() {
+				gomega.Eventually(func(g gomega.Gomega) int {
+					for _, origPod := range defaultPriorityGroup {
+						origKey := client.ObjectKeyFromObject(origPod)
+						if _, found := replacementPods[origKey]; !found {
+							var p corev1.Pod
+							gomega.Expect(k8sClient.Get(ctx, origKey, &p)).To(gomega.Succeed())
+							if p.Status.Phase == v1.PodFailed {
+								rep := origPod.DeepCopy()
+								// For replacement pods use args that let it complete fast.
+								rep.Name = "replacement-for-" + rep.Name
+								rep.Spec.Containers[0].Args = []string{"1ms"}
+								gomega.Expect(k8sClient.Create(ctx, rep)).To(gomega.Succeed())
+								replacementPods[origKey] = client.ObjectKeyFromObject(rep)
+							}
+						}
+					}
+					return len(replacementPods)
+				}, util.Timeout, util.Interval).Should(gomega.BeNumerically("==", len(defaultPriorityGroup)))
+			})
+
+			ginkgo.By("Verify the high-priority pods are scheduled", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					for _, origPod := range highPriorityGroup {
+						var p corev1.Pod
+						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(origPod), &p)).To(gomega.Succeed())
+						g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
+					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verify the high priority group completes", func() {
 				util.ExpectWorkloadToFinish(ctx, k8sClient, highGroupKey)
 			})
 
-			var replacementPods []*corev1.Pod
-			ginkgo.By("Recreate the replacement pods for the default-priority group", func() {
-				for i := range defaultPriorityGroup {
-					rep := defaultPriorityGroup[i].DeepCopy()
-					// For replacement pods use image that completes fast.
-					rep.Name = "replacement-for-" + rep.Name
-					rep.Spec.Containers[0].Args = []string{"3s"}
-					replacementPods = append(replacementPods, rep)
-					gomega.Expect(k8sClient.Create(ctx, rep)).To(gomega.Succeed())
-				}
-			})
-
 			ginkgo.By("Await for the replacement pods to be ungated", func() {
-				for _, rep := range replacementPods {
+				for _, replKey := range replacementPods {
 					gomega.Eventually(func(g gomega.Gomega) {
 						var p corev1.Pod
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rep), &p)).To(gomega.Succeed())
+						g.Expect(k8sClient.Get(ctx, replKey, &p)).To(gomega.Succeed())
 						g.Expect(p.Spec.SchedulingGates).To(gomega.BeEmpty())
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				}
@@ -346,10 +374,10 @@ var _ = ginkgo.Describe("Pod groups", func() {
 
 			// TODO(#1557): verify the default-priority workload is finished
 			ginkgo.By("Verify the replacement pods of the default priority workload complete", func() {
-				for _, rep := range replacementPods {
+				for _, replKey := range replacementPods {
 					gomega.Eventually(func(g gomega.Gomega) {
 						var p corev1.Pod
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rep), &p)).To(gomega.Succeed())
+						g.Expect(k8sClient.Get(ctx, replKey, &p)).To(gomega.Succeed())
 						g.Expect(p.Status.Phase).To(gomega.Equal(v1.PodSucceeded))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				}
