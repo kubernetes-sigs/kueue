@@ -2,616 +2,639 @@
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
-  name: {{ include "kueue.fullname" . }}-mutating-webhook-configuration
+  name: '{{ include "kueue.fullname" . }}-mutating-webhook-configuration'
+  {{- if .Values.enableCertManager }}
   annotations:
     cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert
+  {{- end }}
   namespace: '{{ .Release.Namespace }}'
 webhooks:
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /mutate-kueue-x-k8s-io-v1beta1-clusterqueue
-  failurePolicy: Fail
-  name: mclusterqueue.kb.io
-  rules:
-  - apiGroups:
-    - kueue.x-k8s.io
-    apiVersions:
-    - v1beta1
-    operations:
-    - CREATE
-    resources:
-    - clusterqueues
-  sideEffects: None
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /mutate-kueue-x-k8s-io-v1beta1-resourceflavor
-  failurePolicy: Fail
-  name: mresourceflavor.kb.io
-  rules:
-  - apiGroups:
-    - kueue.x-k8s.io
-    apiVersions:
-    - v1beta1
-    operations:
-    - CREATE
-    resources:
-    - resourceflavors
-  sideEffects: None
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /mutate-kueue-x-k8s-io-v1beta1-workload
-  failurePolicy: Fail
-  name: mworkload.kb.io
-  rules:
-  - apiGroups:
-    - kueue.x-k8s.io
-    apiVersions:
-    - v1beta1
-    operations:
-    - CREATE
-    - UPDATE
-    resources:
-    - workloads
-  sideEffects: None
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /mutate-batch-v1-job
-  failurePolicy: Fail
-  name: mjob.kb.io
-  rules:
-  - apiGroups:
-    - batch
-    apiVersions:
-    - v1
-    operations:
-    - CREATE
-    resources:
-    - jobs
-  sideEffects: None
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /mutate-jobset-x-k8s-io-v1alpha2-jobset
-  failurePolicy: Fail
-  name: mjobset.kb.io
-  rules:
-  - apiGroups:
-    - jobset.x-k8s.io
-    apiVersions:
-    - v1alpha2
-    operations:
-    - CREATE
-    resources:
-    - jobsets
-  sideEffects: None
-- admissionReviewVersions:
-    - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /mutate-kubeflow-org-v1-mxjob
-  failurePolicy: Fail
-  name: mmxjob.kb.io
-  rules:
-    - apiGroups:
-        - kubeflow.org
-      apiVersions:
-        - v1
-      operations:
-        - CREATE
-      resources:
-        - mxjobs
-  sideEffects: None
-- admissionReviewVersions:
-    - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /mutate-kubeflow-org-v1-paddlejob
-  failurePolicy: Fail
-  name: mpaddlejob.kb.io
-  rules:
-    - apiGroups:
-        - kubeflow.org
-      apiVersions:
-        - v1
-      operations:
-        - CREATE
-      resources:
-        - paddlejobs
-  sideEffects: None
-- admissionReviewVersions:
-    - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /mutate-kubeflow-org-v1-pytorchjob
-  failurePolicy: Fail
-  name: mpytorchjob.kb.io
-  rules:
-    - apiGroups:
-        - kubeflow.org
-      apiVersions:
-        - v1
-      operations:
-        - CREATE
-      resources:
-        - pytorchjobs
-  sideEffects: None
-- admissionReviewVersions:
-    - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /mutate-kubeflow-org-v1-tfjob
-  failurePolicy: Fail
-  name: mtfjob.kb.io
-  rules:
-    - apiGroups:
-        - kubeflow.org
-      apiVersions:
-        - v1
-      operations:
-        - CREATE
-      resources:
-        - tfjobs
-  sideEffects: None
-- admissionReviewVersions:
-    - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /mutate-kubeflow-org-v1-xgboostjob
-  failurePolicy: Fail
-  name: mxgboostjob.kb.io
-  rules:
-    - apiGroups:
-        - kubeflow.org
-      apiVersions:
-        - v1
-      operations:
-        - CREATE
-      resources:
-        - xgboostjobs
-  sideEffects: None
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /mutate-kubeflow-org-v2beta1-mpijob
-  failurePolicy: Fail
-  name: mmpijob.kb.io
-  rules:
-  - apiGroups:
-    - kubeflow.org
-    apiVersions:
-    - v2beta1
-    operations:
-    - CREATE
-    resources:
-    - mpijobs
-  sideEffects: None
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /mutate-ray-io-v1alpha1-rayjob
-  failurePolicy: Fail
-  name: mrayjob.kb.io
-  rules:
-    - apiGroups:
-        - ray.io
-      apiVersions:
-        - v1alpha1
-      operations:
-        - CREATE
-      resources:
-        - rayjobs
-  sideEffects: None
-- admissionReviewVersions:
-    - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /mutate--v1-pod
-  {{- if has "pod" $integrationsConfig.frameworks }}
-  failurePolicy: Fail
-  {{- else }}
-  failurePolicy: Ignore
-  {{- end }}
-  name: mpod.kb.io
-  namespaceSelector:
-    {{- if and (hasKey $integrationsConfig "podOptions") (hasKey ($integrationsConfig.podOptions) "namespaceSelector") }}
-      {{- toYaml $integrationsConfig.podOptions.namespaceSelector | nindent 4 -}}
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /mutate-batch-v1-job
+    failurePolicy: Fail
+    name: mjob.kb.io
+    rules:
+      - apiGroups:
+          - batch
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+        resources:
+          - jobs
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /mutate-jobset-x-k8s-io-v1alpha2-jobset
+    failurePolicy: Fail
+    name: mjobset.kb.io
+    rules:
+      - apiGroups:
+          - jobset.x-k8s.io
+        apiVersions:
+          - v1alpha2
+        operations:
+          - CREATE
+        resources:
+          - jobsets
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /mutate-kubeflow-org-v1-mxjob
+    failurePolicy: Fail
+    name: mmxjob.kb.io
+    rules:
+      - apiGroups:
+          - kubeflow.org
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+        resources:
+          - mxjobs
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /mutate-kubeflow-org-v1-paddlejob
+    failurePolicy: Fail
+    name: mpaddlejob.kb.io
+    rules:
+      - apiGroups:
+          - kubeflow.org
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+        resources:
+          - paddlejobs
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /mutate-kubeflow-org-v1-pytorchjob
+    failurePolicy: Fail
+    name: mpytorchjob.kb.io
+    rules:
+      - apiGroups:
+          - kubeflow.org
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+        resources:
+          - pytorchjobs
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /mutate-kubeflow-org-v1-tfjob
+    failurePolicy: Fail
+    name: mtfjob.kb.io
+    rules:
+      - apiGroups:
+          - kubeflow.org
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+        resources:
+          - tfjobs
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /mutate-kubeflow-org-v1-xgboostjob
+    failurePolicy: Fail
+    name: mxgboostjob.kb.io
+    rules:
+      - apiGroups:
+          - kubeflow.org
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+        resources:
+          - xgboostjobs
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /mutate-kubeflow-org-v2beta1-mpijob
+    failurePolicy: Fail
+    name: mmpijob.kb.io
+    rules:
+      - apiGroups:
+          - kubeflow.org
+        apiVersions:
+          - v2beta1
+        operations:
+          - CREATE
+        resources:
+          - mpijobs
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /mutate--v1-pod
+    {{- if has "pod" $integrationsConfig.frameworks }}
+    failurePolicy: Fail
     {{- else }}
-    matchExpressions:
-      - key: kubernetes.io/metadata.name
-        operator: NotIn
-        values:
-          - kube-system
-          - '{{ .Release.Namespace }}'
+    failurePolicy: Ignore
     {{- end }}
-  rules:
-    - apiGroups:
-        - ""
-      apiVersions:
-        - v1
-      operations:
-        - CREATE
-      resources:
-        - pods
-  sideEffects: None
+    name: mpod.kb.io
+    namespaceSelector:
+      {{- if and (hasKey $integrationsConfig "podOptions") (hasKey ($integrationsConfig.podOptions) "namespaceSelector") }}
+        {{- toYaml $integrationsConfig.podOptions.namespaceSelector | nindent 4 -}}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
+    rules:
+      - apiGroups:
+          - ""
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+        resources:
+          - pods
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /mutate-ray-io-v1-raycluster
+    failurePolicy: Fail
+    name: mraycluster.kb.io
+    rules:
+      - apiGroups:
+          - ray.io
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+        resources:
+          - rayclusters
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /mutate-ray-io-v1alpha1-rayjob
+    failurePolicy: Fail
+    name: mrayjob.kb.io
+    rules:
+      - apiGroups:
+          - ray.io
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+        resources:
+          - rayjobs
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /mutate-kueue-x-k8s-io-v1beta1-clusterqueue
+    failurePolicy: Fail
+    name: mclusterqueue.kb.io
+    rules:
+      - apiGroups:
+          - kueue.x-k8s.io
+        apiVersions:
+          - v1beta1
+        operations:
+          - CREATE
+        resources:
+          - clusterqueues
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /mutate-kueue-x-k8s-io-v1beta1-resourceflavor
+    failurePolicy: Fail
+    name: mresourceflavor.kb.io
+    rules:
+      - apiGroups:
+          - kueue.x-k8s.io
+        apiVersions:
+          - v1beta1
+        operations:
+          - CREATE
+        resources:
+          - resourceflavors
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /mutate-kueue-x-k8s-io-v1beta1-workload
+    failurePolicy: Fail
+    name: mworkload.kb.io
+    rules:
+      - apiGroups:
+          - kueue.x-k8s.io
+        apiVersions:
+          - v1beta1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - workloads
+    sideEffects: None
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
-  name: {{ include "kueue.fullname" . }}-validating-webhook-configuration
+  name: '{{ include "kueue.fullname" . }}-validating-webhook-configuration'
+  {{- if .Values.enableCertManager }}
   annotations:
     cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert
+  {{- end }}
   namespace: '{{ .Release.Namespace }}'
 webhooks:
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /validate-kueue-x-k8s-io-v1beta1-admissioncheck
-  failurePolicy: Fail
-  name: vadmissioncheck.kb.io
-  rules:
-  - apiGroups:
-    - kueue.x-k8s.io
-    apiVersions:
-    - v1beta1
-    operations:
-    - CREATE
-    - UPDATE
-    resources:
-    - admissionchecks
-  sideEffects: None
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /validate-kueue-x-k8s-io-v1beta1-clusterqueue
-  failurePolicy: Fail
-  name: vclusterqueue.kb.io
-  rules:
-  - apiGroups:
-    - kueue.x-k8s.io
-    apiVersions:
-    - v1beta1
-    operations:
-    - CREATE
-    - UPDATE
-    resources:
-    - clusterqueues
-  sideEffects: None
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /validate-kueue-x-k8s-io-v1beta1-localqueue
-  failurePolicy: Fail
-  name: vlocalqueue.kb.io
-  rules:
-  - apiGroups:
-    - kueue.x-k8s.io
-    apiVersions:
-    - v1beta1
-    operations:
-    - CREATE
-    - UPDATE
-    resources:
-    - localqueues
-  sideEffects: None
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /validate-kueue-x-k8s-io-v1beta1-resourceflavor
-  failurePolicy: Fail
-  name: vresourceflavor.kb.io
-  rules:
-  - apiGroups:
-    - kueue.x-k8s.io
-    apiVersions:
-    - v1beta1
-    operations:
-    - CREATE
-    - UPDATE
-    resources:
-    - resourceflavors
-  sideEffects: None
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /validate-kueue-x-k8s-io-v1beta1-workload
-  failurePolicy: Fail
-  name: vworkload.kb.io
-  rules:
-  - apiGroups:
-    - kueue.x-k8s.io
-    apiVersions:
-    - v1beta1
-    operations:
-    - CREATE
-    - UPDATE
-    resources:
-    - workloads
-    - workloads/status
-  sideEffects: None
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /validate-batch-v1-job
-  failurePolicy: Fail
-  name: vjob.kb.io
-  rules:
-  - apiGroups:
-    - batch
-    apiVersions:
-    - v1
-    operations:
-    - CREATE
-    - UPDATE
-    resources:
-    - jobs
-  sideEffects: None
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /validate-jobset-x-k8s-io-v1alpha2-jobset
-  failurePolicy: Fail
-  name: vjobset.kb.io
-  rules:
-  - apiGroups:
-    - jobset.x-k8s.io
-    apiVersions:
-    - v1alpha2
-    operations:
-    - CREATE
-    - UPDATE
-    resources:
-    - jobsets
-  sideEffects: None
-- admissionReviewVersions:
-    - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /validate-kubeflow-org-v1-mxjob
-  failurePolicy: Fail
-  name: vmxjob.kb.io
-  rules:
-    - apiGroups:
-        - kubeflow.org
-      apiVersions:
-        - v1
-      operations:
-        - CREATE
-        - UPDATE
-      resources:
-        - mxjobs
-  sideEffects: None
-- admissionReviewVersions:
-    - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /validate-kubeflow-org-v1-paddlejob
-  failurePolicy: Fail
-  name: vpaddlejob.kb.io
-  rules:
-    - apiGroups:
-        - kubeflow.org
-      apiVersions:
-        - v1
-      operations:
-        - CREATE
-        - UPDATE
-      resources:
-        - paddlejobs
-  sideEffects: None
-- admissionReviewVersions:
-    - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /validate-kubeflow-org-v1-pytorchjob
-  failurePolicy: Fail
-  name: vpytorchjob.kb.io
-  rules:
-    - apiGroups:
-        - kubeflow.org
-      apiVersions:
-        - v1
-      operations:
-        - CREATE
-        - UPDATE
-      resources:
-        - pytorchjobs
-  sideEffects: None
-- admissionReviewVersions:
-    - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /validate-kubeflow-org-v1-tfjob
-  failurePolicy: Fail
-  name: vtfjob.kb.io
-  rules:
-    - apiGroups:
-        - kubeflow.org
-      apiVersions:
-        - v1
-      operations:
-        - CREATE
-        - UPDATE
-      resources:
-        - tfjobs
-  sideEffects: None
-- admissionReviewVersions:
-    - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /validate-kubeflow-org-v1-xgboostjob
-  failurePolicy: Fail
-  name: vxgboostjob.kb.io
-  rules:
-    - apiGroups:
-        - kubeflow.org
-      apiVersions:
-        - v1
-      operations:
-        - CREATE
-        - UPDATE
-      resources:
-        - xgboostjobs
-  sideEffects: None
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /validate-kubeflow-org-v2beta1-mpijob
-  failurePolicy: Fail
-  name: vmpijob.kb.io
-  rules:
-  - apiGroups:
-    - kubeflow.org
-    apiVersions:
-    - v2beta1
-    operations:
-    - CREATE
-    - UPDATE
-    resources:
-    - mpijobs
-  sideEffects: None
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /validate-ray-io-v1alpha1-rayjob
-  failurePolicy: Fail
-  name: vrayjob.kb.io
-  rules:
-  - apiGroups:
-    - ray.io
-    apiVersions:
-    - v1alpha1
-    operations:
-    - CREATE
-    - UPDATE
-    resources:
-    - rayjobs
-  sideEffects: None
-- admissionReviewVersions:
-    - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /validate--v1-pod
-  {{- if has "pod" $integrationsConfig.frameworks }}
-  failurePolicy: Fail
-  {{- else }}
-  failurePolicy: Ignore
-  {{- end }}
-  name: vpod.kb.io
-  namespaceSelector:
-    {{- if and (hasKey $integrationsConfig "podOptions") (hasKey ($integrationsConfig.podOptions) "namespaceSelector") }}
-      {{- toYaml $integrationsConfig.podOptions.namespaceSelector | nindent 4 -}}
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /validate-batch-v1-job
+    failurePolicy: Fail
+    name: vjob.kb.io
+    rules:
+      - apiGroups:
+          - batch
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - jobs
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /validate-jobset-x-k8s-io-v1alpha2-jobset
+    failurePolicy: Fail
+    name: vjobset.kb.io
+    rules:
+      - apiGroups:
+          - jobset.x-k8s.io
+        apiVersions:
+          - v1alpha2
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - jobsets
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /validate-kubeflow-org-v1-mxjob
+    failurePolicy: Fail
+    name: vmxjob.kb.io
+    rules:
+      - apiGroups:
+          - kubeflow.org
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - mxjobs
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /validate-kubeflow-org-v1-paddlejob
+    failurePolicy: Fail
+    name: vpaddlejob.kb.io
+    rules:
+      - apiGroups:
+          - kubeflow.org
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - paddlejobs
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /validate-kubeflow-org-v1-pytorchjob
+    failurePolicy: Fail
+    name: vpytorchjob.kb.io
+    rules:
+      - apiGroups:
+          - kubeflow.org
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - pytorchjobs
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /validate-kubeflow-org-v1-tfjob
+    failurePolicy: Fail
+    name: vtfjob.kb.io
+    rules:
+      - apiGroups:
+          - kubeflow.org
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - tfjobs
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /validate-kubeflow-org-v1-xgboostjob
+    failurePolicy: Fail
+    name: vxgboostjob.kb.io
+    rules:
+      - apiGroups:
+          - kubeflow.org
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - xgboostjobs
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /validate-kubeflow-org-v2beta1-mpijob
+    failurePolicy: Fail
+    name: vmpijob.kb.io
+    rules:
+      - apiGroups:
+          - kubeflow.org
+        apiVersions:
+          - v2beta1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - mpijobs
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /validate--v1-pod
+    {{- if has "pod" $integrationsConfig.frameworks }}
+    failurePolicy: Fail
     {{- else }}
-    matchExpressions:
-      - key: kubernetes.io/metadata.name
-        operator: NotIn
-        values:
-          - kube-system
-          - '{{ .Release.Namespace }}'
+    failurePolicy: Ignore
     {{- end }}
-  rules:
-    - apiGroups:
-        - ""
-      apiVersions:
-        - v1
-      operations:
-        - CREATE
-        - UPDATE
-      resources:
-        - pods
-  sideEffects: None
-- admissionReviewVersions:
-  - v1
-  clientConfig:
-    service:
-      name: '{{ include "kueue.fullname" . }}-webhook-service'
-      namespace: '{{ .Release.Namespace }}'
-      path: /validate-ray-io-v1-raycluster
-  failurePolicy: Fail
-  name: vraycluster.kb.io
-  rules:
-  - apiGroups:
-    - ray.io
-    apiVersions:
-    - v1
-    operations:
-    - CREATE
-    - UPDATE
-    resources:
-    - rayclusters
-  sideEffects: None
+    name: vpod.kb.io
+    namespaceSelector:
+      {{- if and (hasKey $integrationsConfig "podOptions") (hasKey ($integrationsConfig.podOptions) "namespaceSelector") }}
+        {{- toYaml $integrationsConfig.podOptions.namespaceSelector | nindent 4 -}}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
+    rules:
+      - apiGroups:
+          - ""
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - pods
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /validate-ray-io-v1-raycluster
+    failurePolicy: Fail
+    name: vraycluster.kb.io
+    rules:
+      - apiGroups:
+          - ray.io
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - rayclusters
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /validate-ray-io-v1alpha1-rayjob
+    failurePolicy: Fail
+    name: vrayjob.kb.io
+    rules:
+      - apiGroups:
+          - ray.io
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - rayjobs
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /validate-kueue-x-k8s-io-v1beta1-admissioncheck
+    failurePolicy: Fail
+    name: vadmissioncheck.kb.io
+    rules:
+      - apiGroups:
+          - kueue.x-k8s.io
+        apiVersions:
+          - v1beta1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - admissionchecks
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /validate-kueue-x-k8s-io-v1beta1-clusterqueue
+    failurePolicy: Fail
+    name: vclusterqueue.kb.io
+    rules:
+      - apiGroups:
+          - kueue.x-k8s.io
+        apiVersions:
+          - v1beta1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - clusterqueues
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /validate-kueue-x-k8s-io-v1beta1-localqueue
+    failurePolicy: Fail
+    name: vlocalqueue.kb.io
+    rules:
+      - apiGroups:
+          - kueue.x-k8s.io
+        apiVersions:
+          - v1beta1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - localqueues
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /validate-kueue-x-k8s-io-v1beta1-resourceflavor
+    failurePolicy: Fail
+    name: vresourceflavor.kb.io
+    rules:
+      - apiGroups:
+          - kueue.x-k8s.io
+        apiVersions:
+          - v1beta1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - resourceflavors
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /validate-kueue-x-k8s-io-v1beta1-workload
+    failurePolicy: Fail
+    name: vworkload.kb.io
+    rules:
+      - apiGroups:
+          - kueue.x-k8s.io
+        apiVersions:
+          - v1beta1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - workloads
+          - workloads/status
+    sideEffects: None
