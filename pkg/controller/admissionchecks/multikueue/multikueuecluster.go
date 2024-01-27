@@ -18,7 +18,6 @@ package multikueue
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -302,36 +301,47 @@ type secretHandler struct {
 var _ handler.EventHandler = (*secretHandler)(nil)
 
 func (s *secretHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.RateLimitingInterface) {
-	if err := s.queue(ctx, event.Object, q); err != nil {
+	secret, isSecret := event.Object.(*corev1.Secret)
+	if !isSecret {
+		ctrl.LoggerFrom(ctx).V(5).Info("Failure on create event, not a secret")
+	}
+	if err := s.queue(ctx, secret, q); err != nil {
 		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on create event", "secret", klog.KObj(event.Object))
 	}
 }
 
 func (s *secretHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.RateLimitingInterface) {
-	if err := s.queue(ctx, event.ObjectOld, q); err != nil {
+	secret, isSecret := event.ObjectNew.(*corev1.Secret)
+	if !isSecret {
+		ctrl.LoggerFrom(ctx).V(5).Info("Failure on update event, not a secret")
+	}
+	if err := s.queue(ctx, secret, q); err != nil {
 		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on update event", "secret", klog.KObj(event.ObjectOld))
 	}
 }
 
 func (s *secretHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.RateLimitingInterface) {
-	if err := s.queue(ctx, event.Object, q); err != nil {
+	secret, isSecret := event.Object.(*corev1.Secret)
+	if !isSecret {
+		ctrl.LoggerFrom(ctx).V(5).Info("Failure on delete event, not a secret")
+	}
+	if err := s.queue(ctx, secret, q); err != nil {
 		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on delete event", "secret", klog.KObj(event.Object))
 	}
 }
 
 func (s *secretHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.RateLimitingInterface) {
-	if err := s.queue(ctx, event.Object, q); err != nil {
+	secret, isSecret := event.Object.(*corev1.Secret)
+	if !isSecret {
+		ctrl.LoggerFrom(ctx).V(5).Info("Failure on generic event, not a secret")
+	}
+	if err := s.queue(ctx, secret, q); err != nil {
 		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on generic event", "secret", klog.KObj(event.Object))
 	}
 }
 
-func (s *secretHandler) queue(ctx context.Context, obj client.Object, q workqueue.RateLimitingInterface) error {
+func (s *secretHandler) queue(ctx context.Context, secret *corev1.Secret, q workqueue.RateLimitingInterface) error {
 	users := &kueuealpha.MultiKueueClusterList{}
-	secret, isSecret := obj.(*corev1.Secret)
-	if !isSecret {
-		return errors.New("not a secret")
-	}
-
 	if err := s.client.List(ctx, users, client.MatchingFields{UsingKubeConfigs: strings.Join([]string{secret.Namespace, secret.Name}, "/")}); err != nil {
 		return err
 	}
