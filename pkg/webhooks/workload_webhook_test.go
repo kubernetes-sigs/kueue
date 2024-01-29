@@ -260,7 +260,7 @@ func TestValidateWorkload(t *testing.T) {
 				kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{{Name: "first"}, {Name: "third"}}},
 			).Obj(),
 			wantErr: field.ErrorList{
-				field.NotSupported(firstAdmissionChecksPath.Child("podSetUpdates").Index(1).Child("name"), nil, nil),
+				field.NotSupported(firstAdmissionChecksPath.Child("podSetUpdates").Index(1).Child("name"), nil, []string{}),
 			},
 		},
 		"matched names in podSetUpdates with names in podSets": {
@@ -346,7 +346,7 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(statusPath.Child("reclaimablePods").Key("ps1").Child("count"), nil, ""),
-				field.NotSupported(statusPath.Child("reclaimablePods").Key("ps2").Child("name"), nil, nil),
+				field.NotSupported(statusPath.Child("reclaimablePods").Key("ps2").Child("name"), nil, []string{}),
 			},
 		},
 		"invalid podSet minCount (negative)": {
