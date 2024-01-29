@@ -354,7 +354,7 @@ func (c *clustersReconciler) runGC(ctx context.Context) {
 			return
 		case <-time.After(c.gcInterval):
 			log.V(5).Info("Run Garbage Collection")
-			for clusterName, rc := range c.clients {
+			for clusterName, rc := range c.remoteClients {
 				rc.runGC(ctrl.LoggerInto(ctx, log.WithValues("multiKueueCluster", clusterName)))
 			}
 		}
