@@ -111,10 +111,10 @@ var _ = ginkgo.Describe("Multikueue", func() {
 		}
 		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, managerMultikueueSecret2)).To(gomega.Succeed())
 
-		workerCluster1 = utiltesting.MakeMultiKueueCluster("worker1").KubeConfig(managerMultikueueSecret1.Name).Obj()
+		workerCluster1 = utiltesting.MakeMultiKueueCluster("worker1").KubeConfig(kueuealpha.SecretLocationType, managerMultikueueSecret1.Name).Obj()
 		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, workerCluster1)).To(gomega.Succeed())
 
-		workerCluster2 = utiltesting.MakeMultiKueueCluster("worker2").KubeConfig(managerMultikueueSecret2.Name).Obj()
+		workerCluster2 = utiltesting.MakeMultiKueueCluster("worker2").KubeConfig(kueuealpha.SecretLocationType, managerMultikueueSecret2.Name).Obj()
 		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, workerCluster2)).To(gomega.Succeed())
 
 		managerMultiKueueConfig = utiltesting.MakeMultiKueueConfig("multikueueconfig").Clusters(workerCluster1.Name, workerCluster2.Name).Obj()
@@ -220,7 +220,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 			})
 		})
 
-		cluster := utiltesting.MakeMultiKueueCluster("testing-cluster").KubeConfig("testing-secret").Obj()
+		cluster := utiltesting.MakeMultiKueueCluster("testing-cluster").KubeConfig(kueuealpha.SecretLocationType, "testing-secret").Obj()
 		ginkgo.By("creating the cluster, its Active state is updated, the admission check's state is updated", func() {
 			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, cluster)).Should(gomega.Succeed())
 			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, cluster) })
