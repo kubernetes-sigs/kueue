@@ -49,6 +49,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		worker1Ns *corev1.Namespace
 		worker2Ns *corev1.Namespace
 
+		workerCluster1   *kueuealpha.MultiKueueCluster
+		workerCluster2   *kueuealpha.MultiKueueCluster
 		multiKueueConfig *kueuealpha.MultiKueueConfig
 		multiKueueAc     *kueue.AdmissionCheck
 		managerFlavor    *kueue.ResourceFlavor
@@ -86,34 +88,18 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		}
 		gomega.Expect(k8sWorker2Client.Create(ctx, worker2Ns)).To(gomega.Succeed())
 
-		multiKueueConfig = &kueuealpha.MultiKueueConfig{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "multikueueconfig",
-			},
-			Spec: kueuealpha.MultiKueueConfigSpec{
-				Clusters: []kueuealpha.MultiKueueCluster{
-					{
-						Name: "worker1",
-						KubeconfigRef: kueuealpha.KubeconfigRef{
-							Location:     "multikueue1",
-							LocationType: kueuealpha.SecretLocationType,
-						},
-					},
-					{
-						Name: "worker2",
-						KubeconfigRef: kueuealpha.KubeconfigRef{
-							Location:     "multikueue2",
-							LocationType: kueuealpha.SecretLocationType,
-						},
-					},
-				},
-			},
-		}
+		workerCluster1 = utiltesting.MakeMultiKueueCluster("worker1").KubeConfig("multikueue1").Obj()
+		gomega.Expect(k8sManagerClient.Create(ctx, workerCluster1)).To(gomega.Succeed())
+
+		workerCluster2 = utiltesting.MakeMultiKueueCluster("worker2").KubeConfig("multikueue2").Obj()
+		gomega.Expect(k8sManagerClient.Create(ctx, workerCluster2)).To(gomega.Succeed())
+
+		multiKueueConfig = utiltesting.MakeMultiKueueConfig("multikueueconfig").Clusters("worker1", "worker2").Obj()
 		gomega.Expect(k8sManagerClient.Create(ctx, multiKueueConfig)).Should(gomega.Succeed())
 
 		multiKueueAc = utiltesting.MakeAdmissionCheck("ac1").
 			ControllerName(multikueue.ControllerName).
-			Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
+			Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
 			Obj()
 		gomega.Expect(k8sManagerClient.Create(ctx, multiKueueAc)).Should(gomega.Succeed())
 
@@ -191,6 +177,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 		util.ExpectResourceFlavorToBeDeleted(ctx, k8sManagerClient, managerFlavor, true)
 		util.ExpectAdmissionCheckToBeDeleted(ctx, k8sManagerClient, multiKueueAc, true)
 		gomega.Expect(k8sManagerClient.Delete(ctx, multiKueueConfig)).To(gomega.Succeed())
+		gomega.Expect(k8sManagerClient.Delete(ctx, workerCluster1)).To(gomega.Succeed())
+		gomega.Expect(k8sManagerClient.Delete(ctx, workerCluster2)).To(gomega.Succeed())
 	})
 
 	ginkgo.When("Creating a multikueue admission check", func() {

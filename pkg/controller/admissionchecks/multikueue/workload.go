@@ -48,10 +48,14 @@ var (
 		batchv1.SchemeGroupVersion.WithKind("Job").String():   &batchJobAdapter{},
 		jobset.SchemeGroupVersion.WithKind("JobSet").String(): &jobsetAdapter{},
 	}
+
+	errNoActiveClusters = errors.New("no active clusters")
 )
 
 type wlReconciler struct {
-	acr *ACReconciler
+	client   client.Client
+	helper   *multiKueueStoreHelper
+	clusters *clustersReconciler
 }
 
 var _ reconcile.Reconciler = (*wlReconciler)(nil)
@@ -72,7 +76,7 @@ type jobAdapter interface {
 type wlGroup struct {
 	local         *kueue.Workload
 	remotes       map[string]*kueue.Workload
-	rc            *remoteController
+	remoteClients map[string]*remoteClient
 	acName        string
 	jobAdapter    jobAdapter
 	controllerKey types.NamespacedName
@@ -123,17 +127,17 @@ func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error
 	if remWl == nil {
 		return nil
 	}
-	if err := g.jobAdapter.DeleteRemoteObject(ctx, g.rc.remoteClients[cluster].client, g.controllerKey); err != nil {
+	if err := g.jobAdapter.DeleteRemoteObject(ctx, g.remoteClients[cluster].client, g.controllerKey); err != nil {
 		return fmt.Errorf("deleting remote controller object: %w", err)
 	}
 
 	if controllerutil.RemoveFinalizer(remWl, kueue.ResourceInUseFinalizerName) {
-		if err := g.rc.remoteClients[cluster].client.Update(ctx, remWl); err != nil {
+		if err := g.remoteClients[cluster].client.Update(ctx, remWl); err != nil {
 			return fmt.Errorf("removing remote workloads finalizeer: %w", err)
 		}
 	}
 
-	err := g.rc.remoteClients[cluster].client.Delete(ctx, remWl)
+	err := g.remoteClients[cluster].client.Delete(ctx, remWl)
 	if client.IgnoreNotFound(err) != nil {
 		return fmt.Errorf("deleting remote workload: %w", err)
 	}
@@ -145,7 +149,7 @@ func (a *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Workload")
 	wl := &kueue.Workload{}
-	if err := a.acr.client.Get(ctx, req.NamespacedName, wl); err != nil {
+	if err := a.client.Get(ctx, req.NamespacedName, wl); err != nil {
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 	// NOTE: the not found needs to be treated and should result in the deletion of all the remote workloads.
@@ -166,8 +170,25 @@ func (a *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	return reconcile.Result{}, a.reconcileGroup(ctx, grp)
 }
 
+func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName string) (map[string]*remoteClient, error) {
+	cfg, err := w.helper.ConfigForAdmissionCheck(ctx, acName)
+	if err != nil {
+		return nil, err
+	}
+	clients := make(map[string]*remoteClient, len(cfg.Spec.Clusters))
+	for _, clusterName := range cfg.Spec.Clusters {
+		if client, found := w.clusters.controllerFor(clusterName); found {
+			clients[clusterName] = client
+		}
+	}
+	if len(clients) == 0 {
+		return nil, errNoActiveClusters
+	}
+	return clients, nil
+}
+
 func (a *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload) (*wlGroup, error) {
-	relevantChecks, err := admissioncheck.FilterForController(ctx, a.acr.client, local.Status.AdmissionChecks, ControllerName)
+	relevantChecks, err := admissioncheck.FilterForController(ctx, a.client, local.Status.AdmissionChecks, ControllerName)
 	if err != nil {
 		return nil, err
 	}
@@ -177,13 +198,9 @@ func (a *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload) (*w
 		return nil, nil
 	}
 
-	rController, found := a.acr.controllerFor(relevantChecks[0])
-	if !found {
-		return nil, errors.New("remote controller not found")
-	}
-
-	if !rController.IsActive() {
-		return nil, errors.New("remote controller is not active")
+	rClients, err := a.remoteClientsForAC(ctx, relevantChecks[0])
+	if err != nil {
+		return nil, fmt.Errorf("admission check %q: %w", relevantChecks[0], err)
 	}
 
 	// Lookup the adapter.
@@ -202,14 +219,14 @@ func (a *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload) (*w
 
 	grp := wlGroup{
 		local:         local,
-		remotes:       make(map[string]*kueue.Workload, len(rController.remoteClients)),
-		rc:            rController,
+		remotes:       make(map[string]*kueue.Workload, len(rClients)),
+		remoteClients: rClients,
 		acName:        relevantChecks[0],
 		jobAdapter:    adapter,
 		controllerKey: controllerKey,
 	}
 
-	for remote, rClient := range rController.remoteClients {
+	for remote, rClient := range rClients {
 		wl := &kueue.Workload{}
 		err := rClient.client.Get(ctx, client.ObjectKeyFromObject(local), wl)
 		if client.IgnoreNotFound(err) != nil {
@@ -244,7 +261,7 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 		// it should not be problematic but the "From remote xxxx:" could be lost ....
 
 		if group.jobAdapter != nil {
-			if err := group.jobAdapter.CopyStatusRemoteObject(ctx, a.acr.client, group.rc.remoteClients[remote].client, group.controllerKey); err != nil {
+			if err := group.jobAdapter.CopyStatusRemoteObject(ctx, a.client, group.remoteClients[remote].client, group.controllerKey); err != nil {
 				log.V(2).Error(err, "copying remote controller status", "workerCluster", remote)
 				// we should retry this
 				return err
@@ -261,7 +278,7 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 			Reason:  remoteFinishedCond.Reason,
 			Message: fmt.Sprintf("From remote %q: %s", remote, remoteFinishedCond.Message),
 		})
-		return a.acr.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(ControllerName+"-finish"), client.ForceOwnership)
+		return a.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(ControllerName+"-finish"), client.ForceOwnership)
 	}
 
 	hasReserving, reservingRemote := group.FirstReserving()
@@ -284,7 +301,7 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 	// 3. get the first reserving
 	if hasReserving {
 		acs := workload.FindAdmissionCheck(group.local.Status.AdmissionChecks, group.acName)
-		if err := group.jobAdapter.CreateRemoteObject(ctx, a.acr.client, group.rc.remoteClients[reservingRemote].client, group.controllerKey, group.local.Name); err != nil {
+		if err := group.jobAdapter.CreateRemoteObject(ctx, a.client, group.remoteClients[reservingRemote].client, group.controllerKey, group.local.Name); err != nil {
 			log.V(2).Error(err, "creating remote controller object", "remote", reservingRemote)
 			// We'll retry this in the next reconcile.
 			return err
@@ -300,7 +317,7 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 			acs.Message = fmt.Sprintf("The workload got reservation on %q", reservingRemote)
 			wlPatch := workload.BaseSSAWorkload(group.local)
 			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs)
-			err := a.acr.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(ControllerName), client.ForceOwnership)
+			err := a.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(ControllerName), client.ForceOwnership)
 			if err != nil {
 				return err
 			}
@@ -313,7 +330,7 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 	for rem, remWl := range group.remotes {
 		if remWl == nil {
 			clone := cloneForCreate(group.local)
-			err := group.rc.remoteClients[rem].client.Create(ctx, clone)
+			err := group.remoteClients[rem].client.Create(ctx, clone)
 			if err != nil {
 				// just log the error for a single remote
 				log.V(2).Error(err, "creating remote object", "remote", rem)
@@ -321,6 +338,14 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 		}
 	}
 	return nil
+}
+
+func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clustersReconciler) *wlReconciler {
+	return &wlReconciler{
+		client:   c,
+		helper:   helper,
+		clusters: cRec,
+	}
 }
 
 func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
@@ -335,7 +360,7 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.Workload{}).
-		WatchesRawSource(&source.Channel{Source: w.acr.wlUpdateCh}, syncHndl).
+		WatchesRawSource(&source.Channel{Source: w.clusters.wlUpdateCh}, syncHndl).
 		Complete(w)
 }
 

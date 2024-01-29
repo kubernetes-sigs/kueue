@@ -403,6 +403,22 @@ rules:
   - apiGroups:
       - kueue.x-k8s.io
     resources:
+      - multikueueclusters
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - kueue.x-k8s.io
+    resources:
+      - multikueueclusters/status
+    verbs:
+      - get
+      - patch
+      - update
+  - apiGroups:
+      - kueue.x-k8s.io
+    resources:
       - multikueueconfigs
     verbs:
       - get

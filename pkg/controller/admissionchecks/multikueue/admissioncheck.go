@@ -18,14 +18,10 @@ package multikueue
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
-	"sync"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -35,7 +31,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -54,114 +49,62 @@ func newMultiKueueStoreHelper(c client.Client) (*multiKueueStoreHelper, error) {
 }
 
 // ACReconciler implements the reconciler for all the admission checks controlled by multikueue.
-// Its main tasks being to:
-// - Maintain the list of remote controllers associated to each admission checks.
-// - Maintain the active state of the admission checks.
+// Its main task being to maintain the active state of the admission checks based on the heath
+// of its referenced MultiKueueClusters.
 type ACReconciler struct {
-	client          client.Client
-	helper          *multiKueueStoreHelper
-	configNamespace string
-
-	lock sync.RWMutex
-	// The list of remote controllers, indexed by the admission checks name.
-	controllers map[string]*remoteController
-	wlUpdateCh  chan event.GenericEvent
-
-	// rootContext - holds the context passed by the controller-runtime on Start.
-	// It's used to create child contexts for MultiKueueClusters client watch routines
-	// that will gracefully end when the controller-manager stops.
-	rootContext context.Context
-
-	// For unit testing only. There is now need of creating fully functional remote clients in the unit tests
-	// and creating valid kubeconfig content is not trivial.
-	// The full client creation and usage is validated in the integration and e2e tests.
-	builderOverride clientWithWatchBuilder
+	client client.Client
+	helper *multiKueueStoreHelper
 }
 
 var _ reconcile.Reconciler = (*ACReconciler)(nil)
-var _ manager.Runnable = (*ACReconciler)(nil)
-
-func (a *ACReconciler) controllerFor(acName string) (*remoteController, bool) {
-	a.lock.RLock()
-	defer a.lock.RUnlock()
-
-	c, f := a.controllers[acName]
-	return c, f
-}
-
-func (a *ACReconciler) setControllerFor(acName string, c *remoteController) {
-	a.lock.Lock()
-	defer a.lock.Unlock()
-
-	if old, found := a.controllers[acName]; found {
-		old.watchCancel()
-	}
-	if c != nil {
-		a.controllers[acName] = c
-		return
-	}
-	delete(a.controllers, acName)
-}
-
-func (a *ACReconciler) Start(ctx context.Context) error {
-	a.rootContext = ctx
-	return nil
-}
 
 func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	ac := &kueue.AdmissionCheck{}
 	if err := a.client.Get(ctx, req.NamespacedName, ac); err != nil || ac.Spec.ControllerName != ControllerName {
-		if apierrors.IsNotFound(err) || !ac.DeletionTimestamp.IsZero() {
-			// stop/deleted a potential check controller
-			if cc, existing := a.controllerFor(req.Name); existing {
-				cc.watchCancel()
-				a.setControllerFor(req.Name, nil)
-				log.V(2).Info("Controller removed")
-			}
-			return reconcile.Result{}, nil
-		}
-		return reconcile.Result{}, err
+		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
-	var remCtrl *remoteController
 	inactiveReason := ""
 
 	log.V(2).Info("Reconcile AdmissionCheck")
 	if cfg, err := a.helper.ConfigFromRef(ctx, ac.Spec.Parameters); err != nil {
 		inactiveReason = fmt.Sprintf("Cannot load the AdmissionChecks parameters: %s", err.Error())
 	} else {
-		kubeconfigs, err := a.getKubeConfigs(ctx, &cfg.Spec)
-		if err != nil {
-			a.setControllerFor(ac.Name, nil)
-			inactiveReason = fmt.Sprintf("Cannot load kubeconfigs: %s", err.Error())
-		} else {
-			remoteCtrl, existing := a.controllerFor(ac.Name)
-			if !existing {
-				remoteCtrl = newRemoteController(a.rootContext, a.client, a.wlUpdateCh)
-				if a.builderOverride != nil {
-					remoteCtrl.builderOverride = a.builderOverride
-				}
-				a.setControllerFor(ac.Name, remoteCtrl)
+		var missingClusters []string
+		var inactiveClusters []string
+		// check the status of the clusters
+		for _, clusterName := range cfg.Spec.Clusters {
+			cluster := &kueuealpha.MultiKueueCluster{}
+			err := a.client.Get(ctx, types.NamespacedName{Name: clusterName}, cluster)
+			if client.IgnoreNotFound(err) != nil {
+				log.Error(err, "reading cluster", "multiKueueCluster", clusterName)
+				return reconcile.Result{}, err
 			}
 
-			err := remoteCtrl.UpdateConfig(kubeconfigs)
 			if err != nil {
-				inactiveReason = fmt.Sprintf("Cannot start MultiKueueClusters controller: %s", err.Error())
-				a.setControllerFor(ac.Name, nil)
+				missingClusters = append(missingClusters, clusterName)
 			} else {
-				remCtrl = remoteCtrl
+				if !apimeta.IsStatusConditionTrue(cluster.Status.Conditions, kueuealpha.MultiKueueClusterActive) {
+					inactiveClusters = append(inactiveClusters, clusterName)
+				}
 			}
 		}
+
+		var messageParts []string
+		if len(missingClusters) > 0 {
+			messageParts = []string{fmt.Sprintf("Missing clusters: %v", missingClusters)}
+		}
+		if len(inactiveClusters) > 0 {
+			messageParts = append(messageParts, fmt.Sprintf("Inactive clusters: %v", inactiveClusters))
+		}
+		inactiveReason = strings.Join(messageParts, ", ")
 	}
 
 	newCondition := metav1.Condition{
-		Type:    kueue.AdmissionCheckActive,
-		Status:  metav1.ConditionTrue,
-		Reason:  "Active",
-		Message: "The admission check is active",
+		Type: kueue.AdmissionCheckActive,
 	}
-	if remCtrl.IsActive() {
+	if len(inactiveReason) == 0 {
 		newCondition.Status = metav1.ConditionTrue
 		newCondition.Reason = "Active"
 		newCondition.Message = "The admission check is active"
@@ -172,7 +115,7 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	}
 
 	oldCondition := apimeta.FindStatusCondition(ac.Status.Conditions, kueue.AdmissionCheckActive)
-	if oldCondition == nil || oldCondition.Status != newCondition.Status || oldCondition.Reason != newCondition.Reason || oldCondition.Message != newCondition.Message {
+	if !cmpConditionState(oldCondition, &newCondition) {
 		apimeta.SetStatusCondition(&ac.Status.Conditions, newCondition)
 		err := a.client.Status().Update(ctx, ac)
 		if err != nil {
@@ -184,78 +127,45 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	return reconcile.Result{}, nil
 }
 
-func (cc *ACReconciler) getKubeConfigs(ctx context.Context, spec *kueuealpha.MultiKueueConfigSpec) (map[string][]byte, error) {
-	ret := make(map[string][]byte, len(spec.Clusters))
-	for _, c := range spec.Clusters {
-		ref := c.KubeconfigRef
-		sec := corev1.Secret{}
-
-		secretObjKey := types.NamespacedName{
-			Namespace: cc.configNamespace,
-			Name:      ref.Location,
-		}
-		err := cc.client.Get(ctx, secretObjKey, &sec)
-		if err != nil {
-			return nil, fmt.Errorf("getting kubeconfig secret for %q: %w", c.Name, err)
-		}
-
-		kconfigBytes, found := sec.Data[kueuealpha.MultiKueueConfigSecretKey]
-		if !found {
-			return nil, fmt.Errorf("getting kubeconfig secret for %q: key %q not found in secret %q", c.Name, kueuealpha.MultiKueueConfigSecretKey, ref.Location)
-		}
-		ret[c.Name] = kconfigBytes
-	}
-	return ret, nil
-}
-
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueconfigs,verbs=get;list;watch
 
-func newACController(c client.Client, helper *multiKueueStoreHelper, namespace string) *ACReconciler {
+func newACReconciler(c client.Client, helper *multiKueueStoreHelper) *ACReconciler {
 	return &ACReconciler{
-		client:          c,
-		helper:          helper,
-		configNamespace: namespace,
-		controllers:     make(map[string]*remoteController),
-		wlUpdateCh:      make(chan event.GenericEvent, 10),
+		client: c,
+		helper: helper,
 	}
-
 }
 
 func (a *ACReconciler) setupWithManager(mgr ctrl.Manager) error {
-	err := mgr.Add(a)
-	if err != nil {
-		return err
-	}
-
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.AdmissionCheck{}).
-		Watches(&kueuealpha.MultiKueueConfig{}, &mkcHandler{client: a.client}).
-		Watches(&corev1.Secret{}, &secretHandler{client: a.client}).
+		Watches(&kueuealpha.MultiKueueConfig{}, &mkConfigHandler{client: a.client}).
+		Watches(&kueuealpha.MultiKueueCluster{}, &mkClusterHandler{client: a.client}).
 		Complete(a)
 }
 
-type mkcHandler struct {
+type mkConfigHandler struct {
 	client client.Client
 }
 
-var _ handler.EventHandler = (*mkcHandler)(nil)
+var _ handler.EventHandler = (*mkConfigHandler)(nil)
 
-func (m *mkcHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.RateLimitingInterface) {
+func (m *mkConfigHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.RateLimitingInterface) {
 	mkc, isMKC := event.Object.(*kueuealpha.MultiKueueConfig)
 	if !isMKC {
 		return
 	}
 
 	if err := queueReconcileForConfigUsers(ctx, mkc.Name, m.client, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on create event", "multiKueueConfig", klog.KObj(mkc))
+		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on create event", "multiKueueConfig", klog.KObj(mkc))
 	}
 }
 
-func (m *mkcHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.RateLimitingInterface) {
+func (m *mkConfigHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.RateLimitingInterface) {
 	oldMKC, isOldMKC := event.ObjectOld.(*kueuealpha.MultiKueueConfig)
 	newMKC, isNewMKC := event.ObjectNew.(*kueuealpha.MultiKueueConfig)
 	if !isOldMKC || !isNewMKC || equality.Semantic.DeepEqual(oldMKC.Spec.Clusters, newMKC.Spec.Clusters) {
@@ -263,29 +173,29 @@ func (m *mkcHandler) Update(ctx context.Context, event event.UpdateEvent, q work
 	}
 
 	if err := queueReconcileForConfigUsers(ctx, oldMKC.Name, m.client, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on update event", "multiKueueConfig", klog.KObj(oldMKC))
+		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on update event", "multiKueueConfig", klog.KObj(oldMKC))
 	}
 }
 
-func (m *mkcHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.RateLimitingInterface) {
+func (m *mkConfigHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.RateLimitingInterface) {
 	mkc, isMKC := event.Object.(*kueuealpha.MultiKueueConfig)
 	if !isMKC {
 		return
 	}
 
 	if err := queueReconcileForConfigUsers(ctx, mkc.Name, m.client, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on delete event", "multiKueueConfig", klog.KObj(mkc))
+		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on delete event", "multiKueueConfig", klog.KObj(mkc))
 	}
 }
 
-func (m *mkcHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.RateLimitingInterface) {
+func (m *mkConfigHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.RateLimitingInterface) {
 	mkc, isMKC := event.Object.(*kueuealpha.MultiKueueConfig)
 	if !isMKC {
 		return
 	}
 
 	if err := queueReconcileForConfigUsers(ctx, mkc.Name, m.client, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on generic event", "multiKueueConfig", klog.KObj(mkc))
+		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on generic event", "multiKueueConfig", klog.KObj(mkc))
 	}
 }
 
@@ -308,51 +218,81 @@ func queueReconcileForConfigUsers(ctx context.Context, config string, c client.C
 	return nil
 }
 
-type secretHandler struct {
+type mkClusterHandler struct {
 	client client.Client
 }
 
-var _ handler.EventHandler = (*secretHandler)(nil)
+var _ handler.EventHandler = (*mkClusterHandler)(nil)
 
-func (s *secretHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.RateLimitingInterface) {
-	if err := s.queue(ctx, event.Object, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on create event", "secret", klog.KObj(event.Object))
+func (m *mkClusterHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.RateLimitingInterface) {
+	mkc, isMKC := event.Object.(*kueuealpha.MultiKueueCluster)
+	if !isMKC {
+		return
+	}
+
+	if err := queueReconcileForConfigUsers(ctx, mkc.Name, m.client, q); err != nil {
+		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on create event", "multiKueueCluster", klog.KObj(mkc))
 	}
 }
 
-func (s *secretHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.RateLimitingInterface) {
-	if err := s.queue(ctx, event.ObjectOld, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on update event", "secret", klog.KObj(event.ObjectOld))
+func (m *mkClusterHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.RateLimitingInterface) {
+	oldMKC, isOldMKC := event.ObjectOld.(*kueuealpha.MultiKueueCluster)
+	newMKC, isNewMKC := event.ObjectNew.(*kueuealpha.MultiKueueCluster)
+	if !isOldMKC || !isNewMKC {
+		return
+	}
+
+	oldActive := apimeta.FindStatusCondition(oldMKC.Status.Conditions, kueuealpha.MultiKueueClusterActive)
+	newActive := apimeta.FindStatusCondition(newMKC.Status.Conditions, kueuealpha.MultiKueueClusterActive)
+	if !cmpConditionState(oldActive, newActive) {
+		if err := m.queue(ctx, newMKC, q); err != nil {
+			ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on update event", "multiKueueCluster", klog.KObj(oldMKC))
+		}
 	}
 }
 
-func (s *secretHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.RateLimitingInterface) {
-	if err := s.queue(ctx, event.Object, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on delete event", "secret", klog.KObj(event.Object))
+func (m *mkClusterHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.RateLimitingInterface) {
+	mkc, isMKC := event.Object.(*kueuealpha.MultiKueueCluster)
+	if !isMKC {
+		return
+	}
+
+	if err := m.queue(ctx, mkc, q); err != nil {
+		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on delete event", "multiKueueCluster", klog.KObj(mkc))
 	}
 }
 
-func (s *secretHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.RateLimitingInterface) {
-	if err := s.queue(ctx, event.Object, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on generic event", "secret", klog.KObj(event.Object))
+func (m *mkClusterHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.RateLimitingInterface) {
+	mkc, isMKC := event.Object.(*kueuealpha.MultiKueueCluster)
+	if !isMKC {
+		return
+	}
+
+	if err := m.queue(ctx, mkc, q); err != nil {
+		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failure on generic event", "multiKueueCluster", klog.KObj(mkc))
 	}
 }
 
-func (s *secretHandler) queue(ctx context.Context, obj client.Object, q workqueue.RateLimitingInterface) error {
+func (m *mkClusterHandler) queue(ctx context.Context, cluster *kueuealpha.MultiKueueCluster, q workqueue.RateLimitingInterface) error {
 	users := &kueuealpha.MultiKueueConfigList{}
-	secret, isSecret := obj.(*corev1.Secret)
-	if !isSecret {
-		return errors.New("not a secret")
-	}
-
-	if err := s.client.List(ctx, users, client.MatchingFields{UsingKubeConfigs: strings.Join([]string{secret.Namespace, secret.Name}, "/")}); err != nil {
+	if err := m.client.List(ctx, users, client.MatchingFields{UsingMultiKueueClusters: cluster.Name}); err != nil {
 		return err
 	}
 
 	for _, user := range users.Items {
-		if err := queueReconcileForConfigUsers(ctx, user.Name, s.client, q); err != nil {
+		if err := queueReconcileForConfigUsers(ctx, user.Name, m.client, q); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func cmpConditionState(a, b *metav1.Condition) bool {
+	if a == b {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Status == b.Status && a.Reason == b.Reason && a.Message == b.Message
 }

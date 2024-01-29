@@ -32,10 +32,14 @@ import (
 func ForKind(kind schema.GroupVersionKind) interface{} {
 	switch kind {
 	// Group=kueue.x-k8s.io, Version=v1alpha1
-	case v1alpha1.SchemeGroupVersion.WithKind("KubeconfigRef"):
-		return &kueuev1alpha1.KubeconfigRefApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("KubeConfig"):
+		return &kueuev1alpha1.KubeConfigApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("MultiKueueCluster"):
 		return &kueuev1alpha1.MultiKueueClusterApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("MultiKueueClusterSpec"):
+		return &kueuev1alpha1.MultiKueueClusterSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("MultiKueueClusterStatus"):
+		return &kueuev1alpha1.MultiKueueClusterStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("MultiKueueConfig"):
 		return &kueuev1alpha1.MultiKueueConfigApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("MultiKueueConfigSpec"):

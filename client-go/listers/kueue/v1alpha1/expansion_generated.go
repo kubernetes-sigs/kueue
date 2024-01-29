@@ -17,6 +17,10 @@ limitations under the License.
 
 package v1alpha1
 
+// MultiKueueClusterListerExpansion allows custom methods to be added to
+// MultiKueueClusterLister.
+type MultiKueueClusterListerExpansion interface{}
+
 // MultiKueueConfigListerExpansion allows custom methods to be added to
 // MultiKueueConfigLister.
 type MultiKueueConfigListerExpansion interface{}

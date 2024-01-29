@@ -17,31 +17,201 @@ limitations under the License.
 
 package v1alpha1
 
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	types "k8s.io/apimachinery/pkg/types"
+	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
+)
+
 // MultiKueueClusterApplyConfiguration represents an declarative configuration of the MultiKueueCluster type for use
 // with apply.
 type MultiKueueClusterApplyConfiguration struct {
-	Name          *string                          `json:"name,omitempty"`
-	KubeconfigRef *KubeconfigRefApplyConfiguration `json:"kubeconfigRef,omitempty"`
+	v1.TypeMetaApplyConfiguration    `json:",inline"`
+	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
+	Spec                             *MultiKueueClusterSpecApplyConfiguration   `json:"spec,omitempty"`
+	Status                           *MultiKueueClusterStatusApplyConfiguration `json:"status,omitempty"`
 }
 
-// MultiKueueClusterApplyConfiguration constructs an declarative configuration of the MultiKueueCluster type for use with
+// MultiKueueCluster constructs an declarative configuration of the MultiKueueCluster type for use with
 // apply.
-func MultiKueueCluster() *MultiKueueClusterApplyConfiguration {
-	return &MultiKueueClusterApplyConfiguration{}
+func MultiKueueCluster(name string) *MultiKueueClusterApplyConfiguration {
+	b := &MultiKueueClusterApplyConfiguration{}
+	b.WithName(name)
+	b.WithKind("MultiKueueCluster")
+	b.WithAPIVersion("kueue.x-k8s.io/v1alpha1")
+	return b
+}
+
+// WithKind sets the Kind field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Kind field is set to the value of the last call.
+func (b *MultiKueueClusterApplyConfiguration) WithKind(value string) *MultiKueueClusterApplyConfiguration {
+	b.Kind = &value
+	return b
+}
+
+// WithAPIVersion sets the APIVersion field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the APIVersion field is set to the value of the last call.
+func (b *MultiKueueClusterApplyConfiguration) WithAPIVersion(value string) *MultiKueueClusterApplyConfiguration {
+	b.APIVersion = &value
+	return b
 }
 
 // WithName sets the Name field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Name field is set to the value of the last call.
 func (b *MultiKueueClusterApplyConfiguration) WithName(value string) *MultiKueueClusterApplyConfiguration {
+	b.ensureObjectMetaApplyConfigurationExists()
 	b.Name = &value
 	return b
 }
 
-// WithKubeconfigRef sets the KubeconfigRef field in the declarative configuration to the given value
+// WithGenerateName sets the GenerateName field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the KubeconfigRef field is set to the value of the last call.
-func (b *MultiKueueClusterApplyConfiguration) WithKubeconfigRef(value *KubeconfigRefApplyConfiguration) *MultiKueueClusterApplyConfiguration {
-	b.KubeconfigRef = value
+// If called multiple times, the GenerateName field is set to the value of the last call.
+func (b *MultiKueueClusterApplyConfiguration) WithGenerateName(value string) *MultiKueueClusterApplyConfiguration {
+	b.ensureObjectMetaApplyConfigurationExists()
+	b.GenerateName = &value
+	return b
+}
+
+// WithNamespace sets the Namespace field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Namespace field is set to the value of the last call.
+func (b *MultiKueueClusterApplyConfiguration) WithNamespace(value string) *MultiKueueClusterApplyConfiguration {
+	b.ensureObjectMetaApplyConfigurationExists()
+	b.Namespace = &value
+	return b
+}
+
+// WithUID sets the UID field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the UID field is set to the value of the last call.
+func (b *MultiKueueClusterApplyConfiguration) WithUID(value types.UID) *MultiKueueClusterApplyConfiguration {
+	b.ensureObjectMetaApplyConfigurationExists()
+	b.UID = &value
+	return b
+}
+
+// WithResourceVersion sets the ResourceVersion field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ResourceVersion field is set to the value of the last call.
+func (b *MultiKueueClusterApplyConfiguration) WithResourceVersion(value string) *MultiKueueClusterApplyConfiguration {
+	b.ensureObjectMetaApplyConfigurationExists()
+	b.ResourceVersion = &value
+	return b
+}
+
+// WithGeneration sets the Generation field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Generation field is set to the value of the last call.
+func (b *MultiKueueClusterApplyConfiguration) WithGeneration(value int64) *MultiKueueClusterApplyConfiguration {
+	b.ensureObjectMetaApplyConfigurationExists()
+	b.Generation = &value
+	return b
+}
+
+// WithCreationTimestamp sets the CreationTimestamp field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the CreationTimestamp field is set to the value of the last call.
+func (b *MultiKueueClusterApplyConfiguration) WithCreationTimestamp(value metav1.Time) *MultiKueueClusterApplyConfiguration {
+	b.ensureObjectMetaApplyConfigurationExists()
+	b.CreationTimestamp = &value
+	return b
+}
+
+// WithDeletionTimestamp sets the DeletionTimestamp field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DeletionTimestamp field is set to the value of the last call.
+func (b *MultiKueueClusterApplyConfiguration) WithDeletionTimestamp(value metav1.Time) *MultiKueueClusterApplyConfiguration {
+	b.ensureObjectMetaApplyConfigurationExists()
+	b.DeletionTimestamp = &value
+	return b
+}
+
+// WithDeletionGracePeriodSeconds sets the DeletionGracePeriodSeconds field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DeletionGracePeriodSeconds field is set to the value of the last call.
+func (b *MultiKueueClusterApplyConfiguration) WithDeletionGracePeriodSeconds(value int64) *MultiKueueClusterApplyConfiguration {
+	b.ensureObjectMetaApplyConfigurationExists()
+	b.DeletionGracePeriodSeconds = &value
+	return b
+}
+
+// WithLabels puts the entries into the Labels field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, the entries provided by each call will be put on the Labels field,
+// overwriting an existing map entries in Labels field with the same key.
+func (b *MultiKueueClusterApplyConfiguration) WithLabels(entries map[string]string) *MultiKueueClusterApplyConfiguration {
+	b.ensureObjectMetaApplyConfigurationExists()
+	if b.Labels == nil && len(entries) > 0 {
+		b.Labels = make(map[string]string, len(entries))
+	}
+	for k, v := range entries {
+		b.Labels[k] = v
+	}
+	return b
+}
+
+// WithAnnotations puts the entries into the Annotations field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, the entries provided by each call will be put on the Annotations field,
+// overwriting an existing map entries in Annotations field with the same key.
+func (b *MultiKueueClusterApplyConfiguration) WithAnnotations(entries map[string]string) *MultiKueueClusterApplyConfiguration {
+	b.ensureObjectMetaApplyConfigurationExists()
+	if b.Annotations == nil && len(entries) > 0 {
+		b.Annotations = make(map[string]string, len(entries))
+	}
+	for k, v := range entries {
+		b.Annotations[k] = v
+	}
+	return b
+}
+
+// WithOwnerReferences adds the given value to the OwnerReferences field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the OwnerReferences field.
+func (b *MultiKueueClusterApplyConfiguration) WithOwnerReferences(values ...*v1.OwnerReferenceApplyConfiguration) *MultiKueueClusterApplyConfiguration {
+	b.ensureObjectMetaApplyConfigurationExists()
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithOwnerReferences")
+		}
+		b.OwnerReferences = append(b.OwnerReferences, *values[i])
+	}
+	return b
+}
+
+// WithFinalizers adds the given value to the Finalizers field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Finalizers field.
+func (b *MultiKueueClusterApplyConfiguration) WithFinalizers(values ...string) *MultiKueueClusterApplyConfiguration {
+	b.ensureObjectMetaApplyConfigurationExists()
+	for i := range values {
+		b.Finalizers = append(b.Finalizers, values[i])
+	}
+	return b
+}
+
+func (b *MultiKueueClusterApplyConfiguration) ensureObjectMetaApplyConfigurationExists() {
+	if b.ObjectMetaApplyConfiguration == nil {
+		b.ObjectMetaApplyConfiguration = &v1.ObjectMetaApplyConfiguration{}
+	}
+}
+
+// WithSpec sets the Spec field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Spec field is set to the value of the last call.
+func (b *MultiKueueClusterApplyConfiguration) WithSpec(value *MultiKueueClusterSpecApplyConfiguration) *MultiKueueClusterApplyConfiguration {
+	b.Spec = value
+	return b
+}
+
+// WithStatus sets the Status field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Status field is set to the value of the last call.
+func (b *MultiKueueClusterApplyConfiguration) WithStatus(value *MultiKueueClusterStatusApplyConfiguration) *MultiKueueClusterApplyConfiguration {
+	b.Status = value
 	return b
 }

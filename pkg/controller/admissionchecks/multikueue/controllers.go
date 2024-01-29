@@ -24,15 +24,18 @@ func SetupControllers(mgr ctrl.Manager, namespace string) error {
 		return err
 	}
 
-	a := newACController(mgr.GetClient(), helper, namespace)
-	err = a.setupWithManager(mgr)
+	cRec := newClustersReconciler(mgr.GetClient(), namespace)
+	err = cRec.setupWithManager(mgr)
 	if err != nil {
 		return err
 	}
 
-	wlRec := &wlReconciler{
-		acr: a,
+	acRec := newACReconciler(mgr.GetClient(), helper)
+	err = acRec.setupWithManager(mgr)
+	if err != nil {
+		return err
 	}
 
+	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec)
 	return wlRec.setupWithManager(mgr)
 }

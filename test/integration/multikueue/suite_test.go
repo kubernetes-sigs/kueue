@@ -80,13 +80,13 @@ func (c *cluster) kubeConfigBytes() ([]byte, error) {
 }
 
 var (
-	managerCluster          cluster
-	worker1Cluster          cluster
-	worker2Cluster          cluster
+	managerTestCluster      cluster
+	worker1TestCluster      cluster
+	worker2TestCluster      cluster
 	managersConfigNamespace *corev1.Namespace
 )
 
-func TestScheduler(t *testing.T) {
+func TestMultiKueue(t *testing.T) {
 	gomega.RegisterFailHandler(ginkgo.Fail)
 
 	ginkgo.RunSpecs(t,
@@ -107,15 +107,15 @@ func createCluster(setupFnc framework.ManagerSetup) cluster {
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	managerCluster = createCluster(managerAndMultiKueueSetup)
-	worker1Cluster = createCluster(managerSetup)
-	worker2Cluster = createCluster(managerSetup)
+	managerTestCluster = createCluster(managerAndMultiKueueSetup)
+	worker1TestCluster = createCluster(managerSetup)
+	worker2TestCluster = createCluster(managerSetup)
 })
 
 var _ = ginkgo.AfterSuite(func() {
-	managerCluster.fwk.Teardown()
-	worker1Cluster.fwk.Teardown()
-	worker2Cluster.fwk.Teardown()
+	managerTestCluster.fwk.Teardown()
+	worker1TestCluster.fwk.Teardown()
+	worker2TestCluster.fwk.Teardown()
 })
 
 func managerSetup(mgr manager.Manager, ctx context.Context) {
@@ -166,6 +166,9 @@ func managerAndMultiKueueSetup(mgr manager.Manager, ctx context.Context) {
 	}
 	gomega.Expect(mgr.GetClient().Create(ctx, managersConfigNamespace)).To(gomega.Succeed())
 
-	err := multikueue.SetupControllers(mgr, managersConfigNamespace.Name)
+	err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }

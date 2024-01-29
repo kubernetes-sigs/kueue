@@ -21,7 +21,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -31,45 +30,31 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
-func testRemoteController() *remoteController {
-	return &remoteController{
-		watchCancel: func() {},
-	}
-}
-
 func TestReconcile(t *testing.T) {
 	cases := map[string]struct {
 		checks       []kueue.AdmissionCheck
-		controllers  map[string]*remoteController
+		clusters     []kueuealpha.MultiKueueCluster
 		reconcileFor string
 		configs      []kueuealpha.MultiKueueConfig
-		secrets      []corev1.Secret
 
-		wantChecks      []kueue.AdmissionCheck
-		wantControllers map[string]*remoteController
-		wantError       error
+		wantChecks []kueue.AdmissionCheck
+		wantError  error
 	}{
 		"missing admissioncheck": {
 			reconcileFor: "missing-ac",
-		},
-		"removed admissioncheck": {
-			reconcileFor: "removed-ac",
-			controllers: map[string]*remoteController{
-				"removed-ac": testRemoteController(),
-			},
 		},
 		"missing config": {
 			reconcileFor: "ac1",
 			checks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			},
 			wantChecks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Condition(metav1.Condition{
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionFalse,
@@ -92,166 +77,105 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
-		"missing kubeconfig secret": {
+		"missing cluster": {
 			reconcileFor: "ac1",
 			checks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			},
 			configs: []kueuealpha.MultiKueueConfig{
-				{
-					ObjectMeta: metav1.ObjectMeta{Name: "config1"},
-					Spec: kueuealpha.MultiKueueConfigSpec{
-						Clusters: []kueuealpha.MultiKueueCluster{
-							{
-								Name: "worker1",
-								KubeconfigRef: kueuealpha.KubeconfigRef{
-									Location:     "secret1",
-									LocationType: kueuealpha.SecretLocationType,
-								},
-							},
-						},
-					},
-				},
+				*utiltesting.MakeMultiKueueConfig("config1").Clusters("worker1").Obj(),
 			},
 			wantChecks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Condition(metav1.Condition{
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "Inactive",
-						Message: `Cannot load kubeconfigs: getting kubeconfig secret for "worker1": secrets "secret1" not found`,
+						Message: "Missing clusters: [worker1]",
 					}).
 					Obj(),
 			},
 		},
-		"missing kubeconfig key in secret": {
+		"inactive cluster": {
 			reconcileFor: "ac1",
 			checks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			},
 			configs: []kueuealpha.MultiKueueConfig{
-				{
-					ObjectMeta: metav1.ObjectMeta{Name: "config1"},
-					Spec: kueuealpha.MultiKueueConfigSpec{
-						Clusters: []kueuealpha.MultiKueueCluster{
-							{
-								Name: "worker1",
-								KubeconfigRef: kueuealpha.KubeconfigRef{
-									Location:     "secret1",
-									LocationType: kueuealpha.SecretLocationType,
-								},
-							},
-						},
-					},
-				},
+				*utiltesting.MakeMultiKueueConfig("config1").Clusters("worker1").Obj(),
 			},
-			secrets: []corev1.Secret{
-				{
-					ObjectMeta: metav1.ObjectMeta{Namespace: TestNamespace, Name: "secret1"},
-				},
+
+			clusters: []kueuealpha.MultiKueueCluster{
+				*utiltesting.MakeMultiKueueCluster("worker1").Active(metav1.ConditionFalse, "ByTest", "by test").Obj(),
 			},
 			wantChecks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Condition(metav1.Condition{
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "Inactive",
-						Message: `Cannot load kubeconfigs: getting kubeconfig secret for "worker1": key "kubeconfig" not found in secret "secret1"`,
+						Message: "Inactive clusters: [worker1]",
 					}).
 					Obj(),
 			},
 		},
-		"invalid kubeconfig in secret": {
+		"missing and inactive cluster": {
 			reconcileFor: "ac1",
 			checks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			},
 			configs: []kueuealpha.MultiKueueConfig{
-				{
-					ObjectMeta: metav1.ObjectMeta{Name: "config1"},
-					Spec: kueuealpha.MultiKueueConfigSpec{
-						Clusters: []kueuealpha.MultiKueueCluster{
-							{
-								Name: "worker1",
-								KubeconfigRef: kueuealpha.KubeconfigRef{
-									Location:     "secret1",
-									LocationType: kueuealpha.SecretLocationType,
-								},
-							},
-						},
-					},
-				},
+				*utiltesting.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2", "worker3").Obj(),
 			},
-			secrets: []corev1.Secret{
-				{
-					ObjectMeta: metav1.ObjectMeta{Namespace: TestNamespace, Name: "secret1"},
-					Data: map[string][]byte{
-						"kubeconfig": []byte("invalid"),
-					},
-				},
+
+			clusters: []kueuealpha.MultiKueueCluster{
+				*utiltesting.MakeMultiKueueCluster("worker1").Active(metav1.ConditionFalse, "ByTest", "by test").Obj(),
+				*utiltesting.MakeMultiKueueCluster("worker2").Active(metav1.ConditionTrue, "ByTest", "by test").Obj(),
 			},
 			wantChecks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Condition(metav1.Condition{
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "Inactive",
-						Message: `Cannot start MultiKueueClusters controller: cluster "worker1": invalid kubeconfig`,
+						Message: "Missing clusters: [worker3], Inactive clusters: [worker1]",
 					}).
 					Obj(),
 			},
 		},
-		"valid": {
+		"active": {
 			reconcileFor: "ac1",
 			checks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Obj(),
 			},
 			configs: []kueuealpha.MultiKueueConfig{
-				{
-					ObjectMeta: metav1.ObjectMeta{Name: "config1"},
-					Spec: kueuealpha.MultiKueueConfigSpec{
-						Clusters: []kueuealpha.MultiKueueCluster{
-							{
-								Name: "worker1",
-								KubeconfigRef: kueuealpha.KubeconfigRef{
-									Location:     "secret1",
-									LocationType: kueuealpha.SecretLocationType,
-								},
-							},
-						},
-					},
-				},
+				*utiltesting.MakeMultiKueueConfig("config1").Clusters("worker1").Obj(),
 			},
-			secrets: []corev1.Secret{
-				{
-					ObjectMeta: metav1.ObjectMeta{Namespace: TestNamespace, Name: "secret1"},
-					Data: map[string][]byte{
-						"kubeconfig": []byte("good kubeconfig"),
-					},
-				},
+			clusters: []kueuealpha.MultiKueueCluster{
+				*utiltesting.MakeMultiKueueCluster("worker1").Active(metav1.ConditionTrue, "ByTest", "by test").Obj(),
 			},
 			wantChecks: []kueue.AdmissionCheck{
 				*utiltesting.MakeAdmissionCheck("ac1").
 					ControllerName(ControllerName).
-					Parameters(kueue.GroupVersion.Group, "MultiKueueConfig", "config1").
+					Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", "config1").
 					Condition(metav1.Condition{
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionTrue,
@@ -259,15 +183,6 @@ func TestReconcile(t *testing.T) {
 						Message: `The admission check is active`,
 					}).
 					Obj(),
-			},
-			wantControllers: map[string]*remoteController{
-				"ac1": {
-					remoteClients: map[string]*remoteClient{
-						"worker1": {
-							kubeconfig: []byte("good kubeconfig"),
-						},
-					},
-				},
 			},
 		},
 	}
@@ -279,7 +194,7 @@ func TestReconcile(t *testing.T) {
 			builder = builder.WithLists(
 				&kueue.AdmissionCheckList{Items: tc.checks},
 				&kueuealpha.MultiKueueConfigList{Items: tc.configs},
-				&corev1.SecretList{Items: tc.secrets},
+				&kueuealpha.MultiKueueClusterList{Items: tc.clusters},
 			)
 
 			for _, ac := range tc.checks {
@@ -289,23 +204,11 @@ func TestReconcile(t *testing.T) {
 			c := builder.Build()
 
 			helper, _ := newMultiKueueStoreHelper(c)
-			reconciler := newACController(c, helper, TestNamespace)
-			if len(tc.controllers) > 0 {
-				reconciler.controllers = tc.controllers
-			}
-			reconciler.builderOverride = fakeClientBuilder
-			_ = reconciler.Start(ctx)
+			reconciler := newACReconciler(c, helper)
 
 			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor}})
 			if diff := cmp.Diff(tc.wantError, gotErr); diff != "" {
 				t.Errorf("unexpected error (-want/+got):\n%s", diff)
-			}
-
-			if diff := cmp.Diff(tc.wantControllers, reconciler.controllers, cmpopts.EquateEmpty(),
-				cmp.AllowUnexported(remoteController{}),
-				cmpopts.IgnoreFields(remoteController{}, "localClient", "watchCancel", "watchCtx", "wlUpdateCh", "builderOverride"),
-				cmp.Comparer(func(a, b remoteClient) bool { return string(a.kubeconfig) == string(b.kubeconfig) })); diff != "" {
-				t.Errorf("unexpected controllers (-want/+got):\n%s", diff)
 			}
 
 			checks := &kueue.AdmissionCheckList{}

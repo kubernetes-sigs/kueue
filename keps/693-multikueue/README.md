@@ -174,9 +174,6 @@ type MultiKueueClusterSpec {
 }
 
 type KubeConfig struct {
-    // Name of the cluster inside the given KubeConfig.
-    Name string `json:"name"`
-    
     // Location of the KubeConfig.
     Location string `json:"location"`
     

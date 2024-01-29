@@ -21,32 +21,23 @@ import (
 	v1alpha1 "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 )
 
-// KubeconfigRefApplyConfiguration represents an declarative configuration of the KubeconfigRef type for use
+// KubeConfigApplyConfiguration represents an declarative configuration of the KubeConfig type for use
 // with apply.
-type KubeconfigRefApplyConfiguration struct {
-	Name         *string                `json:"name,omitempty"`
+type KubeConfigApplyConfiguration struct {
 	Location     *string                `json:"location,omitempty"`
 	LocationType *v1alpha1.LocationType `json:"locationType,omitempty"`
 }
 
-// KubeconfigRefApplyConfiguration constructs an declarative configuration of the KubeconfigRef type for use with
+// KubeConfigApplyConfiguration constructs an declarative configuration of the KubeConfig type for use with
 // apply.
-func KubeconfigRef() *KubeconfigRefApplyConfiguration {
-	return &KubeconfigRefApplyConfiguration{}
-}
-
-// WithName sets the Name field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Name field is set to the value of the last call.
-func (b *KubeconfigRefApplyConfiguration) WithName(value string) *KubeconfigRefApplyConfiguration {
-	b.Name = &value
-	return b
+func KubeConfig() *KubeConfigApplyConfiguration {
+	return &KubeConfigApplyConfiguration{}
 }
 
 // WithLocation sets the Location field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Location field is set to the value of the last call.
-func (b *KubeconfigRefApplyConfiguration) WithLocation(value string) *KubeconfigRefApplyConfiguration {
+func (b *KubeConfigApplyConfiguration) WithLocation(value string) *KubeConfigApplyConfiguration {
 	b.Location = &value
 	return b
 }
@@ -54,7 +45,7 @@ func (b *KubeconfigRefApplyConfiguration) WithLocation(value string) *Kubeconfig
 // WithLocationType sets the LocationType field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the LocationType field is set to the value of the last call.
-func (b *KubeconfigRefApplyConfiguration) WithLocationType(value v1alpha1.LocationType) *KubeconfigRefApplyConfiguration {
+func (b *KubeConfigApplyConfiguration) WithLocationType(value v1alpha1.LocationType) *KubeConfigApplyConfiguration {
 	b.LocationType = &value
 	return b
 }
