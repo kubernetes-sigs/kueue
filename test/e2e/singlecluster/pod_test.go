@@ -345,7 +345,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 						}
 					}
 					return len(replacementPods)
-				}, util.Timeout, util.Interval).Should(gomega.BeNumerically("==", len(defaultPriorityGroup)))
+				}, util.Timeout, util.Interval).Should(gomega.Equal(len(defaultPriorityGroup)))
 			})
 
 			ginkgo.By("Verify the high-priority pods are scheduled", func() {
