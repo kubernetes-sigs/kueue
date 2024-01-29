@@ -32,7 +32,7 @@ import (
 )
 
 var (
-	k8sClient                    client.Client
+	k8sClient                    client.WithWatch
 	ctx                          context.Context
 	visibilityClient             visibilityv1alpha1.VisibilityV1alpha1Interface
 	impersonatedVisibilityClient visibilityv1alpha1.VisibilityV1alpha1Interface

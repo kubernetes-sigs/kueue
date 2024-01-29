@@ -157,14 +157,14 @@ func (j *Job) Suspend() {
 	j.Spec.Suspend = ptr.To(true)
 }
 
-func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, _ jobframework.StopReason, eventMsg string) (bool, error) {
-	stoppedNow := false
+func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, _ jobframework.StopReason, eventMsg string) ([]client.Object, error) {
+	var stoppedNow []client.Object
 	if !j.IsSuspended() {
 		j.Suspend()
 		if err := c.Update(ctx, j.Object()); err != nil {
-			return false, fmt.Errorf("suspend: %w", err)
+			return stoppedNow, fmt.Errorf("suspend: %w", err)
 		}
-		stoppedNow = true
+		stoppedNow = []client.Object{j.Object()}
 	}
 
 	// Reset start time if necessary, so we can update the scheduling directives.
@@ -179,7 +179,7 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 		return stoppedNow, nil
 	}
 	if err := c.Update(ctx, j.Object()); err != nil {
-		return false, fmt.Errorf("restore info: %w", err)
+		return nil, fmt.Errorf("restore info: %w", err)
 	}
 	return stoppedNow, nil
 }

@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/client-go/discovery"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -273,6 +274,16 @@ var _ = ginkgo.Describe("Pod groups", func() {
 		})
 
 		ginkgo.It("should allow to preempt the lower priority group", func() {
+			eventList := corev1.EventList{}
+			eventWatcher, err := k8sClient.Watch(ctx, &eventList, &client.ListOptions{
+				Namespace: ns.Name,
+			})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.DeferCleanup(func() {
+				eventWatcher.Stop()
+			})
+
 			highPriorityClass := testing.MakePriorityClass("high").PriorityValue(100).Obj()
 			gomega.Expect(k8sClient.Create(ctx, highPriorityClass))
 			ginkgo.DeferCleanup(func() {
@@ -285,6 +296,10 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				Request(corev1.ResourceCPU, "2").
 				MakeGroup(2)
 			defaultGroupKey := client.ObjectKey{Namespace: ns.Name, Name: "default-priority-group"}
+			defaultGroupPods := sets.New[types.NamespacedName](
+				client.ObjectKeyFromObject(defaultPriorityGroup[0]),
+				client.ObjectKeyFromObject(defaultPriorityGroup[1]),
+			)
 
 			ginkgo.By("Default-priority group starts", func() {
 				for _, p := range defaultPriorityGroup {
@@ -324,6 +339,24 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				var updatedWorkload kueue.Workload
 				gomega.Expect(k8sClient.Get(ctx, defaultGroupKey, &updatedWorkload)).To(gomega.Succeed())
 				util.ExpectWorkloadsToBePreempted(ctx, k8sClient, &updatedWorkload)
+			})
+
+			ginkgo.By("Use events to observe the default-priority pods are getting preempted", func() {
+				preemptedPods := sets.New[types.NamespacedName]()
+				gomega.Eventually(func(g gomega.Gomega) sets.Set[types.NamespacedName] {
+					select {
+					case evt, ok := <-eventWatcher.ResultChan():
+						gomega.Expect(ok).To(gomega.BeTrue())
+						event, ok := evt.Object.(*v1.Event)
+						gomega.Expect(ok).To(gomega.BeTrue())
+						objKey := types.NamespacedName{Namespace: event.InvolvedObject.Namespace, Name: event.InvolvedObject.Name}
+						if defaultGroupPods.Has(objKey) && event.Reason == "Stopped" {
+							preemptedPods.Insert(objKey)
+						}
+					default:
+					}
+					return preemptedPods
+				}, util.Timeout, util.Interval).Should(gomega.Equal(defaultGroupPods))
 			})
 
 			replacementPods := make(map[types.NamespacedName]types.NamespacedName, len(defaultPriorityGroup))

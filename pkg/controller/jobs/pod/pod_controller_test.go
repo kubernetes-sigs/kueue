@@ -161,6 +161,8 @@ func TestReconciler(t *testing.T) {
 		excessPodsExpectations []keyUIDs
 		// If true, the test will delete workloads before running reconcile
 		deleteWorkloads bool
+
+		wantEvents []utiltesting.EventRecord
 	}{
 		"scheduling gate is removed and node selector is added if workload is admitted": {
 			initObjects: []client.Object{
@@ -203,6 +205,14 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Started",
+					Message:   "Admitted by clusterQueue cq",
+				},
+			},
 		},
 		"non-matching admitted workload is deleted and pod is finalized": {
 			pods: []corev1.Pod{*basePodWrapper.
@@ -220,6 +230,20 @@ func TestReconciler(t *testing.T) {
 			},
 			wantErr:         jobframework.ErrNoMatchingWorkloads,
 			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "No matching Workload; restoring pod templates according to existent Workload",
+				},
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "DeletedWorkload",
+					Message:   "Deleted not matching Workload: ns/unit-test",
+				},
+			},
 		},
 		"the workload is created when queue name is set": {
 			pods: []corev1.Pod{*basePodWrapper.
@@ -252,6 +276,14 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/pod-pod-a91e8",
+				},
+			},
 		},
 		"the pod reconciliation is skipped when 'kueue.x-k8s.io/managed' label is not set": {
 			pods: []corev1.Pod{*basePodWrapper.
@@ -309,6 +341,14 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "Preempted to accommodate a higher priority Workload",
+				},
+			},
 		},
 		"pod is finalized when it's succeeded": {
 			pods: []corev1.Pod{*basePodWrapper.
@@ -352,6 +392,14 @@ func TestReconciler(t *testing.T) {
 					return c.Type == "Admitted"
 				}),
 			),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "FinishedWorkload",
+					Message:   "Workload 'ns/unit-test' is declared finished",
+				},
+			},
 		},
 		"workload status condition is added even if the pod is finalized": {
 			pods: []corev1.Pod{*basePodWrapper.
@@ -385,6 +433,14 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "FinishedWorkload",
+					Message:   "Workload 'ns/unit-test' is declared finished",
+				},
+			},
 		},
 		"pod without scheduling gate is terminated if workload is not admitted": {
 			pods: []corev1.Pod{*basePodWrapper.
@@ -414,6 +470,14 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "Not admitted by cluster queue",
+				},
+			},
 		},
 		"workload is composed and created for the pod group": {
 			pods: []corev1.Pod{
@@ -468,6 +532,14 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/test-group",
+				},
+			},
 		},
 		"workload is found for the pod group": {
 			pods: []corev1.Pod{
@@ -605,6 +677,20 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Started",
+					Message:   "Admitted by clusterQueue cq",
+				},
+				{
+					Key:       types.NamespacedName{Name: "pod2", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Started",
+					Message:   "Admitted by clusterQueue cq",
+				},
+			},
 		},
 		"workload is not finished if the pod in the group is running": {
 			pods: []corev1.Pod{
@@ -739,6 +825,14 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "FinishedWorkload",
+					Message:   "Workload 'ns/test-group' is declared finished",
+				},
+			},
 		},
 		"workload is not deleted if the pod in group has been deleted after admission": {
 			pods: []corev1.Pod{*basePodWrapper.
@@ -909,6 +1003,14 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "FinishedWorkload",
+					Message:   "Workload 'ns/test-group' is declared finished",
+				},
+			},
 		},
 		"workload for pod group with different queue names shouldn't be created": {
 			pods: []corev1.Pod{
@@ -995,6 +1097,20 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: append(defaultWorkloadCmpOpts, cmpopts.IgnoreFields(kueue.Workload{}, "ObjectMeta.DeletionTimestamp")),
 			deleteWorkloads: true,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "Workload is deleted",
+				},
+				{
+					Key:       types.NamespacedName{Name: "pod2", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "Workload is deleted",
+				},
+			},
 		},
 		"replacement pod should be started for pod group of size 1": {
 			pods: []corev1.Pod{
@@ -1059,6 +1175,14 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod2", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Started",
+					Message:   "Admitted by clusterQueue cq",
+				},
+			},
 		},
 		"replacement pod should be started for set of Running, Failed, Succeeded pods": {
 			pods: []corev1.Pod{
@@ -1165,6 +1289,14 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "replacement", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Started",
+					Message:   "Admitted by clusterQueue cq",
+				},
+			},
 		},
 		"pod group of size 2 is finished when 2 pods has succeeded and 1 pod has failed": {
 			pods: []corev1.Pod{
@@ -1251,6 +1383,14 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "FinishedWorkload",
+					Message:   "Workload 'ns/test-group' is declared finished",
+				},
+			},
 		},
 		"wl should not get the quota reservation cleared for a running pod group of size 1": {
 			pods: []corev1.Pod{
@@ -1457,6 +1597,14 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			deleteWorkloads: true,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/test-group",
+				},
+			},
 		},
 		"workload is not deleted if all of the pods in the group are deleted": {
 			pods: []corev1.Pod{
@@ -1671,6 +1819,14 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/test-group",
+				},
+			},
 		},
 		"if there's not enough non-failed pods in the group, workload should not be created": {
 			pods: []corev1.Pod{
@@ -1713,6 +1869,14 @@ func TestReconciler(t *testing.T) {
 			workloads:       []kueue.Workload{},
 			wantWorkloads:   []kueue.Workload{},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Warning",
+					Reason:    "ErrWorkloadCompose",
+					Message:   "'test-group' group total count is less than the actual number of pods in the cluster",
+				},
+			},
 		},
 		"pod group is considered finished if there is an unretriable pod and no running pods": {
 			pods: []corev1.Pod{
@@ -1811,6 +1975,14 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "FinishedWorkload",
+					Message:   "Workload 'ns/test-group' is declared finished",
+				},
+			},
 		},
 		"reclaimable pods updated for pod group": {
 			pods: []corev1.Pod{
@@ -1952,6 +2124,14 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/test-group",
+				},
+			},
 		},
 		"excess pods before admission, youngest pods are deleted": {
 			pods: []corev1.Pod{
@@ -2329,6 +2509,14 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/test-group",
+				},
+			},
 		},
 		"deleted pods in incomplete group are finalized": {
 			pods: []corev1.Pod{
@@ -2355,6 +2543,14 @@ func TestReconciler(t *testing.T) {
 					Delete().
 					Obj(),
 			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "p1", Namespace: "ns"},
+					EventType: "Warning",
+					Reason:    "ErrWorkloadCompose",
+					Message:   "'group' group total count is less than the actual number of pods in the cluster",
+				},
+			},
 		},
 		"finalize workload for non existent pod": {
 			reconcileKey: &types.NamespacedName{Namespace: "ns", Name: "deleted_pod"},
@@ -2370,6 +2566,123 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"all pods in a group should receive the event about preemption, unless already terminating": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("3").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Delete().
+					Group("test-group").
+					GroupTotalCount("3").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod3").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("3").
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("3").
+					StatusConditions(corev1.PodCondition{
+						Type:    "TerminationTarget",
+						Status:  corev1.ConditionTrue,
+						Reason:  "StoppedByKueue",
+						Message: "Preempted to accommodate a higher priority Workload",
+					}).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Delete().
+					Group("test-group").
+					GroupTotalCount("3").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod3").
+					Label("kueue.x-k8s.io/managed", "true").
+					KueueFinalizer().
+					Group("test-group").
+					GroupTotalCount("3").
+					StatusConditions(corev1.PodCondition{
+						Type:    "TerminationTarget",
+						Status:  corev1.ConditionTrue,
+						Reason:  "StoppedByKueue",
+						Message: "Preempted to accommodate a higher priority Workload",
+					}).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").
+					PodSets(
+						*utiltesting.MakePodSet("b990493b", 3).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("test-group", "ns").
+					PodSets(
+						*utiltesting.MakePodSet("b990493b", 3).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue("user-queue").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod1", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "Preempted to accommodate a higher priority Workload",
+				},
+				{
+					Key:       types.NamespacedName{Name: "pod3", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "Preempted to accommodate a higher priority Workload",
+				},
+			},
 		},
 	}
 
@@ -2413,7 +2726,7 @@ func TestReconciler(t *testing.T) {
 					}
 				}
 			}
-			recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
+			recorder := &utiltesting.EventRecorder{}
 			reconciler := NewReconciler(kClient, recorder)
 			pReconciler := reconciler.(*Reconciler)
 			for _, e := range tc.excessPodsExpectations {
@@ -2450,6 +2763,9 @@ func TestReconciler(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, tc.workloadCmpOpts...); diff != "" {
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
+				t.Errorf("unexpected events (-want/+got):\n%s", diff)
 			}
 		})
 	}

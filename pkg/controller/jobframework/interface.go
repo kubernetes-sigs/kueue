@@ -75,7 +75,7 @@ type JobWithCustomStop interface {
 	// Stop implements a custom stop procedure.
 	// The function should be idempotent: not do any API calls if the job is already stopped.
 	// Returns whether the Job stopped with this call or an error
-	Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, stopReason StopReason, eventMsg string) (bool, error)
+	Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, stopReason StopReason, eventMsg string) ([]client.Object, error)
 }
 
 // JobWithFinalize interface should be implemented by generic jobs,
