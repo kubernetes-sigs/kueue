@@ -18,6 +18,7 @@ package multikueue
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -303,7 +304,8 @@ var _ handler.EventHandler = (*secretHandler)(nil)
 func (s *secretHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.RateLimitingInterface) {
 	secret, isSecret := event.Object.(*corev1.Secret)
 	if !isSecret {
-		ctrl.LoggerFrom(ctx).V(5).Info("Failure on create event, not a secret")
+		ctrl.LoggerFrom(ctx).V(5).Error(errors.New("not a secret"), "Failure on create event")
+		return
 	}
 	if err := s.queue(ctx, secret, q); err != nil {
 		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on create event", "secret", klog.KObj(event.Object))
@@ -313,7 +315,8 @@ func (s *secretHandler) Create(ctx context.Context, event event.CreateEvent, q w
 func (s *secretHandler) Update(ctx context.Context, event event.UpdateEvent, q workqueue.RateLimitingInterface) {
 	secret, isSecret := event.ObjectNew.(*corev1.Secret)
 	if !isSecret {
-		ctrl.LoggerFrom(ctx).V(5).Info("Failure on update event, not a secret")
+		ctrl.LoggerFrom(ctx).V(5).Error(errors.New("not a secret"), "Failure on update event")
+		return
 	}
 	if err := s.queue(ctx, secret, q); err != nil {
 		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on update event", "secret", klog.KObj(event.ObjectOld))
@@ -323,7 +326,8 @@ func (s *secretHandler) Update(ctx context.Context, event event.UpdateEvent, q w
 func (s *secretHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.RateLimitingInterface) {
 	secret, isSecret := event.Object.(*corev1.Secret)
 	if !isSecret {
-		ctrl.LoggerFrom(ctx).V(5).Info("Failure on delete event, not a secret")
+		ctrl.LoggerFrom(ctx).V(5).Error(errors.New("not a secret"), "Failure on delete event")
+		return
 	}
 	if err := s.queue(ctx, secret, q); err != nil {
 		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on delete event", "secret", klog.KObj(event.Object))
@@ -333,7 +337,8 @@ func (s *secretHandler) Delete(ctx context.Context, event event.DeleteEvent, q w
 func (s *secretHandler) Generic(ctx context.Context, event event.GenericEvent, q workqueue.RateLimitingInterface) {
 	secret, isSecret := event.Object.(*corev1.Secret)
 	if !isSecret {
-		ctrl.LoggerFrom(ctx).V(5).Info("Failure on generic event, not a secret")
+		ctrl.LoggerFrom(ctx).V(5).Error(errors.New("not a secret"), "Failure on generic event")
+		return
 	}
 	if err := s.queue(ctx, secret, q); err != nil {
 		ctrl.LoggerFrom(ctx).V(5).Error(err, "Failure on generic event", "secret", klog.KObj(event.Object))
