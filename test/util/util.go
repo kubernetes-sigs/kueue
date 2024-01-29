@@ -620,3 +620,9 @@ func ExpectPodsFinalized(ctx context.Context, k8sClient client.Client, keys ...t
 		}, Timeout, Interval).Should(gomega.BeEmpty(), "Expected pod to be finalized")
 	}
 }
+
+func EventuallyCreate(ctx context.Context, k8sClient client.Client, obj client.Object) {
+	gomega.EventuallyWithOffset(1, func() error {
+		return k8sClient.Create(ctx, obj)
+	}, Timeout, Interval).Should(gomega.Succeed())
+}

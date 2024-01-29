@@ -72,36 +72,36 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				GenerateName: "multikueue-",
 			},
 		}
-		gomega.Expect(k8sManagerClient.Create(ctx, managerNs)).To(gomega.Succeed())
+		util.EventuallyCreate(ctx, k8sManagerClient, managerNs)
 
 		worker1Ns = &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: managerNs.Name,
 			},
 		}
-		gomega.Expect(k8sWorker1Client.Create(ctx, worker1Ns)).To(gomega.Succeed())
+		util.EventuallyCreate(ctx, k8sWorker1Client, worker1Ns)
 
 		worker2Ns = &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: managerNs.Name,
 			},
 		}
-		gomega.Expect(k8sWorker2Client.Create(ctx, worker2Ns)).To(gomega.Succeed())
+		util.EventuallyCreate(ctx, k8sWorker2Client, worker2Ns)
 
 		workerCluster1 = utiltesting.MakeMultiKueueCluster("worker1").KubeConfig("multikueue1").Obj()
-		gomega.Expect(k8sManagerClient.Create(ctx, workerCluster1)).To(gomega.Succeed())
+		util.EventuallyCreate(ctx, k8sManagerClient, workerCluster1)
 
 		workerCluster2 = utiltesting.MakeMultiKueueCluster("worker2").KubeConfig("multikueue2").Obj()
-		gomega.Expect(k8sManagerClient.Create(ctx, workerCluster2)).To(gomega.Succeed())
+		util.EventuallyCreate(ctx, k8sManagerClient, workerCluster2)
 
 		multiKueueConfig = utiltesting.MakeMultiKueueConfig("multikueueconfig").Clusters("worker1", "worker2").Obj()
-		gomega.Expect(k8sManagerClient.Create(ctx, multiKueueConfig)).Should(gomega.Succeed())
+		util.EventuallyCreate(ctx, k8sManagerClient, multiKueueConfig)
 
 		multiKueueAc = utiltesting.MakeAdmissionCheck("ac1").
 			ControllerName(multikueue.ControllerName).
 			Parameters(kueuealpha.GroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
 			Obj()
-		gomega.Expect(k8sManagerClient.Create(ctx, multiKueueAc)).Should(gomega.Succeed())
+		util.EventuallyCreate(ctx, k8sManagerClient, multiKueueAc)
 
 		ginkgo.By("wait for check active", func() {
 			updatetedAc := kueue.AdmissionCheck{}
@@ -113,7 +113,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 		})
 		managerFlavor = utiltesting.MakeResourceFlavor("default").Obj()
-		gomega.Expect(k8sManagerClient.Create(ctx, managerFlavor)).Should(gomega.Succeed())
+		util.EventuallyCreate(ctx, k8sManagerClient, managerFlavor)
 
 		managerCq = utiltesting.MakeClusterQueue("q1").
 			ResourceGroup(
@@ -124,13 +124,13 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			).
 			AdmissionChecks(multiKueueAc.Name).
 			Obj()
-		gomega.Expect(k8sManagerClient.Create(ctx, managerCq)).Should(gomega.Succeed())
+		util.EventuallyCreate(ctx, k8sManagerClient, managerCq)
 
 		managerLq = utiltesting.MakeLocalQueue(managerCq.Name, managerNs.Name).ClusterQueue(managerCq.Name).Obj()
-		gomega.Expect(k8sManagerClient.Create(ctx, managerLq)).Should(gomega.Succeed())
+		util.EventuallyCreate(ctx, k8sManagerClient, managerLq)
 
 		worker1Flavor = utiltesting.MakeResourceFlavor("default").Obj()
-		gomega.Expect(k8sWorker1Client.Create(ctx, worker1Flavor)).Should(gomega.Succeed())
+		util.EventuallyCreate(ctx, k8sWorker1Client, worker1Flavor)
 
 		worker1Cq = utiltesting.MakeClusterQueue("q1").
 			ResourceGroup(
@@ -140,13 +140,13 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					Obj(),
 			).
 			Obj()
-		gomega.Expect(k8sWorker1Client.Create(ctx, worker1Cq)).Should(gomega.Succeed())
+		util.EventuallyCreate(ctx, k8sWorker1Client, worker1Cq)
 
 		worker1Lq = utiltesting.MakeLocalQueue(worker1Cq.Name, worker1Ns.Name).ClusterQueue(worker1Cq.Name).Obj()
-		gomega.Expect(k8sWorker1Client.Create(ctx, worker1Lq)).Should(gomega.Succeed())
+		util.EventuallyCreate(ctx, k8sWorker1Client, worker1Lq)
 
 		worker2Flavor = utiltesting.MakeResourceFlavor("default").Obj()
-		gomega.Expect(k8sWorker2Client.Create(ctx, worker2Flavor)).Should(gomega.Succeed())
+		util.EventuallyCreate(ctx, k8sWorker2Client, worker2Flavor)
 
 		worker2Cq = utiltesting.MakeClusterQueue("q1").
 			ResourceGroup(
@@ -156,10 +156,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					Obj(),
 			).
 			Obj()
-		gomega.Expect(k8sWorker2Client.Create(ctx, worker2Cq)).Should(gomega.Succeed())
+		util.EventuallyCreate(ctx, k8sWorker2Client, worker2Cq)
 
 		worker2Lq = utiltesting.MakeLocalQueue(worker2Cq.Name, worker2Ns.Name).ClusterQueue(worker2Cq.Name).Obj()
-		gomega.Expect(k8sWorker2Client.Create(ctx, worker2Lq)).Should(gomega.Succeed())
+		util.EventuallyCreate(ctx, k8sWorker2Client, worker2Lq)
 	})
 
 	ginkgo.AfterEach(func() {
