@@ -31,14 +31,26 @@ type jobsetAdapter struct{}
 
 var _ jobAdapter = (*jobsetAdapter)(nil)
 
-func (b *jobsetAdapter) CreateRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName string) error {
+func (b *jobsetAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName string) error {
 	localJob := jobset.JobSet{}
 	err := localClient.Get(ctx, key, &localJob)
 	if err != nil {
 		return err
 	}
 
-	remoteJob := jobset.JobSet{
+	remoteJob := jobset.JobSet{}
+	err = remoteClient.Get(ctx, key, &remoteJob)
+	if client.IgnoreNotFound(err) != nil {
+		return err
+	}
+
+	// if the remote exists, just copy the status
+	if err == nil {
+		localJob.Status = remoteJob.Status
+		return localClient.Status().Update(ctx, &localJob)
+	}
+
+	remoteJob = jobset.JobSet{
 		ObjectMeta: cleanObjectMeta(&localJob.ObjectMeta),
 		Spec:       *localJob.Spec.DeepCopy(),
 	}

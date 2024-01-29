@@ -369,7 +369,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 					Type:    kueue.WorkloadFinished,
 					Status:  metav1.ConditionTrue,
 					Reason:  "JobFinished",
-					Message: `From remote "worker1": Job finished successfully`,
+					Message: `Job finished successfully`,
 				}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 
@@ -456,6 +456,20 @@ var _ = ginkgo.Describe("Multikueue", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.By("changing the status of the jobset in the worker, updates the manager's jobset status", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdJobSet := jobset.JobSet{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(jobSet), &createdJobSet)).To(gomega.Succeed())
+				createdJobSet.Status.Restarts = 10
+				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdJobSet)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdJobSet := jobset.JobSet{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(jobSet), &createdJobSet)).To(gomega.Succeed())
+				g.Expect(createdJobSet.Status.Restarts).To(gomega.Equal(int32(10)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
 		ginkgo.By("finishing the worker jobSet, the manager's wl is marked as finished and the worker2 wl removed", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdJobSet := jobset.JobSet{}
@@ -476,7 +490,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 					Type:    kueue.WorkloadFinished,
 					Status:  metav1.ConditionTrue,
 					Reason:  "JobSetFinished",
-					Message: `From remote "worker2": JobSet finished successfully`,
+					Message: `JobSet finished successfully`,
 				}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 

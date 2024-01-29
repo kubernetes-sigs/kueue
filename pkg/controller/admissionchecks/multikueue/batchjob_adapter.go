@@ -19,6 +19,7 @@ import (
 	"context"
 
 	batchv1 "k8s.io/api/batch/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -30,14 +31,20 @@ type batchJobAdapter struct{}
 
 var _ jobAdapter = (*batchJobAdapter)(nil)
 
-func (b *batchJobAdapter) CreateRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName string) error {
+func (b *batchJobAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName string) error {
 	localJob := batchv1.Job{}
 	err := localClient.Get(ctx, key, &localJob)
 	if err != nil {
 		return err
 	}
 
-	remoteJob := batchv1.Job{
+	remoteJob := batchv1.Job{}
+	err = remoteClient.Get(ctx, key, &remoteJob)
+	if !apierrors.IsNotFound(err) {
+		return err
+	}
+
+	remoteJob = batchv1.Job{
 		ObjectMeta: cleanObjectMeta(&localJob.ObjectMeta),
 		Spec:       *localJob.Spec.DeepCopy(),
 	}

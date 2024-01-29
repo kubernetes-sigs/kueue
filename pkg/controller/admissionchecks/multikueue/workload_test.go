@@ -216,7 +216,7 @@ func TestWlReconcile(t *testing.T) {
 					}).
 					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1", true, true).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
-					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: `From remote "worker1": by test`}).
+					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: `by test`}).
 					Obj(),
 			},
 			wantManagersJobs: []batchv1.Job{
@@ -250,7 +250,7 @@ func TestWlReconcile(t *testing.T) {
 					}).
 					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1", true, true).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
-					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: `From remote "worker1": by test`}).
+					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: `by test`}).
 					Obj(),
 			},
 
@@ -283,7 +283,7 @@ func TestWlReconcile(t *testing.T) {
 					}).
 					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1", true, true).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
-					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: `From remote "worker1": by test`}).
+					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: `by test`}).
 					Obj(),
 			},
 			wantManagersJobs: []batchv1.Job{

@@ -62,8 +62,9 @@ type wlReconciler struct {
 var _ reconcile.Reconciler = (*wlReconciler)(nil)
 
 type jobAdapter interface {
-	// Creates the Job object in the worker cluster using remote client.
-	CreateRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName string) error
+	// Creates the Job object in the worker cluster using remote client, if not already created.
+	// Copy the status from the remote job if already exists.
+	SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName string) error
 	// Copy the status from the job in the worker cluster to the local one.
 	CopyStatusRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName) error
 	// Deletes the Job in the worker cluster.
@@ -277,7 +278,7 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 			Type:    kueue.WorkloadFinished,
 			Status:  metav1.ConditionTrue,
 			Reason:  remoteFinishedCond.Reason,
-			Message: fmt.Sprintf("From remote %q: %s", remote, remoteFinishedCond.Message),
+			Message: remoteFinishedCond.Message,
 		})
 		return a.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(ControllerName+"-finish"), client.ForceOwnership)
 	}
@@ -302,7 +303,7 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 	// 3. get the first reserving
 	if hasReserving {
 		acs := workload.FindAdmissionCheck(group.local.Status.AdmissionChecks, group.acName)
-		if err := group.jobAdapter.CreateRemoteObject(ctx, a.client, group.remoteClients[reservingRemote].client, group.controllerKey, group.local.Name); err != nil {
+		if err := group.jobAdapter.SyncJob(ctx, a.client, group.remoteClients[reservingRemote].client, group.controllerKey, group.local.Name); err != nil {
 			log.V(2).Error(err, "creating remote controller object", "remote", reservingRemote)
 			// We'll retry this in the next reconcile.
 			return err
