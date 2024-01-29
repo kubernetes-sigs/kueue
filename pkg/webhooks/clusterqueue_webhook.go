@@ -140,7 +140,9 @@ func ValidateClusterQueueUpdate(newObj, oldObj *kueue.ClusterQueue) field.ErrorL
 
 func validatePreemption(preemption *kueue.ClusterQueuePreemption, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
-	if preemption.ReclaimWithinCohort == kueue.PreemptionPolicyNever && preemption.BorrowWithinCohort.Policy != kueue.BorrowWithinCohortPolicyNever {
+	if preemption.ReclaimWithinCohort == kueue.PreemptionPolicyNever &&
+		preemption.BorrowWithinCohort != nil &&
+		preemption.BorrowWithinCohort.Policy != kueue.BorrowWithinCohortPolicyNever {
 		allErrs = append(allErrs, field.Invalid(path, preemption, "reclaimWithinCohort=Never and borrowWithinCohort.Policy!=Never"))
 	}
 	return allErrs

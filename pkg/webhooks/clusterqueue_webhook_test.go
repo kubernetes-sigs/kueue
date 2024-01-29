@@ -356,6 +356,19 @@ func TestValidateClusterQueue(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "existing cluster queue created with older Kueue version that has a nil borrowWithinCohort field",
+			clusterQueue: &kueue.ClusterQueue{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "cluster-queue",
+				},
+				Spec: kueue.ClusterQueueSpec{
+					Preemption: &kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyNever,
+					},
+				},
+			},
+		},
 	}
 
 	for _, tc := range testcases {
