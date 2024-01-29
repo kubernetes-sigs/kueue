@@ -84,6 +84,12 @@ func (p *PodWrapper) Queue(q string) *PodWrapper {
 	return p.Label(constants.QueueLabel, q)
 }
 
+// Queue updates the queue name of the Pod
+func (p *PodWrapper) PriorityClass(pc string) *PodWrapper {
+	p.Spec.PriorityClassName = pc
+	return p
+}
+
 // Name updated the name of the pod
 func (p *PodWrapper) Name(n string) *PodWrapper {
 	p.ObjectMeta.Name = n
