@@ -10,6 +10,8 @@ The Provisioning Admission Check Controller is an Admission Check Controller des
 
 The controller is part of kueue. You can enable it by setting the `ProvisioningACC` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
 
+The Provisioning Admission Check Controller is supported on [Kubernetes cluster-autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler) versions 1.29 and later. However, some cloud-providers may not have an implementation for it.
+
 ## Parameters
 
 This controller uses a `ProvisioningRequestConfig` as parameters, like:
