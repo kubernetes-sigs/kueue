@@ -187,7 +187,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 					g.Expect(updatetedAc.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Inactive",
+						Reason:  "BadConfig",
 						Message: `Cannot load the AdmissionChecks parameters: MultiKueueConfig.kueue.x-k8s.io "testing-config" not found`,
 					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -213,7 +213,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 					g.Expect(updatetedAc.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Inactive",
+						Reason:  "NoUsableClusters",
 						Message: `Missing clusters: [testing-cluster]`,
 					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -247,7 +247,7 @@ var _ = ginkgo.Describe("Multikueue", func() {
 					g.Expect(updatetedAc.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Inactive",
+						Reason:  "NoUsableClusters",
 						Message: `Inactive clusters: [testing-cluster]`,
 					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
