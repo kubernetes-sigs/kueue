@@ -18,7 +18,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
+	"net/http"
 	"os"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -162,12 +164,13 @@ func main() {
 	debugger.NewDumper(cCache, queues).ListenForSignal(ctx)
 
 	serverVersionFetcher := setupServerVersionFetcher(mgr, kubeConfig)
+	webhooksStartedChan := make(chan struct{})
 
-	setupProbeEndpoints(mgr)
+	setupProbeEndpoints(mgr, webhooksStartedChan)
 	// Cert won't be ready until manager starts, so start a goroutine here which
 	// will block until the cert is ready before setting up the controllers.
 	// Controllers who register after manager starts will start directly.
-	go setupControllers(mgr, cCache, queues, certsReady, &cfg, serverVersionFetcher)
+	go setupControllers(mgr, cCache, queues, certsReady, &cfg, serverVersionFetcher, webhooksStartedChan)
 
 	go func() {
 		queues.CleanUpOnContext(ctx)
@@ -218,7 +221,7 @@ func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configur
 	return jobframework.SetupIndexes(ctx, mgr.GetFieldIndexer(), opts...)
 }
 
-func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher) {
+func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manager, certsReady chan struct{}, cfg *configapi.Configuration, serverVersionFetcher *kubeversion.ServerVersionFetcher, webhhoksStartedChan chan struct{}) {
 	// The controllers won't work until the webhooks are operating, and the webhook won't work until the
 	// certs are all in place.
 	cert.WaitForCertsReady(setupLog, certsReady)
@@ -267,18 +270,27 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 		setupLog.Error(err, "Unable to create controller or webhook", "kubernetesVersion", serverVersionFetcher.GetServerVersion())
 		os.Exit(1)
 	}
+
+	close(webhhoksStartedChan)
 	// +kubebuilder:scaffold:builder
 }
 
 // setupProbeEndpoints registers the health endpoints
-func setupProbeEndpoints(mgr ctrl.Manager) {
+func setupProbeEndpoints(mgr ctrl.Manager, webhhoksStartedChan chan struct{}) {
 	defer setupLog.Info("Probe endpoints are configured on healthz and readyz")
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")
 		os.Exit(1)
 	}
-	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
+	if err := mgr.AddReadyzCheck("readyz", func(_ *http.Request) error {
+		select {
+		case <-webhhoksStartedChan:
+			return nil
+		default:
+			return errors.New("webhooks not ready")
+		}
+	}); err != nil {
 		setupLog.Error(err, "unable to set up ready check")
 		os.Exit(1)
 	}
