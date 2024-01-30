@@ -127,6 +127,13 @@ func (w *WorkloadWrapper) ReserveQuota(a *kueue.Admission) *WorkloadWrapper {
 	return w
 }
 
+// QuotaReservedTime - sets the LastTransitionTime of the QuotaReserved condition if found.
+func (w *WorkloadWrapper) QuotaReservedTime(t time.Time) *WorkloadWrapper {
+	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadQuotaReserved)
+	cond.LastTransitionTime = metav1.NewTime(t)
+	return w
+}
+
 func (w *WorkloadWrapper) Admitted(a bool) *WorkloadWrapper {
 	cond := metav1.Condition{
 		Type:               kueue.WorkloadAdmitted,

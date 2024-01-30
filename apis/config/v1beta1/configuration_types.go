@@ -215,6 +215,11 @@ type MultiKueue struct {
 	// them if their local counterpart no longer exists.
 	// +optional
 	Origin *string `json:"origin,omitempty"`
+
+	// KeepReadyTimeout defines the time a local workload's multikueue admission check state is kept Ready
+	// if the connection with its reserving worker cluster is lost.
+	// +optional
+	KeepReadyTimeout *metav1.Duration `json:"keepReadyTimeout,omitempty"`
 }
 
 type RequeuingStrategy struct {

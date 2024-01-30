@@ -23,13 +23,15 @@ import (
 )
 
 const (
-	defaultGCInterval = time.Minute
-	defaultOrigin     = "multikueue"
+	defaultGCInterval       = time.Minute
+	defaultOrigin           = "multikueue"
+	defaultKeepReadyTimeout = 5 * time.Minute
 )
 
 type SetupOptions struct {
-	gcInterval time.Duration
-	origin     string
+	gcInterval       time.Duration
+	origin           string
+	keepReadyTimeout time.Duration
 }
 
 type SetupOption func(o *SetupOptions)
@@ -49,10 +51,20 @@ func WithOrigin(origin string) SetupOption {
 	}
 }
 
+// WithKeepReadyTimeout - sets the time for which the multikueue
+// admission check is kept in Ready state after the connection to
+// the admitting worker cluster is lost.
+func WithKeepReadyTimeout(d time.Duration) SetupOption {
+	return func(o *SetupOptions) {
+		o.keepReadyTimeout = d
+	}
+}
+
 func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) error {
 	options := &SetupOptions{
-		gcInterval: defaultGCInterval,
-		origin:     defaultOrigin,
+		gcInterval:       defaultGCInterval,
+		origin:           defaultOrigin,
+		keepReadyTimeout: defaultKeepReadyTimeout,
 	}
 
 	for _, o := range opts {
@@ -76,6 +88,6 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		return err
 	}
 
-	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, options.origin)
+	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, options.origin, options.keepReadyTimeout)
 	return wlRec.setupWithManager(mgr)
 }

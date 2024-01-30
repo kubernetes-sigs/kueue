@@ -46,6 +46,7 @@ const (
 	defaultJobFrameworkName                             = "batch/job"
 	DefaultMultiKueueGCInterval                         = time.Minute
 	DefaultMultiKueueOrigin                             = "multikueue"
+	DefaultMultiKueueKeepReadyTimeout                   = 5 * time.Minute
 )
 
 func getOperatorNamespace() string {
@@ -174,5 +175,8 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	}
 	if ptr.Deref(cfg.MultiKueue.Origin, "") == "" {
 		cfg.MultiKueue.Origin = ptr.To(DefaultMultiKueueOrigin)
+	}
+	if cfg.MultiKueue.KeepReadyTimeout == nil {
+		cfg.MultiKueue.KeepReadyTimeout = &metav1.Duration{Duration: DefaultMultiKueueKeepReadyTimeout}
 	}
 }

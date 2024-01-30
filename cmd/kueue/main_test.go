@@ -113,8 +113,9 @@ integrations:
 					},
 				},
 				MultiKueue: &config.MultiKueue{
-					GCInterval: &metav1.Duration{Duration: config.DefaultMultiKueueGCInterval},
-					Origin:     ptr.To(config.DefaultMultiKueueOrigin),
+					GCInterval:       &metav1.Duration{Duration: config.DefaultMultiKueueGCInterval},
+					Origin:           ptr.To(config.DefaultMultiKueueOrigin),
+					KeepReadyTimeout: &metav1.Duration{Duration: config.DefaultMultiKueueKeepReadyTimeout},
 				},
 			},
 		},
