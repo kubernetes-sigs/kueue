@@ -22,8 +22,8 @@
 
 ## Summary
 
-Introduce an (AdmissionCheck)[https://github.com/kubernetes-sigs/kueue/tree/main/keps/993-two-phase-admission]
-that will use (`ProvisioningRequest`)[https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/proposals/provisioning-request.md]
+Introduce an [AdmissionCheck](https://github.com/kubernetes-sigs/kueue/tree/main/keps/993-two-phase-admission)
+that will use [`ProvisioningRequest`](https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/proposals/provisioning-request.md)
 to ensure that there is enough capacity in the cluster before
 admitting a workload.
 
@@ -33,7 +33,7 @@ Currently Kueue admits workloads based on the quota check alone.
 This works reasonably well in most cases, but doesn't provide
 guarantee that an admitted workload will actually schedule
 in full in the cluster. With `ProvisioningRequest`, SIG-Autoscaling owned
-(ClusterAutoscaler)[https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler]
+[ClusterAutoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler)
 opens a way for stronger (but still not hard-guaranteed) all-or-nothing
 scheduling in an autoscaled cloud environment.
 
@@ -74,7 +74,7 @@ succeeds.
 ### Risks and Mitigations
 
 There doesn't seem to be much risks or mitigations.
-(Two phase admission process)[https://github.com/kubernetes-sigs/kueue/tree/main/keps/993-two-phase-admission]
+[Two phase admission process](https://github.com/kubernetes-sigs/kueue/tree/main/keps/993-two-phase-admission)
 was added specifically for use cases like this.
 
 ## Design Details
@@ -98,7 +98,7 @@ will also need to watch `ProvisioningRequestConfigs`.
 * Watch all changes CA makes to `ProvisioningRequests`. If the `Provisioned`
 or `CapacityAvailable` condition is set to `True` then finish the `AdmissionCheck`
 with success (and propagate the information about `ProvisioningRequest` name to
-workload pods - KEP #1145 under `"cluster-autoscaler.kubernetes.io/consume-provisioning-request"`.
+workload pods - [KEP #1145](https://github.com/kubernetes-sigs/kueue/blob/main/keps/1145-additional-labels/kep.yaml) under `"cluster-autoscaler.kubernetes.io/consume-provisioning-request"`.
 If the `ProvisioningRequest` fails, fail the `AdmissionCheck`.
 
 * Watch the admission of the workload - if it is again suspended or finished,
