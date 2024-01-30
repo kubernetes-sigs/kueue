@@ -109,7 +109,7 @@ func TestValidateResourceFlavor(t *testing.T) {
 					Value:    "v",
 					Effect:   corev1.TaintEffectNoSchedule,
 				}, ""),
-				field.NotSupported(field.NewPath("spec", "tolerations").Index(2).Child("effect"), corev1.TaintEffect("not-valid"), []string{}),
+				field.NotSupported(field.NewPath("spec", "tolerations").Index(2).Child("effect"), corev1.TaintEffect("not-valid"), []corev1.TaintEffect{}),
 			},
 		},
 	}
