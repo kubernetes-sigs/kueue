@@ -65,11 +65,19 @@ func CreateVisibilityClient(user string) visibilityv1alpha1.VisibilityV1alpha1In
 	return visibilityClient
 }
 
-func KueueReadyForTesting(ctx context.Context, client client.Client) {
+func KueueReadyForTesting(ctx context.Context, c client.Client) {
 	// To verify that webhooks are ready, let's create a simple resourceflavor
-	resourceKueue := utiltesting.MakeResourceFlavor("default").Obj()
-	gomega.Eventually(func() error {
-		return client.Create(context.Background(), resourceKueue)
-	}, StartUpTimeout, Interval).Should(gomega.Succeed())
-	ExpectResourceFlavorToBeDeleted(ctx, client, resourceKueue, true)
+	resourceKueue := utiltesting.MakeResourceFlavor("e2e-prepare").Obj()
+	gomega.EventuallyWithOffset(1, func() error {
+		return c.Create(ctx, resourceKueue)
+	}, StartUpTimeout, Interval).Should(gomega.Succeed(), "Cannot create the flavor")
+
+	gomega.EventuallyWithOffset(1, func() error {
+		oldRf := &kueue.ResourceFlavor{}
+		err := c.Get(ctx, client.ObjectKeyFromObject(resourceKueue), oldRf)
+		if err != nil {
+			return err
+		}
+		return c.Delete(ctx, oldRf)
+	}, LongTimeout, Interval).Should(utiltesting.BeNotFoundError(), "Cannot delete the flavor")
 }

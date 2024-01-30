@@ -26,8 +26,8 @@ const (
 	// such as running pods to completion.
 	LongTimeout = 45 * time.Second
 	// StartupTimeout is meant to be used for waiting for Kueue to startup, given
-	// that cert updates can take up to 2 minutes to propagate to the filesystem.
-	StartUpTimeout     = 3 * time.Minute
+	// that cert updates can take up to 3 minutes to propagate to the filesystem.
+	StartUpTimeout     = 4 * time.Minute
 	ConsistentDuration = time.Second * 3
 	Interval           = time.Millisecond * 250
 )
