@@ -54,5 +54,5 @@ var _ = ginkgo.BeforeSuite(func() {
 	visibilityClient = util.CreateVisibilityClient("")
 	impersonatedVisibilityClient = util.CreateVisibilityClient("system:serviceaccount:kueue-system:default")
 	ctx = context.Background()
-	util.KueueReadyForTesting(ctx, k8sClient)
+	// util.KueueReadyForTesting(ctx, k8sClient)
 })

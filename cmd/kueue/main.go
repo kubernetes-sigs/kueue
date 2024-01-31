@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"flag"
+	"net/http"
 	"os"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -38,7 +39,6 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
@@ -274,11 +274,15 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 func setupProbeEndpoints(mgr ctrl.Manager) {
 	defer setupLog.Info("Probe endpoints are configured on healthz and readyz")
 
-	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
+	readyz := func(req *http.Request) error {
+		return mgr.GetWebhookServer().StartedChecker()(req)
+	}
+
+	if err := mgr.AddHealthzCheck("healthz", readyz); err != nil {
 		setupLog.Error(err, "unable to set up health check")
 		os.Exit(1)
 	}
-	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
+	if err := mgr.AddReadyzCheck("readyz", readyz); err != nil {
 		setupLog.Error(err, "unable to set up ready check")
 		os.Exit(1)
 	}
