@@ -17,4 +17,4 @@ nodes:
     apiServer:
       extraArgs:
         enable-aggregator-routing: "true"
-        v: "2"
+        v: "5"
