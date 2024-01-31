@@ -403,9 +403,8 @@ func (r *WorkloadReconciler) Delete(e event.DeleteEvent) bool {
 
 	// Even if the state is unknown, the last cached state tells us whether the
 	// workload was in the queues and should be cleared from them.
-	if workload.HasQuotaReservation(wl) {
-		r.queues.DeleteWorkload(wl)
-	}
+	r.queues.DeleteWorkload(wl)
+
 	return true
 }
 
