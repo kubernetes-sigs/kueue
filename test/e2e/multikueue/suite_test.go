@@ -62,11 +62,4 @@ var _ = ginkgo.BeforeSuite(func() {
 	k8sWorker2Client = util.CreateClientUsingCluster("kind-" + worker2ClusterName)
 
 	ctx = context.Background()
-
-	//wait for the managers to start
-	// failing a this point might indicate a manifestation of
-	// https://kind.sigs.k8s.io/docs/user/known-issues/#pod-errors-due-to-too-many-open-files
-	util.KueueReadyForTesting(ctx, k8sManagerClient)
-	util.KueueReadyForTesting(ctx, k8sWorker1Client)
-	util.KueueReadyForTesting(ctx, k8sWorker2Client)
 })
