@@ -65,6 +65,7 @@ function kind_load {
 function kueue_deploy {
     (cd config/components/manager && $KUSTOMIZE edit set image controller=$IMAGE_TAG)
     kubectl apply --server-side -k test/e2e/config
+    kubectl wait --for=condition=available --timeout=3m deployment/kueue-controller-manager -n kueue-system
 }
 
 trap cleanup EXIT
