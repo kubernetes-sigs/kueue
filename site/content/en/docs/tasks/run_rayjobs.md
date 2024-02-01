@@ -13,13 +13,9 @@ This guide is for [batch users](/docs/tasks#batch-user) that have a basic unders
 
 ## Before you begin
 
-1. By default, the integration for `ray.io/rayjob` is not enabled.
-  Learn how to [install Kueue with a custom manager configuration](/docs/installation/#install-a-custom-configured-released-version)
-  and enable the `ray.io/rayjob` integration.
+1. Check [Administer cluster quotas](/docs/tasks/administer_cluster_quotas) for details on the initial Kueue setup.
 
-2. Check [Administer cluster quotas](/docs/tasks/administer_cluster_quotas) for details on the initial Kueue setup.
-
-3. See [KubeRay Installation](https://ray-project.github.io/kuberay/deploy/installation/) for installation and configuration details of KubeRay.
+2. See [KubeRay Installation](https://ray-project.github.io/kuberay/deploy/installation/) for installation and configuration details of KubeRay.
 
 ## RayJob definition
 
