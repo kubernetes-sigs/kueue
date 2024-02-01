@@ -1,7 +1,6 @@
 package util
 
 import (
-	"context"
 	"fmt"
 	"os"
 
@@ -16,7 +15,6 @@ import (
 	visibility "sigs.k8s.io/kueue/apis/visibility/v1alpha1"
 	kueueclientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	visibilityv1alpha1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1alpha1"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func CreateClientUsingCluster(kContext string) client.Client {
@@ -63,13 +61,4 @@ func CreateVisibilityClient(user string) visibilityv1alpha1.VisibilityV1alpha1In
 	}
 	visibilityClient := kueueClient.VisibilityV1alpha1()
 	return visibilityClient
-}
-
-func KueueReadyForTesting(ctx context.Context, client client.Client) {
-	// To verify that webhooks are ready, let's create a simple resourceflavor
-	resourceKueue := utiltesting.MakeResourceFlavor("default").Obj()
-	gomega.Eventually(func() error {
-		return client.Create(context.Background(), resourceKueue)
-	}, StartUpTimeout, Interval).Should(gomega.Succeed())
-	ExpectResourceFlavorToBeDeleted(ctx, client, resourceKueue, true)
 }
