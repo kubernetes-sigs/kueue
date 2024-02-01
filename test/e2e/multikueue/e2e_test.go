@@ -255,7 +255,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Parallelism: 2,
 						Completions: 2,
 						Image:       "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0",
-						Args:        []string{"2s"}, // give it the time to be observed Active in the live status update step.
+						// Give it the time to be observed Active in the live status update step.
+						// Delete all the pods once active state is detected.
+						Args: []string{"10m"},
 					},
 				).
 				Request("replicated-job-1", "cpu", "500m").
@@ -302,6 +304,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						},
 					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Delete all pods in the worker cluster's namespace", func() {
+				gomega.Expect(util.DeleteAllPodsInNamespace(ctx, k8sWorker1Client, worker1Ns)).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Waiting for the jobSet to finish", func() {

@@ -45,6 +45,7 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 type clientWithWatchBuilder func(config []byte, options client.Options) (client.WithWatch, error)
@@ -136,7 +137,7 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, kubeconfig []byte) e
 		if !implementsWatcher {
 			continue
 		}
-		err := rc.startWatcher(watchCtx, kind, watcher)
+		err := rc.startWatcher(watchCtx, kind, watcher, client.HasLabels{constants.PrebuiltWorkloadLabel})
 		if err != nil {
 			// not being able to setup a watcher is not ideal but we can function
 			// with only thw wl watcher, just log the error.
@@ -148,7 +149,7 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, kubeconfig []byte) e
 	return nil
 }
 
-func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w multiKueueWatcher) error {
+func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w multiKueueWatcher, listopts ...client.ListOption) error {
 	log := ctrl.LoggerFrom(ctx).WithValues("watchKind", kind)
 	newWatcher, err := rc.client.Watch(ctx, w.GetEmptyList())
 	if err != nil {
