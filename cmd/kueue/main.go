@@ -279,6 +279,14 @@ func setupProbeEndpoints(mgr ctrl.Manager) {
 		setupLog.Error(err, "unable to set up health check")
 		os.Exit(1)
 	}
+
+	// Wait for the webhook server to be listening before advertising the
+	// Kueue replica as ready. This allows users to wait with sending the first
+	// requests, requiring webhooks, until the Kueue deployment is available, so
+	// that the early requests are not rejected during the Kueue's startup.
+	// We wrap the call to GetWebhookServer in a closure to delay calling
+	// the function, otherwise a not fully-initialized webhook server (without
+	// ready certs) fails the start of the manager.
 	if err := mgr.AddReadyzCheck("readyz", func(req *http.Request) error {
 		return mgr.GetWebhookServer().StartedChecker()(req)
 	}); err != nil {
