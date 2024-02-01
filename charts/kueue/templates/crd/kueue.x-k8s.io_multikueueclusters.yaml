@@ -60,6 +60,7 @@ spec:
                     description: Type of the KubeConfig location.
                     enum:
                     - Secret
+                    - Path
                     type: string
                 required:
                 - location

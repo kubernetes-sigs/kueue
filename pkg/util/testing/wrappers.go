@@ -789,10 +789,10 @@ func (mkc *MultiKueueClusterWrapper) Obj() *kueuealpha.MultiKueueCluster {
 	return &mkc.MultiKueueCluster
 }
 
-func (mkc *MultiKueueClusterWrapper) KubeConfig(secretName string) *MultiKueueClusterWrapper {
+func (mkc *MultiKueueClusterWrapper) KubeConfig(LocationType kueuealpha.LocationType, location string) *MultiKueueClusterWrapper {
 	mkc.Spec.KubeConfig = kueuealpha.KubeConfig{
-		Location:     secretName,
-		LocationType: kueuealpha.SecretLocationType,
+		Location:     location,
+		LocationType: LocationType,
 	}
 	return mkc
 }
