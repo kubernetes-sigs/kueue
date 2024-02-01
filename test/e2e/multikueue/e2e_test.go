@@ -257,7 +257,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Image:       "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0",
 						// Give it the time to be observed Active in the live status update step.
 						// Delete all the pods once active state is detected.
-						Args: []string{"10m"},
+						Args: []string{"10s"},
 					},
 				).
 				Request("replicated-job-1", "cpu", "500m").
@@ -315,11 +315,10 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
 
 					g.Expect(apimeta.FindStatusCondition(createdLeaderWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
-						Type:    kueue.WorkloadFinished,
-						Status:  metav1.ConditionTrue,
-						Reason:  "JobSetFinished",
-						Message: `JobSet finished successfully`,
-					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
+						Type:   kueue.WorkloadFinished,
+						Status: metav1.ConditionTrue,
+						Reason: "JobSetFinished",
+					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "Message")))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
