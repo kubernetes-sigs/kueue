@@ -165,7 +165,7 @@ func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w multiKu
 		for r := range newWatcher.ResultChan() {
 			wlKey, err := w.GetWorkloadKey(r.Object)
 			if err != nil {
-				log.V(2).Error(err, "Cannot get workload key")
+				log.V(2).Error(err, "Cannot get workload key", "jobKind", r.Object.GetObjectKind().GroupVersionKind())
 			} else {
 				rc.queueWorkloadEvent(ctx, wlKey)
 			}
