@@ -96,7 +96,10 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		},
 	}
 
-	defaultMultiKueue := &MultiKueue{GCTimeout: &metav1.Duration{Duration: DefaultMultiKueueGCTimeout}}
+	defaultMultiKueue := &MultiKueue{
+		GCTimeout: &metav1.Duration{Duration: DefaultMultiKueueGCTimeout},
+		Origin:    DefaultMultiKueueOrigin,
+	}
 
 	podsReadyTimeoutTimeout := metav1.Duration{Duration: defaultPodsReadyTimeout}
 	podsReadyTimeoutOverwrite := metav1.Duration{Duration: time.Minute}
@@ -486,7 +489,10 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				InternalCertManagement: &InternalCertManagement{
 					Enable: ptr.To(false),
 				},
-				MultiKueue: &MultiKueue{GCTimeout: &metav1.Duration{Duration: time.Second}},
+				MultiKueue: &MultiKueue{
+					GCTimeout: &metav1.Duration{Duration: time.Second},
+					Origin:    "multikueue-manager1",
+				},
 			},
 			want: &Configuration{
 				Namespace:         ptr.To(DefaultNamespace),
@@ -497,7 +503,10 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
-				MultiKueue:       &MultiKueue{GCTimeout: &metav1.Duration{Duration: time.Second}},
+				MultiKueue: &MultiKueue{
+					GCTimeout: &metav1.Duration{Duration: time.Second},
+					Origin:    "multikueue-manager1",
+				},
 			},
 		},
 	}

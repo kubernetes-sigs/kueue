@@ -53,16 +53,6 @@ type KubeConfig struct {
 type MultiKueueClusterSpec struct {
 	// Information how to connect to the cluster.
 	KubeConfig KubeConfig `json:"kubeConfig"`
-
-	// A label value used to track the creator of workloads in the worker cluster.
-	// This is used by the garbage collector to identify remote objects that ware created via
-	// this cluster and delete them if their local counterpart no longer exists.
-	//
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Value is immutable"
-	// +kubebuilder:validation:MaxLength=63
-	// +kubebuilder:default=multikueue
-	Origin string `json:"origin,omitempty"`
 }
 
 type MultiKueueClusterStatus struct {

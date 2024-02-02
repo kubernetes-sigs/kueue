@@ -501,6 +501,16 @@ Defaults to kueue-webhook-server-cert.</p>
 Defaults to 1min. If 0, the garbage collection is disabled.</p>
 </td>
 </tr>
+<tr><td><code>origin</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>A label value used to track the creator of workloads in the worker clusters.
+This is used by multikueue in components like its garbage collector to identify
+remote objects that ware created by this multikueue  manager cluster and delete
+them if their local counterpart no longer exists.</p>
+</td>
+</tr>
 </tbody>
 </table>
 

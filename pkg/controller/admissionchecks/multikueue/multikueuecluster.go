@@ -47,10 +47,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
-const (
-	defaultOrigin = "multikueue"
-)
-
 type clientWithWatchBuilder func(config []byte, options client.Options) (client.WithWatch, error)
 
 type remoteClient struct {
@@ -197,6 +193,9 @@ type clustersReconciler struct {
 	// gcInterval - time waiting between two GC runs.
 	gcInterval time.Duration
 
+	// the multikueue-origin value used
+	origin string
+
 	// rootContext - holds the context passed by the controller-runtime on Start.
 	// It's used to create child contexts for MultiKueueClusters client watch routines
 	// that will gracefully end when the controller-manager stops.
@@ -282,12 +281,7 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 		return reconcile.Result{}, c.updateStatus(ctx, cluster, false, "BadConfig", err.Error())
 	}
 
-	origin := cluster.Spec.Origin
-	if len(origin) == 0 {
-		origin = defaultOrigin
-	}
-
-	if err := c.setRemoteClientConfig(ctx, cluster.Name, kubeConfig, origin); err != nil {
+	if err := c.setRemoteClientConfig(ctx, cluster.Name, kubeConfig, c.origin); err != nil {
 		log.Error(err, "setting kubeconfig")
 		return reconcile.Result{}, c.updateStatus(ctx, cluster, false, "ClientConnectionFailed", err.Error())
 	}
@@ -372,13 +366,14 @@ func (c *clustersReconciler) runGC(ctx context.Context) {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueclusters/status,verbs=get;update;patch
 
-func newClustersReconciler(c client.Client, namespace string, gcInterval time.Duration) *clustersReconciler {
+func newClustersReconciler(c client.Client, namespace string, gcInterval time.Duration, origin string) *clustersReconciler {
 	return &clustersReconciler{
 		localClient:     c,
 		configNamespace: namespace,
 		remoteClients:   make(map[string]*remoteClient),
 		wlUpdateCh:      make(chan event.GenericEvent, 10),
 		gcInterval:      gcInterval,
+		origin:          origin,
 	}
 }
 

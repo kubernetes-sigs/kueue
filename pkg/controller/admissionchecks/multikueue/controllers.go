@@ -24,10 +24,12 @@ import (
 
 const (
 	defaultGCInterval = time.Minute
+	defaultOrigin     = "multikueue"
 )
 
 type SetupOptions struct {
 	gcInterval time.Duration
+	origin     string
 }
 
 type SetupOption func(o *SetupOptions)
@@ -40,9 +42,17 @@ func WithGCInterval(i time.Duration) SetupOption {
 	}
 }
 
+// WithOrigin - sets the multikueue-origin label value used by this manager
+func WithOrigin(origin string) SetupOption {
+	return func(o *SetupOptions) {
+		o.origin = origin
+	}
+}
+
 func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) error {
 	options := &SetupOptions{
 		gcInterval: defaultGCInterval,
+		origin:     defaultOrigin,
 	}
 
 	for _, o := range opts {
@@ -54,7 +64,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		return err
 	}
 
-	cRec := newClustersReconciler(mgr.GetClient(), namespace, options.gcInterval)
+	cRec := newClustersReconciler(mgr.GetClient(), namespace, options.gcInterval, options.origin)
 	err = cRec.setupWithManager(mgr)
 	if err != nil {
 		return err

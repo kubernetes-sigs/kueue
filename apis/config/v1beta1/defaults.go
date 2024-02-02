@@ -45,6 +45,7 @@ const (
 	DefaultClusterQueuesMaxCount                int32   = 10
 	defaultJobFrameworkName                             = "batch/job"
 	DefaultMultiKueueGCTimeout                          = time.Minute
+	DefaultMultiKueueOrigin                             = "multikueue"
 )
 
 func getOperatorNamespace() string {
@@ -168,5 +169,8 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	}
 	if cfg.MultiKueue.GCTimeout == nil {
 		cfg.MultiKueue.GCTimeout = &metav1.Duration{Duration: DefaultMultiKueueGCTimeout}
+	}
+	if cfg.MultiKueue.Origin == "" {
+		cfg.MultiKueue.Origin = DefaultMultiKueueOrigin
 	}
 }

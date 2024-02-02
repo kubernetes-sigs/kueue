@@ -53,17 +53,6 @@ spec:
                 - location
                 - locationType
                 type: object
-              origin:
-                default: multikueue
-                description: A label value used to track the creator of workloads
-                  in the worker cluster. This is used by the garbage collector to
-                  identify remote objects that ware created via this cluster and delete
-                  them if their local counterpart no longer exists.
-                maxLength: 63
-                type: string
-                x-kubernetes-validations:
-                - message: Value is immutable
-                  rule: self == oldSelf
             required:
             - kubeConfig
             type: object

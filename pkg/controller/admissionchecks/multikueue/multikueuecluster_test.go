@@ -194,7 +194,7 @@ func TestUpdateConfig(t *testing.T) {
 			builder = builder.WithStatusSubresource(slices.Map(tc.clusters, func(c *kueuealpha.MultiKueueCluster) client.Object { return c })...)
 			c := builder.Build()
 
-			reconciler := newClustersReconciler(c, TestNamespace, 0)
+			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin)
 
 			if len(tc.remoteClients) > 0 {
 				reconciler.remoteClients = tc.remoteClients

@@ -265,6 +265,7 @@ kind: Configuration
 namespace: kueue-system
 multiKueue:
   gcTimeout: 1m30s
+  origin: multikueue-manager1
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +334,10 @@ multiKueue:
 		},
 	}
 
-	defaultMultiKueue := &configapi.MultiKueue{GCTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueGCTimeout}}
+	defaultMultiKueue := &configapi.MultiKueue{
+		GCTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueGCTimeout},
+		Origin:    configapi.DefaultMultiKueueOrigin,
+	}
 
 	testcases := []struct {
 		name              string
@@ -794,7 +798,10 @@ multiKueue:
 				ClientConnection:           defaultClientConnection,
 				Integrations:               defaultIntegrations,
 				QueueVisibility:            defaultQueueVisibility,
-				MultiKueue:                 &configapi.MultiKueue{GCTimeout: &metav1.Duration{Duration: 90 * time.Second}},
+				MultiKueue: &configapi.MultiKueue{
+					GCTimeout: &metav1.Duration{Duration: 90 * time.Second},
+					Origin:    "multikueue-manager1",
+				},
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -907,6 +914,7 @@ func TestEncode(t *testing.T) {
 				},
 				"multiKueue": map[string]any{
 					"gcTimeout": "1m0s",
+					"origin":    "multikueue",
 				},
 			},
 		},
