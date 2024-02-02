@@ -29,8 +29,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	kueuetest "sigs.k8s.io/kueue/pkg/util/testing"
-	"sigs.k8s.io/kueue/test/util"
 )
 
 var (
@@ -67,17 +65,7 @@ func CreateClientUsingCluster() client.Client {
 	return client
 }
 
-func KueueReadyForTesting(client client.Client) {
-	// To verify that webhooks are ready, let's create a simple resourceflavor
-	resourceKueue := kueuetest.MakeResourceFlavor("default").Obj()
-	gomega.Eventually(func() error {
-		return client.Create(context.Background(), resourceKueue)
-	}, Timeout, Interval).Should(gomega.Succeed())
-	util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, resourceKueue, true)
-}
-
 var _ = ginkgo.BeforeSuite(func() {
 	k8sClient = CreateClientUsingCluster()
 	ctx = context.Background()
-	KueueReadyForTesting(k8sClient)
 })
