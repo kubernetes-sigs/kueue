@@ -167,8 +167,8 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	if cfg.MultiKueue == nil {
 		cfg.MultiKueue = &MultiKueue{}
 	}
-	if cfg.MultiKueue.GCTimeout == nil {
-		cfg.MultiKueue.GCTimeout = &metav1.Duration{Duration: DefaultMultiKueueGCTimeout}
+	if cfg.MultiKueue.GCInterval == nil {
+		cfg.MultiKueue.GCInterval = &metav1.Duration{Duration: DefaultMultiKueueGCTimeout}
 	}
 	if cfg.MultiKueue.Origin == "" {
 		cfg.MultiKueue.Origin = DefaultMultiKueueOrigin

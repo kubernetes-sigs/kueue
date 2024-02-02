@@ -246,7 +246,7 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 
 	if features.Enabled(features.MultiKueue) {
 		if err := multikueue.SetupControllers(mgr, *cfg.Namespace,
-			multikueue.WithGCInterval(cfg.MultiKueue.GCTimeout.Duration),
+			multikueue.WithGCInterval(cfg.MultiKueue.GCInterval.Duration),
 			multikueue.WithOrigin(cfg.MultiKueue.Origin),
 		); err != nil {
 			setupLog.Error(err, "Could not setup MultiKueue controller")

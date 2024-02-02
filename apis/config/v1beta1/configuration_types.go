@@ -203,10 +203,10 @@ type WaitForPodsReady struct {
 }
 
 type MultiKueue struct {
-	// GCTimeout defines the time interval between two consecutive garbage collection runs.
+	// GCInterval defines the time interval between two consecutive garbage collection runs.
 	// Defaults to 1min. If 0, the garbage collection is disabled.
 	// +optional
-	GCTimeout *metav1.Duration `json:"gcTimeout,omitempty"`
+	GCInterval *metav1.Duration `json:"gcInterval,omitempty"`
 
 	// A label value used to track the creator of workloads in the worker clusters.
 	// This is used by multikueue in components like its garbage collector to identify
