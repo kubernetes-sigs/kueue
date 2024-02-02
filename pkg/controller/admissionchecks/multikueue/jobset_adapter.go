@@ -99,7 +99,7 @@ func (*jobsetAdapter) GetEmptyList() client.ObjectList {
 	return &jobset.JobSetList{}
 }
 
-func (*jobsetAdapter) GetEventsWorkloadKey(o runtime.Object) (types.NamespacedName, error) {
+func (*jobsetAdapter) GetWorkloadKey(o runtime.Object) (types.NamespacedName, error) {
 	jobSet, isJobSet := o.(*jobset.JobSet)
 	if !isJobSet {
 		return types.NamespacedName{}, errors.New("not a jobset")

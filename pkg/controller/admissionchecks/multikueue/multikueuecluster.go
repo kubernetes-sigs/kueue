@@ -88,7 +88,7 @@ type multiKueueWatcher interface {
 	// returns the key of the workload of interest
 	// - the object name for workloads
 	// - the prebuilt workload for job types
-	GetEventsWorkloadKey(runtime.Object) (types.NamespacedName, error)
+	GetWorkloadKey(runtime.Object) (types.NamespacedName, error)
 }
 
 type workloadKueueWatcher struct{}
@@ -99,7 +99,7 @@ func (*workloadKueueWatcher) GetEmptyList() client.ObjectList {
 	return &kueue.WorkloadList{}
 }
 
-func (*workloadKueueWatcher) GetEventsWorkloadKey(o runtime.Object) (types.NamespacedName, error) {
+func (*workloadKueueWatcher) GetWorkloadKey(o runtime.Object) (types.NamespacedName, error) {
 	wl, isWl := o.(*kueue.Workload)
 	if !isWl {
 		return types.NamespacedName{}, errors.New("not a workload")
@@ -137,11 +137,13 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, kubeconfig []byte) e
 		if !implementsWatcher {
 			continue
 		}
+		// TODO: Filter based on multikueue-origin label when available.
 		err := rc.startWatcher(watchCtx, kind, watcher, client.HasLabels{constants.PrebuiltWorkloadLabel})
 		if err != nil {
-			// not being able to setup a watcher is not ideal but we can function
-			// with only thw wl watcher, just log the error.
-			ctrl.LoggerFrom(watchCtx).V(2).Error(err, "unaable to start the watcher", "kind", kind)
+			// not being able to setup a watcher is not ideal but we can function with only the wl watcher.
+			ctrl.LoggerFrom(watchCtx).V(2).Error(err, "unable to start the watcher", "kind", kind)
+			// however let's not accept this for now.
+			return err
 		}
 	}
 
@@ -157,10 +159,10 @@ func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w multiKu
 	}
 
 	go func() {
-		log.V(3).Info("Starting watch")
-		defer log.V(3).Info("Watch ended")
+		log.V(2).Info("Starting watch")
+		defer log.V(2).Info("Watch ended")
 		for r := range newWatcher.ResultChan() {
-			wlKey, err := w.GetEventsWorkloadKey(r.Object)
+			wlKey, err := w.GetWorkloadKey(r.Object)
 			if err != nil {
 				log.V(2).Error(err, "Cannot get workload key")
 			} else {

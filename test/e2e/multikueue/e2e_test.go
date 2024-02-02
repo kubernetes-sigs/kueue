@@ -256,8 +256,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Completions: 2,
 						Image:       "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0",
 						// Give it the time to be observed Active in the live status update step.
-						// Delete all the pods once active state is detected.
-						Args: []string{"10s"},
+						Args: []string{"5s"},
 					},
 				).
 				Request("replicated-job-1", "cpu", "500m").
@@ -296,18 +295,12 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 					g.Expect(createdJobset.Status.ReplicatedJobsStatus).To(gomega.BeComparableTo([]jobset.ReplicatedJobStatus{
 						{
-							Name:      "replicated-job-1",
-							Ready:     2,
-							Succeeded: 0,
-							Failed:    0,
-							Active:    2,
+							Name:   "replicated-job-1",
+							Ready:  2,
+							Active: 2,
 						},
-					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
+					}, cmpopts.IgnoreFields(jobset.ReplicatedJobStatus{}, "Succeeded", "Failed")))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Delete all pods in the worker cluster's namespace", func() {
-				gomega.Expect(util.DeleteAllPodsInNamespace(ctx, k8sWorker1Client, worker1Ns)).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Waiting for the jobSet to finish", func() {
@@ -315,10 +308,11 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
 
 					g.Expect(apimeta.FindStatusCondition(createdLeaderWorkload.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeComparableTo(&metav1.Condition{
-						Type:   kueue.WorkloadFinished,
-						Status: metav1.ConditionTrue,
-						Reason: "JobSetFinished",
-					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "Message")))
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  "JobSetFinished",
+						Message: "JobSet finished successfully",
+					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
