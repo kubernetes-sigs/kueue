@@ -96,7 +96,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					Label(MultiKueueOriginLabelKey, defaultOrigin).
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 			wantManagersWorkloads: []kueue.Workload{
@@ -124,7 +124,7 @@ func TestWlReconcile(t *testing.T) {
 			},
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					Label(MultiKueueOriginLabelKey, defaultOrigin).
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 		},
@@ -145,7 +145,7 @@ func TestWlReconcile(t *testing.T) {
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
-					Label(MultiKueueOriginLabelKey, defaultOrigin).
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 			wantManagersWorkloads: []kueue.Workload{
@@ -165,7 +165,7 @@ func TestWlReconcile(t *testing.T) {
 
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					Label(MultiKueueOriginLabelKey, defaultOrigin).
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
@@ -202,7 +202,7 @@ func TestWlReconcile(t *testing.T) {
 
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					Label(MultiKueueOriginLabelKey, defaultOrigin).
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: "by test"}).
 					Obj(),
@@ -227,7 +227,7 @@ func TestWlReconcile(t *testing.T) {
 
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					Label(MultiKueueOriginLabelKey, defaultOrigin).
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: "by test"}).
 					Obj(),
@@ -269,7 +269,7 @@ func TestWlReconcile(t *testing.T) {
 
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
-					Label(MultiKueueOriginLabelKey, defaultOrigin).
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: "by test"}).
 					Obj(),

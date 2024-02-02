@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -50,10 +51,6 @@ var (
 	}
 
 	errNoActiveClusters = errors.New("no active clusters")
-)
-
-const (
-	MultiKueueOriginLabelKey = "kueue.x-k8s.io/multikueue-origin"
 )
 
 type wlReconciler struct {
@@ -385,7 +382,7 @@ func cloneForCreate(orig *kueue.Workload, origin string) *kueue.Workload {
 	if remoteWl.Labels == nil {
 		remoteWl.Labels = make(map[string]string)
 	}
-	remoteWl.Labels[MultiKueueOriginLabelKey] = origin
+	remoteWl.Labels[kueuealpha.MultiKueueOriginLabel] = origin
 	orig.Spec.DeepCopyInto(&remoteWl.Spec)
 	return remoteWl
 }

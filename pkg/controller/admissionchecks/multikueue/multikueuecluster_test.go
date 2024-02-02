@@ -248,7 +248,7 @@ func TestRemoteClientGC(t *testing.T) {
 			},
 			workersWorkloads: []kueue.Workload{
 				*baseWlBuilder.Clone().
-					Label(MultiKueueOriginLabelKey, defaultOrigin).
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 			managersJobs: []batchv1.Job{
@@ -265,7 +265,7 @@ func TestRemoteClientGC(t *testing.T) {
 			},
 			wantWorkersWorkloads: []kueue.Workload{
 				*baseWlBuilder.Clone().
-					Label(MultiKueueOriginLabelKey, defaultOrigin).
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 			wantManagersJobs: []batchv1.Job{
@@ -280,7 +280,7 @@ func TestRemoteClientGC(t *testing.T) {
 		"missing workers and their owner jobs are deleted": {
 			workersWorkloads: []kueue.Workload{
 				*baseWlBuilder.Clone().
-					Label(MultiKueueOriginLabelKey, defaultOrigin).
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 			managersJobs: []batchv1.Job{
@@ -299,7 +299,7 @@ func TestRemoteClientGC(t *testing.T) {
 		"unrelated workers and jobs are not deleted": {
 			workersWorkloads: []kueue.Workload{
 				*baseWlBuilder.Clone().
-					Label(MultiKueueOriginLabelKey, "other-gc-key").
+					Label(kueuealpha.MultiKueueOriginLabel, "other-gc-key").
 					Obj(),
 			},
 			workersJobs: []batchv1.Job{
@@ -308,7 +308,7 @@ func TestRemoteClientGC(t *testing.T) {
 			},
 			wantWorkersWorkloads: []kueue.Workload{
 				*baseWlBuilder.Clone().
-					Label(MultiKueueOriginLabelKey, "other-gc-key").
+					Label(kueuealpha.MultiKueueOriginLabel, "other-gc-key").
 					Obj(),
 			},
 			wantWorkersJobs: []batchv1.Job{

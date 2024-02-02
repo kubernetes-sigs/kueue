@@ -140,7 +140,7 @@ func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, ev watch.Event) 
 func (rc *remoteClient) runGC(ctx context.Context) {
 	log := ctrl.LoggerFrom(ctx)
 	lst := &kueue.WorkloadList{}
-	err := rc.client.List(ctx, lst, client.MatchingLabels{MultiKueueOriginLabelKey: rc.origin})
+	err := rc.client.List(ctx, lst, client.MatchingLabels{kueuealpha.MultiKueueOriginLabel: rc.origin})
 	if err != nil {
 		log.V(2).Error(err, "Listing remote workloads")
 		return
@@ -156,7 +156,7 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 		}
 
 		if err == nil && localWl.DeletionTimestamp.IsZero() {
-			// The remote workload is still relevant.
+			// The local workload exists and isn't being deleted, so the remote workload is still relevant.
 			continue
 		}
 
@@ -167,12 +167,14 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 			if adapter, found := adapters[adapterKey]; !found {
 				wlLog.V(2).Info("No adapter found", "adapterKey", adapterKey, "ownerKey", ownerKey)
 			} else {
+				wlLog.V(5).Info("MultiKueueGC deleting workload owner", "ownerKey", ownerKey, "ownnerKind", controller)
 				err := adapter.DeleteRemoteObject(ctx, rc.client, ownerKey)
 				if client.IgnoreNotFound(err) != nil {
 					wlLog.V(2).Error(err, "Deleting remote workload's owner", "ownerKey", ownerKey)
 				}
 			}
 		}
+		wlLog.V(5).Info("MultiKueueGC deleting remote workload")
 		if err := rc.client.Delete(ctx, &remoteWl); client.IgnoreNotFound(err) != nil {
 			wlLog.V(2).Error(err, "Deleting remote workload")
 		}
@@ -354,7 +356,7 @@ func (c *clustersReconciler) runGC(ctx context.Context) {
 			log.V(2).Info("Garbage Collector Stopped")
 			return
 		case <-time.After(c.gcInterval):
-			log.V(5).Info("Run Garbage Collection")
+			log.V(4).Info("Run Garbage Collection for Lost Remote Workloads")
 			for clusterName, rc := range c.remoteClients {
 				rc.runGC(ctrl.LoggerInto(ctx, log.WithValues("multiKueueCluster", clusterName)))
 			}

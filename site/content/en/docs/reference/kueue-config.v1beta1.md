@@ -497,7 +497,7 @@ Defaults to kueue-webhook-server-cert.</p>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
 </td>
 <td>
-   <p>GCTimeout defines the timeout between two consecutive garbage collection runs.
+   <p>GCTimeout defines the time interval between two consecutive garbage collection runs.
 Defaults to 1min. If 0, the garbage collection is disabled.</p>
 </td>
 </tr>

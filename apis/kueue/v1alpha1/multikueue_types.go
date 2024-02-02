@@ -23,6 +23,10 @@ import (
 const (
 	MultiKueueConfigSecretKey = "kubeconfig"
 	MultiKueueClusterActive   = "Active"
+
+	// MultiKueueOriginLabel is a label used to track the creator
+	// of multikueue remote objects.
+	MultiKueueOriginLabel = "kueue.x-k8s.io/multikueue-origin"
 )
 
 type LocationType string
