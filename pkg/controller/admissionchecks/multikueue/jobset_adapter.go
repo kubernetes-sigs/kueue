@@ -18,9 +18,11 @@ package multikueue
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -107,7 +109,7 @@ func (*jobsetAdapter) GetWorkloadKey(o runtime.Object) (types.NamespacedName, er
 
 	prebuiltWl, hasPrebuiltWorkload := jobSet.Labels[constants.PrebuiltWorkloadLabel]
 	if !hasPrebuiltWorkload {
-		return types.NamespacedName{}, errors.New("no prebuilt workload found")
+		return types.NamespacedName{}, fmt.Errorf("no prebuilt workload found for jobset: %s", klog.KObj(jobSet))
 	}
 
 	return types.NamespacedName{Name: prebuiltWl, Namespace: jobSet.Namespace}, nil
