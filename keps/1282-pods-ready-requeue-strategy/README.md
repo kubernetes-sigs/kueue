@@ -72,8 +72,10 @@ the workload endlessly or repeatedly can be put in front of the queue after evic
 1. The workload don't have the proper configurations like image pull credential and pvc name, etc.
 2. The cluster can meet flavorQuotas, but each node doesn't have the resources that each podSet requests.  
 
-Specifically, the second reason will often occur in the workloads required gpus.
-Given that the workload with a request of 2 gpus is submitted to the cluster that
+Specifically, the second reason will often occur if the available quota is fragmented across multiple nodes,
+such that the workload can't be scheduled in a node even though there is enough quota in the cluster.
+
+For example, Given that the workload with a request of 2 gpus is submitted to the cluster that
 has 2 worker nodes with 4 gpus, and 3 gpus are used (which means 1 gpu is free in each node),
 the workload will be repeatedly evicted because of the lack of resources in each node even though the cluster has enough capacities.
 
@@ -162,7 +164,7 @@ Add a new field, "requeuedCount", to the Workload to allow recording the number 
 ```go
 type WorkloadStatus struct {
 	...
-	// requeuedCount determines the number of times a workload has been requeued.
+	// requeuedCount records the number of times a workload has been requeued.
 	// When a deactivated workload is reactivated, this count is reset to 0. 
 	//
 	// +optional
@@ -187,7 +189,8 @@ Update the `apis/config/<version>` package to include `Creation` and `Eviction` 
 ### Exponential Backoff Mechanism
 
 When the kueueConfig `backOffLimitCount` or `backOffLimitTimeout` is set and there are evicted workloads by waitForPodsReady,
-the queueManager returns evicted workloads that an exponential backoff duration finished and other workloads as a headWorkloads.
+the queueManager holds evicted workloads with an exponential backoff. 
+Duration this time, other workloads will have a chance to be admitted.
 
 The queueManager calculates an exponential backoff duration by [the Step function](https://pkg.go.dev/k8s.io/apimachinery/pkg/util/wait@v0.29.1#Backoff.Step).
 
