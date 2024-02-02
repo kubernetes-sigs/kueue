@@ -2764,7 +2764,7 @@ func TestReconciler(t *testing.T) {
 			if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads.Items, tc.workloadCmpOpts...); diff != "" {
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
 			}
-			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
+			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, cmp.Transformer("sortedEvents", utiltesting.SortedEvents)); diff != "" {
 				t.Errorf("unexpected events (-want/+got):\n%s", diff)
 			}
 		})

@@ -19,6 +19,8 @@ package testing
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -79,6 +81,29 @@ type EventRecord struct {
 type EventRecorder struct {
 	lock           sync.Mutex
 	RecordedEvents []EventRecord
+}
+
+func SortedEvents(events []EventRecord) []EventRecord {
+	sorted := make([]EventRecord, len(events))
+	copy(sorted, events)
+	sort.Slice(sorted, func(i, j int) bool {
+		ei := sorted[i]
+		ej := sorted[j]
+		if cmp := strings.Compare(ei.Key.String(), ej.Key.String()); cmp != 0 {
+			return cmp < 0
+		}
+		if cmp := strings.Compare(ei.EventType, ej.EventType); cmp != 0 {
+			return cmp < 0
+		}
+		if cmp := strings.Compare(ei.Reason, ej.Reason); cmp != 0 {
+			return cmp < 0
+		}
+		if cmp := strings.Compare(ei.Message, ej.Message); cmp != 0 {
+			return cmp < 0
+		}
+		return false
+	})
+	return sorted
 }
 
 func (tr *EventRecorder) Event(object runtime.Object, eventtype, reason, message string) {
