@@ -335,7 +335,7 @@ multiKueue:
 	}
 
 	defaultMultiKueue := &configapi.MultiKueue{
-		GCInterval: &metav1.Duration{Duration: configapi.DefaultMultiKueueGCTimeout},
+		GCInterval: &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
 		Origin:     configapi.DefaultMultiKueueOrigin,
 	}
 

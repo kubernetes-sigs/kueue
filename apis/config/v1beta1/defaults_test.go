@@ -97,7 +97,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 	}
 
 	defaultMultiKueue := &MultiKueue{
-		GCInterval: &metav1.Duration{Duration: DefaultMultiKueueGCTimeout},
+		GCInterval: &metav1.Duration{Duration: DefaultMultiKueueGCInterval},
 		Origin:     DefaultMultiKueueOrigin,
 	}
 

@@ -44,7 +44,7 @@ const (
 	DefaultQueueVisibilityUpdateIntervalSeconds int32   = 5
 	DefaultClusterQueuesMaxCount                int32   = 10
 	defaultJobFrameworkName                             = "batch/job"
-	DefaultMultiKueueGCTimeout                          = time.Minute
+	DefaultMultiKueueGCInterval                         = time.Minute
 	DefaultMultiKueueOrigin                             = "multikueue"
 )
 
@@ -168,7 +168,7 @@ func SetDefaults_Configuration(cfg *Configuration) {
 		cfg.MultiKueue = &MultiKueue{}
 	}
 	if cfg.MultiKueue.GCInterval == nil {
-		cfg.MultiKueue.GCInterval = &metav1.Duration{Duration: DefaultMultiKueueGCTimeout}
+		cfg.MultiKueue.GCInterval = &metav1.Duration{Duration: DefaultMultiKueueGCInterval}
 	}
 	if cfg.MultiKueue.Origin == "" {
 		cfg.MultiKueue.Origin = DefaultMultiKueueOrigin
