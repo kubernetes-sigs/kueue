@@ -277,7 +277,22 @@ func TestRemoteClientGC(t *testing.T) {
 					Obj(),
 			},
 		},
-		"missing workers and their owner jobs are deleted": {
+		"missing worker workloads are deleted": {
+			workersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			managersJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Obj(),
+			},
+		},
+		"missing worker workloads and their owner jobs are deleted": {
 			workersWorkloads: []kueue.Workload{
 				*baseWlBuilder.Clone().
 					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
