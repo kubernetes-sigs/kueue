@@ -30,6 +30,9 @@
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
+  - [Create &quot;FrontOfQueue&quot; and &quot;BackOfQueue&quot;](#create-frontofqueue-and-backofqueue)
+  - [Configure at the ClusterQueue level](#configure-at-the-clusterqueue-level)
+  - [Make knob to be possible to set timeout until the workload is deactivated](#make-knob-to-be-possible-to-set-timeout-until-the-workload-is-deactivated)
 <!-- /toc -->
 
 ## Summary
@@ -109,7 +112,7 @@ Consider including folks who also work outside the SIG or subproject.
 
 #### KueueConfig
 
-Add an additional field to the KueueConfig to allow administrators to specify what timestamp to consider during queue sorting (under the pre-existing waitForPodsReady block).
+Add fields to the KueueConfig to allow administrators to specify what timestamp to consider during queue sorting (under the pre-existing waitForPodsReady block).
 
 Possible settings:
 
@@ -136,14 +139,6 @@ type RequeuingStrategy struct {
 	// Defaults to null. 
 	// +optional
 	BackOffLimitCount *int32 `json:"backOffLimitCount,omitempty"`
-    
-	// backOffLimitTimeout defines the time for a workload that 
-	// has once been admitted to reach the PodsReady=true condition. 
-	// When the time is reached, the workload is deactivated.
-	// 	
-	// Defaults to null.
-	// +optional
-	BackOffLimitTimeout *int32 `json:"backOffLimitTimeout,omitempty"`
 }
 
 type RequeuingTimestamp string
@@ -280,9 +275,34 @@ This could be mitigated by recommending administrators select `BestEffortFIFO` w
 
 ## Alternatives
 
-* The same concepts could be exposed to users based on `FrontOfQueue` or `BackOfQueue` settings instead of `Creation` and `Eviction` timestamps. 
+### Create "FrontOfQueue" and "BackOfQueue"
+
+The same concepts could be exposed to users based on `FrontOfQueue` or `BackOfQueue` settings instead of `Creation` and `Eviction` timestamps. 
 These terms would imply that the workload would be prioritized over higher priority workloads in the queue.
-This is probably not desired (would likely lead to rapid preemption upon admission when preemption based on priority is enabled).
-* These concepts could be configured in the ClusterQueue resource. This alternative would increase flexibility.
+This is probably not desired (would likely lead to rapid preemption upon admission when preemption based on priority is enabled). 
+
+### Configure at the ClusterQueue level
+
+These concepts could be configured in the ClusterQueue resource. This alternative would increase flexibility.
 Without a clear need for this level of granularity, it might be better to set these options at the controller level where `waitForPodsReady` settings already exist.
 Furthermore, configuring these settings at the ClusterQueue level introduces the question of what timestamp to use when sorting the heads of all ClusterQueues.
+
+### Make knob to be possible to set timeout until the workload is deactivated
+
+Another knob, `backoffCount` is difficult to estimate how many hours jobs will actually be retried (requeued).
+So, it might be useful to make a knob to possible to set timeout until the workload is deactivated.
+
+```go
+type RequeuingStrategy struct {
+	...
+	// backOffLimitTimeout defines the time for a workload that 
+	// has once been admitted to reach the PodsReady=true condition.
+	// When the time is reached, the workload is deactivated.
+	// 	
+	// Defaults to null.
+	// +optional
+	BackOffLimitTimeout *int32 `json:"backOffLimitTimeout,omitempty"`
+}
+```
+
+For now, we don't make this knob since only `backOffLimitCount` would be enough to current stories.  
