@@ -162,13 +162,13 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 
 		// if the remote wl has a controller(owning Job), delete the job
 		if controller := metav1.GetControllerOf(&remoteWl); controller != nil {
-			ownerKey := types.NamespacedName{Name: controller.Name, Namespace: remoteWl.Namespace}
+			ownerKey := klog.KRef(remoteWl.Namespace, controller.Name)
 			adapterKey := schema.FromAPIVersionAndKind(controller.APIVersion, controller.Kind).String()
 			if adapter, found := adapters[adapterKey]; !found {
 				wlLog.V(2).Info("No adapter found", "adapterKey", adapterKey, "ownerKey", ownerKey)
 			} else {
 				wlLog.V(5).Info("MultiKueueGC deleting workload owner", "ownerKey", ownerKey, "ownnerKind", controller)
-				err := adapter.DeleteRemoteObject(ctx, rc.client, ownerKey)
+				err := adapter.DeleteRemoteObject(ctx, rc.client, types.NamespacedName{Name: controller.Name, Namespace: remoteWl.Namespace})
 				if client.IgnoreNotFound(err) != nil {
 					wlLog.V(2).Error(err, "Deleting remote workload's owner", "ownerKey", ownerKey)
 				}
@@ -344,7 +344,7 @@ func (c *clustersReconciler) updateStatus(ctx context.Context, cluster *kueuealp
 }
 
 func (c *clustersReconciler) runGC(ctx context.Context) {
-	log := ctrl.LoggerFrom(ctx)
+	log := ctrl.LoggerFrom(ctx).WithName("MultiKueueGC")
 	if c.gcInterval == 0 {
 		log.V(2).Info("Garbage Collection is disabled")
 		return
