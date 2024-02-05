@@ -8,6 +8,23 @@ namespace: opendatahub
 # field above.
 namePrefix: kueue-
 
+configMapGenerator:
+- name: rhoai-config
+  envs:
+    - params.env
+
+configurations:
+  - params.yaml
+
+vars:
+- name: image
+  objref:
+    kind: ConfigMap
+    name: rhoai-config
+    apiVersion: v1
+  fieldref:
+    fieldpath: data.odh-kueue-controller-image
+
 # Labels to add to all resources and selectors.
 #commonLabels:
 #  someName: someValue

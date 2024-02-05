@@ -8,6 +8,7 @@ spec:
     spec:
       containers:
       - name: manager
+        image: $(image)
         args:
         - "--config=/controller_manager_config.yaml"
         - "--zap-log-level=2"
