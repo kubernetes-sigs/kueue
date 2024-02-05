@@ -1,9 +1,9 @@
 ---
-title: "Run A Plain Pod"
+title: "Run Plain Pods"
 date: 2023-09-27
 weight: 6
 description: >
-  Run a Kueue scheduled Pod.
+  Run Jobs represented by plain pods, either single pods, or pod groups.
 ---
 
 This page shows how to leverage Kueue's scheduling and resource management capabilities when running plain Pods.
@@ -104,4 +104,48 @@ You can create the Pod using the following command:
 ```sh
 # Create the pod
 kubectl apply -f kueue-pod.yaml
+```
+
+## Pod Group definition
+
+In order to run a set of pods as a single unit, called Pod Group, add the
+"pod-group-name" label, and the "pod-group-total-count" annotation to all
+members of the group, consistently:
+
+```yaml
+metadata:
+  labels:
+    kueue.x-k8s.io/pod-group-name: "group-name"
+  annotations:
+    kueue.x-k8s.io/pod-group-total-count: "2"
+```
+
+## Feature limitations
+
+Kueue provides only the minimal required functionallity of running pod groups,
+just for the need of environments where the pods are managed by external
+controllers directly, without a Job-level CRD.
+
+As a consequence of this design decision Kueue does not re-implement core
+functionalities that are available at the Job-level API, such as advanced retry
+policies. In particular, Kueue does not re-create failed pods.
+
+Note that, this design choice impacts the scenario of
+[preemption](/docs/concepts/cluster_queue/#preemption).
+When a workload represented by the pod group is preempted all of its pods
+are killed by Kueue (by delete requests). However, later, when the workload is
+re-admitted, Kueue will not re-create the terminated pods. This task is left to
+the user (or the external controller).
+
+**NOTE:** We recommend migration to using Job-level APIs for managing sets of pods.
+
+## Example Pod Group
+
+Here is a sample Pod that just sleeps for a few seconds:
+
+{{< include "examples/pods-kueue/kueue-pod-group.yaml" "yaml" >}}
+
+You can create the Pod using the following command:
+```sh
+kubectl apply -f kueue-pod-group.yaml
 ```
