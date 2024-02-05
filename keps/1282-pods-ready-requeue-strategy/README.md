@@ -20,8 +20,8 @@
     - [Proposed Sorting](#proposed-sorting)
   - [Exponential Backoff Mechanism](#exponential-backoff-mechanism)
   - [Evaluation of BackOffLimits](#evaluation-of-backofflimits)
-    - [backOffLimitCount](#backofflimitcount)
-    - [backOffLimitTimeout](#backofflimittimeout)
+    - [backoffLimitCount](#backofflimitcount)
+    - [backoffLimitTimeout](#backofflimittimeout)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
@@ -133,12 +133,12 @@ type RequeuingStrategy struct {
 	// +optional
 	Timestamp *RequeuingTimestamp `json:"timestamp,omitempty"`
 	
-	// backOffLimitCount defines the maximum number of requeuing retries.
+	// backoffLimitCount defines the maximum number of requeuing retries.
 	// When the number is reached, the workload is deactivated.	
 	//
 	// Defaults to null. 
 	// +optional
-	BackOffLimitCount *int32 `json:"backOffLimitCount,omitempty"`
+	BackOffLimitCount *int32 `json:"backoffLimitCount,omitempty"`
 }
 
 type RequeuingTimestamp string
@@ -183,7 +183,7 @@ Update the `apis/config/<version>` package to include `Creation` and `Eviction` 
 
 ### Exponential Backoff Mechanism
 
-When the kueueConfig `backOffLimitCount` or `backOffLimitTimeout` is set and there are evicted workloads by waitForPodsReady,
+When the kueueConfig `backoffLimitCount` or `backoffLimitTimeout` is set and there are evicted workloads by waitForPodsReady,
 the queueManager holds evicted workloads with an exponential backoff. 
 Duration this time, other workloads will have a chance to be admitted.
 
@@ -191,24 +191,24 @@ The queueManager calculates an exponential backoff duration by [the Step functio
 
 ### Evaluation of BackOffLimits
 
-#### backOffLimitCount
+#### backoffLimitCount
 
 When a workload eviction is issued with `PodsReadyTimeout` condition, 
 a workload `.status.requeuedCount` is incremented by 1 each time　in the workload controller.
 
-After that, when a workload `.status.requeudCount` reaches the kueueConfig `.waitForPodsReady.requeueingStrategy.backOffLimitCount`,
+After that, when a workload `.status.requeudCount` reaches the kueueConfig `.waitForPodsReady.requeueingStrategy.backoffLimitCount`,
 a workload is deactivated by setting false to `.spec.active` instead of be suspended in the jobframework reconciler.
 
-#### backOffLimitTimeout
+#### backoffLimitTimeout
 
-When a workload's duration $currentTime - queueOrderingTimestamp$ reaches the kueueConfig `waitForPodsReady.requeueingStrategy.backOffLimitTimeout`,
+When a workload's duration $currentTime - queueOrderingTimestamp$ reaches the kueueConfig `waitForPodsReady.requeueingStrategy.backoffLimitTimeout`,
 the workload controller and the queueManager sets false to `.spec.active`.
 After that, the jobframework reconciler deactivates a workload.
 
 Before the jobframework reconciler deactivates a workload, 
 the workload controller sets false to `.spec.active` after the workload reconciler checks if a workload is finished.
 In addition, when the kueue scheduler gets headWorkloads from clusterQueues,
-if the queueManager finds the workloads exceeding `backOffLimitTimeout` and sets false to workload `.spec.active`.
+if the queueManager finds the workloads exceeding `backoffLimitTimeout` and sets false to workload `.spec.active`.
 
 ### Test Plan
 
@@ -295,14 +295,14 @@ So, it might be useful to make a knob to possible to set timeout until the workl
 ```go
 type RequeuingStrategy struct {
 	...
-	// backOffLimitTimeout defines the time for a workload that 
+	// backoffLimitTimeout defines the time for a workload that 
 	// has once been admitted to reach the PodsReady=true condition.
 	// When the time is reached, the workload is deactivated.
 	// 	
 	// Defaults to null.
 	// +optional
-	BackOffLimitTimeout *int32 `json:"backOffLimitTimeout,omitempty"`
+	BackOffLimitTimeout *int32 `json:"backoffLimitTimeout,omitempty"`
 }
 ```
 
-For now, we don't make this knob since only `backOffLimitCount` would be enough to current stories.  
+For now, we don't make this knob since only `backoffLimitCount` would be enough to current stories.  
