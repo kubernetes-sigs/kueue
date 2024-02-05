@@ -127,10 +127,9 @@ type Pod struct {
 }
 
 var (
-	_ jobframework.GenericJob        = (*Pod)(nil)
-	_ jobframework.JobWithCustomStop = (*Pod)(nil)
-	_ jobframework.JobWithFinalize   = (*Pod)(nil)
-	_ jobframework.ComposableJob     = (*Pod)(nil)
+	_ jobframework.GenericJob      = (*Pod)(nil)
+	_ jobframework.JobWithFinalize = (*Pod)(nil)
+	_ jobframework.ComposableJob   = (*Pod)(nil)
 )
 
 func fromObject(o runtime.Object) *Pod {
