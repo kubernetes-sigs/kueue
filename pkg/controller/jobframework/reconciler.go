@@ -747,7 +747,14 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 		if stoppedNow {
 			r.record.Event(object, corev1.EventTypeNormal, ReasonStopped, eventMsg)
 		}
+		return err
+	}
 
+	if jws, implements := job.(ComposableJob); implements {
+		stoppedNow, err := jws.Stop(ctx, r.client, info, stopReason, eventMsg)
+		for _, objStoppedNow := range stoppedNow {
+			r.record.Event(objStoppedNow, corev1.EventTypeNormal, ReasonStopped, eventMsg)
+		}
 		return err
 	}
 

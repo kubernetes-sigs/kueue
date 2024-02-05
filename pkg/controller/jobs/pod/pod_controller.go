@@ -127,10 +127,9 @@ type Pod struct {
 }
 
 var (
-	_ jobframework.GenericJob        = (*Pod)(nil)
-	_ jobframework.JobWithCustomStop = (*Pod)(nil)
-	_ jobframework.JobWithFinalize   = (*Pod)(nil)
-	_ jobframework.ComposableJob     = (*Pod)(nil)
+	_ jobframework.GenericJob      = (*Pod)(nil)
+	_ jobframework.JobWithFinalize = (*Pod)(nil)
+	_ jobframework.ComposableJob   = (*Pod)(nil)
 )
 
 func fromObject(o runtime.Object) *Pod {
@@ -403,7 +402,7 @@ func (p *Pod) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
-func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, stopReason jobframework.StopReason, eventMsg string) (bool, error) {
+func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, stopReason jobframework.StopReason, eventMsg string) ([]client.Object, error) {
 	var podsInGroup []corev1.Pod
 
 	if p.isGroup {
@@ -412,6 +411,7 @@ func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, 
 		podsInGroup = []corev1.Pod{p.pod}
 	}
 
+	stoppedNow := make([]client.Object, 0)
 	for i := range podsInGroup {
 		// If the workload is being deleted, delete even finished Pods.
 		if !podsInGroup[i].DeletionTimestamp.IsZero() || (stopReason != jobframework.StopReasonWorkloadDeleted && podSuspended(&podsInGroup[i])) {
@@ -442,11 +442,12 @@ func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, 
 			},
 		}
 		if err := c.Status().Patch(ctx, pCopy, client.Apply, client.FieldOwner(constants.KueueName)); err != nil && !apierrors.IsNotFound(err) {
-			return false, err
+			return stoppedNow, err
 		}
 		if err := c.Delete(ctx, podInGroup.Object()); err != nil && !apierrors.IsNotFound(err) {
-			return false, err
+			return stoppedNow, err
 		}
+		stoppedNow = append(stoppedNow, podInGroup.Object())
 	}
 
 	// If related workload is deleted, the generic reconciler will stop the pod group and finalize the workload.
@@ -455,11 +456,11 @@ func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, 
 	if p.isGroup && stopReason == jobframework.StopReasonWorkloadDeleted {
 		err := p.Finalize(ctx, c)
 		if err != nil {
-			return false, err
+			return stoppedNow, err
 		}
 	}
 
-	return true, nil
+	return stoppedNow, nil
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
