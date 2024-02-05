@@ -88,9 +88,9 @@ the administrator would like to use an exponential backoff mechanism and add a m
 
 #### Story 3
 
-In the story 3 scenario, after the evicted workload reached the maximum retry condition, 
-we want to easily requeue the workload to the queue without recreating the job. 
-
+In the story 2 scenario, after the evicted workload reaches the maximum retry criterion
+and the workload is never backoff, we want to easily requeue the workload to the queue without recreating the job.
+This is possible if the Workload is deactivated (`.spec.active`=`false`) as opposed to deleting it.
 
 ### Risks and Mitigations
 
@@ -135,7 +135,7 @@ type RequeuingStrategy struct {
 	Timestamp *RequeuingTimestamp `json:"timestamp,omitempty"`
 	
 	// backoffLimitCount defines the maximum number of requeuing retries.
-	// When the number is reached, the workload is deactivated (`.spec.activate=false`).
+	// When the number is reached, the workload is deactivated (`.spec.activate`=`false`).
 	//
 	// Defaults to null. 
 	// +optional
