@@ -20,6 +20,7 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -172,6 +173,6 @@ func managerAndMultiKueueSetup(mgr manager.Manager, ctx context.Context) {
 	err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name)
+	err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name, multikueue.WithGCInterval(2*time.Second))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }

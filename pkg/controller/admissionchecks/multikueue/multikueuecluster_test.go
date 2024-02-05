@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -29,8 +30,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 )
 
 var (
@@ -191,7 +194,7 @@ func TestUpdateConfig(t *testing.T) {
 			builder = builder.WithStatusSubresource(slices.Map(tc.clusters, func(c *kueuealpha.MultiKueueCluster) client.Object { return c })...)
 			c := builder.Build()
 
-			reconciler := newClustersReconciler(c, TestNamespace)
+			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin)
 
 			if len(tc.remoteClients) > 0 {
 				reconciler.remoteClients = tc.remoteClients
@@ -218,6 +221,146 @@ func TestUpdateConfig(t *testing.T) {
 			if diff := cmp.Diff(tc.wantRemoteClients, reconciler.remoteClients, cmpopts.EquateEmpty(),
 				cmp.Comparer(func(a, b remoteClient) bool { return string(a.kubeconfig) == string(b.kubeconfig) })); diff != "" {
 				t.Errorf("unexpected controllers (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestRemoteClientGC(t *testing.T) {
+	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace)
+	baseWlBuilder := utiltesting.MakeWorkload("wl1", TestNamespace).OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "test-uuid", true, true)
+
+	cases := map[string]struct {
+		managersWorkloads []kueue.Workload
+		workersWorkloads  []kueue.Workload
+		managersJobs      []batchv1.Job
+		workersJobs       []batchv1.Job
+
+		wantWorkersWorkloads []kueue.Workload
+		wantWorkersJobs      []batchv1.Job
+	}{
+		"existing workers and jobs are not deleted": {
+			managersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Obj(),
+			},
+			workersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			managersJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Obj(),
+			},
+			workersJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Obj(),
+			},
+			wantWorkersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantWorkersJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Obj(),
+			},
+		},
+		"missing worker workloads are deleted": {
+			workersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			managersJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Obj(),
+			},
+		},
+		"missing worker workloads are deleted (no job adapter)": {
+			workersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("NptAJob"), "job1", "test-uuid", true, true).
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+		},
+		"missing worker workloads and their owner jobs are deleted": {
+			workersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			managersJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Obj(),
+			},
+			workersJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Obj(),
+			},
+		},
+		"unrelated workers and jobs are not deleted": {
+			workersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Label(kueuealpha.MultiKueueOriginLabel, "other-gc-key").
+					Obj(),
+			},
+			workersJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Obj(),
+			},
+			wantWorkersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					Label(kueuealpha.MultiKueueOriginLabel, "other-gc-key").
+					Obj(),
+			},
+			wantWorkersJobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					Obj(),
+			},
+		},
+	}
+
+	objCheckOpts := []cmp.Option{
+		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
+		cmpopts.EquateEmpty(),
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			manageBuilder, ctx := getClientBuilder()
+			manageBuilder = manageBuilder.WithLists(&kueue.WorkloadList{Items: tc.managersWorkloads}, &batchv1.JobList{Items: tc.managersJobs})
+			managerClient := manageBuilder.Build()
+
+			worker1Builder, _ := getClientBuilder()
+			worker1Builder = worker1Builder.WithLists(&kueue.WorkloadList{Items: tc.workersWorkloads}, &batchv1.JobList{Items: tc.workersJobs})
+			worker1Client := worker1Builder.Build()
+
+			w1remoteClient := newRemoteClient(managerClient, nil, defaultOrigin)
+			w1remoteClient.client = worker1Client
+
+			w1remoteClient.runGC(ctx)
+
+			gotWorker1Wokloads := &kueue.WorkloadList{}
+			err := worker1Client.List(ctx, gotWorker1Wokloads)
+			if err != nil {
+				t.Error("unexpected list worker's workloads error")
+			}
+
+			if diff := cmp.Diff(tc.wantWorkersWorkloads, gotWorker1Wokloads.Items, objCheckOpts...); diff != "" {
+				t.Errorf("unexpected worker's workloads (-want/+got):\n%s", diff)
+			}
+
+			gotWorker1Job := &batchv1.JobList{}
+			err = worker1Client.List(ctx, gotWorker1Job)
+			if err != nil {
+				t.Error("unexpected list worker's jobs error")
+			}
+
+			if diff := cmp.Diff(tc.wantWorkersJobs, gotWorker1Job.Items, objCheckOpts...); diff != "" {
+				t.Errorf("unexpected worker's jobs (-want/+got):\n%s", diff)
 			}
 		})
 	}

@@ -96,6 +96,11 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		},
 	}
 
+	defaultMultiKueue := &MultiKueue{
+		GCInterval: &metav1.Duration{Duration: DefaultMultiKueueGCInterval},
+		Origin:     ptr.To(DefaultMultiKueueOrigin),
+	}
+
 	podsReadyTimeoutTimeout := metav1.Duration{Duration: defaultPodsReadyTimeout}
 	podsReadyTimeoutOverwrite := metav1.Duration{Duration: time.Minute}
 
@@ -118,6 +123,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue:       defaultMultiKueue,
 			},
 		},
 		"defaulting ControllerManager": {
@@ -158,6 +164,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue:       defaultMultiKueue,
 			},
 		},
 		"should not default ControllerManager": {
@@ -214,6 +221,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue:       defaultMultiKueue,
 			},
 		},
 		"should not set LeaderElectionID": {
@@ -254,6 +262,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue:       defaultMultiKueue,
 			},
 		},
 		"defaulting InternalCertManagement": {
@@ -271,6 +280,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     overwriteNamespaceIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue:       defaultMultiKueue,
 			},
 		},
 		"should not default InternalCertManagement": {
@@ -289,6 +299,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     overwriteNamespaceIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue:       defaultMultiKueue,
 			},
 		},
 		"should not default values in custom ClientConnection": {
@@ -314,6 +325,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				Integrations:    overwriteNamespaceIntegrations,
 				QueueVisibility: defaultQueueVisibility,
+				MultiKueue:      defaultMultiKueue,
 			},
 		},
 		"should default empty custom ClientConnection": {
@@ -333,6 +345,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     overwriteNamespaceIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue:       defaultMultiKueue,
 			},
 		},
 		"defaulting waitForPodsReady values": {
@@ -359,6 +372,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue:       defaultMultiKueue,
 			},
 		},
 		"set waitForPodsReady.blockAdmission to false when enable is false": {
@@ -385,6 +399,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue:       defaultMultiKueue,
 			},
 		},
 		"respecting provided waitForPodsReady values": {
@@ -413,6 +428,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue:       defaultMultiKueue,
 			},
 		},
 		"integrations": {
@@ -436,6 +452,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					PodOptions: defaultIntegrations.PodOptions,
 				},
 				QueueVisibility: defaultQueueVisibility,
+				MultiKueue:      defaultMultiKueue,
 			},
 		},
 		"queue visibility": {
@@ -463,6 +480,57 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					ClusterQueues: &ClusterQueueVisibility{
 						MaxCount: 0,
 					},
+				},
+				MultiKueue: defaultMultiKueue,
+			},
+		},
+		"multiKueue": {
+			original: &Configuration{
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				MultiKueue: &MultiKueue{
+					GCInterval: &metav1.Duration{Duration: time.Second},
+					Origin:     ptr.To("multikueue-manager1"),
+				},
+			},
+			want: &Configuration{
+				Namespace:         ptr.To(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				ClientConnection: defaultClientConnection,
+				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue: &MultiKueue{
+					GCInterval: &metav1.Duration{Duration: time.Second},
+					Origin:     ptr.To("multikueue-manager1"),
+				},
+			},
+		},
+		"multiKueue GCInterval 0": {
+			original: &Configuration{
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				MultiKueue: &MultiKueue{
+					GCInterval: &metav1.Duration{},
+					Origin:     ptr.To("multikueue-manager1"),
+				},
+			},
+			want: &Configuration{
+				Namespace:         ptr.To(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				ClientConnection: defaultClientConnection,
+				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue: &MultiKueue{
+					GCInterval: &metav1.Duration{},
+					Origin:     ptr.To("multikueue-manager1"),
 				},
 			},
 		},

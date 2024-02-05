@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -329,7 +330,7 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 	// finally - create missing workloads
 	for rem, remWl := range group.remotes {
 		if remWl == nil {
-			clone := cloneForCreate(group.local)
+			clone := cloneForCreate(group.local, group.remoteClients[rem].origin)
 			err := group.remoteClients[rem].client.Create(ctx, clone)
 			if err != nil {
 				// just log the error for a single remote
@@ -375,9 +376,13 @@ func cleanObjectMeta(orig *metav1.ObjectMeta) metav1.ObjectMeta {
 	}
 }
 
-func cloneForCreate(orig *kueue.Workload) *kueue.Workload {
+func cloneForCreate(orig *kueue.Workload, origin string) *kueue.Workload {
 	remoteWl := &kueue.Workload{}
 	remoteWl.ObjectMeta = cleanObjectMeta(&orig.ObjectMeta)
+	if remoteWl.Labels == nil {
+		remoteWl.Labels = make(map[string]string)
+	}
+	remoteWl.Labels[kueuealpha.MultiKueueOriginLabel] = origin
 	orig.Spec.DeepCopyInto(&remoteWl.Spec)
 	return remoteWl
 }

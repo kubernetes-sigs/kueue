@@ -156,6 +156,13 @@ integrations (including K8S job).</p>
 pending workloads.</p>
 </td>
 </tr>
+<tr><td><code>multiKueue</code> <B>[Required]</B><br/>
+<a href="#MultiKueue"><code>MultiKueue</code></a>
+</td>
+<td>
+   <p>MultiKueue controls the behaviour of the MultiKueue AdmissionCheck Controller.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -468,6 +475,41 @@ Defaults to kueue-webhook-service.</p>
 <td>
    <p>WebhookSecretName is the name of the Secret used to store CA and server certs.
 Defaults to kueue-webhook-server-cert.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `MultiKueue`     {#MultiKueue}
+    
+
+**Appears in:**
+
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>gcInterval</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>GCInterval defines the time interval between two consecutive garbage collection runs.
+Defaults to 1min. If 0, the garbage collection is disabled.</p>
+</td>
+</tr>
+<tr><td><code>origin</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>Origin defines a label value used to track the creator of workloads in the worker
+clusters.
+This is used by multikueue in components like its garbage collector to identify
+remote objects that ware created by this multikueue manager cluster and delete
+them if their local counterpart no longer exists.</p>
 </td>
 </tr>
 </tbody>

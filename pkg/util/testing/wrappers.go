@@ -213,6 +213,14 @@ func (w *WorkloadWrapper) Labels(l map[string]string) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) Label(k, v string) *WorkloadWrapper {
+	if w.ObjectMeta.Labels == nil {
+		w.ObjectMeta.Labels = make(map[string]string)
+	}
+	w.ObjectMeta.Labels[k] = v
+	return w
+}
+
 func (w *WorkloadWrapper) AdmissionChecks(checks ...kueue.AdmissionCheckState) *WorkloadWrapper {
 	w.Status.AdmissionChecks = checks
 	return w

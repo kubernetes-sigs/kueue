@@ -38,6 +38,7 @@ import (
 	"k8s.io/client-go/discovery"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -245,7 +246,10 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 	}
 
 	if features.Enabled(features.MultiKueue) {
-		if err := multikueue.SetupControllers(mgr, *cfg.Namespace); err != nil {
+		if err := multikueue.SetupControllers(mgr, *cfg.Namespace,
+			multikueue.WithGCInterval(cfg.MultiKueue.GCInterval.Duration),
+			multikueue.WithOrigin(ptr.Deref(cfg.MultiKueue.Origin, configapi.DefaultMultiKueueOrigin)),
+		); err != nil {
 			setupLog.Error(err, "Could not setup MultiKueue controller")
 			os.Exit(1)
 		}

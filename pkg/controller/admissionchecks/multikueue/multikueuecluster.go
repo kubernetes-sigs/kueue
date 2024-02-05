@@ -23,12 +23,14 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/tools/clientcmd"
@@ -53,6 +55,7 @@ type remoteClient struct {
 	wlUpdateCh  chan<- event.GenericEvent
 	watchCancel func()
 	kubeconfig  []byte
+	origin      string
 
 	// For unit testing only. There is now need of creating fully functional remote clients in the unit tests
 	// and creating valid kubeconfig content is not trivial.
@@ -60,10 +63,11 @@ type remoteClient struct {
 	builderOverride clientWithWatchBuilder
 }
 
-func newRemoteClient(localClient client.Client, wlUpdateCh chan<- event.GenericEvent) *remoteClient {
+func newRemoteClient(localClient client.Client, wlUpdateCh chan<- event.GenericEvent, origin string) *remoteClient {
 	rc := &remoteClient{
 		wlUpdateCh:  wlUpdateCh,
 		localClient: localClient,
+		origin:      origin,
 	}
 	return rc
 }
@@ -130,6 +134,53 @@ func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, ev watch.Event) 
 	}
 }
 
+// runGC - lists all the remote workloads having the same multikueue-origin and remove those who
+// no longer have a local correspondent (missing or awaiting deletion). If the remote workload
+// is owned by a job, also delete the job.
+func (rc *remoteClient) runGC(ctx context.Context) {
+	log := ctrl.LoggerFrom(ctx)
+	lst := &kueue.WorkloadList{}
+	err := rc.client.List(ctx, lst, client.MatchingLabels{kueuealpha.MultiKueueOriginLabel: rc.origin})
+	if err != nil {
+		log.V(2).Error(err, "Listing remote workloads")
+		return
+	}
+
+	for _, remoteWl := range lst.Items {
+		localWl := &kueue.Workload{}
+		wlLog := log.WithValues("remoteWl", klog.KObj(&remoteWl))
+		err := rc.localClient.Get(ctx, client.ObjectKeyFromObject(&remoteWl), localWl)
+		if client.IgnoreNotFound(err) != nil {
+			wlLog.V(2).Error(err, "Reading local workload")
+			continue
+		}
+
+		if err == nil && localWl.DeletionTimestamp.IsZero() {
+			// The local workload exists and isn't being deleted, so the remote workload is still relevant.
+			continue
+		}
+
+		// if the remote wl has a controller(owning Job), delete the job
+		if controller := metav1.GetControllerOf(&remoteWl); controller != nil {
+			ownerKey := klog.KRef(remoteWl.Namespace, controller.Name)
+			adapterKey := schema.FromAPIVersionAndKind(controller.APIVersion, controller.Kind).String()
+			if adapter, found := adapters[adapterKey]; !found {
+				wlLog.V(2).Info("No adapter found", "adapterKey", adapterKey, "ownerKey", ownerKey)
+			} else {
+				wlLog.V(5).Info("MultiKueueGC deleting workload owner", "ownerKey", ownerKey, "ownnerKind", controller)
+				err := adapter.DeleteRemoteObject(ctx, rc.client, types.NamespacedName{Name: controller.Name, Namespace: remoteWl.Namespace})
+				if client.IgnoreNotFound(err) != nil {
+					wlLog.V(2).Error(err, "Deleting remote workload's owner", "ownerKey", ownerKey)
+				}
+			}
+		}
+		wlLog.V(5).Info("MultiKueueGC deleting remote workload")
+		if err := rc.client.Delete(ctx, &remoteWl); client.IgnoreNotFound(err) != nil {
+			wlLog.V(2).Error(err, "Deleting remote workload")
+		}
+	}
+}
+
 // clustersReconciler implements the reconciler for all MultiKueueClusters.
 // Its main task being to maintain the list of remote clients associated to each MultiKueueCluster.
 type clustersReconciler struct {
@@ -140,6 +191,12 @@ type clustersReconciler struct {
 	// The list of remote remoteClients, indexed by the cluster name.
 	remoteClients map[string]*remoteClient
 	wlUpdateCh    chan event.GenericEvent
+
+	// gcInterval - time waiting between two GC runs.
+	gcInterval time.Duration
+
+	// the multikueue-origin value used
+	origin string
 
 	// rootContext - holds the context passed by the controller-runtime on Start.
 	// It's used to create child contexts for MultiKueueClusters client watch routines
@@ -157,6 +214,7 @@ var _ reconcile.Reconciler = (*clustersReconciler)(nil)
 
 func (c *clustersReconciler) Start(ctx context.Context) error {
 	c.rootContext = ctx
+	go c.runGC(ctx)
 	return nil
 }
 
@@ -169,13 +227,13 @@ func (c *clustersReconciler) stopAndRemoveCluster(clusterName string) {
 	}
 }
 
-func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterName string, kubeconfig []byte) error {
+func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterName string, kubeconfig []byte, origin string) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
 	client, found := c.remoteClients[clusterName]
 	if !found {
-		client = newRemoteClient(c.localClient, c.wlUpdateCh)
+		client = newRemoteClient(c.localClient, c.wlUpdateCh, origin)
 		if c.builderOverride != nil {
 			client.builderOverride = c.builderOverride
 		}
@@ -225,7 +283,7 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 		return reconcile.Result{}, c.updateStatus(ctx, cluster, false, "BadConfig", err.Error())
 	}
 
-	if err := c.setRemoteClientConfig(ctx, cluster.Name, kubeConfig); err != nil {
+	if err := c.setRemoteClientConfig(ctx, cluster.Name, kubeConfig, c.origin); err != nil {
 		log.Error(err, "setting kubeconfig")
 		return reconcile.Result{}, c.updateStatus(ctx, cluster, false, "ClientConnectionFailed", err.Error())
 	}
@@ -285,16 +343,39 @@ func (c *clustersReconciler) updateStatus(ctx context.Context, cluster *kueuealp
 	return c.localClient.Status().Update(ctx, cluster)
 }
 
+func (c *clustersReconciler) runGC(ctx context.Context) {
+	log := ctrl.LoggerFrom(ctx).WithName("MultiKueueGC")
+	if c.gcInterval == 0 {
+		log.V(2).Info("Garbage Collection is disabled")
+		return
+	}
+	log.V(2).Info("Starting Garbage Collector")
+	for {
+		select {
+		case <-ctx.Done():
+			log.V(2).Info("Garbage Collector Stopped")
+			return
+		case <-time.After(c.gcInterval):
+			log.V(4).Info("Run Garbage Collection for Lost Remote Workloads")
+			for clusterName, rc := range c.remoteClients {
+				rc.runGC(ctrl.LoggerInto(ctx, log.WithValues("multiKueueCluster", clusterName)))
+			}
+		}
+	}
+}
+
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueclusters,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=multikueueclusters/status,verbs=get;update;patch
 
-func newClustersReconciler(c client.Client, namespace string) *clustersReconciler {
+func newClustersReconciler(c client.Client, namespace string, gcInterval time.Duration, origin string) *clustersReconciler {
 	return &clustersReconciler{
 		localClient:     c,
 		configNamespace: namespace,
 		remoteClients:   make(map[string]*remoteClient),
 		wlUpdateCh:      make(chan event.GenericEvent, 10),
+		gcInterval:      gcInterval,
+		origin:          origin,
 	}
 }
 

@@ -258,6 +258,17 @@ integrations:
 		t.Fatal(err)
 	}
 
+	multiKueueConfig := filepath.Join(tmpDir, "multiKueue.yaml")
+	if err := os.WriteFile(multiKueueConfig, []byte(`
+apiVersion: config.kueue.x-k8s.io/v1beta1
+kind: Configuration
+namespace: kueue-system
+multiKueue:
+  gcInterval: 1m30s
+  origin: multikueue-manager1
+`), os.FileMode(0600)); err != nil {
+		t.Fatal(err)
+	}
 	defaultControlOptions := ctrl.Options{
 		HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
 		Metrics: metricsserver.Options{
@@ -323,6 +334,11 @@ integrations:
 		},
 	}
 
+	defaultMultiKueue := &configapi.MultiKueue{
+		GCInterval: &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
+		Origin:     ptr.To(configapi.DefaultMultiKueueOrigin),
+	}
+
 	testcases := []struct {
 		name              string
 		configFile        string
@@ -339,6 +355,7 @@ integrations:
 				ClientConnection:       defaultClientConnection,
 				Integrations:           defaultIntegrations,
 				QueueVisibility:        defaultQueueVisibility,
+				MultiKueue:             defaultMultiKueue,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
@@ -395,6 +412,7 @@ integrations:
 					},
 				},
 				QueueVisibility: defaultQueueVisibility,
+				MultiKueue:      defaultMultiKueue,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -412,6 +430,7 @@ integrations:
 				ClientConnection:           defaultClientConnection,
 				Integrations:               defaultIntegrations,
 				QueueVisibility:            defaultQueueVisibility,
+				MultiKueue:                 defaultMultiKueue,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: ":38081",
@@ -449,6 +468,7 @@ integrations:
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue:       defaultMultiKueue,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -468,6 +488,7 @@ integrations:
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue:       defaultMultiKueue,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -485,6 +506,7 @@ integrations:
 				ClientConnection:           defaultClientConnection,
 				Integrations:               defaultIntegrations,
 				QueueVisibility:            defaultQueueVisibility,
+				MultiKueue:                 defaultMultiKueue,
 			},
 
 			wantOptions: ctrl.Options{
@@ -525,6 +547,7 @@ integrations:
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue:       defaultMultiKueue,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
@@ -561,6 +584,7 @@ integrations:
 				},
 				Integrations:    defaultIntegrations,
 				QueueVisibility: defaultQueueVisibility,
+				MultiKueue:      defaultMultiKueue,
 			},
 			wantOptions: defaultControlOptions,
 		},
@@ -581,6 +605,7 @@ integrations:
 				},
 				Integrations:    defaultIntegrations,
 				QueueVisibility: defaultQueueVisibility,
+				MultiKueue:      defaultMultiKueue,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
@@ -642,6 +667,7 @@ integrations:
 					},
 				},
 				QueueVisibility: defaultQueueVisibility,
+				MultiKueue:      defaultMultiKueue,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
@@ -680,6 +706,7 @@ integrations:
 						MaxCount: 0,
 					},
 				},
+				MultiKueue: defaultMultiKueue,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
@@ -737,6 +764,7 @@ integrations:
 						},
 					},
 				},
+				MultiKueue: defaultMultiKueue,
 			},
 			wantOptions: ctrl.Options{
 				HealthProbeBindAddress: configapi.DefaultHealthProbeBindAddress,
@@ -755,6 +783,27 @@ integrations:
 					},
 				},
 			},
+		},
+		{
+			name:       "multiKueue config",
+			configFile: multiKueueConfig,
+			wantConfiguration: configapi.Configuration{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: configapi.GroupVersion.String(),
+					Kind:       "Configuration",
+				},
+				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				ManageJobsWithoutQueueName: false,
+				InternalCertManagement:     enableDefaultInternalCertManagement,
+				ClientConnection:           defaultClientConnection,
+				Integrations:               defaultIntegrations,
+				QueueVisibility:            defaultQueueVisibility,
+				MultiKueue: &configapi.MultiKueue{
+					GCInterval: &metav1.Duration{Duration: 90 * time.Second},
+					Origin:     ptr.To("multikueue-manager1"),
+				},
+			},
+			wantOptions: defaultControlOptions,
 		},
 	}
 
@@ -862,6 +911,10 @@ func TestEncode(t *testing.T) {
 				"queueVisibility": map[string]any{
 					"updateIntervalSeconds": int64(configapi.DefaultQueueVisibilityUpdateIntervalSeconds),
 					"clusterQueues":         map[string]any{"maxCount": int64(10)},
+				},
+				"multiKueue": map[string]any{
+					"gcInterval": "1m0s",
+					"origin":     "multikueue",
 				},
 			},
 		},

@@ -16,15 +16,55 @@ limitations under the License.
 
 package multikueue
 
-import ctrl "sigs.k8s.io/controller-runtime"
+import (
+	"time"
 
-func SetupControllers(mgr ctrl.Manager, namespace string) error {
+	ctrl "sigs.k8s.io/controller-runtime"
+)
+
+const (
+	defaultGCInterval = time.Minute
+	defaultOrigin     = "multikueue"
+)
+
+type SetupOptions struct {
+	gcInterval time.Duration
+	origin     string
+}
+
+type SetupOption func(o *SetupOptions)
+
+// WithGCInterval - sets the interval between two garbage collection runs.
+// If 0 the garbage collection is disabled.
+func WithGCInterval(i time.Duration) SetupOption {
+	return func(o *SetupOptions) {
+		o.gcInterval = i
+	}
+}
+
+// WithOrigin - sets the multikueue-origin label value used by this manager
+func WithOrigin(origin string) SetupOption {
+	return func(o *SetupOptions) {
+		o.origin = origin
+	}
+}
+
+func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) error {
+	options := &SetupOptions{
+		gcInterval: defaultGCInterval,
+		origin:     defaultOrigin,
+	}
+
+	for _, o := range opts {
+		o(options)
+	}
+
 	helper, err := newMultiKueueStoreHelper(mgr.GetClient())
 	if err != nil {
 		return err
 	}
 
-	cRec := newClustersReconciler(mgr.GetClient(), namespace)
+	cRec := newClustersReconciler(mgr.GetClient(), namespace, options.gcInterval, options.origin)
 	err = cRec.setupWithManager(mgr)
 	if err != nil {
 		return err

@@ -95,7 +95,9 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 			worker1Workloads: []kueue.Workload{
-				*baseWorkloadBuilder.Clone().Obj(),
+				*baseWorkloadBuilder.Clone().
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
 			},
 			wantManagersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -121,7 +123,9 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 			wantWorker1Workloads: []kueue.Workload{
-				*baseWorkloadBuilder.Clone().Obj(),
+				*baseWorkloadBuilder.Clone().
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
 			},
 		},
 		"remote wl with reservation": {
@@ -141,6 +145,7 @@ func TestWlReconcile(t *testing.T) {
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 			wantManagersWorkloads: []kueue.Workload{
@@ -160,6 +165,7 @@ func TestWlReconcile(t *testing.T) {
 
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
@@ -196,6 +202,7 @@ func TestWlReconcile(t *testing.T) {
 
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: "by test"}).
 					Obj(),
@@ -220,6 +227,7 @@ func TestWlReconcile(t *testing.T) {
 
 			wantWorker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: "by test"}).
 					Obj(),
@@ -261,6 +269,7 @@ func TestWlReconcile(t *testing.T) {
 
 			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: "by test"}).
 					Obj(),
@@ -301,13 +310,13 @@ func TestWlReconcile(t *testing.T) {
 
 			managerClient := manageBuilder.Build()
 
-			cRec := newClustersReconciler(managerClient, TestNamespace)
+			cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin)
 
 			worker1Builder, _ := getClientBuilder()
 			worker1Builder = worker1Builder.WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}, &batchv1.JobList{Items: tc.worker1Jobs})
 			worker1Client := worker1Builder.Build()
 
-			w1remoteClient := newRemoteClient(managerClient, nil)
+			w1remoteClient := newRemoteClient(managerClient, nil, defaultOrigin)
 			w1remoteClient.client = worker1Client
 			cRec.remoteClients["worker1"] = w1remoteClient
 
@@ -322,40 +331,40 @@ func TestWlReconcile(t *testing.T) {
 			gotManagersWokloads := &kueue.WorkloadList{}
 			err := managerClient.List(ctx, gotManagersWokloads)
 			if err != nil {
-				t.Error("unexpected list managers workloads error")
+				t.Error("unexpected list manager's workloads error")
 			}
 
 			if diff := cmp.Diff(tc.wantManagersWorkloads, gotManagersWokloads.Items, objCheckOpts...); diff != "" {
-				t.Errorf("unexpected manangers workloads (-want/+got):\n%s", diff)
+				t.Errorf("unexpected manager's workloads (-want/+got):\n%s", diff)
 			}
 
 			gotWorker1Wokloads := &kueue.WorkloadList{}
 			err = worker1Client.List(ctx, gotWorker1Wokloads)
 			if err != nil {
-				t.Error("unexpected list managers workloads error")
+				t.Error("unexpected list worker's workloads error")
 			}
 
 			if diff := cmp.Diff(tc.wantWorker1Workloads, gotWorker1Wokloads.Items, objCheckOpts...); diff != "" {
-				t.Errorf("unexpected manangers workloads (-want/+got):\n%s", diff)
+				t.Errorf("unexpected worker's workloads (-want/+got):\n%s", diff)
 			}
 			gotManagersJobs := &batchv1.JobList{}
 			err = managerClient.List(ctx, gotManagersJobs)
 			if err != nil {
-				t.Error("unexpected list managers jobs error")
+				t.Error("unexpected list manager's jobs error")
 			}
 
 			if diff := cmp.Diff(tc.wantManagersJobs, gotManagersJobs.Items, objCheckOpts...); diff != "" {
-				t.Errorf("unexpected manangers jobs (-want/+got):\n%s", diff)
+				t.Errorf("unexpected manager's jobs (-want/+got):\n%s", diff)
 			}
 
 			gotWorker1Job := &batchv1.JobList{}
 			err = worker1Client.List(ctx, gotWorker1Job)
 			if err != nil {
-				t.Error("unexpected list managers jobs error")
+				t.Error("unexpected list worker's jobs error")
 			}
 
 			if diff := cmp.Diff(tc.wantWorker1Jobs, gotWorker1Job.Items, objCheckOpts...); diff != "" {
-				t.Errorf("unexpected worker1 jobs (-want/+got):\n%s", diff)
+				t.Errorf("unexpected worker's jobs (-want/+got):\n%s", diff)
 			}
 		})
 	}
