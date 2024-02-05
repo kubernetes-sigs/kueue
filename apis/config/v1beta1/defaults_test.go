@@ -98,7 +98,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 
 	defaultMultiKueue := &MultiKueue{
 		GCInterval: &metav1.Duration{Duration: DefaultMultiKueueGCInterval},
-		Origin:     DefaultMultiKueueOrigin,
+		Origin:     ptr.To(DefaultMultiKueueOrigin),
 	}
 
 	podsReadyTimeoutTimeout := metav1.Duration{Duration: defaultPodsReadyTimeout}
@@ -491,7 +491,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				MultiKueue: &MultiKueue{
 					GCInterval: &metav1.Duration{Duration: time.Second},
-					Origin:     "multikueue-manager1",
+					Origin:     ptr.To("multikueue-manager1"),
 				},
 			},
 			want: &Configuration{
@@ -505,7 +505,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				QueueVisibility:  defaultQueueVisibility,
 				MultiKueue: &MultiKueue{
 					GCInterval: &metav1.Duration{Duration: time.Second},
-					Origin:     "multikueue-manager1",
+					Origin:     ptr.To("multikueue-manager1"),
 				},
 			},
 		},
@@ -516,7 +516,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				MultiKueue: &MultiKueue{
 					GCInterval: &metav1.Duration{},
-					Origin:     "multikueue-manager1",
+					Origin:     ptr.To("multikueue-manager1"),
 				},
 			},
 			want: &Configuration{
@@ -530,7 +530,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				QueueVisibility:  defaultQueueVisibility,
 				MultiKueue: &MultiKueue{
 					GCInterval: &metav1.Duration{},
-					Origin:     "multikueue-manager1",
+					Origin:     ptr.To("multikueue-manager1"),
 				},
 			},
 		},

@@ -119,7 +119,7 @@ integrations:
 				},
 				MultiKueue: &config.MultiKueue{
 					GCInterval: &metav1.Duration{Duration: config.DefaultMultiKueueGCInterval},
-					Origin:     config.DefaultMultiKueueOrigin,
+					Origin:     ptr.To(config.DefaultMultiKueueOrigin),
 				},
 			},
 		},

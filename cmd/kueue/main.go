@@ -25,6 +25,7 @@ import (
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"k8s.io/utils/ptr"
 
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -247,7 +248,7 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 	if features.Enabled(features.MultiKueue) {
 		if err := multikueue.SetupControllers(mgr, *cfg.Namespace,
 			multikueue.WithGCInterval(cfg.MultiKueue.GCInterval.Duration),
-			multikueue.WithOrigin(cfg.MultiKueue.Origin),
+			multikueue.WithOrigin(ptr.Deref(cfg.MultiKueue.Origin, configapi.DefaultMultiKueueOrigin)),
 		); err != nil {
 			setupLog.Error(err, "Could not setup MultiKueue controller")
 			os.Exit(1)

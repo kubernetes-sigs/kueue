@@ -170,7 +170,7 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	if cfg.MultiKueue.GCInterval == nil {
 		cfg.MultiKueue.GCInterval = &metav1.Duration{Duration: DefaultMultiKueueGCInterval}
 	}
-	if cfg.MultiKueue.Origin == "" {
-		cfg.MultiKueue.Origin = DefaultMultiKueueOrigin
+	if ptr.Deref(cfg.MultiKueue.Origin, "") == "" {
+		cfg.MultiKueue.Origin = ptr.To(DefaultMultiKueueOrigin)
 	}
 }

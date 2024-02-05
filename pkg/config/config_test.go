@@ -336,7 +336,7 @@ multiKueue:
 
 	defaultMultiKueue := &configapi.MultiKueue{
 		GCInterval: &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-		Origin:     configapi.DefaultMultiKueueOrigin,
+		Origin:     ptr.To(configapi.DefaultMultiKueueOrigin),
 	}
 
 	testcases := []struct {
@@ -800,7 +800,7 @@ multiKueue:
 				QueueVisibility:            defaultQueueVisibility,
 				MultiKueue: &configapi.MultiKueue{
 					GCInterval: &metav1.Duration{Duration: 90 * time.Second},
-					Origin:     "multikueue-manager1",
+					Origin:     ptr.To("multikueue-manager1"),
 				},
 			},
 			wantOptions: defaultControlOptions,

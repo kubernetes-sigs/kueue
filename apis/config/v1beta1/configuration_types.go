@@ -206,7 +206,7 @@ type MultiKueue struct {
 	// GCInterval defines the time interval between two consecutive garbage collection runs.
 	// Defaults to 1min. If 0, the garbage collection is disabled.
 	// +optional
-	GCInterval *metav1.Duration `json:"gcInterval,omitempty"`
+	GCInterval *metav1.Duration `json:"gcInterval"`
 
 	// Origin defines a label value used to track the creator of workloads in the worker
 	// clusters.
@@ -214,7 +214,7 @@ type MultiKueue struct {
 	// remote objects that ware created by this multikueue manager cluster and delete
 	// them if their local counterpart no longer exists.
 	// +optional
-	Origin string `json:"origin,omitempty"`
+	Origin *string `json:"origin,omitempty"`
 }
 
 type RequeuingTimestamp string
