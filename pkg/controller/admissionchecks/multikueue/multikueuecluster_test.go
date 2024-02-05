@@ -236,10 +236,8 @@ func TestRemoteClientGC(t *testing.T) {
 		managersJobs      []batchv1.Job
 		workersJobs       []batchv1.Job
 
-		wantManagersWorkloads []kueue.Workload
-		wantWorkersWorkloads  []kueue.Workload
-		wantManagersJobs      []batchv1.Job
-		wantWorkersJobs       []batchv1.Job
+		wantWorkersWorkloads []kueue.Workload
+		wantWorkersJobs      []batchv1.Job
 	}{
 		"existing workers and jobs are not deleted": {
 			managersWorkloads: []kueue.Workload{
@@ -259,17 +257,9 @@ func TestRemoteClientGC(t *testing.T) {
 				*baseJobBuilder.Clone().
 					Obj(),
 			},
-			wantManagersWorkloads: []kueue.Workload{
-				*baseWlBuilder.Clone().
-					Obj(),
-			},
 			wantWorkersWorkloads: []kueue.Workload{
 				*baseWlBuilder.Clone().
 					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
-					Obj(),
-			},
-			wantManagersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
 					Obj(),
 			},
 			wantWorkersJobs: []batchv1.Job{
@@ -287,8 +277,12 @@ func TestRemoteClientGC(t *testing.T) {
 				*baseJobBuilder.Clone().
 					Obj(),
 			},
-			wantManagersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
+		},
+		"missing worker workloads are deleted (no job adapter)": {
+			workersWorkloads: []kueue.Workload{
+				*baseWlBuilder.Clone().
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("NptAJob"), "job1", "test-uuid", true, true).
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 		},
@@ -303,10 +297,6 @@ func TestRemoteClientGC(t *testing.T) {
 					Obj(),
 			},
 			workersJobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
-					Obj(),
-			},
-			wantManagersJobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
 					Obj(),
 			},
@@ -353,33 +343,14 @@ func TestRemoteClientGC(t *testing.T) {
 
 			w1remoteClient.runGC(ctx)
 
-			gotManagersWokloads := &kueue.WorkloadList{}
-			err := managerClient.List(ctx, gotManagersWokloads)
-			if err != nil {
-				t.Error("unexpected list manager's workloads error")
-			}
-
-			if diff := cmp.Diff(tc.wantManagersWorkloads, gotManagersWokloads.Items, objCheckOpts...); diff != "" {
-				t.Errorf("unexpected manager's workloads (-want/+got):\n%s", diff)
-			}
-
 			gotWorker1Wokloads := &kueue.WorkloadList{}
-			err = worker1Client.List(ctx, gotWorker1Wokloads)
+			err := worker1Client.List(ctx, gotWorker1Wokloads)
 			if err != nil {
 				t.Error("unexpected list worker's workloads error")
 			}
 
 			if diff := cmp.Diff(tc.wantWorkersWorkloads, gotWorker1Wokloads.Items, objCheckOpts...); diff != "" {
 				t.Errorf("unexpected worker's workloads (-want/+got):\n%s", diff)
-			}
-			gotManagersJobs := &batchv1.JobList{}
-			err = managerClient.List(ctx, gotManagersJobs)
-			if err != nil {
-				t.Error("unexpected list manager's jobs error")
-			}
-
-			if diff := cmp.Diff(tc.wantManagersJobs, gotManagersJobs.Items, objCheckOpts...); diff != "" {
-				t.Errorf("unexpected manager's jobs (-want/+got):\n%s", diff)
 			}
 
 			gotWorker1Job := &batchv1.JobList{}

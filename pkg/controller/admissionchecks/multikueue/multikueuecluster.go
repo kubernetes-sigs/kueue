@@ -134,9 +134,9 @@ func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, ev watch.Event) 
 	}
 }
 
-// runGc - lists all the remote workloads having the same multikueue-origin and remove those who
-// no longer have a local corespondent (missing or awaiting deletion). If the remote workload is
-// is owned by a job,also delete the job.
+// runGC - lists all the remote workloads having the same multikueue-origin and remove those who
+// no longer have a local correspondent (missing or awaiting deletion). If the remote workload
+// is owned by a job, also delete the job.
 func (rc *remoteClient) runGC(ctx context.Context) {
 	log := ctrl.LoggerFrom(ctx)
 	lst := &kueue.WorkloadList{}

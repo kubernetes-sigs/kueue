@@ -509,6 +509,31 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 		},
+		"multiKueue GCInterval 0": {
+			original: &Configuration{
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				MultiKueue: &MultiKueue{
+					GCInterval: &metav1.Duration{},
+					Origin:     "multikueue-manager1",
+				},
+			},
+			want: &Configuration{
+				Namespace:         ptr.To(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: ptr.To(false),
+				},
+				ClientConnection: defaultClientConnection,
+				Integrations:     defaultIntegrations,
+				QueueVisibility:  defaultQueueVisibility,
+				MultiKueue: &MultiKueue{
+					GCInterval: &metav1.Duration{},
+					Origin:     "multikueue-manager1",
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
