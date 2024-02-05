@@ -135,7 +135,7 @@ type RequeuingStrategy struct {
 	Timestamp *RequeuingTimestamp `json:"timestamp,omitempty"`
 	
 	// backoffLimitCount defines the maximum number of requeuing retries.
-	// When the number is reached, the workload is deactivated.	
+	// When the number is reached, the workload is deactivated (`.spec.activate=false`).
 	//
 	// Defaults to null. 
 	// +optional
@@ -306,4 +306,4 @@ type RequeuingStrategy struct {
 }
 ```
 
-For now, we don't make this knob since only `backoffLimitCount` would be enough to current stories.  
+For the first iteration, we don't make this knob since only `backoffLimitCount` would be enough to current stories.  
