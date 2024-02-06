@@ -50,6 +50,7 @@ const (
 )
 
 var ignoreConditionTimestamps = cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")
+var ignoreConditionMessage = cmpopts.IgnoreFields(metav1.Condition{}, "Message")
 var ignoreLastChangeTime = cmpopts.IgnoreFields(kueue.ClusterQueuePendingWorkloadsStatus{}, "LastChangeTime")
 var ignorePendingWorkloadsStatus = cmpopts.IgnoreFields(kueue.ClusterQueueStatus{}, "PendingWorkloadsStatus")
 
@@ -358,6 +359,61 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Ordered, ginkgo.Contin
 					},
 				},
 			}, ignoreConditionTimestamps, ignorePendingWorkloadsStatus))
+			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
+			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 0)
+		})
+
+		ginkgo.It("Should update status and report metrics when a pending workload is deleted", func() {
+			workload := testing.MakeWorkload("one", ns.Name).Queue(localQueue.Name).
+				Request(corev1.ResourceCPU, "5").Obj()
+
+			ginkgo.By("Creating a workload", func() {
+				gomega.Expect(k8sClient.Create(ctx, workload)).To(gomega.Succeed())
+			})
+
+			// Pending workloads count is incremented as the workload is inadmissible
+			// because ResourceFlavors don't exist.
+			gomega.Eventually(func() kueue.ClusterQueueStatus {
+				var updatedCq kueue.ClusterQueue
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
+				return updatedCq.Status
+			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
+				PendingWorkloads:   1,
+				FlavorsReservation: emptyUsedFlavors,
+				FlavorsUsage:       emptyUsedFlavors,
+				Conditions: []metav1.Condition{
+					{
+						Type:   kueue.ClusterQueueActive,
+						Status: metav1.ConditionFalse,
+						Reason: "FlavorNotFound",
+					},
+				},
+			}, ignoreConditionMessage, ignoreConditionTimestamps, ignorePendingWorkloadsStatus))
+
+			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
+			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 0)
+
+			ginkgo.By("Deleting the pending workload", func() {
+				gomega.Expect(k8sClient.Delete(ctx, workload)).To(gomega.Succeed())
+			})
+
+			// Pending workloads count is decrement as the deleted workload has been removed from the queue.
+			gomega.Eventually(func() kueue.ClusterQueueStatus {
+				var updatedCq kueue.ClusterQueue
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
+				return updatedCq.Status
+			}, util.Timeout, util.Interval).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
+				PendingWorkloads:   0,
+				FlavorsReservation: emptyUsedFlavors,
+				FlavorsUsage:       emptyUsedFlavors,
+				Conditions: []metav1.Condition{
+					{
+						Type:   kueue.ClusterQueueActive,
+						Status: metav1.ConditionFalse,
+						Reason: "FlavorNotFound",
+					},
+				},
+			}, ignoreConditionMessage, ignoreConditionTimestamps, ignorePendingWorkloadsStatus))
 			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 			util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 0)
 		})
