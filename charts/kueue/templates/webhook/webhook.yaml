@@ -7,6 +7,8 @@ metadata:
   annotations:
     cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert
   {{- end }}
+  labels:
+  {{- include "kueue.labels" . | nindent 4 }}
   namespace: '{{ .Release.Namespace }}'
 webhooks:
   - admissionReviewVersions:
@@ -301,6 +303,8 @@ metadata:
   annotations:
     cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert
   {{- end }}
+  labels:
+  {{- include "kueue.labels" . | nindent 4 }}
   namespace: '{{ .Release.Namespace }}'
 webhooks:
   - admissionReviewVersions:

@@ -4,6 +4,8 @@ kind: Service
 metadata:
   name: '{{ include "kueue.fullname" . }}-visibility-server'
   namespace: '{{ .Release.Namespace }}'
+  labels:
+  {{- include "kueue.labels" . | nindent 4 }}
 spec:
   ports:
     - name: https
@@ -11,5 +13,5 @@ spec:
       protocol: TCP
       targetPort: 8082
   selector:
-    control-plane: controller-manager
+  {{- include "kueue.selectorLabels" . | nindent 4 }}
 {{- end }}
