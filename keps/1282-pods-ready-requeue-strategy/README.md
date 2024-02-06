@@ -159,12 +159,28 @@ Add a new field, "requeuedCount", to the Workload to allow recording the number 
 ```go
 type WorkloadStatus struct {
 	...
-	// requeuedCount records the number of times a workload has been requeued.
-	// When a deactivated workload is reactivated, this count is reset to 0. 
+	// requeueState holds the state of the requeued Workload according to the requeueing strategy.
+	// 
+	// +optional
+	RequeueState *RequeueState `json:"requeueState,omitempty"` 
+}
+
+type RequeueState struct {
+	// count records the number of times a workload has been requeued.
+	// When a deactivated (`.spec.activate`=`false`) workload is reactivated (`.spec.activate`=`true`),
+	// this count would be reset to 0.
 	//
 	// +optional
-	RequeuedCount *int32 `json:"requeuedCount,omitempty"`
+	Count *int32 `json:"count,omitempty"`
+    
+	// requeueAt records the time when a workload is requeued.
+	// When a deactivated (`.spec.activate`=`false`) workload is reactivated (`.spec.activate`=`true`),
+	// this time would be reset to null.
+	//
+	// +optional
+	RequeueAt *metav1.Time `json:"requeueAt,omitempty"`
 }
+
 ```
 
 ### Changes to Queue Sorting
