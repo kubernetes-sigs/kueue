@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlmgr "sigs.k8s.io/controller-runtime/pkg/manager"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
@@ -121,10 +122,10 @@ func TestSetupIndexes(t *testing.T) {
 		"proper indexes are set": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("alpha-wl", testNamespace).
-					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "alpha", "job", true, true).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "alpha", "job", ptr.To(true), ptr.To(true)).
 					Obj(),
 				*utiltesting.MakeWorkload("beta-wl", testNamespace).
-					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "beta", "job", true, true).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "beta", "job", ptr.To(true), ptr.To(true)).
 					Obj(),
 			},
 			opts: []Option{
@@ -138,10 +139,10 @@ func TestSetupIndexes(t *testing.T) {
 		"kubeflow.org/mpijob is disabled in the configAPI": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("alpha-wl", testNamespace).
-					OwnerReference(kubeflow.SchemeGroupVersionKind, "alpha", "mpijob", true, true).
+					OwnerReference(kubeflow.SchemeGroupVersionKind, "alpha", "mpijob", ptr.To(true), ptr.To(true)).
 					Obj(),
 				*utiltesting.MakeWorkload("beta-wl", testNamespace).
-					OwnerReference(kubeflow.SchemeGroupVersionKind, "beta", "mpijob", true, true).
+					OwnerReference(kubeflow.SchemeGroupVersionKind, "beta", "mpijob", ptr.To(true), ptr.To(true)).
 					Obj(),
 			},
 			opts: []Option{

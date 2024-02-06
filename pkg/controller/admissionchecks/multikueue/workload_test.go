@@ -25,6 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -91,7 +92,7 @@ func TestWlReconcile(t *testing.T) {
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
-					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1", true, true).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1", ptr.To(true), ptr.To(true)).
 					Obj(),
 			},
 			worker1Workloads: []kueue.Workload{
@@ -102,7 +103,7 @@ func TestWlReconcile(t *testing.T) {
 			wantManagersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
-					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1", true, true).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1", ptr.To(true), ptr.To(true)).
 					Obj(),
 			},
 		},
@@ -111,14 +112,14 @@ func TestWlReconcile(t *testing.T) {
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
-					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1", true, true).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1", ptr.To(true), ptr.To(true)).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
 			wantManagersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
-					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1", true, true).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1", ptr.To(true), ptr.To(true)).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
@@ -133,7 +134,7 @@ func TestWlReconcile(t *testing.T) {
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
-					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1", true, true).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1", ptr.To(true), ptr.To(true)).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
@@ -155,7 +156,7 @@ func TestWlReconcile(t *testing.T) {
 						State:   kueue.CheckStatePending,
 						Message: `The workload got reservation on "worker1"`,
 					}).
-					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1", true, true).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1", ptr.To(true), ptr.To(true)).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
@@ -184,7 +185,7 @@ func TestWlReconcile(t *testing.T) {
 						State:   kueue.CheckStatePending,
 						Message: `The workload got reservation on "worker1"`,
 					}).
-					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1", true, true).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1", ptr.To(true), ptr.To(true)).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
@@ -214,7 +215,7 @@ func TestWlReconcile(t *testing.T) {
 						State:   kueue.CheckStatePending,
 						Message: `The workload got reservation on "worker1"`,
 					}).
-					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1", true, true).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1", ptr.To(true), ptr.To(true)).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: `From remote "worker1": by test`}).
 					Obj(),
@@ -248,7 +249,7 @@ func TestWlReconcile(t *testing.T) {
 						State:   kueue.CheckStatePending,
 						Message: `The workload got reservation on "worker1"`,
 					}).
-					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1", true, true).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1", ptr.To(true), ptr.To(true)).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: `From remote "worker1": by test`}).
 					Obj(),
@@ -281,7 +282,7 @@ func TestWlReconcile(t *testing.T) {
 						State:   kueue.CheckStatePending,
 						Message: `The workload got reservation on "worker1"`,
 					}).
-					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1", true, true).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1", ptr.To(true), ptr.To(true)).
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: `From remote "worker1": by test`}).
 					Obj(),

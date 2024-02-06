@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -228,7 +229,7 @@ func TestUpdateConfig(t *testing.T) {
 
 func TestRemoteClientGC(t *testing.T) {
 	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace)
-	baseWlBuilder := utiltesting.MakeWorkload("wl1", TestNamespace).OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "test-uuid", true, true)
+	baseWlBuilder := utiltesting.MakeWorkload("wl1", TestNamespace).OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "test-uuid", ptr.To(true), ptr.To(true))
 
 	cases := map[string]struct {
 		managersWorkloads []kueue.Workload
@@ -281,7 +282,7 @@ func TestRemoteClientGC(t *testing.T) {
 		"missing worker workloads are deleted (no job adapter)": {
 			workersWorkloads: []kueue.Workload{
 				*baseWlBuilder.Clone().
-					OwnerReference(batchv1.SchemeGroupVersion.WithKind("NptAJob"), "job1", "test-uuid", true, true).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("NptAJob"), "job1", "test-uuid", ptr.To(true), ptr.To(true)).
 					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},

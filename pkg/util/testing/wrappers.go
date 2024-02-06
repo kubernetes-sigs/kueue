@@ -226,17 +226,15 @@ func (w *WorkloadWrapper) AdmissionChecks(checks ...kueue.AdmissionCheckState) *
 	return w
 }
 
-func (w *WorkloadWrapper) OwnerReference(gvk schema.GroupVersionKind, name, uid string, controller, blockDeletion bool) *WorkloadWrapper {
-	w.OwnerReferences = []metav1.OwnerReference{
-		{
-			APIVersion:         gvk.GroupVersion().String(),
-			Kind:               gvk.Kind,
-			Name:               name,
-			UID:                types.UID(uid),
-			Controller:         &controller,
-			BlockOwnerDeletion: &blockDeletion,
-		},
-	}
+func (w *WorkloadWrapper) OwnerReference(gvk schema.GroupVersionKind, name, uid string, controller, blockDeletion *bool) *WorkloadWrapper {
+	w.OwnerReferences = append(w.OwnerReferences, metav1.OwnerReference{
+		APIVersion:         gvk.GroupVersion().String(),
+		Kind:               gvk.Kind,
+		Name:               name,
+		UID:                types.UID(uid),
+		Controller:         controller,
+		BlockOwnerDeletion: blockDeletion,
+	})
 	return w
 }
 

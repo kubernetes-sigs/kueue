@@ -688,6 +688,12 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						g.Expect(createdWorkload.Status.Conditions).Should(gomega.ContainElement(
 							gomega.BeComparableTo(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue}, wlConditionCmpOpts...),
 						))
+						g.Expect(createdWorkload.OwnerReferences).Should(gomega.ContainElement(metav1.OwnerReference{
+							APIVersion: "v1",
+							Kind:       "Pod",
+							Name:       replacementPod.Name,
+							UID:        replacementPod.UID,
+						}))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
