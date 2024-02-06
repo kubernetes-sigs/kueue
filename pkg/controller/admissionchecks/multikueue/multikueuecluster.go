@@ -125,7 +125,6 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, kubeconfig []byte) e
 	}
 	rc.client = remoteClient
 
-	// TODO: Filter based on multikueue-origin label when available.
 	err = rc.startWatcher(watchCtx, kueue.GroupVersion.WithKind("Workload").GroupKind().String(), &workloadKueueWatcher{})
 	if err != nil {
 		return err
@@ -137,7 +136,6 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, kubeconfig []byte) e
 		if !implementsWatcher {
 			continue
 		}
-		// TODO: Filter based on multikueue-origin label when available.
 		err := rc.startWatcher(watchCtx, kind, watcher)
 		if err != nil {
 			// not being able to setup a watcher is not ideal but we can function with only the wl watcher.
