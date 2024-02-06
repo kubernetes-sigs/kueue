@@ -129,6 +129,17 @@ func (w *WorkloadWrapper) Admitted(a bool) *WorkloadWrapper {
 	apimeta.SetStatusCondition(&w.Status.Conditions, cond)
 	return w
 }
+func (w *WorkloadWrapper) Finished() *WorkloadWrapper {
+	cond := metav1.Condition{
+		Type:               kueue.WorkloadFinished,
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "ByTest",
+		Message:            "Finished by test",
+	}
+	apimeta.SetStatusCondition(&w.Status.Conditions, cond)
+	return w
+}
 
 func (w *WorkloadWrapper) Creation(t time.Time) *WorkloadWrapper {
 	w.CreationTimestamp = metav1.NewTime(t)
