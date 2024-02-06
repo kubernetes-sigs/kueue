@@ -19,9 +19,7 @@
     - [Existing Sorting](#existing-sorting)
     - [Proposed Sorting](#proposed-sorting)
   - [Exponential Backoff Mechanism](#exponential-backoff-mechanism)
-  - [Evaluation of BackOffLimits](#evaluation-of-backofflimits)
-    - [backoffLimitCount](#backofflimitcount)
-    - [backoffLimitTimeout](#backofflimittimeout)
+    - [Evaluation](#evaluation)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit Tests](#unit-tests)
@@ -33,6 +31,7 @@
   - [Create &quot;FrontOfQueue&quot; and &quot;BackOfQueue&quot;](#create-frontofqueue-and-backofqueue)
   - [Configure at the ClusterQueue level](#configure-at-the-clusterqueue-level)
   - [Make knob to be possible to set timeout until the workload is deactivated](#make-knob-to-be-possible-to-set-timeout-until-the-workload-is-deactivated)
+    - [Evaluation](#evaluation-1)
 <!-- /toc -->
 
 ## Summary
@@ -184,32 +183,19 @@ Update the `apis/config/<version>` package to include `Creation` and `Eviction` 
 
 ### Exponential Backoff Mechanism
 
-When the kueueConfig `backoffLimitCount` or `backoffLimitTimeout` is set and there are evicted workloads by waitForPodsReady,
+When the kueueConfig `backoffLimitCount` is set and there are evicted workloads by waitForPodsReady,
 the queueManager holds evicted workloads with an exponential backoff. 
 Duration this time, other workloads will have a chance to be admitted.
 
 The queueManager calculates an exponential backoff duration by [the Step function](https://pkg.go.dev/k8s.io/apimachinery/pkg/util/wait@v0.29.1#Backoff.Step).
 
-### Evaluation of BackOffLimits
-
-#### backoffLimitCount
+#### Evaluation
 
 When a workload eviction is issued with `PodsReadyTimeout` condition, 
 a workload `.status.requeuedCount` is incremented by 1 each time　in the workload controller.
 
 After that, when a workload `.status.requeudCount` reaches the kueueConfig `.waitForPodsReady.requeueingStrategy.backoffLimitCount`,
 a workload is deactivated by setting false to `.spec.active` instead of be suspended in the jobframework reconciler.
-
-#### backoffLimitTimeout
-
-When a workload's duration $currentTime - queueOrderingTimestamp$ reaches the kueueConfig `waitForPodsReady.requeueingStrategy.backoffLimitTimeout`,
-the workload controller and the queueManager sets false to `.spec.active`.
-After that, the jobframework reconciler deactivates a workload.
-
-Before the jobframework reconciler deactivates a workload, 
-the workload controller sets false to `.spec.active` after the workload reconciler checks if a workload is finished.
-In addition, when the kueue scheduler gets headWorkloads from clusterQueues,
-if the queueManager finds the workloads exceeding `backoffLimitTimeout` and sets false to workload `.spec.active`.
 
 ### Test Plan
 
@@ -292,6 +278,7 @@ Furthermore, configuring these settings at the ClusterQueue level introduces the
 
 Another knob, `backoffCount` is difficult to estimate how many hours jobs will actually be retried (requeued).
 So, it might be useful to make a knob to possible to set timeout until the workload is deactivated.
+For the first iteration, we don't make this knob since only `backoffLimitCount` would be enough to current stories.  
 
 ```go
 type RequeuingStrategy struct {
@@ -306,4 +293,13 @@ type RequeuingStrategy struct {
 }
 ```
 
-For the first iteration, we don't make this knob since only `backoffLimitCount` would be enough to current stories.  
+#### Evaluation
+
+When a workload's duration $currentTime - queueOrderingTimestamp$ reaches the kueueConfig `waitForPodsReady.requeueingStrategy.backoffLimitTimeout`,
+the workload controller and the queueManager sets false to `.spec.active`.
+After that, the jobframework reconciler deactivates a workload.
+
+Before the jobframework reconciler deactivates a workload,
+the workload controller sets false to `.spec.active` after the workload reconciler checks if a workload is finished.
+In addition, when the kueue scheduler gets headWorkloads from clusterQueues,
+if the queueManager finds the workloads exceeding `backoffLimitTimeout` and sets false to workload `.spec.active`.
