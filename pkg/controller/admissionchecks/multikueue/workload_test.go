@@ -172,6 +172,7 @@ func TestWlReconcile(t *testing.T) {
 			wantWorker1Jobs: []batchv1.Job{
 				*baseJobBuilder.Clone().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 		},
@@ -321,7 +322,7 @@ func TestWlReconcile(t *testing.T) {
 			cRec.remoteClients["worker1"] = w1remoteClient
 
 			helper, _ := newMultiKueueStoreHelper(managerClient)
-			reconciler := newWlReconciler(managerClient, helper, cRec)
+			reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin)
 
 			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor, Namespace: TestNamespace}})
 			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {

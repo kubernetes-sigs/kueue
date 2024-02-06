@@ -45,7 +45,6 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
 type clientWithWatchBuilder func(config []byte, options client.Options) (client.WithWatch, error)
@@ -139,10 +138,10 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, kubeconfig []byte) e
 			continue
 		}
 		// TODO: Filter based on multikueue-origin label when available.
-		err := rc.startWatcher(watchCtx, kind, watcher, client.HasLabels{constants.PrebuiltWorkloadLabel})
+		err := rc.startWatcher(watchCtx, kind, watcher)
 		if err != nil {
 			// not being able to setup a watcher is not ideal but we can function with only the wl watcher.
-			ctrl.LoggerFrom(watchCtx).V(2).Error(err, "unable to start the watcher", "kind", kind)
+			ctrl.LoggerFrom(watchCtx).V(2).Error(err, "Unable to start the watcher", "kind", kind)
 			// however let's not accept this for now.
 			return err
 		}
@@ -152,9 +151,9 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, kubeconfig []byte) e
 	return nil
 }
 
-func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w multiKueueWatcher, listopts ...client.ListOption) error {
+func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w multiKueueWatcher) error {
 	log := ctrl.LoggerFrom(ctx).WithValues("watchKind", kind)
-	newWatcher, err := rc.client.Watch(ctx, w.GetEmptyList())
+	newWatcher, err := rc.client.Watch(ctx, w.GetEmptyList(), client.MatchingLabels{kueuealpha.MultiKueueOriginLabel: rc.origin})
 	if err != nil {
 		return err
 	}

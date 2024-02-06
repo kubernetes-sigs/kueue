@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
@@ -33,7 +34,7 @@ type jobsetAdapter struct{}
 
 var _ jobAdapter = (*jobsetAdapter)(nil)
 
-func (b *jobsetAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName string) error {
+func (b *jobsetAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
 	localJob := jobset.JobSet{}
 	err := localClient.Get(ctx, key, &localJob)
 	if err != nil {
@@ -62,24 +63,9 @@ func (b *jobsetAdapter) SyncJob(ctx context.Context, localClient client.Client, 
 		remoteJob.Labels = map[string]string{}
 	}
 	remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
+	remoteJob.Labels[kueuealpha.MultiKueueOriginLabel] = origin
 
 	return remoteClient.Create(ctx, &remoteJob)
-}
-
-func (b *jobsetAdapter) CopyStatusRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName) error {
-	localJob := jobset.JobSet{}
-	err := localClient.Get(ctx, key, &localJob)
-	if err != nil {
-		return client.IgnoreNotFound(err)
-	}
-
-	remoteJob := jobset.JobSet{}
-	err = remoteClient.Get(ctx, key, &remoteJob)
-	if err != nil {
-		return err
-	}
-	localJob.Status = remoteJob.Status
-	return localClient.Status().Update(ctx, &localJob)
 }
 
 func (b *jobsetAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
