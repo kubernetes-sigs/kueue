@@ -65,6 +65,12 @@ const (
 	IsGroupWorkloadAnnotationValue = "true"
 )
 
+// Event reasons used by the pod controller
+const (
+	ReasonExcessPodDeleted     = "ExcessPodDeleted"
+	ReasonOwnerReferencesAdded = "OwnerReferencesAdded"
+)
+
 var (
 	gvk                          = corev1.SchemeGroupVersion.WithKind("Pod")
 	errIncorrectReconcileRequest = fmt.Errorf("event handler error: got a single pod reconcile request for a pod group")
@@ -780,7 +786,7 @@ func (p *Pod) cleanupExcessPods(ctx context.Context, c client.Client, r record.E
 				p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
 				return err
 			}
-			r.Event(&pod, corev1.EventTypeNormal, jobframework.ReasonExcessPodDeleted, "Excess pod deleted")
+			r.Event(&pod, corev1.EventTypeNormal, ReasonExcessPodDeleted, "Excess pod deleted")
 		}
 		return nil
 	})
@@ -824,7 +830,7 @@ func (p *Pod) EnsureWorkloadOwnedByAllMembers(ctx context.Context, c client.Clie
 		log.V(4).Info("Adding owner references for workload", "count", addedOwnersCnt)
 		err := c.Update(ctx, workload)
 		if err == nil {
-			r.Eventf(workload, corev1.EventTypeNormal, "OwnerReferencesAdded", fmt.Sprintf("Added %d owner reference(s)", addedOwnersCnt))
+			r.Eventf(workload, corev1.EventTypeNormal, ReasonOwnerReferencesAdded, fmt.Sprintf("Added %d owner reference(s)", addedOwnersCnt))
 		}
 		return err
 	}
