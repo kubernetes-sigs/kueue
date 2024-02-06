@@ -724,7 +724,7 @@ func isPodRunnableOrSucceeded(p *corev1.Pod) bool {
 
 // cleanupExcessPods will delete and finalize pods created last if the number of
 // activePods is greater than the totalCount value.
-func (p *Pod) cleanupExcessPods(ctx context.Context, c client.Client, totalCount int, activePods []corev1.Pod) error {
+func (p *Pod) cleanupExcessPods(ctx context.Context, c client.Client, r record.EventRecorder, totalCount int, activePods []corev1.Pod) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	extraPodsCount := len(activePods) - totalCount
@@ -780,6 +780,7 @@ func (p *Pod) cleanupExcessPods(ctx context.Context, c client.Client, totalCount
 				p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
 				return err
 			}
+			r.Event(&pod, corev1.EventTypeNormal, jobframework.ReasonStopped, "Excess pod deleted")
 		}
 		return nil
 	})
@@ -891,7 +892,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 	}
 
 	// Cleanup extra pods if there's any
-	err = p.cleanupExcessPods(ctx, c, groupTotalCount, activePods)
+	err = p.cleanupExcessPods(ctx, c, r, groupTotalCount, activePods)
 	if err != nil {
 		return nil, err
 	}
@@ -949,7 +950,7 @@ func (p *Pod) ListChildWorkloads(ctx context.Context, c client.Client, key types
 	return workloads, nil
 }
 
-func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client) (*kueue.Workload, []*kueue.Workload, error) {
+func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r record.EventRecorder) (*kueue.Workload, []*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 	groupName := podGroupName(p.pod)
 
@@ -984,7 +985,7 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client) (*kueu
 		}
 
 		// Cleanup excess pods of the role
-		err := p.cleanupExcessPods(ctx, c, int(ps.Count), roleActivePods)
+		err := p.cleanupExcessPods(ctx, c, r, int(ps.Count), roleActivePods)
 		if err != nil {
 			return nil, nil, err
 		}
