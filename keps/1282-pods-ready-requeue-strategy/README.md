@@ -73,7 +73,9 @@ the workload endlessly or repeatedly can be put in front of the queue after evic
 
 1. The workload don't have the proper configurations like image pull credential and pvc name, etc.
 2. The cluster can meet flavorQuotas, but each node doesn't have the resources that each podSet requests.  
-3. Multiple flavors are matched for the workload, but the workload can not be launched on the backed flavors (which means non-primary flavor).
+3. If there are multiple resource flavors that match the workload (for example, flavors 1 & 2)
+   and the workload was running on flavor 2, it's likely that the workload will be readmitted
+   on the same flavor indefinitely.
 
 Specifically, the second reason will often occur if the available quota is fragmented across multiple nodes,
 such that the workload can't be scheduled in a node even though there is enough quota in the cluster.
