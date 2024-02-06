@@ -405,7 +405,6 @@ var _ = ginkgo.Describe("Pod groups", func() {
 				}
 			})
 
-			// TODO(#1557): verify the default-priority workload is finished
 			ginkgo.By("Verify the replacement pods of the default priority workload complete", func() {
 				for _, replKey := range replacementPods {
 					gomega.Eventually(func(g gomega.Gomega) {
@@ -414,6 +413,10 @@ var _ = ginkgo.Describe("Pod groups", func() {
 						g.Expect(p.Status.Phase).To(gomega.Equal(v1.PodSucceeded))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				}
+			})
+
+			ginkgo.By("Verify the default priority workload is finished", func() {
+				util.ExpectWorkloadToFinish(ctx, k8sClient, defaultGroupKey)
 			})
 		})
 	})

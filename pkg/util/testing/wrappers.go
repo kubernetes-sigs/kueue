@@ -227,16 +227,29 @@ func (w *WorkloadWrapper) AdmissionChecks(checks ...kueue.AdmissionCheckState) *
 }
 
 func (w *WorkloadWrapper) OwnerReference(gvk schema.GroupVersionKind, name, uid string, controller, blockDeletion bool) *WorkloadWrapper {
-	w.OwnerReferences = []metav1.OwnerReference{
-		{
-			APIVersion:         gvk.GroupVersion().String(),
-			Kind:               gvk.Kind,
-			Name:               name,
-			UID:                types.UID(uid),
-			Controller:         &controller,
-			BlockOwnerDeletion: &blockDeletion,
-		},
-	}
+	w.appendOwnerReference(gvk, name, uid, ptr.To(controller), ptr.To(blockDeletion))
+	return w
+}
+
+func (w *WorkloadWrapper) SetControllerReference(gvk schema.GroupVersionKind, name, uid string) *WorkloadWrapper {
+	w.appendOwnerReference(gvk, name, uid, ptr.To(true), ptr.To(true))
+	return w
+}
+
+func (w *WorkloadWrapper) SetOwnerReference(gvk schema.GroupVersionKind, name, uid string) *WorkloadWrapper {
+	w.appendOwnerReference(gvk, name, uid, nil, nil)
+	return w
+}
+
+func (w *WorkloadWrapper) appendOwnerReference(gvk schema.GroupVersionKind, name, uid string, controller, blockDeletion *bool) *WorkloadWrapper {
+	w.OwnerReferences = append(w.OwnerReferences, metav1.OwnerReference{
+		APIVersion:         gvk.GroupVersion().String(),
+		Kind:               gvk.Kind,
+		Name:               name,
+		UID:                types.UID(uid),
+		Controller:         controller,
+		BlockOwnerDeletion: blockDeletion,
+	})
 	return w
 }
 

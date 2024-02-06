@@ -807,6 +807,29 @@ func (p *Pod) cleanupExcessPods(ctx context.Context, c client.Client, totalCount
 	return nil
 }
 
+func (p *Pod) EnsureWorkloadOwnedByAllMembers(ctx context.Context, c client.Client, r record.EventRecorder, workload *kueue.Workload) error {
+	if !p.isGroup {
+		return nil
+	}
+	oldOwnersCnt := len(workload.GetOwnerReferences())
+	for _, pod := range p.list.Items {
+		if err := controllerutil.SetOwnerReference(&pod, workload, c.Scheme()); err != nil {
+			return err
+		}
+	}
+	newOwnersCnt := len(workload.GetOwnerReferences())
+	if addedOwnersCnt := newOwnersCnt - oldOwnersCnt; addedOwnersCnt > 0 {
+		log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(workload))
+		log.V(4).Info("Adding owner references for workload", "count", addedOwnersCnt)
+		err := c.Update(ctx, workload)
+		if err == nil {
+			r.Eventf(workload, corev1.EventTypeNormal, "OwnerReferencesAdded", fmt.Sprintf("Added %d owner reference(s)", addedOwnersCnt))
+		}
+		return err
+	}
+	return nil
+}
+
 func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, r record.EventRecorder) (*kueue.Workload, error) {
 	object := p.Object()
 	log := ctrl.LoggerFrom(ctx)
