@@ -509,7 +509,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 	var match *kueue.Workload
 	if cj, implements := job.(ComposableJob); implements {
 		var err error
-		match, toDelete, err = cj.FindMatchingWorkloads(ctx, r.client)
+		match, toDelete, err = cj.FindMatchingWorkloads(ctx, r.client, r.record)
 		if err != nil {
 			log.Error(err, "Composable job is unable to find matching workloads")
 			return nil, err

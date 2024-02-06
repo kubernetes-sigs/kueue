@@ -176,6 +176,16 @@ var _ = ginkgo.Describe("Pod groups", func() {
 		})
 
 		ginkgo.It("Failed Pod can be replaced in group", func() {
+			eventList := corev1.EventList{}
+			eventWatcher, err := k8sClient.Watch(ctx, &eventList, &client.ListOptions{
+				Namespace: ns.Name,
+			})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			ginkgo.DeferCleanup(func() {
+				eventWatcher.Stop()
+			})
+
 			group := podtesting.MakePod("group", ns.Name).
 				Image("gcr.io/k8s-staging-perf-tests/sleep:v0.1.0", []string{"1ms"}).
 				Queue(lq.Name).
@@ -222,10 +232,32 @@ var _ = ginkgo.Describe("Pod groups", func() {
 			ginkgo.By("Excess pod is deleted", func() {
 				excess := group[2].DeepCopy()
 				excess.Name = "excess"
-				gomega.Expect(k8sClient.Create(ctx, excess)).To(gomega.Succeed())
-				gomega.Eventually(func() error {
-					return k8sClient.Get(ctx, client.ObjectKeyFromObject(excess), &corev1.Pod{})
-				}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
+				excessPods := sets.New(client.ObjectKeyFromObject(excess))
+				ginkgo.By("Create the excess pod", func() {
+					gomega.Expect(k8sClient.Create(ctx, excess)).To(gomega.Succeed())
+				})
+				ginkgo.By("Use events to observe the excess pods are getting stopped", func() {
+					preemptedPods := sets.New[types.NamespacedName]()
+					gomega.Eventually(func(g gomega.Gomega) sets.Set[types.NamespacedName] {
+						select {
+						case evt, ok := <-eventWatcher.ResultChan():
+							gomega.Expect(ok).To(gomega.BeTrue())
+							event, ok := evt.Object.(*v1.Event)
+							gomega.Expect(ok).To(gomega.BeTrue())
+							if event.InvolvedObject.Namespace == ns.Name && event.Reason == "ExcessPodDeleted" {
+								objKey := types.NamespacedName{Namespace: event.InvolvedObject.Namespace, Name: event.InvolvedObject.Name}
+								preemptedPods.Insert(objKey)
+							}
+						default:
+						}
+						return preemptedPods
+					}, util.Timeout, util.Interval).Should(gomega.Equal(excessPods))
+				})
+				ginkgo.By("Verify the excess pod is deleted", func() {
+					gomega.Eventually(func() error {
+						return k8sClient.Get(ctx, client.ObjectKeyFromObject(excess), &corev1.Pod{})
+					}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
+				})
 			})
 
 			util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKey{Namespace: ns.Name, Name: "group"})
@@ -349,8 +381,8 @@ var _ = ginkgo.Describe("Pod groups", func() {
 						gomega.Expect(ok).To(gomega.BeTrue())
 						event, ok := evt.Object.(*v1.Event)
 						gomega.Expect(ok).To(gomega.BeTrue())
-						objKey := types.NamespacedName{Namespace: event.InvolvedObject.Namespace, Name: event.InvolvedObject.Name}
-						if defaultGroupPods.Has(objKey) && event.Reason == "Stopped" {
+						if event.InvolvedObject.Namespace == ns.Name && event.Reason == "Stopped" {
+							objKey := types.NamespacedName{Namespace: event.InvolvedObject.Namespace, Name: event.InvolvedObject.Name}
 							preemptedPods.Insert(objKey)
 						}
 					default:

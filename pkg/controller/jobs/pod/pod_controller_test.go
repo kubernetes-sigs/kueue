@@ -2220,6 +2220,12 @@ func TestReconciler(t *testing.T) {
 					Reason:    "CreatedWorkload",
 					Message:   "Created Workload: ns/test-group",
 				},
+				{
+					Key:       types.NamespacedName{Name: "pod2", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "ExcessPodDeleted",
+					Message:   "Excess pod deleted",
+				},
 			},
 		},
 		"excess pods before admission, youngest pods are deleted": {
@@ -2302,6 +2308,14 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod3", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "ExcessPodDeleted",
+					Message:   "Excess pod deleted",
+				},
+			},
 		},
 		// In this case, group-total-count is equal to the number of pods in the cluster.
 		// But one of the roles is missing, and another role has an excess pod.
@@ -2373,6 +2387,14 @@ func TestReconciler(t *testing.T) {
 				key:  types.NamespacedName{Name: "another-group", Namespace: "ns"},
 				uids: []types.UID{"pod"},
 			}},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod2", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "ExcessPodDeleted",
+					Message:   "Excess pod deleted",
+				},
+			},
 		},
 		"waiting to observe previous deletion of excess pod, no pods are deleted": {
 			pods: []corev1.Pod{
@@ -2549,6 +2571,14 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod3", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "ExcessPodDeleted",
+					Message:   "Excess pod deleted",
+				},
+			},
 		},
 		// If an excess pod is already deleted and finalized, but an external finalizer blocks
 		// pod deletion, kueue should ignore such a pod, when creating a workload.
