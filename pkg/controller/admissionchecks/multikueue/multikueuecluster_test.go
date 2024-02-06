@@ -231,7 +231,7 @@ func TestUpdateConfig(t *testing.T) {
 
 func TestRemoteClientGC(t *testing.T) {
 	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace)
-	baseWlBuilder := utiltesting.MakeWorkload("wl1", TestNamespace).OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "test-uuid", true, true)
+	baseWlBuilder := utiltesting.MakeWorkload("wl1", TestNamespace).ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "test-uuid")
 
 	cases := map[string]struct {
 		managersWorkloads []kueue.Workload
@@ -284,7 +284,7 @@ func TestRemoteClientGC(t *testing.T) {
 		"missing worker workloads are deleted (no job adapter)": {
 			workersWorkloads: []kueue.Workload{
 				*baseWlBuilder.Clone().
-					OwnerReference(batchv1.SchemeGroupVersion.WithKind("NptAJob"), "job1", "test-uuid", true, true).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("NptAJob"), "job1", "test-uuid").
 					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},

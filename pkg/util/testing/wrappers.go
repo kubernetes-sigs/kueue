@@ -226,17 +226,12 @@ func (w *WorkloadWrapper) AdmissionChecks(checks ...kueue.AdmissionCheckState) *
 	return w
 }
 
-func (w *WorkloadWrapper) OwnerReference(gvk schema.GroupVersionKind, name, uid string, controller, blockDeletion bool) *WorkloadWrapper {
-	w.appendOwnerReference(gvk, name, uid, ptr.To(controller), ptr.To(blockDeletion))
-	return w
-}
-
-func (w *WorkloadWrapper) SetControllerReference(gvk schema.GroupVersionKind, name, uid string) *WorkloadWrapper {
+func (w *WorkloadWrapper) ControllerReference(gvk schema.GroupVersionKind, name, uid string) *WorkloadWrapper {
 	w.appendOwnerReference(gvk, name, uid, ptr.To(true), ptr.To(true))
 	return w
 }
 
-func (w *WorkloadWrapper) SetOwnerReference(gvk schema.GroupVersionKind, name, uid string) *WorkloadWrapper {
+func (w *WorkloadWrapper) OwnerReference(gvk schema.GroupVersionKind, name, uid string) *WorkloadWrapper {
 	w.appendOwnerReference(gvk, name, uid, nil, nil)
 	return w
 }

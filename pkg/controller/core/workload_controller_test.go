@@ -382,7 +382,7 @@ func TestReconcile(t *testing.T) {
 					Type:   "Finished",
 					Status: "True",
 				}).
-				OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid", true, true).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
 				DeletionTimestamp(testStartTime).
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
@@ -390,20 +390,20 @@ func TestReconcile(t *testing.T) {
 					Type:   "Finished",
 					Status: "True",
 				}).
-				OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid", true, true).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
 				DeletionTimestamp(testStartTime).
 				Obj(),
 		},
 		"unadmitted workload with rejected checks": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
-				OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid", true, true).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateRejected,
 				}).
 				Obj(),
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
-				OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid", true, true).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateRejected,
@@ -427,7 +427,7 @@ func TestReconcile(t *testing.T) {
 			workload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 				Admitted(true).
-				OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid", true, true).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateRejected,
@@ -436,7 +436,7 @@ func TestReconcile(t *testing.T) {
 			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
 				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 				Admitted(true).
-				OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid", true, true).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
 				AdmissionCheck(kueue.AdmissionCheckState{
 					Name:  "check",
 					State: kueue.CheckStateRejected,
