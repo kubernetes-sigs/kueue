@@ -1922,7 +1922,7 @@ func TestReconciler(t *testing.T) {
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
-					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid", ptr.To(true), ptr.To(true)).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid", true, true).
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -1953,7 +1953,7 @@ func TestReconciler(t *testing.T) {
 					PriorityClass("test-wpc").
 					Priority(100).
 					PriorityClassSource(constants.WorkloadPriorityClassSource).
-					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "other-job", "other-uid", ptr.To(true), ptr.To(true)).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "other-job", "other-uid", true, true).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -1963,7 +1963,7 @@ func TestReconciler(t *testing.T) {
 					PriorityClass("test-wpc").
 					Priority(100).
 					PriorityClassSource(constants.WorkloadPriorityClassSource).
-					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "other-job", "other-uid", ptr.To(true), ptr.To(true)).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "other-job", "other-uid", true, true).
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -2006,7 +2006,7 @@ func TestReconciler(t *testing.T) {
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
-					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid", ptr.To(true), ptr.To(true)).
+					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid", true, true).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
