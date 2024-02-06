@@ -30,9 +30,9 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -53,7 +53,7 @@ type remoteClient struct {
 	localClient client.Client
 	client      client.WithWatch
 	wlUpdateCh  chan<- event.GenericEvent
-	watchCancel func()
+	watchCancel map[string]func()
 	kubeconfig  []byte
 	origin      string
 
@@ -68,6 +68,7 @@ func newRemoteClient(localClient client.Client, wlUpdateCh chan<- event.GenericE
 		wlUpdateCh:  wlUpdateCh,
 		localClient: localClient,
 		origin:      origin,
+		watchCancel: map[string]func(){},
 	}
 	return rc
 }
@@ -80,6 +81,31 @@ func newClientWithWatch(kubeconfig []byte, options client.Options) (client.WithW
 	return client.NewWithWatch(restConfig, options)
 }
 
+type multiKueueWatcher interface {
+	// returns an empty list of objets
+	GetEmptyList() client.ObjectList
+	// returns the key of the workload of interest
+	// - the object name for workloads
+	// - the prebuilt workload for job types
+	GetWorkloadKey(runtime.Object) (types.NamespacedName, error)
+}
+
+type workloadKueueWatcher struct{}
+
+var _ multiKueueWatcher = (*workloadKueueWatcher)(nil)
+
+func (*workloadKueueWatcher) GetEmptyList() client.ObjectList {
+	return &kueue.WorkloadList{}
+}
+
+func (*workloadKueueWatcher) GetWorkloadKey(o runtime.Object) (types.NamespacedName, error) {
+	wl, isWl := o.(*kueue.Workload)
+	if !isWl {
+		return types.NamespacedName{}, errors.New("not a workload")
+	}
+	return client.ObjectKeyFromObject(wl), nil
+}
+
 // setConfig - will try to recreate the k8s client and restart watching if the new config is different than
 // the one currently used.
 func (rc *remoteClient) setConfig(watchCtx context.Context, kubeconfig []byte) error {
@@ -87,10 +113,7 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, kubeconfig []byte) e
 		return nil
 	}
 
-	if rc.watchCancel != nil {
-		rc.watchCancel()
-		rc.watchCancel = nil
-	}
+	rc.StopWatchers()
 
 	builder := newClientWithWatch
 	if rc.builderOverride != nil {
@@ -102,30 +125,64 @@ func (rc *remoteClient) setConfig(watchCtx context.Context, kubeconfig []byte) e
 	}
 	rc.client = remoteClient
 
-	newWatcher, err := rc.client.Watch(watchCtx, &kueue.WorkloadList{})
+	err = rc.startWatcher(watchCtx, kueue.GroupVersion.WithKind("Workload").GroupKind().String(), &workloadKueueWatcher{})
 	if err != nil {
-		return nil
+		return err
 	}
 
-	go func() {
-		for r := range newWatcher.ResultChan() {
-			rc.queueWorkloadEvent(watchCtx, r)
+	// add a watch for all the adapters implementing multiKueueWatcher
+	for kind, adapter := range adapters {
+		watcher, implementsWatcher := adapter.(multiKueueWatcher)
+		if !implementsWatcher {
+			continue
 		}
-	}()
+		err := rc.startWatcher(watchCtx, kind, watcher)
+		if err != nil {
+			// not being able to setup a watcher is not ideal but we can function with only the wl watcher.
+			ctrl.LoggerFrom(watchCtx).V(2).Error(err, "Unable to start the watcher", "kind", kind)
+			// however let's not accept this for now.
+			return err
+		}
+	}
 
-	rc.watchCancel = newWatcher.Stop
 	rc.kubeconfig = kubeconfig
 	return nil
 }
 
-func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, ev watch.Event) {
-	wl, isWl := ev.Object.(*kueue.Workload)
-	if !isWl {
-		return
+func (rc *remoteClient) startWatcher(ctx context.Context, kind string, w multiKueueWatcher) error {
+	log := ctrl.LoggerFrom(ctx).WithValues("watchKind", kind)
+	newWatcher, err := rc.client.Watch(ctx, w.GetEmptyList(), client.MatchingLabels{kueuealpha.MultiKueueOriginLabel: rc.origin})
+	if err != nil {
+		return err
 	}
 
+	go func() {
+		log.V(2).Info("Starting watch")
+		defer log.V(2).Info("Watch ended")
+		for r := range newWatcher.ResultChan() {
+			wlKey, err := w.GetWorkloadKey(r.Object)
+			if err != nil {
+				log.V(2).Error(err, "Cannot get workload key", "jobKind", r.Object.GetObjectKind().GroupVersionKind())
+			} else {
+				rc.queueWorkloadEvent(ctx, wlKey)
+			}
+		}
+	}()
+
+	rc.watchCancel[kind] = newWatcher.Stop
+	return nil
+}
+
+func (rc *remoteClient) StopWatchers() {
+	for kind, stop := range rc.watchCancel {
+		stop()
+		delete(rc.watchCancel, kind)
+	}
+}
+
+func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, wlKey types.NamespacedName) {
 	localWl := &kueue.Workload{}
-	if err := rc.localClient.Get(ctx, client.ObjectKeyFromObject(wl), localWl); err == nil {
+	if err := rc.localClient.Get(ctx, wlKey, localWl); err == nil {
 		rc.wlUpdateCh <- event.GenericEvent{Object: localWl}
 	} else {
 		if !apierrors.IsNotFound(err) {
@@ -222,7 +279,7 @@ func (c *clustersReconciler) stopAndRemoveCluster(clusterName string) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	if rc, found := c.remoteClients[clusterName]; found {
-		rc.watchCancel()
+		rc.StopWatchers()
 		delete(c.remoteClients, clusterName)
 	}
 }
@@ -240,7 +297,10 @@ func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterN
 		c.remoteClients[clusterName] = client
 	}
 
-	if err := client.setConfig(c.rootContext, kubeconfig); err != nil {
+	clientLog := ctrl.LoggerFrom(c.rootContext).WithValues("clusterName", clusterName)
+	clientCtx := ctrl.LoggerInto(c.rootContext, clientLog)
+
+	if err := client.setConfig(clientCtx, kubeconfig); err != nil {
 		ctrl.LoggerFrom(ctx).Error(err, "failed to set kubeConfig in the remote client")
 		delete(c.remoteClients, clusterName)
 		return err

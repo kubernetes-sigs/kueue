@@ -76,6 +76,6 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		return err
 	}
 
-	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec)
+	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, options.origin)
 	return wlRec.setupWithManager(mgr)
 }

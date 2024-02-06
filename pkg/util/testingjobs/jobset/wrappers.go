@@ -77,7 +77,11 @@ func (j *JobSetWrapper) ReplicatedJobs(replicatedJobs ...ReplicatedJobRequiremen
 		jt.Spec.Parallelism = ptr.To(req.Parallelism)
 		jt.Spec.Completions = ptr.To(req.Completions)
 		if len(req.Image) > 0 {
-			jt.Spec.Template.Spec.Containers = []corev1.Container{
+			jt.Spec.BackoffLimit = ptr.To[int32](0)
+			spec := &jt.Spec.Template.Spec
+			spec.RestartPolicy = corev1.RestartPolicyNever
+			spec.TerminationGracePeriodSeconds = ptr.To[int64](0)
+			spec.Containers = []corev1.Container{
 				{
 					Name:  "c",
 					Image: req.Image,

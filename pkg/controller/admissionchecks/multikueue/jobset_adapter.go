@@ -17,11 +17,16 @@ package multikueue
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 )
 
@@ -29,14 +34,26 @@ type jobsetAdapter struct{}
 
 var _ jobAdapter = (*jobsetAdapter)(nil)
 
-func (b *jobsetAdapter) CreateRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName string) error {
+func (b *jobsetAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
 	localJob := jobset.JobSet{}
 	err := localClient.Get(ctx, key, &localJob)
 	if err != nil {
 		return err
 	}
 
-	remoteJob := jobset.JobSet{
+	remoteJob := jobset.JobSet{}
+	err = remoteClient.Get(ctx, key, &remoteJob)
+	if client.IgnoreNotFound(err) != nil {
+		return err
+	}
+
+	// if the remote exists, just copy the status
+	if err == nil {
+		localJob.Status = remoteJob.Status
+		return localClient.Status().Update(ctx, &localJob)
+	}
+
+	remoteJob = jobset.JobSet{
 		ObjectMeta: cleanObjectMeta(&localJob.ObjectMeta),
 		Spec:       *localJob.Spec.DeepCopy(),
 	}
@@ -46,24 +63,9 @@ func (b *jobsetAdapter) CreateRemoteObject(ctx context.Context, localClient clie
 		remoteJob.Labels = map[string]string{}
 	}
 	remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
+	remoteJob.Labels[kueuealpha.MultiKueueOriginLabel] = origin
 
 	return remoteClient.Create(ctx, &remoteJob)
-}
-
-func (b *jobsetAdapter) CopyStatusRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName) error {
-	localJob := jobset.JobSet{}
-	err := localClient.Get(ctx, key, &localJob)
-	if err != nil {
-		return client.IgnoreNotFound(err)
-	}
-
-	remoteJob := jobset.JobSet{}
-	err = remoteClient.Get(ctx, key, &remoteJob)
-	if err != nil {
-		return err
-	}
-	localJob.Status = remoteJob.Status
-	return localClient.Status().Update(ctx, &localJob)
 }
 
 func (b *jobsetAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {
@@ -77,4 +79,24 @@ func (b *jobsetAdapter) DeleteRemoteObject(ctx context.Context, remoteClient cli
 
 func (b *jobsetAdapter) KeepAdmissionCheckPending() bool {
 	return false
+}
+
+var _ multiKueueWatcher = (*jobsetAdapter)(nil)
+
+func (*jobsetAdapter) GetEmptyList() client.ObjectList {
+	return &jobset.JobSetList{}
+}
+
+func (*jobsetAdapter) GetWorkloadKey(o runtime.Object) (types.NamespacedName, error) {
+	jobSet, isJobSet := o.(*jobset.JobSet)
+	if !isJobSet {
+		return types.NamespacedName{}, errors.New("not a jobset")
+	}
+
+	prebuiltWl, hasPrebuiltWorkload := jobSet.Labels[constants.PrebuiltWorkloadLabel]
+	if !hasPrebuiltWorkload {
+		return types.NamespacedName{}, fmt.Errorf("no prebuilt workload found for jobset: %s", klog.KObj(jobSet))
+	}
+
+	return types.NamespacedName{Name: prebuiltWl, Namespace: jobSet.Namespace}, nil
 }

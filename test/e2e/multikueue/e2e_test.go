@@ -218,7 +218,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
 						Reason:  "JobFinished",
-						Message: `From remote "worker1": Job finished successfully`,
+						Message: `Job finished successfully`,
 					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -255,7 +255,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Parallelism: 2,
 						Completions: 2,
 						Image:       "gcr.io/k8s-staging-perf-tests/sleep:v0.1.0",
-						Args:        []string{"1ms"},
+						// Give it the time to be observed Active in the live status update step.
+						Args: []string{"5s"},
 					},
 				).
 				Request("replicated-job-1", "cpu", "500m").
@@ -287,6 +288,21 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
+			ginkgo.By("Waiting for the jobSet to get status updates", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdJobset := &jobset.JobSet{}
+					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(jobSet), createdJobset)).To(gomega.Succeed())
+
+					g.Expect(createdJobset.Status.ReplicatedJobsStatus).To(gomega.BeComparableTo([]jobset.ReplicatedJobStatus{
+						{
+							Name:   "replicated-job-1",
+							Ready:  2,
+							Active: 2,
+						},
+					}, cmpopts.IgnoreFields(jobset.ReplicatedJobStatus{}, "Succeeded", "Failed")))
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
 			ginkgo.By("Waiting for the jobSet to finish", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
@@ -295,7 +311,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
 						Reason:  "JobSetFinished",
-						Message: `From remote "worker1": JobSet finished successfully`,
+						Message: "JobSet finished successfully",
 					}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")))
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
