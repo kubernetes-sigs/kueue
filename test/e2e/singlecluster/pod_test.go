@@ -244,7 +244,7 @@ var _ = ginkgo.Describe("Pod groups", func() {
 							gomega.Expect(ok).To(gomega.BeTrue())
 							event, ok := evt.Object.(*v1.Event)
 							gomega.Expect(ok).To(gomega.BeTrue())
-							if event.InvolvedObject.Namespace == ns.Name && event.Reason == "Stopped" {
+							if event.InvolvedObject.Namespace == ns.Name && event.Reason == "ExcessPodDeleted" {
 								objKey := types.NamespacedName{Namespace: event.InvolvedObject.Namespace, Name: event.InvolvedObject.Name}
 								preemptedPods.Insert(objKey)
 							}

@@ -23,4 +23,5 @@ const (
 	ReasonUpdatedWorkload    = "UpdatedWorkload"
 	ReasonFinishedWorkload   = "FinishedWorkload"
 	ReasonErrWorkloadCompose = "ErrWorkloadCompose"
+	ReasonExcessPodDeleted   = "ExcessPodDeleted"
 )

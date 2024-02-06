@@ -780,7 +780,7 @@ func (p *Pod) cleanupExcessPods(ctx context.Context, c client.Client, r record.E
 				p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
 				return err
 			}
-			r.Event(&pod, corev1.EventTypeNormal, jobframework.ReasonStopped, "Excess pod deleted")
+			r.Event(&pod, corev1.EventTypeNormal, jobframework.ReasonExcessPodDeleted, "Excess pod deleted")
 		}
 		return nil
 	})

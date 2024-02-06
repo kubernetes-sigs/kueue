@@ -2223,7 +2223,7 @@ func TestReconciler(t *testing.T) {
 				{
 					Key:       types.NamespacedName{Name: "pod2", Namespace: "ns"},
 					EventType: "Normal",
-					Reason:    "Stopped",
+					Reason:    "ExcessPodDeleted",
 					Message:   "Excess pod deleted",
 				},
 			},
@@ -2312,7 +2312,7 @@ func TestReconciler(t *testing.T) {
 				{
 					Key:       types.NamespacedName{Name: "pod3", Namespace: "ns"},
 					EventType: "Normal",
-					Reason:    "Stopped",
+					Reason:    "ExcessPodDeleted",
 					Message:   "Excess pod deleted",
 				},
 			},
@@ -2391,7 +2391,7 @@ func TestReconciler(t *testing.T) {
 				{
 					Key:       types.NamespacedName{Name: "pod2", Namespace: "ns"},
 					EventType: "Normal",
-					Reason:    "Stopped",
+					Reason:    "ExcessPodDeleted",
 					Message:   "Excess pod deleted",
 				},
 			},
@@ -2575,7 +2575,7 @@ func TestReconciler(t *testing.T) {
 				{
 					Key:       types.NamespacedName{Name: "pod3", Namespace: "ns"},
 					EventType: "Normal",
-					Reason:    "Stopped",
+					Reason:    "ExcessPodDeleted",
 					Message:   "Excess pod deleted",
 				},
 			},
