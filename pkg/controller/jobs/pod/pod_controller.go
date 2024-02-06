@@ -562,7 +562,6 @@ func getRoleHash(p corev1.Pod) (string, error) {
 			"preemptionPolicy":          p.Spec.PreemptionPolicy,
 			"topologySpreadConstraints": p.Spec.TopologySpreadConstraints,
 			"overhead":                  p.Spec.Overhead,
-			"volumes":                   volumesShape(p.Spec.Volumes),
 			"resourceClaims":            p.Spec.ResourceClaims,
 		},
 	}

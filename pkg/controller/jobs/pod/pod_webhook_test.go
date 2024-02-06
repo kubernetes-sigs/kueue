@@ -315,6 +315,31 @@ func TestGetRoleHash(t *testing.T) {
 			},
 			wantEqualHash: true,
 		},
+		"volumes with different claims shouldn't affect the role": {
+			pods: []*Pod{
+				{pod: *testingpod.MakePod("pod1", "test-ns").
+					Volume(corev1.Volume{
+						Name: "volume",
+						VolumeSource: corev1.VolumeSource{
+							PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+								ClaimName: "claim1",
+							},
+						},
+					}).
+					Obj()},
+				{pod: *testingpod.MakePod("pod1", "test-ns").
+					Volume(corev1.Volume{
+						Name: "volume",
+						VolumeSource: corev1.VolumeSource{
+							PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+								ClaimName: "claim2",
+							},
+						},
+					}).
+					Obj()},
+			},
+			wantEqualHash: true,
+		},
 	}
 
 	for name, tc := range testCases {
