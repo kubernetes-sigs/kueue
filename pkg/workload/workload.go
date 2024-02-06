@@ -448,6 +448,11 @@ func IsAdmitted(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadAdmitted)
 }
 
+// IsFinished returns true if the workload is finished.
+func IsFinished(w *kueue.Workload) bool {
+	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished)
+}
+
 func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) error {
 	if controllerutil.RemoveFinalizer(wl, kueue.ResourceInUseFinalizerName) {
 		return c.Update(ctx, wl)
