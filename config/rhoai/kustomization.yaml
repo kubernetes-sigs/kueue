@@ -1,3 +1,5 @@
+# RHOAI configuration for Kueue.
+
 # Adds namespace to all resources.
 namespace: opendatahub
 
@@ -36,6 +38,7 @@ resources:
 - ../components/internalcert
 - ../components/webhook
 - monitor.yaml
+- binding_admin_roles.yaml
 
 patches:
 # Mount the controller config file for loading manager configurations
