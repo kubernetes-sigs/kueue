@@ -18,14 +18,6 @@ Check [the Training Operator installation guide](https://github.com/kubeflow/tra
 
 Note that the minimum requirement training-operator version is v1.7.0.
 
-Set PyTorchJobs as an allowed workload in Kueue Configuration.
-
-```yaml
-integrations:
-  frameworks:
-  - "kubeflow.org/pytorchjob" 
-```
-
 You can [modify kueue configurations from installed releases](/docs/installation#install-a-custom-configured-released-version) to include PyTorchJobs as an allowed workload.
 
 ## PyTorchJob definition
