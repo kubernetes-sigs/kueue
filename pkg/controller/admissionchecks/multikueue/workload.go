@@ -328,6 +328,7 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 	}
 
 	// finally - create missing workloads
+	var errs []error
 	for rem, remWl := range group.remotes {
 		if remWl == nil {
 			clone := cloneForCreate(group.local, group.remoteClients[rem].origin)
@@ -335,10 +336,11 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 			if err != nil {
 				// just log the error for a single remote
 				log.V(2).Error(err, "creating remote object", "remote", rem)
+				errs = append(errs, err)
 			}
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clustersReconciler, origin string) *wlReconciler {
