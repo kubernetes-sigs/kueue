@@ -328,7 +328,7 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 	}
 
 	// finally - create missing workloads
-	errs := []error{}
+	var errs []error
 	for rem, remWl := range group.remotes {
 		if remWl == nil {
 			clone := cloneForCreate(group.local, group.remoteClients[rem].origin)
