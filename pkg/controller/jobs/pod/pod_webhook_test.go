@@ -233,7 +233,7 @@ func TestDefault(t *testing.T) {
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				Group("test-group").
-				RoleHash("90ce3e8a").
+				RoleHash("3b4907a8").
 				Label("kueue.x-k8s.io/managed", "true").
 				KueueSchedulingGate().
 				KueueFinalizer().
@@ -250,7 +250,7 @@ func TestDefault(t *testing.T) {
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				Group("test-group").
-				RoleHash("90ce3e8a").
+				RoleHash("3b4907a8").
 				Label("kueue.x-k8s.io/managed", "true").
 				KueueSchedulingGate().
 				KueueFinalizer().
@@ -315,6 +315,8 @@ func TestGetRoleHash(t *testing.T) {
 			},
 			wantEqualHash: true,
 		},
+		// NOTE: volumes used to be included in the role hash.
+		// https://github.com/kubernetes-sigs/kueue/issues/1697
 		"volumes with different claims shouldn't affect the role": {
 			pods: []*Pod{
 				{pod: *testingpod.MakePod("pod1", "test-ns").
