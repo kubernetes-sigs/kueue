@@ -359,10 +359,12 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
-					Enable:             true,
-					BlockAdmission:     ptr.To(true),
-					Timeout:            &podsReadyTimeoutTimeout,
-					RequeuingTimestamp: ptr.To(EvictionTimestamp),
+					Enable:         true,
+					BlockAdmission: ptr.To(true),
+					Timeout:        &podsReadyTimeoutTimeout,
+					RequeuingStrategy: &RequeuingStrategy{
+						Timestamp: ptr.To(EvictionTimestamp),
+					},
 				},
 				Namespace:         ptr.To(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
@@ -386,10 +388,12 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
-					Enable:             false,
-					BlockAdmission:     ptr.To(false),
-					Timeout:            &podsReadyTimeoutTimeout,
-					RequeuingTimestamp: ptr.To(EvictionTimestamp),
+					Enable:         false,
+					BlockAdmission: ptr.To(false),
+					Timeout:        &podsReadyTimeoutTimeout,
+					RequeuingStrategy: &RequeuingStrategy{
+						Timestamp: ptr.To(EvictionTimestamp),
+					},
 				},
 				Namespace:         ptr.To(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,
@@ -405,9 +409,11 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		"respecting provided waitForPodsReady values": {
 			original: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
-					Enable:             true,
-					Timeout:            &podsReadyTimeoutOverwrite,
-					RequeuingTimestamp: ptr.To(CreationTimestamp),
+					Enable:  true,
+					Timeout: &podsReadyTimeoutOverwrite,
+					RequeuingStrategy: &RequeuingStrategy{
+						Timestamp: ptr.To(CreationTimestamp),
+					},
 				},
 				InternalCertManagement: &InternalCertManagement{
 					Enable: ptr.To(false),
@@ -415,10 +421,12 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			want: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{
-					Enable:             true,
-					BlockAdmission:     ptr.To(true),
-					Timeout:            &podsReadyTimeoutOverwrite,
-					RequeuingTimestamp: ptr.To(CreationTimestamp),
+					Enable:         true,
+					BlockAdmission: ptr.To(true),
+					Timeout:        &podsReadyTimeoutOverwrite,
+					RequeuingStrategy: &RequeuingStrategy{
+						Timestamp: ptr.To(CreationTimestamp),
+					},
 				},
 				Namespace:         ptr.To(DefaultNamespace),
 				ControllerManager: defaultCtrlManagerConfigurationSpec,

@@ -124,18 +124,18 @@ Possible settings:
 ```go
 type WaitForPodsReady struct {
 	...
-	// requeuingStrategy defines the strategy for requeuing a Workload
+	// RequeuingStrategy defines the strategy for requeuing a Workload
 	// +optional
 	RequeuingStrategy *RequeuingStrategy `json:"requeuingStrategy,omitempty"`
 }
 
 type RequeuingStrategy struct {
-	// timestamp defines the timestamp used for requeuing a Workload
+	// Timestamp defines the timestamp used for requeuing a Workload
 	// that was evicted due to Pod readiness. Defaults to Eviction.
 	// +optional
 	Timestamp *RequeuingTimestamp `json:"timestamp,omitempty"`
 	
-	// backoffLimitCount defines the maximum number of requeuing retries.
+	// BackoffLimitCount defines the maximum number of requeuing retries.
 	// When the number is reached, the workload is deactivated (`.spec.activate`=`false`).
 	//
 	// Defaults to null. 
@@ -146,10 +146,10 @@ type RequeuingStrategy struct {
 type RequeuingTimestamp string
 
 const (
-	// creationTimestamp timestamp (from Workload .metadata.creationTimestamp).
+	// CreationTimestamp timestamp (from Workload .metadata.creationTimestamp).
 	CreationTimestamp RequeuingTimestamp = "Creation"
     
-	// evictionTimestamp timestamp (from Workload .status.conditions).
+	// EvictionTimestamp timestamp (from Workload .status.conditions).
 	EvictionTimestamp RequeuingTimestamp = "Eviction"
 )
 ```

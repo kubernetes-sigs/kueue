@@ -60,10 +60,12 @@ func TestSchedulerWithWaitForPodsReady(t *testing.T) {
 func managerAndSchedulerSetupWithTimeoutAdmission(mgr manager.Manager, ctx context.Context, value time.Duration, blockAdmission bool, requeuingTimestamp config.RequeuingTimestamp) {
 	cfg := &config.Configuration{
 		WaitForPodsReady: &config.WaitForPodsReady{
-			Enable:             true,
-			BlockAdmission:     &blockAdmission,
-			Timeout:            &metav1.Duration{Duration: value},
-			RequeuingTimestamp: ptr.To(requeuingTimestamp),
+			Enable:         true,
+			BlockAdmission: &blockAdmission,
+			Timeout:        &metav1.Duration{Duration: value},
+			RequeuingStrategy: &config.RequeuingStrategy{
+				Timestamp: ptr.To(requeuingTimestamp),
+			},
 		},
 	}
 	mgr.GetScheme().Default(cfg)

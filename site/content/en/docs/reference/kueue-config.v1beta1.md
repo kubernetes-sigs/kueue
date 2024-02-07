@@ -580,13 +580,38 @@ Defaults to 5.</p>
 </tbody>
 </table>
 
+## `RequeuingStrategy`     {#RequeuingStrategy}
+    
+
+**Appears in:**
+
+- [WaitForPodsReady](#WaitForPodsReady)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>timestamp</code><br/>
+<a href="#RequeuingTimestamp"><code>RequeuingTimestamp</code></a>
+</td>
+<td>
+   <p>Timestamp defines the timestamp used for requeuing a Workload
+that was evicted due to Pod readiness. Defaults to Eviction.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `RequeuingTimestamp`     {#RequeuingTimestamp}
     
 (Alias of `string`)
 
 **Appears in:**
 
-- [WaitForPodsReady](#WaitForPodsReady)
+- [RequeuingStrategy](#RequeuingStrategy)
 
 
 
@@ -634,12 +659,11 @@ until the jobs reach the PodsReady=true condition. It defaults to false if Enabl
 and defaults to true otherwise.</p>
 </td>
 </tr>
-<tr><td><code>requeuingTimestamp</code> <B>[Required]</B><br/>
-<a href="#RequeuingTimestamp"><code>RequeuingTimestamp</code></a>
+<tr><td><code>requeuingStrategy</code><br/>
+<a href="#RequeuingStrategy"><code>RequeuingStrategy</code></a>
 </td>
 <td>
-   <p>RequeuingTimestamp defines the timestamp used for requeuing a Workload
-that was evicted due to Pod readiness. Defaults to Eviction.</p>
+   <p>RequeuingStrategy defines the strategy for requeuing a Workload.</p>
 </td>
 </tr>
 </tbody>

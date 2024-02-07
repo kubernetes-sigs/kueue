@@ -344,8 +344,9 @@ func waitForPodsReady(cfg *configapi.Configuration) bool {
 }
 
 func podsReadyRequeuingTimestamp(cfg *configapi.Configuration) configapi.RequeuingTimestamp {
-	if cfg.WaitForPodsReady != nil && cfg.WaitForPodsReady.RequeuingTimestamp != nil {
-		return *cfg.WaitForPodsReady.RequeuingTimestamp
+	if cfg.WaitForPodsReady != nil && cfg.WaitForPodsReady.RequeuingStrategy != nil &&
+		cfg.WaitForPodsReady.RequeuingStrategy.Timestamp != nil {
+		return *cfg.WaitForPodsReady.RequeuingStrategy.Timestamp
 	}
 	return configapi.EvictionTimestamp
 }
