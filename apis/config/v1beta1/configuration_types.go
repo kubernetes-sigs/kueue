@@ -197,9 +197,9 @@ type WaitForPodsReady struct {
 	// and defaults to true otherwise.
 	BlockAdmission *bool `json:"blockAdmission,omitempty"`
 
-	// RequeuingTimestamp defines the timestamp used for requeuing a Workload
-	// that was evicted due to Pod readiness. Defaults to Eviction.
-	RequeuingTimestamp *RequeuingTimestamp `json:"requeuingTimestamp,omitempty"`
+	// RequeuingStrategy defines the strategy for requeuing a Workload.
+	// +optional
+	RequeuingStrategy *RequeuingStrategy `json:"requeuingStrategy,omitempty"`
 }
 
 type MultiKueue struct {
@@ -217,6 +217,13 @@ type MultiKueue struct {
 	Origin *string `json:"origin,omitempty"`
 }
 
+type RequeuingStrategy struct {
+	// Timestamp defines the timestamp used for requeuing a Workload
+	// that was evicted due to Pod readiness. Defaults to Eviction.
+	// +optional
+	Timestamp *RequeuingTimestamp `json:"timestamp,omitempty"`
+}
+
 type RequeuingTimestamp string
 
 const (
@@ -228,7 +235,6 @@ const (
 )
 
 type InternalCertManagement struct {
-
 	// Enable controls whether to enable internal cert management or not.
 	// Defaults to true. If you want to use a third-party management, e.g. cert-manager,
 	// set it to false. See the user guide for more information.

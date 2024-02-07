@@ -539,10 +539,12 @@ multiKueue:
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					Enable:             true,
-					BlockAdmission:     ptr.To(true),
-					Timeout:            &metav1.Duration{Duration: 5 * time.Minute},
-					RequeuingTimestamp: ptr.To(configapi.EvictionTimestamp),
+					Enable:         true,
+					BlockAdmission: ptr.To(true),
+					Timeout:        &metav1.Duration{Duration: 5 * time.Minute},
+					RequeuingStrategy: &configapi.RequeuingStrategy{
+						Timestamp: ptr.To(configapi.EvictionTimestamp),
+					},
 				},
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,

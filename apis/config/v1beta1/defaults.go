@@ -120,8 +120,10 @@ func SetDefaults_Configuration(cfg *Configuration) {
 			}
 			cfg.WaitForPodsReady.BlockAdmission = &defaultBlockAdmission
 		}
-		if cfg.WaitForPodsReady.RequeuingTimestamp == nil {
-			cfg.WaitForPodsReady.RequeuingTimestamp = ptr.To(EvictionTimestamp)
+		if cfg.WaitForPodsReady.RequeuingStrategy == nil || cfg.WaitForPodsReady.RequeuingStrategy.Timestamp == nil {
+			cfg.WaitForPodsReady.RequeuingStrategy = &RequeuingStrategy{
+				Timestamp: ptr.To(EvictionTimestamp),
+			}
 		}
 	}
 	if cfg.Integrations == nil {
