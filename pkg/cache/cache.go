@@ -317,7 +317,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 		return fmt.Errorf("listing workloads that match the queue: %w", err)
 	}
 	for i, w := range workloads.Items {
-		if !workload.HasQuotaReservation(&w) {
+		if !workload.HasQuotaReservation(&w) || workload.IsFinished(&w) {
 			continue
 		}
 		c.addOrUpdateWorkload(&workloads.Items[i])
