@@ -140,7 +140,7 @@ delete requests for all of the Pods in the group. It is the responsibility of th
 user or controller that created the original Pods to create replacement Pods.
 
 **NOTE:** We recommend using the kubernetes Job API or similar CRDs such as
-JobSet, MPIJob, RayJob, etc.
+JobSet, MPIJob, RayJob (see more [here](/docs/tasks/#batch-user)).
 
 ## Termination
 
