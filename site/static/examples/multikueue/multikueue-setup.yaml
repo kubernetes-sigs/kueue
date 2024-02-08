@@ -1,0 +1,61 @@
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: "default-flavor"
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: "cluster-queue"
+spec:
+  namespaceSelector: {} # match all.
+  resourceGroups:
+  - coveredResources: ["cpu", "memory"]
+    flavors:
+    - name: "default-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 9
+      - name: "memory"
+        nominalQuota: 36Gi
+  admissionChecks:
+  - sample-multikueue
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: LocalQueue
+metadata:
+  namespace: "default"
+  name: "user-queue"
+spec:
+  clusterQueue: "cluster-queue"
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: AdmissionCheck
+metadata:
+  name: sample-multikueue
+spec:
+  controllerName: kueue.x-k8s.io/multikueue
+  parameters:
+    apiGroup: kueue.x-k8s.io
+    kind: MultiKueueConfig
+    name: multikueue-test
+---
+apiVersion: kueue.x-k8s.io/v1alpha1
+kind: MultiKueueConfig
+metadata:
+  name: multikueue-test
+spec:
+  clusters:
+  - multikueue-test-worker1
+---
+apiVersion: kueue.x-k8s.io/v1alpha1
+kind: MultiKueueCluster
+metadata:
+  name: multikueue-test-worker1
+spec:
+  kubeConfig:
+    locationType: Secret
+    location: worker1-secret
+    # a secret called "worker1-secret" should be created in the namespace the kueue
+    # controller manager runs into, holding the kubeConfig needed to connect to the
+    # worker cluster in the "kubeconfig" key;
