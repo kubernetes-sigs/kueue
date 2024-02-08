@@ -39,16 +39,33 @@ var (
 	integrationsFrameworksPath = integrationsPath.Child("frameworks")
 	podOptionsPath             = integrationsPath.Child("podOptions")
 	namespaceSelectorPath      = podOptionsPath.Child("namespaceSelector")
+	waitForPodsReadyPath       = field.NewPath("waitForPodsReady")
+	requeuingStrategyPath      = waitForPodsReadyPath.Child("requeuingStrategy")
 )
 
 func validate(c *configapi.Configuration) field.ErrorList {
 	var allErrs field.ErrorList
+
+	allErrs = append(allErrs, validateWaitForPodsReady(c)...)
 
 	allErrs = append(allErrs, validateQueueVisibility(c)...)
 
 	// Validate PodNamespaceSelector for the pod framework
 	allErrs = append(allErrs, validateIntegrations(c)...)
 
+	return allErrs
+}
+
+func validateWaitForPodsReady(c *configapi.Configuration) field.ErrorList {
+	var allErrs field.ErrorList
+	if !WaitForPodsReadyIsEnabled(c) {
+		return allErrs
+	}
+	if strategy := c.WaitForPodsReady.RequeuingStrategy; strategy != nil && strategy.Timestamp != nil &&
+		*strategy.Timestamp != configapi.CreationTimestamp && *strategy.Timestamp != configapi.EvictionTimestamp {
+		allErrs = append(allErrs, field.NotSupported(requeuingStrategyPath.Child("timestamp"),
+			strategy.Timestamp, []configapi.RequeuingTimestamp{configapi.CreationTimestamp, configapi.EvictionTimestamp}))
+	}
 	return allErrs
 }
 

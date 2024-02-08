@@ -1425,7 +1425,7 @@ the workload is considered ready.</p>
 <code>int32</code>
 </td>
 <td>
-   <p>count records the number of times a workload has been requeued.
+   <p>count records the number of times a workload has been requeued
 When a deactivated (<code>.spec.activate</code>=<code>false</code>) workload is reactivated (<code>.spec.activate</code>=<code>true</code>),
 this count would be reset to null.</p>
 </td>
@@ -1796,7 +1796,8 @@ changed once set.</p>
 <a href="#kueue-x-k8s-io-v1beta1-RequeueState"><code>RequeueState</code></a>
 </td>
 <td>
-   <p>requeueState holds the state of the requeued Workload according to the requeueing strategy.</p>
+   <p>requeueState holds the re-queue state
+when a workload meets Eviction with PodsReadyTimeout reason.</p>
 </td>
 </tr>
 <tr><td><code>conditions</code><br/>

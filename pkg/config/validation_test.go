@@ -213,6 +213,35 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: nil,
 		},
+		"no supported waitForPodsReady.requeuingStrategy.timestamp": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Enable: true,
+					RequeuingStrategy: &configapi.RequeuingStrategy{
+						Timestamp: ptr.To[configapi.RequeuingTimestamp]("NoSupported"),
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeNotSupported,
+					Field: "waitForPodsReady.requeuingStrategy.timestamp",
+				},
+			},
+		},
+		"supported waitForPodsReady.requeuingStrategy.timestamp": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Enable: true,
+					RequeuingStrategy: &configapi.RequeuingStrategy{
+						Timestamp: ptr.To(configapi.CreationTimestamp),
+					},
+				},
+			},
+			wantErr: nil,
+		},
 	}
 
 	for name, tc := range testCases {

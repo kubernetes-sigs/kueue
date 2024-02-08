@@ -456,3 +456,131 @@ func TestAssignmentClusterQueueState(t *testing.T) {
 		})
 	}
 }
+
+func TestHasRequeueState(t *testing.T) {
+	cases := map[string]struct {
+		workload *kueue.Workload
+		want     bool
+	}{
+		"workload has requeue state": {
+			workload: utiltesting.MakeWorkload("test", "test").RequeueState(ptr.To[int32](5), ptr.To(metav1.Now())).Obj(),
+			want:     true,
+		},
+		"workload doesn't have requeue state": {
+			workload: utiltesting.MakeWorkload("test", "test").RequeueState(nil, nil).Obj(),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := HasRequeueState(tc.workload)
+			if tc.want != got {
+				t.Errorf("Unexpected result from HasRequeuState\nwant:%v\ngot:%v\n", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestIsEvictedByDeactivation(t *testing.T) {
+	cases := map[string]struct {
+		workload *kueue.Workload
+		want     bool
+	}{
+		"evicted condition doesn't exist": {
+			workload: utiltesting.MakeWorkload("test", "test").Obj(),
+		},
+		"evicted condition with false status": {
+			workload: utiltesting.MakeWorkload("test", "test").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadEvicted,
+					Reason: kueue.WorkloadEvictedByDeactivation,
+					Status: metav1.ConditionFalse,
+				}).
+				Obj(),
+		},
+		"evicted condition with PodsReadyTimeout reason": {
+			workload: utiltesting.MakeWorkload("test", "test").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadEvicted,
+					Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
+					Status: metav1.ConditionTrue,
+				}).
+				Obj(),
+		},
+		"evicted condition with InactiveWorkload reason": {
+			workload: utiltesting.MakeWorkload("test", "test").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadEvicted,
+					Reason: kueue.WorkloadEvictedByDeactivation,
+					Status: metav1.ConditionTrue,
+				}).
+				Obj(),
+			want: true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := IsEvictedByDeactivation(tc.workload)
+			if tc.want != got {
+				t.Errorf("Unexpected result from IsEvictedByDeactivation\nwant:%v\ngot:%v\n", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestIsEvictedByPodsReadyTimeout(t *testing.T) {
+	cases := map[string]struct {
+		workload             *kueue.Workload
+		wantEvictedByTimeout bool
+		wantCondition        *metav1.Condition
+	}{
+		"evicted condition doesn't exist": {
+			workload: utiltesting.MakeWorkload("test", "test").Obj(),
+		},
+		"evicted condition with false status": {
+			workload: utiltesting.MakeWorkload("test", "test").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadEvicted,
+					Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
+					Status: metav1.ConditionFalse,
+				}).
+				Obj(),
+		},
+		"evicted condition with Preempted reason": {
+			workload: utiltesting.MakeWorkload("test", "test").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadEvicted,
+					Reason: kueue.WorkloadEvictedByPreemption,
+					Status: metav1.ConditionTrue,
+				}).
+				Obj(),
+		},
+		"evicted condition with PodsReadyTimeout reason": {
+			workload: utiltesting.MakeWorkload("test", "test").
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadEvicted,
+					Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
+					Status: metav1.ConditionTrue,
+				}).
+				Obj(),
+			wantEvictedByTimeout: true,
+			wantCondition: &metav1.Condition{
+				Type:   kueue.WorkloadEvicted,
+				Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
+				Status: metav1.ConditionTrue,
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			gotCondition, gotEvictedByTimeout := IsEvictedByPodsReadyTimeout(tc.workload)
+			if tc.wantEvictedByTimeout != gotEvictedByTimeout {
+				t.Errorf("Unexpected evictedByTimeout from IsEvictedByPodsReadyTimeout\nwant:%v\ngot:%v\n",
+					tc.wantEvictedByTimeout, gotEvictedByTimeout)
+			}
+			if diff := cmp.Diff(tc.wantCondition, gotCondition,
+				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); len(diff) != 0 {
+				t.Errorf("Unexpected condition from IsEvictedByPodsReadyTimeout: (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}

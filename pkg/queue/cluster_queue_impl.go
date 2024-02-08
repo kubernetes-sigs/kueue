@@ -27,11 +27,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/heap"
 	"sigs.k8s.io/kueue/pkg/workload"
+)
+
+var (
+	realClock = clock.RealClock{}
 )
 
 // clusterQueueBase is an incomplete base implementation of ClusterQueue
@@ -46,7 +51,7 @@ type clusterQueueBase struct {
 	inadmissibleWorkloads map[string]*workload.Info
 
 	// popCycle identifies the last call to Pop. It's incremented when calling Pop.
-	// popCycle and queueInadmissibleCycle are used to track when there is a requeueing
+	// popCycle and queueInadmissibleCycle are used to track when there is a requeuing
 	// of inadmissible workloads while a workload is being scheduled.
 	popCycle int64
 
@@ -57,16 +62,21 @@ type clusterQueueBase struct {
 	lessFunc func(a, b interface{}) bool
 
 	rwm sync.RWMutex
+
+	// stubs
+	canNotQueueWorkload func(*workload.Info, clock.Clock) bool
 }
 
 func newClusterQueueImpl(keyFunc func(obj interface{}) string, lessFunc func(a, b interface{}) bool) *clusterQueueBase {
-	return &clusterQueueBase{
+	cqBase := &clusterQueueBase{
 		heap:                   heap.New(keyFunc, lessFunc),
 		inadmissibleWorkloads:  make(map[string]*workload.Info),
 		queueInadmissibleCycle: -1,
 		lessFunc:               lessFunc,
 		rwm:                    sync.RWMutex{},
 	}
+	cqBase.canNotQueueWorkload = cqBase.canNotQueueWorkloadByBackoff
+	return cqBase
 }
 
 func (c *clusterQueueBase) Update(apiCQ *kueue.ClusterQueue) error {
@@ -116,7 +126,22 @@ func (c *clusterQueueBase) PushOrUpdate(wInfo *workload.Info) {
 		// otherwise move or update in place in the queue.
 		delete(c.inadmissibleWorkloads, key)
 	}
+	if c.heap.GetByKey(key) == nil && c.canNotQueueWorkload(wInfo, realClock) {
+		c.inadmissibleWorkloads[key] = wInfo
+		return
+	}
 	c.heap.PushOrUpdate(wInfo)
+}
+
+// canNotQueueWorkloadsByBackoff returns true if a workload is under the backoff waiting duration.
+func (c *clusterQueueBase) canNotQueueWorkloadByBackoff(wInfo *workload.Info, clock clock.Clock) bool {
+	if wInfo.Obj.Status.RequeueState == nil || wInfo.Obj.Status.RequeueState.RequeueAt == nil {
+		return false
+	}
+	if _, evictedByTimeout := workload.IsEvictedByPodsReadyTimeout(wInfo.Obj); !evictedByTimeout {
+		return false
+	}
+	return !clock.Now().After(wInfo.Obj.Status.RequeueState.RequeueAt.Time)
 }
 
 func (c *clusterQueueBase) Delete(w *kueue.Workload) {
@@ -148,7 +173,8 @@ func (c *clusterQueueBase) requeueIfNotPresent(wInfo *workload.Info, immediate b
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	key := workload.Key(wInfo.Obj)
-	if immediate || c.queueInadmissibleCycle >= c.popCycle || wInfo.LastAssignment.PendingFlavors() {
+	if !c.canNotQueueWorkload(wInfo, realClock) &&
+		(immediate || c.queueInadmissibleCycle >= c.popCycle || wInfo.LastAssignment.PendingFlavors()) {
 		// If the workload was inadmissible, move it back into the queue.
 		inadmissibleWl := c.inadmissibleWorkloads[key]
 		if inadmissibleWl != nil {
@@ -186,7 +212,7 @@ func (c *clusterQueueBase) QueueInadmissibleWorkloads(ctx context.Context, clien
 	for key, wInfo := range c.inadmissibleWorkloads {
 		ns := corev1.Namespace{}
 		err := client.Get(ctx, types.NamespacedName{Name: wInfo.Obj.Namespace}, &ns)
-		if err != nil || !c.namespaceSelector.Matches(labels.Set(ns.Labels)) {
+		if err != nil || !c.namespaceSelector.Matches(labels.Set(ns.Labels)) || c.canNotQueueWorkload(wInfo, realClock) {
 			inadmissibleWorkloads[key] = wInfo
 		} else {
 			moved = c.heap.PushIfNotPresent(wInfo) || moved

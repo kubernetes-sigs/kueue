@@ -151,7 +151,8 @@ type WorkloadStatus struct {
 	// changed once set.
 	Admission *Admission `json:"admission,omitempty"`
 
-	// requeueState holds the state of the requeued Workload according to the requeueing strategy.
+	// requeueState holds the re-queue state
+	// when a workload meets Eviction with PodsReadyTimeout reason.
 	//
 	// +optional
 	RequeueState *RequeueState `json:"requeueState,omitempty"`
@@ -190,7 +191,7 @@ type WorkloadStatus struct {
 }
 
 type RequeueState struct {
-	// count records the number of times a workload has been requeued.
+	// count records the number of times a workload has been requeued
 	// When a deactivated (`.spec.activate`=`false`) workload is reactivated (`.spec.activate`=`true`),
 	// this count would be reset to null.
 	//

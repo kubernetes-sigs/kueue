@@ -219,14 +219,24 @@ type MultiKueue struct {
 
 type RequeuingStrategy struct {
 	// Timestamp defines the timestamp used for requeuing a Workload
-	// that was evicted due to Pod readiness.
+	// that was evicted due to Pod readiness. The possible values are:
 	//
-	// Defaults to Eviction.
+	// - `Eviction` (default): indicates from Workload .metadata.creationTimestamp.
+	// - `Creation`: indicates from Workload .status.conditions.
+	//
 	// +optional
 	Timestamp *RequeuingTimestamp `json:"timestamp,omitempty"`
 
 	// BackoffLimitCount defines the maximum number of requeuing retries.
 	// When the number is reached, the workload is deactivated (`.spec.activate`=`false`).
+	//
+	// Every backoff duration is calculated by "1.41284738^(n-1)+Rand"
+	// where the "n" represents the "workloadStatus.requeueState.count", and the "Rand" represents the random jitter.
+	// Considering the ".waitForPodsReady.timeout" (default: 300 seconds),
+	// this indicates that an evicted workload with PodsReadyTimeout reason is continued re-queuing for
+	// the "t(n+1) + Rand + SUM[k=1,n]1.41284738^(k-1)" seconds where the "t" represents "waitForPodsReady.timeout".
+	// Given that the "backoffLimitCount" equals "30" and the "waitForPodsReady.timeout" equals "300" (default),
+	// the result equals 24 hours (+Rand seconds).
 	//
 	// Defaults to null.
 	// +optional

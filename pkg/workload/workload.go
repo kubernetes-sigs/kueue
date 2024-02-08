@@ -375,6 +375,9 @@ func admissionPatch(w *kueue.Workload) *kueue.Workload {
 	wlCopy := BaseSSAWorkload(w)
 
 	wlCopy.Status.Admission = w.Status.Admission.DeepCopy()
+	if HasRequeueState(w) {
+		wlCopy.Status.RequeueState = w.Status.RequeueState.DeepCopy()
+	}
 	for _, conditionName := range admissionManagedConditions {
 		if existing := apimeta.FindStatusCondition(w.Status.Conditions, conditionName); existing != nil {
 			wlCopy.Status.Conditions = append(wlCopy.Status.Conditions, *existing.DeepCopy())
@@ -402,10 +405,8 @@ type Ordering struct {
 // be the workload creation time or the last time a PodsReady timeout has occurred.
 func (o Ordering) GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
 	if o.PodsReadyRequeuingTimestamp == config.EvictionTimestamp {
-		if c := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted); c != nil &&
-			c.Status == metav1.ConditionTrue &&
-			c.Reason == kueue.WorkloadEvictedByPodsReadyTimeout {
-			return &c.LastTransitionTime
+		if evictedCond, evictedByTimout := IsEvictedByPodsReadyTimeout(w); evictedByTimout {
+			return &evictedCond.LastTransitionTime
 		}
 	}
 	return &w.CreationTimestamp
@@ -443,6 +444,11 @@ func ReclaimablePodsAreEqual(a, b []kueue.ReclaimablePod) bool {
 	return true
 }
 
+// HasRequeueState returns true if the workload has re-queue state.
+func HasRequeueState(w *kueue.Workload) bool {
+	return w.Status.RequeueState != nil
+}
+
 // IsAdmitted returns true if the workload is admitted.
 func IsAdmitted(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadAdmitted)
@@ -451,6 +457,20 @@ func IsAdmitted(w *kueue.Workload) bool {
 // IsFinished returns true if the workload is finished.
 func IsFinished(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished)
+}
+
+// IsEvictedByDeactivation returns true if the workload is evicted by deactivation.
+func IsEvictedByDeactivation(w *kueue.Workload) bool {
+	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted)
+	return cond != nil && cond.Status == metav1.ConditionTrue && cond.Reason == kueue.WorkloadEvictedByDeactivation
+}
+
+func IsEvictedByPodsReadyTimeout(w *kueue.Workload) (*metav1.Condition, bool) {
+	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted)
+	if cond == nil || cond.Status != metav1.ConditionTrue || cond.Reason != kueue.WorkloadEvictedByPodsReadyTimeout {
+		return nil, false
+	}
+	return cond, true
 }
 
 func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) error {
