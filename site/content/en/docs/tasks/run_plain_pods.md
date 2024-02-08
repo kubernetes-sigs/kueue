@@ -111,7 +111,7 @@ kubectl apply -f kueue-pod.yaml
 
 ## Running a group of Pods to be admitted together
 
-In order to run a set of pods as a single unit, called Pod Group, add the
+In order to run a set of Pods as a single unit, called Pod group, add the
 "pod-group-name" label, and the "pod-group-total-count" annotation to all
 members of the group, consistently:
 
@@ -125,19 +125,19 @@ metadata:
 
 ## Feature limitations
 
-Kueue provides only the minimal required functionality of running pod groups,
-just for the need of environments where the pods are managed by external
+Kueue provides only the minimal required functionality of running Pod groups,
+just for the need of environments where the Pods are managed by external
 controllers directly, without a Job-level CRD.
 
 As a consequence of this design decision, Kueue does not re-implement core
 functionalities that are available in the Kubernetes Job API, such as advanced retry
-policies. In particular, Kueue does not re-create failed pods.
+policies. In particular, Kueue does not re-create failed Pods.
 
 This design choice impacts the scenario of
 [preemption](/docs/concepts/cluster_queue/#preemption).
-When a Kueue needs to preempt a workload that represents a pod group, kueue sends
-delete requests for all of the pods in the group. It is the responsibility of the
-user or controller that created the original pods to create replacement Pods.
+When a Kueue needs to preempt a workload that represents a Pod group, kueue sends
+delete requests for all of the Pods in the group. It is the responsibility of the
+user or controller that created the original Pods to create replacement Pods.
 
 **NOTE:** We recommend using the kubernetes Job API or similar CRDs such as
 JobSet, MPIJob, RayJob, etc.
@@ -145,23 +145,23 @@ JobSet, MPIJob, RayJob, etc.
 ## Termination
 
 Kueue considers a Pod group as successful, and marks the associated Workload as
-finished, when the number of succeeded pods equals the pod group size.
+finished, when the number of succeeded Pods equals the Pod group size.
 
 If a Pod group is not successful, there are two ways you may want to use to
 terminate execution of a Pod group to free the reserved resources:
 1. Issue a Delete request for the Workload object. Kueue will terminate all
-   remaining pods.
+   remaining Pods.
 2. Set the `kueue.x-k8s.io/retriable-in-group: false` annotation on at least
-   one pod in the group (can be a replacement pod). Kueue will mark the workload
-   as finished once all pods are terminated.
+   one Pod in the group (can be a replacement Pod). Kueue will mark the workload
+   as finished once all Pods are terminated.
 
-## Example Pod Group
+## Example Pod group
 
-Here is a sample Pod Group that just sleeps for a few seconds:
+Here is a sample Pod group that just sleeps for a few seconds:
 
 {{< include "examples/pods-kueue/kueue-pod-group.yaml" "yaml" >}}
 
-You can create the Pod Group using the following command:
+You can create the Pod group using the following command:
 ```sh
 kubectl apply -f kueue-pod-group.yaml
 ```
