@@ -219,9 +219,18 @@ type MultiKueue struct {
 
 type RequeuingStrategy struct {
 	// Timestamp defines the timestamp used for requeuing a Workload
-	// that was evicted due to Pod readiness. Defaults to Eviction.
+	// that was evicted due to Pod readiness.
+	//
+	// Defaults to Eviction.
 	// +optional
 	Timestamp *RequeuingTimestamp `json:"timestamp,omitempty"`
+
+	// BackoffLimitCount defines the maximum number of requeuing retries.
+	// When the number is reached, the workload is deactivated (`.spec.activate`=`false`).
+	//
+	// Defaults to null.
+	// +optional
+	BackoffLimitCount *int32 `json:"backoffLimitCount,omitempty"`
 }
 
 type RequeuingTimestamp string

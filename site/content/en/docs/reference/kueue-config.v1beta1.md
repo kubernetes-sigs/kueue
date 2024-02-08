@@ -599,7 +599,17 @@ Defaults to 5.</p>
 </td>
 <td>
    <p>Timestamp defines the timestamp used for requeuing a Workload
-that was evicted due to Pod readiness. Defaults to Eviction.</p>
+that was evicted due to Pod readiness.</p>
+<p>Defaults to Eviction.</p>
+</td>
+</tr>
+<tr><td><code>backoffLimitCount</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>BackoffLimitCount defines the maximum number of requeuing retries.
+When the number is reached, the workload is deactivated (<code>.spec.activate</code>=<code>false</code>).</p>
+<p>Defaults to null.</p>
 </td>
 </tr>
 </tbody>

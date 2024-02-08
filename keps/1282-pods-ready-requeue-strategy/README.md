@@ -138,9 +138,9 @@ type RequeuingStrategy struct {
 	// BackoffLimitCount defines the maximum number of requeuing retries.
 	// When the number is reached, the workload is deactivated (`.spec.activate`=`false`).
 	//
-	// Defaults to null. 
+	// Defaults to null.
 	// +optional
-	BackOffLimitCount *int32 `json:"backoffLimitCount,omitempty"`
+	BackoffLimitCount *int32 `json:"backoffLimitCount,omitempty"`
 }
 
 type RequeuingTimestamp string
