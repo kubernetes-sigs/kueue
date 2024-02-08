@@ -90,6 +90,11 @@ const (
 	//
 	// Enable the usage of batch.Job spec.managedBy field its MultiKueue integration.
 	MultiKueueBatchJobWithManagedBy featuregate.Feature = "MultiKueueBatchJobWithManagedBy"
+
+	// owner: @vicenteferrara
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/3347afb5a8681f4fd2a5f3b1a5be8c5c0ebac488/keps/77-dynamically-sized-jobs
+	// alpha: v0.8
+	ResizableJobs featuregate.Feature = "ResizableJobs"
 )
 
 func init() {
@@ -112,6 +117,7 @@ var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	MultiKueue:                      {Default: false, PreRelease: featuregate.Alpha},
 	LendingLimit:                    {Default: false, PreRelease: featuregate.Alpha},
 	MultiKueueBatchJobWithManagedBy: {Default: false, PreRelease: featuregate.Alpha},
+	ResizableJobs:                   {Default: false, PreRelease: featuregate.Alpha},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) func() {

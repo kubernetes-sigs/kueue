@@ -64,6 +64,12 @@ type JobWithReclaimablePods interface {
 	ReclaimablePods() ([]kueue.ReclaimablePod, error)
 }
 
+type ResizableJob interface {
+	// IsResizable returns the true/false if the job supports resizing.
+	// It only supports downsizing for now, see KEP:77
+	IsResizable(wl *kueue.Workload) bool
+}
+
 type StopReason string
 
 const (

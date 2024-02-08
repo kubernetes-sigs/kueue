@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob" // to enable the framework
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
@@ -200,7 +201,7 @@ var _ = ginkgo.Describe("RayCluster controller", ginkgo.Ordered, ginkgo.Continue
 			return apimeta.IsStatusConditionTrue(createdWorkload.Status.Conditions, kueue.WorkloadQuotaReserved)
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 
-		ginkgo.By("checking the job gets suspended when parallelism changes and the added node selectors are removed")
+		ginkgo.By("checking the job is suspended when parallelism increases and the added node selectors are removed")
 		parallelism := ptr.Deref(job.Spec.WorkerGroupSpecs[0].Replicas, 1)
 		newParallelism := parallelism + 1
 		createdJob.Spec.WorkerGroupSpecs[0].Replicas = &newParallelism
@@ -625,6 +626,93 @@ var _ = ginkgo.Describe("RayCluster Job controller interacting with scheduler", 
 		gomega.Expect(createdJob2.Spec.WorkerGroupSpecs[0].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
 		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 		util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+	})
+
+	gomega.Eventually(func() bool {
+		if err := features.SetEnable(features.ResizableJobs, true); err != nil {
+			return false
+		}
+		return features.Enabled(features.ResizableJobs)
+	}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+
+	ginkgo.It("Should not suspend job when there's a scale down", func() {
+		ginkgo.By("creating localQueue")
+		localQueue = testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
+
+		ginkgo.By("checking a dev job starts")
+		job := testingraycluster.MakeCluster("dev-job", ns.Name).WorkerCount(4).Queue(localQueue.Name).
+			RequestHead(corev1.ResourceCPU, "4").
+			RequestWorkerGroup(corev1.ResourceCPU, "1").
+			Obj()
+		gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+		createdJob := &rayv1.RayCluster{}
+		gomega.Eventually(func() bool {
+			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: job.Name, Namespace: job.Namespace}, createdJob)).
+				Should(gomega.Succeed())
+			return *createdJob.Spec.Suspend
+		}, util.Timeout, util.Interval).Should(gomega.BeFalse())
+		gomega.Expect(createdJob.Spec.HeadGroupSpec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
+		gomega.Expect(createdJob.Spec.WorkerGroupSpecs[0].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
+		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
+		util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+
+		ginkgo.By("checking a second no-fit RayCluster does not start")
+		job2 := testingraycluster.MakeCluster("job2", ns.Name).Queue(localQueue.Name).
+			RequestHead(corev1.ResourceCPU, "1").
+			RequestWorkerGroup(corev1.ResourceCPU, "1").
+			Obj()
+		gomega.Expect(k8sClient.Create(ctx, job2)).Should(gomega.Succeed())
+		createdJob2 := &rayv1.RayCluster{}
+		gomega.Eventually(func() bool {
+			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: job2.Name, Namespace: job2.Namespace}, createdJob2)).
+				Should(gomega.Succeed())
+			return *createdJob2.Spec.Suspend
+		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
+		util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
+
+		ginkgo.By("reduce the number of replicas, check the job is not suspended")
+		replicaCount := ptr.Deref(job.Spec.WorkerGroupSpecs[0].Replicas, 1)
+		newReplicaCount := replicaCount - 3
+		createdJob.Spec.WorkerGroupSpecs[0].Replicas = &newReplicaCount
+		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
+		gomega.Eventually(func() bool {
+			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: job.Name, Namespace: job.Namespace}, createdJob)).
+				Should(gomega.Succeed())
+			return *createdJob.Spec.Suspend
+		}, util.Timeout, util.Interval).Should(gomega.BeFalse())
+
+		ginkgo.By("checking the workload is updated with new count")
+		createdWorkload := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{Name: workloadraycluster.GetWorkloadNameForRayCluster(job.Name, job.UID), Namespace: ns.Name}
+
+		gomega.Eventually(func() error {
+			return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		gomega.Eventually(func() bool {
+			if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
+				return false
+			}
+			return createdWorkload.Spec.PodSets[1].Count == newReplicaCount
+		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+		gomega.Eventually(func() bool {
+			if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
+				return false
+			}
+			return *createdWorkload.Status.Admission.PodSetAssignments[1].Count == newReplicaCount
+		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+
+		ginkgo.By("checking the second RayCluster starts when the first was scaled down")
+		gomega.Eventually(func() bool {
+			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: job2.Name, Namespace: job2.Namespace}, createdJob2)).
+				Should(gomega.Succeed())
+			return *createdJob2.Spec.Suspend
+		}, util.Timeout, util.Interval).Should(gomega.BeFalse())
+		gomega.Expect(createdJob2.Spec.HeadGroupSpec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
+		gomega.Expect(createdJob2.Spec.WorkerGroupSpecs[0].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
+		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
+		util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 2)
 	})
 })
 

@@ -26,7 +26,9 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -38,6 +40,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
@@ -435,6 +438,126 @@ func TestReconcile(t *testing.T) {
 				DeletionTimestamp(testStartTime).
 				Obj(),
 			wantWorkload: nil,
+		},
+		"admit - Scale Down - difference between PodSet.Count and PodSetAssignments[i].Count": {
+			workload: utiltesting.MakeWorkload("a", "ns").
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				PodSets(
+					kueue.PodSet{
+						Name:  "head",
+						Count: int32(1),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+
+								RestartPolicy: corev1.RestartPolicyNever,
+								Containers: []corev1.Container{
+									{
+										Name: "head-container",
+										Resources: corev1.ResourceRequirements{
+											Requests: make(corev1.ResourceList),
+										},
+									},
+								},
+							},
+						},
+					},
+					kueue.PodSet{
+						Name:  "workers-group-0",
+						Count: int32(3),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								RestartPolicy: corev1.RestartPolicyNever,
+
+								Containers: []corev1.Container{
+									{
+										Name: "worker-container",
+										Resources: corev1.ResourceRequirements{
+											Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+										},
+									},
+								},
+							},
+						},
+					}).
+				Request(corev1.ResourceCPU, "1").
+				ReserveQuota(
+					utiltesting.MakeAdmissionScaleDown(corev1.ResourceCPU, "10", int32(4), "cq", "head", "workers-group-0").
+						Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+						AssignmentPodCount(1).
+						Obj(),
+				).
+				Admitted(true).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+					PodSetUpdates: []kueue.PodSetUpdate{
+						{
+							Name: "head",
+						},
+						{
+							Name: "workers-group-0",
+						},
+					},
+				}).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("a", "ns").
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				PodSets(
+					kueue.PodSet{
+						Name:  "head",
+						Count: int32(1),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								RestartPolicy: corev1.RestartPolicyNever,
+								Containers: []corev1.Container{
+									{
+										Name: "head-container",
+										Resources: corev1.ResourceRequirements{
+											Requests: make(corev1.ResourceList),
+										},
+									},
+								},
+							},
+						},
+					},
+					kueue.PodSet{
+						Name:  "workers-group-0",
+						Count: int32(3),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								RestartPolicy: corev1.RestartPolicyNever,
+								Containers: []corev1.Container{
+									{
+										Name: "worker-container",
+										Resources: corev1.ResourceRequirements{
+											Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+										},
+									},
+								},
+							},
+						},
+					}).
+				Request(corev1.ResourceCPU, "1").
+				ReserveQuota(
+					utiltesting.MakeAdmissionScaleDown(corev1.ResourceCPU, "9", int32(3), "cq", "head", "workers-group-0").
+						Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+						AssignmentPodCount(1).
+						Obj(),
+				).
+				Admitted(true).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+					PodSetUpdates: []kueue.PodSetUpdate{
+						{
+							Name: "head",
+						},
+						{
+							Name: "workers-group-0",
+						},
+					},
+				}).
+				Obj(),
 		},
 		"don't remove finalizer for owned finished workload": {
 			workload: utiltesting.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
@@ -1349,7 +1472,9 @@ func TestReconcile(t *testing.T) {
 					t.Errorf("couldn't add the local queue to the cache: %v", err)
 				}
 			}
-
+			if err := features.SetEnable(features.ResizableJobs, true); err != nil {
+				t.Errorf("couldn't enable Dynamic Jobs feature: %v", err)
+			}
 			_, gotError := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(tc.workload)})
 
 			if diff := cmp.Diff(tc.wantError, gotError); diff != "" {

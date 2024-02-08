@@ -58,3 +58,29 @@ func ComparePodSetSlices(a, b []kueue.PodSet, ignoreTolerations bool) bool {
 	}
 	return true
 }
+
+func isDownsized(oldPodsets, newPodSets []kueue.PodSet) bool {
+	for i := 0; i < len(oldPodsets); i++ {
+		if oldPodsets[i].Count > newPodSets[i].Count {
+			return true
+		}
+	}
+	return false
+}
+
+// First check is to see if there was an upsize which we don't support yet
+// Second check is to see if there was a downsize
+func IsResized(oldPodsets, newPodSets []kueue.PodSet) bool {
+	return !isDownsized(newPodSets, oldPodsets) && isDownsized(oldPodsets, newPodSets)
+}
+
+// This check is intended for workload PodSets and PodSetAssignments
+func IsResizedPodSetAssignment(oldPodsetsAssignments []kueue.PodSetAssignment, newPodSets []kueue.PodSet) bool {
+	for i := 0; i < len(oldPodsetsAssignments); i++ {
+		if ptr.Deref(oldPodsetsAssignments[i].Count, 0) > newPodSets[i].Count {
+			return true
+		}
+	}
+	// TODO: we are ignoring scale up for now
+	return false
+}
