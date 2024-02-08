@@ -25,6 +25,7 @@ import (
 // with apply.
 type WorkloadStatusApplyConfiguration struct {
 	Admission       *AdmissionApplyConfiguration            `json:"admission,omitempty"`
+	RequeueState    *RequeueStateApplyConfiguration         `json:"requeueState,omitempty"`
 	Conditions      []v1.Condition                          `json:"conditions,omitempty"`
 	ReclaimablePods []ReclaimablePodApplyConfiguration      `json:"reclaimablePods,omitempty"`
 	AdmissionChecks []AdmissionCheckStateApplyConfiguration `json:"admissionChecks,omitempty"`
@@ -41,6 +42,14 @@ func WorkloadStatus() *WorkloadStatusApplyConfiguration {
 // If called multiple times, the Admission field is set to the value of the last call.
 func (b *WorkloadStatusApplyConfiguration) WithAdmission(value *AdmissionApplyConfiguration) *WorkloadStatusApplyConfiguration {
 	b.Admission = value
+	return b
+}
+
+// WithRequeueState sets the RequeueState field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the RequeueState field is set to the value of the last call.
+func (b *WorkloadStatusApplyConfiguration) WithRequeueState(value *RequeueStateApplyConfiguration) *WorkloadStatusApplyConfiguration {
+	b.RequeueState = value
 	return b
 }
 

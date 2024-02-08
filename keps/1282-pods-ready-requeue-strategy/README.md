@@ -164,15 +164,16 @@ type WorkloadStatus struct {
 	// requeueState holds the state of the requeued Workload according to the requeueing strategy.
 	// 
 	// +optional
-	RequeueState *RequeueState `json:"requeueState,omitempty"` 
+	RequeueState *RequeueState `json:"requeueState,omitempty"`
 }
 
 type RequeueState struct {
 	// count records the number of times a workload has been requeued.
 	// When a deactivated (`.spec.activate`=`false`) workload is reactivated (`.spec.activate`=`true`),
-	// this count would be reset to 0.
+	// this count would be reset to null.
 	//
 	// +optional
+	// +kubebuilder:validation:Minimum=0
 	Count *int32 `json:"count,omitempty"`
     
 	// requeueAt records the time when a workload is requeued.

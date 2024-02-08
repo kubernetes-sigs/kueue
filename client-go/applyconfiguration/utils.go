@@ -100,6 +100,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta1.ProvisioningRequestConfigSpecApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ReclaimablePod"):
 		return &kueuev1beta1.ReclaimablePodApplyConfiguration{}
+	case v1beta1.SchemeGroupVersion.WithKind("RequeueState"):
+		return &kueuev1beta1.RequeueStateApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ResourceFlavor"):
 		return &kueuev1beta1.ResourceFlavorApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("ResourceFlavorSpec"):
