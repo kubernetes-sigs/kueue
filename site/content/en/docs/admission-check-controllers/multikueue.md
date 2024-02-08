@@ -1,6 +1,6 @@
 ---
 title: "MultiKueue Admission Check Controller"
-date: 2023-10-23
+date: 2024-02-08
 weight: 2
 description: >
   An admission check controller providing the manager side MultiKueue functionality.
@@ -17,13 +17,13 @@ MultiKueue is currently an alpha feature and disabled by default.
 The controller's main attributes are:
 - Establish and maintain the connection with the worker clusters.
 - Maintain the `Active` status of the Admission Checks controlled by `multikueue`
-- Crate and monitor remote objects (workloads or jobs) while keeping the local ones in sync.
+- Create and monitor remote objects (workloads or jobs) while keeping the local ones in sync.
 
 ## Supported jobs
 ### batch/Job
 Known Limitations:
 - Since unsuspending a Job in the manager cluster will lead to its local execution, the AdmissionCheckStates are kept `Pending` during the remote job execution.
-- Since updating the status of a local Job could conflict with the Jobs main controller, the Job status is not synced during the job execution, the final status of the remote Job is copied when the remote workload is marked as `Finished`.
+- Since updating the status of a local Job could conflict with the Job's main controller, the Job status is not synced during the job execution, the final status of the remote Job is copied when the remote workload is marked as `Finished`.
 
 There is an ongoing effort to overcome these limitations by adding the possibility to disable the reconciliation of some jobs by the main `batch/Job` controller. Details in `kubernetes/enhancements` [KEP-4368](https://github.com/kubernetes/enhancements/tree/master/keps/sig-apps/4368-support-managed-by-label-for-batch-jobs#readme).
 
