@@ -258,6 +258,9 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			s.cache.WaitForPodsReady(ctx)
 			log.V(5).Info("Finished waiting for all admitted workloads to be in the PodsReady condition")
 		}
+		if features.Enabled(features.DynamicallySizedJobs) && e.status == assumed {
+			continue
+		}
 		e.status = nominated
 		if err := s.admit(ctx, e, cq.AdmissionChecks); err != nil {
 			e.inadmissibleMsg = fmt.Sprintf("Failed to admit workload: %v", err)
@@ -313,8 +316,21 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 		ns := corev1.Namespace{}
 		e := entry{Info: w}
 		if s.cache.IsAssumedOrAdmittedWorkload(w) {
-			log.Info("Workload skipped from admission because it's already assumed or admitted", "workload", klog.KObj(w.Obj))
-			continue
+			if features.Enabled(features.DynamicallySizedJobs) {
+				// here we want to get the flavors and resources assigned again so that we can update PodSetAssignments
+				e.assignment, e.preemptionTargets = s.getResizeAssignment(log, &e.Info, &snap)
+				e.inadmissibleMsg = e.assignment.Message()
+				e.Info.LastAssignment = &e.assignment.LastState
+				e.status = assumed
+				if err := s.updateResizePodSetAssignments(ctx, e); err != nil {
+					log.Error(err, "Could not apploy admission to assumed workload")
+					continue
+				}
+
+			} else {
+				log.Info("Workload skipped from admission because it's already assumed or admitted", "workload", klog.KObj(w.Obj))
+				continue
+			}
 		} else if workload.HasRetryOrRejectedChecks(w.Obj) {
 			e.inadmissibleMsg = "The workload has failed admission checks"
 		} else if snap.InactiveClusterQueueSets.Has(w.ClusterQueue) {
@@ -375,6 +391,29 @@ func resourcesToReserve(e *entry, cq *cache.ClusterQueue) cache.FlavorResourceQu
 type partialAssignment struct {
 	assignment        flavorassigner.Assignment
 	preemptionTargets []*workload.Info
+}
+
+func (s *Scheduler) getResizeAssignment(log logr.Logger, wl *workload.Info, snap *cache.Snapshot) (flavorassigner.Assignment, []*workload.Info) {
+	cq := snap.ClusterQueues[wl.ClusterQueue]
+	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors)
+	resizeAssignment := flvAssigner.Assign(log, nil)
+	var faPreemtionTargets []*workload.Info
+
+	arm := resizeAssignment.RepresentativeMode()
+	if arm == flavorassigner.Fit {
+		return resizeAssignment, nil
+	}
+
+	if arm == flavorassigner.Preempt {
+		faPreemtionTargets = s.preemptor.GetTargets(*wl, resizeAssignment, snap)
+	}
+
+	// if the feature gate is not enabled or we can preempt
+	if !features.Enabled(features.PartialAdmission) || len(faPreemtionTargets) > 0 {
+		return resizeAssignment, faPreemtionTargets
+	}
+
+	return resizeAssignment, nil
 }
 
 func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cache.Snapshot) (flavorassigner.Assignment, []*workload.Info) {
@@ -474,6 +513,28 @@ func (s *Scheduler) validateLimitRange(ctx context.Context, wi *workload.Info) e
 	if len(allReasons) > 0 {
 		return fmt.Errorf("didn't satisfy LimitRange constraints: %s", strings.Join(allReasons, "; "))
 	}
+	return nil
+}
+
+// admit sets the admitting clusterQueue and flavors into the workload of
+// the entry, and asynchronously updates the object in the apiserver after
+// assuming it in the cache.
+func (s *Scheduler) updateResizePodSetAssignments(ctx context.Context, e entry) error {
+	newWorkload := e.Obj.DeepCopy()
+	admission := &kueue.Admission{
+		ClusterQueue:      kueue.ClusterQueueReference(e.ClusterQueue),
+		PodSetAssignments: e.assignment.ToAPI(),
+	}
+
+	workload.SetQuotaReservation(newWorkload, admission)
+	_ = workload.SyncAdmittedCondition(newWorkload)
+
+	if e.status == assumed {
+		// Apply admission means to update the workload with the new admission status, this is for the case of a scale down
+		// we shouldn't requeue a scale down we should only update the workload
+		return s.applyAdmission(ctx, newWorkload)
+	}
+
 	return nil
 }
 

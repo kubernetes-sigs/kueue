@@ -348,6 +348,21 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 	}
 
+	// 4.1 update podSetCount for RayCluster resize
+	if features.Enabled(features.DynamicallySizedJobs) && workload.IsAdmitted(wl) && job.GVK().Kind == "RayCluster" {
+		podSets := job.PodSets()
+		jobPodSetCount := podSets[1].Count
+		workloadPodSetCount := wl.Spec.PodSets[1].Count
+		if workloadPodSetCount > jobPodSetCount {
+			toUpdate := wl
+			_, err := r.updateWorkloadToMatchJob(ctx, job, object, toUpdate, "Updated Workload due to resize: %v")
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{}, nil
+		}
+	}
+
 	// 5. handle WaitForPodsReady only for a standalone job.
 	// handle a job when waitForPodsReady is enabled, and it is the main job
 	if r.waitForPodsReady {
@@ -574,7 +589,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 	}
 
 	if toUpdate != nil {
-		return r.updateWorkloadToMatchJob(ctx, job, object, toUpdate)
+		return r.updateWorkloadToMatchJob(ctx, job, object, toUpdate, "Updated not matching Workload for suspended job: %v")
 	}
 
 	return match, nil
@@ -679,7 +694,8 @@ func equivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 	jobPodSets := clearMinCountsIfFeatureDisabled(job.PodSets())
 
 	if runningPodSets := expectedRunningPodSets(ctx, c, wl); runningPodSets != nil {
-		if equality.ComparePodSetSlices(jobPodSets, runningPodSets) {
+		jobPodSetCount := job.PodSets()
+		if equality.ComparePodSetSlices(jobPodSets, runningPodSets) || (features.Enabled(features.DynamicallySizedJobs) && job.GVK().Kind == "RayCluster" && jobPodSetCount[1].Count < wl.Spec.PodSets[1].Count) {
 			return true
 		}
 		// If the workload is admitted but the job is suspended, do the check
@@ -692,7 +708,7 @@ func equivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 	return equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets)
 }
 
-func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) (*kueue.Workload, error) {
+func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload, message string) (*kueue.Workload, error) {
 	newWl, err := r.constructWorkload(ctx, job, object)
 	if err != nil {
 		return nil, fmt.Errorf("can't construct workload for update: %w", err)
@@ -707,7 +723,7 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 	}
 
 	r.record.Eventf(object, corev1.EventTypeNormal, ReasonUpdatedWorkload,
-		"Updated not matching Workload for suspended job: %v", klog.KObj(wl))
+		message, klog.KObj(wl))
 	return newWl, nil
 }
 
