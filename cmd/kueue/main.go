@@ -321,7 +321,7 @@ func setupProbeEndpoints(mgr ctrl.Manager, certsReady <-chan struct{}) {
 		select {
 		case <-certsReady:
 			return mgr.GetWebhookServer().StartedChecker()(req)
-		case <-req.Context().Done():
+		default:
 			return errors.New("certificates are not ready")
 		}
 	}); err != nil {
