@@ -55,6 +55,5 @@ function cluster_kueue_deploy {
     else
         kubectl apply --server-side -k test/e2e/config
     fi
-    kubectl wait --for=condition=available --timeout=3m deployment/kueue-controller-manager -n kueue-system
 }
 
