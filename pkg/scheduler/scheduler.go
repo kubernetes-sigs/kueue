@@ -60,20 +60,23 @@ const (
 )
 
 type Scheduler struct {
+	enableFairSharing bool
+
 	queues                  *queue.Manager
 	cache                   *cache.Cache
 	client                  client.Client
 	recorder                record.EventRecorder
 	admissionRoutineWrapper routine.Wrapper
 	preemptor               *preemption.Preemptor
+	workloadOrdering        workload.Ordering
+
 	// Stubs.
 	applyAdmission func(context.Context, *kueue.Workload) error
-
-	workloadOrdering workload.Ordering
 }
 
 type options struct {
 	podsReadyRequeuingTimestamp config.RequeuingTimestamp
+	enableFairSharing           bool
 }
 
 // Option configures the reconciler.
@@ -91,6 +94,12 @@ func WithPodsReadyRequeuingTimestamp(ts config.RequeuingTimestamp) Option {
 	}
 }
 
+func WithFairSharing(enable bool) Option {
+	return func(o *options) {
+		o.enableFairSharing = enable
+	}
+}
+
 func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder record.EventRecorder, opts ...Option) *Scheduler {
 	options := defaultOptions
 	for _, opt := range opts {
@@ -100,6 +109,7 @@ func New(queues *queue.Manager, cache *cache.Cache, cl client.Client, recorder r
 		PodsReadyRequeuingTimestamp: options.podsReadyRequeuingTimestamp,
 	}
 	s := &Scheduler{
+		enableFairSharing:       options.enableFairSharing,
 		queues:                  queues,
 		cache:                   cache,
 		client:                  cl,
@@ -149,7 +159,7 @@ func (cu *cohortsUsage) add(cohort string, assignment cache.FlavorResourceQuanti
 }
 
 func (cu *cohortsUsage) totalUsageForCommonFlavorResources(cohort string, assignment cache.FlavorResourceQuantities) cache.FlavorResourceQuantities {
-	return utilmaps.Intersect((*cu)[cohort], assignment, func(a, b map[corev1.ResourceName]int64) map[corev1.ResourceName]int64 {
+	return utilmaps.Intersect((*cu)[cohort], assignment, func(a, b cache.ResourceQuantities) cache.ResourceQuantities {
 		return utilmaps.Intersect(a, b, func(a, b int64) int64 { return a + b })
 	})
 }

@@ -103,9 +103,11 @@ type Info struct {
 }
 
 type PodSetResources struct {
-	Name     string
+	Name string
+	// Requests incorporates the requests from all pods in the podset.
 	Requests Requests
-	Count    int32
+	// Count indicates how many pods are in the podset.
+	Count int32
 
 	// Flavors are populated when the Workload is assigned.
 	Flavors map[corev1.ResourceName]kueue.ResourceFlavorReference
