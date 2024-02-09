@@ -123,7 +123,7 @@ metadata:
     kueue.x-k8s.io/pod-group-total-count: "2"
 ```
 
-## Feature limitations
+### Feature limitations
 
 Kueue provides only the minimal required functionality of running Pod groups,
 just for the need of environments where the Pods are managed by external
@@ -142,7 +142,7 @@ user or controller that created the original Pods to create replacement Pods.
 **NOTE:** We recommend using the kubernetes Job API or similar CRDs such as
 JobSet, MPIJob, RayJob (see more [here](/docs/tasks/#batch-user)).
 
-## Termination
+### Termination
 
 Kueue considers a Pod group as successful, and marks the associated Workload as
 finished, when the number of succeeded Pods equals the Pod group size.
@@ -155,7 +155,7 @@ terminate execution of a Pod group to free the reserved resources:
    one Pod in the group (can be a replacement Pod). Kueue will mark the workload
    as finished once all Pods are terminated.
 
-## Example Pod group
+### Example Pod group
 
 Here is a sample Pod group that just sleeps for a few seconds:
 
