@@ -76,6 +76,17 @@ func (s *AssigmentClusterQueueState) PendingFlavors() bool {
 	return false
 }
 
+func (s *AssigmentClusterQueueState) LastTriedFlavorForPodSetResource(ps int, res corev1.ResourceName) int {
+	if s == nil || ps >= len(s.LastTriedFlavorIdx) {
+		return -1
+	}
+	idx, ok := s.LastTriedFlavorIdx[ps][res]
+	if !ok {
+		return -1
+	}
+	return idx
+}
+
 // Info holds a Workload object and some pre-processing.
 type Info struct {
 	Obj *kueue.Workload
@@ -91,7 +102,9 @@ type PodSetResources struct {
 	Name     string
 	Requests Requests
 	Count    int32
-	Flavors  map[corev1.ResourceName]kueue.ResourceFlavorReference
+
+	// Flavors are populated when the Workload is assigned.
+	Flavors map[corev1.ResourceName]kueue.ResourceFlavorReference
 }
 
 func (psr *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
