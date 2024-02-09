@@ -103,9 +103,11 @@ type Info struct {
 }
 
 type PodSetResources struct {
-	Name     string
+	Name string
+	// Requests incorporates the requests from all pods in the podset.
 	Requests Requests
-	Count    int32
+	// Count indicates how many pods are in the podset.
+	Count int32
 
 	// Flavors are populated when the Workload is assigned.
 	Flavors map[corev1.ResourceName]kueue.ResourceFlavorReference
@@ -143,6 +145,21 @@ func (i *Info) Update(wl *kueue.Workload) {
 
 func (i *Info) CanBePartiallyAdmitted() bool {
 	return CanBePartiallyAdmitted(i.Obj)
+}
+
+// ResourceUsage returns the total resource usage for the workload,
+// per resource.
+func (i *Info) ResourceUsage() Requests {
+	if i == nil || len(i.TotalRequests) == 0 {
+		return nil
+	}
+	req := maps.Clone(i.TotalRequests[0].Requests)
+	for j := 1; j < len(i.TotalRequests); j++ {
+		for rName, rVal := range i.TotalRequests[j].Requests {
+			req[rName] += rVal
+		}
+	}
+	return req
 }
 
 func CanBePartiallyAdmitted(wl *kueue.Workload) bool {

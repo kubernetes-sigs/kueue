@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestClusterQueueUpdateWithFlavors(t *testing.T) {
@@ -616,6 +617,216 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			gotReason, _ := cq.inactiveReason()
 			if diff := cmp.Diff(tc.wantReason, gotReason); diff != "" {
 				t.Errorf("Unexpected inactiveReason (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestDominantResourceShare(t *testing.T) {
+	cases := map[string]struct {
+		cq          ClusterQueue
+		workload    *workload.Info
+		wantDRValue int
+		wantDRName  corev1.ResourceName
+	}{
+		"no cohort": {
+			cq: ClusterQueue{
+				ResourceStats: ResourceStats{
+					corev1.ResourceCPU: {
+						Nominal:  2_000,
+						Lendable: 2_000,
+						Usage:    1_000,
+					},
+					"example.com/gpu": {
+						Nominal:  5,
+						Lendable: 5,
+						Usage:    2_000,
+					},
+				},
+			},
+		},
+		"usage below nominal": {
+			cq: ClusterQueue{
+				ResourceStats: ResourceStats{
+					corev1.ResourceCPU: {
+						Nominal:  2_000,
+						Lendable: 2_000,
+						Usage:    1_000,
+					},
+					"example.com/gpu": {
+						Nominal:  5,
+						Lendable: 5,
+						Usage:    2,
+					},
+				},
+				Cohort: &Cohort{
+					ResourceStats: ResourceStats{
+						corev1.ResourceCPU: {
+							Nominal:  10_000,
+							Lendable: 10_000,
+							Usage:    2_000,
+						},
+						"example.com/gpu": {
+							Nominal:  10,
+							Lendable: 10,
+							Usage:    6,
+						},
+					},
+				},
+			},
+			wantDRName: corev1.ResourceCPU, // due to alphabetical order.
+		},
+		"usage above nominal": {
+			cq: ClusterQueue{
+				ResourceStats: ResourceStats{
+					corev1.ResourceCPU: {
+						Nominal:  2_000,
+						Lendable: 2_000,
+						Usage:    3_000,
+					},
+					"example.com/gpu": {
+						Nominal:  5,
+						Lendable: 5,
+						Usage:    7,
+					},
+				},
+				Cohort: &Cohort{
+					ResourceStats: ResourceStats{
+						corev1.ResourceCPU: {
+							Nominal:  10_000,
+							Lendable: 10_000,
+							Usage:    10_000,
+						},
+						"example.com/gpu": {
+							Nominal:  10,
+							Lendable: 10,
+							Usage:    10,
+						},
+					},
+				},
+			},
+			wantDRName:  "example.com/gpu",
+			wantDRValue: 20, // (7-5)/10
+		},
+		"one resource above nominal": {
+			cq: ClusterQueue{
+				ResourceStats: ResourceStats{
+					corev1.ResourceCPU: {
+						Nominal:  2_000,
+						Lendable: 2_000,
+						Usage:    3_000,
+					},
+					"example.com/gpu": {
+						Nominal:  5,
+						Lendable: 5,
+						Usage:    3,
+					},
+				},
+				Cohort: &Cohort{
+					ResourceStats: ResourceStats{
+						corev1.ResourceCPU: {
+							Nominal:  10_000,
+							Lendable: 10_000,
+							Usage:    10_000,
+						},
+						"example.com/gpu": {
+							Nominal:  10,
+							Lendable: 10,
+							Usage:    10,
+						},
+					},
+				},
+			},
+			wantDRName:  corev1.ResourceCPU,
+			wantDRValue: 10, // (3-2)/10
+		},
+		"usage with workload above nominal": {
+			cq: ClusterQueue{
+				ResourceStats: ResourceStats{
+					corev1.ResourceCPU: {
+						Nominal:  2_000,
+						Lendable: 2_000,
+						Usage:    1_000,
+					},
+					"example.com/gpu": {
+						Nominal:  5,
+						Lendable: 5,
+						Usage:    2,
+					},
+				},
+				Cohort: &Cohort{
+					ResourceStats: ResourceStats{
+						corev1.ResourceCPU: {
+							Nominal:  10_000,
+							Lendable: 10_000,
+							Usage:    2_000,
+						},
+						"example.com/gpu": {
+							Nominal:  10,
+							Lendable: 10,
+							Usage:    6,
+						},
+					},
+				},
+			},
+			workload: &workload.Info{
+				TotalRequests: []workload.PodSetResources{{
+					Requests: workload.Requests{
+						corev1.ResourceCPU: 4_000,
+						"example.com/gpu":  4,
+					},
+				}},
+			},
+			wantDRName:  corev1.ResourceCPU,
+			wantDRValue: 30, // (1+4-2)/10
+		},
+		"A resource with zero lendable": {
+			cq: ClusterQueue{
+				ResourceStats: ResourceStats{
+					corev1.ResourceCPU: {
+						Nominal:  2_000,
+						Lendable: 2_000,
+						Usage:    1_000,
+					},
+					"example.com/gpu": {
+						Nominal: 2_000,
+						Usage:   1_000,
+					},
+				},
+				Cohort: &Cohort{
+					ResourceStats: ResourceStats{
+						corev1.ResourceCPU: {
+							Nominal:  10_000,
+							Lendable: 10_000,
+							Usage:    2_000,
+						},
+						"example.com/gpu": {
+							Nominal: 10_000,
+							Usage:   5_000,
+						},
+					},
+				},
+			},
+			workload: &workload.Info{
+				TotalRequests: []workload.PodSetResources{{
+					Requests: workload.Requests{
+						corev1.ResourceCPU: 4_000,
+						"example.com/gpu":  4,
+					},
+				}},
+			},
+			wantDRName:  corev1.ResourceCPU,
+			wantDRValue: 30, // (1+4-2)/10
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			drValue, drName := tc.cq.DominantResourceShare(tc.workload)
+			if drValue != tc.wantDRValue {
+				t.Errorf("DominantResourceShare(_) returned value %d, want %d", drValue, tc.wantDRValue)
+			}
+			if drName != tc.wantDRName {
+				t.Errorf("DominantResourceShare(_) returned resource %s, want %s", drName, tc.wantDRName)
 			}
 		})
 	}

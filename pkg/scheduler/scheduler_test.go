@@ -226,8 +226,18 @@ func TestSchedule(t *testing.T) {
 		},
 	}
 	cases := map[string]struct {
+		// Features
+		enableLendingLimit      bool
+		disablePartialAdmission bool
+		enableFairSharing       bool
+
 		workloads      []kueue.Workload
 		admissionError error
+
+		// additional*Queues can hold any extra queues needed by the tc
+		additionalClusterQueues []kueue.ClusterQueue
+		additionalLocalQueues   []kueue.LocalQueue
+
 		// wantAssignments is a summary of all the admissions in the cache after this cycle.
 		wantAssignments map[string]kueue.Admission
 		// wantScheduled is the subset of workloads that got scheduled/admitted in this cycle.
@@ -238,18 +248,7 @@ func TestSchedule(t *testing.T) {
 		wantInadmissibleLeft map[string][]string
 		// wantPreempted is the keys of the workloads that get preempted in the scheduling cycle.
 		wantPreempted sets.Set[string]
-
-		// additional*Queues can hold any extra queues needed by the tc
-		additionalClusterQueues []kueue.ClusterQueue
-		additionalLocalQueues   []kueue.LocalQueue
-
-		// disable partial admission
-		disablePartialAdmission bool
-
-		// enable lending limit
-		enableLendingLimit bool
-
-		// ignored if empty, the Message is ignored (it contains the duration)
+		// wantEvents ignored if empty, the Message is ignored (it contains the duration)
 		wantEvents []utiltesting.EventRecord
 	}{
 		"workload fits in single clusterQueue, with check state ready": {
@@ -1352,6 +1351,58 @@ func TestSchedule(t *testing.T) {
 				"cq_a": {"eng-alpha/a"},
 			},
 		},
+		"with fair sharing: schedule workload with lowest share first": {
+			enableFairSharing: true,
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltesting.MakeClusterQueue("eng-shared").
+					Cohort("eng").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "10", "0").Obj(),
+					).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("all_nominal", "eng-alpha").
+					Queue("main").
+					PodSets(*utiltesting.MakePodSet("one", 50).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-alpha", "one").Assignment(corev1.ResourceCPU, "on-demand", "50").AssignmentPodCount(50).Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("borrowing", "eng-beta").
+					Queue("main").
+					// Use half of shared quota.
+					PodSets(*utiltesting.MakePodSet("one", 55).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("eng-beta", "one").Assignment(corev1.ResourceCPU, "on-demand", "55").AssignmentPodCount(55).Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("older_new", "eng-beta").
+					Queue("main").
+					Creation(now.Add(-time.Minute)).
+					PodSets(*utiltesting.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("new", "eng-alpha").
+					Queue("main").
+					Creation(now).
+					PodSets(*utiltesting.MakePodSet("one", 5).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"eng-alpha/all_nominal": *utiltesting.MakeAdmission("eng-alpha", "one").Assignment(corev1.ResourceCPU, "on-demand", "50").AssignmentPodCount(50).Obj(),
+				"eng-beta/borrowing":    *utiltesting.MakeAdmission("eng-beta", "one").Assignment(corev1.ResourceCPU, "on-demand", "55").AssignmentPodCount(55).Obj(),
+				"eng-alpha/new":         *utiltesting.MakeAdmission("eng-alpha", "one").Assignment(corev1.ResourceCPU, "on-demand", "5").AssignmentPodCount(5).Obj(),
+			},
+			wantScheduled: []string{"eng-alpha/new"},
+			wantLeft: map[string][]string{
+				"eng-beta": {"eng-beta/older_new"},
+			},
+		},
 	}
 
 	for name, tc := range cases {
@@ -1397,7 +1448,7 @@ func TestSchedule(t *testing.T) {
 					t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
 				}
 			}
-			scheduler := New(qManager, cqCache, cl, recorder)
+			scheduler := New(qManager, cqCache, cl, recorder, WithFairSharing(tc.enableFairSharing))
 			gotScheduled := make(map[string]kueue.Admission)
 			var mu sync.Mutex
 			scheduler.applyAdmission = func(ctx context.Context, w *kueue.Workload) error {
