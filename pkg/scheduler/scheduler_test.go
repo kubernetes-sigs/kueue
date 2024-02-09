@@ -125,6 +125,30 @@ func TestSchedule(t *testing.T) {
 			ResourceGroup(*utiltesting.MakeFlavorQuotas("nonexistent-flavor").
 				Resource(corev1.ResourceCPU, "50").Obj()).
 			Obj(),
+		*utiltesting.MakeClusterQueue("lend-a").
+			Cohort("lend").
+			NamespaceSelector(&metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{{
+					Key:      "dep",
+					Operator: metav1.LabelSelectorOpIn,
+					Values:   []string{"lend"},
+				}},
+			}).
+			ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "3", "", "2").Obj()).
+			Obj(),
+		*utiltesting.MakeClusterQueue("lend-b").
+			Cohort("lend").
+			NamespaceSelector(&metav1.LabelSelector{
+				MatchExpressions: []metav1.LabelSelectorRequirement{{
+					Key:      "dep",
+					Operator: metav1.LabelSelectorOpIn,
+					Values:   []string{"lend"},
+				}},
+			}).
+			ResourceGroup(*utiltesting.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "2", "", "2").Obj()).
+			Obj(),
 	}
 	queues := []kueue.LocalQueue{
 		{
@@ -181,6 +205,24 @@ func TestSchedule(t *testing.T) {
 				ClusterQueue: "nonexistent-cq",
 			},
 		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "lend",
+				Name:      "lend-a-queue",
+			},
+			Spec: kueue.LocalQueueSpec{
+				ClusterQueue: "lend-a",
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "lend",
+				Name:      "lend-b-queue",
+			},
+			Spec: kueue.LocalQueueSpec{
+				ClusterQueue: "lend-b",
+			},
+		},
 	}
 	cases := map[string]struct {
 		workloads      []kueue.Workload
@@ -202,6 +244,9 @@ func TestSchedule(t *testing.T) {
 
 		// disable partial admission
 		disablePartialAdmission bool
+
+		// enable lending limit
+		enableLendingLimit bool
 
 		// ignored if empty, the Message is ignored (it contains the duration)
 		wantEvents []utiltesting.EventRecord
@@ -612,6 +657,25 @@ func TestSchedule(t *testing.T) {
 			wantScheduled: []string{
 				"eng-beta/needs-to-borrow",
 			},
+		},
+		"workload exceeds lending limit when borrow in cohort": {
+			workloads: []kueue.Workload{
+				*utiltesting.MakeWorkload("a", "lend").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuota(utiltesting.MakeAdmission("lend-b").Assignment(corev1.ResourceCPU, "default", "2000m").Obj()).
+					Obj(),
+				*utiltesting.MakeWorkload("b", "lend").
+					Queue("lend-b-queue").
+					Request(corev1.ResourceCPU, "3").
+					Obj(),
+			},
+			wantAssignments: map[string]kueue.Admission{
+				"lend/a": *utiltesting.MakeAdmission("lend-b").Assignment(corev1.ResourceCPU, "default", "2000m").Obj(),
+			},
+			wantInadmissibleLeft: map[string][]string{
+				"lend-b": {"lend/b"},
+			},
+			enableLendingLimit: true,
 		},
 		"preempt workloads in ClusterQueue and cohort": {
 			workloads: []kueue.Workload{
@@ -1237,6 +1301,9 @@ func TestSchedule(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			if tc.enableLendingLimit {
+				defer features.SetFeatureGateDuringTest(t, features.LendingLimit, true)()
+			}
 			if tc.disablePartialAdmission {
 				defer features.SetFeatureGateDuringTest(t, features.PartialAdmission, false)()
 			}
@@ -1252,6 +1319,7 @@ func TestSchedule(t *testing.T) {
 					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-beta", Labels: map[string]string{"dep": "eng"}}},
 					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "eng-gamma", Labels: map[string]string{"dep": "eng"}}},
 					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "sales", Labels: map[string]string{"dep": "sales"}}},
+					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "lend", Labels: map[string]string{"dep": "lend"}}},
 				)
 			cl := clientBuilder.Build()
 			recorder := &utiltesting.EventRecorder{}

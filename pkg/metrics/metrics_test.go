@@ -21,6 +21,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing/metrics"
 )
 
@@ -36,12 +37,14 @@ func expectFilteredMetricsCount(t *testing.T, vec *prometheus.GaugeVec, count in
 	}
 }
 
-func TestReportAndCleanupClusterQueueMetics(t *testing.T) {
-	ReportClusterQueueQuotas("cohort", "queue", "flavor", "res", 5, 10)
-	ReportClusterQueueQuotas("cohort", "queue", "flavor2", "res", 1, 2)
+func TestReportAndCleanupClusterQueueMetrics(t *testing.T) {
+	defer features.SetFeatureGateDuringTest(t, features.LendingLimit, true)()
+	ReportClusterQueueQuotas("cohort", "queue", "flavor", "res", 5, 10, 3)
+	ReportClusterQueueQuotas("cohort", "queue", "flavor2", "res", 1, 2, 1)
 
 	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 2, "cluster_queue", "queue")
 	expectFilteredMetricsCount(t, ClusterQueueResourceBorrowingLimit, 2, "cluster_queue", "queue")
+	expectFilteredMetricsCount(t, ClusterQueueResourceLendingLimit, 2, "cluster_queue", "queue")
 
 	ReportClusterQueueResourceReservations("cohort", "queue", "flavor", "res", 7)
 	ReportClusterQueueResourceReservations("cohort", "queue", "flavor2", "res", 3)
@@ -56,36 +59,43 @@ func TestReportAndCleanupClusterQueueMetics(t *testing.T) {
 
 	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 0, "cluster_queue", "queue")
 	expectFilteredMetricsCount(t, ClusterQueueResourceBorrowingLimit, 0, "cluster_queue", "queue")
+	expectFilteredMetricsCount(t, ClusterQueueResourceLendingLimit, 0, "cluster_queue", "queue")
 	expectFilteredMetricsCount(t, ClusterQueueResourceReservations, 0, "cluster_queue", "queue")
 	expectFilteredMetricsCount(t, ClusterQueueResourceUsage, 0, "cluster_queue", "queue")
 }
 
 func TestReportAndCleanupClusterQueueQuotas(t *testing.T) {
-	ReportClusterQueueQuotas("cohort", "queue", "flavor", "res", 5, 10)
-	ReportClusterQueueQuotas("cohort", "queue", "flavor", "res2", 5, 10)
-	ReportClusterQueueQuotas("cohort", "queue", "flavor2", "res", 1, 2)
-	ReportClusterQueueQuotas("cohort", "queue", "flavor2", "res2", 1, 2)
+	defer features.SetFeatureGateDuringTest(t, features.LendingLimit, true)()
+	ReportClusterQueueQuotas("cohort", "queue", "flavor", "res", 5, 10, 3)
+	ReportClusterQueueQuotas("cohort", "queue", "flavor", "res2", 5, 10, 3)
+	ReportClusterQueueQuotas("cohort", "queue", "flavor2", "res", 1, 2, 1)
+	ReportClusterQueueQuotas("cohort", "queue", "flavor2", "res2", 1, 2, 1)
 
 	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 4, "cluster_queue", "queue")
 	expectFilteredMetricsCount(t, ClusterQueueResourceBorrowingLimit, 4, "cluster_queue", "queue")
+	expectFilteredMetricsCount(t, ClusterQueueResourceLendingLimit, 4, "cluster_queue", "queue")
 
 	// drop flavor2
 	ClearClusterQueueResourceQuotas("queue", "flavor2", "")
 
 	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 2, "cluster_queue", "queue")
 	expectFilteredMetricsCount(t, ClusterQueueResourceBorrowingLimit, 2, "cluster_queue", "queue")
+	expectFilteredMetricsCount(t, ClusterQueueResourceLendingLimit, 2, "cluster_queue", "queue")
 
 	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 0, "cluster_queue", "queue", "flavor", "flavor2")
 	expectFilteredMetricsCount(t, ClusterQueueResourceBorrowingLimit, 0, "cluster_queue", "queue", "flavor", "flavor2")
+	expectFilteredMetricsCount(t, ClusterQueueResourceLendingLimit, 0, "cluster_queue", "queue", "flavor", "flavor2")
 
 	// drop res2
 	ClearClusterQueueResourceQuotas("queue", "flavor", "res2")
 
 	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 1, "cluster_queue", "queue")
 	expectFilteredMetricsCount(t, ClusterQueueResourceBorrowingLimit, 1, "cluster_queue", "queue")
+	expectFilteredMetricsCount(t, ClusterQueueResourceLendingLimit, 1, "cluster_queue", "queue")
 
 	expectFilteredMetricsCount(t, ClusterQueueResourceNominalQuota, 0, "cluster_queue", "queue", "flavor", "flavor", "resource", "res2")
 	expectFilteredMetricsCount(t, ClusterQueueResourceBorrowingLimit, 0, "cluster_queue", "queue", "flavor", "flavor", "resource", "res2")
+	expectFilteredMetricsCount(t, ClusterQueueResourceLendingLimit, 0, "cluster_queue", "queue", "flavor", "flavor", "resource", "res2")
 }
 
 func TestReportAndCleanupClusterQueueUsage(t *testing.T) {

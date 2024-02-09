@@ -1217,6 +1217,123 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 	})
 
+	ginkgo.When("Using cohorts for sharing when LendingLimit enabled", func() {
+		var (
+			prodCQ *kueue.ClusterQueue
+			devCQ  *kueue.ClusterQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			_ = features.SetEnable(features.LendingLimit, true)
+			gomega.Expect(k8sClient.Create(ctx, onDemandFlavor)).Should(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			_ = features.SetEnable(features.LendingLimit, false)
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, prodCQ, true)
+			if devCQ != nil {
+				util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, devCQ, true)
+			}
+			util.ExpectResourceFlavorToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+		})
+
+		ginkgo.It("Should admit workloads using borrowed ClusterQueue", func() {
+			prodCQ = testing.MakeClusterQueue("prod-cq").
+				Cohort("all").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5", "", "1").Obj(),
+				).Obj()
+			gomega.Expect(k8sClient.Create(ctx, prodCQ)).Should(gomega.Succeed())
+
+			queue := testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(prodCQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, queue)).Should(gomega.Succeed())
+
+			ginkgo.By("checking a no-fit workload does not get admitted")
+			wl := testing.MakeWorkload("wl", ns.Name).Queue(queue.Name).
+				Request(corev1.ResourceCPU, "9").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).Should(gomega.Succeed())
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+			util.ExpectPendingWorkloadsMetric(prodCQ, 0, 1)
+			util.ExpectReservingActiveWorkloadsMetric(prodCQ, 0)
+			util.ExpectAdmittedWorkloadsTotalMetric(prodCQ, 0)
+
+			ginkgo.By("checking the workload gets admitted when another ClusterQueue gets added")
+			devCQ := testing.MakeClusterQueue("dev-cq").
+				Cohort(prodCQ.Spec.Cohort).
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5", "", "4").Obj(),
+				).Obj()
+			gomega.Expect(k8sClient.Create(ctx, devCQ)).Should(gomega.Succeed())
+			defer func() {
+				gomega.Expect(util.DeleteClusterQueue(ctx, k8sClient, devCQ)).ToNot(gomega.HaveOccurred())
+			}()
+
+			expectAdmission := testing.MakeAdmission(prodCQ.Name).Assignment(corev1.ResourceCPU, "on-demand", "9").Obj()
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl, expectAdmission)
+			util.ExpectPendingWorkloadsMetric(prodCQ, 0, 0)
+			util.ExpectReservingActiveWorkloadsMetric(prodCQ, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(prodCQ, 1)
+		})
+
+		ginkgo.It("Should admit workloads after updating lending limit", func() {
+			prodCQ = testing.MakeClusterQueue("prod-cq").
+				Cohort("all").
+				ResourceGroup(*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5", "", "0").Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, prodCQ)).Should(gomega.Succeed())
+
+			devCQ = testing.MakeClusterQueue("dev-cq").
+				Cohort("all").
+				ResourceGroup(*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5", "", "0").Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, devCQ)).Should(gomega.Succeed())
+
+			prodQueue := testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodCQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, prodQueue)).Should(gomega.Succeed())
+
+			devQueue := testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devCQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, devQueue)).Should(gomega.Succeed())
+
+			wl1 := testing.MakeWorkload("wl-1", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "5").Obj()
+			wl2 := testing.MakeWorkload("wl-2", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "5").Obj()
+
+			ginkgo.By("Creating two workloads")
+			gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodCQ.Name, wl1)
+			util.ExpectPendingWorkloadsMetric(prodCQ, 0, 1)
+			util.ExpectPendingWorkloadsMetric(devCQ, 0, 0)
+			util.ExpectReservingActiveWorkloadsMetric(prodCQ, 1)
+			util.ExpectReservingActiveWorkloadsMetric(devCQ, 0)
+			util.ExpectAdmittedWorkloadsTotalMetric(prodCQ, 1)
+			util.ExpectAdmittedWorkloadsTotalMetric(devCQ, 0)
+
+			// Update lending limit of cluster queue
+			gomega.Eventually(func() error {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: devCQ.Name}, devCQ)
+				if err != nil {
+					return err
+				}
+				devCQ.Spec.ResourceGroups[0].Flavors[0].Resources[0] = kueue.ResourceQuota{
+					Name:         corev1.ResourceCPU,
+					NominalQuota: resource.MustParse("5"),
+					LendingLimit: ptr.To(resource.MustParse("5")),
+				}
+				return k8sClient.Update(ctx, devCQ)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodCQ.Name, wl2)
+			util.ExpectPendingWorkloadsMetric(prodCQ, 0, 0)
+			util.ExpectPendingWorkloadsMetric(devCQ, 0, 0)
+			util.ExpectReservingActiveWorkloadsMetric(prodCQ, 2)
+			util.ExpectReservingActiveWorkloadsMetric(devCQ, 0)
+			util.ExpectAdmittedWorkloadsTotalMetric(prodCQ, 2)
+			util.ExpectAdmittedWorkloadsTotalMetric(devCQ, 0)
+		})
+	})
+
 	ginkgo.When("Queueing with StrictFIFO", func() {
 		var (
 			strictFIFOClusterQ *kueue.ClusterQueue

@@ -28,6 +28,7 @@ type ResourceQuotaApplyConfiguration struct {
 	Name           *v1.ResourceName   `json:"name,omitempty"`
 	NominalQuota   *resource.Quantity `json:"nominalQuota,omitempty"`
 	BorrowingLimit *resource.Quantity `json:"borrowingLimit,omitempty"`
+	LendingLimit   *resource.Quantity `json:"lendingLimit,omitempty"`
 }
 
 // ResourceQuotaApplyConfiguration constructs an declarative configuration of the ResourceQuota type for use with
@@ -57,5 +58,13 @@ func (b *ResourceQuotaApplyConfiguration) WithNominalQuota(value resource.Quanti
 // If called multiple times, the BorrowingLimit field is set to the value of the last call.
 func (b *ResourceQuotaApplyConfiguration) WithBorrowingLimit(value resource.Quantity) *ResourceQuotaApplyConfiguration {
 	b.BorrowingLimit = &value
+	return b
+}
+
+// WithLendingLimit sets the LendingLimit field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the LendingLimit field is set to the value of the last call.
+func (b *ResourceQuotaApplyConfiguration) WithLendingLimit(value resource.Quantity) *ResourceQuotaApplyConfiguration {
+	b.LendingLimit = &value
 	return b
 }

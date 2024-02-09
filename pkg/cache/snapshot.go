@@ -23,6 +23,7 @@ import (
 	"k8s.io/klog/v2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -34,7 +35,7 @@ type Snapshot struct {
 }
 
 // RemoveWorkload removes a workload from its corresponding ClusterQueue and
-// updates resources usage.
+// updates resource usage.
 func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 	cq := s.ClusterQueues[wl.ClusterQueue]
 	delete(cq.Workloads, workload.Key(wl.Obj))
@@ -45,7 +46,7 @@ func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 }
 
 // AddWorkload removes a workload from its corresponding ClusterQueue and
-// updates resources usage.
+// updates resource usage.
 func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	cq := s.ClusterQueues[wl.ClusterQueue]
 	cq.Workloads[workload.Key(wl.Obj)] = wl
@@ -144,6 +145,11 @@ func (c *ClusterQueue) snapshot() *ClusterQueue {
 		// Shallow copy is enough.
 		cc.Workloads[k] = v
 	}
+
+	if features.Enabled(features.LendingLimit) {
+		cc.GuaranteedQuota = c.GuaranteedQuota
+	}
+
 	return cc
 }
 
@@ -159,7 +165,15 @@ func (c *ClusterQueue) accumulateResources(cohort *Cohort) {
 				cohort.RequestableResources[flvQuotas.Name] = res
 			}
 			for rName, rQuota := range flvQuotas.Resources {
-				res[rName] += rQuota.Nominal
+				// When feature LendingLimit enabled, cohort.RequestableResources indicates
+				// the sum of cq.NominalQuota and other cqs' LendingLimit (if not nil).
+				// If LendingLimit is not nil, we should count the lendingLimit as the requestable
+				// resource because we can't borrow more quota than lendingLimit.
+				if features.Enabled(features.LendingLimit) && rQuota.LendingLimit != nil {
+					res[rName] += *rQuota.LendingLimit
+				} else {
+					res[rName] += rQuota.Nominal
+				}
 			}
 		}
 	}
@@ -173,6 +187,13 @@ func (c *ClusterQueue) accumulateResources(cohort *Cohort) {
 			cohort.Usage[fName] = used
 		}
 		for res, val := range resUsages {
+			// Similar to cohort.RequestableResources, we accumulate the usage above the guaranteed resources,
+			// here we should remove the guaranteed quota as well for that part can not be borrowed.
+			val -= c.guaranteedQuota(fName, res)
+			// if val < 0, it means the cq is not using any quota belongs to LendingLimit
+			if val < 0 {
+				val = 0
+			}
 			used[res] += val
 		}
 	}

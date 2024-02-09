@@ -718,7 +718,7 @@ admitting newer workloads that fit existing quota.</li>
 </td>
 <td>
    <p>namespaceSelector defines which namespaces are allowed to submit workloads to
-this clusterQueue. Beyond this basic support for policy, an policy agent like
+this clusterQueue. Beyond this basic support for policy, a policy agent like
 Gatekeeper should be used to enforce more advanced policies.
 Defaults to null which is a nothing selector (no namespaces eligible).
 If set to an empty selector <code>{}</code>, then all namespaces are eligible.</p>
@@ -763,7 +763,7 @@ lower priority first.</p>
 <a href="#kueue-x-k8s-io-v1beta1-StopPolicy"><code>StopPolicy</code></a>
 </td>
 <td>
-   <p>stopPolicy - if set to a value different than None, the ClusterQueue is considered Inactive, no new reservation being
+   <p>stopPolicy - if set to a value different from None, the ClusterQueue is considered Inactive, no new reservation being
 made.</p>
 <p>Depending on its value, its associated workloads will:</p>
 <ul>
@@ -1576,6 +1576,22 @@ ClusterQueues in the cohort have enough unused quota.
 If null, it means that there is no borrowing limit.
 If not null, it must be non-negative.
 borrowingLimit must be null if spec.cohort is empty.</p>
+</td>
+</tr>
+<tr><td><code>lendingLimit</code><br/>
+<a href="https://pkg.go.dev/k8s.io/apimachinery/pkg/api/resource#Quantity"><code>k8s.io/apimachinery/pkg/api/resource.Quantity</code></a>
+</td>
+<td>
+   <p>lendingLimit is the maximum amount of unused quota for the [flavor, resource]
+combination that this ClusterQueue can lend to other ClusterQueues in the same cohort.
+In total, at a given time, ClusterQueue reserves for its exclusive use
+a quantity of quota equals to nominalQuota - lendingLimit.
+If null, it means that there is no lending limit, meaning that
+all the nominalQuota can be borrowed by other clusterQueues in the cohort.
+If not null, it must be non-negative.
+lendingLimit must be null if spec.cohort is empty.
+This field is in alpha stage. To be able to use this field,
+enable the feature gate LendingLimit, which is disabled by default.</p>
 </td>
 </tr>
 </tbody>

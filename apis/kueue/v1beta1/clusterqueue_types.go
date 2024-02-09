@@ -66,7 +66,7 @@ type ClusterQueueSpec struct {
 	QueueingStrategy QueueingStrategy `json:"queueingStrategy,omitempty"`
 
 	// namespaceSelector defines which namespaces are allowed to submit workloads to
-	// this clusterQueue. Beyond this basic support for policy, an policy agent like
+	// this clusterQueue. Beyond this basic support for policy, a policy agent like
 	// Gatekeeper should be used to enforce more advanced policies.
 	// Defaults to null which is a nothing selector (no namespaces eligible).
 	// If set to an empty selector `{}`, then all namespaces are eligible.
@@ -97,7 +97,7 @@ type ClusterQueueSpec struct {
 	// +optional
 	AdmissionChecks []string `json:"admissionChecks,omitempty"`
 
-	// stopPolicy - if set to a value different than None, the ClusterQueue is considered Inactive, no new reservation being
+	// stopPolicy - if set to a value different from None, the ClusterQueue is considered Inactive, no new reservation being
 	// made.
 	//
 	// Depending on its value, its associated workloads will:
@@ -201,6 +201,19 @@ type ResourceQuota struct {
 	// borrowingLimit must be null if spec.cohort is empty.
 	// +optional
 	BorrowingLimit *resource.Quantity `json:"borrowingLimit,omitempty"`
+
+	// lendingLimit is the maximum amount of unused quota for the [flavor, resource]
+	// combination that this ClusterQueue can lend to other ClusterQueues in the same cohort.
+	// In total, at a given time, ClusterQueue reserves for its exclusive use
+	// a quantity of quota equals to nominalQuota - lendingLimit.
+	// If null, it means that there is no lending limit, meaning that
+	// all the nominalQuota can be borrowed by other clusterQueues in the cohort.
+	// If not null, it must be non-negative.
+	// lendingLimit must be null if spec.cohort is empty.
+	// This field is in alpha stage. To be able to use this field,
+	// enable the feature gate LendingLimit, which is disabled by default.
+	// +optional
+	LendingLimit *resource.Quantity `json:"lendingLimit,omitempty"`
 }
 
 // ResourceFlavorReference is the name of the ResourceFlavor.
