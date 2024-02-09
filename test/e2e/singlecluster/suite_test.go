@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -54,4 +55,8 @@ var _ = ginkgo.BeforeSuite(func() {
 	visibilityClient = util.CreateVisibilityClient("")
 	impersonatedVisibilityClient = util.CreateVisibilityClient("system:serviceaccount:kueue-system:default")
 	ctx = context.Background()
+
+	waitForAvailableStart := time.Now()
+	util.WaitForKueueAvailability(ctx, k8sClient)
+	ginkgo.GinkgoLogr.Info("Kueue is Available in the cluster", "waitingTime", time.Since(waitForAvailableStart))
 })

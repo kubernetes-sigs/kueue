@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -62,4 +63,10 @@ var _ = ginkgo.BeforeSuite(func() {
 	k8sWorker2Client = util.CreateClientUsingCluster("kind-" + worker2ClusterName)
 
 	ctx = context.Background()
+
+	waitForAvailableStart := time.Now()
+	util.WaitForKueueAvailability(ctx, k8sManagerClient)
+	util.WaitForKueueAvailability(ctx, k8sWorker1Client)
+	util.WaitForKueueAvailability(ctx, k8sWorker2Client)
+	ginkgo.GinkgoLogr.Info("Kueue is Available in all the clusters", "waitingTime", time.Since(waitForAvailableStart))
 })

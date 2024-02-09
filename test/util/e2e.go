@@ -1,10 +1,15 @@
 package util
 
 import (
+	"context"
 	"fmt"
 	"os"
 
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -61,4 +66,21 @@ func CreateVisibilityClient(user string) visibilityv1alpha1.VisibilityV1alpha1In
 	}
 	visibilityClient := kueueClient.VisibilityV1alpha1()
 	return visibilityClient
+}
+
+func WaitForKueueAvailability(ctx context.Context, k8sClient client.Client) {
+	kcmKey := types.NamespacedName{
+		Namespace: "kueue-system",
+		Name:      "kueue-controller-manager",
+	}
+	deployment := &appsv1.Deployment{}
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, kcmKey, deployment)).To(gomega.Succeed())
+		g.Expect(deployment.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(
+			appsv1.DeploymentCondition{
+				Type:   appsv1.DeploymentAvailable,
+				Status: corev1.ConditionTrue,
+			},
+			cmpopts.IgnoreFields(appsv1.DeploymentCondition{}, "Reason", "Message", "LastUpdateTime", "LastTransitionTime"))))
+	}, StartUpTimeout, Interval).Should(gomega.Succeed())
 }
