@@ -26,6 +26,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -546,6 +547,68 @@ var _ = ginkgo.Describe("Preemption", func() {
 				testing.MakeAdmission(bBestEffortCQ.Name).Assignment(corev1.ResourceCPU, "one", "1").Obj(),
 			)
 
+		})
+	})
+
+	ginkgo.Context("Should be able to preempt when lending limit enabled", func() {
+		var (
+			prodCQ *kueue.ClusterQueue
+			devCQ  *kueue.ClusterQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			_ = features.SetEnable(features.LendingLimit, true)
+		})
+
+		ginkgo.AfterEach(func() {
+			_ = features.SetEnable(features.LendingLimit, false)
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, prodCQ, true)
+			if devCQ != nil {
+				util.ExpectClusterQueueToBeDeleted(ctx, k8sClient, devCQ, true)
+			}
+		})
+
+		ginkgo.It("Should be able to preempt when lending limit enabled", func() {
+			prodCQ = testing.MakeClusterQueue("prod-cq").
+				Cohort("all").
+				ResourceGroup(
+					*testing.MakeFlavorQuotas("alpha").Resource(corev1.ResourceCPU, "5", "", "4").Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, prodCQ)).Should(gomega.Succeed())
+
+			devCQ = testing.MakeClusterQueue("dev-cq").
+				Cohort("all").
+				ResourceGroup(*testing.MakeFlavorQuotas("alpha").Resource(corev1.ResourceCPU, "5").Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, devCQ)).Should(gomega.Succeed())
+
+			prodQueue := testing.MakeLocalQueue("prod-queue", ns.Name).ClusterQueue(prodCQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, prodQueue)).Should(gomega.Succeed())
+
+			devQueue := testing.MakeLocalQueue("dev-queue", ns.Name).ClusterQueue(devCQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, devQueue)).Should(gomega.Succeed())
+
+			ginkgo.By("Creating two workloads")
+			wl1 := testing.MakeWorkload("wl-1", ns.Name).Priority(0).Queue(devQueue.Name).Request(corev1.ResourceCPU, "4").Obj()
+			wl2 := testing.MakeWorkload("wl-2", ns.Name).Priority(1).Queue(devQueue.Name).Request(corev1.ResourceCPU, "5").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl1)).Should(gomega.Succeed())
+			gomega.Expect(k8sClient.Create(ctx, wl2)).Should(gomega.Succeed())
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl2)
+
+			ginkgo.By("Creating another workload")
+			wl3 := testing.MakeWorkload("wl-3", ns.Name).Queue(prodQueue.Name).Request(corev1.ResourceCPU, "4").Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl3)).Should(gomega.Succeed())
+			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wl1)
+
+			util.FinishEvictionForWorkloads(ctx, k8sClient, wl1)
+
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl3,
+				testing.MakeAdmission(prodCQ.Name).Assignment(corev1.ResourceCPU, "alpha", "4").Obj())
 		})
 	})
 

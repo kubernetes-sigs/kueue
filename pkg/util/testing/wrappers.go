@@ -536,7 +536,7 @@ func (c *ClusterQueueWrapper) Preemption(p kueue.ClusterQueuePreemption) *Cluste
 	return c
 }
 
-// Preemption sets the preeemption policies.
+// FlavorFungibility sets the flavorFungibility policies.
 func (c *ClusterQueueWrapper) FlavorFungibility(p kueue.FlavorFungibility) *ClusterQueueWrapper {
 	c.Spec.FlavorFungibility = &p
 	return c
@@ -579,12 +579,16 @@ func (f *FlavorQuotasWrapper) Resource(name corev1.ResourceName, qs ...string) *
 	if len(qs) > 0 {
 		rq.NominalQuota = resource.MustParse(qs[0])
 	}
-	if len(qs) > 1 {
+	if len(qs) > 1 && len(qs[1]) > 0 {
 		rq.BorrowingLimit = ptr.To(resource.MustParse(qs[1]))
 	}
-	if len(qs) > 2 {
-		panic("Must have at most 2 quantities for nominalquota and borrowingLimit")
+	if len(qs) > 2 && len(qs[2]) > 0 {
+		rq.LendingLimit = ptr.To(resource.MustParse(qs[2]))
 	}
+	if len(qs) > 3 {
+		panic("Must have at most 3 quantities for nominalQuota, borrowingLimit and lendingLimit")
+	}
+
 	f.Resources = append(f.Resources, rq)
 	return f
 }

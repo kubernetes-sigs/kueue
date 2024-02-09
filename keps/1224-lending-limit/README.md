@@ -51,6 +51,8 @@ So we need a reservation design for resource requests and security reasons: `Len
 
 In this proposal, `LendingLimit` is defined. The `ClusterQueue` will be limited to lend the specified quota to other ClusterQueues in the same cohort.
 
+![Semantics](LendingLimit.png "Semantics of lendingLimit")
+
 ### User Stories (Optional)
 
 #### Story 1
@@ -144,9 +146,11 @@ After the implementation PR is merged, add the names of the tests here.
     - When cq-a's BorrowingLimit unset, cq-a can borrow as much as `(cq-b's LendingLimit + cq-c's LendingLimit)`.
     - When cq-a's BorrowingLimit set, cq-a can borrow as much as `min((cq-b's LendingLimit + cq-c's LendingLimit), cq-a's BorrowingLimit)`.
 - In a cohort with 2 ClusterQueues cq-a, cq-b and 2 ResourceFlavors rf-a, rf-b:
-  - When rf-b's LendingLimit set, and cq-a's FlavorFungibility set to `WhenCanBorrow: TryNextFlavor`:
-    - When rf-a's BorrowingLimit unset, cq-a can borrow as much as `rf-b's LendingLimit`.
-    - When rf-a's BorrowingLimit set, cq-a can borrow as much as `min(rf-b's LendingLimit, rf-a's BorrowingLimit)`.
+  - In cq-b, when rf-a's LendingLimit set, and cq-a's FlavorFungibility set to `whenCanBorrow: Borrow`:
+    - In cq-a, when rf-a's BorrowingLimit unset, cq-a can borrow as much as `rf-a's LendingLimit`.
+    - In cq-a, when rf-a's BorrowingLimit set, cq-a can borrow as much as `min(rf-a's LendingLimit, rf-a's BorrowingLimit)`.
+
+We will not consider the situation that **when cq-a's FlavorFungibility set to `whenCanBorrow: TryNextFlavor`**, since in this case, borrow will not happen.
 
 ### Graduation Criteria
 

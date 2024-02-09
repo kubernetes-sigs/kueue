@@ -330,7 +330,8 @@ func recordResourceMetrics(cq *kueue.ClusterQueue) {
 				r := &fq.Resources[ri]
 				nominal := resource.QuantityToFloat(&r.NominalQuota)
 				borrow := resource.QuantityToFloat(r.BorrowingLimit)
-				metrics.ReportClusterQueueQuotas(cq.Spec.Cohort, cq.Name, string(fq.Name), string(r.Name), nominal, borrow)
+				lend := resource.QuantityToFloat(r.LendingLimit)
+				metrics.ReportClusterQueueQuotas(cq.Spec.Cohort, cq.Name, string(fq.Name), string(r.Name), nominal, borrow, lend)
 			}
 		}
 	}

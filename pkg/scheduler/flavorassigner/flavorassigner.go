@@ -56,7 +56,7 @@ func (a *Assignment) Borrows() bool {
 	return a.Borrowing
 }
 
-// RepresentativeMode calculates the representative mode for the assigment as
+// RepresentativeMode calculates the representative mode for the assignment as
 // the worst assignment mode among all the pod sets.
 func (a *Assignment) RepresentativeMode() FlavorAssignmentMode {
 	if len(a.PodSets) == 0 {
@@ -194,13 +194,13 @@ func (psa *PodSetAssignment) toAPI() kueue.PodSetAssignment {
 // or what needs to happen, so it can be assigned.
 type FlavorAssignmentMode int
 
-// The flavor assigment modes below are ordered from lowest to highest
+// The flavor assignment modes below are ordered from lowest to highest
 // preference.
 const (
 	// NoFit means that there is not enough quota to assign this flavor.
 	NoFit FlavorAssignmentMode = iota
 	// Preempt means that there is not enough unused nominal quota in the ClusterQueue
-	// or cohort. Preempting other workloads in the CluserQueue or cohort, or
+	// or cohort. Preempting other workloads in the ClusterQueue or cohort, or
 	// waiting for them to finish might make it possible to assign this flavor.
 	Preempt
 	// Fit means that there is enough unused quota in the cohort to assign this
@@ -554,11 +554,11 @@ func fitsResourceQuota(fName kueue.ResourceFlavorReference, rName corev1.Resourc
 	}
 	cohortAvailable := rQuota.Nominal
 	if cq.Cohort != nil {
-		cohortAvailable = cq.Cohort.RequestableResources[fName][rName]
+		cohortAvailable = cq.RequestableCohortQuota(fName, rName)
 	}
 
 	if cq.Preemption.BorrowWithinCohort != nil && cq.Preemption.BorrowWithinCohort.Policy != kueue.BorrowWithinCohortPolicyNever {
-		// when preemption with borrowing is enabled, we can succeeded admitting the
+		// when preemption with borrowing is enabled, we can succeed to admit the
 		// workload if preemption is used.
 		if (rQuota.BorrowingLimit == nil || val <= rQuota.Nominal+*rQuota.BorrowingLimit) && val <= cohortAvailable {
 			mode = Preempt
@@ -572,7 +572,7 @@ func fitsResourceQuota(fName kueue.ResourceFlavorReference, rName corev1.Resourc
 
 	cohortUsed := used
 	if cq.Cohort != nil {
-		cohortUsed = cq.Cohort.Usage[fName][rName]
+		cohortUsed = cq.UsedCohortQuota(fName, rName)
 	}
 
 	lack := cohortUsed + val - cohortAvailable

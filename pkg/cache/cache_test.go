@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -89,11 +90,12 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		return nil
 	}
 	cases := []struct {
-		name              string
-		operation         func(*Cache) error
-		clientObbjects    []client.Object
-		wantClusterQueues map[string]*ClusterQueue
-		wantCohorts       map[string]sets.Set[string]
+		name               string
+		operation          func(*Cache) error
+		clientObbjects     []client.Object
+		wantClusterQueues  map[string]*ClusterQueue
+		wantCohorts        map[string]sets.Set[string]
+		enableLendingLimit bool
 	}{
 		{
 			name: "add",
@@ -397,7 +399,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					*utiltesting.MakeClusterQueue("e").
 						ResourceGroup(
 							*utiltesting.MakeFlavorQuotas("default").
-								Resource(corev1.ResourceCPU, "5", "5").
+								Resource(corev1.ResourceCPU, "5", "5", "4").
 								Obj()).
 						Cohort("two").
 						NamespaceSelector(nil).
@@ -484,11 +486,17 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 								corev1.ResourceCPU: {
 									Nominal:        5_000,
 									BorrowingLimit: ptr.To[int64](5_000),
+									LendingLimit:   ptr.To[int64](4_000),
 								},
 							}},
 						},
 						LabelKeys: sets.New("cpuType", "region"),
 					}},
+					GuaranteedQuota: FlavorResourceQuantities{
+						"default": {
+							"cpu": 1_000,
+						},
+					},
 					NamespaceSelector: labels.Nothing(),
 					FlavorFungibility: defaultFlavorFungibility,
 					Usage: FlavorResourceQuantities{
@@ -518,6 +526,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"one": sets.New("b"),
 				"two": sets.New("a", "c", "e", "f"),
 			},
+			enableLendingLimit: true,
 		},
 		{
 			name: "delete",
@@ -1039,6 +1048,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			defer features.SetFeatureGateDuringTest(t, features.LendingLimit, tc.enableLendingLimit)()
 			cache := New(utiltesting.NewFakeClient(tc.clientObbjects...))
 			if err := tc.operation(cache); err != nil {
 				t.Errorf("Unexpected error during test operation: %s", err)

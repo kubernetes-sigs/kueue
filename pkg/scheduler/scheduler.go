@@ -214,7 +214,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			// If the workload uses resources that were potentially assumed in this cycle and will no longer fit in the
 			// cohort. If a resource of a flavor is used only once or for the first time in the cycle the checks done by
 			// the flavorassigner are still valid.
-			if cycleCohortsUsage.hasCommonFlavorResources(cq.Cohort.Name, e.assignment.Usage) && !cq.Cohort.CanFit(sum) {
+			if cycleCohortsUsage.hasCommonFlavorResources(cq.Cohort.Name, e.assignment.Usage) && !cq.FitInCohort(sum) {
 				e.status = skipped
 				e.inadmissibleMsg = "other workloads in the cohort were prioritized"
 				// When the workload needs borrowing and there is another workload in cohort doesn't
