@@ -163,7 +163,7 @@ func main() {
 
 	serverVersionFetcher := setupServerVersionFetcher(mgr, kubeConfig)
 
-	setupProbeEndpoints(mgr)
+	setupProbeEndpoints(mgr, certsReady)
 	// Cert won't be ready until manager starts, so start a goroutine here which
 	// will block until the cert is ready before setting up the controllers.
 	// Controllers who register after manager starts will start directly.
@@ -302,7 +302,7 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 }
 
 // setupProbeEndpoints registers the health endpoints
-func setupProbeEndpoints(mgr ctrl.Manager) {
+func setupProbeEndpoints(mgr ctrl.Manager, certsReady <-chan struct{}) {
 	defer setupLog.Info("Probe endpoints are configured on healthz and readyz")
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
@@ -318,7 +318,12 @@ func setupProbeEndpoints(mgr ctrl.Manager) {
 	// the function, otherwise a not fully-initialized webhook server (without
 	// ready certs) fails the start of the manager.
 	if err := mgr.AddReadyzCheck("readyz", func(req *http.Request) error {
-		return mgr.GetWebhookServer().StartedChecker()(req)
+		select {
+		case <-certsReady:
+			return mgr.GetWebhookServer().StartedChecker()(req)
+		default:
+			return errors.New("certificates are not ready")
+		}
 	}); err != nil {
 		setupLog.Error(err, "unable to set up ready check")
 		os.Exit(1)
