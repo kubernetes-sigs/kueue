@@ -671,7 +671,7 @@ func (p *Pod) validatePodGroupMetadata(r record.EventRecorder, activePods []core
 	originalQueue := jobframework.QueueName(p)
 
 	if len(activePods) < groupTotalCount {
-		errMsg := fmt.Sprintf("'%s' group total count is less than the actual number of pods in the cluster", podGroupName(p.pod))
+		errMsg := fmt.Sprintf("'%s' group has fewer runnable pods than expected", podGroupName(p.pod))
 		r.Eventf(p.Object(), corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, errMsg)
 		return jobframework.UnretryableError(errMsg)
 	}
