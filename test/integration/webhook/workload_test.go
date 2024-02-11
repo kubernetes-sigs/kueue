@@ -82,7 +82,7 @@ var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 
 			gomega.Expect(created.Spec.PodSets[0].Name).Should(gomega.Equal(kueue.DefaultPodSetName))
 		})
-		ginkgo.FIt("Should reset re-queue state", func() {
+		ginkgo.It("Should reset re-queue state", func() {
 			ginkgo.By("Creating a new inactive Workload")
 			workload := testing.MakeWorkload(workloadName, ns.Name).
 				Active(false).

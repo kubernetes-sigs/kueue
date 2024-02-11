@@ -124,19 +124,30 @@ Possible settings:
 ```go
 type WaitForPodsReady struct {
 	...
-	// RequeuingStrategy defines the strategy for requeuing a Workload
+	// RequeuingStrategy defines the strategy for requeuing a Workload.
 	// +optional
 	RequeuingStrategy *RequeuingStrategy `json:"requeuingStrategy,omitempty"`
 }
 
 type RequeuingStrategy struct {
 	// Timestamp defines the timestamp used for requeuing a Workload
-	// that was evicted due to Pod readiness. Defaults to Eviction.
+	// that was evicted due to Pod readiness. The possible values are:
+	//
+	// - `Eviction` (default): indicates from Workload .metadata.creationTimestamp.
+	// - `Creation`: indicates from Workload .status.conditions.
+	//
 	// +optional
 	Timestamp *RequeuingTimestamp `json:"timestamp,omitempty"`
-	
+
 	// BackoffLimitCount defines the maximum number of requeuing retries.
 	// When the number is reached, the workload is deactivated (`.spec.activate`=`false`).
+	//
+	// Every backoff duration is calculated by "1.41284738^(n-1)+Rand"
+	// where the "n" represents the "workloadStatus.requeueState.count", and the "Rand" represents the random jitter.
+	// This indicates that an evicted workload with PodsReadyTimeout reason is continued re-queuing for
+	// the "t(n+1) + Rand + SUM[k=1,n]1.41284738^(k-1)" seconds where the "t" represents "waitForPodsReady.timeout".
+	// Given that the "backoffLimitCount" equals "30" and the "waitForPodsReady.timeout" equals "300" (default),
+	// the result equals 24 hours (+Rand seconds).
 	//
 	// Defaults to null.
 	// +optional
@@ -156,14 +167,18 @@ const (
 
 #### Workload
 
-Add a new field, "requeuedCount", to the Workload to allow recording the number of times a workload is requeued.
+Add a new field, "requeueState", to the Workload to allow recording the following items: 
+
+1. the number of times a workload is requeued
+2. when the workload was re-queued or will be re-queued
 
 ```go
 type WorkloadStatus struct {
 	...
-	// requeueState holds the state of the requeued Workload according to the requeueing strategy.
-	// 
-	// +optional
+	// requeueState holds the re-queue state
+	// when a workload meets Eviction with PodsReadyTimeout reason.
+	//
+	// +optional	
 	RequeueState *RequeueState `json:"requeueState,omitempty"`
 }
 
@@ -183,7 +198,6 @@ type RequeueState struct {
 	// +optional
 	RequeueAt *metav1.Time `json:"requeueAt,omitempty"`
 }
-
 ```
 
 ### Changes to Queue Sorting
@@ -203,18 +217,35 @@ Update the `apis/config/<version>` package to include `Creation` and `Eviction` 
 ### Exponential Backoff Mechanism
 
 When the kueueConfig `backoffLimitCount` is set and there are evicted workloads by waitForPodsReady,
-the queueManager holds evicted workloads with an exponential backoff. 
+the queueManager holds the evicted workloads as inadmissible workloads while exponential backoff duration.
 Duration this time, other workloads will have a chance to be admitted.
 
-The queueManager calculates an exponential backoff duration by [the Step function](https://pkg.go.dev/k8s.io/apimachinery/pkg/util/wait@v0.29.1#Backoff.Step).
+The queueManager calculates an exponential backoff duration by [the Step function](https://pkg.go.dev/k8s.io/apimachinery/pkg/util/wait@v0.29.1#Backoff.Step)
+according to the $1.41284738^{(n-1)}+Rand$ where the $n$ represents the `workloadStatus.requeueState.count`, and the $Rand$ represents the random jitter.
+
+Considering the `.waitForPodsReady.timeout` (default: 300 seconds),
+this duration indicates that an evicted workload with `PodsReadyTimeout` reason is continued re-queuing 
+for the following period where the $t$ represents `.waitForPodsReady.timeout`:
+
+$$t(n+1) + Rand + \sum_{k=1}^{n} 1.41284738^{(k-1)}$$
+
+Given that the `backoffLimitCount` equals `30` and the `waitForPodsReady.timeout` equals `300` (default),
+the result equals 24 hours (+ $Rand$ seconds).
 
 #### Evaluation
 
-When a workload eviction is issued with `PodsReadyTimeout` condition, 
-a workload `.status.requeuedCount` is incremented by 1 each time　in the workload controller.
+When a workload eviction is issued with the `PodsReadyTimeout` condition,
+the workload controller increments the `.status.requeueState.count` by 1 each time and
+sets the time to the `.status.requeueState.requeueAt` when a workload will be re-queued.
 
-After that, when a workload `.status.requeudCount` reaches the kueueConfig `.waitForPodsReady.requeueingStrategy.backoffLimitCount`,
-a workload is deactivated by setting false to `.spec.active` instead of be suspended in the jobframework reconciler.
+If a workload `.status.requeueState.count` reaches the kueueConfig `.waitForPodsReady.requeueingStrategy.backoffLimitCount`,
+the workload controller doesn't modify `.status.requeueState` and deactivates a workload by setting false to `.spec.active`.
+
+After that, the jobframework reconciler adds `Evicted` condition with `WorkloadInactive` reason to a workload.
+Finally, the jobframework reconciler stops a job based in the next reconcile.
+
+Additionally, when a deactivated workload by eviction is re-activated, the `requeueState` is reset to null. 
+If a workload is deactivated by other ways such as user operations, the `requeueState` is not reset.
 
 ### Test Plan
 
@@ -261,6 +292,7 @@ milestones with these graduation criteria:
 ## Implementation History
 
 - Jan 18th: Implemented the re-queue strategy that workloads evicted due to pods-ready (story 1) [#1311](https://github.com/kubernetes-sigs/kueue/pulls/1311)
+- Feb 12th: Implemented the re-queueing backoff mechanism triggered by eviction with PodsReadyTimeout reason (story 2 and 3) [#1709](https://github.com/kubernetes-sigs/kueue/pulls/1709)
 
 <!--
 Major milestones in the lifecycle of a KEP should be tracked in this section.
