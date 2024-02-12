@@ -342,11 +342,7 @@ func setupServerVersionFetcher(mgr ctrl.Manager, kubeConfig *rest.Config) *kubev
 }
 
 func blockForPodsReady(cfg *configapi.Configuration) bool {
-	return waitForPodsReady(cfg) && cfg.WaitForPodsReady.BlockAdmission != nil && *cfg.WaitForPodsReady.BlockAdmission
-}
-
-func waitForPodsReady(cfg *configapi.Configuration) bool {
-	return cfg.WaitForPodsReady != nil && cfg.WaitForPodsReady.Enable
+	return config.WaitForPodsReadyIsEnabled(cfg) && cfg.WaitForPodsReady.BlockAdmission != nil && *cfg.WaitForPodsReady.BlockAdmission
 }
 
 func podsReadyRequeuingTimestamp(cfg *configapi.Configuration) configapi.RequeuingTimestamp {

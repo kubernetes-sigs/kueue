@@ -141,6 +141,7 @@ func (w *WorkloadWrapper) Admitted(a bool) *WorkloadWrapper {
 	apimeta.SetStatusCondition(&w.Status.Conditions, cond)
 	return w
 }
+
 func (w *WorkloadWrapper) Finished() *WorkloadWrapper {
 	cond := metav1.Condition{
 		Type:               kueue.WorkloadFinished,
@@ -267,6 +268,28 @@ func (w *WorkloadWrapper) Annotations(kv map[string]string) *WorkloadWrapper {
 // DeletionTimestamp sets a deletion timestamp for the workload.
 func (w *WorkloadWrapper) DeletionTimestamp(t time.Time) *WorkloadWrapper {
 	w.Workload.DeletionTimestamp = ptr.To(metav1.NewTime(t).Rfc3339Copy())
+	return w
+}
+
+func (w *WorkloadWrapper) RequeueState(count *int32, requeueAt *metav1.Time) *WorkloadWrapper {
+	if count == nil && requeueAt == nil {
+		w.Status.RequeueState = nil
+		return w
+	}
+	if w.Status.RequeueState == nil {
+		w.Status.RequeueState = &kueue.RequeueState{}
+	}
+	if count != nil {
+		w.Status.RequeueState.Count = count
+	}
+	if requeueAt != nil {
+		w.Status.RequeueState.RequeueAt = requeueAt
+	}
+	return w
+}
+
+func (w *WorkloadWrapper) ResourceVersion(v string) *WorkloadWrapper {
+	w.SetResourceVersion(v)
 	return w
 }
 

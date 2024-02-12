@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
@@ -293,6 +294,19 @@ func ExpectWorkloadToFinish(ctx context.Context, k8sClient client.Client, wlKey 
 		g.Expect(apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished)).
 			To(gomega.BeTrueBecause("it's finished"))
 	}, LongTimeout, Interval).Should(gomega.Succeed())
+}
+
+func ExpectWorkloadToHaveRequeueCount(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, requeueCount *int32) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		var wl kueue.Workload
+		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
+		g.Expect(ptr.Deref(wl.Status.RequeueState, kueue.RequeueState{})).Should(gomega.BeComparableTo(kueue.RequeueState{
+			Count: requeueCount,
+		}, cmpopts.IgnoreFields(kueue.RequeueState{}, "RequeueAt")))
+		if requeueCount != nil {
+			g.Expect(wl.Status.RequeueState.RequeueAt).ShouldNot(gomega.BeNil())
+		}
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 func ExpectWorkloadsToBePreempted(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {

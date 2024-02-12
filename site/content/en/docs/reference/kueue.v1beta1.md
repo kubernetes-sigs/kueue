@@ -1407,6 +1407,41 @@ the workload is considered ready.</p>
 </tbody>
 </table>
 
+## `RequeueState`     {#kueue-x-k8s-io-v1beta1-RequeueState}
+    
+
+**Appears in:**
+
+- [WorkloadStatus](#kueue-x-k8s-io-v1beta1-WorkloadStatus)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>count</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>count records the number of times a workload has been re-queued
+When a deactivated (<code>.spec.activate</code>=<code>false</code>) workload is reactivated (<code>.spec.activate</code>=<code>true</code>),
+this count would be reset to null.</p>
+</td>
+</tr>
+<tr><td><code>requeueAt</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Time</code></a>
+</td>
+<td>
+   <p>requeueAt records the time when a workload will be re-queued.
+When a deactivated (<code>.spec.activate</code>=<code>false</code>) workload is reactivated (<code>.spec.activate</code>=<code>true</code>),
+this time would be reset to null.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `ResourceFlavorReference`     {#kueue-x-k8s-io-v1beta1-ResourceFlavorReference}
     
 (Alias of `string`)
@@ -1755,6 +1790,14 @@ Possible values are:</p>
    <p>admission holds the parameters of the admission of the workload by a
 ClusterQueue. admission can be set back to null, but its fields cannot be
 changed once set.</p>
+</td>
+</tr>
+<tr><td><code>requeueState</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-RequeueState"><code>RequeueState</code></a>
+</td>
+<td>
+   <p>requeueState holds the re-queue state
+when a workload meets Eviction with PodsReadyTimeout reason.</p>
 </td>
 </tr>
 <tr><td><code>conditions</code><br/>

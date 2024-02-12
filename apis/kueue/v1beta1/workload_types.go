@@ -151,6 +151,12 @@ type WorkloadStatus struct {
 	// changed once set.
 	Admission *Admission `json:"admission,omitempty"`
 
+	// requeueState holds the re-queue state
+	// when a workload meets Eviction with PodsReadyTimeout reason.
+	//
+	// +optional
+	RequeueState *RequeueState `json:"requeueState,omitempty"`
+
 	// conditions hold the latest available observations of the Workload
 	// current state.
 	//
@@ -182,6 +188,23 @@ type WorkloadStatus struct {
 	// +patchStrategy=merge
 	// +patchMergeKey=name
 	AdmissionChecks []AdmissionCheckState `json:"admissionChecks,omitempty" patchStrategy:"merge" patchMergeKey:"name"`
+}
+
+type RequeueState struct {
+	// count records the number of times a workload has been re-queued
+	// When a deactivated (`.spec.activate`=`false`) workload is reactivated (`.spec.activate`=`true`),
+	// this count would be reset to null.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Count *int32 `json:"count,omitempty"`
+
+	// requeueAt records the time when a workload will be re-queued.
+	// When a deactivated (`.spec.activate`=`false`) workload is reactivated (`.spec.activate`=`true`),
+	// this time would be reset to null.
+	//
+	// +optional
+	RequeueAt *metav1.Time `json:"requeueAt,omitempty"`
 }
 
 type AdmissionCheckState struct {

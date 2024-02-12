@@ -156,6 +156,9 @@ apiVersion: config.kueue.x-k8s.io/v1beta1
 kind: Configuration
 waitForPodsReady:
   enable: true
+  requeuingStrategy:
+    timestamp: Creation
+    backoffLimitCount: 10
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
@@ -543,7 +546,8 @@ multiKueue:
 					BlockAdmission: ptr.To(true),
 					Timeout:        &metav1.Duration{Duration: 5 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
-						Timestamp: ptr.To(configapi.EvictionTimestamp),
+						Timestamp:         ptr.To(configapi.CreationTimestamp),
+						BackoffLimitCount: ptr.To[int32](10),
 					},
 				},
 				ClientConnection: defaultClientConnection,
@@ -934,6 +938,38 @@ func TestEncode(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantResult, gotMap); diff != "" {
 				t.Errorf("Unexpected result (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestWaitForPodsReadyIsEnabled(t *testing.T) {
+	cases := map[string]struct {
+		cfg  *configapi.Configuration
+		want bool
+	}{
+		"cfg.waitForPodsReady is null": {
+			cfg: &configapi.Configuration{},
+		},
+		"cfg.WaitForPodsReadyIsEnabled.enable is false": {
+			cfg: &configapi.Configuration{
+				WaitForPodsReady: &configapi.WaitForPodsReady{},
+			},
+		},
+		"waitForPodsReady is true": {
+			cfg: &configapi.Configuration{
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Enable: true,
+				},
+			},
+			want: true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := WaitForPodsReadyIsEnabled(tc.cfg)
+			if tc.want != got {
+				t.Errorf("Unexpected result from WaitForPodsReadyIsEnabled\nwant:\n%v\ngot:%v\n", tc.want, got)
 			}
 		})
 	}

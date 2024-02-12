@@ -1717,7 +1717,7 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		})
 	})
 
-	ginkgo.When("Suspend a running Job without requeueing through Workload's spec.active field", func() {
+	ginkgo.When("Suspend a running Job without requeuing through Workload's spec.active field", func() {
 		ginkgo.It("Should not readmit a job to the queue after Active is changed to false", func() {
 			ginkgo.By("creating localQueue")
 			localQueue := testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()

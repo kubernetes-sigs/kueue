@@ -24,6 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -304,7 +305,7 @@ var (
 	workloadCmpOpts = []cmp.Option{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(
-			kueue.Workload{}, "TypeMeta", "ObjectMeta.ResourceVersion",
+			kueue.Workload{}, "TypeMeta", "ObjectMeta.ResourceVersion", "Status.RequeueState.RequeueAt",
 		),
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 		cmpopts.SortSlices(func(a, b metav1.Condition) bool { return a.Type < b.Type }),
@@ -314,10 +315,11 @@ var (
 func TestReconcile(t *testing.T) {
 	testStartTime := time.Now()
 	cases := map[string]struct {
-		workload     *kueue.Workload
-		wantWorkload *kueue.Workload
-		wantError    error
-		wantEvents   []utiltesting.EventRecord
+		workload       *kueue.Workload
+		wantWorkload   *kueue.Workload
+		wantError      error
+		wantEvents     []utiltesting.EventRecord
+		reconcilerOpts []Option
 	}{
 		"admit": {
 			workload: utiltesting.MakeWorkload("wl", "ns").
@@ -449,6 +451,82 @@ func TestReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
+		"increment re-queue count": {
+			reconcilerOpts: []Option{
+				WithPodsReadyTimeout(ptr.To(3 * time.Second)),
+				WithRequeuingBackoffLimitCount(ptr.To[int32](100)),
+			},
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+				}).
+				Condition(metav1.Condition{ // Override LastTransitionTime
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testStartTime.Add(-5 * time.Minute)),
+					Reason:             "ByTest",
+					Message:            "Admitted by ClusterQueue q1",
+				}).
+				Admitted(true).
+				RequeueState(ptr.To[int32](29), nil).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message: "Exceeded the PodsReady timeout ns/wl",
+				}).
+				// 1.41284738^(30-1) = 22530.0558
+				RequeueState(ptr.To[int32](30), ptr.To(metav1.NewTime(testStartTime.Add(22530*time.Second).Truncate(time.Second)))).
+				Obj(),
+		},
+		"deactivated workload": {
+			reconcilerOpts: []Option{
+				WithPodsReadyTimeout(ptr.To(3 * time.Second)),
+				WithRequeuingBackoffLimitCount(ptr.To[int32](1)),
+			},
+			workload: utiltesting.MakeWorkload("wl", "ns").
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+				}).
+				Condition(metav1.Condition{ // Override LastTransitionTime
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(testStartTime.Add(-5 * time.Minute)),
+					Reason:             "ByTest",
+					Message:            "Admitted by ClusterQueue q1",
+				}).
+				Admitted(true).
+				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Add(1*time.Second).Truncate(time.Second)))).
+				Obj(),
+			wantWorkload: utiltesting.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+				Admitted(true).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateReady,
+				}).
+				RequeueState(ptr.To[int32](1), ptr.To(metav1.NewTime(testStartTime.Add(1*time.Second).Truncate(time.Second)))).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+				EventType: v1.EventTypeNormal,
+				Reason:    kueue.WorkloadEvictedByDeactivation,
+				Message:   "Deactivated Workload \"ns/wl\" by reached re-queue backoffLimitCount",
+			}},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -459,9 +537,10 @@ func TestReconcile(t *testing.T) {
 
 			cqCache := cache.New(cl)
 			qManager := queue.NewManager(cl, cqCache)
-			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder)
+			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, tc.reconcilerOpts...)
 
-			ctx, ctxCancel := context.WithCancel(context.Background())
+			ctxWithLogger, _ := utiltesting.ContextWithLog(t)
+			ctx, ctxCancel := context.WithCancel(ctxWithLogger)
 			defer ctxCancel()
 
 			_, gotError := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(tc.workload)})
@@ -480,6 +559,23 @@ func TestReconcile(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantWorkload, gotWorkload, workloadCmpOpts...); diff != "" {
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+			}
+
+			if tc.wantWorkload != nil {
+				if requeueState := tc.wantWorkload.Status.RequeueState; requeueState != nil && requeueState.RequeueAt != nil {
+					gotRequeueState := gotWorkload.Status.RequeueState
+					if gotRequeueState != nil && gotRequeueState.RequeueAt != nil {
+						// We verify the got requeueAt if the got requeueAt is after the desired requeueAt
+						// since the requeueAt is included in positive seconds of random jitter.
+						// Additionally, we need to verify the requeueAt by "Equal" function
+						// as the "After" function evaluates the nanoseconds despite the metav1.Time is seconds level precision.
+						if !gotRequeueState.RequeueAt.After(requeueState.RequeueAt.Time) && !gotRequeueState.RequeueAt.Equal(requeueState.RequeueAt) {
+							t.Errorf("Unexpected requeueState.requeueAt; gotRequeueAt %v needs to be after requeueAt %v", requeueState.RequeueAt, gotRequeueState.RequeueAt)
+						}
+					} else {
+						t.Errorf("Unexpected nil requeueState.requeuAt; requeueState.requeueAt shouldn't be nil")
+					}
+				}
 			}
 
 			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")); diff != "" {

@@ -270,6 +270,7 @@ webhooks:
     - UPDATE
     resources:
     - workloads
+    - workloads/status
   sideEffects: None
 ---
 apiVersion: admissionregistration.k8s.io/v1
