@@ -16,7 +16,11 @@ limitations under the License.
 
 package tools
 
-// Keep a reference  to code-generator so it's not removed by go mod tidy
+// Keep a reference to the code generators so they are not removed by go mod tidy
 import (
 	_ "k8s.io/code-generator"
+	// since verify will error o referencing a cmd package
+	// we need to reference individual dependencies used by it
+	_ "sigs.k8s.io/controller-tools/pkg/crd"
+	_ "sigs.k8s.io/controller-tools/pkg/genall/help/pretty"
 )
