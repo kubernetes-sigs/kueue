@@ -348,7 +348,7 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 		return ctrl.Result{RequeueAfter: recheckAfter}, nil
 	}
 	log.V(2).Info("Start the eviction of the workload due to exceeding the PodsReady timeout")
-	if deactivated, err := r.triggerDeactivationOrBackoffRequeue(ctx, wl); deactivated {
+	if deactivated, err := r.triggerDeactivationOrBackoffRequeue(ctx, wl); deactivated || err != nil {
 		return ctrl.Result{}, err
 	}
 	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByPodsReadyTimeout, fmt.Sprintf("Exceeded the PodsReady timeout %s", req.NamespacedName.String()))
@@ -368,9 +368,12 @@ func (r *WorkloadReconciler) triggerDeactivationOrBackoffRequeue(ctx context.Con
 	requeuingCount := ptr.Deref(wl.Status.RequeueState.Count, 0) + 1
 	if r.requeuingBackoffLimitCount != nil && requeuingCount > *r.requeuingBackoffLimitCount {
 		wl.Spec.Active = ptr.To(false)
+		if err := r.client.Update(ctx, wl); err != nil {
+			return false, err
+		}
 		r.recorder.Eventf(wl, corev1.EventTypeNormal, kueue.WorkloadEvictedByDeactivation,
 			"Deactivated Workload %q by reached re-queue backoffLimitCount", klog.KObj(wl))
-		return true, r.client.Update(ctx, wl)
+		return true, nil
 	}
 	// Every backoff duration is about "1.41284738^(n-1)+Rand" where the "n" represents the "requeuingCount",
 	// and the "Rand" represents the random jitter. During this time, the workload is taken as an inadmissible and
