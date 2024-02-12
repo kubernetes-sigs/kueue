@@ -42,10 +42,6 @@ const (
 	lendingLimitErrorMsg string = `must be less than or equal to the nominalQuota`
 )
 
-const (
-	borrowingLimitErrorMsg string = `must be nil when cohort is empty`
-)
-
 type ClusterQueueWebhook struct{}
 
 func setupWebhookForClusterQueue(mgr ctrl.Manager) error {
