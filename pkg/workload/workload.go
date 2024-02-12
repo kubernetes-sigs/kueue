@@ -33,6 +33,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 )
@@ -76,15 +77,18 @@ func (s *AssigmentClusterQueueState) PendingFlavors() bool {
 	return false
 }
 
-func (s *AssigmentClusterQueueState) LastTriedFlavorForPodSetResource(ps int, res corev1.ResourceName) int {
+func (s *AssigmentClusterQueueState) NextFlavorToTryForPodSetResource(ps int, res corev1.ResourceName) int {
+	if !features.Enabled(features.FlavorFungibility) {
+		return 0
+	}
 	if s == nil || ps >= len(s.LastTriedFlavorIdx) {
-		return -1
+		return 0
 	}
 	idx, ok := s.LastTriedFlavorIdx[ps][res]
 	if !ok {
-		return -1
+		return 0
 	}
-	return idx
+	return idx + 1
 }
 
 // Info holds a Workload object and some pre-processing.

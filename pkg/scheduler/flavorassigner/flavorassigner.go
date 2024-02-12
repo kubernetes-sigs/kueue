@@ -384,10 +384,7 @@ func (a *FlavorAssigner) findFlavorForPodSetResource(
 	// We will only check against the flavors' labels for the resource.
 	selector := flavorSelector(podSpec, resourceGroup.LabelKeys)
 	assignedFlavorIdx := -1
-	idx := 0
-	if features.Enabled(features.FlavorFungibility) {
-		idx = a.wl.LastAssignment.LastTriedFlavorForPodSetResource(psId, resName) + 1
-	}
+	idx := a.wl.LastAssignment.NextFlavorToTryForPodSetResource(psId, resName)
 	for ; idx < len(resourceGroup.Flavors); idx++ {
 		flvQuotas := resourceGroup.Flavors[idx]
 		flavor, exist := a.resourceFlavors[flvQuotas.Name]
