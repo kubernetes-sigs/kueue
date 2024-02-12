@@ -322,6 +322,11 @@ func syncAdmissionCheckConditions(conds []kueue.AdmissionCheckState, queueChecks
 
 func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req ctrl.Request, wl *kueue.Workload) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
+
+	if !ptr.Deref(wl.Spec.Active, true) || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
+		// the workload has already been evicted by the PodsReadyTimeout or been deactivated.
+		return ctrl.Result{}, nil
+	}
 	countingTowardsTimeout, recheckAfter := r.admittedNotReadyWorkload(wl, realClock)
 	if !countingTowardsTimeout {
 		return ctrl.Result{}, nil
