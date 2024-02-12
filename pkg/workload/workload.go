@@ -375,9 +375,7 @@ func admissionPatch(w *kueue.Workload) *kueue.Workload {
 	wlCopy := BaseSSAWorkload(w)
 
 	wlCopy.Status.Admission = w.Status.Admission.DeepCopy()
-	if HasRequeueState(w) {
-		wlCopy.Status.RequeueState = w.Status.RequeueState.DeepCopy()
-	}
+	wlCopy.Status.RequeueState = w.Status.RequeueState.DeepCopy()
 	for _, conditionName := range admissionManagedConditions {
 		if existing := apimeta.FindStatusCondition(w.Status.Conditions, conditionName); existing != nil {
 			wlCopy.Status.Conditions = append(wlCopy.Status.Conditions, *existing.DeepCopy())
