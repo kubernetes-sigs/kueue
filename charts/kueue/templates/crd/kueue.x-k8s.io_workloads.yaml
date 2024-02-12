@@ -8089,22 +8089,23 @@ spec:
                 - name
                 x-kubernetes-list-type: map
               requeueState:
-                description: requeueState holds the re-queue state when a workload
-                  meets Eviction with PodsReadyTimeout reason.
+                description: |-
+                  requeueState holds the re-queue state
+                  when a workload meets Eviction with PodsReadyTimeout reason.
                 properties:
                   count:
-                    description: count records the number of times a workload has
-                      been re-queued When a deactivated (`.spec.activate`=`false`)
-                      workload is reactivated (`.spec.activate`=`true`), this count
-                      would be reset to null.
+                    description: |-
+                      count records the number of times a workload has been re-queued
+                      When a deactivated (`.spec.activate`=`false`) workload is reactivated (`.spec.activate`=`true`),
+                      this count would be reset to null.
                     format: int32
                     minimum: 0
                     type: integer
                   requeueAt:
-                    description: requeueAt records the time when a workload will be
-                      re-queued. When a deactivated (`.spec.activate`=`false`) workload
-                      is reactivated (`.spec.activate`=`true`), this time would be
-                      reset to null.
+                    description: |-
+                      requeueAt records the time when a workload will be re-queued.
+                      When a deactivated (`.spec.activate`=`false`) workload is reactivated (`.spec.activate`=`true`),
+                      this time would be reset to null.
                     format: date-time
                     type: string
                 type: object

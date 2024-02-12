@@ -146,12 +146,6 @@ type RequeuingStrategy struct {
 	// Every backoff duration is about "1.41284738^(n-1)+Rand" where the "n" represents the "workloadStatus.requeueState.count",
 	// and the "Rand" represents the random jitter. During this time, the workload is taken as an inadmissible and
 	// other workloads will have a chance to be admitted.
-	// Considering the ".waitForPodsReady.timeout",
-	// this indicates that an evicted workload with PodsReadyTimeout reason is continued re-queuing for
-	// the "t(n+1) + SUM[k=1,n](1.41284738^(k-1) + Rand)" seconds where the "t" represents "waitForPodsReady.timeout".
-	// Given that the "backoffLimitCount" equals "30" and the "waitForPodsReady.timeout" equals "300" (default),
-	// the result equals 24 hours (+Rand seconds).
-	//
 	// For example, when the "waitForPodsReady.timeout" is the default, the workload deactivation time is as follows:
 	//   {backoffLimitCount, workloadDeactivationSeconds}
 	//     ~= {1, 601}, {2, 902}, ...,{5, 1811}, ...,{10, 3374}, ...,{20, 8730}, ...,{30, 86400(=24 hours)}, ...
