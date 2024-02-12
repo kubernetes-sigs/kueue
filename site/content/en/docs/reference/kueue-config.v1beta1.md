@@ -598,11 +598,11 @@ Defaults to 5.</p>
 <a href="#RequeuingTimestamp"><code>RequeuingTimestamp</code></a>
 </td>
 <td>
-   <p>Timestamp defines the timestamp used for requeuing a Workload
+   <p>Timestamp defines the timestamp used for re-queuing a Workload
 that was evicted due to Pod readiness. The possible values are:</p>
 <ul>
-<li><code>Eviction</code> (default): indicates from Workload .metadata.creationTimestamp.</li>
-<li><code>Creation</code>: indicates from Workload .status.conditions.</li>
+<li><code>Eviction</code> (default) indicates from Workload <code>Evicted</code> condition with <code>PodsReadyTimeout</code> reason.</li>
+<li><code>Creation</code> indicates from Workload .metadata.creationTimestamp.</li>
 </ul>
 </td>
 </tr>
@@ -610,15 +610,20 @@ that was evicted due to Pod readiness. The possible values are:</p>
 <code>int32</code>
 </td>
 <td>
-   <p>BackoffLimitCount defines the maximum number of requeuing retries.
-When the number is reached, the workload is deactivated (<code>.spec.activate</code>=<code>false</code>).</p>
-<p>Every backoff duration is calculated by &quot;1.41284738^(n-1)+Rand&quot;
-where the &quot;n&quot; represents the &quot;workloadStatus.requeueState.count&quot;, and the &quot;Rand&quot; represents the random jitter.
-Considering the &quot;.waitForPodsReady.timeout&quot; (default: 300 seconds),
+   <p>BackoffLimitCount defines the maximum number of re-queuing retries.
+Once the number is reached, the workload is deactivated (<code>.spec.activate</code>=<code>false</code>).
+When it is null, the workloads will repeatedly and endless re-queueing.</p>
+<p>Every backoff duration is about &quot;1.41284738^(n-1)+Rand&quot; where the &quot;n&quot; represents the &quot;workloadStatus.requeueState.count&quot;,
+and the &quot;Rand&quot; represents the random jitter. During this time, the workload is taken as an inadmissible and
+other workloads will have a chance to be admitted.
+Considering the &quot;.waitForPodsReady.timeout&quot;,
 this indicates that an evicted workload with PodsReadyTimeout reason is continued re-queuing for
-the &quot;t(n+1) + Rand + SUM[k=1,n]1.41284738^(k-1)&quot; seconds where the &quot;t&quot; represents &quot;waitForPodsReady.timeout&quot;.
+the &quot;t(n+1) + SUM[k=1,n](1.41284738^(k-1) + Rand)&quot; seconds where the &quot;t&quot; represents &quot;waitForPodsReady.timeout&quot;.
 Given that the &quot;backoffLimitCount&quot; equals &quot;30&quot; and the &quot;waitForPodsReady.timeout&quot; equals &quot;300&quot; (default),
 the result equals 24 hours (+Rand seconds).</p>
+<p>For example, when the &quot;waitForPodsReady.timeout&quot; is the default, the workload deactivation time is as follows:
+{backoffLimitCount, workloadDeactivationSeconds}
+~= {1, 601}, {2, 902}, ...,{5, 1811}, ...,{10, 3374}, ...,{20, 8730}, ...,{30, 86400(=24 hours)}, ...</p>
 <p>Defaults to null.</p>
 </td>
 </tr>

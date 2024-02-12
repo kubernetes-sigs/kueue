@@ -372,11 +372,12 @@ func (r *WorkloadReconciler) triggerDeactivationOrBackoffRequeue(ctx context.Con
 			"Deactivated Workload %q by reached re-queue backoffLimitCount", klog.KObj(wl))
 		return true, r.client.Update(ctx, wl)
 	}
-	// Every backoff duration is calculated by "1.41284738^(n-1)+Rand"
-	// where the "n" represents the "workloadStatus.requeueState.count", and the "Rand" represents the random jitter.
-	// Considering the ".waitForPodsReady.timeout" (default: 300 seconds),
+	// Every backoff duration is about "1.41284738^(n-1)+Rand" where the "n" represents the "requeuingCount",
+	// and the "Rand" represents the random jitter. During this time, the workload is taken as an inadmissible and
+	// other workloads will have a chance to be admitted.
+	// Considering the ".waitForPodsReady.timeout",
 	// this indicates that an evicted workload with PodsReadyTimeout reason is continued re-queuing for
-	// the "t(n+1) + Rand + SUM[k=1,n]1.41284738^(k-1)" seconds where the "t" represents "waitForPodsReady.timeout".
+	// the "t(n+1) + SUM[k=1,n](1.41284738^(k-1) + Rand)" seconds where the "t" represents "waitForPodsReady.timeout".
 	// Given that the "backoffLimitCount" equals "30" and the "waitForPodsReady.timeout" equals "300" (default),
 	// the result equals 24 hours (+Rand seconds).
 	backoff := &wait.Backoff{
