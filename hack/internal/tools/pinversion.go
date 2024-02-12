@@ -19,7 +19,7 @@ package tools
 // Keep a reference to the code generators so they are not removed by go mod tidy
 import (
 	_ "k8s.io/code-generator"
-	// since verify will error o referencing a cmd package
+	// since verify will error when referencing a cmd package
 	// we need to reference individual dependencies used by it
 	_ "sigs.k8s.io/controller-tools/pkg/crd"
 	_ "sigs.k8s.io/controller-tools/pkg/genall/help/pretty"
