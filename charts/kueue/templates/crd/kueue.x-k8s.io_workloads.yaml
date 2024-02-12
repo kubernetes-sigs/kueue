@@ -8094,16 +8094,17 @@ spec:
                 properties:
                   count:
                     description: count records the number of times a workload has
-                      been requeued When a deactivated (`.spec.activate`=`false`)
+                      been re-queued When a deactivated (`.spec.activate`=`false`)
                       workload is reactivated (`.spec.activate`=`true`), this count
                       would be reset to null.
                     format: int32
                     minimum: 0
                     type: integer
                   requeueAt:
-                    description: requeueAt records the time when a workload is requeued.
-                      When a deactivated (`.spec.activate`=`false`) workload is reactivated
-                      (`.spec.activate`=`true`), this time would be reset to null.
+                    description: requeueAt records the time when a workload will be
+                      re-queued. When a deactivated (`.spec.activate`=`false`) workload
+                      is reactivated (`.spec.activate`=`true`), this time would be
+                      reset to null.
                     format: date-time
                     type: string
                 type: object

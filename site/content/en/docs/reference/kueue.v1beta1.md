@@ -1425,7 +1425,7 @@ the workload is considered ready.</p>
 <code>int32</code>
 </td>
 <td>
-   <p>count records the number of times a workload has been requeued
+   <p>count records the number of times a workload has been re-queued
 When a deactivated (<code>.spec.activate</code>=<code>false</code>) workload is reactivated (<code>.spec.activate</code>=<code>true</code>),
 this count would be reset to null.</p>
 </td>
@@ -1434,7 +1434,7 @@ this count would be reset to null.</p>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Time</code></a>
 </td>
 <td>
-   <p>requeueAt records the time when a workload is requeued.
+   <p>requeueAt records the time when a workload will be re-queued.
 When a deactivated (<code>.spec.activate</code>=<code>false</code>) workload is reactivated (<code>.spec.activate</code>=<code>true</code>),
 this time would be reset to null.</p>
 </td>
