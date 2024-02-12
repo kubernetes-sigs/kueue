@@ -3178,3 +3178,126 @@ func TestGetWorkloadNameForPod(t *testing.T) {
 		t.Errorf("Expected different workload name\n want: %s\n got: %s", wantWlName, wlName)
 	}
 }
+
+func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.T) {
+	now := time.Now()
+	connRefusedErrMock := fmt.Errorf("connection refused: %w", syscall.ECONNREFUSED)
+	ctx, _ := utiltesting.ContextWithLog(t)
+	var triggerUpdateErr, triggerDeleteErr bool
+
+	basePodWrapper := testingpod.MakePod("pod", "ns").
+		UID("test-uid").
+		Queue("user-queue").
+		Request(corev1.ResourceCPU, "1").
+		Image("", nil)
+
+	pods := []corev1.Pod{
+		*basePodWrapper.
+			Clone().
+			Label("kueue.x-k8s.io/managed", "true").
+			KueueFinalizer().
+			Group("test-group").
+			GroupTotalCount("2").
+			CreationTimestamp(now).
+			Obj(),
+		*basePodWrapper.
+			Clone().
+			Name("pod2").
+			Label("kueue.x-k8s.io/managed", "true").
+			KueueFinalizer().
+			Group("test-group").
+			CreationTimestamp(now.Add(time.Minute)).
+			GroupTotalCount("2").
+			Obj(),
+		*basePodWrapper.
+			Clone().
+			Name("excessPod").
+			Label("kueue.x-k8s.io/managed", "true").
+			KueueFinalizer().
+			Group("test-group").
+			CreationTimestamp(now.Add(time.Minute * 2)).
+			GroupTotalCount("2").
+			Obj(),
+	}
+
+	wl := *utiltesting.MakeWorkload("test-group", "ns").
+		PodSets(
+			*utiltesting.MakePodSet("60bc72d3", 2).
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+		).
+		Queue("user-queue").
+		OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+		OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+		OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "excessPod", "test-uid").
+		ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(1).Obj()).
+		Admitted(true).
+		Obj()
+
+	clientBuilder := utiltesting.NewClientBuilder()
+	if err := SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
+		t.Fatalf("Could not setup indexes: %v", err)
+	}
+
+	for i := range pods {
+		clientBuilder = clientBuilder.WithObjects(&pods[i])
+	}
+
+	kcBuilder := clientBuilder.
+		WithStatusSubresource(&wl).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				if triggerUpdateErr {
+					return connRefusedErrMock
+				}
+				return client.Update(ctx, obj, opts...)
+			},
+			Delete: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+				if triggerDeleteErr {
+					return connRefusedErrMock
+				}
+				return client.Delete(ctx, obj, opts...)
+			},
+		})
+
+	kClient := kcBuilder.Build()
+	if err := kClient.Create(ctx, &wl); err != nil {
+		t.Fatalf("Could not create workload: %v", err)
+	}
+
+	recorder := record.NewBroadcaster().NewRecorder(kClient.Scheme(), corev1.EventSource{Component: "test"})
+	reconciler := NewReconciler(kClient, recorder)
+	reconcileRequest := reconcileRequestForPod(&pods[0])
+
+	// Reconcile for the first time. It'll try  to remove the finalizers but fail
+	triggerUpdateErr = true
+	_, err := reconciler.Reconcile(ctx, reconcileRequest)
+	if diff := cmp.Diff(connRefusedErrMock, err, cmpopts.EquateErrors()); diff != "" {
+		t.Errorf("Expected reconcile error (-want,+got):\n%s", diff)
+	}
+
+	// Reconcile for the second time to remove the finalizers. Then it should attempt to delete the pod but fail
+	triggerUpdateErr = false
+	triggerDeleteErr = true
+	_, err = reconciler.Reconcile(ctx, reconcileRequest)
+	if diff := cmp.Diff(connRefusedErrMock, err, cmpopts.EquateErrors()); diff != "" {
+		t.Errorf("Expected reconcile error (-want,+got):\n%s", diff)
+	}
+
+	// Reconcile for the third time and delete the pod
+	triggerDeleteErr = false
+	_, err = reconciler.Reconcile(ctx, reconcileRequest)
+	if err != nil {
+		t.Errorf("Got unexpected error while running reconcile:\n%v", err)
+	}
+
+	// Verify that the pod has been indeed deleted
+	var gotPod corev1.Pod
+	podKey := client.ObjectKeyFromObject(&pods[2])
+	err = kClient.Get(ctx, podKey, &gotPod)
+	if err == nil {
+		t.Fatalf("Expected pod %q to be deleted", podKey.String())
+	} else if !apierrors.IsNotFound(err) {
+		t.Fatalf("Got unexpected error %v when checking if pod %q was deleted", err, podKey.String())
+	}
+}
