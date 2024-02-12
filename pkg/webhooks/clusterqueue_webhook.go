@@ -33,13 +33,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 )
 
 const (
-	isNegativeErrorMsg   string = `must be greater than or equal to 0`
 	limitIsEmptyErrorMsg string = `must be nil when cohort is empty`
 	lendingLimitErrorMsg string = `must be less than or equal to the nominalQuota`
+)
+
+const (
+	borrowingLimitErrorMsg string = `must be nil when cohort is empty`
 )
 
 type ClusterQueueWebhook struct{}
@@ -213,7 +217,7 @@ func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []co
 func validateResourceQuantity(value resource.Quantity, fldPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 	if value.Cmp(resource.Quantity{}) < 0 {
-		allErrs = append(allErrs, field.Invalid(fldPath, value.String(), isNegativeErrorMsg))
+		allErrs = append(allErrs, field.Invalid(fldPath, value.String(), constants.IsNegativeErrorMsg))
 	}
 	return allErrs
 }
