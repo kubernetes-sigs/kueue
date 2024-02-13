@@ -6,18 +6,47 @@ description: >
   An admission check controller providing the manager side MultiKueue functionality.
 ---
 
-The MultiKueue Admission Check Controller is an Admission Check Controller designed to provide the manager side functionality for [MultiKueue](https://github.com/kubernetes-sigs/kueue/blob/main/keps/693-multikueue/README.md). 
+The MultiKueue Admission Check Controller is an Admission Check Controller designed to provide the manager side functionality for multi cluster job dispatching.
 
-The controller is part of kueue. You can enable it by setting the `MultiKueue` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
+You can enable it by setting the `MultiKueue` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
 
 {{% alert title="Warning" color="warning" %}}
 MultiKueue is currently an alpha feature and disabled by default.
 {{% /alert %}}
 
-The controller's main attributes are:
+## MultiKueue Overview
+
+A MultiKueue setup is composed of a manager cluster and at least one worker cluster.
+
+### Cluster Roles
+#### Manager Cluster
+
+The manager's main attributes are:
 - Establish and maintain the connection with the worker clusters.
-- Maintain the `Active` status of the Admission Checks controlled by `multikueue`
 - Create and monitor remote objects (workloads or jobs) while keeping the local ones in sync.
+
+The MultiKueue Admission Check Controller runs in the manager cluster and will also maintain the `Active` status of the Admission Checks controlled by `multikueue`.
+
+The ResourceQuota set on a ClusterQueue using MultiKueue controls how many jobs are subject for dispatching at a given point in time, ideally it should be less then the total quotas in the worker clusters since otherwise will cause the monitoring of workloads that don't have a chance to be admitted. 
+
+#### Worker Cluster
+
+The worker cluster acts like an usual standalone Kueue cluster in which the Kueue the workloads and jobs are managed by the MultiKueue Admission Check Controller running in the manager cluster.
+
+### Job Flow
+
+If the ClusterQueue a job is assigned to in the manager cluster uses a MultiKueue AdmissionCheck it will be the subject of dispatching, as a result:
+
+- When it's workload gets a QuotaReservation in the manager, a copy of that workload will be created in all the configured worker clusters.
+- When one of the remote workloads is admitted in a worker cluster:
+  - All the other remote workloads are removed.
+  - A copy of the job is created in the selected worker cluster having the remote workload set as its prebuilt-workload.
+  - The AdmissionCheckState of the local workload is set as `Ready` resulting in its Admission in the manager cluster.
+- The remote objects , workload and job, are monitored and the changes in their status are synced back in the manager objects.
+- When the remote workload is marked as `Finished`:
+  - A last sync is done for the objects status.
+  - The remote objects are removed from the worker cluster.
+
 
 ## Supported jobs
 ### batch/Job
@@ -39,6 +68,12 @@ An AdmissionCheck controlled by `multikueue` should use a `kueue.x-k8s.io/v1alph
 ## Example
 
 ### Setup
+
+#### Worker Cluster
+
+When a workload is dispatched from the manager cluster to a worker cluster it is expected that its namespace and LocalQueue to be already created, hence the worker cluster configuration should mirror the one of the manager cluster in terms of namespaces and LocalQueues.
+
+#### Manager Cluster
 
 {{< include "/examples/multikueue/multikueue-setup.yaml" "yaml" >}}
 
