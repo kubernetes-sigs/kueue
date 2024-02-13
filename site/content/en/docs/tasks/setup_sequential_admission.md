@@ -43,16 +43,20 @@ fields:
     waitForPodsReady:
       enable: true
       timeout: 10m
+      requeuingStrategy:
+        timestamp: Eviction | Creation
+        backoffLimitCount: 5
 ```
 
-> **Note**
-Note that, if you update an existing Kueue installation you may need to restart the
+{{% alert title="Note" color="primary" %}}
+If you update an existing Kueue installation you may need to restart the
 `kueue-controller-manager` pod in order for Kueue to pick up the updated
 configuration. In that case run:
 
 ```shell
 kubectl delete pods --all -n kueue-system
 ```
+{{% /alert %}}
 
 The timeout (`waitForPodsReady.timeout`) is an optional parameter, defaulting to
 5 minutes.
@@ -61,6 +65,28 @@ When the timeout expires for an admitted Workload, and the workload's
 pods are not all scheduled yet (i.e., the Workload condition remains
 `PodsReady=False`), then the Workload's admission is
 cancelled, the corresponding job is suspended and the Workload is requeued.
+
+### ReQueuing Strategy
+{{% alert title="Warning" color="warning" %}}
+_Available in Kueue v0.6.0 and later_
+{{% /alert %}}
+
+The requeuingStrategy (`waitForPodsReady.requeuingStrategy`) is optional parameters, 
+timestamp (`waitForPodsReady.requeuingStrategt.timestamp`) is defaulting to `Eviction`, and
+backoffLimitCount (`waitForPodsReady.requeuingStrategt.backoffLimitCount`) is defaulting to null.
+
+When you specify the timestamp, a Workload uses the below time to order the Workloads in the queue:
+
+- `Eviction`: The `lastTransitionTime` of the `Evicted=true` condition with `PodsReadyTimeout` reason in a Workload.
+- `Creation`: The creationTimestamp in a Workload.
+
+If you want to re-queue a Workload evicted by the `PodsReadyTimeout` to head of the queue,
+you can set the `Creation` to the timestamp. 
+
+A Workload evicted by the `PodsReadyTimeout` reason is re-queued until the count is reached to backoffLimitCount.
+If you don't specify any integer for backoffLimitCount, 
+a Workload is repeatedly and endlessly re-queued to the queue based on timestamp.
+After the count is reached, a Workload is [deactivated](docs/concepts/workload/#active).
 
 ## Example
 

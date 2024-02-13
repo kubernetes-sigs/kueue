@@ -128,6 +128,24 @@ status:
 ```
 The `count` can only increase while the workload holds a Quota Reservation.
 
+## Exponential Backoff ReQueueing for Sequential Admission with Ready Pods
+
+When you use the [Sequential Admission with Ready Pods](/docs/tasks/setup_sequential_admission) feature,
+these states allow you to know the following:
+
+1. The numbers of times a Workload has already been backoff re-queued by Eviction with PodsReadyTimeout reason
+2. The time when a Workload will be re-queued the next time
+
+```yaml
+status:
+  requeueState:
+    count: 5
+    requeueAt: 2024-02-11T04:51:03Z
+```
+
+When a Workload deactivated by Sequential Admission with Ready Pods is re-activated, 
+the requeueState (`.status.requeueState`) will be reset to null.
+
 ## What's next
 
 - Learn about [workload priority class](/docs/concepts/workload_priority_class).
