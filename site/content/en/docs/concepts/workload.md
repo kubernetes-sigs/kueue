@@ -128,13 +128,18 @@ status:
 ```
 The `count` can only increase while the workload holds a Quota Reservation.
 
-## Exponential Backoff ReQueueing for Sequential Admission with Ready Pods
+## All or Nothing semantics for Job Resource Assignment
 
-When you use the [Sequential Admission with Ready Pods](/docs/tasks/setup_sequential_admission) feature,
-these states allow you to know the following:
+This mechanism allows a Job to be admitted only if the entire requested resource is available. 
+Please refer to the [Sequential Admission with Ready Pods](/docs/tasks/setup_sequential_admission) for more details.
 
-1. The numbers of times a Workload has already been backoff re-queued by Eviction with PodsReadyTimeout reason
-2. The time when a Workload will be re-queued the next time
+### Exponential Backoff Requeueing
+
+Once evictions with `PodsReadyTimeout` reasons occur, a Workload will be re-queued with backoff. 
+The Workload status allows you to know the following:
+
+- `.status.requeueState.count` indicates the numbers of times a Workload has already been backoff re-queued by Eviction with PodsReadyTimeout reason
+- `.status.requeueState.requeueAt` indicates the time when a Workload will be re-queued the next time
 
 ```yaml
 status:
