@@ -2,9 +2,9 @@
 apiVersion: apiregistration.k8s.io/v1
 kind: APIService
 metadata:
-  name: v1alpha1.visibility.kueue.x-k8s.io
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
+  name: v1alpha1.visibility.kueue.x-k8s.io
 spec:
   group: visibility.kueue.x-k8s.io
   groupPriorityMinimum: 100

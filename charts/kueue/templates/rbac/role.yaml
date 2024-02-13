@@ -1,9 +1,9 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: '{{ include "kueue.fullname" . }}-manager-role'
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
+  name: '{{ include "kueue.fullname" . }}-manager-role'
 rules:
   - apiGroups:
       - ""

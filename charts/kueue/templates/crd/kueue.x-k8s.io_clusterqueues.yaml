@@ -2,13 +2,13 @@
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
+  labels:
+  {{- include "kueue.labels" . | nindent 4 }}
   annotations:
     {{- if .Values.enableCertManager }}
     cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert
     {{- end }}
     controller-gen.kubebuilder.io/version: v0.14.0
-  labels:
-  {{- include "kueue.labels" . | nindent 4 }}
   name: clusterqueues.kueue.x-k8s.io
 spec:
   conversion:

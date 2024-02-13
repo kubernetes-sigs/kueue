@@ -82,6 +82,10 @@ INTEGRATION_NPROCS ?= 4
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
+# Setting SED allows macos users to install GNU sed and use the latter
+# instead of the default BSD sed.
+SED ?= /usr/bin/sed
+
 version_pkg = sigs.k8s.io/kueue/pkg/version
 LD_FLAGS += -X '$(version_pkg).GitVersion=$(GIT_TAG)'
 LD_FLAGS += -X '$(version_pkg).GitCommit=$(shell git rev-parse HEAD)'
@@ -125,7 +129,7 @@ manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and Cust
 
 .PHONY: update-helm
 update-helm: manifests yq
-	./hack/update-helm.sh
+	SED=${SED} ./hack/update-helm.sh
 
 .PHONY: generate
 generate: gomod-download controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations and client-go libraries.

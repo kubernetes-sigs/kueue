@@ -2,9 +2,9 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: '{{ include "kueue.fullname" . }}-batch-user-role'
   labels:
   {{- include "kueue.labels" . | nindent 4 }}
+  name: '{{ include "kueue.fullname" . }}-batch-user-role'
 aggregationRule:
   clusterRoleSelectors:
     - matchLabels:
