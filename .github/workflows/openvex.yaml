@@ -24,9 +24,9 @@ jobs:
         name: Run vexctl
         with:
           product: pkg:golang/sigs.k8s.io/kueue@${{ env.TAG }}
-          file: /tmp/kueve.vex.json
+          file: /tmp/kueue.vex.json
       - name: Upload openvex data
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload $TAG /tmp/kueve.vex.json
+          gh release upload $TAG /tmp/kueue.vex.json
