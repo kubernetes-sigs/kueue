@@ -30,13 +30,16 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -78,7 +81,7 @@ type ClusterQueueReconcilerOptions struct {
 	QueueVisibilityClusterQueuesMaxCount int32
 }
 
-// Option configures the reconciler.
+// ClusterQueueReconcilerOption configures the reconciler.
 type ClusterQueueReconcilerOption func(*ClusterQueueReconcilerOptions)
 
 func WithWatchers(watchers ...ClusterQueueUpdateWatcher) ClusterQueueReconcilerOption {
@@ -138,11 +141,11 @@ func NewClusterQueueReconciler(
 	}
 }
 
-//+kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
-//+kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=clusterqueues/finalizers,verbs=update
 
 func (r *ClusterQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var cqObj kueue.ClusterQueue
@@ -208,7 +211,7 @@ func (r *ClusterQueueReconciler) notifyWatchers(oldCQ, newCQ *kueue.ClusterQueue
 	}
 }
 
-// Updates are ignored since they have no impact on the ClusterQueue's readiness.
+// NotifyResourceFlavorUpdate ignores updates since they have no impact on the ClusterQueue's readiness.
 func (r *ClusterQueueReconciler) NotifyResourceFlavorUpdate(oldRF, newRF *kueue.ResourceFlavor) {
 	// if oldRF is nil, it's a create event.
 	if oldRF == nil {
@@ -327,7 +330,8 @@ func recordResourceMetrics(cq *kueue.ClusterQueue) {
 				r := &fq.Resources[ri]
 				nominal := resource.QuantityToFloat(&r.NominalQuota)
 				borrow := resource.QuantityToFloat(r.BorrowingLimit)
-				metrics.ReportClusterQueueQuotas(cq.Spec.Cohort, cq.Name, string(fq.Name), string(r.Name), nominal, borrow)
+				lend := resource.QuantityToFloat(r.LendingLimit)
+				metrics.ReportClusterQueueQuotas(cq.Spec.Cohort, cq.Name, string(fq.Name), string(r.Name), nominal, borrow, lend)
 			}
 		}
 	}
@@ -373,7 +377,7 @@ func clearOldResourceQuotas(oldCq, newCq *kueue.ClusterQueue) {
 			if newFlavor, found := newFlavors[flavor.Name]; !found || len(newFlavor.Resources) == 0 {
 				metrics.ClearClusterQueueResourceQuotas(oldCq.Name, string(flavor.Name), "")
 			} else {
-				//check all resources
+				// check all resources
 				newResources := slices.ToRefMap(newFlavor.Resources, func(r *kueue.ResourceQuota) corev1.ResourceName { return r.Name })
 				for ri := range flavor.Resources {
 					rname := flavor.Resources[ri].Name
@@ -594,7 +598,7 @@ func (h *cqSnapshotHandler) Generic(_ context.Context, e event.GenericEvent, q w
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) error {
 	wHandler := cqWorkloadHandler{
 		qManager: r.qManager,
 	}
@@ -613,13 +617,14 @@ func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.ClusterQueue{}).
+		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
 		Watches(&corev1.Namespace{}, &nsHandler).
 		WatchesRawSource(&source.Channel{Source: r.wlUpdateCh}, &wHandler).
 		WatchesRawSource(&source.Channel{Source: r.rfUpdateCh}, &rfHandler).
 		WatchesRawSource(&source.Channel{Source: r.acUpdateCh}, &acHandler).
 		WatchesRawSource(&source.Channel{Source: r.snapUpdateCh}, &snapHandler).
 		WithEventFilter(r).
-		Complete(r)
+		Complete(WithLeadingManager(mgr, r, &kueue.ClusterQueue{}, cfg))
 }
 
 func (r *ClusterQueueReconciler) updateCqStatusIfChanged(

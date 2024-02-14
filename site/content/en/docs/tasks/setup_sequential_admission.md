@@ -43,24 +43,55 @@ fields:
     waitForPodsReady:
       enable: true
       timeout: 10m
+      blockAdmission: true
+      requeuingStrategy:
+        timestamp: Eviction | Creation
+        backoffLimitCount: 5
 ```
 
-> **Note**
-Note that, if you update an existing Kueue installation you may need to restart the
+{{% alert title="Note" color="primary" %}}
+If you update an existing Kueue installation you may need to restart the
 `kueue-controller-manager` pod in order for Kueue to pick up the updated
 configuration. In that case run:
 
 ```shell
 kubectl delete pods --all -n kueue-system
 ```
+{{% /alert %}}
 
-The timeout (`waitForPodsReady.timeout`) is an optional parameter, defaulting to
+The `timeout` (`waitForPodsReady.timeout`) is an optional parameter, defaulting to
 5 minutes.
 
-When the timeout expires for an admitted Workload, and the workload's
+When the `timeout` expires for an admitted Workload, and the workload's
 pods are not all scheduled yet (i.e., the Workload condition remains
 `PodsReady=False`), then the Workload's admission is
-cancelled, the corresponding job is suspended and the Workload is requeued.
+cancelled, the corresponding job is suspended and the Workload is re-queued.
+
+The `blockAdmission` (`waitForPodsReady.blockAdmission`) is an optional parameter, defaulting to `false`.
+When the `blockAdmission` is set to `true` regardless of the `enable` (`waitForPodsReady.enable`) is set to `false`,
+the `enable` is overridden to `true`.
+When the `blockAdmission` is set to `true`, admitted Workload with not ready pods block admission for other Workloads.
+
+### Requeuing Strategy
+{{% alert title="Warning" color="warning" %}}
+_Available in Kueue v0.6.0 and later_
+{{% /alert %}}
+
+The `requeuingStrategy` (`waitForPodsReady.requeuingStrategy`) contains optional parameters: 
+`timestamp` (`waitForPodsReady.requeuingStrategt.timestamp`) and `backoffLimitCount` (`waitForPodsReady.requeuingStrategt.backoffLimitCount`).
+
+The `timestamp` field defines which timestamp Kueue uses to order the Workloads in the queue:
+
+- `Eviction` (default): The `lastTransitionTime` of the `Evicted=true` condition with `PodsReadyTimeout` reason in a Workload.
+- `Creation`: The creationTimestamp in a Workload.
+
+If you want to re-queue a Workload evicted by the `PodsReadyTimeout` back to its original place in the queue,
+you should set the timestamp to the `Creation`.
+
+Kueue will re-queue a Workload evicted by the `PodsReadyTimeout` reason until the number of re-queues reaches `backoffLimitCount`.
+If you don't specify any value for `backoffLimitCount`,
+a Workload is repeatedly and endlessly re-queued to the queue based on the `timestamp`.
+Once the number of re-queues reaches the limit, Kueue [deactivates the Workload](docs/concepts/workload/#active).
 
 ## Example
 

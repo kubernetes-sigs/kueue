@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -41,33 +41,32 @@ type ProvisioningRequestConfigInformer interface {
 type provisioningRequestConfigInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
 	tweakListOptions internalinterfaces.TweakListOptionsFunc
-	namespace        string
 }
 
 // NewProvisioningRequestConfigInformer constructs a new informer for ProvisioningRequestConfig type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewProvisioningRequestConfigInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredProvisioningRequestConfigInformer(client, namespace, resyncPeriod, indexers, nil)
+func NewProvisioningRequestConfigInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
+	return NewFilteredProvisioningRequestConfigInformer(client, resyncPeriod, indexers, nil)
 }
 
 // NewFilteredProvisioningRequestConfigInformer constructs a new informer for ProvisioningRequestConfig type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewFilteredProvisioningRequestConfigInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
+func NewFilteredProvisioningRequestConfigInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
 		&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.KueueV1beta1().ProvisioningRequestConfigs(namespace).List(context.TODO(), options)
+				return client.KueueV1beta1().ProvisioningRequestConfigs().List(context.TODO(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.KueueV1beta1().ProvisioningRequestConfigs(namespace).Watch(context.TODO(), options)
+				return client.KueueV1beta1().ProvisioningRequestConfigs().Watch(context.TODO(), options)
 			},
 		},
 		&kueuev1beta1.ProvisioningRequestConfig{},
@@ -77,7 +76,7 @@ func NewFilteredProvisioningRequestConfigInformer(client versioned.Interface, na
 }
 
 func (f *provisioningRequestConfigInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredProvisioningRequestConfigInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+	return NewFilteredProvisioningRequestConfigInformer(client, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
 }
 
 func (f *provisioningRequestConfigInformer) Informer() cache.SharedIndexInformer {

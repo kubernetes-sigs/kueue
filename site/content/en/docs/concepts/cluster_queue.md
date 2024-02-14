@@ -195,6 +195,10 @@ semantics:
 - For each pod set resource in a Workload, a ClusterQueue can only borrow quota
   for one flavor.
 
+**Note:** Whithin a Cohort, Kueue prioritizes scheduling workloads that will fit under `nominalQuota`.
+By default, if multiple workloads require `borrowing`, Kueue will try to schedule workloads with higher [priority](/docs/concepts/workload#priority) first.
+If the feature gate `PrioritySortingWithinCohort=false` is set, Kueue will try to schedule workloads with the earliest `.metadata.creationTimestamp`.
+
 You can influence some semantics of flavor selection and borrowing
 by setting a [`flavorFungibility`](/docs/concepts/cluster_queue#flavorfungibility) in ClusterQueue.
 
@@ -320,6 +324,9 @@ metadata:
 spec:
   preemption:
     reclaimWithinCohort: Any
+    borrowWithinCohort:
+      policy: LowerPriority
+      maxPriorityThreshold: 100
     withinClusterQueue: LowerPriority
 ```
 
@@ -335,6 +342,16 @@ The fields above do the following:
   - `Any`: if the pending Workload fits within the nominal quota of its
     ClusterQueue, preempt any Workload in the cohort, irrespective of
     priority.
+
+- `borrowWithinCohort` determines whether a pending Workload can preempt
+  Workloads from other ClusterQueues if the workload requires borrowing. This
+  field requires to specify `policy` sub-field with possible values:
+  - `Never` (default): do not preempt Workloads in the cohort if borrowing is required.
+  - `LowerPriority`: if the pending Workload requires borrowing, only preempt
+    Workloads in the cohort that have lower priority than the pending Workload.
+  This preemption policy is only supported when `reclaimWithinCohort` is enabled (different than `Never`).
+  Additionally, only workloads up to the priority indicated by
+  `maxPriorityThreshold` can be preempted in that scenario.
 
 - `withinClusterQueue` determines whether a pending Workload that doesn't fit
   within the nominal quota for its ClusterQueue, can preempt active Workloads in
@@ -387,6 +404,24 @@ By default, the incoming workload stops trying the next flavor if the workload c
 And Kueue triggers preemption only after Kueue determines that the remaining ResourceFlavors can't fit the workload.
 
 Note that, whenever possible and when the configured policy allows it, Kueue avoids preemptions if it can fit a Workload by borrowing.
+
+## StopPolicy
+
+StopPolicy allows a cluster administrator to temporary stop the admission of workloads within a ClusterQueue by setting its value in the [spec](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-ClusterQueueSpec) like:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: "team-a-cq"
+spec:
+  stopPolicy: Hold
+```
+
+The example above will stop the admission of new workloads in the ClusterQueue while allowing the already admitted workloads to finish.
+The `HoldAndDrain` will have a similar effect but, in addition, it will trigger the eviction of the admitted workloads.
+
+If set to `None` or `spec.stopPolicy` is removed the ClusterQueue will to normal admission behavior.
 
 ## What's next?
 

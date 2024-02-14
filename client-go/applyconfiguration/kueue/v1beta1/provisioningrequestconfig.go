@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -33,10 +33,9 @@ type ProvisioningRequestConfigApplyConfiguration struct {
 
 // ProvisioningRequestConfig constructs an declarative configuration of the ProvisioningRequestConfig type for use with
 // apply.
-func ProvisioningRequestConfig(name, namespace string) *ProvisioningRequestConfigApplyConfiguration {
+func ProvisioningRequestConfig(name string) *ProvisioningRequestConfigApplyConfiguration {
 	b := &ProvisioningRequestConfigApplyConfiguration{}
 	b.WithName(name)
-	b.WithNamespace(namespace)
 	b.WithKind("ProvisioningRequestConfig")
 	b.WithAPIVersion("kueue.x-k8s.io/v1beta1")
 	return b

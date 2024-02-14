@@ -9,6 +9,10 @@ updates:
     labels:
       - "ok-to-test"
       - "release-note-none"
+    groups:
+      kubernetes:
+        patterns:
+          - "k8s.io/*"
     ignore:
       # Ignore major and minor versions for dependencies updates
       # Allow patches and security updates.

@@ -51,17 +51,18 @@ func init() {
 	}))
 }
 
-//+kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
-//+kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
-//+kubebuilder:rbac:groups=jobset.x-k8s.io,resources=jobsets,verbs=get;list;watch;update;patch
-//+kubebuilder:rbac:groups=jobset.x-k8s.io,resources=jobsets/status,verbs=get;update
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
+// +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
+// +kubebuilder:rbac:groups=jobset.x-k8s.io,resources=jobsets,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=jobset.x-k8s.io,resources=jobsets/status,verbs=get;update
+// +kubebuilder:rbac:groups=jobset.x-k8s.io,resources=jobsets/finalizers,verbs=get;update
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 
-var NewReconciler = jobframework.NewGenericReconciler(func() jobframework.GenericJob { return &JobSet{} }, nil)
+var NewReconciler = jobframework.NewGenericReconcilerFactory(func() jobframework.GenericJob { return &JobSet{} })
 
 func isJobSet(owner *metav1.OwnerReference) bool {
 	return owner.Kind == "JobSet" && strings.HasPrefix(owner.APIVersion, "jobset.x-k8s.io/v1")
@@ -178,9 +179,9 @@ func (j *JobSet) PodsReady() bool {
 	return replicas == readyReplicas
 }
 
-func (j *JobSet) ReclaimablePods() []kueue.ReclaimablePod {
+func (j *JobSet) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
 	if len(j.Status.ReplicatedJobsStatus) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	ret := make([]kueue.ReclaimablePod, 0, len(j.Spec.ReplicatedJobs))
@@ -197,7 +198,7 @@ func (j *JobSet) ReclaimablePods() []kueue.ReclaimablePod {
 			}
 		}
 	}
-	return ret
+	return ret, nil
 }
 
 func podsCountPerReplica(rj *jobsetapi.ReplicatedJob) int32 {

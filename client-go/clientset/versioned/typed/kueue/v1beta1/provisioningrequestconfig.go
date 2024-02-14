@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -35,7 +35,7 @@ import (
 // ProvisioningRequestConfigsGetter has a method to return a ProvisioningRequestConfigInterface.
 // A group's client should implement this interface.
 type ProvisioningRequestConfigsGetter interface {
-	ProvisioningRequestConfigs(namespace string) ProvisioningRequestConfigInterface
+	ProvisioningRequestConfigs() ProvisioningRequestConfigInterface
 }
 
 // ProvisioningRequestConfigInterface has methods to work with ProvisioningRequestConfig resources.
@@ -55,14 +55,12 @@ type ProvisioningRequestConfigInterface interface {
 // provisioningRequestConfigs implements ProvisioningRequestConfigInterface
 type provisioningRequestConfigs struct {
 	client rest.Interface
-	ns     string
 }
 
 // newProvisioningRequestConfigs returns a ProvisioningRequestConfigs
-func newProvisioningRequestConfigs(c *KueueV1beta1Client, namespace string) *provisioningRequestConfigs {
+func newProvisioningRequestConfigs(c *KueueV1beta1Client) *provisioningRequestConfigs {
 	return &provisioningRequestConfigs{
 		client: c.RESTClient(),
-		ns:     namespace,
 	}
 }
 
@@ -70,7 +68,6 @@ func newProvisioningRequestConfigs(c *KueueV1beta1Client, namespace string) *pro
 func (c *provisioningRequestConfigs) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1beta1.ProvisioningRequestConfig, err error) {
 	result = &v1beta1.ProvisioningRequestConfig{}
 	err = c.client.Get().
-		Namespace(c.ns).
 		Resource("provisioningrequestconfigs").
 		Name(name).
 		VersionedParams(&options, scheme.ParameterCodec).
@@ -87,7 +84,6 @@ func (c *provisioningRequestConfigs) List(ctx context.Context, opts v1.ListOptio
 	}
 	result = &v1beta1.ProvisioningRequestConfigList{}
 	err = c.client.Get().
-		Namespace(c.ns).
 		Resource("provisioningrequestconfigs").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -104,7 +100,6 @@ func (c *provisioningRequestConfigs) Watch(ctx context.Context, opts v1.ListOpti
 	}
 	opts.Watch = true
 	return c.client.Get().
-		Namespace(c.ns).
 		Resource("provisioningrequestconfigs").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -115,7 +110,6 @@ func (c *provisioningRequestConfigs) Watch(ctx context.Context, opts v1.ListOpti
 func (c *provisioningRequestConfigs) Create(ctx context.Context, provisioningRequestConfig *v1beta1.ProvisioningRequestConfig, opts v1.CreateOptions) (result *v1beta1.ProvisioningRequestConfig, err error) {
 	result = &v1beta1.ProvisioningRequestConfig{}
 	err = c.client.Post().
-		Namespace(c.ns).
 		Resource("provisioningrequestconfigs").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Body(provisioningRequestConfig).
@@ -128,7 +122,6 @@ func (c *provisioningRequestConfigs) Create(ctx context.Context, provisioningReq
 func (c *provisioningRequestConfigs) Update(ctx context.Context, provisioningRequestConfig *v1beta1.ProvisioningRequestConfig, opts v1.UpdateOptions) (result *v1beta1.ProvisioningRequestConfig, err error) {
 	result = &v1beta1.ProvisioningRequestConfig{}
 	err = c.client.Put().
-		Namespace(c.ns).
 		Resource("provisioningrequestconfigs").
 		Name(provisioningRequestConfig.Name).
 		VersionedParams(&opts, scheme.ParameterCodec).
@@ -141,7 +134,6 @@ func (c *provisioningRequestConfigs) Update(ctx context.Context, provisioningReq
 // Delete takes name of the provisioningRequestConfig and deletes it. Returns an error if one occurs.
 func (c *provisioningRequestConfigs) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
 	return c.client.Delete().
-		Namespace(c.ns).
 		Resource("provisioningrequestconfigs").
 		Name(name).
 		Body(&opts).
@@ -156,7 +148,6 @@ func (c *provisioningRequestConfigs) DeleteCollection(ctx context.Context, opts 
 		timeout = time.Duration(*listOpts.TimeoutSeconds) * time.Second
 	}
 	return c.client.Delete().
-		Namespace(c.ns).
 		Resource("provisioningrequestconfigs").
 		VersionedParams(&listOpts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -169,7 +160,6 @@ func (c *provisioningRequestConfigs) DeleteCollection(ctx context.Context, opts 
 func (c *provisioningRequestConfigs) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.ProvisioningRequestConfig, err error) {
 	result = &v1beta1.ProvisioningRequestConfig{}
 	err = c.client.Patch(pt).
-		Namespace(c.ns).
 		Resource("provisioningrequestconfigs").
 		Name(name).
 		SubResource(subresources...).
@@ -196,7 +186,6 @@ func (c *provisioningRequestConfigs) Apply(ctx context.Context, provisioningRequ
 	}
 	result = &v1beta1.ProvisioningRequestConfig{}
 	err = c.client.Patch(types.ApplyPatchType).
-		Namespace(c.ns).
 		Resource("provisioningrequestconfigs").
 		Name(*name).
 		VersionedParams(&patchOpts, scheme.ParameterCodec).

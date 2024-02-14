@@ -18,7 +18,9 @@ package jobset
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 	jobsetutil "sigs.k8s.io/jobset/pkg/util/testing"
@@ -42,9 +44,12 @@ var TestPodSpec = corev1.PodSpec{
 
 type ReplicatedJobRequirements struct {
 	Name        string
-	Replicas    int
+	Replicas    int32
 	Parallelism int32
 	Completions int32
+	Annotations map[string]string
+	Image       string
+	Args        []string
 }
 
 // MakeJobSet creates a wrapper for a suspended JobSet
@@ -58,7 +63,7 @@ func (j *JobSetWrapper) Obj() *jobsetapi.JobSet {
 	return &j.JobSet
 }
 
-// Returns a DeepCopy of j.
+// DeepCopy returns a DeepCopy of j.
 func (j *JobSetWrapper) DeepCopy() *JobSetWrapper {
 	return &JobSetWrapper{JobSet: *j.JobSet.DeepCopy()}
 }
@@ -68,8 +73,22 @@ func (j *JobSetWrapper) ReplicatedJobs(replicatedJobs ...ReplicatedJobRequiremen
 	j.Spec.ReplicatedJobs = make([]jobsetapi.ReplicatedJob, len(replicatedJobs))
 	for index, req := range replicatedJobs {
 		jt := jobsetutil.MakeJobTemplate("", "").PodSpec(TestPodSpec).Obj()
+		jt.Annotations = req.Annotations
 		jt.Spec.Parallelism = ptr.To(req.Parallelism)
 		jt.Spec.Completions = ptr.To(req.Completions)
+		if len(req.Image) > 0 {
+			jt.Spec.BackoffLimit = ptr.To[int32](0)
+			spec := &jt.Spec.Template.Spec
+			spec.RestartPolicy = corev1.RestartPolicyNever
+			spec.TerminationGracePeriodSeconds = ptr.To[int64](0)
+			spec.Containers = []corev1.Container{
+				{
+					Name:  "c",
+					Image: req.Image,
+					Args:  req.Args,
+				},
+			}
+		}
 		j.Spec.ReplicatedJobs[index] = jobsetutil.MakeReplicatedJob(req.Name).Job(jt).Replicas(req.Replicas).Obj()
 	}
 	return j
@@ -81,21 +100,25 @@ func (j *JobSetWrapper) Suspend(s bool) *JobSetWrapper {
 	return j
 }
 
-// Queue updates the queue name of the JobSet.
-func (j *JobSetWrapper) Queue(queue string) *JobSetWrapper {
+// Label sets a label to the JobSet.
+func (j *JobSetWrapper) Label(k, v string) *JobSetWrapper {
 	if j.Labels == nil {
 		j.Labels = make(map[string]string)
 	}
-	j.Labels[constants.QueueLabel] = queue
+	j.Labels[k] = v
 	return j
+}
+
+// Queue updates the queue name of the JobSet.
+func (j *JobSetWrapper) Queue(queue string) *JobSetWrapper {
+	return j.Label(constants.QueueLabel, queue)
 }
 
 // Request adds a resource request to the first container of the target replicatedJob.
 func (j *JobSetWrapper) Request(replicatedJobName string, r corev1.ResourceName, v string) *JobSetWrapper {
 	for i, replicatedJob := range j.Spec.ReplicatedJobs {
 		if replicatedJob.Name == replicatedJobName {
-			_, ok := j.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.Containers[0].Resources.Requests[r]
-			if !ok {
+			if j.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.Containers[0].Resources.Requests == nil {
 				j.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.Containers[0].Resources.Requests = map[corev1.ResourceName]resource.Quantity{}
 			}
 			j.Spec.ReplicatedJobs[i].Template.Spec.Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
@@ -124,5 +147,11 @@ func (j *JobSetWrapper) WorkloadPriorityClass(wpc string) *JobSetWrapper {
 // JobsStatus updates JobSet status.
 func (j *JobSetWrapper) JobsStatus(statuses ...jobsetapi.ReplicatedJobStatus) *JobSetWrapper {
 	j.Status.ReplicatedJobsStatus = statuses
+	return j
+}
+
+// Condition adds a condition
+func (j *JobSetWrapper) Condition(c metav1.Condition) *JobSetWrapper {
+	apimeta.SetStatusCondition(&j.Status.Conditions, c)
 	return j
 }

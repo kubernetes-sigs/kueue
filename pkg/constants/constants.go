@@ -21,10 +21,11 @@ import (
 )
 
 const (
-	KueueName          = "kueue"
-	JobControllerName  = KueueName + "-job-controller"
-	AdmissionName      = KueueName + "-admission"
-	ReclaimablePodsMgr = KueueName + "-reclaimable-pods"
+	KueueName              = "kueue"
+	JobControllerName      = KueueName + "-job-controller"
+	WorkloadControllerName = KueueName + "-workload-controller"
+	AdmissionName          = KueueName + "-admission"
+	ReclaimablePodsMgr     = KueueName + "-reclaimable-pods"
 
 	// UpdatesBatchPeriod is the batch period to hold workload updates
 	// before syncing a Queue and ClusterQueue objects.
@@ -37,4 +38,8 @@ const (
 
 	WorkloadPriorityClassSource = "kueue.x-k8s.io/workloadpriorityclass"
 	PodPriorityClassSource      = "scheduling.k8s.io/priorityclass"
+
+	DefaultPendingWorkloadsLimit = 1000
+
+	IsNegativeErrorMsg string = `must be greater than or equal to 0`
 )

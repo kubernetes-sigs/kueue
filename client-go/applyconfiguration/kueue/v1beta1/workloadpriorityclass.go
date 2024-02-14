@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -34,10 +34,9 @@ type WorkloadPriorityClassApplyConfiguration struct {
 
 // WorkloadPriorityClass constructs an declarative configuration of the WorkloadPriorityClass type for use with
 // apply.
-func WorkloadPriorityClass(name, namespace string) *WorkloadPriorityClassApplyConfiguration {
+func WorkloadPriorityClass(name string) *WorkloadPriorityClassApplyConfiguration {
 	b := &WorkloadPriorityClassApplyConfiguration{}
 	b.WithName(name)
-	b.WithNamespace(namespace)
 	b.WithKind("WorkloadPriorityClass")
 	b.WithAPIVersion("kueue.x-k8s.io/v1beta1")
 	return b

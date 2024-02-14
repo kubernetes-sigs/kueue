@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -34,7 +34,6 @@ import (
 // FakeWorkloadPriorityClasses implements WorkloadPriorityClassInterface
 type FakeWorkloadPriorityClasses struct {
 	Fake *FakeKueueV1beta1
-	ns   string
 }
 
 var workloadpriorityclassesResource = v1beta1.SchemeGroupVersion.WithResource("workloadpriorityclasses")
@@ -44,8 +43,7 @@ var workloadpriorityclassesKind = v1beta1.SchemeGroupVersion.WithKind("WorkloadP
 // Get takes name of the workloadPriorityClass, and returns the corresponding workloadPriorityClass object, and an error if there is any.
 func (c *FakeWorkloadPriorityClasses) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1beta1.WorkloadPriorityClass, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewGetAction(workloadpriorityclassesResource, c.ns, name), &v1beta1.WorkloadPriorityClass{})
-
+		Invokes(testing.NewRootGetAction(workloadpriorityclassesResource, name), &v1beta1.WorkloadPriorityClass{})
 	if obj == nil {
 		return nil, err
 	}
@@ -55,8 +53,7 @@ func (c *FakeWorkloadPriorityClasses) Get(ctx context.Context, name string, opti
 // List takes label and field selectors, and returns the list of WorkloadPriorityClasses that match those selectors.
 func (c *FakeWorkloadPriorityClasses) List(ctx context.Context, opts v1.ListOptions) (result *v1beta1.WorkloadPriorityClassList, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewListAction(workloadpriorityclassesResource, workloadpriorityclassesKind, c.ns, opts), &v1beta1.WorkloadPriorityClassList{})
-
+		Invokes(testing.NewRootListAction(workloadpriorityclassesResource, workloadpriorityclassesKind, opts), &v1beta1.WorkloadPriorityClassList{})
 	if obj == nil {
 		return nil, err
 	}
@@ -77,15 +74,13 @@ func (c *FakeWorkloadPriorityClasses) List(ctx context.Context, opts v1.ListOpti
 // Watch returns a watch.Interface that watches the requested workloadPriorityClasses.
 func (c *FakeWorkloadPriorityClasses) Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
 	return c.Fake.
-		InvokesWatch(testing.NewWatchAction(workloadpriorityclassesResource, c.ns, opts))
-
+		InvokesWatch(testing.NewRootWatchAction(workloadpriorityclassesResource, opts))
 }
 
 // Create takes the representation of a workloadPriorityClass and creates it.  Returns the server's representation of the workloadPriorityClass, and an error, if there is any.
 func (c *FakeWorkloadPriorityClasses) Create(ctx context.Context, workloadPriorityClass *v1beta1.WorkloadPriorityClass, opts v1.CreateOptions) (result *v1beta1.WorkloadPriorityClass, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewCreateAction(workloadpriorityclassesResource, c.ns, workloadPriorityClass), &v1beta1.WorkloadPriorityClass{})
-
+		Invokes(testing.NewRootCreateAction(workloadpriorityclassesResource, workloadPriorityClass), &v1beta1.WorkloadPriorityClass{})
 	if obj == nil {
 		return nil, err
 	}
@@ -95,8 +90,7 @@ func (c *FakeWorkloadPriorityClasses) Create(ctx context.Context, workloadPriori
 // Update takes the representation of a workloadPriorityClass and updates it. Returns the server's representation of the workloadPriorityClass, and an error, if there is any.
 func (c *FakeWorkloadPriorityClasses) Update(ctx context.Context, workloadPriorityClass *v1beta1.WorkloadPriorityClass, opts v1.UpdateOptions) (result *v1beta1.WorkloadPriorityClass, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewUpdateAction(workloadpriorityclassesResource, c.ns, workloadPriorityClass), &v1beta1.WorkloadPriorityClass{})
-
+		Invokes(testing.NewRootUpdateAction(workloadpriorityclassesResource, workloadPriorityClass), &v1beta1.WorkloadPriorityClass{})
 	if obj == nil {
 		return nil, err
 	}
@@ -106,14 +100,13 @@ func (c *FakeWorkloadPriorityClasses) Update(ctx context.Context, workloadPriori
 // Delete takes name of the workloadPriorityClass and deletes it. Returns an error if one occurs.
 func (c *FakeWorkloadPriorityClasses) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
 	_, err := c.Fake.
-		Invokes(testing.NewDeleteActionWithOptions(workloadpriorityclassesResource, c.ns, name, opts), &v1beta1.WorkloadPriorityClass{})
-
+		Invokes(testing.NewRootDeleteActionWithOptions(workloadpriorityclassesResource, name, opts), &v1beta1.WorkloadPriorityClass{})
 	return err
 }
 
 // DeleteCollection deletes a collection of objects.
 func (c *FakeWorkloadPriorityClasses) DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error {
-	action := testing.NewDeleteCollectionAction(workloadpriorityclassesResource, c.ns, listOpts)
+	action := testing.NewRootDeleteCollectionAction(workloadpriorityclassesResource, listOpts)
 
 	_, err := c.Fake.Invokes(action, &v1beta1.WorkloadPriorityClassList{})
 	return err
@@ -122,8 +115,7 @@ func (c *FakeWorkloadPriorityClasses) DeleteCollection(ctx context.Context, opts
 // Patch applies the patch and returns the patched workloadPriorityClass.
 func (c *FakeWorkloadPriorityClasses) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.WorkloadPriorityClass, err error) {
 	obj, err := c.Fake.
-		Invokes(testing.NewPatchSubresourceAction(workloadpriorityclassesResource, c.ns, name, pt, data, subresources...), &v1beta1.WorkloadPriorityClass{})
-
+		Invokes(testing.NewRootPatchSubresourceAction(workloadpriorityclassesResource, name, pt, data, subresources...), &v1beta1.WorkloadPriorityClass{})
 	if obj == nil {
 		return nil, err
 	}
@@ -144,8 +136,7 @@ func (c *FakeWorkloadPriorityClasses) Apply(ctx context.Context, workloadPriorit
 		return nil, fmt.Errorf("workloadPriorityClass.Name must be provided to Apply")
 	}
 	obj, err := c.Fake.
-		Invokes(testing.NewPatchSubresourceAction(workloadpriorityclassesResource, c.ns, *name, types.ApplyPatchType, data), &v1beta1.WorkloadPriorityClass{})
-
+		Invokes(testing.NewRootPatchSubresourceAction(workloadpriorityclassesResource, *name, types.ApplyPatchType, data), &v1beta1.WorkloadPriorityClass{})
 	if obj == nil {
 		return nil, err
 	}

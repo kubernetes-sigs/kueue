@@ -1,0 +1,17 @@
+# permissions for end users to view pending workloads.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pending-workloads-lq-viewer-role
+  labels:
+    rbac.kueue.x-k8s.io/batch-admin: "true"
+    rbac.kueue.x-k8s.io/batch-user: "true"
+rules:
+- apiGroups:
+  - visibility.kueue.x-k8s.io
+  resources:
+  - localqueues/pendingworkloads
+  verbs:
+  - get
+  - list
+  - watch

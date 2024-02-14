@@ -21,10 +21,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-//+genclient
-//+kubebuilder:object:root=true
-//+kubebuilder:storageversion
-//+kubebuilder:resource:scope=Cluster,shortName={flavor,flavors}
+// +genclient
+// +genclient:nonNamespaced
+// +kubebuilder:object:root=true
+// +kubebuilder:storageversion
+// +kubebuilder:resource:scope=Cluster,shortName={flavor,flavors}
 
 // ResourceFlavor is the Schema for the resourceflavors API.
 type ResourceFlavor struct {
@@ -80,7 +81,7 @@ type ResourceFlavorSpec struct {
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
 // ResourceFlavorList contains a list of ResourceFlavor
 type ResourceFlavorList struct {

@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -24,23 +24,39 @@ import (
 	discovery "k8s.io/client-go/discovery"
 	rest "k8s.io/client-go/rest"
 	flowcontrol "k8s.io/client-go/util/flowcontrol"
+	kueuev1alpha1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1alpha1"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1"
+	visibilityv1alpha1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1alpha1"
 )
 
 type Interface interface {
 	Discovery() discovery.DiscoveryInterface
+	KueueV1alpha1() kueuev1alpha1.KueueV1alpha1Interface
 	KueueV1beta1() kueuev1beta1.KueueV1beta1Interface
+	VisibilityV1alpha1() visibilityv1alpha1.VisibilityV1alpha1Interface
 }
 
 // Clientset contains the clients for groups.
 type Clientset struct {
 	*discovery.DiscoveryClient
-	kueueV1beta1 *kueuev1beta1.KueueV1beta1Client
+	kueueV1alpha1      *kueuev1alpha1.KueueV1alpha1Client
+	kueueV1beta1       *kueuev1beta1.KueueV1beta1Client
+	visibilityV1alpha1 *visibilityv1alpha1.VisibilityV1alpha1Client
+}
+
+// KueueV1alpha1 retrieves the KueueV1alpha1Client
+func (c *Clientset) KueueV1alpha1() kueuev1alpha1.KueueV1alpha1Interface {
+	return c.kueueV1alpha1
 }
 
 // KueueV1beta1 retrieves the KueueV1beta1Client
 func (c *Clientset) KueueV1beta1() kueuev1beta1.KueueV1beta1Interface {
 	return c.kueueV1beta1
+}
+
+// VisibilityV1alpha1 retrieves the VisibilityV1alpha1Client
+func (c *Clientset) VisibilityV1alpha1() visibilityv1alpha1.VisibilityV1alpha1Interface {
+	return c.visibilityV1alpha1
 }
 
 // Discovery retrieves the DiscoveryClient
@@ -87,7 +103,15 @@ func NewForConfigAndClient(c *rest.Config, httpClient *http.Client) (*Clientset,
 
 	var cs Clientset
 	var err error
+	cs.kueueV1alpha1, err = kueuev1alpha1.NewForConfigAndClient(&configShallowCopy, httpClient)
+	if err != nil {
+		return nil, err
+	}
 	cs.kueueV1beta1, err = kueuev1beta1.NewForConfigAndClient(&configShallowCopy, httpClient)
+	if err != nil {
+		return nil, err
+	}
+	cs.visibilityV1alpha1, err = visibilityv1alpha1.NewForConfigAndClient(&configShallowCopy, httpClient)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +136,9 @@ func NewForConfigOrDie(c *rest.Config) *Clientset {
 // New creates a new Clientset for the given RESTClient.
 func New(c rest.Interface) *Clientset {
 	var cs Clientset
+	cs.kueueV1alpha1 = kueuev1alpha1.New(c)
 	cs.kueueV1beta1 = kueuev1beta1.New(c)
+	cs.visibilityV1alpha1 = visibilityv1alpha1.New(c)
 
 	cs.DiscoveryClient = discovery.NewDiscoveryClient(c)
 	return &cs

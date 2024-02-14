@@ -24,28 +24,36 @@ CODEGEN_PKG=$($GO_CMD list -m -f "{{.Dir}}" k8s.io/code-generator)
 
 cd $(dirname ${BASH_SOURCE[0]})/..
 
-chmod +x "${CODEGEN_PKG}/generate-internal-groups.sh"
-chmod +x "${CODEGEN_PKG}/generate-groups.sh"
-"${CODEGEN_PKG}/generate-groups.sh" \
-  applyconfiguration,client,lister,informer \
-  sigs.k8s.io/kueue/client-go \
-  sigs.k8s.io/kueue/apis \
-  kueue:v1beta1 \
-  --go-header-file ${KUEUE_ROOT}/hack/boilerplate.go.txt
+source "${CODEGEN_PKG}/kube_codegen.sh"
 
+# TODO: remove the workaround when the issue is solved in the code-generator
+# (https://github.com/kubernetes/code-generator/issues/165).
+# Here, we create the soft link named "sigs.k8s.io" to the parent directory of
+# Kueue to ensure the layout required by the kube_codegen.sh script.
+ln -s .. sigs.k8s.io
+trap "rm sigs.k8s.io" EXIT
 
-# Future releases of of code-generator add better support for out of GOPATH generation,
-# check https://github.com/kubernetes/code-generator/blob/master/examples/hack/update-codegen.sh for details,
-# for now we should just move the generated code to `client-go`.
-if  [ -d sigs.k8s.io/kueue/client-go ]
-then
-  echo "Out of GOPATH generation, move the generated files to ../client-go"
-  if  [ -d ${KUEUE_ROOT}/client-go ]
-  then
-    rm -r ${KUEUE_ROOT}/client-go
-  fi
-  mv sigs.k8s.io/kueue/client-go ${KUEUE_ROOT}/client-go
-fi
+# Generating conversion and defaults functions
+kube::codegen::gen_helpers \
+  --input-pkg-root sigs.k8s.io/kueue/apis \
+  --output-base "${KUEUE_ROOT}" \
+  --boilerplate ${KUEUE_ROOT}/hack/boilerplate.go.txt
+
+# Generating OpenAPI for Kueue API extensions
+kube::codegen::gen_openapi \
+  --input-pkg-root sigs.k8s.io/kueue/apis/visibility \
+  --output-pkg-root sigs.k8s.io/kueue/apis/visibility/v1alpha1 \
+  --output-base "${KUEUE_ROOT}" \
+  --update-report \
+  --boilerplate "${KUEUE_ROOT}/hack/boilerplate.go.txt"
+
+kube::codegen::gen_client \
+  --input-pkg-root sigs.k8s.io/kueue/apis \
+  --output-pkg-root sigs.k8s.io/kueue/client-go \
+  --output-base "${KUEUE_ROOT}" \
+  --boilerplate ${KUEUE_ROOT}/hack/boilerplate.go.txt \
+  --with-watch \
+  --with-applyconfig
 
 # We need to clean up the go.mod file since code-generator adds temporary library to the go.mod file.
 "${GO_CMD}" mod tidy

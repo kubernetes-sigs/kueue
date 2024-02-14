@@ -35,10 +35,7 @@ type XGBoostJobWebhook struct {
 }
 
 func SetupXGBoostJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
-	options := jobframework.DefaultOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
+	options := jobframework.ProcessOptions(opts...)
 	wh := &XGBoostJobWebhook{
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 	}

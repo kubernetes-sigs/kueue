@@ -25,6 +25,9 @@ const (
 	// DEPRECATED: Use QueueLabel as a label key.
 	QueueAnnotation = QueueLabel
 
+	// PrebuiltWorkloadLabel is the label key of the job holding the name of the pre-built workload to use.
+	PrebuiltWorkloadLabel = "kueue.x-k8s.io/prebuilt-workload-name"
+
 	// ParentWorkloadAnnotation is the annotation used to mark a kubernetes Job
 	// as a child of a Workload. The value is the name of the workload,
 	// in the same namespace. It is used when the parent workload corresponds to
@@ -37,7 +40,8 @@ const (
 	// the owner job.
 	JobUIDLabel = "kueue.x-k8s.io/job-uid"
 
-	// The workloadPriorityClass is specified through a label kueue.x-k8s.io/priority-class.
+	// WorkloadPriorityClassLabel is the label key in the workload that holds the
+	// workloadPriorityClass name.
 	// This label is always mutable because it might be useful for the preemption.
 	WorkloadPriorityClassLabel = "kueue.x-k8s.io/priority-class"
 )

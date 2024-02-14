@@ -23,7 +23,8 @@ import (
 	configv1alpha1 "k8s.io/component-base/config/v1alpha1"
 )
 
-//+kubebuilder:object:root=true
+// +k8s:defaulter-gen=true
+// +kubebuilder:object:root=true
 
 // Configuration is the Schema for the kueueconfigurations API
 type Configuration struct {
@@ -66,6 +67,9 @@ type Configuration struct {
 	// QueueVisibility is configuration to expose the information about the top
 	// pending workloads.
 	QueueVisibility *QueueVisibility `json:"queueVisibility,omitempty"`
+
+	// MultiKueue controls the behaviour of the MultiKueue AdmissionCheck Controller.
+	MultiKueue *MultiKueue `json:"multiKueue,omitempty"`
 }
 
 type ControllerManager struct {
@@ -192,10 +196,64 @@ type WaitForPodsReady struct {
 	// until the jobs reach the PodsReady=true condition. It defaults to false if Enable is false
 	// and defaults to true otherwise.
 	BlockAdmission *bool `json:"blockAdmission,omitempty"`
+
+	// RequeuingStrategy defines the strategy for requeuing a Workload.
+	// +optional
+	RequeuingStrategy *RequeuingStrategy `json:"requeuingStrategy,omitempty"`
 }
 
-type InternalCertManagement struct {
+type MultiKueue struct {
+	// GCInterval defines the time interval between two consecutive garbage collection runs.
+	// Defaults to 1min. If 0, the garbage collection is disabled.
+	// +optional
+	GCInterval *metav1.Duration `json:"gcInterval"`
 
+	// Origin defines a label value used to track the creator of workloads in the worker
+	// clusters.
+	// This is used by multikueue in components like its garbage collector to identify
+	// remote objects that ware created by this multikueue manager cluster and delete
+	// them if their local counterpart no longer exists.
+	// +optional
+	Origin *string `json:"origin,omitempty"`
+}
+
+type RequeuingStrategy struct {
+	// Timestamp defines the timestamp used for re-queuing a Workload
+	// that was evicted due to Pod readiness. The possible values are:
+	//
+	// - `Eviction` (default) indicates from Workload `Evicted` condition with `PodsReadyTimeout` reason.
+	// - `Creation` indicates from Workload .metadata.creationTimestamp.
+	//
+	// +optional
+	Timestamp *RequeuingTimestamp `json:"timestamp,omitempty"`
+
+	// BackoffLimitCount defines the maximum number of re-queuing retries.
+	// Once the number is reached, the workload is deactivated (`.spec.activate`=`false`).
+	// When it is null, the workloads will repeatedly and endless re-queueing.
+	//
+	// Every backoff duration is about "1.41284738^(n-1)+Rand" where the "n" represents the "workloadStatus.requeueState.count",
+	// and the "Rand" represents the random jitter. During this time, the workload is taken as an inadmissible and
+	// other workloads will have a chance to be admitted.
+	// For example, when the "waitForPodsReady.timeout" is the default, the workload deactivation time is as follows:
+	//   {backoffLimitCount, workloadDeactivationSeconds}
+	//     ~= {1, 601}, {2, 902}, ...,{5, 1811}, ...,{10, 3374}, ...,{20, 8730}, ...,{30, 86400(=24 hours)}, ...
+	//
+	// Defaults to null.
+	// +optional
+	BackoffLimitCount *int32 `json:"backoffLimitCount,omitempty"`
+}
+
+type RequeuingTimestamp string
+
+const (
+	// CreationTimestamp timestamp (from Workload .metadata.creationTimestamp).
+	CreationTimestamp RequeuingTimestamp = "Creation"
+
+	// EvictionTimestamp timestamp (from Workload .status.conditions).
+	EvictionTimestamp RequeuingTimestamp = "Eviction"
+)
+
+type InternalCertManagement struct {
 	// Enable controls whether to enable internal cert management or not.
 	// Defaults to true. If you want to use a third-party management, e.g. cert-manager,
 	// set it to false. See the user guide for more information.
@@ -225,6 +283,7 @@ type Integrations struct {
 	//  - "batch/job"
 	//  - "kubeflow.org/mpijob"
 	//  - "ray.io/rayjob"
+	//  - "ray.io/raycluster"
 	//  - "jobset.x-k8s.io/jobset"
 	//  - "kubeflow.org/mxjob"
 	//  - "kubeflow.org/paddlejob"

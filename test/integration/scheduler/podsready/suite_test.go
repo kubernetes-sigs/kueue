@@ -25,6 +25,7 @@ import (
 	"github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -38,7 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	//+kubebuilder:scaffold:imports
+	// +kubebuilder:scaffold:imports
 )
 
 var (
@@ -56,22 +57,37 @@ func TestSchedulerWithWaitForPodsReady(t *testing.T) {
 	)
 }
 
-func managerAndSchedulerSetupWithTimeoutAdmission(mgr manager.Manager, ctx context.Context, value time.Duration, blockAdmission bool) {
-	cfg := config.Configuration{
+func managerAndSchedulerSetupWithTimeoutAdmission(
+	mgr manager.Manager,
+	ctx context.Context,
+	value time.Duration,
+	blockAdmission bool,
+	requeuingTimestamp config.RequeuingTimestamp,
+	requeuingBackoffLimitCount *int32,
+) {
+	cfg := &config.Configuration{
 		WaitForPodsReady: &config.WaitForPodsReady{
 			Enable:         true,
 			BlockAdmission: &blockAdmission,
 			Timeout:        &metav1.Duration{Duration: value},
+			RequeuingStrategy: &config.RequeuingStrategy{
+				Timestamp:         ptr.To(requeuingTimestamp),
+				BackoffLimitCount: requeuingBackoffLimitCount,
+			},
 		},
 	}
+	mgr.GetScheme().Default(cfg)
 
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	cCache := cache.New(mgr.GetClient(), cache.WithPodsReadyTracking(cfg.WaitForPodsReady.Enable && cfg.WaitForPodsReady.BlockAdmission != nil && *cfg.WaitForPodsReady.BlockAdmission))
-	queues := queue.NewManager(mgr.GetClient(), cCache)
+	queues := queue.NewManager(
+		mgr.GetClient(), cCache,
+		queue.WithPodsReadyRequeuingTimestamp(requeuingTimestamp),
+	)
 
-	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &cfg)
+	failedCtrl, err := core.SetupControllers(mgr, queues, cCache, cfg)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 
 	failedWebhook, err := webhooks.Setup(mgr)
@@ -80,7 +96,10 @@ func managerAndSchedulerSetupWithTimeoutAdmission(mgr manager.Manager, ctx conte
 	err = workloadjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	sched := scheduler.New(queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName))
+	sched := scheduler.New(
+		queues, cCache, mgr.GetClient(), mgr.GetEventRecorderFor(constants.AdmissionName),
+		scheduler.WithPodsReadyRequeuingTimestamp(requeuingTimestamp),
+	)
 	err = sched.Start(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }

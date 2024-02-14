@@ -65,5 +65,5 @@ func CheckLatestEvent(ctx context.Context, k8sClient client.Client,
 		return true, nil
 	}
 
-	return false, fmt.Errorf("mismatch with the latest event")
+	return false, fmt.Errorf("mismatch with the latest event: got r:%v t:%v n:%v, reg %v", item.Reason, item.Type, item.Note, item.Regarding)
 }

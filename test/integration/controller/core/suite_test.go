@@ -34,7 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/queue"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	//+kubebuilder:scaffold:imports
+	// +kubebuilder:scaffold:imports
 )
 
 var (
@@ -62,6 +62,8 @@ func managerSetup(mgr manager.Manager, ctx context.Context) {
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 	controllersCfg := &config.Configuration{}
+	mgr.GetScheme().Default(controllersCfg)
+
 	controllersCfg.Metrics.EnableClusterQueueResources = true
 	controllersCfg.QueueVisibility = &config.QueueVisibility{
 		UpdateIntervalSeconds: 2,

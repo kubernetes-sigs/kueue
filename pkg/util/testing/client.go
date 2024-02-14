@@ -18,8 +18,12 @@ package testing
 
 import (
 	"context"
+	"fmt"
+	"strings"
+	"sync"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -63,4 +67,56 @@ func (b *builderIndexer) IndexField(ctx context.Context, obj client.Object, fiel
 
 func AsIndexer(builder *fake.ClientBuilder) client.FieldIndexer {
 	return &builderIndexer{ClientBuilder: builder}
+}
+
+type EventRecord struct {
+	Key       types.NamespacedName
+	EventType string
+	Reason    string
+	Message   string
+	// add annotations if ever needed
+}
+
+type EventRecorder struct {
+	lock           sync.Mutex
+	RecordedEvents []EventRecord
+}
+
+func SortEvents(ei, ej EventRecord) bool {
+	if cmp := strings.Compare(ei.Key.String(), ej.Key.String()); cmp != 0 {
+		return cmp < 0
+	}
+	if cmp := strings.Compare(ei.EventType, ej.EventType); cmp != 0 {
+		return cmp < 0
+	}
+	if cmp := strings.Compare(ei.Reason, ej.Reason); cmp != 0 {
+		return cmp < 0
+	}
+	if cmp := strings.Compare(ei.Message, ej.Message); cmp != 0 {
+		return cmp < 0
+	}
+	return false
+}
+
+func (tr *EventRecorder) Event(object runtime.Object, eventtype, reason, message string) {
+	tr.Eventf(object, eventtype, reason, message)
+}
+
+func (tr *EventRecorder) Eventf(object runtime.Object, eventtype, reason, messageFmt string, args ...interface{}) {
+	tr.AnnotatedEventf(object, nil, eventtype, reason, messageFmt, args...)
+}
+
+func (tr *EventRecorder) AnnotatedEventf(targetObject runtime.Object, annotations map[string]string, eventtype, reason, messageFmt string, args ...interface{}) {
+	tr.lock.Lock()
+	defer tr.lock.Unlock()
+	key := types.NamespacedName{}
+	if cobj, iscobj := targetObject.(client.Object); iscobj {
+		key = client.ObjectKeyFromObject(cobj)
+	}
+	tr.RecordedEvents = append(tr.RecordedEvents, EventRecord{
+		Key:       key,
+		EventType: eventtype,
+		Reason:    reason,
+		Message:   fmt.Sprintf(messageFmt, args...),
+	})
 }

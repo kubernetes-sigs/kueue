@@ -49,10 +49,7 @@ type JobWebhook struct {
 
 // SetupWebhook configures the webhook for batchJob.
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
-	options := jobframework.DefaultOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
+	options := jobframework.ProcessOptions(opts...)
 	wh := &JobWebhook{
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 		kubeServerVersion:          options.KubeServerVersion,
@@ -74,7 +71,9 @@ func (w *JobWebhook) Default(ctx context.Context, obj runtime.Object) error {
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Applying defaults", "job", klog.KObj(job))
 
-	if owner := metav1.GetControllerOf(job); owner != nil && jobframework.IsOwnerManagedByKueue(owner) {
+	// While using prebuilt workloads, the owner job may set the parent workload to a different one
+	// then the one generated from its name.
+	if owner := metav1.GetControllerOf(job); owner != nil && jobframework.IsOwnerManagedByKueue(owner) && jobframework.ParentWorkloadName(job) == "" {
 		if job.Annotations == nil {
 			job.Annotations = make(map[string]string)
 		}

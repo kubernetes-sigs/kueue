@@ -37,12 +37,9 @@ type RayJobWebhook struct {
 	manageJobsWithoutQueueName bool
 }
 
-// SetupWebhook configures the webhook for rayjobapi RayJob.
+// SetupRayJobWebhook configures the webhook for rayjobapi RayJob.
 func SetupRayJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
-	options := jobframework.DefaultOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
+	options := jobframework.ProcessOptions(opts...)
 	wh := &RayJobWebhook{
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 	}

@@ -48,7 +48,7 @@ func TestReconcileAdmissionCheck(t *testing.T) {
 				Type:    kueue.AdmissionCheckActive,
 				Status:  metav1.ConditionFalse,
 				Reason:  "BadParametersRef",
-				Message: "Unexpected parameters reference",
+				Message: "missing parameters reference",
 			},
 		},
 		"bad ref group": {
@@ -60,7 +60,7 @@ func TestReconcileAdmissionCheck(t *testing.T) {
 				Type:    kueue.AdmissionCheckActive,
 				Status:  metav1.ConditionFalse,
 				Reason:  "BadParametersRef",
-				Message: "Unexpected parameters reference",
+				Message: "wrong group \"bad.group\", expecting \"kueue.x-k8s.io\": bad parameters reference",
 			},
 		},
 		"bad ref kind": {
@@ -72,7 +72,7 @@ func TestReconcileAdmissionCheck(t *testing.T) {
 				Type:    kueue.AdmissionCheckActive,
 				Status:  metav1.ConditionFalse,
 				Reason:  "BadParametersRef",
-				Message: "Unexpected parameters reference",
+				Message: "wrong kind \"BadKind\", expecting \"ProvisioningRequestConfig\": bad parameters reference",
 			},
 		},
 		"config missing": {
@@ -83,7 +83,7 @@ func TestReconcileAdmissionCheck(t *testing.T) {
 			wantCondition: &metav1.Condition{
 				Type:    kueue.AdmissionCheckActive,
 				Status:  metav1.ConditionFalse,
-				Reason:  "UnknownParametersRef",
+				Reason:  "BadParametersRef",
 				Message: "provisioningrequestconfigs.kueue.x-k8s.io \"config1\" not found",
 			},
 		},
@@ -118,13 +118,15 @@ func TestReconcileAdmissionCheck(t *testing.T) {
 			builder = builder.WithLists(&kueue.ProvisioningRequestConfigList{Items: tc.configs})
 
 			k8sclient := builder.Build()
-			helper := storeHelper{
-				client: k8sclient,
-			}
 
+			helper, err := newProvisioningConfigHelper(k8sclient)
+			if err != nil {
+				t.Errorf("unable to create the config helper: %s", err)
+				return
+			}
 			reconciler := acReconciler{
 				client: k8sclient,
-				helper: &helper,
+				helper: helper,
 			}
 
 			req := reconcile.Request{

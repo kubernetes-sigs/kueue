@@ -18,6 +18,8 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -57,14 +59,23 @@ type GenericJob interface {
 
 type JobWithReclaimablePods interface {
 	// ReclaimablePods returns the list of reclaimable pods.
-	ReclaimablePods() []kueue.ReclaimablePod
+	ReclaimablePods() ([]kueue.ReclaimablePod, error)
 }
+
+type StopReason int
+
+const (
+	StopReasonWorkloadDeleted StopReason = iota
+	StopReasonWorkloadEvicted
+	StopReasonNoMatchingWorkload
+	StopReasonNotAdmitted
+)
 
 type JobWithCustomStop interface {
 	// Stop implements a custom stop procedure.
 	// The function should be idempotent: not do any API calls if the job is already stopped.
 	// Returns whether the Job stopped with this call or an error
-	Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, eventMsg string) (bool, error)
+	Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, stopReason StopReason, eventMsg string) (bool, error)
 }
 
 // JobWithFinalize interface should be implemented by generic jobs,
@@ -82,6 +93,26 @@ type JobWithSkip interface {
 type JobWithPriorityClass interface {
 	// PriorityClass returns the job's priority class name.
 	PriorityClass() string
+}
+
+// ComposableJob interface should be implemented by generic jobs that
+// are composed out of multiple API objects.
+type ComposableJob interface {
+	// Load loads all members of the composable job. If removeFinalizers == true, workload and job finalizers should be removed.
+	Load(ctx context.Context, c client.Client, key *types.NamespacedName) (removeFinalizers bool, err error)
+	// Run unsuspends all members of the ComposableJob and injects the node affinity with podSet
+	// counts extracting from workload to all members of the ComposableJob.
+	Run(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, r record.EventRecorder, msg string) error
+	// ConstructComposableWorkload returns a new Workload that's assembled out of all members of the ComposableJob.
+	ConstructComposableWorkload(ctx context.Context, c client.Client, r record.EventRecorder) (*kueue.Workload, error)
+	// ListChildWorkloads returns all workloads related to the composable job
+	ListChildWorkloads(ctx context.Context, c client.Client, parent types.NamespacedName) (*kueue.WorkloadList, error)
+	// FindMatchingWorkloads returns all related workloads, workload that matches the ComposableJob and duplicates that has to be deleted.
+	FindMatchingWorkloads(ctx context.Context, c client.Client, r record.EventRecorder) (match *kueue.Workload, toDelete []*kueue.Workload, err error)
+	// Stop implements the custom stop procedure for ComposableJob
+	Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, stopReason StopReason, eventMsg string) ([]client.Object, error)
+	// Ensure all members of the ComposableJob are owning the workload
+	EnsureWorkloadOwnedByAllMembers(ctx context.Context, c client.Client, r record.EventRecorder, workload *kueue.Workload) error
 }
 
 func ParentWorkloadName(job GenericJob) string {
@@ -106,4 +137,9 @@ func workloadPriorityClassName(job GenericJob) string {
 		return workloadPriorityClassLabel
 	}
 	return ""
+}
+
+func PrebuiltWorkloadFor(job GenericJob) (string, bool) {
+	name, found := job.Object().GetLabels()[constants.PrebuiltWorkloadLabel]
+	return name, found
 }

@@ -28,6 +28,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -39,6 +40,25 @@ var (
 	errClusterQueueDoesNotExist  = errors.New("clusterQueue doesn't exist")
 	errClusterQueueAlreadyExists = errors.New("clusterQueue already exists")
 )
+
+type options struct {
+	podsReadyRequeuingTimestamp config.RequeuingTimestamp
+}
+
+// Option configures the manager.
+type Option func(*options)
+
+var defaultOptions = options{
+	podsReadyRequeuingTimestamp: config.EvictionTimestamp,
+}
+
+// WithPodsReadyRequeuingTimestamp sets the timestamp that is used for ordering
+// workloads that have been requeued due to the PodsReady condition.
+func WithPodsReadyRequeuingTimestamp(ts config.RequeuingTimestamp) Option {
+	return func(o *options) {
+		o.podsReadyRequeuingTimestamp = ts
+	}
+}
 
 type Manager struct {
 	sync.RWMutex
@@ -54,9 +74,15 @@ type Manager struct {
 
 	// Key is cohort's name. Value is a set of associated ClusterQueue names.
 	cohorts map[string]sets.Set[string]
+
+	workloadOrdering workload.Ordering
 }
 
-func NewManager(client client.Client, checker StatusChecker) *Manager {
+func NewManager(client client.Client, checker StatusChecker, opts ...Option) *Manager {
+	options := defaultOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
 	m := &Manager{
 		client:         client,
 		statusChecker:  checker,
@@ -65,6 +91,9 @@ func NewManager(client client.Client, checker StatusChecker) *Manager {
 		cohorts:        make(map[string]sets.Set[string]),
 		snapshotsMutex: sync.RWMutex{},
 		snapshots:      make(map[string][]kueue.ClusterQueuePendingWorkload, 0),
+		workloadOrdering: workload.Ordering{
+			PodsReadyRequeuingTimestamp: options.podsReadyRequeuingTimestamp,
+		},
 	}
 	m.cond.L = &m.RWMutex
 	return m
@@ -78,7 +107,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 		return errClusterQueueAlreadyExists
 	}
 
-	cqImpl, err := newClusterQueue(cq)
+	cqImpl, err := newClusterQueue(cq, m.workloadOrdering)
 	if err != nil {
 		return err
 	}
@@ -121,6 +150,7 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 	}
 
 	oldCohort := cqImpl.Cohort()
+	oldActive := cqImpl.Active()
 	// TODO(#8): recreate heap based on a change of queueing policy.
 	if err := cqImpl.Update(cq); err != nil {
 		return err
@@ -131,11 +161,11 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 	}
 
 	// TODO(#8): Selectively move workloads based on the exact event.
-	if m.queueAllInadmissibleWorkloadsInCohort(ctx, cqImpl) {
+	// If any workload becomes admissible or the queue becomes active.
+	if m.queueAllInadmissibleWorkloadsInCohort(ctx, cqImpl) || (!oldActive && cqImpl.Active()) {
 		m.reportPendingWorkloads(cq.Name, cqImpl)
 		m.Broadcast()
 	}
-
 	return nil
 }
 
@@ -286,7 +316,7 @@ func (m *Manager) addOrUpdateWorkload(w *kueue.Workload) bool {
 }
 
 // RequeueWorkload requeues the workload ensuring that the queue and the
-// workload still exist in the client cache and it's not admitted. It won't
+// workload still exist in the client cache and not admitted. It won't
 // requeue if the workload is already in the queue (possible if the workload was updated).
 func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reason RequeueReason) bool {
 	m.Lock()
@@ -394,7 +424,7 @@ func (m *Manager) QueueInadmissibleWorkloads(ctx context.Context, cqNames sets.S
 // queueAllInadmissibleWorkloadsInCohort moves all workloads in the same
 // cohort with this ClusterQueue from inadmissibleWorkloads to heap. If the
 // cohort of this ClusterQueue is empty, it just moves all workloads in this
-// ClusterQueue. If at least one workload is moved, returns true. Otherwise
+// ClusterQueue. If at least one workload is moved, returns true, otherwise
 // returns false.
 // The events listed below could make workloads in the same cohort admissible.
 // Then queueAllInadmissibleWorkloadsInCohort need to be invoked.
@@ -454,46 +484,6 @@ func (m *Manager) Heads(ctx context.Context) []workload.Info {
 			m.cond.Wait()
 		}
 	}
-}
-
-// Dump is a dump of the queues and it's elements (unordered).
-// Only use for testing purposes.
-func (m *Manager) Dump() map[string]sets.Set[string] {
-	m.Lock()
-	defer m.Unlock()
-	if len(m.clusterQueues) == 0 {
-		return nil
-	}
-	dump := make(map[string]sets.Set[string], len(m.clusterQueues))
-	for key, cq := range m.clusterQueues {
-		if elements, ok := cq.Dump(); ok {
-			dump[key] = elements
-		}
-	}
-	if len(dump) == 0 {
-		return nil
-	}
-	return dump
-}
-
-// DumpInadmissible is a dump of the inadmissible workloads list.
-// Only use for testing purposes.
-func (m *Manager) DumpInadmissible() map[string]sets.Set[string] {
-	m.Lock()
-	defer m.Unlock()
-	if len(m.clusterQueues) == 0 {
-		return nil
-	}
-	dump := make(map[string]sets.Set[string], len(m.clusterQueues))
-	for key, cq := range m.clusterQueues {
-		if elements, ok := cq.DumpInadmissible(); ok {
-			dump[key] = elements
-		}
-	}
-	if len(dump) == 0 {
-		return nil
-	}
-	return dump
 }
 
 func (m *Manager) heads() []workload.Info {
@@ -569,6 +559,21 @@ func (m *Manager) getClusterQueue(cqName string) ClusterQueue {
 	m.RLock()
 	defer m.RUnlock()
 	return m.clusterQueues[cqName]
+}
+
+func (m *Manager) PendingWorkloadsInfo(cqName string) []*workload.Info {
+	cq := m.getClusterQueue(cqName)
+	if cq == nil {
+		return nil
+	}
+	return cq.Snapshot()
+}
+
+func (m *Manager) ClusterQueueFromLocalQueue(lqName string) (string, error) {
+	if lq, ok := m.localQueues[lqName]; ok {
+		return lq.ClusterQueue, nil
+	}
+	return "", errQueueDoesNotExist
 }
 
 // UpdateSnapshot computes the new snapshot and replaces if it differs from the

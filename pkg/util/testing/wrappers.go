@@ -26,8 +26,11 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
@@ -75,6 +78,10 @@ func (w *WorkloadWrapper) Obj() *kueue.Workload {
 	return &w.Workload
 }
 
+func (w *WorkloadWrapper) Clone() *WorkloadWrapper {
+	return &WorkloadWrapper{Workload: *w.DeepCopy()}
+}
+
 func (w *WorkloadWrapper) Finalizers(fin ...string) *WorkloadWrapper {
 	w.ObjectMeta.Finalizers = fin
 	return w
@@ -102,6 +109,12 @@ func (w *WorkloadWrapper) Queue(q string) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) Active(a bool) *WorkloadWrapper {
+	w.Spec.Active = ptr.To(a)
+	return w
+}
+
+// ReserveQuota sets workload admission and adds a "QuotaReserved" status condition
 func (w *WorkloadWrapper) ReserveQuota(a *kueue.Admission) *WorkloadWrapper {
 	w.Status.Admission = a
 	w.Status.Conditions = []metav1.Condition{{
@@ -124,6 +137,18 @@ func (w *WorkloadWrapper) Admitted(a bool) *WorkloadWrapper {
 	}
 	if !a {
 		cond.Status = metav1.ConditionFalse
+	}
+	apimeta.SetStatusCondition(&w.Status.Conditions, cond)
+	return w
+}
+
+func (w *WorkloadWrapper) Finished() *WorkloadWrapper {
+	cond := metav1.Condition{
+		Type:               kueue.WorkloadFinished,
+		Status:             metav1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             "ByTest",
+		Message:            "Finished by test",
 	}
 	apimeta.SetStatusCondition(&w.Status.Conditions, cond)
 	return w
@@ -200,8 +225,71 @@ func (w *WorkloadWrapper) Labels(l map[string]string) *WorkloadWrapper {
 	return w
 }
 
+func (w *WorkloadWrapper) Label(k, v string) *WorkloadWrapper {
+	if w.ObjectMeta.Labels == nil {
+		w.ObjectMeta.Labels = make(map[string]string)
+	}
+	w.ObjectMeta.Labels[k] = v
+	return w
+}
+
 func (w *WorkloadWrapper) AdmissionChecks(checks ...kueue.AdmissionCheckState) *WorkloadWrapper {
 	w.Status.AdmissionChecks = checks
+	return w
+}
+
+func (w *WorkloadWrapper) ControllerReference(gvk schema.GroupVersionKind, name, uid string) *WorkloadWrapper {
+	w.appendOwnerReference(gvk, name, uid, ptr.To(true), ptr.To(true))
+	return w
+}
+
+func (w *WorkloadWrapper) OwnerReference(gvk schema.GroupVersionKind, name, uid string) *WorkloadWrapper {
+	w.appendOwnerReference(gvk, name, uid, nil, nil)
+	return w
+}
+
+func (w *WorkloadWrapper) appendOwnerReference(gvk schema.GroupVersionKind, name, uid string, controller, blockDeletion *bool) *WorkloadWrapper {
+	w.OwnerReferences = append(w.OwnerReferences, metav1.OwnerReference{
+		APIVersion:         gvk.GroupVersion().String(),
+		Kind:               gvk.Kind,
+		Name:               name,
+		UID:                types.UID(uid),
+		Controller:         controller,
+		BlockOwnerDeletion: blockDeletion,
+	})
+	return w
+}
+
+func (w *WorkloadWrapper) Annotations(kv map[string]string) *WorkloadWrapper {
+	w.ObjectMeta.Annotations = kv
+	return w
+}
+
+// DeletionTimestamp sets a deletion timestamp for the workload.
+func (w *WorkloadWrapper) DeletionTimestamp(t time.Time) *WorkloadWrapper {
+	w.Workload.DeletionTimestamp = ptr.To(metav1.NewTime(t).Rfc3339Copy())
+	return w
+}
+
+func (w *WorkloadWrapper) RequeueState(count *int32, requeueAt *metav1.Time) *WorkloadWrapper {
+	if count == nil && requeueAt == nil {
+		w.Status.RequeueState = nil
+		return w
+	}
+	if w.Status.RequeueState == nil {
+		w.Status.RequeueState = &kueue.RequeueState{}
+	}
+	if count != nil {
+		w.Status.RequeueState.Count = count
+	}
+	if requeueAt != nil {
+		w.Status.RequeueState.RequeueAt = requeueAt
+	}
+	return w
+}
+
+func (w *WorkloadWrapper) ResourceVersion(v string) *WorkloadWrapper {
+	w.SetResourceVersion(v)
 	return w
 }
 
@@ -231,6 +319,11 @@ func MakePodSet(name string, count int) *PodSetWrapper {
 
 func (p *PodSetWrapper) PriorityClass(pc string) *PodSetWrapper {
 	p.Template.Spec.PriorityClassName = pc
+	return p
+}
+
+func (p *PodSetWrapper) RuntimeClass(name string) *PodSetWrapper {
+	p.Template.Spec.RuntimeClassName = &name
 	return p
 }
 
@@ -293,6 +386,11 @@ func (p *PodSetWrapper) Annotations(kv map[string]string) *PodSetWrapper {
 
 func (p *PodSetWrapper) SchedulingGates(sg ...corev1.PodSchedulingGate) *PodSetWrapper {
 	p.Template.Spec.SchedulingGates = sg
+	return p
+}
+
+func (p *PodSetWrapper) PodOverHead(resources corev1.ResourceList) *PodSetWrapper {
+	p.Template.Spec.Overhead = resources
 	return p
 }
 
@@ -461,9 +559,24 @@ func (c *ClusterQueueWrapper) Preemption(p kueue.ClusterQueuePreemption) *Cluste
 	return c
 }
 
-// Preemption sets the preeemption policies.
+// FlavorFungibility sets the flavorFungibility policies.
 func (c *ClusterQueueWrapper) FlavorFungibility(p kueue.FlavorFungibility) *ClusterQueueWrapper {
 	c.Spec.FlavorFungibility = &p
+	return c
+}
+
+func (c *ClusterQueueWrapper) StopPolicy(p kueue.StopPolicy) *ClusterQueueWrapper {
+	c.Spec.StopPolicy = &p
+	return c
+}
+
+func (c *ClusterQueueWrapper) Condition(conditionType string, status metav1.ConditionStatus, reason, message string) *ClusterQueueWrapper {
+	apimeta.SetStatusCondition(&c.Status.Conditions, metav1.Condition{
+		Type:    conditionType,
+		Status:  status,
+		Reason:  reason,
+		Message: message,
+	})
 	return c
 }
 
@@ -489,12 +602,16 @@ func (f *FlavorQuotasWrapper) Resource(name corev1.ResourceName, qs ...string) *
 	if len(qs) > 0 {
 		rq.NominalQuota = resource.MustParse(qs[0])
 	}
-	if len(qs) > 1 {
+	if len(qs) > 1 && len(qs[1]) > 0 {
 		rq.BorrowingLimit = ptr.To(resource.MustParse(qs[1]))
 	}
-	if len(qs) > 2 {
-		panic("Must have at most 2 quantities for nominalquota and borrowingLimit")
+	if len(qs) > 2 && len(qs[2]) > 0 {
+		rq.LendingLimit = ptr.To(resource.MustParse(qs[2]))
 	}
+	if len(qs) > 3 {
+		panic("Must have at most 3 quantities for nominalQuota, borrowingLimit and lendingLimit")
+	}
+
 	f.Resources = append(f.Resources, rq)
 	return f
 }
@@ -550,7 +667,7 @@ func MakeRuntimeClass(name, handler string) *RuntimeClassWrapper {
 	}}
 }
 
-// PodOverhead adds a Overhead to the RuntimeClass.
+// PodOverhead adds an Overhead to the RuntimeClass.
 func (rc *RuntimeClassWrapper) PodOverhead(resources corev1.ResourceList) *RuntimeClassWrapper {
 	rc.Overhead = &nodev1.Overhead{
 		PodFixed: resources,
@@ -637,6 +754,11 @@ func (ac *AdmissionCheckWrapper) Active(status metav1.ConditionStatus) *Admissio
 	return ac
 }
 
+func (ac *AdmissionCheckWrapper) Condition(cond metav1.Condition) *AdmissionCheckWrapper {
+	apimeta.SetStatusCondition(&ac.Status.Conditions, cond)
+	return ac
+}
+
 func (ac *AdmissionCheckWrapper) ControllerName(c string) *AdmissionCheckWrapper {
 	ac.Spec.ControllerName = c
 	return ac
@@ -678,4 +800,64 @@ func (p *WorkloadPriorityClassWrapper) PriorityValue(v int32) *WorkloadPriorityC
 // Obj returns the inner WorkloadPriorityClass.
 func (p *WorkloadPriorityClassWrapper) Obj() *kueue.WorkloadPriorityClass {
 	return &p.WorkloadPriorityClass
+}
+
+type MultiKueueConfigWrapper struct {
+	kueuealpha.MultiKueueConfig
+}
+
+func MakeMultiKueueConfig(name string) *MultiKueueConfigWrapper {
+	return &MultiKueueConfigWrapper{
+		MultiKueueConfig: kueuealpha.MultiKueueConfig{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: name,
+			},
+		},
+	}
+}
+
+func (mkc *MultiKueueConfigWrapper) Obj() *kueuealpha.MultiKueueConfig {
+	return &mkc.MultiKueueConfig
+}
+
+func (mkc *MultiKueueConfigWrapper) Clusters(clusters ...string) *MultiKueueConfigWrapper {
+	mkc.Spec.Clusters = append(mkc.Spec.Clusters, clusters...)
+	return mkc
+}
+
+type MultiKueueClusterWrapper struct {
+	kueuealpha.MultiKueueCluster
+}
+
+func MakeMultiKueueCluster(name string) *MultiKueueClusterWrapper {
+	return &MultiKueueClusterWrapper{
+		MultiKueueCluster: kueuealpha.MultiKueueCluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: name,
+			},
+		},
+	}
+}
+
+func (mkc *MultiKueueClusterWrapper) Obj() *kueuealpha.MultiKueueCluster {
+	return &mkc.MultiKueueCluster
+}
+
+func (mkc *MultiKueueClusterWrapper) KubeConfig(LocationType kueuealpha.LocationType, location string) *MultiKueueClusterWrapper {
+	mkc.Spec.KubeConfig = kueuealpha.KubeConfig{
+		Location:     location,
+		LocationType: LocationType,
+	}
+	return mkc
+}
+
+func (mkc *MultiKueueClusterWrapper) Active(state metav1.ConditionStatus, reason, message string) *MultiKueueClusterWrapper {
+	cond := metav1.Condition{
+		Type:    kueuealpha.MultiKueueClusterActive,
+		Status:  state,
+		Reason:  reason,
+		Message: message,
+	}
+	apimeta.SetStatusCondition(&mkc.Status.Conditions, cond)
+	return mkc
 }

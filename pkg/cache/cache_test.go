@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -89,10 +90,12 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 		return nil
 	}
 	cases := []struct {
-		name              string
-		operation         func(*Cache) error
-		wantClusterQueues map[string]*ClusterQueue
-		wantCohorts       map[string]sets.Set[string]
+		name               string
+		operation          func(*Cache) error
+		clientObbjects     []client.Object
+		wantClusterQueues  map[string]*ClusterQueue
+		wantCohorts        map[string]sets.Set[string]
+		enableLendingLimit bool
 	}{
 		{
 			name: "add",
@@ -396,7 +399,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					*utiltesting.MakeClusterQueue("e").
 						ResourceGroup(
 							*utiltesting.MakeFlavorQuotas("default").
-								Resource(corev1.ResourceCPU, "5", "5").
+								Resource(corev1.ResourceCPU, "5", "5", "4").
 								Obj()).
 						Cohort("two").
 						NamespaceSelector(nil).
@@ -483,11 +486,17 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 								corev1.ResourceCPU: {
 									Nominal:        5_000,
 									BorrowingLimit: ptr.To[int64](5_000),
+									LendingLimit:   ptr.To[int64](4_000),
 								},
 							}},
 						},
 						LabelKeys: sets.New("cpuType", "region"),
 					}},
+					GuaranteedQuota: FlavorResourceQuantities{
+						"default": {
+							"cpu": 1_000,
+						},
+					},
 					NamespaceSelector: labels.Nothing(),
 					FlavorFungibility: defaultFlavorFungibility,
 					Usage: FlavorResourceQuantities{
@@ -517,6 +526,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 				"one": sets.New("b"),
 				"two": sets.New("a", "c", "e", "f"),
 			},
+			enableLendingLimit: true,
 		},
 		{
 			name: "delete",
@@ -958,16 +968,94 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 			},
 			wantCohorts: map[string]sets.Set[string]{},
 		},
+		{
+			name: "add cluster queue after finished workloads",
+			clientObbjects: []client.Object{
+				utiltesting.MakeLocalQueue("lq1", "ns").ClusterQueue("cq1").Obj(),
+				utiltesting.MakeWorkload("pending", "ns").Obj(),
+				utiltesting.MakeWorkload("reserving", "ns").ReserveQuota(
+					utiltesting.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f1", "1").Obj(),
+				).Obj(),
+				utiltesting.MakeWorkload("admitted", "ns").ReserveQuota(
+					utiltesting.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f1", "1").Obj(),
+				).Admitted(true).Obj(),
+				utiltesting.MakeWorkload("finished", "ns").ReserveQuota(
+					utiltesting.MakeAdmission("cq1").Assignment(corev1.ResourceCPU, "f1", "1").Obj(),
+				).Admitted(true).Finished().Obj(),
+			},
+			operation: func(cache *Cache) error {
+				cache.AddOrUpdateResourceFlavor(utiltesting.MakeResourceFlavor("f1").Obj())
+				err := cache.AddClusterQueue(context.Background(),
+					utiltesting.MakeClusterQueue("cq1").
+						ResourceGroup(kueue.FlavorQuotas{
+							Name: "f1",
+							Resources: []kueue.ResourceQuota{
+								{
+									Name:         corev1.ResourceCPU,
+									NominalQuota: resource.MustParse("10"),
+								},
+							},
+						}).
+						Obj())
+				if err != nil {
+					return fmt.Errorf("Adding ClusterQueue: %w", err)
+				}
+				return nil
+			},
+			wantClusterQueues: map[string]*ClusterQueue{
+				"cq1": {
+					Name:                          "cq1",
+					NamespaceSelector:             labels.Everything(),
+					Status:                        active,
+					Preemption:                    defaultPreemption,
+					AllocatableResourceGeneration: 1,
+					FlavorFungibility:             defaultFlavorFungibility,
+					Usage:                         FlavorResourceQuantities{"f1": {corev1.ResourceCPU: 2000}},
+					AdmittedUsage:                 FlavorResourceQuantities{"f1": {corev1.ResourceCPU: 1000}},
+					Workloads: map[string]*workload.Info{
+						"ns/reserving": {
+							ClusterQueue: "cq1",
+							TotalRequests: []workload.PodSetResources{
+								{
+									Name:     "main",
+									Requests: workload.Requests{corev1.ResourceCPU: 1000},
+									Count:    1,
+									Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+										corev1.ResourceCPU: "f1",
+									},
+								},
+							},
+						},
+						"ns/admitted": {
+							ClusterQueue: "cq1",
+							TotalRequests: []workload.PodSetResources{
+								{
+									Name:     "main",
+									Requests: workload.Requests{corev1.ResourceCPU: 1000},
+									Count:    1,
+									Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+										corev1.ResourceCPU: "f1",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			wantCohorts: map[string]sets.Set[string]{},
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cache := New(utiltesting.NewFakeClient())
+			defer features.SetFeatureGateDuringTest(t, features.LendingLimit, tc.enableLendingLimit)()
+			cache := New(utiltesting.NewFakeClient(tc.clientObbjects...))
 			if err := tc.operation(cache); err != nil {
 				t.Errorf("Unexpected error during test operation: %s", err)
 			}
 			if diff := cmp.Diff(tc.wantClusterQueues, cache.clusterQueues,
-				cmpopts.IgnoreFields(ClusterQueue{}, "Cohort", "Workloads", "RGByResource"),
+				cmpopts.IgnoreFields(ClusterQueue{}, "Cohort", "RGByResource", "ResourceGroups"),
+				cmpopts.IgnoreFields(workload.Info{}, "Obj", "LastAssignment"),
 				cmpopts.IgnoreUnexported(ClusterQueue{}),
 				cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected clusterQueues (-want,+got):\n%s", diff)
@@ -3085,7 +3173,6 @@ func TestClusterQueuesUsingAdmissionChecks(t *testing.T) {
 }
 
 func TestClusterQueueReadiness(t *testing.T) {
-
 	baseFalvor := utiltesting.MakeResourceFlavor("flavor1").Obj()
 	baseCheck := utiltesting.MakeAdmissionCheck("check1").Active(metav1.ConditionTrue).Obj()
 	baseQueue := utiltesting.MakeClusterQueue("queue1").
@@ -3119,7 +3206,7 @@ func TestClusterQueueReadiness(t *testing.T) {
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
 			wantReason:       "FlavorNotFound",
-			wantMessage:      "Can't admit new workloads; some resourceFlavors are not found",
+			wantMessage:      "Can't admit new workloads: FlavorNotFound",
 		},
 		"check not found": {
 			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
@@ -3127,7 +3214,7 @@ func TestClusterQueueReadiness(t *testing.T) {
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
 			wantReason:       "CheckNotFoundOrInactive",
-			wantMessage:      "Can't admit new workloads; some admissionChecks are not found or inactive",
+			wantMessage:      "Can't admit new workloads: CheckNotFoundOrInactive",
 		},
 		"check inactive": {
 			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
@@ -3136,14 +3223,14 @@ func TestClusterQueueReadiness(t *testing.T) {
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
 			wantReason:       "CheckNotFoundOrInactive",
-			wantMessage:      "Can't admit new workloads; some admissionChecks are not found or inactive",
+			wantMessage:      "Can't admit new workloads: CheckNotFoundOrInactive",
 		},
 		"flavor and check not found": {
 			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
 			clusterQueueName: "queue1",
 			wantStatus:       metav1.ConditionFalse,
-			wantReason:       "FlavorNotFoundAndCheckNotFoundOrInactive",
-			wantMessage:      "Can't admit new workloads; some resourceFlavors are not found and admissionChecks are not found or inactive",
+			wantReason:       "FlavorNotFound",
+			wantMessage:      "Can't admit new workloads: FlavorNotFound, CheckNotFoundOrInactive",
 		},
 		"terminating": {
 			clusterQueues:    []*kueue.ClusterQueue{baseQueue},
@@ -3165,6 +3252,13 @@ func TestClusterQueueReadiness(t *testing.T) {
 			wantReason:       "Ready",
 			wantMessage:      "Can admit new workloads",
 			wantActive:       true,
+		},
+		"stopped": {
+			clusterQueues:    []*kueue.ClusterQueue{utiltesting.MakeClusterQueue("queue1").StopPolicy(kueue.HoldAndDrain).Obj()},
+			clusterQueueName: "queue1",
+			wantStatus:       metav1.ConditionFalse,
+			wantReason:       "Stopped",
+			wantMessage:      "Can't admit new workloads: Stopped",
 		},
 	}
 

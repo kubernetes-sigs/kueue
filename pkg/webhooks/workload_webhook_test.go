@@ -78,6 +78,22 @@ func TestWorkloadWebhookDefault(t *testing.T) {
 				},
 			},
 		},
+		"re-activated workload with re-queue state is reset the re-queue state": {
+			wl: *testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadEvicted,
+					Status: metav1.ConditionTrue,
+					Reason: kueue.WorkloadEvictedByDeactivation,
+				}).RequeueState(ptr.To[int32](5), ptr.To(metav1.Now())).
+				Obj(),
+			wantWl: *testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadEvicted,
+					Status: metav1.ConditionTrue,
+					Reason: kueue.WorkloadEvictedByDeactivation,
+				}).
+				Obj(),
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -86,7 +102,8 @@ func TestWorkloadWebhookDefault(t *testing.T) {
 			if err := wh.Default(context.Background(), wlCopy); err != nil {
 				t.Fatalf("Could not apply defaults: %v", err)
 			}
-			if diff := cmp.Diff(tc.wantWl, *wlCopy); diff != "" {
+			if diff := cmp.Diff(tc.wantWl, *wlCopy,
+				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); diff != "" {
 				t.Errorf("Obtained wrong defaults (-want,+got):\n%s", diff)
 			}
 		})
@@ -260,7 +277,7 @@ func TestValidateWorkload(t *testing.T) {
 				kueue.AdmissionCheckState{PodSetUpdates: []kueue.PodSetUpdate{{Name: "first"}, {Name: "third"}}},
 			).Obj(),
 			wantErr: field.ErrorList{
-				field.NotSupported(firstAdmissionChecksPath.Child("podSetUpdates").Index(1).Child("name"), nil, nil),
+				field.NotSupported(firstAdmissionChecksPath.Child("podSetUpdates").Index(1).Child("name"), nil, []string{}),
 			},
 		},
 		"matched names in podSetUpdates with names in podSets": {
@@ -346,7 +363,7 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(statusPath.Child("reclaimablePods").Key("ps1").Child("count"), nil, ""),
-				field.NotSupported(statusPath.Child("reclaimablePods").Key("ps2").Child("name"), nil, nil),
+				field.NotSupported(statusPath.Child("reclaimablePods").Key("ps2").Child("name"), nil, []string{}),
 			},
 		},
 		"invalid podSet minCount (negative)": {
@@ -396,8 +413,8 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		before, after *kueue.Workload
 		wantErr       field.ErrorList
 	}{
-		"podSets should not be updated: count": {
-			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
+		"podSets should not be updated when has quota reservation: count": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).ReserveQuota(testingutil.MakeAdmission("cq").Obj()).Obj(),
 			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
 				*testingutil.MakePodSet("main", 2).Obj(),
 			).Obj(),
@@ -406,7 +423,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			},
 		},
 		"podSets should not be updated: podSpec": {
-			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).ReserveQuota(testingutil.MakeAdmission("cq").Obj()).Obj(),
 			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
 				kueue.PodSet{
 					Name:  "main",
@@ -546,10 +563,42 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				field.Required(field.NewPath("status", "reclaimablePods").Key("ps2"), ""),
 			},
 		},
+		"reclaimable pod count can go to 0 if the job is suspended": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*testingutil.MakePodSet("ps1", 3).Obj(),
+					*testingutil.MakePodSet("ps2", 3).Obj(),
+				).
+				ReserveQuota(
+					testingutil.MakeAdmission("cluster-queue").
+						PodSets(kueue.PodSetAssignment{Name: "ps1"}, kueue.PodSetAssignment{Name: "ps2"}).
+						Obj(),
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 2},
+					kueue.ReclaimablePod{Name: "ps2", Count: 1},
+				).
+				Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*testingutil.MakePodSet("ps1", 3).Obj(),
+					*testingutil.MakePodSet("ps2", 3).Obj(),
+				).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					PodSetUpdates: []kueue.PodSetUpdate{{Name: "ps1"}, {Name: "ps2"}},
+					State:         kueue.CheckStateReady,
+				}).
+				ReclaimablePods(
+					kueue.ReclaimablePod{Name: "ps1", Count: 0},
+					kueue.ReclaimablePod{Name: "ps2", Count: 1},
+				).
+				Obj(),
+			wantErr: nil,
+		},
 		"priorityClassSource should not be updated": {
 			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q").
 				PriorityClass("test-class").PriorityClassSource(constants.PodPriorityClassSource).
-				Priority(10).Obj(),
+				Priority(10).ReserveQuota(testingutil.MakeAdmission("cq").Obj()).Obj(),
 			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q").
 				PriorityClass("test-class").PriorityClassSource(constants.WorkloadPriorityClassSource).
 				Priority(10).Obj(),
@@ -560,7 +609,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		"priorityClassName should not be updated": {
 			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q").
 				PriorityClass("test-class-1").PriorityClassSource(constants.PodPriorityClassSource).
-				Priority(10).Obj(),
+				Priority(10).ReserveQuota(testingutil.MakeAdmission("cq").Obj()).Obj(),
 			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q").
 				PriorityClass("test-class-2").PriorityClassSource(constants.PodPriorityClassSource).
 				Priority(10).Obj(),
@@ -607,6 +656,46 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSetUpdates:      []kueue.PodSetUpdate{{Name: "first", Labels: map[string]string{"foo": "bar"}}, {Name: "second"}},
 				State:              kueue.CheckStateReady,
 			}).Obj(),
+		},
+		"updating priorityClassName before setting reserve quota for workload": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q").
+				PriorityClass("test-class-1").PriorityClassSource(constants.PodPriorityClassSource).
+				Priority(10).Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q").
+				PriorityClass("test-class-2").PriorityClassSource(constants.PodPriorityClassSource).
+				Priority(10).Obj(),
+			wantErr: nil,
+		},
+		"updating priorityClassSource before setting reserve quota for workload": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q").
+				PriorityClass("test-class").PriorityClassSource(constants.PodPriorityClassSource).
+				Priority(10).Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q").
+				PriorityClass("test-class").PriorityClassSource(constants.WorkloadPriorityClassSource).
+				Priority(10).Obj(),
+			wantErr: nil,
+		},
+		"updating podSets  before setting reserve quota for workload": {
+			before: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).Obj(),
+			after: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
+				kueue.PodSet{
+					Name:  "main",
+					Count: 1,
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name: "c-after",
+									Resources: corev1.ResourceRequirements{
+										Requests: make(corev1.ResourceList),
+									},
+								},
+							},
+						},
+					},
+				},
+			).Obj(),
+			wantErr: nil,
 		},
 	}
 	for name, tc := range testCases {

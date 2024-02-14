@@ -1,10 +1,28 @@
+/*
+Copyright 2023 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package cache
 
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -12,6 +30,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -36,6 +55,9 @@ type ClusterQueue struct {
 	FlavorFungibility kueue.FlavorFungibility
 	AdmissionChecks   sets.Set[string]
 	Status            metrics.ClusterQueueStatus
+	// GuaranteedQuota records how much resource quota the ClusterQueue reserved
+	// when feature LendingLimit is enabled and flavor's lendingLimit is not nil.
+	GuaranteedQuota FlavorResourceQuantities
 	// AllocatableResourceGeneration will be increased when some admitted workloads are
 	// deleted, or the resource groups are changed.
 	AllocatableResourceGeneration int64
@@ -48,6 +70,7 @@ type ClusterQueue struct {
 	hasMissingFlavors                   bool
 	hasMissingOrInactiveAdmissionChecks bool
 	admittedWorkloadsCount              int
+	isStopped                           bool
 }
 
 // Cohort is a set of ClusterQueues that can borrow resources from each other.
@@ -55,11 +78,12 @@ type Cohort struct {
 	Name    string
 	Members sets.Set[*ClusterQueue]
 
-	// These fields are only populated for a snapshot.
+	// These fields are only populated for a snapshot. This field equals to
+	// the sum of LendingLimit when feature LendingLimit enabled.
 	RequestableResources FlavorResourceQuantities
 	Usage                FlavorResourceQuantities
-	// This field will only be set in snapshot. This field equal to the sum of
-	// allocatable generation among its members.
+	// This field will only be set in snapshot. This field equals to
+	// the sum of allocatable generation among its members.
 	AllocatableResourceGeneration int64
 }
 
@@ -81,6 +105,7 @@ type FlavorQuotas struct {
 type ResourceQuota struct {
 	Nominal        int64
 	BorrowingLimit *int64
+	LendingLimit   *int64
 }
 
 type FlavorResourceQuantities map[kueue.ResourceFlavorReference]map[corev1.ResourceName]int64
@@ -101,12 +126,11 @@ func newCohort(name string, size int) *Cohort {
 	}
 }
 
-func (c *Cohort) CanFit(q FlavorResourceQuantities) bool {
+func (c *ClusterQueue) FitInCohort(q FlavorResourceQuantities) bool {
 	for flavor, qResources := range q {
-		if cohortResources, flavorFound := c.RequestableResources[flavor]; flavorFound {
-			cohortUsage := c.Usage[flavor]
+		if _, flavorFound := c.Cohort.RequestableResources[flavor]; flavorFound {
 			for resource, value := range qResources {
-				available := cohortResources[resource] - cohortUsage[resource]
+				available := c.RequestableCohortQuota(flavor, resource) - c.UsedCohortQuota(flavor, resource)
 				if available < value {
 					return false
 				}
@@ -156,6 +180,8 @@ func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.
 	}
 	c.NamespaceSelector = nsSelector
 
+	c.isStopped = ptr.Deref(in.Spec.StopPolicy, kueue.None) != kueue.None
+
 	c.AdmissionChecks = sets.New(in.Spec.AdmissionChecks...)
 
 	c.Usage = filterQuantities(c.Usage, in.Spec.ResourceGroups)
@@ -181,6 +207,26 @@ func (c *ClusterQueue) update(in *kueue.ClusterQueue, resourceFlavors map[kueue.
 		c.FlavorFungibility = defaultFlavorFungibility
 	}
 
+	if features.Enabled(features.LendingLimit) {
+		var guaranteedQuota FlavorResourceQuantities
+		for _, rg := range c.ResourceGroups {
+			for _, flvQuotas := range rg.Flavors {
+				for rName, rQuota := range flvQuotas.Resources {
+					if rQuota.LendingLimit != nil {
+						if guaranteedQuota == nil {
+							guaranteedQuota = make(FlavorResourceQuantities)
+						}
+						if guaranteedQuota[flvQuotas.Name] == nil {
+							guaranteedQuota[flvQuotas.Name] = make(map[corev1.ResourceName]int64)
+						}
+						guaranteedQuota[flvQuotas.Name][rName] = rQuota.Nominal - *rQuota.LendingLimit
+					}
+				}
+			}
+		}
+		c.GuaranteedQuota = guaranteedQuota
+	}
+
 	return nil
 }
 
@@ -200,6 +246,7 @@ func filterQuantities(orig FlavorResourceQuantities, resourceGroups []kueue.Reso
 }
 
 func (c *ClusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
+	oldRG := c.ResourceGroups
 	c.ResourceGroups = make([]ResourceGroup, len(in))
 	for i, rgIn := range in {
 		rg := &c.ResourceGroups[i]
@@ -220,12 +267,18 @@ func (c *ClusterQueue) updateResourceGroups(in []kueue.ResourceGroup) {
 				if rIn.BorrowingLimit != nil {
 					rQuota.BorrowingLimit = ptr.To(workload.ResourceValue(rIn.Name, *rIn.BorrowingLimit))
 				}
+				if features.Enabled(features.LendingLimit) && rIn.LendingLimit != nil {
+					rQuota.LendingLimit = ptr.To(workload.ResourceValue(rIn.Name, *rIn.LendingLimit))
+				}
 				fQuotas.Resources[rIn.Name] = &rQuota
 			}
 			rg.Flavors = append(rg.Flavors, fQuotas)
 		}
 	}
-	c.AllocatableResourceGeneration++
+	// Start at 1, for backwards compatibility.
+	if c.AllocatableResourceGeneration == 0 || !equality.Semantic.DeepEqual(oldRG, c.ResourceGroups) {
+		c.AllocatableResourceGeneration++
+	}
 	c.UpdateRGByResource()
 }
 
@@ -241,7 +294,7 @@ func (c *ClusterQueue) UpdateRGByResource() {
 
 func (c *ClusterQueue) updateQueueStatus() {
 	status := active
-	if c.hasMissingFlavors || c.hasMissingOrInactiveAdmissionChecks {
+	if c.hasMissingFlavors || c.hasMissingOrInactiveAdmissionChecks || c.isStopped {
 		status = pending
 	}
 	if c.Status == terminating {
@@ -258,15 +311,22 @@ func (c *ClusterQueue) inactiveReason() (string, string) {
 	case terminating:
 		return "Terminating", "Can't admit new workloads; clusterQueue is terminating"
 	case pending:
-		switch {
-		case c.hasMissingFlavors && c.hasMissingOrInactiveAdmissionChecks:
-			return "FlavorNotFoundAndCheckNotFoundOrInactive", "Can't admit new workloads; some resourceFlavors are not found and admissionChecks are not found or inactive"
-		case c.hasMissingFlavors:
-			return "FlavorNotFound", "Can't admit new workloads; some resourceFlavors are not found"
-		default:
-			return "CheckNotFoundOrInactive", "Can't admit new workloads; some admissionChecks are not found or inactive"
-
+		reasons := make([]string, 0, 3)
+		if c.isStopped {
+			reasons = append(reasons, "Stopped")
 		}
+		if c.hasMissingFlavors {
+			reasons = append(reasons, "FlavorNotFound")
+		}
+		if c.hasMissingOrInactiveAdmissionChecks {
+			reasons = append(reasons, "CheckNotFoundOrInactive")
+		}
+
+		if len(reasons) == 0 {
+			return "Unknown", "Can't admit new workloads."
+		}
+
+		return reasons[0], strings.Join([]string{"Can't admit new workloads:", strings.Join(reasons, ", ")}, " ")
 	}
 	return "Ready", "Can admit new flavors"
 }
@@ -460,4 +520,56 @@ func resetUsage(lqUsage FlavorResourceQuantities, cqUsage FlavorResourceQuantiti
 
 func workloadBelongsToLocalQueue(wl *kueue.Workload, q *kueue.LocalQueue) bool {
 	return wl.Namespace == q.Namespace && wl.Spec.QueueName == q.Name
+}
+
+// RequestableCohortQuota returns the total available quota by the flavor and resource name in the cohort.
+// LendingLimit will also be counted here if feature LendingLimit enabled.
+// Please note that for different clusterQueues, the requestable quota is different,
+// they should be calculated dynamically.
+func (c *ClusterQueue) RequestableCohortQuota(fName kueue.ResourceFlavorReference, rName corev1.ResourceName) (val int64) {
+	if c.Cohort.RequestableResources == nil || c.Cohort.RequestableResources[fName] == nil {
+		return 0
+	}
+	requestableCohortQuota := c.Cohort.RequestableResources[fName][rName]
+
+	// When feature LendingLimit enabled, cohort.requestableResource accumulated the lendingLimit if not null
+	// rather than the flavor's quota, then the total available quota should include its own guaranteed resources.
+	requestableCohortQuota += c.guaranteedQuota(fName, rName)
+
+	return requestableCohortQuota
+}
+
+func (c *ClusterQueue) guaranteedQuota(fName kueue.ResourceFlavorReference, rName corev1.ResourceName) (val int64) {
+	if !features.Enabled(features.LendingLimit) {
+		return 0
+	}
+	if c.GuaranteedQuota == nil || c.GuaranteedQuota[fName] == nil {
+		return 0
+	}
+	return c.GuaranteedQuota[fName][rName]
+}
+
+// UsedCohortQuota returns the used quota by the flavor and resource name in the cohort.
+// Note that when LendingLimit enabled, the usage is not equal to the total used quota but the one
+// minus the guaranteed resources, this is only for judging whether workloads fit in the cohort.
+func (c *ClusterQueue) UsedCohortQuota(fName kueue.ResourceFlavorReference, rName corev1.ResourceName) (val int64) {
+	if c.Cohort.Usage == nil || c.Cohort.Usage[fName] == nil {
+		return 0
+	}
+
+	cohortUsage := c.Cohort.Usage[fName][rName]
+
+	// When feature LendingLimit enabled, cohortUsage is the sum of usage in LendingLimit.
+	// If cqUsage < c.guaranteedQuota, it means the cq is not using all its guaranteedQuota,
+	// need to count the cqUsage in, otherwise need to count the guaranteedQuota in.
+	if features.Enabled(features.LendingLimit) {
+		cqUsage := c.Usage[fName][rName]
+		if cqUsage < c.guaranteedQuota(fName, rName) {
+			cohortUsage += cqUsage
+		} else {
+			cohortUsage += c.guaranteedQuota(fName, rName)
+		}
+	}
+
+	return cohortUsage
 }

@@ -59,6 +59,17 @@ type WorkloadSpec struct {
 	// +kubebuilder:default=""
 	// +kubebuilder:validation:Enum=kueue.x-k8s.io/workloadpriorityclass;scheduling.k8s.io/priorityclass;""
 	PriorityClassSource string `json:"priorityClassSource,omitempty"`
+
+	// Active determines if a workload can be admitted into a queue.
+	// Changing active from true to false will evict any running workloads.
+	// Possible values are:
+	//
+	//   - false: indicates that a workload should never be admitted and evicts running workloads
+	//   - true: indicates that a workload can be evaluated for admission into it's respective queue.
+	//
+	// Defaults to true
+	// +kubebuilder:default=true
+	Active *bool `json:"active,omitempty"`
 }
 
 type Admission struct {
@@ -140,6 +151,12 @@ type WorkloadStatus struct {
 	// changed once set.
 	Admission *Admission `json:"admission,omitempty"`
 
+	// requeueState holds the re-queue state
+	// when a workload meets Eviction with PodsReadyTimeout reason.
+	//
+	// +optional
+	RequeueState *RequeueState `json:"requeueState,omitempty"`
+
 	// conditions hold the latest available observations of the Workload
 	// current state.
 	//
@@ -171,6 +188,23 @@ type WorkloadStatus struct {
 	// +patchStrategy=merge
 	// +patchMergeKey=name
 	AdmissionChecks []AdmissionCheckState `json:"admissionChecks,omitempty" patchStrategy:"merge" patchMergeKey:"name"`
+}
+
+type RequeueState struct {
+	// count records the number of times a workload has been re-queued
+	// When a deactivated (`.spec.activate`=`false`) workload is reactivated (`.spec.activate`=`true`),
+	// this count would be reset to null.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	Count *int32 `json:"count,omitempty"`
+
+	// requeueAt records the time when a workload will be re-queued.
+	// When a deactivated (`.spec.activate`=`false`) workload is reactivated (`.spec.activate`=`true`),
+	// this time would be reset to null.
+	//
+	// +optional
+	RequeueAt *metav1.Time `json:"requeueAt,omitempty"`
 }
 
 type AdmissionCheckState struct {
@@ -265,8 +299,16 @@ const (
 	WorkloadEvictedByPodsReadyTimeout = "PodsReadyTimeout"
 
 	// WorkloadEvictedByAdmissionCheck indicates that the workload was evicted
-	// beacuse at least one admission check transitioned to False.
+	// because at least one admission check transitioned to False.
 	WorkloadEvictedByAdmissionCheck = "AdmissionCheck"
+
+	// WorkloadEvictedByClusterQueueStopped indicates that the workload was evicted
+	// because the ClusterQueue is Stopped.
+	WorkloadEvictedByClusterQueueStopped = "ClusterQueueStopped"
+
+	// WorkloadEvictedByDeactivation indicates that the workload was evicted
+	// because spec.active is set to false.
+	WorkloadEvictedByDeactivation = "InactiveWorkload"
 )
 
 // +genclient

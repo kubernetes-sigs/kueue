@@ -12,9 +12,25 @@ nodes:
     controllerManager:
       extraArgs:
         v: "2"
+    apiServer:
+      extraArgs:
+        enable-aggregator-routing: "true"
+        v: "2"
 - role: worker
   labels:
     instance-type: on-demand
+  kubeadmConfigPatches:
+  - |
+    kind: InitConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        v: "2"
 - role: worker
   labels:
     instance-type: spot
+  kubeadmConfigPatches:
+  - |
+    kind: InitConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        v: "2"

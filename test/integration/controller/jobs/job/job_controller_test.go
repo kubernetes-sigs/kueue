@@ -34,6 +34,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -120,12 +121,13 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 		ginkgo.By("checking the workload is created without queue assigned")
 		createdWorkload := &kueue.Workload{}
-		gomega.Eventually(func() bool {
-			err := k8sClient.Get(ctx, wlLookupKey, createdWorkload)
-			return err == nil
-		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+		gomega.Eventually(func() error {
+			return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		gomega.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(""), "The Workload shouldn't have .spec.queueName set")
 		gomega.Expect(metav1.IsControlledBy(createdWorkload, job)).To(gomega.BeTrue(), "The Workload should be owned by the Job")
+
+		createdTime := createdWorkload.CreationTimestamp
 
 		ginkgo.By("checking the workload is created with priority and priorityName")
 		gomega.Expect(createdWorkload.Spec.PriorityClassName).Should(gomega.Equal(priorityClassName))
@@ -141,6 +143,10 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			}
 			return createdWorkload.Spec.QueueName == jobQueueName
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+
+		ginkgo.By("updated workload should have the same created timestamp", func() {
+			gomega.Expect(createdWorkload.CreationTimestamp).Should(gomega.Equal(createdTime))
+		})
 
 		ginkgo.By("checking a second non-matching workload is deleted")
 		secondWl := &kueue.Workload{
@@ -159,10 +165,9 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			return k8sClient.Get(ctx, key, wl)
 		}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
 		// check the original wl is still there
-		gomega.Consistently(func() bool {
-			err := k8sClient.Get(ctx, wlLookupKey, createdWorkload)
-			return err == nil
-		}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
+		gomega.Consistently(func() error {
+			return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
+		}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 		gomega.Eventually(func() bool {
 			ok, _ := testing.CheckLatestEvent(ctx, k8sClient, "DeletedWorkload", corev1.EventTypeNormal, fmt.Sprintf("Deleted not matching Workload: %v", workload.Key(secondWl)))
 			return ok
@@ -378,6 +383,125 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		})
 	})
 
+	ginkgo.When("A prebuilt workload is used", func() {
+		ginkgo.It("Should get suspended if the workload is not found", func() {
+			job := testingjob.MakeJob("job", ns.Name).
+				Queue("main").
+				Label(constants.PrebuiltWorkloadLabel, "missing-workload").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdJob := batchv1.Job{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
+				g.Expect(ptr.Deref(createdJob.Spec.Suspend, false)).To(gomega.BeTrue())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should take the ownership of the workload and continue the usual execution", func() {
+			container := corev1.Container{
+				Name:  "c",
+				Image: "pause",
+			}
+			testingjob.SetContainerDefaults(&container)
+			wl := testing.MakeWorkload("wl", ns.Name).
+				PodSets(*testing.MakePodSet("main", 1).
+					Containers(*container.DeepCopy()).
+					Obj()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdWl := kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
+				g.Expect(createdWl.OwnerReferences).To(gomega.BeEmpty())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			job := testingjob.MakeJob("job", ns.Name).
+				Queue("main").
+				Label(constants.PrebuiltWorkloadLabel, "wl").
+				Containers(*container.DeepCopy()).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
+			ginkgo.By("Checking the job gets suspended", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdJob := batchv1.Job{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
+					g.Expect(ptr.Deref(createdJob.Spec.Suspend, false)).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Check the job gets the ownership of the workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdWl := kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
+
+					g.Expect(createdWl.OwnerReferences).To(gomega.ContainElement(
+						gomega.BeComparableTo(metav1.OwnerReference{
+							Name: job.Name,
+							UID:  job.UID,
+						}, cmpopts.IgnoreFields(metav1.OwnerReference{}, "APIVersion", "Kind", "Controller", "BlockOwnerDeletion"))))
+
+					// The workload is not marked as finished.
+					g.Expect(apimeta.IsStatusConditionTrue(createdWl.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeFalse())
+
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Admitting the workload, the job should unsuspend", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdWl := kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
+
+					admission := testing.MakeAdmission("cq", container.Name).Obj()
+					g.Expect(util.SetQuotaReservation(ctx, k8sClient, wl, admission)).To(gomega.Succeed())
+					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				ginkgo.By("Checking the job gets suspended", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						createdJob := batchv1.Job{}
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
+						g.Expect(ptr.Deref(createdJob.Spec.Suspend, true)).To(gomega.BeFalse())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+			})
+
+			ginkgo.By("Finishing the job, the workload should be finish", func() {
+				createdJob := batchv1.Job{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
+					createdJob.Status.Succeeded = 1
+					createdJob.Status.Conditions = []batchv1.JobCondition{
+						{
+							Type:               batchv1.JobComplete,
+							Status:             corev1.ConditionTrue,
+							LastProbeTime:      metav1.Now(),
+							LastTransitionTime: metav1.Now(),
+							Reason:             "ByTest",
+							Message:            "by test",
+						},
+					}
+					g.Expect(k8sClient.Status().Update(ctx, &createdJob)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				ginkgo.By("Checking the workload is finished", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						createdWl := kueue.Workload{}
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
+
+						g.Expect(createdWl.Status.Conditions).To(gomega.ContainElement(
+							gomega.BeComparableTo(metav1.Condition{
+								Type:    kueue.WorkloadFinished,
+								Status:  metav1.ConditionTrue,
+								Reason:  "JobFinished",
+								Message: "Job finished successfully",
+							}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"))))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+			})
+		})
+
+	})
+
 	ginkgo.It("Should finish the preemption when the job becomes inactive", func() {
 		job := testingjob.MakeJob(jobName, ns.Name).Queue("q").Obj()
 		wl := &kueue.Workload{}
@@ -588,12 +712,17 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			})
 
 			ginkgo.By("verify the PodSetUpdates are restored", func() {
-				gomega.Expect(createdJob.Spec.Template.Annotations).ShouldNot(gomega.HaveKey("ann1"))
-				gomega.Expect(createdJob.Spec.Template.Annotations).Should(gomega.HaveKeyWithValue("old-ann-key", "old-ann-value"))
-				gomega.Expect(createdJob.Spec.Template.Labels).ShouldNot(gomega.HaveKey("label1"))
-				gomega.Expect(createdJob.Spec.Template.Labels).Should(gomega.HaveKeyWithValue("old-label-key", "old-label-value"))
-				gomega.Expect(createdJob.Spec.Template.Spec.NodeSelector).ShouldNot(gomega.HaveKey(instanceKey))
-				gomega.Expect(createdJob.Spec.Template.Spec.NodeSelector).ShouldNot(gomega.HaveKey("selector1"))
+				// In case of batch/Job the stop is done with multiple API calls, suspended=true being
+				// done before the info restoration. We should retry the read if the Info is not restored.
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, *jobLookupKey, createdJob)).Should(gomega.Succeed())
+					g.Expect(createdJob.Spec.Template.Annotations).ShouldNot(gomega.HaveKey("ann1"))
+					g.Expect(createdJob.Spec.Template.Annotations).Should(gomega.HaveKeyWithValue("old-ann-key", "old-ann-value"))
+					g.Expect(createdJob.Spec.Template.Labels).ShouldNot(gomega.HaveKey("label1"))
+					g.Expect(createdJob.Spec.Template.Labels).Should(gomega.HaveKeyWithValue("old-label-key", "old-label-value"))
+					g.Expect(createdJob.Spec.Template.Spec.NodeSelector).ShouldNot(gomega.HaveKey(instanceKey))
+					g.Expect(createdJob.Spec.Template.Spec.NodeSelector).ShouldNot(gomega.HaveKey("selector1"))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -684,7 +813,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 			CRDPath: crdPath,
 		}
 		cfg = fwk.Init()
-		ctx, k8sClient = fwk.RunManager(cfg, managerSetup(jobframework.WithWaitForPodsReady(true)))
+		ctx, k8sClient = fwk.RunManager(cfg, managerSetup(jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{Enable: true})))
 		ginkgo.By("Create a resource flavor")
 		gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).Should(gomega.Succeed())
 	})
@@ -1521,11 +1650,11 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		})
 
 		ginkgo.By("job should be suspended and its parallelism restored", func() {
-			gomega.Eventually(func() *bool {
-				gomega.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
-				return createdJob.Spec.Suspend
-			}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(true)))
-			gomega.Expect(*createdJob.Spec.Parallelism).To(gomega.BeEquivalentTo(5))
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
+				g.Expect(ptr.Deref(createdJob.Spec.Suspend, false)).To(gomega.BeTrue(), "the job should be suspended")
+				g.Expect(ptr.Deref(createdJob.Spec.Parallelism, 0)).To(gomega.BeEquivalentTo(5))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -1541,6 +1670,136 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 			expectJobUnsuspendedWithNodeSelectors(client.ObjectKeyFromObject(job), map[string]string{
 				instanceKey: "on-demand",
 			})
+		})
+	})
+	ginkgo.It("Should schedule updated job and update the workload", func() {
+		localQueue := testing.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
+		ginkgo.By("create a localQueue", func() {
+			gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
+		})
+
+		job := testingjob.MakeJob(jobName, ns.Name).Queue(localQueue.Name).Request(corev1.ResourceCPU, "3").Parallelism(2).Suspend(false).Obj()
+		lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
+		createdJob := &batchv1.Job{}
+
+		ginkgo.By("creating the job that doesn't fit", func() {
+			gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("job should be suspend", func() {
+			gomega.Eventually(func() *bool {
+				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+				return createdJob.Spec.Suspend
+			}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(true)))
+		})
+
+		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(jobName), Namespace: ns.Name}
+		createdWorkload := util.AwaitAndVerifyCreatedWorkload(ctx, k8sClient, wlLookupKey, createdJob)
+		createdTime := createdWorkload.CreationTimestamp
+
+		createdJob.Spec.Parallelism = ptr.To[int32](1)
+
+		ginkgo.By("updating the job", func() {
+			gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
+		})
+
+		createdWorkload = util.AwaitAndVerifyCreatedWorkload(ctx, k8sClient, wlLookupKey, createdJob)
+
+		ginkgo.By("updated job should be unsuspended", func() {
+			gomega.Eventually(func() *bool {
+				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+				return createdJob.Spec.Suspend
+			}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(false)))
+		})
+
+		ginkgo.By("updated workload should have the same created timestamp", func() {
+			gomega.Expect(createdWorkload.CreationTimestamp).Should(gomega.Equal(createdTime))
+		})
+	})
+
+	ginkgo.When("Suspend a running Job without requeuing through Workload's spec.active field", func() {
+		ginkgo.It("Should not readmit a job to the queue after Active is changed to false", func() {
+			ginkgo.By("creating localQueue")
+			localQueue := testing.MakeLocalQueue("queue", ns.Name).ClusterQueue(prodClusterQ.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, localQueue)).Should(gomega.Succeed())
+
+			sampleJob := testingjob.MakeJob("job1", ns.Name).Queue(localQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
+			lookupKey1 := types.NamespacedName{Name: sampleJob.Name, Namespace: sampleJob.Namespace}
+			wll := &kueue.Workload{}
+
+			ginkgo.By("checking the job starts")
+			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
+
+			createdJob := &batchv1.Job{}
+			wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name), Namespace: sampleJob.Namespace}
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				ginkgo.By("checking the job's suspend field is false")
+				g.Expect(k8sClient.Get(ctx, lookupKey1, sampleJob)).Should(gomega.Succeed())
+				g.Expect(sampleJob.Spec.Suspend).To(gomega.Equal(ptr.To(false)))
+				ginkgo.By("checking the workload is admitted")
+				g.Expect(k8sClient.Get(ctx, wlKey, wll)).Should(gomega.Succeed())
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wll)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Change the Active field to suspend the job and check the job remains suspended and the workload unadmitted")
+			// Changing Active to false
+			wll.Spec.Active = ptr.To(false)
+			gomega.Expect(k8sClient.Update(ctx, wll)).Should(gomega.Succeed())
+
+			ginkgo.By("checking a second job starts after first job is suspended")
+			sampleJob2 := testingjob.MakeJob("job2", ns.Name).Queue(localQueue.Name).Request(corev1.ResourceCPU, "2").Obj()
+
+			lookupKey2 := types.NamespacedName{Name: sampleJob2.Name, Namespace: sampleJob2.Namespace}
+			wll2 := &kueue.Workload{}
+
+			gomega.Expect(k8sClient.Create(ctx, sampleJob2)).Should(gomega.Succeed())
+			wlKey2 := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob2.Name), Namespace: sampleJob2.Namespace}
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, lookupKey2, sampleJob2)).Should(gomega.Succeed())
+				g.Expect(sampleJob2.Spec.Suspend).To(gomega.Equal(ptr.To(false)))
+				g.Expect(k8sClient.Get(ctx, wlKey2, wll2)).Should(gomega.Succeed())
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wll2)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			// Checking job stays suspended
+			ginkgo.By("checking job is suspended")
+			gomega.Eventually(func() *bool {
+				gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: sampleJob.Name, Namespace: sampleJob.Namespace}, createdJob)).
+					Should(gomega.Succeed())
+				return createdJob.Spec.Suspend
+			}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(true)))
+
+			ginkgo.By("checking the first job and workload stay suspended and unadmitted")
+			gomega.Consistently(func(g gomega.Gomega) {
+				// Job should stay pending
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: sampleJob.Name, Namespace: sampleJob.Namespace}, createdJob)).
+					Should(gomega.Succeed())
+				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(ptr.To(true)))
+				// Workload should get unadmitted
+				g.Expect(k8sClient.Get(ctx, wlKey, wll)).Should(gomega.Succeed())
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, wll)
+				// Workload should stay pending
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wll), wll)).Should(gomega.Succeed())
+				// Should have Evicted condition
+				isEvicting := apimeta.IsStatusConditionTrue(wll.Status.Conditions, kueue.WorkloadEvicted)
+				gomega.Expect(isEvicting).Should(gomega.BeTrue())
+			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("checking the first job becomes unsuspended after we update the Active field back to true")
+			gomega.Eventually(func() error {
+				gomega.Expect(k8sClient.Get(ctx, wlKey, wll)).Should(gomega.Succeed())
+				wll.Spec.Active = ptr.To(true)
+				return k8sClient.Update(ctx, wll)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: sampleJob.Name, Namespace: sampleJob.Namespace}, createdJob)).
+					Should(gomega.Succeed())
+				g.Expect(sampleJob.Spec.Suspend).To(gomega.Equal(ptr.To(false)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
 		})
 	})
 })

@@ -29,6 +29,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -46,14 +47,17 @@ type Preemptor struct {
 	client   client.Client
 	recorder record.EventRecorder
 
+	workloadOrdering workload.Ordering
+
 	// stubs
 	applyPreemption func(context.Context, *kueue.Workload) error
 }
 
-func New(cl client.Client, recorder record.EventRecorder) *Preemptor {
+func New(cl client.Client, workloadOrdering workload.Ordering, recorder record.EventRecorder) *Preemptor {
 	p := &Preemptor{
-		client:   cl,
-		recorder: recorder,
+		client:           cl,
+		recorder:         recorder,
+		workloadOrdering: workloadOrdering,
 	}
 	p.applyPreemption = p.applyPreemptionWithSSA
 	return p
@@ -64,7 +68,7 @@ func (p *Preemptor) OverrideApply(f func(context.Context, *kueue.Workload) error
 }
 
 func candidatesOnlyFromQueue(candidates []*workload.Info, clusterQueue string) []*workload.Info {
-	result := make([]*workload.Info, 0)
+	result := make([]*workload.Info, 0, len(candidates))
 	for _, wi := range candidates {
 		if wi.ClusterQueue == clusterQueue {
 			result = append(result, wi)
@@ -78,14 +82,13 @@ func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assig
 	resPerFlv := resourcesRequiringPreemption(assignment)
 	cq := snapshot.ClusterQueues[wl.ClusterQueue]
 
-	candidates := findCandidates(wl.Obj, cq, resPerFlv)
+	candidates := findCandidates(wl.Obj, p.workloadOrdering, cq, resPerFlv)
 	if len(candidates) == 0 {
 		return nil
 	}
 	sort.Slice(candidates, candidatesOrdering(candidates, cq.Name, time.Now()))
 
 	sameQueueCandidates := candidatesOnlyFromQueue(candidates, wl.ClusterQueue)
-	var targets []*workload.Info
 
 	// To avoid flapping, Kueue only allows preemption of workloads from the same
 	// queue if borrowing. Preemption of workloads from queues can happen only
@@ -94,21 +97,31 @@ func (p *Preemptor) GetTargets(wl workload.Info, assignment flavorassigner.Assig
 	// trying to preempt more own workloads and borrow at the same time.
 
 	if len(sameQueueCandidates) == len(candidates) {
-		// There is no risk of preemption of workloads from the other queue,
-		// so we can try borrowing.
-		targets = minimalPreemptions(&wl, assignment, snapshot, resPerFlv, candidates, true)
-	} else {
-		// There is a risk of preemption of workloads from the other queue in the
-		// cohort, proceeding without borrowing.
-		targets = minimalPreemptions(&wl, assignment, snapshot, resPerFlv, candidates, false)
-		if len(targets) == 0 {
-			// Another attempt. This time only candidates from the same queue, but
-			// with borrowing. The previous attempt didn't try borrowing and had broader
-			// scope of preemption.
-			targets = minimalPreemptions(&wl, assignment, snapshot, resPerFlv, sameQueueCandidates, true)
-		}
+		// There is no possible preemption of workloads from other queues,
+		// so we'll try borrowing.
+		return minimalPreemptions(&wl, assignment, snapshot, resPerFlv, candidates, true, nil)
 	}
 
+	// There is a potential of preemption of workloads from the other queue in the
+	// cohort. We proceed with borrowing only if the dedicated policy
+	// (borrowWithinCohort) is enabled. This ensures the preempted workloads
+	// have lower priority, and so they will not preempt the preemptor when
+	// requeued.
+	borrowWithinCohort := cq.Preemption.BorrowWithinCohort
+	if borrowWithinCohort != nil && borrowWithinCohort.Policy != kueue.BorrowWithinCohortPolicyNever {
+		allowBorrowingBelowPriority := ptr.To(priority.Priority(wl.Obj))
+		if borrowWithinCohort.MaxPriorityThreshold != nil && *borrowWithinCohort.MaxPriorityThreshold < *allowBorrowingBelowPriority {
+			allowBorrowingBelowPriority = ptr.To(*borrowWithinCohort.MaxPriorityThreshold + 1)
+		}
+		return minimalPreemptions(&wl, assignment, snapshot, resPerFlv, candidates, true, allowBorrowingBelowPriority)
+	}
+	targets := minimalPreemptions(&wl, assignment, snapshot, resPerFlv, candidates, false, nil)
+	if len(targets) == 0 {
+		// Another attempt. This time only candidates from the same queue, but
+		// with borrowing. The previous attempt didn't try borrowing and had broader
+		// scope of preemption.
+		targets = minimalPreemptions(&wl, assignment, snapshot, resPerFlv, sameQueueCandidates, true, nil)
+	}
 	return targets
 }
 
@@ -156,9 +169,10 @@ func (p *Preemptor) applyPreemptionWithSSA(ctx context.Context, w *kueue.Workloa
 // Once the Workload fits, the heuristic tries to add Workloads back, in the
 // reverse order in which they were removed, while the incoming Workload still
 // fits.
-func minimalPreemptions(wl *workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot, resPerFlv resourcesPerFlavor, candidates []*workload.Info, allowBorrowing bool) []*workload.Info {
+func minimalPreemptions(wl *workload.Info, assignment flavorassigner.Assignment, snapshot *cache.Snapshot, resPerFlv resourcesPerFlavor, candidates []*workload.Info, allowBorrowing bool, allowBorrowingBelowPriority *int32) []*workload.Info {
 	wlReq := totalRequestsForAssignment(wl, assignment)
 	cq := snapshot.ClusterQueues[wl.ClusterQueue]
+
 	// Simulate removing all candidates from the ClusterQueue and cohort.
 	var targets []*workload.Info
 	fits := false
@@ -166,6 +180,21 @@ func minimalPreemptions(wl *workload.Info, assignment flavorassigner.Assignment,
 		candCQ := snapshot.ClusterQueues[candWl.ClusterQueue]
 		if cq != candCQ && !cqIsBorrowing(candCQ, resPerFlv) {
 			continue
+		}
+		if cq != candCQ && allowBorrowingBelowPriority != nil && priority.Priority(candWl.Obj) >= *allowBorrowingBelowPriority {
+			// We set allowBorrowing=false if there is a candidate with priority
+			// exceeding allowBorrowingBelowPriority added to targets.
+			//
+			// We need to be careful mutating allowBorrowing. We rely on the
+			// fact that once there is a candidate exceeding the priority added
+			// to targets, then at least one such candidate is present in the
+			// final set of targets (after the second phase of the function).
+			//
+			// This is true, because the candidates are ordered according
+			// to priorities (from lowest to highest, using candidatesOrdering),
+			// and the last added target is not removed in the second phase of
+			// the function.
+			allowBorrowing = false
 		}
 		snapshot.RemoveWorkload(candWl)
 		targets = append(targets, candWl)
@@ -181,6 +210,7 @@ func minimalPreemptions(wl *workload.Info, assignment flavorassigner.Assignment,
 		}
 		return nil
 	}
+
 	// In the reverse order, check if any of the workloads can be added back.
 	for i := len(targets) - 2; i >= 0; i-- {
 		snapshot.AddWorkload(targets[i])
@@ -196,6 +226,7 @@ func minimalPreemptions(wl *workload.Info, assignment flavorassigner.Assignment,
 	for _, t := range targets {
 		snapshot.AddWorkload(t)
 	}
+
 	return targets
 }
 
@@ -222,13 +253,13 @@ func resourcesRequiringPreemption(assignment flavorassigner.Assignment) resource
 // findCandidates obtains candidates for preemption within the ClusterQueue and
 // cohort that respect the preemption policy and are using a resource that the
 // preempting workload needs.
-func findCandidates(wl *kueue.Workload, cq *cache.ClusterQueue, resPerFlv resourcesPerFlavor) []*workload.Info {
+func findCandidates(wl *kueue.Workload, wo workload.Ordering, cq *cache.ClusterQueue, resPerFlv resourcesPerFlavor) []*workload.Info {
 	var candidates []*workload.Info
 	wlPriority := priority.Priority(wl)
 
 	if cq.Preemption.WithinClusterQueue != kueue.PreemptionPolicyNever {
 		considerSamePrio := (cq.Preemption.WithinClusterQueue == kueue.PreemptionPolicyLowerOrNewerEqualPriority)
-		preemptorTS := workload.GetQueueOrderTimestamp(wl)
+		preemptorTS := wo.GetQueueOrderTimestamp(wl)
 
 		for _, candidateWl := range cq.Workloads {
 			candidatePriority := priority.Priority(candidateWl.Obj)
@@ -236,7 +267,7 @@ func findCandidates(wl *kueue.Workload, cq *cache.ClusterQueue, resPerFlv resour
 				continue
 			}
 
-			if candidatePriority == wlPriority && !(considerSamePrio && preemptorTS.Before(workload.GetQueueOrderTimestamp(candidateWl.Obj))) {
+			if candidatePriority == wlPriority && !(considerSamePrio && preemptorTS.Before(wo.GetQueueOrderTimestamp(candidateWl.Obj))) {
 				continue
 			}
 
@@ -315,7 +346,7 @@ func totalRequestsForAssignment(wl *workload.Info, assignment flavorassigner.Ass
 	return usage
 }
 
-// workloadFits determines if the workload requests would fits given the
+// workloadFits determines if the workload requests would fit given the
 // requestable resources and simulated usage of the ClusterQueue and its cohort,
 // if it belongs to one.
 func workloadFits(wlReq cache.FlavorResourceQuantities, cq *cache.ClusterQueue, allowBorrowing bool) bool {
@@ -327,21 +358,29 @@ func workloadFits(wlReq cache.FlavorResourceQuantities, cq *cache.ClusterQueue, 
 				continue
 			}
 			cqResUsage := cq.Usage[flvQuotas.Name]
-			var cohortResUsage, cohortResRequestable map[corev1.ResourceName]int64
-			if cq.Cohort != nil {
-				cohortResUsage = cq.Cohort.Usage[flvQuotas.Name]
-				cohortResRequestable = cq.Cohort.RequestableResources[flvQuotas.Name]
-			}
 			for rName, rReq := range flvReq {
-				limit := flvQuotas.Resources[rName].Nominal
-				if flvQuotas.Resources[rName].BorrowingLimit != nil && allowBorrowing {
-					limit += *flvQuotas.Resources[rName].BorrowingLimit
+				resource := flvQuotas.Resources[rName]
+
+				if cq.Cohort == nil || !allowBorrowing {
+					if cqResUsage[rName]+rReq > resource.Nominal {
+						return false
+					}
+				} else {
+					// When resource.BorrowingLimit == nil there is no borrowing
+					// limit, so we can skip the check.
+					if resource.BorrowingLimit != nil {
+						if cqResUsage[rName]+rReq > resource.Nominal+*resource.BorrowingLimit {
+							return false
+						}
+					}
 				}
-				if cqResUsage[rName]+rReq > limit {
-					return false
-				}
-				if cq.Cohort != nil && cohortResUsage[rName]+rReq > cohortResRequestable[rName] {
-					return false
+
+				if cq.Cohort != nil {
+					cohortResUsage := cq.UsedCohortQuota(flvQuotas.Name, rName)
+					requestableQuota := cq.RequestableCohortQuota(flvQuotas.Name, rName)
+					if cohortResUsage+rReq > requestableQuota {
+						return false
+					}
 				}
 			}
 		}

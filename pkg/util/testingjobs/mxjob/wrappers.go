@@ -175,15 +175,16 @@ func (j *MXJobWrapper) UID(uid string) *MXJobWrapper {
 
 // NodeSelector updates the nodeSelector of job.
 func (j *MXJobWrapper) NodeSelector(k, v string) *MXJobWrapper {
-	if j.Spec.MXReplicaSpecs[kftraining.MXJobReplicaTypeServer].Template.Spec.NodeSelector == nil {
-		j.Spec.MXReplicaSpecs[kftraining.MXJobReplicaTypeServer].Template.Spec.NodeSelector = make(map[string]string)
-	}
-	if j.Spec.MXReplicaSpecs[kftraining.MXJobReplicaTypeWorker].Template.Spec.NodeSelector == nil {
-		j.Spec.MXReplicaSpecs[kftraining.MXJobReplicaTypeWorker].Template.Spec.NodeSelector = make(map[string]string)
+	return j.RoleNodeSelector(kftraining.MXJobReplicaTypeServer, k, v).
+		RoleNodeSelector(kftraining.MXJobReplicaTypeWorker, k, v)
+}
 
+// NodeSelector updates the nodeSelector of job.
+func (j *MXJobWrapper) RoleNodeSelector(role kftraining.ReplicaType, k, v string) *MXJobWrapper {
+	if j.Spec.MXReplicaSpecs[role].Template.Spec.NodeSelector == nil {
+		j.Spec.MXReplicaSpecs[role].Template.Spec.NodeSelector = make(map[string]string)
 	}
-	j.Spec.MXReplicaSpecs[kftraining.MXJobReplicaTypeServer].Template.Spec.NodeSelector[k] = v
-	j.Spec.MXReplicaSpecs[kftraining.MXJobReplicaTypeWorker].Template.Spec.NodeSelector[k] = v
+	j.Spec.MXReplicaSpecs[role].Template.Spec.NodeSelector[k] = v
 	return j
 }
 
@@ -195,5 +196,11 @@ func (j *MXJobWrapper) Active(rType kftraining.ReplicaType, c int32) *MXJobWrapp
 	j.Status.ReplicaStatuses[rType] = &kftraining.ReplicaStatus{
 		Active: c,
 	}
+	return j
+}
+
+// StatusConditions updates status conditions of the MXJob.
+func (j *MXJobWrapper) StatusConditions(conditions ...kftraining.JobCondition) *MXJobWrapper {
+	j.Status.Conditions = conditions
 	return j
 }

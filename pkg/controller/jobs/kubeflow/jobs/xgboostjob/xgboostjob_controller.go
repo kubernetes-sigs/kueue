@@ -51,15 +51,16 @@ func init() {
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
 // +kubebuilder:rbac:groups=kubeflow.org,resources=xgboostjobs,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=kubeflow.org,resources=xgboostjobs/status,verbs=get;update
+// +kubebuilder:rbac:groups=kubeflow.org,resources=xgboostjobs/finalizers,verbs=get;update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/finalizers,verbs=update
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 
-var NewReconciler = jobframework.NewGenericReconciler(func() jobframework.GenericJob {
-	return &kubeflowjob.KubeflowJob{KFJobControl: (*JobControl)(&kftraining.XGBoostJob{})}
-}, nil)
+var NewReconciler = jobframework.NewGenericReconcilerFactory(func() jobframework.GenericJob {
+	return &kubeflowjob.KubeflowJob{KFJobControl: &JobControl{}}
+})
 
 func isXGBoostJob(owner *metav1.OwnerReference) bool {
 	return owner.Kind == kftraining.XGBoostJobKind && strings.HasPrefix(owner.APIVersion, kftraining.SchemeGroupVersion.Group)

@@ -30,7 +30,7 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/provisioning"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	//+kubebuilder:scaffold:imports
+	// +kubebuilder:scaffold:imports
 )
 
 var (
@@ -55,7 +55,8 @@ func managerSetup(mgr manager.Manager, ctx context.Context) {
 	err = provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	reconciler := provisioning.NewController(mgr.GetClient())
+	reconciler, err := provisioning.NewController(mgr.GetClient(), mgr.GetEventRecorderFor("kueue-provisioning-request-controller"))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = reconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }

@@ -27,12 +27,15 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -77,10 +80,10 @@ func (r *LocalQueueReconciler) NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload
 	}
 }
 
-//+kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=localqueues,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=localqueues/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=localqueues/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;watch;update;patch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=localqueues,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=localqueues/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=localqueues/finalizers,verbs=update
 
 func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var queueObj kueue.LocalQueue
@@ -248,16 +251,17 @@ func (h *qCQHandler) addLocalQueueToWorkQueue(ctx context.Context, cq *kueue.Clu
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *LocalQueueReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *LocalQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) error {
 	queueCQHandler := qCQHandler{
 		client: r.client,
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kueue.LocalQueue{}).
+		WithOptions(controller.Options{NeedLeaderElection: ptr.To(false)}).
 		WatchesRawSource(&source.Channel{Source: r.wlUpdateCh}, &qWorkloadHandler{}).
 		Watches(&kueue.ClusterQueue{}, &queueCQHandler).
 		WithEventFilter(r).
-		Complete(r)
+		Complete(WithLeadingManager(mgr, r, &kueue.LocalQueue{}, cfg))
 }
 
 func (r *LocalQueueReconciler) UpdateStatusIfChanged(

@@ -14,11 +14,15 @@ limitations under the License.
 package jobframework
 
 import (
+	"fmt"
 	"strings"
 
+	batchv1 "k8s.io/api/batch/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 )
@@ -29,12 +33,23 @@ var (
 	parentWorkloadKeyPath         = annotationsPath.Key(constants.ParentWorkloadAnnotation)
 	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
 	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
+	supportedPrebuiltWlJobGVKs    = sets.New(batchv1.SchemeGroupVersion.WithKind("Job").String(),
+		jobset.SchemeGroupVersion.WithKind("JobSet").String())
 )
 
 func ValidateCreateForQueueName(job GenericJob) field.ErrorList {
 	var allErrs field.ErrorList
-	allErrs = append(allErrs, validateLabelAsCRDName(job, constants.QueueLabel)...)
+	allErrs = append(allErrs, ValidateLabelAsCRDName(job, constants.QueueLabel)...)
+	allErrs = append(allErrs, ValidateLabelAsCRDName(job, constants.PrebuiltWorkloadLabel)...)
 	allErrs = append(allErrs, ValidateAnnotationAsCRDName(job, constants.QueueAnnotation)...)
+
+	// this rule should be relaxed when its confirmed that running wit a prebuilt wl is fully supported by each integration
+	if _, hasPrebuilt := job.Object().GetLabels()[constants.PrebuiltWorkloadLabel]; hasPrebuilt {
+		gvk := job.GVK().String()
+		if !supportedPrebuiltWlJobGVKs.Has(gvk) {
+			allErrs = append(allErrs, field.Forbidden(labelsPath.Key(constants.PrebuiltWorkloadLabel), fmt.Sprintf("Is not supported for %q", gvk)))
+		}
+	}
 	return allErrs
 }
 
@@ -48,7 +63,7 @@ func ValidateAnnotationAsCRDName(job GenericJob, crdNameAnnotation string) field
 	return allErrs
 }
 
-func validateLabelAsCRDName(job GenericJob, crdNameLabel string) field.ErrorList {
+func ValidateLabelAsCRDName(job GenericJob, crdNameLabel string) field.ErrorList {
 	var allErrs field.ErrorList
 	if value, exists := job.Object().GetLabels()[crdNameLabel]; exists {
 		if errs := validation.IsDNS1123Subdomain(value); len(errs) > 0 {
@@ -73,6 +88,10 @@ func ValidateUpdateForQueueName(oldJob, newJob GenericJob) field.ErrorList {
 	if !newJob.IsSuspended() {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(QueueName(oldJob), QueueName(newJob), queueNameLabelPath)...)
 	}
+
+	oldWlName, _ := PrebuiltWorkloadFor(oldJob)
+	newWlName, _ := PrebuiltWorkloadFor(newJob)
+	allErrs = append(allErrs, apivalidation.ValidateImmutableField(oldWlName, newWlName, labelsPath.Key(constants.PrebuiltWorkloadLabel))...)
 	return allErrs
 }
 

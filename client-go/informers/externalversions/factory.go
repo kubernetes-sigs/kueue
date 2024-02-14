@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -29,6 +29,7 @@ import (
 	versioned "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	internalinterfaces "sigs.k8s.io/kueue/client-go/informers/externalversions/internalinterfaces"
 	kueue "sigs.k8s.io/kueue/client-go/informers/externalversions/kueue"
+	visibility "sigs.k8s.io/kueue/client-go/informers/externalversions/visibility"
 )
 
 // SharedInformerOption defines the functional option type for SharedInformerFactory.
@@ -41,6 +42,7 @@ type sharedInformerFactory struct {
 	lock             sync.Mutex
 	defaultResync    time.Duration
 	customResync     map[reflect.Type]time.Duration
+	transform        cache.TransformFunc
 
 	informers map[reflect.Type]cache.SharedIndexInformer
 	// startedInformers is used for tracking which informers have been started.
@@ -75,6 +77,14 @@ func WithTweakListOptions(tweakListOptions internalinterfaces.TweakListOptionsFu
 func WithNamespace(namespace string) SharedInformerOption {
 	return func(factory *sharedInformerFactory) *sharedInformerFactory {
 		factory.namespace = namespace
+		return factory
+	}
+}
+
+// WithTransform sets a transform on all informers.
+func WithTransform(transform cache.TransformFunc) SharedInformerOption {
+	return func(factory *sharedInformerFactory) *sharedInformerFactory {
+		factory.transform = transform
 		return factory
 	}
 }
@@ -183,6 +193,7 @@ func (f *sharedInformerFactory) InformerFor(obj runtime.Object, newFunc internal
 	}
 
 	informer = newFunc(f.client, resyncPeriod)
+	informer.SetTransform(f.transform)
 	f.informers[informerType] = informer
 
 	return informer
@@ -243,8 +254,13 @@ type SharedInformerFactory interface {
 	InformerFor(obj runtime.Object, newFunc internalinterfaces.NewInformerFunc) cache.SharedIndexInformer
 
 	Kueue() kueue.Interface
+	Visibility() visibility.Interface
 }
 
 func (f *sharedInformerFactory) Kueue() kueue.Interface {
 	return kueue.New(f, f.namespace, f.tweakListOptions)
+}
+
+func (f *sharedInformerFactory) Visibility() visibility.Interface {
+	return visibility.New(f, f.namespace, f.tweakListOptions)
 }

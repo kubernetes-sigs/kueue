@@ -226,10 +226,14 @@ The currently supported features are:
 | Feature | Default | Stage | Since | Until |
 |---------|---------|-------|-------|-------|
 | `FlavorFungibility` | `true` | beta | 0.5 |  |
+| `MultiKueue` | `false` | Alpha | 0.6 | |
 | `PartialAdmission` | `false` | Alpha | 0.4 | 0.4 |
 | `PartialAdmission` | `true` | Beta | 0.5 |  |
 | `ProvisioningACC` | `false` | Alpha | 0.5 |  |
 | `QueueVisibility` | `false` | Alpha | 0.5 |  |
+| `VisibilityOnDemand` | `false` | Alpha | 0.6 | |
+| `PrioritySortingWithinCohort` | `true` | Beta | 0.6 |  |
+| `LendingLimit` | `false` | Alpha | 0.6 | |
 
 ## What's next
 

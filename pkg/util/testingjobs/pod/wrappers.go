@@ -14,9 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package testing
+package pod
 
 import (
+	"fmt"
+	"strconv"
+	"time"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -59,18 +63,47 @@ func (p *PodWrapper) Obj() *corev1.Pod {
 	return &p.Pod
 }
 
+// Group returns multiple pods that form a pod group, based on the original wrapper.
+func (p *PodWrapper) MakeGroup(count int) []*corev1.Pod {
+	var pods []*corev1.Pod
+	for i := 0; i < count; i++ {
+		pod := p.Clone().Group(p.Pod.Name).GroupTotalCount(strconv.Itoa(count))
+		pod.Pod.Name += fmt.Sprintf("-%d", i)
+		pods = append(pods, pod.Obj())
+	}
+	return pods
+}
+
 // Clone returns deep copy of the Pod.
 func (p *PodWrapper) Clone() *PodWrapper {
 	return &PodWrapper{Pod: *p.DeepCopy()}
 }
 
 // Queue updates the queue name of the Pod
-func (p *PodWrapper) Queue(queue string) *PodWrapper {
-	if p.Labels == nil {
-		p.Labels = make(map[string]string)
-	}
-	p.Labels[constants.QueueLabel] = queue
+func (p *PodWrapper) Queue(q string) *PodWrapper {
+	return p.Label(constants.QueueLabel, q)
+}
+
+// Queue updates the queue name of the Pod
+func (p *PodWrapper) PriorityClass(pc string) *PodWrapper {
+	p.Spec.PriorityClassName = pc
 	return p
+}
+
+// Name updated the name of the pod
+func (p *PodWrapper) Name(n string) *PodWrapper {
+	p.ObjectMeta.Name = n
+	return p
+}
+
+// Group updates the pod.GroupNameLabel of the Pod
+func (p *PodWrapper) Group(g string) *PodWrapper {
+	return p.Label("kueue.x-k8s.io/pod-group-name", g)
+}
+
+// GroupTotalCount updates the pod.GroupTotalCountAnnotation of the Pod
+func (p *PodWrapper) GroupTotalCount(gtc string) *PodWrapper {
+	return p.Annotation("kueue.x-k8s.io/pod-group-total-count", gtc)
 }
 
 // Label sets the label of the Pod
@@ -85,6 +118,11 @@ func (p *PodWrapper) Label(k, v string) *PodWrapper {
 func (p *PodWrapper) Annotation(key, content string) *PodWrapper {
 	p.Annotations[key] = content
 	return p
+}
+
+// RoleHash updates the pod.RoleHashAnnotation of the pod
+func (p *PodWrapper) RoleHash(h string) *PodWrapper {
+	return p.Annotation("kueue.x-k8s.io/role-hash", h)
 }
 
 // ParentWorkload sets the parent-workload annotation
@@ -102,13 +140,18 @@ func (p *PodWrapper) KueueSchedulingGate() *PodWrapper {
 	return p
 }
 
-// KueueFinalizer adds kueue finalizer to the Pod
-func (p *PodWrapper) KueueFinalizer() *PodWrapper {
+// Finalizer adds a finalizer to the Pod
+func (p *PodWrapper) Finalizer(f string) *PodWrapper {
 	if p.ObjectMeta.Finalizers == nil {
 		p.ObjectMeta.Finalizers = make([]string, 0)
 	}
-	p.ObjectMeta.Finalizers = append(p.ObjectMeta.Finalizers, "kueue.x-k8s.io/managed")
+	p.ObjectMeta.Finalizers = append(p.ObjectMeta.Finalizers, f)
 	return p
+}
+
+// KueueFinalizer adds kueue finalizer to the Pod
+func (p *PodWrapper) KueueFinalizer() *PodWrapper {
+	return p.Finalizer("kueue.x-k8s.io/managed")
 }
 
 // NodeSelector adds a node selector to the Pod.
@@ -164,5 +207,25 @@ func (p *PodWrapper) StatusConditions(conditions ...corev1.PodCondition) *PodWra
 // StatusPhase updates status phase of the Pod.
 func (p *PodWrapper) StatusPhase(ph corev1.PodPhase) *PodWrapper {
 	p.Pod.Status.Phase = ph
+	return p
+}
+
+// CreationTimestamp sets a creation timestamp for the pod object
+func (p *PodWrapper) CreationTimestamp(t time.Time) *PodWrapper {
+	timestamp := metav1.NewTime(t).Rfc3339Copy()
+	p.Pod.CreationTimestamp = timestamp
+	return p
+}
+
+// Delete sets a deletion timestamp for the pod object
+func (p *PodWrapper) Delete() *PodWrapper {
+	t := metav1.NewTime(time.Now())
+	p.Pod.DeletionTimestamp = &t
+	return p
+}
+
+// Volume adds a new volume for the pod object
+func (p *PodWrapper) Volume(v corev1.Volume) *PodWrapper {
+	p.Pod.Spec.Volumes = append(p.Pod.Spec.Volumes, v)
 	return p
 }

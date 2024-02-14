@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -30,8 +30,9 @@ type WorkloadPriorityClassLister interface {
 	// List lists all WorkloadPriorityClasses in the indexer.
 	// Objects returned here must be treated as read-only.
 	List(selector labels.Selector) (ret []*v1beta1.WorkloadPriorityClass, err error)
-	// WorkloadPriorityClasses returns an object that can list and get WorkloadPriorityClasses.
-	WorkloadPriorityClasses(namespace string) WorkloadPriorityClassNamespaceLister
+	// Get retrieves the WorkloadPriorityClass from the index for a given name.
+	// Objects returned here must be treated as read-only.
+	Get(name string) (*v1beta1.WorkloadPriorityClass, error)
 	WorkloadPriorityClassListerExpansion
 }
 
@@ -53,41 +54,9 @@ func (s *workloadPriorityClassLister) List(selector labels.Selector) (ret []*v1b
 	return ret, err
 }
 
-// WorkloadPriorityClasses returns an object that can list and get WorkloadPriorityClasses.
-func (s *workloadPriorityClassLister) WorkloadPriorityClasses(namespace string) WorkloadPriorityClassNamespaceLister {
-	return workloadPriorityClassNamespaceLister{indexer: s.indexer, namespace: namespace}
-}
-
-// WorkloadPriorityClassNamespaceLister helps list and get WorkloadPriorityClasses.
-// All objects returned here must be treated as read-only.
-type WorkloadPriorityClassNamespaceLister interface {
-	// List lists all WorkloadPriorityClasses in the indexer for a given namespace.
-	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1beta1.WorkloadPriorityClass, err error)
-	// Get retrieves the WorkloadPriorityClass from the indexer for a given namespace and name.
-	// Objects returned here must be treated as read-only.
-	Get(name string) (*v1beta1.WorkloadPriorityClass, error)
-	WorkloadPriorityClassNamespaceListerExpansion
-}
-
-// workloadPriorityClassNamespaceLister implements the WorkloadPriorityClassNamespaceLister
-// interface.
-type workloadPriorityClassNamespaceLister struct {
-	indexer   cache.Indexer
-	namespace string
-}
-
-// List lists all WorkloadPriorityClasses in the indexer for a given namespace.
-func (s workloadPriorityClassNamespaceLister) List(selector labels.Selector) (ret []*v1beta1.WorkloadPriorityClass, err error) {
-	err = cache.ListAllByNamespace(s.indexer, s.namespace, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1beta1.WorkloadPriorityClass))
-	})
-	return ret, err
-}
-
-// Get retrieves the WorkloadPriorityClass from the indexer for a given namespace and name.
-func (s workloadPriorityClassNamespaceLister) Get(name string) (*v1beta1.WorkloadPriorityClass, error) {
-	obj, exists, err := s.indexer.GetByKey(s.namespace + "/" + name)
+// Get retrieves the WorkloadPriorityClass from the index for a given name.
+func (s *workloadPriorityClassLister) Get(name string) (*v1beta1.WorkloadPriorityClass, error) {
+	obj, exists, err := s.indexer.GetByKey(name)
 	if err != nil {
 		return nil, err
 	}

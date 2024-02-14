@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -24,8 +24,12 @@ import (
 	fakediscovery "k8s.io/client-go/discovery/fake"
 	"k8s.io/client-go/testing"
 	clientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
+	kueuev1alpha1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1alpha1"
+	fakekueuev1alpha1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1alpha1/fake"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1"
 	fakekueuev1beta1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta1/fake"
+	visibilityv1alpha1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1alpha1"
+	fakevisibilityv1alpha1 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1alpha1/fake"
 )
 
 // NewSimpleClientset returns a clientset that will respond with the provided objects.
@@ -78,7 +82,17 @@ var (
 	_ testing.FakeClient  = &Clientset{}
 )
 
+// KueueV1alpha1 retrieves the KueueV1alpha1Client
+func (c *Clientset) KueueV1alpha1() kueuev1alpha1.KueueV1alpha1Interface {
+	return &fakekueuev1alpha1.FakeKueueV1alpha1{Fake: &c.Fake}
+}
+
 // KueueV1beta1 retrieves the KueueV1beta1Client
 func (c *Clientset) KueueV1beta1() kueuev1beta1.KueueV1beta1Interface {
 	return &fakekueuev1beta1.FakeKueueV1beta1{Fake: &c.Fake}
+}
+
+// VisibilityV1alpha1 retrieves the VisibilityV1alpha1Client
+func (c *Clientset) VisibilityV1alpha1() visibilityv1alpha1.VisibilityV1alpha1Interface {
+	return &fakevisibilityv1alpha1.FakeVisibilityV1alpha1{Fake: &c.Fake}
 }

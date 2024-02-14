@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -30,8 +30,9 @@ type ClusterQueueLister interface {
 	// List lists all ClusterQueues in the indexer.
 	// Objects returned here must be treated as read-only.
 	List(selector labels.Selector) (ret []*v1beta1.ClusterQueue, err error)
-	// ClusterQueues returns an object that can list and get ClusterQueues.
-	ClusterQueues(namespace string) ClusterQueueNamespaceLister
+	// Get retrieves the ClusterQueue from the index for a given name.
+	// Objects returned here must be treated as read-only.
+	Get(name string) (*v1beta1.ClusterQueue, error)
 	ClusterQueueListerExpansion
 }
 
@@ -53,41 +54,9 @@ func (s *clusterQueueLister) List(selector labels.Selector) (ret []*v1beta1.Clus
 	return ret, err
 }
 
-// ClusterQueues returns an object that can list and get ClusterQueues.
-func (s *clusterQueueLister) ClusterQueues(namespace string) ClusterQueueNamespaceLister {
-	return clusterQueueNamespaceLister{indexer: s.indexer, namespace: namespace}
-}
-
-// ClusterQueueNamespaceLister helps list and get ClusterQueues.
-// All objects returned here must be treated as read-only.
-type ClusterQueueNamespaceLister interface {
-	// List lists all ClusterQueues in the indexer for a given namespace.
-	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1beta1.ClusterQueue, err error)
-	// Get retrieves the ClusterQueue from the indexer for a given namespace and name.
-	// Objects returned here must be treated as read-only.
-	Get(name string) (*v1beta1.ClusterQueue, error)
-	ClusterQueueNamespaceListerExpansion
-}
-
-// clusterQueueNamespaceLister implements the ClusterQueueNamespaceLister
-// interface.
-type clusterQueueNamespaceLister struct {
-	indexer   cache.Indexer
-	namespace string
-}
-
-// List lists all ClusterQueues in the indexer for a given namespace.
-func (s clusterQueueNamespaceLister) List(selector labels.Selector) (ret []*v1beta1.ClusterQueue, err error) {
-	err = cache.ListAllByNamespace(s.indexer, s.namespace, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1beta1.ClusterQueue))
-	})
-	return ret, err
-}
-
-// Get retrieves the ClusterQueue from the indexer for a given namespace and name.
-func (s clusterQueueNamespaceLister) Get(name string) (*v1beta1.ClusterQueue, error) {
-	obj, exists, err := s.indexer.GetByKey(s.namespace + "/" + name)
+// Get retrieves the ClusterQueue from the index for a given name.
+func (s *clusterQueueLister) Get(name string) (*v1beta1.ClusterQueue, error) {
+	obj, exists, err := s.indexer.GetByKey(name)
 	if err != nil {
 		return nil, err
 	}

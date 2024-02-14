@@ -28,19 +28,13 @@ import (
 
 func TestComparePodSetSlices(t *testing.T) {
 	cases := map[string]struct {
-		a           []kueue.PodSet
-		b           []kueue.PodSet
-		checkCounts bool
-		wantEqual   bool
+		a         []kueue.PodSet
+		b         []kueue.PodSet
+		wantEqual bool
 	}{
 		"different name": {
 			a:         []kueue.PodSet{*utiltestting.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
 			b:         []kueue.PodSet{*utiltestting.MakePodSet("ps2", 10).SetMinimumCount(5).Obj()},
-			wantEqual: true,
-		},
-		"different count": {
-			a:         []kueue.PodSet{*utiltestting.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
-			b:         []kueue.PodSet{*utiltestting.MakePodSet("ps", 20).SetMinimumCount(5).Obj()},
 			wantEqual: true,
 		},
 		"different min count": {
@@ -77,11 +71,25 @@ func TestComparePodSetSlices(t *testing.T) {
 			}).Obj()},
 			wantEqual: false,
 		},
-		"different count when checked": {
-			a:           []kueue.PodSet{*utiltestting.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
-			b:           []kueue.PodSet{*utiltestting.MakePodSet("ps", 20).SetMinimumCount(5).Obj()},
-			checkCounts: true,
-			wantEqual:   false,
+		"different requests in toleration": {
+			a: []kueue.PodSet{*utiltestting.MakePodSet("ps", 10).SetMinimumCount(5).Toleration(corev1.Toleration{
+				Key:      "instance",
+				Operator: corev1.TolerationOpEqual,
+				Value:    "spot",
+				Effect:   corev1.TaintEffectNoSchedule,
+			}).Obj()},
+			b: []kueue.PodSet{*utiltestting.MakePodSet("ps", 10).SetMinimumCount(5).Toleration(corev1.Toleration{
+				Key:      "instance",
+				Operator: corev1.TolerationOpEqual,
+				Value:    "demand",
+				Effect:   corev1.TaintEffectNoSchedule,
+			}).Obj()},
+			wantEqual: false,
+		},
+		"different count": {
+			a:         []kueue.PodSet{*utiltestting.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
+			b:         []kueue.PodSet{*utiltestting.MakePodSet("ps", 20).SetMinimumCount(5).Obj()},
+			wantEqual: false,
 		},
 		"different slice len": {
 			a:         []kueue.PodSet{{}, {}},
@@ -92,7 +100,7 @@ func TestComparePodSetSlices(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := ComparePodSetSlices(tc.a, tc.b, tc.checkCounts)
+			got := ComparePodSetSlices(tc.a, tc.b)
 			if got != tc.wantEqual {
 				t.Errorf("Unexpected result, want %v", tc.wantEqual)
 			}

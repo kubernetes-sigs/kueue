@@ -32,9 +32,9 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -75,11 +75,11 @@ func init() {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 
-var NewReconciler = jobframework.NewGenericReconciler(
+var NewReconciler = jobframework.NewGenericReconcilerFactory(
 	func() jobframework.GenericJob {
 		return &Job{}
-	}, func(c client.Client) handler.EventHandler {
-		return &parentWorkloadHandler{client: c}
+	}, func(b *builder.Builder, c client.Client) *builder.Builder {
+		return b.Watches(&kueue.Workload{}, &parentWorkloadHandler{client: c})
 	},
 )
 
@@ -157,7 +157,7 @@ func (j *Job) Suspend() {
 	j.Spec.Suspend = ptr.To(true)
 }
 
-func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, eventMsg string) (bool, error) {
+func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, _ jobframework.StopReason, eventMsg string) (bool, error) {
 	stoppedNow := false
 	if !j.IsSuspended() {
 		j.Suspend()
@@ -167,7 +167,7 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 		stoppedNow = true
 	}
 
-	// Reset start time, if necessary so we can update the scheduling directives.
+	// Reset start time if necessary, so we can update the scheduling directives.
 	if j.Status.StartTime != nil {
 		j.Status.StartTime = nil
 		if err := c.Status().Update(ctx, j.Object()); err != nil {
@@ -188,28 +188,44 @@ func (j *Job) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
-func (j *Job) ReclaimablePods() []kueue.ReclaimablePod {
+func (j *Job) ReclaimablePods() ([]kueue.ReclaimablePod, error) {
 	parallelism := ptr.Deref(j.Spec.Parallelism, 1)
 	if parallelism == 1 || j.Status.Succeeded == 0 {
-		return nil
+		return nil, nil
 	}
 
 	remaining := ptr.Deref(j.Spec.Completions, parallelism) - j.Status.Succeeded
 	if remaining >= parallelism {
-		return nil
+		return nil, nil
 	}
 
 	return []kueue.ReclaimablePod{{
 		Name:  kueue.DefaultPodSetName,
 		Count: parallelism - remaining,
-	}}
+	}}, nil
+}
+
+// The following labels are managed internally by batch/job controller, we should not
+// propagate them to the workload.
+var (
+	// the legacy names are no longer defined in the api, only in k/2/apis/batch
+	legacyJobNameLabel       = "job-name"
+	legacyControllerUidLabel = "controller-uid"
+	ManagedLabels            = []string{legacyJobNameLabel, legacyControllerUidLabel, batchv1.JobNameLabel, batchv1.ControllerUidLabel}
+)
+
+func cleanManagedLabels(pt *corev1.PodTemplateSpec) *corev1.PodTemplateSpec {
+	for _, managedLabel := range ManagedLabels {
+		delete(pt.Labels, managedLabel)
+	}
+	return pt
 }
 
 func (j *Job) PodSets() []kueue.PodSet {
 	return []kueue.PodSet{
 		{
 			Name:     kueue.DefaultPodSetName,
-			Template: *j.Spec.Template.DeepCopy(),
+			Template: *cleanManagedLabels(j.Spec.Template.DeepCopy()),
 			Count:    j.podsCount(),
 			MinCount: j.minPodsCount(),
 		},
@@ -247,7 +263,13 @@ func (j *Job) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 			j.Spec.Completions = j.Spec.Parallelism
 		}
 	}
-	changed = podset.RestorePodSpec(&j.Spec.Template.ObjectMeta, &j.Spec.Template.Spec, podSetsInfo[0]) || changed
+	info := podSetsInfo[0]
+	for _, managedLabel := range ManagedLabels {
+		if v, found := j.Spec.Template.Labels[managedLabel]; found {
+			info.AddOrUpdateLabel(managedLabel, v)
+		}
+	}
+	changed = podset.RestorePodSpec(&j.Spec.Template.ObjectMeta, &j.Spec.Template.Spec, info) || changed
 	return changed
 }
 

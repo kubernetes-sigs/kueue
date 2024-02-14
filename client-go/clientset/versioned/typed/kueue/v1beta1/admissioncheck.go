@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -35,7 +35,7 @@ import (
 // AdmissionChecksGetter has a method to return a AdmissionCheckInterface.
 // A group's client should implement this interface.
 type AdmissionChecksGetter interface {
-	AdmissionChecks(namespace string) AdmissionCheckInterface
+	AdmissionChecks() AdmissionCheckInterface
 }
 
 // AdmissionCheckInterface has methods to work with AdmissionCheck resources.
@@ -57,14 +57,12 @@ type AdmissionCheckInterface interface {
 // admissionChecks implements AdmissionCheckInterface
 type admissionChecks struct {
 	client rest.Interface
-	ns     string
 }
 
 // newAdmissionChecks returns a AdmissionChecks
-func newAdmissionChecks(c *KueueV1beta1Client, namespace string) *admissionChecks {
+func newAdmissionChecks(c *KueueV1beta1Client) *admissionChecks {
 	return &admissionChecks{
 		client: c.RESTClient(),
-		ns:     namespace,
 	}
 }
 
@@ -72,7 +70,6 @@ func newAdmissionChecks(c *KueueV1beta1Client, namespace string) *admissionCheck
 func (c *admissionChecks) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1beta1.AdmissionCheck, err error) {
 	result = &v1beta1.AdmissionCheck{}
 	err = c.client.Get().
-		Namespace(c.ns).
 		Resource("admissionchecks").
 		Name(name).
 		VersionedParams(&options, scheme.ParameterCodec).
@@ -89,7 +86,6 @@ func (c *admissionChecks) List(ctx context.Context, opts v1.ListOptions) (result
 	}
 	result = &v1beta1.AdmissionCheckList{}
 	err = c.client.Get().
-		Namespace(c.ns).
 		Resource("admissionchecks").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -106,7 +102,6 @@ func (c *admissionChecks) Watch(ctx context.Context, opts v1.ListOptions) (watch
 	}
 	opts.Watch = true
 	return c.client.Get().
-		Namespace(c.ns).
 		Resource("admissionchecks").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -117,7 +112,6 @@ func (c *admissionChecks) Watch(ctx context.Context, opts v1.ListOptions) (watch
 func (c *admissionChecks) Create(ctx context.Context, admissionCheck *v1beta1.AdmissionCheck, opts v1.CreateOptions) (result *v1beta1.AdmissionCheck, err error) {
 	result = &v1beta1.AdmissionCheck{}
 	err = c.client.Post().
-		Namespace(c.ns).
 		Resource("admissionchecks").
 		VersionedParams(&opts, scheme.ParameterCodec).
 		Body(admissionCheck).
@@ -130,7 +124,6 @@ func (c *admissionChecks) Create(ctx context.Context, admissionCheck *v1beta1.Ad
 func (c *admissionChecks) Update(ctx context.Context, admissionCheck *v1beta1.AdmissionCheck, opts v1.UpdateOptions) (result *v1beta1.AdmissionCheck, err error) {
 	result = &v1beta1.AdmissionCheck{}
 	err = c.client.Put().
-		Namespace(c.ns).
 		Resource("admissionchecks").
 		Name(admissionCheck.Name).
 		VersionedParams(&opts, scheme.ParameterCodec).
@@ -145,7 +138,6 @@ func (c *admissionChecks) Update(ctx context.Context, admissionCheck *v1beta1.Ad
 func (c *admissionChecks) UpdateStatus(ctx context.Context, admissionCheck *v1beta1.AdmissionCheck, opts v1.UpdateOptions) (result *v1beta1.AdmissionCheck, err error) {
 	result = &v1beta1.AdmissionCheck{}
 	err = c.client.Put().
-		Namespace(c.ns).
 		Resource("admissionchecks").
 		Name(admissionCheck.Name).
 		SubResource("status").
@@ -159,7 +151,6 @@ func (c *admissionChecks) UpdateStatus(ctx context.Context, admissionCheck *v1be
 // Delete takes name of the admissionCheck and deletes it. Returns an error if one occurs.
 func (c *admissionChecks) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
 	return c.client.Delete().
-		Namespace(c.ns).
 		Resource("admissionchecks").
 		Name(name).
 		Body(&opts).
@@ -174,7 +165,6 @@ func (c *admissionChecks) DeleteCollection(ctx context.Context, opts v1.DeleteOp
 		timeout = time.Duration(*listOpts.TimeoutSeconds) * time.Second
 	}
 	return c.client.Delete().
-		Namespace(c.ns).
 		Resource("admissionchecks").
 		VersionedParams(&listOpts, scheme.ParameterCodec).
 		Timeout(timeout).
@@ -187,7 +177,6 @@ func (c *admissionChecks) DeleteCollection(ctx context.Context, opts v1.DeleteOp
 func (c *admissionChecks) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1beta1.AdmissionCheck, err error) {
 	result = &v1beta1.AdmissionCheck{}
 	err = c.client.Patch(pt).
-		Namespace(c.ns).
 		Resource("admissionchecks").
 		Name(name).
 		SubResource(subresources...).
@@ -214,7 +203,6 @@ func (c *admissionChecks) Apply(ctx context.Context, admissionCheck *kueuev1beta
 	}
 	result = &v1beta1.AdmissionCheck{}
 	err = c.client.Patch(types.ApplyPatchType).
-		Namespace(c.ns).
 		Resource("admissionchecks").
 		Name(*name).
 		VersionedParams(&patchOpts, scheme.ParameterCodec).
@@ -243,7 +231,6 @@ func (c *admissionChecks) ApplyStatus(ctx context.Context, admissionCheck *kueue
 
 	result = &v1beta1.AdmissionCheck{}
 	err = c.client.Patch(types.ApplyPatchType).
-		Namespace(c.ns).
 		Resource("admissionchecks").
 		Name(*name).
 		SubResource("status").

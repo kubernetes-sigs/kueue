@@ -66,7 +66,7 @@ type ClusterQueueSpec struct {
 	QueueingStrategy QueueingStrategy `json:"queueingStrategy,omitempty"`
 
 	// namespaceSelector defines which namespaces are allowed to submit workloads to
-	// this clusterQueue. Beyond this basic support for policy, an policy agent like
+	// this clusterQueue. Beyond this basic support for policy, a policy agent like
 	// Gatekeeper should be used to enforce more advanced policies.
 	// Defaults to null which is a nothing selector (no namespaces eligible).
 	// If set to an empty selector `{}`, then all namespaces are eligible.
@@ -96,20 +96,42 @@ type ClusterQueueSpec struct {
 	// admissionChecks lists the AdmissionChecks required by this ClusterQueue
 	// +optional
 	AdmissionChecks []string `json:"admissionChecks,omitempty"`
+
+	// stopPolicy - if set to a value different from None, the ClusterQueue is considered Inactive, no new reservation being
+	// made.
+	//
+	// Depending on its value, its associated workloads will:
+	//
+	// - None - Workloads are admitted
+	// - HoldAndDrain - Admitted workloads are evicted and Reserving workloads will cancel the reservation.
+	// - Hold - Admitted workloads will run to completion and Reserving workloads will cancel the reservation.
+	//
+	// +optional
+	// +kubebuilder:validation:Enum=None;Hold;HoldAndDrain
+	// +kubebuilder:default="None"
+	StopPolicy *StopPolicy `json:"stopPolicy,omitempty"`
 }
 
 type QueueingStrategy string
 
 const (
-	// StrictFIFO means that workloads are ordered strictly by creation time.
+	// StrictFIFO means that workloads of the same priority are ordered strictly by creation time.
 	// Older workloads that can't be admitted will block admitting newer
 	// workloads even if they fit available quota.
 	StrictFIFO QueueingStrategy = "StrictFIFO"
 
-	// BestEffortFIFO means that workloads are ordered by creation time,
+	// BestEffortFIFO means that workloads of the same priority are ordered by creation time,
 	// however older workloads that can't be admitted will not block
 	// admitting newer workloads that fit existing quota.
 	BestEffortFIFO QueueingStrategy = "BestEffortFIFO"
+)
+
+type StopPolicy string
+
+const (
+	None         StopPolicy = "None"
+	HoldAndDrain StopPolicy = "HoldAndDrain"
+	Hold         StopPolicy = "Hold"
 )
 
 type ResourceGroup struct {
@@ -179,6 +201,19 @@ type ResourceQuota struct {
 	// borrowingLimit must be null if spec.cohort is empty.
 	// +optional
 	BorrowingLimit *resource.Quantity `json:"borrowingLimit,omitempty"`
+
+	// lendingLimit is the maximum amount of unused quota for the [flavor, resource]
+	// combination that this ClusterQueue can lend to other ClusterQueues in the same cohort.
+	// In total, at a given time, ClusterQueue reserves for its exclusive use
+	// a quantity of quota equals to nominalQuota - lendingLimit.
+	// If null, it means that there is no lending limit, meaning that
+	// all the nominalQuota can be borrowed by other clusterQueues in the cohort.
+	// If not null, it must be non-negative.
+	// lendingLimit must be null if spec.cohort is empty.
+	// This field is in alpha stage. To be able to use this field,
+	// enable the feature gate LendingLimit, which is disabled by default.
+	// +optional
+	LendingLimit *resource.Quantity `json:"lendingLimit,omitempty"`
 }
 
 // ResourceFlavorReference is the name of the ResourceFlavor.
@@ -344,6 +379,10 @@ type ClusterQueuePreemption struct {
 	// +kubebuilder:validation:Enum=Never;LowerPriority;Any
 	ReclaimWithinCohort PreemptionPolicy `json:"reclaimWithinCohort,omitempty"`
 
+	// borrowWithinCohort provides configuration to allow preemption within
+	// cohort while borrowing.
+	BorrowWithinCohort *BorrowWithinCohort `json:"borrowWithinCohort,omitempty"`
+
 	// withinClusterQueue determines whether a pending Workload that doesn't fit
 	// within the nominal quota for its ClusterQueue, can preempt active Workloads in
 	// the ClusterQueue. The possible values are:
@@ -360,15 +399,48 @@ type ClusterQueuePreemption struct {
 	WithinClusterQueue PreemptionPolicy `json:"withinClusterQueue,omitempty"`
 }
 
-//+genclient
-//+kubebuilder:object:root=true
-//+kubebuilder:storageversion
-//+kubebuilder:resource:scope=Cluster
-//+kubebuilder:subresource:status
-//+kubebuilder:printcolumn:name="Cohort",JSONPath=".spec.cohort",type=string,description="Cohort that this ClusterQueue belongs to"
-//+kubebuilder:printcolumn:name="Strategy",JSONPath=".spec.queueingStrategy",type=string,description="The queueing strategy used to prioritize workloads",priority=1
-//+kubebuilder:printcolumn:name="Pending Workloads",JSONPath=".status.pendingWorkloads",type=integer,description="Number of pending workloads"
-//+kubebuilder:printcolumn:name="Admitted Workloads",JSONPath=".status.admittedWorkloads",type=integer,description="Number of admitted workloads that haven't finished yet",priority=1
+type BorrowWithinCohortPolicy string
+
+const (
+	BorrowWithinCohortPolicyNever         BorrowWithinCohortPolicy = "Never"
+	BorrowWithinCohortPolicyLowerPriority BorrowWithinCohortPolicy = "LowerPriority"
+)
+
+// BorrowWithinCohort contains configuration which allows to preempt workloads
+// within cohort while borrowing.
+type BorrowWithinCohort struct {
+	// policy determines the policy for preemption to reclaim quota within cohort while borrowing.
+	// Possible values are:
+	// - `Never` (default): do not allow for preemption, in other
+	//    ClusterQueues within the cohort, for a borrowing workload.
+	// - `LowerPriority`: allow preemption, in other ClusterQueues
+	//    within the cohort, for a borrowing workload, but only if
+	//    the preempted workloads are of lower priority.
+	//
+	// +kubebuilder:default=Never
+	// +kubebuilder:validation:Enum=Never;LowerPriority
+	Policy BorrowWithinCohortPolicy `json:"policy,omitempty"`
+
+	// maxPriorityThreshold allows to restrict the set of workloads which
+	// might be preempted by a borrowing workload, to only workloads with
+	// priority less than or equal to the specified threshold priority.
+	// When the threshold is not specified, then any workload satisfying the
+	// policy can be preempted by the borrowing workload.
+	//
+	// +optional
+	MaxPriorityThreshold *int32 `json:"maxPriorityThreshold,omitempty"`
+}
+
+// +genclient
+// +genclient:nonNamespaced
+// +kubebuilder:object:root=true
+// +kubebuilder:storageversion
+// +kubebuilder:resource:scope=Cluster
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Cohort",JSONPath=".spec.cohort",type=string,description="Cohort that this ClusterQueue belongs to"
+// +kubebuilder:printcolumn:name="Strategy",JSONPath=".spec.queueingStrategy",type=string,description="The queueing strategy used to prioritize workloads",priority=1
+// +kubebuilder:printcolumn:name="Pending Workloads",JSONPath=".status.pendingWorkloads",type=integer,description="Number of pending workloads"
+// +kubebuilder:printcolumn:name="Admitted Workloads",JSONPath=".status.admittedWorkloads",type=integer,description="Number of admitted workloads that haven't finished yet",priority=1
 
 // ClusterQueue is the Schema for the clusterQueue API.
 type ClusterQueue struct {
@@ -379,7 +451,7 @@ type ClusterQueue struct {
 	Status ClusterQueueStatus `json:"status,omitempty"`
 }
 
-//+kubebuilder:object:root=true
+// +kubebuilder:object:root=true
 
 // ClusterQueueList contains a list of ClusterQueue
 type ClusterQueueList struct {

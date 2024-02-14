@@ -55,6 +55,34 @@ const (
 	//
 	// Enables Provisioning Admission Check Controller.
 	ProvisioningACC featuregate.Feature = "ProvisioningACC"
+
+	// owner: @pbundyra
+	// kep: https://github.com/kubernetes-sigs/kueue/pull/1300
+	// alpha: v0.6
+	//
+	// Enables Kueue visibility on demand
+	VisibilityOnDemand featuregate.Feature = "VisibilityOnDemand"
+
+	// owner: @yaroslava-serdiuk
+	// kep: https://github.com/kubernetes-sigs/kueue/issues/1283
+	// beta: v0.6
+	//
+	// Enable priority sorting within the cohort.
+	PrioritySortingWithinCohort featuregate.Feature = "PrioritySortingWithinCohort"
+
+	// owner: @trasc
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/693-multikueue
+	// alpha: v0.6
+	//
+	// Enables MultiKueue support.
+	MultiKueue featuregate.Feature = "MultiKueue"
+
+	// owners: @B1F030, @kerthcet
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/1224-lending-limit
+	// alpha: v0.6
+	//
+	// Enables lending limit.
+	LendingLimit featuregate.Feature = "LendingLimit"
 )
 
 func init() {
@@ -68,17 +96,21 @@ func init() {
 // Entries are separated from each other with blank lines to avoid sweeping gofmt changes
 // when adding or removing one entry.
 var defaultFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
-	PartialAdmission:  {Default: true, PreRelease: featuregate.Beta},
-	QueueVisibility:   {Default: false, PreRelease: featuregate.Alpha},
-	FlavorFungibility: {Default: true, PreRelease: featuregate.Beta},
-	ProvisioningACC:   {Default: false, PreRelease: featuregate.Alpha},
+	PartialAdmission:            {Default: true, PreRelease: featuregate.Beta},
+	QueueVisibility:             {Default: false, PreRelease: featuregate.Alpha},
+	FlavorFungibility:           {Default: true, PreRelease: featuregate.Beta},
+	ProvisioningACC:             {Default: false, PreRelease: featuregate.Alpha},
+	VisibilityOnDemand:          {Default: false, PreRelease: featuregate.Alpha},
+	PrioritySortingWithinCohort: {Default: true, PreRelease: featuregate.Beta},
+	MultiKueue:                  {Default: false, PreRelease: featuregate.Alpha},
+	LendingLimit:                {Default: false, PreRelease: featuregate.Alpha},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) func() {
 	return featuregatetesting.SetFeatureGateDuringTest(tb, utilfeature.DefaultFeatureGate, f, value)
 }
 
-// Helper for `utilfeature.DefaultFeatureGate.Enabled()`
+// Enabled is helper for `utilfeature.DefaultFeatureGate.Enabled()`
 func Enabled(f featuregate.Feature) bool {
 	return utilfeature.DefaultFeatureGate.Enabled(f)
 }

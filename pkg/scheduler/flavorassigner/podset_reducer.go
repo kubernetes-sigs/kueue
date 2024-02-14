@@ -61,8 +61,8 @@ func fillPodSetSizesForSearchIndex(out, fullCounts, deltas []int32, upFactor int
 	}
 }
 
-// Find the first biggest set of counts that pass fits(), it's using binary Search
-// so the last call to fits() might not be a successful one
+// Search find the first biggest set of counts that pass fits(), it's using
+// binary Search so the last call to fits() might not be a successful one
 // Returns nil if no solution was found
 func (psr *PodSetReducer[R]) Search() (R, bool) {
 	var lastGoodIdx int

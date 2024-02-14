@@ -28,7 +28,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/util/api"
@@ -40,21 +42,38 @@ var (
 )
 
 type AssigmentClusterQueueState struct {
-	LastAssignedFlavorIdx  []map[corev1.ResourceName]int
+	LastTriedFlavorIdx     []map[corev1.ResourceName]int
 	CohortGeneration       int64
 	ClusterQueueGeneration int64
 }
 
 func (s *AssigmentClusterQueueState) Clone() *AssigmentClusterQueueState {
 	c := AssigmentClusterQueueState{
-		LastAssignedFlavorIdx:  make([]map[corev1.ResourceName]int, len(s.LastAssignedFlavorIdx)),
+		LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, len(s.LastTriedFlavorIdx)),
 		CohortGeneration:       s.CohortGeneration,
 		ClusterQueueGeneration: s.ClusterQueueGeneration,
 	}
-	for ps, flavorIdx := range s.LastAssignedFlavorIdx {
-		c.LastAssignedFlavorIdx[ps] = maps.Clone(flavorIdx)
+	for ps, flavorIdx := range s.LastTriedFlavorIdx {
+		c.LastTriedFlavorIdx[ps] = maps.Clone(flavorIdx)
 	}
 	return &c
+}
+
+// PendingFlavors returns whether there are pending flavors to try
+// after the last attempt.
+func (s *AssigmentClusterQueueState) PendingFlavors() bool {
+	if s == nil {
+		// This is only reached in unit tests.
+		return false
+	}
+	for _, podSetIdxs := range s.LastTriedFlavorIdx {
+		for _, idx := range podSetIdxs {
+			if idx != -1 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Info holds a Workload object and some pre-processing.
@@ -260,7 +279,7 @@ func (r Requests) scaleDown(f int64) {
 }
 
 // UpdateStatus updates the condition of a workload with ssa,
-// filelManager being set to managerPrefix + "-" + conditionType
+// fieldManager being set to managerPrefix + "-" + conditionType
 func UpdateStatus(ctx context.Context,
 	c client.Client,
 	wl *kueue.Workload,
@@ -292,6 +311,9 @@ func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message stri
 	}
 	apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
 	wl.Status.Admission = nil
+
+	// Reset the admitted condition if necessary.
+	_ = SyncAdmittedCondition(wl)
 }
 
 // BaseSSAWorkload creates a new object based on the input workload that
@@ -353,6 +375,7 @@ func admissionPatch(w *kueue.Workload) *kueue.Workload {
 	wlCopy := BaseSSAWorkload(w)
 
 	wlCopy.Status.Admission = w.Status.Admission.DeepCopy()
+	wlCopy.Status.RequeueState = w.Status.RequeueState.DeepCopy()
 	for _, conditionName := range admissionManagedConditions {
 		if existing := apimeta.FindStatusCondition(w.Status.Conditions, conditionName); existing != nil {
 			wlCopy.Status.Conditions = append(wlCopy.Status.Conditions, *existing.DeepCopy())
@@ -372,11 +395,17 @@ func ApplyAdmissionStatus(ctx context.Context, c client.Client, w *kueue.Workloa
 	return c.Status().Patch(ctx, patch, client.Apply, client.FieldOwner(constants.AdmissionName))
 }
 
+type Ordering struct {
+	PodsReadyRequeuingTimestamp config.RequeuingTimestamp
+}
+
 // GetQueueOrderTimestamp return the timestamp to be used by the scheduler. It could
 // be the workload creation time or the last time a PodsReady timeout has occurred.
-func GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
-	if c := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted); c != nil && c.Status == metav1.ConditionTrue && c.Reason == kueue.WorkloadEvictedByPodsReadyTimeout {
-		return &c.LastTransitionTime
+func (o Ordering) GetQueueOrderTimestamp(w *kueue.Workload) *metav1.Time {
+	if o.PodsReadyRequeuingTimestamp == config.EvictionTimestamp {
+		if evictedCond, evictedByTimout := IsEvictedByPodsReadyTimeout(w); evictedByTimout {
+			return &evictedCond.LastTransitionTime
+		}
 	}
 	return &w.CreationTimestamp
 }
@@ -413,7 +442,38 @@ func ReclaimablePodsAreEqual(a, b []kueue.ReclaimablePod) bool {
 	return true
 }
 
-// Returns true if the workload is admitted.
+// HasRequeueState returns true if the workload has re-queue state.
+func HasRequeueState(w *kueue.Workload) bool {
+	return w.Status.RequeueState != nil
+}
+
+// IsAdmitted returns true if the workload is admitted.
 func IsAdmitted(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadAdmitted)
+}
+
+// IsFinished returns true if the workload is finished.
+func IsFinished(w *kueue.Workload) bool {
+	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished)
+}
+
+// IsEvictedByDeactivation returns true if the workload is evicted by deactivation.
+func IsEvictedByDeactivation(w *kueue.Workload) bool {
+	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted)
+	return cond != nil && cond.Status == metav1.ConditionTrue && cond.Reason == kueue.WorkloadEvictedByDeactivation
+}
+
+func IsEvictedByPodsReadyTimeout(w *kueue.Workload) (*metav1.Condition, bool) {
+	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadEvicted)
+	if cond == nil || cond.Status != metav1.ConditionTrue || cond.Reason != kueue.WorkloadEvictedByPodsReadyTimeout {
+		return nil, false
+	}
+	return cond, true
+}
+
+func RemoveFinalizer(ctx context.Context, c client.Client, wl *kueue.Workload) error {
+	if controllerutil.RemoveFinalizer(wl, kueue.ResourceInUseFinalizerName) {
+		return c.Update(ctx, wl)
+	}
+	return nil
 }

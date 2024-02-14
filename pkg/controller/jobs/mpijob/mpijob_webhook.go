@@ -36,10 +36,7 @@ type MPIJobWebhook struct {
 
 // SetupMPIJobWebhook configures the webhook for kubeflow MPIJob.
 func SetupMPIJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
-	options := jobframework.DefaultOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
+	options := jobframework.ProcessOptions(opts...)
 	wh := &MPIJobWebhook{
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 	}

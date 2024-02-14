@@ -1,5 +1,5 @@
 /*
-Copyright 2022 The Kubernetes Authors.
+Copyright The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -30,8 +30,9 @@ type ResourceFlavorLister interface {
 	// List lists all ResourceFlavors in the indexer.
 	// Objects returned here must be treated as read-only.
 	List(selector labels.Selector) (ret []*v1beta1.ResourceFlavor, err error)
-	// ResourceFlavors returns an object that can list and get ResourceFlavors.
-	ResourceFlavors(namespace string) ResourceFlavorNamespaceLister
+	// Get retrieves the ResourceFlavor from the index for a given name.
+	// Objects returned here must be treated as read-only.
+	Get(name string) (*v1beta1.ResourceFlavor, error)
 	ResourceFlavorListerExpansion
 }
 
@@ -53,41 +54,9 @@ func (s *resourceFlavorLister) List(selector labels.Selector) (ret []*v1beta1.Re
 	return ret, err
 }
 
-// ResourceFlavors returns an object that can list and get ResourceFlavors.
-func (s *resourceFlavorLister) ResourceFlavors(namespace string) ResourceFlavorNamespaceLister {
-	return resourceFlavorNamespaceLister{indexer: s.indexer, namespace: namespace}
-}
-
-// ResourceFlavorNamespaceLister helps list and get ResourceFlavors.
-// All objects returned here must be treated as read-only.
-type ResourceFlavorNamespaceLister interface {
-	// List lists all ResourceFlavors in the indexer for a given namespace.
-	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1beta1.ResourceFlavor, err error)
-	// Get retrieves the ResourceFlavor from the indexer for a given namespace and name.
-	// Objects returned here must be treated as read-only.
-	Get(name string) (*v1beta1.ResourceFlavor, error)
-	ResourceFlavorNamespaceListerExpansion
-}
-
-// resourceFlavorNamespaceLister implements the ResourceFlavorNamespaceLister
-// interface.
-type resourceFlavorNamespaceLister struct {
-	indexer   cache.Indexer
-	namespace string
-}
-
-// List lists all ResourceFlavors in the indexer for a given namespace.
-func (s resourceFlavorNamespaceLister) List(selector labels.Selector) (ret []*v1beta1.ResourceFlavor, err error) {
-	err = cache.ListAllByNamespace(s.indexer, s.namespace, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1beta1.ResourceFlavor))
-	})
-	return ret, err
-}
-
-// Get retrieves the ResourceFlavor from the indexer for a given namespace and name.
-func (s resourceFlavorNamespaceLister) Get(name string) (*v1beta1.ResourceFlavor, error) {
-	obj, exists, err := s.indexer.GetByKey(s.namespace + "/" + name)
+// Get retrieves the ResourceFlavor from the index for a given name.
+func (s *resourceFlavorLister) Get(name string) (*v1beta1.ResourceFlavor, error) {
+	obj, exists, err := s.indexer.GetByKey(name)
 	if err != nil {
 		return nil, err
 	}

@@ -50,6 +50,7 @@ var (
 	labelsPath                    = field.NewPath("metadata", "labels")
 	parentWorkloadKeyPath         = annotationsPath.Key(constants.ParentWorkloadAnnotation)
 	queueNameLabelPath            = labelsPath.Key(constants.QueueLabel)
+	prebuiltWlNameLabelPath       = labelsPath.Key(constants.PrebuiltWorkloadLabel)
 	queueNameAnnotationsPath      = annotationsPath.Key(constants.QueueAnnotation)
 	workloadPriorityClassNamePath = labelsPath.Key(constants.WorkloadPriorityClassLabel)
 )
@@ -233,6 +234,30 @@ func TestValidateCreate(t *testing.T) {
 			wantErr:       nil,
 			serverVersion: "1.27.0",
 		},
+		{
+			name: "invalid prebuilt workload",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				Label(constants.PrebuiltWorkloadLabel, "workload name").
+				Indexed(true).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(prebuiltWlNameLabelPath, "workload name", invalidRFC1123Message),
+			},
+			serverVersion: "1.27.0",
+		},
+		{
+			name: "valid prebuilt workload",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(4).
+				Label(constants.PrebuiltWorkloadLabel, "workload-name").
+				Indexed(true).
+				Obj(),
+			wantErr:       nil,
+			serverVersion: "1.27.0",
+		},
 	}
 
 	for _, tc := range testcases {
@@ -407,6 +432,18 @@ func TestValidateUpdate(t *testing.T) {
 				field.Invalid(workloadPriorityClassNamePath, "test-1", apivalidation.FieldImmutableErrorMsg),
 			},
 		},
+		{
+			name: "immutable prebuilt workload ",
+			oldJob: testingutil.MakeJob("job", "default").
+				Suspend(true).
+				Label(constants.PrebuiltWorkloadLabel, "old-workload").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				Label(constants.PrebuiltWorkloadLabel, "new-workload").
+				Obj(),
+			wantErr: apivalidation.ValidateImmutableField("old-workload", "new-workload", prebuiltWlNameLabelPath),
+		},
 	}
 
 	for _, tc := range testcases {
@@ -442,6 +479,16 @@ func TestDefault(t *testing.T) {
 			job:                        testingutil.MakeJob("job", "default").Suspend(false).Obj(),
 			manageJobsWithoutQueueName: true,
 			want:                       testingutil.MakeJob("job", "default").Obj(),
+		},
+		"don't replace parent workload name in annotations": {
+			job: testingutil.MakeJob("child-job", "default").
+				OwnerReference("parent-job", kubeflow.SchemeGroupVersionKind).
+				ParentWorkload("prebuilt-workload").
+				Obj(),
+			want: testingutil.MakeJob("child-job", "default").
+				OwnerReference("parent-job", kubeflow.SchemeGroupVersionKind).
+				ParentWorkload("prebuilt-workload").
+				Obj(),
 		},
 	}
 	for name, tc := range testcases {

@@ -14,13 +14,16 @@ Please do not remove items from the checklist
   At least two for minor or major releases. At least one for a patch release.
 - [ ] Verify that the changelog in this issue and the CHANGELOG folder is up-to-date
   - [ ] Use https://github.com/kubernetes/release/tree/master/cmd/release-notes to gather notes.
-    Example: `release-notes --org kubernetes-sigs --repo kueue --branch release-0.3 --start-sha 4a0ebe7a3c5f2775cdf5fc7d60c23225660f8702 --end-sha a51cf138afe65677f5f5c97f8f8b1bc4887f73d2`
+    Example: `release-notes --org kubernetes-sigs --repo kueue --branch release-0.3 --start-sha 4a0ebe7a3c5f2775cdf5fc7d60c23225660f8702 --end-sha a51cf138afe65677f5f5c97f8f8b1bc4887f73d2 --dependencies=false --required-author=""`
 - [ ] For major or minor releases (v$MAJ.$MIN.0), create a new release branch.
-  - [ ] an OWNER creates a vanilla release branch with
+  - [ ] An OWNER creates a vanilla release branch with
         `git branch release-$MAJ.$MIN main`
   - [ ] An OWNER pushes the new release branch with
         `git push release-$MAJ.$MIN`
-- [ ] Update `README.md`, `CHANGELOG`, `charts/kueue/Chart.yaml` (`appVersion`) and `charts/kueue/values.yaml` (`controllerManager.manager.image.tag`) in the release branch: <!-- example #211 #214 -->
+- [ ] Update the release branch:
+  - [ ] Update `RELEASE_BRANCH` and `RELEASE_VERSION` in `Makefile` and run `make prepare-release-branch`
+  - [ ] Update the `CHANGELOG`
+  - [ ] Submit a pull request with the changes: <!-- example #211 #214 -->
 - [ ] An OWNER [prepares a draft release](https://github.com/kubernetes-sigs/kueue/releases)
   - [ ] Write the change log into the draft release.
   - [ ] Run
@@ -35,16 +38,23 @@ Please do not remove items from the checklist
       `git push $VERSION`
   - Triggers prow to build and publish a staging container image
       `gcr.io/k8s-staging-kueue/kueue:$VERSION`
-- [ ] Submit a PR against [k8s.io](https://github.com/kubernetes/k8s.io), 
-      updating `k8s.gcr.io/images/k8s-staging-kueue/images.yaml` to
+- [ ] Submit a PR against [k8s.io](https://github.com/kubernetes/k8s.io),
+      updating `registry.k8s.io/images/k8s-staging-kueue/images.yaml` to
       [promote the container images](https://github.com/kubernetes/k8s.io/tree/main/k8s.gcr.io#image-promoter)
       to production: <!-- example kubernetes/k8s.io#3612-->
 - [ ] Wait for the PR to be merged and verify that the image `registry.k8s.io/kueue/kueue:$VERSION` is available.
 - [ ] Publish the draft release prepared at the [Github releases page](https://github.com/kubernetes-sigs/kueue/releases).
       Link: <!-- example https://github.com/kubernetes-sigs/kueue/releases/tag/v0.1.0 -->
+- [ ] Run the [openvex action](https://github.com/kubernetes-sigs/kueue/actions/workflows/openvex.yaml) to generate openvex data. The action will add the file to the release artifacts.
+- [ ] Run the [SBOM action](https://github.com/kubernetes-sigs/kueue/actions/workflows/sbom.yaml) to generate the SBOM and add it to the release.
 - [ ] For major or minor releases, merge the `main` branch into the `website` branch to publish the updated documentation.
-- [ ] Send an announcement email to `sig-scheduling@kubernetes.io` and `wg-batch@kubernetes.io` with the subject `[ANNOUNCE] kueue $VERSION is released`. Link: <!-- example https://groups.google.com/a/kubernetes.io/g/wg-batch/c/-gZOrSnwDV4 -->
-- [ ] Update `README.md`, `CHANGELOG`, `site/config.toml`, `charts/kueue/Chart.yaml` (`appVersion`) and `charts/kueue/values.yaml` (`controllerManager.manager.image.tag`) in `main` branch: <!-- example #774 -->
+- [ ] Send an announcement email to `sig-scheduling@kubernetes.io` and `wg-batch@kubernetes.io` with the subject `[ANNOUNCE] kueue $VERSION is released`.   <!--Link: example https://groups.google.com/a/kubernetes.io/g/wg-batch/c/-gZOrSnwDV4 -->
+- [ ] Update the below files with respective values in `main` branch :
+  - Latest version in `README.md`
+  - Release notes in the `CHANGELOG`
+  - `version` in `site/config.toml`
+  - `appVersion` in `charts/kueue/Chart.yaml`
+  - `last-updated`, `last-reviewed`, `commit-hash`, `project-release`, and `distribution-points` in `SECURITY-INSIGHTS.yaml`
 - [ ] For a major or minor release, prepare the repo for the next version:
   - [ ] create an unannotated _devel_ tag in the
         `main` branch, on the first commit that gets merged after the release

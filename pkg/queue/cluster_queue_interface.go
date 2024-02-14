@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 
-	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -45,8 +44,8 @@ type ClusterQueue interface {
 	Cohort() string
 
 	// AddFromLocalQueue pushes all workloads belonging to this queue to
-	// the ClusterQueue. If at least one workload is added, returns true.
-	// Otherwise returns false.
+	// the ClusterQueue. If at least one workload is added, returns true,
+	// otherwise returns false.
 	AddFromLocalQueue(*LocalQueue) bool
 	// DeleteFromLocalQueue removes all workloads belonging to this queue from
 	// the ClusterQueue.
@@ -73,7 +72,7 @@ type ClusterQueue interface {
 	RequeueIfNotPresent(*workload.Info, RequeueReason) bool
 	// QueueInadmissibleWorkloads moves all workloads put in temporary placeholder stage
 	// to the ClusterQueue. If at least one workload is moved,
-	// returns true. Otherwise returns false.
+	// returns true, otherwise returns false.
 	QueueInadmissibleWorkloads(ctx context.Context, client client.Client) bool
 
 	// Pending returns the total number of pending workloads.
@@ -88,28 +87,31 @@ type ClusterQueue interface {
 	PendingInadmissible() int
 
 	// Dump produces a dump of the current workloads in the heap of
-	// this ClusterQueue. It returns false if the queue is empty.
-	// Otherwise returns true.
-	Dump() (sets.Set[string], bool)
-	DumpInadmissible() (sets.Set[string], bool)
+	// this ClusterQueue. It returns false if the queue is empty,
+	// otherwise returns true.
+	Dump() ([]string, bool)
+	DumpInadmissible() ([]string, bool)
 	// Snapshot returns a copy of the current workloads in the heap of
 	// this ClusterQueue.
 	Snapshot() []*workload.Info
 	// Info returns workload.Info for the workload key.
 	// Users of this method should not modify the returned object.
 	Info(string) *workload.Info
+
+	// Returns true if the queue is active
+	Active() bool
 }
 
-var registry = map[kueue.QueueingStrategy]func(cq *kueue.ClusterQueue) (ClusterQueue, error){
+var registry = map[kueue.QueueingStrategy]func(cq *kueue.ClusterQueue, wo workload.Ordering) (ClusterQueue, error){
 	kueue.StrictFIFO:     newClusterQueueStrictFIFO,
 	kueue.BestEffortFIFO: newClusterQueueBestEffortFIFO,
 }
 
-func newClusterQueue(cq *kueue.ClusterQueue) (ClusterQueue, error) {
+func newClusterQueue(cq *kueue.ClusterQueue, wo workload.Ordering) (ClusterQueue, error) {
 	strategy := cq.Spec.QueueingStrategy
 	f, exist := registry[strategy]
 	if !exist {
 		return nil, fmt.Errorf("invalid QueueingStrategy %q", cq.Spec.QueueingStrategy)
 	}
-	return f(cq)
+	return f(cq, wo)
 }

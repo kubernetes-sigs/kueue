@@ -1,11 +1,30 @@
+/*
+Copyright 2023 The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package cache
 
 import (
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
@@ -69,63 +88,45 @@ func TestClusterQueueUpdateWithFlavors(t *testing.T) {
 	}
 }
 
-func TestCohortCanFit(t *testing.T) {
+func TestFitInCohort(t *testing.T) {
 	cases := map[string]struct {
-		c       *Cohort
-		request FlavorResourceQuantities
-		wantFit bool
+		request            FlavorResourceQuantities
+		wantFit            bool
+		cq                 *ClusterQueue
+		enableLendingLimit bool
 	}{
 		"full cohort, empty request": {
-			c: &Cohort{
-				Name: "C",
-				RequestableResources: FlavorResourceQuantities{
-					"f1": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-					"f2": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-				},
-				Usage: FlavorResourceQuantities{
-					"f1": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-					"f2": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-				},
-			},
 			request: FlavorResourceQuantities{},
 			wantFit: true,
+			cq: &ClusterQueue{
+				Name: "CQ",
+				Cohort: &Cohort{
+					Name: "C",
+					RequestableResources: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+						"f2": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+					},
+					Usage: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+						"f2": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+					},
+				},
+				ResourceGroups: nil,
+			},
 		},
 		"can fit": {
-			c: &Cohort{
-				Name: "C",
-				RequestableResources: FlavorResourceQuantities{
-					"f1": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-					"f2": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-				},
-				Usage: FlavorResourceQuantities{
-					"f1": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-					"f2": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    4,
-						corev1.ResourceMemory: 4,
-					},
-				},
-			},
 			request: FlavorResourceQuantities{
 				"f2": map[corev1.ResourceName]int64{
 					corev1.ResourceCPU:    1,
@@ -133,31 +134,35 @@ func TestCohortCanFit(t *testing.T) {
 				},
 			},
 			wantFit: true,
+			cq: &ClusterQueue{
+				Name: "CQ",
+				Cohort: &Cohort{
+					Name: "C",
+					RequestableResources: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+						"f2": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+					},
+					Usage: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+						"f2": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    4,
+							corev1.ResourceMemory: 4,
+						},
+					},
+				},
+				ResourceGroups: nil,
+			},
 		},
 		"full cohort, none fit": {
-			c: &Cohort{
-				Name: "C",
-				RequestableResources: FlavorResourceQuantities{
-					"f1": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-					"f2": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-				},
-				Usage: FlavorResourceQuantities{
-					"f1": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-					"f2": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-				},
-			},
 			request: FlavorResourceQuantities{
 				"f1": map[corev1.ResourceName]int64{
 					corev1.ResourceCPU:    1,
@@ -169,31 +174,35 @@ func TestCohortCanFit(t *testing.T) {
 				},
 			},
 			wantFit: false,
+			cq: &ClusterQueue{
+				Name: "CQ",
+				Cohort: &Cohort{
+					Name: "C",
+					RequestableResources: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+						"f2": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+					},
+					Usage: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+						"f2": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+					},
+				},
+				ResourceGroups: nil,
+			},
 		},
 		"one cannot fit": {
-			c: &Cohort{
-				Name: "C",
-				RequestableResources: FlavorResourceQuantities{
-					"f1": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-					"f2": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-				},
-				Usage: FlavorResourceQuantities{
-					"f1": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    4,
-						corev1.ResourceMemory: 4,
-					},
-					"f2": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    4,
-						corev1.ResourceMemory: 4,
-					},
-				},
-			},
 			request: FlavorResourceQuantities{
 				"f1": map[corev1.ResourceName]int64{
 					corev1.ResourceCPU:    1,
@@ -205,23 +214,35 @@ func TestCohortCanFit(t *testing.T) {
 				},
 			},
 			wantFit: false,
+			cq: &ClusterQueue{
+				Name: "CQ",
+				Cohort: &Cohort{
+					Name: "C",
+					RequestableResources: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+						"f2": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+					},
+					Usage: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    4,
+							corev1.ResourceMemory: 4,
+						},
+						"f2": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    4,
+							corev1.ResourceMemory: 4,
+						},
+					},
+				},
+				ResourceGroups: nil,
+			},
 		},
 		"missing flavor": {
-			c: &Cohort{
-				Name: "C",
-				RequestableResources: FlavorResourceQuantities{
-					"f1": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-				},
-				Usage: FlavorResourceQuantities{
-					"f1": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU:    5,
-						corev1.ResourceMemory: 5,
-					},
-				},
-			},
 			request: FlavorResourceQuantities{
 				"f2": map[corev1.ResourceName]int64{
 					corev1.ResourceCPU:    1,
@@ -229,21 +250,27 @@ func TestCohortCanFit(t *testing.T) {
 				},
 			},
 			wantFit: false,
+			cq: &ClusterQueue{
+				Name: "CQ",
+				Cohort: &Cohort{
+					Name: "C",
+					RequestableResources: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+					},
+					Usage: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU:    5,
+							corev1.ResourceMemory: 5,
+						},
+					},
+				},
+				ResourceGroups: nil,
+			},
 		},
 		"missing resource": {
-			c: &Cohort{
-				Name: "C",
-				RequestableResources: FlavorResourceQuantities{
-					"f1": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 5,
-					},
-				},
-				Usage: FlavorResourceQuantities{
-					"f1": map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 3,
-					},
-				},
-			},
 			request: FlavorResourceQuantities{
 				"f1": map[corev1.ResourceName]int64{
 					corev1.ResourceCPU:    1,
@@ -251,12 +278,96 @@ func TestCohortCanFit(t *testing.T) {
 				},
 			},
 			wantFit: false,
+			cq: &ClusterQueue{
+				Name: "CQ",
+				Cohort: &Cohort{
+					Name: "C",
+					RequestableResources: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU: 5,
+						},
+					},
+					Usage: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU: 3,
+						},
+					},
+				},
+				ResourceGroups: nil,
+			},
+		},
+		"lendingLimit enabled can't fit": {
+			request: FlavorResourceQuantities{
+				"f1": map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 3,
+				},
+			},
+			wantFit: false,
+			cq: &ClusterQueue{
+				Name: "CQ-A",
+				Cohort: &Cohort{
+					Name: "C",
+					RequestableResources: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							// CQ-A has 2 nominal cpu, CQ-B has 3 nominal cpu and 2 lendingLimit,
+							// so when lendingLimit enabled, the cohort's RequestableResources is 4 cpu.
+							corev1.ResourceCPU: 4,
+						},
+					},
+					Usage: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							corev1.ResourceCPU: 2,
+						},
+					},
+				},
+				GuaranteedQuota: FlavorResourceQuantities{
+					"f1": {
+						corev1.ResourceCPU: 0,
+					},
+				},
+			},
+			enableLendingLimit: true,
+		},
+		"lendingLimit enabled can fit": {
+			request: FlavorResourceQuantities{
+				"f1": map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 3,
+				},
+			},
+			wantFit: true,
+			cq: &ClusterQueue{
+				Name: "CQ-A",
+				Cohort: &Cohort{
+					Name: "C",
+					RequestableResources: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							// CQ-A has 2 nominal cpu, CQ-B has 3 nominal cpu and 2 lendingLimit,
+							// so when lendingLimit enabled, the cohort's RequestableResources is 4 cpu.
+							corev1.ResourceCPU: 4,
+						},
+					},
+					Usage: FlavorResourceQuantities{
+						"f1": map[corev1.ResourceName]int64{
+							// CQ-B has admitted a workload with 2 cpus, but with 1 GuaranteedQuota,
+							// so when lendingLimit enabled, Cohort.Usage should be 2 - 1 = 1.
+							corev1.ResourceCPU: 1,
+						},
+					},
+				},
+				GuaranteedQuota: FlavorResourceQuantities{
+					"f1": {
+						corev1.ResourceCPU: 2,
+					},
+				},
+			},
+			enableLendingLimit: true,
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := tc.c.CanFit(tc.request)
+			defer features.SetFeatureGateDuringTest(t, features.LendingLimit, tc.enableLendingLimit)()
+			got := tc.cq.FitInCohort(tc.request)
 			if got != tc.wantFit {
 				t.Errorf("Unexpected result, %v", got)
 			}
@@ -264,4 +375,88 @@ func TestCohortCanFit(t *testing.T) {
 		})
 	}
 
+}
+
+func TestClusterQueueUpdate(t *testing.T) {
+	resourceFlavors := []*kueue.ResourceFlavor{
+		{ObjectMeta: metav1.ObjectMeta{Name: "on-demand"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "spot"}},
+	}
+	clusterQueue :=
+		*utiltesting.MakeClusterQueue("eng-alpha").
+			QueueingStrategy(kueue.StrictFIFO).
+			Preemption(kueue.ClusterQueuePreemption{
+				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+			}).
+			FlavorFungibility(kueue.FlavorFungibility{
+				WhenCanPreempt: kueue.Preempt,
+			}).
+			ResourceGroup(
+				*utiltesting.MakeFlavorQuotas("on-demand").
+					Resource(corev1.ResourceCPU, "50", "50").Obj(),
+				*utiltesting.MakeFlavorQuotas("spot").
+					Resource(corev1.ResourceCPU, "100", "0").Obj(),
+			).Obj()
+	newClusterQueue :=
+		*utiltesting.MakeClusterQueue("eng-alpha").
+			QueueingStrategy(kueue.StrictFIFO).
+			Preemption(kueue.ClusterQueuePreemption{
+				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+			}).
+			FlavorFungibility(kueue.FlavorFungibility{
+				WhenCanPreempt: kueue.Preempt,
+			}).
+			ResourceGroup(
+				*utiltesting.MakeFlavorQuotas("on-demand").
+					Resource(corev1.ResourceCPU, "100", "50").Obj(),
+				*utiltesting.MakeFlavorQuotas("spot").
+					Resource(corev1.ResourceCPU, "100", "0").Obj(),
+			).Obj()
+	cases := []struct {
+		name                         string
+		cq                           *kueue.ClusterQueue
+		newcq                        *kueue.ClusterQueue
+		wantLastAssignmentGeneration int64
+	}{
+		{
+			name:                         "RGs not change",
+			cq:                           &clusterQueue,
+			newcq:                        clusterQueue.DeepCopy(),
+			wantLastAssignmentGeneration: 1,
+		},
+		{
+			name:                         "RGs changed",
+			cq:                           &clusterQueue,
+			newcq:                        &newClusterQueue,
+			wantLastAssignmentGeneration: 2,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			clientBuilder := utiltesting.NewClientBuilder().
+				WithObjects(
+					&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
+					tc.cq,
+				)
+			cl := clientBuilder.Build()
+			cqCache := New(cl)
+			// Workloads are loaded into queues or clusterQueues as we add them.
+			for _, rf := range resourceFlavors {
+				cqCache.AddOrUpdateResourceFlavor(rf)
+			}
+			if err := cqCache.AddClusterQueue(ctx, tc.cq); err != nil {
+				t.Fatalf("Inserting clusterQueue %s in cache: %v", tc.cq.Name, err)
+			}
+			if err := cqCache.UpdateClusterQueue(tc.newcq); err != nil {
+				t.Fatalf("Updating clusterQueue %s in cache: %v", tc.newcq.Name, err)
+			}
+			snapshot := cqCache.Snapshot()
+			if diff := cmp.Diff(
+				tc.wantLastAssignmentGeneration,
+				snapshot.ClusterQueues["eng-alpha"].AllocatableResourceGeneration); diff != "" {
+				t.Errorf("Unexpected assigned clusterQueues in cache (-want,+got):\n%s", diff)
+			}
+		})
+	}
 }

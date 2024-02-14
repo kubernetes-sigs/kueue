@@ -24,9 +24,13 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kubeflow "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
+	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
@@ -100,6 +104,62 @@ func TestIsParentJobManaged(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestProcessOptions(t *testing.T) {
+	cases := map[string]struct {
+		inputOpts []Option
+		wantOpts  Options
+	}{
+		"all options are passed": {
+			inputOpts: []Option{
+				WithManageJobsWithoutQueueName(true),
+				WithWaitForPodsReady(&configapi.WaitForPodsReady{Enable: true}),
+				WithKubeServerVersion(&kubeversion.ServerVersionFetcher{}),
+				WithIntegrationOptions(corev1.SchemeGroupVersion.WithKind("Pod").String(), &configapi.PodIntegrationOptions{
+					PodSelector: &metav1.LabelSelector{},
+				}),
+			},
+			wantOpts: Options{
+				ManageJobsWithoutQueueName: true,
+				WaitForPodsReady:           true,
+				KubeServerVersion:          &kubeversion.ServerVersionFetcher{},
+				IntegrationOptions: map[string]any{
+					corev1.SchemeGroupVersion.WithKind("Pod").String(): &configapi.PodIntegrationOptions{
+						PodSelector: &metav1.LabelSelector{},
+					},
+				},
+			},
+		},
+		"a single option is passed": {
+			inputOpts: []Option{
+				WithManageJobsWithoutQueueName(true),
+			},
+			wantOpts: Options{
+				ManageJobsWithoutQueueName: true,
+				WaitForPodsReady:           false,
+				KubeServerVersion:          nil,
+				IntegrationOptions:         nil,
+			},
+		},
+		"no options are passed": {
+			wantOpts: Options{
+				ManageJobsWithoutQueueName: false,
+				WaitForPodsReady:           false,
+				KubeServerVersion:          nil,
+				IntegrationOptions:         nil,
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			gotOpts := ProcessOptions(tc.inputOpts...)
+			if diff := cmp.Diff(tc.wantOpts, gotOpts,
+				cmpopts.IgnoreUnexported(kubeversion.ServerVersionFetcher{})); len(diff) != 0 {
+				t.Errorf("Unexpected error from ProcessOptions (-want,+got):\n%s", diff)
 			}
 		})
 	}

@@ -50,7 +50,7 @@ func setupWebhookForWorkload(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1beta1-workload,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads,verbs=create;update,versions=v1beta1,name=mworkload.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1beta1-workload,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads;workloads/status,verbs=create;update,versions=v1beta1,name=mworkload.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomDefaulter = &WorkloadWebhook{}
 
@@ -74,6 +74,11 @@ func (w *WorkloadWebhook) Default(ctx context.Context, obj runtime.Object) error
 		for i := range wl.Spec.PodSets {
 			wl.Spec.PodSets[i].MinCount = nil
 		}
+	}
+
+	// If a deactivated workload is re-activated, we need to reset the RequeueState.
+	if ptr.Deref(wl.Spec.Active, true) && workload.IsEvictedByDeactivation(wl) && workload.HasRequeueState(wl) {
+		wl.Status.RequeueState = nil
 	}
 	return nil
 }
@@ -344,9 +349,12 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 	specPath := field.NewPath("spec")
 	statusPath := field.NewPath("status")
 	allErrs = append(allErrs, ValidateWorkload(newObj)...)
-	allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"))...)
-	allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PriorityClassSource, oldObj.Spec.PriorityClassSource, specPath.Child("priorityClassSource"))...)
-	allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PriorityClassName, oldObj.Spec.PriorityClassName, specPath.Child("priorityClassName"))...)
+
+	if workload.HasQuotaReservation(oldObj) {
+		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"))...)
+		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PriorityClassSource, oldObj.Spec.PriorityClassSource, specPath.Child("priorityClassSource"))...)
+		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.PriorityClassName, oldObj.Spec.PriorityClassName, specPath.Child("priorityClassName"))...)
+	}
 	if workload.HasQuotaReservation(newObj) && workload.HasQuotaReservation(oldObj) {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newObj.Spec.QueueName, oldObj.Spec.QueueName, specPath.Child("queueName"))...)
 		allErrs = append(allErrs, validateReclaimablePodsUpdate(newObj, oldObj, field.NewPath("status", "reclaimablePods"))...)
@@ -388,6 +396,9 @@ func validateReclaimablePodsUpdate(newObj, oldObj *kueue.Workload, basePath *fie
 	for i := range newObj.Status.ReclaimablePods {
 		newCount := &newObj.Status.ReclaimablePods[i]
 		newNames.Insert(newCount.Name)
+		if !workload.HasQuotaReservation(newObj) && newCount.Count == 0 {
+			continue
+		}
 		oldCount, found := knowPodSets[newCount.Name]
 		if found && newCount.Count < oldCount.Count {
 			ret = append(ret, field.Invalid(basePath.Key(newCount.Name).Child("count"), newCount.Count, fmt.Sprintf("cannot be less then %d", oldCount.Count)))
@@ -395,7 +406,7 @@ func validateReclaimablePodsUpdate(newObj, oldObj *kueue.Workload, basePath *fie
 	}
 
 	for name := range knowPodSets {
-		if !newNames.Has(name) {
+		if workload.HasQuotaReservation(newObj) && !newNames.Has(name) {
 			ret = append(ret, field.Required(basePath.Key(name), "cannot be removed"))
 		}
 	}

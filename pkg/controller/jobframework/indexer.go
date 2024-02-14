@@ -16,7 +16,6 @@ package jobframework
 import (
 	"context"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -24,18 +23,19 @@ import (
 )
 
 func SetupWorkloadOwnerIndex(ctx context.Context, indexer client.FieldIndexer, gvk schema.GroupVersionKind) error {
-	return indexer.IndexField(ctx, &kueue.Workload{}, getOwnerKey(gvk), func(o client.Object) []string {
+	return indexer.IndexField(ctx, &kueue.Workload{}, GetOwnerKey(gvk), func(o client.Object) []string {
 		// grab the Workload object, extract the owner...
 		wl := o.(*kueue.Workload)
-		owner := metav1.GetControllerOf(wl)
-		if owner == nil {
+		if len(wl.OwnerReferences) == 0 {
 			return nil
 		}
-		// ...make sure it's the job with matching GVK...
-		if owner.Kind != gvk.Kind || owner.APIVersion != gvk.GroupVersion().String() {
-			return nil
+		owners := make([]string, 0, len(wl.OwnerReferences))
+		for i := range wl.OwnerReferences {
+			owner := &wl.OwnerReferences[i]
+			if owner.Kind == gvk.Kind && owner.APIVersion == gvk.GroupVersion().String() {
+				owners = append(owners, owner.Name)
+			}
 		}
-		// ...and if so, return it
-		return []string{owner.Name}
+		return owners
 	})
 }

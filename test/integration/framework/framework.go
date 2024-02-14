@@ -27,6 +27,7 @@ import (
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayjobapi "github.com/ray-project/kuberay/ray-operator/apis/ray/v1alpha1"
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -41,6 +42,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta1"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 )
 
@@ -83,13 +86,22 @@ func (f *Framework) Init() *rest.Config {
 }
 
 func (f *Framework) RunManager(cfg *rest.Config, managerSetup ManagerSetup) (context.Context, client.Client) {
-	err := kueue.AddToScheme(scheme.Scheme)
+	err := config.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = kueue.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = kueuealpha.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = kubeflow.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = rayjobapi.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = rayv1.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = jobsetapi.AddToScheme(scheme.Scheme)
