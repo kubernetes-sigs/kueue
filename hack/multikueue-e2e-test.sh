@@ -46,7 +46,7 @@ function cleanup {
         cluster_cleanup $WORKER1_KIND_CLUSTER_NAME
         cluster_cleanup $WORKER2_KIND_CLUSTER_NAME
     fi
-    (cd config/components/manager && $KUSTOMIZE edit set image controller=gcr.io/k8s-staging-kueue/kueue:main)
+    exit 0
 }
 
 

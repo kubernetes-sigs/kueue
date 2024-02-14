@@ -81,6 +81,11 @@ version_pkg = sigs.k8s.io/kueue/pkg/version
 LD_FLAGS += -X '$(version_pkg).GitVersion=$(GIT_TAG)'
 LD_FLAGS += -X '$(version_pkg).GitCommit=$(shell git rev-parse HEAD)'
 
+# Update these variables when preparing a new release or a release branch.
+# Then run `make prepare-release-branch`
+RELEASE_VERSION=v0.5.3
+RELEASE_BRANCH=main
+
 .PHONY: all
 all: generate fmt vet build
 
@@ -180,20 +185,22 @@ run-test-e2e-%: K8S_VERSION = $(@:run-test-e2e-%=%)
 run-test-e2e-%: FORCE
 	@echo Running e2e for k8s ${K8S_VERSION}
 	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" ./hack/e2e-test.sh
+	@$(call clean-manifests)
 
 JOBSET_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/jobset)
 run-test-multikueue-e2e-%: K8S_VERSION = $(@:run-test-multikueue-e2e-%=%)
 run-test-multikueue-e2e-%: FORCE
 	@echo Running multikueue e2e for k8s ${K8S_VERSION}
 	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) CREATE_KIND_CLUSTER=$(CREATE_KIND_CLUSTER) ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(GINKGO_ARGS)" JOBSET_VERSION=$(JOBSET_VERSION) ./hack/multikueue-e2e-test.sh
+	@$(call clean-manifests)
 
 .PHONY: ci-lint
 ci-lint: golangci-lint
 	$(GOLANGCI_LINT) run --timeout 15m0s
 
 .PHONY: verify
-verify: gomod-verify vet ci-lint fmt-verify toc-verify manifests generate update-helm generate-apiref
-	git --no-pager diff --exit-code config/components apis charts/kueue/templates client-go site/content/en/docs/reference
+verify: gomod-verify vet ci-lint fmt-verify toc-verify manifests generate update-helm generate-apiref prepare-release-branch
+	git --no-pager diff --exit-code config/components apis charts/kueue/templates client-go site/
 
 ##@ Build
 
@@ -243,7 +250,7 @@ ifndef ignore-not-found
   ignore-not-found = false
 endif
 
-clean-manifests = (cd config/components/manager && $(KUSTOMIZE) edit set image controller=gcr.io/k8s-staging-kueue/kueue:main)
+clean-manifests = (cd config/components/manager && $(KUSTOMIZE) edit set image controller=gcr.io/k8s-staging-kueue/kueue:$(RELEASE_BRANCH))
 
 .PHONY: install
 install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
@@ -285,6 +292,12 @@ artifacts: kustomize yq helm
 	mv artifacts/kueue-$(GIT_TAG).tgz artifacts/kueue-chart-$(GIT_TAG).tgz
 	# Revert the image changes
 	$(YQ)  e  '.controllerManager.manager.image.repository = "$(STAGING_IMAGE_REGISTRY)/$(IMAGE_NAME)" | .controllerManager.manager.image.tag = "main" | .controllerManager.manager.image.pullPolicy = "Always"' -i charts/kueue/values.yaml
+
+.PHONY: prepare-release-branch
+prepare-release-branch: yq kustomize
+	sed -r 's/v[0-9]+\.[0-9]+\.[0-9]+/$(RELEASE_VERSION)/g' -i README.md -i site/config.toml
+	$(YQ) e '.appVersion = "$(RELEASE_VERSION)"' -i charts/kueue/Chart.yaml
+	@$(call clean-manifests)
 
 ##@ Tools
 

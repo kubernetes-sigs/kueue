@@ -35,7 +35,7 @@ function cleanup {
         fi
 	cluster_cleanup $KIND_CLUSTER_NAME
     fi
-    (cd config/components/manager && $KUSTOMIZE edit set image controller=gcr.io/k8s-staging-kueue/kueue:main)
+    exit 0
 }
 
 function startup {
