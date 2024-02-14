@@ -1,11 +1,11 @@
 header:
   schema-version: 1.0.0
   expiration-date: '2024-09-28T01:00:00.000Z'
-  last-updated: '2024-02-09'
-  last-reviewed: '2024-02-09'
-  commit-hash: f816b7fffbc9da7f2e2498780ce1b66257fed880
+  last-updated: '2024-02-14'
+  last-reviewed: '2024-02-14'
+  commit-hash: 650d2f2de88204dc8cd8ebb74c913762f4b280e3
   project-url: 'https://github.com/kubernetes-sigs/kueue'
-  project-release: 0.5.3
+  project-release: 0.6.0
   changelog: 'https://github.com/kubernetes-sigs/kueue/tree/main/CHANGELOG'
   license: 'https://github.com/kubernetes-sigs/kueue/blob/main/LICENSE'
 project-lifecycle:
@@ -28,7 +28,7 @@ documentation:
   - 'https://kueue.sigs.k8s.io/docs/'
 distribution-points:
   - >-
-    https://github.com/kubernetes-sigs/kueue/releases/download/v0.5.3/manifests.yaml
+    https://github.com/kubernetes-sigs/kueue/releases/download/v0.6.0/manifests.yaml
 security-artifacts:
   threat-model:
     threat-model-created: false
