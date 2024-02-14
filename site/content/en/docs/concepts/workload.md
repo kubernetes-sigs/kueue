@@ -128,6 +128,29 @@ status:
 ```
 The `count` can only increase while the workload holds a Quota Reservation.
 
+## All or Nothing semantics for Job Resource Assignment
+
+This mechanism allows a Job to be evicted and re-queued if the job doesn't become ready. 
+Please refer to the [Sequential Admission with Ready Pods](/docs/tasks/setup_sequential_admission) for more details.
+
+### Exponential Backoff Requeueing
+
+Once evictions with `PodsReadyTimeout` reasons occur, a Workload will be re-queued with backoff. 
+The Workload status allows you to know the following:
+
+- `.status.requeueState.count` indicates the numbers of times a Workload has already been backoff re-queued by Eviction with PodsReadyTimeout reason
+- `.status.requeueState.requeueAt` indicates the time when a Workload will be re-queued the next time
+
+```yaml
+status:
+  requeueState:
+    count: 5
+    requeueAt: 2024-02-11T04:51:03Z
+```
+
+When a Workload deactivated by Sequential Admission with Ready Pods is re-activated, 
+the requeueState (`.status.requeueState`) will be reset to null.
+
 ## What's next
 
 - Learn about [workload priority class](/docs/concepts/workload_priority_class).
