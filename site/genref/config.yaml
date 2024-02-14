@@ -13,6 +13,11 @@ apis:
     package: sigs.k8s.io/kueue
     path: apis/config/v1beta1
 
+  - name: kueue-alpha
+    title: Kueue Alpha API
+    package: sigs.k8s.io/kueue
+    path: apis/kueue/v1alpha1
+
 externalPackages:
   - match: ^k8s\.io/(api|apimachinery/pkg/apis)/
     target: https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#{{- lower .TypeIdentifier -}}-{{- arrIndex .PackageSegments -1 -}}-{{- arrIndex .PackageSegments -2 -}}
