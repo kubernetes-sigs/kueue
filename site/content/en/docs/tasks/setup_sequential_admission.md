@@ -86,7 +86,7 @@ The `timestamp` field defines which timestamp Kueue uses to order the Workloads 
 - `Creation`: The creationTimestamp in a Workload.
 
 If you want to re-queue a Workload evicted by the `PodsReadyTimeout` back to its original place in the queue,
-you should set the `Creation` to the timestamp.
+you should set the timestamp to the `Creation`.
 
 Kueue will re-queue a Workload evicted by the `PodsReadyTimeout` reason until the number of re-queues reaches `backoffLimitCount`.
 If you don't specify any value for `backoffLimitCount`,

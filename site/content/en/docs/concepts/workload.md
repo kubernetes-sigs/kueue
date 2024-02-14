@@ -130,7 +130,7 @@ The `count` can only increase while the workload holds a Quota Reservation.
 
 ## All or Nothing semantics for Job Resource Assignment
 
-This mechanism allows a Job to be admitted only if the entire requested resource is available. 
+This mechanism allows a Job to be evicted and re-queued if the job doesn't become ready. 
 Please refer to the [Sequential Admission with Ready Pods](/docs/tasks/setup_sequential_admission) for more details.
 
 ### Exponential Backoff Requeueing
