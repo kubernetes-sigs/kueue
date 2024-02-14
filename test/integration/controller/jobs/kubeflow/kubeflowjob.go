@@ -87,7 +87,7 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 	}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 
 	wlLookupKey := types.NamespacedName{
-		Name:      jobframework.GetWorkloadNameForOwnerWithGVK(job.Object().GetName(), job.GVK()),
+		Name:      jobframework.GetWorkloadNameForOwnerWithGVK(job.Object().GetName(), job.Object().GetUID(), job.GVK()),
 		Namespace: job.Object().GetNamespace(),
 	}
 
@@ -108,7 +108,7 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 	ginkgo.By("checking a second non-matching workload is deleted")
 	secondWl := &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      jobframework.GetWorkloadNameForOwnerWithGVK("second-workload", job.GVK()),
+			Name:      jobframework.GetWorkloadNameForOwnerWithGVK("second-workload", "test-uid", job.GVK()),
 			Namespace: createdWorkload.Namespace,
 		},
 		Spec: *createdWorkload.Spec.DeepCopy(),
@@ -234,7 +234,7 @@ func JobControllerWhenWaitForPodsReadyEnabled(ctx context.Context, k8sClient cli
 	gomega.ExpectWithOffset(1, k8sClient.Get(ctx, lookupKey, createdJob.Object())).Should(gomega.Succeed())
 
 	wlLookupKey := types.NamespacedName{
-		Name:      jobframework.GetWorkloadNameForOwnerWithGVK(job.Object().GetName(), job.GVK()),
+		Name:      jobframework.GetWorkloadNameForOwnerWithGVK(job.Object().GetName(), job.Object().GetUID(), job.GVK()),
 		Namespace: job.Object().GetNamespace(),
 	}
 

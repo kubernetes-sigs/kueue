@@ -263,7 +263,7 @@ func TestReconciler(t *testing.T) {
 				Queue("test-queue").
 				Obj()},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("pod-pod-a91e8", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltesting.MakeWorkload("pod-pod-43ebf", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 							Request(corev1.ResourceCPU, "1").
@@ -284,7 +284,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "CreatedWorkload",
-					Message:   "Created Workload: ns/pod-pod-a91e8",
+					Message:   "Created Workload: ns/pod-pod-43ebf",
 				},
 			},
 		},
@@ -3171,8 +3171,8 @@ func TestIsPodOwnerManagedByQueue(t *testing.T) {
 }
 
 func TestGetWorkloadNameForPod(t *testing.T) {
-	wantWlName := "pod-unit-test-7bb47"
-	wlName := GetWorkloadNameForPod("unit-test")
+	wantWlName := "pod-unit-test-65369"
+	wlName := GetWorkloadNameForPod("unit-test", "test-uid")
 
 	if wantWlName != wlName {
 		t.Errorf("Expected different workload name\n want: %s\n got: %s", wantWlName, wlName)

@@ -74,7 +74,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 				}
 				return *createdJob.Spec.Suspend
 			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
-			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(jobKey.Name), Namespace: ns.Name}
+			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
 			createdWorkload := &kueue.Workload{}
 			gomega.Eventually(func() bool {
 				if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
@@ -137,7 +137,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			expectJobUnsuspendedWithNodeSelectors(jobKey, map[string]string{
 				"instance-type": "on-demand",
 			})
-			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(jobKey.Name), Namespace: ns.Name}
+			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
 			gomega.Eventually(func() bool {
 				if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 					return false
@@ -312,7 +312,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 
 			ginkgo.By("Wait for the job to finish", func() {
 				createdWorkload := &kueue.Workload{}
-				wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name), Namespace: ns.Name}
+				wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: ns.Name}
 				gomega.Eventually(func() bool {
 					if err := k8sClient.Get(ctx, wlLookupKey, createdWorkload); err != nil {
 						return false
@@ -366,7 +366,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
 			createdWorkload := &kueue.Workload{}
-			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(jobKey.Name), Namespace: ns.Name}
+			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
 
 			ginkgo.By("verify the check is added to the workload", func() {
 				gomega.Eventually(func() map[string]string {
@@ -433,7 +433,7 @@ var _ = ginkgo.Describe("Kueue", func() {
 			gomega.Expect(k8sClient.Create(ctx, sampleJob)).Should(gomega.Succeed())
 
 			createdWorkload := &kueue.Workload{}
-			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(jobKey.Name), Namespace: ns.Name}
+			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
 
 			ginkgo.By("verify the check is added to the workload", func() {
 				gomega.Eventually(func() map[string]string {

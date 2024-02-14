@@ -74,8 +74,7 @@ var _ = ginkgo.Describe("RayCluster controller", ginkgo.Ordered, ginkgo.Continue
 	})
 
 	var (
-		ns          *corev1.Namespace
-		wlLookupKey types.NamespacedName
+		ns *corev1.Namespace
 	)
 	ginkgo.BeforeEach(func() {
 		ns = &corev1.Namespace{
@@ -84,8 +83,6 @@ var _ = ginkgo.Describe("RayCluster controller", ginkgo.Ordered, ginkgo.Continue
 			},
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-
-		wlLookupKey = types.NamespacedName{Name: workloadraycluster.GetWorkloadNameForRayCluster(jobName), Namespace: ns.Name}
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -114,6 +111,7 @@ var _ = ginkgo.Describe("RayCluster controller", ginkgo.Ordered, ginkgo.Continue
 
 		ginkgo.By("checking the workload is created without queue assigned")
 		createdWorkload := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{Name: workloadraycluster.GetWorkloadNameForRayCluster(job.Name, job.UID), Namespace: ns.Name}
 		gomega.Eventually(func() error {
 			return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -138,7 +136,7 @@ var _ = ginkgo.Describe("RayCluster controller", ginkgo.Ordered, ginkgo.Continue
 		ginkgo.By("checking a second non-matching workload is deleted")
 		secondWl := &kueue.Workload{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      workloadraycluster.GetWorkloadNameForRayCluster("second-workload"),
+				Name:      workloadraycluster.GetWorkloadNameForRayCluster("second-workload", "test-uid"),
 				Namespace: createdWorkload.Namespace,
 			},
 			Spec: *createdWorkload.Spec.DeepCopy(),
@@ -291,7 +289,7 @@ var _ = ginkgo.Describe("Job controller RayCluster for workloads when only jobs 
 		gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
 		createdWorkload := &kueue.Workload{}
-		wlLookupKey := types.NamespacedName{Name: workloadraycluster.GetWorkloadNameForRayCluster(jobName), Namespace: ns.Name}
+		wlLookupKey := types.NamespacedName{Name: workloadraycluster.GetWorkloadNameForRayCluster(job.Name, job.UID), Namespace: ns.Name}
 		gomega.Eventually(func() bool {
 			return apierrors.IsNotFound(k8sClient.Get(ctx, wlLookupKey, createdWorkload))
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
@@ -363,8 +361,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 	})
 
 	var (
-		ns          *corev1.Namespace
-		wlLookupKey types.NamespacedName
+		ns *corev1.Namespace
 	)
 	ginkgo.BeforeEach(func() {
 		ns = &corev1.Namespace{
@@ -373,8 +370,6 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 			},
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-
-		wlLookupKey = types.NamespacedName{Name: workloadraycluster.GetWorkloadNameForRayCluster(jobName), Namespace: ns.Name}
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -393,6 +388,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 
 			ginkgo.By("Fetch the workload created for the job")
 			createdWorkload := &kueue.Workload{}
+			wlLookupKey := types.NamespacedName{Name: workloadraycluster.GetWorkloadNameForRayCluster(job.Name, job.UID), Namespace: ns.Name}
 			gomega.Eventually(func() error {
 				return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -620,7 +616,7 @@ var _ = ginkgo.Describe("RayCluster Job controller interacting with scheduler", 
 		// This is usually done by the garbage collector, but there is no garbage collection in integration test
 		ginkgo.By("deleting the workload", func() {
 			wl := &kueue.Workload{}
-			wlKey := types.NamespacedName{Name: workloadraycluster.GetWorkloadNameForRayCluster(job.Name), Namespace: job.Namespace}
+			wlKey := types.NamespacedName{Name: workloadraycluster.GetWorkloadNameForRayCluster(job.Name, job.UID), Namespace: job.Namespace}
 			gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
 			gomega.Expect(k8sClient.Delete(ctx, wl)).Should(gomega.Succeed())
 		})
@@ -720,7 +716,7 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 
 		ginkgo.By("High priority workload should be admitted")
 		highPriorityWL := &kueue.Workload{}
-		highPriorityLookupKey := types.NamespacedName{Name: workloadraycluster.GetWorkloadNameForRayCluster(highPriorityJob.Name), Namespace: ns.Name}
+		highPriorityLookupKey := types.NamespacedName{Name: workloadraycluster.GetWorkloadNameForRayCluster(highPriorityJob.Name, highPriorityJob.UID), Namespace: ns.Name}
 
 		gomega.Eventually(func() error {
 			return k8sClient.Get(ctx, highPriorityLookupKey, highPriorityWL)
@@ -729,7 +725,7 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 
 		ginkgo.By("Low priority workload should not be admitted")
 		createdWorkload := &kueue.Workload{}
-		lowPriorityLookupKey := types.NamespacedName{Name: workloadraycluster.GetWorkloadNameForRayCluster(lowPriorityJob.Name), Namespace: ns.Name}
+		lowPriorityLookupKey := types.NamespacedName{Name: workloadraycluster.GetWorkloadNameForRayCluster(lowPriorityJob.Name, lowPriorityJob.UID), Namespace: ns.Name}
 
 		gomega.Eventually(func() error {
 			return k8sClient.Get(ctx, lowPriorityLookupKey, createdWorkload)

@@ -70,8 +70,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 	})
 
 	var (
-		ns          *corev1.Namespace
-		wlLookupKey types.NamespacedName
+		ns *corev1.Namespace
 	)
 	ginkgo.BeforeEach(func() {
 		ns = &corev1.Namespace{
@@ -81,7 +80,6 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-		wlLookupKey = types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSetName), Namespace: ns.Name}
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -121,6 +119,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 
 		ginkgo.By("checking the workload is created without queue assigned")
 		createdWorkload := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet.Name, jobSet.UID), Namespace: ns.Name}
 		gomega.Eventually(func() error {
 			return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -145,7 +144,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 		ginkgo.By("checking a second non-matching workload is deleted")
 		secondWl := &kueue.Workload{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      workloadjobset.GetWorkloadNameForJobSet("second-workload"),
+				Name:      workloadjobset.GetWorkloadNameForJobSet("second-workload", "test-uid"),
 				Namespace: createdWorkload.Namespace,
 			},
 			Spec: *createdWorkload.Spec.DeepCopy(),
@@ -293,7 +292,6 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 			localQueue     *kueue.LocalQueue
 			testFlavor     *kueue.ResourceFlavor
 			jobLookupKey   *types.NamespacedName
-			wlLookupKey    *types.NamespacedName
 			admissionCheck *kueue.AdmissionCheck
 		)
 
@@ -312,7 +310,6 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 			gomega.Expect(k8sClient.Create(ctx, testFlavor)).Should(gomega.Succeed())
 
 			jobLookupKey = &types.NamespacedName{Name: jobSetName, Namespace: ns.Name}
-			wlLookupKey = &types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSetName), Namespace: ns.Name}
 		})
 
 		ginkgo.AfterEach(func() {
@@ -325,31 +322,31 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 		ginkgo.It("labels and annotations should be propagated from admission check to job", func() {
 			createdJob := &jobsetapi.JobSet{}
 			createdWorkload := &kueue.Workload{}
+			job := testingjobset.MakeJobSet(jobSetName, ns.Name).ReplicatedJobs(
+				testingjobset.ReplicatedJobRequirements{
+					Name:        "replicated-job-1",
+					Replicas:    1,
+					Parallelism: 1,
+					Completions: 1,
+				}, testingjobset.ReplicatedJobRequirements{
+					Name:        "replicated-job-2",
+					Replicas:    3,
+					Parallelism: 1,
+					Completions: 1,
+				},
+			).
+				Queue("queue").
+				Request("replicated-job-1", corev1.ResourceCPU, "1").
+				Request("replicated-job-2", corev1.ResourceCPU, "1").
+				Obj()
+			job.Spec.ReplicatedJobs[0].Template.Spec.Template.Annotations = map[string]string{
+				"old-ann-key": "old-ann-value",
+			}
+			job.Spec.ReplicatedJobs[0].Template.Spec.Template.Labels = map[string]string{
+				"old-label-key": "old-label-value",
+			}
 
 			ginkgo.By("creating the job", func() {
-				job := testingjobset.MakeJobSet(jobSetName, ns.Name).ReplicatedJobs(
-					testingjobset.ReplicatedJobRequirements{
-						Name:        "replicated-job-1",
-						Replicas:    1,
-						Parallelism: 1,
-						Completions: 1,
-					}, testingjobset.ReplicatedJobRequirements{
-						Name:        "replicated-job-2",
-						Replicas:    3,
-						Parallelism: 1,
-						Completions: 1,
-					},
-				).
-					Queue("queue").
-					Request("replicated-job-1", corev1.ResourceCPU, "1").
-					Request("replicated-job-2", corev1.ResourceCPU, "1").
-					Obj()
-				job.Spec.ReplicatedJobs[0].Template.Spec.Template.Annotations = map[string]string{
-					"old-ann-key": "old-ann-value",
-				}
-				job.Spec.ReplicatedJobs[0].Template.Spec.Template.Labels = map[string]string{
-					"old-label-key": "old-label-value",
-				}
 				gomega.Expect(k8sClient.Create(ctx, job)).Should(gomega.Succeed())
 			})
 
@@ -360,6 +357,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Ordered, ginkgo.ContinueOnFa
 				}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(true)))
 			})
 
+			wlLookupKey := &types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(job.Name, job.UID), Namespace: ns.Name}
 			ginkgo.By("checking the workload is created", func() {
 				gomega.Eventually(func() error {
 					return k8sClient.Get(ctx, *wlLookupKey, createdWorkload)
@@ -552,7 +550,7 @@ var _ = ginkgo.Describe("JobSet controller for workloads when only jobs with que
 		gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJobSet)).Should(gomega.Succeed())
 
 		createdWorkload := &kueue.Workload{}
-		wlLookupKey := types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSetName), Namespace: ns.Name}
+		wlLookupKey := types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet.Name, jobSet.UID), Namespace: ns.Name}
 		gomega.Eventually(func() bool {
 			return apierrors.IsNotFound(k8sClient.Get(ctx, wlLookupKey, createdWorkload))
 		}, util.Timeout, util.Interval).Should(gomega.BeTrue())
@@ -600,8 +598,7 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 	})
 
 	var (
-		ns          *corev1.Namespace
-		wlLookupKey types.NamespacedName
+		ns *corev1.Namespace
 	)
 	ginkgo.BeforeEach(func() {
 		ns = &corev1.Namespace{
@@ -610,8 +607,6 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 			},
 		}
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-
-		wlLookupKey = types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSetName), Namespace: ns.Name}
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -642,6 +637,7 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 
 			ginkgo.By("Fetch the workload created for the JobSet")
 			createdWorkload := &kueue.Workload{}
+			wlLookupKey := types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet.Name, jobSet.UID), Namespace: ns.Name}
 			gomega.Eventually(func() error {
 				return k8sClient.Get(ctx, wlLookupKey, createdWorkload)
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -966,7 +962,7 @@ var _ = ginkgo.Describe("JobSet controller interacting with scheduler", ginkgo.O
 			gomega.Expect(k8sClient.Status().Update(ctx, createdJobSet1)).Should(gomega.Succeed())
 
 			wl := &kueue.Workload{}
-			wlKey := types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet1.Name), Namespace: jobSet1.Namespace}
+			wlKey := types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet1.Name, jobSet1.UID), Namespace: jobSet1.Namespace}
 			gomega.Eventually(func() []kueue.ReclaimablePod {
 				gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
 				return wl.Status.ReclaimablePods
