@@ -18,7 +18,7 @@ require (
 	k8s.io/api v0.29.1
 	k8s.io/apimachinery v0.29.1
 	k8s.io/apiserver v0.29.1
-	k8s.io/autoscaler/cluster-autoscaler v0.0.0-20230925095857-cf8c507d2421
+	k8s.io/autoscaler/cluster-autoscaler v0.0.0-20240214131446-5286b3f7701a
 	k8s.io/client-go v0.29.1
 	k8s.io/code-generator v0.29.1
 	k8s.io/component-base v0.29.1
@@ -32,6 +32,9 @@ require (
 	sigs.k8s.io/jobset v0.3.1
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1
 )
+
+replace github.com/satori/go.uuid v1.2.0 => github.com/google/uuid v1.6.0
+replace github.com/libopenstorage/openstorage v1.0.0 => github.com/libopenstorage/openstorage v3.0.0-beta
 
 require (
 	github.com/NYTimes/gziphandler v1.1.1 // indirect

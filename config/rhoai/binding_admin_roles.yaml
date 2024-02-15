@@ -1,0 +1,18 @@
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: admin-rolebinding
+subjects:
+  - kind: Group
+    apiGroup: rbac.authorization.k8s.io
+    name: rhods-admins
+  - kind: Group
+    apiGroup: rbac.authorization.k8s.io
+    name: odh-admins
+  - kind: Group
+    apiGroup: rbac.authorization.k8s.io
+    name: dedicated-admins
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kueue-batch-admin-role
