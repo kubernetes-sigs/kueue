@@ -18,7 +18,7 @@ require (
 	k8s.io/api v0.29.1
 	k8s.io/apimachinery v0.29.1
 	k8s.io/apiserver v0.29.1
-	k8s.io/autoscaler/cluster-autoscaler v0.0.0-20230925095857-cf8c507d2421
+	k8s.io/autoscaler/cluster-autoscaler v0.0.0-20240214131446-5286b3f7701a
 	k8s.io/client-go v0.29.1
 	k8s.io/code-generator v0.29.1
 	k8s.io/component-base v0.29.1
