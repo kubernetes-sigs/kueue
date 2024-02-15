@@ -23,11 +23,18 @@ import (
 const (
 	MultiKueueConfigSecretKey = "kubeconfig"
 	MultiKueueClusterActive   = "Active"
+
+	// MultiKueueOriginLabel is a label used to track the creator
+	// of multikueue remote objects.
+	MultiKueueOriginLabel = "kueue.x-k8s.io/multikueue-origin"
 )
 
 type LocationType string
 
 const (
+	// Location is the path on the disk of kueue-controller-manager.
+	PathLocationType LocationType = "Path"
+
 	// Location is the name of the secret inside the namespace in which the kueue controller
 	// manager is running. The config should be stored in the "kubeconfig" key.
 	SecretLocationType LocationType = "Secret"
@@ -43,7 +50,7 @@ type KubeConfig struct {
 	// Type of the KubeConfig location.
 	//
 	// +kubebuilder:default=Secret
-	// +kubebuilder:validation:Enum=Secret
+	// +kubebuilder:validation:Enum=Secret;Path
 	LocationType LocationType `json:"locationType"`
 }
 

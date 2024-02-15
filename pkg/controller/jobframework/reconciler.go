@@ -269,6 +269,15 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
+	// Ensure all members of the composable job own the workload
+	if wl != nil {
+		if cj, implements := job.(ComposableJob); implements {
+			if err := cj.EnsureWorkloadOwnedByAllMembers(ctx, r.client, r.record, wl); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	}
+
 	if wl != nil && apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
 		// Finalize the job if it's finished
 		if _, finished := job.Finished(); finished {
@@ -500,7 +509,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 	var match *kueue.Workload
 	if cj, implements := job.(ComposableJob); implements {
 		var err error
-		match, toDelete, err = cj.FindMatchingWorkloads(ctx, r.client)
+		match, toDelete, err = cj.FindMatchingWorkloads(ctx, r.client, r.record)
 		if err != nil {
 			log.Error(err, "Composable job is unable to find matching workloads")
 			return nil, err
@@ -747,7 +756,14 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 		if stoppedNow {
 			r.record.Event(object, corev1.EventTypeNormal, ReasonStopped, eventMsg)
 		}
+		return err
+	}
 
+	if jws, implements := job.(ComposableJob); implements {
+		stoppedNow, err := jws.Stop(ctx, r.client, info, stopReason, eventMsg)
+		for _, objStoppedNow := range stoppedNow {
+			r.record.Event(objStoppedNow, corev1.EventTypeNormal, ReasonStopped, eventMsg)
+		}
 		return err
 	}
 

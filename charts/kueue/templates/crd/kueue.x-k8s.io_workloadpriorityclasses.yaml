@@ -6,7 +6,7 @@ metadata:
     {{- if .Values.enableCertManager }}
     cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert
     {{- end }}
-    controller-gen.kubebuilder.io/version: v0.12.0
+    controller-gen.kubebuilder.io/version: v0.14.0
   name: workloadpriorityclasses.kueue.x-k8s.io
 spec:
   conversion:
@@ -39,27 +39,32 @@ spec:
           API
         properties:
           apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation
-              of an object. Servers should convert recognized schemas to the latest
-              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
             type: string
           description:
-            description: description is an arbitrary string that usually provides
-              guidelines on when this workloadPriorityClass should be used.
+            description: |-
+              description is an arbitrary string that usually provides guidelines on
+              when this workloadPriorityClass should be used.
             type: string
           kind:
-            description: 'Kind is a string value representing the REST resource this
-              object represents. Servers may infer this from the endpoint the client
-              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
             type: string
           metadata:
             type: object
           value:
-            description: value represents the integer value of this workloadPriorityClass.
-              This is the actual priority that workloads receive when jobs have the
-              name of this class in their workloadPriorityClass label. Changing the
-              value of workloadPriorityClass doesn't affect the priority of workloads
-              that were already created.
+            description: |-
+              value represents the integer value of this workloadPriorityClass. This is the actual priority that workloads
+              receive when jobs have the name of this class in their workloadPriorityClass label.
+              Changing the value of workloadPriorityClass doesn't affect the priority of workloads that were already created.
             format: int32
             type: integer
         required:

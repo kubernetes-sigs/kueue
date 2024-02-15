@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -63,10 +64,9 @@ var _ = ginkgo.BeforeSuite(func() {
 
 	ctx = context.Background()
 
-	//wait for the managers to start
-	// failing a this point might indicate a manifestation of
-	// https://kind.sigs.k8s.io/docs/user/known-issues/#pod-errors-due-to-too-many-open-files
-	util.KueueReadyForTesting(ctx, k8sManagerClient)
-	util.KueueReadyForTesting(ctx, k8sWorker1Client)
-	util.KueueReadyForTesting(ctx, k8sWorker2Client)
+	waitForAvailableStart := time.Now()
+	util.WaitForKueueAvailability(ctx, k8sManagerClient)
+	util.WaitForKueueAvailability(ctx, k8sWorker1Client)
+	util.WaitForKueueAvailability(ctx, k8sWorker2Client)
+	ginkgo.GinkgoLogr.Info("Kueue is Available in all the clusters", "waitingTime", time.Since(waitForAvailableStart))
 })

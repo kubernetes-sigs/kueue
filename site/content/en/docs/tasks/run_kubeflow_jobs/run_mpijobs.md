@@ -16,14 +16,6 @@ Check [administer cluster quotas](/docs/tasks/administer_cluster_quotas) for det
 
 Check [the MPI Operator installation guide](https://github.com/kubeflow/mpi-operator#installation).
 
-Set MPIJobs as an allowed workload in Kueue Configuration.
-
-```yaml
-integrations:
-  frameworks:
-  - "kubeflow.org/mpijob"
-```
-
 You can [modify kueue configurations from installed releases](/docs/installation#install-a-custom-configured-released-version) to include MPIJobs as an allowed workload.  
 
 ## MPI Operator definition

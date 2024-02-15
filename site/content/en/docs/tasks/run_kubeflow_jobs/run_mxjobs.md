@@ -18,14 +18,6 @@ Check [the Training Operator installation guide](https://github.com/kubeflow/tra
 
 Note that the minimum requirement training-operator version is v1.7.0.
 
-Set MXJobs as an allowed workload in Kueue Configuration.
-
-```yaml
-integrations:
-  frameworks:
-  - "kubeflow.org/mxjob" 
-```
-
 You can [modify kueue configurations from installed releases](/docs/installation#install-a-custom-configured-released-version) to include MXJobs as an allowed workload.
 
 ## MXJob definition

@@ -50,7 +50,7 @@ func setupWebhookForWorkload(mgr ctrl.Manager) error {
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1beta1-workload,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads,verbs=create;update,versions=v1beta1,name=mworkload.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1beta1-workload,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads;workloads/status,verbs=create;update,versions=v1beta1,name=mworkload.kb.io,admissionReviewVersions=v1
 
 var _ webhook.CustomDefaulter = &WorkloadWebhook{}
 
@@ -74,6 +74,11 @@ func (w *WorkloadWebhook) Default(ctx context.Context, obj runtime.Object) error
 		for i := range wl.Spec.PodSets {
 			wl.Spec.PodSets[i].MinCount = nil
 		}
+	}
+
+	// If a deactivated workload is re-activated, we need to reset the RequeueState.
+	if ptr.Deref(wl.Spec.Active, true) && workload.IsEvictedByDeactivation(wl) && workload.HasRequeueState(wl) {
+		wl.Status.RequeueState = nil
 	}
 	return nil
 }

@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
 )
 
 const (
@@ -39,16 +40,39 @@ var (
 	integrationsFrameworksPath = integrationsPath.Child("frameworks")
 	podOptionsPath             = integrationsPath.Child("podOptions")
 	namespaceSelectorPath      = podOptionsPath.Child("namespaceSelector")
+	waitForPodsReadyPath       = field.NewPath("waitForPodsReady")
+	requeuingStrategyPath      = waitForPodsReadyPath.Child("requeuingStrategy")
 )
 
 func validate(c *configapi.Configuration) field.ErrorList {
 	var allErrs field.ErrorList
+
+	allErrs = append(allErrs, validateWaitForPodsReady(c)...)
 
 	allErrs = append(allErrs, validateQueueVisibility(c)...)
 
 	// Validate PodNamespaceSelector for the pod framework
 	allErrs = append(allErrs, validateIntegrations(c)...)
 
+	return allErrs
+}
+
+func validateWaitForPodsReady(c *configapi.Configuration) field.ErrorList {
+	var allErrs field.ErrorList
+	if !WaitForPodsReadyIsEnabled(c) {
+		return allErrs
+	}
+	if strategy := c.WaitForPodsReady.RequeuingStrategy; strategy != nil {
+		if strategy.Timestamp != nil &&
+			*strategy.Timestamp != configapi.CreationTimestamp && *strategy.Timestamp != configapi.EvictionTimestamp {
+			allErrs = append(allErrs, field.NotSupported(requeuingStrategyPath.Child("timestamp"),
+				strategy.Timestamp, []configapi.RequeuingTimestamp{configapi.CreationTimestamp, configapi.EvictionTimestamp}))
+		}
+		if strategy.BackoffLimitCount != nil && *strategy.BackoffLimitCount < 0 {
+			allErrs = append(allErrs, field.Invalid(requeuingStrategyPath.Child("backoffLimitCount"),
+				*strategy.BackoffLimitCount, constants.IsNegativeErrorMsg))
+		}
+	}
 	return allErrs
 }
 

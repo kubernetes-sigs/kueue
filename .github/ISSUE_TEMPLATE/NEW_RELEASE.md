@@ -14,13 +14,16 @@ Please do not remove items from the checklist
   At least two for minor or major releases. At least one for a patch release.
 - [ ] Verify that the changelog in this issue and the CHANGELOG folder is up-to-date
   - [ ] Use https://github.com/kubernetes/release/tree/master/cmd/release-notes to gather notes.
-    Example: `release-notes --org kubernetes-sigs --repo kueue --branch release-0.3 --start-sha 4a0ebe7a3c5f2775cdf5fc7d60c23225660f8702 --end-sha a51cf138afe65677f5f5c97f8f8b1bc4887f73d2`
+    Example: `release-notes --org kubernetes-sigs --repo kueue --branch release-0.3 --start-sha 4a0ebe7a3c5f2775cdf5fc7d60c23225660f8702 --end-sha a51cf138afe65677f5f5c97f8f8b1bc4887f73d2 --dependencies=false --required-author=""`
 - [ ] For major or minor releases (v$MAJ.$MIN.0), create a new release branch.
-  - [ ] an OWNER creates a vanilla release branch with
+  - [ ] An OWNER creates a vanilla release branch with
         `git branch release-$MAJ.$MIN main`
   - [ ] An OWNER pushes the new release branch with
         `git push release-$MAJ.$MIN`
-- [ ] Update `README.md`, `CHANGELOG`, `charts/kueue/Chart.yaml` (`appVersion`) and `charts/kueue/values.yaml` (`controllerManager.manager.image.tag`) in the release branch: <!-- example #211 #214 -->
+- [ ] Update the release branch:
+  - [ ] Update `RELEASE_BRANCH` and `RELEASE_VERSION` in `Makefile` and run `make prepare-release-branch`
+  - [ ] Update the `CHANGELOG`
+  - [ ] Submit a pull request with the changes: <!-- example #211 #214 -->
 - [ ] An OWNER [prepares a draft release](https://github.com/kubernetes-sigs/kueue/releases)
   - [ ] Write the change log into the draft release.
   - [ ] Run

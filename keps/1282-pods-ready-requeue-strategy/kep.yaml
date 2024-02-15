@@ -2,6 +2,7 @@ title: Pods Ready Requeue Strategy
 kep-number: 1282
 authors:
   - "@nstogner"
+  - "@tenzen-y"
 status: provisional
 creation-date: 2023-11-01
 reviewers:

@@ -117,6 +117,10 @@ integrations:
 						MaxCount: config.DefaultClusterQueuesMaxCount,
 					},
 				},
+				MultiKueue: &config.MultiKueue{
+					GCInterval: &metav1.Duration{Duration: config.DefaultMultiKueueGCInterval},
+					Origin:     ptr.To(config.DefaultMultiKueueOrigin),
+				},
 			},
 		},
 		{

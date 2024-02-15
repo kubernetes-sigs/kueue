@@ -525,10 +525,11 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				gomega.Expect(createdWorkload.Spec.PodSets).To(gomega.HaveLen(2))
 				gomega.Expect(createdWorkload.Spec.PodSets[0].Count).To(gomega.Equal(int32(1)))
 				gomega.Expect(createdWorkload.Spec.PodSets[1].Count).To(gomega.Equal(int32(1)))
+
 				gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal("test-queue"), "The Workload should have .spec.queueName set")
 
 				ginkgo.By("checking that all pods in group are unsuspended when workload is admitted", func() {
-					admission := testing.MakeAdmission(clusterQueue.Name, "120fa2c0", "542d5455").
+					admission := testing.MakeAdmission(clusterQueue.Name, "7c214403", "41b86f81").
 						Assignment(corev1.ResourceCPU, "default", "1").
 						AssignmentPodCount(2).
 						Obj()
@@ -601,7 +602,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal("test-queue"), "The Workload should have .spec.queueName set")
 				originalWorkloadUID := createdWorkload.UID
 
-				admission := testing.MakeAdmission(clusterQueue.Name, "120fa2c0").
+				admission := testing.MakeAdmission(clusterQueue.Name, "7c214403").
 					Assignment(corev1.ResourceCPU, "default", "1").
 					AssignmentPodCount(createdWorkload.Spec.PodSets[0].Count).
 					Obj()
@@ -688,6 +689,12 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						g.Expect(createdWorkload.Status.Conditions).Should(gomega.ContainElement(
 							gomega.BeComparableTo(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue}, wlConditionCmpOpts...),
 						))
+						g.Expect(createdWorkload.OwnerReferences).Should(gomega.ContainElement(metav1.OwnerReference{
+							APIVersion: "v1",
+							Kind:       "Pod",
+							Name:       replacementPod.Name,
+							UID:        replacementPod.UID,
+						}))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
@@ -717,7 +724,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal("test-queue"), "The Workload should have .spec.queueName set")
 
 				ginkgo.By("checking that pod is unsuspended when workload is admitted")
-				admission := testing.MakeAdmission(clusterQueue.Name, "120fa2c0").
+				admission := testing.MakeAdmission(clusterQueue.Name, "7c214403").
 					Assignment(corev1.ResourceCPU, "default", "1").
 					AssignmentPodCount(createdWorkload.Spec.PodSets[0].Count).
 					Obj()
@@ -806,7 +813,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 				createdPod := &corev1.Pod{}
 				ginkgo.By("checking that all pods in group are unsuspended when workload is admitted", func() {
-					admission := testing.MakeAdmission(clusterQueue.Name, "120fa2c0", "542d5455").
+					admission := testing.MakeAdmission(clusterQueue.Name, "7c214403", "41b86f81").
 						Assignment(corev1.ResourceCPU, "default", "1").
 						AssignmentPodCount(2).
 						Obj()
@@ -933,7 +940,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				})
 
 				ginkgo.By("checking that all pods in group are unsuspended when workload is admitted", func() {
-					admission := testing.MakeAdmission(clusterQueue.Name, "120fa2c0", "542d5455").
+					admission := testing.MakeAdmission(clusterQueue.Name, "7c214403", "41b86f81").
 						Assignment(corev1.ResourceCPU, "default", "1").
 						AssignmentPodCount(2).
 						Obj()

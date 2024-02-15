@@ -156,6 +156,13 @@ integrations (including K8S job).</p>
 pending workloads.</p>
 </td>
 </tr>
+<tr><td><code>multiKueue</code> <B>[Required]</B><br/>
+<a href="#MultiKueue"><code>MultiKueue</code></a>
+</td>
+<td>
+   <p>MultiKueue controls the behaviour of the MultiKueue AdmissionCheck Controller.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -473,6 +480,41 @@ Defaults to kueue-webhook-server-cert.</p>
 </tbody>
 </table>
 
+## `MultiKueue`     {#MultiKueue}
+    
+
+**Appears in:**
+
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>gcInterval</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>GCInterval defines the time interval between two consecutive garbage collection runs.
+Defaults to 1min. If 0, the garbage collection is disabled.</p>
+</td>
+</tr>
+<tr><td><code>origin</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>Origin defines a label value used to track the creator of workloads in the worker
+clusters.
+This is used by multikueue in components like its garbage collector to identify
+remote objects that ware created by this multikueue manager cluster and delete
+them if their local counterpart no longer exists.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `PodIntegrationOptions`     {#PodIntegrationOptions}
     
 
@@ -538,13 +580,58 @@ Defaults to 5.</p>
 </tbody>
 </table>
 
+## `RequeuingStrategy`     {#RequeuingStrategy}
+    
+
+**Appears in:**
+
+- [WaitForPodsReady](#WaitForPodsReady)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>timestamp</code><br/>
+<a href="#RequeuingTimestamp"><code>RequeuingTimestamp</code></a>
+</td>
+<td>
+   <p>Timestamp defines the timestamp used for re-queuing a Workload
+that was evicted due to Pod readiness. The possible values are:</p>
+<ul>
+<li><code>Eviction</code> (default) indicates from Workload <code>Evicted</code> condition with <code>PodsReadyTimeout</code> reason.</li>
+<li><code>Creation</code> indicates from Workload .metadata.creationTimestamp.</li>
+</ul>
+</td>
+</tr>
+<tr><td><code>backoffLimitCount</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>BackoffLimitCount defines the maximum number of re-queuing retries.
+Once the number is reached, the workload is deactivated (<code>.spec.activate</code>=<code>false</code>).
+When it is null, the workloads will repeatedly and endless re-queueing.</p>
+<p>Every backoff duration is about &quot;1.41284738^(n-1)+Rand&quot; where the &quot;n&quot; represents the &quot;workloadStatus.requeueState.count&quot;,
+and the &quot;Rand&quot; represents the random jitter. During this time, the workload is taken as an inadmissible and
+other workloads will have a chance to be admitted.
+For example, when the &quot;waitForPodsReady.timeout&quot; is the default, the workload deactivation time is as follows:
+{backoffLimitCount, workloadDeactivationSeconds}
+~= {1, 601}, {2, 902}, ...,{5, 1811}, ...,{10, 3374}, ...,{20, 8730}, ...,{30, 86400(=24 hours)}, ...</p>
+<p>Defaults to null.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `RequeuingTimestamp`     {#RequeuingTimestamp}
     
 (Alias of `string`)
 
 **Appears in:**
 
-- [WaitForPodsReady](#WaitForPodsReady)
+- [RequeuingStrategy](#RequeuingStrategy)
 
 
 
@@ -592,12 +679,11 @@ until the jobs reach the PodsReady=true condition. It defaults to false if Enabl
 and defaults to true otherwise.</p>
 </td>
 </tr>
-<tr><td><code>requeuingTimestamp</code> <B>[Required]</B><br/>
-<a href="#RequeuingTimestamp"><code>RequeuingTimestamp</code></a>
+<tr><td><code>requeuingStrategy</code><br/>
+<a href="#RequeuingStrategy"><code>RequeuingStrategy</code></a>
 </td>
 <td>
-   <p>RequeuingTimestamp defines the timestamp used for requeuing a Workload
-that was evicted due to Pod readiness. Defaults to Eviction.</p>
+   <p>RequeuingStrategy defines the strategy for requeuing a Workload.</p>
 </td>
 </tr>
 </tbody>

@@ -718,7 +718,7 @@ admitting newer workloads that fit existing quota.</li>
 </td>
 <td>
    <p>namespaceSelector defines which namespaces are allowed to submit workloads to
-this clusterQueue. Beyond this basic support for policy, an policy agent like
+this clusterQueue. Beyond this basic support for policy, a policy agent like
 Gatekeeper should be used to enforce more advanced policies.
 Defaults to null which is a nothing selector (no namespaces eligible).
 If set to an empty selector <code>{}</code>, then all namespaces are eligible.</p>
@@ -763,7 +763,7 @@ lower priority first.</p>
 <a href="#kueue-x-k8s-io-v1beta1-StopPolicy"><code>StopPolicy</code></a>
 </td>
 <td>
-   <p>stopPolicy - if set to a value different than None, the ClusterQueue is considered Inactive, no new reservation being
+   <p>stopPolicy - if set to a value different from None, the ClusterQueue is considered Inactive, no new reservation being
 made.</p>
 <p>Depending on its value, its associated workloads will:</p>
 <ul>
@@ -1407,6 +1407,41 @@ the workload is considered ready.</p>
 </tbody>
 </table>
 
+## `RequeueState`     {#kueue-x-k8s-io-v1beta1-RequeueState}
+    
+
+**Appears in:**
+
+- [WorkloadStatus](#kueue-x-k8s-io-v1beta1-WorkloadStatus)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>count</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>count records the number of times a workload has been re-queued
+When a deactivated (<code>.spec.activate</code>=<code>false</code>) workload is reactivated (<code>.spec.activate</code>=<code>true</code>),
+this count would be reset to null.</p>
+</td>
+</tr>
+<tr><td><code>requeueAt</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#time-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Time</code></a>
+</td>
+<td>
+   <p>requeueAt records the time when a workload will be re-queued.
+When a deactivated (<code>.spec.activate</code>=<code>false</code>) workload is reactivated (<code>.spec.activate</code>=<code>true</code>),
+this time would be reset to null.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `ResourceFlavorReference`     {#kueue-x-k8s-io-v1beta1-ResourceFlavorReference}
     
 (Alias of `string`)
@@ -1578,6 +1613,22 @@ If not null, it must be non-negative.
 borrowingLimit must be null if spec.cohort is empty.</p>
 </td>
 </tr>
+<tr><td><code>lendingLimit</code><br/>
+<a href="https://pkg.go.dev/k8s.io/apimachinery/pkg/api/resource#Quantity"><code>k8s.io/apimachinery/pkg/api/resource.Quantity</code></a>
+</td>
+<td>
+   <p>lendingLimit is the maximum amount of unused quota for the [flavor, resource]
+combination that this ClusterQueue can lend to other ClusterQueues in the same cohort.
+In total, at a given time, ClusterQueue reserves for its exclusive use
+a quantity of quota equals to nominalQuota - lendingLimit.
+If null, it means that there is no lending limit, meaning that
+all the nominalQuota can be borrowed by other clusterQueues in the cohort.
+If not null, it must be non-negative.
+lendingLimit must be null if spec.cohort is empty.
+This field is in alpha stage. To be able to use this field,
+enable the feature gate LendingLimit, which is disabled by default.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -1739,6 +1790,14 @@ Possible values are:</p>
    <p>admission holds the parameters of the admission of the workload by a
 ClusterQueue. admission can be set back to null, but its fields cannot be
 changed once set.</p>
+</td>
+</tr>
+<tr><td><code>requeueState</code><br/>
+<a href="#kueue-x-k8s-io-v1beta1-RequeueState"><code>RequeueState</code></a>
+</td>
+<td>
+   <p>requeueState holds the re-queue state
+when a workload meets Eviction with PodsReadyTimeout reason.</p>
 </td>
 </tr>
 <tr><td><code>conditions</code><br/>

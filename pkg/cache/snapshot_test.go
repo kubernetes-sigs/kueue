@@ -26,8 +26,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -42,10 +44,11 @@ var snapCmpOpts = []cmp.Option{
 
 func TestSnapshot(t *testing.T) {
 	testCases := map[string]struct {
-		cqs          []*kueue.ClusterQueue
-		rfs          []*kueue.ResourceFlavor
-		wls          []*kueue.Workload
-		wantSnapshot Snapshot
+		cqs                []*kueue.ClusterQueue
+		rfs                []*kueue.ResourceFlavor
+		wls                []*kueue.Workload
+		wantSnapshot       Snapshot
+		enableLendingLimit bool
 	}{
 		"empty": {},
 		"independent clusterQueues": {
@@ -387,10 +390,209 @@ func TestSnapshot(t *testing.T) {
 				},
 			},
 		},
+		"lendingLimit with 2 clusterQueues and 2 flavors(whenCanBorrow: Borrow)": {
+			cqs: []*kueue.ClusterQueue{
+				utiltesting.MakeClusterQueue("a").
+					Cohort("lending").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10", "", "5").Obj(),
+						*utiltesting.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "20", "", "10").Obj(),
+					).
+					FlavorFungibility(defaultFlavorFungibility).
+					Obj(),
+				utiltesting.MakeClusterQueue("b").
+					Cohort("lending").
+					ResourceGroup(
+						*utiltesting.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10", "", "5").Obj(),
+						*utiltesting.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "20", "", "10").Obj(),
+					).
+					Obj(),
+			},
+			rfs: []*kueue.ResourceFlavor{
+				utiltesting.MakeResourceFlavor("arm").Label("arch", "arm").Obj(),
+				utiltesting.MakeResourceFlavor("x86").Label("arch", "x86").Obj(),
+			},
+			wls: []*kueue.Workload{
+				utiltesting.MakeWorkload("alpha", "").
+					PodSets(*utiltesting.MakePodSet("main", 5).
+						Request(corev1.ResourceCPU, "2").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("a", "main").
+						Assignment(corev1.ResourceCPU, "arm", "10000m").
+						AssignmentPodCount(5).Obj()).
+					Obj(),
+				utiltesting.MakeWorkload("beta", "").
+					PodSets(*utiltesting.MakePodSet("main", 5).
+						Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("a", "main").
+						Assignment(corev1.ResourceCPU, "arm", "5000m").
+						AssignmentPodCount(5).Obj()).
+					Obj(),
+				utiltesting.MakeWorkload("gamma", "").
+					PodSets(*utiltesting.MakePodSet("main", 5).
+						Request(corev1.ResourceCPU, "2").Obj()).
+					ReserveQuota(utiltesting.MakeAdmission("a", "main").
+						Assignment(corev1.ResourceCPU, "x86", "10000m").
+						AssignmentPodCount(5).Obj()).
+					Obj(),
+			},
+			wantSnapshot: func() Snapshot {
+				cohort := &Cohort{
+					Name:                          "lending",
+					AllocatableResourceGeneration: 2,
+					RequestableResources: FlavorResourceQuantities{
+						"arm": {
+							corev1.ResourceCPU: 10_000,
+						},
+						"x86": {
+							corev1.ResourceCPU: 20_000,
+						},
+					},
+					Usage: FlavorResourceQuantities{
+						"arm": {
+							corev1.ResourceCPU: 10_000,
+						},
+						"x86": {
+							corev1.ResourceCPU: 0,
+						},
+					},
+				}
+				return Snapshot{
+					ClusterQueues: map[string]*ClusterQueue{
+						"a": {
+							Name:                          "a",
+							Cohort:                        cohort,
+							AllocatableResourceGeneration: 1,
+							ResourceGroups: []ResourceGroup{
+								{
+									CoveredResources: sets.New(corev1.ResourceCPU),
+									Flavors: []FlavorQuotas{
+										{
+											Name: "arm",
+											Resources: map[corev1.ResourceName]*ResourceQuota{
+												corev1.ResourceCPU: {
+													Nominal:        10_000,
+													BorrowingLimit: nil,
+													LendingLimit:   ptr.To[int64](5_000),
+												},
+											},
+										},
+										{
+											Name: "x86",
+											Resources: map[corev1.ResourceName]*ResourceQuota{
+												corev1.ResourceCPU: {
+													Nominal:        20_000,
+													BorrowingLimit: nil,
+													LendingLimit:   ptr.To[int64](10_000),
+												},
+											},
+										},
+									},
+									LabelKeys: sets.New("arch"),
+								},
+							},
+							FlavorFungibility: defaultFlavorFungibility,
+							Usage: FlavorResourceQuantities{
+								"arm": {corev1.ResourceCPU: 15_000},
+								"x86": {corev1.ResourceCPU: 10_000},
+							},
+							Workloads: map[string]*workload.Info{
+								"/alpha": workload.NewInfo(utiltesting.MakeWorkload("alpha", "").
+									PodSets(*utiltesting.MakePodSet("main", 5).
+										Request(corev1.ResourceCPU, "2").Obj()).
+									ReserveQuota(utiltesting.MakeAdmission("a", "main").
+										Assignment(corev1.ResourceCPU, "arm", "10000m").
+										AssignmentPodCount(5).Obj()).
+									Obj()),
+								"/beta": workload.NewInfo(utiltesting.MakeWorkload("beta", "").
+									PodSets(*utiltesting.MakePodSet("main", 5).
+										Request(corev1.ResourceCPU, "1").Obj()).
+									ReserveQuota(utiltesting.MakeAdmission("a", "main").
+										Assignment(corev1.ResourceCPU, "arm", "5000m").
+										AssignmentPodCount(5).Obj()).
+									Obj()),
+								"/gamma": workload.NewInfo(utiltesting.MakeWorkload("gamma", "").
+									PodSets(*utiltesting.MakePodSet("main", 5).
+										Request(corev1.ResourceCPU, "2").Obj()).
+									ReserveQuota(utiltesting.MakeAdmission("a", "main").
+										Assignment(corev1.ResourceCPU, "x86", "10000m").
+										AssignmentPodCount(5).Obj()).
+									Obj()),
+							},
+							Preemption:        defaultPreemption,
+							NamespaceSelector: labels.Everything(),
+							Status:            active,
+							GuaranteedQuota: FlavorResourceQuantities{
+								"arm": {
+									corev1.ResourceCPU: 5_000,
+								},
+								"x86": {
+									corev1.ResourceCPU: 10_000,
+								},
+							},
+						},
+						"b": {
+							Name:                          "b",
+							Cohort:                        cohort,
+							AllocatableResourceGeneration: 1,
+							ResourceGroups: []ResourceGroup{
+								{
+									CoveredResources: sets.New(corev1.ResourceCPU),
+									Flavors: []FlavorQuotas{
+										{
+											Name: "arm",
+											Resources: map[corev1.ResourceName]*ResourceQuota{
+												corev1.ResourceCPU: {
+													Nominal:        10_000,
+													BorrowingLimit: nil,
+													LendingLimit:   ptr.To[int64](5_000),
+												},
+											},
+										},
+										{
+											Name: "x86",
+											Resources: map[corev1.ResourceName]*ResourceQuota{
+												corev1.ResourceCPU: {
+													Nominal:        20_000,
+													BorrowingLimit: nil,
+													LendingLimit:   ptr.To[int64](10_000),
+												},
+											},
+										},
+									},
+									LabelKeys: sets.New("arch"),
+								},
+							},
+							FlavorFungibility: defaultFlavorFungibility,
+							Usage: FlavorResourceQuantities{
+								"arm": {corev1.ResourceCPU: 0},
+								"x86": {corev1.ResourceCPU: 0},
+							},
+							Preemption:        defaultPreemption,
+							NamespaceSelector: labels.Everything(),
+							Status:            active,
+							GuaranteedQuota: FlavorResourceQuantities{
+								"arm": {
+									corev1.ResourceCPU: 5_000,
+								},
+								"x86": {
+									corev1.ResourceCPU: 10_000,
+								},
+							},
+						},
+					},
+					ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+						"arm": utiltesting.MakeResourceFlavor("arm").Label("arch", "arm").Obj(),
+						"x86": utiltesting.MakeResourceFlavor("x86").Label("arch", "x86").Obj(),
+					},
+				}
+			}(),
+			enableLendingLimit: true,
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			defer features.SetFeatureGateDuringTest(t, features.LendingLimit, tc.enableLendingLimit)()
 			cache := New(utiltesting.NewFakeClient())
 			for _, cq := range tc.cqs {
 				// Purposely do not make a copy of clusterQueues. Clones of necessary fields are

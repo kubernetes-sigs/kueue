@@ -130,15 +130,6 @@ func containersShape(containers []corev1.Container) (result []map[string]interfa
 	return result
 }
 
-func volumesShape(volumes []corev1.Volume) (result []corev1.Volume) {
-	for _, v := range volumes {
-		v.Name = ""
-		result = append(result, v)
-	}
-
-	return result
-}
-
 // addRoleHash calculates the role hash and adds it to the pod's annotations
 func (p *Pod) addRoleHash() error {
 	if p.pod.Annotations == nil {

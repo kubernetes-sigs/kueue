@@ -41,6 +41,7 @@ const headsTimeout = 3 * time.Second
 
 var cmpDump = []cmp.Option{
 	cmpopts.SortSlices(func(a, b string) bool { return a < b }),
+	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 }
 
 // TestAddLocalQueueOrphans verifies that pods added before adding the queue are

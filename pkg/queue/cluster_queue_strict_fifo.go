@@ -17,9 +17,15 @@ limitations under the License.
 package queue
 
 import (
+	"k8s.io/utils/clock"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
+)
+
+var (
+	realClock = clock.RealClock{}
 )
 
 // ClusterQueueStrictFIFO is the implementation for the ClusterQueue for
@@ -31,7 +37,7 @@ type ClusterQueueStrictFIFO struct {
 var _ ClusterQueue = &ClusterQueueStrictFIFO{}
 
 func newClusterQueueStrictFIFO(cq *kueue.ClusterQueue, wo workload.Ordering) (ClusterQueue, error) {
-	cqImpl := newClusterQueueImpl(keyFunc, queueOrderingFunc(wo))
+	cqImpl := newClusterQueueImpl(keyFunc, queueOrderingFunc(wo), realClock)
 	cqStrict := &ClusterQueueStrictFIFO{
 		clusterQueueBase: cqImpl,
 	}

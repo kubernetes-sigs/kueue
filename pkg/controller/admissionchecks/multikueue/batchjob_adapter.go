@@ -19,9 +19,11 @@ import (
 	"context"
 
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	kueuejob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 )
@@ -30,14 +32,41 @@ type batchJobAdapter struct{}
 
 var _ jobAdapter = (*batchJobAdapter)(nil)
 
-func (b *batchJobAdapter) CreateRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName string) error {
+func (b *batchJobAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error {
 	localJob := batchv1.Job{}
 	err := localClient.Get(ctx, key, &localJob)
 	if err != nil {
 		return err
 	}
 
-	remoteJob := batchv1.Job{
+	remoteJob := batchv1.Job{}
+	err = remoteClient.Get(ctx, key, &remoteJob)
+	if client.IgnoreNotFound(err) != nil {
+		return err
+	}
+
+	// the remote job exists
+	if err == nil {
+		// This will no longer be necessary when batchJob will support live status update, by then
+		// we should only sync the Status of the job if it's "Finished".
+		remoteFinished := false
+		for _, c := range remoteJob.Status.Conditions {
+			if (c.Type == batchv1.JobComplete || c.Type == batchv1.JobFailed) && c.Status == corev1.ConditionTrue {
+				remoteFinished = true
+				break
+			}
+		}
+
+		if remoteFinished {
+			localJob.Status = remoteJob.Status
+			return localClient.Status().Update(ctx, &localJob)
+		} else {
+			return nil
+		}
+
+	}
+
+	remoteJob = batchv1.Job{
 		ObjectMeta: cleanObjectMeta(&localJob.ObjectMeta),
 		Spec:       *localJob.Spec.DeepCopy(),
 	}
@@ -55,24 +84,9 @@ func (b *batchJobAdapter) CreateRemoteObject(ctx context.Context, localClient cl
 		remoteJob.Labels = map[string]string{}
 	}
 	remoteJob.Labels[constants.PrebuiltWorkloadLabel] = workloadName
+	remoteJob.Labels[kueuealpha.MultiKueueOriginLabel] = origin
 
 	return remoteClient.Create(ctx, &remoteJob)
-}
-
-func (b *batchJobAdapter) CopyStatusRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName) error {
-	localJob := batchv1.Job{}
-	err := localClient.Get(ctx, key, &localJob)
-	if err != nil {
-		return client.IgnoreNotFound(err)
-	}
-
-	remoteJob := batchv1.Job{}
-	err = remoteClient.Get(ctx, key, &remoteJob)
-	if err != nil {
-		return err
-	}
-	localJob.Status = remoteJob.Status
-	return localClient.Status().Update(ctx, &localJob)
 }
 
 func (b *batchJobAdapter) DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error {

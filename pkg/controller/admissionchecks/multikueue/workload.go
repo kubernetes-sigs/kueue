@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -56,15 +57,15 @@ type wlReconciler struct {
 	client   client.Client
 	helper   *multiKueueStoreHelper
 	clusters *clustersReconciler
+	origin   string
 }
 
 var _ reconcile.Reconciler = (*wlReconciler)(nil)
 
 type jobAdapter interface {
-	// Creates the Job object in the worker cluster using remote client.
-	CreateRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName string) error
-	// Copy the status from the job in the worker cluster to the local one.
-	CopyStatusRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName) error
+	// Creates the Job object in the worker cluster using remote client, if not already created.
+	// Copy the status from the remote job if already exists.
+	SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error
 	// Deletes the Job in the worker cluster.
 	DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error
 	// KeepAdmissionCheckPending returns true if the state of the multikueue admission check should be
@@ -261,7 +262,7 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 		// it should not be problematic but the "From remote xxxx:" could be lost ....
 
 		if group.jobAdapter != nil {
-			if err := group.jobAdapter.CopyStatusRemoteObject(ctx, a.client, group.remoteClients[remote].client, group.controllerKey); err != nil {
+			if err := group.jobAdapter.SyncJob(ctx, a.client, group.remoteClients[remote].client, group.controllerKey, group.local.Name, a.origin); err != nil {
 				log.V(2).Error(err, "copying remote controller status", "workerCluster", remote)
 				// we should retry this
 				return err
@@ -276,7 +277,7 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 			Type:    kueue.WorkloadFinished,
 			Status:  metav1.ConditionTrue,
 			Reason:  remoteFinishedCond.Reason,
-			Message: fmt.Sprintf("From remote %q: %s", remote, remoteFinishedCond.Message),
+			Message: remoteFinishedCond.Message,
 		})
 		return a.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(ControllerName+"-finish"), client.ForceOwnership)
 	}
@@ -301,7 +302,7 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 	// 3. get the first reserving
 	if hasReserving {
 		acs := workload.FindAdmissionCheck(group.local.Status.AdmissionChecks, group.acName)
-		if err := group.jobAdapter.CreateRemoteObject(ctx, a.client, group.remoteClients[reservingRemote].client, group.controllerKey, group.local.Name); err != nil {
+		if err := group.jobAdapter.SyncJob(ctx, a.client, group.remoteClients[reservingRemote].client, group.controllerKey, group.local.Name, a.origin); err != nil {
 			log.V(2).Error(err, "creating remote controller object", "remote", reservingRemote)
 			// We'll retry this in the next reconcile.
 			return err
@@ -327,24 +328,27 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) error
 	}
 
 	// finally - create missing workloads
+	var errs []error
 	for rem, remWl := range group.remotes {
 		if remWl == nil {
-			clone := cloneForCreate(group.local)
+			clone := cloneForCreate(group.local, group.remoteClients[rem].origin)
 			err := group.remoteClients[rem].client.Create(ctx, clone)
 			if err != nil {
 				// just log the error for a single remote
 				log.V(2).Error(err, "creating remote object", "remote", rem)
+				errs = append(errs, err)
 			}
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
-func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clustersReconciler) *wlReconciler {
+func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clustersReconciler, origin string) *wlReconciler {
 	return &wlReconciler{
 		client:   c,
 		helper:   helper,
 		clusters: cRec,
+		origin:   origin,
 	}
 }
 
@@ -375,9 +379,13 @@ func cleanObjectMeta(orig *metav1.ObjectMeta) metav1.ObjectMeta {
 	}
 }
 
-func cloneForCreate(orig *kueue.Workload) *kueue.Workload {
+func cloneForCreate(orig *kueue.Workload, origin string) *kueue.Workload {
 	remoteWl := &kueue.Workload{}
 	remoteWl.ObjectMeta = cleanObjectMeta(&orig.ObjectMeta)
+	if remoteWl.Labels == nil {
+		remoteWl.Labels = make(map[string]string)
+	}
+	remoteWl.Labels[kueuealpha.MultiKueueOriginLabel] = origin
 	orig.Spec.DeepCopyInto(&remoteWl.Spec)
 	return remoteWl
 }

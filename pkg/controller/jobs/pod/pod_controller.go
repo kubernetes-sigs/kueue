@@ -65,6 +65,12 @@ const (
 	IsGroupWorkloadAnnotationValue = "true"
 )
 
+// Event reasons used by the pod controller
+const (
+	ReasonExcessPodDeleted     = "ExcessPodDeleted"
+	ReasonOwnerReferencesAdded = "OwnerReferencesAdded"
+)
+
 var (
 	gvk                          = corev1.SchemeGroupVersion.WithKind("Pod")
 	errIncorrectReconcileRequest = fmt.Errorf("event handler error: got a single pod reconcile request for a pod group")
@@ -127,10 +133,9 @@ type Pod struct {
 }
 
 var (
-	_ jobframework.GenericJob        = (*Pod)(nil)
-	_ jobframework.JobWithCustomStop = (*Pod)(nil)
-	_ jobframework.JobWithFinalize   = (*Pod)(nil)
-	_ jobframework.ComposableJob     = (*Pod)(nil)
+	_ jobframework.GenericJob      = (*Pod)(nil)
+	_ jobframework.JobWithFinalize = (*Pod)(nil)
+	_ jobframework.ComposableJob   = (*Pod)(nil)
 )
 
 func fromObject(o runtime.Object) *Pod {
@@ -403,7 +408,7 @@ func (p *Pod) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
-func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, stopReason jobframework.StopReason, eventMsg string) (bool, error) {
+func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, stopReason jobframework.StopReason, eventMsg string) ([]client.Object, error) {
 	var podsInGroup []corev1.Pod
 
 	if p.isGroup {
@@ -412,6 +417,7 @@ func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, 
 		podsInGroup = []corev1.Pod{p.pod}
 	}
 
+	stoppedNow := make([]client.Object, 0)
 	for i := range podsInGroup {
 		// If the workload is being deleted, delete even finished Pods.
 		if !podsInGroup[i].DeletionTimestamp.IsZero() || (stopReason != jobframework.StopReasonWorkloadDeleted && podSuspended(&podsInGroup[i])) {
@@ -442,11 +448,12 @@ func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, 
 			},
 		}
 		if err := c.Status().Patch(ctx, pCopy, client.Apply, client.FieldOwner(constants.KueueName)); err != nil && !apierrors.IsNotFound(err) {
-			return false, err
+			return stoppedNow, err
 		}
 		if err := c.Delete(ctx, podInGroup.Object()); err != nil && !apierrors.IsNotFound(err) {
-			return false, err
+			return stoppedNow, err
 		}
+		stoppedNow = append(stoppedNow, podInGroup.Object())
 	}
 
 	// If related workload is deleted, the generic reconciler will stop the pod group and finalize the workload.
@@ -455,11 +462,11 @@ func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, 
 	if p.isGroup && stopReason == jobframework.StopReasonWorkloadDeleted {
 		err := p.Finalize(ctx, c)
 		if err != nil {
-			return false, err
+			return stoppedNow, err
 		}
 	}
 
-	return true, nil
+	return stoppedNow, nil
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
@@ -561,7 +568,6 @@ func getRoleHash(p corev1.Pod) (string, error) {
 			"preemptionPolicy":          p.Spec.PreemptionPolicy,
 			"topologySpreadConstraints": p.Spec.TopologySpreadConstraints,
 			"overhead":                  p.Spec.Overhead,
-			"volumes":                   volumesShape(p.Spec.Volumes),
 			"resourceClaims":            p.Spec.ResourceClaims,
 		},
 	}
@@ -665,7 +671,7 @@ func (p *Pod) validatePodGroupMetadata(r record.EventRecorder, activePods []core
 	originalQueue := jobframework.QueueName(p)
 
 	if len(activePods) < groupTotalCount {
-		errMsg := fmt.Sprintf("'%s' group total count is less than the actual number of pods in the cluster", podGroupName(p.pod))
+		errMsg := fmt.Sprintf("'%s' group has fewer runnable pods than expected", podGroupName(p.pod))
 		r.Eventf(p.Object(), corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, errMsg)
 		return jobframework.UnretryableError(errMsg)
 	}
@@ -723,7 +729,7 @@ func isPodRunnableOrSucceeded(p *corev1.Pod) bool {
 
 // cleanupExcessPods will delete and finalize pods created last if the number of
 // activePods is greater than the totalCount value.
-func (p *Pod) cleanupExcessPods(ctx context.Context, c client.Client, totalCount int, activePods []corev1.Pod) error {
+func (p *Pod) cleanupExcessPods(ctx context.Context, c client.Client, r record.EventRecorder, totalCount int, activePods []corev1.Pod) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	extraPodsCount := len(activePods) - totalCount
@@ -779,6 +785,7 @@ func (p *Pod) cleanupExcessPods(ctx context.Context, c client.Client, totalCount
 				p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
 				return err
 			}
+			r.Event(&pod, corev1.EventTypeNormal, ReasonExcessPodDeleted, "Excess pod deleted")
 		}
 		return nil
 	})
@@ -803,6 +810,29 @@ func (p *Pod) cleanupExcessPods(ctx context.Context, c client.Client, totalCount
 	}
 	p.list.Items = newPodsInGroup
 
+	return nil
+}
+
+func (p *Pod) EnsureWorkloadOwnedByAllMembers(ctx context.Context, c client.Client, r record.EventRecorder, workload *kueue.Workload) error {
+	if !p.isGroup {
+		return nil
+	}
+	oldOwnersCnt := len(workload.GetOwnerReferences())
+	for _, pod := range p.list.Items {
+		if err := controllerutil.SetOwnerReference(&pod, workload, c.Scheme()); err != nil {
+			return err
+		}
+	}
+	newOwnersCnt := len(workload.GetOwnerReferences())
+	if addedOwnersCnt := newOwnersCnt - oldOwnersCnt; addedOwnersCnt > 0 {
+		log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(workload))
+		log.V(4).Info("Adding owner references for workload", "count", addedOwnersCnt)
+		err := c.Update(ctx, workload)
+		if err == nil {
+			r.Eventf(workload, corev1.EventTypeNormal, ReasonOwnerReferencesAdded, fmt.Sprintf("Added %d owner reference(s)", addedOwnersCnt))
+		}
+		return err
+	}
 	return nil
 }
 
@@ -867,7 +897,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 	}
 
 	// Cleanup extra pods if there's any
-	err = p.cleanupExcessPods(ctx, c, groupTotalCount, activePods)
+	err = p.cleanupExcessPods(ctx, c, r, groupTotalCount, activePods)
 	if err != nil {
 		return nil, err
 	}
@@ -925,7 +955,7 @@ func (p *Pod) ListChildWorkloads(ctx context.Context, c client.Client, key types
 	return workloads, nil
 }
 
-func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client) (*kueue.Workload, []*kueue.Workload, error) {
+func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r record.EventRecorder) (*kueue.Workload, []*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 	groupName := podGroupName(p.pod)
 
@@ -960,7 +990,7 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client) (*kueu
 		}
 
 		// Cleanup excess pods of the role
-		err := p.cleanupExcessPods(ctx, c, int(ps.Count), roleActivePods)
+		err := p.cleanupExcessPods(ctx, c, r, int(ps.Count), roleActivePods)
 		if err != nil {
 			return nil, nil, err
 		}

@@ -121,10 +121,10 @@ func TestSetupIndexes(t *testing.T) {
 		"proper indexes are set": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("alpha-wl", testNamespace).
-					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "alpha", "job", true, true).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "alpha", "job").
 					Obj(),
 				*utiltesting.MakeWorkload("beta-wl", testNamespace).
-					OwnerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "beta", "job", true, true).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "beta", "job").
 					Obj(),
 			},
 			opts: []Option{
@@ -138,10 +138,10 @@ func TestSetupIndexes(t *testing.T) {
 		"kubeflow.org/mpijob is disabled in the configAPI": {
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("alpha-wl", testNamespace).
-					OwnerReference(kubeflow.SchemeGroupVersionKind, "alpha", "mpijob", true, true).
+					ControllerReference(kubeflow.SchemeGroupVersionKind, "alpha", "mpijob").
 					Obj(),
 				*utiltesting.MakeWorkload("beta-wl", testNamespace).
-					OwnerReference(kubeflow.SchemeGroupVersionKind, "beta", "mpijob", true, true).
+					ControllerReference(kubeflow.SchemeGroupVersionKind, "beta", "mpijob").
 					Obj(),
 			},
 			opts: []Option{

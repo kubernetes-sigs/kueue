@@ -18,7 +18,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
+	"net/http"
 	"os"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -37,6 +39,7 @@ import (
 	"k8s.io/client-go/discovery"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -163,7 +166,7 @@ func main() {
 
 	serverVersionFetcher := setupServerVersionFetcher(mgr, kubeConfig)
 
-	setupProbeEndpoints(mgr)
+	setupProbeEndpoints(mgr, certsReady)
 	// Cert won't be ready until manager starts, so start a goroutine here which
 	// will block until the cert is ready before setting up the controllers.
 	// Controllers who register after manager starts will start directly.
@@ -244,7 +247,10 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 	}
 
 	if features.Enabled(features.MultiKueue) {
-		if err := multikueue.SetupControllers(mgr, *cfg.Namespace); err != nil {
+		if err := multikueue.SetupControllers(mgr, *cfg.Namespace,
+			multikueue.WithGCInterval(cfg.MultiKueue.GCInterval.Duration),
+			multikueue.WithOrigin(ptr.Deref(cfg.MultiKueue.Origin, configapi.DefaultMultiKueueOrigin)),
+		); err != nil {
 			setupLog.Error(err, "Could not setup MultiKueue controller")
 			os.Exit(1)
 		}
@@ -271,14 +277,29 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 }
 
 // setupProbeEndpoints registers the health endpoints
-func setupProbeEndpoints(mgr ctrl.Manager) {
+func setupProbeEndpoints(mgr ctrl.Manager, certsReady <-chan struct{}) {
 	defer setupLog.Info("Probe endpoints are configured on healthz and readyz")
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up health check")
 		os.Exit(1)
 	}
-	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
+
+	// Wait for the webhook server to be listening before advertising the
+	// Kueue replica as ready. This allows users to wait with sending the first
+	// requests, requiring webhooks, until the Kueue deployment is available, so
+	// that the early requests are not rejected during the Kueue's startup.
+	// We wrap the call to GetWebhookServer in a closure to delay calling
+	// the function, otherwise a not fully-initialized webhook server (without
+	// ready certs) fails the start of the manager.
+	if err := mgr.AddReadyzCheck("readyz", func(req *http.Request) error {
+		select {
+		case <-certsReady:
+			return mgr.GetWebhookServer().StartedChecker()(req)
+		default:
+			return errors.New("certificates are not ready")
+		}
+	}); err != nil {
 		setupLog.Error(err, "unable to set up ready check")
 		os.Exit(1)
 	}
@@ -321,16 +342,13 @@ func setupServerVersionFetcher(mgr ctrl.Manager, kubeConfig *rest.Config) *kubev
 }
 
 func blockForPodsReady(cfg *configapi.Configuration) bool {
-	return waitForPodsReady(cfg) && cfg.WaitForPodsReady.BlockAdmission != nil && *cfg.WaitForPodsReady.BlockAdmission
-}
-
-func waitForPodsReady(cfg *configapi.Configuration) bool {
-	return cfg.WaitForPodsReady != nil && cfg.WaitForPodsReady.Enable
+	return config.WaitForPodsReadyIsEnabled(cfg) && cfg.WaitForPodsReady.BlockAdmission != nil && *cfg.WaitForPodsReady.BlockAdmission
 }
 
 func podsReadyRequeuingTimestamp(cfg *configapi.Configuration) configapi.RequeuingTimestamp {
-	if cfg.WaitForPodsReady != nil && cfg.WaitForPodsReady.RequeuingTimestamp != nil {
-		return *cfg.WaitForPodsReady.RequeuingTimestamp
+	if cfg.WaitForPodsReady != nil && cfg.WaitForPodsReady.RequeuingStrategy != nil &&
+		cfg.WaitForPodsReady.RequeuingStrategy.Timestamp != nil {
+		return *cfg.WaitForPodsReady.RequeuingStrategy.Timestamp
 	}
 	return configapi.EvictionTimestamp
 }

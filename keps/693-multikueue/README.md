@@ -160,7 +160,7 @@ type MultiKueueCluster struct {
 type LocationType string
 
 const (
-    // Location is the path on the disk.
+    // Location is the path on the disk of kueue-controller-manager.
     PathLocationType LocationType = "Path"
     
     // Location is the name of the secret inside the namespace in which the kueue controller
@@ -180,7 +180,7 @@ type KubeConfig struct {
     // Type of the KubeConfig location.
     //
     // +kubebuilder:default=Secret
-    // +kubebuilder:validation:Enum=Secret
+    // +kubebuilder:validation:Enum=Secret;Path
     LocationType LocationType `json:"locationType"`
 }
 

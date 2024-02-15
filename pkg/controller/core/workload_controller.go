@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -63,8 +64,9 @@ var (
 )
 
 type options struct {
-	watchers         []WorkloadUpdateWatcher
-	podsReadyTimeout *time.Duration
+	watchers                   []WorkloadUpdateWatcher
+	podsReadyTimeout           *time.Duration
+	requeuingBackoffLimitCount *int32
 }
 
 // Option configures the reconciler.
@@ -75,6 +77,14 @@ type Option func(*options)
 func WithPodsReadyTimeout(value *time.Duration) Option {
 	return func(o *options) {
 		o.podsReadyTimeout = value
+	}
+}
+
+// WithRequeuingBackoffLimitCount indicates if the controller should deactivate a workload
+// if it reaches the limitation.
+func WithRequeuingBackoffLimitCount(value *int32) Option {
+	return func(o *options) {
+		o.requeuingBackoffLimitCount = value
 	}
 }
 
@@ -93,13 +103,14 @@ type WorkloadUpdateWatcher interface {
 
 // WorkloadReconciler reconciles a Workload object
 type WorkloadReconciler struct {
-	log              logr.Logger
-	queues           *queue.Manager
-	cache            *cache.Cache
-	client           client.Client
-	watchers         []WorkloadUpdateWatcher
-	podsReadyTimeout *time.Duration
-	recorder         record.EventRecorder
+	log                        logr.Logger
+	queues                     *queue.Manager
+	cache                      *cache.Cache
+	client                     client.Client
+	watchers                   []WorkloadUpdateWatcher
+	podsReadyTimeout           *time.Duration
+	requeuingBackoffLimitCount *int32
+	recorder                   record.EventRecorder
 }
 
 func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *cache.Cache, recorder record.EventRecorder, opts ...Option) *WorkloadReconciler {
@@ -109,13 +120,14 @@ func NewWorkloadReconciler(client client.Client, queues *queue.Manager, cache *c
 	}
 
 	return &WorkloadReconciler{
-		log:              ctrl.Log.WithName("workload-reconciler"),
-		client:           client,
-		queues:           queues,
-		cache:            cache,
-		watchers:         options.watchers,
-		podsReadyTimeout: options.podsReadyTimeout,
-		recorder:         recorder,
+		log:                        ctrl.Log.WithName("workload-reconciler"),
+		client:                     client,
+		queues:                     queues,
+		cache:                      cache,
+		watchers:                   options.watchers,
+		podsReadyTimeout:           options.podsReadyTimeout,
+		requeuingBackoffLimitCount: options.requeuingBackoffLimitCount,
+		recorder:                   recorder,
 	}
 }
 
@@ -322,6 +334,11 @@ func syncAdmissionCheckConditions(conds []kueue.AdmissionCheckState, queueChecks
 
 func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req ctrl.Request, wl *kueue.Workload) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
+
+	if !ptr.Deref(wl.Spec.Active, true) || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) {
+		// the workload has already been evicted by the PodsReadyTimeout or been deactivated.
+		return ctrl.Result{}, nil
+	}
 	countingTowardsTimeout, recheckAfter := r.admittedNotReadyWorkload(wl, realClock)
 	if !countingTowardsTimeout {
 		return ctrl.Result{}, nil
@@ -329,12 +346,56 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 	if recheckAfter > 0 {
 		log.V(4).Info("Workload not yet ready and did not exceed its timeout", "recheckAfter", recheckAfter)
 		return ctrl.Result{RequeueAfter: recheckAfter}, nil
-	} else {
-		log.V(2).Info("Start the eviction of the workload due to exceeding the PodsReady timeout")
-		workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByPodsReadyTimeout, fmt.Sprintf("Exceeded the PodsReady timeout %s", req.NamespacedName.String()))
-		err := workload.ApplyAdmissionStatus(ctx, r.client, wl, false)
-		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	log.V(2).Info("Start the eviction of the workload due to exceeding the PodsReady timeout")
+	if deactivated, err := r.triggerDeactivationOrBackoffRequeue(ctx, wl); deactivated || err != nil {
+		return ctrl.Result{}, err
+	}
+	workload.SetEvictedCondition(wl, kueue.WorkloadEvictedByPodsReadyTimeout, fmt.Sprintf("Exceeded the PodsReady timeout %s", req.NamespacedName.String()))
+	err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
+	return ctrl.Result{}, client.IgnoreNotFound(err)
+}
+
+// triggerDeactivationOrBackoffRequeue deactivates a workload (".spec.active"="false")
+// if a re-queued number has already exceeded the limit of re-queuing backoff.
+// Otherwise, it increments a re-queueing count and update a time to be re-queued.
+// It returns true as a first value if a workload is deactivated.
+func (r *WorkloadReconciler) triggerDeactivationOrBackoffRequeue(ctx context.Context, wl *kueue.Workload) (bool, error) {
+	if !workload.HasRequeueState(wl) {
+		wl.Status.RequeueState = &kueue.RequeueState{}
+	}
+	// If requeuingBackoffLimitCount equals to null, the workloads is repeatedly and endless re-queued.
+	requeuingCount := ptr.Deref(wl.Status.RequeueState.Count, 0) + 1
+	if r.requeuingBackoffLimitCount != nil && requeuingCount > *r.requeuingBackoffLimitCount {
+		wl.Spec.Active = ptr.To(false)
+		if err := r.client.Update(ctx, wl); err != nil {
+			return false, err
+		}
+		r.recorder.Eventf(wl, corev1.EventTypeNormal, kueue.WorkloadEvictedByDeactivation,
+			"Deactivated Workload %q by reached re-queue backoffLimitCount", klog.KObj(wl))
+		return true, nil
+	}
+	// Every backoff duration is about "1.41284738^(n-1)+Rand" where the "n" represents the "requeuingCount",
+	// and the "Rand" represents the random jitter. During this time, the workload is taken as an inadmissible and
+	// other workloads will have a chance to be admitted.
+	// Considering the ".waitForPodsReady.timeout",
+	// this indicates that an evicted workload with PodsReadyTimeout reason is continued re-queuing for
+	// the "t(n+1) + SUM[k=1,n](1.41284738^(k-1) + Rand)" seconds where the "t" represents "waitForPodsReady.timeout".
+	// Given that the "backoffLimitCount" equals "30" and the "waitForPodsReady.timeout" equals "300" (default),
+	// the result equals 24 hours (+Rand seconds).
+	backoff := &wait.Backoff{
+		Duration: 1 * time.Second,
+		Factor:   1.41284738,
+		Jitter:   0.0001,
+		Steps:    int(requeuingCount),
+	}
+	var waitDuration time.Duration
+	for backoff.Steps > 0 {
+		waitDuration = backoff.Step()
+	}
+	wl.Status.RequeueState.RequeueAt = ptr.To(metav1.NewTime(time.Now().Add(waitDuration)))
+	wl.Status.RequeueState.Count = &requeuingCount
+	return false, nil
 }
 
 func (r *WorkloadReconciler) Create(e event.CreateEvent) bool {
@@ -403,9 +464,8 @@ func (r *WorkloadReconciler) Delete(e event.DeleteEvent) bool {
 
 	// Even if the state is unknown, the last cached state tells us whether the
 	// workload was in the queues and should be cleared from them.
-	if workload.HasQuotaReservation(wl) {
-		r.queues.DeleteWorkload(wl)
-	}
+	r.queues.DeleteWorkload(wl)
+
 	return true
 }
 

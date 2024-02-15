@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
@@ -295,6 +296,19 @@ func ExpectWorkloadToFinish(ctx context.Context, k8sClient client.Client, wlKey 
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
+func ExpectWorkloadToHaveRequeueCount(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, requeueCount *int32) {
+	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		var wl kueue.Workload
+		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
+		g.Expect(ptr.Deref(wl.Status.RequeueState, kueue.RequeueState{})).Should(gomega.BeComparableTo(kueue.RequeueState{
+			Count: requeueCount,
+		}, cmpopts.IgnoreFields(kueue.RequeueState{}, "RequeueAt")))
+		if requeueCount != nil {
+			g.Expect(wl.Status.RequeueState.RequeueAt).ShouldNot(gomega.BeNil())
+		}
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
 func ExpectWorkloadsToBePreempted(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
 	gomega.EventuallyWithOffset(1, func() int {
 		preempted := 0
@@ -465,6 +479,15 @@ func ExpectCQResourceNominalQuota(cq *kueue.ClusterQueue, flavor, resource strin
 
 func ExpectCQResourceBorrowingQuota(cq *kueue.ClusterQueue, flavor, resource string, v float64) {
 	metric := metrics.ClusterQueueResourceBorrowingLimit.WithLabelValues(cq.Spec.Cohort, cq.Name, flavor, resource)
+	gomega.EventuallyWithOffset(1, func() float64 {
+		v, err := testutil.GetGaugeMetricValue(metric)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred())
+		return v
+	}, Timeout, Interval).Should(gomega.Equal(v))
+}
+
+func ExpectCQResourceLendingQuota(cq *kueue.ClusterQueue, flavor, resource string, v float64) {
+	metric := metrics.ClusterQueueResourceLendingLimit.WithLabelValues(cq.Spec.Cohort, cq.Name, flavor, resource)
 	gomega.EventuallyWithOffset(1, func() float64 {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred())

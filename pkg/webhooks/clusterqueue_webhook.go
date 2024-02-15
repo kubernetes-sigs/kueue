@@ -33,11 +33,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 const (
-	isNegativeErrorMsg     string = `must be greater than or equal to 0`
-	borrowingLimitErrorMsg string = `must be nil when cohort is empty`
+	limitIsEmptyErrorMsg string = `must be nil when cohort is empty`
+	lendingLimitErrorMsg string = `must be less than or equal to the nominalQuota`
 )
 
 type ClusterQueueWebhook struct{}
@@ -195,7 +197,13 @@ func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []co
 		if rq.BorrowingLimit != nil {
 			borrowingLimitPath := path.Child("borrowingLimit")
 			allErrs = append(allErrs, validateResourceQuantity(*rq.BorrowingLimit, borrowingLimitPath)...)
-			allErrs = append(allErrs, validateBorrowingLimit(*rq.BorrowingLimit, cohort, borrowingLimitPath)...)
+			allErrs = append(allErrs, validateLimit(*rq.BorrowingLimit, cohort, borrowingLimitPath)...)
+		}
+		if features.Enabled(features.LendingLimit) && rq.LendingLimit != nil {
+			lendingLimitPath := path.Child("lendingLimit")
+			allErrs = append(allErrs, validateResourceQuantity(*rq.LendingLimit, lendingLimitPath)...)
+			allErrs = append(allErrs, validateLimit(*rq.LendingLimit, cohort, lendingLimitPath)...)
+			allErrs = append(allErrs, validateLendingLimit(*rq.LendingLimit, rq.NominalQuota, lendingLimitPath)...)
 		}
 	}
 	return allErrs
@@ -205,16 +213,25 @@ func validateFlavorQuotas(flavorQuotas kueue.FlavorQuotas, coveredResources []co
 func validateResourceQuantity(value resource.Quantity, fldPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 	if value.Cmp(resource.Quantity{}) < 0 {
-		allErrs = append(allErrs, field.Invalid(fldPath, value.String(), isNegativeErrorMsg))
+		allErrs = append(allErrs, field.Invalid(fldPath, value.String(), constants.IsNegativeErrorMsg))
 	}
 	return allErrs
 }
 
-// validateBorrowingLimit enforces that BorrowingLimit must be nil when cohort is empty
-func validateBorrowingLimit(borrow resource.Quantity, cohort string, fldPath *field.Path) field.ErrorList {
+// validateLimit enforces that BorrowingLimit or LendingLimit must be nil when cohort is empty
+func validateLimit(limit resource.Quantity, cohort string, fldPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 	if len(cohort) == 0 {
-		allErrs = append(allErrs, field.Invalid(fldPath, borrow.String(), borrowingLimitErrorMsg))
+		allErrs = append(allErrs, field.Invalid(fldPath, limit.String(), limitIsEmptyErrorMsg))
+	}
+	return allErrs
+}
+
+// validateLendingLimit enforces that LendingLimit is not greater than NominalQuota
+func validateLendingLimit(lend, nominal resource.Quantity, fldPath *field.Path) field.ErrorList {
+	var allErrs field.ErrorList
+	if lend.Cmp(nominal) > 0 {
+		allErrs = append(allErrs, field.Invalid(fldPath, lend.String(), lendingLimitErrorMsg))
 	}
 	return allErrs
 }

@@ -1,3 +1,19 @@
+## v0.5.3
+
+Changes since `v0.5.2`:
+
+## Changes by Kind
+
+### Bug or Regression
+
+- Avoid finished Workloads from blocking quota after a Kueue restart (#1699, @trasc)
+- Do not (re)create ProvReq if the state of admission check is Ready (#1620, @mimowo)
+- Fix Kueue crashing at the log level 6 when re-admitting workloads (#1645, @mimowo)
+- Kueue replicas are advertised as Ready only once the webhooks are functional.
+  
+  This allows users to wait with the first requests until the Kueue deployment is available, so that the early requests don't fail. (#1682 #1713, @mimowo @trasc)
+- Remove deleted pending workloads from the cache (#1687, @astefanutti)
+
 ## v0.5.2
 
 Changes since `v0.5.1`:

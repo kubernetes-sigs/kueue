@@ -44,6 +44,8 @@ const (
 	DefaultQueueVisibilityUpdateIntervalSeconds int32   = 5
 	DefaultClusterQueuesMaxCount                int32   = 10
 	defaultJobFrameworkName                             = "batch/job"
+	DefaultMultiKueueGCInterval                         = time.Minute
+	DefaultMultiKueueOrigin                             = "multikueue"
 )
 
 func getOperatorNamespace() string {
@@ -118,8 +120,10 @@ func SetDefaults_Configuration(cfg *Configuration) {
 			}
 			cfg.WaitForPodsReady.BlockAdmission = &defaultBlockAdmission
 		}
-		if cfg.WaitForPodsReady.RequeuingTimestamp == nil {
-			cfg.WaitForPodsReady.RequeuingTimestamp = ptr.To(EvictionTimestamp)
+		if cfg.WaitForPodsReady.RequeuingStrategy == nil || cfg.WaitForPodsReady.RequeuingStrategy.Timestamp == nil {
+			cfg.WaitForPodsReady.RequeuingStrategy = &RequeuingStrategy{
+				Timestamp: ptr.To(EvictionTimestamp),
+			}
 		}
 	}
 	if cfg.Integrations == nil {
@@ -160,5 +164,15 @@ func SetDefaults_Configuration(cfg *Configuration) {
 
 	if cfg.Integrations.PodOptions.PodSelector == nil {
 		cfg.Integrations.PodOptions.PodSelector = &metav1.LabelSelector{}
+	}
+
+	if cfg.MultiKueue == nil {
+		cfg.MultiKueue = &MultiKueue{}
+	}
+	if cfg.MultiKueue.GCInterval == nil {
+		cfg.MultiKueue.GCInterval = &metav1.Duration{Duration: DefaultMultiKueueGCInterval}
+	}
+	if ptr.Deref(cfg.MultiKueue.Origin, "") == "" {
+		cfg.MultiKueue.Origin = ptr.To(DefaultMultiKueueOrigin)
 	}
 }

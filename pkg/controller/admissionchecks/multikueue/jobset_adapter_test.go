@@ -63,7 +63,7 @@ func TestWlReconcileJobset(t *testing.T) {
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
-					OwnerReference(jobset.SchemeGroupVersion.WithKind("JobSet"), "jobset1", "uid1", true, true).
+					ControllerReference(jobset.SchemeGroupVersion.WithKind("JobSet"), "jobset1", "uid1").
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
@@ -84,7 +84,7 @@ func TestWlReconcileJobset(t *testing.T) {
 						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
-					OwnerReference(jobset.SchemeGroupVersion.WithKind("JobSet"), "jobset1", "uid1", true, true).
+					ControllerReference(jobset.SchemeGroupVersion.WithKind("JobSet"), "jobset1", "uid1").
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
@@ -100,6 +100,98 @@ func TestWlReconcileJobset(t *testing.T) {
 			wantWorker1JobSets: []jobset.JobSet{
 				*baseJobSetBuilder.DeepCopy().
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					Label(kueuealpha.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+		},
+		"remote jobset status is changed, the status is copied in the local Jobset ": {
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload got reservation on "worker1"`,
+					}).
+					ControllerReference(jobset.SchemeGroupVersion.WithKind("JobSet"), "jobset1", "uid1").
+					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					Obj(),
+			},
+
+			managersJobSets: []jobset.JobSet{
+				*baseJobSetBuilder.DeepCopy().Obj(),
+			},
+
+			worker1JobSets: []jobset.JobSet{
+				*baseJobSetBuilder.DeepCopy().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					JobsStatus(
+						jobset.ReplicatedJobStatus{
+							Name:      "replicated-job-1",
+							Ready:     1,
+							Succeeded: 1,
+						},
+						jobset.ReplicatedJobStatus{
+							Name:      "replicated-job-2",
+							Ready:     3,
+							Succeeded: 0,
+						},
+					).
+					Obj(),
+			},
+
+			worker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					Obj(),
+			},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload got reservation on "worker1"`,
+					}).
+					ControllerReference(jobset.SchemeGroupVersion.WithKind("JobSet"), "jobset1", "uid1").
+					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					Obj(),
+			},
+			wantManagersJobsSets: []jobset.JobSet{
+				*baseJobSetBuilder.DeepCopy().
+					JobsStatus(
+						jobset.ReplicatedJobStatus{
+							Name:      "replicated-job-1",
+							Ready:     1,
+							Succeeded: 1,
+						},
+						jobset.ReplicatedJobStatus{
+							Name:      "replicated-job-2",
+							Ready:     3,
+							Succeeded: 0,
+						},
+					).
+					Obj(),
+			},
+
+			wantWorker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
+					Obj(),
+			},
+			wantWorker1JobSets: []jobset.JobSet{
+				*baseJobSetBuilder.DeepCopy().
+					Label(constants.PrebuiltWorkloadLabel, "wl1").
+					JobsStatus(
+						jobset.ReplicatedJobStatus{
+							Name:      "replicated-job-1",
+							Ready:     1,
+							Succeeded: 1,
+						},
+						jobset.ReplicatedJobStatus{
+							Name:      "replicated-job-2",
+							Ready:     3,
+							Succeeded: 0,
+						},
+					).
 					Obj(),
 			},
 		},
@@ -111,7 +203,7 @@ func TestWlReconcileJobset(t *testing.T) {
 						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
-					OwnerReference(jobset.SchemeGroupVersion.WithKind("JobSet"), "jobset1", "uid1", true, true).
+					ControllerReference(jobset.SchemeGroupVersion.WithKind("JobSet"), "jobset1", "uid1").
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
 					Obj(),
 			},
@@ -140,9 +232,9 @@ func TestWlReconcileJobset(t *testing.T) {
 						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
-					OwnerReference(jobset.SchemeGroupVersion.WithKind("JobSet"), "jobset1", "uid1", true, true).
+					ControllerReference(jobset.SchemeGroupVersion.WithKind("JobSet"), "jobset1", "uid1").
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
-					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: `From remote "worker1": by test`}).
+					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: `by test`}).
 					Obj(),
 			},
 			wantManagersJobsSets: []jobset.JobSet{
@@ -172,9 +264,9 @@ func TestWlReconcileJobset(t *testing.T) {
 						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
-					OwnerReference(jobset.SchemeGroupVersion.WithKind("JobSet"), "jobset1", "uid1", true, true).
+					ControllerReference(jobset.SchemeGroupVersion.WithKind("JobSet"), "jobset1", "uid1").
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
-					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: `From remote "worker1": by test`}).
+					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: `by test`}).
 					Obj(),
 			},
 
@@ -204,9 +296,9 @@ func TestWlReconcileJobset(t *testing.T) {
 						State:   kueue.CheckStateReady,
 						Message: `The workload got reservation on "worker1"`,
 					}).
-					OwnerReference(jobset.SchemeGroupVersion.WithKind("JobSet"), "jobset1", "uid1", true, true).
+					ControllerReference(jobset.SchemeGroupVersion.WithKind("JobSet"), "jobset1", "uid1").
 					ReserveQuota(utiltesting.MakeAdmission("q1").Obj()).
-					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: `From remote "worker1": by test`}).
+					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: `by test`}).
 					Obj(),
 			},
 			wantManagersJobsSets: []jobset.JobSet{
@@ -233,19 +325,19 @@ func TestWlReconcileJobset(t *testing.T) {
 
 			managerClient := manageBuilder.Build()
 
-			cRec := newClustersReconciler(managerClient, TestNamespace)
+			cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin)
 
 			worker1Builder, _ := getClientBuilder()
 			worker1Builder = worker1Builder.WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}, &jobset.JobSetList{Items: tc.worker1JobSets})
 			worker1Client := worker1Builder.Build()
 
-			w1remoteClient := newRemoteClient(managerClient, nil)
+			w1remoteClient := newRemoteClient(managerClient, nil, defaultOrigin)
 			w1remoteClient.client = worker1Client
 
 			cRec.remoteClients["worker1"] = w1remoteClient
 
 			helper, _ := newMultiKueueStoreHelper(managerClient)
-			reconciler := newWlReconciler(managerClient, helper, cRec)
+			reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin)
 
 			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "wl1", Namespace: TestNamespace}})
 			if gotErr != nil {

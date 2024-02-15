@@ -214,7 +214,7 @@ func (s *Scheduler) schedule(ctx context.Context) {
 			// If the workload uses resources that were potentially assumed in this cycle and will no longer fit in the
 			// cohort. If a resource of a flavor is used only once or for the first time in the cycle the checks done by
 			// the flavorassigner are still valid.
-			if cycleCohortsUsage.hasCommonFlavorResources(cq.Cohort.Name, e.assignment.Usage) && !cq.Cohort.CanFit(sum) {
+			if cycleCohortsUsage.hasCommonFlavorResources(cq.Cohort.Name, e.assignment.Usage) && !cq.FitInCohort(sum) {
 				e.status = skipped
 				e.inadmissibleMsg = "other workloads in the cohort were prioritized"
 				// When the workload needs borrowing and there is another workload in cohort doesn't
@@ -379,7 +379,8 @@ type partialAssignment struct {
 
 func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cache.Snapshot) (flavorassigner.Assignment, []*workload.Info) {
 	cq := snap.ClusterQueues[wl.ClusterQueue]
-	fullAssignment := flavorassigner.AssignFlavors(log, wl, snap.ResourceFlavors, cq, nil)
+	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors)
+	fullAssignment := flvAssigner.Assign(log, nil)
 	var faPreemtionTargets []*workload.Info
 
 	arm := fullAssignment.RepresentativeMode()
@@ -398,7 +399,7 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 
 	if wl.CanBePartiallyAdmitted() {
 		reducer := flavorassigner.NewPodSetReducer(wl.Obj.Spec.PodSets, func(nextCounts []int32) (*partialAssignment, bool) {
-			assignment := flavorassigner.AssignFlavors(log, wl, snap.ResourceFlavors, cq, nextCounts)
+			assignment := flvAssigner.Assign(log, nextCounts)
 			if assignment.RepresentativeMode() == flavorassigner.Fit {
 				return &partialAssignment{assignment: assignment}, true
 			}

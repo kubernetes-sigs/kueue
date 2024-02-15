@@ -358,11 +358,6 @@ func workloadFits(wlReq cache.FlavorResourceQuantities, cq *cache.ClusterQueue, 
 				continue
 			}
 			cqResUsage := cq.Usage[flvQuotas.Name]
-			var cohortResUsage, cohortResRequestable map[corev1.ResourceName]int64
-			if cq.Cohort != nil {
-				cohortResUsage = cq.Cohort.Usage[flvQuotas.Name]
-				cohortResRequestable = cq.Cohort.RequestableResources[flvQuotas.Name]
-			}
 			for rName, rReq := range flvReq {
 				resource := flvQuotas.Resources[rName]
 
@@ -379,8 +374,13 @@ func workloadFits(wlReq cache.FlavorResourceQuantities, cq *cache.ClusterQueue, 
 						}
 					}
 				}
-				if cq.Cohort != nil && cohortResUsage[rName]+rReq > cohortResRequestable[rName] {
-					return false
+
+				if cq.Cohort != nil {
+					cohortResUsage := cq.UsedCohortQuota(flvQuotas.Name, rName)
+					requestableQuota := cq.RequestableCohortQuota(flvQuotas.Name, rName)
+					if cohortResUsage+rReq > requestableQuota {
+						return false
+					}
 				}
 			}
 		}
