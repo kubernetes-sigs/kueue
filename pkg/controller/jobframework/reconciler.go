@@ -65,6 +65,7 @@ type JobReconciler struct {
 	record                     record.EventRecorder
 	manageJobsWithoutQueueName bool
 	waitForPodsReady           bool
+	importMode                 bool
 }
 
 type Options struct {
@@ -75,6 +76,7 @@ type Options struct {
 	IntegrationOptions map[string]any
 	EnabledFrameworks  sets.Set[string]
 	ManagerName        string
+	ImportMode         bool
 }
 
 // Option configures the reconciler.
@@ -139,6 +141,13 @@ func WithManagerName(n string) Option {
 	}
 }
 
+// WithImportMode creates Workloads for jobs that already exist.
+func WithImportMode(i bool) Option {
+	return func(o *Options) {
+		o.ImportMode = i
+	}
+}
+
 var defaultOptions = Options{}
 
 func NewReconciler(
@@ -152,6 +161,7 @@ func NewReconciler(
 		record:                     record,
 		manageJobsWithoutQueueName: options.ManageJobsWithoutQueueName,
 		waitForPodsReady:           options.WaitForPodsReady,
+		importMode:                 options.ImportMode,
 	}
 }
 
@@ -243,7 +253,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// if this is a non-standalone job, suspend the job if its parent workload is not found or not admitted.
 	if !isStandaloneJob {
 		_, finished := job.Finished()
-		if !finished && !job.IsSuspended() {
+		if !r.importMode && !finished && !job.IsSuspended() {
 			if parentWorkload, err := r.getParentWorkload(ctx, job, object); err != nil {
 				log.Error(err, "couldn't get the parent job workload")
 				return ctrl.Result{}, err
@@ -295,9 +305,11 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// and drop the finalizer.
 	if wl != nil && !wl.DeletionTimestamp.IsZero() {
 		log.V(2).Info("The workload is marked for deletion")
-		err := r.stopJob(ctx, job, wl, StopReasonWorkloadDeleted, "Workload is deleted")
-		if err != nil {
-			log.Error(err, "Suspending job with deleted workload")
+		if !r.importMode {
+			err := r.stopJob(ctx, job, wl, StopReasonWorkloadDeleted, "Workload is deleted")
+			if err != nil {
+				log.Error(err, "Suspending job with deleted workload")
+			}
 		}
 
 		if err == nil && wl != nil {
@@ -373,22 +385,24 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	// 6. handle eviction
-	if evCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted); evCond != nil && evCond.Status == metav1.ConditionTrue {
-		if err := r.stopJob(ctx, job, wl, StopReasonWorkloadEvicted, evCond.Message); err != nil {
-			return ctrl.Result{}, err
-		}
-		if workload.HasQuotaReservation(wl) {
-			if !job.IsActive() {
-				log.V(6).Info("The job is no longer active, clear the workloads admission")
-				workload.UnsetQuotaReservationWithCondition(wl, "Pending", evCond.Message)
-				_ = workload.SyncAdmittedCondition(wl)
-				err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
-				if err != nil {
-					return ctrl.Result{}, fmt.Errorf("clearing admission: %w", err)
+	if !r.importMode {
+		if evCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted); evCond != nil && evCond.Status == metav1.ConditionTrue {
+			if err := r.stopJob(ctx, job, wl, StopReasonWorkloadEvicted, evCond.Message); err != nil {
+				return ctrl.Result{}, err
+			}
+			if workload.HasQuotaReservation(wl) {
+				if !job.IsActive() {
+					log.V(6).Info("The job is no longer active, clear the workloads admission")
+					workload.UnsetQuotaReservationWithCondition(wl, "Pending", evCond.Message)
+					_ = workload.SyncAdmittedCondition(wl)
+					err := workload.ApplyAdmissionStatus(ctx, r.client, wl, true)
+					if err != nil {
+						return ctrl.Result{}, fmt.Errorf("clearing admission: %w", err)
+					}
 				}
 			}
+			return ctrl.Result{}, nil
 		}
-		return ctrl.Result{}, nil
 	}
 
 	// 7. handle job is suspended.
@@ -437,7 +451,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	// 9. handle job is unsuspended.
-	if !workload.IsAdmitted(wl) {
+	if !r.importMode && !workload.IsAdmitted(wl) {
 		// the job must be suspended if the workload is not yet admitted.
 		log.V(2).Info("Running job is not admitted by a cluster queue, suspending")
 		err := r.stopJob(ctx, job, wl, StopReasonNotAdmitted, "Not admitted by cluster queue")
@@ -530,7 +544,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 	}
 
 	// If there is no matching workload and the job is running, suspend it.
-	if match == nil && !job.IsSuspended() {
+	if !r.importMode && match == nil && !job.IsSuspended() {
 		log.V(2).Info("job with no matching workload, suspending")
 		var w *kueue.Workload
 		if len(toDelete) == 1 {
@@ -916,10 +930,12 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 		}
 	}
 
-	// Wait until there are no active pods.
-	if job.IsActive() {
-		log.V(2).Info("Job is suspended but still has active pods, waiting")
-		return nil
+	if !r.importMode {
+		// Wait until there are no active pods.
+		if job.IsActive() {
+			log.V(2).Info("Job is suspended but still has active pods, waiting")
+			return nil
+		}
 	}
 
 	if usePrebuiltWorkload {

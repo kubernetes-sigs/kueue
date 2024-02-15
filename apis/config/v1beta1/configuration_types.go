@@ -70,6 +70,12 @@ type Configuration struct {
 
 	// MultiKueue controls the behaviour of the MultiKueue AdmissionCheck Controller.
 	MultiKueue *MultiKueue `json:"multiKueue,omitempty"`
+
+	// ImportMode will import existing jobs into Kueue without disrupting them.
+	// Workload objects are created and Queues are reconciled.
+	// WARNING: Upon disabling importMode, evictions could occur if Kueue does not
+	// consider a Workload to be admitted during importing.
+	ImportMode bool `json:"importMode,omitempty"`
 }
 
 type ControllerManager struct {
