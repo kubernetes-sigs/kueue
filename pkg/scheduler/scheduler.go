@@ -379,7 +379,8 @@ type partialAssignment struct {
 
 func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cache.Snapshot) (flavorassigner.Assignment, []*workload.Info) {
 	cq := snap.ClusterQueues[wl.ClusterQueue]
-	fullAssignment := flavorassigner.AssignFlavors(log, wl, snap.ResourceFlavors, cq, nil)
+	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors)
+	fullAssignment := flvAssigner.Assign(log, nil)
 	var faPreemtionTargets []*workload.Info
 
 	arm := fullAssignment.RepresentativeMode()
@@ -398,7 +399,7 @@ func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *cac
 
 	if wl.CanBePartiallyAdmitted() {
 		reducer := flavorassigner.NewPodSetReducer(wl.Obj.Spec.PodSets, func(nextCounts []int32) (*partialAssignment, bool) {
-			assignment := flavorassigner.AssignFlavors(log, wl, snap.ResourceFlavors, cq, nextCounts)
+			assignment := flvAssigner.Assign(log, nextCounts)
 			if assignment.RepresentativeMode() == flavorassigner.Fit {
 				return &partialAssignment{assignment: assignment}, true
 			}
