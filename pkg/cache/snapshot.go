@@ -17,6 +17,8 @@ limitations under the License.
 package cache
 
 import (
+	"maps"
+
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -24,7 +26,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/util/maps"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -70,7 +72,7 @@ func (s *Snapshot) Log(log logr.Logger) {
 			"cohort", cohortName,
 			"resourceGroups", cq.ResourceGroups,
 			"usage", cq.Usage,
-			"workloads", maps.Keys(cq.Workloads),
+			"workloads", utilmaps.Keys(cq.Workloads),
 		)
 	}
 	for name, cohort := range cohorts {
@@ -128,24 +130,15 @@ func (c *ClusterQueue) snapshot() *ClusterQueue {
 		FlavorFungibility:             c.FlavorFungibility,
 		AllocatableResourceGeneration: c.AllocatableResourceGeneration,
 		Usage:                         make(FlavorResourceQuantities, len(c.Usage)),
-		Workloads:                     make(map[string]*workload.Info, len(c.Workloads)),
+		Workloads:                     maps.Clone(c.Workloads),
 		Preemption:                    c.Preemption,
 		NamespaceSelector:             c.NamespaceSelector,
 		Status:                        c.Status,
 		AdmissionChecks:               c.AdmissionChecks.Clone(),
 	}
 	for fName, rUsage := range c.Usage {
-		rUsageCopy := make(map[corev1.ResourceName]int64, len(rUsage))
-		for k, v := range rUsage {
-			rUsageCopy[k] = v
-		}
-		cc.Usage[fName] = rUsageCopy
+		cc.Usage[fName] = maps.Clone(rUsage)
 	}
-	for k, v := range c.Workloads {
-		// Shallow copy is enough.
-		cc.Workloads[k] = v
-	}
-
 	if features.Enabled(features.LendingLimit) {
 		cc.GuaranteedQuota = c.GuaranteedQuota
 	}
