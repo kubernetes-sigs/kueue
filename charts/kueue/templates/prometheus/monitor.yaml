@@ -16,5 +16,5 @@ spec:
       insecureSkipVerify: true
   selector:
     matchLabels:
-    {{- include "kueue.selectorLabels" . | nindent 6 }}
+    {{- include "kueue.labels" . | nindent 6 }}
 {{- end }}
