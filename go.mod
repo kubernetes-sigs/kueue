@@ -34,6 +34,7 @@ require (
 )
 
 replace github.com/satori/go.uuid v1.2.0 => github.com/google/uuid v1.6.0
+replace github.com/libopenstorage/openstorage v1.0.0 => github.com/libopenstorage/openstorage v3.0.0-beta
 
 require (
 	github.com/NYTimes/gziphandler v1.1.1 // indirect
