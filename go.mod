@@ -33,6 +33,8 @@ require (
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1
 )
 
+replace github.com/satori/go.uuid v1.2.0 => github.com/google/uuid v1.6.0
+
 require (
 	github.com/NYTimes/gziphandler v1.1.1 // indirect
 	github.com/antlr/antlr4/runtime/Go/antlr/v4 v4.0.0-20230321174746-8dcc6526cfb1 // indirect
