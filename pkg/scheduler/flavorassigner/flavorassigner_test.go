@@ -2313,7 +2313,7 @@ func TestLastAssignmentOutdated(t *testing.T) {
 			name: "Cluster queue allocatableResourceIncreasedGen increased",
 			args: args{
 				wl: &workload.Info{
-					LastAssignment: &workload.AssigmentClusterQueueState{
+					LastAssignment: &workload.AssignmentClusterQueueState{
 						ClusterQueueGeneration: 0,
 					},
 				},
@@ -2328,7 +2328,7 @@ func TestLastAssignmentOutdated(t *testing.T) {
 			name: "Cohort allocatableResourceIncreasedGen increased",
 			args: args{
 				wl: &workload.Info{
-					LastAssignment: &workload.AssigmentClusterQueueState{
+					LastAssignment: &workload.AssignmentClusterQueueState{
 						ClusterQueueGeneration: 0,
 						CohortGeneration:       0,
 					},
@@ -2346,7 +2346,7 @@ func TestLastAssignmentOutdated(t *testing.T) {
 			name: "AllocatableResourceGeneration not increased",
 			args: args{
 				wl: &workload.Info{
-					LastAssignment: &workload.AssigmentClusterQueueState{
+					LastAssignment: &workload.AssignmentClusterQueueState{
 						ClusterQueueGeneration: 0,
 						CohortGeneration:       0,
 					},

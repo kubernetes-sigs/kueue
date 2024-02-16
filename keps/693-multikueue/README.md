@@ -53,10 +53,10 @@ data as a part of the startup process.
 user will create the appropriate objects, roles and permissions
 in the clusters (manually, using gitops or some 3rd-party tooling).
 * Set up authentication between clusters.
-* Support very high job troughput (>1M jobs/day).
+* Support very high job throughput (>1M jobs/day).
 * Support K8S Jobs on management clusters that don't have either 
 kubernetes/enhancements#4370 implemented or Job controller disabled.
-* Support for cluster role sharing (worker & manager insinde one cluster)
+* Support for cluster role sharing (worker & manager inside one cluster)
 is out of scope for this KEP. We will get back to the topic once 
 kubernetes/enhancements#4370 is merged and becomes a wider standard.
 * distribute running Jobs across multiple clusters, and reconcile partial
@@ -87,7 +87,7 @@ There will be no job controllers running in the management clusters or they will
 disabled for the workloads coming to MultiKueue-enabled cluster queues via annotation
 or some other, yet to be decided, mechanism. By disabling we mean that the controller
 will do no action on the selected objects, no pods (or other objects created and 
-allowing other controllets to update their status as they see fit.
+allowing other controllers to update their status as they see fit.
 
 There will be just CRD/job definitions deployed. MultiKueue controller will copy the status
 of the job from the worker clusters, so that it will appear that the job
@@ -122,12 +122,12 @@ We are working on kubernetes/enhancements#4370
 to establish an acceptable way of using a non default controller (or none at all).
 
 * etcd may not provide enough performance (writes/s) to handle very large 
-deployments with very high job troughput (above 1M jobs per day).
+deployments with very high job throughput (above 1M jobs per day).
 
 * Management cluster could be a single point of failure. The mitigations include:
-  * Running multiple managmenet clusters with infinite global quotas and 
+  * Running multiple management clusters with infinite global quotas and 
     correct, limiting worker cluster local quotas.
-  * Running multiple managment clusters, with one leader and back-up clusters
+  * Running multiple management clusters, with one leader and back-up clusters
     learning the state of the world from the worker clusters (not covered
     by this KEP).
 
@@ -191,7 +191,7 @@ type MultiKueueClusterStatus {
 
 MultiKueue controller will monitor all cluster definitions and maintain 
 the Kube clients for all of them. Any connectivity problems will be reported both in
-MultiKueuCluster status as well as AdmissionCheckStatus and Events. MultiKueue controller 
+MultiKueueCluster status as well as AdmissionCheckStatus and Events. MultiKueue controller 
 will make sure that whenever the kubeconfig is refreshed, the appropriate 
 clients will also be recreated.
 
@@ -216,17 +216,17 @@ to the management cluster, to keep the impression that the job is running in the
 cluster. This is needed to allow pipelines and workflow engines to execute against 
 the management cluster with MultiKueue without any extra changes. 
 
-If the connection between managment cluster and worker cluster is lost, the managment 
+If the connection between management cluster and worker cluster is lost, the management 
 cluster assumes the total loss of all running/admitted workloads and moves them back to 
 non-admitted/queued state. Once the cluster is reconnected, the workloads are reconciled.
 If there is enough of global quota, the unknown admitted workloads would be re-admitted in 
-the managment cluster. If not, some workloads will be preempted to meet the global quota.
+the management cluster. If not, some workloads will be preempted to meet the global quota.
 In case of duplicates, all but one of them will be removed.
 
 #### Follow ups ideas
 
 * Handle large number of clusters via selectors.
-* Provide plugin mechanism to controll how the workloads are distributed across worker clusers.
+* Provide plugin mechanism to control how the workloads are distributed across worker clusters.
 
 ### Test Plan
 [x] I/we understand the owners of the involved components may require updates to
@@ -263,7 +263,7 @@ In Alpha version, in the 0.6 release, MultiKueue will support:
 
 * APIs as described above.
 * Basic workload distribution across clusters.
-* JobSet integragion, with full status relay.
+* JobSet integration, with full status relay.
 
 Other integrations may come in 0.6 (if lucky) or in following releases 
 of Kueue.

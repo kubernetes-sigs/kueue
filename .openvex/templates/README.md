@@ -14,7 +14,7 @@ vexctl add --in-place main.openvex.json pkg:oci/test CVE-2014-1234567 fixed
 That will add a new VEX statement expressing that the impact of
 CVE-2014-1234567 is under investigation in the test image. When
 cutting a new release, for `pkg:oci/test` the new file will be
-incorporated to the relase's VEX data.
+incorporated to the release's VEX data.
 
 ## Read more about OpenVEX
 

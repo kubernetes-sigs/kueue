@@ -41,7 +41,7 @@ import (
 type Assignment struct {
 	PodSets   []PodSetAssignment
 	Borrowing bool
-	LastState workload.AssigmentClusterQueueState
+	LastState workload.AssignmentClusterQueueState
 
 	// Usage is the accumulated Usage of resources as pod sets get
 	// flavors assigned.
@@ -51,7 +51,7 @@ type Assignment struct {
 	representativeMode *FlavorAssignmentMode
 }
 
-// Borrows return whether assigment requires borrowing.
+// Borrows return whether assignment requires borrowing.
 func (a *Assignment) Borrows() bool {
 	return a.Borrowing
 }
@@ -283,7 +283,7 @@ func (a *FlavorAssigner) assignFlavors(log logr.Logger, requests []workload.PodS
 	assignment := Assignment{
 		PodSets: make([]PodSetAssignment, 0, len(requests)),
 		Usage:   make(cache.FlavorResourceQuantities),
-		LastState: workload.AssigmentClusterQueueState{
+		LastState: workload.AssignmentClusterQueueState{
 			LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, 0, len(requests)),
 			CohortGeneration:       0,
 			ClusterQueueGeneration: a.cq.AllocatableResourceGeneration,

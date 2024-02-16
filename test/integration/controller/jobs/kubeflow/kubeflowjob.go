@@ -137,7 +137,7 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 			*testing.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
 			*testing.MakeFlavorQuotas("spot").Resource(corev1.ResourceCPU, "5").Obj(),
 		).Obj()
-	admission := testing.MakeAdmission(clusterQueue.Name).PodSets(CreatePodSetAssigment(createdWorkload, podSetsResources)...).Obj()
+	admission := testing.MakeAdmission(clusterQueue.Name).PodSets(CreatePodSetAssignment(createdWorkload, podSetsResources)...).Obj()
 	gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
 	util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 	gomega.Eventually(func() bool {
@@ -188,7 +188,7 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 	gomega.Expect(createdWorkload.Status.Admission).Should(gomega.BeNil())
 
 	ginkgo.By("checking the job is unsuspended and selectors added when workload is assigned again")
-	admission = testing.MakeAdmission(clusterQueue.Name).PodSets(CreatePodSetAssigment(createdWorkload, podSetsResources)...).Obj()
+	admission = testing.MakeAdmission(clusterQueue.Name).PodSets(CreatePodSetAssignment(createdWorkload, podSetsResources)...).Obj()
 	gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
 	util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 	gomega.Eventually(func() bool {
@@ -245,7 +245,7 @@ func JobControllerWhenWaitForPodsReadyEnabled(ctx context.Context, k8sClient cli
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 	ginkgo.By("Admit the workload created for the job")
-	admission := testing.MakeAdmission("foo").PodSets(CreatePodSetAssigment(createdWorkload, podSetsResources)...).Obj()
+	admission := testing.MakeAdmission("foo").PodSets(CreatePodSetAssignment(createdWorkload, podSetsResources)...).Obj()
 	gomega.ExpectWithOffset(1, util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
 	util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 	gomega.ExpectWithOffset(1, k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
@@ -316,7 +316,7 @@ type PodSetsResource struct {
 	ResourceCPU kueue.ResourceFlavorReference
 }
 
-func CreatePodSetAssigment(createdWorkload *kueue.Workload, podSetsResource []PodSetsResource) []kueue.PodSetAssignment {
+func CreatePodSetAssignment(createdWorkload *kueue.Workload, podSetsResource []PodSetsResource) []kueue.PodSetAssignment {
 	pda := []kueue.PodSetAssignment{}
 	for i, psr := range podSetsResource {
 		pda = append(pda, kueue.PodSetAssignment{

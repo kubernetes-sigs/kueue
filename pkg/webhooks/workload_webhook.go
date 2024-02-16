@@ -296,13 +296,13 @@ func validateAdmission(obj *kueue.Workload, path *field.Path) field.ErrorList {
 	for _, ps := range obj.Spec.PodSets {
 		names.Insert(ps.Name)
 	}
-	assigmentsPath := path.Child("podSetAssignments")
+	assignmentsPath := path.Child("podSetAssignments")
 	if names.Len() != len(admission.PodSetAssignments) {
-		allErrs = append(allErrs, field.Invalid(assigmentsPath, field.OmitValueType{}, "must have the same number of podSets as the spec"))
+		allErrs = append(allErrs, field.Invalid(assignmentsPath, field.OmitValueType{}, "must have the same number of podSets as the spec"))
 	}
 
 	for i, ps := range admission.PodSetAssignments {
-		psaPath := assigmentsPath.Index(i)
+		psaPath := assignmentsPath.Index(i)
 		if !names.Has(ps.Name) {
 			allErrs = append(allErrs, field.NotFound(psaPath.Child("name"), ps.Name))
 		}

@@ -132,13 +132,13 @@ func (s *Scheduler) setAdmissionRoutineWrapper(wrapper routine.Wrapper) {
 
 type cohortsUsage map[string]cache.FlavorResourceQuantities
 
-func (cu *cohortsUsage) add(cohort string, assigment cache.FlavorResourceQuantities) {
+func (cu *cohortsUsage) add(cohort string, assignment cache.FlavorResourceQuantities) {
 	cohortUsage := (*cu)[cohort]
 	if cohortUsage == nil {
-		cohortUsage = make(cache.FlavorResourceQuantities, len(assigment))
+		cohortUsage = make(cache.FlavorResourceQuantities, len(assignment))
 	}
 
-	for flavor, resources := range assigment {
+	for flavor, resources := range assignment {
 		if _, found := cohortUsage[flavor]; found {
 			cohortUsage[flavor] = utilmaps.Merge(cohortUsage[flavor], resources, func(a, b int64) int64 { return a + b })
 		} else {
@@ -148,20 +148,20 @@ func (cu *cohortsUsage) add(cohort string, assigment cache.FlavorResourceQuantit
 	(*cu)[cohort] = cohortUsage
 }
 
-func (cu *cohortsUsage) totalUsageForCommonFlavorResources(cohort string, assigment cache.FlavorResourceQuantities) cache.FlavorResourceQuantities {
-	return utilmaps.Intersect((*cu)[cohort], assigment, func(a, b map[corev1.ResourceName]int64) map[corev1.ResourceName]int64 {
+func (cu *cohortsUsage) totalUsageForCommonFlavorResources(cohort string, assignment cache.FlavorResourceQuantities) cache.FlavorResourceQuantities {
+	return utilmaps.Intersect((*cu)[cohort], assignment, func(a, b map[corev1.ResourceName]int64) map[corev1.ResourceName]int64 {
 		return utilmaps.Intersect(a, b, func(a, b int64) int64 { return a + b })
 	})
 }
 
-func (cu *cohortsUsage) hasCommonFlavorResources(cohort string, assigment cache.FlavorResourceQuantities) bool {
+func (cu *cohortsUsage) hasCommonFlavorResources(cohort string, assignment cache.FlavorResourceQuantities) bool {
 	cohortUsage, cohortFound := (*cu)[cohort]
 	if !cohortFound {
 		return false
 	}
-	for flavor, assigmentResources := range assigment {
+	for flavor, assignmentResources := range assignment {
 		if cohortResources, found := cohortUsage[flavor]; found {
-			for resName := range assigmentResources {
+			for resName := range assignmentResources {
 				if _, found := cohortResources[resName]; found {
 					return true
 				}

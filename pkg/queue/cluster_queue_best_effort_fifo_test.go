@@ -31,7 +31,7 @@ import (
 func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 	tests := map[string]struct {
 		reason           RequeueReason
-		lastAssignment   *workload.AssigmentClusterQueueState
+		lastAssignment   *workload.AssignmentClusterQueueState
 		wantInadmissible bool
 	}{
 		"failure after nomination": {
@@ -44,7 +44,7 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 		},
 		"didn't fit and no pending flavors": {
 			reason: RequeueReasonGeneric,
-			lastAssignment: &workload.AssigmentClusterQueueState{
+			lastAssignment: &workload.AssignmentClusterQueueState{
 				LastTriedFlavorIdx: []map[corev1.ResourceName]int{
 					{
 						corev1.ResourceMemory: -1,
@@ -59,7 +59,7 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 		},
 		"didn't fit but pending flavors": {
 			reason: RequeueReasonGeneric,
-			lastAssignment: &workload.AssigmentClusterQueueState{
+			lastAssignment: &workload.AssignmentClusterQueueState{
 				LastTriedFlavorIdx: []map[corev1.ResourceName]int{
 					{
 						corev1.ResourceCPU:    -1,

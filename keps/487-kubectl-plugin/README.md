@@ -53,7 +53,7 @@ tags, and then generate with `hack/update-toc.sh`.
 ## Summary
 
 We would like to develop a Kubectl plugin for Kueue that serves as a command-line workload management tool.
-It should be able to manage and list workloads and ClusterQueues with comprehesive information.
+It should be able to manage and list workloads and ClusterQueues with comprehensive information.
 
 
 <!--
@@ -124,7 +124,7 @@ and make progress.
 
 ## Proposal
 
-We propose creating a command-line tool that can serve as a Kubectl plugin that exposes this missing information. We also propose using a design strategy that mimics existing tools that are available for other workload managers across HPC and cloud that users are comforable with to ease adoption of both the tool and approach of submitting workloads to Kubernetes. The main command-line interactions will take the following shape:
+We propose creating a command-line tool that can serve as a Kubectl plugin that exposes this missing information. We also propose using a design strategy that mimics existing tools that are available for other workload managers across HPC and cloud that users are comfortable with to ease adoption of both the tool and approach of submitting workloads to Kubernetes. The main command-line interactions will take the following shape:
 
 ```bash
 # As a Kubectl plugin
@@ -295,7 +295,7 @@ kueue workloads -q user-queue
 |   insects | ant-123  | kubeflow.org      | MPIJob      | 2    | 4.323s | Completed | 
 
 For namespaces, kueue will use the same practices as kubectl, using "default" for a default, and otherwise
-expecting a `-n` or `--namepsace` argument for a custom namespace.
+expecting a `-n` or `--namespace` argument for a custom namespace.
 
 ```bash
 kueue workloads --namespace insects
@@ -460,7 +460,7 @@ To support the multi-tenancy use case, filters for each of local-queue, cluster-
 kueue submit workload.yaml
 
 # or a simpler abstraction that uses some kind of default or template
-# This would actually be really cool if we could map a community develoepd job or workload spec (that works for other tools) into kueue
+# This would actually be really cool if we could map a community developed job or workload spec (that works for other tools) into kueue
 kueue submit <something else>
 ```
 

@@ -189,11 +189,11 @@ If flavorFungibility is nil in configuration, we will set the `WhenCanBorrow` to
 
 We will not change the behavior to judge whether a podset can get enough resource in certain resource flavor. Preemption and admission will not be influenced also. We only change the order these flavors were considered.
 
-After we try to schedule a podset in a resource flavor, we decide whether to traverse to the next flavor base on the `flavorFungibility`. If the assignment mode is `NoFit`, we will always try the next flavor until the last one. When the assignment mode is `Preempt`, we can return the currenty assignment if `WhenCanPreempt` is `Preempt`. Otherwise if the assignment mode is `Fit`, we try the next flavor only when we need borrowing in the current flavor and `WhenCanBorrow` is `TryNextFlavor`.
+After we try to schedule a podset in a resource flavor, we decide whether to traverse to the next flavor base on the `flavorFungibility`. If the assignment mode is `NoFit`, we will always try the next flavor until the last one. When the assignment mode is `Preempt`, we can return the current assignment if `WhenCanPreempt` is `Preempt`. Otherwise if the assignment mode is `Fit`, we try the next flavor only when we need borrowing in the current flavor and `WhenCanBorrow` is `TryNextFlavor`.
 
 We will store the scheduling context in workload info so that we can start from where we stop in previous scheduling attempts. This will be useful to avoid to waste time in one flavor all the time if we try to preempt in a flavor and failed. Scheduling context will contain the `LastScheduledFlavorIdx`, `ClusterQueueGeneration` attached to the CQ and `CohortGeneration`. Any changes to these properties will lead to a scheduling from the first flavor.
 
-`ClusterQueueGeneration` and `CohortGeneration` mark record the resource consumption of the CQs and Cohort. Any time the available resources of the CQs or Cohort increase, we will increase the genreation. So that if the Generation in scheduling context is lower, we should retry from the first flavor. Note that increasing after decreasing of the available resource will also make the generation increased, but I think this is acceptable since we can save the memory by just storing the generation instead of the usage state for each scheduling attempt.
+`ClusterQueueGeneration` and `CohortGeneration` mark record the resource consumption of the CQs and Cohort. Any time the available resources of the CQs or Cohort increase, we will increase the generation. So that if the Generation in scheduling context is lower, we should retry from the first flavor. Note that increasing after decreasing of the available resource will also make the generation increased, but I think this is acceptable since we can save the memory by just storing the generation instead of the usage state for each scheduling attempt.
 
 For example, if cluster queue has 2 resource groups and workload has 1 podSet as the following:
 
@@ -242,7 +242,7 @@ We will first try `default-flavor1` for cpu and memory resources. If `default-fl
 ### Implementation
 
 ```
-func assignFlavors(log logr.Logger, requests []workload.PodSetResources, podSets []kueue.PodSet, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, cq *cache.ClusterQueue, lastAssignment *workload.AssigmentClusterQueueState) Assignment {
+func assignFlavors(log logr.Logger, requests []workload.PodSetResources, podSets []kueue.PodSet, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, cq *cache.ClusterQueue, lastAssignment *workload.AssignmentClusterQueueState) Assignment {
 	var assignment Assignment
 	if lastAssignment != nil {
 		assignment = Assignment{
@@ -255,7 +255,7 @@ func assignFlavors(log logr.Logger, requests []workload.PodSetResources, podSets
 		assignment = Assignment{
 			TotalBorrow: make(cache.FlavorResourceQuantities),
 			PodSets:     make([]PodSetAssignment, 0, len(requests)),
-			LastState: workload.AssigmentClusterQueueState{
+			LastState: workload.AssignmentClusterQueueState{
 				LastAssignedFlavorIdx:  make([]map[corev1.ResourceName]int, 0, len(podSets)),
 				CohortGeneration:       0,
 				ClusterQueueGeneration: cq.Generation,

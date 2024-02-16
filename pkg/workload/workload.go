@@ -42,14 +42,14 @@ var (
 	admissionManagedConditions = []string{kueue.WorkloadQuotaReserved, kueue.WorkloadEvicted, kueue.WorkloadAdmitted}
 )
 
-type AssigmentClusterQueueState struct {
+type AssignmentClusterQueueState struct {
 	LastTriedFlavorIdx     []map[corev1.ResourceName]int
 	CohortGeneration       int64
 	ClusterQueueGeneration int64
 }
 
-func (s *AssigmentClusterQueueState) Clone() *AssigmentClusterQueueState {
-	c := AssigmentClusterQueueState{
+func (s *AssignmentClusterQueueState) Clone() *AssignmentClusterQueueState {
+	c := AssignmentClusterQueueState{
 		LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, len(s.LastTriedFlavorIdx)),
 		CohortGeneration:       s.CohortGeneration,
 		ClusterQueueGeneration: s.ClusterQueueGeneration,
@@ -62,7 +62,7 @@ func (s *AssigmentClusterQueueState) Clone() *AssigmentClusterQueueState {
 
 // PendingFlavors returns whether there are pending flavors to try
 // after the last attempt.
-func (s *AssigmentClusterQueueState) PendingFlavors() bool {
+func (s *AssignmentClusterQueueState) PendingFlavors() bool {
 	if s == nil {
 		// This is only reached in unit tests.
 		return false
@@ -77,7 +77,7 @@ func (s *AssigmentClusterQueueState) PendingFlavors() bool {
 	return false
 }
 
-func (s *AssigmentClusterQueueState) NextFlavorToTryForPodSetResource(ps int, res corev1.ResourceName) int {
+func (s *AssignmentClusterQueueState) NextFlavorToTryForPodSetResource(ps int, res corev1.ResourceName) int {
 	if !features.Enabled(features.FlavorFungibility) {
 		return 0
 	}
@@ -99,7 +99,7 @@ type Info struct {
 	// Populated from the queue during admission or from the admission field if
 	// already admitted.
 	ClusterQueue   string
-	LastAssignment *AssigmentClusterQueueState
+	LastAssignment *AssignmentClusterQueueState
 }
 
 type PodSetResources struct {
