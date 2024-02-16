@@ -1,6 +1,6 @@
 ---
 title: "Admission Checks"
-linkTitle: "Admisssion Checks"
+linkTitle: "Admission Checks"
 weight: 10
 description: >
   This section describes the Admission Checks that are included with Kueue.
