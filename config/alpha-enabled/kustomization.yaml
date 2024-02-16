@@ -3,6 +3,7 @@
 # Use default settings as a base.
 resources:
 - ../default
+- ../visibility
 
 patches:
 # Modify feature gates to enable AllAlpha=true

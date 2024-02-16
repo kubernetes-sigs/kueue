@@ -3,6 +3,7 @@ kind: Kustomization
 
 resources:
 - ../../../config/dev
+- ../../../config/visibility
 
 patches:
 - path: manager_e2e_patch.yaml
