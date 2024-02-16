@@ -53,7 +53,8 @@ func NewClientBuilder(addToSchemes ...func(s *runtime.Scheme) error) *fake.Clien
 	return fake.NewClientBuilder().WithScheme(scheme).
 		WithIndex(&kueue.LocalQueue{}, indexer.QueueClusterQueueKey, indexer.IndexQueueClusterQueue).
 		WithIndex(&kueue.Workload{}, indexer.WorkloadQueueKey, indexer.IndexWorkloadQueue).
-		WithIndex(&kueue.Workload{}, indexer.WorkloadClusterQueueKey, indexer.IndexWorkloadClusterQueue)
+		WithIndex(&kueue.Workload{}, indexer.WorkloadClusterQueueKey, indexer.IndexWorkloadClusterQueue).
+		WithIndex(&kueue.Workload{}, indexer.OwnerReferenceUID, indexer.IndexOwnerUID)
 }
 
 type builderIndexer struct {

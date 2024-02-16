@@ -37,6 +37,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/equality"
@@ -52,7 +53,6 @@ const (
 )
 
 var (
-	ErrChildJobOwnerNotFound = fmt.Errorf("owner isn't set even though %s annotation is set", controllerconsts.ParentWorkloadAnnotation)
 	ErrUnknownWorkloadOwner  = errors.New("workload owner is unknown")
 	ErrWorkloadOwnerNotFound = errors.New("workload owner not found")
 	ErrNoMatchingWorkloads   = errors.New("no matching workloads")
@@ -217,15 +217,18 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	isStandaloneJob := ParentWorkloadName(job) == ""
+	isStandaloneJob := true
+	objectOwner := metav1.GetControllerOf(object)
+	if objectOwner != nil && IsOwnerManagedByKueue(objectOwner) {
+		isStandaloneJob = false
+	}
 
 	// when manageJobsWithoutQueueName is disabled we only reconcile jobs that have either
 	// queue-name or the parent-workload annotation set.
 	// If the parent-workload annotation is set, it also checks whether the parent job has queue-name label.
 	if !r.manageJobsWithoutQueueName && QueueName(job) == "" {
 		if isStandaloneJob {
-			log.V(3).Info("Neither queue-name label, nor parent-workload annotation is set, ignoring the job",
-				"queueName", QueueName(job), "parentWorkload", ParentWorkloadName(job))
+			log.V(3).Info("Neither queue-name label, nor parent-workload annotation is set, ignoring the job", "queueName", QueueName(job))
 			return ctrl.Result{}, nil
 		}
 		isParentJobManaged, err := r.IsParentJobManaged(ctx, job.Object(), req.Namespace)
@@ -235,7 +238,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 		if !isParentJobManaged {
 			log.V(3).Info("parent-workload annotation is set, and the parent job doesn't have a queue-name label, ignoring the job",
-				"parentWorkload", ParentWorkloadName(job))
+				"parentJob", objectOwner.Name)
 			return ctrl.Result{}, nil
 		}
 	}
@@ -456,7 +459,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 func (r *JobReconciler) IsParentJobManaged(ctx context.Context, jobObj client.Object, namespace string) (bool, error) {
 	owner := metav1.GetControllerOf(jobObj)
 	if owner == nil {
-		return false, ErrChildJobOwnerNotFound
+		return false, nil
 	}
 	parentJob := GetEmptyOwnerObject(owner)
 	if parentJob == nil {
@@ -469,16 +472,18 @@ func (r *JobReconciler) IsParentJobManaged(ctx context.Context, jobObj client.Ob
 }
 
 func (r *JobReconciler) getParentWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
-	pw := kueue.Workload{}
-	namespacedName := types.NamespacedName{
-		Name:      ParentWorkloadName(job),
-		Namespace: object.GetNamespace(),
+	owner := metav1.GetControllerOf(object)
+	if owner == nil {
+		return nil, nil
 	}
-	if err := r.client.Get(ctx, namespacedName, &pw); err != nil {
+	wlList := kueue.WorkloadList{}
+	if err := r.client.List(ctx, &wlList, client.InNamespace(object.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(owner.UID)}); err != nil || len(wlList.Items) == 0 {
 		return nil, client.IgnoreNotFound(err)
-	} else {
-		return &pw, nil
 	}
+
+	// In theory the parent can own multiple Workloads, we cannot do too much about it, maybe log it.
+	return &wlList.Items[0], nil
+
 }
 
 // ensureOneWorkload will query for the single matched workload corresponding to job and return it.

@@ -412,6 +412,7 @@ func TestReconciler(t *testing.T) {
 		reconcilerOptions []jobframework.Option
 		job               batchv1.Job
 		workloads         []kueue.Workload
+		otherJobs         []batchv1.Job
 		priorityClasses   []client.Object
 		wantJob           batchv1.Job
 		wantWorkloads     []kueue.Workload
@@ -1381,34 +1382,21 @@ func TestReconciler(t *testing.T) {
 				Suspend(false).
 				Obj(),
 		},
-		"should get error if child job owner not found": {
-			job: *utiltestingjob.MakeJob("job", "ns").
-				ParentWorkload("non-existing-parent-workload").
-				Obj(),
-			wantJob: *utiltestingjob.MakeJob("job", "ns").Obj(),
-			wantErr: jobframework.ErrChildJobOwnerNotFound,
-		},
-		"should get error if workload owner is unknown": {
-			job: *utiltestingjob.MakeJob("job", "ns").
-				ParentWorkload("non-existing-parent-workload").
-				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("CronJob")).
-				Obj(),
-			wantJob: *utiltestingjob.MakeJob("job", "ns").Obj(),
-			wantErr: jobframework.ErrUnknownWorkloadOwner,
-		},
 		"non-standalone job is suspended if its parent workload is not found": {
-			reconcilerOptions: []jobframework.Option{
-				jobframework.WithManageJobsWithoutQueueName(true),
-			},
 			job: *baseJobWrapper.
 				Clone().
+				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Suspend(false).
-				ParentWorkload("unit-test").
 				Obj(),
 			wantJob: *baseJobWrapper.
 				Clone().
-				ParentWorkload("unit-test").
+				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
+			otherJobs: []batchv1.Job{
+				*utiltestingjob.MakeJob("parent", "ns").
+					Queue("queue").
+					Obj(),
+			},
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
@@ -1424,19 +1412,25 @@ func TestReconciler(t *testing.T) {
 			},
 			job: *baseJobWrapper.
 				Clone().
+				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Suspend(false).
-				ParentWorkload("unit-test").
 				Obj(),
 			wantJob: *baseJobWrapper.
 				Clone().
+				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Suspend(false).
-				ParentWorkload("unit-test").
 				Obj(),
+			otherJobs: []batchv1.Job{
+				*utiltestingjob.MakeJob("parent", "ns").
+					Queue("queue").
+					Obj(),
+			},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("unit-test", "ns").
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
 					Admitted(true).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -1444,6 +1438,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
 					Admitted(true).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					Obj(),
 			},
 		},
@@ -1453,21 +1448,28 @@ func TestReconciler(t *testing.T) {
 			},
 			job: *baseJobWrapper.
 				Clone().
+				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Suspend(false).
-				ParentWorkload("parent-workload").
 				Obj(),
 			wantJob: *baseJobWrapper.
 				Clone().
-				ParentWorkload("unit-test").
+				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
+			otherJobs: []batchv1.Job{
+				*utiltestingjob.MakeJob("parent", "ns").
+					Queue("queue").
+					Obj(),
+			},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("parent-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("parent-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -1483,19 +1485,25 @@ func TestReconciler(t *testing.T) {
 			job: *baseJobWrapper.
 				Clone().
 				Suspend(false).
-				ParentWorkload("parent-workload").
+				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Queue("test-queue").
 				Obj(),
 			wantJob: *baseJobWrapper.
 				Clone().
 				Suspend(false).
-				ParentWorkload("parent-workload").
+				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Queue("test-queue").
 				Obj(),
+			otherJobs: []batchv1.Job{
+				*utiltestingjob.MakeJob("parent", "ns").
+					Queue("queue").
+					Obj(),
+			},
 			workloads: []kueue.Workload{
 				*utiltesting.MakeWorkload("parent-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					Admitted(true).
 					Obj(),
 			},
@@ -1503,6 +1511,7 @@ func TestReconciler(t *testing.T) {
 				*utiltesting.MakeWorkload("parent-workload", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltesting.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuota(utiltesting.MakeAdmission("cq").AssignmentPodCount(10).Obj()).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					Admitted(true).
 					Obj(),
 			},
@@ -2203,6 +2212,10 @@ func TestReconciler(t *testing.T) {
 			kcBuilder := clientBuilder.
 				WithObjects(objs...)
 
+			if len(tc.otherJobs) > 0 {
+				kcBuilder = kcBuilder.WithLists(&batchv1.JobList{Items: tc.otherJobs})
+			}
+
 			for i := range tc.workloads {
 				kcBuilder = kcBuilder.WithStatusSubresource(&tc.workloads[i])
 			}
@@ -2213,7 +2226,8 @@ func TestReconciler(t *testing.T) {
 
 			kClient := kcBuilder.Build()
 			for i := range tc.workloads {
-				if !useesPrebuiltWorkload {
+				controller := metav1.GetControllerOfNoCopy(&tc.workloads[i])
+				if !useesPrebuiltWorkload && controller == nil {
 					if err := ctrl.SetControllerReference(&tc.job, &tc.workloads[i], kClient.Scheme()); err != nil {
 						t.Fatalf("Could not setup owner reference in Workloads: %v", err)
 					}

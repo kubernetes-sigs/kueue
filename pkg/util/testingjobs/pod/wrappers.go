@@ -125,12 +125,6 @@ func (p *PodWrapper) RoleHash(h string) *PodWrapper {
 	return p.Annotation("kueue.x-k8s.io/role-hash", h)
 }
 
-// ParentWorkload sets the parent-workload annotation
-func (p *PodWrapper) ParentWorkload(parentWorkload string) *PodWrapper {
-	p.Annotations[constants.ParentWorkloadAnnotation] = parentWorkload
-	return p
-}
-
 // KueueSchedulingGate adds kueue scheduling gate to the Pod
 func (p *PodWrapper) KueueSchedulingGate() *PodWrapper {
 	if p.Spec.SchedulingGates == nil {

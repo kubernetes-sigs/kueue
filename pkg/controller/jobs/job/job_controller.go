@@ -38,13 +38,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/podset"
 )
 
 var (
-	parentWorkloadKey = ".metadata.parentWorkload"
-	gvk               = batchv1.SchemeGroupVersion.WithKind("Job")
+	gvk = batchv1.SchemeGroupVersion.WithKind("Job")
 
 	FrameworkName = "batch/job"
 )
@@ -116,7 +116,11 @@ func (h *parentWorkloadHandler) queueReconcileForChildJob(ctx context.Context, o
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(5).Info("Queueing reconcile for child jobs")
 	var childJobs batchv1.JobList
-	if err := h.client.List(ctx, &childJobs, client.InNamespace(w.Namespace), client.MatchingFields{parentWorkloadKey: w.Name}); err != nil {
+	owner := metav1.GetControllerOf(w)
+	if owner == nil {
+		return
+	}
+	if err := h.client.List(ctx, &childJobs, client.InNamespace(w.Namespace), client.MatchingFields{indexer.OwnerReferenceUID: string(owner.UID)}); err != nil {
 		klog.Error(err, "Unable to list child jobs")
 		return
 	}
@@ -330,17 +334,11 @@ func (j *Job) syncCompletionWithParallelism() bool {
 	return false
 }
 
-func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
-	if err := indexer.IndexField(ctx, &batchv1.Job{}, parentWorkloadKey, func(o client.Object) []string {
-		job := fromObject(o)
-		if pwName := jobframework.ParentWorkloadName(job); pwName != "" {
-			return []string{pwName}
-		}
-		return nil
-	}); err != nil {
+func SetupIndexes(ctx context.Context, fieldIndexer client.FieldIndexer) error {
+	if err := fieldIndexer.IndexField(ctx, &batchv1.Job{}, indexer.OwnerReferenceUID, indexer.IndexOwnerUID); err != nil {
 		return err
 	}
-	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
+	return jobframework.SetupWorkloadOwnerIndex(ctx, fieldIndexer, gvk)
 }
 
 func GetWorkloadNameForJob(jobName string) string {

@@ -65,7 +65,9 @@ func managerSetup(setupJobManager bool, opts ...jobframework.Option) framework.M
 			mgr.GetClient(),
 			mgr.GetEventRecorderFor(constants.JobControllerName),
 			opts...)
-		err := mpijob.SetupIndexes(ctx, mgr.GetFieldIndexer())
+		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = mpijob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = reconciler.SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

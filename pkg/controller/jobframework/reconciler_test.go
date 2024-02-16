@@ -48,14 +48,6 @@ func TestIsParentJobManaged(t *testing.T) {
 		wantManaged bool
 		wantErr     error
 	}{
-		"child job doesn't have ownerReference": {
-			parentJob: testingmpijob.MakeMPIJob(parentJobName, jobNamespace).
-				UID(parentJobName).
-				Obj(),
-			job: testingjob.MakeJob(childJobName, jobNamespace).
-				Obj(),
-			wantErr: ErrChildJobOwnerNotFound,
-		},
 		"child job has ownerReference with unknown workload owner": {
 			parentJob: testingjob.MakeJob(parentJobName, jobNamespace).
 				UID(parentJobName).

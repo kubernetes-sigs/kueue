@@ -115,10 +115,6 @@ type ComposableJob interface {
 	EnsureWorkloadOwnedByAllMembers(ctx context.Context, c client.Client, r record.EventRecorder, workload *kueue.Workload) error
 }
 
-func ParentWorkloadName(job GenericJob) string {
-	return job.Object().GetAnnotations()[constants.ParentWorkloadAnnotation]
-}
-
 func QueueName(job GenericJob) string {
 	return QueueNameForObject(job.Object())
 }
