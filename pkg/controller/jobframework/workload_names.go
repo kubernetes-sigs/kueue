@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"strings"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
@@ -31,15 +30,6 @@ const (
 	// 253 is the maximal length for a CRD name. We need to subtract one for '-', and the hash length.
 	maxPrefixLength = 252 - hashLength
 )
-
-func GetWorkloadNameForOwnerRef(owner *metav1.OwnerReference) (string, error) {
-	gv, err := schema.ParseGroupVersion(owner.APIVersion)
-	if err != nil {
-		return "", err
-	}
-	gvk := gv.WithKind(owner.Kind)
-	return GetWorkloadNameForOwnerWithGVK(owner.Name, gvk), nil
-}
 
 func GetWorkloadNameForOwnerWithGVK(ownerName string, ownerGVK schema.GroupVersionKind) string {
 	prefixedName := strings.ToLower(ownerGVK.Kind) + "-" + ownerName

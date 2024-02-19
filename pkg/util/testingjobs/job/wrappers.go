@@ -139,12 +139,6 @@ func (j *JobWrapper) QueueNameAnnotation(queue string) *JobWrapper {
 	return j.SetAnnotation(constants.QueueAnnotation, queue)
 }
 
-// ParentWorkload sets the parent-workload annotation
-func (j *JobWrapper) ParentWorkload(parentWorkload string) *JobWrapper {
-	j.Annotations[constants.ParentWorkloadAnnotation] = parentWorkload
-	return j
-}
-
 func (j *JobWrapper) SetAnnotation(key, content string) *JobWrapper {
 	j.Annotations[key] = content
 	return j

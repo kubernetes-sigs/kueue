@@ -292,11 +292,16 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 		gomega.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(jobQueueName))
 	})
 
-	ginkgo.When("The parent-workload annotation is used", func() {
+	ginkgo.When("The parent job is managed by kueue", func() {
 
 		ginkgo.It("Should suspend a job if the parent workload does not exist", func() {
+			ginkgo.By("creating the parent job")
+			parentJob := testingjob.MakeJob(parentJobName, ns.Name).Label(constants.PrebuiltWorkloadLabel, "missing").Obj()
+			gomega.Expect(k8sClient.Create(ctx, parentJob)).Should(gomega.Succeed())
+
 			ginkgo.By("Creating the child job which uses the parent workload annotation")
-			childJob := testingjob.MakeJob(childJobName, ns.Name).Suspend(false).ParentWorkload("non-existing-parent-workload").Obj()
+			childJob := testingjob.MakeJob(childJobName, ns.Name).Suspend(false).Obj()
+			gomega.Expect(ctrl.SetControllerReference(parentJob, childJob, k8sClient.Scheme())).To(gomega.Succeed())
 			gomega.Expect(k8sClient.Create(ctx, childJob)).Should(gomega.Succeed())
 
 			ginkgo.By("checking that the child job is suspended")
@@ -306,7 +311,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			}, util.Timeout, util.Interval).Should(gomega.Equal(ptr.To(true)))
 		})
 
-		ginkgo.It("Should not create child workload for a job with parent-workload annotation", func() {
+		ginkgo.It("Should not create child workload for a job with a kueue managed parent", func() {
 			ginkgo.By("creating the parent job")
 			parentJob := testingjob.MakeJob(parentJobName, ns.Name).Obj()
 			gomega.Expect(k8sClient.Create(ctx, parentJob)).Should(gomega.Succeed())
@@ -318,7 +323,8 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Creating the child job which uses the parent workload annotation")
-			childJob := testingjob.MakeJob(childJobName, ns.Name).ParentWorkload(parentWorkload.Name).Obj()
+			childJob := testingjob.MakeJob(childJobName, ns.Name).Obj()
+			gomega.Expect(ctrl.SetControllerReference(parentJob, childJob, k8sClient.Scheme())).To(gomega.Succeed())
 			gomega.Expect(k8sClient.Create(ctx, childJob)).Should(gomega.Succeed())
 
 			ginkgo.By("Checking that the child workload is not created")
@@ -343,7 +349,8 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Creating the child job which uses the parent workload annotation")
-			childJob := testingjob.MakeJob(childJobName, ns.Name).ParentWorkload(parentWorkload.Name).Obj()
+			childJob := testingjob.MakeJob(childJobName, ns.Name).Obj()
+			gomega.Expect(ctrl.SetControllerReference(parentJob, childJob, k8sClient.Scheme())).To(gomega.Succeed())
 			gomega.Expect(k8sClient.Create(ctx, childJob)).Should(gomega.Succeed())
 
 			ginkgo.By("Checking that the queue name of the parent workload isn't updated with an empty value")
@@ -356,7 +363,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			}, util.ConsistentDuration, util.Interval).Should(gomega.BeTrue())
 		})
 
-		ginkgo.It("Should change the suspension status of the child job when the parent workload is not admitted", func() {
+		ginkgo.It("Should change the suspension status of the child job when the parent's workload is not admitted", func() {
 			ginkgo.By("Create a resource flavor")
 			defaultFlavor := testing.MakeResourceFlavor("default").Label(instanceKey, "default").Obj()
 			gomega.Expect(k8sClient.Create(ctx, defaultFlavor)).Should(gomega.Succeed())
@@ -372,7 +379,8 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Creating the child job with the parent-workload annotation")
-			childJob := testingjob.MakeJob(childJobName, ns.Name).ParentWorkload(parentWlLookupKey.Name).Suspend(false).Obj()
+			childJob := testingjob.MakeJob(childJobName, ns.Name).Suspend(false).Obj()
+			gomega.Expect(ctrl.SetControllerReference(parentJob, childJob, k8sClient.Scheme())).To(gomega.Succeed())
 			gomega.Expect(k8sClient.Create(ctx, childJob)).Should(gomega.Succeed())
 
 			ginkgo.By("checking that the child job is suspended")

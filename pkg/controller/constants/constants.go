@@ -28,14 +28,6 @@ const (
 	// PrebuiltWorkloadLabel is the label key of the job holding the name of the pre-built workload to use.
 	PrebuiltWorkloadLabel = "kueue.x-k8s.io/prebuilt-workload-name"
 
-	// ParentWorkloadAnnotation is the annotation used to mark a kubernetes Job
-	// as a child of a Workload. The value is the name of the workload,
-	// in the same namespace. It is used when the parent workload corresponds to
-	// a custom job CRD composed of one or more kubernetes Jobs. When set, Kueue
-	// ignores this Job from admission, and takes control of its suspension
-	// status based on the admission status of the parent workload.
-	ParentWorkloadAnnotation = "kueue.x-k8s.io/parent-workload"
-
 	// JobUIDLabel is the label key in the workload resource, that holds the UID of
 	// the owner job.
 	JobUIDLabel = "kueue.x-k8s.io/job-uid"

@@ -547,21 +547,20 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
-	ginkgo.It("Should suspend a job if the parent workload does not exist", func() {
+	ginkgo.It("Should suspend a job if the parent's workload does not exist or is not admitted", func() {
 		ginkgo.By("Creating the parent job which has a queue name")
 		parentJob := testingmpijob.MakeMPIJob(parentJobName, ns.Name).
-			UID(parentJobName).
 			Queue("test").
 			Suspend(false).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, parentJob)).Should(gomega.Succeed())
 
-		ginkgo.By("Creating the child job which uses the parent workload annotation")
+		ginkgo.By("Creating the child job")
 		childJob := testingjob.MakeJob(childJobName, ns.Name).
 			OwnerReference(parentJobName, kubeflow.SchemeGroupVersionKind).
 			Suspend(false).
-			ParentWorkload("non-existing-parent-workload").
 			Obj()
+		gomega.Expect(ctrl.SetControllerReference(parentJob, childJob, k8sClient.Scheme())).To(gomega.Succeed())
 		gomega.Expect(k8sClient.Create(ctx, childJob)).Should(gomega.Succeed())
 
 		ginkgo.By("checking that the child job is suspended")
@@ -582,9 +581,9 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 		ginkgo.By("Creating the child job which has ownerReference with known existing workload owner")
 		childJob := testingjob.MakeJob(childJobName, ns.Name).
 			OwnerReference(parentJobName, kubeflow.SchemeGroupVersionKind).
-			ParentWorkload(jobframework.GetWorkloadNameForOwnerWithGVK(parentJobName, kubeflow.SchemeGroupVersionKind)).
 			Suspend(false).
 			Obj()
+		gomega.Expect(ctrl.SetControllerReference(parentJob, childJob, k8sClient.Scheme())).To(gomega.Succeed())
 		gomega.Expect(k8sClient.Create(ctx, childJob)).Should(gomega.Succeed())
 
 		ginkgo.By("Checking that the child job isn't suspended")
