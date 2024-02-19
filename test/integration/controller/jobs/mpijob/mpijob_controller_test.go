@@ -550,13 +550,12 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 	ginkgo.It("Should suspend a job if the parent's workload does not exist or is not admitted", func() {
 		ginkgo.By("Creating the parent job which has a queue name")
 		parentJob := testingmpijob.MakeMPIJob(parentJobName, ns.Name).
-			UID(parentJobName).
 			Queue("test").
 			Suspend(false).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, parentJob)).Should(gomega.Succeed())
 
-		ginkgo.By("Creating the child job which uses the parent workload annotation")
+		ginkgo.By("Creating the child job")
 		childJob := testingjob.MakeJob(childJobName, ns.Name).
 			OwnerReference(parentJobName, kubeflow.SchemeGroupVersionKind).
 			Suspend(false).

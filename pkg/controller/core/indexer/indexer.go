@@ -112,7 +112,6 @@ func IndexWorkloadRuntimeClass(obj client.Object) []string {
 	return nil
 }
 
-// TODO: Is there a "standard" implementation of something like this??
 func IndexOwnerUID(obj client.Object) []string {
 	return slices.Map(obj.GetOwnerReferences(), func(o *metav1.OwnerReference) string { return string(o.UID) })
 }

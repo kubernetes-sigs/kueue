@@ -228,7 +228,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// If the parent-workload annotation is set, it also checks whether the parent job has queue-name label.
 	if !r.manageJobsWithoutQueueName && QueueName(job) == "" {
 		if isStandaloneJob {
-			log.V(3).Info("Neither queue-name label, nor parent-workload annotation is set, ignoring the job", "queueName", QueueName(job))
+			log.V(3).Info("queue-name label is not set, ignoring the job", "queueName", QueueName(job))
 			return ctrl.Result{}, nil
 		}
 		isParentJobManaged, err := r.IsParentJobManaged(ctx, job.Object(), req.Namespace)
