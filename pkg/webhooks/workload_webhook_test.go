@@ -179,7 +179,7 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(statusPath.Child("admission", "clusterQueue"), nil, ""),
 			},
 		},
-		"should have a valid podSet name in status assigment": {
+		"should have a valid podSet name in status assignment": {
 			workload: testingutil.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				ReserveQuota(testingutil.MakeAdmission("cluster-queue", "@invalid").Obj()).
 				Obj(),

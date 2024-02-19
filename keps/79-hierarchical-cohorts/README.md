@@ -67,7 +67,7 @@ The difference between ClusterQueue and Cohort will be that:
 * Lending limit specified at the Cohort levels means that the rest of the organization tree
   cannot borrow more from the subtree than the given value.
 
-Preemmptions and resoruce reclamation will happen among the whole cohort structure,
+Preemptions and resource reclamation will happen among the whole cohort structure,
 in the similar fashion as they are executed now.
 
 ### User Stories (Optional)
@@ -79,7 +79,7 @@ workloads. Both are given some quota that is further distributed among the subte
 the production workloads the ability to borrow research quota if needed, but not the other way round.
 
 With this proposal, research org's top Cohort will simply set borrowingLimit to 0. Alternatively, production
-org's top Cohort can set lendingLimit to 0. BorrowingLimitis inside production org's ClusterQueues should
+org's top Cohort can set lendingLimit to 0. BorrowingLimits inside production org's ClusterQueues should
 be generous enough to allow borrowing from the research org.
 
 #### Story 2
@@ -95,7 +95,7 @@ contain all of these Cohorts, plus the "special" ClusterQueue, with borrowingLim
 
 * Users may create a cycle in the Cohort hierarchy - Kueue will stop all new admissions within
 the entire tree. The already admitted workloads will be allowed to continue. Appropriate 
-ClusterQueue/Cohort Status Conditions will be set and Events emited.
+ClusterQueue/Cohort Status Conditions will be set and Events emitted.
 
 * Scheduling and preemption may require more computation/resources.
 
@@ -181,7 +181,7 @@ correct balances are kept. To be more precise what it means
 let's define a function `T(x,r)` that takes either ClusterQueue x 
 or Cohort x and resource r (from a specific resource flavor). 
 
-`T(x, r)` returns the amount of resource r that is avaialble at the level of x from ClusterQueues
+`T(x, r)` returns the amount of resource r that is available at the level of x from ClusterQueues
 and Cohorts that are either x or children of x (possibly indirect). In other words, how much of resource r can come from 
 the subtree. The value may be negative, what means that the subtree is borrowing from the outside of the subtree (the rest 
 of the hierarchy)

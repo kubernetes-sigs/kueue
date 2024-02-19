@@ -449,7 +449,7 @@ Note that fields like `env` and `command` can sometimes change among all the pod
 they don't influence scheduling, so they are safe to skip. `volumes` can influence scheduling, but
 they can be parameterized, like in StatefulSets, so we will ignore them for now.
 
-A sha256 of the reamining Pod spec will be used as a name for a Workload podSet. The count for the
+A sha256 of the remaining Pod spec will be used as a name for a Workload podSet. The count for the
 podSet will be the number of Pods that match the same sha256. The hash will be calculated by the
 webhook and stored as an annotation: `kueue.x-k8s.io/role-hash`.
 
@@ -555,7 +555,7 @@ Pods need to have finalizers so that we can reliably track how many of them run 
 able to determine when the Workload is Finished.
 
 The Pod reconciler will run in a "composable" mode: a mode where a Workload is composed of multiple
-objects. The `jobframework.Reconciler` will be reworked to accomodate this.
+objects. The `jobframework.Reconciler` will be reworked to accommodate this.
 
 After a Workload is admitted, each Pod that owns the workload enters the reconciliation loop.
 The reconciliation loop collects all the Pods that are not Failed and constructs an in-memory
@@ -704,7 +704,7 @@ An alternative to the multiple annotations in the Pods would be for users to cre
 object before creating the Pods. The Pods would just have one annotation referencing the Workload
 name.
 
-While this would be a clean approach, this proposal is targetting users that don't have a CRD
+While this would be a clean approach, this proposal is targeting users that don't have a CRD
 wrapping their Pods, and adding one would be a bigger effort than adding annotations. Such amount
 of effort could be similar to migrating from plain Pods to the Job API, which is already supported.
 

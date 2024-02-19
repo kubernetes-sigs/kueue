@@ -2194,7 +2194,7 @@ func TestResourcesToReserve(t *testing.T) {
 			},
 		},
 		{
-			name:           "Reserved memory equal assignment usage, assigmnent fits",
+			name:           "Reserved memory equal assignment usage, assignment fits",
 			assignmentMode: flavorassigner.Fit,
 			assignmentUsage: cache.FlavorResourceQuantities{
 				kueue.ResourceFlavorReference("on-demand"): {corev1.ResourceMemory: 50},

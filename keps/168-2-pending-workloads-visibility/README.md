@@ -90,7 +90,7 @@ Users can observe outdated information, which might not be convenient.
 
 - Support listing pending workloads on positions from X to Y in a ClusterQueue, no matter the size of the queue, and without delay,
 - Support listing pending workloads on positions from X to Y in a LocalQueue, no matter the size of the queue, and without delay,
-- Provide consitent data across all the LocalQueues without hitting `QPS`.
+- Provide consistent data across all the LocalQueues without hitting `QPS`.
 
 ### Non-Goals
 
@@ -194,7 +194,7 @@ Another way to access API is to use a client generated with `k8s.io/code-generat
 ### API Objects:
 
 ```
-// PendingWorkload is a user-facing representation of a pending workload in both LocalQueues and ClusterQueue that summarizes neccessary information from the admission order perspective
+// PendingWorkload is a user-facing representation of a pending workload in both LocalQueues and ClusterQueue that summarizes necessary information from the admission order perspective
 type PendingWorkload struct {
 	TypeMeta TypeMeta
 	ObjectMeta ObjectMeta

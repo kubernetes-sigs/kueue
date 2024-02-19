@@ -39,7 +39,7 @@ Changes since `v0.2.1`:
   - `ClusterQueue`:
     - Immutability of `spec.queueingStrategy`.
     - Refactor `quota.min` and `quota.max` into `nominalQuota` and `borrowingLimit`.
-    - Swap hieararchy between `resources` and `flavors`.
+    - Swap hierarchy between `resources` and `flavors`.
     - Group flavors and resources into `spec.resourceGroups` to make
       co-dependent resources explicit.
     - Move `admission` from `spec` to `status`.
