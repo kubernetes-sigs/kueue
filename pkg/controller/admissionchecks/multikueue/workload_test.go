@@ -431,7 +431,7 @@ func TestWlReconcile(t *testing.T) {
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:               "ac1",
 						State:              kueue.CheckStateReady,
-						LastTransitionTime: metav1.NewTime(time.Now().Add(-defaultKeepReadyTimeout / 2)), //50% of the timeout
+						LastTransitionTime: metav1.NewTime(time.Now().Add(-defaulWorkerLostTimeout / 2)), //50% of the timeout
 						Message:            `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
@@ -457,7 +457,7 @@ func TestWlReconcile(t *testing.T) {
 					AdmissionCheck(kueue.AdmissionCheckState{
 						Name:               "ac1",
 						State:              kueue.CheckStateReady,
-						LastTransitionTime: metav1.NewTime(time.Now().Add(-defaultKeepReadyTimeout * 3 / 2)), // 150% of the timeout
+						LastTransitionTime: metav1.NewTime(time.Now().Add(-defaulWorkerLostTimeout * 3 / 2)), // 150% of the timeout
 						Message:            `The workload got reservation on "worker1"`,
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
@@ -668,7 +668,7 @@ func TestWlReconcile(t *testing.T) {
 			}
 
 			helper, _ := newMultiKueueStoreHelper(managerClient)
-			reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, defaultKeepReadyTimeout)
+			reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, defaulWorkerLostTimeout)
 
 			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor, Namespace: TestNamespace}})
 			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {

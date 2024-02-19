@@ -179,7 +179,7 @@ func managerAndMultiKueueSetup(mgr manager.Manager, ctx context.Context) {
 
 	err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name,
 		multikueue.WithGCInterval(2*time.Second),
-		multikueue.WithKeepReadyTimeout(testingKeepReadyTimeout),
+		multikueue.WithWorkerLostTimeout(testingKeepReadyTimeout),
 	)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }

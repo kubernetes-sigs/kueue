@@ -54,11 +54,11 @@ var (
 )
 
 type wlReconciler struct {
-	client           client.Client
-	helper           *multiKueueStoreHelper
-	clusters         *clustersReconciler
-	origin           string
-	keepReadyTimeout time.Duration
+	client            client.Client
+	helper            *multiKueueStoreHelper
+	clusters          *clustersReconciler
+	origin            string
+	workerLostTimeout time.Duration
 }
 
 var _ reconcile.Reconciler = (*wlReconciler)(nil)
@@ -315,10 +315,10 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	// If there is no reserving and the AC is ready, the connection with the reserving remote might
 	// be lost, keep the workload admitted for keepReadyTimeout and put it back in the queue after that.
 	if !hasReserving && acs.State == kueue.CheckStateReady {
-		if time.Now().Before(acs.LastTransitionTime.Add(a.keepReadyTimeout)) {
-			retryAfter := a.keepReadyTimeout - time.Since(acs.LastTransitionTime.Time)
-			log.V(3).Info("Reserving remote lost, retry", "retryAfter", retryAfter)
-			return reconcile.Result{RequeueAfter: retryAfter}, nil
+		remainingWaitTime := a.workerLostTimeout - time.Since(acs.LastTransitionTime.Time)
+		if remainingWaitTime > 0 {
+			log.V(3).Info("Reserving remote lost, retry", "retryAfter", remainingWaitTime)
+			return reconcile.Result{RequeueAfter: remainingWaitTime}, nil
 		} else {
 			acs.State = kueue.CheckStateRetry
 			acs.Message = "Reserving remote lost"
@@ -373,8 +373,8 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			}
 		}
 		// drop this if we want to create new remote workloads while holding a reservation.
-		// check again the connection to the remote in half the keepReadyTimeout.
-		return reconcile.Result{RequeueAfter: a.keepReadyTimeout / 2}, nil
+		// check again the connection to the remote in workerLostTimeout.
+		return reconcile.Result{RequeueAfter: a.workerLostTimeout}, nil
 	}
 
 	// finally - create missing workloads
@@ -393,13 +393,13 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	return reconcile.Result{}, errors.Join(errs...)
 }
 
-func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clustersReconciler, origin string, keepReadyTimeout time.Duration) *wlReconciler {
+func newWlReconciler(c client.Client, helper *multiKueueStoreHelper, cRec *clustersReconciler, origin string, workerLostTimeout time.Duration) *wlReconciler {
 	return &wlReconciler{
-		client:           c,
-		helper:           helper,
-		clusters:         cRec,
-		origin:           origin,
-		keepReadyTimeout: keepReadyTimeout,
+		client:            c,
+		helper:            helper,
+		clusters:          cRec,
+		origin:            origin,
+		workerLostTimeout: workerLostTimeout,
 	}
 }
 

@@ -250,7 +250,7 @@ func setupControllers(mgr ctrl.Manager, cCache *cache.Cache, queues *queue.Manag
 		if err := multikueue.SetupControllers(mgr, *cfg.Namespace,
 			multikueue.WithGCInterval(cfg.MultiKueue.GCInterval.Duration),
 			multikueue.WithOrigin(ptr.Deref(cfg.MultiKueue.Origin, configapi.DefaultMultiKueueOrigin)),
-			multikueue.WithKeepReadyTimeout(cfg.MultiKueue.KeepReadyTimeout.Duration),
+			multikueue.WithWorkerLostTimeout(cfg.MultiKueue.WorkerLostTimeout.Duration),
 		); err != nil {
 			setupLog.Error(err, "Could not setup MultiKueue controller")
 			os.Exit(1)

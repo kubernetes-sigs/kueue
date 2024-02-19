@@ -300,8 +300,8 @@ func (in *MultiKueue) DeepCopyInto(out *MultiKueue) {
 		*out = new(string)
 		**out = **in
 	}
-	if in.KeepReadyTimeout != nil {
-		in, out := &in.KeepReadyTimeout, &out.KeepReadyTimeout
+	if in.WorkerLostTimeout != nil {
+		in, out := &in.WorkerLostTimeout, &out.WorkerLostTimeout
 		*out = new(v1.Duration)
 		**out = **in
 	}
