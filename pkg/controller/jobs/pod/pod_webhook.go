@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/validation"
@@ -105,21 +104,9 @@ func getPodOptions(integrationOpts map[string]any) (configapi.PodIntegrationOpti
 
 var _ webhook.CustomDefaulter = &PodWebhook{}
 
-func omitKueueLabels(l map[string]string) map[string]string {
-	result := map[string]string{}
-
-	for key, value := range l {
-		if !strings.HasPrefix(key, "kueue.x-k8s.io/") {
-			result[key] = value
-		}
-	}
-	return result
-}
-
 func containersShape(containers []corev1.Container) (result []map[string]interface{}) {
 	for _, c := range containers {
 		result = append(result, map[string]interface{}{
-			"image": c.Image,
 			"resources": map[string]interface{}{
 				"requests": c.Resources.Requests,
 			},
