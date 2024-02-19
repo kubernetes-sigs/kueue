@@ -195,7 +195,7 @@ semantics:
 - For each pod set resource in a Workload, a ClusterQueue can only borrow quota
   for one flavor.
 
-**Note:** Whithin a Cohort, Kueue prioritizes scheduling workloads that will fit under `nominalQuota`.
+**Note:** Within a Cohort, Kueue prioritizes scheduling workloads that will fit under `nominalQuota`.
 By default, if multiple workloads require `borrowing`, Kueue will try to schedule workloads with higher [priority](/docs/concepts/workload#priority) first.
 If the feature gate `PrioritySortingWithinCohort=false` is set, Kueue will try to schedule workloads with the earliest `.metadata.creationTimestamp`.
 
@@ -396,7 +396,7 @@ The fields above do the following:
 - `whenCanBorrow` determines whether a workload should stop finding a better assignment if it can get enough resource by borrowing in current ResourceFlavor. The possible values are:
   - `Borrow` (default): ClusterQueue stops finding a better assignment.
   - `TryNextFlavor`: ClusterQueue tries the next ResourceFlavor to see if the workload can get a better assignment.
-- `whenCanPreempt` determines whether a workload should try preemtion in current ResourceFlavor before try the next one. The possible values are:
+- `whenCanPreempt` determines whether a workload should try preemption in current ResourceFlavor before try the next one. The possible values are:
   - `Preempt`: ClusterQueue stops trying preemption in current ResourceFlavor and starts from the next one if preempting failed.
   - `TryNextFlavor` (default): ClusterQueue tries the next ResourceFlavor to see if the workload can fit in the ResourceFlavor.
 
