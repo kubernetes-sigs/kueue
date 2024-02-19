@@ -1,4 +1,4 @@
-{{- if .Values.enableVisibility }}
+{{- if include "kueue.isFeatureGateEnabled"  (dict "List" .Values.controllerManager.featureGates "Feature" "Visibility")}}
 apiVersion: apiregistration.k8s.io/v1
 kind: APIService
 metadata:

@@ -5,8 +5,6 @@ nameOverride: ""
 fullnameOverride: ""
 # Enable each function, like kustomize https://github.com/kubernetes-sigs/kueue/blob/main/config/default/kustomization.yaml
 enablePrometheus: false
-# Enable visibility, set the default to true when the feature is no longer aplha
-enableVisibility: false
 # Enable x509 automated certificate management using cert-manager (cert-manager.io)
 enableCertManager: false
 # Customize controlerManager
