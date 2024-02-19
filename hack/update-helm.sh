@@ -271,7 +271,7 @@ for output_file in ${DEST_VISIBILITY_DIR}/*.yaml; do
   fi
 
   {
-  echo "{{- if .Values.enableVisibility }}"
+  echo '{{- if include "kueue.isFeatureGateEnabled"  (dict "List" .Values.controllerManager.featureGates "Feature" "Visibility")}}'
   cat $output_file
   echo "{{- end}}"
   }> ${output_file}.tmp
