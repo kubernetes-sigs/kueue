@@ -554,9 +554,6 @@ func getRoleHash(p corev1.Pod) (string, error) {
 	}
 
 	shape := map[string]interface{}{
-		"metadata": map[string]interface{}{
-			"labels": omitKueueLabels(p.ObjectMeta.Labels),
-		},
 		"spec": map[string]interface{}{
 			"initContainers":            containersShape(p.Spec.InitContainers),
 			"containers":                containersShape(p.Spec.Containers),
@@ -565,7 +562,6 @@ func getRoleHash(p corev1.Pod) (string, error) {
 			"tolerations":               p.Spec.Tolerations,
 			"runtimeClassName":          p.Spec.RuntimeClassName,
 			"priority":                  p.Spec.Priority,
-			"preemptionPolicy":          p.Spec.PreemptionPolicy,
 			"topologySpreadConstraints": p.Spec.TopologySpreadConstraints,
 			"overhead":                  p.Spec.Overhead,
 			"resourceClaims":            p.Spec.ResourceClaims,
