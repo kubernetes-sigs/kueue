@@ -307,6 +307,66 @@ a ClusterQueue can borrow up to the sum of nominal quotas from all the
 ClusterQueues in the cohort. So for the yamls listed above, `team-b-cq` can
 borrow `12+9` CPUs.
 
+### LendingLimit
+
+To limit the amount of resources that a ClusterQueue can lend in the cohort,
+you can set the `.spec.resourcesGroup[*].flavors[*].resource[*].lendingLimit`
+[quantity](https://kubernetes.io/docs/reference/kubernetes-api/common-definitions/quantity/) field.
+
+{{% alert title="Warning" color="warning" %}}
+_Available in Kueue v0.6.0 and later_
+
+`LendingLimit` is an Alpha feature disabled by default.
+
+You can enable it by setting the `LendingLimit` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
+{{% /alert %}}
+
+As an example, assume you created the following two ClusterQueues:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: "team-a-cq"
+spec:
+  namespaceSelector: {} # match all.
+  cohort: "team-ab"
+  resourceGroups:
+  - coveredResources: ["cpu"]
+    flavors:
+    - name: "default-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 9
+```
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: "team-b-cq"
+spec:
+  namespaceSelector: {} # match all.
+  cohort: "team-ab"
+  resourceGroups:
+  - coveredResources: ["cpu"]
+    flavors:
+    - name: "default-flavor"
+      resources:
+      - name: "cpu"
+        nominalQuota: 12
+        lendingLimit: 1
+```
+
+Here, you set lendingLimit=1 in ClusterQueue `team-b-cq`. It means that
+if all admitted workloads in the ClusterQueue `team-b-cq` have their total
+quota usage below the `nominalQuota` (less or equal `12-1=11` CPUs),
+then ClusterQueue `team-a-cq` can admit Workloads with resources
+adding up to `9+1=10` CPUs.
+
+If the `lendingLimit` field is not specified, a ClusterQueue can lend out
+all of its resources. In this case, `team-a-cq` can use up to `9+12` CPUs.
+
 ## Preemption
 
 When there is not enough quota left in a ClusterQueue or its cohort, an incoming
