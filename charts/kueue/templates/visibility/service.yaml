@@ -1,4 +1,4 @@
-{{- if include "kueue.isFeatureGateEnabled"  (dict "List" .Values.controllerManager.featureGates "Feature" "Visibility")}}
+{{- if include "kueue.isFeatureGateEnabled"  (dict "List" .Values.controllerManager.featureGates "Feature" "VisibilityOnDemand")}}
 apiVersion: v1
 kind: Service
 metadata:
