@@ -233,7 +233,7 @@ func TestDefault(t *testing.T) {
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				Group("test-group").
-				RoleHash("3b4907a8").
+				RoleHash("a9f06f3a").
 				Label("kueue.x-k8s.io/managed", "true").
 				KueueSchedulingGate().
 				KueueFinalizer().
@@ -250,7 +250,7 @@ func TestDefault(t *testing.T) {
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				Group("test-group").
-				RoleHash("3b4907a8").
+				RoleHash("a9f06f3a").
 				Label("kueue.x-k8s.io/managed", "true").
 				KueueSchedulingGate().
 				KueueFinalizer().

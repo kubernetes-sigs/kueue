@@ -29,6 +29,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -503,7 +504,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				pod2 := testingpod.MakePod("test-pod2", ns.Name).
 					Group("test-group").
 					GroupTotalCount("2").
-					Image("test-image", nil).
+					Request(corev1.ResourceCPU, "1").
 					Queue("test-queue").
 					Obj()
 				pod1LookupKey := client.ObjectKeyFromObject(pod1)
@@ -529,15 +530,27 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal("test-queue"), "The Workload should have .spec.queueName set")
 
 				ginkgo.By("checking that all pods in group are unsuspended when workload is admitted", func() {
-					admission := testing.MakeAdmission(clusterQueue.Name, "7c214403", "41b86f81").
-						Assignment(corev1.ResourceCPU, "default", "1").
-						AssignmentPodCount(2).
-						Obj()
+					admission := testing.MakeAdmission(clusterQueue.Name).PodSets(
+						kueue.PodSetAssignment{
+							Name: "4b0469f7",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "default",
+							},
+							Count: ptr.To[int32](1),
+						},
+						kueue.PodSetAssignment{
+							Name: "bf90803c",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "default",
+							},
+							Count: ptr.To[int32](1),
+						},
+					).Obj()
 					gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
 					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod1LookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
-					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod2LookupKey, nil)
+					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod2LookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
 
 					gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					gomega.Expect(createdWorkload.Status.Conditions).Should(gomega.BeComparableTo(
@@ -602,7 +615,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal("test-queue"), "The Workload should have .spec.queueName set")
 				originalWorkloadUID := createdWorkload.UID
 
-				admission := testing.MakeAdmission(clusterQueue.Name, "7c214403").
+				admission := testing.MakeAdmission(clusterQueue.Name, "bf90803c").
 					Assignment(corev1.ResourceCPU, "default", "1").
 					AssignmentPodCount(createdWorkload.Spec.PodSets[0].Count).
 					Obj()
@@ -724,7 +737,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				gomega.Expect(createdWorkload.Spec.QueueName).To(gomega.Equal("test-queue"), "The Workload should have .spec.queueName set")
 
 				ginkgo.By("checking that pod is unsuspended when workload is admitted")
-				admission := testing.MakeAdmission(clusterQueue.Name, "7c214403").
+				admission := testing.MakeAdmission(clusterQueue.Name, "bf90803c").
 					Assignment(corev1.ResourceCPU, "default", "1").
 					AssignmentPodCount(createdWorkload.Spec.PodSets[0].Count).
 					Obj()
@@ -787,7 +800,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				pod2 := testingpod.MakePod("test-pod2", ns.Name).
 					Group("test-group").
 					GroupTotalCount("2").
-					Image("test-image", nil).
+					Request(corev1.ResourceCPU, "1").
 					Queue("test-queue").
 					Obj()
 				pod1LookupKey := client.ObjectKeyFromObject(pod1)
@@ -813,15 +826,27 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 
 				createdPod := &corev1.Pod{}
 				ginkgo.By("checking that all pods in group are unsuspended when workload is admitted", func() {
-					admission := testing.MakeAdmission(clusterQueue.Name, "7c214403", "41b86f81").
-						Assignment(corev1.ResourceCPU, "default", "1").
-						AssignmentPodCount(2).
-						Obj()
+					admission := testing.MakeAdmission(clusterQueue.Name).PodSets(
+						kueue.PodSetAssignment{
+							Name: "4b0469f7",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "default",
+							},
+							Count: ptr.To[int32](1),
+						},
+						kueue.PodSetAssignment{
+							Name: "bf90803c",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "default",
+							},
+							Count: ptr.To[int32](1),
+						},
+					).Obj()
 					gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
 					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod1LookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
-					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod2LookupKey, nil)
+					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod2LookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
 
 					gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					gomega.Expect(createdWorkload.Status.Conditions).Should(gomega.BeComparableTo(
@@ -861,7 +886,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				replacementPod2LookupKey := client.ObjectKeyFromObject(replacementPod2)
 
 				ginkgo.By("checking that unretriable replacement pod is allowed to run", func() {
-					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, replacementPod2LookupKey, nil)
+					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, replacementPod2LookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
 				})
 
 				ginkgo.By("checking that pod group is finalized when unretriable pod has failed", func() {
@@ -894,13 +919,13 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				pod2 := testingpod.MakePod("test-pod2", ns.Name).
 					Group("test-group").
 					GroupTotalCount("2").
-					Image("test-image", nil).
+					Request(corev1.ResourceCPU, "1").
 					Queue("test-queue").
 					Obj()
 				excessBasePod := testingpod.MakePod("excess-pod", ns.Name).
 					Group("test-group").
 					GroupTotalCount("2").
-					Image("test-image", nil).
+					Request(corev1.ResourceCPU, "1").
 					Queue("test-queue")
 
 				pod1LookupKey := client.ObjectKeyFromObject(pod1)
@@ -940,15 +965,27 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				})
 
 				ginkgo.By("checking that all pods in group are unsuspended when workload is admitted", func() {
-					admission := testing.MakeAdmission(clusterQueue.Name, "7c214403", "41b86f81").
-						Assignment(corev1.ResourceCPU, "default", "1").
-						AssignmentPodCount(2).
-						Obj()
+					admission := testing.MakeAdmission(clusterQueue.Name).PodSets(
+						kueue.PodSetAssignment{
+							Name: "4b0469f7",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "default",
+							},
+							Count: ptr.To[int32](1),
+						},
+						kueue.PodSetAssignment{
+							Name: "bf90803c",
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "default",
+							},
+							Count: ptr.To[int32](1),
+						},
+					).Obj()
 					gomega.Expect(util.SetQuotaReservation(ctx, k8sClient, createdWorkload, admission)).Should(gomega.Succeed())
 					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod1LookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
-					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod2LookupKey, nil)
+					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod2LookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
 
 					gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					gomega.Expect(createdWorkload.Status.Conditions).Should(gomega.BeComparableTo(
@@ -975,12 +1012,13 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 				pod1 := testingpod.MakePod("test-pod1", ns.Name).
 					Group("test-group").
 					GroupTotalCount("2").
+					Request(corev1.ResourceCPU, "1").
 					Queue("test-queue").
 					Obj()
 				pod2 := testingpod.MakePod("test-pod2", ns.Name).
 					Group("test-group").
 					GroupTotalCount("2").
-					Image("test-image", nil).
+					Request(corev1.ResourceCPU, "2").
 					Queue("test-queue").
 					Obj()
 
@@ -1128,22 +1166,20 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Orde
 		role1Pod1 := basePod.
 			Clone().
 			Name("role1-pod1").
-			Image("role1-image", nil).
 			Obj()
 		role1Pod2 := basePod.
 			Clone().
 			Name("role1-pod2").
-			Image("role1-image", nil).
 			Obj()
 		role2Pod1 := basePod.
 			Clone().
 			Name("role2-pod1").
-			Image("role2-image", nil).
+			Request(corev1.ResourceCPU, "1.5").
 			Obj()
 		role2Pod2 := basePod.
 			Clone().
 			Name("role2-pod2").
-			Image("role2-image", nil).
+			Request(corev1.ResourceCPU, "1.5").
 			Obj()
 
 		ginkgo.By("creating the pods", func() {
