@@ -263,7 +263,7 @@ func TestReconciler(t *testing.T) {
 				Queue("test-queue").
 				Obj()},
 			wantWorkloads: []kueue.Workload{
-				*utiltesting.MakeWorkload("pod-pod-43ebf", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+				*utiltesting.MakeWorkload(GetWorkloadNameForPod(basePodWrapper.GetName(), basePodWrapper.GetUID()), "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
 						*utiltesting.MakePodSet(kueue.DefaultPodSetName, 1).
 							Request(corev1.ResourceCPU, "1").
@@ -284,7 +284,7 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "CreatedWorkload",
-					Message:   "Created Workload: ns/pod-pod-43ebf",
+					Message:   "Created Workload: ns/" + GetWorkloadNameForPod(basePodWrapper.GetName(), basePodWrapper.GetUID()),
 				},
 			},
 		},
