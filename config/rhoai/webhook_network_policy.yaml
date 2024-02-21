@@ -1,0 +1,14 @@
+kind: NetworkPolicy
+apiVersion: networking.k8s.io/v1
+metadata:
+  name: webhook-server
+  namespace: system
+spec:
+  podSelector:
+    matchLabels: {}
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 9443
+  policyTypes:
+    - Ingress

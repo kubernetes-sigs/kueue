@@ -40,6 +40,7 @@ resources:
 - ../components/webhook
 - monitor.yaml
 - binding_admin_roles.yaml
+- webhook_network_policy.yaml
 
 patches:
 # Mount the controller config file for loading manager configurations
