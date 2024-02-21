@@ -147,6 +147,21 @@ func (i *Info) CanBePartiallyAdmitted() bool {
 	return CanBePartiallyAdmitted(i.Obj)
 }
 
+// ResourceUsage returns the total resource usage for the workload,
+// per resource.
+func (i *Info) ResourceUsage() Requests {
+	if i == nil || len(i.TotalRequests) == 0 {
+		return nil
+	}
+	req := maps.Clone(i.TotalRequests[0].Requests)
+	for j := 1; j < len(i.TotalRequests); j++ {
+		for rName, rVal := range i.TotalRequests[j].Requests {
+			req[rName] += rVal
+		}
+	}
+	return req
+}
+
 func CanBePartiallyAdmitted(wl *kueue.Workload) bool {
 	ps := wl.Spec.PodSets
 	for psi := range ps {

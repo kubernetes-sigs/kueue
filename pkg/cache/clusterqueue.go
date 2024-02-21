@@ -677,3 +677,26 @@ func (c *ClusterQueue) UsedCohortQuota(fName kueue.ResourceFlavorReference, rNam
 
 	return cohortUsage
 }
+
+// DominantResourceShare returns a value from 0 to 100 representing the maximum of the ratios
+// of usage above nominal quota to the lendable resources in the cohort, among all the resources
+// provided by the ClusterQueue.
+// The function also returns the resource name that yielded this value.
+func (c *ClusterQueue) DominantResourceShare(w *workload.Info) (int, corev1.ResourceName) {
+	if c.Cohort == nil {
+		return 0, ""
+	}
+	var drs int64 = -1
+	var dRes corev1.ResourceName
+	wUsage := w.ResourceUsage()
+	for rName, rStats := range c.ResourceStats {
+		ratio := max(rStats.Usage+wUsage[rName]-rStats.Nominal, 0) * 100 /
+			c.Cohort.ResourceStats[rName].Lendable
+		// Use alphabetical order to get a deterministic resource name.
+		if ratio > drs || (ratio == drs && rName < dRes) {
+			drs = ratio
+			dRes = rName
+		}
+	}
+	return int(drs), dRes
+}
