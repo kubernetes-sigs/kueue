@@ -72,13 +72,6 @@ function startup {
     cluster_create $WORKER1_KIND_CLUSTER_NAME $ARTIFACTS/worker-cluster.yaml
     cluster_create $WORKER2_KIND_CLUSTER_NAME $ARTIFACTS/worker-cluster.yaml
 
-    # push the worker kubeconfig in a manager's secret
-    $KIND get kubeconfig --name $WORKER1_KIND_CLUSTER_NAME  > ${ARTIFACTS}/worker1.kubeconfig
-    $KIND get kubeconfig --name $WORKER2_KIND_CLUSTER_NAME  > ${ARTIFACTS}/worker2.kubeconfig
-    kubectl config use-context kind-${MANAGER_KIND_CLUSTER_NAME}
-    kubectl create namespace kueue-system
-    kubectl create secret generic multikueue1 -n kueue-system --from-file=kubeconfig=${ARTIFACTS}/worker1.kubeconfig
-    kubectl create secret generic multikueue2 -n kueue-system --from-file=kubeconfig=${ARTIFACTS}/worker2.kubeconfig
     fi
 }
 
@@ -121,9 +114,22 @@ function kueue_deploy {
     cluster_kueue_deploy $WORKER2_KIND_CLUSTER_NAME
 }
 
+function prepare_secrets {
+    kubectl config use-context kind-${WORKER1_KIND_CLUSTER_NAME}
+    source ${SOURCE_DIR}/create-multikueue-kubeconfig.sh ${ARTIFACTS}/worker1.kubeconfig
+
+    kubectl config use-context kind-${WORKER2_KIND_CLUSTER_NAME}
+    source ${SOURCE_DIR}/create-multikueue-kubeconfig.sh ${ARTIFACTS}/worker2.kubeconfig
+
+    kubectl config use-context kind-${MANAGER_KIND_CLUSTER_NAME}
+    kubectl create secret generic multikueue1 -n kueue-system --from-file=kubeconfig=${ARTIFACTS}/worker1.kubeconfig
+    kubectl create secret generic multikueue2 -n kueue-system --from-file=kubeconfig=${ARTIFACTS}/worker2.kubeconfig
+}
+
 trap cleanup EXIT
 startup
 kind_load
 kueue_deploy 
+prepare_secrets
 
 $GINKGO $GINKGO_ARGS --junit-report=junit.xml --output-dir=$ARTIFACTS -v ./test/e2e/multikueue/...
