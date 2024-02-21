@@ -1,4 +1,4 @@
-{{- if include "kueue.isFeatureGateEnabled"  (dict "List" .Values.controllerManager.featureGates "Feature" "VisibilityOnDemand")}}
+{{- if include "kueue.isFeatureGateEnabled" (dict "List" .Values.controllerManager.featureGates "Feature" "VisibilityOnDemand") }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -12,4 +12,4 @@ spec:
       targetPort: 8082
   selector:
     control-plane: controller-manager
-{{- end}}
+{{- end }}
