@@ -76,15 +76,15 @@ FeatureGates
 {{- end }}
 
 {{/*
-IsFeatureGateEanabled - outputs true if the feature gate .Feature is enabled in the .List
+IsFeatureGateEnabled - outputs true if the feature gate .Feature is enabled in the .List
 Usage:
-  {{- if include "kueue.isFeatureGateEnabled"  (dict "List" .Values.controllerManager.featureGates "Feature" "VisibilityOnDemand")}}
+  {{- if include "kueue.isFeatureGateEnabled" (dict "List" .Values.controllerManager.featureGates "Feature" "VisibilityOnDemand") }}
 */}}
 {{- define "kueue.isFeatureGateEnabled" -}}
-{{- $feature  := .Feature }}
+{{- $feature := .Feature }}
 {{- $enabled := false }}
 {{- range .List }}
-{{- if (and (eq .name $feature)  (eq .enabled true))}}
+{{- if (and (eq .name $feature) (eq .enabled true)) }}
 {{- $enabled = true }}
 {{- end }}
 {{- end }}
