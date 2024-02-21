@@ -2,13 +2,12 @@
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
-  labels:
-    control-plane: controller-manager
   name: controller-manager-metrics-monitor
   namespace: system
 spec:
   selector:
     matchLabels:
-      control-plane: controller-manager
+      app.kubernetes.io/name: kueue
+      app.kubernetes.io/component: controller
   podMetricsEndpoints:
     - port: metrics

@@ -28,8 +28,9 @@ vars:
     fieldpath: data.odh-kueue-controller-image
 
 # Labels to add to all resources and selectors.
-#commonLabels:
-#  someName: someValue
+commonLabels:
+  app.kubernetes.io/name: kueue
+  app.kubernetes.io/component: controller
 
 resources:
 - ../components/crd
