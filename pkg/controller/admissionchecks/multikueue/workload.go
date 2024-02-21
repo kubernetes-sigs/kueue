@@ -295,48 +295,9 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		return reconcile.Result{}, a.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(ControllerName+"-finish"), client.ForceOwnership)
 	}
 
-	hasReserving, reservingRemote := group.FirstReserving()
-
-	// if the reserving workload is out of sync, remove it
-	if hasReserving {
-		outOfSync := group.local == nil || !equality.Semantic.DeepEqual(group.local.Spec, group.remotes[reservingRemote].Spec)
-		if outOfSync {
-			if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, reservingRemote)); err != nil {
-				log.V(2).Error(err, "Deleting out of sync remote objects", "remote", reservingRemote)
-				return reconcile.Result{}, err
-			}
-			group.remotes[reservingRemote] = nil
-
-			// check if another one exists
-			hasReserving, reservingRemote = group.FirstReserving()
-		}
-	}
-
-	// If there is no reserving and the AC is ready, the connection with the reserving remote might
-	// be lost, keep the workload admitted for keepReadyTimeout and put it back in the queue after that.
-	if !hasReserving && acs.State == kueue.CheckStateReady {
-		remainingWaitTime := a.workerLostTimeout - time.Since(acs.LastTransitionTime.Time)
-		if remainingWaitTime > 0 {
-			log.V(3).Info("Reserving remote lost, retry", "retryAfter", remainingWaitTime)
-			return reconcile.Result{RequeueAfter: remainingWaitTime}, nil
-		} else {
-			acs.State = kueue.CheckStateRetry
-			acs.Message = "Reserving remote lost"
-			acs.LastTransitionTime = metav1.NewTime(time.Now())
-			wlPatch := workload.BaseSSAWorkload(group.local)
-			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs)
-			return reconcile.Result{}, a.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(ControllerName), client.ForceOwnership)
-		}
-	}
-
 	// 2. delete all workloads that are out of sync or are not in the chosen worker
 	for rem, remWl := range group.remotes {
-		if remWl == nil {
-			continue
-		}
-		outOfSync := group.local == nil || !equality.Semantic.DeepEqual(group.local.Spec, remWl.Spec)
-		notReservingRemote := hasReserving && reservingRemote != rem
-		if outOfSync || notReservingRemote {
+		if remWl != nil && !equality.Semantic.DeepEqual(group.local.Spec, remWl.Spec) {
 			if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, rem)); err != nil {
 				log.V(2).Error(err, "Deleting out of sync remote objects", "remote", rem)
 				return reconcile.Result{}, err
@@ -346,7 +307,19 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	}
 
 	// 3. get the first reserving
+	hasReserving, reservingRemote := group.FirstReserving()
 	if hasReserving {
+		// remove the non-reserving worker workloads
+		for rem, remWl := range group.remotes {
+			if remWl != nil && rem != reservingRemote {
+				if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, rem)); err != nil {
+					log.V(2).Error(err, "Deleting out of sync remote objects", "remote", rem)
+					return reconcile.Result{}, err
+				}
+				group.remotes[rem] = nil
+			}
+		}
+
 		acs := workload.FindAdmissionCheck(group.local.Status.AdmissionChecks, group.acName)
 		if err := group.jobAdapter.SyncJob(ctx, a.client, group.remoteClients[reservingRemote].client, group.controllerKey, group.local.Name, a.origin); err != nil {
 			log.V(2).Error(err, "creating remote controller object", "remote", reservingRemote)
@@ -372,9 +345,22 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 				return reconcile.Result{}, err
 			}
 		}
-		// drop this if we want to create new remote workloads while holding a reservation.
-		// check again the connection to the remote in workerLostTimeout.
 		return reconcile.Result{RequeueAfter: a.workerLostTimeout}, nil
+	} else if acs.State == kueue.CheckStateReady {
+		// If there is no reserving and the AC is ready, the connection with the reserving remote might
+		// be lost, keep the workload admitted for keepReadyTimeout and put it back in the queue after that.
+		remainingWaitTime := a.workerLostTimeout - time.Since(acs.LastTransitionTime.Time)
+		if remainingWaitTime > 0 {
+			log.V(3).Info("Reserving remote lost, retry", "retryAfter", remainingWaitTime)
+			return reconcile.Result{RequeueAfter: remainingWaitTime}, nil
+		} else {
+			acs.State = kueue.CheckStateRetry
+			acs.Message = "Reserving remote lost"
+			acs.LastTransitionTime = metav1.NewTime(time.Now())
+			wlPatch := workload.BaseSSAWorkload(group.local)
+			workload.SetAdmissionCheckState(&wlPatch.Status.AdmissionChecks, *acs)
+			return reconcile.Result{}, a.client.Status().Patch(ctx, wlPatch, client.Apply, client.FieldOwner(ControllerName), client.ForceOwnership)
+		}
 	}
 
 	// finally - create missing workloads

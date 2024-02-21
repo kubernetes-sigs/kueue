@@ -47,7 +47,7 @@ import (
 )
 
 const (
-	testingKeepReadyTimeout = 3 * time.Second
+	testingWorkerLostTimeout = 3 * time.Second
 )
 
 type cluster struct {
@@ -179,7 +179,7 @@ func managerAndMultiKueueSetup(mgr manager.Manager, ctx context.Context) {
 
 	err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name,
 		multikueue.WithGCInterval(2*time.Second),
-		multikueue.WithWorkerLostTimeout(testingKeepReadyTimeout),
+		multikueue.WithWorkerLostTimeout(testingWorkerLostTimeout),
 	)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }

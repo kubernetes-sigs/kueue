@@ -424,7 +424,7 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
-		"the local workload is kept Ready if the keepReadyTimeout did not pass since last successful sync": {
+		"the local workload admission check Ready if the remote WorkerLostTimeout is not exceeded": {
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -450,7 +450,7 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
-		"the local workload is set for Retry if the keepReadyTimeout did pass since last successful sync": {
+		"the local workload's admission check is set to Retry if the WorkerLostTimeout is exceeded": {
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -476,7 +476,7 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
-		"the local workload is set to pendin when it is in Retry without quota": {
+		"the local workload's admission check is set to Pending when it is in Retry without quota": {
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
