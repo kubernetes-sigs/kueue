@@ -71,6 +71,11 @@ E2E_K8S_VERSIONS ?= 1.26.12 1.27.9 1.28.5 1.29.0
 # Default will delete default kind cluster
 KIND_CLUSTER_NAME ?= kind
 
+# Number of processes to use during integration tests to run specs within a
+# suite in parallel. Suites still run sequentially. User may set this value to 1
+# to run without parallelism.
+INTEGRATION_NPROCS ?= 4
+
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
@@ -167,7 +172,7 @@ test: gotestsum ## Run tests.
 .PHONY: test-integration
 test-integration: gomod-download envtest ginkgo mpi-operator-crd ray-operator-crd jobset-operator-crd kf-training-operator-crd  cluster-autoscaler-crd ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" \
-	$(GINKGO) $(GINKGO_ARGS) -procs=4 --junit-report=junit.xml --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
+	$(GINKGO) $(GINKGO_ARGS) -procs=$(INTEGRATION_NPROCS) --junit-report=junit.xml --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 
 CREATE_KIND_CLUSTER ?= true
 .PHONY: test-e2e
