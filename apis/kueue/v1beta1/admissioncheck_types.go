@@ -25,14 +25,14 @@ type CheckState string
 const (
 	// CheckStateRetry means that the check cannot pass at this moment, back off (possibly
 	// allowing other to try, unblock quota) and retry.
-	// A workload having at least one check in the state, will be evicted if admitted and
-	// not be considered for admission.
+	// A workload having at least one check in this state will be evicted if admitted and
+	// will not be considered for admission.
 	CheckStateRetry CheckState = "Retry"
 
 	// CheckStateRejected means that the check will not pass in the near future. It is not worth
 	// to retry.
-	// A workload having at least one check in the state, will be evicted if admitted will and
-	// marked as Finished.
+	// A workload having at least one check in this state will be evicted if admitted and
+	// will be marked as Finished.
 	CheckStateRejected CheckState = "Rejected"
 
 	// CheckStatePending means that the check still hasn't been performed and the state can be
