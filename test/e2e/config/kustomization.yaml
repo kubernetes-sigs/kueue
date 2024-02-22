@@ -3,6 +3,7 @@ kind: Kustomization
 
 resources:
 - ../../../config/dev
+- ../../../config/visibility
 
 replicas:
 - name: kueue-controller-manager

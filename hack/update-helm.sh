@@ -269,4 +269,11 @@ for output_file in ${DEST_VISIBILITY_DIR}/*.yaml; do
   if [ "$(cat $output_file | $YQ '.subjects.[] | has("namespace")')" = "true" ]; then
     $YQ -N -i '.subjects.[].namespace = "{{ .Release.Namespace }}"' $output_file
   fi
+
+  {
+  echo '{{- if include "kueue.isFeatureGateEnabled" (dict "List" .Values.controllerManager.featureGates "Feature" "VisibilityOnDemand") }}'
+  cat $output_file
+  echo "{{- end }}"
+  }> ${output_file}.tmp
+  mv ${output_file}.tmp ${output_file}
 done

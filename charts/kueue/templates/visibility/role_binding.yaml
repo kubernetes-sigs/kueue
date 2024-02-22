@@ -1,3 +1,4 @@
+{{- if include "kueue.isFeatureGateEnabled" (dict "List" .Values.controllerManager.featureGates "Feature" "VisibilityOnDemand") }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -13,3 +14,4 @@ subjects:
   - kind: ServiceAccount
     name: kueue-controller-manager
     namespace: '{{ .Release.Namespace }}'
+{{- end }}
