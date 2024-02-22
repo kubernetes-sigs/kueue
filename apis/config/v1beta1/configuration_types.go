@@ -218,6 +218,8 @@ type MultiKueue struct {
 
 	// WorkerLostTimeout defines the time a local workload's multikueue admission check state is kept Ready
 	// if the connection with its reserving worker cluster is lost.
+	//
+	// Defaults to 15 minutes.
 	// +optional
 	WorkerLostTimeout *metav1.Duration `json:"workerLostTimeout,omitempty"`
 }

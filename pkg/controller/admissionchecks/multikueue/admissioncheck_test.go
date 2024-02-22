@@ -181,7 +181,7 @@ func TestReconcile(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.AdmissionCheckActive,
 						Status:  metav1.ConditionTrue,
-						Reason:  "PartiallyActive",
+						Reason:  "SomeActiveClusters",
 						Message: "Missing clusters: [worker3], Inactive clusters: [worker1]",
 					}).
 					Obj(),

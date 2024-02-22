@@ -103,7 +103,7 @@ func (a *ACReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		if unusableClustersCount > 0 {
 			if unusableClustersCount < len(cfg.Spec.Clusters) {
 				// keep it partially active
-				newCondition.Reason = "PartiallyActive"
+				newCondition.Reason = "SomeActiveClusters"
 			} else {
 				newCondition.Status = metav1.ConditionFalse
 				newCondition.Reason = "NoUsableClusters"

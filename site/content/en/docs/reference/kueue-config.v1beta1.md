@@ -518,6 +518,7 @@ them if their local counterpart no longer exists.</p>
 <td>
    <p>WorkerLostTimeout defines the time a local workload's multikueue admission check state is kept Ready
 if the connection with its reserving worker cluster is lost.</p>
+<p>Defaults to 15 minutes.</p>
 </td>
 </tr>
 </tbody>

@@ -335,7 +335,7 @@ func (a *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			}
 			// update the message
 			acs.Message = fmt.Sprintf("The workload got reservation on %q", reservingRemote)
-			// update the transition time
+			// update the transition time since is used to detect the lost worker state.
 			acs.LastTransitionTime = metav1.NewTime(time.Now())
 
 			wlPatch := workload.BaseSSAWorkload(group.local)
