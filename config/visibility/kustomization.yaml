@@ -1,0 +1,7 @@
+# This overlay builds the visibility component to be used in combination
+# with other overlays.
+
+namespace: kueue-system
+namePrefix: kueue-
+resources:
+- ../components/visibility
