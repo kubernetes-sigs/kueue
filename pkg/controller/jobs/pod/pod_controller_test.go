@@ -19,6 +19,7 @@ package pod
 import (
 	"context"
 	"fmt"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -3171,11 +3172,25 @@ func TestIsPodOwnerManagedByQueue(t *testing.T) {
 }
 
 func TestGetWorkloadNameForPod(t *testing.T) {
-	wantWlName := "pod-unit-test-65369"
-	wlName := GetWorkloadNameForPod("unit-test", "test-uid")
+	wantWlNameStart := "pod-unit-test-"
+	wlName1 := GetWorkloadNameForPod("unit-test", "test-uid")
+	if strings.Index(wlName1, wantWlNameStart) != 0 {
+		t.Fatalf("Expecting %q to start with %q", wlName1, wantWlNameStart)
+	}
 
-	if wantWlName != wlName {
-		t.Errorf("Expected different workload name\n want: %s\n got: %s", wantWlName, wlName)
+	// The same name is generated for with the same input.
+	wlName2 := GetWorkloadNameForPod("unit-test", "test-uid")
+	if wlName2 != wlName1 {
+		t.Fatalf("Expecting %q to be equal to %q", wlName2, wlName1)
+	}
+
+	// Different suffix is generated with different uid
+	wlName3 := GetWorkloadNameForPod("unit-test", "test-uid2")
+	if wlName3 == wlName1 {
+		t.Fatalf("Expecting %q to be different then %q", wlName3, wlName1)
+	}
+	if strings.Index(wlName3, wantWlNameStart) != 0 {
+		t.Fatalf("Expecting %q to start with %q", wlName3, wantWlNameStart)
 	}
 }
 
