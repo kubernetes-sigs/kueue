@@ -478,9 +478,8 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 			}
 
 			prFailed := apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.Failed)
-			prAccepted := apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.Provisioned)
-			prAvailable := apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.CapacityAvailable)
-			log.V(3).Info("Synchronizing admission check state based on provisioning request", "wl", klog.KObj(wl), "check", check, "prName", pr.Name, "failed", prFailed, "accepted", prAccepted, "available", prAvailable)
+			prProvisioned := apimeta.IsStatusConditionTrue(pr.Status.Conditions, autoscaling.Provisioned)
+			log.V(3).Info("Synchronizing admission check state based on provisioning request", "wl", klog.KObj(wl), "check", check, "prName", pr.Name, "failed", prFailed, "accepted", prProvisioned)
 
 			switch {
 			case prFailed:
@@ -497,7 +496,7 @@ func (c *Controller) syncCheckStates(ctx context.Context, wl *kueue.Workload, ch
 						checkState.Message = apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Failed).Message
 					}
 				}
-			case prAccepted || prAvailable:
+			case prProvisioned:
 				if checkState.State != kueue.CheckStateReady {
 					updated = true
 					checkState.State = kueue.CheckStateReady

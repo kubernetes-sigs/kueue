@@ -479,37 +479,6 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
-		"when capacity is available": {
-			workload: baseWorkload.DeepCopy(),
-			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
-			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
-			configs:  []kueue.ProvisioningRequestConfig{*baseConfig.DeepCopy()},
-			requests: []autoscaling.ProvisioningRequest{
-				*requestWithCondition(baseRequest, autoscaling.CapacityAvailable, metav1.ConditionTrue),
-			},
-			templates: []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
-			wantWorkloads: map[string]*kueue.Workload{
-				baseWorkload.Name: (&utiltesting.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
-					AdmissionChecks(kueue.AdmissionCheckState{
-						Name:  "check1",
-						State: kueue.CheckStateReady,
-						PodSetUpdates: []kueue.PodSetUpdate{
-							{
-								Name:        "ps1",
-								Annotations: map[string]string{"cluster-autoscaler.kubernetes.io/consume-provisioning-request": "wl-check1-1"},
-							},
-							{
-								Name:        "ps2",
-								Annotations: map[string]string{"cluster-autoscaler.kubernetes.io/consume-provisioning-request": "wl-check1-1"},
-							},
-						},
-					}, kueue.AdmissionCheckState{
-						Name:  "not-provisioning",
-						State: kueue.CheckStatePending,
-					}).
-					Obj(),
-			},
-		},
 		"when request is provisioned": {
 			workload: baseWorkload.DeepCopy(),
 			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
