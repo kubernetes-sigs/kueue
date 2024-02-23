@@ -704,14 +704,12 @@ func (p *Pod) validatePodGroupMetadata(r record.EventRecorder, activePods []core
 
 // runnableOrSucceededPods returns a slice of active pods in the group
 func (p *Pod) runnableOrSucceededPods() []corev1.Pod {
-	activePods := make([]corev1.Pod, 0, len(p.list.Items))
-	for _, pod := range p.list.Items {
-		if isPodRunnableOrSucceeded(&pod) {
-			activePods = append(activePods, pod)
-		}
-	}
+	return utilslices.Pick(p.list.Items, isPodRunnableOrSucceeded)
+}
 
-	return activePods
+// notRunnableandAndNotSucceededPods returns a slice of inactive pods in the group
+func (p *Pod) notRunnableAndNotSucceededPods() []corev1.Pod {
+	return utilslices.Pick(p.list.Items, func(p *corev1.Pod) bool { return !isPodRunnableOrSucceeded(p) })
 }
 
 // isPodRunnableOrSucceeded returns whether the Pod can eventually run, is Running or Succeeded.
@@ -723,10 +721,76 @@ func isPodRunnableOrSucceeded(p *corev1.Pod) bool {
 	return p.Status.Phase != corev1.PodFailed
 }
 
+// Get the last timestamp on which the pod was observed active:
+// - the time the pod was declared Failed
+// - the deletion time
+func lastActiveTime(p *corev1.Pod) time.Time {
+	lastTransition := metav1.Now()
+	for _, c := range p.Status.Conditions {
+		if c.Type == corev1.ContainersReady {
+			if c.Status == corev1.ConditionFalse && c.Reason == string(corev1.PodFailed) {
+				lastTransition = c.LastTransitionTime
+			}
+			break
+		}
+	}
+	deletionTime := ptr.Deref(p.DeletionTimestamp, metav1.Now())
+	if lastTransition.Before(&deletionTime) {
+		return lastTransition.Time
+	}
+	return deletionTime.Time
+}
+
 // cleanupExcessPods will delete and finalize pods created last if the number of
 // activePods is greater than the totalCount value.
-func (p *Pod) cleanupExcessPods(ctx context.Context, c client.Client, r record.EventRecorder, totalCount int, activePods []corev1.Pod) error {
+func (p *Pod) cleanupExcessPods(ctx context.Context, c client.Client, r record.EventRecorder, totalCount int, activePods []corev1.Pod, inactivePods []corev1.Pod) error {
 	log := ctrl.LoggerFrom(ctx)
+
+	// Remove inactive pods that have a replacement
+	if len(inactivePods) > 0 && (len(inactivePods)+len(activePods)) > totalCount {
+		// Sort inactive pods
+		sort.Slice(activePods, func(i, j int) bool {
+			pi := &activePods[i]
+			pj := &activePods[j]
+			iFin := slices.Contains(pi.Finalizers, PodFinalizer)
+			jFin := slices.Contains(pj.Finalizers, PodFinalizer)
+			// Prefer to keep pods that have a finalizer.
+			// Add them to the end of the list.
+			if iFin != jFin {
+				return jFin
+			}
+
+			iLastActive := lastActiveTime(pi)
+			jLastActive := lastActiveTime(pj)
+
+			if iLastActive.Equal(jLastActive) {
+				return pi.CreationTimestamp.Before(&pj.CreationTimestamp)
+			}
+			return iLastActive.Before(jLastActive)
+		})
+
+		extraPods := inactivePods[:len(inactivePods)+len(activePods)-totalCount]
+		err := parallelize.Until(ctx, len(extraPods), func(i int) error {
+			pod := extraPods[i]
+			if controllerutil.RemoveFinalizer(&pod, PodFinalizer) {
+				log.V(3).Info("Finalizing excess inactive pod in group", "excessPod", klog.KObj(&pod))
+				if err := c.Update(ctx, &pod); err != nil {
+					return err
+				}
+			}
+			if pod.DeletionTimestamp.IsZero() {
+				log.V(3).Info("Deleting excess inactive pod in group", "excessPod", klog.KObj(&pod))
+				if err := c.Delete(ctx, &pod); err != nil {
+					return err
+				}
+				r.Event(&pod, corev1.EventTypeNormal, ReasonExcessPodDeleted, "Replaced pod deleted")
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	}
 
 	extraPodsCount := len(activePods) - totalCount
 
@@ -893,7 +957,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 	}
 
 	// Cleanup extra pods if there's any
-	err = p.cleanupExcessPods(ctx, c, r, groupTotalCount, activePods)
+	err = p.cleanupExcessPods(ctx, c, r, groupTotalCount, activePods, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -971,25 +1035,31 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r reco
 
 	// Cleanup excess pods for each workload pod set (role)
 	activePods := p.runnableOrSucceededPods()
+	inactivePods := p.notRunnableAndNotSucceededPods()
+
 	for _, ps := range workload.Spec.PodSets {
-		// Find all the active pods of the role
-		var roleActivePods []corev1.Pod
-		for _, activePod := range activePods {
-			roleHash, err := getRoleHash(activePod)
+		// Find all the active and inactive pods of the role
+		var roleHashErrors []error
+		hasRoleFunc := func(p *corev1.Pod) bool {
+			hash, err := getRoleHash(*p)
 			if err != nil {
-				return nil, nil, fmt.Errorf("failed to calculate pod role hash: %w", err)
+				roleHashErrors = append(roleHashErrors, err)
+				return false
 			}
-
-			if ps.Name == roleHash {
-				roleActivePods = append(roleActivePods, activePod)
-			}
+			return hash == ps.Name
 		}
-
+		roleActivePods := utilslices.Pick(activePods, hasRoleFunc)
+		roleInactivePods := utilslices.Pick(inactivePods, hasRoleFunc)
+		if len(roleHashErrors) > 0 {
+			return nil, nil, fmt.Errorf("failed to calculate pod role hash: %w", errors.Join(roleHashErrors...))
+		}
 		// Cleanup excess pods of the role
-		err := p.cleanupExcessPods(ctx, c, r, int(ps.Count), roleActivePods)
+		err := p.cleanupExcessPods(ctx, c, r, int(ps.Count), roleActivePods, roleInactivePods)
 		if err != nil {
 			return nil, nil, err
 		}
+
+		// Cleanup replaced inactive pods
 	}
 
 	jobPodSets, err := p.constructGroupPodSets()

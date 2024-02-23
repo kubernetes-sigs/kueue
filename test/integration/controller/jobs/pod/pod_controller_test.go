@@ -677,7 +677,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					GroupTotalCount("2").
 					Queue("test-queue").
 					Obj()
-				replacementPodLookupKey := client.ObjectKeyFromObject(pod2)
+				replacementPodLookupKey := client.ObjectKeyFromObject(replacementPod)
 
 				ginkgo.By("creating the replacement pod and readmitting the workload will unsuspended the replacement", func() {
 					gomega.Expect(k8sClient.Create(ctx, replacementPod)).Should(gomega.Succeed())
@@ -890,6 +890,12 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, replacementPod2LookupKey, map[string]string{"kubernetes.io/arch": "arm64"})
 				})
 
+				ginkgo.By("checking that the replaced pod is deleted", func() {
+					gomega.Eventually(func() error {
+						return k8sClient.Get(ctx, pod1LookupKey, createdPod)
+					}, util.Timeout, util.Interval).Should(testing.BeNotFoundError())
+				})
+
 				ginkgo.By("checking that pod group is finalized when unretriable pod has failed", func() {
 					util.SetPodsPhase(ctx, k8sClient, corev1.PodFailed, replacementPod2)
 
@@ -906,7 +912,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Ordered, ginkgo.ContinueOnFailu
 						),
 					), "Expected 'Finished' workload condition")
 
-					util.ExpectPodsFinalized(ctx, k8sClient, pod1LookupKey, pod2LookupKey, replacementPod2LookupKey)
+					util.ExpectPodsFinalized(ctx, k8sClient, pod2LookupKey, replacementPod2LookupKey)
 				})
 			})
 
