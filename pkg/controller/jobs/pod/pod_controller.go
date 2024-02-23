@@ -769,7 +769,7 @@ func (p *Pod) cleanupExcessPods(ctx context.Context, c client.Client, r record.E
 			return iLastActive.Before(jLastActive)
 		})
 
-		extraPods := inactivePods[:len(inactivePods)+len(activePods)-totalCount]
+		extraPods := inactivePods[:min(len(inactivePods), len(inactivePods)+len(activePods)-totalCount)]
 		err := parallelize.Until(ctx, len(extraPods), func(i int) error {
 			pod := extraPods[i]
 			if controllerutil.RemoveFinalizer(&pod, PodFinalizer) {

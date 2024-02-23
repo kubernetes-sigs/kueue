@@ -565,8 +565,9 @@ in-memory Workload, then it is considered unmatching and the Workload is evicted
 In the Pod-group reconciler:
 1. If the Pod is not terminated and doesn't have a deletionTimestamp,
    create a Workload for the pod group if one does not exist.
-2. Remove Pod finalizers if the Pod is terminated and the Workload is finished, has a deletion
-   timestamp or is finished.
+2. Remove Pod finalizers if:
+  - The Pod is terminated and the Workload is finished, has a deletion timestamp or is finished.
+  - The Pod Failed and a valid replacement pod was created for it.
 3. Build the in-memory Workload. If its podset counters are greater than the stored Workload,
    then evict the Workload.
 4. For gated pods:
@@ -574,16 +575,13 @@ In the Pod-group reconciler:
 5. If the number of succeeded pods is equal to the admission count, mark the Workload as Finished
    and remove the finalizers from the Pods.
 
-Note that we are only removing Pod finalizers once the Workload is finished. This is a simple way of
-managing finalizers, but it might lead to too many Pods lingering in etcd for a long time after
-terminated.
-
 ### Retrying Failed Pods
 
 The Pod group will generally only be considered finished if all the Pods finish with a Succeeded
 phase.
 This allows the user to send replacement Pods when a Pod in the group fails or if the group is
 preempted. The replacement Pods can have any name, but they must point to the same pod group.
+Once the replacement Pod is created the old one will be completely removed.
 
 To declare that a group is failed, a user can execute one of the following actions:
 1. Issue a Delete for the Workload object. The controller would terminate all running Pods and
