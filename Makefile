@@ -74,7 +74,7 @@ KIND_CLUSTER_NAME ?= kind
 # Number of processes to use during integration tests to run specs within a
 # suite in parallel. Suites still run sequentially. User may set this value to 1
 # to run without parallelism.
-INTEGRATION_NPROCS ?= 8
+INTEGRATION_NPROCS ?= 4
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.
